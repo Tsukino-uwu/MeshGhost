@@ -1425,3 +1425,50 @@ git show --stat <that commit>                  # deleted, or RENAMED?
 **The transferable rule.** *`ls` cannot answer "was this ever true?"* Anything about a path's
 history is a `git log` question, and a rename looks exactly like a deletion to every tool that only
 sees the working tree.
+
+## A MEASUREMENT THAT CAN READ BACK YOUR OWN WRITE IS NOT A MEASUREMENT (Emerald, 2026-09-12)
+
+**Symptom.** A patched build was asked to discover an address it could not derive — this build's
+`Task_AnimateDoor` — by watching its own engine and reading the `func` of any task recognisable as
+a door. Two builds "learned" one at **frame 2**, instantly and confidently, and the value was
+exactly `vanilla + romOffset`: the number the broken previous version had been *writing into that
+table*. The learner was reading back the adapter's own stranded writes and reporting them as the
+engine's.
+
+**Cause.** "Read the engine" was implemented as "read the table", and the table is shared. Nothing
+in the reading distinguished a task the game created from a task we created, so the instrument's
+input included its own output.
+
+**Fix, and the general shape.** Require an EDGE, not a state: learn only from a task that was **not
+there on a previous frame** — one we watched arrive. A stranded write is always already present, so
+it can never satisfy an arrival, and the false answer disappeared while the true one (measured the
+moment the player opened a door) came back completely different: `+0x9A0` and `+0x670`, against
+data shifts of `+0x7530` and `+0x6408`.
+
+**Reach for this whenever a discovery routine reads a structure the code also writes** — a task
+table, an object array, a sprite slot, a save block. The tell is a reading that arrives *sooner and
+cleaner than the thing it measures could have happened*. Frame 2 is not when a player opens a door.
+Sibling of the rule one level up in `CLAUDE.md` — *never log the value you just wrote as proof it
+worked* — which this is the discovery-time form of: there, you re-read your own write; here, you
+*search* and find it.
+
+## LOG THE PASS, NOT ONLY THE FAILURE — silence that means two opposite things (Emerald, 2026-09-12)
+
+**Symptom.** One build of four could not animate a ghost's door. Its address tables were checked at
+load by a routine that logged **only when the check failed**, and it logged nothing — so its log
+was read three reload cycles running as "tables are fine, look elsewhere", and three fixes were
+aimed elsewhere. The check had in fact never run: it was lazy, and nothing had yet asked it.
+
+**Cause.** A one-sided diagnostic. "No line" covered *"verified good"*, *"never evaluated"* and
+*"evaluated but not reached"*, and the one build in question was in the third state.
+
+**Fix.** Log the verdict either way, with the addresses it resolved, and resolve eagerly rather
+than on first use. The next reading said `DOOR tables OK ... off=641912` on every build including
+that one — which immediately moved the search to what was left, and found `gTasks` relocated.
+
+**The general rule: a diagnostic whose quiet state is ambiguous is worse than no diagnostic**,
+because it is read as evidence. Either print both outcomes, or make absence impossible by running
+the check eagerly. Costs one line per load. The same session then paid for it twice over — a lazy
+locator meant "where is this build's map grid?" could only be answered by asking the user to walk
+through a door so a log could be read. **A reading that costs nothing should never cost a round
+trip through the user.**

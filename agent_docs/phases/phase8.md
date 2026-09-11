@@ -1066,3 +1066,72 @@ unclipped. It logs that once. Everything else on that build works.
 ## 2026-09-12 — the same session, past midnight: records and the two open watch items
 
 No new work — the session above ran past midnight and its records landed on this date. The two things it left open are filed in `emerald/UNVERIFIED.md`: **land occlusion behind scenery** (water is user-confirmed, scenery is not) and **EX SPEEDCHOICE having no occlusion at all** because its `gMapHeader` is unlocated. The porting method for a fifth build is in `emerald/PROBES.md`.
+
+## 2026-09-12 — ghost doors, and occlusion on all four builds: both closed the same night
+
+**Both of the open watch items above are closed, user-confirmed on screen**, and a feature was
+added alongside them. Four Emerald emulators live the whole session, hot-reloaded through the dev
+loader ~14 times.
+
+**The ask:** *"i want to see if we can add the 'open door' effect when walking into a house"*.
+**The verdict, on all four builds:** *"okay it works"*. And then, on the occlusion that had been
+open since 2026-09-11: *"Yes it works on all 4 now"*, and after a per-frame memoisation of the hot
+path, *"still works"*. Records in `emerald/VERIFIED.md`; both queue entries drained.
+
+**How the door works.** A door in this game is a TASK, not a sprite — `Task_AnimateDoor` walks a
+four-frame table writing OBJ VRAM and the BG tilemap, then destroys itself. No map grid, no object,
+no save; one task slot the engine reclaims. The sender reports the tile and which of three things
+is happening to it and the receiver resolves its OWN ROM tables, so no pointer crosses the wire and
+the four builds stay independent. Leaving a house is the receiver's own observation — a peer
+arriving on your map standing on a door tile — needing neither a wire field nor a code address,
+which is why that half behaved identically everywhere from the start. Silent, the user's call.
+
+**THE LESSON OF THE NIGHT, and it cost six live iterations: on a patched ROM every address class
+shifts INDEPENDENTLY, and one measured offset licenses nothing about another.** `romOffset` is
+measured from the sprite DATA block, late in the ROM; the door tables are late-ROM too, so they
+validated everywhere and nothing warned — while `Task_AnimateDoor`, CODE early in the ROM, was
+matched against an address that was not it on all three patched builds. It hit an unrelated
+long-lived task and published a door event every frame carrying that task's data as a tile:
+*"it is spam opening on the vanilla game itself"*. EX then needed two further addresses no other
+address predicted. It now has four measured IWRAM locations with **three distinct shifts** among
+them, so the existing `iwramOffset` would have been wrong for two of them.
+
+| what | vanilla | SPEEDCHOICE 1.2.2 | Archipelago | EX SPEEDCHOICE 0.4.0 |
+| --- | --- | --- | --- | --- |
+| data shift | 0 | +25608 | +30000 | +641912 |
+| code shift | 0 | +0x670 | +0x9A0 | +0x18A88 |
+| `gTasks` | `03005E00` | `03005E00` | `03005E00` | `03004CE0` (−0x1120) |
+| map grid | `03005DC0` | `03005DC0` | `03005DC0` | `03004CF0` (−0x10D0) |
+| `gMapHeader` | `02037318` | `020373BC` (+0xA4) | `0203759C` (+0x284) | `02037F18` (+0xC00) |
+
+Archipelago's `gMapHeader` at **+0x284 is exactly the `gObjectEvents` shift already measured for
+that build** — corroboration nobody had to look for, and the kind that says a search found the real
+thing rather than a lookalike. Every one of these is found by SHAPE now: a door task by its data, a
+task table by its sentinels and head, the map grid by the player standing in it, `gMapHeader` by
+the engine's own `width + MAP_OFFSET_W` relation, one candidate matching on every build. The only
+thing that cannot be found by shape — the code address the engine will CALL — is seeded per build
+from a live reading and still checked against the first real door.
+
+**Four faults, each its own commit**, all found on screen: the derived code address above; a
+refused door retried every frame (*"EX is spamming its lua console again"*); a dedup key with no
+notion of time, so using the same door twice was suppressed as already seen (*"vanilla can see ap
+entering, but not exiting"*); and the adapter re-broadcasting its own ghost doors, so one door
+echoed around the mesh forever (*"constantly opening/closing itself"*).
+
+**Two method lessons worth more than the feature, both filed in `pitfalls.md`.** A measurement that
+can read back your own write is not a measurement — learning the code address from whatever was
+already in `gTasks` returned, at frame 2, exactly the address the broken version would have
+written. And log the PASS, not only the failure: the table check logged only on failure, so silence
+meant both "fine" and "never asked", and EX sat in that ambiguity for three reload cycles while
+being the only build in question.
+
+**The occlusion report also corrected the record.** `UNVERIFIED.md` had claimed SPEEDCHOICE
+occluded normally; it did not, and the adapter's own per-build logs had been saying so all along
+with nobody lining them up against which ROM was running. It was never an EX-only gap — vanilla was
+the only build that ever occluded.
+
+**Found and deliberately NOT fixed**, both filed rather than folded in: `flyRide` reads `gTasks` at
+the hardcoded `03005E00`, so Fly and Briney's-boat detection have been reading the wrong IWRAM on
+EX all along; and the cross-map (`xmap`) system still reads `gMapHeader` at the vanilla address for
+its connections pointer, so cross-map ghosts stay vanilla-shaped on patched builds.
+`genderFrames.door.tasksAddr()` and `genderFrames.mapLayoutPtr()` are the handles for each.

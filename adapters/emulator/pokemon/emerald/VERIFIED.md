@@ -4143,3 +4143,127 @@ water, with reflections, on vanilla Emerald. What was NOT specifically exercised
 occlusion behind scenery on LAND (a building edge, a treetop, a ledge), which is the other thing
 the rewritten `reflectiveSpans` decides. That remains the outstanding watch item, and it is now the
 only one.
+
+## 2026-09-12 — Emerald: a ghost opens the door, on all four builds
+
+**User-confirmed on screen: *"okay it works"*** — after *"works decent now~"* on vanilla,
+SPEEDCHOICE and Archipelago earlier the same session, and EX SPEEDCHOICE last once the final
+address it was reading from the wrong place was found. Four emulators, cross-build.
+
+**What it does.** A peer walking into a house opens that door on your screen, the ghost steps up
+into it and the door shuts behind them; coming out, the door is already open as the ghost appears
+and shuts once it has stepped down. Silent — the user's call: the door SFX is a separate `PlaySE`
+at the warp, not part of this, and a door opening across town with nobody visible to open it is a
+noise with no cause.
+
+**How, in one line: the engine draws it.** A door here is a TASK, not a sprite — `Task_AnimateDoor`
+walks a four-frame table writing OBJ VRAM and the BG tilemap, then destroys itself. It touches no
+map grid, no object and no save, which is what makes it something an adapter may reproduce at all.
+The sender reports the tile and which of three things is happening to it; the receiver resolves its
+own ROM tables and creates the task. **No pointer crosses the wire**, so the four builds stay
+independent. Leaving a house is the receiver's own observation — a peer arriving on your map
+standing on a door tile — which needs no wire field and no code address, and is why that half works
+identically everywhere.
+
+**THE LESSON, and it cost six live iterations: on a patched ROM, every address class shifts
+INDEPENDENTLY, and one measured offset licenses nothing about another.**
+
+| build | data shift | code shift | `gTasks` | map grid |
+| --- | --- | --- | --- | --- |
+| vanilla | 0 | 0 | `03005E00` | `03005DC0` |
+| SPEEDCHOICE 1.2.2 | +25608 | +0x670 | `03005E00` | `03005DC0` |
+| Archipelago | +30000 | +0x9A0 | `03005E00` | `03005DC0` |
+| EX SPEEDCHOICE 0.4.0 | +641912 | +0x18A88 | **`03004CE0` (−0x1120)** | **`03004CF0` (−0x10D0)** |
+
+`romOffset` is measured from the sprite DATA block, late in the ROM. The door tables are late-ROM
+too, so they validated everywhere and nothing warned — while `Task_AnimateDoor`, which is CODE
+early in the ROM, was matched against an address that was not it on all three patched builds. It
+hit an unrelated long-lived task and published a door event every frame carrying that task's data
+as a tile, which vanilla faithfully played: *"it is spam opening on the vanilla game itself"*.
+EX then needed two more addresses that no other address predicted — it now has four measured IWRAM
+locations and **three distinct shifts** among them (save block −0x10E0, camera −0x10D0, gTasks
+−0x1120, map grid −0x10D0), so `iwramOffset` would have been wrong for two of them.
+
+**Everything is found by SHAPE now, and the seeds are measured, not derived.** A door task is the
+only task whose data decodes to a door frame table plus a pointer on an entry boundary of the door
+graphics table; `gTasks` is sixteen entries whose active flags, sentinels and odd ROM function
+pointers all agree with exactly one head; the map grid is pinned by the player standing inside it.
+The one thing that cannot be found by shape — the code address the engine will CALL — is seeded
+per build from a live reading and **still checked against the first real door**, taking the game's
+answer and saying so loudly on a mismatch. An unknown build gets no seed and must learn.
+
+**Four faults found live, each its own commit:** a code address derived from a data offset; a
+refused door retried every frame (54 ROM reads per peer per frame on a build without the table —
+*"EX is spamming its lua console again"*); a dedup key with no notion of time, so using the same
+door twice was suppressed as already seen (*"vanilla can see ap entering, but not exiting"*); and
+the adapter re-broadcasting its own ghost doors, so one door echoed around the mesh forever
+(*"constantly opening/closing itself"*). Marked with `data[15]` now — a slot the door task does not
+use and `CreateTask` zeroes.
+
+**Two method lessons worth more than the feature.** First: **a measurement that can read back your
+own write is not a measurement.** Learning the code address from whatever was already in `gTasks`
+returned, at frame 2, exactly the address the broken version would have written — it was reading a
+task the adapter had stranded. Requiring a rising edge, a task watched arriving, is what made it
+real. Second: **log the PASS, not only the failure.** The table check logged only when it failed,
+so silence meant both "fine" and "never asked", and EX sat in that ambiguity for three reload
+cycles while being the only build in question.
+
+**Found and NOT fixed:** `flyRide` reads `gTasks` at the hardcoded `03005E00`, so Fly and
+Briney's-boat detection have been reading the wrong IWRAM on EX all along. `UNVERIFIED.md` carries
+it; `genderFrames.door.tasksAddr()` is the fix.
+
+## 2026-09-12 — Emerald: occlusion works on ALL FOUR builds, not just vanilla
+
+**User-confirmed on screen: *"Yes it works on all 4 now"***, and again after the per-frame
+memoisation below: *"still works"*. Ghosts stand behind the house on every build.
+
+**The report that started it**, four windows side by side on savestate 3 at the same Littleroot
+house: *"vanilla = everyone is hidden behind things properly"*, with SPEEDCHOICE 1.2.2, EX
+SPEEDCHOICE 0.4.0 and Archipelago each *"shown on top of the house instead of behind it"*.
+
+**One cause, not three, and it corrected the record.** `UNVERIFIED.md` had said *"Vanilla and
+SPEEDCHOICE both read gMapHeader correctly and occlude normally"*. SPEEDCHOICE does not. The
+adapter's own logs had been saying so per build all along and nobody had lined them up against
+which ROM was running: of four sessions on 2026-09-11, the vanilla one logged the failure zero
+times and the other three once each, **all reading the same `03FF03FF`**. The occlusion chain
+
+    map grid -> metatile id -> gMapHeader -> tileset -> attributes -> "does this cover?"
+
+began at two hardcoded addresses and the patched builds move both. With the map unreadable the
+adapter declined to clip rather than clipping everything away — the right default, and the reason
+this was a silent cosmetic gap rather than an outage.
+
+**Both addresses are now FOUND, pinned by one exact relation the engine states itself:**
+`gBackupMapLayout.width` is the layout's own width plus `MAP_OFFSET_W` and its height plus
+`MAP_OFFSET_H` (`InitBackupMapLayoutData`, `include/fieldmap.h:18-20`). The grid is located first —
+by the player standing inside it — and the header is then whatever word points at a ROM layout
+satisfying BOTH equations against that grid, with a real primary tileset. **Exactly one candidate
+matched on every build**, so nothing was a coin toss:
+
+| build | map grid | gMapHeader |
+| --- | --- | --- |
+| vanilla | `03005DC0` | `02037318` |
+| SPEEDCHOICE 1.2.2 | `03005DC0` | `020373BC` (+0xA4) |
+| Archipelago | `03005DC0` | `0203759C` (+0x284) |
+| EX SPEEDCHOICE 0.4.0 | `03004CF0` (−0x10D0) | `02037F18` (+0xC00) |
+
+Archipelago's **+0x284 is exactly the `gObjectEvents` shift already measured for that build** — an
+independent corroboration nobody had to look for, and the kind that says a search found the real
+thing rather than a lookalike.
+
+**The header is re-verified every frame, and that is the point of it.** What the occlusion chain
+needs from that address is one live ROM pointer, and several words in EWRAM may hold a copy of it —
+a saved map view, a previous header. A copy answers the question exactly as well as the original
+*while it is current*, and goes wrong the moment the map changes. So the dimension check is not a
+one-time audition: a stale pick simply stops satisfying it and the search runs again.
+
+**Memoised per frame, not per call.** The re-verification sits under `attrAt`, which runs once per
+tile per peer per frame — the exact path that once took an emulator to 4fps, and the path the
+painted tier's 3.2x speedup was won on. The map cannot change mid-frame, so one check per frame is
+all the check that means anything and every later caller in the same frame reads a local. Confirmed
+on screen after the change as well as before it.
+
+**Not touched on purpose:** the cross-map (`xmap`) system still reads `gMapHeader` at the vanilla
+address for its connections pointer, so cross-map ghosts remain vanilla-shaped on patched builds.
+Separate feature, separate confirmation; `genderFrames.mapLayoutPtr()` is the handle when it is
+picked up.

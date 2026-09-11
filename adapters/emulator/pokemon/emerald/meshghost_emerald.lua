@@ -3699,8 +3699,8 @@ genderFrames.coverLayout = nil
 -- can report it without re-deriving it, and so the two can never disagree about what they read.
 genderFrames.layerTypeOf = function(metatileId)
     if not metatileId then return nil end
-    local layout = r32(0x02037318)
-    if layout == 0 then return nil end
+    local layout = genderFrames.mapLayoutPtr()
+    if not layout then return nil end
     local tileset, index
     if metatileId < 512 then
         tileset, index = r32(layout + 0x10), metatileId
@@ -3718,7 +3718,8 @@ genderFrames.coverMask = function(metatileId, who)
     local cached = genderFrames.coverCache[key]
     if cached ~= nil then return cached end
 
-    local layout = r32(0x02037318)
+    local layout = genderFrames.mapLayoutPtr()
+    if not layout then genderFrames.coverCache[key] = false return false end
     local tileset, index
     if metatileId < 512 then
         tileset, index = r32(layout + 0x10), metatileId
@@ -3782,10 +3783,142 @@ end
 -- them this reads zeros or nonsense, and the caller then declines to clip rather than clipping
 -- everything. Logged once, because "no occlusion on this build" is a real limitation a person
 -- should know about rather than discover from a screenshot.
+----------------------------------------------------------------------------
+-- THE TWO ADDRESSES THE OCCLUSION CHAIN STANDS ON, FOUND RATHER THAN ASSUMED.
+--
+-- Occlusion has been vanilla-only since it was built, and the user put four windows side by side
+-- to say so (2026-09-12): *"vanilla = everyone is hidden behind things properly"*, with
+-- SPEEDCHOICE, EX SPEEDCHOICE and Archipelago each *"shown on top of the house instead of behind
+-- it"*. One cause, not three -- the chain
+--
+--     map grid -> metatile id -> gMapHeader -> tileset -> attributes -> "does this cover?"
+--
+-- begins at two hardcoded addresses, and the patched builds move both. All three read `03FF03FF`
+-- at gMapHeader: not zero, not a pointer, and the adapter correctly declined to clip rather than
+-- clipping everything away -- but declining means a ghost paints over a roof.
+--
+-- **BOTH ARE PINNED BY ONE EXACT RELATION THE ENGINE STATES ITSELF**, so neither needs a per-build
+-- constant and neither is a guess: `gBackupMapLayout.width` is the layout's own width plus
+-- MAP_OFFSET_W and its height plus MAP_OFFSET_H (`InitBackupMapLayoutData`,
+-- `include/fieldmap.h:18-20`). The grid is found first, by the player standing inside it; the
+-- header is then whatever word points at a ROM layout whose dimensions satisfy BOTH equations
+-- against that grid. Twenty bits of agreement, not a shape that might coincide.
+genderFrames.MAP_OFFSET_W, genderFrames.MAP_OFFSET_H = 15, 14
+genderFrames.EWRAM_LO, genderFrames.EWRAM_HI = 0x02000000, 0x02040000
+-- isRomPtr is already declared above and is the ONE name for this test -- this file's own warning
+-- about two names for one address applies to predicates as much as to constants. It also keeps a
+-- new top-level local off a chunk that is at Lua's 200-local ceiling.
+
+-- gBackupMapLayout: { s32 width, s32 height, u16 *map }. Vanilla 03005DC0; EX SPEEDCHOICE moves it
+-- to 03004CF0 and is the reason this is a function. IWRAM, so a small scan.
+genderFrames.gridAddr = function()
+    if genderFrames.gridAt ~= nil then return genderFrames.gridAt end
+    if genderFrames.gridNext and frameCounter < genderFrames.gridNext then return nil end
+    local sb1 = session.saveBlockPtr(0x03005d8c)
+    if sb1 == 0 then return nil end
+    local px = memory.read_s16_le(sb1 + 0x00) + MAP_OFFSET
+    local py = memory.read_s16_le(sb1 + 0x02) + MAP_OFFSET
+    local function looks(a)
+        local w, h, m = memory.read_s32_le(a), memory.read_s32_le(a + 0x04), r32(a + 0x08)
+        return w > MAP_OFFSET * 2 and h > MAP_OFFSET * 2 and w < 1024 and h < 1024
+            and m >= genderFrames.EWRAM_LO and m < genderFrames.EWRAM_HI and (m % 2) == 0
+            and px >= 0 and py >= 0 and px < w and py < h
+    end
+    if looks(0x03005dc0) then genderFrames.gridAt = 0x03005dc0 return genderFrames.gridAt end
+    local found, count = nil, 0
+    for a = 0x03000000, 0x03008000 - 12, 4 do
+        if looks(a) then
+            count = count + 1
+            if found == nil or math.abs(a - 0x03005dc0) < math.abs(found - 0x03005dc0) then
+                found = a
+            end
+        end
+    end
+    if found then
+        genderFrames.gridAt = found
+        logFile(string.format("f=%d MAP grid at %08X (%+d), %d candidate(s)", frameCounter, found,
+            found - 0x03005dc0, count))
+        return found
+    end
+    -- The player has to be standing on a map for this to resolve, so a failure is usually this
+    -- MOMENT (a load, the title screen) rather than this build. Spaced retries, never per frame.
+    genderFrames.gridNext = frameCounter + 120
+    return nil
+end
+
+-- gMapHeader's mapLayout pointer. **RE-VERIFIED ON EVERY CALL, which is the point of it.** What we
+-- need from this address is one live ROM pointer, and several words in EWRAM may hold a copy of
+-- it -- a saved map view, a previous header. A copy answers the occlusion question exactly as well
+-- as the original does *while it is current*, and becomes wrong the moment the map changes. So the
+-- dimension check is not a one-time audition: it runs every call, costs four reads, and a stale
+-- pick simply stops satisfying it. A rescan is spaced rather than immediate, because this sits
+-- under attrAt -- once per tile per peer per frame -- and that is the exact path that once took an
+-- emulator to 4fps.
+genderFrames.mapLayoutPtr = function()
+    -- **VERIFIED ONCE A FRAME, NOT ONCE A CALL.** The re-verification below is the right idea in
+    -- the wrong place if it runs on every lookup: this sits under attrAt, which is called once per
+    -- tile per peer per frame -- the exact path that took an emulator to 4fps, and the path the
+    -- painted tier's 3.2x speedup was won on. The map cannot change under us mid-frame, so one
+    -- check per frame is all the check that means anything, and every later caller in the same
+    -- frame reads a local.
+    if genderFrames.mhFrame == frameCounter then return genderFrames.mhLayout end
+    genderFrames.mhFrame = frameCounter
+    genderFrames.mhLayout = nil
+    local grid = genderFrames.gridAddr()
+    if not grid then return nil end
+    local bw = memory.read_s32_le(grid) - genderFrames.MAP_OFFSET_W
+    local bh = memory.read_s32_le(grid + 0x04) - genderFrames.MAP_OFFSET_H
+    if bw <= 0 or bh <= 0 then return nil end
+    local function layoutAt(a)
+        local layout = r32(a)
+        if not isRomPtr(layout) then return nil end
+        if memory.read_s32_le(layout) ~= bw or memory.read_s32_le(layout + 0x04) ~= bh then
+            return nil
+        end
+        local prim, sec = r32(layout + 0x10), r32(layout + 0x14)
+        if not isRomPtr(prim) then return nil end
+        if sec ~= 0 and not isRomPtr(sec) then return nil end
+        return layout
+    end
+
+    if genderFrames.mhAt then
+        local layout = layoutAt(genderFrames.mhAt)
+        if layout then genderFrames.mhLayout = layout return layout end
+        genderFrames.mhAt = nil   -- stale: this word is not tracking the live map
+    end
+    if genderFrames.mhNext and frameCounter < genderFrames.mhNext then return nil end
+    local layout = layoutAt(0x02037318)
+    if layout then
+        genderFrames.mhAt, genderFrames.mhLayout = 0x02037318, layout
+        return layout
+    end
+    local found, count = nil, 0
+    for a = genderFrames.EWRAM_LO, genderFrames.EWRAM_HI - 4, 4 do
+        if layoutAt(a) then
+            count = count + 1
+            if found == nil or math.abs(a - 0x02037318) < math.abs(found - 0x02037318) then
+                found = a
+            end
+        end
+    end
+    if found then
+        genderFrames.mhAt = found
+        logFile(string.format("f=%d MAP header at %08X (%+d), %d candidate(s)", frameCounter,
+            found, found - 0x02037318, count))
+        genderFrames.mhLayout = layoutAt(found)
+        return genderFrames.mhLayout
+    end
+    genderFrames.mhNext = frameCounter + 120
+    return nil
+end
+----------------------------------------------------------------------------
+
 genderFrames.mapReadable = function()
-    local width = memory.read_s32_le(0x03005dc0)
-    local height = memory.read_s32_le(0x03005dc0 + 0x04)
-    local map = r32(0x03005dc0 + 0x08)
+    local grid = genderFrames.gridAddr()
+    if not grid then return false end
+    local width = memory.read_s32_le(grid)
+    local height = memory.read_s32_le(grid + 0x04)
+    local map = r32(grid + 0x08)
     -- **`~= 0` IS NOT ENOUGH, and that cost a diagnosis (2026-09-11).** On the Archipelago build
     -- 0x02037318 holds 0x03FF03FF -- not zero, not a pointer, and it sailed through the first
     -- version of this check. The layout must point into ROM (0x08xxxxxx) and its PRIMARY tileset
@@ -3793,25 +3926,29 @@ genderFrames.mapReadable = function()
     -- exactly where they part company:
     --     AP      layout=03FF03FF  tilesets 00000000 / 00000000
     --     vanilla layout=083EA284  tilesets 083DF704 / 083DF71C
-    local layout = r32(0x02037318)
-    local inRom = layout >= 0x08000000 and layout < 0x0A000000
-    local ok = map ~= 0 and width > 0 and height > 0 and width < 1024 and height < 1024
-        and inRom and r32(layout + 0x10) >= 0x08000000
+    -- genderFrames.mapLayoutPtr() has already proved the layout is a ROM pointer whose dimensions
+    -- match this grid and whose primary tileset is real -- the checks this function used to make
+    -- inline against a hardcoded gMapHeader, now made against one that is FOUND. It returns nil
+    -- rather than a bad pointer, so there is nothing left to range-check here.
+    local layout = genderFrames.mapLayoutPtr()
+    local ok = layout ~= nil and map ~= 0 and width > 0 and height > 0
+        and width < 1024 and height < 1024
     if not ok and not genderFrames.mapUnreadableLogged then
         genderFrames.mapUnreadableLogged = true
-        console.log("MeshGhost: gMapHeader is not at the address this adapter knows on this build "
-            .. "(read " .. string.format("%08X", layout) .. "), "
-            .. "so painted ghosts are drawn WITHOUT occlusion (they will not be hidden by scenery). "
+        console.log("MeshGhost: this adapter cannot find the map layout on this build, so painted "
+            .. "ghosts are drawn WITHOUT occlusion (they will not be hidden by scenery). "
             .. "Everything else is unaffected. Logged once.")
     end
     return ok
 end
 
 genderFrames.metatileAt = function(x, y)
-    local width = memory.read_s32_le(0x03005dc0)
-    local map = r32(0x03005dc0 + 0x08)
+    local grid = genderFrames.gridAddr()
+    if not grid then return nil end
+    local width = memory.read_s32_le(grid)
+    local map = r32(grid + 0x08)
     if map == 0 or width <= 0 then return nil end
-    local height = memory.read_s32_le(0x03005dc0 + 0x04)
+    local height = memory.read_s32_le(grid + 0x04)
     if x < 0 or y < 0 or x >= width or y >= height then return nil end
     return r16(map + (x + width * y) * 2) & 0x03ff
 end
@@ -3899,14 +4036,16 @@ genderFrames.attrAt = function(x, y)
     -- just thousands of lines a second and an emulator at 4fps. Named in one run by the read guard
     -- (`dev-scripts/read-guard-emerald.lua`) after three wrong guesses at it.
     if not genderFrames.mapReadable() then return nil end
-    local width = memory.read_s32_le(0x03005dc0)
-    local map = r32(0x03005dc0 + 0x08)
+    local grid = genderFrames.gridAddr()
+    if not grid then return nil end
+    local width = memory.read_s32_le(grid)
+    local map = r32(grid + 0x08)
     if map == 0 or width <= 0 then return nil end
-    local height = memory.read_s32_le(0x03005dc0 + 0x04)
+    local height = memory.read_s32_le(grid + 0x04)
     if x < 0 or y < 0 or x >= width or y >= height then return nil end
     local metatileId = r16(map + (x + width * y) * 2) & 0x03ff
-    local layout = r32(0x02037318)
-    if layout == 0 then return nil end
+    local layout = genderFrames.mapLayoutPtr()
+    if not layout then return nil end
     local tileset, index
     if metatileId < 512 then
         tileset, index = r32(layout + 0x10), metatileId
@@ -4405,8 +4544,8 @@ genderFrames.reflectiveSpans = function(left, top, width, height, who, sc)
 
     -- Drop the decoded masks when the map changes -- a new layout means new tilesets, and a
     -- metatile id means something else entirely under them.
-    local layout = r32(0x02037318)
-    if layout == 0 then
+    local layout = genderFrames.mapLayoutPtr()
+    if not layout then
         if __t0 then MG_RSPANS_T = (MG_RSPANS_T or 0) + (os.clock() - __t0) end
         return nil
     end
@@ -6491,45 +6630,9 @@ end
 --
 -- The failure mode is deliberately mild compared to the code address: a wrong answer here reads
 -- the wrong metatile, so a door does not animate or does not match. Nothing is executed.
-genderFrames.door.mapAddr = function()
-    if genderFrames.door.mapAt ~= nil then return genderFrames.door.mapAt end
-    local sb1 = session.saveBlockPtr(0x03005d8c)
-    if sb1 == 0 then return nil end
-    local px = memory.read_s16_le(sb1 + 0x00) + MAP_OFFSET
-    local py = memory.read_s16_le(sb1 + 0x02) + MAP_OFFSET
-    local function looksLikeLayout(a)
-        local w, h, m = memory.read_s32_le(a), memory.read_s32_le(a + 0x04), r32(a + 0x08)
-        -- A real map is at least the border it is padded with, and the player is standing in it.
-        return w > MAP_OFFSET * 2 and h > MAP_OFFSET * 2 and w < 1024 and h < 1024
-            and m >= 0x02000000 and m < 0x02040000 and (m % 2) == 0
-            and px >= 0 and py >= 0 and px < w and py < h
-    end
-
-    if looksLikeLayout(0x03005dc0) then
-        genderFrames.door.mapAt = 0x03005dc0
-        return genderFrames.door.mapAt
-    end
-    local found, count = nil, 0
-    for a = 0x03000000, 0x03008000 - 12, 4 do
-        if looksLikeLayout(a) then
-            count = count + 1
-            -- Closest to the vanilla address wins: every relocation measured on this build is a
-            -- small negative shift, not a move to the other end of IWRAM.
-            if found == nil or math.abs(a - 0x03005dc0) < math.abs(found - 0x03005dc0) then
-                found = a
-            end
-        end
-    end
-    if found then
-        genderFrames.door.mapAt = found
-        logFile(string.format(
-            "f=%d DOOR gBackupMapLayout is NOT at 03005DC0 on this build -- using %08X (%+d), "
-                .. "%d candidate(s) matched",
-            frameCounter, found, found - 0x03005dc0, count))
-        return found
-    end
-    return nil
-end
+-- The map grid, shared with the occlusion chain: genderFrames.gridAddr() is the same search
+-- this used to do privately, promoted the moment occlusion needed it on the same builds.
+genderFrames.door.mapAddr = function() return genderFrames.gridAddr() end
 
 -- The metatile id at a PADDED grid coordinate, read through whichever address this build keeps its
 -- map grid at. genderFrames.metatileAt is the same read hardcoded to the vanilla address, and is

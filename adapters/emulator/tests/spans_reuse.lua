@@ -27,6 +27,19 @@ local chunk = src:sub(startAt, endAt)
 local TILE = 16
 local genderFrames = {}
 -- A base that is not tile-aligned, so the in-tile row arithmetic is actually exercised.
+-- The adapter asks this before it walks the map at all: on a build whose gMapHeader is not
+-- where it expects (Archipelago, both Speedchoice builds) the whole occlusion chain is
+-- unreadable, and the tier declines to CLIP rather than clipping everything away. This
+-- harness models a readable map, which is the case the span reuse is about — the
+-- unreadable one returns before any span is built. Added 2026-09-12 after CI caught the
+-- lifted function calling a stub that did not exist yet.
+genderFrames.mapReadable = function() return true end
+-- The layout pointer, which reflectiveSpans uses ONLY as the identity of the current map -- it
+-- drops the decoded cover masks when this changes, because a metatile id means something else
+-- under a new tileset. A constant is therefore exactly right here: this harness is one map.
+-- Stubbed since 2026-09-12, when the occlusion chain stopped reading gMapHeader at a hardcoded
+-- address and started locating it per build (genderFrames.mapLayoutPtr).
+genderFrames.mapLayoutPtr = function() return 0x083EA284 end
 genderFrames.gridBase = function() return 3, 5 end
 genderFrames.metatileAt = function(gx, gy) return (gx * 31 + gy * 17) % 7 end
 
