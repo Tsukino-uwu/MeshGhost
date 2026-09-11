@@ -22,6 +22,12 @@ import (
 type capturingTransport struct {
 	mu   sync.Mutex
 	sent []protocol.State
+
+	// core is whose outbound queue has to have drained before what this
+	// transport received is the whole answer. Since 2026-09-11 a send from the
+	// frame path is an ENQUEUE (core/relaywriter.go), so a test that asked
+	// immediately after one was reading a race, not a result.
+	core *Core
 }
 
 func (ct *capturingTransport) Send(payload []byte) error {
@@ -44,6 +50,7 @@ func (ct *capturingTransport) OnError(func(error))                 {}
 func (ct *capturingTransport) Close() error                        { return nil }
 
 func (ct *capturingTransport) states() []protocol.State {
+	ct.core.waitRelayDrained()
 	ct.mu.Lock()
 	defer ct.mu.Unlock()
 	out := make([]protocol.State, len(ct.sent))
@@ -59,7 +66,7 @@ func suppressionCore(t *testing.T, keepalive time.Duration) (*Core, *capturingTr
 	c := New()
 	c.MinSendInterval = time.Nanosecond
 	c.IdleKeepalive = keepalive
-	ct := &capturingTransport{}
+	ct := &capturingTransport{core: c}
 	c.relay = ct
 	c.playerID = "p1"
 	return c, ct

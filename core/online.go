@@ -255,10 +255,16 @@ func (c *Core) sendControlOn(t protocol.MessageType, feature string, payload any
 	// See sendState's note: one pass rather than marshaling the payload and
 	// then marshaling an envelope around its own output.
 	env := protocol.AppendEnvelope(nil, t, b)
-	if unreliable {
-		return relay.SendUnreliable(env)
+	// Through the connection's queue, like the state plane: an adapter's event,
+	// world write, lease or escrow step is handled on the bridge read goroutine
+	// too, so a synchronous write here stalls the same loop (core/relaywriter.go).
+	// A reliable line is never dropped -- a full queue closes the connection
+	// instead, and this call reports that as a send failure, which is what a
+	// blocked write eventually did anyway.
+	if !c.sendToRelay(relay, env, unreliable) {
+		return ErrNotConnected
 	}
-	return relay.Send(env)
+	return nil
 }
 
 // SendEvent sends one event. ev.To names an addressee, or is empty for a room

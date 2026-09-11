@@ -18,16 +18,13 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 - 2026-09-11 — **The 23-agent review: 39 findings fixed Go-side, ~109 open** in the untracked `REVIEW-FINDINGS.md` — the checklist; delete it when it empties. `phases/phase10.md`.
 - 2026-09-11 — **netsim is milder than "bad wifi" and ADR 0046's 450 ms rests on it**: Bernoulli loss never reaches the 150-500 ms regime, so 450 may be UNDER-sized. `REVIEW-FINDINGS.md` D5.
 - 2026-09-11 — **Both Archipelago proposals shipped Go-side** (version FLOOR; `reject` `code`+`retryable`). **The adapter half is open — all four still substring-match.** ADR 0058.
-- 2026-09-11 — **TCP_NODELAY fixed the Linux tester's stutter on Pseudoregalia; still open on TEVI and both Lua adapters**, plus a residual that is not Nagle. `pseudoregalia/UNVERIFIED.md`.
+- 2026-09-11 — **TCP_NODELAY is SET in all four adapters** (`55bf77d8`, 2026-09-06); only the Pseudoregalia half was watched. Open: a residual ~60 ms hitch that is not Nagle. `pseudoregalia/UNVERIFIED.md`.
 - 2026-09-11 — **NOT fixed, filed with its measurement: the adapter's SEND rate sets what the core sends back** — ~171/s in, ~59,000 render lines/s out at 344 ghosts. `ideas.md`.
 - 2026-09-11 — **Crystal is ACTIVE (phase 9): a second human on it, and cross-patch play.** Open: the `\uXXXX` fix, ghost solidity, a two-client AP session from the zip. `crystal/UNVERIFIED.md`.
-- 2026-09-11 — **HIGH: v1.1.7 crashed at a new engine fault site. The hardened DLL is deployed and UNPROVEN**; if it recurs the feature ships OFF. `pseudoregalia/UNVERIFIED.md`.
+- 2026-09-11 — **v1.1.7's engine fault site is ASSUMED FIXED by the hardened DLL** (the user's call): no action unless another crash is reported, then the feature ships OFF. `pseudoregalia/UNVERIFIED.md`.
 - 2026-09-11 — **Client/config/log/replays moved to the GAME ROOT for both PC games.** Pseudoregalia confirmed; **the TEVI half is UNWATCHED.** `tevi/UNVERIFIED.md`.
 - 2026-09-11 — Replay hotkeys: chords-only is the open half; the indicator half shipped 2026-09-05 (ADR 0052). `ideas.md`.
-- 2026-09-11 — **The FPS that outlived a ghost was its `BP_PlayerCam_C` rig: FIXED and census-clean on all three despawn paths, UNWATCHED by the user.** `pseudoregalia/UNVERIFIED.md`.
 - 2026-09-11 — **Ghost cost: four things confirmed on screen 2026-09-06; the timing numbers are MEASURED, not watched.** `pseudoregalia/VERIFIED.md`, `UNVERIFIED.md`.
-- 2026-09-11 — **The on-screen INPUT HISTORY is built on both sides and has been SEEN; the user's words on the read-back are still owed.** `pseudoregalia/UNVERIFIED.md`, ADR 0057.
-- 2026-09-11 — **The recording indicator is a screen-space widget**: the mechanism is user-confirmed on the Lua prototype, the C++ port SEEN in a screenshot, their words owed. `pseudoregalia/UNVERIFIED.md`.
 - 2026-09-11 — **What is plain `udp` FOR, now that no doc offers it?** Shipped option, or test/fuzz path only. Wants an ADR. `phases/phase10.md`.
 - 2026-09-11 — **8 of 47 preflight sections have a negative test; 39 are assumed able to fail.** `dev-scripts/negative-test-preflight.ps1` lists them each run.
 - 2026-09-11 — **The disarmed-probe WARN prints 21 entries every run**, so nobody reads it; ratchet it like the fence check. `preflight.ps1`.

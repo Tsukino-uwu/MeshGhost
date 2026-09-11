@@ -10,6 +10,55 @@ import (
 
 const testTimeout = 3 * time.Second
 
+// rawPeer is a bare UDP socket that talks to one address, standing in for the
+// net.Dial("udp", ...) these tests used until 2026-09-11.
+//
+// **The socket is deliberately UNCONNECTED, which is also what the shipped
+// dialer uses** (udpconn.Dial's net.ListenUDP with a nil local address, and its
+// comment says why). A CONNECTED udp socket is not needed to send a datagram to
+// a known address, and depending on one made this package's tests depend on the
+// machine being willing to connect() a udp socket to loopback -- which is a
+// property of the host's network stack and its filter drivers, not of this code.
+// A dev machine that refused it (WSAEADDRNOTAVAIL, "The requested address is not
+// valid in its context") failed five tests here and two in meshghost-netsim,
+// with nothing wrong in the repo and nothing wrong in what ships.
+//
+// Everything else about these tests is unchanged: each rawPeer has its own
+// ephemeral source address, which is what "from another address" means to the
+// cookie check under test.
+type rawPeer struct {
+	pc *net.UDPConn
+	to *net.UDPAddr
+}
+
+func dialRaw(t *testing.T, to net.Addr) *rawPeer {
+	t.Helper()
+	ua, err := net.ResolveUDPAddr("udp", to.String())
+	if err != nil {
+		t.Fatalf("resolve %s: %v", to, err)
+	}
+	if ua.IP == nil || ua.IP.IsUnspecified() {
+		// A DIALED conn's local address is the UNSPECIFIED one, because the
+		// shipped dialer binds with a nil local address -- so "send to where
+		// that conn is listening" resolves to [::]:port, which Linux accepts as
+		// localhost and Windows refuses outright. Loopback is what both mean.
+		ua.IP = net.IPv6loopback
+		if ip4 := ua.IP.To4(); ip4 != nil {
+			ua.IP = ip4
+		}
+	}
+	pc, err := net.ListenUDP("udp", nil)
+	if err != nil {
+		t.Fatalf("raw listen: %v", err)
+	}
+	return &rawPeer{pc: pc, to: ua}
+}
+
+func (r *rawPeer) Write(b []byte) (int, error)       { return r.pc.WriteToUDP(b, r.to) }
+func (r *rawPeer) Read(b []byte) (int, error)        { n, _, err := r.pc.ReadFromUDP(b); return n, err }
+func (r *rawPeer) SetReadDeadline(t time.Time) error { return r.pc.SetReadDeadline(t) }
+func (r *rawPeer) Close() error                      { return r.pc.Close() }
+
 func listenTest(t *testing.T) *Listener {
 	t.Helper()
 	l, err := Listen("127.0.0.1:0")
@@ -95,10 +144,7 @@ func readOne(t *testing.T, c net.Conn) string {
 func TestUnvalidatedSourceNeverReachesAccept(t *testing.T) {
 	l := listenTest(t)
 
-	raw, err := net.Dial("udp", l.Addr().String())
-	if err != nil {
-		t.Fatalf("raw dial: %v", err)
-	}
+	raw := dialRaw(t, l.Addr())
 	defer raw.Close()
 
 	// Straight to data, skipping the exchange entirely.
@@ -123,10 +169,7 @@ func TestCookieFromOneAddressDoesNotValidateAnother(t *testing.T) {
 	l := listenTest(t)
 
 	// Obtain a real cookie the legitimate way, from address A.
-	a, err := net.Dial("udp", l.Addr().String())
-	if err != nil {
-		t.Fatalf("dial a: %v", err)
-	}
+	a := dialRaw(t, l.Addr())
 	defer a.Close()
 	if _, err := a.Write([]byte{ctrlPrefix, ctrlHello}); err != nil {
 		t.Fatalf("hello: %v", err)
@@ -145,10 +188,7 @@ func TestCookieFromOneAddressDoesNotValidateAnother(t *testing.T) {
 	cookie := append([]byte(nil), buf[2:2+cookieLen]...)
 
 	// Replay it from a different source address B.
-	b, err := net.Dial("udp", l.Addr().String())
-	if err != nil {
-		t.Fatalf("dial b: %v", err)
-	}
+	b := dialRaw(t, l.Addr())
 	defer b.Close()
 	if _, err := b.Write(append([]byte{ctrlPrefix, ctrlConfirm}, cookie...)); err != nil {
 		t.Fatalf("replay: %v", err)

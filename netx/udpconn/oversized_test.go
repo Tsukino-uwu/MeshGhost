@@ -24,10 +24,7 @@ import (
 
 func sendRaw(t *testing.T, to net.Addr, payload []byte) {
 	t.Helper()
-	raw, err := net.Dial("udp", to.String())
-	if err != nil {
-		t.Fatalf("raw dial: %v", err)
-	}
+	raw := dialRaw(t, to)
 	defer raw.Close()
 	if _, err := raw.Write(payload); err != nil {
 		t.Fatalf("raw write of %d bytes: %v", len(payload), err)

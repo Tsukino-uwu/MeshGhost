@@ -416,6 +416,13 @@ const transportDialFailuresBeforeGivingUp = 2
 
 type Core struct {
 	relay     transport.Transport
+	// relayOut is the current relay connection's outbound queue, and the ONLY
+	// path a frame takes to the relay. Created with the connection in
+	// ConnectRelay, closed with it. See core/relaywriter.go for why the frame
+	// path may not write the socket itself.
+	//
+	// Guarded by mu.
+	relayOut  *relayWriter
 	playerID  string
 	relayGame string // game_id this Core is connected to the relay as, once connected
 	seq       uint64

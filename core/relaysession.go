@@ -116,6 +116,14 @@ func (c *Core) ConnectRelay(gameID string) error {
 	}
 	conn := transport.FromConnWithLimits(netConn, protocol.MaxLineBytes, 0, 0)
 	c.mu.Lock()
+	// THE DIAL SUCCEEDED, so this transport's consecutive-failure run is over.
+	// Missing until 2026-09-11, which quietly turned "two failures IN A ROW"
+	// into "two failures ever": a relay restarted twice in a session condemned
+	// quic for the rest of that session, which is the exact outcome the
+	// two-strike rule was added to prevent (Core.transportDialFailures says why
+	// one failure is not evidence). Cleared rather than decremented -- the
+	// question the counter answers is "is it failing NOW".
+	delete(c.transportDialFailures, kind.String())
 	// TAKING THE SLOT OVER FORGETS WHAT WAS IN IT. If a previous connection is
 	// still sitting here, this Core is done with it whatever its own callback
 	// has managed to run yet -- and leaving its identity in place is what makes
@@ -127,7 +135,12 @@ func (c *Core) ConnectRelay(gameID string) error {
 		c.forgetRelaySessionLocked()
 	}
 	c.relay = conn
+	// The connection's outbound queue, created with it and closed with it. A
+	// previous one is closed below, outside the lock, with the socket it wrote.
+	previousOut := c.relayOut
+	c.relayOut = newRelayWriter(conn, func() { c.relayStuck(conn) })
 	c.mu.Unlock()
+	previousOut.close()
 	if replaced != nil && replaced != conn {
 		// The samples belonged to the session that just ended, and the socket
 		// to a connection nobody will read again. Both outside the lock:
@@ -407,6 +420,13 @@ func (c *Core) clearRelaySession(conn transport.Transport) (bool, relayRetry) {
 	}
 
 	c.relay = nil
+	// The writer goes with the connection. Closing rather than abandoning it
+	// drains what is already queued onto a socket that may still be writable
+	// (a clean leave is the case that matters), and ends its goroutine either
+	// way -- an abandoned one would park on its signal channel for the life of
+	// the process, one per relay drop.
+	c.relayOut.close()
+	c.relayOut = nil
 	c.forgetRelaySessionLocked()
 
 	return true, retry
@@ -492,6 +512,8 @@ func (c *Core) clearRelayIfCurrent(conn transport.Transport) {
 	defer c.mu.Unlock()
 	if c.relay == conn {
 		c.relay = nil
+		c.relayOut.close()
+		c.relayOut = nil
 	}
 }
 

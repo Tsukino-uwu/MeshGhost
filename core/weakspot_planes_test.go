@@ -30,7 +30,11 @@ import (
 
 // planeTransport records the plane each message was sent on, not just the
 // bytes. The one thing every other double in this package throws away.
+// core is what has to have drained before pt.sent is the whole answer -- see
+// capturingTransport.core.
 type planeTransport struct {
+	core *Core
+
 	mu   sync.Mutex
 	sent []plainSend
 }
@@ -63,6 +67,7 @@ func (pt *planeTransport) Close() error                        { return nil }
 // otherwise pass whichever assertion was made about it.
 func (pt *planeTransport) planeOf(t *testing.T, typ protocol.MessageType) bool {
 	t.Helper()
+	pt.core.waitRelayDrained()
 	pt.mu.Lock()
 	defer pt.mu.Unlock()
 	var found []plainSend
@@ -85,7 +90,7 @@ func planesCore(t *testing.T) (*Core, *planeTransport) {
 	t.Helper()
 	c := New()
 	c.MinSendInterval = time.Nanosecond
-	pt := &planeTransport{}
+	pt := &planeTransport{core: c}
 	c.mu.Lock()
 	c.relay = pt
 	c.playerID = "self"

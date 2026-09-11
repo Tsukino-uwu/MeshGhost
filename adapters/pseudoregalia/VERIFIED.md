@@ -205,6 +205,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-06 — modded sword models now reach ghosts, replays and real peers alike (user-confirmed on screen)
 - 2026-09-07 — TCP_NODELAY fixed the Linux tester's stuttery ghosts: their cadence now matches Windows
 - 2026-09-08 — the recording indicator as a screen-space widget: stays drawn behind geometry, does not move with the field of view, pixel-aligned (user-confirmed)
+- 2026-09-11 — the camera-rig leak fix, the input history read-back and the screen-space recording indicator: three C++ ports, all three spoken for (user-confirmed)
 - Pseudoregalia: 300ms interp at the 15Hz relay on the 60/25/2/2 proxy, on the fixed relay (2026-09-02)
 - Pseudoregalia: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
 ## Confirmed facts
@@ -5359,3 +5360,34 @@ loss, the C++ pins the pair in the root set while shown. `pitfalls/by-lesson.md`
 
 **Not yet confirmed:** the C++ port (`REC_INDICATOR_SCREEN_SPACE`), which is the same calls with the
 real recording state -- `UNVERIFIED.md`.
+
+## 2026-09-11 — the three C++ ports the user had seen but not spoken for: the camera-rig leak fix, the input history read-back, the screen-space recording indicator (user-confirmed)
+
+**Confirmed together, in one word.** Asked which of the open Pseudoregalia items were settled, the
+user answered *"fixed/working"* to all three at once (2026-09-11). Each had been built, deployed to
+both installs and SEEN — in a screenshot, or in the user's own recording — and each was held in
+[`UNVERIFIED.md`](UNVERIFIED.md) only for the sentence that is now given.
+
+**1. The FPS drop that outlived a ghost is gone.** The cause was the ghost pawn's own
+`BP_PlayerCam_C` rig: the Blueprint spawns one per pawn and nothing destroyed it with the pawn, so
+its spring arm kept ticking — 68 orphans cost ~1.7 ms a frame uncapped, and only a level reload
+reclaimed them (found 2026-09-06 with a full object census). The DLL now destroys the rig with the
+ghost and sweeps orphans on all three despawn paths; the census reads 1 after a despawn round. The
+~2 Niagara components per despawn from 2026-09-04 never appeared in that census and are folded in
+here.
+
+**2. The input history reads back as what was pressed.** Both halves: the player's panel on the left
+with counts, arrows and a letter per action, and a replay ghost's inputs on the right from the track
+recorded beside its clip, applied on the frame the ghost's rendered state reaches each press
+(ADR 0057). The user's 22 s recording on 2026-09-08 already carried *"yee its working"* and, after
+seven restarts, *"yee it working every time now"*; what was owed and is now given is that the rows
+change on the same frame the ghost visibly acts, and that they read as what was actually pressed.
+
+**3. The screen-space recording indicator.** The C++ port (`REC_INDICATOR_SCREEN_SPACE`) of the
+prototype confirmed on 2026-09-06 — two runtime `UserWidget`s placed from the top-left, pinned in
+the root set while shown. Seen in the user's 15:16 screenshot on 2026-09-08; now spoken for.
+
+**Notes.** Builds `0e1c5dc9f3d9` (indicator, player-half history) and `274c9ad8117a` (ghost-half
+history), both installs. Scope: this game, this build pair. Still OPEN and NOT covered by this
+entry — the indicator drifting from its corner during a move that changes speed or FOV
+(2026-09-06), which is a separate observation in `UNVERIFIED.md`.

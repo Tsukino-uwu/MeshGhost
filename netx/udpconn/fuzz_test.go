@@ -59,11 +59,19 @@ func FuzzListenerSurvivesArbitraryDatagrams(f *testing.F) {
 	}
 	f.Cleanup(func() { l.Close() })
 
-	raw, err := net.Dial("udp", l.Addr().String())
+	// Unconnected, like every other raw sender in this package -- see rawPeer.
+	// f, not t: this is the corpus-wide setup, so it takes the fuzz target's own
+	// fatal.
+	ua, err := net.ResolveUDPAddr("udp", l.Addr().String())
 	if err != nil {
-		f.Fatalf("dial: %v", err)
+		f.Fatalf("resolve: %v", err)
 	}
-	f.Cleanup(func() { raw.Close() })
+	pc, err := net.ListenUDP("udp", nil)
+	if err != nil {
+		f.Fatalf("raw listen: %v", err)
+	}
+	f.Cleanup(func() { pc.Close() })
+	raw := &rawPeer{pc: pc, to: ua}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Capped near the IPv4 maximum, NOT at MaxDatagramBytes: until

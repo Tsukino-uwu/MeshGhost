@@ -45,6 +45,39 @@ func newFaults(seed int64) *faults {
 // proxy must be invisible, including on the return path. The return path is
 // the half that needs the per-client upstream socket, so a proxy that only
 // forwarded one way would still look fine to a one-shot send test.
+
+// rawClient is an UNCONNECTED udp socket aimed at one address, standing in for
+// net.Dial("udp", ...).
+//
+// A connected udp socket is not needed to send to a known address, and
+// depending on one made these tests depend on the host stack being willing to
+// connect() a udp socket to loopback: a dev machine that refused it
+// (WSAEADDRNOTAVAIL) failed both proxy tests with nothing wrong in the code.
+// Same change, same day, as netx/udpconn's rawPeer, which carries the longer
+// note.
+type rawClient struct {
+	pc *net.UDPConn
+	to *net.UDPAddr
+}
+
+func dialProxy(t *testing.T, addr string) *rawClient {
+	t.Helper()
+	ua, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		t.Fatalf("resolve %s: %v", addr, err)
+	}
+	pc, err := net.ListenUDP("udp", nil)
+	if err != nil {
+		t.Fatalf("raw listen: %v", err)
+	}
+	return &rawClient{pc: pc, to: ua}
+}
+
+func (r *rawClient) Write(b []byte) (int, error)       { return r.pc.WriteToUDP(b, r.to) }
+func (r *rawClient) Read(b []byte) (int, error)        { n, _, err := r.pc.ReadFromUDP(b); return n, err }
+func (r *rawClient) SetReadDeadline(t time.Time) error { return r.pc.SetReadDeadline(t) }
+func (r *rawClient) Close() error                      { return r.pc.Close() }
+
 func TestUDPProxyForwardsBothWays(t *testing.T) {
 	port := freeUDPPort(t)
 
@@ -69,10 +102,7 @@ func TestUDPProxyForwardsBothWays(t *testing.T) {
 		t.Skipf("cannot bind listen udp 127.0.0.2:%d: %v", port, err)
 	}
 
-	client, err := net.Dial("udp", "127.0.0.2:"+strconv.Itoa(port))
-	if err != nil {
-		t.Fatalf("dial proxy: %v", err)
-	}
+	client := dialProxy(t, "127.0.0.2:"+strconv.Itoa(port))
 	defer client.Close()
 
 	if _, err := client.Write([]byte("ping")); err != nil {
@@ -124,10 +154,7 @@ func TestUDPProxyDropsEverythingAtTotalLoss(t *testing.T) {
 		t.Skipf("cannot bind listen udp 127.0.0.2:%d: %v", port, err)
 	}
 
-	client, err := net.Dial("udp", "127.0.0.2:"+strconv.Itoa(port))
-	if err != nil {
-		t.Fatalf("dial proxy: %v", err)
-	}
+	client := dialProxy(t, "127.0.0.2:"+strconv.Itoa(port))
 	defer client.Close()
 	for i := 0; i < 20; i++ {
 		if _, err := client.Write([]byte("ping")); err != nil {

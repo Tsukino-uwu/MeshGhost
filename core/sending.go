@@ -349,8 +349,13 @@ func (c *Core) sendState(relay transport.Transport, st protocol.State) {
 	// stale and out of order, which is worse than the gap it fills. Every
 	// other message this Core sends stays on Send. See the transport ADR
 	// in agent_docs/architecture.md.
-	if err := relay.SendUnreliable(env); err != nil {
-		log.Printf("core: send state to relay failed: %v", err)
+	// QUEUED, NOT WRITTEN. This runs on the bridge connection's read goroutine,
+	// so a synchronous write here made a relay that stopped reading freeze the
+	// game's main thread a bridge-buffer later. core/relaywriter.go has the
+	// whole failure; the counters below still count what this core handed over,
+	// which is what they counted before -- a line the transport accepted was
+	// never a line that arrived.
+	if !c.sendToRelay(relay, env, true) {
 		return
 	}
 	atomic.AddUint64(&c.stats.statesSent, 1)

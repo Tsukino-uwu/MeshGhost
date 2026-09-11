@@ -27,7 +27,11 @@ import (
 // question here is how long they are -- a transport that decoded them back into
 // a protocol.State (as core/suppress_test.go's does) would throw away the one
 // fact under test.
+// core is what has to have drained before lines() is the whole answer -- see
+// capturingTransport.core.
 type lineTransport struct {
+	core *Core
+
 	mu    sync.Mutex
 	lines [][]byte
 }
@@ -46,6 +50,7 @@ func (lt *lineTransport) OnError(func(error))                 {}
 func (lt *lineTransport) Close() error                        { return nil }
 
 func (lt *lineTransport) sent() [][]byte {
+	lt.core.waitRelayDrained()
 	lt.mu.Lock()
 	defer lt.mu.Unlock()
 	out := make([][]byte, len(lt.lines))
@@ -114,7 +119,10 @@ func TestAMaximalLegalStateWithAPrevExceedsTheLineLimit(t *testing.T) {
 // frame.
 func TestAnOversizedStateIsNotSentAsIs(t *testing.T) {
 	c := New()
-	lt := &lineTransport{}
+	lt := &lineTransport{core: c}
+	// sendState queues onto the CURRENT connection's writer since 2026-09-11,
+	// so the transport under test has to be that connection.
+	c.relay = lt
 
 	st := maximalState('a')
 	other := maximalState('b')
@@ -163,7 +171,10 @@ func TestAnOversizedStateIsNotSentAsIs(t *testing.T) {
 // player_id on every reconnect.
 func TestAStateTooBigEvenWithoutItsPrevIsNotSentAtAll(t *testing.T) {
 	c := New()
-	lt := &lineTransport{}
+	lt := &lineTransport{core: c}
+	// sendState queues onto the CURRENT connection's writer since 2026-09-11,
+	// so the transport under test has to be that connection.
+	c.relay = lt
 
 	st := maximalState('a')
 	st.Extras = map[string]any{"blob": strings.Repeat("x", 8*1024)}

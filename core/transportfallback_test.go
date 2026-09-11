@@ -2,6 +2,7 @@ package core
 
 import (
 	"net"
+	"strconv"
 	"testing"
 
 	"github.com/Tsukino-uwu/MeshGhost/netx"
@@ -203,5 +204,85 @@ func TestARepeatedlyFailingTransportIsGivenUpOnAndTheSessionSurvivesOnTCP(t *tes
 	c.mu.Unlock()
 	if !condemned {
 		t.Fatal("a session was established without quic ever being recorded as unusable")
+	}
+}
+
+// A SUCCESSFUL DIAL ENDS THE RUN: "two failures IN A ROW" must not mean "two failures ever".
+//
+// Core.transportDialFailures is documented as counting CONSECUTIVE failures and as being
+// "reset by a successful dial" -- and until 2026-09-11 nothing anywhere reset it, so the
+// counter was cumulative for the life of the process. The consequence is silent and is the
+// exact one the two-strike rule was added to prevent: a relay that restarts twice in a long
+// session (each restart costing one dial into the window where its tcp listener is back and
+// its datagram listener is not) condemns the datagram transport for the rest of that session,
+// with a working tcp session on screen and nothing to report.
+//
+// The shape here is that window itself, held still: one relay, one tcp port, and a quic
+// listener serving the SAME relay that goes down and comes back. udp rather than quic only
+// because a udp listener needs no certificate; the counter is keyed by transport kind, not by
+// what the kind is.
+//
+// Without the reset this test fails at the last assertion with a condemned transport.
+func TestASuccessfulDialResetsTheConsecutiveFailureCount(t *testing.T) {
+	tcpLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { tcpLn.Close() })
+
+	quicPort := deadPort(t)
+	quicAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(quicPort))
+
+	s := relay.NewServer()
+	s.SendHz = protocol.MaxSendHz
+	s.Offers = []protocol.TransportOffer{
+		{Kind: "tcp", Port: tcpLn.Addr().(*net.TCPAddr).Port},
+		{Kind: "quic", Port: quicPort},
+	}
+	go s.Serve(tcpLn)
+
+	c := New()
+	c.RelayAddr = tcpLn.Addr().String()
+	c.Transport = netx.Auto
+	c.DialTimeout = testTimeout
+
+	failures := func() (int, bool) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		return c.transportDialFailures[netx.QUIC.String()], c.unusableTransports[netx.QUIC.String()]
+	}
+
+	// 1. The quic listener is not up yet: the handshake succeeds over tcp and the quic dial
+	//    does not.
+	if err := c.ConnectRelay("faketest"); err == nil {
+		t.Fatal("connecting to an unserved quic port succeeded, so this test proves nothing")
+	}
+	if n, condemned := failures(); n != 1 || condemned {
+		t.Fatalf("after one failed quic dial: %d failures, condemned=%v; want 1, false", n, condemned)
+	}
+
+	// 2. The relay's quic listener comes up. This dial succeeds, which is what ends the run.
+	quicLn, err := netx.Listen(netx.QUIC, quicAddr)
+	if err != nil {
+		t.Fatalf("listen quic: %v", err)
+	}
+	go s.Serve(quicLn)
+	if err := c.ConnectRelay("faketest"); err != nil {
+		t.Fatalf("connecting over a served quic port failed: %v", err)
+	}
+	if n, _ := failures(); n != 0 {
+		t.Fatalf("a successful quic dial left %d failures recorded, want the run cleared", n)
+	}
+
+	// 3. It goes away again. This is the SECOND failure overall and the FIRST in a row, so
+	//    quic must survive: a transport that worked a moment ago is not one this machine
+	//    cannot do.
+	quicLn.Close()
+	if err := c.ConnectRelay("faketest"); err == nil {
+		t.Fatal("connecting after the quic listener closed succeeded, so this test proves nothing")
+	}
+	if n, condemned := failures(); n != 1 || condemned {
+		t.Fatalf("after a failure, a success and a failure: %d failures, condemned=%v; want 1, "+
+			"false -- a cumulative counter condemns quic here, which is the defect", n, condemned)
 	}
 }
