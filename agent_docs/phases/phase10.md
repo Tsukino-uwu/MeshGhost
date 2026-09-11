@@ -1686,3 +1686,41 @@ ioctls. `transport: "tcp"` already existed for anyone who wants the hard overrid
 
 Tests: `core/transportlog_test.go`, `core/udpcapability_test.go`, `netx/quicconn/dialhint_test.go`
 (all negative-tested). Lesson filed in `pitfalls/by-lesson.md`.
+
+## 2026-09-11 (later) — the gates got negative-tested, and three of them could not fail
+
+**Where it started.** The previous session's rule — *a gate never seen to fail is
+indistinguishable from one that cannot* — with the user asking the obvious follow-on: is it worth
+negative-testing everything? The answer taken was: yes, but as a standing harness rather than an
+audit, and triaged by what a silent PASS costs, because most of preflight's sections were born
+printing FAIL on the violation that caused them and that is a negative test that already happened.
+
+**What was built.** `dev-scripts/negative-test-preflight.ps1`. A detached git worktree at `HEAD`
+under `%TEMP%` is the tree under test (never the working copy, which may hold uncommitted work and
+which a planted leak must never touch); the preflight copied into it is the **working copy's**, so
+it tests the script about to be committed. Fifteen fixtures, one planted violation per run, reset
+in between so a FAIL is attributable to one plant. Every plant reads the file back — a plant that
+quietly did nothing looks exactly like a blind gate, and the fix would then land on an innocent
+check. It ends by listing the sections with no fixture, so the gap is visible rather than assumed:
+8 of 47 covered. `.github/workflows/gates.yml` runs it on any change to preflight, the harness or
+the hook. ~25s per fixture locally.
+
+**What it found, all three on the first pass.**
+
+1. **Two sections were reading a different tree.** `Set-Location` moves PowerShell's location and
+   not the .NET process working directory; four sections read through `[IO.File]` with a relative
+   path. `Test-Path` (PowerShell's location) said the file was there, `ReadAllBytes` then read the
+   same relative path out of another tree. A planted username sat in a tracked `.dll` while the
+   gate said *"no NEW tracked binary embeds a machine-identifying path"*. Fixed with
+   `[Environment]::CurrentDirectory = $root`. **The check was correct and pointed elsewhere** —
+   invisible in the only direction anyone had ever run it, from the repo root against a clean tree.
+2. **A gate scoped to a filename.** The user clicked both links in `.github/CONTRIBUTING.md` and
+   got `/blob/CLAUDE.md` and `/blob/agent_docs/README.md`: GitHub drops the branch segment when it
+   renders a file out of `.github/`. The check for that existed, written 2026-09-06 for the
+   Security tab and keyed to `SECURITY.md`. Widened to every tracked `.md` under `.github/`.
+3. **A WARN that was always on.** The reproduced-expression check warned on every clean run it ever
+   had, over one accepted block of Emerald's own probe output. Now a ratchet, per file.
+
+**Left open.** 39 sections with no fixture (`status.md` carries it). The disarmed-probe warning
+prints 21 entries every run and is the same always-on shape as (3) — a candidate for the same
+treatment. The records: `pitfalls/by-lesson.md`, under the UNPROVEN entry.
