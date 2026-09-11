@@ -6,6 +6,7 @@
 // UE4SS/include/Mod/CppUserModBase.hpp directly (RE-UE4SS, MIT -- agent_docs/licensing.md),
 // not from memory. No pseudoregalia-archipelago source was read to write this.
 
+#include <atomic>
 #include <deque>
 #include <map>
 #include <memory>
@@ -1178,7 +1179,30 @@ namespace MeshGhostPseudo
         double prev_local_weapon_mesh_offset[3]{-99999.0, -99999.0, -99999.0};
 
         bool unreal_ready{false};
-        uint64_t tick_count{0};
+        // **ATOMIC, because TWO THREADS increment it** (review I13, fixed 2026-09-11):
+        // `on_update` runs on UE4SS's own thread and `game_thread_tick` on the engine's, and both
+        // advance this. A non-atomic read-modify-write from two threads is undefined behaviour
+        // outright, whatever it appears to do in practice.
+        //
+        // **AND IT IS NOT A FRAME COUNTER, whatever the comments around it say.** Traced
+        // 2026-09-11 rather than assumed: in NORMAL play the only thing that advances it is
+        // `on_update`, which is UE4SS's own ~5 ms POLLING thread and not an engine frame hook --
+        // so it ticks about 200 times a second regardless of the frame rate, and
+        // `tick_count % 300` is about 1.5 seconds rather than the "~5s at 60fps" written beside
+        // several of these windows. The review's arithmetic (I13) lands on the same number from
+        // the other end.
+        //
+        // While the game is PAUSED or inside a teardown quiet window it goes FASTER still, because
+        // `game_thread_tick`'s early-return paths add their own increment on top -- which is the
+        // one case where two threads really are racing for it.
+        //
+        // **Deliberately NOT halved here.** Making it a true frame counter would change the
+        // duration of every window that reads it at once -- including `quiet_until_tick`, which is
+        // a crash-safety window, and every log throttle -- and none of those can be re-tuned by
+        // reading. The numbers are what shipped and what the live sessions were judged against;
+        // the comments are what were wrong. Re-timing them is its own task, with the game
+        // running: `UNVERIFIED.md`.
+        std::atomic<uint64_t> tick_count{0};
 
         // **What changed on the LOCAL player when a ghost spawned.** Dev diagnostic, 2026-08-29.
         //

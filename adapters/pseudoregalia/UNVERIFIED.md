@@ -106,6 +106,50 @@ entry without one.
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
 - OPEN — three faults with no entry of their own: the sword's MID-AIR SNAP, the BLACK FLASH on spawn, and two unattributed crashes (from `status.md`, 2026-09-02; `curve catmull-rom` has its own entry below)
 
+## [READY] five more from the review -- a CDO corruption, a half-restored sweep, a spawn burst, two costs, UNWATCHED (2026-09-11)
+
+Same session as the five above and the same bar: **none of these changes what the game is supposed
+to look like**, so what is owed is "does everything still work". Built and deployed to both installs.
+
+1. **I8 -- a dev toggle permanently corrupted the player pawn's template.** With
+   `ghost_no_overlap.txt` armed, the spawn path flipped `bGenerateOverlapEvents` on the pawn's CLASS
+   DEFAULT OBJECT through a raw `bool*`. Engine bools on this build are PACKED, so that read
+   collapsed the whole byte and the restore wrote `0x01` back over it -- every other flag in that
+   byte lost, on the template every pawn spawned afterwards is built from, **including the real
+   player after the next level load**. It goes through `mg_write_bool` now. **Watch: only if you
+   use that toggle -- ghosts spawn, and the player still collides with the world normally
+   afterwards.**
+
+2. **I9 -- with two peers, only ONE ghost's nametag came back.** The subtraction sweeps
+   (`ghost_nametag_off.txt`, `ghost_shadow_off.txt`) cleared their "still pending" latch inside the
+   per-remote loop, so the first ghost's restore disarmed the sweep for every ghost behind it --
+   and the log reported it complete, because from that one ghost's point of view it was. **Watch:
+   arm `ghost_nametag_off.txt` with two peers on screen, remove it, and both tags come back.**
+
+3. **I10 -- a peer who has been playing popped in trailing afterimages they never made.**
+   `afterimage_count` was the one counter missing from the new-remote baseline; the identical bug
+   for land/jump was fixed twenty lines above. **Watch: a peer joining a session already in
+   progress appears without a burst of trail.**
+
+4. **I11 -- a peer could make your game slow, for free.** The mirrored-VFX parser searched for a
+   colon to the end of the WHOLE string on every token, ten times per ghost per frame, on
+   peer-controlled text: ~1 KB of commas is millions of character scans per ghost per frame, and on
+   your machine it just looks like the game got slow. One scan per token now. **Watch: effects
+   still mirror (dash trail, charge, recall).**
+
+5. **I13 -- the mod read and re-parsed `config.json` six times per poll, ~40 file reads a second**,
+   on the game thread, and before the check that was supposed to gate them. Cached for 250 ms, so
+   the settings stay live and cost a tenth of that. **Watch: editing `config.json` while the game
+   runs still takes effect (the indicator settings are the quickest to see).**
+
+**One thing deliberately NOT changed, and it is worth knowing about.** `tick_count` is not a frame
+counter: in normal play the only thing advancing it is UE4SS's ~5 ms polling thread, so it ticks
+~200 times a second whatever the frame rate, and every `% N` window is N/200 seconds rather than the
+"~5s at 60fps" several comments claim (`% 300` is ~1.5 s). It is `std::atomic` now, because two
+threads were incrementing it, but the NUMBERS were left alone: halving it would re-time
+`quiet_until_tick` -- a crash-safety window -- and every log throttle at once, and those cannot be
+re-tuned by reading. **Re-timing them is its own task, with the game running.**
+
 ## [READY] five robustness fixes from the 2026-09-07 review, built and deployed, UNWATCHED (2026-09-11)
 
 **None of these changes what the game looks like.** They are crash and wedge fixes, so what is

@@ -147,24 +147,72 @@ namespace MeshGhostPseudo
     // config_disables_autostart -- this file has no JSON library and does not want one for three
     // keys.
     //
+
+    // config_text reads the first config.json that exists, and CACHES it.
+    //
+    // **Six of these ran per poll, ~7 times a second, each one opening and slurping the whole
+    // file (review I13, fixed 2026-09-11)** -- and they ran BEFORE the dev-toggle existence check
+    // that was supposed to gate them, so the "one failed file open" note beside that check was
+    // describing something else. Forty-odd file reads a second, on the game thread, to answer
+    // questions whose answers change when a human edits a file.
+    //
+    // THE CACHE IS TIME-BOUNDED AND NOT CONTENT-BOUNDED: re-read at most every
+    // CONFIG_CACHE_MS, and otherwise hand back what was read last. That keeps config.json LIVE --
+    // which it is by design, the client re-reads it too -- at four reads a second instead of
+    // forty. A modification-time check was considered and rejected: it is another filesystem call
+    // per query, so it costs most of what it saves, and the interval is already far below what a
+    // person editing a file can notice.
+    //
+    // `found` distinguishes "no config.json anywhere" from "an empty one", because the callers
+    // treat those the same way (keep your own default) and a future one might not.
+    constexpr auto CONFIG_CACHE_MS = 250;
+
+    auto config_text(bool& found) -> const std::string&
+    {
+        static std::string cached;
+        static bool cached_found = false;
+        static auto last_read = std::chrono::steady_clock::time_point{};
+
+        const auto now = std::chrono::steady_clock::now();
+        if (last_read == std::chrono::steady_clock::time_point{} ||
+            now - last_read >= std::chrono::milliseconds(CONFIG_CACHE_MS))
+        {
+            last_read = now;
+            cached.clear();
+            cached_found = false;
+            for (const std::wstring& dir : config_search_dirs())
+            {
+                if (dir.empty())
+                {
+                    continue;
+                }
+                std::ifstream f(dir + L"/config.json");
+                if (!f)
+                {
+                    continue;
+                }
+                cached.assign((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+                cached_found = true;
+                break; // the first config.json found decides, key or no key
+            }
+        }
+        found = cached_found;
+        return cached;
+    }
+
     // Returns false when the key is absent, so a caller keeps its own default rather than
     // inheriting an empty string. Whatever is between the quotes is returned verbatim: a colour is
     // validated by the code that applies it (set_plate_color takes "#RRGGBB" and ignores anything
     // else), which keeps the "what is a valid colour" answer in one place.
     auto config_string_value(const char* key, std::string& out) -> bool
     {
-        for (const std::wstring& dir : config_search_dirs())
         {
-            if (dir.empty())
+            bool found = false;
+            const std::string& text = config_text(found);
+            if (!found)
             {
-                continue;
+                return false;
             }
-            std::ifstream f(dir + L"/config.json");
-            if (!f)
-            {
-                continue;
-            }
-            const std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
             const std::string quoted = std::string("\"") + key + "\"";
             const size_t k = text.find(quoted);
             if (k == std::string::npos)
@@ -202,18 +250,13 @@ namespace MeshGhostPseudo
     // from a hotkey they pressed.
     auto config_bool_value(const char* key, bool missing) -> bool
     {
-        for (const std::wstring& dir : config_search_dirs())
         {
-            if (dir.empty())
+            bool found = false;
+            const std::string& text = config_text(found);
+            if (!found)
             {
-                continue;
+                return missing;
             }
-            std::ifstream f(dir + L"/config.json");
-            if (!f)
-            {
-                continue;
-            }
-            const std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
             const std::string quoted = std::string("\"") + key + "\"";
             const size_t k = text.find(quoted);
             if (k == std::string::npos)
@@ -237,18 +280,13 @@ namespace MeshGhostPseudo
 
     auto config_number_value(const char* key, double& out) -> bool
     {
-        for (const std::wstring& dir : config_search_dirs())
         {
-            if (dir.empty())
+            bool found = false;
+            const std::string& text = config_text(found);
+            if (!found)
             {
-                continue;
+                return false;
             }
-            std::ifstream f(dir + L"/config.json");
-            if (!f)
-            {
-                continue;
-            }
-            const std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
             const std::string quoted = std::string("\"") + key + "\"";
             const size_t k = text.find(quoted);
             if (k == std::string::npos)

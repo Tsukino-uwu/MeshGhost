@@ -14018,10 +14018,37 @@ namespace MeshGhostPseudo
             size_t pos = 0;
             while (pos <= remote.target_vfx.size())
             {
-                const size_t comma = remote.target_vfx.find(',', pos);
-                const size_t end = (comma == std::string::npos) ? remote.target_vfx.size() : comma;
-                const size_t colon = remote.target_vfx.find(':', pos);
-                const size_t key_end = (colon != std::string::npos && colon < end) ? colon : end;
+                // **ONE SCAN PER TOKEN, NOT ONE PER TOKEN TO THE END OF THE STRING (review I11,
+                // fixed 2026-09-11).** This used to do `find(':', pos)` separately, which scans to
+                // the end of the WHOLE string and only stops early on a match -- so a string with
+                // no colon in it cost O(remaining) per token, O(n^2) per key, times ten keys,
+                // times every ghost, every frame.
+                //
+                // That is peer-controlled text: ~1 KB of commas is ~4.5 million character scans
+                // per ghost per frame, free to the sender, and on the receiving machine it looks
+                // like the game got slow. find_first_of finds whichever delimiter comes first and
+                // stops there, which is all this loop ever needed to know.
+                const size_t delim = remote.target_vfx.find_first_of(",:", pos);
+                size_t comma = std::string::npos;
+                size_t end = remote.target_vfx.size();
+                size_t key_end = remote.target_vfx.size();
+                if (delim != std::string::npos)
+                {
+                    key_end = delim;
+                    if (remote.target_vfx[delim] == ':')
+                    {
+                        // A `key:count` token: the value runs to the next comma, and that search
+                        // starts AT the colon rather than at pos, so the two together still walk
+                        // the string once.
+                        comma = remote.target_vfx.find(',', delim);
+                        end = (comma == std::string::npos) ? remote.target_vfx.size() : comma;
+                    }
+                    else
+                    {
+                        comma = delim;
+                        end = delim;
+                    }
+                }
                 if (remote.target_vfx.compare(pos, key_end - pos, key) == 0)
                 {
                     wanted = true;
@@ -16260,7 +16287,7 @@ namespace MeshGhostPseudo
                 }
 
                 Output::send(STR("[MeshGhostPseudo] CAMERA_TRACE tick={} target={} owner={} owned_by_ghost={}\n"),
-                             tick_count,
+                             tick_count.load(),
                              target->GetFullName(),
                              owner_obj ? owner_obj->GetFullName() : STR("(none)"),
                              owned_by_ghost ? STR("YES") : STR("no"));
@@ -16879,7 +16906,7 @@ namespace MeshGhostPseudo
             Output::send(STR("[MeshGhostPseudo] POSSESS_TRACE spawn-allowed remote={} entry={} tick={} controller_pawn_before={}\n"),
                          to_wide_ascii(player_id),
                          existing != remotes.end() ? STR("present") : STR("absent"),
-                         tick_count,
+                         tick_count.load(),
                          (before && *before) ? (*before)->GetFullName() : STR("(none)"));
         }
 
@@ -17063,11 +17090,29 @@ namespace MeshGhostPseudo
             {
                 if (UObject** cap = mg_property_value<UObject*>(cdo, STR("CapsuleComponent")); cap && *cap)
                 {
-                    if (bool* gen = mg_property_value<bool>((*cap), STR("bGenerateOverlapEvents")))
+                    // **THROUGH mg_read_bool / mg_write_bool, NEVER A RAW bool*, and on the CDO
+                    // that distinction is permanent damage (review I8, fixed 2026-09-11).**
+                    //
+                    // bGenerateOverlapEvents is an ENGINE property on UPrimitiveComponent, and
+                    // engine bools on this build are PACKED -- pitfalls/method.md has the measured
+                    // list of what shares that byte. A raw bool* read collapses the whole byte to
+                    // "is any bit set", and the restore then wrote 0x01 over it: every other flag
+                    // in that byte lost, on the CLASS DEFAULT OBJECT, which is the template every
+                    // pawn spawned afterwards is built from -- the real player included, after the
+                    // next level load. A ghost spawn is not supposed to outlive itself at all.
+                    //
+                    // The accessors have existed since 2026-09-06 and read the FBoolProperty's own
+                    // offset and mask; this site was written before them and never converted. The
+                    // split to remember is that a Blueprint-declared bool on this build is NOT
+                    // packed and an engine one is, so "it worked when I tried it on a BP property"
+                    // is exactly how this class of bug survives.
+                    ov_template_capsule = *cap;
+                    ov_saved_generate = mg_read_bool(*cap, STR("bGenerateOverlapEvents"), false);
+                    if (!mg_write_bool(*cap, STR("bGenerateOverlapEvents"), false))
                     {
-                        ov_template_capsule = *cap;
-                        ov_saved_generate = *gen;
-                        *gen = false;
+                        // Nothing was changed, so nothing needs restoring -- and leaving the
+                        // handle set would make the restore below write a value it never read.
+                        ov_template_capsule = nullptr;
                     }
                 }
             }
@@ -17145,10 +17190,9 @@ namespace MeshGhostPseudo
 
         if (ov_template_capsule)
         {
-            if (bool* gen = mg_property_value<bool>(ov_template_capsule, STR("bGenerateOverlapEvents")))
-            {
-                *gen = ov_saved_generate;
-            }
+            // The same accessor as the save above, for the same reason: a raw write here is
+            // what destroyed the other bits in the CDO's packed byte.
+            mg_write_bool(ov_template_capsule, STR("bGenerateOverlapEvents"), ov_saved_generate);
             Output::send(STR("[MeshGhostPseudo] DEV: ghost spawned with capsule overlap events suppressed (template flipped for the spawn, restored after).\n"));
         }
 
@@ -17317,7 +17361,7 @@ namespace MeshGhostPseudo
             // That would look exactly like "camera is on me, I cannot move".
             UObject** mid = mg_property_value<UObject*>(local_controller, STR("Pawn"));
             Output::send(STR("[MeshGhostPseudo] POSSESS_TRACE pre-handback tick={} controller_pawn={}\n"),
-                         tick_count,
+                         tick_count.load(),
                          (mid && *mid) ? (*mid)->GetFullName() : STR("(none)"));
         }
 
@@ -17367,7 +17411,7 @@ namespace MeshGhostPseudo
             // that fires on the ghost's BeginPlay would land AFTER this line and be invisible here.
             UObject** held = mg_property_value<UObject*>(local_controller, STR("Pawn"));
             Output::send(STR("[MeshGhostPseudo] POSSESS_TRACE after-handback tick={} controller_pawn={} local_pawn={} ghost={}\n"),
-                         tick_count,
+                         tick_count.load(),
                          (held && *held) ? (*held)->GetFullName() : STR("(none)"),
                          local_pawn_actor->GetFullName(),
                          ghost->GetFullName());
@@ -18756,6 +18800,15 @@ namespace MeshGhostPseudo
                     it->second.last_seen_blink_count = clamp_count_to_int(blink_count_num, 0, 1000000000, 0);
                     it->second.last_seen_death_count = clamp_count_to_int(death_count_num, 0, 1000000000, 0);
                     it->second.last_seen_hurt_count = clamp_count_to_int(hurt_count_num, 0, 1000000000, 0);
+                    // **AND THE TRAIL, which was the one counter this block missed (review I10,
+                    // fixed 2026-09-11).** Identical reasoning to land/jump twenty lines above,
+                    // and identical symptom one step further along: a peer who has been playing
+                    // arrives with a nonzero afterimage_count, the very next redraw sees
+                    // target > last_seen, and the ghost pops into existence trailing a burst of
+                    // afterimages that peer never made -- right at the moment a new ghost is most
+                    // conspicuous. The other six were baselined when each was added; this one was
+                    // added later and the block was not revisited.
+                    it->second.last_seen_afterimage_count = afterimage_count;
                 }
             }
         }
@@ -19569,7 +19622,7 @@ namespace MeshGhostPseudo
                         if (outlined_before.find(entry) == outlined_before.end())
                         {
                             Output::send(STR("[MeshGhostPseudo] OUTLINEHUNT: + ON  tick={} {}\n"),
-                                         tick_count, to_wide_ascii(entry));
+                                         tick_count.load(), to_wide_ascii(entry));
                         }
                     }
                     for (const std::string& entry : outlined_before)
@@ -19577,7 +19630,7 @@ namespace MeshGhostPseudo
                         if (outlined_now.find(entry) == outlined_now.end())
                         {
                             Output::send(STR("[MeshGhostPseudo] OUTLINEHUNT: - off tick={} {}\n"),
-                                         tick_count, to_wide_ascii(entry));
+                                         tick_count.load(), to_wide_ascii(entry));
                         }
                     }
                     outlined_before = std::move(outlined_now);
@@ -19626,7 +19679,7 @@ namespace MeshGhostPseudo
                         }
                         prev_lockon[prop_name] = sample;
                         Output::send(STR("[MeshGhostPseudo] LOCKON: '{}' -> {} tick={}\n"),
-                                     prop_name, sample, tick_count);
+                                     prop_name, sample, tick_count.load());
                     }
                 }
             }
@@ -19671,7 +19724,7 @@ namespace MeshGhostPseudo
                     }
                     prev_visibility[mesh_prop] = sample;
                     Output::send(STR("[MeshGhostPseudo] DEATHVIS: local '{}' {} tick={}\n"),
-                                 mesh_prop, sample, tick_count);
+                                 mesh_prop, sample, tick_count.load());
                 }
             }
 
@@ -20082,7 +20135,7 @@ namespace MeshGhostPseudo
                                              state_now, embedded_now, mesh_x, mesh_y, mesh_z, weapon_z,
                                              (glow_ptr && *glow_ptr) ? STR("non-null") : STR("null"),
                                              has_light_ptr ? *has_light_ptr : false,
-                                             tick_count);
+                                             tick_count.load());
                                 prev_local_weapon_state = state_now;
                                 prev_local_weapon_embedded = embedded_now;
                                 prev_local_weapon_mesh_offset[0] = mesh_x;
@@ -20166,7 +20219,7 @@ namespace MeshGhostPseudo
                     // the ghost still glows, the bug is in the ghost's teardown, not in detection
                     // -- the two have completely different fixes.
                     Output::send(STR("[MeshGhostPseudo] RECALLGLOW local: {} at tick {}\n"),
-                                 glow_now ? STR("ON") : STR("OFF"), tick_count);
+                                 glow_now ? STR("ON") : STR("OFF"), tick_count.load());
                 }
                 local_recall_glow = glow_now;
             }
@@ -20250,7 +20303,7 @@ namespace MeshGhostPseudo
                         {
                             prev_last_hit_by = who;
                             Output::send(STR("[MeshGhostPseudo] PRJWATCH: player's LastHitBy -> '{}' tick={}\n"),
-                                         who, tick_count);
+                                         who, tick_count.load());
                         }
                     }
 
@@ -20286,7 +20339,7 @@ namespace MeshGhostPseudo
                             projectile_instigators[instance] = instigator;
                             Output::send(STR("[MeshGhostPseudo] PRJWATCH: {} tick={} '{}' owner='{}' instigator='{}'\n"),
                                          first_sighting ? STR("+ APPEARED") : STR("~ CHANGED HANDS"),
-                                         tick_count, instance->GetFullName(), owner, instigator);
+                                         tick_count.load(), instance->GetFullName(), owner, instigator);
                         }
                     }
                 }
@@ -20367,7 +20420,7 @@ namespace MeshGhostPseudo
                         if (prev_player_vfx.find(entry) == prev_player_vfx.end())
                         {
                             Output::send(STR("[MeshGhostPseudo] VFXWATCH: + APPEARED tick={} {}\n"),
-                                         tick_count, to_wide_ascii(entry));
+                                         tick_count.load(), to_wide_ascii(entry));
 
                             // **Where it is attached**, logged only on appearance. This is the
                             // other half the ghost needs and the first watcher never captured: the
@@ -20409,7 +20462,7 @@ namespace MeshGhostPseudo
                         if (live_vfx.find(entry) == live_vfx.end())
                         {
                             Output::send(STR("[MeshGhostPseudo] VFXWATCH: - gone     tick={} {}\n"),
-                                         tick_count, to_wide_ascii(entry));
+                                         tick_count.load(), to_wide_ascii(entry));
                         }
                     }
                     prev_player_vfx = std::move(live_vfx);
@@ -20501,7 +20554,7 @@ namespace MeshGhostPseudo
                     {
                         UClass* ref_class = weapon_ref->GetClassPrivate();
                         Output::send(STR("[MeshGhostPseudo] WEAPONACTOR: weaponRef -> NON-NULL at tick {} (weaponEquipped={}) instance='{}' class='{}'\n"),
-                                     tick_count,
+                                     tick_count.load(),
                                      equipped_now,
                                      weapon_ref->GetFullName(),
                                      ref_class ? ref_class->GetFullName() : STR("<no class>"));
@@ -20509,7 +20562,7 @@ namespace MeshGhostPseudo
                     else
                     {
                         Output::send(STR("[MeshGhostPseudo] WEAPONACTOR: weaponRef -> NULL at tick {} (weaponEquipped={})\n"),
-                                     tick_count, equipped_now);
+                                     tick_count.load(), equipped_now);
                     }
                     prev_weapon_ref = weapon_ref;
                     weapon_actor_transform_logged = false; // a new object gets its own first sample
@@ -20552,7 +20605,7 @@ namespace MeshGhostPseudo
                         if (moved || tick_count % LOG_INTERVAL_TICKS == 0)
                         {
                             Output::send(STR("[MeshGhostPseudo] WEAPONACTOR: tick={} equipped={} moved={} loc=({:.1f}, {:.1f}, {:.1f}) rot=(p={:.1f}, y={:.1f}, r={:.1f})\n"),
-                                         tick_count, equipped_now, moved,
+                                         tick_count.load(), equipped_now, moved,
                                          weapon_loc.X(), weapon_loc.Y(), weapon_loc.Z(),
                                          weapon_rot.GetPitch(), weapon_rot.GetYaw(), weapon_rot.GetRoll());
                         }
@@ -20576,7 +20629,7 @@ namespace MeshGhostPseudo
                 {
                     weapon_actor_sweep_due_tick = tick_count + WEAPON_ACTOR_SWEEP_DELAY_TICKS;
                     Output::send(STR("[MeshGhostPseudo] WEAPONACTOR: throw detected at tick {} -- world sweep armed for tick {}.\n"),
-                                 tick_count, weapon_actor_sweep_due_tick);
+                                 tick_count.load(), weapon_actor_sweep_due_tick);
                 }
                 prev_weapon_equipped_for_actor_trace = equipped_now;
 
@@ -20616,7 +20669,7 @@ namespace MeshGhostPseudo
                                      candidate_class ? candidate_class->GetFullName() : STR("<no class>"));
                     }
                     Output::send(STR("[MeshGhostPseudo] WEAPONACTOR SWEEP: {} weapon-like actor(s) out of {} live actors at tick {}.\n"),
-                                 hits, all_actors.size(), tick_count);
+                                 hits, all_actors.size(), tick_count.load());
                 }
             }
 
@@ -20786,7 +20839,7 @@ namespace MeshGhostPseudo
                 if (resolved_name && std::fabs(local_health - prev_local_health) > 0.0001)
                 {
                     Output::send(STR("[MeshGhostPseudo] TRACE health: LOCAL {} -> {} (tick={})\n"),
-                                 prev_local_health, local_health, tick_count);
+                                 prev_local_health, local_health, tick_count.load());
                     prev_local_health = local_health;
                 }
             }
@@ -20868,7 +20921,7 @@ namespace MeshGhostPseudo
                             log_value_snapshot_diff(slide_diff_standing_snapshot,
                                                     shrunk_snapshot,
                                                     is_crouch ? STR("slideDiff STANDING->CROUCH") : STR("slideDiff STANDING->SLIDE"),
-                                                    tick_count);
+                                                    tick_count.load());
                         }
                         slide_diff_capture_at = 0;
                     }
@@ -21022,7 +21075,7 @@ namespace MeshGhostPseudo
                                              afterimage_color_burst_scans, afterimage_color_burst_new_total,
                                              afterimage_color_burst_color[0], afterimage_color_burst_color[1],
                                              afterimage_color_burst_color[2], afterimage_color_burst_have,
-                                             afterimage_color_burst_special, afterimage_color_burst_n, tick_count);
+                                             afterimage_color_burst_special, afterimage_color_burst_n, tick_count.load());
                             }
                             ++afterimage_count;
                             afterimage_spawn_n = afterimage_color_burst_n;
@@ -21189,7 +21242,7 @@ namespace MeshGhostPseudo
                             pole_trace_prev_x = x_q;
                             pole_trace_prev_y = y_q;
                             Output::send(STR("[MeshGhostPseudo] POLE local tick={} moveState={} actorYaw={:.1f} visualMeshYaw={:.1f} x={:.1f} y={:.1f}\n"),
-                                         tick_count,
+                                         tick_count.load(),
                                          move_state_ptr ? static_cast<int>(*move_state_ptr) : -1,
                                          rotation.GetYaw(), vm_yaw, location.X(), location.Y());
                         }
@@ -21230,7 +21283,7 @@ namespace MeshGhostPseudo
                         }
                         bool* crouched_ptr = mg_property_value<bool>(pawn, STR("bIsCrouched"));
                         Output::send(STR("[MeshGhostPseudo] TRACE trailCoverage: tick={} toSpawn={} moveState={} actionState={} animJumpType={} movementMode={} hSpeed={:.0f} vSpeed={:.0f} halfHeight={:.1f} crouched={} z={:.1f}\n"),
-                                     tick_count,
+                                     tick_count.load(),
                                      to_spawn_now,
                                      move_state_ptr ? static_cast<int>(*move_state_ptr) : -1,
                                      action_state_ptr ? static_cast<int>(*action_state_ptr) : -1,
@@ -21370,7 +21423,7 @@ namespace MeshGhostPseudo
                     Output::send(STR("[MeshGhostPseudo] TRACE animState local: capsule={:.1f} crouched={}\n"),
                                  local_capsule_half, crouched_now);
                     Output::send(STR("[MeshGhostPseudo] TRACE throwAnim: tick={} weaponEquipped={} weaponRef={} moveState={} actionState={} animJumpType={} montage='{}'\n"),
-                                 tick_count,
+                                 tick_count.load(),
                                  weapon_equipped_now,
                                  weapon_ref_valid_now ? STR("non-null") : STR("null"),
                                  move_state_now,
@@ -21420,7 +21473,7 @@ namespace MeshGhostPseudo
                         std::map<StringType, StringType> now = snapshot_object_values(*gi_ptr);
                         if (!prev_game_instance.empty())
                         {
-                            log_value_snapshot_diff(prev_game_instance, now, STR("GameInstance"), tick_count);
+                            log_value_snapshot_diff(prev_game_instance, now, STR("GameInstance"), tick_count.load());
                         }
                         prev_game_instance = std::move(now);
                     }
@@ -21429,7 +21482,7 @@ namespace MeshGhostPseudo
                         std::map<StringType, StringType> now = snapshot_object_values(*hud_ptr);
                         if (!prev_hud.empty())
                         {
-                            log_value_snapshot_diff(prev_hud, now, STR("UI_Hud"), tick_count);
+                            log_value_snapshot_diff(prev_hud, now, STR("UI_Hud"), tick_count.load());
                         }
                         prev_hud = std::move(now);
                     }
@@ -21719,7 +21772,7 @@ namespace MeshGhostPseudo
                                      afterimage_color_burst_color[0], afterimage_color_burst_color[1],
                                      afterimage_color_burst_color[2], afterimage_color_burst_special,
                                      pawn_afterimage_color.r, pawn_afterimage_color.g, pawn_afterimage_color.b,
-                                     afterimage_color_burst_n, tick_count);
+                                     afterimage_color_burst_n, tick_count.load());
                     }
 
                     // **The blue moment, on its own budget.** Logged the instant a scan sees an image
@@ -21732,7 +21785,7 @@ namespace MeshGhostPseudo
                                      age, obs.color.r, obs.color.g, obs.color.b,
                                      obs.images_new, afterimage_color_burst_new_total,
                                      pawn_afterimage_color.r, pawn_afterimage_color.g, pawn_afterimage_color.b,
-                                     afterimage_color_burst_n, tick_count);
+                                     afterimage_color_burst_n, tick_count.load());
                     }
 
                     // Emit once the burst is fully accounted for, or when the window runs out.
@@ -21780,7 +21833,7 @@ namespace MeshGhostPseudo
                                          afterimage_color_burst_rejected_far,
                                          afterimage_color_burst_color[0], afterimage_color_burst_color[1],
                                          afterimage_color_burst_color[2], afterimage_color_burst_have,
-                                         afterimage_color_burst_special, afterimage_color_burst_n, tick_count);
+                                         afterimage_color_burst_special, afterimage_color_burst_n, tick_count.load());
                         }
 
                         // The wire event and its colour are written together, here, and nothing else
@@ -21848,7 +21901,7 @@ namespace MeshGhostPseudo
                                          static_cast<void*>(obs.special_image),
                                          afterimage_idle_last_emit_tick == 0 ? 0 : tick_count - afterimage_idle_last_emit_tick,
                                          pawn_afterimage_color.r, pawn_afterimage_color.g, pawn_afterimage_color.b,
-                                         tick_count);
+                                         tick_count.load());
                         }
                         afterimage_idle_last_emit_tick = tick_count;
                     }
@@ -21943,7 +21996,7 @@ namespace MeshGhostPseudo
                             FVector image_loc = static_cast<AActor*>(image)->K2_GetActorLocation();
                             Output::send(STR("[MeshGhostPseudo] TRAILCOLOR image: mine={} rgb=({:.3f}, {:.3f}, {:.3f}) ok={} at=({:.0f}, {:.0f}, {:.0f}) tick={} from='{}'\n"),
                                          is_ours, trace_color.r, trace_color.g, trace_color.b, ok,
-                                         image_loc.X(), image_loc.Y(), image_loc.Z(), tick_count,
+                                         image_loc.X(), image_loc.Y(), image_loc.Z(), tick_count.load(),
                                          to_wide_ascii(owner));
                         }
                     }
@@ -22162,7 +22215,7 @@ namespace MeshGhostPseudo
                             Output::send(STR("[MeshGhostPseudo] TRAILALIVE: bodies mine={} ghost={} | VISIBLE mine={} ghost={} | opac mine=[{}] ghost=[{}] | tick={}\n"),
                                          alive_mine, alive_ghost, visible_mine, visible_ghost,
                                          to_wide_ascii(opacities_mine), to_wide_ascii(opacities_ghost),
-                                         tick_count);
+                                         tick_count.load());
                         }
                     }
                 }
@@ -22228,7 +22281,7 @@ namespace MeshGhostPseudo
                         Output::send(STR("[MeshGhostPseudo] TRAILBATCH: n={} chose=({:.3f}, {:.3f}, {:.3f}) special={} blueAliveNow={} tick={}\n"),
                                      new_images,
                                      local_afterimage_color.r, local_afterimage_color.g, local_afterimage_color.b,
-                                     batch_has_special_color, blue_in_batch, tick_count);
+                                     batch_has_special_color, blue_in_batch, tick_count.load());
                     }
                 }
 
@@ -22261,7 +22314,7 @@ namespace MeshGhostPseudo
                                  local_color_read_ok,
                                  local_afterimage_color.r, local_afterimage_color.g, local_afterimage_color.b,
                                  action_state_ptr ? static_cast<int>(*action_state_ptr) : -1,
-                                 tick_count);
+                                 tick_count.load());
                     prev_local_afterimage_color[0] = local_afterimage_color.r;
                     prev_local_afterimage_color[1] = local_afterimage_color.g;
                     prev_local_afterimage_color[2] = local_afterimage_color.b;
@@ -22293,7 +22346,7 @@ namespace MeshGhostPseudo
                                  action_state_ptr ? static_cast<int>(*action_state_ptr) : -1,
                                  move_state_ptr ? static_cast<int>(*move_state_ptr) : -1,
                                  static_cast<int>(movement_mode),
-                                 tick_count);
+                                 tick_count.load());
                     prev_wallride_button_held = wr_held_now;
                     prev_can_wall_run = can_wr_now;
                     prev_current_wall_run_clings = clings_now;
@@ -22326,7 +22379,7 @@ namespace MeshGhostPseudo
                                  ultra_cap_now, full_ultra_now, capped_ultra_now, anim_jump_type_now,
                                  action_state_ptr ? static_cast<int>(*action_state_ptr) : -1,
                                  v_speed_ptr ? *v_speed_ptr : -1.0,
-                                 tick_count);
+                                 tick_count.load());
                     prev_ultra_cap = ultra_cap_now;
                     prev_full_ultra_modifier = full_ultra_now;
                     prev_capped_ultra_modifier = capped_ultra_now;
@@ -22687,7 +22740,7 @@ namespace MeshGhostPseudo
                     if (keys != mirrored_vfx_keys)
                     {
                         Output::send(STR("[MeshGhostPseudo] MIRRORVFX local: '{}' -> '{}' tick={}\n"),
-                                     to_wide_ascii(mirrored_vfx_keys), to_wide_ascii(keys), tick_count);
+                                     to_wide_ascii(mirrored_vfx_keys), to_wide_ascii(keys), tick_count.load());
                     }
                     mirrored_vfx_keys = keys;
                 }
@@ -23577,7 +23630,7 @@ namespace MeshGhostPseudo
                     {
                         prev_hit_count = now_count;
                         Output::send(STR("[MeshGhostPseudo] PRJWATCH: ghost hitActorsArray count -> {} tick={}\n"),
-                                     now_count, tick_count);
+                                     now_count, tick_count.load());
                         for (int e = 0; e < now_count && e < 8; ++e)
                         {
                             UObject* entry = (*hit_list)[e];
@@ -23611,7 +23664,7 @@ namespace MeshGhostPseudo
                     }
                     prev_fast_collision[watched] = mode;
                     Output::send(STR("[MeshGhostPseudo] PRJWATCH: ghost '{}' collisionEnabled -> {} tick={} (per-tick)\n"),
-                                 watched, mode, tick_count);
+                                 watched, mode, tick_count.load());
                 }
             }
 
@@ -23639,7 +23692,7 @@ namespace MeshGhostPseudo
                         {
                             prev_ghost_hit_by = who;
                             Output::send(STR("[MeshGhostPseudo] PRJWATCH: GHOST's LastHitBy -> '{}' tick={}\n"),
-                                         who, tick_count);
+                                         who, tick_count.load());
                         }
                     }
 
@@ -23673,7 +23726,7 @@ namespace MeshGhostPseudo
                             }
                             prev_component_collision[prop_name] = mode;
                             Output::send(STR("[MeshGhostPseudo] PRJWATCH: ghost component '{}' collisionEnabled -> {} tick={}\n"),
-                                         prop_name, mode, tick_count);
+                                         prop_name, mode, tick_count.load());
                         }
                     }
 
@@ -23708,7 +23761,7 @@ namespace MeshGhostPseudo
                                 prev_collision_state = now_state;
                                 Output::send(STR("[MeshGhostPseudo] PRJWATCH: ghost GetActorEnableCollision -> {} tick={} (we set it to {} at spawn)\n"),
                                              now_state == 1 ? STR("TRUE -- the ghost CAN be hit") : (now_state == 0 ? STR("false") : STR("<no ReturnValue>")),
-                                             tick_count,
+                                             tick_count.load(),
                                              GHOST_COLLISION_ENABLED ? STR("true") : STR("false"));
                             }
                         }
@@ -23906,7 +23959,7 @@ namespace MeshGhostPseudo
                             }
                             prev_shadow_samples[key] = sample;
                             Output::send(STR("[MeshGhostPseudo] SHADOWTRACE: {} '{}' {} tick={}\n"),
-                                         side_label, candidate, sample, tick_count);
+                                         side_label, candidate, sample, tick_count.load());
                         }
                     }
                 }
@@ -23948,7 +24001,7 @@ namespace MeshGhostPseudo
                         log_value_snapshot_diff(ghost_diff_standing_snapshot,
                                                 ghost_shrunk,
                                                 STR("ghostDiff PEER-STANDING->PEER-SLIDE"),
-                                                tick_count);
+                                                tick_count.load());
                         ghost_diff_capture_at = 0;
                     }
                 }
@@ -24279,7 +24332,7 @@ namespace MeshGhostPseudo
                 // clip's own moment with every gated section off, and vanished with the whole
                 // tail off (23:15) -- so the tail is bisected live by `tail_until` (six
                 // markers below, each `if (drive_this && g_drive.tail_until < k) continue`).
-                ghost_drive_trace(id, remote, tick_count);
+                ghost_drive_trace(id, remote, tick_count.load());
                 if (g_drive.tail_until < 1)
                 {
                     perf_stop(PERF_TAIL_POSE_TRACE);
@@ -24535,13 +24588,20 @@ namespace MeshGhostPseudo
                     // instruments that are off in all normal play.
                     static bool shadow_sweep_pending = false;
                     static bool nametag_sweep_pending = false;
+                    // The tick a restore pass began on, or 0. See where the latch is cleared,
+                    // below: this block runs ONCE PER REMOTE, so "the restore is done" is not a
+                    // statement any single remote can make.
+                    static uint64_t shadow_restore_tick = 0;
+                    static uint64_t nametag_restore_tick = 0;
                     if (g_ghost_shadow_hidden)
                     {
                         shadow_sweep_pending = true;
+                        shadow_restore_tick = 0;
                     }
                     if (g_ghost_nametag_hidden)
                     {
                         nametag_sweep_pending = true;
+                        nametag_restore_tick = 0;
                     }
 
                     struct Subtraction
@@ -24550,10 +24610,11 @@ namespace MeshGhostPseudo
                         bool hidden;
                         const wchar_t* label;
                         bool* pending;
+                        uint64_t* restore_tick;
                     };
                     const Subtraction subtractions[] = {
-                        {STR("StaticMeshComponent"), g_ghost_shadow_hidden, STR("blob shadow"), &shadow_sweep_pending},
-                        {STR("TextRenderComponent"), g_ghost_nametag_hidden, STR("nametag"), &nametag_sweep_pending},
+                        {STR("StaticMeshComponent"), g_ghost_shadow_hidden, STR("blob shadow"), &shadow_sweep_pending, &shadow_restore_tick},
+                        {STR("TextRenderComponent"), g_ghost_nametag_hidden, STR("nametag"), &nametag_sweep_pending, &nametag_restore_tick},
                     };
                     const std::string ghost_own_name = to_utf8(remote.ghost->GetName());
                     for (const auto& sub : subtractions)
@@ -24581,8 +24642,18 @@ namespace MeshGhostPseudo
                             {
                                 continue;
                             }
-                            bool* visible = mg_property_value<bool>(component, STR("bVisible"));
-                            if (!visible || *visible != sub.hidden)
+                            // **THROUGH mg_read_bool, not a raw bool* (the I7 bitfield audit's
+                            // top live entry, fixed 2026-09-11).** bVisible is an ENGINE property
+                            // and engine bools on this build are PACKED, so a raw read is "is any
+                            // bit in that byte set" rather than "is this component visible" -- and
+                            // the two disagree exactly when some neighbouring flag happens to be
+                            // on. The failure it produces is the quiet kind: the equality below
+                            // never matches, so a hidden component is never put back.
+                            //
+                            // A default of `!sub.hidden` means "a component whose flag cannot be
+                            // read is left alone", which is what the old null check did.
+                            const bool visible = mg_read_bool(component, STR("bVisible"), !sub.hidden);
+                            if (visible != sub.hidden)
                             {
                                 continue;
                             }
@@ -24591,9 +24662,29 @@ namespace MeshGhostPseudo
                         }
                         // Reported once per state change, with what was actually reached -- "0 of N"
                         // is the line that would have caught the last version in one run.
+                        // **THE LATCH IS CLEARED A WHOLE TICK LATER, NOT INSIDE THIS LOOP
+                        // (review I9, fixed 2026-09-11).** This block runs once per REMOTE, and
+                        // clearing here meant the FIRST ghost's restore pass disarmed the sweep
+                        // for every ghost behind it: with the two-real-peers setup this repo uses
+                        // by default, one ghost's nametag came back and the other's stayed hidden
+                        // -- and the line below reported the sweep as complete, because from one
+                        // remote's point of view it was.
+                        //
+                        // Every remote runs its own restore during the tick the toggle was
+                        // removed, so by the END of that tick everything is back. Clearing on the
+                        // NEXT tick costs one extra sweep and cannot be wrong about which ghosts
+                        // have been reached.
                         if (!sub.hidden)
                         {
-                            *sub.pending = false; // restored on this pass
+                            if (*sub.restore_tick == 0)
+                            {
+                                *sub.restore_tick = tick_count; // this tick is the restore pass
+                            }
+                            else if (tick_count > *sub.restore_tick)
+                            {
+                                *sub.pending = false; // every remote has had its pass
+                                *sub.restore_tick = 0;
+                            }
                         }
                         static std::map<StringType, std::pair<bool, int>> announced;
                         auto& entry_state = announced[sub.label];
@@ -24979,7 +25070,7 @@ namespace MeshGhostPseudo
                     // a light held by an earlier ghost this tick simply reads as at-target below.
                     static uint64_t lit_lights_tick = ~0ull;
                     static std::vector<UObject*> lit_lights;
-                    if (lit_lights_tick != tick_count)
+                    if (lit_lights_tick != tick_count.load())
                     {
                         lit_lights_tick = tick_count;
                         lit_lights.clear();
@@ -25254,7 +25345,7 @@ namespace MeshGhostPseudo
                         }
                     }
                     Output::send(STR("[MeshGhostPseudo] POLE ghost {} tick={} moveState={} wantYaw={:.1f} actualYaw={:.1f} visualMeshYaw={:.1f}\n"),
-                                 to_wide_ascii(id), tick_count,
+                                 to_wide_ascii(id), tick_count.load(),
                                  static_cast<int>(clamp_to_uint8(remote.target_move_state)),
                                  target_rot.GetYaw(), actual.GetYaw(), g_vm_yaw);
                 }
@@ -25754,7 +25845,7 @@ namespace MeshGhostPseudo
                                 remote.self_probe_initialized = true;
                                 remote.self_probe_prev_montage = ghost_montage;
                                 Output::send(STR("[MeshGhostPseudo] PROBE selfmontage ghost {} tick {}: ghost now playing '{}' (peer target '{}') -- adapter started NOTHING\n"),
-                                             to_wide_ascii(id), tick_count, to_wide_ascii(ghost_montage),
+                                             to_wide_ascii(id), tick_count.load(), to_wide_ascii(ghost_montage),
                                              to_wide_ascii(remote.target_montage.empty() ? std::string("(none)") : remote.target_montage));
                             }
                         }
@@ -25789,7 +25880,7 @@ namespace MeshGhostPseudo
                             play_length = call_montage_play(*g_abp_ptr, montage_obj);
                         }
                         Output::send(STR("[MeshGhostPseudo] PROBE catalog ghost {} tick {}: '{}' -> Montage_Play('{}') length={:.3f} -- WATCH THE GHOST NOW\n"),
-                                     to_wide_ascii(id), tick_count, to_wide_ascii(label),
+                                     to_wide_ascii(id), tick_count.load(), to_wide_ascii(label),
                                      montage_obj->GetFullName(), play_length);
                     }
                 }
@@ -26309,7 +26400,7 @@ namespace MeshGhostPseudo
                         if (std::fabs(g_health - remote.last_seen_ghost_health) > 0.0001)
                         {
                             Output::send(STR("[MeshGhostPseudo] TRACE health: GHOST {} '{}' {} -> {} (tick={})\n"),
-                                         to_wide_ascii(id), name, remote.last_seen_ghost_health, g_health, tick_count);
+                                         to_wide_ascii(id), name, remote.last_seen_ghost_health, g_health, tick_count.load());
                             remote.last_seen_ghost_health = g_health;
                         }
                         break;
@@ -26332,7 +26423,7 @@ namespace MeshGhostPseudo
                 if (int32_t* drain_ptr = mg_property_value<int32_t>(remote.ghost, STR("afterImagesToSpawn")); drain_ptr && *drain_ptr != 0)
                 {
                     Output::send(STR("[MeshGhostPseudo] TRACE trailTrigger ghost {}: drain afterImagesToSpawn={} tick={}\n"),
-                                 to_wide_ascii(id), *drain_ptr, tick_count);
+                                 to_wide_ascii(id), *drain_ptr, tick_count.load());
                 }
             }
 
@@ -27522,7 +27613,7 @@ namespace MeshGhostPseudo
             {
                 UObject** held = mg_property_value<UObject*>(watch_controller, STR("Pawn"));
                 Output::send(STR("[MeshGhostPseudo] POSSESS_TRACE watch tick={} controller_pawn={}\n"),
-                             tick_count,
+                             tick_count.load(),
                              (held && *held) ? (*held)->GetFullName() : STR("(none)"));
             }
         }
