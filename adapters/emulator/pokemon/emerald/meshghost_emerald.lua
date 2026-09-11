@@ -6277,9 +6277,84 @@ genderFrames.door.isDoorTask = function(t)
     return nil
 end
 
+-- **WHERE gTasks ACTUALLY IS ON THIS BUILD** -- because on one of them it is not where the rest of
+-- this file assumes (2026-09-12).
+--
+-- EX SPEEDCHOICE matched NEITHER half of the door signature: not the frame tables, not the
+-- graphics pointer, on a door the user had just opened. Neither half failing is a different
+-- statement from one half failing -- it says the sixteen entries being read are not tasks at all.
+-- And this file already records why: EX moves its IWRAM. `gTotalCameraPixelOffsetY` sits at
+-- -0x10D0 there while `gSaveBlock1Ptr` is at -0x10E0, *"IWRAM moved ALMOST as one piece"* -- and
+-- gTasks is IWRAM. So the scan was reading the wrong region of memory entirely.
+--
+-- Found by its own shape rather than by any build's offset, which is what makes it need no new
+-- constant per ROM: a task table is sixteen 0x28 entries where every `isActive` is 0 or 1, every
+-- `prev`/`next` is a slot index or one of the two sentinels, every active entry's `func` is an ODD
+-- pointer into ROM (Thumb), and exactly one active entry calls itself the head. Sixteen entries of
+-- that is far past coincidence.
+--
+-- The known address is tried FIRST and the scan only runs if it fails, so three of the four builds
+-- pay nothing and never scan at all. One-shot either way, and it logs what it concluded -- a found
+-- address that is not the expected one is exactly the kind of thing that should never be silent.
+genderFrames.door.tasksAddr = function()
+    if genderFrames.door.tasksAt ~= nil then return genderFrames.door.tasksAt end
+    -- A retry is spaced, per the tail of this function; nil means "ask again later", not "no".
+    if genderFrames.door.nextTry and frameCounter < genderFrames.door.nextTry then return nil end
+    local stride = flyRide.TASK_SIZE
+    local function looksLikeTasks(a)
+        local active, heads = 0, 0
+        for i = 0, 15 do
+            local t = a + i * stride
+            local act, prev, next_ = r8(t + 0x04), r8(t + 0x05), r8(t + 0x06)
+            if act > 1 then return false end
+            if prev > 15 and prev ~= 0xfe then return false end
+            if next_ > 15 and next_ ~= 0xff then return false end
+            if act == 1 then
+                local fn = r32(t + 0x00)
+                if fn < 0x08000000 or fn >= 0x0a000000 or (fn & 1) == 0 then return false end
+                active = active + 1
+                if prev == 0xfe then heads = heads + 1 end
+            end
+        end
+        return active >= 1 and heads == 1
+    end
+
+    if looksLikeTasks(flyRide.TASKS_ADDR) then
+        genderFrames.door.tasksAt = flyRide.TASKS_ADDR
+        return genderFrames.door.tasksAt
+    end
+    -- IWRAM, four-byte aligned, leaving room for the whole table.
+    for a = 0x03000000, 0x03008000 - 16 * stride, 4 do
+        if looksLikeTasks(a) then
+            genderFrames.door.tasksAt = a
+            logFile(string.format(
+                "f=%d DOOR gTasks is NOT at %08X on this build -- found at %08X (%+d)",
+                frameCounter, flyRide.TASKS_ADDR, a, a - flyRide.TASKS_ADDR))
+            return a
+        end
+    end
+    -- Nothing convincing -- which may be this MOMENT rather than this BUILD. The signature needs
+    -- at least one live task with a head, and a scan that lands on a title screen or a load has
+    -- nothing to find. So the failure is not cached permanently (that would disable doors for the
+    -- session on the strength of one badly timed look) and it is not retried every frame either
+    -- (a whole-IWRAM scan per frame is the exact shape of fault this file keeps warning about):
+    -- a few attempts, ten seconds apart, then it stands.
+    genderFrames.door.tries = (genderFrames.door.tries or 0) + 1
+    genderFrames.door.nextTry = frameCounter + 600
+    if genderFrames.door.tries >= 5 then
+        genderFrames.door.tasksAt = false
+        logFile(string.format(
+            "f=%d DOOR gTasks not found in IWRAM after %d attempts -- no doors on this build",
+            frameCounter, genderFrames.door.tries))
+        return false
+    end
+    return nil
+end
+
 genderFrames.door.sample = function()
     if not genderFrames.door.ready() then return nil end
-    local base, stride = flyRide.TASKS_ADDR, flyRide.TASK_SIZE
+    local base, stride = genderFrames.door.tasksAddr(), flyRide.TASK_SIZE
+    if not base then return nil end
     for i = 0, 15 do
         local t = base + i * stride
         -- OURS IS NOT NEWS. A door this client painted for a peer is not a door this client's
@@ -6380,7 +6455,8 @@ end
 -- that does not terminate would hang the emulator rather than raise. A chain that fails to make
 -- sense leaves the slot unlinked and the caller refuses.
 genderFrames.door.insert = function(newId)
-    local base, stride = flyRide.TASKS_ADDR, flyRide.TASK_SIZE
+    local base, stride = genderFrames.door.tasksAddr(), flyRide.TASK_SIZE
+    if not base then return false end
     local HEAD, TAIL = 0xfe, 0xff
     local function at(i) return base + i * stride end
 
@@ -6430,7 +6506,8 @@ genderFrames.door.start = function(kind, x, y)
     -- player has opened a door once. On vanilla ready() seeds it, so it is never nil there.
     local animate = genderFrames.door.fn
     if animate == nil then return false end
-    local base, stride = flyRide.TASKS_ADDR, flyRide.TASK_SIZE
+    local base, stride = genderFrames.door.tasksAddr(), flyRide.TASK_SIZE
+    if not base then return false end
     local free = nil
     for i = 0, 15 do
         local t = base + i * stride

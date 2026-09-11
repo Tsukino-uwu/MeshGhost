@@ -126,6 +126,34 @@ the broken adapter had stranded in the table. A measurement that can read back y
 not a measurement. **Which is why the first thing to do is reload savestate 3 on all four** and
 clear whatever the broken version left in `gTasks`.
 
+**Working on vanilla, SPEEDCHOICE and Archipelago** — *"works decent now~"* (user, 2026-09-12), with
+the remaining EX gap below. Four faults were found and fixed live getting there, each recorded in
+its own commit: a code address derived from a data offset, a refused door retried every frame, a
+dedup key with no notion of time, and the adapter re-broadcasting its own ghost doors in an endless
+echo around the mesh.
+
+**Addresses this session measured, none of which were derivable from `romOffset`:**
+
+| build | data shift | code shift | `gTasks` |
+| --- | --- | --- | --- |
+| vanilla | 0 | 0 | `0x03005E00` |
+| SPEEDCHOICE 1.2.2 | +25608 | **+1648** | `0x03005E00` |
+| Archipelago | +30000 | **+2464** | `0x03005E00` |
+| EX SPEEDCHOICE 0.4.0 | +641912 | *(unlearned)* | **`0x03004CE0` (−0x1120)** |
+
+**EX needed all three to be separate.** It matched *neither* half of the door signature on a door
+the user had just opened — which is a different statement from one half failing: the sixteen
+entries being read were not tasks at all. Its `gTasks` is a third distinct IWRAM shift, alongside
+the `-0x10D0` camera and `-0x10E0` save block already recorded. The adapter now finds the table by
+its own shape (sixteen entries whose `isActive`, sentinels, and odd ROM `func` pointers all agree,
+with exactly one head), tries the known address first so the other three never scan, and logs when
+it concludes something other than the expected address.
+
+**A latent bug this turned up but did NOT fix:** `flyRide` reads `gTasks` at the hardcoded
+`0x03005E00`, so on EX the Fly and Briney's-boat detection has been reading the wrong region of
+IWRAM all along. Out of scope for the door work and untouched on purpose — but it is the same
+address, and `genderFrames.door.tasksAddr()` is the fix when someone picks it up.
+
 **So on the three patched builds, expect nothing until you walk through a door yourself once** —
 that is what teaches that client the address. After that, ghost doors should work there too. The
 hold-open kind stays vanilla-only for now (leaving a house draws the door with no task to
