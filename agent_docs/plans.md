@@ -2,7 +2,7 @@
 
 ## Overview
 
-MeshGhost is an online multiplayer layer for single-player games. Each player runs an
+MeshGhost is an online multiplayer layer for singleplayer games. Each player runs an
 independent copy of the game, and the state networked *by default* is enough to render a
 cosmetic ghost: location, area, and animation. Deeper planes exist as of 2026-08-17 but are
 opt-in and used by no adapter — see `beyond-cosmetic.md`. Rationale in `agent_docs/brief.md`.

@@ -29,7 +29,7 @@ exempts this file, and the moment an adapter for one of these starts, `/new-adap
 re-derived from scratch, and so the checks below happen in the right order. Everything here is a
 question, not a finding.
 
-**Why it is a plausible fit.** It is a single-player 3D platformer, which is the exact shape
+**Why it is a plausible fit.** It is a singleplayer 3D platformer, which is the exact shape
 MeshGhost already handles — a position, an orientation, and an animation tag per player, with
 independent worlds and desync expected. Nothing about it needs the planes past cosmetic. And it
 has a large, long-lived speedrunning community, which is the thing that most often means

@@ -466,7 +466,7 @@
   dynamic-vs-dynamic actor blocking requires **both** actors' collision response to agree on
   Block, and only the ghost's side was ever changed — the real player's own capsule was very
   likely never configured to Block the Pawn channel at all, since two-pawn contact was never a
-  real case in a single-player game. Fixing that would require modifying the **real player's
+  real case in a singleplayer game. Fixing that would require modifying the **real player's
   own live collision component**, not just the ghost's — a materially bigger risk than anything
   tried so far, layered on top of the still-unresolved melee-death danger above. **Reverted
   same-day** (`GHOST_COLLISION_ENABLED` toggle in `Plugin.cpp`).

@@ -1205,7 +1205,7 @@ own memory, so still not AV-interesting. UE4SS bundles `patternsleuth` for exact
 
 ### Boundary
 
-Single-player games only. Every game this project targets qualifies. Anything with anti-cheat is
+Singleplayer games only. Every game this project targets qualifies. Anything with anti-cheat is
 out — not because the technique differs, but because reading another process's memory is precisely
 what those systems detect, and shipping something that gets users banned is not a trade this
 project makes.

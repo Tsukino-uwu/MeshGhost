@@ -537,7 +537,7 @@ and a MeshGhost adapter there would be a **different product**, not a better one
 | Requires | everyone in the same game, in sync | nothing; desync is expected and fine |
 | Delivers | real co-op / versus | presence — where a friend is in *their own* run |
 
-Two people doing separate single-player runs who want to see each other is something netplay
+Two people doing separate singleplayer runs who want to see each other is something netplay
 cannot do at all, because it is one session. That is the honest pitch, and it should be made in
 those words rather than as "GameCube multiplayer", which sounds solved and is.
 
@@ -666,7 +666,7 @@ richest of them (TTYD) renders peers because its own multiplayer minigame needs 
 presence is the product. So this survey is prior art for the **mechanism** — how to get state in and
 code running — and not for the goal. The pitch in
 [the netplay comparison below](#dolphin-has-a-wrinkle-none-of-the-others-do-netplay-already-exists)
-is unaffected: two people in separate single-player runs seeing each other is still something none of
+is unaffected: two people in separate singleplayer runs seeing each other is still something none of
 this does.
 
 ## Real hardware — the console itself, and where the network boundary sits

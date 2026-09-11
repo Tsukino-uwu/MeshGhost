@@ -2076,7 +2076,7 @@ unlike anything written once at spawn.
 
 ## Ask the CARTRIDGE what it can do, not the build's name
 
-A patch may add a capability the base game lacks, so the wire carries a state no single-player
+A patch may add a capability the base game lacks, so the wire carries a state no singleplayer
 session can reach: **a peer whose game can do something yours cannot.** Read the ROM for the thing
 itself — find the game's own table by its content signature and count it — never branch on the
 build's name, which cannot answer for a build nobody has measured. **Ask it of YOUR ROM on behalf of

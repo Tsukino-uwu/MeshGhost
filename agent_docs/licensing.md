@@ -289,7 +289,7 @@ formats, which is worth knowing before pasting the next list.
   point the same way, which is usually the sign of a good format.
 - **No game code, ROM data or assets are involved**, so the rule that actually bites elsewhere in
   this project does not apply here at all.
-- **Nothing about it is a distribution problem either.** These are single-player games, the codes
+- **Nothing about it is a distribution problem either.** These are singleplayer games, the codes
   are published in hundreds of places, and our use is development tooling for
   reaching test states — documented as dev-only in `adapters/_template/README.md`, never shipped.
 

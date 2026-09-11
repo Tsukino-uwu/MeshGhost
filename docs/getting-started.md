@@ -1,18 +1,44 @@
 # Getting started — playing with friends
 
-This is everything a player needs to do. If you are the one **hosting** the server for your
-group, do this page first anyway — a host is also a player — then read [hosting.md](hosting.md).
+This is everything a player does, from unzipping the release to seeing a friend appear. If you are
+the one **hosting** the server for your group, do this page first anyway — a host is also a player —
+then read [hosting.md](hosting.md).
 
 You need your own copy of the game. No games, ROMs or game files are included here, and never
 will be.
 
-## What MeshGhost actually does, and what it leaves alone
+## How it fits together
 
-- **Your friends only appear visually, in most games.** Position, rotation, facing direction and animations cross over the wire online. A game whose mod is capable of or does more than just visual things will say so in its own README.
-- **Save files are safe and never touched.** To draw a ghost, MeshGhost works on a game's live memory — the place the game keeps what is on screen right now — while it runs, and might even temporarily patch things if needed for certain emulators. But your save, your game files and your ROMs are left exactly as they were afterwards, and closing the game wipes all of it. Uninstalling is as simple as just deleting the mod folder.
-- **Other players never learn your IP.** Everyone connects to the host's server instead of to each other, so your address only ever reaches that one machine — and the protocol has no field that could carry it further.
-- **The host sees as little as possible.** The server forwards your position without ever looking inside it. [security.md](security.md) has the full picture, including what a host *can* see.
-- **Archipelago support.** All adapters (games) will try to support and work alongside [Archipelago](https://archipelago.gg) mods whenever possible. Compatibility can be assumed unless something else is stated.
+You play your own copy of the game, on your own save, on your own machine. Beside it runs
+`meshghost.exe`, a small client that your game's mod starts and stops for you, and it is the only
+part that touches the network. One person in your group runs `meshghost-server.exe`, and everyone
+points their client at it.
+
+From there it is a loop: the client sends where you are, the server passes it to everyone in your
+room, and your game's mod turns what comes back into ghosts using whatever that game can draw. The
+client knows nothing about the game it runs beside, and the mod knows nothing about the network.
+That split is why the same two programs work behind a GBA emulator, a Unity game and an Unreal 5
+one.
+
+## What MeshGhost does, and what it touches
+
+- **Friends appear, and that is all they do.** Position, facing, animation and whatever cosmetic
+  detail each game's mod adds cross the wire. Everything else in your world stays yours, and a game
+  whose mod ever goes beyond cosmetics says so in its own README.
+- **Your save is never touched.** MeshGhost reads the game's live memory while it runs, the place
+  the game keeps what is on screen right now, and in Emerald it writes there too, into the slots
+  the engine uses for characters on screen, so a peer can be a real sprite the game walks and
+  occludes. Your save, your game files and your ROMs come out exactly as they went in, closing the
+  game clears the rest, and uninstalling is deleting the mod folder.
+- **Other players never learn your IP.** Everyone connects to the host's server instead of to each
+  other, so your address only ever reaches that one machine. The protocol has no field that could
+  carry it further.
+- **The host sees as little as possible.** The server forwards your position without ever looking
+  inside it. [security.md](security.md) has the full picture, including what a host *can* see.
+- **Archipelago and randomizers are fine.** No mod here ever patches a ROM or a game file, so
+  whatever seed you are playing is the seed you keep. Any game where that is not true says so in
+  its own README, and [Archipelago](https://archipelago.gg) compatibility is the default
+  expectation everywhere else.
 - **Your antivirus may flag `meshghost.exe`.** Expected, and [antivirus.md](antivirus.md) explains
   why and what you can check for yourself.
 
