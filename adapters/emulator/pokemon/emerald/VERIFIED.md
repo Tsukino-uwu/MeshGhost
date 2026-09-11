@@ -3929,3 +3929,82 @@ OAM tier writes real hardware sprite entries, and an OAM entry carries its own p
 so if the peer's palette is resident in any OBJ slot, that tier can point at it for free, with no
 painting and no new write surface beyond the OAM window already cleared. Whether May's palette is
 ever resident while the player is Brendan is unmeasured and is the question that decides it.
+
+## 2026-09-11 — the painted tier priced against CRYSTAL's, and the cost is 88% ours, not BizHawk's
+
+**Agent-measured on the Go/tooling side of the line, with one thing the user confirmed on screen:
+that the synthetic crowd was drawing around each character rather than in a corner.** The user's
+question started it: *"do we know why its demanding compared to crystal ?"* — and the answer that
+existed was a story, not a measurement.
+
+**THE LADDER.** `probes/fpshold.lua` (which reads no game memory, so the SAME instrument serves
+both games), 1800 samples a rung, player standing still, synthetic peers centred on the player,
+**indoors and nowhere near water** at the user's specific request. Emerald forced to the painted
+tier with `dev-scripts/force-drawn-emerald.lua`; Crystal needed nothing, its shipped configuration
+having been drawn-only since 2026-09-02.
+
+| painted | Emerald | Crystal |
+|---|---|---|
+| 0 (control) | 60.0 | 60.0 |
+| 16 | 60.0 (low 59) | 60.0 (low 60) |
+| 32 | **45.4** (low 41) | 60.0 (low 59) |
+| 64 | **19.5** (low 16) | **59.9** (low 59) |
+
+**Crystal is FLAT to 64 painted peers. Emerald loses two thirds of its frame rate.** Both idle at
+60.0 on the same machine, so the background (five emulators open) is measured, not assumed.
+Emerald's counts are verified from its own `drawn=` status line; Crystal has no equivalent
+counter, so its count rests on the user's on-screen confirmation plus every peer being within
++/-3 tiles of a player on a 20x18 screen.
+
+**WHERE THE TIME GOES** (`MESHGHOST_EMERALD_PROFILE`, 64 painted, verified `drawn=64`):
+
+```
+lua avg 55.6 ms, worst 99 ms | send 0.09  drain 3.60  sync 0.09  shadows 0.00  draw 51.49
+                             | passes/frame 63.4   runs/frame 7997
+```
+
+- **The painter is 94% of the adapter's frame.** Everything else is noise.
+- **63.4 passes for 64 ghosts — ONE pass each.** The "Emerald paints extra passes" theory is dead
+  for this scene; a reflection would have doubled it, and there is no water here.
+- **7,997 runs**, against 7,232 predicted from decoding the ROM's own frames offline. The data and
+  the live painter agree.
+- 51.5ms / 64 peers = **0.80 ms per painted ghost**, beside ~0.6 ms recorded independently
+  2026-08-20. Two sessions, two methods, same number.
+
+**AND THE PART THAT CHANGES WHAT TO DO ABOUT IT** (`probes/guicost_probe.lua`, adapter unloaded,
+the same 8,000 calls a frame the adapter issues):
+
+```
+8000 gui.drawLine(len 2) = 6.1 ms  (0.75 us each)
+8000 gui.drawPixel       = 5.0 ms  (0.62 us each)
+loop with no gui call    = 0.06 ms
+```
+
+**BizHawk's drawing is ~6 ms of the 51.5 ms. Twelve percent. The other 88% is MeshGhost's own
+code.** The painted tier is not expensive because painting is expensive — it is expensive because
+of what this adapter does around each paint. **That means headroom, not a floor:** if the
+surrounding work were free, 64 painted ghosts would cost about 6 ms and hold 60fps.
+
+**Why Crystal escapes it, stated as mechanism rather than as a guess.** Crystal issues ~6,000 calls
+(only 1.33x fewer, so call COUNT is not the difference) and its inner loop is four operations —
+flip arithmetic, a clamp, a colour lookup, a draw. Emerald's carries per-run dim-plus-additive-tint
+maths across three channels, panel-exclusion clipping, reflection inclusion-clipping, mirroring and
+scaling. Same drawing, different wrapper.
+
+**A REFUTED HYPOTHESIS, recorded because it was confidently wrong.** The first explanation offered
+was colour depth: Emerald decodes 4bpp (15 visible colours) against Crystal's 2bpp (3), so its rows
+should fragment into many more runs. Decoding both ROMs offline says **113 runs per frame against
+94** — 1.2x, not the 4-6x that story needed. Emerald's frame is also 2x the AREA but only 1.14x the
+opaque pixels (200 vs 176). **A 1.2x data difference cannot produce a 3x cost difference**, and
+chasing colour depth would have optimised the one thing that was already fine.
+
+**WHAT IS STILL OPEN, and it decides where a fix goes.** The profiler's `draw` section wraps the
+WHOLE painted tier, so per-PEER setup (occlusion spans, pose selection, cache lookups) is inside
+that 45 ms alongside the per-RUN loop — 0.7 ms per peer of non-drawing work. Splitting those two is
+the next measurement; they live in different functions and have different fixes.
+
+**Scope.** Vanilla Emerald indoors (map 1:2) and vanilla Crystal V1.1 in a town (map 24/4), one
+machine with five emulators open, synthetic peers from `meshghost-fakeadapter`, no movement, no
+water. Absolute numbers are depressed by the background and are NOT comparable with the
+2026-08-21 table; the Emerald-vs-Crystal comparison is, because both sides were measured minutes
+apart under identical load.

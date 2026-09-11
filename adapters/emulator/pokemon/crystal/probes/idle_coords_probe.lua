@@ -25,6 +25,15 @@ local CANDIDATES = {
 }
 local MAPGROUP, MAPNUMBER = 0xDCB5, 0xDCB6 -- vanilla layout A's pair; printed, never trusted alone
 
+-- THE OBJECT STRUCT IS WHAT THE WIRE ACTUALLY CARRIES, and it is NOT wXCoord/wYCoord.
+-- `getLocalState` builds `position` as {mapX, mapY, mapX*16, mapY*16} from the PLAYER'S OBJECT
+-- (slot 0 of OBJECT_STRUCTS, fields 0x10/0x11) -- four components, the last two in map pixels,
+-- and the painted tier draws from components 3 and 4. The wWhatever-Coord pair above is a
+-- different quantity with a different origin, so placing synthetic peers with it puts them at the
+-- map's top-left corner instead of around the player. Found on screen, 2026-09-11.
+local OBJECT_STRUCTS = 0xD4D6
+local F_MAP_X, F_MAP_Y = 0x10, 0x11
+
 -- LOGS TO A FILE as well as the console. `console.log` is a GUI append that nothing outside the
 -- emulator can read, and an instrument whose output only a human can see cannot be checked.
 -- Resolve this script's own directory rather than naming one: an absolute path here would be a
@@ -78,6 +87,11 @@ local function tick()
         end
         say("  (a stable pair of plausible tile values is the player; a drifting or "
             .. "out-of-range one is not this build's layout)")
+        local mx, my = u8(OBJECT_STRUCTS + F_MAP_X), u8(OBJECT_STRUCTS + F_MAP_Y)
+        say(string.format("  PLAYER OBJECT (what the wire carries): mapX=%d mapY=%d "
+            .. "-> position = {%d, %d, %d, %d}", mx, my, mx, my, mx * 16, my * 16))
+        say(string.format("  fakeadapter: -dims 4 -center \"%d,%d,%d,%d\"",
+            mx, my, mx * 16, my * 16))
     end
 end
 

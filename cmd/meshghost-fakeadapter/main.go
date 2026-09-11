@@ -54,6 +54,16 @@ import (
 type circleAdapter struct {
 	start         time.Time
 	radiusUnits   float64
+	// dimScale multiplies the circle offset PER COMPONENT. nil means the historical
+	// behaviour: components 0 and 1 circle, everything past them holds its center value.
+	//
+	// WHY IT EXISTS. A game may carry the SAME position twice at different scales -- Crystal
+	// sends {mapX, mapY, mapX*16, mapY*16}, tiles and map pixels, and its painted tier draws
+	// from the PIXEL pair. With the old behaviour those two held still, so every synthetic
+	// peer painted at one identical spot: 64 ghosts stacked on a single tile, which is both a
+	// useless load shape and against the house rule that no two test characters share a tile.
+	// This stays game-blind -- it says how far each component moves, not what any of them mean.
+	dimScale      []float64
 	periodSeconds float64
 	logInterval   time.Duration
 
@@ -201,9 +211,27 @@ func (a *circleAdapter) stateAt(elapsed time.Duration) (protocol.State, bool) {
 	// Circle in the first two components (the horizontal plane in both 3D
 	// games); any third component stays at its center value, so ghosts
 	// orbit at the height they were placed rather than corkscrewing.
-	pos[0] = a.center[0] + a.radiusUnits*math.Cos(angle)
-	if a.dims > 1 {
-		pos[1] = a.center[1] + a.radiusUnits*math.Sin(angle)
+	dx := a.radiusUnits * math.Cos(angle)
+	dy := a.radiusUnits * math.Sin(angle)
+	if len(a.dimScale) > 0 {
+		// Every component moves by the circle offset times its own scale, so a component that
+		// restates another at a different unit stays CONSISTENT with it instead of holding still.
+		for i := range pos {
+			sc := 0.0
+			if i < len(a.dimScale) {
+				sc = a.dimScale[i]
+			}
+			if i%2 == 0 {
+				pos[i] = a.center[i] + dx*sc
+			} else {
+				pos[i] = a.center[i] + dy*sc
+			}
+		}
+	} else {
+		pos[0] = a.center[0] + dx
+		if a.dims > 1 {
+			pos[1] = a.center[1] + dy
+		}
 	}
 
 	area := a.areaID
@@ -378,6 +406,13 @@ func main() {
 	clients := flag.Int("clients", 1, "how many independent synthetic peers to run in this process, "+
 		"each with its own Core and relay connection")
 	radius := flag.Float64("radius", 10, "circle radius in position units")
+	dimScale := flag.String("dim-scale", "",
+		"comma-separated multiplier PER POSITION COMPONENT for the circle offset, e.g. "+
+			"\"1,1,16,16\"  for a game that sends the same place as tiles AND as pixels "+
+			"(Crystal does: {mapX, mapY, mapX*16, mapY*16}, and its painted tier draws from the "+
+			"pixel pair). Empty (the default) keeps the historical behaviour: the first two "+
+			"components circle and the rest hold their center value -- which silently stacks "+
+			"every synthetic peer on one spot for any game that renders from a later pair")
 	overBridge := flag.Bool("bridge", false,
 		"drive each synthetic peer over a REAL bridge socket, the way a game does, instead of "+
 			"calling the core in-process. Off, this tool calls adapter.RenderRemote as a direct Go "+
@@ -506,6 +541,15 @@ func main() {
 	centerVec, err := parseCenter(*center, *dims)
 	if err != nil {
 		log.Fatalf("meshghost-fakeadapter: %v", err)
+	}
+	var dimScaleVec []float64
+	if *dimScale != "" {
+		// Reuses parseCenter deliberately: it is the same shape (a comma-separated vector of
+		// exactly -dims components) and a second parser would drift from the first.
+		dimScaleVec, err = parseCenter(*dimScale, *dims)
+		if err != nil {
+			log.Fatalf("meshghost-fakeadapter: -dim-scale: %v", err)
+		}
 	}
 	extras, err := loadExtras(*extrasSpec)
 	if err != nil {
@@ -674,6 +718,7 @@ func main() {
 		a := &circleAdapter{
 			start:         start,
 			radiusUnits:   *radius,
+			dimScale:      dimScaleVec,
 			periodSeconds: *period,
 			stopPeriod:    *stopEvery,
 			stopFraction:  *stopFor,

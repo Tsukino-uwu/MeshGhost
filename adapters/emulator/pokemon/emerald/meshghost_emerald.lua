@@ -2606,6 +2606,20 @@ function drawRunList(runs, frameWidth, hFlip, screenX, screenY, panelRows, dim, 
     -- vanished entirely, and the "gap" lines it produced were the error's shadow. The fourth bite
     -- of the forward-reference trap this file documents.
     MG_DRAWN_CALLS = (MG_DRAWN_CALLS or 0) + 1
+    -- UNDER THE PROFILE FLAG ONLY: how many PASSES this frame, and how many RUNS they carry.
+    -- The section timer says the painter is 94% of the frame; it cannot say whether that is many
+    -- cheap calls or few expensive ones, and those have different fixes. Counting is the cheapest
+    -- instrument that tells them apart -- two adds, and only when the flag is on.
+    -- BARE GLOBALS, for the same reason MG_DRAWN_CALLS above is one: `tiering` is a file-scope
+    -- local declared ~480 lines BELOW this function, so naming it here reads a nil global and
+    -- every paint RAISES -- swallowed by the frame guard, so the drawn tier silently renders
+    -- nothing and the log says "unrendered" with no error anywhere. That is exactly what happened
+    -- when this counter was first written (2026-09-11), the sixth bite of the trap this file
+    -- documents, and the second one in a single day.
+    if MESHGHOST_EMERALD_PROFILE then
+        MG_DRAWN_PASSES = (MG_DRAWN_PASSES or 0) + 1
+        MG_DRAWN_RUNS = (MG_DRAWN_RUNS or 0) + #runs
+    end
     for i = 1, #runs do
         local r = runs[i]
         local color = r.color
@@ -11763,13 +11777,23 @@ local function guardedFrame()
         if frameErrors.profN >= 300 then
             -- Sections, so a number has a name. Accumulated inside runFrame under the same flag.
             local p = tiering.prof or {}
-            console.log(string.format(
+            -- TO THE LOG FILE AS WELL AS THE CONSOLE (2026-09-11). console.log is a GUI append
+            -- that only a person sitting at the emulator can read, so the one instrument that can
+            -- ATTRIBUTE this tier's cost could not be collected by anything automated -- which is
+            -- how a tier-cost question got answered with reasoning instead of measurement.
+            local profLine = string.format(
                 "MeshGhost PROFILE: lua avg %.3f ms, worst %.1f ms | send %.3f drain %.3f sync %.3f shadows %.3f draw %.3f (ms avg)",
                 frameErrors.profSum / frameErrors.profN * 1000, (frameErrors.profMax or 0) * 1000,
                 (p.send or 0) / frameErrors.profN * 1000, (p.drain or 0) / frameErrors.profN * 1000,
                 (p.sync or 0) / frameErrors.profN * 1000, (p.shadows or 0) / frameErrors.profN * 1000,
-                (p.draw or 0) / frameErrors.profN * 1000))
+                (p.draw or 0) / frameErrors.profN * 1000)
+                .. string.format(" | passes/frame %.1f runs/frame %.0f",
+                    (MG_DRAWN_PASSES or 0) / frameErrors.profN,
+                    (MG_DRAWN_RUNS or 0) / frameErrors.profN)
+            console.log(profLine)
+            logFile(profLine)
             frameErrors.profSum, frameErrors.profN, frameErrors.profMax = 0, 0, 0
+            MG_DRAWN_PASSES, MG_DRAWN_RUNS = 0, 0
             tiering.prof = {}
         end
     end
