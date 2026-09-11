@@ -152,7 +152,12 @@ local function stillOverworld()
     -- overworld" on the very first frame of every run on that build and reported NOT MEASURED --
     -- three times, each looking like the player was somewhere awkward rather than like the gate
     -- being wrong.
-    if cb2 ~= CB2_OVERWORLD_ADDR and cb2 ~= CB2_OVERWORLD_ADDR + 1
+    -- On a build whose gMain has MOVED, this address is not the callback at all and can only ever
+    -- answer "no" -- EX SPEEDCHOICE 0.4.0 reads E0999086 here. A reading that is not even a code
+    -- pointer means the test is unavailable, not that the game left the field, so fall through to
+    -- the adapter's own fallback: a live player object event.
+    if cb2 >= 0x08000000 and cb2 < 0x0A000000
+        and cb2 ~= CB2_OVERWORLD_ADDR and cb2 ~= CB2_OVERWORLD_ADDR + 1
         and cb2 ~= CB2_OVERWORLD_ARCHIPELAGO_ADDR
         and cb2 ~= CB2_OVERWORLD_ARCHIPELAGO_ADDR + 1
         and cb2 ~= 0x080864d4 and cb2 ~= 0x080864d5 then
@@ -193,6 +198,10 @@ MESHGHOST_DEV_TICK = function()
         -- "no player object event at either known base" forever on that build.
         elseif playerObjEventExistsAt(GOBJECTEVENTS_ADDR + 0xA4) then
             avatarOffset = 0xA4
+        -- EX SPEEDCHOICE 0.4.0, +0xC80 (objevents_walk_probe.lua, 2026-09-11: of six structural
+        -- candidates exactly one tracked the player across all 16 steps).
+        elseif playerObjEventExistsAt(GOBJECTEVENTS_ADDR + 0xC80) then
+            avatarOffset = 0xC80
         else
             if frames % 300 == 0 then
                 log("waiting: no player object event at either known gObjectEvents base "

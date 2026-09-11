@@ -143,7 +143,29 @@ if type(memory.getmemorydomainsize) == "function" then
     end
 end
 if not romSize then
-    romSize, romSizeSource = ROM_BOUND_FALLBACK, "FALLBACK (host did not report a ROM size)"
+    -- **MEASURE IT RATHER THAN ASSUME 16MB (2026-09-11).** This host's core does not answer
+    -- getmemorydomainsize, and the 16MB fallback is exactly half of a 32MB cartridge -- EX
+    -- SPEEDCHOICE 0.4.0 is one, so every search below would have quietly covered half the ROM and
+    -- reported "not found" for anything in the upper half. A search that silently narrows its own
+    -- haystack is worse than one that fails.
+    --
+    -- GBA cartridge space MIRRORS: on a 16MB ROM, 0x09000000 reads back the same bytes as
+    -- 0x08000000. So sample both halves at several offsets -- if any pair differs, the upper half
+    -- is real data and the cart is 32MB. Bytes that are all 00 or all FF are ignored as unmapped.
+    local upperIsReal = false
+    for _, off in ipairs({ 0x4, 0x1000, 0x40000, 0x200000, 0x700000, 0xA00000, 0xF00000 }) do
+        local lo = memory.read_u32_le(0x08000000 + off)
+        local hi = memory.read_u32_le(0x09000000 + off)
+        if hi ~= lo and hi ~= 0 and hi ~= 0xFFFFFFFF then
+            upperIsReal = true
+            break
+        end
+    end
+    if upperIsReal then
+        romSize, romSizeSource = 0x2000000, "MEASURED by half-mirror comparison (32MB cart)"
+    else
+        romSize, romSizeSource = ROM_BOUND_FALLBACK, "FALLBACK, upper half mirrors the lower (16MB)"
+    end
 end
 if romSize > 0x2000000 then romSize = 0x2000000 end
 local ROM_END = V.romBase + romSize

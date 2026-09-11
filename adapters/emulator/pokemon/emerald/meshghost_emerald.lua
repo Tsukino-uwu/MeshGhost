@@ -158,6 +158,26 @@ local CB2_OVERWORLD_ARCHIPELAGO_ADDR = 0x080867f1
 
 local function inOverworld()
     local callback2 = memory.read_u32_le(GMAIN_CALLBACK2_ADDR)
+    -- **WHEN gMain ITSELF HAS MOVED, THIS TEST CANNOT BE ASKED (2026-09-11).** Every entry point
+    -- below is a code address, so a plausible reading is always in ROM. EX SPEEDCHOICE 0.4.0 reads
+    -- E0999086 here -- not a pointer at all, because its IWRAM is relocated and gMain is not where
+    -- this looks. Comparing garbage against three known constants can only ever answer "no", and
+    -- the adapter would then never send or render on that build.
+    --
+    -- The fallback is a different question with the same answer: does the PLAYER'S OBJECT EVENT
+    -- exist and hold a plausible tile? The object event system only runs in the field, so a live
+    -- player entry is itself evidence of being in the overworld -- weaker than reading the
+    -- callback (it cannot tell a paused field state from a running one), and used only where the
+    -- stronger test is unavailable.
+    --
+    -- Through a GLOBAL, and deliberately: `playerObjEventExistsAt` and `avatarAddrOffset` are
+    -- file-scope locals declared ~250 lines BELOW this function, so naming them here would compile
+    -- to nil globals and throw on the first frame -- the forward-reference trap this file
+    -- documents, which bit six times on 2026-09-11 alone. The global is assigned at load time, at
+    -- the definition site, so by the time any frame runs it is there.
+    if callback2 < 0x08000000 or callback2 >= 0x0A000000 then
+        return MG_FIELD_FALLBACK ~= nil and MG_FIELD_FALLBACK()
+    end
     return callback2 == CB2_OVERWORLD_ADDR or callback2 == CB2_OVERWORLD_ADDR + 1
         or callback2 == CB2_OVERWORLD_ARCHIPELAGO_ADDR or callback2 == CB2_OVERWORLD_ARCHIPELAGO_ADDR + 1
         or callback2 == 0x080864d4 or callback2 == 0x080864d5 -- SPEEDCHOICE 1.2.2
@@ -361,6 +381,27 @@ local function detectSpriteAddrOffset()
         console.log("MeshGhost: sprite data found at the known SPEEDCHOICE-shifted ROM address.")
         return 0x6408
     end
+    -- EX SPEEDCHOICE 0.4.0: +0x1E6DBC, from romvariant_probe RESOLVING the graphics table at
+    -- 0x086EC3DC with 95 of 96 entries validating as ObjectEventGraphicsInfo. Note this build is a
+    -- 32MB cartridge and that scan only found it because the probe now MEASURES the ROM bound by
+    -- half-mirror comparison -- its old 16MB fallback was exactly half of this ROM, so the table
+    -- sat in the half it never looked at.
+    -- **EX SPEEDCHOICE MOVES ITS SPRITE DATA AND ITS GRAPHICS TABLE BY DIFFERENT AMOUNTS**, which
+    -- is why this build needs two offsets where every other one needs a single shift. Sprite data
+    -- (pic + palette) is +0x9CB78; the graphics-info table is +0x1E6DBC. Assuming one shift for
+    -- both is what made the first attempt report "sprite data not found" while the table had
+    -- already been RESOLVED at 95/96 entries.
+    --
+    -- Measured offline against the ROM files rather than in the emulator, because it is a question
+    -- about cartridge bytes: vanilla's 32-byte Brendan palette appears three times in this ROM, and
+    -- vanilla's first 256-byte sprite frame appears exactly ONCE -- at 0x08534170, with one of those
+    -- three palettes sitting 0x1200 past it, which is the same gap the two have in vanilla. One
+    -- pair, two independent signatures, no judgement call.
+    if bytesMatchAt(GOBJECTEVENTPAL_BRENDAN_ADDR + 0x9CB78, BRENDAN_PAL_REF_BYTES) then
+        console.log("MeshGhost: sprite data found at the known EX SPEEDCHOICE-shifted ROM address.")
+        genderFrames.tableOffset = 0x1E6DBC
+        return 0x9CB78
+    end
     console.log("MeshGhost: WARNING -- Brendan/May sprite data not found at the vanilla address "
         .. "or the known Archipelago-shifted address. Falling back to vanilla addresses, but "
         .. "the decoded sprite is likely wrong on this ROM.")
@@ -422,6 +463,12 @@ local avatarAddrOffset = 0
 
 local avatarAddrConfirmed = false
 
+-- The field fallback inOverworld() uses when gMain has moved (see its comment). Assigned here
+-- rather than declared up there because both names it needs are locals of this part of the file.
+MG_FIELD_FALLBACK = function()
+    return avatarAddrConfirmed and playerObjEventExistsAt(GOBJECTEVENTS_ADDR + avatarAddrOffset)
+end
+
 local function tryDetectAvatarAddrOffset()
     if playerObjEventExistsAt(GOBJECTEVENTS_ADDR) then
         console.log("MeshGhost: gObjectEvents/gPlayerAvatar found at the vanilla ROM address.")
@@ -439,6 +486,24 @@ local function tryDetectAvatarAddrOffset()
         console.log("MeshGhost: gObjectEvents/gPlayerAvatar found at the known SPEEDCHOICE-shifted address.")
         avatarAddrOffset = 0xA4
         genderFrames.spriteAddrOffset = 0x4 -- gSprites, measured by gsprites_scan_probe.lua
+        avatarAddrConfirmed = true
+        return
+    end
+    -- EX SPEEDCHOICE 0.4.0 ("SPDX"), +0xC80. Measured by `probes/objevents_walk_probe.lua`, which
+    -- had to exist because the trick that decided SPEEDCHOICE does not work here: that one compares
+    -- each candidate against the SAVE BLOCK's tile, and on this build the whole of IWRAM moved --
+    -- 0x03005D8C reads FDFDFFFF and gMain.callback2 reads E0999086, neither a pointer. So the
+    -- candidate was picked by WALKING instead: of six survivors from romvariant_probe's structural
+    -- search, exactly one tracked the player for all 16 steps (four out and four back on each
+    -- axis). romvariant_probe independently put gPlayerAvatar at 0x02038210, which is +0xC80 from
+    -- its vanilla address too.
+    if playerObjEventExistsAt(GOBJECTEVENTS_ADDR + 0xC80) then
+        console.log("MeshGhost: gObjectEvents/gPlayerAvatar found at the known EX SPEEDCHOICE-shifted address.")
+        avatarAddrOffset = 0xC80
+        -- gSprites, +0x20, measured by gsprites_scan_probe.lua: EWRAM narrowed to one candidate by
+        -- cross-link, then the player WALKED 12 steps and the sprite tracked it on both axes.
+        genderFrames.spriteAddrOffset = 0x20
+        genderFrames.iwramOffset = -0x10E0 -- gSaveBlock1Ptr/2Ptr, see session.saveBlockPtr
         avatarAddrConfirmed = true
         return
     end
@@ -1371,7 +1436,14 @@ local session = { live = false, ended = false }
 -- file's 200-local ceiling, and `session` is declared above every caller (the forward-reference
 -- trap, five bites and counting).
 session.saveBlockPtr = function(addr)
-    local ptr = memory.read_u32_le(addr)
+    -- **THE IWRAM SHIFT IS APPLIED HERE, so all ten deref sites get it without knowing about it.**
+    -- EX SPEEDCHOICE 0.4.0 relocates IWRAM: gSaveBlock1Ptr sits at 0x03004CAC, -0x10E0 from its
+    -- vanilla address, with gSaveBlock2Ptr adjacent at +4 exactly as in vanilla. Found by
+    -- `probes/saveblock_find_probe.lua` (every word-aligned IWRAM slot holding an EWRAM pointer
+    -- whose target's first two halfwords are the player's tile, then WALKED to see which survived)
+    -- and disambiguated by `probes/saveblock_pair_probe.lua` -- two slots pointed at the same
+    -- struct, and only one has a second save-block pointer beside it.
+    local ptr = memory.read_u32_le(addr + (genderFrames.iwramOffset or 0))
     if ptr >= 0x02000000 and ptr < 0x02040000 then return ptr end
     if ptr ~= 0 and not session.badPtrLogged then
         session.badPtrLogged = true
@@ -2914,6 +2986,11 @@ local COMPARE_TIERS = (MESHGHOST_COMPARE_TIERS or os.getenv("MESHGHOST_COMPARE_T
 local MAX_SPRITES = 64
 local MAP_OFFSET = 7
 
+-- **THE CAMERA BLOCK DOES NOT TAKE THE SAVE-BLOCK POINTER'S SHIFT, tried and reverted
+-- 2026-09-11.** On EX SPEEDCHOICE 0.4.0 these read camOff=(-1030,-1286) where vanilla reads
+-- something like (-48,0), so they are clearly relocated on that build -- but applying the save
+-- block's -0x10E0 made it worse, not better (the player's own tile went to (0,0)). IWRAM did not
+-- move as one piece there; each block needs finding on its own, and none of this is measured yet.
 local GFIELDCAMERA_X_ADDR = 0x03005de0
 local GFIELDCAMERA_Y_ADDR = 0x03005de4
 local GTOTALCAMERAPIXELOFFSETY_ADDR = 0x03005de8
@@ -3048,7 +3125,11 @@ local function graphicsInfo(graphicsId)
     end
     -- The Archipelago-shifted ROM offset, or 0 on vanilla -- see loadGenderFrames(). Without it
     -- this table read lands on the old, abandoned address and every lookup fails.
-    local ptr = r32(GOBJECTEVENTGRAPHICSINFOPOINTERS_ADDR + (genderFrames.romOffset or 0)
+    -- `tableOffset` where a build moves the graphics table independently of the sprite data (EX
+    -- SPEEDCHOICE does; every other known build does not, and there this falls back to the
+    -- same shift as before).
+    local ptr = r32(GOBJECTEVENTGRAPHICSINFOPOINTERS_ADDR
+        + (genderFrames.tableOffset or genderFrames.romOffset or 0)
         + graphicsId * 4)
     if not isRomPtr(ptr) then return nil end
     local size = r16(ptr + 0x06)
