@@ -24,6 +24,7 @@ never referenced from anywhere. Added 2026-08-25.
 | [phase9.md](phase9.md) | Fourth game: Pokémon Crystal (GBC) — the first **spawned** ghost rather than a drawn one. | Live — Crystal's whole log |
 | [phase10.md](phase10.md) | The online stack: relay, client core, protocol, transports — one component log for the whole Go side, backfilled to the repo's start. | Live — the Go side's whole log |
 | [phase11.md](phase11.md) | Replays: recording, playback ghosts, the chaser pack, system-wide hotkeys, split times — Go-side feature work (ADRs 0047, 0048). | Live — planned 2026-09-03 |
+| [phase12.md](phase12.md) | Delivery: packaging, the release pipeline, CI and the gates — one component log for what ships and what checks. | Live — created 2026-09-11 |
 
 **Frozen is not "done" (the user's call, 2026-09-06).** The six early files mixed the server, the
 client and Emerald together before each stream had a log of its own; their work continues in phases
@@ -42,16 +43,56 @@ that did not warrant its own integer.
 
 **A phase file is the COMPLETE running log of its adapter, appended EVERY SESSION** — the user's
 call, 2026-09-01 and again 2026-09-02, when every live log had become a catch-up summary written after
-the fact ("Catch-up record, written 2026-09-01 — the active phase's missing week"). Before a session ends, append a dated entry to the active
-phase file: what was tried, what happened, what the user said, and links to the VERIFIED, UNVERIFIED
-and pitfalls entries it produced. Facts and lessons still live in their records; this is the timeline
-that ties them together. **Never split a phase file, and never edit a past entry** — append a dated
-correction. `dev-scripts/preflight.ps1`'s "Phase log freshness" fails a live log once its adapter has
-three commits the log does not mention, so the check catches the missed session, not the missed week.
+the fact ("Catch-up record, written 2026-09-01 — the active phase's missing week"). Append a dated entry
+to the active phase file: what was tried, what happened, what the user said, and links to the VERIFIED,
+UNVERIFIED and pitfalls entries it produced. Facts and lessons still live in their records; this is the
+timeline that ties them together. **Never split a phase file, and never edit a past entry** — append a
+dated correction.
+
+**WHEN to append: as soon as a result lands, and never later than the session's end (the user,
+2026-09-11).** The original rule said only "before a session ends", and **a session may not get an
+end** — a chat can be abandoned, interrupted or replaced mid-work, so a trigger that fires only on a
+clean finish is a trigger that sometimes never fires. A result is a confirmation, a fix, a
+measurement, or a theory refuted; that moment always arrives, because it is the moment you commit.
+**This is NOT "an entry per commit"** — most commits are intermediate steps in one result, and an
+entry for each would make this file a second copy of the commit log, burying the entries that matter
+under the ones that do not.
+
+**What saves you when a session ends badly is the COMMIT MESSAGE**, so write it as though it is the
+only record — in this repo it often is. Proved 2026-09-11: five unlogged days across four adapters
+were reconstructed into real entries from their commit messages alone, by an agent present for none
+of them. The substance survives an abrupt ending; only the index is lost, and the index is
+recoverable. That is the whole reason the gates below can be a safety net rather than a rescue.
+
+**Two gates, on different axes** (`dev-scripts/preflight.ps1`): "Phase log freshness" fails a live
+log once its adapter has three commits the log does not mention — it catches *you have stopped
+writing*. "Phase log coverage" fails a date on which an adapter changed with no entry claiming it —
+it catches *this specific day was never written*, which freshness structurally cannot see, because a
+one-commit day never reaches three and the counter resets whenever the file is touched for any other
+reason. Every gap found in the 2026-09-11 audit was a one- or two-commit day, including six that
+postdated the freshness gate.
+
+**A ONE-LINE POINTER IS A COMPLETE ENTRY.** Written down 2026-09-11, because a coverage gate without
+this pushes whoever hits it into retelling a repo-wide sweep in five files, which is worse than the
+gap — it buries the real entries in churn. Both of these fully satisfy the rule:
+
+- **A pointer**, when the day's work is genuinely logged elsewhere: *"2026-09-04 — pointer: the
+  day's three commits are logged in [phase9.md](phase9.md)"*. Most gaps are this shape, because the
+  cause is nearly always one commit touching several adapter trees while only one phase file gets
+  written (TCP_NODELAY touched four; the bridge-port config touched all four).
+- **One heading absorbing several incidental dates**, for repo-wide sweeps that changed an adapter's
+  files without a session happening: *"Repo-wide sweeps that touched this adapter's files —
+  2026-08-19, 2026-08-21, 2026-08-25"*. Spell the dates in full so a date-aware reader finds them.
+
+**Put the date in the section heading, in full.** A date mentioned only in a body is reachable by
+reading the file and by nothing else — which is how Fly came to look absent from Emerald's own phase
+file while being documented inside it (2026-09-11). Sections that legitimately carry their dates
+inline — a `## Tasks` checklist, an early phase's topic sections — are exempt and the coverage gate
+skips them.
 
 **Go-side (core/relay/protocol/transport) work logs in [phase10.md](phase10.md)** — created
 2026-09-01 on the user's call, the same way Emerald got its own file (phase 8) after being built
 mixed into phases 1-5.5. ONE file for server and client together, deliberately: nearly every
 Go-side event spans both, so two files would double-write or file arbitrarily. It is the
 timeline; the detail stays in the ADRs and the topic docs it points at. **Phase 11 became the
-replay work on 2026-09-03 (feature-sized Go-side work gets its own log); the fifth game takes 12.**
+replay work on 2026-09-03 and Phase 12 the delivery pipeline on 2026-09-11 (feature-sized and component-sized work each get their own log); the fifth game takes 13 onward.**

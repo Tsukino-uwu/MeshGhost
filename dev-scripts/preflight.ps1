@@ -1959,6 +1959,15 @@ $phaseMap = [ordered]@{
     # count against BOTH files and neither count would mean anything. These are the replay files.
     'agent_docs/phases/phase11.md' = @('core/replay.go', 'core/replaycontrol.go', 'core/replayinputs.go',
                                        'core/recorder.go', 'core/inputrecorder.go', 'core/chaser.go')
+    # phase12 (created 2026-09-11) is delivery: what ships and what checks. The 2026-09-11 audit
+    # found ~195 commits of release/CI/packaging work owned by no phase file at all. Deliberately
+    # NOT listing 'packaging' -- almost every packaging commit is a deployed DLL riding along with
+    # an adapter session already logged in phase6/7/8/9, so it would count against two files and
+    # neither count would mean anything (the same reasoning as phase11 vs phase10 above). These are
+    # the files that only change when delivery itself changes.
+    'agent_docs/phases/phase12.md' = @('.github/workflows', '.githooks', 'dev-scripts/release.ps1',
+                                       'dev-scripts/stage-release.ps1', 'dev-scripts/preflight.ps1',
+                                       'dev-scripts/negative-test-preflight.ps1', 'docs')
 }
 $phaseLagMax = 3
 $phaseStale = @()
@@ -1977,6 +1986,88 @@ if ($phaseStale.Count -gt 0) {
     $phaseStale | ForEach-Object { Write-Host "          $_" }
 } else {
     Report-Pass "every live phase log is within $phaseLagMax adapter commits of its last entry"
+}
+
+# ---------------------------------------------------------------------------
+Section "Phase log coverage"
+
+# The SECOND axis, added 2026-09-11. Freshness above counts commits since the phase file was last
+# touched, which is a BACKLOG -- and a backlog can be cleared by writing about something else. A
+# one-commit day never reaches $phaseLagMax on its own, and the counter resets the moment the file
+# is touched for any other reason, so that day becomes permanently invisible. Every gap the
+# 2026-09-11 audit found was a one- or two-commit day, and SIX of them postdated the freshness
+# gate. Freshness catches "you have stopped writing"; this catches "this specific day was never
+# written".
+#
+# Granularity is per-DATE, not per-commit, because that is the rule the repo actually has: a
+# session is roughly a day. Measured before choosing it -- only 21-29% of adapter commits touch
+# their phase file in the same commit, so a per-commit gate would fail three quarters of commits
+# and be WRONG to, since most commits are intermediate steps in one result.
+#
+# A date is covered when it appears IN A SECTION HEADING, in full (2026-MM-DD). A date mentioned
+# only in a body is reachable by reading the file and by nothing else, which is exactly how Fly
+# came to look absent from Emerald's own phase file while being documented inside it. The range
+# form "2026-08-19/20" counts for both days.
+#
+# EXEMPTION, and it is load-bearing: sections that carry their dates inline rather than in the
+# heading -- a "## Tasks" checklist, an early phase's topic sections -- are legitimate and predate
+# this convention. Rather than special-case headings, this only checks dates from $phaseCoverFrom
+# onward, the day the complete-running-log rule was set (2026-09-02, the user's call). Founding
+# work in a Tasks section is older than the rule and is not retro-failed by it.
+$phaseCoverFloor = '2026-09-02'
+$phaseUncovered = @()
+foreach ($pf in $phaseMap.Keys) {
+    if (-not (Test-Path -LiteralPath $pf)) { continue }
+    $text = [IO.File]::ReadAllText((Join-Path $root $pf))
+    $covered = @{}
+    foreach ($line in ($text -split "`r?`n")) {
+        if ($line -notmatch '^#{2,3}\s') { continue }
+        foreach ($m in [regex]::Matches($line, '(20\d\d)-(\d\d)-(\d\d)(?:/(\d\d))?')) {
+            $covered["$($m.Groups[1].Value)-$($m.Groups[2].Value)-$($m.Groups[3].Value)"] = $true
+            if ($m.Groups[4].Success) { $covered["$($m.Groups[1].Value)-$($m.Groups[2].Value)-$($m.Groups[4].Value)"] = $true }
+        }
+    }
+    # START from this file's FIRST dated heading, floored at the day the rule was set. A component
+    # log opens with a "Backfill" bullet list compressing everything before it existed (phase10 and
+    # phase12 both do), and that is the correct form for pre-creation history -- so requiring dated
+    # headings there would fail a file for obeying its own convention. The first dated heading is
+    # exactly the line where the file starts being a running log, and it needs no maintenance.
+    # A file with no dated heading yet (a log created today) has nothing to check.
+    if ($covered.Count -eq 0) { continue }
+    $start = ($covered.Keys | Sort-Object)[0]
+    if ([string]::Compare($start, $phaseCoverFloor) -lt 0) { $start = $phaseCoverFloor }
+    $dateArgs = @('log', '--no-merges', '--date=short', '--format=%ad', "--since=$start") +
+                @('--') + $phaseMap[$pf]
+    $dates = @(& git @dateArgs | Sort-Object -Unique)
+    foreach ($d in $dates) {
+        if ($covered.ContainsKey($d)) { continue }
+        # Name the sibling: the dominant cause is ONE commit touching several trees while only one
+        # phase file gets written, so the fix is nearly always a pointer line copied from the file
+        # that DID get the entry. Handing over which file that is turns archaeology into a paste.
+        # It must be a file that shares the actual COMMITS -- "was also touched that day" names an
+        # unrelated file and sends the reader somewhere useless.
+        $mine = @(& git @(@('log', '--no-merges', '--format=%H', "--since=$d 00:00", "--until=$d 23:59", '--') + $phaseMap[$pf]))
+        $sibling = ''
+        foreach ($other in $phaseMap.Keys) {
+            if ($other -eq $pf) { continue }
+            $theirs = @(& git @(@('log', '--no-merges', '--format=%H', "--since=$d 00:00", "--until=$d 23:59", '--') + $phaseMap[$other]))
+            $shared = @($mine | Where-Object { $theirs -contains $_ })
+            if ($shared.Count -eq 0) { continue }
+            # ...and that file must actually CLAIM the day, or it is no better off than this one.
+            $otherText = [IO.File]::ReadAllText((Join-Path $root $other))
+            if (($otherText -split "`r?`n" | Where-Object { $_ -match '^#{2,3}\s' -and $_ -match [regex]::Escape($d) }).Count -gt 0) {
+                $sibling = " -- $($shared.Count) of those commit(s) are logged in $(Split-Path $other -Leaf); a pointer line is enough"
+                break
+            }
+        }
+        $phaseUncovered += "$pf -- $d changed $($phaseMap[$pf][0]) with no dated heading claiming it$sibling"
+    }
+}
+if ($phaseUncovered.Count -gt 0) {
+    Report-Fail "$($phaseUncovered.Count) date(s) where a phase file's tree changed and no section heading claims the day -- A ONE-LINE POINTER IS A COMPLETE ENTRY (agent_docs/phases/README.md):"
+    $phaseUncovered | Select-Object -First 15 | ForEach-Object { Write-Host "          $_" }
+} else {
+    Report-Pass "every date since $phaseCoverFloor on which a live phase file's tree changed is claimed by a dated heading ($($phaseMap.Count) log(s))"
 }
 
 # ---------------------------------------------------------------------------

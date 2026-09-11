@@ -12,7 +12,9 @@ be built at once and the project's shape was not yet settled (the user's own acc
 event here spans both (a relay queue exists because of client stalls; a protocol default is
 inherited by both ends), so two files would write most entries twice or file them arbitrarily.
 **Phase 11 is the replay work (2026-09-03, its own log because it is feature-sized); the fifth
-game takes 12 onward.**
+game takes 13 onward** (12 became the delivery pipeline — packaging, releases, CI and the gates —
+on 2026-09-11; see [phase12.md](phase12.md) for the line between it and this file: **phase 10 is
+what runs, phase 12 is what ships and what checks**).
 
 Unlike the adapter phases this is a **component log, not a bounded stretch of work** — it has no
 "done". One dated entry per session or feature, appended in the same pass that closes the work
