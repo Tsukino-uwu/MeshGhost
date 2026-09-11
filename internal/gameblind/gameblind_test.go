@@ -276,8 +276,20 @@ var frozenProtocolFields = map[string][]string{
 	// sample as a delta of the SAME opaque fields, built and undone by protocol.BuildPrev/ApplyPrev
 	// without reading any of them. The core learns nothing new from it -- it fills a hole in a
 	// buffer of samples it already treats as opaque.
-	"State":    {"anim", "area_id", "extras", "orientation", "player_id", "position", "prev", "seq", "timestamp"},
-	"Envelope": {"payload", "type"},
+	"State": {"anim", "area_id", "extras", "orientation", "player_id", "position", "prev", "seq", "timestamp"},
+	// StatePrev is a DELTA of a State against the State carrying it (ADR 0045's
+	// loss cover), and it qualifies for exactly the reason State does: every
+	// field here is one of State's own, or a flag saying that field was absent.
+	// `position_none` and `extras_none` exist because an omitted field and a
+	// field that was genuinely empty are different facts and JSON cannot tell
+	// them apart -- which is a statement about the encoding, not about a game.
+	//
+	// It was NOT in this gate until 2026-09-11 (review J9): nine peer-controlled
+	// fields, reconstructed into a State and handed to an adapter, with nothing
+	// watching what they were. The test that found it -- and that will find the
+	// next one -- is TestEveryWireShapeIsCoveredByTheFrozenGate.
+	"StatePrev": {"anim", "area_id", "extras", "extras_none", "orientation", "position", "position_none", "seq", "timestamp"},
+	"Envelope":  {"payload", "type"},
 	// own_area_only (2026-08-28) qualifies under the SECOND test above: it is a bare bool
 	// asking the relay to compare two area_ids for equality and forward accordingly. The relay
 	// learns nothing about what an area is, exactly as it learns nothing from area_id itself --
@@ -439,7 +451,8 @@ func jsonFields(v any) []string {
 // updated -- the gate that makes contract creep a decision instead of a drift.
 func TestWireFieldsAreFrozen(t *testing.T) {
 	protocolSamples := map[string]any{
-		"State": protocol.State{}, "Envelope": protocol.Envelope{}, "Hello": protocol.Hello{},
+		"State": protocol.State{}, "StatePrev": protocol.StatePrev{},
+		"Envelope": protocol.Envelope{}, "Hello": protocol.Hello{},
 		"Welcome": protocol.Welcome{}, "Reject": protocol.Reject{}, "Join": protocol.Join{},
 		"Nametag": protocol.Nametag{},
 		"Leave":   protocol.Leave{}, "Event": protocol.Event{}, "Ping": protocol.Ping{},

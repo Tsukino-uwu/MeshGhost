@@ -481,6 +481,13 @@ namespace MeshGhostPseudo
     // game_version actually catches it if a peer is still running the pre-cleanup build -- exactly
     // the failure mode this field exists to catch (two peers on genuinely different revisions both
     // reporting the old version, silently).
+    // The oldest relay protocol version this adapter will work with -- ADR 0059. Sent in the
+    // hello; the CORE does the comparing. 2 is the STARTING floor, set by hand 2026-09-11 (the user): the same move the wire floor made on
+    // 2026-09-08 -- break what came before once, so there is a floor to reason from -- applied per
+    // adapter. It sits here until the maintainer raises it, and it is never raised automatically.
+    // ADR 0059.
+    constexpr const char* MIN_RELAY_PROTOCOL_FIELD = "\"min_protocol_version\":2";
+
     constexpr auto ADAPTER_VERSION = "phase7.7";
     constexpr auto BRIDGE_HOST = "127.0.0.1";
     // The port is no longer a constant here: BridgeClient walks BRIDGE_BASE_PORT upward looking
@@ -27601,8 +27608,12 @@ namespace MeshGhostPseudo
             // it off the core never scans for a track and the bridge carries no remote_input.
             // Confirm the opt-in took from the CORE log ("adapter asked for input tracks").
             const char* want_input_tracks = INPUT_HISTORY_DISPLAY ? ",\"input_tracks\":true" : "";
+            // MIN_RELAY_PROTOCOL is the STARTING floor, set by hand 2026-09-11 (the user): the same move the wire floor made on
+            // 2026-09-08 -- break what came before once, so there is a floor to reason from -- applied per
+            // adapter. It sits here until the maintainer raises it, and it is never raised automatically.
+            // ADR 0059.
             std::string hello = std::string("{\"type\":\"hello\",\"payload\":{\"game_id\":\"") + GAME_ID +
-                "\",\"game_version\":\"" + ADAPTER_VERSION + "\"" + want_orient_bracket + want_input_tracks + "}}";
+                "\",\"game_version\":\"" + ADAPTER_VERSION + "\"," + MIN_RELAY_PROTOCOL_FIELD + want_orient_bracket + want_input_tracks + "}}";
             Output::send(STR("[MeshGhostPseudo] HELLO {}\n"), to_wide_ascii(hello));
             if (bridge->send_line(hello))
             {

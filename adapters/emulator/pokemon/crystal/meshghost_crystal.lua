@@ -9658,7 +9658,12 @@ local function tryPort(port)
 	-- unmeasured there is nothing to replace the core's filter with, and taking it away would be
 	-- a straight regression -- the adapter's own gate would still hide the peers, but the core
 	-- would be shipping states across the bridge for nothing.
+	-- min_protocol_version is the STARTING floor, set by hand 2026-09-11 (the user): the same move the
+	-- wire floor made on 2026-09-08 -- break what came before once, so there is a
+	-- floor to reason from -- applied per adapter. It sits at this number until the
+	-- maintainer raises it, and it is never raised automatically. ADR 0059.
 	send({ type = "hello", payload = { game_id = GAME_ID, game_version = GAME_VERSION,
+		min_protocol_version = 2,
 		render_all_areas = ENGINE.xmap.armed() or nil } })
 	return true
 end

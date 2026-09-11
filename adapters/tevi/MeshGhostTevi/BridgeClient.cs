@@ -702,7 +702,11 @@ namespace MeshGhostTevi
             string json = JsonConvert.SerializeObject(new
             {
                 type = "hello",
-                payload = new { game_id = gameId, game_version = gameVersion },
+                // min_protocol_version is the STARTING floor, set by hand 2026-09-11 (the user): the same move the
+                // wire floor made on 2026-09-08 -- break what came before once, so there is a
+                // floor to reason from -- applied per adapter. It sits at this number until the
+                // maintainer raises it, and it is never raised automatically. ADR 0059.
+                payload = new { game_id = gameId, game_version = gameVersion, min_protocol_version = 2 },
             });
 
             try

@@ -689,6 +689,21 @@ func rejectBridge(nd transport.Transport, reason, code string, retryable bool) {
 // would stall every relay message for the whole process — the adapter is a
 // separate process and is not trusted to drain promptly.
 func (c *Core) pushSessionPolicy() {
+	// **OFFLINE IS A KNOWN POLICY, not an unanswered one (review J2, fixed
+	// 2026-09-11).** The gate below waits for a relay Welcome before telling
+	// the adapter anything, and read outside the lock here because
+	// Core.offline() takes its own.
+	//
+	// Waiting is right for a relay that has not answered YET and wrong for a
+	// session that will never have one: offline, there is no room, so the
+	// room's opinion is not unknown -- it is absent, and the player's own
+	// setting is the whole answer. The consequence was worse than a missing
+	// message, because `chaser_contact` rides this same message and the chaser
+	// is explicitly a SOLO feature (ADR 0047): the one mode where the chaser
+	// exists without a room was the one mode where its opt-in could never be
+	// delivered.
+	offline := c.offline()
+
 	c.mu.Lock()
 	effective := protocol.ResolveGhostCollision(c.relayGhostCollision, c.GhostCollision)
 	contact := ""
@@ -702,7 +717,7 @@ func (c *Core) pushSessionPolicy() {
 	// resolves to ENABLED, and telling an adapter to make ghosts solid because
 	// nobody has said otherwise yet is the wrong direction to guess in. The
 	// Welcome that answers the question pushes for us.
-	if nd == nil || !c.adapterReady || !c.relayPolicyKnown || key == c.sentGhostCollision {
+	if nd == nil || !c.adapterReady || !(c.relayPolicyKnown || offline) || key == c.sentGhostCollision {
 		c.mu.Unlock()
 		return
 	}
@@ -718,7 +733,10 @@ func (c *Core) pushSessionPolicy() {
 	// different files, one of which is on someone else's machine. Says which
 	// side decided it, so "I set it to enabled and it's off" answers itself.
 	source := "the room"
-	if protocol.NormalizeGhostCollision(c.GhostCollision) == protocol.GhostCollisionDisabled &&
+	if offline {
+		// There is no room to have decided it.
+		source = "your own config (offline)"
+	} else if protocol.NormalizeGhostCollision(c.GhostCollision) == protocol.GhostCollisionDisabled &&
 		effective == protocol.GhostCollisionDisabled {
 		source = "your own config"
 	}

@@ -27,9 +27,26 @@ import (
 // matching -- while a name is only ever shown.
 //
 // THE IDENTITY IS player_id, ALWAYS. A name is never an identity, is never
-// unique by itself, and nothing may ever key off one. Two players may type the
-// same name; the relay disambiguates what is DISPLAYED (see
-// relay's uniqueDisplayName) but the truth is the id underneath.
+// unique by itself, and nothing may ever key off one.
+//
+// **AND NOTHING DISAMBIGUATES WHAT IS DISPLAYED (corrected 2026-09-11, review
+// J15).** This comment used to say "the relay disambiguates what is DISPLAYED
+// (see relay's uniqueDisplayName)", and there is no such function: a repo-wide
+// grep matched only this sentence. So the anti-impersonation argument rested on
+// code that was never written, in the file a reader would come to to check it.
+//
+// What is actually true: two players may type the same name and the relay
+// forwards both unchanged. Pseudoregalia is the only adapter that draws
+// nametags, and it draws `display_name` and never the id -- so on screen, two
+// peers with the same name ARE indistinguishable. That is a real and accepted
+// limitation of a cosmetic overlay with no accounts, not a solved problem, and
+// the honest place for the argument is that nothing in this system TRUSTS a
+// name: every lookup, every roster seat, every despawn and every lease is keyed
+// by player_id, which the relay assigns and a peer cannot choose.
+//
+// If disambiguation is ever wanted, it belongs on the DISPLAY side (an adapter
+// appending a short id suffix to a duplicate) rather than on the wire, where it
+// would mean the relay rewriting a value it otherwise never interprets.
 
 const (
 	// MaxDisplayNameBytes bounds what crosses the wire; MaxDisplayNameRunes

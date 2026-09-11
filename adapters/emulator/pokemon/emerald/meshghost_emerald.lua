@@ -11133,7 +11133,11 @@ local function runFrame()
             -- hides what it cannot translate, so the core is asked to deliver everything and
             -- decide nothing -- which also keeps the core exactly as game-dumb as the user wants
             -- it: the flag removes an area judgment from the core rather than teaching it one.
-            sendLine(string.format('{"type":"hello","payload":{"game_id":%s,"game_version":%s,"render_all_areas":true}}', jsonString(GAME_ID), jsonString(ADAPTER_VERSION)))
+            -- min_protocol_version is the STARTING floor, set by hand 2026-09-11 (the user): the same move the
+            -- wire floor made on 2026-09-08 -- break what came before once, so there is a
+            -- floor to reason from -- applied per adapter. It sits at this number until the
+            -- maintainer raises it, and it is never raised automatically. ADR 0059.
+            sendLine(string.format('{"type":"hello","payload":{"game_id":%s,"game_version":%s,"min_protocol_version":2,"render_all_areas":true}}', jsonString(GAME_ID), jsonString(ADAPTER_VERSION)))
             -- A fresh bridge connection means a fresh core process on the other end (the
             -- previous one either restarted or its own connection died) -- any remote it had
             -- previously told us about is stale, since the despawn_remote for it (if any was
