@@ -6102,6 +6102,18 @@ genderFrames.door = {
     -- 0x288 / 12. A bound, not a length: the table's own NULL `tiles` terminator is what stops
     -- the walk, and this only stops a walk that never finds one from running off into ROM.
     GFX_MAX = 54,
+    -- **OUR OWN MARK, AND THE REASON THE FEATURE IS NOT A FEEDBACK LOOP** (2026-09-12). The
+    -- sender finds a door by scanning gTasks -- and the receiver's ghost doors are tasks in that
+    -- same table. Without a mark, a client that paints a peer's door immediately reports it as a
+    -- door of its own, the peer paints it back, and it echoes around the mesh forever: *"the door
+    -- is constantly opening/closing itself on vanilla, speedchoice & ap"*. (Nothing on EX, which
+    -- can neither create nor recognise one, so it could not join the loop.)
+    --
+    -- data[15] is free -- Task_AnimateDoor uses data[0..7] and nothing else, and CreateTask zeroes
+    -- the whole array -- so a task carrying this value is one WE made, and a real one from the
+    -- engine carries zero. Checked in sample() only: `start` still yields to a door of ours the
+    -- same as to the player's, because the engine still allows exactly one.
+    MINE = 0x6d67,
     -- StartDoorAnimationTask's own priority, and the last open frame's index in a four-frame
     -- table (entry 4 is the {0,0} terminator that ends the task).
     PRIORITY = 0x50,
@@ -6222,8 +6234,24 @@ genderFrames.door.isDoorTask = function(t)
     -- And tGfx must be a real entry of the graphics table: inside it, and on an entry boundary.
     local gfx = (r16(t + 0x0c) << 16) | r16(t + 0x0e)
     local tbl, entry = flyRide.rom(genderFrames.door.GFX_TABLE), genderFrames.door.GFX_ENTRY
-    if gfx < tbl or gfx >= tbl + genderFrames.door.GFX_MAX * entry then return nil end
-    if (gfx - tbl) % entry ~= 0 then return nil end
+    if gfx < tbl or gfx >= tbl + genderFrames.door.GFX_MAX * entry
+        or (gfx - tbl) % entry ~= 0 then
+        -- **THE NEAR MISS IS WORTH ONE LINE** (2026-09-12). EX SPEEDCHOICE learned nothing from a
+        -- door the user demonstrably opened, while its frame tables validated -- so the frames
+        -- half of this signature matched and the graphics half did not, and the difference
+        -- between "its table is longer than 54 entries" and "its table is somewhere else
+        -- entirely" is one number. Logged ONCE, only on a task that already looks like a door,
+        -- because a diagnostic that fires per frame is one that changes what it measures.
+        if not genderFrames.door.missLogged then
+            genderFrames.door.missLogged = true
+            logFile(string.format(
+                "f=%d DOOR near-miss: frames=%s matched but tGfx=%08X is outside [%08X,%08X) "
+                    .. "(romOffset=%d)",
+                frameCounter, kind, gfx, tbl, tbl + genderFrames.door.GFX_MAX * entry,
+                genderFrames.romOffset or 0))
+        end
+        return nil
+    end
     return kind
 end
 
@@ -6232,7 +6260,9 @@ genderFrames.door.sample = function()
     local base, stride = flyRide.TASKS_ADDR, flyRide.TASK_SIZE
     for i = 0, 15 do
         local t = base + i * stride
-        if r8(t + 0x04) == 1 then
+        -- OURS IS NOT NEWS. A door this client painted for a peer is not a door this client's
+        -- player opened, and reporting it is what turns one door into an endless one.
+        if r8(t + 0x04) == 1 and r16(t + 0x08 + 15 * 2) ~= genderFrames.door.MINE then
             local kind = genderFrames.door.isDoorTask(t)
             if kind then
                 -- **AND THIS IS WHERE THE CODE ADDRESS COMES FROM ON A PATCHED BUILD.** Creating
@@ -6414,6 +6444,8 @@ genderFrames.door.start = function(kind, x, y)
     -- FieldSetDoorOpened's effect, produced by the engine's own drawing path.
     if kind == "h" then w16(t + 0x10, genderFrames.door.LAST_OPEN_FRAME) end
     w16(t + 0x14, x + MAP_OFFSET) w16(t + 0x16, y + MAP_OFFSET)
+    -- data[15] -- ours, so sample() does not report this door back to the peer it came from.
+    w16(t + 0x08 + 15 * 2, genderFrames.door.MINE)
     -- isActive LAST, and only if the slot is linked. A task marked active but absent from the
     -- chain is a slot the engine will never run and never free -- it would leak one of sixteen,
     -- permanently, which is a far worse outcome than a door that did not animate.
