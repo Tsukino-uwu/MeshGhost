@@ -426,6 +426,12 @@ namespace MeshGhostTevi
             walkOffset = (offset + 1) % BridgePortCount;
         }
 
+        // The longest partial line this adapter will hold before deciding the core is not
+        // speaking NDJSON any more. protocol.MaxLineBytes, in characters: every line the core
+        // sends is bounded by that on its own side, so anything longer is not a line we are
+        // waiting for.
+        private const int MaxLineChars = 4096;
+
         private void ConnectAndReadLoop(int generation, int dialPort)
         {
             TcpClient c = null;
@@ -438,6 +444,22 @@ namespace MeshGhostTevi
                 // is acknowledged -- on Linux that is a 40 ms floor, and a Linux tester's frames
                 // arrived in 46 ms bunches. .NET leaves NoDelay false by default.
                 c.NoDelay = true;
+                // A BOUND ON THE WRITE, because this one happens on Unity's MAIN THREAD (review
+                // I21, 2026-09-11). .NET's default SendTimeout is infinite, so a core that stops
+                // reading the bridge froze the GAME for as long as it took -- and the shipped core
+                // could stop reading for up to ten seconds, because its own relay write was
+                // synchronous and bounded by that same number (fixed today as E5, but an adapter
+                // that is only safe when paired with a fixed core is not safe).
+                //
+                // Two seconds, not ten: a frame's state is worthless long before then -- the plane
+                // is latest-wins and the next frame restates it -- so the only thing a longer
+                // timeout buys is a longer freeze. A timeout throws, which the catch below already
+                // treats as a dead connection and redials, and that is the right answer: a core
+                // that has not drained a 4KB line in two seconds is not coming back this frame.
+                //
+                // The other three adapters are all non-blocking (FIONBIO, settimeout(0)); this is
+                // the one that was not.
+                c.SendTimeout = 2000;
                 c.Connect(host, dialPort);
                 if (generation != connectionGeneration)
                 {
@@ -446,17 +468,11 @@ namespace MeshGhostTevi
                     c.Close();
                     return;
                 }
-                client = c;
-                stream = c.GetStream();
-                connected = true;
-                establishedThisDial = true;
-                // Something answered here, so this port is not dead. Reset rather than decrement:
-                // the counter means "consecutive failures", and one success ends the run.
-                portRefusals[dialPort] = 0;
-                // Not written here: NetworkStream isn't safe for concurrent writes from this
-                // background thread and the main thread's SendLocalState, so the actual send is
-                // deferred to SendHelloIfNeeded, called from Update() on the main thread, same
-                // as every other outbound message.
+                // **THE PER-CONNECTION STATE IS RESET BEFORE `connected` IS PUBLISHED, since
+                // 2026-09-11 (review I28).** These used to be set after it, and the main thread
+                // ticks independently: a tick landing in that gap saw a live connection with the
+                // PREVIOUS one's bridgeReady/helloSentAt/needsHello, decided the fresh connection
+                // had gone quiet, and cooled its port for ten seconds. The order is the whole fix.
                 needsHello = true;
                 // Cleared on EVERY fresh connection. A reconnect that inherited a stale true here
                 // would send state to a core that had not accepted it; a reconnect that inherited
@@ -465,6 +481,18 @@ namespace MeshGhostTevi
                 bridgeReady = false;
                 helloSentAt = DateTime.MinValue;
                 drainsSinceHello = 0;
+                client = c;
+                stream = c.GetStream();
+                connected = true;
+                establishedThisDial = true;
+                // Something answered here, so this port is not dead. Reset rather than decrement:
+                // the counter means "consecutive failures", and one success ends the run.
+                portRefusals[dialPort] = 0;
+                // The hello itself is not written here: NetworkStream isn't safe for concurrent
+                // writes from this background thread and the main thread's SendLocalState, so the
+                // actual send is deferred to SendHelloIfNeeded, called from Update() on the main
+                // thread, same as every other outbound message. The flags it reads were set above,
+                // before this connection was published.
                 // A DEAD SESSION'S MESSAGES MUST NOT OUTLIVE IT. Lines are parsed on the main
                 // thread, so whatever the previous connection had queued is still sitting here
                 // when the next one is published -- and Plugin.Update drains it AFTER it has
@@ -480,10 +508,25 @@ namespace MeshGhostTevi
 
                 var buffer = new StringBuilder();
                 var readBuf = new byte[4096];
+                var charBuf = new char[4096];
+                // THIS CONNECTION'S OWN STREAM, not the `stream` FIELD (review I24, 2026-09-11).
+                // The field is reassigned by the next dial, so a reader that has not noticed its
+                // socket died yet would start consuming the NEW connection's bytes -- two threads
+                // splitting one byte stream into two buffers, each seeing half of every line.
+                // Captured once, here, and never re-read.
+                var myStream = c.GetStream();
+                // A DECODER HELD ACROSS READS (review I26). Encoding.UTF8.GetString per chunk
+                // turns a multi-byte character split across a TCP read boundary into U+FFFD on
+                // BOTH sides -- and the line stays valid JSON, so nothing downstream notices. A
+                // non-ASCII anim or area_id silently mutates, and that peer's marker quietly
+                // stops matching anything. A Decoder keeps the partial sequence between calls,
+                // which is the whole reason it exists.
+                var decoder = Encoding.UTF8.GetDecoder();
                 int n;
-                while ((n = stream.Read(readBuf, 0, readBuf.Length)) > 0)
+                while ((n = myStream.Read(readBuf, 0, readBuf.Length)) > 0)
                 {
-                    buffer.Append(Encoding.UTF8.GetString(readBuf, 0, n));
+                    int chars = decoder.GetChars(readBuf, 0, n, charBuf, 0);
+                    buffer.Append(charBuf, 0, chars);
                     int newlineIndex;
                     while ((newlineIndex = IndexOfNewline(buffer)) >= 0)
                     {
@@ -493,6 +536,19 @@ namespace MeshGhostTevi
                         {
                             incoming.Enqueue(line);
                         }
+                    }
+                    // A BOUND ON THE PARTIAL LINE (review I25). Without it, a core that sends
+                    // bytes and never a newline -- a desynced one, or a connection stuck
+                    // mid-line -- grows this buffer until the game runs out of memory. The
+                    // number is protocol.MaxLineBytes, because a line longer than the core will
+                    // ever send is by definition not a line we are waiting for. Pseudoregalia's
+                    // BridgeClient has had the same guard, with the same "drop and reconnect
+                    // cleanly" answer.
+                    if (buffer.Length > MaxLineChars)
+                    {
+                        Log($"MeshGhost: bridge buffered {buffer.Length} characters with no " +
+                            "newline -- dropping this connection rather than growing without bound.");
+                        break;
                     }
                 }
             }
@@ -531,6 +587,34 @@ namespace MeshGhostTevi
         private static float? FiniteOrNull(float? v)
         {
             return v.HasValue && !float.IsNaN(v.Value) && !float.IsInfinity(v.Value) ? v : null;
+        }
+
+        // The position is the ONE peer float that never got the FiniteOrNull treatment the
+        // animator floats got in the 2026-09-02 review (found by the next one -- review I23,
+        // 2026-09-11). Newtonsoft turns "NaN"/"Infinity" and out-of-range doubles into non-finite
+        // floats without throwing, and this array reaches transform.position, OverlapPoint and
+        // Vector3.Distance -- a NaN transform propagates into the physics state of whatever it
+        // touches and does not come back out.
+        //
+        // The WHOLE array is refused rather than the offending component, for the reason the C++
+        // adapter refuses a whole orientation triple: a half-applied position is a ghost somewhere
+        // meaningless, which is harder to recognise than a ghost that did not move. Null here is
+        // already the "this state carries no position" case every caller handles -- it is what an
+        // older peer build produces.
+        private static float[] FinitePositionOrNull(float[] p)
+        {
+            if (p == null)
+            {
+                return null;
+            }
+            for (int i = 0; i < p.Length; i++)
+            {
+                if (float.IsNaN(p[i]) || float.IsInfinity(p[i]))
+                {
+                    return null;
+                }
+            }
+            return p;
         }
 
         private static int IndexOfNewline(StringBuilder sb)
@@ -949,7 +1033,7 @@ namespace MeshGhostTevi
                             var remote = new RemoteState
                             {
                                 AreaId = (string)st["area_id"],
-                                Position = st["position"]?.ToObject<float[]>(),
+                                Position = FinitePositionOrNull(st["position"]?.ToObject<float[]>()),
                                 Orientation = (string)st["orientation"],
                                 Anim = (string)st["anim"],
                                 RoomX = (int?)extras?["room_x"],

@@ -48,6 +48,55 @@ declined ones go back to being work. An entry still here has not been confirmed.
 
 ---
 
+## [READY] seven robustness fixes from the 2026-09-07 review, built and deployed, UNWATCHED (2026-09-11)
+
+**None of these changes what the game looks like**, so what is owed is "does everything still
+work" rather than "does it look right". Built, deployed to both installs, hash-verified. The two
+HIGHs are both things another player could do to you.
+
+**What to watch, in one session:** two clients, ghosts on screen, walk around, open the FULL MAP
+and check the other player's marker is there, then leave to the main menu and come back. A ghost
+that fails to spawn, a marker that never appears, or a bullet that stops mirroring is a decline.
+
+1. **I22 (HIGH) -- one peer could freeze your whole `Update()` every frame.** `Mathf.Abs` on
+   `int.MinValue` throws, and since the 2026-08-28 frame-driven refresh the map-marker bound runs
+   from `Update()` rather than inside `DrainInto`'s per-line catch. So a peer sending
+   `room_x: -2147483648` killed the victim's `Update()` -- including `SendLocalState`, so the
+   victim vanished from everyone else's screen. It is a plain range test now, which also fixes
+   the bound itself: `int.MinValue <= 100000` was true. **Watch: map markers still appear and
+   follow the other player.**
+
+2. **I21 (HIGH) -- the bridge write is on Unity's main thread and had no timeout at all.** .NET's
+   default `SendTimeout` is infinite, so a core that stopped reading froze the GAME for as long as
+   it took. Two seconds now -- a frame's state is worthless long before then, and a timeout is
+   handled as a dead connection and redialled. **Watch: nothing new; this one only shows up as a
+   hitch that no longer happens.**
+
+3. **I23 -- a NaN position reached `transform.position`.** The position was the one peer float
+   that never got the finite check the animator floats got in 2026-09-02. A NaN transform spreads
+   into the physics state of whatever it touches. The whole array is refused now, which is the
+   same "this state carries no position" case an older peer build already produces. Nine cases in
+   `BridgeFuzz.cs`, all nine failing without the guard.
+
+4. **I24 -- the read loop read the `stream` FIELD rather than its own connection's.** A reader
+   that had not noticed its socket died would start consuming the next connection's bytes, two
+   threads splitting one stream. **Watch: reconnects (close and reopen the core) still work.**
+
+5. **I25/I26 -- an unbounded receive buffer, and UTF-8 decoded per chunk.** The first is a core
+   sending bytes and never a newline growing memory without limit; the second turns a multi-byte
+   character split across a TCP read into U+FFFD on both sides, silently, with the line still
+   valid JSON -- so a non-ASCII `anim` or `area_id` mutates and that peer's marker stops matching.
+   **Watch: a player whose NAME has non-ASCII characters in it still shows correctly.**
+
+6. **I28 -- per-connection state was reset after the connection was published**, so a main-thread
+   tick landing in that gap saw a fresh connection wearing the previous one's flags and cooled its
+   port for ten seconds.
+
+7. **I29 -- the orphan sweep could not see inactive objects**, and a map marker is inactive nearly
+   all the time -- so the sweep whose job is finding ours-but-untracked objects was blind to the
+   kind most likely to be orphaned. **Watch: after restarting a core under a running game, no
+   leftover marker appears on the full map.**
+
 ## This run — watch these first
 
 **The READY entries below, newest first, at most ten.** Each says what to look at and what correct looks

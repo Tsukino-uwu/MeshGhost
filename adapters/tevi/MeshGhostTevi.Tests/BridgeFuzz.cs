@@ -105,6 +105,7 @@ internal static class BridgeFuzz
         Depth();
         PeerStrings();
         ForeignGamePeer();
+        NonFinitePosition();
 
         Console.WriteLine("  " + checks + " line(s) fed through the shipped DrainInto");
         if (Failures.Count > 0)
@@ -121,6 +122,76 @@ internal static class BridgeFuzz
         Console.WriteLine();
         Console.WriteLine("OK: the decoder survived every line, valid input still dispatches, and no peer " +
                           "string escaped being data.");
+    }
+
+
+    // 10. THE POSITION, which is the one peer float that never got the FiniteOrNull treatment the
+    // animator floats got in the 2026-09-02 review (I23, fixed 2026-09-11).
+    //
+    // Newtonsoft turns "NaN" and "Infinity" -- and a double past float range -- into non-finite
+    // floats without throwing, and this array reaches transform.position, OverlapPoint and
+    // Vector3.Distance. A NaN transform propagates into the physics state of everything it
+    // touches and does not come back out, so it is not a ghost that looks wrong, it is a scene
+    // that stays wrong.
+    //
+    // WHAT IS ASSERTED: a state either arrives with a fully finite position or arrives with none
+    // at all. Null is already the "this state carries no position" case every caller handles --
+    // it is what an older peer build produces -- so refusing the whole array costs nothing and a
+    // half-applied position would be a ghost somewhere meaningless.
+    private static void NonFinitePosition()
+    {
+        string[] positions =
+        {
+            "[\"NaN\",0]", "[0,\"NaN\"]", "[\"Infinity\",0]", "[\"-Infinity\",0]",
+            "[1e999,0]", "[0,-1e999]", "[3.5e38,0]", "[\"NaN\",\"NaN\"]",
+        };
+        foreach (string pos in positions)
+        {
+            string line = "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p1\",\"state\":{" +
+                          "\"area_id\":\"a\",\"position\":" + pos + ",\"anim\":\"idle\"}}}";
+            if (!Survives("non-finite position", line, out Drain drain))
+            {
+                continue;
+            }
+            foreach ((string _, BridgeClient.RemoteState st) in drain.Rendered)
+            {
+                if (st.Position == null)
+                {
+                    continue; // refused whole, which is the intended answer
+                }
+                for (int i = 0; i < st.Position.Length; i++)
+                {
+                    if (float.IsNaN(st.Position[i]) || float.IsInfinity(st.Position[i]))
+                    {
+                        Fail("a non-finite position reached the callback from {0} -- it lands in " +
+                             "transform.position and Vector3.Distance, and a NaN transform spreads " +
+                             "into the physics state of whatever it touches", pos);
+                    }
+                }
+            }
+        }
+
+        // AND A REAL POSITION STILL ARRIVES. Without this, refusing everything would pass.
+        string good = "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p1\",\"state\":{" +
+                      "\"area_id\":\"a\",\"position\":[12.5,-3.25],\"anim\":\"idle\"}}}";
+        if (Survives("finite position", good, out Drain ok))
+        {
+            bool arrived = false;
+            foreach ((string _, BridgeClient.RemoteState st) in ok.Rendered)
+            {
+                if (st.Position != null && st.Position.Length == 2
+                    && Math.Abs(st.Position[0] - 12.5f) < 0.001f
+                    && Math.Abs(st.Position[1] + 3.25f) < 0.001f)
+                {
+                    arrived = true;
+                }
+            }
+            if (!arrived)
+            {
+                Fail("an ordinary finite position did not reach the callback -- the guard is " +
+                     "refusing everything, which would make every assertion above vacuous");
+            }
+        }
     }
 
     // 1. THE CONTROL. Without it, "nothing crashed" reads identically whether the decoder is working

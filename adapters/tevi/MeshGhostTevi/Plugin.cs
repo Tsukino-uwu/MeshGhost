@@ -518,9 +518,19 @@ namespace MeshGhostTevi
         private void UpdateRemoteMapMarker(string playerId, BridgeClient.RemoteState state, float stateArrivedAt)
         {
             FullMap map = FullMap.Instance;
+            // **COMPARED WITHOUT Abs, since 2026-09-11 (review I22).** `Mathf.Abs(int.MinValue)`
+            // THROWS -- there is no positive int to return -- and the exception escapes here,
+            // because since the 2026-08-28 frame-driven refresh this runs from Update() rather
+            // than from inside DrainInto's per-line try/catch. So one peer sending
+            // `room_x: -2147483648` killed the victim's whole Update() every frame, which also
+            // stops SendLocalState: the victim vanishes from everyone else's screen, from a value
+            // another player chose. And had it not thrown, int.MinValue <= 100000 is true, so the
+            // bound it was written to enforce passed anyway.
+            //
+            // A range test on the value itself has neither problem and needs no special case.
             bool roomInRange = state.RoomX.HasValue && state.RoomY.HasValue
-                && Mathf.Abs(state.RoomX.Value) <= MaxRoomCoordinate
-                && Mathf.Abs(state.RoomY.Value) <= MaxRoomCoordinate;
+                && state.RoomX.Value >= -MaxRoomCoordinate && state.RoomX.Value <= MaxRoomCoordinate
+                && state.RoomY.Value >= -MaxRoomCoordinate && state.RoomY.Value <= MaxRoomCoordinate;
             bool wantVisible = map != null && map.isFullMap
                 && roomInRange
                 && state.AreaId == currentLocalArea.ToString()
@@ -1159,8 +1169,25 @@ namespace MeshGhostTevi
         private void SweepOrphanGhosts(string reason)
         {
             int destroyed = 0;
-            foreach (GameObject go in FindObjectsOfType<GameObject>())
+            // **INCLUDES INACTIVE OBJECTS, since 2026-09-11 (review I29).**
+            // FindObjectsOfType<T>() skips inactive objects on this Unity version, and a map
+            // MARKER is inactive nearly all the time -- it is only shown while the full map is
+            // open. So the sweep whose whole job is finding ours-but-untracked objects could not
+            // see the kind most likely to be orphaned, and an orphaned marker stayed in the scene
+            // for the rest of the session, invisible to this and to the despawn path alike.
+            //
+            // The cost is the same enumeration over a slightly larger set, and this does not run
+            // per frame: it runs on a bridge session change and once at load, which are the two
+            // moments an orphan can appear.
+            foreach (GameObject go in Resources.FindObjectsOfTypeAll<GameObject>())
             {
+                // FindObjectsOfTypeAll also returns prefabs and editor-only objects, which have
+                // no scene. Ours are all scene objects, so this costs one field read and removes
+                // the whole class.
+                if (go != null && !go.scene.IsValid())
+                {
+                    continue;
+                }
                 if (go == null)
                 {
                     continue;
