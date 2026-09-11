@@ -217,3 +217,57 @@ TEVI's, Emerald's and Crystal's `UNVERIFIED.md`.
 four" is stale, but `preflight.ps1` hashes every source into the committed DLL's `built-from.txt`, so
 a comment-only edit marks that DLL STALE and buys a C++ rebuild and a deploy. Recorded rather than
 touched.
+
+## 2026-09-11 (later) — a fact-check of every player-facing page, and autostart becoming opt-in
+
+**Compressed from the commit log** (`528fe77d`, `12effc54`, `44f3fb09`, `2c3ce628`, `9badcab7`,
+`c611741d`); each bullet cites the commit that carries the full reasoning. Logged here because this
+phase owns docs, packaging and the gates, and five of these six landed under it.
+
+**The one a player would hit first.** `getting-started` told Emerald and Crystal players to look for
+*"connected to relay ... in room ..."* in BizHawk's Lua Console. **That line is written by
+`meshghost.exe` into `meshghost.log` and by nothing else** — the Lua adapters do not emit it and do
+not capture the core's output, because the core is spawned windowless with no pipe, deliberately.
+**So the two games whose players were sent to the Lua Console are the two that could never show it
+there.** The Console is still the right place to check whether the MOD loaded, which is what the
+page says now; the same correction went into `troubleshooting.md` and the shipped `README.txt`
+(`528fe77d`).
+
+**`ghost_collision`, and why the fix is per-adapter rather than another blanket.** Three pages said
+*"no shipped mod acts on it yet"*, which stopped being true for half the adapters on 2026-09-11.
+Swapping one blanket claim for the opposite one would have been just as wrong: the two Pokemon mods
+read `session_policy` and go walk-through on "disabled"; TEVI's and Pseudoregalia's do not read it,
+and it changes nothing for them because neither ships ghosts that block you (`528fe77d`).
+
+**`security.md`'s claim list had stopped four days short**, and `reviewing.md` points a reviewer at
+that page as the list of claims to disprove — so a claim that has quietly stopped being true costs
+more there than anywhere else in `docs/`. The new section covers four pieces of hardening, each
+confirmed against its commit, including a relay that **could silently stop accepting TCP for the
+life of the process**: the sniffing listener returned on its first Accept error and Serve's retry
+then blocked forever, so for six days the descriptor-exhaustion fix that page documents was
+defeated by the wrapper in front of it, with `tls=auto` the shipped default (`12effc54`).
+
+**The README stopped defining itself by a negative list.** It read as a category definition followed
+by *"no synced items, enemies, health or progression"* — the shape cut from the player docs on
+2026-09-10 — and *"live position, facing and animation"* had stopped describing what ships:
+Pseudoregalia mirrors outfits, weapon models, trail colour and an input track, TEVI afterimage
+trails and warp state, Crystal palette and species. Three word-level corrections went with it:
+**"draws" to "shows"** (drawing is only what the painted tiers do), **"relay" to "server"** (the
+README is the first thing a stranger reads, and everyone already owns the word server — relay
+stays in `security.md`, `networking.md` and `contract.md` where "forwards, does not simulate" is the
+point), and **"know nothing about the game they run beside" to "the game itself"**, which is the
+only half of it true of a server on someone else's machine (`44f3fb09`).
+
+**Autostart is opt-in everywhere now, and looks only beside the mod.** The Pokemon scripts searched
+three places for `meshghost.exe`: beside the script, the release root three levels up, and a source
+checkout four up. **So an install that had never copied an exe anywhere still had a core started for
+it from the root** — the per-game copy was not an opt-in, it was the default with an extra step for
+people who wanted separate logs. Both `../` fallbacks are gone; the search is the script's own
+folder, after `MESHGHOST_CORE_DIR` for a dev checkout. Two shapes, never both: **exe in the release
+root means you run it yourself, exe beside the mod means the mod runs it** (`9badcab7`). The
+matching doc sentence — *"a small client that your game's mod starts and stops for you"* — stated
+unconditionally something the reader has to opt into, and sat in "How it fits together", which is
+reached before the step that tells them to copy the exe (`2c3ce628`).
+
+**And the shipped `config.json` stopped warning about its own keys** (`c611741d`), with two tests
+that had raced the new writer fixed alongside it.
