@@ -6195,8 +6195,38 @@ genderFrames.door.ready = function()
     -- player opens a door and sample() reads it off the engine's own task. Written as an `if`
     -- rather than an `and/or` ternary on purpose -- this file has a recorded scar from that
     -- idiom, and a cached address is not a place to reopen it.
+    -- **THE CODE ADDRESS PER BUILD, MEASURED -- so nobody has to open a door to see one.**
+    --
+    -- Learning it from the engine was the first design, and the user found its flaw immediately:
+    -- *"vanilla/speedchoice/ap only show if they have entered a door before i think?"* -- yes.
+    -- A client that has not yet watched its own engine create a door task does not know the
+    -- address, cannot create one, and so shows no ghost doors at all until the player happens to
+    -- walk through a door themselves. Every session, on every build but vanilla.
+    --
+    -- Each of these was read off the engine by that learning path, live, on 2026-09-12, and is
+    -- keyed on `romOffset` because that is this adapter's existing per-build discriminator (the
+    -- same one behind "sprite data found at the known <build>-shifted ROM address"). **None is
+    -- derivable from any other number here** -- the code shift is not the data shift, and the
+    -- four disagree completely:
+    --
+    --   build              data shift (romOffset)   code shift      Task_AnimateDoor
+    --   vanilla                              0               0            0808A655
+    --   SPEEDCHOICE 1.2.2                25608          +0x670            0808ACC5
+    --   Archipelago                      30000          +0x9A0            0808AFF5
+    --   EX SPEEDCHOICE 0.4.0            641912        +0x18A88            080A30DD
+    --
+    -- An UNKNOWN build matches nothing here and falls back to learning, exactly as before -- which
+    -- is the conservative half: a wrong code address is one the engine would CALL, so a guess is
+    -- not an option and a build we have not measured gets no seed at all.
     genderFrames.door.fn = nil
-    if ok and off == 0 then genderFrames.door.fn = genderFrames.door.TASK_ANIMATE end
+    if ok then
+        genderFrames.door.fn = ({
+            [0] = 0x0808a655,
+            [25608] = 0x0808acc5,
+            [30000] = 0x0808aff5,
+            [641912] = 0x080a30dd,
+        })[off]
+    end
     -- **THE PASS IS LOGGED TOO, AND THAT IS NOT NOISE** (2026-09-12). Logging only the failure
     -- made silence mean two opposite things -- "this build's tables are fine" and "nothing ever
     -- asked" -- and EX SPEEDCHOICE sat in exactly that ambiguity for three reload cycles while
@@ -6376,10 +6406,28 @@ genderFrames.door.sample = function()
                 -- own write is not a measurement. Both patched builds "learned" an address at
                 -- frame 2 that was exactly the one the broken version would have written; an edge
                 -- cannot do that, because the engine has to create the task while we watch.
-                if genderFrames.door.fn == nil and genderFrames.door.sawNone then
-                    genderFrames.door.fn = r32(t + 0x00)
-                    logFile(string.format("f=%d DOOR learned Task_AnimateDoor=%08X (romOffset=%d)",
-                        frameCounter, genderFrames.door.fn, genderFrames.romOffset or 0))
+                -- **THE ENGINE OUTRANKS THE TABLE.** The seeded address exists so a player does
+                -- not have to open a door before seeing one; it is not a claim that beats a live
+                -- reading. So the first real door still checks it, and a disagreement is both
+                -- corrected and said out loud -- a seed that is wrong on some build nobody has
+                -- tried is an address the engine would CALL, which is the one class of mistake
+                -- here that is not merely cosmetic.
+                if genderFrames.door.sawNone and not genderFrames.door.checked then
+                    local live = r32(t + 0x00)
+                    if genderFrames.door.fn == nil then
+                        genderFrames.door.fn = live
+                        logFile(string.format(
+                            "f=%d DOOR learned Task_AnimateDoor=%08X (romOffset=%d)",
+                            frameCounter, live, genderFrames.romOffset or 0))
+                    elseif genderFrames.door.fn ~= live then
+                        console.log(string.format(
+                            "MeshGhost: the door-task address this adapter has for this build "
+                                .. "(%08X) is NOT what the game just used (%08X) -- taking the "
+                                .. "game's. Please report this with the ROM you are playing.",
+                            genderFrames.door.fn, live))
+                        genderFrames.door.fn = live
+                    end
+                    genderFrames.door.checked = true
                 end
                 return genderFrames.door.publish(kind, rs16(t + 0x14), rs16(t + 0x16))
             end
