@@ -842,9 +842,25 @@ local function decodeString(s, i)
             elseif e == "t" then table.insert(out, "\t")
             elseif e == "r" then table.insert(out, "\r")
             elseif e == "u" then
+                -- **THE FOUR HEX DIGITS HAVE TO BE THERE (review I47's sibling, fixed
+                -- 2026-09-11).** `tonumber("ZZ", 16)` is nil and `nil % 256` RAISES, which
+                -- jsonDecode's pcall turns into "this line does not decode" -- so one malformed
+                -- escape anywhere in a message cost the WHOLE message, and a peer can put one in
+                -- `extras`, which is free-form peer-controlled data. Crystal had the same class of
+                -- bug in a different shape (its cursor stepped past the closing quote) and both
+                -- are fixed the same way: require the digits, and consume only what is there.
+                --
+                -- The well-formed case is unchanged, `% 256` included -- what this game's font
+                -- draws for a non-ASCII codepoint is a separate question from not dropping the
+                -- line, and this is not the change to settle it in.
                 local hex = s:sub(j + 2, j + 5)
-                table.insert(out, string.char(tonumber(hex, 16) % 256))
-                j = j + 4
+                local cp = #hex == 4 and hex:match("^%x%x%x%x$") and tonumber(hex, 16) or nil
+                if cp then
+                    table.insert(out, string.char(cp % 256))
+                    j = j + 4
+                else
+                    table.insert(out, "?")
+                end
             else
                 table.insert(out, e)
             end
@@ -2127,7 +2143,17 @@ local function handleBridgeLine(line)
         resetBridge()
     elseif env.type == "render_remote" then
         local payload = env.payload
-        if type(payload) == "table" and type(payload.state) == "table" and payload.player_id then
+        -- **A PLAYER ID IS A STRING, and it is checked here rather than anywhere downstream
+        -- (review I30, fixed 2026-09-11).** This used to admit a peer on truthiness alone, and
+        -- every tier below then does `playerId:match("%-ghost$")` -- which RAISES in Lua 5.4 on a
+        -- number, and there is no area or tier guard above the first of them. `guardedFrame`'s
+        -- pcall swallows the error, so every tier after that point stopped for the rest of the
+        -- session, with one throttled line every 300 frames and no despawn ever sent. A table id
+        -- was worse again: it grows `remotes` without bound, one entry per distinct table.
+        --
+        -- The case is already a row in `tests/json_fuzz.lua`'s WRONG_TYPES, whose comment says in
+        -- as many words that rejecting it is the dispatch's job. This is the dispatch doing it.
+        if type(payload) == "table" and type(payload.state) == "table" and type(payload.player_id) == "string" then
             local st = payload.state
             local pos = st.position
             if type(pos) == "table" and pos[1] and pos[2] then
@@ -2266,7 +2292,10 @@ local function handleBridgeLine(line)
         end
     elseif env.type == "despawn_remote" then
         local payload = env.payload
-        if type(payload) == "table" and payload.player_id then
+        -- Same string check as render_remote above: a despawn naming a non-string id can only
+        -- be a bug or a hostile core, and indexing `remotes` with a table would silently do
+        -- nothing while looking like it worked.
+        if type(payload) == "table" and type(payload.player_id) == "string" then
             remotes[payload.player_id] = nil
         end
     end
@@ -2294,6 +2323,25 @@ local function drainBridge()
             handleBridgeLine(line)
         elseif err == "timeout" then
             recvPartial = partial or ""
+            -- **BOUNDED (review I33, 2026-09-11).** A core that sends bytes and never a newline
+            -- -- desynced, or a connection stuck mid-line -- grows this without limit, and the
+            -- cost is not only memory: the whole partial is COPIED back into receive() as a
+            -- prefix on every frame, so the work per frame is O(length) and the total is
+            -- quadratic in how long the stall lasts. On the emulator thread, that is the game
+            -- getting slower every frame for as long as it continues.
+            --
+            -- protocol.MaxLineBytes (4096) is the number, because every line the core sends is
+            -- bounded by it on the core's own side: anything longer is not a line this adapter
+            -- is waiting for. Dropping and reconnecting is the same answer the send side gives
+            -- a partial write, and the same one Pseudoregalia's bridge gives an over-long
+            -- buffer.
+            if #recvPartial > 4096 then
+                logFile(string.format("bridge buffered %d bytes with no newline -- reconnecting",
+                    #recvPartial))
+                recvPartial = ""
+                resetBridge()
+                remotes = {}
+            end
             return
         else
             recvPartial = ""

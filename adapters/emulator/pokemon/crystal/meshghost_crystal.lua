@@ -862,13 +862,29 @@ local function jsonDecode(s)
 					-- Measured 2026-09-03 (adapters/emulator/tests/json_fuzz.lua); Emerald's decoder
 					-- never had this. ASCII is decoded properly; anything above it stays "?" because
 					-- this game's font cannot draw it either way.
-					local cp = tonumber(s:sub(pos + 2, pos + 5), 16)
+					--
+					-- **THE SIX CHARACTERS HAVE TO BE THERE (review I47, fixed 2026-09-11).** This
+					-- advanced by six unconditionally, so a line that ENDS mid-escape -- or one
+					-- whose escape is truncated before its four digits -- stepped the cursor past
+					-- the string's own closing quote. The parser then read the rest of the message
+					-- as string content, found no terminator where it expected one, and the WHOLE
+					-- line was dropped rather than the one bad character. Four hex digits are
+					-- required now, and anything else is treated as the two characters actually
+					-- present, which keeps the cursor honest.
+					local hex = s:sub(pos + 2, pos + 5)
+					local cp = #hex == 4 and hex:match("^%x%x%x%x$") and tonumber(hex, 16) or nil
 					if cp and cp >= 0x20 and cp < 0x7F then
 						out[#out + 1] = string.char(cp)
-					else
+						pos = pos + 6
+					elseif cp then
+						-- A real escape this game's font cannot draw either way.
 						out[#out + 1] = "?"
+						pos = pos + 6
+					else
+						-- Not a well-formed \uXXXX at all. Consume the backslash and the "u" only.
+						out[#out + 1] = "?"
+						pos = pos + 2
 					end
-					pos = pos + 6
 				else
 					out[#out + 1] = map[n] or n
 					pos = pos + 2
@@ -8148,7 +8164,27 @@ ENGINE.xmap.build(here) end
 	local peerWalking = (state.anim == "walk")
 	-- Only the low two bits are used, but the whole byte is carried so a log shows the direction
 	-- the sender was in as well as the stride -- the pair is what makes a facing trace readable.
+	--
+	-- **FLOORED AND BOUNDED BEFORE ANYTHING TOUCHES IT WITH A BITWISE OPERATOR (review I37, fixed
+	-- 2026-09-11).** It was the only one of the peer numerics here that was neither floored nor
+	-- bounded, and it is the one that reaches `&`: in Lua 5.4 `1.5 & 3` and `(1/0) & 3` both
+	-- RAISE ("number has no integer representation"), and both decoders already decode 1e999 to
+	-- a non-finite number -- `tests/json_fuzz.lua` says so in its own output every run. There is
+	-- no pcall anywhere inside `drawOverflow`, so one peer sending a fractional or infinite face
+	-- stopped the shipped drawn tier for ALL peers, with the previous frame's overlay never
+	-- cleared.
+	--
+	-- The bound is the byte the field actually is: OBJECT_FACING is one byte, and every reader
+	-- here masks it down to two or four bits anyway.
 	local peerFace = state.extras and tonumber(state.extras.face) or nil
+	if peerFace then
+		-- Non-finite first: math.floor(1/0) is still non-finite, and // on it raises too.
+		if peerFace ~= peerFace or peerFace == math.huge or peerFace == -math.huge then
+			peerFace = nil
+		else
+			peerFace = math.floor(peerFace) % 256
+		end
+	end
 	-- The engine's own vertical nudge, signed. A peer on an older build sends nothing, which reads
 	-- as nil and leaves the ghost exactly where it was drawn before.
 	-- IS THIS PEER HOPPING A LEDGE. See the send side for why this is a question rather than the
@@ -9544,10 +9580,30 @@ local function send(obj)
 		return
 	end
 	local line = jsonEncode(obj) .. "\n"
-	local ok, err = sock:send(line)
-	if not ok and err ~= "timeout" then
-		disconnect(tostring(err))
+	-- **A PARTIAL SEND IS NOT A TIMEOUT (review I38, fixed 2026-09-11).** LuaSocket returns
+	-- `nil, "timeout", lastByteSent` on a non-blocking socket, and this discarded the third value
+	-- and treated every timeout as benign. That is right only when NOTHING went out: with
+	-- `0 < lastByteSent < #line` the tail is gone for good, and the next tick sends a FRESH line
+	-- that the core concatenates onto the fragment -- so the stream is corrupt NDJSON for the rest
+	-- of the connection, and the core's scanner grows the malformed line until it dies.
+	--
+	-- Emerald fixed exactly this (`sendLine`, its comment spells out the consequence) and so did
+	-- the C++ adapter's `BridgeClient::send_line`. Crystal was the sibling that never got it --
+	-- the shape `adapters/CLAUDE.md`'s "a rule that lives in one code path and is missing from its
+	-- sibling" sweep exists for.
+	--
+	-- Dropping and reconnecting is the same "when in doubt, drop cleanly" answer the other two
+	-- reached: PROTOCOL.md's tick loop restates fresh state next tick, so a reconnect costs a
+	-- frame, and a corrupted stream costs the session.
+	local ok, err, lastByte = sock:send(line)
+	if ok then
+		return
 	end
+	if err == "timeout" and (lastByte or 0) == 0 then
+		-- Nothing went out at all -- next tick restates this frame.
+		return
+	end
+	disconnect(tostring(err))
 end
 
 -- Ports that answered but would not have us, with the frame their cooldown ends.
@@ -9875,12 +9931,34 @@ local function receive()
 	if not sock then
 		return
 	end
+	-- ONE 4096-BYTE READ PER FRAME, and that is deliberate: this runs on the emulator thread, so
+	-- draining the socket dry here would let a burst of peer traffic set the frame time. What it
+	-- costs is that a backlog is worked off over several frames, which is fine -- the state plane
+	-- is latest-wins.
 	local chunk, err, partial = sock:receive(4096)
 	local data = chunk or partial
 	if data and #data > 0 then
 		rxBuffer = rxBuffer .. data
 	elseif err and err ~= "timeout" then
 		disconnect(tostring(err))
+		return
+	end
+	-- **BOUNDED (review I45, 2026-09-11).** With one read per frame and no cap, a core that sends
+	-- bytes and never a newline -- desynced, or a connection stuck mid-line -- grows this string
+	-- without limit, and every frame concatenates onto it: O(length) work per frame, quadratic in
+	-- how long it goes on, on the thread the game runs on.
+	--
+	-- protocol.MaxLineBytes (4096) is the number, because every line the core sends is bounded by
+	-- it on the core's own side -- anything longer is not a line this adapter is waiting for. The
+	-- cap is checked BEFORE the newline scan below so a legitimate burst of many small complete
+	-- lines in one read can never trip it; only a single over-long or newline-less line can.
+	-- Same answer, and the same reasoning, as Emerald's recvPartial bound and Pseudoregalia's
+	-- MAX_RECV_BUFFER_BYTES.
+	if #rxBuffer > 4096 and not rxBuffer:find("\n", 1, true) then
+		log(string.format("MeshGhost: bridge buffered %d bytes with no newline -- reconnecting",
+			#rxBuffer))
+		rxBuffer = ""
+		disconnect("oversized line")
 		return
 	end
 	while true do

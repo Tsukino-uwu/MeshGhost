@@ -253,6 +253,29 @@ local VALID = {
     end,
     ['{}'] = function(v) return type(v) == "table" end,
     ['{"e":[]}'] = function(v) return type(v) == "table" and type(v.e) == "table" end,
+    -- A MALFORMED \u ESCAPE MUST COST ONE CHARACTER, NOT THE WHOLE MESSAGE (review I47, fixed
+    -- 2026-09-11). Crystal's decoder advanced the cursor by six for every `\u` whether or not
+    -- four hex digits followed, so an escape truncated before its digits stepped straight past
+    -- the string's own closing quote -- the parser then read the rest of the line as string
+    -- content, found no terminator, and dropped the entire message.
+    --
+    -- What is asserted is the FIELD AFTER the bad escape, because that is the half that was
+    -- lost: whatever the mangled character becomes, the message must still decode and the rest
+    -- of it must still be there.
+    ['{"a":"x\\uZZ","b":7}'] = function(v)
+        return type(v) == "table" and v.b == 7
+    end,
+    ['{"a":"x\\u00","b":7}'] = function(v)
+        return type(v) == "table" and v.b == 7
+    end,
+    ['{"a":"x\\u","b":7}'] = function(v)
+        return type(v) == "table" and v.b == 7
+    end,
+    -- ...and a WELL-FORMED one still decodes, or the three above would pass on a decoder that
+    -- had simply stopped understanding \u at all.
+    ['{"a":"R\\u0026B","b":7}'] = function(v)
+        return type(v) == "table" and v.a == "R&B" and v.b == 7
+    end,
 }
 
 -- Lines that must be REFUSED -- nil, not a value, and never a hang. These are the shapes that
