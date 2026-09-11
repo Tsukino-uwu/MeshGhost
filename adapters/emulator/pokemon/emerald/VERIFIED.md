@@ -206,6 +206,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-11 — the painted tier priced against CRYSTAL's, and the cost is 88% ours, not BizHawk's
 - 2026-09-11 — and then it was FIXED: 67ms to 21ms, four faults, none of them the drawing
 - 2026-09-11 — where the painted tier's floor actually is, and why a vertical merge will not move it
+- 2026-09-11 — USER-CONFIRMED ON SCREEN: the 3x painted tier still draws correctly, reflections included
 ## Confirmed facts
 
 ### Emerald ROM revision
@@ -4116,3 +4117,29 @@ A/B refused to show a gain.
 entries are split five ways since 2026-08-21 and **bodies get 26** (`BANDAGES.md`). With the spawn
 tier's ~11 on a typical map, **everything past roughly 37 characters is painted** — which is why
 this tier's cost is what decides what Emerald can carry.
+
+## 2026-09-11 — USER-CONFIRMED ON SCREEN: the 3x painted tier still draws correctly, reflections included
+
+**The user was surfing in vanilla Emerald and said so**, which turned the one genuinely untested
+half of the day's optimisation work into something checkable. Every measurement behind the
+67ms -> 21ms painted-tier work had been taken INDOORS, and one of the four fixes stops computing a
+reflection's water-clip unless there is a reflection to clip — so no reflection had been drawn at
+all since the change.
+
+**What was on screen.** Five painted ghosts pinned to fixed tiles beside the player on open water
+— two to the left, three to the right, each its own synthetic peer at `radius 0` so nothing
+circled and no two shared a tile. The user's first read: *"yee they have reflections"*, and after
+asking for the static line rather than a circle, ***"yee it works correctly still"***.
+
+**The instrument agreed, and the agreement is the point.** The occlusion call counter, broken down
+by caller, reads `occlBy[reflection=4.0 sprite=5.0]` on water against **`occlBy[sprite=64.0]` with
+reflection at ZERO indoors**. So the gate does exactly what it was supposed to: it skips the work
+where there is nothing to reflect in, and does it where there is. A counter alone could not have
+told us the reflections LOOKED right; the user's eyes could not have told us the gate was firing.
+Both were needed.
+
+**Scope, stated because it is narrower than "confirmed".** What was seen: painted ghosts on open
+water, with reflections, on vanilla Emerald. What was NOT specifically exercised in this check:
+occlusion behind scenery on LAND (a building edge, a treetop, a ledge), which is the other thing
+the rewritten `reflectiveSpans` decides. That remains the outstanding watch item, and it is now the
+only one.

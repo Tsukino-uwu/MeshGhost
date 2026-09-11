@@ -49,7 +49,16 @@ being work. An entry still here has not been confirmed.
 
 ---
 
-## [READY] the painted tier is 3.2x faster, and it changes OCCLUSION and REFLECTION code, UNWATCHED (2026-09-11)
+## [PARTLY CONFIRMED] the painted tier is 3.2x faster — WATER CHECKED, land occlusion still open (2026-09-11)
+
+**UPDATE, same day: the user confirmed the WATER half on screen** while surfing in vanilla
+Emerald, with five painted ghosts pinned beside them — *"yee they have reflections"*, then
+*"yee it works correctly still"*. The reflection occlusion counter read
+`occlBy[reflection=4.0 sprite=5.0]` there against `reflection=0` indoors, so the gate fires
+exactly where it should. Full entry in `VERIFIED.md`.
+
+**STILL OPEN: occlusion behind scenery on LAND** — a building edge, a treetop, a ledge. The
+rewritten `reflectiveSpans` decides that too, and it has not been watched.
 
 **THIS NEEDS YOUR EYES specifically because of WHERE the fix is.** It is a pure performance change
 with no intended visual effect at all — but it rewrites the function that decides **what hides a
