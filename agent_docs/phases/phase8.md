@@ -533,9 +533,11 @@ touched live surf-blob code and was queued for a surf before Emerald was next re
 
 ## 2026-08-23 — repo-wide, and it reached this adapter's prose
 
-`01cd8e85`, the no-invented-durations rule (the user, that day: *"we don't have to ever say
-days/hours/months/weeks/years/long time etc … we have everything logged/documented with dates"*).
-Emerald's own measured figure — "about 10 hours" to the end of Phase 5.5 — is the user's and stays;
+`01cd8e85`, the no-invented-durations rule — the user's call that day was that a vague span of time
+never needs saying at all, because everything here is logged against real dates anyway. (Their exact
+words are in that commit, and are not quoted here: the phrasing enumerates the banned forms, so
+reproducing it trips the very gate the commit installed.) Emerald's own measured figure — "about 10
+hours" to the end of Phase 5.5 — is the user's and stays;
 vague is the defect, not durations. Logged here because 40 hits were swept repo-wide and this
 adapter's files were among them.
 
