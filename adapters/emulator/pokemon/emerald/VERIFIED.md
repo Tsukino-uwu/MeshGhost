@@ -3911,3 +3911,21 @@ is the spawn tier that cannot reach it**, and the spawn tier is what a small roo
 **The bar here is 1:1 and this is not it** — a player of the other gender never looks like you on
 their own screen. Recorded rather than patched because route 1 touches a write boundary the user
 set, and that is the user's call, not mine.
+
+**ANNOTATION, same day, the user correcting the entry above: ROUTE 2 IS WRONG AND IS WITHDRAWN.**
+*"the drawn tier is expensive/bad performance in emerald, unlike crystal where its the prefered
+one — in emerald only spawned & OAM had no fps impact"*. Calling it "cheapest" inverted the one
+thing this adapter's own README states plainly: *"The painted tier is the rung that costs. Those
+same 56 peers painted instead cost a third of the frame rate"*, against 56 hardware sprites
+measuring indistinguishable from a bare emulator (2026-08-21). **The ladder is ordered
+`spawn -> OAM -> drawn` precisely because painting is the expensive rung**, and routing a peer to
+it for a cosmetic reason spends frame rate to fix a palette. Crystal's opposite preference is what
+made the mistake easy and is exactly why the two adapters' tier costs must not be reasoned about
+interchangeably.
+
+**So the live options are two, not three:** extend the write surface to palette RAM (route 1, the
+user's call), or leave it documented (route 3). **A fourth is worth measuring before either:** the
+OAM tier writes real hardware sprite entries, and an OAM entry carries its own palette NUMBER —
+so if the peer's palette is resident in any OBJ slot, that tier can point at it for free, with no
+painting and no new write surface beyond the OAM window already cleared. Whether May's palette is
+ever resident while the player is Brendan is unmeasured and is the question that decides it.
