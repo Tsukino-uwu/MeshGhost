@@ -157,6 +157,185 @@ $clonePaths = & git grep -inIF -e 'C:\dev\MeshGhost' -e 'C:/dev/MeshGhost' -- '*
 Report-GrepGate $LASTEXITCODE $clonePaths "hardcoded clone path in a tracked script -- use `$PSScriptRoot, debug.getinfo, or a path relative to the script:" `
     "no script hardcodes an absolute path to the clone"
 
+# An IP ADDRESS out of someone else's log. Added 2026-09-11, the day a tester's LAN address
+# reached a committed file: it was pasted in from their `meshghost.log` to illustrate the SHAPE
+# of a disconnect message, and every scanner above was blind to it because there is no username
+# and no path in an address. The one that leaked was RFC1918 and therefore harmless -- it routes
+# nowhere and identifies nobody. The user's point, which is the right one: *"would have been bad
+# if it was a public ip and not a local one"*, and the gate cannot tell the lucky case from the
+# unlucky one after the fact.
+#
+# TWO SEVERITIES, because the two classes are not the same risk:
+#
+#   FAIL -- a PUBLIC address. It names a real host on the internet: someone's relay, their home
+#           connection, their server. This is the case worth blocking a commit over.
+#   WARN -- a PRIVATE/RFC1918 one. Usually legitimate in a doc ("your LAN address looks like
+#           192.168.1.10") and never routable, but it is also exactly what leaked, so it gets a
+#           look rather than a pass.
+#
+# Loopback, the wildcard bind and the RFC 5737 documentation ranges are silent: they are the
+# CORRECT things to write, and warning on them would train everyone to ignore this section.
+#
+# AN ALLOWLIST, NOT A HEURISTIC. Four-part dotted numbers that are not addresses exist in tracked
+# prose -- `BepInEx 5.4.23.3` is the live example -- and every rule for telling a version from an
+# address by context is a rule that fails silently in one direction or the other. A literal list
+# cannot: a new one trips this section exactly once, and the fix is one line here WITH A REASON,
+# which is the moment someone actually looks at it. That is the check doing its job, not friction.
+$ipAllow = @{
+    '0.0.0.0'      = 'wildcard bind'
+    '1.2.3.4'      = 'placeholder address in docs and tests'
+    '2.2.2.2'      = 'placeholder address in a test'
+    '10.0.0.1'     = 'test fixture (core transport tests)'
+    '10.0.0.5'     = 'test fixture (core transport tests)'
+    '192.168.1.10' = 'documentation example of a LAN address'
+    '5.4.23.3'     = 'NOT AN ADDRESS: BepInEx version'
+    '5.4.23.5'     = 'NOT AN ADDRESS: BepInEx version (the standalone TEVI build)'
+}
+
+# (?<![\d.]) / (?![\d.]) so a longer dotted run is not mined for a 4-part substring: UE4SS reports
+# `3.0.1.0.0`, whose first four parts look like an address and are not one.
+$ipPattern = '(?<![\d.])(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?![\d.])'
+
+# -I skips binaries: a compiled .exe or .dll contains byte sequences that read as addresses and
+# nothing can be done about them in source. This file is excluded because the allowlist above
+# writes every address out literally, the same reason the path greps exclude it.
+# git grep is POSIX ERE and REJECTS the lookarounds in $ipPattern outright (exit 128, "Invalid
+# preceding regular expression"). The first draft of this section passed it anyway and the failure
+# was invisible: no files came back, the loop ran zero times, and it reported PASS on a tree with a
+# planted public address in it. Caught 2026-09-11 by the user asking for the negative test --
+# exactly the shape this file warns about at the top, "a verification rule that reports clean while
+# the thing it checks is broken". So: a DUMB ERE picks the candidate files, and the precise pattern
+# does the real matching in .NET below, where lookarounds actually work.
+# NO BRACES IN THIS PATTERN. PowerShell mangles `{1,3}` on its way to a native command -- the
+# argument arrived at git as `[0-9]1.[0-9]1.[0-9]1.[0-9]3`, which git then tried to resolve as a
+# REVISION (exit 128). `+` is over-broad as a candidate filter and that is fine: the .NET regex
+# below is what decides, and a file listed here that holds no address simply yields no hits.
+$ipFiles = & git grep -lIE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' -- . ':!dev-scripts/preflight.ps1' ':!.githooks/'
+$ipGrepExit = $LASTEXITCODE
+$publicHits = @()
+$privateHits = @()
+# 0 = matches, 1 = none. ANYTHING ELSE IS THE GREP ITSELF FAILING, and must never be read as a
+# clean tree -- that is the bug above.
+if ($ipGrepExit -gt 1) {
+    Report-Fail "the IP scan's git grep failed (exit $ipGrepExit) -- this section proved nothing; fix the grep rather than trusting the PASS"
+} elseif ($ipGrepExit -le 1) {
+    foreach ($f in @($ipFiles | Where-Object { $_ })) {
+        $n = 0
+        foreach ($line in @(Get-Content -LiteralPath $f -ErrorAction SilentlyContinue)) {
+            $n++
+            foreach ($m in [regex]::Matches($line, $ipPattern)) {
+                $ip = $m.Groups[1].Value
+                if ($ipAllow.ContainsKey($ip)) { continue }
+                $o = $ip.Split('.') | ForEach-Object { [int]$_ }
+                if ($o[0] -gt 255 -or $o[1] -gt 255 -or $o[2] -gt 255 -or $o[3] -gt 255) { continue }
+                # Silent: loopback, link-local, multicast/reserved, and the RFC 5737 ranges that
+                # exist precisely so documentation has addresses it is allowed to print.
+                if ($o[0] -eq 127) { continue }
+                if ($o[0] -eq 169 -and $o[1] -eq 254) { continue }
+                if ($o[0] -ge 224) { continue }
+                if ($o[0] -eq 192 -and $o[1] -eq 0 -and $o[2] -eq 2) { continue }
+                if ($o[0] -eq 198 -and $o[1] -eq 51 -and $o[2] -eq 100) { continue }
+                if ($o[0] -eq 203 -and $o[1] -eq 0 -and $o[2] -eq 113) { continue }
+                $isPrivate = ($o[0] -eq 10) -or
+                             ($o[0] -eq 172 -and $o[1] -ge 16 -and $o[1] -le 31) -or
+                             ($o[0] -eq 192 -and $o[1] -eq 168)
+                if ($isPrivate) { $privateHits += "${f}:${n}: $ip" }
+                else { $publicHits += "${f}:${n}: $ip" }
+            }
+        }
+    }
+}
+if ($publicHits.Count -gt 0) {
+    Report-Fail "$($publicHits.Count) PUBLIC IP address(es) in tracked files -- a real host on the internet; genericize it (<relay>, <local>) or add it to this section's allowlist with a reason:"
+    $publicHits | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
+}
+if ($privateHits.Count -gt 0) {
+    Report-Warn "$($privateHits.Count) private/LAN IP address(es) in tracked files -- fine in a written example, NOT fine pasted out of someone's log:"
+    $privateHits | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
+}
+if ($publicHits.Count -eq 0 -and $privateHits.Count -eq 0 -and $ipGrepExit -le 1) {
+    Report-Pass "no IP address in a tracked file outside the allowlist, loopback and the RFC 5737 doc ranges"
+}
+
+# A HOSTNAME out of someone else's log, which is the same leak as the address above wearing a
+# friendlier face -- and the one that would actually have happened here. The tester's relay in the
+# logs read 2026-09-11 was a hostname, not an IP; it never reached a tracked file, but nothing
+# would have stopped it, and a hostname is WORSE than an address: it usually contains a person's
+# chosen name, it resolves from anywhere, and it survives them changing ISP.
+#
+# AN ALLOWLIST, for the same reason as the IP section, plus a sharper one: a hostname is not
+# distinguishable from a dotted code identifier by shape. `System.IO`, `System.Net` and a prose
+# "ref. no" all read as domains to any regex that would catch `relay.example.eu`. There is no
+# heuristic here that is not a coin flip, so the list is explicit and every entry says what it is.
+#
+# ADDING TO IT IS THE POINT, not a chore: a new entry is a moment where someone states, in writing,
+# that a domain belongs in a public repo forever. That is the question CLAUDE.md asks about
+# everything else that goes in.
+$domainAllow = @{
+    # Where this project's code, docs and dependencies actually live.
+    'github.com' = 'source links'; 'golang.org' = 'Go docs'; 'pkg.go.dev' = 'Go package docs'
+    'go.dev' = 'Go docs'; 'go.uber.org' = 'dependency'; 'nuget.org' = 'NuGet'
+    'api.nuget.org' = 'NuGet'; 'bepinex.dev' = 'BepInEx'; 'nuget.bepinex.dev' = 'BepInEx feed'
+    'code.claude.com' = 'tooling'; 'signpath.org' = 'code signing'; 'signpath.io' = 'code signing'
+    # Reference material cited by the adapters and the docs.
+    'docs.unrealengine.com' = 'UE reference'; 'dev.epicgames.com' = 'UE reference'
+    'epicgames.com' = 'UE reference'; 'docs.ue4ss.com' = 'UE4SS reference'
+    'learn.microsoft.com' = 'Win32/.NET reference'; 'www.khronos.org' = 'graphics reference'
+    'lua.org' = 'Lua reference'; 'www.lua.org' = 'Lua reference'
+    'molecular-matters.com' = 'technical article'; 'www.humanlayer.dev' = 'technical article'
+    'tasvideos.org' = 'emulator reference'; 'steamdb.info' = 'Steam build reference'
+    'steamcommunity.com' = 'Steam reference'; 'www.nexusmods.com' = 'mod hosting'
+    'gamebanana.com' = 'mod hosting'; 'archipelago.gg' = 'Archipelago'
+    'warprandomizer.com' = 'randomizer reference'
+    'demki.github.io' = 'reference'; 'kittypboxx.github.io' = 'reference'
+    'carrion.wiki.gg' = 'game wiki'; 'warcraft.wiki.gg' = 'game wiki'
+    'wiki.guildwars2.com' = 'game wiki'; 'ffxiv.fandom.com' = 'game wiki'
+    # RFC 2606 reserves this one so documentation has a domain it may print.
+    'example.com' = 'RFC 2606 documentation domain'
+    # NOT DOMAINS. Dotted identifiers and prose that this pattern cannot tell from a hostname.
+    'system.io' = 'NOT A DOMAIN: C# namespace System.IO'
+    'system.net' = 'NOT A DOMAIN: C# namespace System.Net'
+    'microsoft.net' = 'NOT A DOMAIN: .NET framework name'
+    'unicode.me' = 'NOT A DOMAIN: prose'; 'unicode.co' = 'NOT A DOMAIN: prose'
+    'ref.no' = 'NOT A DOMAIN: prose'; 'e.info' = 'NOT A DOMAIN: prose'
+    'env.io' = 'NOT A DOMAIN: Lua sandbox field env.io'
+    'blizzardwatch.com' = 'reference article (kill-credit.md)'
+}
+
+# A curated TLD set, not a full one: these are what a leaked relay or personal host realistically
+# ends in, and a wider list buys nothing but more prose collisions to allowlist.
+$domainPattern = '(?i)\b[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)*\.(com|net|org|eu|io|dev|de|uk|co|me|xyz|info|gg|tv|app|cloud|site|online|ru|fr|nl|se|no|fi|pl|it|es)\b'
+$domFiles = & git grep -lIEi '[a-z0-9]\.(com|net|org|eu|io|dev|de|uk|co|me|xyz|info|gg|tv|app|cloud|site|online|ru|fr|nl|se|no|fi|pl|it|es)' -- . ':!dev-scripts/preflight.ps1' ':!.githooks/'
+$domGrepExit = $LASTEXITCODE
+$domainHits = @()
+if ($domGrepExit -gt 1) {
+    Report-Fail "the hostname scan's git grep failed (exit $domGrepExit) -- this section proved nothing"
+} elseif ($domGrepExit -le 1) {
+    foreach ($f in @($domFiles | Where-Object { $_ })) {
+        $n = 0
+        foreach ($line in @(Get-Content -LiteralPath $f -ErrorAction SilentlyContinue)) {
+            $n++
+            foreach ($m in [regex]::Matches($line, $domainPattern)) {
+                $host_ = $m.Value.ToLower()
+                if ($domainAllow.ContainsKey($host_)) { continue }
+                # A subdomain of something allowlisted is allowlisted: docs move under a host, and
+                # re-listing every path a project invents is noise with no security value.
+                $parent = $false
+                foreach ($k in $domainAllow.Keys) {
+                    if ($host_.EndsWith(".$k")) { $parent = $true; break }
+                }
+                if (-not $parent) { $domainHits += "${f}:${n}: $host_" }
+            }
+        }
+    }
+}
+if ($domainHits.Count -gt 0) {
+    Report-Fail "$($domainHits.Count) hostname(s) in tracked files that are not on the allowlist -- if this is someone's relay or personal host, genericize it (<relay>, relay.example.com); if it is a reference link, add it to this section's allowlist:"
+    $domainHits | Select-Object -Unique | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
+} elseif ($domGrepExit -le 1) {
+    Report-Pass "every hostname in a tracked file is an allowlisted reference, not somebody's machine"
+}
+
 # ---------------------------------------------------------------------------
 Section "Stray files: nothing at the root but the allowlist, nothing marked local-only"
 

@@ -7114,3 +7114,49 @@ two more doomed dials for the identical reason.
 
 **Where the evidence came from:** log files a tester had sent for an UNRELATED crash three weeks
 into the same phase. Crash folders keep the whole log, not the crash.
+
+## A NEW PREFLIGHT CHECK IS UNPROVEN UNTIL IT HAS BEEN SEEN TO FAIL -- the IP gate passed a tree with a planted address in it (2026-09-11)
+
+**Symptom.** A new preflight section reports `PASS` on the first run and looks finished. It is not
+checking anything.
+
+**What happened.** A check was added to catch an IP address in a tracked file, after one reached a
+commit. It printed PASS on a clean tree, which read as working. The user asked for the obvious
+thing — *"try to write some random made up public ip just to check if it catch/fail?"* — and it
+**passed a tree with a made-up public address planted in `status.md`**.
+
+Two bugs stacked, and either alone would have been enough:
+
+1. The pattern used lookarounds (`(?<![\d.])`). `git grep -E` is POSIX ERE and rejects them
+   outright, exiting **128** with "Invalid preceding regular expression".
+2. The guard was `if ($LASTEXITCODE -le 1)`, written for grep's 0-means-match / 1-means-none. **128
+   is not less than or equal to 1**, so the loop never ran, no hits were collected, and the final
+   `if (hits -eq 0)` happily printed PASS. A crash was indistinguishable from a clean tree.
+
+Then a third, found only because the fix was tested the same way: PowerShell mangles `{1,3}` on its
+way to a native command, so `[0-9]{1,3}\.` arrived at git as `[0-9]1.` and git tried to resolve it
+as a **revision**. Fixed by using `+` in the git-side pattern and keeping the precise regex for
+.NET, where lookarounds work.
+
+**The rules.**
+
+- **Negative-test every gate, always, with no exception worth the words.** A gate that has never
+  been observed to FAIL is indistinguishable from one that cannot. This file already carried "A
+  verification rule that reports clean while the thing it checks is broken" as a lesson; it
+  recurred anyway, in the very section written to stop a leak. Plant the thing, see the FAIL, name
+  the file and line in the output, remove it, see the PASS.
+- **A grep's exit code has three meanings, not two.** 0 matched, 1 did not, anything else is the
+  grep failing — and that third case must be its own loud FAIL, never folded into "clean".
+- **Never pass a brace quantifier through PowerShell to a native command.** `{n,m}` does not
+  survive. Filter coarsely in the external tool, decide precisely in .NET.
+
+**What the gates cover now** (`dev-scripts/preflight.ps1`): a **public** IP in a tracked file fails;
+a **private/RFC1918** one warns, since it is fine in a written example and was exactly what leaked;
+a **hostname** off the allowlist fails. All three are allowlist-driven rather than heuristic,
+because a C# namespace, a Lua sandbox field and a prose "ref. no" are not distinguishable from a hostname by
+shape, and a heuristic that gets that wrong fails silently in one direction or the other. Adding an
+entry is the point: it is the moment someone states in writing that an address belongs in a public
+repo forever.
+
+**Still not covered, deliberately:** a bare IPv6 literal, and a hostname on a TLD outside the
+curated set. Both were judged to cost more in prose collisions than they close.
