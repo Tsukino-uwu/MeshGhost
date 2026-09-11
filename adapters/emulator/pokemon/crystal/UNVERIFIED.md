@@ -49,6 +49,29 @@ being work. An entry still here has not been confirmed.
 
 ---
 
+## [READY] ghosts now honour the room's collision policy, UNWATCHED (2026-09-11)
+
+**THIS ONE CHANGES WHAT YOU SEE, unlike everything else filed today** -- it is the adapter half of
+D3, which you answered plainly: ghosts should NOT collide.
+
+**What changed.** The core has been sending `session_policy` with the room's `ghost_collision` all
+along and this adapter ignored the message entirely. It reads it now, and `shouldBlock` returns
+false for every peer while the policy says disabled -- ahead of the anti-stuck rules, which then
+have nothing to do.
+
+**Why it matters most in a SOLO session.** The shipped relay default is disabled, and the policy is
+resolved from the room AND your own config before it reaches here -- so your own chaser or replay
+ghost could block you while you were playing alone, which is the case that motivated the answer.
+
+**What to watch.** With collision disabled (the default), walk straight through a spawned peer:
+you should pass through with no bump sound and no step-in-place. With it enabled on the relay,
+today's behaviour should be unchanged -- peers solid, and the two anti-stuck rules (five seconds
+idle, or shoving into one) still releasing them.
+
+**A decline to watch for:** a ghost that is passable when the room said ENABLED, which would mean
+the policy is being read the wrong way round. The log line names which it took: "ghost collision
+disabled/enabled by the session policy".
+
 ## [READY] four robustness fixes from the 2026-09-07 review, UNWATCHED (2026-09-11)
 
 **None of these changes what the game looks like**, so what is owed is "does everything still

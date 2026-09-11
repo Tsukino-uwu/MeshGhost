@@ -2034,6 +2034,14 @@ local function shouldBlock(id, x, y, act)
 	if MESHGHOST_CRYSTAL_GHOSTS_PASSABLE then
 		return false
 	end
+	-- **THE ROOM'S POLICY OUTRANKS EVERYTHING BELOW (review D3, 2026-09-11).** See
+	-- `ENGINE.ghostCollisionAllowed`: `false` means the room -- or the player's own config, which the
+	-- core resolves before sending -- said ghosts are not solid, and a cosmetic ghost that blocks
+	-- you is the thing the contract forbids. `nil` is "nothing has said", which keeps the old
+	-- behaviour for an older core.
+	if ENGINE.ghostCollisionAllowed == false then
+		return false
+	end
 	if MESHGHOST_CRYSTAL_FREEZE_STATE then
 		return true
 	end
@@ -9693,6 +9701,27 @@ local bridgeFrames = 0
 -- Set when a core reports the relay is unreachable; until then, do not walk ports or spawn cores.
 local relayDownUntil = 0
 
+-- **THE ROOM'S GHOST-COLLISION POLICY (`session_policy`, contract.md), honoured since
+-- 2026-09-11 (review D3).**
+--
+-- This adapter makes a spawned peer SOLID on purpose -- that is what makes it a character in the
+-- world rather than a picture of one, and the anti-stuck rules in `shouldBlock` exist because of
+-- it. But the contract says a cosmetic ghost is never solid when the room says so, and until now
+-- this adapter ignored the message entirely: the core sent the policy, nothing here read it, and
+-- the shipped relay default is DISABLED -- so a player's own chaser or replay ghost could block
+-- them in a solo session, which is the case the user answered plainly (ghosts should not collide).
+--
+-- nil means "no policy yet", which is treated as the old behaviour rather than as disabled: an
+-- older core sends nothing, and going passable on silence would change what every existing setup
+-- does on the strength of a message that never arrived.
+--
+-- **ON `ENGINE`, NOT A NEW LOCAL, for two reasons and both were hit here.** This file compiles at
+-- Lua's 200-local ceiling, and a 201st name stops it loading outright (`emulator/CLAUDE.md`; it
+-- has happened four times). And `shouldBlock` reads this ~8,000 lines ABOVE where the bridge
+-- state is declared, so a local here would be a different thing entirely up there -- a nil
+-- global, silently, with the policy never taking effect and nothing to see.
+ENGINE.ghostCollisionAllowed = nil
+
 local function markPortBusy(port, why)
 	if port then
 		busyUntil[port] = bridgeFrames + BUSY_PORT_COOLDOWN_FRAMES
@@ -9995,6 +10024,20 @@ local function handle(msg)
 		end
 		markPortBusy(currentPort, "refused us (" .. reason .. ")")
 		disconnect(nil)
+	elseif t == "session_policy" then
+		-- One field matters here; `chaser_contact` is a Pseudoregalia concern. "disabled" is the
+		-- only value that turns collision off -- an unrecognised one leaves the policy untouched
+		-- rather than guessing, because guessing "off" on a value we do not understand is a
+		-- visible change nobody asked for.
+		local want = type(p.ghost_collision) == "string" and p.ghost_collision or ""
+		if want == "disabled" or want == "enabled" then
+			local allow = (want == "enabled")
+			if allow ~= ENGINE.ghostCollisionAllowed then
+				ENGINE.ghostCollisionAllowed = allow
+				log("MeshGhost: ghost collision " .. want .. " by the session policy -- "
+					.. (allow and "peers can block you" or "peers are walk-through"))
+			end
+		end
 	elseif t == "render_remote" then
 		renderRemote(tostring(p.player_id), p.state)
 	elseif t == "despawn_remote" then

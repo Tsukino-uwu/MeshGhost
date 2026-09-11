@@ -49,6 +49,30 @@ being work. An entry still here has not been confirmed.
 
 ---
 
+## [READY] ghosts now honour the room's collision policy, UNWATCHED (2026-09-11)
+
+**THIS ONE CHANGES WHAT YOU SEE** -- the adapter half of D3, which you answered: ghosts should NOT
+collide.
+
+**What changed.** The walk-through mechanism already existed and was reachable only from a DEV
+flag (`MESHGHOST_EMERALD_NO_COLLISION`) -- it uses the engine's own elevation rule, so a ghost and
+the player simply stop being compatible for collision, the same way a bridge and the water under
+it hold two characters on one tile. The room's `ghost_collision` now drives it too. The core has
+been sending that policy all along and nothing here read it.
+
+**Why it matters most in a SOLO session.** The shipped relay default is disabled, so your own
+chaser or replay ghost could block you while playing alone.
+
+**What to watch.** With collision disabled (the default), walk straight through a spawned peer.
+With it enabled, peers should be solid exactly as they are today. Turning it back on mid-session
+needs no restore and should just work: the engine rewrites an object's elevation from the map tile
+whenever it moves, so a ghost collides again on its next step.
+
+**A decline to watch for:** ghosts that draw at the wrong DEPTH after this -- only the low nibble
+of the elevation byte is touched and the high nibble is what the engine draws with, so the order
+in front of and behind scenery should be untouched. If that changed, the wrong nibble is being
+written.
+
 ## [READY] three robustness fixes from the 2026-09-07 review, UNWATCHED (2026-09-11)
 
 **None of these changes what the game looks like**, so what is owed is "does everything still

@@ -2151,6 +2151,21 @@ local function handleBridgeLine(line)
         end
         markPortBusy(currentPort, "refused us (" .. reason .. ")")
         resetBridge()
+    elseif env.type == "session_policy" then
+        -- One field matters here. "disabled" and "enabled" are the only values acted on; anything
+        -- else leaves the policy untouched, because guessing "off" on a value we do not
+        -- understand is a visible change nobody asked for.
+        local payload = env.payload
+        local want = type(payload) == "table" and type(payload.ghost_collision) == "string"
+            and payload.ghost_collision or ""
+        if want == "disabled" or want == "enabled" then
+            local off = (want == "disabled")
+            if off ~= tiering.policyNoCollision then
+                tiering.policyNoCollision = off
+                console.log("MeshGhost: ghost collision " .. want .. " by the session policy -- "
+                    .. (off and "peers are walk-through" or "peers can block you"))
+            end
+        end
     elseif env.type == "render_remote" then
         local payload = env.payload
         -- **A PLAYER ID IS A STRING, and it is checked here rather than anywhere downstream
@@ -8252,14 +8267,30 @@ end
 -- levels, and the rule above says 0 collides with everything). That is the engine's behaviour for
 -- every character, so a ghost sharing it is correct rather than a limit.
 local function freeGhostCollision()
-    if tiering.noCollision == nil then
-        tiering.noCollision = (MESHGHOST_EMERALD_NO_COLLISION
+    if tiering.devNoCollision == nil then
+        tiering.devNoCollision = (MESHGHOST_EMERALD_NO_COLLISION
             or os.getenv("MESHGHOST_EMERALD_NO_COLLISION")) and true or false
-        if tiering.noCollision then
+        if tiering.devNoCollision then
             console.log("MeshGhost: PROBE FLAG IN USE -- MESHGHOST_EMERALD_NO_COLLISION: ghosts "
                 .. "are walk-through (elevation made incompatible with the player's). Dev only.")
         end
     end
+    -- **THE ROOM'S POLICY IS THE SECOND INPUT (`session_policy`, review D3, 2026-09-11).**
+    -- This adapter already had the mechanism -- the engine's own elevation rule, above -- and it
+    -- was reachable only from a DEV flag, while the core has been sending the room's
+    -- `ghost_collision` all along and nothing here read it. The shipped relay default is
+    -- disabled, so a player's own chaser or replay ghost could block them in a solo session,
+    -- which is the case the user answered plainly: ghosts should not collide.
+    --
+    -- `tiering.policyNoCollision` is nil until a policy arrives, and nil is NOT "disabled": an
+    -- older core sends nothing, and going walk-through on silence would change what every
+    -- existing setup does on the strength of a message that never came.
+    -- TURNING COLLISION BACK ON NEEDS NO RESTORE, and that is the engine's doing rather than
+    -- luck: ObjectEventUpdateElevation rewrites currentElevation from the map tile whenever an
+    -- object moves (the reason this has to be re-applied every frame in the first place). So a
+    -- ghost left at the incompatible value collides again on its next step, without this code
+    -- touching it.
+    tiering.noCollision = tiering.devNoCollision or (tiering.policyNoCollision == true)
     if not avatarAddrConfirmed then return end
 
     local pObj = r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05)

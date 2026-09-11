@@ -21339,7 +21339,9 @@ namespace MeshGhostPseudo
                                 local_half = *half_ptr;
                             }
                         }
-                        bool* crouched_ptr = mg_property_value<bool>(pawn, STR("bIsCrouched"));
+                        // mg_read_bool: a raw read of this packed byte reports "is any of the
+                        // seven flags set", which is a trace line that lies about the one it names.
+                        const bool crouched_now_trace = mg_read_bool(pawn, STR("bIsCrouched"), false);
                         Output::send(STR("[MeshGhostPseudo] TRACE trailCoverage: tick={} toSpawn={} moveState={} actionState={} animJumpType={} movementMode={} hSpeed={:.0f} vSpeed={:.0f} halfHeight={:.1f} crouched={} z={:.1f}\n"),
                                      tick_count.load(),
                                      to_spawn_now,
@@ -21350,7 +21352,7 @@ namespace MeshGhostPseudo
                                      h_speed_ptr ? *h_speed_ptr : -1.0,
                                      v_speed_ptr ? *v_speed_ptr : -1.0,
                                      local_half,
-                                     crouched_ptr ? *crouched_ptr : false,
+                                     crouched_now_trace,
                                      location.Z());
                     }
                 }
@@ -21473,11 +21475,8 @@ namespace MeshGhostPseudo
                     // this is the measurement that decides whether a tighter threshold is enough or
                     // whether bIsCrouched has to gate it. Reading bIsCrouched here rather than
                     // assuming it: the same property the trailCoverage trace already reads.
-                    bool crouched_now = false;
-                    if (bool* crouched_ptr = mg_property_value<bool>(pawn, STR("bIsCrouched")))
-                    {
-                        crouched_now = *crouched_ptr;
-                    }
+                    // Same accessor, same reason as the trailCoverage trace above.
+                    const bool crouched_now = mg_read_bool(pawn, STR("bIsCrouched"), false);
                     Output::send(STR("[MeshGhostPseudo] TRACE animState local: capsule={:.1f} crouched={}\n"),
                                  local_capsule_half, crouched_now);
                     Output::send(STR("[MeshGhostPseudo] TRACE throwAnim: tick={} weaponEquipped={} weaponRef={} moveState={} actionState={} animJumpType={} montage='{}'\n"),
@@ -24190,12 +24189,20 @@ namespace MeshGhostPseudo
                 // nothing else sets the state the maintenance is waiting on. Writing it true early
                 // in this investigation did nothing, but that was before anything had made the
                 // ghost genuinely crouch; the maintenance is now demonstrably live and reading it.
-                if (bool* ghost_crouched_flag = mg_property_value<bool>(remote.ghost, STR("bIsCrouched")))
+                // **THROUGH THE BITFIELD-SAFE ACCESSORS (the I7 audit's live write, fixed
+                // 2026-09-11).** This read AND WROTE a raw `bool*`, per ghost per tick. This
+                // file's own SLIDE_PROPERTY_DIFF comment says what that costs: `bIsCrouched`
+                // shares a byte with `bPressedJump`, `bWasJumping`, `bClientWasFalling` and three
+                // more on this build -- seven read true together when only one flipped -- so the
+                // read was "is any of the seven set" and the write stamped all seven.
+                //
+                // Same shape as the CDO corruption fixed the same day (review I8), and the same
+                // rule: engine property = packed = never a raw pointer. A Blueprint-declared bool
+                // on this build is NOT packed, which is exactly why "it worked when I tried it on
+                // a BP property" is how this class of bug survives.
+                if (mg_read_bool(remote.ghost, STR("bIsCrouched"), !peer_shrunk_clear) != peer_shrunk_clear)
                 {
-                    if (*ghost_crouched_flag != peer_shrunk_clear)
-                    {
-                        *ghost_crouched_flag = peer_shrunk_clear;
-                    }
+                    mg_write_bool(remote.ghost, STR("bIsCrouched"), peer_shrunk_clear);
                 }
             }
 
@@ -24485,7 +24492,8 @@ namespace MeshGhostPseudo
                             ghost_half = *trace_half;
                         }
                     }
-                    bool* ghost_crouched = mg_property_value<bool>(remote.ghost, STR("bIsCrouched"));
+                    // mg_read_bool, not a raw pointer -- same packed byte as the write above.
+                    const bool ghost_crouched_now = mg_read_bool(remote.ghost, STR("bIsCrouched"), false);
 
                     // The whole crouch chain in one line: wants (the input we set) -> half (the
                     // capsule the component shrinks) -> crouched (the flag it publishes) -> mesh.
@@ -24528,7 +24536,7 @@ namespace MeshGhostPseudo
                                  rel_resolved,
                                  remote.target_z,
                                  ghost_half,
-                                 ghost_crouched ? (*ghost_crouched ? 1 : 0) : -1,
+                                 ghost_crouched_now ? 1 : 0,
                                  wants_crouch_state,
                                  can_ever_crouch);
                 }
