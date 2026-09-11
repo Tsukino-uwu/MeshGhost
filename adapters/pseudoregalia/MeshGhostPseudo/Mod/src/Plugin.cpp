@@ -16448,9 +16448,16 @@ namespace MeshGhostPseudo
         fade_function = function; // kept so ~Plugin can unregister -- see the header
         fade_hook_id = function->RegisterPreHook(
             [this, from_alpha_off, to_alpha_off, duration_off](UnrealScriptFunctionCallableContext& ctx, void*) {
+                // **THIS IS A BANDAGE, and it is registered as one since 2026-09-11 (review
+                // I14): `BANDAGES.md`, entry 0a.** The window is the ONLY thing separating our
+                // fade from the game's -- there is no ownership test available, because the fade
+                // is on the local player's camera manager either way, which is what makes it
+                // visible at all. So a death, a transition or a save-warp beginning inside ~50 ms
+                // of a ghost spawn is neutralised too, and the player sees a cut where the game
+                // meant a fade. The register entry says what would replace it.
                 if (last_ghost_spawn_tick == 0 || tick_count - last_ghost_spawn_tick > GHOST_SPAWN_FADE_GUARD_TICKS)
                 {
-                    return; // the game's own fade -- a transition, a death, a respawn. Never touched.
+                    return; // outside the window -- the game's own fade, untouched.
                 }
 
                 uint8_t* params = reinterpret_cast<uint8_t*>(&ctx.GetParams<uint8_t>());

@@ -81,9 +81,19 @@ namespace MeshGhostPseudo
     // in the range either answered or never refused" -- is what it looks like from outside.
     inline constexpr std::chrono::milliseconds RELAY_DOWN_BACKOFF{10000};
 
-    // How long to wait for the core to answer a hello before assuming it is an older build that
-    // predates bridge_ready/reject (agent_docs/contract.md). Treating silence as acceptance keeps
-    // a mixed setup working exactly as it did before, rather than refusing a perfectly good core.
+    // How long to wait for the core to answer a hello before giving up on that port.
+    //
+    // **SILENCE IS NOT ACCEPTANCE, and this comment said the opposite until 2026-09-11 (review
+    // I20).** It described a build that treated a silent core as an older one and carried on --
+    // behaviour that was tried and REVERTED, because a test that squats a port with a listener
+    // which never speaks showed the trade is backwards: something that accepts a connection and
+    // then says nothing is far more likely an unrelated program holding a port in our range than
+    // a MeshGhost core, and committing to it strands this adapter with no ghosts and no
+    // explanation. `BridgeClient.cpp`'s `core_accepted` has the full reasoning and the test that
+    // settled it; only an explicit `bridge_ready` counts.
+    //
+    // A doc comment describing reverted behaviour is worse than no comment: it is the first thing
+    // a reader trusts, and it would send them looking for a silence path that no longer exists.
     inline constexpr std::chrono::milliseconds HELLO_ANSWER_TIMEOUT{1500};
 
     class BridgeClient

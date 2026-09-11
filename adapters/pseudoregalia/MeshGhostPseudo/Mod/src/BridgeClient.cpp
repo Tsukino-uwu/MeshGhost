@@ -462,13 +462,33 @@ namespace MeshGhostPseudo
         // stopped close_socket() destroying the rejection itself.
         const uint16_t source_port = current_port;
 
+        // **A PER-CALL READ BUDGET (review I19, added 2026-09-11).** This loop used to drain the
+        // socket until it would block, and the 16 KB buffer cap was only consulted AFTERWARDS,
+        // once every complete line had been extracted -- so the cap bounded the leftover
+        // fragment and never the work. A core that had queued a lot (a large chaser pack, a
+        // resume snapshot, or simply a game that stalled for a second) made this call read and
+        // parse all of it in ONE game-thread tick, which is a frame-time spike exactly when the
+        // game is already behind.
+        //
+        // 64 KB per call is many times a worst-case frame's traffic at any rate this project
+        // runs, so an ordinary tick still drains the socket completely and nothing changes. What
+        // it removes is the unbounded case. Anything left is read on the next tick: TCP holds it,
+        // and the state plane is latest-wins, so later is not lost.
+        constexpr size_t MAX_RECV_PER_POLL = 64 * 1024;
+        size_t received_this_poll = 0;
+
         char buf[4096];
         for (;;)
         {
+            if (received_this_poll >= MAX_RECV_PER_POLL)
+            {
+                break; // the rest waits for the next tick
+            }
             int received = recv(static_cast<SOCKET>(sock), buf, sizeof(buf), 0);
             if (received > 0)
             {
                 recv_buffer.append(buf, static_cast<size_t>(received));
+                received_this_poll += static_cast<size_t>(received);
                 continue;
             }
             if (received == 0)

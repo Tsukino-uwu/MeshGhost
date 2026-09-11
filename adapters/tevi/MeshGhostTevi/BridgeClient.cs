@@ -1005,6 +1005,17 @@ namespace MeshGhostTevi
 
             while (incoming.TryDequeue(out string line))
             {
+                // **WHICH SIDE OF THE BRIDGE THREW (review I27, 2026-09-11).** The catch below
+                // wraps the parse AND the callbacks, and the callbacks are Unity code -- so a
+                // NullReference inside the ghost update was reported as "bad bridge message
+                // ignored", which is the transport blaming itself for the renderer. The comment
+                // in that catch already records what it cost: most of an evening, looking in the
+                // wrong file.
+                //
+                // A marker rather than a second try/catch, because splitting them means
+                // restructuring a switch that dispatches from a dozen arms and reads clearly as
+                // it is. This names the source in the message, which is the part that was missing.
+                string stage = "parsing the line";
                 try
                 {
                     // TryGetValue throughout rather than indexer + cast: an indexer miss returns
@@ -1067,6 +1078,7 @@ namespace MeshGhostTevi
                                 OrbFxOrb = (int?)extras?["orbfx_orb"],
                                 OrbFxWhite = (bool?)extras?["orbfx_white"],
                             };
+                            stage = "the adapter's render_remote handler (Unity code, not the bridge)";
                             onRenderRemote(playerId, remote);
                             break;
                         }
@@ -1078,6 +1090,7 @@ namespace MeshGhostTevi
                                 break;
                             }
                             string playerId = (string)playerIdToken;
+                            stage = "the adapter's despawn_remote handler (Unity code, not the bridge)";
                             onDespawnRemote(playerId);
                             break;
                         }
@@ -1217,19 +1230,30 @@ namespace MeshGhostTevi
                     // The message alone hid a per-frame NullReference inside the ghost update for
                     // most of an evening (2026-09-10): the same text every frame, no line number.
                     // The full trace is logged ONCE per distinct message; the repeats stay short.
+                    //
+                    // AND THE REPEATS ARE NOW RATE-LIMITED, not merely shortened. Whatever throws
+                    // is usually a property of the peer's state, so it throws again on the NEXT
+                    // frame for the same peer: one line per peer per frame, driven from another
+                    // machine. A short line at 60 fps is still a log nobody can read.
                     if (loggedTraces.Add(e.Message))
                     {
-                        Log($"MeshGhost: bad bridge message ignored: {e}");
+                        Log($"MeshGhost: failure while {stage}: {e}");
+                        lastDrainErrorAt = DateTime.UtcNow;
                     }
-                    else
+                    else if (DateTime.UtcNow - lastDrainErrorAt >= DrainErrorRepeatInterval)
                     {
-                        Log($"MeshGhost: bad bridge message ignored: {e.Message}");
+                        lastDrainErrorAt = DateTime.UtcNow;
+                        Log($"MeshGhost: still failing while {stage}: {e.Message}");
                     }
                 }
             }
         }
 
         private readonly HashSet<string> loggedTraces = new HashSet<string>();
+        // Repeats of an already-reported drain failure are held to this, because the thing that
+        // threw usually throws again next frame for the same peer -- see the catch in DrainInto.
+        private static readonly TimeSpan DrainErrorRepeatInterval = TimeSpan.FromSeconds(5);
+        private DateTime lastDrainErrorAt = DateTime.MinValue;
         private const int ExtrasSoftCap = 1000;
         private bool warnedExtrasCap;
     }

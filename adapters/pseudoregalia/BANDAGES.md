@@ -21,6 +21,39 @@ tells that only show up later, and the one bandage shape to avoid outright — l
 
 ## Open compensations
 
+### 0a. The spawn fade guard zeroes ANY camera fade within ~50 ms of a ghost spawn
+
+**Registered 2026-09-11 (review I14), having shipped unregistered** -- the second time this file
+has had to record its own omission, and the reason the register exists.
+
+**What it does.** `register_fade_guard_hook` pre-hooks `PlayerCameraManager::StartCameraFade` and,
+if a ghost spawned within `GHOST_SPAWN_FADE_GUARD_TICKS` (10 ticks, ~50 ms), writes `FromAlpha`,
+`ToAlpha` **and `Duration`** to zero. The call still runs; it just goes nowhere over no time.
+
+**Why it exists.** Spawning a clone of the player's pawn makes the game fade the screen -- the
+construction path the clone runs fires the same fade a real spawn would. Every ghost appearing
+flashed the local player's view.
+
+**Why it is a bandage.** It cannot tell OUR fade from the GAME'S. The comment beside it asserts
+that "every real fade the game performs is untouched", and the only thing separating them is that
+50 ms window: a death, a zone transition or a save-warp that happens to land inside it is silently
+neutralised too, and the player sees a cut where the game meant a fade.
+
+**Why there is no ownership test, which is the part worth knowing.** Its sibling camera guard has
+one, and the natural question is why this does not. The answer is that the fade IS on the local
+player's camera manager in both cases -- that is what makes it visible at all -- so there is no
+object to attribute it to. The discriminating fact is elsewhere: WHY the call was made, which the
+hook cannot see.
+
+**What would replace it.** Stopping the clone from requesting a fade in the first place -- the
+"prevent whatever changed it" half of the rule -- which means finding what in the spawn path calls
+`StartCameraFade` and not calling it for a ghost. Nobody has looked yet.
+
+**Risk today: low and bounded by the window.** 50 ms is roughly three frames at 60 fps, and it only
+opens when a ghost spawns -- so the collision needs a real fade to begin inside three frames of a
+peer appearing. Worth knowing when someone reports a missing fade in a busy room.
+
+
 ### 0. Parking a despawned ghost at Z = -500000 instead of destroying it
 
 **Never registered here until 2026-08-17, despite already being live** — found when the user
