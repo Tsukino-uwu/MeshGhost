@@ -137,7 +137,11 @@ if ($TreeOnly) {
 # patterns are written out literally on this line, so git grep finds them here every time. Without
 # the exclusion the check reported FAIL on a perfectly clean tree -- a checker that always fails is
 # as useless as one that never can, and gets ignored just as fast.
-$leaks = & git grep -inIF -e 'C:\Users' -e 'C:/Users' -e '/home/' -e '/Users/' -- . ':!agent_docs/pitfalls/' ':!dev-scripts/preflight.ps1' ':!.githooks/' ':!.github/workflows/'
+# dev-scripts/negative-test-preflight.ps1 is excluded here and in the three greps below on the
+# same grounds and nowhere else: it plants these exact violations into a scratch worktree to prove
+# these gates can still fail, so it necessarily spells each pattern out. Every fixture there reads
+# the file back after planting, which is the check on the checker's checker.
+$leaks = & git grep -inIF -e 'C:\Users' -e 'C:/Users' -e '/home/' -e '/Users/' -- . ':!agent_docs/pitfalls/' ':!dev-scripts/preflight.ps1' ':!dev-scripts/negative-test-preflight.ps1' ':!.githooks/' ':!.github/workflows/'
 Report-GrepGate $LASTEXITCODE $leaks "machine-identifying path in a tracked file:" `
     "no username or home-directory path in tracked files"
 
@@ -153,7 +157,7 @@ Report-GrepGate $LASTEXITCODE $leaks "machine-identifying path in a tracked file
 # <clone>" -- so scanning prose would fail on a clean tree, which is the failure mode
 # documented at the top of this file. What breaks on another machine is a SCRIPT that hardcodes
 # it; prose naming the boundary is the rule working.
-$clonePaths = & git grep -inIF -e 'C:\dev\MeshGhost' -e 'C:/dev/MeshGhost' -- '*.ps1' '*.bat' '*.sh' '*.lua' '*.go' '*.cs' '*.cpp' '*.hpp' ':!dev-scripts/preflight.ps1'
+$clonePaths = & git grep -inIF -e 'C:\dev\MeshGhost' -e 'C:/dev/MeshGhost' -- '*.ps1' '*.bat' '*.sh' '*.lua' '*.go' '*.cs' '*.cpp' '*.hpp' ':!dev-scripts/preflight.ps1' ':!dev-scripts/negative-test-preflight.ps1'
 Report-GrepGate $LASTEXITCODE $clonePaths "hardcoded clone path in a tracked script -- use `$PSScriptRoot, debug.getinfo, or a path relative to the script:" `
     "no script hardcodes an absolute path to the clone"
 
@@ -210,7 +214,7 @@ $ipPattern = '(?<![\d.])(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?![\d.])'
 # argument arrived at git as `[0-9]1.[0-9]1.[0-9]1.[0-9]3`, which git then tried to resolve as a
 # REVISION (exit 128). `+` is over-broad as a candidate filter and that is fine: the .NET regex
 # below is what decides, and a file listed here that holds no address simply yields no hits.
-$ipFiles = & git grep -lIE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' -- . ':!dev-scripts/preflight.ps1' ':!.githooks/'
+$ipFiles = & git grep -lIE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' -- . ':!dev-scripts/preflight.ps1' ':!dev-scripts/negative-test-preflight.ps1' ':!.githooks/'
 $ipGrepExit = $LASTEXITCODE
 $publicHits = @()
 $privateHits = @()
@@ -305,7 +309,7 @@ $domainAllow = @{
 # A curated TLD set, not a full one: these are what a leaked relay or personal host realistically
 # ends in, and a wider list buys nothing but more prose collisions to allowlist.
 $domainPattern = '(?i)\b[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)*\.(com|net|org|eu|io|dev|de|uk|co|me|xyz|info|gg|tv|app|cloud|site|online|ru|fr|nl|se|no|fi|pl|it|es)\b'
-$domFiles = & git grep -lIEi '[a-z0-9]\.(com|net|org|eu|io|dev|de|uk|co|me|xyz|info|gg|tv|app|cloud|site|online|ru|fr|nl|se|no|fi|pl|it|es)' -- . ':!dev-scripts/preflight.ps1' ':!.githooks/'
+$domFiles = & git grep -lIEi '[a-z0-9]\.(com|net|org|eu|io|dev|de|uk|co|me|xyz|info|gg|tv|app|cloud|site|online|ru|fr|nl|se|no|fi|pl|it|es)' -- . ':!dev-scripts/preflight.ps1' ':!dev-scripts/negative-test-preflight.ps1' ':!.githooks/'
 $domGrepExit = $LASTEXITCODE
 $domainHits = @()
 if ($domGrepExit -gt 1) {
@@ -363,7 +367,7 @@ if ($rootStray.Count -gt 0) {
 $localOnly = @()
 foreach ($f in @(& git ls-files)) {
     if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { continue }
-    if ($f -eq 'dev-scripts/preflight.ps1' -or $f -eq '.githooks/pre-commit' -or $f -like '.github/workflows/*' -or $f -like 'agent_docs/pitfalls/*') { continue }
+    if ($f -eq 'dev-scripts/preflight.ps1' -or $f -eq 'dev-scripts/negative-test-preflight.ps1' -or $f -eq '.githooks/pre-commit' -or $f -like '.github/workflows/*' -or $f -like 'agent_docs/pitfalls/*') { continue }
     $head = @(Get-Content -LiteralPath $f -TotalCount 10 -ErrorAction SilentlyContinue)
     if (($head -join "`n") -match '(?i)deliberately untracked|do not commit') { $localOnly += $f }
 }
@@ -1354,19 +1358,36 @@ if ($badAnchors.Count -gt 0) {
     Report-Pass "every markdown #anchor names a heading in its target"
 }
 
-# .github/SECURITY.md is rendered on the repository's Security tab (/security/policy), where GitHub
-# resolves a relative link WITHOUT the branch segment -- `../docs/security.md` became
-# /blob/docs/security.md and 404'd, live on 2026-09-06, while the same file read fine in the normal
-# file view. Absolute URLs are the only form that works in both places.
-if (Test-Path -LiteralPath '.github/SECURITY.md') {
-    $secBody = (Get-Content -Raw -Encoding UTF8 -LiteralPath '.github/SECURITY.md') -replace '(?s)```.*?```', ''
-    $secRel = @([regex]::Matches($secBody, '(?<!\!)\]\(([^)\s]+)\)') | ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ -notmatch '^[a-z]+:' -and -not $_.StartsWith('#') })
-    if ($secRel.Count -gt 0) {
-        Report-Fail ".github/SECURITY.md has $($secRel.Count) relative link(s); the Security tab cannot resolve them -- use absolute URLs:"
-        $secRel | ForEach-Object { Write-Host "          $_" }
-    } else {
-        Report-Pass ".github/SECURITY.md links are absolute (the Security tab drops the branch from relative ones)"
+# EVERY tracked .md under .github/, not one filename. GitHub gives these files their own surfaces
+# -- the Security tab for SECURITY.md, the contributing panel and the community profile for
+# CONTRIBUTING.md -- and on them it resolves a relative link WITHOUT the branch segment, so
+# `../docs/security.md` becomes /blob/docs/security.md and 404s while the same line reads fine in
+# the ordinary file view. Absolute URLs are the only form that works in both places.
+#
+# THIS CHECK WAS WRITTEN FOR THE SECURITY TAB ON 2026-09-06 AND SCOPED TO THAT ONE FILE, and on
+# 2026-09-11 the user clicked both links in .github/CONTRIBUTING.md and got
+# /blob/CLAUDE.md and /blob/agent_docs/README.md -- the identical defect, in the sibling file, on
+# a gate that had already been built for it. The lesson is the scope, not the rule: a surface
+# quirk belongs to the FOLDER GitHub treats specially, and naming one file gates one file.
+$ghMd = @(& git ls-files -- '.github/*.md' '.github/**/*.md' | Sort-Object -Unique)
+$ghRel = @()
+foreach ($g in $ghMd) {
+    if (-not (Test-Path -LiteralPath $g)) { continue }
+    $ghBody = (Get-Content -Raw -Encoding UTF8 -LiteralPath $g) -replace '(?s)```.*?```', ''
+    foreach ($m in [regex]::Matches($ghBody, '(?<!\!)\]\(([^)\s]+)\)')) {
+        $target = $m.Groups[1].Value
+        # An in-page #anchor is the one relative form these surfaces do resolve.
+        if ($target -match '^[a-z]+:' -or $target.StartsWith('#')) { continue }
+        $ghRel += "${g}: $target"
     }
+}
+if ($ghMd.Count -eq 0) {
+    Report-Fail "no tracked .md under .github/ -- this check would pass vacuously"
+} elseif ($ghRel.Count -gt 0) {
+    Report-Fail "$($ghRel.Count) relative link(s) in .github/ markdown; GitHub's own surfaces for these files drop the branch segment and 404 -- use https://github.com/<owner>/<repo>/blob/master/<path>:"
+    $ghRel | ForEach-Object { Write-Host "          $_" }
+} else {
+    Report-Pass "every link in $($ghMd.Count) .github/ markdown file(s) is absolute (those surfaces drop the branch from relative ones)"
 }
 
 # ---------------------------------------------------------------------------

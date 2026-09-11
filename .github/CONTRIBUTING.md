@@ -8,8 +8,8 @@ and says what a change is expected to keep true.
 For anything under `core`, `relay`, `transport`, `bridge` or `cmd`, `dev-scripts/run-gotests.bat` is
 the whole suite; CI runs the same plus the fuzzers and the race detector on every push.
 
-The rules the project is built under are [CLAUDE.md](../CLAUDE.md), and
-[agent_docs/README.md](../agent_docs/README.md) is the map of everything else.
+The rules the project is built under are [CLAUDE.md](https://github.com/Tsukino-uwu/MeshGhost/blob/master/CLAUDE.md), and
+[agent_docs/README.md](https://github.com/Tsukino-uwu/MeshGhost/blob/master/agent_docs/README.md) is the map of everything else.
 
 ## Repo layout
 
