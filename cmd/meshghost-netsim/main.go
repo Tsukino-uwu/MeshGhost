@@ -87,8 +87,81 @@ type faults struct {
 	partitionFor   time.Duration
 	start          time.Time
 
+	// burstMean is the average length of a BAD period when correlated loss is
+	// on, and zero when it is off (the memoryless default). inBad and
+	// burstUntil are the current state; both are guarded by mu.
+	burstMean  time.Duration
+	inBad      bool
+	burstUntil time.Time
+	goodUntil  time.Time
+
 	mu  sync.Mutex
 	rng *rand.Rand
+}
+
+// losing reports whether this datagram is lost, and is the whole difference
+// between the default fault model and the opt-in one.
+//
+// MEMORYLESS (-loss-burst unset): an independent coin flip per datagram, which
+// is what this tool has always done. It is right for background loss and wrong
+// for the thing that actually breaks an interpolation buffer -- a run of
+// consecutive samples missing -- because independent flips almost never produce
+// one. That is the gap the 2026-09-07 review measured (D5): nothing in the
+// no-arg profile reaches the 150-500ms correlated-gap regime ADR 0046's ladder
+// was judged against, so the shipped 450ms rests on a milder network than its
+// own description claims, and the error direction is that 450 may be UNDER-sized.
+//
+// CORRELATED (-loss-burst set): a two-state Gilbert model. The link is GOOD and
+// loses nothing, or BAD and loses everything, and each period's length is drawn
+// from an exponential with the given mean -- so losses arrive in runs, the way
+// a wifi link with a competing transmitter or a moving obstacle actually fails.
+// -loss keeps its meaning as the long-run FRACTION of time spent BAD, so the
+// same -loss loses the same share of datagrams either way: what changes is the
+// arrangement, which is the only thing an interpolation buffer cares about.
+//
+// Opt-in, and deliberately not the default: every interp verdict on record was
+// made against the memoryless profile, and silently changing what the no-arg
+// rig means would invalidate those comparisons without anyone noticing. The
+// user's call, 2026-09-11.
+func (f *faults) losing(now time.Time) bool {
+	if f.loss <= 0 {
+		return false
+	}
+	if f.burstMean <= 0 {
+		return f.chance(f.loss)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	// Mean GOOD length follows from the two knobs: the fraction of time spent
+	// BAD is mean(bad) / (mean(good) + mean(bad)), so mean(good) is
+	// mean(bad) * (1-loss)/loss. At the no-arg 5% that is nineteen times as
+	// long good as bad.
+	goodMean := time.Duration(float64(f.burstMean) * (1 - f.loss) / f.loss)
+	for {
+		if f.inBad {
+			if now.Before(f.burstUntil) {
+				return true
+			}
+			f.inBad = false
+			f.goodUntil = now.Add(f.expDurationLocked(goodMean))
+			continue
+		}
+		if now.Before(f.goodUntil) {
+			return false
+		}
+		f.inBad = true
+		f.burstUntil = now.Add(f.expDurationLocked(f.burstMean))
+	}
+}
+
+// expDurationLocked draws from an exponential distribution with the given mean,
+// which is what makes the state lengths memoryless WITHIN a state while the
+// state itself carries the correlation. Caller holds mu.
+func (f *faults) expDurationLocked(mean time.Duration) time.Duration {
+	if mean <= 0 {
+		return 0
+	}
+	return time.Duration(f.rng.ExpFloat64() * float64(mean))
 }
 
 func (f *faults) chance(p float64) bool {
@@ -163,6 +236,15 @@ func main() {
 	dirs := flag.String("direction", "both", "which directions faults apply to: both, up (client->relay), or down")
 	partitionEvery := flag.Duration("partition-every", 0, "if set, black out the link this often")
 	partitionFor := flag.Duration("partition-for", 2*time.Second, "how long each -partition-every blackout lasts")
+	burstMean := flag.Duration("loss-burst", 0,
+		"OPT-IN correlated loss: when set, -loss stops being a coin flip per datagram and becomes "+
+			"a two-state model -- the link is either GOOD (nothing lost) or BAD (everything lost), "+
+			"and a bad period lasts about this long. Real bad wifi loses 150-500ms in a run, which "+
+			"memoryless loss never produces: at 5% and 15Hz a 200ms triple-gap comes round about "+
+			"every nine minutes and a 267ms quad about every three hours, so nothing in the default "+
+			"profile exercises the regime an interpolation buffer is sized for (ADR 0046). -loss "+
+			"still sets the long-run fraction of time spent in BAD, so the same -loss means the same "+
+			"total datagrams lost, arriving in runs instead of singly")
 	seed := flag.Int64("seed", 0, "PRNG seed; 0 picks one and logs it, so a bad run can be replayed")
 	statsEvery := flag.Duration("stats-every", 10*time.Second, "how often to print counters; 0 disables")
 	flag.Parse()
@@ -197,7 +279,8 @@ func main() {
 
 	f := &faults{
 		loss: *loss, dup: *dup, reorder: *reorder, reorderDelay: *reorderDelay,
-		latency: *latency, jitter: *jitter,
+		burstMean: *burstMean,
+		latency:   *latency, jitter: *jitter,
 		partitionEvery: *partitionEvery, partitionFor: *partitionFor,
 		start:      time.Now(),
 		directions: map[direction]bool{},
@@ -241,6 +324,18 @@ func main() {
 		log.Printf("netsim: NOTE -loss/-duplicate/-reorder reach the udp flows ONLY. The mirrored tcp " +
 			"ports carry the handshake and get -latency/-jitter/-partition only, because dropping " +
 			"bytes out of a proxied tcp stream corrupts it rather than simulating loss")
+	}
+	if *burstMean > 0 {
+		// Said at startup, because the whole point of the flag is that a
+		// verdict reached under it is not comparable with one reached without
+		// it -- and a log nobody has to ask for is what makes that visible in
+		// a pasted transcript.
+		goodMean := time.Duration(float64(*burstMean) * (1 - *loss) / *loss)
+		log.Printf("netsim: CORRELATED loss on: the link alternates BAD for ~%s (everything lost) "+
+			"and GOOD for ~%s (nothing lost), which keeps -loss=%.3f as the long-run share of "+
+			"datagrams lost but delivers them in RUNS. This is a different network from the no-arg "+
+			"profile every interp verdict on record was judged against -- say which one a result "+
+			"came from", burstMean.Truncate(time.Millisecond), goodMean.Truncate(time.Millisecond), *loss)
 	}
 	if *partitionEvery > 0 {
 		log.Printf("netsim: partition %s every %s", *partitionFor, *partitionEvery)
@@ -354,7 +449,7 @@ func sendUDP(f *faults, st *stats, d direction, pkt []byte, write func([]byte)) 
 		st.partitions.Add(1)
 		return
 	}
-	if f.chance(f.loss) {
+	if f.losing(time.Now()) {
 		st.dropped.Add(1)
 		return
 	}

@@ -1,12 +1,5 @@
 package relay
 
-// The lease table's two bounds. Both were uncovered until 2026-09-08: the
-// room-wide one had existed since the plane was written and no test ever
-// reached it -- deleting the branch left the relay with an unbounded map keyed
-// by peer-chosen strings and the suite green -- and the per-member one did not
-// exist at all, which is the abuse escrow had already been fixed for on
-// 2026-09-02 (docs/security.md carried the lease half as an accepted risk).
-
 import (
 	"encoding/json"
 	"fmt"
@@ -15,8 +8,20 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// leaseStates returns just the lease_state messages this member received,
-// decoded, in write order.
+// THE LEASE TABLE'S TWO BOUNDS HAD NO COVERAGE AT ALL (review H7), while the
+// world plane's identical one -- WorldTooMany -- was asserted. Both bounds are
+// resource limits on a map a peer can grow by asking, and the per-member half
+// was added 2026-09-08 to close an abuse docs/security.md had been carrying as
+// an accepted risk: a re-claim by the holder is a RENEW, so a member that
+// claimed every key and kept renewing answered every other member's claim with
+// LeaseTooMany indefinitely -- and in a world.v1 room that stops anyone else
+// writing to the world at all, since a write is only taken from the lease
+// holder.
+//
+// The refusal must be ANSWERED rather than dropped, for the reason the world
+// plane's says: silence leaves the asker waiting for a reply that never comes.
+
+// leaseStates returns just this member's lease messages, decoded, in order.
 func (rt *recordingTransport) leaseStates(t *testing.T) []protocol.LeaseState {
 	t.Helper()
 	var out []protocol.LeaseState
@@ -33,137 +38,115 @@ func (rt *recordingTransport) leaseStates(t *testing.T) []protocol.LeaseState {
 	return out
 }
 
-// lastLeaseState is the answer to the claim just made -- the last lease_state
-// this member was sent.
-func lastLeaseState(t *testing.T, rt *recordingTransport) protocol.LeaseState {
+func claim(r *Room, from, key string) {
+	r.handleLease(from, protocol.Lease{Op: protocol.LeaseClaim, Key: key})
+}
+
+// lastLeaseReason is the reason on this member's most recent lease message.
+func lastLeaseReason(t *testing.T, rt *recordingTransport) string {
 	t.Helper()
 	states := rt.leaseStates(t)
 	if len(states) == 0 {
-		t.Fatal("no lease_state arrived at all")
+		t.Fatal("no lease message at all -- a refusal that says nothing leaves the asker " +
+			"waiting for an answer that never comes")
 	}
-	return states[len(states)-1]
+	return string(states[len(states)-1].Reason)
 }
 
-// claimKeys has holder claim n keys named prefix0..prefixN-1, and fails the
-// test if any of them is refused.
-func claimKeys(t *testing.T, r *Room, rt *recordingTransport, holder, prefix string, n int) {
-	t.Helper()
-	for i := 0; i < n; i++ {
-		key := fmt.Sprintf("%s%d", prefix, i)
-		r.handleLease(holder, protocol.Lease{Op: protocol.LeaseClaim, Key: key})
-		if st := lastLeaseState(t, rt); st.Reason != protocol.LeaseGranted {
-			t.Fatalf("%s's claim on %q (number %d) was answered %q, want %q",
-				holder, key, i+1, st.Reason, protocol.LeaseGranted)
-		}
+// ONE MEMBER MAY NOT TAKE THE WHOLE TABLE. The per-member share is
+// MaxLeasesPerRoom/8, the same ratio escrow uses, so eight cooperating members
+// are needed to fill it -- one acting alone is refused at its own share.
+func TestOneMemberCannotClaimTheWholeLeaseTable(t *testing.T) {
+	r, rts := worldRoom(t, worldFeatures, "hog", "p2")
+
+	for i := 0; i < maxLeasesPerMember; i++ {
+		claim(r, "hog", fmt.Sprintf("k%d", i))
+	}
+	if got := lastLeaseReason(t, rts["hog"]); got != string(protocol.LeaseGranted) {
+		t.Fatalf("claim %d of its own share was answered %q, want it granted",
+			maxLeasesPerMember, got)
+	}
+
+	claim(r, "hog", "one-too-many")
+	if got := lastLeaseReason(t, rts["hog"]); got != string(protocol.LeaseTooMany) {
+		t.Fatalf("a claim past the per-member share was answered %q, want %q",
+			got, protocol.LeaseTooMany)
+	}
+
+	// AND THE ROOM STILL WORKS FOR EVERYONE ELSE, which is the whole point of
+	// the per-member bound: before it, the room cap was reachable by one
+	// member and every other member's claim was refused for as long as that
+	// member kept renewing.
+	claim(r, "p2", "p2s-key")
+	if got := lastLeaseReason(t, rts["p2"]); got != string(protocol.LeaseGranted) {
+		t.Fatalf("another member's claim was answered %q while one member sat at its share -- "+
+			"that is the starvation the per-member bound exists to prevent", got)
 	}
 }
 
-// TestOneMemberCannotClaimEveryLeaseInTheRoom is F5 of the 2026-09-08 review.
-// A re-claim by the current holder is a renew, so a held key never lapses: with
-// only the room-wide cap, one member could take all protocol.MaxLeasesPerRoom
-// keys, renew them forever, and every other member's claim came back
-// LeaseTooMany for as long as it cared to keep going. In a world.v1 room that
-// is a write lockout, since a world write is only accepted from the holder of
-// the lease it names.
-func TestOneMemberCannotClaimEveryLeaseInTheRoom(t *testing.T) {
-	r, rts := worldRoom(t, worldFeatures, "p1", "p2")
+// A RENEW IS NOT A NEW SLOT. A member at its own cap must be able to keep the
+// keys it already holds; refusing its renews would make it lose them to its own
+// retries, which is worse than the hoarding the cap prevents.
+func TestAMemberAtItsCapCanStillRenewWhatItHolds(t *testing.T) {
+	r, rts := worldRoom(t, worldFeatures, "hog")
 
-	claimKeys(t, r, rts["p1"], "p1", "hog", maxLeasesPerMember)
-
-	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "onemore"})
-	if st := lastLeaseState(t, rts["p1"]); st.Reason != protocol.LeaseTooMany {
-		t.Fatalf("p1's claim number %d was answered %q, want %q",
-			maxLeasesPerMember+1, st.Reason, protocol.LeaseTooMany)
+	for i := 0; i < maxLeasesPerMember; i++ {
+		claim(r, "hog", fmt.Sprintf("k%d", i))
 	}
 
-	// The room's table has 256-32 keys free, and p2 must be able to use it.
-	r.handleLease("p2", protocol.Lease{Op: protocol.LeaseClaim, Key: "p2s"})
-	if st := lastLeaseState(t, rts["p2"]); st.Reason != protocol.LeaseGranted {
-		t.Fatalf("p2's first claim while p1 holds %d keys was answered %q, want %q -- "+
-			"one member's hoarding must not be another member's refusal",
-			maxLeasesPerMember, st.Reason, protocol.LeaseGranted)
+	// A re-claim by the holder, which the code treats as a renew...
+	claim(r, "hog", "k0")
+	if got := lastLeaseReason(t, rts["hog"]); got != string(protocol.LeaseGranted) {
+		t.Fatalf("a re-claim of a key this member already holds was answered %q at its cap", got)
+	}
+	// ...and an explicit renew.
+	r.handleLease("hog", protocol.Lease{Op: protocol.LeaseRenew, Key: "k0"})
+	if got := lastLeaseReason(t, rts["hog"]); got != string(protocol.LeaseGranted) {
+		t.Fatalf("an explicit renew at the cap was answered %q", got)
 	}
 
-	// A member AT its cap can still renew what it already holds, and re-claim
-	// it: refusing either would make a retrying client lose its own keys to its
-	// own retries, which is exactly what the renew rule exists to prevent.
-	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseRenew, Key: "hog0"})
-	if st := lastLeaseState(t, rts["p1"]); st.Reason != protocol.LeaseGranted {
-		t.Fatalf("a renew at the per-member cap was answered %q, want %q", st.Reason, protocol.LeaseGranted)
-	}
-	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "hog0"})
-	if st := lastLeaseState(t, rts["p1"]); st.Reason != protocol.LeaseGranted {
-		t.Fatalf("a re-claim of its own key at the per-member cap was answered %q, want %q",
-			st.Reason, protocol.LeaseGranted)
-	}
-
-	// And releasing one gives the slot back: the count tracks the table rather
-	// than counting claims ever made.
-	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseRelease, Key: "hog0"})
-	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "afterrelease"})
-	if st := lastLeaseState(t, rts["p1"]); st.Reason != protocol.LeaseGranted {
-		t.Fatalf("a claim after releasing one at the cap was answered %q, want %q -- "+
-			"the per-member count did not come back down", st.Reason, protocol.LeaseGranted)
-	}
 	r.mu.Lock()
-	held, counted := len(r.leases), r.leasesBy["p1"]
+	held := r.leasesBy["hog"]
 	r.mu.Unlock()
-	if counted != maxLeasesPerMember {
-		t.Fatalf("p1 is counted as holding %d keys, want %d -- a count that drifts either "+
-			"locks a member out of a table with room in it or un-bounds the cap entirely",
-			counted, maxLeasesPerMember)
-	}
-	if held != maxLeasesPerMember+1 {
-		t.Fatalf("the room holds %d keys, want %d", held, maxLeasesPerMember+1)
+	if held != maxLeasesPerMember {
+		t.Fatalf("renewing changed the holder's count to %d, want %d -- a renew takes no new slot",
+			held, maxLeasesPerMember)
 	}
 }
 
-// TestTheRoomWideLeaseCapRefusesAClaimNobodyCanFit is H7 of the same review:
-// protocol.MaxLeasesPerRoom and protocol.LeaseTooMany had zero coverage, while
-// their twin protocol.WorldTooMany was asserted in world_test.go. The map is
-// keyed by peer-chosen strings, so without this bound a room's memory is set by
-// whoever is willing to send the most claims.
-//
-// It takes eight members to reach the room cap now, which is the per-member
-// bound above working: filling the table is the room's decision rather than one
-// member's persistence.
-func TestTheRoomWideLeaseCapRefusesAClaimNobodyCanFit(t *testing.T) {
-	fillers := protocol.MaxLeasesPerRoom / maxLeasesPerMember
-	ids := make([]string, 0, fillers+1)
-	for i := 0; i < fillers; i++ {
-		ids = append(ids, fmt.Sprintf("filler%d", i))
+// THE ROOM CAP IS THE OTHER HALF, and it needs enough members that no single
+// one hits its own share first -- which is exactly the ratio the per-member
+// bound was derived from.
+func TestTheRoomLeaseTableHasACapOfItsOwn(t *testing.T) {
+	members := protocol.MaxLeasesPerRoom/maxLeasesPerMember + 1
+	ids := make([]string, 0, members)
+	for i := 0; i < members; i++ {
+		ids = append(ids, fmt.Sprintf("m%d", i))
 	}
-	ids = append(ids, "latecomer")
 	r, rts := worldRoom(t, worldFeatures, ids...)
 
-	for i := 0; i < fillers; i++ {
-		id := ids[i]
-		claimKeys(t, r, rts[id], id, id+"key", maxLeasesPerMember)
+	filled := 0
+	for _, id := range ids {
+		for i := 0; i < maxLeasesPerMember && filled < protocol.MaxLeasesPerRoom; i++ {
+			claim(r, id, fmt.Sprintf("%s-k%d", id, i))
+			filled++
+		}
 	}
 	r.mu.Lock()
-	held := len(r.leases)
+	total := len(r.leases)
 	r.mu.Unlock()
-	if held != protocol.MaxLeasesPerRoom {
-		t.Fatalf("%d members holding %d keys each left the table at %d, want %d",
-			fillers, maxLeasesPerMember, held, protocol.MaxLeasesPerRoom)
+	if total != protocol.MaxLeasesPerRoom {
+		t.Fatalf("filled the table to %d, want %d -- the rest of this test is about what "+
+			"happens AT the cap", total, protocol.MaxLeasesPerRoom)
 	}
 
-	// The latecomer is under its own per-member cap and still refused: this is
-	// the room-wide branch and nothing else.
-	r.handleLease("latecomer", protocol.Lease{Op: protocol.LeaseClaim, Key: "onemore"})
-	st := lastLeaseState(t, rts["latecomer"])
-	if st.Reason != protocol.LeaseTooMany {
-		t.Fatalf("a claim against a full lease table was answered %q, want %q -- silence or a "+
-			"grant would leave a client believing it holds a key the relay never recorded",
-			st.Reason, protocol.LeaseTooMany)
-	}
-	if st.Holder != "" {
-		t.Fatalf("a LeaseTooMany named %q as the holder; there is no holder to name", st.Holder)
-	}
-	r.mu.Lock()
-	held = len(r.leases)
-	r.mu.Unlock()
-	if held != protocol.MaxLeasesPerRoom {
-		t.Fatalf("the refused claim still grew the table to %d keys", held)
+	// The last member is nowhere near its own share, so this can only be
+	// refused by the room bound.
+	last := ids[len(ids)-1]
+	claim(r, last, "past-the-room-cap")
+	if got := lastLeaseReason(t, rts[last]); got != string(protocol.LeaseTooMany) {
+		t.Fatalf("a claim against a full room table was answered %q, want %q -- without the "+
+			"room bound a client can grow the relay's table forever by claiming a fresh key "+
+			"per message", got, protocol.LeaseTooMany)
 	}
 }

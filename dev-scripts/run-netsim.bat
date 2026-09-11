@@ -22,6 +22,21 @@ REM Usage:
 REM   run-netsim.bat                 (the worst-case profile above)
 REM   run-netsim.bat -loss 0.1 -latency 80ms -jitter 40ms
 REM   run-netsim.bat -partition-every 20s -partition-for 3s
+REM   run-netsim.bat -tcp=7777 -udp=7777,7780 -latency 100ms -jitter 50ms -loss 0.05 -loss-burst 250ms
+REM
+REM THAT LAST ONE IS A DIFFERENT NETWORK, not a harder one, and a verdict from it is
+REM not comparable with a verdict from the no-arg profile -- say which one a result
+REM came from. -loss on its own is a coin flip per datagram, which is right for
+REM background loss and never produces the thing that actually empties an
+REM interpolation buffer: a RUN of consecutive samples missing. At 5%% and 15Hz a
+REM 200ms triple-gap comes round about every nine minutes and a 267ms quad about
+REM every three hours, so the no-arg profile does not reach the 150-500ms regime
+REM ADR 0046's ladder was judged against (the 2026-09-07 review measured this; the
+REM error direction is that 450ms may be UNDER-sized). -loss-burst makes the link
+REM alternate GOOD (loses nothing) and BAD (loses everything) with bad periods of
+REM about that length, keeping -loss as the share of datagrams lost and changing
+REM only how they arrive. Opt-in on purpose: every interp verdict on record was
+REM made without it.
 REM
 REM Then start a relay as usual (run-relay.bat / run-relay-loopback.bat) and
 REM point a client at 127.0.0.2 instead of 127.0.0.1:

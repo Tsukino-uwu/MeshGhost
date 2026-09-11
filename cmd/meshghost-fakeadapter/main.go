@@ -517,6 +517,7 @@ func main() {
 	start := time.Now()
 	adapters := make([]*circleAdapter, 0, *clients)
 	cores := make([]*core.Core, 0, *clients)
+	var planes []*controlPlane
 
 	for i := 0; i < *clients; i++ {
 		displayName := *name
@@ -559,6 +560,31 @@ func main() {
 				log.Printf("meshghost-fakeadapter: recording client 0 to %s", path)
 			}
 		}
+		// THE CHECKERS ATTACH BEFORE THE CONNECTION, not after (review H17).
+		// Attaching afterwards wrote c's callback fields while the connection's
+		// read goroutine was already delivering to them -- an unsynchronised
+		// write against a live reader -- and left a blind window covering every
+		// client's whole connect, which is where a Welcome, the first roster and
+		// any adoption snapshot land. A checker that cannot see the join cannot
+		// check what the join did.
+		var cp *controlPlane
+		if cpCfg.anyPlaneOn {
+			cp = newControlPlane(i)
+			if cpCfg.world.on {
+				// Built before attach, which is what registers its OnWorldState.
+				cp.world = newWorldChecker(cpCfg.world, "", reportViolation)
+			}
+			if cpCfg.credit.on {
+				// Each client gets a DIFFERENT difficulty scale, which is the
+				// whole point: a run where everyone agrees on maximum health
+				// never ratchets, so it would check the easy half of the model
+				// and call the hard half green.
+				cp.credit = newCreditChecker(cpCfg.credit, "", creditScale(i), reportViolation)
+			}
+			cp.attach(c)
+			planes = append(planes, cp)
+		}
+
 		if *relayAddr == "" {
 			// Offline: no relay at all. The state path still runs (the recorder
 			// tap sits before the relay check), which is what a -record demo needs.
@@ -624,24 +650,7 @@ func main() {
 	// of them, deliberately: a bug that only appears when arbitration traffic
 	// shares a connection with 20Hz state traffic is exactly the kind this rig
 	// exists to find, and running the two separately would never produce it.
-	var planes []*controlPlane
 	if cpCfg.anyPlaneOn {
-		for i, c := range cores {
-			cp := newControlPlane(i)
-			if cpCfg.world.on {
-				// Built before attach, which is what registers its OnWorldState.
-				cp.world = newWorldChecker(cpCfg.world, "", reportViolation)
-			}
-			if cpCfg.credit.on {
-				// Each client gets a DIFFERENT difficulty scale, which is the
-				// whole point: a run where everyone agrees on maximum health
-				// never ratchets, so it would check the easy half of the model
-				// and call the hard half green.
-				cp.credit = newCreditChecker(cpCfg.credit, "", creditScale(i), reportViolation)
-			}
-			cp.attach(c)
-			planes = append(planes, cp)
-		}
 		log.Printf("meshghost-fakeadapter: control plane on -- capabilities %v, "+
 			"events every %s, lease claims every %s (key %q), exchanges every %s",
 			featureList, *eventEvery, *leaseEvery, *leaseKey, *tradeEvery)
@@ -658,6 +667,17 @@ func main() {
 			}
 		}
 	}
+
+	// The peak-peer sampler, which is what makes attrition visible at the end
+	// (review H18). Cheap -- one mutex read per adapter per second -- and
+	// running always, because a run that loses peers is exactly the run nobody
+	// thought to turn a flag on for.
+	watch := newPeerWatch(adapters)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		watch.run(stop)
+	}()
 
 	if *statsEvery > 0 {
 		wg.Add(1)
@@ -701,6 +721,7 @@ func main() {
 	}
 
 	wg.Wait()
+	checkAttrition(adapters, watch, *relayAddr != "", *churnEvery > 0 || *areas > 1)
 	if len(planes) > 0 {
 		summarize(planes, time.Since(start))
 	}

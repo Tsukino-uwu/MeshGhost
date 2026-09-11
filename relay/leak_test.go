@@ -17,26 +17,31 @@ import (
 // that outlives its connection is a slow leak that only shows up in
 // production.
 
-// awaitWelcome waits for this client's Welcome, skipping anything that
-// arrives ahead of it.
+// awaitWelcome waits for this client's Welcome and insists it is the FIRST
+// message on the connection.
 //
-// relay_test.go's expectWelcome insists the Welcome is the *first* message,
-// which is right for tests that join a quiet room but wrong here. These tests
-// deliberately churn connections through one busy room, and a client is added
-// to the room before its Welcome goes out — so a peer departing at that
-// instant can have its Leave forwarded to the new client first. Nothing is
-// broken when that happens: core ignores a Leave for a player it
-// never knew about. But it made these two tests fail on CI (all three -race
-// runs, 2026-08-16) while passing locally, purely on timing.
+// It used to skip ahead past anything that arrived first, and said why: these
+// tests churn connections through one busy room, a client is added to the room
+// before its Welcome goes out, and a peer departing at that instant could have
+// its Leave forwarded to the new client ahead of it. **That window is closed --
+// Client.holdUntilWelcome holds every message produced between the two and
+// delivers them in order behind the Welcome (relay.go's markWelcomedAndFlush
+// says why the ordering is load-bearing rather than cosmetic).** So the skip
+// stopped being a tolerance for a real race and became the one helper that
+// could not notice the hold regressing, in the busiest room this package has.
+//
+// Kept as a name rather than folded into expectWelcome because these tests do
+// not care what the Welcome SAYS, only that it came; tightened 2026-09-11 after
+// the review flagged the split (H6, which read the asymmetry the other way
+// round -- it is the strict helper at ~145 call sites that is right).
 func awaitWelcome(t *testing.T, tc *testClient) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if env := tc.next(time.Until(deadline)); env.Type == protocol.TypeWelcome {
-			return
-		}
+	if env := tc.next(timeout); env.Type != protocol.TypeWelcome {
+		t.Fatalf("the first message on a new connection was %q, not the Welcome -- "+
+			"Client.holdUntilWelcome exists to make that impossible, and a client that "+
+			"reads a Join or a Leave before its own Welcome rebuilds its roster from a "+
+			"Welcome that then erases what it just learned", env.Type)
 	}
-	t.Fatal("no welcome arrived before the deadline")
 }
 
 // waitForGoroutines polls until the count drops to at most want, or the
