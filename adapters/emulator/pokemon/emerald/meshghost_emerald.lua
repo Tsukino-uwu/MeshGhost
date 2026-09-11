@@ -85,6 +85,9 @@ local GOBJECTEVENTS_ADDR = 0x02037350
 local OBJECTEVENT_SIZE = 0x24
 local GSPRITES_ADDR = 0x02020630
 local SPRITE_SIZE = 0x44
+-- These live in the SAME EWRAM neighbourhood as gSprites (0x02020630), so a build that shifts that
+-- region shifts these with it -- SPEEDCHOICE 1.2.2 moves both by +0x4. They are read through
+-- spriteCoordOffX/Y below rather than directly, so the shift is applied in one place.
 local GSPRITECOORDOFFSETX_ADDR = 0x02021bbc
 local GSPRITECOORDOFFSETY_ADDR = 0x02021bbe
 
@@ -8585,18 +8588,18 @@ local function drawGhostShadows()
                 local runs = genderFrames.dustRuns(f)
                 if runs then
                     drawRunList(runs, TILE, false,
-                        rs16(d + 0x20) + rs16(GSPRITECOORDOFFSETX_ADDR) - 8,
-                        rs16(d + 0x22) + rs16(GSPRITECOORDOFFSETY_ADDR) + 8, nil, 1)
+                        rs16(d + 0x20) + rs16(GSPRITECOORDOFFSETX_ADDR + (genderFrames.spriteAddrOffset or 0)) - 8,
+                        rs16(d + 0x22) + rs16(GSPRITECOORDOFFSETY_ADDR + (genderFrames.spriteAddrOffset or 0)) + 8, nil, 1)
                 end
             end
         end
         if remote and isJumpAction(remote.act) and ghostAlive(g) then
             local d = sprAddr(g.sprId)
-            local sx = rs16(d + 0x20) + rs16(GSPRITECOORDOFFSETX_ADDR)
+            local sx = rs16(d + 0x20) + rs16(GSPRITECOORDOFFSETX_ADDR + (genderFrames.spriteAddrOffset or 0))
             -- Deliberately WITHOUT pos2 (+0x24/+0x26): that carries the jump arc, and the shadow
             -- belongs on the ground the character left -- which is what the game does, its shadow
             -- sprite reading pos2 0,0 while the character mid-hop reads 0,-6.
-            local sy = rs16(d + 0x22) + rs16(GSPRITECOORDOFFSETY_ADDR)
+            local sy = rs16(d + 0x22) + rs16(GSPRITECOORDOFFSETY_ADDR + (genderFrames.spriteAddrOffset or 0))
             updateGhostShadow(g, true)
             if not genderFrames.shadowSpriteEnabled then
                 local size = 0
@@ -9287,8 +9290,8 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
             else
                 local jdx = ({ [0x3c] = -TILE, [0x3d] = TILE })[remote.act] or 0
                 local jdy = ({ [0x3a] = TILE, [0x3b] = -TILE })[remote.act] or 0
-                rec.blobPark = { sx + jdx - rs16(GSPRITECOORDOFFSETX_ADDR),
-                    sy - arcY + jdy + 8 - rs16(GSPRITECOORDOFFSETY_ADDR) }
+                rec.blobPark = { sx + jdx - rs16(GSPRITECOORDOFFSETX_ADDR + (genderFrames.spriteAddrOffset or 0)),
+                    sy - arcY + jdy + 8 - rs16(GSPRITECOORDOFFSETY_ADDR + (genderFrames.spriteAddrOffset or 0)) }
                 rec.blobParkHold, rec.blobParkKind = true, "mount"
                 if COMPARE_TIERS then
                     logFile(string.format(
@@ -9308,11 +9311,11 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
         end
         local bx, by = sx, sy + 8
         if rec.blobParkHold and rec.blobPark then
-            bx = rec.blobPark[1] + rs16(GSPRITECOORDOFFSETX_ADDR)
-            by = rec.blobPark[2] + rs16(GSPRITECOORDOFFSETY_ADDR)
+            bx = rec.blobPark[1] + rs16(GSPRITECOORDOFFSETX_ADDR + (genderFrames.spriteAddrOffset or 0))
+            by = rec.blobPark[2] + rs16(GSPRITECOORDOFFSETY_ADDR + (genderFrames.spriteAddrOffset or 0))
         elseif not jumping then
-            rec.blobPark = { bx - rs16(GSPRITECOORDOFFSETX_ADDR),
-                by - rs16(GSPRITECOORDOFFSETY_ADDR) }
+            rec.blobPark = { bx - rs16(GSPRITECOORDOFFSETX_ADDR + (genderFrames.spriteAddrOffset or 0)),
+                by - rs16(GSPRITECOORDOFFSETY_ADDR + (genderFrames.spriteAddrOffset or 0)) }
         end
         local facing = genderFrames.dirOf[remote.orientation] or 1
         local imageIndex = genderFrames.blobDirImage[facing] or 0
@@ -9423,8 +9426,8 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
         local h = info.height or FRAME_HEIGHT_PX
         tiering.hw.ripples[#tiering.hw.ripples + 1] = {
             at = frameCounter,
-            bx = sx + (w >> 1) - 8 - rs16(GSPRITECOORDOFFSETX_ADDR),
-            by = sy - arcY + h - 10 - rs16(GSPRITECOORDOFFSETY_ADDR),
+            bx = sx + (w >> 1) - 8 - rs16(GSPRITECOORDOFFSETX_ADDR + (genderFrames.spriteAddrOffset or 0)),
+            by = sy - arcY + h - 10 - rs16(GSPRITECOORDOFFSETY_ADDR + (genderFrames.spriteAddrOffset or 0)),
         }
     end
 
@@ -9503,8 +9506,8 @@ function hwDrawFx(playerId, rec, remote, info, sx, sy, arcY, hFlip)
     if landedNow then
         tiering.hw.puffs[#tiering.hw.puffs + 1] = {
             at = frameCounter,
-            bx = sx + (w >> 1) - 8 - rs16(GSPRITECOORDOFFSETX_ADDR),
-            by = groundY + h - 8 - rs16(GSPRITECOORDOFFSETY_ADDR),
+            bx = sx + (w >> 1) - 8 - rs16(GSPRITECOORDOFFSETX_ADDR + (genderFrames.spriteAddrOffset or 0)),
+            by = groundY + h - 8 - rs16(GSPRITECOORDOFFSETY_ADDR + (genderFrames.spriteAddrOffset or 0)),
         }
     end
 end
@@ -9517,7 +9520,7 @@ end
 function hwPuffTick()
     local puffs = tiering.hw.puffs
     if #puffs == 0 then return end
-    local offX, offY = rs16(GSPRITECOORDOFFSETX_ADDR), rs16(GSPRITECOORDOFFSETY_ADDR)
+    local offX, offY = rs16(GSPRITECOORDOFFSETX_ADDR + (genderFrames.spriteAddrOffset or 0)), rs16(GSPRITECOORDOFFSETY_ADDR + (genderFrames.spriteAddrOffset or 0))
     local imgs = r32(genderFrames.dustTemplate + 0x0c)
     local pal = hwPaletteSlotForTag(0x1004)
     local o = r32(genderFrames.dustTemplate + 0x04)
@@ -9570,7 +9573,7 @@ end
 function hwRippleTick()
     local list = tiering.hw.ripples
     if #list == 0 then return end
-    local offX, offY = rs16(GSPRITECOORDOFFSETX_ADDR), rs16(GSPRITECOORDOFFSETY_ADDR)
+    local offX, offY = rs16(GSPRITECOORDOFFSETX_ADDR + (genderFrames.spriteAddrOffset or 0)), rs16(GSPRITECOORDOFFSETY_ADDR + (genderFrames.spriteAddrOffset or 0))
     local imgs = r32(genderFrames.rippleTemplate + 0x0c)
     local pal = hwPaletteSlotForTag(r16(genderFrames.rippleTemplate + 0x02))
     local o = r32(genderFrames.rippleTemplate + 0x04)
@@ -9861,9 +9864,9 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
                 if cmpPin then
                     local gs = sprAddr(cmpPin.sprId)
                     local px = rs16(gs + 0x20) + rs16(gs + 0x24) + memory.read_s8(gs + 0x28)
-                        + rs16(GSPRITECOORDOFFSETX_ADDR)
+                        + rs16(GSPRITECOORDOFFSETX_ADDR + (genderFrames.spriteAddrOffset or 0))
                     local py = rs16(gs + 0x22) + rs16(gs + 0x26) + memory.read_s8(gs + 0x29)
-                        + rs16(GSPRITECOORDOFFSETY_ADDR)
+                        + rs16(GSPRITECOORDOFFSETY_ADDR + (genderFrames.spriteAddrOffset or 0))
                     local a = tiering.hw.base + rec.slot * 8
                     local sx = px + (tiering.hw.cmpDX or 0) * TILE
                     local sy = py + (tiering.hw.cmpDY or 0) * TILE
@@ -10289,10 +10292,10 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                 local pinnedAlignX = rs16(gs + 0x24)
                 if isFishingGfx(pinned.gfx) then pinnedAlignX, arc = 0, 0 end
                 screenX = rs16(gs + 0x20) + pinnedAlignX + memory.read_s8(gs + 0x28)
-                    + rs16(GSPRITECOORDOFFSETX_ADDR)
+                    + rs16(GSPRITECOORDOFFSETX_ADDR + (genderFrames.spriteAddrOffset or 0))
                     + (COMPARE_DRAWN_OFFSET_TILES_X - LOOPBACK_GHOST_OFFSET_TILES_X) * TILE
                 screenY = rs16(gs + 0x22) + arc + memory.read_s8(gs + 0x29)
-                    + rs16(GSPRITECOORDOFFSETY_ADDR)
+                    + rs16(GSPRITECOORDOFFSETY_ADDR + (genderFrames.spriteAddrOffset or 0))
             end
 
             local unpinnedX = (tiering.originX or playerScreenX)
@@ -10448,9 +10451,9 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                             .. "player=%.3f,%.3f step=%s",
                         frameCounter,
                         rs16(gs + 0x20) + rs16(gs + 0x24) + memory.read_s8(gs + 0x28)
-                            + rs16(GSPRITECOORDOFFSETX_ADDR),
+                            + rs16(GSPRITECOORDOFFSETX_ADDR + (genderFrames.spriteAddrOffset or 0)),
                         rs16(gs + 0x22) + rs16(gs + 0x26) + memory.read_s8(gs + 0x29)
-                            + rs16(GSPRITECOORDOFFSETY_ADDR),
+                            + rs16(GSPRITECOORDOFFSETY_ADDR + (genderFrames.spriteAddrOffset or 0)),
                         screenX, screenY, remote.x, remote.y,
                         remote.gX or -1, remote.gY or -1, playerMapX, playerMapY,
                         tostring(remote.gStepping))
@@ -10757,9 +10760,9 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                 peerIsSurfing(remote)) then
                                 rlist[#rlist + 1] = { at = frameCounter,
                                     bx = screenX + cx + (info.width >> 1) - 8
-                                        - rs16(GSPRITECOORDOFFSETX_ADDR),
+                                        - rs16(GSPRITECOORDOFFSETX_ADDR + (genderFrames.spriteAddrOffset or 0)),
                                     by = screenY + cy - arc + info.height - 10
-                                        - rs16(GSPRITECOORDOFFSETY_ADDR) }
+                                        - rs16(GSPRITECOORDOFFSETY_ADDR + (genderFrames.spriteAddrOffset or 0)) }
                             end
                             for pi = #rlist, 1, -1 do
                                 local rip = rlist[pi]
@@ -10769,8 +10772,8 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                     table.remove(rlist, pi)
                                 else
                                     drawRunList(rruns2, genderFrames.rippleFramePx, false,
-                                        rip.bx + rs16(GSPRITECOORDOFFSETX_ADDR),
-                                        rip.by + rs16(GSPRITECOORDOFFSETY_ADDR),
+                                        rip.bx + rs16(GSPRITECOORDOFFSETX_ADDR + (genderFrames.spriteAddrOffset or 0)),
+                                        rip.by + rs16(GSPRITECOORDOFFSETY_ADDR + (genderFrames.spriteAddrOffset or 0)),
                                         panelRows, dim)
                                 end
                             end
@@ -10809,9 +10812,9 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                             [0x3b] = -TILE })[remote.act] or 0
                                         remote.blobParkPx = {
                                             screenX + cx + jdx
-                                                - rs16(GSPRITECOORDOFFSETX_ADDR),
+                                                - rs16(GSPRITECOORDOFFSETX_ADDR + (genderFrames.spriteAddrOffset or 0)),
                                             screenY + cy + jdy + 8 - (arc or 0)
-                                                - rs16(GSPRITECOORDOFFSETY_ADDR) }
+                                                - rs16(GSPRITECOORDOFFSETY_ADDR + (genderFrames.spriteAddrOffset or 0)) }
                                         remote.blobParkHold, remote.blobParkKind =
                                             true, "mount"
                                     end
@@ -10823,12 +10826,12 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                 end
                                 local pbx, pby = screenX + cx, screenY + cy + 8
                                 if remote.blobParkHold and remote.blobParkPx then
-                                    pbx = remote.blobParkPx[1] + rs16(GSPRITECOORDOFFSETX_ADDR)
-                                    pby = remote.blobParkPx[2] + rs16(GSPRITECOORDOFFSETY_ADDR)
+                                    pbx = remote.blobParkPx[1] + rs16(GSPRITECOORDOFFSETX_ADDR + (genderFrames.spriteAddrOffset or 0))
+                                    pby = remote.blobParkPx[2] + rs16(GSPRITECOORDOFFSETY_ADDR + (genderFrames.spriteAddrOffset or 0))
                                 elseif not bjumping then
                                     remote.blobParkPx = {
-                                        pbx - rs16(GSPRITECOORDOFFSETX_ADDR),
-                                        pby - rs16(GSPRITECOORDOFFSETY_ADDR) }
+                                        pbx - rs16(GSPRITECOORDOFFSETX_ADDR + (genderFrames.spriteAddrOffset or 0)),
+                                        pby - rs16(GSPRITECOORDOFFSETY_ADDR + (genderFrames.spriteAddrOffset or 0)) }
                                 end
                                 drawRunList(bruns, surfBlob.framePx, bflip, pbx,
                                     pby, panelRows, dim, nil, nil,
@@ -11273,8 +11276,8 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                             -- (user, 2026-08-21: *"off center and to far to the left"*).
                             local _, landedNow = genderFrames.noteLanding(playerId,
                                 isJumpAction(remote.act) or false, remote.act)
-                            local offX = rs16(GSPRITECOORDOFFSETX_ADDR)
-                            local offY = rs16(GSPRITECOORDOFFSETY_ADDR)
+                            local offX = rs16(GSPRITECOORDOFFSETX_ADDR + (genderFrames.spriteAddrOffset or 0))
+                            local offY = rs16(GSPRITECOORDOFFSETY_ADDR + (genderFrames.spriteAddrOffset or 0))
                             tiering.puffs = tiering.puffs or {}
                             local plist = tiering.puffs[playerId]
                             if not plist then plist = {} tiering.puffs[playerId] = plist end
