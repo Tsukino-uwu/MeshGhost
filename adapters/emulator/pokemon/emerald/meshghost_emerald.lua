@@ -1308,8 +1308,37 @@ end
 -- starts sending immediately.
 local session = { live = false, ended = false }
 
+-- **A POINTER THE GAME NEVER SET IS NOT A POINTER OF ZERO, and every deref site below only ever
+-- checked for zero (2026-09-11).** On a ROM whose save blocks live elsewhere -- both Speedchoice
+-- builds, and any future romhack -- this address holds whatever happens to sit there: 0xF5F8FD09
+-- and 0xFB000309 were read live. Neither is zero, so every guard passed and the adapter read
+-- through them, once per frame per site. BizHawk answers an out-of-range read with a console
+-- WARNING rather than an error, so nothing failed and nothing stopped: the Lua console filled
+-- with "attempted read of 4126735625 outside the memory size of 268435456" and the emulator
+-- visibly lagged (the user, live on EX Speedchoice 0.4.0).
+--
+-- Returning 0 for an implausible pointer makes the ten `== 0` guards that already exist do the
+-- right thing, which is why this is a READER and not ten new branches. The range is the GBA's
+-- EWRAM, which is where the engine puts the save blocks -- a pointer outside it cannot be one,
+-- whatever ROM this is. On `session` rather than a new file-scope local for two reasons: this
+-- file's 200-local ceiling, and `session` is declared above every caller (the forward-reference
+-- trap, five bites and counting).
+session.saveBlockPtr = function(addr)
+    local ptr = memory.read_u32_le(addr)
+    if ptr >= 0x02000000 and ptr < 0x02040000 then return ptr end
+    if ptr ~= 0 and not session.badPtrLogged then
+        session.badPtrLogged = true
+        console.log(string.format(
+            "MeshGhost: the save-block pointer at %08X reads %08X, which is not EWRAM -- this "
+                .. "ROM is not one this adapter has addresses for. Nothing will be sent or "
+                .. "drawn. Logged once; the reads are skipped rather than warned about every "
+                .. "frame.", addr, ptr))
+    end
+    return 0
+end
+
 local function getLocalState()
-    local base = memory.read_u32_le(GSAVEBLOCK1PTR_ADDR)
+    local base = session.saveBlockPtr(GSAVEBLOCK1PTR_ADDR)
     if base == 0 then
         if session.live then session.ended = true end
         session.live = false
@@ -1377,7 +1406,7 @@ end
 -- default/uninitialized byte before the player ever actually chose a gender, and (since this
 -- only ever runs once) never self-correct for the rest of the session.
 local function readLocalGender()
-    local base = memory.read_u32_le(GSAVEBLOCK2PTR_ADDR)
+    local base = session.saveBlockPtr(GSAVEBLOCK2PTR_ADDR)
     if base == 0 then return nil end
     local gender = memory.read_u8(base + 0x08)
     return (gender == 1) and "female" or "male"
@@ -1791,7 +1820,7 @@ genderFrames.xmapTryCache = function()
     local code, addr = string.match(line or "", "^(%x+) (%x+)")
     if not code or tonumber(code, 16) ~= memory.read_u32_le(0x080000AC) then return false end
     local base = tonumber(addr, 16)
-    local sb1 = memory.read_u32_le(0x03005d8c)
+    local sb1 = session.saveBlockPtr(0x03005d8c)
     if sb1 == 0 then return false end
     local grp, num = memory.read_u8(sb1 + 0x04), memory.read_u8(sb1 + 0x05)
     local ga = memory.read_u32_le(base + grp * 4)
@@ -1824,7 +1853,7 @@ genderFrames.xmapSaveCache = function()
 end
 
 genderFrames.xmapLocalKey = function()
-    local sb1 = memory.read_u32_le(0x03005d8c)
+    local sb1 = session.saveBlockPtr(0x03005d8c)
     if sb1 == 0 then return nil end
     return memory.read_u8(sb1 + 0x04) .. ":" .. memory.read_u8(sb1 + 0x05)
 end
@@ -1855,7 +1884,7 @@ genderFrames.xmapScan = function()
             -- the map it started on regardless of where the player has wandered since.
             xm.sig = {}
             for k = 0, 12, 4 do xm.sig[k] = memory.read_u32_le(GMH + k) end
-            local sb1s = memory.read_u32_le(0x03005d8c)
+            local sb1s = session.saveBlockPtr(0x03005d8c)
             xm.sigGrp, xm.sigNum = memory.read_u8(sb1s + 0x04), memory.read_u8(sb1s + 0x05)
         elseif xm.scanStep == 2 then xm.target = xm.romHeader
         else xm.target = xm.groupArray end
@@ -1873,7 +1902,7 @@ genderFrames.xmapScan = function()
     xm.scanAt = xm.scanAt + 0x20000
     if xm.scanAt < 0x09000000 then return end
     -- pass complete: interpret
-    local sb1 = memory.read_u32_le(0x03005d8c)
+    local sb1 = session.saveBlockPtr(0x03005d8c)
     if sb1 == 0 then xm.scanAt = 0 return end
     if xm.scanStep == 1 then
         local m
@@ -1926,7 +1955,7 @@ end
 genderFrames.xmapBuild = function(localKey)
     local xm = genderFrames.xmap
     xm.conns, xm.connsFor = {}, localKey
-    local sb1 = memory.read_u32_le(0x03005d8c)
+    local sb1 = session.saveBlockPtr(0x03005d8c)
     local g, n = memory.read_u8(sb1 + 0x04), memory.read_u8(sb1 + 0x05)
     local w, h = genderFrames.xmapDims(g, n)
     if not w or w <= 0 or w > 1000 then return end
@@ -2014,7 +2043,7 @@ genderFrames.xmapTestPeer = function(localKey)
     if not area then return end
     local x
     if xs == "px" then
-        local sb1 = memory.read_u32_le(0x03005d8c)
+        local sb1 = session.saveBlockPtr(0x03005d8c)
         x = memory.read_s16_le(sb1 + 0x00)
         -- The player's x only means anything on the neighbor's frame when the seam offset is 0;
         -- good enough for a dev flag.
@@ -11433,7 +11462,7 @@ local function runFrame()
             -- Rebuilt from memory rather than reused: the smoothed area id is a local of the
             -- block further down and is not in scope here, and this is a once-per-300-frames
             -- diagnostic, so a fresh read costs nothing.
-            local b = memory.read_u32_le(GSAVEBLOCK1PTR_ADDR)
+            local b = session.saveBlockPtr(GSAVEBLOCK1PTR_ADDR)
             local localArea = b ~= 0
                 and (memory.read_s8(b + 0x04) .. ":" .. memory.read_s8(b + 0x05)) or "nil"
             for playerId, r in pairs(remotes) do
@@ -11445,7 +11474,7 @@ local function runFrame()
         -- Collision follows the object's map coordinates; drawing follows the sprite's screen
         -- position. A ghost whose hitbox sits away from its picture means those two disagree, so
         -- both are logged next to the player's own pair as the control.
-        local sb1 = memory.read_u32_le(GSAVEBLOCK1PTR_ADDR)
+        local sb1 = session.saveBlockPtr(GSAVEBLOCK1PTR_ADDR)
         if sb1 ~= 0 then
             local pObjId = r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05)
             local pa, ps = objAddr(pObjId), sprAddr(r8(objAddr(pObjId) + 0x04))
