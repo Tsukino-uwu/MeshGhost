@@ -194,6 +194,33 @@ func (c *Core) queryTransports(addr, gameID, room, displayName, roomCode, gameVe
 	}
 }
 
+// udpPossible answers "can this machine create a udp socket at all", through
+// udpProbe so a test can say no without needing a machine that actually
+// cannot. Production leaves udpProbe nil and gets netx.UDPUsable.
+func (c *Core) udpPossible() bool {
+	if c.udpProbe != nil {
+		return c.udpProbe()
+	}
+	return netx.UDPUsable()
+}
+
+// logUDPImpossibleOnce explains the downgrade the first time it is applied.
+// Once per process: chooseTransport runs on every connect attempt, and the
+// answer cannot change while the process lives.
+func (c *Core) logUDPImpossibleOnce() {
+	c.udpImpossibleLogged.Do(func() {
+		reason := "unknown"
+		if c.udpProbe == nil {
+			reason = netx.UDPUnusableReason()
+		}
+		log.Printf("core: this machine cannot open a udp socket (%s), so quic and plain udp "+
+			"are both impossible here and neither will be tried -- using tcp, which is what "+
+			"the handshake already proved works. Under Wine/Proton this is expected and is "+
+			"not a fault of the relay or your network; a client running natively on Linux "+
+			"is not affected and still gets quic.", reason)
+	})
+}
+
 // chooseTransport picks the best offered transport and rebuilds the address
 // to dial.
 //
@@ -237,8 +264,48 @@ func (c *Core) chooseTransport(addr string, offers []protocol.TransportOffer) (n
 	}
 	c.mu.Unlock()
 
+	// A machine that cannot open a udp socket has neither quic nor plain udp, and
+	// dialling them to find that out is pure cost: quic.DialAddr and udpconn both
+	// begin with net.ListenUDP, so the failure is local and identical every time.
+	// Skipping them here is what stops a Proton client paying two doomed dials and
+	// several seconds of connect delay on EVERY launch -- Core.unusableTransports
+	// is per-process, and the core exits with the game, so it otherwise relearns
+	// the same impossibility from scratch each time.
+	//
+	// AUTOMATIC MODE ONLY, like every other entry in unusable: somebody who wrote
+	// transport "quic" still gets told, repeatedly and clearly, that it is failing
+	// rather than being moved without being asked.
+	//
+	// netx.UDPUsable probes rather than detecting Wine, and that is deliberate --
+	// it makes this right for a native Linux client sharing the same config.json
+	// (its socket opens, so it keeps quic) and for a future Wine that implements
+	// the ioctls. See its doc comment.
+	// Only when the relay actually offers one of them. A relay serving tcp alone
+	// leaves nothing to downgrade FROM, and announcing a downgrade there would be a
+	// false alarm in the log of a player whose setup is entirely fine.
+	offersUDPBased := false
+	for _, k := range []netx.Kind{netx.QUIC, netx.UDP} {
+		if _, ok := byKind[k.String()]; ok {
+			offersUDPBased = true
+		}
+	}
+	if c.Transport == netx.Auto && offersUDPBased && !c.udpPossible() {
+		c.logUDPImpossibleOnce()
+		unusable[netx.QUIC.String()] = true
+		unusable[netx.UDP.String()] = true
+	}
+
 	for _, want := range wants {
 		if want == netx.TCP {
+			// SAY SO. This return used to be silent, and the log below ran only
+			// for a non-tcp choice, so a session that ended up on tcp -- whether
+			// because tcp was asked for or because everything above it was
+			// condemned -- never once named the transport it was actually using.
+			// A Proton tester's log showed sixteen "using quic" lines and no
+			// record of the tcp the session actually ran on; the only trace was
+			// the "read tcp ..." in a later DISCONNECT message, which means the
+			// transport could be learned only from a failure.
+			log.Printf("core: relay offers %s — using tcp at %s", offerList(offers), addr)
 			return netx.TCP, addr
 		}
 		if c.Transport == netx.Auto && unusable[want.String()] {

@@ -50,6 +50,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -450,6 +451,36 @@ func (l *Listener) Addr() net.Addr { return l.ql.Addr() }
 
 // ------------------------------------------------------------------- Dial
 
+// dialHint explains a failed dial, and the two cases it separates are not
+// variations on one problem — they point at opposite machines.
+//
+// A LOCAL socket failure means quic-go never got as far as sending a packet:
+// quic.DialAddr's first act is net.ListenUDP on the wildcard address, and its
+// error is returned unwrapped, so it arrives here as a *net.OpError with Op
+// "listen". The relay is irrelevant to it. Wine/Proton is the case that found
+// this: Go's netFD.init issues WSAIoctl(SIO_UDP_CONNRESET) and, since the fix
+// for golang/go#68614, SIO_UDP_NETRESET, and RETURNS the error rather than
+// ignoring it — Wine does not implement them and answers WSAEOPNOTSUPP,
+// "winapi error #10045". That fails EVERY udp socket in the process, so a
+// machine showing this can serve neither quic nor plain udp and belongs on
+// tcp. Telling such a player to go check whether their relay serves quic
+// sends them to audit the one thing that cannot be the cause — which is
+// exactly what the old unconditional hint did, in a log whose previous line
+// already listed quic among the relay's offers.
+//
+// Anything else got a socket and failed afterwards, which is where the
+// relay-side question genuinely belongs.
+func dialHint(err error) string {
+	var oe *net.OpError
+	if errors.As(err, &oe) && oe.Op == "listen" {
+		return " (this machine could not create a udp socket at all, so quic and plain udp are" +
+			" both unavailable here and tcp is the only transport it can use; under Wine/Proton" +
+			" that is expected and not a fault of the relay)"
+	}
+	return " (is the relay serving quic? by default quic shares the relay's own port;" +
+		" it moves to listen_quic only when plain udp is served too)"
+}
+
 // Dial connects to a quicconn listener at addr, bounded by timeout, and
 // opens the single bidirectional stream the connection carries.
 func Dial(addr string, timeout time.Duration) (net.Conn, error) {
@@ -461,7 +492,7 @@ func Dial(addr string, timeout time.Duration) (net.Conn, error) {
 
 	qc, err := quic.DialAddr(ctx, addr, clientTLSConfig(), quicConfig())
 	if err != nil {
-		return nil, fmt.Errorf("quicconn: dial %s: %w (is the relay serving quic? by default quic shares the relay's own port; it moves to listen_quic only when plain udp is served too)", addr, err)
+		return nil, fmt.Errorf("quicconn: dial %s: %w%s", addr, err, dialHint(err))
 	}
 	stream, err := qc.OpenStreamSync(ctx)
 	if err != nil {

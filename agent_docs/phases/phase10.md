@@ -1617,3 +1617,44 @@ still mattered -- loss handling is not SPEED -- moved into the quic row as a cla
 removals in a row from one page, all the same shape: **content written to steer readers away from
 an option outlives the option, and reads as fluff or as an argument with nobody.**
 
+
+## 2026-09-11 — a Proton client never had quic, and the log never said which transport it used
+
+The user asked why their Linux tester seemed stuck on tcp. Two crash folders the tester had sent
+for an unrelated fix (the mirrored-VFX crash, 2026-09-10) still had the `meshghost.log`s in them,
+and they answered it completely.
+
+**The cause is not quic.** Every failure reads
+`quicconn: dial <relay>: listen udp 0.0.0.0:0: wsaioctl: winapi error #10045`. The address is the
+LOCAL wildcard socket, so nothing was ever sent and the relay was never involved -- and the relay
+was plainly serving quic, since the line above lists it among the offers. Go's `netFD.init` issues
+`WSAIoctl(SIO_UDP_CONNRESET)` and, since the fix for golang/go#68614, `SIO_UDP_NETRESET`, and
+RETURNS the error instead of ignoring it; Wine does not implement them and answers `WSAEOPNOTSUPP`.
+That fails **every udp socket in the process**, so plain `udp` was equally impossible -- it was
+simply never reached, because `netx.AutoPreference` returns at tcp before udp. Two builds a day
+apart failed identically, so nothing here regressed recently.
+
+**What the logs showed that reasoning would not have.** Sixteen `using quic` lines across eight
+launches and **not one line naming tcp**: `chooseTransport` returned at its `want == netx.TCP`
+branch, which sat above the `log.Printf` announcing the choice. The transport actually in use could
+be learned only from the `read tcp ...` inside a later DISCONNECT message. Separately, the dial
+error's hint asked "is the relay serving quic?" -- pointing whoever read it at the one thing that
+could not be the cause. And the condemnation in `Core.unusableTransports` is per-process while the
+core exits with the game, so the tester paid two doomed dials and 1-7 s of connect delay on every
+single launch, forever.
+
+**Three fixes.** The tcp choice is logged like any other. `quicconn.dialHint` separates a local
+socket failure (`*net.OpError` with Op `listen`, which `quic.DialAddr` returns unwrapped) from a
+relay-side one and says so. And `netx.UDPUsable` opens a udp socket once at startup: in `auto` mode
+a machine that cannot, and a relay that offers quic or udp, skips both with one explanatory line
+instead of dialling. An explicit `transport` is still never moved silently.
+
+**Why a probe and not a Wine check, and not a config key.** The user's first instinct was a
+config toggle, correctly scoped: on under Proton, off for a native Linux client. But both clients
+read the SAME `config.json` out of the same game folder, so no key in it can tell them apart -- it
+would pin the native client to tcp too. The probe asks about THIS PROCESS, which is exactly the
+distinction wanted, needs no Wine detection, and stays right for a future Wine that implements the
+ioctls. `transport: "tcp"` already existed for anyone who wants the hard override.
+
+Tests: `core/transportlog_test.go`, `core/udpcapability_test.go`, `netx/quicconn/dialhint_test.go`
+(all negative-tested). Lesson filed in `pitfalls/by-lesson.md`.

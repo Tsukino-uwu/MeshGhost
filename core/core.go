@@ -1046,6 +1046,17 @@ type Core struct {
 	// Guarded by mu; keyed by netx.Kind.String().
 	transportDialFailures map[string]int
 
+	// udpProbe overrides the "can this machine open a udp socket" check, for tests
+	// that need the answer to be no without a machine that genuinely cannot. Nil in
+	// production, which uses netx.UDPUsable. See Core.udpPossible.
+	udpProbe func() bool
+
+	// udpImpossibleLogged keeps the udp-is-impossible explanation to once per
+	// process. chooseTransport runs on every connect attempt and the answer cannot
+	// change while the process lives, so repeating it would be noise in the one log
+	// a confused player is most likely to be reading.
+	udpImpossibleLogged sync.Once
+
 	// adapterRenderAllAreas mirrors the attached adapter's Hello
 	// render_all_areas: when true, remoteStatesAt skips the cross-area
 	// filter -- the adapter has declared it translates or hides foreign

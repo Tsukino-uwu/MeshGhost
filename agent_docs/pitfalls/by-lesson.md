@@ -7065,3 +7065,52 @@ mod, timestamp → which build, `dbghelp` → which function, then the mod's OWN
 seconds before it. And when a lesson's fix is "clear this on release", **count the ways the thing
 can be lost** — two of four here were release paths, and the gate that shipped with the lesson only
 ever looked at those two.
+
+## A transport that logs only its FIRST choice tells you nothing about the session you are in -- and probe the capability, never the platform (core/netx, 2026-09-11)
+
+**Symptom.** A Linux/Proton tester "seems stuck on tcp" and nobody can confirm it. Their
+`meshghost.log` says `using quic` sixteen times and never mentions tcp, yet the session demonstrably
+works. Reading the log makes the situation LESS clear, not more.
+
+**Cause, two layers deep.** `core.chooseTransport` announced its pick with one `log.Printf` placed
+after an early `return` for tcp, so the branch every fallback lands on was the one branch that said
+nothing. The transport actually carrying the session appeared in exactly one place — the
+`read tcp 192.168.2.118:...->...` inside a later DISCONNECT message. **The transport could be
+learned only from a failure**, and only by someone who already knew where to look.
+
+Underneath it, the quic dials were failing on
+`listen udp 0.0.0.0:0: wsaioctl: winapi error #10045`. `0.0.0.0:0` is the LOCAL wildcard socket:
+`quic.DialAddr` calls `net.ListenUDP` before anything reaches the network, so the relay was never
+contacted. Go's `netFD.init` issues `WSAIoctl(SIO_UDP_CONNRESET)` and, since golang/go#68614,
+`SIO_UDP_NETRESET`, and returns the error rather than ignoring it; Wine implements neither and
+answers `WSAEOPNOTSUPP`. Every udp socket in the process fails, so quic AND plain udp are both
+impossible — the same root cause wearing two names.
+
+**Three lessons, and the third is the general one.**
+
+1. **Log the option you TOOK, not only the option you tried.** A negotiation that logs its
+   preference and falls silent on the outcome is unreadable from the outside. Every branch that
+   decides something names what it decided.
+2. **An error hint is a claim, and a wrong one costs more than none.** The dial error asked "is the
+   relay serving quic?" on a failure that never touched the relay — in a log whose previous line
+   listed quic among that relay's offers. It sent the reader to audit the one thing that could not
+   be the cause. `quicconn.dialHint` now separates a local socket failure (`*net.OpError` with Op
+   `listen`) from a relay-side one.
+3. **PROBE THE CAPABILITY, DO NOT DETECT THE PLATFORM.** The fix skips quic and udp in `auto` mode
+   on a machine that cannot open a udp socket, and finds that out by opening one at startup
+   (`netx.UDPUsable`). A "am I under Wine" check would have answered the same today and been wrong
+   later, denying quic to a Wine that had since implemented the ioctls. It also **self-scopes in a
+   way no setting can**: the user's instinct was a config flag, on under Proton and off for a native
+   Linux client — but both clients read the SAME `config.json` from the same game folder, so no key
+   in that file can distinguish them, and it would have pinned the native client to tcp too. Asking
+   "can THIS PROCESS open a socket" draws the line exactly where it belongs, with nothing to
+   configure and nothing to get wrong.
+
+**Also worth knowing.** `Core.unusableTransports` is per-process and the core exits with the game,
+so before this the tester re-learned "quic is impossible here" on every launch, paying two failed
+dials and 1-7 s of connect delay each time. And plain `udp` was never tried only because
+`netx.AutoPreference` returns at tcp first — had udp ranked above tcp, that machine would have burned
+two more doomed dials for the identical reason.
+
+**Where the evidence came from:** log files a tester had sent for an UNRELATED crash three weeks
+into the same phase. Crash folders keep the whole log, not the crash.
