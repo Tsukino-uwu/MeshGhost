@@ -992,3 +992,73 @@ Pokémon `README.txt` files in the zip.
 `4badbf8c`, `6960c96f` — the timer strip, the vertical-merge measurement, and the user's on-water
 confirmation). They were the user's own session; their records are those commit messages and the
 `[PARTLY CONFIRMED]` entry in `emerald/UNVERIFIED.md`, and a fuller account is theirs to add.
+
+## 2026-09-11 (later still) — drawn-only, and all FOUR Emerald builds seeing each other
+
+**The user's two asks: make male/female work, and make every ghost show up for every other.** Both
+done, both confirmed on screen, and the first turned out to be a consequence of the second decision
+rather than a fix of its own.
+
+### Drawn-only is the shipped ladder (the user's call)
+
+*"lets make drawn the default and only tier for emerald now (keeping spawned & OAM dev), same as we
+did for crystal. drawn with good performance allows us to do more custom things/bypass hardware
+limitations."* The spawn cap defaults to 0 and the OAM tier defaults off; both flags still turn them
+back on. **It was only available because of the morning's work** — the painted tier had gone from
+67ms to 21ms a frame at 64 peers that day.
+
+**It fixed the cross-gender ghost for free**, which had been filed as needing a palette-RAM write
+boundary the user would have had to approve: vanilla now shows the Archipelago player as female
+while the vanilla player is male. Every ENGINE tier borrows the palette slot loaded for the local
+player and so cannot show a peer of the other gender; the painted tier reads the peer's own graphic
+from the cartridge and never had the limit. **A correction worth keeping: the OAM tier does not
+carry 64 peers** — its 56 entries are split five ways since 2026-08-21 and bodies get 26, so past
+roughly 37 characters everything was already being painted.
+
+### It immediately broke Archipelago, which is the interesting part
+
+The painted tier consults the map for occlusion and the spawn tier never did, so AP had never
+exercised that path. **Its gMapHeader is relocated**: 0x02037318 holds 0x03FF03FF, every tileset
+lookup failed, every metatile read as unknown — and unknown deliberately means "covers everywhere"
+so that an undecodable tile never causes a ghost to paint over scenery. **128 runs in, 0 spans out,
+no error anywhere.**
+
+An unknown METATILE still hides things; an unreadable MAP now means do not clip at all. The first
+guess (that the map itself was unreadable) was WRONG and the check written for it passed 0x03FF03FF
+happily; `probes/occlusion_probe.lua` settled it by printing every link of the chain on both builds
+and diffing them.
+
+### SPEEDCHOICE and EX SPEEDCHOICE, from unsupported to bidirectional
+
+Six anchors on EX, at six different offsets — **a build does not move as one piece**, and two of
+those offsets are 0x10 apart, which is close enough that applying one to the other looks right:
+
+| | SPEEDCHOICE | EX SPEEDCHOICE |
+|---|---|---|
+| ROM sprite data | +0x6408 | +0x9CB78 |
+| ROM graphics table | +0x6408 | **+0x1E6DBC** (a different shift) |
+| gObjectEvents | +0xA4 | +0xC80 |
+| gSprites | +0x4 | +0x20 |
+| gSaveBlock1Ptr | 0 | -0x10E0 |
+| camera block | 0 | -0x10D0 |
+
+Every one measured and corroborated; the method per anchor is in `emerald/PROBES.md`, which now has
+the set and the order to use it in.
+
+### Three lessons, each of which cost time
+
+- **A probe with a private copy of a constant can be wrong about a build, and it never looks like
+  that.** `gsprites_scan_probe.lua` carried its own gObjectEvents bases and CB2 gate, so it said "no
+  player object event", then "the player did not walk far enough" three runs running — which reads
+  exactly like a character standing somewhere awkward. **The user saying "its in the middle of town,
+  with some houses around it" is what made the gate a suspect.**
+- **Build the instrument sooner.** BizHawk answers an out-of-range read with a console warning and a
+  zero: no error, no stack, nothing greppable, thousands of lines a second, 4fps. Three plausible
+  guesses were spent before `dev-scripts/read-guard-emerald.lua` was written — and then it named
+  each of two faults in one 25-second run, with a traceback.
+- **Both final faults were a read that skipped the helper written to make it safe**: gSaveBlock2Ptr
+  read raw instead of through `session.saveBlockPtr`, and `attrAt` accepting any non-zero
+  gMapHeader. Adding a guarded reader does not help the call sites that do not use it.
+
+**Known gap: EX SPEEDCHOICE has no occlusion** — its gMapHeader is unlocated, so its ghosts paint
+unclipped. It logs that once. Everything else on that build works.

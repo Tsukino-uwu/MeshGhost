@@ -215,3 +215,37 @@ shipped adapter is `../meshghost_emerald.lua`.
 | `phase3_loopback.lua` | Phase 3 — real state through the real Go stack, drawn as it comes back |
 | `phase4_multiplayer.lua` | Phase 4 — two real players |
 | `phase5_5_sprite.lua` | Phase 5.5 — the real sprite; byte-identical to the adapter as it stood on 2026-08-14 |
+
+## Porting to an unmeasured build — the 2026-09-11 set, in the order they are useful
+
+**SPEEDCHOICE 1.2.2 and EX SPEEDCHOICE 0.4.0 were both brought up in one session with these**, and
+the order matters: each one needs what the one before it found. The short version of what they
+taught: **a build does not move as one piece.** EX SPEEDCHOICE has six anchors at six different
+offsets, two of which are 0x10 apart — close enough that applying one to the other looks right and
+is wrong.
+
+| Probe | What it does, and what it needs first |
+| --- | --- |
+| `romvariant_probe.lua` | Start here. Resolves the ROM-side anchors by structural search and reports every one as RESOLVED / AMBIGUOUS / UNRESOLVED, never picking. **It MEASURES the ROM bound now** (half-mirror comparison) rather than assuming 16MB when the host will not report a size — that assumption is exactly half of a 32MB cartridge, and EX SPEEDCHOICE's graphics table sat in the half it never searched. |
+| `objevents_pick_probe.lua` | Decides between gObjectEvents candidates **using the save block's tile**. Fast and decisive — when gSaveBlock1Ptr is where the adapter expects it (SPEEDCHOICE: yes). |
+| `objevents_walk_probe.lua` | The same decision **by WALKING**, for a build whose save block is lost (EX SPEEDCHOICE: IWRAM moved, so there is no known truth to compare against). Of six candidates exactly one tracked the player through 16 steps. Straight lines, out and back per axis, never turning a corner. |
+| `gsprites_scan_probe.lua` | gSprites, which cannot be byte-searched because it is a runtime array. Narrows EWRAM by cross-link, then walks to confirm the sprite tracks the player. |
+| `saveblock_find_probe.lua` | gSaveBlock1Ptr on a build that moved IWRAM: every word-aligned slot holding an EWRAM pointer whose target's first halfwords are the player's tile, then walked. |
+| `saveblock_pair_probe.lua` | Breaks a tie between save-block candidates on the vanilla adjacency — gSaveBlock1Ptr has gSaveBlock2Ptr at +4, a copy does not. |
+| `camoffset_find_probe.lua` | gTotalCameraPixelOffset, needing **no known address at all**: the local player is drawn at screen centre, so sprite + offset = (120,112) on every build. Scan for that s16 pair, then walk. |
+| `playersprite_probe.lua` | Settles "is this gSprites base right?" by printing both candidates' entries beside the player's spriteId. Written because (-56,160) looked impossible for a local player and was correct — sprite coordinates are not screen coordinates, the camera offset completes them. |
+| `occlusion_probe.lua` | Walks the whole occlusion chain (gBackupMapLayout -> metatile -> gMapHeader -> tileset -> attributes) printing every link. Built when the painted tier reported 128 runs in and 0 spans out with no error: **diff it against vanilla**, because a wrong pointer looks entirely reasonable on its own. |
+
+**And the one that should have been built sooner: `dev-scripts/read-guard-emerald.lua`.** BizHawk
+answers an out-of-range read with a console warning and a zero — no error, no stack, nothing this
+side can grep — so a wrong address is thousands of lines a second and a 4fps emulator with no clue
+which read is at fault. The guard bounds-checks every read through the adapter's helpers and reports
+the FIRST offender with a traceback naming the line. **Each of two faults was named in one
+25-second run, after three plausible wrong guesses had been spent on the first.**
+
+**A standing warning from this session: a probe with a private copy of a constant can be wrong about
+a build, and the failure never looks like a wrong constant.** `gsprites_scan_probe.lua` carried its
+own vanilla+Archipelago gObjectEvents bases and its own CB2_OVERWORLD gate, so on SPEEDCHOICE it
+reported "no player object event", then "the player did not walk far enough" three runs running —
+which reads exactly like a character standing somewhere awkward. It took the user saying the
+character was in the middle of an open town for the gate to become the suspect.

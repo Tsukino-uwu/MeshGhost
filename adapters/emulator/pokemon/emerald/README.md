@@ -18,10 +18,14 @@ the project is [status.md](../../../../agent_docs/status.md); the running log is
 
 - Platform: GBA, played via BizHawk.
 - Confirmed working roms: "Vanilla", "Archipelago 0.6.7".
-- **Targets, not yet supported: "speedchoice-1.2.2", "ex-speedchoice-0.4.0"** — work started
-  2026-08-21. Both relocate the ROM non-uniformly (SPEEDCHOICE has at least seven distinct deltas;
-  EX SPEEDCHOICE is a 32 MB build that also changes graphics outright), so the two-layout scheme
-  this adapter ships cannot reach them. Nothing has been run on either.
+- **Confirmed working roms, since 2026-09-11: "speedchoice-1.2.2" and "ex-speedchoice-0.4.0" too.**
+  All four Emerald builds see each other both ways, user-confirmed on screen. The two-layout scheme
+  this adapter shipped could not reach them because **a build does not move as one piece**: EX
+  SPEEDCHOICE has six anchors at six different offsets (ROM sprite data +0x9CB78, ROM graphics table
+  +0x1E6DBC, gObjectEvents +0xC80, gSprites +0x20, gSaveBlock1Ptr -0x10E0, the camera block
+  -0x10D0). The probes that found them, and the order to use them in, are in
+  [PROBES.md](PROBES.md). **Known gap: EX SPEEDCHOICE has no occlusion** — its gMapHeader is not
+  located, so its ghosts paint unclipped and it says so once in the log.
 - **It writes game RAM** — object RAM only (`gObjectEvents`, `gSprites`, the sprite-tile
   allocation bitmap, and the shadow-OAM window above `gOamLimit`), never a save, cosmetic only,
   and only on a ROM whose addresses were measured. Cleared by
