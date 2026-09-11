@@ -7075,7 +7075,7 @@ works. Reading the log makes the situation LESS clear, not more.
 **Cause, two layers deep.** `core.chooseTransport` announced its pick with one `log.Printf` placed
 after an early `return` for tcp, so the branch every fallback lands on was the one branch that said
 nothing. The transport actually carrying the session appeared in exactly one place — the
-`read tcp 192.168.2.118:...->...` inside a later DISCONNECT message. **The transport could be
+`read tcp <local>:...-><relay>:...` inside a later DISCONNECT message. **The transport could be
 learned only from a failure**, and only by someone who already knew where to look.
 
 Underneath it, the quic dials were failing on
