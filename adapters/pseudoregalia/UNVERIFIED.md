@@ -198,10 +198,23 @@ appears, or a missing trail is a decline.
 6. **I2 -- four detours were never taken back off at shutdown.** Seven of eleven were unregistered
    in `~Plugin`; the fade guard's was structurally impossible to unregister (its `UFunction*` was a
    local), and the damage guards' lambda takes `state_mutex` and walks `remotes` -- both gone by the
-   time it could fire during teardown. **This is the leading candidate for `UNVERIFIED.md`'s "Fatal
-   Error! on game exit, never root-caused", and it is a CANDIDATE, not a diagnosis** -- nothing has
-   been reproduced on demand, so the only evidence available is whether it stops happening.
-   **Watch: quit the game and say whether you got the Fatal Error box.**
+   time it could fire during teardown.
+
+   **It is a candidate for ONE OF THE TWO ACTIONS the `Fatal Error!` entry covers, and that
+   distinction is the entry's own (corrected 2026-09-11 after blurring it here).** `~Plugin` runs
+   when the DLL is unloaded -- a QUIT -- and does not run on a level transition, so this cannot
+   explain the 2026-08-27 recurrence, which was **exiting to the main menu**. For that one the
+   candidates are elsewhere: the same teardown path the 2026-08-16 transition crash lived on, and
+   the components a probe had spawned onto a ghost in that particular run.
+
+   **Watch: QUIT the game (not exit to the main menu) and say whether you got the Fatal Error
+   box.** And if it happens on a main-menu exit instead, that is the other case and this change is
+   not expected to have touched it.
+
+   Two further cautions the entry already carries and that apply to whatever is seen next: the
+   crash has been seen exactly twice, with no repro either time, and the 2026-08-27 run had three
+   probes compiled ON -- one of which spawns Niagara components onto a ghost -- so **a recurrence
+   is only worth something on a probe-free build.**
 
 ## [READY] the input track's capture is built and deployed, UNWATCHED (2026-09-08 midday)
 
