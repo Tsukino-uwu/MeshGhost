@@ -25,7 +25,7 @@ type clientSection struct {
 func TestAKeyThatIsNotASettingIsReported(t *testing.T) {
 	raw := []byte(`{"connect_to":"1.2.3.4:7777","roomcode":"hunter2","min-send":"50ms"}`)
 	out := captureLog(t, func() {
-		WarnUnknownKeys(raw, clientSection{}, "C:\\x\\config.json", "meshghost", "client")
+		WarnUnknownKeys(raw, clientSection{}, "C:\\x\\config.json", "meshghost", "client", nil)
 	})
 	if !strings.Contains(out, "roomcode") || !strings.Contains(out, "min-send") {
 		t.Fatalf("both misspelled keys should be named, got:\n%s", out)
@@ -46,7 +46,7 @@ func TestAKeyThatIsNotASettingIsReported(t *testing.T) {
 func TestATypoInANestedSectionIsReportedWithItsPath(t *testing.T) {
 	raw := []byte(`{"replay":{"save_lastt":"30s","folder":"r"}}`)
 	out := captureLog(t, func() {
-		WarnUnknownKeys(raw, clientSection{}, "cfg.json", "meshghost", "client")
+		WarnUnknownKeys(raw, clientSection{}, "cfg.json", "meshghost", "client", nil)
 	})
 	if !strings.Contains(out, "save_lastt") {
 		t.Fatalf("a typo inside a nested section went unreported:\n%s", out)
@@ -62,7 +62,7 @@ func TestATypoInANestedSectionIsReportedWithItsPath(t *testing.T) {
 func TestAFileWithNoMistakesSaysNothing(t *testing.T) {
 	raw := []byte(`{"connect_to":"x","room_code":"y","features":["a"],"replay":{"folder":"r"}}`)
 	out := captureLog(t, func() {
-		WarnUnknownKeys(raw, clientSection{}, "cfg.json", "meshghost", "client")
+		WarnUnknownKeys(raw, clientSection{}, "cfg.json", "meshghost", "client", nil)
 	})
 	if out != "" {
 		t.Fatalf("a valid config produced a warning:\n%s", out)
@@ -73,7 +73,7 @@ func TestAFileWithNoMistakesSaysNothing(t *testing.T) {
 // advertising a key that does nothing.
 func TestASkippedFieldIsNeverOfferedAsASetting(t *testing.T) {
 	out := captureLog(t, func() {
-		WarnUnknownKeys([]byte(`{"nope":1}`), clientSection{}, "cfg.json", "meshghost", "client")
+		WarnUnknownKeys([]byte(`{"nope":1}`), clientSection{}, "cfg.json", "meshghost", "client", nil)
 	})
 	if strings.Contains(out, "Internal") {
 		t.Fatalf("a json:\"-\" field was offered as a setting:\n%s", out)
@@ -86,11 +86,49 @@ func TestASkippedFieldIsNeverOfferedAsASetting(t *testing.T) {
 // unable to check is not evidence of a mistake.
 func TestItIsSilentOnWhatItCannotCheck(t *testing.T) {
 	out := captureLog(t, func() {
-		WarnUnknownKeys([]byte(`["not","an","object"]`), clientSection{}, "cfg.json", "meshghost", "client")
-		WarnUnknownKeys([]byte(`{"a":1}`), map[string]string{}, "cfg.json", "meshghost", "client")
-		WarnUnknownKeys([]byte(`not json at all`), clientSection{}, "cfg.json", "meshghost", "client")
+		WarnUnknownKeys([]byte(`["not","an","object"]`), clientSection{}, "cfg.json", "meshghost", "client", nil)
+		WarnUnknownKeys([]byte(`{"a":1}`), map[string]string{}, "cfg.json", "meshghost", "client", nil)
+		WarnUnknownKeys([]byte(`not json at all`), clientSection{}, "cfg.json", "meshghost", "client", nil)
 	})
 	if out != "" {
 		t.Fatalf("warned about something it cannot check:\n%s", out)
+	}
+}
+
+// A KEY ANOTHER PROGRAM OWNS IS NOT A TYPO. config.json is read by this binary
+// AND by the game's mod, and to reflection "a key the mod reads" and "a key
+// nobody reads" look identical -- both are absent from the struct. The caller
+// knows the difference, so the caller says so.
+//
+// The cost of getting this wrong is not cosmetic: the warning tells the player
+// the key "is being IGNORED, so whatever it was meant to change is still at its
+// default", which for a mod-read key is false and sends them hunting.
+func TestAKeyAnotherProgramOwnsIsNotReported(t *testing.T) {
+	raw := []byte(`{"connect_to":"1.2.3.4:7777","autostart":true,"roomcode":"hunter2"}`)
+	out := captureLog(t, func() {
+		WarnUnknownKeys(raw, clientSection{}, "cfg.json", "meshghost", "client",
+			map[string]bool{"client.autostart": true})
+	})
+	if strings.Contains(out, "autostart") {
+		t.Fatalf("a key declared as another program's was reported as a typo:\n%s", out)
+	}
+	// And it must not become a blanket excuse: the real typo beside it still
+	// has to be named, or one declaration silences the whole section.
+	if !strings.Contains(out, "roomcode") {
+		t.Fatalf("declaring one foreign key silenced a real typo beside it:\n%s", out)
+	}
+}
+
+// THE WHOLE SUBTREE BELONGS TO WHOEVER OWNS THE KEY. input_display is an object
+// the mod reads; this binary has no idea what belongs inside it, so descending
+// would report every one of the mod's own settings as a mistake.
+func TestAForeignSectionIsNotDescendedInto(t *testing.T) {
+	raw := []byte(`{"replay":{"save_last":"30s","indicator":true,"indicator_color":"#EE4B2B"}}`)
+	out := captureLog(t, func() {
+		WarnUnknownKeys(raw, clientSection{}, "cfg.json", "meshghost", "client",
+			map[string]bool{"client.replay.indicator": true, "client.replay.indicator_color": true})
+	})
+	if out != "" {
+		t.Fatalf("a nested key another program owns was reported:\n%s", out)
 	}
 }

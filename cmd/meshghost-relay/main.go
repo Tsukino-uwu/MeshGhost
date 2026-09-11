@@ -142,7 +142,10 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	// scopes to "client": the root object legitimately carries the other
 	// binary's section, and in the shipped package it carries both.
 	if section := serverSection(data); section != nil {
-		cfg.WarnUnknownKeys(section, fileConfig{}, shown, "meshghost-relay", "server")
+		// nil: unlike the client's "client" section, nothing but this binary
+		// reads "server" -- no mod, no adapter -- so every key in it that is
+		// not a setting is a typo.
+		cfg.WarnUnknownKeys(section, fileConfig{}, shown, "meshghost-relay", "server", nil)
 	}
 	if rc.Server == nil {
 		log.Printf("meshghost-relay: warning: config file %s has no \"server\" section -- "+

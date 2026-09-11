@@ -81,9 +81,25 @@ func TestAStalledRelayDoesNotBlockTheFramePath(t *testing.T) {
 
 	// And the writer really is where the block went: exactly one write is in
 	// flight, holding the socket, while everything behind it waits in the queue.
-	st.mu.Lock()
-	calls := st.calls
-	st.mu.Unlock()
+	//
+	// WAIT FOR THAT FIRST WRITE RATHER THAN ASSUMING IT HAPPENED. The frame
+	// path returning (above) says nothing about whether the writer goroutine
+	// has been scheduled yet, and under CPU contention it has not: this read
+	// then sees 0 and the test fails claiming the queue was never entered.
+	// Waiting cannot mask the regression it guards, because the stalled
+	// transport never returns from a write -- once the count reaches 1 no
+	// second write can start, so "exactly 1" is still exactly what is asserted.
+	deadline := time.Now().Add(2 * time.Second)
+	calls := 0
+	for time.Now().Before(deadline) {
+		st.mu.Lock()
+		calls = st.calls
+		st.mu.Unlock()
+		if calls > 0 {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
 	if calls != 1 {
 		t.Fatalf("the stalled transport saw %d writes, want 1 -- the writer goroutine should be "+
 			"parked in the first one with the rest queued behind it", calls)

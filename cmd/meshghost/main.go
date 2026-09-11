@@ -185,6 +185,41 @@ type fileConfig struct {
 	Chaser *chaserFileConfig `json:"chaser"`
 }
 
+// notClientSettings are keys the shipped config.json carries for the GAME'S MOD
+// rather than for this binary, qualified the way cfg.WarnUnknownKeys names a
+// section.
+//
+// config.json is one file read by two programs. The mod that starts this client
+// reads its own handful of keys out of the same "client" object -- it is the
+// player's one settings file on purpose -- and none of them has, or should have,
+// a field in fileConfig: this binary cannot act on any of them.
+//
+// Without this list the unknown-key warning (2026-09-11) could not tell them
+// from a typo, because to reflection they are the same thing, and an untouched
+// release told every player that six of its own shipped defaults were "being
+// IGNORED, so whatever they were meant to change is still at its default". They
+// were not being ignored; they were being read by somebody else. docs/config.md
+// documents them as legitimate and says which program reads each one.
+//
+// Adding a key here is a claim that another reader owns it. If nothing reads it,
+// it IS a typo and belongs in neither place.
+// Pinned by TestShippedConfigsProduceNoUnknownKeyWarning against every shipped
+// config, so a mod that gains a key fails the suite rather than a player's log.
+var notClientSettings = map[string]bool{
+	// Read by every shipped mod.
+	"client.autostart":     true, // whether the mod starts this client at all
+	"client.map_markers":   true, // the mod's on-screen peer markers
+	"client.input_display": true, // the mod's input overlay (a whole subtree)
+	// Pseudoregalia's distance tiers, in its per-game config.json.
+	"client.ghost_range":          true,
+	"client.ghost_range_far":      true,
+	"client.ghost_range_throttle": true,
+	// The mod draws the recording indicator; the client owns the recording.
+	"client.replay.indicator":             true,
+	"client.replay.indicator_color":       true,
+	"client.replay.indicator_timer_color": true,
+}
+
 type chaserFileConfig struct {
 	Enabled *bool   `json:"enabled"`
 	Count   *int    `json:"count"`
@@ -343,7 +378,7 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) str
 	// unknown key still exists -- see cfg.WarnUnknownKeys, including why the
 	// root object is deliberately not checked.
 	if sections := clientSection(data); sections != nil {
-		cfg.WarnUnknownKeys(sections, fileConfig{}, shown, "meshghost", "client")
+		cfg.WarnUnknownKeys(sections, fileConfig{}, shown, "meshghost", "client", notClientSettings)
 	}
 	if rc.Client == nil {
 		log.Printf("meshghost: warning: config file %s has no \"client\" section -- "+

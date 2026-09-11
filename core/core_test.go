@@ -1316,6 +1316,29 @@ func (ct *countingTransport) count() int {
 	return ct.sends
 }
 
+// waitForSendCount blocks until ct's count has stopped moving, so a test can
+// assert on a total that an asynchronous writer is still producing. Bounded:
+// it gives up rather than hanging, and the assertions that follow report the
+// count they actually saw.
+func waitForSendCount(t *testing.T, ct *countingTransport) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	last := -1
+	stable := 0
+	for time.Now().Before(deadline) {
+		got := ct.count()
+		if got == last && got > 0 {
+			if stable++; stable >= 3 {
+				return
+			}
+		} else {
+			stable = 0
+		}
+		last = got
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
 // TestForwardLocalStateRespectsMinSendInterval is a regression test for the
 // Phase 6 (TEVI) bug found live: a Unity adapter's Update() calls in well
 // above the relay's 120 messages/second limit, and forwardLocalState used to
@@ -1339,6 +1362,15 @@ func TestForwardLocalStateRespectsMinSendInterval(t *testing.T) {
 		c.forwardLocalState(&state)
 	}
 	elapsed := time.Since(start)
+
+	// WAIT FOR THE WRITER BEFORE COUNTING. Until 2026-09-11 forwardLocalState
+	// wrote the relay socket on this goroutine, so the counter was exact the
+	// moment the loop ended. It is now enqueued and drained by relayWriter's
+	// goroutine (core/relaywriter.go), so reading the count here races it --
+	// under CPU contention the writer has not been scheduled yet and every
+	// assertion below sees 0. The rate cap is still decided during the loop, so
+	// waiting changes none of the numbers; it only lets the writes land.
+	waitForSendCount(t, ct)
 
 	// A tight loop of 1000 calls with no sleep should complete in well under
 	// one MinSendInterval, so this is really checking "far fewer sends than

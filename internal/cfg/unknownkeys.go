@@ -39,10 +39,26 @@ import (
 // names the section for the message ("client", "client.replay"), path the file
 // and prog the binary, matching every other warning in this package.
 //
+// notSettings names keys this binary does not own but that are NOT mistakes,
+// qualified the same way where is ("client.autostart", "client.replay.indicator").
+// A shipped config.json is read by more than one program: the client owns most
+// of the "client" section, and the game's mod reads a handful of keys beside its
+// own settings. Reflection cannot tell those from a typo -- both are "no field
+// with this name" -- so the caller that knows says so. Such a key is skipped
+// entirely: not warned about, and not recursed into, because the subtree belongs
+// to whoever does own it.
+//
+// This stays a list of what is NOT a setting rather than a list of what is. The
+// header above explains why the accepted set must come from reflection: a
+// curated list of settings goes stale the first time one is added, which is the
+// failure this file exists to prevent. A key belonging to another reader is the
+// opposite case -- it is not derivable from this binary's types at all, and it
+// changes only when that other reader changes.
+//
 // Silent on anything it cannot check: raw that is not an object, a type that is
 // not a struct, a map-typed field (whose keys are the user's to choose). Being
 // unable to check is not evidence of a mistake.
-func WarnUnknownKeys(raw []byte, v any, path, prog, where string) {
+func WarnUnknownKeys(raw []byte, v any, path, prog, where string, notSettings map[string]bool) {
 	t := structType(reflect.TypeOf(v))
 	if t == nil {
 		return
@@ -68,6 +84,11 @@ func WarnUnknownKeys(raw []byte, v any, path, prog, where string) {
 
 	var unknown []string
 	for key, val := range obj {
+		// Another reader's key, declared by the caller. Not a setting here and
+		// not a mistake, so it is neither reported nor descended into.
+		if notSettings[where+"."+key] {
+			continue
+		}
 		ft, ok := known[key]
 		if !ok {
 			unknown = append(unknown, key)
@@ -76,7 +97,7 @@ func WarnUnknownKeys(raw []byte, v any, path, prog, where string) {
 		// A nested section this binary owns gets the same treatment: a typo
 		// inside "replay" or "hotkeys" is exactly as silent as one beside them.
 		if nested := structType(ft); nested != nil {
-			WarnUnknownKeys(val, reflect.New(nested).Elem().Interface(), path, prog, where+"."+key)
+			WarnUnknownKeys(val, reflect.New(nested).Elem().Interface(), path, prog, where+"."+key, notSettings)
 		}
 	}
 	if len(unknown) == 0 {

@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/Tsukino-uwu/MeshGhost/internal/cfg"
 
 	"github.com/Tsukino-uwu/MeshGhost/core"
 	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
@@ -273,4 +277,64 @@ func TestTheShippedPredictorIsWhatTheReleaseShips(t *testing.T) {
 		t.Errorf("packaging/release/config.json ships predict %q, but shippedPredict is %q -- "+
 			"the smoothing log line labels runs against the second one", cfg.Client.Predict, shippedPredict)
 	}
+}
+
+// THE SHIPPED CONFIG MUST NOT WARN ABOUT ITSELF.
+//
+// WarnUnknownKeys (2026-09-11) names every key in "client" that has no field in
+// fileConfig and says it is "being IGNORED, so whatever it was meant to change
+// is still at its default". The known-key set is fileConfig's own json tags by
+// reflection, which is right for a typo -- and wrong for the keys this file
+// legitimately carries for a DIFFERENT reader. autostart, map_markers,
+// input_display and the ghost_range trio are read by the game's mod, and the
+// replay.indicator trio by the mod's own overlay; none of them is a client
+// setting, none is in any Go struct, and all of them ship turned on.
+//
+// So an untouched release told every player that six of its own defaults were
+// typos doing nothing. docs/config.md documents those keys as legitimate and is
+// right; the warning was wrong.
+//
+// Every shipped config is walked, not just the root one: the per-game files
+// carry keys the root does not (the ghost_range trio is Pseudoregalia's), so
+// checking one would have missed three of them.
+func TestShippedConfigsProduceNoUnknownKeyWarning(t *testing.T) {
+	shipped := []string{
+		filepath.Join("packaging", "release", "config.json"),
+		filepath.Join("packaging", "release", "games", "pokemon", "crystal", "config.json"),
+		filepath.Join("packaging", "release", "games", "pokemon", "emerald", "config.json"),
+		filepath.Join("packaging", "release", "games", "pseudoregalia", "config.json"),
+		filepath.Join("packaging", "release", "games", "tevi", "config.json"),
+	}
+	for _, rel := range shipped {
+		t.Run(rel, func(t *testing.T) {
+			path := filepath.Join("..", "..", rel)
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("reading %s: %v", path, err)
+			}
+			section := clientSection(raw)
+			if section == nil {
+				t.Fatalf("%s has no \"client\" section", rel)
+			}
+			out := captureLogForTest(t, func() {
+				cfg.WarnUnknownKeys(section, fileConfig{}, rel, "meshghost", "client", notClientSettings)
+			})
+			if out != "" {
+				t.Errorf("the shipped %s makes the client warn about its own keys:\n%s\n"+
+					"Either the key is a real setting and belongs in fileConfig, or it is read by "+
+					"the game's mod and belongs in notClientSettings.", rel, out)
+			}
+		})
+	}
+}
+
+func captureLogForTest(t *testing.T, fn func()) string {
+	t.Helper()
+	var buf bytes.Buffer
+	oldOut, oldFlags := log.Writer(), log.Flags()
+	log.SetOutput(&buf)
+	log.SetFlags(0)
+	defer func() { log.SetOutput(oldOut); log.SetFlags(oldFlags) }()
+	fn()
+	return buf.String()
 }
