@@ -21,8 +21,22 @@ go vet ./... || goto :failed
 
 REM -count=2 because parts of this suite have failed intermittently rather than reliably --
 REM a single green run has been misleading here before (see CLAUDE.md).
-echo === go test (x2) ===
-go test -count=2 ./... || goto :failed
+REM
+REM **THE WHOLE OUTPUT GOES TO A FILE, not just the console (2026-09-11, review O3).** A core test
+REM failed once on 2026-09-08 and was never identified, because the only thing captured was the
+REM TAIL -- which held teardown log noise from two cores and a relay shutting down, and not the
+REM test NAME. Without the name there is nothing to bisect, and the run could not be re-captured
+REM because the output was gone. That is a bad way to lose a flake: this repo's own history says
+REM the one seen once and waved through is the one CI finds later on a slower machine.
+REM
+REM This is insurance for EVERY future flake rather than for that one: whatever fails, and however
+REM the script was invoked, the complete output is on disk afterwards. Tee-Object rather than a
+REM plain redirect so the console still streams live -- a run takes minutes and watching it is
+REM half the point. $LASTEXITCODE after the pipeline is `go`'s own, because Tee-Object is a cmdlet
+REM and does not touch it.
+set "TESTLOG=%~dp0..\gotests-last.log"
+echo === go test (x2) ===  [full output also written to gotests-last.log]
+powershell -NoProfile -ExecutionPolicy Bypass -Command "& go test -count=2 ./... 2>&1 | Tee-Object -FilePath '%TESTLOG%'; exit $LASTEXITCODE" || goto :failed
 
 echo.
 echo All Go checks passed.
@@ -31,6 +45,9 @@ goto :end
 :failed
 echo.
 echo FAILED -- see the output above.
+echo The COMPLETE run is in gotests-last.log (the console may have scrolled, and a
+echo tail is what lost the 2026-09-08 flake). Search it for "--- FAIL" to get the
+echo test NAME, which is the one thing a bisect needs.
 exit /b 1
 
 :end

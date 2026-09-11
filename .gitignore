@@ -277,3 +277,8 @@ REVIEW-FINDINGS.md
 # committed: docs/ is the single copy, and a committed second one is exactly the drift the staging
 # step exists to prevent. README.txt beside it IS committed -- it is the map, not the content.
 /packaging/release/docs/
+
+# The full output of the last run-gotests/-race run, kept so a flake that only happens
+# once leaves its test NAME behind (review O3, 2026-09-11). Overwritten every run.
+gotests-last.log
+gotests-race-last.log

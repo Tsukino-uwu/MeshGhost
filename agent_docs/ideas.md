@@ -3265,3 +3265,14 @@ may differ per game), and it adds a field to the bridge contract, which is an AD
 **Worth knowing while it is open:** every shipped adapter today renders the glide, and nobody has
 reported it -- which may mean it is rare in these four games, or may mean it reads as ordinary lag.
 That question is answerable in a session: die at a checkpoint with a second client watching.
+
+**THE USER'S ANSWER, 2026-09-11 -- the design question is settled, the priority is not.** Asked
+whether a snap is better than a glide: *"if its a long distance i think a snap is probly better so
+it actually catches up properly and looks normal afterwards instead of slowly gliding around and
+looking off/weird"*, with the qualifier that matters as much -- *"but think things have looked
+pretty normal so far during testing"*.
+
+So: **a snap, and only past a LONG distance**, which is exactly the threshold shape described
+above. **LEFT FILED, the user's call the same day**: nothing has been reported, so this waits for
+someone to actually see it rather than shipping a snap nobody asked for on a guess at the number.
+When it is picked up, the answer to "what should it do" is already here.

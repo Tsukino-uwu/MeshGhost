@@ -216,6 +216,16 @@ appears, or a missing trail is a decline.
    probes compiled ON -- one of which spawns Niagara components onto a ghost -- so **a recurrence
    is only worth something on a probe-free build.**
 
+   **FIRST RESULT, the user 2026-09-11: *"seems to work, no crashing"*.** So the hardened build
+   runs and a quit was clean. **That is NOT the crash being fixed, and this entry stays open**: it
+   was seen twice across roughly six weeks with no repro either time, so one clean quit is exactly
+   what a session looked like on every build that still had it. What one clean quit DOES establish
+   is the thing worth having today -- taking eleven detours back off at shutdown broke nothing,
+   which is the risk a change to a teardown path carries.
+
+   **What would actually close it:** quits accumulating with no box, on a probe-free build, over
+   normal play. There is no measurement that shortens that, which is why nothing here claims one.
+
 ## [READY] the input track's capture is built and deployed, UNWATCHED (2026-09-08 midday)
 
 **First run, 13:14-13:16, the user's own launch (build `11ee35453e62`): the plumbing worked and the
