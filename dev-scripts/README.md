@@ -716,6 +716,17 @@ ALREADY-RUNNING instance is a Lua Console GUI action nothing outside the emulato
   reads as 58fps. That disagreement cost most of an hour on 2026-08-21, when every measurement
   said 59.7fps while the user saw chop. Measuring the frame-to-frame *gap* found the cause in
   minutes — and found it in the instrumentation, which is why this one buffers its own log.
+- `read-guard-emerald.lua` — **bounds-checks every read the Emerald adapter makes and reports the
+  FIRST out-of-range one with a Lua traceback naming the line**, then goes quiet. Flag-gated and off
+  by default. It exists because BizHawk answers an out-of-range read with a console warning and a
+  zero: no error, no stack, nothing greppable — so a wrong address on a new build is thousands of
+  lines a second and a 4fps emulator with no clue which read is at fault. Three plausible guesses
+  were spent on EX SPEEDCHOICE before this was written; it then named each of two faults in one
+  25-second run. **Reach for it on the second wrong guess, not the fourth.**
+- `slot2.lua` — sets `MESHGHOST_LOAD_SLOT = 2` for `load_slot.lua`, which reads it as a global
+  because the environment variable is fixed at emulator launch. List it BEFORE load_slot.lua, and
+  load_slot.lua before the adapter. Slot 2 is the user's four-Emerald town setup where every
+  instance can see the others; slot 1 is theirs and is never touched by tooling.
 - `force-drawn-emerald.lua` — **forces every peer onto Emerald's PAINTED tier** by setting
   `MESHGHOST_EMERALD_MAX_SPAWNED = 0` and `MESHGHOST_EMERALD_HW_OVERFLOW = "0"`, and restores both on
   unload. **List it BEFORE the adapter in the control file**: the adapter evaluates `tiering.hw.on` in a

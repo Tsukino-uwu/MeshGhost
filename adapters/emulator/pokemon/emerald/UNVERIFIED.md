@@ -72,7 +72,7 @@ the rest is unaffected. The dev launchers set `MESHGHOST_CORE_DIR=%~dp0..` and a
 
 ---
 
-## [PARTLY CONFIRMED] the painted tier is 3.2x faster — WATER CHECKED, land occlusion still open (2026-09-11)
+## [OPEN] the painted tier is 3.2x faster — WATER CONFIRMED, land occlusion still unwatched (2026-09-11)
 
 **UPDATE, same day: the user confirmed the WATER half on screen** while surfing in vanilla
 Emerald, with five painted ghosts pinned beside them — *"yee they have reflections"*, then
