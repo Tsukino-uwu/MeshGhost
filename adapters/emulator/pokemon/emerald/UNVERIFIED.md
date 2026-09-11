@@ -49,6 +49,34 @@ being work. An entry still here has not been confirmed.
 
 ---
 
+## [OPEN] EX SPEEDCHOICE has NO occlusion — its ghosts paint over scenery (2026-09-11)
+
+**Not a regression and not a mystery — a known missing address, filed so it is not rediscovered from
+a screenshot.** EX SPEEDCHOICE 0.4.0 renders peers correctly in every other respect, but its
+`gMapHeader` is not at the address this adapter knows (it reads `0x03FF03FF` there, which is not a
+pointer), so the occlusion chain cannot be walked at all:
+
+    gBackupMapLayout -> metatile id -> gMapHeader -> tileset -> attributes -> "does this cover?"
+
+With the map unreadable the adapter declines to clip rather than clipping everything away — the
+2026-09-11 fix, and the right default, since hiding every ghost on the strength of a reading we did
+not get is the worse failure. **The consequence is visible: on that build a ghost will paint OVER a
+building edge, a treetop or a ledge instead of going behind it.** It logs the reason once:
+
+> *gMapHeader is not at the address this adapter knows on this build (read 03FF03FF), so painted
+> ghosts are drawn WITHOUT occlusion (they will not be hidden by scenery). Everything else is
+> unaffected.*
+
+**What fixing it takes**, and the method is already proven on this build's other five anchors: find
+gMapHeader by search-then-confirm. Its EWRAM neighbours moved by +0xC80 (gObjectEvents) and +0x20
+(gSprites), and its IWRAM ones by -0x10E0 and -0x10D0, so **the shift is not derivable from any of
+them** — this build moves each block independently. `probes/occlusion_probe.lua` prints every link
+of the chain and is the place to start; a candidate is a pointer into ROM whose primary tileset is
+also a ROM pointer, confirmed by a map change rather than a single reading.
+
+**Archipelago has the same relocation and the same consequence.** Vanilla and SPEEDCHOICE both read
+gMapHeader correctly and occlude normally.
+
 ## [READY] autostart looks only beside the script now, UNWATCHED (2026-09-11)
 
 The two `../` fallbacks are gone from `findCoreExe` — the release root three levels up and a source
