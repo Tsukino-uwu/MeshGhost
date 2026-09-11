@@ -26,7 +26,7 @@ Compressed from the ADR index (`architecture.md` — each ADR file's name carrie
 commit log. Pre-2026-08-17 paths in the sources cited here are `internal/...`; see the module-move
 note in `agent_docs/README.md`.
 
-- **2026-08-08 → 08-11 — the shape.** Minimal game-agnostic adapter contract (ADR 0001), JSON as
+- **2026-08-08 → 2026-08-11 — the shape.** Minimal game-agnostic adapter contract (ADR 0001), JSON as
   the Phase-0 wire format (0002), `area_id`/`anim` opaque (0003), Go core+relay as one codebase,
   two binaries (0004), relay unauthenticated through the early phases (0006), and an opaque event
   plane plus a `features` field reserved on day one so capability could be added without breaking
@@ -54,7 +54,35 @@ note in `agent_docs/README.md`.
   becomes a host-set room policy resolved stricter-side-wins (0035).
 - **2026-08-20** — an adapter may take area visibility away from the core (`render_all_areas`,
   0036); `internal/gameblind` makes the game-blindness rules mechanical tests.
+- **2026-08-21 → 2026-08-23 — doc gates, not stack changes.** The date rule became a grep because
+  the rule alone did not hold (`575e770b`), every doc was read against the code (`c4017f7d`), and
+  the no-invented-durations rule got a check that actually catches them (`01cd8e85`). No Go-side
+  behaviour changed; listed so the dates are not silent. *(Added 2026-09-11.)*
+- **2026-08-22 — the test suite learns to fail.** Eight commits, and the theme is that several
+  tests had never exercised what they claimed. The client half of session resumption **had never
+  run** (`fe33e659`); an e2e case that kills and restarts the relay, the client and the adapter
+  was added (`0032b6af`); what a dropped relay connection must forget got pinned (`7f62c730`); and
+  *"a frame sent exactly once is a frame that can be dropped"* (`ded21ffb`). Two real defects fell
+  out: **`"the room hasn't answered yet"` is not `"the room said nothing"`** (`9e1d15dd`) — both
+  are an empty `relayGhostCollision`, and `ResolveGhostCollision("", "")` is ENABLED, so a
+  `session_policy` pushed before any `Welcome` tells an adapter its ghosts may be solid in a room
+  that disabled them; caught by CI's `-race` job, fixed with `relayPolicyKnown`. And **a blob must
+  be bounded by the bytes it BECOMES, not the bytes it is** (`8faec7c2`): `encoding/json` escapes
+  `<`, `>` and `&` as six-byte sequences, so 130 bytes of `&` in hand are 774 on the wire — every
+  bound in the package was under-counting by up to six times, in the one direction that matters,
+  and a write the sender validated would be rejected by the receiver with nothing able to explain
+  why. `JSONWireLen` now measures what the encoder will actually write. *(Added 2026-09-11.)*
 - **2026-08-25** — `internal/cfg` extracted from the two mains' duplicated config plumbing.
+- **2026-08-27 — three races and a dead session, all found by CI rather than locally.** **A
+  relaunched game could get a dead session** (`4664c9b8`): CI failed once in two runs on
+  `TestARelaunchedGameGetsAWorkingSessionAgain` and **twenty-five local `-race` runs never
+  reproduced it**. `ConnectRelayOnAdapterHello`'s already-connected fast path returned nil without
+  touching `c.relayOwner`, so ownership stayed with the DEPARTING bridge — the replacement adapter
+  had a working session, then the connection closed under it and sixty seconds of nothing
+  followed. Also: a data race on `reconnectLogInterval` (`be87db37`), **plain udp takes the odd
+  port, not quic** (`efa66931`), `udpconn.go` split into the four concerns whose cut lines were
+  already drawn in it (`148f5f39`), and **the doc gates existed while CI never ran one**, so they
+  held only when somebody remembered (`18e4d49b`). *(Added 2026-09-11.)*
 - **2026-08-28 — the architecture week, in one day.** The first benchmark of the relay fan-out
   path (`e79f9e0`), then the fixes it earned: state lines built once via `AppendEnvelope`
   (`b5bd8f7`), the one allocation that scaled with room size (`b6eb327`); **a client stops
