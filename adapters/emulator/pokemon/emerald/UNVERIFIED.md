@@ -49,6 +49,31 @@ being work. An entry still here has not been confirmed.
 
 ---
 
+## [READY] three robustness fixes from the 2026-09-07 review, UNWATCHED (2026-09-11)
+
+**None of these changes what the game looks like**, so what is owed is "does everything still
+work": load a ROM, get a ghost on screen, walk around, cross a map boundary. Both adapters parse
+under `luac 5.4` and the shared fuzz harness is green.
+
+1. **I30 (HIGH) -- a peer with a non-string `player_id` killed every tier for the rest of the
+   session.** The dispatch admitted a peer on truthiness alone, and every tier below does
+   `playerId:match("%-ghost$")`, which RAISES on a number in Lua 5.4 with no guard above the first
+   one. `guardedFrame`'s pcall swallowed it, so everything past that point stopped -- with one
+   throttled line every 300 frames and no despawn ever sent -- and a table id grew `remotes`
+   without bound. Both `render_remote` and `despawn_remote` require a string now.
+
+2. **I47 -- one malformed `\u` escape cost the whole message.** `tonumber("ZZ", 16) % 256` raises,
+   and `jsonDecode`'s pcall turns that into "this line does not decode" -- so a single bad escape
+   anywhere in a peer's `extras`, which is free-form peer-controlled data, dropped everything in
+   that message. The four hex digits are required now. **Watch: a peer whose NAME has an `&`,
+   `<` or `>` in it still shows up** (Go escapes those as `\u0026` and friends, so this is the
+   path they take).
+
+3. **I33 -- the partial-line buffer had no bound**, and the memory was the lesser half: the whole
+   partial is copied back into `receive()` every frame, so the work per frame grows with the
+   stall and the total is quadratic in how long it lasts -- on the emulator thread. Capped at
+   4096, the same number the core bounds a line by.
+
 ## This run — watch these first
 
 **The READY entries below, newest first, at most ten.** Each says what to look at and what correct looks

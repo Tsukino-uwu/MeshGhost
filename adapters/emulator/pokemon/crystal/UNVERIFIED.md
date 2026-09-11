@@ -49,6 +49,37 @@ being work. An entry still here has not been confirmed.
 
 ---
 
+## [READY] four robustness fixes from the 2026-09-07 review, UNWATCHED (2026-09-11)
+
+**None of these changes what the game looks like**, so what is owed is "does everything still
+work": a two-client session, ghosts on screen, walking and turning, a map change. Parses under
+`luac 5.4`; the shared fuzz harness is green.
+
+1. **I37 (HIGH) -- one peer could stop the drawn tier for everyone.** `extras.face` was the only
+   one of seven peer numerics that was neither floored nor bounded, and it is the one that reaches
+   a bitwise operator: in Lua 5.4 both `1.5 & 3` and `(1/0) & 3` RAISE, and both decoders already
+   turn `1e999` into a non-finite number -- the fuzz harness prints that every run. There is no
+   pcall anywhere inside `drawOverflow`, so the shipped drawn tier stopped for ALL peers and the
+   previous frame's overlay was never cleared. **Watch: ghosts still face and step correctly,
+   including on the bike.**
+
+2. **I38 (HIGH) -- a partial send corrupted the stream for the rest of the connection.** LuaSocket
+   returns `nil, "timeout", lastByteSent` on a non-blocking socket, and this discarded the third
+   value and called every timeout benign. With part of a line sent, the next tick's fresh line is
+   concatenated onto the fragment and the core's scanner grows the malformed result until it dies.
+   Emerald and the C++ adapter both fixed exactly this; Crystal was the sibling that never got it.
+   **Watch: a long session does not drop the bridge.**
+
+3. **I47 -- one malformed `\u` escape cost the whole message.** The cursor advanced six characters
+   for every `\u` whether or not four hex digits followed, stepping past the string's own closing
+   quote -- the parser then read the rest of the line as string content and dropped everything.
+   **Watch: a peer whose NAME has an `&`, `<` or `>` in it still shows up** (Go escapes those, so
+   this is the path they take).
+
+4. **I45 -- the receive buffer had no bound.** One 4096-byte read per frame with no cap means a
+   core that sends bytes and never a newline grows the buffer forever, concatenating onto it every
+   frame: quadratic work in how long it goes on, on the emulator thread.
+
 ## This run — watch these first
 
 **The READY entries below, newest first, at most ten.** Each says what to look at and what correct looks
