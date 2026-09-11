@@ -962,3 +962,29 @@ carries the approved plan for the adapter half. **Next:** Stage 0 (the capture g
 `cam_yaw`/`cam_pitch` axes, `source` -> `imc_keys+bound_axes+camrot`) and Stage B (the display's
 ghost half reads `remote_input`) in the next game session the user starts; then the D0 event-node
 census and D1 "moves under its own power" before any drive code. No adapter reads the stream yet.
+
+## 2026-09-09 — `config.json` goes live: a save is re-read and applied while running
+
+**Backfilled 2026-09-11 from the commit log** (`66738c1c`), and it belongs here because the replay
+and chaser settings were half of what was stuck.
+
+**A tester's report opened it**: editing `config.json` mid-session changed only the input display —
+because the mod polls that file itself — while **replay, chaser and hotkey settings were read once
+by `main()` and copied onto plain `Core` fields.** So the one setting that appeared to work was the
+one nothing in the core owned, which is exactly the shape that makes a config look live when it is
+not.
+
+- `core/settings.go` gained the setters that make a change take effect rather than merely land:
+  `SetSmoothing`, `SetGhostCollisionPreference` (re-pushes the session policy),
+  `SetChaserSettings` (restarts the pack), `SetReplaySettings` (re-arms the rings) and
+  `SetConnectionSettings` (closes the live relay session so the existing auto-retry rejoins with
+  the new `Hello`). **The replay and connection fields moved behind `settingsMu` with every read
+  through an accessor** — a write from the poll would otherwise race.
+- `cmd/meshghost/reload.go`: a 1s mtime+size poll, **applied on the second poll a change holds
+  still**, so a half-written file is never read. Re-read into a fresh copy of the pre-file flag
+  values, so a removed key falls back and an explicit flag still wins; one log line per changed key
+  naming its effect. `startHotkeys` takes a stop channel so chords are released and re-registered.
+- Tests: `core/settings_test.go`, `cmd/meshghost/reload_test.go`.
+
+The same commit cleared the Pseudoregalia drive rig's per-pawn pointers in both release paths
+(preflight's stale-pointer check) and shipped that DLL to both installs.
