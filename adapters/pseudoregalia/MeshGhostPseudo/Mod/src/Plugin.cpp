@@ -2159,10 +2159,11 @@ namespace MeshGhostPseudo
     // spike with eleven peers. With the ghost's light killed on the spawn tick it had nothing
     // left to repair: the user watched fake peers spawn beside them inside a dark area with it
     // skipped -- *"they stay dark even inside a dark area. so think its working as intended"*.
-    // This flag still arms the DEFERRED request (see the spawn site); whether the request is
-    // served is `ghost_fixlights_on.txt` (present = run it, coalesced), the A/B if the latch
-    // ever comes back.
-    bool g_ghost_fix_lights = true;
+    // Whether the deferred request is SERVED is `ghost_fixlights_on.txt` (present = run it,
+    // coalesced), which is the A/B if the latch ever comes back.
+    //
+    // `g_ghost_fix_lights` lived here and is gone (2026-09-11, review I15): it was permanently
+    // true, nothing could set it, and it read as a switch.
     // The deferral (2026-09-06): set by a spawn, serviced at the tick's end at most every
     // FIX_LIGHTS_SPACING_TICKS -- see the spawn site's comment.
     bool g_fix_lights_due = false;
@@ -14804,6 +14805,35 @@ namespace MeshGhostPseudo
     // `hooks_off.txt` and `call_light_fn.txt`. Keeps a bisect to "edit a line, relaunch".
     namespace
     {
+        // Is `word` present in `body` as a WHOLE WORD? See dev_toggle_contains for why a
+        // substring test was not good enough.
+        auto dev_toggle_word(const std::string& body, const std::string& word) -> bool
+        {
+            if (word.empty())
+            {
+                return false;
+            }
+            const auto ident = [](unsigned char c) {
+                return c == '_' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+            };
+            for (size_t at = 0;;)
+            {
+                const size_t found = body.find(word, at);
+                if (found == std::string::npos)
+                {
+                    return false;
+                }
+                const bool before_ok = found == 0 || !ident(static_cast<unsigned char>(body[found - 1]));
+                const size_t end = found + word.size();
+                const bool after_ok = end >= body.size() || !ident(static_cast<unsigned char>(body[end]));
+                if (before_ok && after_ok)
+                {
+                    return true;
+                }
+                at = found + 1;
+            }
+        }
+
         auto dev_toggle_contains(const wchar_t* file_name, const char* needle) -> bool
         {
             std::string body;
@@ -14820,7 +14850,19 @@ namespace MeshGhostPseudo
             {
                 c = static_cast<char>(::tolower(static_cast<unsigned char>(c)));
             }
-            return body.find("all") != std::string::npos || body.find(needle) != std::string::npos;
+            // **WHOLE WORDS, not substrings (review I17, fixed 2026-09-11).** This used to be a
+            // bare `find`, so any file whose body happened to contain the letters "all" armed
+            // EVERY needle -- and the words that contain them are exactly the ones a dev toggle
+            // file collects: `install`, `wall`, `small`, or a pasted Windows path with
+            // `...\Install\...` in it. The result is a toggle that does something nobody asked
+            // for, in a file whose whole purpose is to make one behaviour switchable in isolation,
+            // which is the worst place for a surprise: every subsequent measurement is against a
+            // configuration the person at the keyboard does not believe they set.
+            //
+            // A word is delimited by anything that is not a letter, a digit or an underscore --
+            // so a comma-separated list, one-per-line, and a trailing newline all still work,
+            // which is how these files are actually written.
+            return dev_toggle_word(body, "all") || dev_toggle_word(body, needle);
         }
     }
 
@@ -17295,14 +17337,22 @@ namespace MeshGhostPseudo
         // adapter's side, and eleven of them in one frame at "play". It now runs at most once per
         // FIX_LIGHTS_SPACING_TICKS from the tick's end (see game_thread_tick), for however many
         // ghosts spawned since -- the same repair, the same tick when spawns are single, one
-        // repair for a burst. `ghost_fixlights_off.txt` beside the DLL skips it entirely: the A/B
-        // for whether the latch still happens at all now that the ghost's light is killed on the
-        // spawn tick (only the user's eyes settle that; the room brightening was the symptom).
-        if (g_ghost_fix_lights)
-        {
-            g_fix_lights_due = true;
-            ++g_fix_lights_spawns_pending;
-        }
+        // repair for a burst.
+        //
+        // **THE A/B IS `ghost_fixlights_on.txt`, AND IT IS THE ONLY FILE INVOLVED (corrected
+        // 2026-09-11, review I15).** These lines used to name `ghost_fixlights_off.txt` as the
+        // skip, and no code anywhere read that name -- so a developer running the documented A/B
+        // got both arms identical and would have concluded the repair made no difference, which
+        // is a wrong answer produced by an instrument rather than by the thing measured.
+        // FLAGS.md has always described the `_on` file correctly; it was this comment, and one
+        // other, that invented a second one.
+        //
+        // The request is armed unconditionally here and SERVED only when that file is present
+        // (see game_thread_tick). `g_ghost_fix_lights` used to wrap this and was permanently
+        // true -- a dead flag left from before the deferral -- so it is gone rather than kept as
+        // a switch nothing can flip.
+        g_fix_lights_due = true;
+        ++g_fix_lights_spawns_pending;
         spawn_timer_report.mark(STR("fixlights-deferred"));
 
         // Facing-direction investigation, 2026-08-13: bisecting whether the ghost's
@@ -19030,7 +19080,8 @@ namespace MeshGhostPseudo
         registry_drain_pending();     // constructions the loading thread saw since last tick
         // The deferred light repair -- see the spawn site. Once for everything that spawned
         // since the last one, never more often than FIX_LIGHTS_SPACING_TICKS, and skipped
-        // entirely while ghost_fixlights_off.txt is present (the A/B).
+        // entirely unless ghost_fixlights_on.txt is present (the A/B -- and see the spawn site:
+        // there was never a `_off` file, whatever two comments used to say).
         if (g_fix_lights_due && tick_count - g_fix_lights_last_tick >= FIX_LIGHTS_SPACING_TICKS)
         {
             g_fix_lights_due = false;
@@ -25985,8 +26036,21 @@ namespace MeshGhostPseudo
             // previously failed to resolve (e.g. a peer's modded outfit this machine doesn't have)
             // only gets retried once per LOG_INTERVAL_TICKS, not every tick -- a genuinely new
             // target is still tried immediately regardless of the throttle.
+            // **THE THROTTLE IS ON THE FAILURE, NOT ON THE NAME (review I12, fixed 2026-09-11).**
+            // It used to require `target == last_failed`, which a peer defeats by ALTERNATING two
+            // unresolvable paths: each frame the target differs from the one that failed last
+            // frame, so it counts as a genuinely new target, and the result is a StaticFindObject
+            // plus an `Output::send` per ghost per frame, driven from another machine and free to
+            // the sender. The log becomes the problem, which is the failure the throttle existed
+            // to prevent in the first place.
+            //
+            // What this trades: a peer who switches from a MISSING outfit to a real one now waits
+            // up to one LOG_INTERVAL_TICKS (~1.5 s) instead of applying on the next tick. That is
+            // the right way round -- a second of a stale outfit against an unbounded remotely
+            // triggered flood -- and a peer whose last attempt SUCCEEDED is unaffected, because
+            // the last_failed_* string is cleared on success.
             bool outfit_is_new_target = !remote.target_outfit_mesh.empty() && remote.target_outfit_mesh != remote.last_synced_outfit_mesh;
-            bool outfit_retry_due = remote.target_outfit_mesh == remote.last_failed_outfit_mesh &&
+            bool outfit_retry_due = !remote.last_failed_outfit_mesh.empty() &&
                                      (tick_count - remote.last_outfit_attempt_tick) < LOG_INTERVAL_TICKS;
             if (outfit_is_new_target && !outfit_retry_due)
             {
@@ -26090,8 +26154,9 @@ namespace MeshGhostPseudo
             // (create_ghost_weapon_flyer) copies the hand mesh's asset when it is BUILT, so a swap
             // that lands while a throw is in flight also updates the live flyer here, and the next
             // throw inherits it for free.
+            // Same change as the outfit block above, for the same reason -- see its comment.
             bool weapon_mesh_is_new_target = !remote.target_weapon_mesh.empty() && remote.target_weapon_mesh != remote.last_synced_weapon_mesh;
-            bool weapon_mesh_retry_due = remote.target_weapon_mesh == remote.last_failed_weapon_mesh &&
+            bool weapon_mesh_retry_due = !remote.last_failed_weapon_mesh.empty() &&
                                           (tick_count - remote.last_weapon_mesh_attempt_tick) < LOG_INTERVAL_TICKS;
             if (weapon_mesh_is_new_target && !weapon_mesh_retry_due)
             {
