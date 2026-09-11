@@ -109,6 +109,14 @@ With it enabled, peers should be solid exactly as they are today. Turning it bac
 needs no restore and should just work: the engine rewrites an object's elevation from the map tile
 whenever it moves, so a ghost collides again on its next step.
 
+**IT WAS BROKEN BETWEEN BEING WRITTEN AND BEING SHIPPED, and nothing in a game had run it yet.**
+The handler stored the policy on `tiering`, a file-scope local declared ~900 lines BELOW the bridge
+dispatch — so the name read a nil GLOBAL and the first `session_policy` message a room ever sent
+would raise "attempt to index a nil value" inside the dispatch. It sits on `session` now, which is
+declared above that point. **This is the fifth bite of the forward-reference trap this adapter
+documents in its own source**, and preflight's Lua-globals check is what caught it, not a test and
+not a reading. So: this feature has never executed anywhere, and your run is its first.
+
 **A decline to watch for:** ghosts that draw at the wrong DEPTH after this -- only the low nibble
 of the elevation byte is touched and the high nibble is what the engine draws with, so the order
 in front of and behind scenery should be untouched. If that changed, the wrong nibble is being

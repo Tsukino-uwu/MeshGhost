@@ -1471,6 +1471,14 @@ is a nil GLOBAL, not an error, until you call or iterate it; and this file's 200
 pushes shared state onto tables (`genderFrames.*`), which is also the correct fix — the rebase now
 reaches `ghosts` through a field registered at the local's definition site.
 
+**It bit a FIFTH time on 2026-09-11** and the shape is worth the two lines: new shared state
+(`session_policy`'s collision flag) was parked on `tiering` because that is where the state it
+feeds lives — semantically right, lexically nil, ~900 lines early. **Pick the table by where it is
+DECLARED, not by what it is about.** Nothing caught it before `preflight.ps1`'s Lua-globals check
+did: the file parses, the tests do not reach the dispatch, and the failure needs a real
+`session_policy` message to appear at all. *Rule: after adding file-scope state to either Lua
+adapter, run preflight before calling the change shipped.*
+
 **Related, same feature:** the ROM-scan self-location verified candidates against the LIVE map
 header, so the player crossing a seam mid-pass invalidated the pass — in roaming play the scan
 retried for minutes. A pass now snapshots its target at start. *General form: a multi-frame scan

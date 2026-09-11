@@ -1731,7 +1731,7 @@ treatment. The records: `pitfalls/by-lesson.md`, under the UNPROVEN entry.
 
 **The session's whole shape**, from the user: *"Lets work on all of these now, before they go stale
 or something"* — the ~109 open items in the untracked `REVIEW-FINDINGS.md` left by the 2026-09-07
-adversarial review. It ended at **zero unhandled**: 148 marked fixed or verified, 6 left explicitly
+adversarial review. It ended at **zero unhandled**: 150 marked fixed or verified, 4 left explicitly
 needing the user's judgement, each with the reasoning written beside it.
 
 **The first thing found was that the file was STALE.** Nine items marked open had been fixed on
@@ -1797,7 +1797,7 @@ ghost per tick.
   not clear `remoteNames`, so the nameless ghost it describes cannot happen. The test written for it
   refused to run — its own guard said the state was unreachable — and shipping the repair anyway
   would have been code for a case that cannot occur, asserted by a test that proves nothing.
-- **E11 and I36 are filed rather than done**, both because the fix changes what a player SEES and
+- **E11 is filed rather than done** — the user's call, *"Leave it filed"* — because the fix changes what a player SEES and
   neither can be judged from here.
 - **A gate was left RED for four commits.** Adding `min_protocol_version` to the adapters broke
   `TestAdaptersNeverSpeakTheRelayProtocol`, which substring-matches and so matched a field that
@@ -1816,3 +1816,29 @@ ghost per tick.
   is the one change today that alters what the player sees, and it is in both `UNVERIFIED.md` queues
   with what a decline looks like.
 
+### Two the user then approved, after the entry above was written
+
+- **I36 done.** `reflectiveSpans` allocated a table per pixel ROW — ~700 tables a frame at the
+  19-peer Route 111 count, ~42,000 a second on the emulator thread. The buffers are the CALLER's, one
+  set per call site, so two sites cannot hold what they think are two answers and actually hold one.
+  **25.0 KB per call down to 0.5 KB, 97.9% less garbage**, with `adapters/emulator/tests/spans_reuse.lua`
+  in CI — and both failure modes (no trim, no row clearing) deliberately reintroduced and shown to
+  fail it. UNWATCHED: the decline to look for is a reflection SPILLING a pixel run or two.
+- **H14 done, and it produced the session's one new measurement.** The rig called `RenderRemote` as a
+  direct Go method call — no marshal, queue, coalescing, framing or backpressure — so it was
+  structurally incapable of loading the bridge, which is why the ~350-ghost ceiling a tester hit
+  stayed hidden. `-bridge` drives each synthetic peer over a real loopback socket through the core's
+  own `ServeBridge`; **both modes stay, one tool, one flag** (the user's call), and every stats line
+  names which produced it. The stats divisor was also wrong in the flattering direction: it divided
+  by the NOMINAL interval, and a ticker fires late exactly when the process is busy.
+  **128 clients is healthy — 3.8M lines off real sockets in ten seconds, zero send failures.** At
+  256-in-one-area throughput goes DOWN (238,625/s against 128's 381,809/s) and 247 of 256 lose their
+  peers; the same 256 with `-areas 8` run at **433,970/s losing nobody**, which is the control
+  proving the constraint is per-process render fan-out — not the relay, the client or the bridge.
+  The relay's `maxOutboxLines` did exactly what it is for. **Every client here shares ONE process on
+  ONE machine, so these are not the relay's ceiling and nothing here has measured that.** Full record
+  with the caveat in `verified.md`.
+
+**What is left is four items, all the user's call and none of them work-in-progress:** E11 (filed by
+their decision, design answer in `ideas.md`), H19 (fake clocks across core tests), O1 (the clock
+re-anchor), O3 (the insurance shipped; the hunt itself was declined).

@@ -2160,8 +2160,14 @@ local function handleBridgeLine(line)
             and payload.ghost_collision or ""
         if want == "disabled" or want == "enabled" then
             local off = (want == "disabled")
-            if off ~= tiering.policyNoCollision then
-                tiering.policyNoCollision = off
+            -- **ON `session`, NOT `tiering` -- the FIFTH bite of the forward-reference trap this
+            -- file documents (caught by preflight, 2026-09-11).** `tiering` is a file-scope local
+            -- declared ~900 lines BELOW this dispatch, so naming it here reads a nil GLOBAL and
+            -- `tiering.policyNoCollision` raises "attempt to index a nil value" -- inside the
+            -- bridge dispatch, on the first policy message a room ever sends. `session` is
+            -- declared above this point, so it is the real local.
+            if off ~= session.noCollisionPolicy then
+                session.noCollisionPolicy = off
                 console.log("MeshGhost: ghost collision " .. want .. " by the session policy -- "
                     .. (off and "peers are walk-through" or "peers can block you"))
             end
@@ -8388,7 +8394,7 @@ local function freeGhostCollision()
     -- disabled, so a player's own chaser or replay ghost could block them in a solo session,
     -- which is the case the user answered plainly: ghosts should not collide.
     --
-    -- `tiering.policyNoCollision` is nil until a policy arrives, and nil is NOT "disabled": an
+    -- `session.noCollisionPolicy` is nil until a policy arrives, and nil is NOT "disabled": an
     -- older core sends nothing, and going walk-through on silence would change what every
     -- existing setup does on the strength of a message that never came.
     -- TURNING COLLISION BACK ON NEEDS NO RESTORE, and that is the engine's doing rather than
@@ -8396,7 +8402,7 @@ local function freeGhostCollision()
     -- object moves (the reason this has to be re-applied every frame in the first place). So a
     -- ghost left at the incompatible value collides again on its next step, without this code
     -- touching it.
-    tiering.noCollision = tiering.devNoCollision or (tiering.policyNoCollision == true)
+    tiering.noCollision = tiering.devNoCollision or (session.noCollisionPolicy == true)
     if not avatarAddrConfirmed then return end
 
     local pObj = r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05)
