@@ -17,5 +17,5 @@ These are for people using MeshGhost. The internal working record of how it got 
 - [antivirus.md](antivirus.md) — why the binaries get flagged, and what you can check.
 - [code-signing.md](code-signing.md) — what a signature on a release vouches for, and who holds the keys (nobody).
 
-`getting-started.md`, `hosting.md` and `troubleshooting.md` ship in the release zip too, under
-`docs\`.
+`getting-started.md`, `hosting.md`, `config.md` and `troubleshooting.md` ship in the release zip
+too, under `docs\`, as `.txt`.

@@ -51,8 +51,10 @@ SETUP
 4. Start the game. The mod starts MeshGhost for you.
 
 5. Walk around. Your "it worked" signal is a line reading
-   "connected to relay ... in room ...", in BizHawk's Lua Console for the
-   two Pokemon games, or in meshghost.log for TEVI and Pseudoregalia.
+   "connected to relay ... in room ...", in meshghost.log. Every game writes
+   it to the same place -- meshghost.exe writes that line, not the game's mod.
+   (The two Pokemon games also print to BizHawk's Lua Console, which is where
+   you see whether the mod itself loaded.)
 
 
 HOSTING

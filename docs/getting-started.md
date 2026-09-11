@@ -34,6 +34,10 @@ Inside you will find:
 | `meshghost-server.exe` | The server. Only the one person hosting ever touches this. |
 | `config.json` | The settings file. You will edit three lines of it. |
 | `games\` | One folder per supported game. Only your game's folder matters to you. |
+| `docs\` | This guide, hosting, config and troubleshooting, as `.txt`. |
+| `replay\` | Where recordings go. `replay\active\` is what chasers play back. |
+| `README.txt` | The short version of this page. |
+| `THIRD-PARTY-NOTICES.txt` | Licences for what MeshGhost is built on. |
 
 ## 2. Install your game's mod
 
@@ -126,10 +130,13 @@ beats a boss, it is still alive in your game.
 
 ## Did it work?
 
-Your "it worked" signal is a line reading **`connected to relay ... in room ...`**:
+Your "it worked" signal is a line reading **`connected to relay ... in room ...`** in
+`meshghost.log`. Every game writes it to the same place: the line comes from `meshghost.exe`
+itself, not from the game's mod.
 
-- **Emerald / Crystal** — in BizHawk's Lua Console window.
-- **TEVI / Pseudoregalia** — in `meshghost.log`.
+Emerald and Crystal also print to BizHawk's Lua Console, which is the quickest place to see whether
+the mod loaded at all — look for `MeshGhost: bridge connected on ...` there. The relay line is not
+one of the ones it prints; that one is in `meshghost.log`.
 
 `meshghost.log` is always written next to the `meshghost.exe` that ran, which is the folder from
 the table above.
@@ -148,8 +155,10 @@ you can:
 - **Turn on the chaser** — a ghost of you from a few seconds ago, tailing you as you play. Needs
   no file at all: set `"enabled": true` under `"chaser"`.
 
-Emerald and Crystal do not do replays or chasers yet (as of 2026-09-08); TEVI and Pseudoregalia
-do. The knobs for all of this are in [config.md](config.md) under `replay` and `chaser`.
+Replays and chasers are made by `meshghost.exe`, not by the game's mod: the client invents the
+ghost and hands it over on the same bridge, in the same messages, as a ghost of a real player. So
+any game that can show you a friend can show you these. Pseudoregalia is the one they have been
+watched in on screen. The knobs are in [config.md](config.md) under `replay` and `chaser`.
 
 ## Where to go next
 

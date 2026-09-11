@@ -77,8 +77,9 @@ you can start reading at the right line instead of the top of the file.
 6. What survives is written to the bridge (`bridge/bridge.go`, localhost only) as `render_remote`
    and friends, and the adapter renders it. The adapter never sees the relay. What each adapter
    does with each field is its own review, and each adapter's own folder carries it —
-   `adapters/<game>/documentation.md` for how that game works, `FLAGS.md` for every switch it has,
-   and `adapters/pseudoregalia/PLAYER_FIELDS.md` for a worked per-field table.
+   `documentation.md` for how that game works and `FLAGS.md` for every switch it has, in
+   `adapters/pseudoregalia/`, `adapters/tevi/`, and `adapters/emulator/pokemon/<game>/` for the
+   two Pokémon ROMs. `adapters/pseudoregalia/PLAYER_FIELDS.md` is a worked per-field table.
 
 **Dependencies.** One: `github.com/quic-go/quic-go`, plus its `golang.org/x` transitive set. TLS,
 HMAC, JSON and the UDP socket are the Go standard library. There is no dependency for the wire
@@ -122,9 +123,10 @@ go test -race -count=3 ./...
 the part that does not share the author's blind spots. Run any of them for as long as your
 suspicion lasts; CI runs a short campaign against nearly all of them on each push — as of
 2026-09-10, **25 explicit steps in `.github/workflows/ci.yml` against the 27 `Fuzz*` targets in the
-tree**, across eight packages, one step per target. The two with no step are the socket-bound
-schedule fuzzers in `core`, opt-in on purpose; they still run their committed seed corpus in the
-ordinary test job. (A third, `FuzzParseInputTrackNeverPanics`, was unwired until 2026-09-10 — a file
+tree**, across eight packages, one step per target. The two with no step are the schedule fuzzers in `core`, opt-in on
+purpose because each stands up a real relay socket; they both still run their seeds in the ordinary
+test job — `FuzzSchedule` from a committed corpus in `core/testdata/fuzz/`, and
+`FuzzNameDeliverySurvivesAnyConnectOrdering` from the seeds in the target itself. (A third, `FuzzParseInputTrackNeverPanics`, was unwired until 2026-09-10 — a file
 parser that shipped with an ADR and no step, while this page and two others said the gap was only
 the socket-bound pair. Worth knowing as a reviewer: the census is maintained by hand.) (The property-style targets that pin an encoder against its decoder have their own steps
 too, since 2026-09-06 — they used to run only as ordinary tests.) Nothing here needs

@@ -13,14 +13,16 @@ that never existed, because your game started the client hidden — is never los
   for you.
 - **`meshghost-server.log`** (the server) sits next to `meshghost-server.exe`.
 
-Each run appends rather than replacing, so a crash from earlier is still there. Every run begins
-with a `=== meshghost run start ===` line saying which executable it was, which folder it read its
-config from, and whether a game started it or you did.
+Each run appends rather than replacing, so a crash from earlier is still there. Every run of the
+**client** begins with a `=== meshghost run start ===` line saying which executable it was, which
+folder it read its config from, and whether a game started it or you did. The server's log has no
+such banner; it opens with the addresses it is listening on.
 
-**Emerald and Crystal also print to BizHawk's Lua Console**, which is usually the quickest place to
-look for those two.
+**Emerald and Crystal also print to BizHawk's Lua Console.** That is the quickest place to see
+whether the mod itself loaded — `MeshGhost: bridge connected on ...` means it found its client.
 
-Your "it worked" signal is a line reading `connected to relay ... in room ...`.
+Your "it worked" signal is a line reading `connected to relay ... in room ...`, and it is always in
+`meshghost.log`, for every game: `meshghost.exe` writes it, not the game's mod.
 
 ## Nothing happens — no ghosts at all
 
@@ -135,9 +137,10 @@ Each copy needs its own local bridge port, and how it gets one depends on the ga
 - **Emerald and Crystal** — nothing to do. Each BizHawk instance walks `127.0.0.1:7778-7785`
   looking for a free port, so a second emulator finds its own and starts its own client.
 - **Pseudoregalia** — nothing to do either; its mod walks the same range.
-- **TEVI** — the port lives in BepInEx's own config for that install
-  (`BepInEx\config\dev.meshghost.tevi.cfg`, `[Network] BridgePort`), so two TEVI installs can be
-  given different ones.
+- **TEVI** — nothing to do either; it walks the same range. If you do want to pin one install to
+  a fixed port, the setting is in BepInEx's own config for that install
+  (`BepInEx\config\dev.meshghost.tevi.cfg`, `[Network] BridgePort`), and it sets the base the walk
+  starts from.
 
 ## Playing on Linux or macOS
 
@@ -162,6 +165,11 @@ Two things to know under Proton/Wine:
   carries exactly the same output.
 - **Running the client yourself is the more predictable choice**, since it does not depend on the
   game being able to launch a second program from inside the prefix.
+- **You will be on tcp, whatever `transport` says.** Wine and Proton do not give a Windows program
+  a usable UDP socket, so the client tests for one at startup and, not finding it, goes straight to
+  tcp rather than trying quic or udp and failing slowly. The log names the transport it used. This
+  is about the Windows client under Wine only — a native Linux client from the same `config.json`
+  gets every transport.
 
 MeshGhost exits with the game under Proton — confirmed on a real Linux setup 2026-08-16 across six
 sessions, including when the game is killed outright rather than quit normally.
@@ -178,10 +186,12 @@ has tried it.
 **Can you bump into a friend's ghost?** Sometimes, and it depends entirely on the game, because a
 ghost is built differently in each one:
 
-- **Pokémon Emerald and Crystal** — yes. A ghost there is a real character standing on a real
-  tile, the same as any NPC, so it takes up space and you cannot walk through it. Crystal already
-  gets out of your way on its own: a ghost that has not moved for a few seconds, or that you push
-  against for a moment, becomes walk-through.
+- **Pokémon Emerald** — it depends on the room. An Emerald ghost can be a real character standing
+  on a real tile, the same as any NPC, which is what makes it take up space; on the shipped
+  setting (`disabled`, below) the mod makes it walk-through instead.
+- **Pokémon Crystal** — no. What ships is drawn over the scene rather than placed in it, so there
+  is nothing to bump into. The trade is that it is not hidden behind buildings the way a real
+  character would be.
 - **Pseudoregalia** — partly. The ghost is physically present, but reports so far are that it does
   not actually block you; what it does do is shove things around if you end up inside one.
 - **TEVI** — no, never. That ghost is a picture with no physical presence at all.
@@ -191,17 +201,18 @@ whole server, and each player can also set it just for themselves; the strictest
 
 Three honest caveats:
 
-- **No shipped mod acts on it yet (2026-09-08).** The setting travels the whole way — your client
-  works out the answer and hands it to the game's mod — and then every shipped mod ignores the message.
-  So setting it today changes nothing you can see: whether a ghost blocks you is still whatever
-  the list above says. There is nothing to change on your end; the work is in each game's mod.
-  This paragraph is what to re-read after an update to find out whether that is still true.
-- **It is a request, not a rule the server can enforce**, and it stays one once the mods do act on
-  it. The server has no idea what these games are or what collision means in them.
-- **Turning it off is not free in the two Pokémon games.** Solidity there comes from the ghost
-  being a real engine character, so the only way to make it non-solid is to draw it as an overlay
-  instead — and an overlay does not get hidden behind buildings the way a real character does.
-  Improving that is being worked on.
+- **Which mods act on it (2026-09-11).** The setting travels the whole way — your client works out
+  the answer and hands it to the game's mod. The two Pokémon mods read it and make their ghosts
+  walk-through on `disabled`. TEVI's and Pseudoregalia's do not read it yet, and it changes nothing
+  for them either way, because neither ships ghosts that block you in the first place.
+- **It is a request, not a rule the server can enforce**, and it stays one for the mods that do act
+  on it. The server has no idea what these games are or what collision means in them, and nothing
+  it can see tells a mod that honoured the setting from one that ignored it.
+- **The two Pokémon games pay for it differently.** Solidity there comes from the ghost being a
+  real engine character. Crystal's answer is to draw the ghost over the scene instead, which costs
+  the occlusion — it is not hidden behind buildings. Emerald keeps the real character and uses the
+  engine's own elevation rule to let you through, so it keeps the occlusion and pays nothing
+  visible.
 
 A **replay or chaser** ghost is meant to be just a picture — never solid, never harmful, whatever
 `ghost_collision` says. Your client marks every one of them that way when it hands it to the game.

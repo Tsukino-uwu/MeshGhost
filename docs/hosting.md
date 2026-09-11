@@ -19,7 +19,8 @@ that.
 3. **Tell your friends your address**, e.g. `203.0.113.40:7777`. They put it in `connect_to`. Tell
    them the `room` word too.
 4. **To stop:** close the window, or Ctrl+C. It says goodbye to everyone first so their games
-   notice immediately rather than sitting on a frozen room for ~15 seconds.
+   notice immediately, rather than each client waiting out its own idle timeout (~17 seconds) with
+   the ghosts frozen in place — though the ghosts themselves go stale and vanish after 3 seconds.
 
 ## Step 2, your options — pick one
 
@@ -269,8 +270,10 @@ turn it off just for themselves, and the **strictest side wins**: you can take c
 everyone, a player can take it away from themselves, and nobody can force it back on.
 
 Two honest caveats: it is a *request*, since the server has no idea what these games are or what
-collision means in them; and **no shipped mod acts on it yet** (as of 2026-09-08) — the setting
-travels the whole way and every shipped mod currently ignores it. See
+collision means in them, and nothing it can see tells a mod that honoured it from one that ignored
+it; and **not every shipped mod reads it** (as of 2026-09-11) — the two Pokémon mods do and make
+their ghosts walk-through on `disabled`, while TEVI's and Pseudoregalia's do not, which changes
+nothing for them because neither ships ghosts that block you. See
 [troubleshooting.md](troubleshooting.md#ghost-collision) for what each game actually does today.
 
 ## Where to go next
