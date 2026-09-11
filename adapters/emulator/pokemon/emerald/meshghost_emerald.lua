@@ -2518,6 +2518,21 @@ local function handleBridgeLine(line)
                     r.dk, r.dx, r.dy = dk, dx, dy
                 else
                     r.dk, r.dx, r.dy = nil, nil, nil
+                    -- **A PACKET WITH NO DOOR IS WHAT SEPARATES ONE DOOR EVENT FROM THE NEXT**,
+                    -- and forgetting the last key here is the whole of that (2026-09-12). The key
+                    -- is (kind, tile) and carries no notion of time, so using the same door twice
+                    -- produces the same key twice -- and *"vanilla can see ap entering, but not
+                    -- exiting a house"* is exactly that: entering publishes an open and then a
+                    -- close at that tile, leaving publishes a close at the SAME tile, and the
+                    -- second one was suppressed as already seen.
+                    --
+                    -- The engine hands us the gap for free. A door animation is ~20 frames and
+                    -- every real pair is separated by frames with no door task at all -- the walk
+                    -- up into the doorway, or a whole visit to the house -- so "the peer says
+                    -- there is no door right now" is the end of an event, and the next one is new
+                    -- however much it resembles the last. Cheaper and more exact than putting a
+                    -- sequence number on the wire for something that happens twice a minute.
+                    r.dKey = nil
                 end
             end
         end
@@ -6067,7 +6082,9 @@ end
 --
 -- ADDRESSES -- vanilla, from pokeemerald.sym, shifted per build by flyRide.rom like every other
 -- ROM address in this file. gTasks and its stride are flyRide's, already cited there.
---   Task_AnimateDoor        0808A654 (+1, Thumb)   Task_ExitDoor    080AF438 (+1, Thumb)
+--   Task_AnimateDoor        0808A654 (+1, Thumb) -- vanilla's seed only; every other build LEARNS
+--                                                   its own, because a code address does not shift
+--                                                   with romOffset. See isDoorTask.
 --   sDoorOpenAnimFrames     08496F8C  sDoorCloseAnimFrames  08496FA0
 --   sBigDoorOpenAnimFrames  08496FB4  sDoorAnimGraphicsTable 08497174, 0x288 bytes
 -- struct DoorGraphics is 12 bytes: metatileNum u16 +0x00, sound u8 +0x02, size u8 +0x03,
@@ -6077,7 +6094,6 @@ end
 ----------------------------------------------------------------------------
 genderFrames.door = {
     TASK_ANIMATE = 0x0808a655,
-    TASK_EXIT = 0x080af439,
     FRAMES_OPEN = 0x08496f8c,
     FRAMES_CLOSE = 0x08496fa0,
     FRAMES_BIG_OPEN = 0x08496fb4,
@@ -6246,22 +6262,14 @@ genderFrames.door.sample = function()
     -- code address from the next one that appears. Anything sitting in the table at load is
     -- something we did not watch arrive, and on these builds may be our own stranded write.
     genderFrames.door.sawNone = true
-    -- THE HOLD-OPEN KIND IS VANILLA-ONLY FOR NOW, and says so rather than guessing. Leaving a
-    -- house draws the door open with no animation and therefore no task to recognise by its data
-    -- -- the only handle on it is `Task_ExitDoor` itself, a CODE address, which is exactly what
-    -- the paragraph above says cannot be shifted by this offset. On a patched build the close
-    -- still plays and its first frame is the fully-open door, so a ghost coming out gets a door
-    -- that opens and shuts rather than one that stands open while it walks down. That is a
-    -- smaller gap than a wrong door, and the honest one until the code shift is measured.
-    if (genderFrames.romOffset or 0) ~= 0 then return nil end
-    for i = 0, 15 do
-        local t = base + i * stride
-        if r8(t + 0x04) == 1 and r32(t + 0x00) == genderFrames.door.TASK_EXIT then
-            -- Task_ExitDoor's own x/y (data[2]/data[3]), written by PlayerGetDestCoords in its
-            -- state 0 -- the tile the player stands on, which for this task IS the door.
-            return genderFrames.door.publish("h", rs16(t + 0x0c), rs16(t + 0x0e))
-        end
-    end
+    -- **THE HOLD-OPEN IS NOT PUBLISHED AT ALL, BY ANY BUILD.** Leaving a house draws the door open
+    -- with no animation and so leaves no task to recognise by its data; the only handle on the
+    -- sender's side is `Task_ExitDoor`, a CODE address, and a code address is precisely what the
+    -- comment above this function says cannot be derived from this offset. A vanilla-only version
+    -- was written first and then taken back out: the RECEIVER can see the same moment without
+    -- help -- a peer arriving on its map standing on a door tile -- so the wire does not need to
+    -- carry it, every build behaves the same, and one more guessed code address is gone. See
+    -- doorTick.
     return nil
 end
 
@@ -6428,6 +6436,28 @@ end
 genderFrames.doorTick = function(localAreaId)
     if not genderFrames.door.ready() then return end
     for _, r in pairs(remotes) do
+        -- A PEER WHO ARRIVES ON OUR MAP STANDING ON A DOOR TILE HAS JUST COME OUT OF A HOUSE, and
+        -- that is a statement this client can make on its own, about tiles it can read, on any
+        -- build. It is the same moment `Task_ExitDoor` draws the door open in its state 0 -- the
+        -- player becomes visible on the door tile -- so it needs no code address and no wire
+        -- field, which is what makes the hold-open work on the three patched builds where
+        -- `Task_ExitDoor` cannot be found. The user, on the half that was missing: *"vanilla can
+        -- see ap entering, but not exiting a house"*.
+        --
+        -- Narrow on purpose. It fires only on a CHANGE of area, only for a peer we were already
+        -- watching somewhere else (never on first sight, where "they were indoors a moment ago"
+        -- is not something we know), and only when the tile they are standing on is a door in
+        -- this build's own table -- which is not a tile a character is ever parked on for any
+        -- other reason.
+        local arrived = r.areaId == localAreaId and r.dPrevArea ~= nil
+            and r.dPrevArea ~= localAreaId
+        r.dPrevArea = r.areaId
+        if arrived and r.x and r.y and r.dOpenAt == nil then
+            local tx, ty = math.floor(r.x + 0.5), math.floor(r.y + 0.5)
+            if genderFrames.door.start("h", tx, ty) then
+                r.dOpenAt, r.dOpenX, r.dOpenY = frameCounter, tx, ty
+            end
+        end
         if r.dk and r.dx and r.dy and r.areaId == localAreaId then
             local key = r.dk .. ":" .. r.dx .. "," .. r.dy
             if key ~= r.dKey then
