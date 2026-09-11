@@ -859,23 +859,54 @@ Agent numbers on that same lap: furthest behind 0px, K drift 0 over 7 parks, 0 c
 This is the ACTIVE phase file and its record stopped at 2026-08-25. Backfilled from the commit
 log; evidence in `adapters/emulator/pokemon/crystal/VERIFIED.md`, `UNVERIFIED.md` and `FLAGS.md`.
 
-- **2026-08-26 — fishing confirmed; the Fly arc end to end.** The "!" was two faults in one
-  symptom (`21085ac`, `6c3aa33`). Then Fly, from "does not touch the player's object" to
-  confirmed on screen, landing spiral included, with the peer becoming the Pokémon mid-flight
-  and teleport queued with its whole envelope (`e95ce49` … `9b299f3`). Ledge hops confirmed on
-  both tiers; Dig and Escape Rope confirmed; three decomp-shaped guesses refuted by measurement
-  (`c4b6ea9`, `d6bd684`, `d16e97e`, `aa237d0`).
-- **2026-08-26, the patched cartridge** — its extra fourth gait measured (`43ceab5` and kin),
-  the camera's two dead bytes on that build, the third ghost that was never in the game, the
-  idle rule raised to a minute, stand-only learned facing.
-- **2026-08-27 — cross-map ghosts.** Crystal learned the game's own map connections
-  (`f09e3b7`, `80316b2`, `43b44b8`, `d62020f`, `6bccb3c`): a peer on a connected neighbour map
-  renders through translated coordinates; a seam crossing no longer un-draws peers; derived
-  facing kept a stale mirror and was fixed. GAIT_PX per engine tick vs video frame, and the
-  camera plausibility test taught the fourth gait (`a2b640c`, `4af2333`, `cc108e2`).
-- **2026-08-28** — cross-map ghosts survive the relay's cross-area filter, measured at a 76%
-  cross-area room (`8eb0b20` — the adapter-side counterpart of ADR 0041), and the bridge-port
-  config landed with the other adapters (`15b2715`).
+Its bullets were given their own dated headings on 2026-09-11, so each day is reachable from the
+outside rather than only by reading this section; 2026-08-26 gained its session-level lesson from
+`f502bd9` at the same time. Contents otherwise as written 2026-09-01.
+
+## 2026-08-26 — fishing, the Fly arc end to end, and the patched cartridge
+
+**Backfilled 2026-09-01 from the commit log; the lesson added 2026-09-11.** The largest day this
+adapter has had — 35 commits — and the one worth reading for method rather than for features.
+
+- **Fishing confirmed**; the "!" was two faults wearing one symptom (`21085ac`, `6c3aa33`).
+- **Fly, from "does not touch the player's object" to confirmed on screen** (`e95ce49` …
+  `9b299f3`): the landing spiral included, the peer becoming the Pokémon mid-flight, and teleport
+  queued with its whole envelope rather than re-derived. The user: *"both same/different town fly
+  works correctly now, and yes no ghosts showed up on the 'fly' menu when reloading the adapter."*
+  `BANDAGES.md` #3 was retired the day it was added.
+- **Ledge hops confirmed on both tiers; Dig and Escape Rope confirmed; three decomp-shaped guesses
+  refuted by measurement** (`c4b6ea9`, `d6bd684`, `d16e97e`, `aa237d0`).
+- **The patched cartridge**: its extra fourth gait measured from the ROM (`43ceab5` and kin), the
+  camera's two dead bytes on that build, the third ghost that was never in the game (a painted tier
+  that stopped painting and never cleared), the idle rule raised to a minute, stand-only learned
+  facing.
+
+**The session-level write-up is the part worth keeping, and it is about economics** (`f502bd9`).
+One feature took most of a day and ~15 live cycles, and almost none of that went into the feature:
+**six of my own edits were wrong in ways `luac -p` cannot see** (three scripted edits that silently
+did not apply, one undeclared name Lua reads as a nil global, one wrong VRAM bank, one value logged
+straight after being written); **five fixes were aimed at a trigger narrower than the event**, each
+time at its most familiar member; **three instruments were blind or lying, and each read as a
+healthy system.** What broke the deadlock was not insight — it was the user's savestates making the
+loop self-driving, after which three faults fell in the time one live request used to take. **When a
+loop runs at one iteration per user-request, fixing the loop beats fixing the bug.** And the retired
+bandage earned its own note: **a stand-in for something ANIMATED reads as a defect**, so it buys far
+less time than one for something static, and cost more here than building the real thing would have.
+Every run was loopback, where the peer's fly is also the watcher's — `VERIFIED.md` carries the four
+things the confirmation does not cover, remote peers above all.
+
+## 2026-08-27 — cross-map ghosts
+
+Crystal learned the game's own map connections (`f09e3b7`, `80316b2`, `43b44b8`, `d62020f`,
+`6bccb3c`): a peer on a connected neighbour map renders through translated coordinates; a seam
+crossing no longer un-draws peers; derived facing kept a stale mirror and was fixed. `GAIT_PX` per
+engine tick vs video frame, and the camera plausibility test taught the fourth gait (`a2b640c`,
+`4af2333`, `cc108e2`).
+
+## 2026-08-28 — cross-map ghosts survive the relay's area filter
+
+Measured at a 76% cross-area room (`8eb0b20` — the adapter-side counterpart of ADR 0041), and the
+bridge-port config landed with the other adapters (`15b2715`).
 
 ## 2026-09-02 — the documentation pass, as it touched Crystal's files
 
@@ -1025,6 +1056,15 @@ neither wrong in a way anything would have reported. That is the argument for th
 `ideas.md`'s deferred refactors, stated better by a measurement than by the entry.
 
 **Waiting on the user:** that the adapter still loads, connects and renders a ghost.
+
+## 2026-09-05 — queue-only: `status.md`'s stale items curated into this adapter's queue
+
+**Backfilled 2026-09-11.** No Crystal code changed; `e968507e` is the `status.md` curation, and it
+is logged here for the same reason phase8 logs its half — the queue moved, and a phase file that is
+silent on the day its queue moved is not a complete log. Fifteen stale items whose detail lived
+nowhere but `status.md` were pushed down into the per-adapter queues, this one included, so
+`status.md` could go back to being two lines per open item. The same commit confirmed the
+indicator's shapes by ShareX zoom.
 
 ## 2026-09-06 — the documentation fact check, as it touched Crystal's files
 
