@@ -1,0 +1,52 @@
+# Negative-tests the gates themselves: can preflight still FAIL?
+#
+# docs.yml runs preflight against a clean tree, which is the only direction anyone ever runs it --
+# and the direction in which a broken gate and a working one print the same word. This job runs it
+# against trees with a real violation planted in them, one per fixture, and fails if a section does
+# not name its own. It caught three on the day it was written (2026-09-11): two sections reading a
+# different tree through [IO.File] relative paths, and a WARN that had been on since it was added.
+#
+# PATH-FILTERED HARD, because it is ~16 preflight runs and therefore minutes, not seconds. The only
+# files that can turn a gate blind are the gate script, the harness, and the hook that carries the
+# same exclusion list; a .md push does not need this, and docs.yml already covers that side.
+#
+# windows-latest for the reason docs.yml gives: preflight is PowerShell and this repo's environment
+# is Windows, so running it elsewhere would be checking a different script than people run locally.
+name: gates
+
+on:
+  push:
+    paths:
+      - 'dev-scripts/preflight.ps1'
+      - 'dev-scripts/negative-test-preflight.ps1'
+      - '.githooks/pre-commit'
+      - '.github/workflows/gates.yml'
+  pull_request:
+    paths:
+      - 'dev-scripts/preflight.ps1'
+      - 'dev-scripts/negative-test-preflight.ps1'
+      - '.githooks/pre-commit'
+      - '.github/workflows/gates.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  negative-test:
+    name: Every gate can still fail
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The harness creates a detached worktree at HEAD, and preflight's _template back-port
+          # check reads commit dates. A shallow clone gives both nothing to work with, and the
+          # baseline run would go quietly wrong rather than loudly.
+          fetch-depth: 0
+
+      - name: Plant a violation in front of every gate
+        shell: pwsh
+        run: |
+          # The log is the point, not just the exit code: it ends with the sections that have NO
+          # fixture yet, which is the list of gates whose ability to fail is still assumed.
+          ./dev-scripts/negative-test-preflight.ps1
