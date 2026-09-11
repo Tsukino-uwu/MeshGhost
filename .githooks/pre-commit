@@ -28,7 +28,7 @@
 
 # Files that legitimately contain these strings -- rules ABOUT paths, and the tooling that finds
 # them. Kept identical to the exclusion list in CLAUDE.md's own grep.
-KEEP='^(CLAUDE\.md|agent_docs/environment\.md|agent_docs/pitfalls\.md|agent_docs/pitfalls/|dev-scripts/preflight\.ps1|\.githooks/|\.github/workflows/)'
+KEEP='^(CLAUDE\.md|agent_docs/environment\.md|agent_docs/pitfalls\.md|agent_docs/pitfalls/|dev-scripts/preflight\.ps1|dev-scripts/negative-test-preflight\.ps1|\.githooks/|\.github/workflows/)'
 
 # Both slash directions and a literal match, for the reason CLAUDE.md gives: a pattern that only
 # covers one direction passes cleanly on a file that leaks in the other. /Users/ and /home/ cover
@@ -79,7 +79,7 @@ for f in $(git diff --cached --name-only --diff-filter=A); do
 " ;;
 	esac
 done
-for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -Ev '^(\.githooks/|\.github/workflows/|dev-scripts/preflight\.ps1|agent_docs/pitfalls/)'); do
+for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -Ev '^(\.githooks/|\.github/workflows/|dev-scripts/preflight\.ps1|dev-scripts/negative-test-preflight\.ps1|agent_docs/pitfalls/)'); do
 	if git show ":$f" 2>/dev/null | head -n 10 | grep -qiE 'deliberately untracked|do not commit'; then
 		strays="$strays    $f  (its own header says it is not to be committed)
 "

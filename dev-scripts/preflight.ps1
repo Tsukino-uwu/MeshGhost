@@ -29,6 +29,17 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
+# BOTH, and the second is load-bearing. Set-Location moves PowerShell's location; it does NOT move
+# the .NET process working directory, and four sections here read files through [IO.File] with a
+# RELATIVE path -- the binary leak scan, the control-byte scan and both line-ending scans. Started
+# from any other directory, those four resolved their paths against wherever the process began:
+# `Test-Path` (PowerShell's location) said the file was there, `[IO.File]::ReadAllBytes` then read
+# the SAME relative path out of a different tree, and the section reported on files it was never
+# pointed at. Found 2026-09-11 by dev-scripts/negative-test-preflight.ps1, whose scratch worktree
+# is the first time this script was ever run from somewhere that is not the repo root: a planted
+# username sat in a tracked .dll and the gate said "no NEW tracked binary embeds a
+# machine-identifying path", because it had just read the clean copy of that same .dll next door.
+[Environment]::CurrentDirectory = $root
 
 $script:failures = 0
 $script:warnings = 0
@@ -856,18 +867,37 @@ Section "No reproduced expression in documentation.md"
 # A fence is not automatically a violation -- probe OUTPUT we produced ourselves is a measurement
 # and is allowed, which is why this WARNS and never fails. It exists to put a human's eye back on
 # the one construct all three violations shared.
+# A RATCHET, not a standing warning, since 2026-09-11. One accepted block -- Emerald's, four lines
+# of our own probe output, measured live on 2026-08-21 -- made this section WARN on every clean run
+# it ever had, which is the same defect as a check that cannot fail: a line that is always there is
+# a line nobody reads, and a NEW fence would have arrived as the same yellow text as yesterday's.
+# So each file's accepted count is recorded here, and only a block ABOVE it is reported. Raising an
+# entry is a deliberate edit, which is the moment someone states that the block is a measurement we
+# took and not expression we copied.
+$fenceAllow = @{
+    'adapters/emulator/pokemon/emerald/documentation.md' = 1   # probe output we produced, 2026-08-21 (the surf-jump trace)
+}
 $docFiles = @(& git ls-files '*documentation.md')
 $fenced = @()
+$staleAllow = @()
 foreach ($f in $docFiles) {
     if (-not (Test-Path $f)) { continue }
-    $n = @(Select-String -Path $f -Pattern '^```' -AllMatches).Count
-    if ($n -gt 0) { $fenced += "$f ($([int]($n / 2)) block(s))" }
+    $blocks = [int](@(Select-String -Path $f -Pattern '^```' -AllMatches).Count / 2)
+    $norm = ($f -replace '\\', '/')
+    $allowed = if ($fenceAllow.ContainsKey($norm)) { $fenceAllow[$norm] } else { 0 }
+    if ($blocks -gt $allowed) { $fenced += "$norm ($blocks block(s), $allowed accepted)" }
+    elseif ($blocks -lt $allowed) { $staleAllow += "$norm ($blocks block(s), $allowed accepted)" }
 }
-if ($fenced.Count -eq 0) {
-    Report-Pass "no fenced blocks in any adapter's documentation.md ($($docFiles.Count) checked)"
+if ($docFiles.Count -eq 0) {
+    Report-Fail "no documentation.md found -- this check would pass vacuously"
+} elseif ($fenced.Count -gt 0) {
+    Report-Warn ("NEW fenced block(s) in documentation.md -- confirm each is OUR measurement, " +
+        "not reproduced expression, then record it in this section's `$fenceAllow: " + ($fenced -join ", "))
 } else {
-    Report-Warn ("fenced block(s) in documentation.md -- confirm each is OUR measurement, " +
-        "not reproduced expression: " + ($fenced -join ", "))
+    Report-Pass "no fenced block in any adapter's documentation.md beyond the $(($fenceAllow.Values | Measure-Object -Sum).Sum) recorded as our own measurements ($($docFiles.Count) checked)"
+}
+if ($staleAllow.Count -gt 0) {
+    Report-Warn ("`$fenceAllow accepts more blocks than exist -- lower it so a new one is still caught: " + ($staleAllow -join ", "))
 }
 
 # ---------------------------------------------------------------------------

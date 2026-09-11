@@ -53,7 +53,7 @@ jobs:
                -- . \
                ':!CLAUDE.md' ':!agent_docs/environment.md' \
                ':!agent_docs/pitfalls.md' ':!agent_docs/pitfalls/' \
-               ':!dev-scripts/preflight.ps1' \
+               ':!dev-scripts/preflight.ps1' ':!dev-scripts/negative-test-preflight.ps1' \
                ':!.githooks/' ':!.github/workflows/'; then
             echo
             echo "A machine-specific path is present in a tracked file (listed above)."
@@ -123,7 +123,7 @@ jobs:
               status=1
             fi
           done
-          for f in $(git ls-files | grep -Ev '^(\.githooks/|\.github/workflows/|dev-scripts/preflight\.ps1|agent_docs/pitfalls/)'); do
+          for f in $(git ls-files | grep -Ev '^(\.githooks/|\.github/workflows/|dev-scripts/preflight\.ps1|dev-scripts/negative-test-preflight\.ps1|agent_docs/pitfalls/)'); do
             [ -f "$f" ] || continue
             if head -n 10 "$f" | grep -qiE 'deliberately untracked|do not commit'; then
               echo "STRAY: $f says in its own header that it must not be committed"
