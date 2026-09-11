@@ -137,6 +137,13 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 			return
 		}
 	}
+	// A key that is not a setting is a typo doing nothing -- see
+	// cfg.WarnUnknownKeys. Scoped to "server" for the same reason the client
+	// scopes to "client": the root object legitimately carries the other
+	// binary's section, and in the shipped package it carries both.
+	if section := serverSection(data); section != nil {
+		cfg.WarnUnknownKeys(section, fileConfig{}, shown, "meshghost-relay", "server")
+	}
 	if rc.Server == nil {
 		log.Printf("meshghost-relay: warning: config file %s has no \"server\" section -- "+
 			"every server setting is falling back to its built-in default", shown)
@@ -900,3 +907,14 @@ type trackedLossyConn struct {
 }
 
 func (c *trackedLossyConn) WriteUnreliable(p []byte) (int, error) { return c.uw.WriteUnreliable(p) }
+
+// serverSection is the raw bytes of the config file's "server" object, or nil
+// if there isn't one -- the unknown-key warning has to look at what was WRITTEN
+// rather than at what decoded.
+func serverSection(data []byte) json.RawMessage {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(data, &root); err != nil {
+		return nil
+	}
+	return root["server"]
+}

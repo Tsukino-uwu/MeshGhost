@@ -53,6 +53,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"sync"
@@ -353,6 +354,13 @@ func (c *Conn) TLSConnectionState() tls.ConnectionState {
 
 // Listener is a net.Listener over a QUIC listener.
 type Listener struct {
+	// pending counts connections that have handshaked and not yet opened a
+	// stream -- the window netx.LimitListener cannot see. See acceptLoop.
+	pendingMu      sync.Mutex
+	pending        int
+	refusedPending int
+	lastPendingLog time.Time
+
 	ql     *quic.Listener
 	accept chan *Conn
 	closed chan struct{}
@@ -408,6 +416,23 @@ func (l *Listener) acceptLoop() {
 			l.Close()
 			return
 		}
+		// PENDING CONNECTIONS ARE COUNTED, and this is the only place they can
+		// be. netx.LimitListener bounds what Accept RETURNS, and a quic
+		// connection does not reach Accept until it has opened a stream -- so
+		// until 2026-09-11 a client could complete the handshake, open no
+		// stream, and sit here for the full ten seconds below outside every
+		// bound the relay has: MaxOpenConns counted none of them, and each one
+		// is a goroutine, a quic connection state and a UDP 4-tuple. A machine
+		// that repeated it held an unbounded number.
+		//
+		// Refused rather than queued, matching LimitListener's own choice and
+		// for the same reason: a queued stranger still holds everything it
+		// would hold anyway.
+		if !l.takePending() {
+			_ = qc.CloseWithError(0, "too many pending connections")
+			l.notePendingRefusal()
+			continue
+		}
 		// Wait for the client's stream on its own goroutine: a client that
 		// completes the handshake and then opens no stream must not stall
 		// every other pending connection.
@@ -415,7 +440,53 @@ func (l *Listener) acceptLoop() {
 	}
 }
 
+// maxPending bounds connections that have handshaked and not yet opened a
+// stream. Sized as a multiple of the accept channel rather than of the relay's
+// MaxOpenConns, which this package deliberately does not know: the window is
+// ten seconds at most, a legitimate client opens its stream in one round trip,
+// and anything holding thousands of these open is not a player.
+// A var, not a const, ONLY so a test can lower it: proving the bound with the
+// shipped value would mean completing 257 real TLS 1.3 handshakes to assert one
+// refusal. Nothing writes it outside a test.
+var maxPending = 256
+
+func (l *Listener) takePending() bool {
+	l.pendingMu.Lock()
+	defer l.pendingMu.Unlock()
+	if l.pending >= maxPending {
+		return false
+	}
+	l.pending++
+	return true
+}
+
+func (l *Listener) releasePending() {
+	l.pendingMu.Lock()
+	l.pending--
+	l.pendingMu.Unlock()
+}
+
+// notePendingRefusal logs at most once a second: the refusals ARE the flood, so
+// a line per refusal would turn a connection flood into a disk flood -- the same
+// rule netx.LimitListener follows, and the same reason.
+func (l *Listener) notePendingRefusal() {
+	l.pendingMu.Lock()
+	n := l.refusedPending + 1
+	l.refusedPending = n
+	quiet := time.Since(l.lastPendingLog) < time.Second
+	if !quiet {
+		l.lastPendingLog = time.Now()
+	}
+	l.pendingMu.Unlock()
+	if quiet {
+		return
+	}
+	log.Printf("quicconn: refused a connection: %d already handshaked and waiting for a stream "+
+		"(limit %d); %d refused so far", maxPending, maxPending, n)
+}
+
 func (l *Listener) awaitStream(qc *quic.Conn) {
+	defer l.releasePending()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	stream, err := qc.AcceptStream(ctx)

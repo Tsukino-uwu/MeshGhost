@@ -12,10 +12,12 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/core"
@@ -335,6 +337,13 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) str
 		if !cfg.ApplyDespiteBadValue(err, shown, "meshghost") {
 			return shown
 		}
+	}
+	// A key that is not a setting is a typo doing nothing. Checked on the raw
+	// bytes rather than the decoded struct, because that is the only place an
+	// unknown key still exists -- see cfg.WarnUnknownKeys, including why the
+	// root object is deliberately not checked.
+	if sections := clientSection(data); sections != nil {
+		cfg.WarnUnknownKeys(sections, fileConfig{}, shown, "meshghost", "client")
 	}
 	if rc.Client == nil {
 		log.Printf("meshghost: warning: config file %s has no \"client\" section -- "+
@@ -1055,6 +1064,19 @@ func main() {
 		log.Printf("meshghost: stats on -- summary every %s", *stats)
 	}
 
+	// CTRL+C IS AN ORDINARY WAY TO END A SESSION, and until 2026-09-11 it ended
+	// one the same way a kill does: no deferred anything, no gzip footer, and a
+	// recording every ordinary tool refuses whole (the 2026-09-03 failure, whose
+	// fix went into the -exit-with-pid path ONLY). Running the core by hand is a
+	// supported configuration -- it is what an antivirus-affected player is told
+	// to do, adapters/emulator/pokemon/crystal/FLAGS.md -- so this is the exit
+	// path those players take every time.
+	//
+	// SIGINT and SIGTERM only. Windows delivers both a console Ctrl+C and a
+	// console-window close as SIGINT through os/signal, and a SIGKILL analogue
+	// cannot be caught by anything, here or anywhere.
+	closeRecordingOnSignal(c)
+
 	if watchingParentPID(*exitWithPID) {
 		log.Printf("meshghost: watching pid %d -- will exit when it does", *exitWithPID)
 		go watchParentPID(*exitWithPID, parentGone, parentPollInterval, func() {
@@ -1266,5 +1288,43 @@ func startHotkeys(c *core.Core, bindings []hotkeyBinding, stop <-chan struct{}) 
 		if err := hotkey.Run(actions, fire, report, stop); err != nil {
 			log.Printf("meshghost: hotkeys stopped: %v", err)
 		}
+	}()
+}
+
+// clientSection is the raw bytes of the config file's "client" object, or nil
+// if there isn't one. Used only for the unknown-key warning, which has to look
+// at what was WRITTEN rather than at what decoded.
+func clientSection(data []byte) json.RawMessage {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(data, &root); err != nil {
+		return nil
+	}
+	return root["client"]
+}
+
+// closeRecordingOnSignal ends the process cleanly on Ctrl+C, closing any
+// recording first.
+//
+// Exit code 0: a deliberate Ctrl+C is a successful end to a session, and a
+// launcher that treats a non-zero code as a crash would report one.
+//
+// The handler is deliberately NOT a place to do anything else. A shutdown path
+// that tries to be thorough is a shutdown path that hangs when one of its steps
+// does, and the one thing that cannot be recovered afterwards is the gzip
+// footer -- peers learn this player is gone from the relay's grace window with
+// or without a goodbye, and every other resource is the operating system's to
+// reclaim.
+func closeRecordingOnSignal(c *core.Core) {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		sig := <-ch
+		log.Printf("meshghost: %v -- closing down", sig)
+		if path, n, err := c.StopRecording(); err != nil {
+			log.Printf("meshghost: could not close the recording cleanly: %v", err)
+		} else if n > 0 {
+			log.Printf("meshghost: closed the recording at %s (%d samples) before exiting", path, n)
+		}
+		os.Exit(0)
 	}()
 }

@@ -415,7 +415,7 @@ type Adapter interface {
 const transportDialFailuresBeforeGivingUp = 2
 
 type Core struct {
-	relay     transport.Transport
+	relay transport.Transport
 	// relayOut is the current relay connection's outbound queue, and the ONLY
 	// path a frame takes to the relay. Created with the connection in
 	// ConnectRelay, closed with it. See core/relaywriter.go for why the frame
