@@ -49,7 +49,7 @@ being work. An entry still here has not been confirmed.
 
 ---
 
-## [READY] the painted tier is 2.4x faster, and it changes OCCLUSION code, UNWATCHED (2026-09-11)
+## [READY] the painted tier is 3.2x faster, and it changes OCCLUSION and REFLECTION code, UNWATCHED (2026-09-11)
 
 **THIS NEEDS YOUR EYES specifically because of WHERE the fix is.** It is a pure performance change
 with no intended visual effect at all — but it rewrites the function that decides **what hides a
@@ -61,10 +61,27 @@ adapter's own `drawn=` line, indoors, away from water):
 | painted peers | before | after |
 |---|---|---|
 | 16 | 60.0 | 60.0 |
-| 32 | 45.4 (low 41) | **59.8** (low 56) |
-| 64 | 19.5 (low 16) | **29.3** (low 23) |
+| 32 | 45.4 (low 41) | **60.0** (low 56) |
+| 64 | 19.5 (low 16) | **39.4** (low 29) |
 
-**32 painted ghosts now hold a flat 60fps where they used to cost a quarter of the frame rate.**
+**32 painted ghosts hold a flat 60fps, and 64 runs at double the frame rate it did.** The adapter's
+own Lua frame went from 67ms to 21ms at 64 peers — a 3.2x reduction.
+
+**FOUR fixes, not one, and all four are the same mistake in different clothes: the right work at
+the wrong FREQUENCY.**
+
+1. **The occlusion check asked the tilemap once per PIXEL row** when a metatile changes every 16
+   rows, and tested all 16 bits of a cover mask individually when a metatile is almost always
+   entirely covering or entirely open. **37.6ms -> ~2.1ms.**
+2. **The reflection clip was computed for every peer, on every frame, INDOORS** — where `wruns` is
+   nil and the answer is discarded. Measured at 64 wasted occlusion calls a frame in a house.
+3. **The glide ring allocated a two-element table per peer per frame** — ~3,800 a second at 64
+   peers — for a ring that only ever holds 32 slots.
+4. **The reflection store rebuilt a six-slot row every time a peer changed tile**, which for a
+   moving crowd is constantly, when the existing row holds exactly those six slots.
+
+Plus two small ones: the per-run tint lookup and its branch hoisted out of the ~8,100-iteration run
+loop, and a `-ghost` pattern match cached per peer instead of re-run every frame.
 
 **What was actually wrong, and it was one function.** `reflectiveSpans` — the occlusion check —
 was **60% of the painted tier and 56% of the whole adapter frame**, at 0.29ms a call, twice per
@@ -93,8 +110,13 @@ the same thing as the same picture**, which is what you are being asked to check
   exactly what hid it before — no more, no less.
 - **The decline to look for is a ghost painting OVER something that should cover it**, or a hard
   vertical edge of a ghost cut at a tile boundary (16px) rather than following the scenery.
-- **Reflections at water**, since the same function cuts them to the water's edge. This was all
-  measured indoors, so water is the untested half.
+- **REFLECTIONS AT WATER ARE THE UNTESTED HALF, and they are now the thing I would check first.**
+  Every measurement here was taken INDOORS, and one of the four fixes stops computing the
+  reflection's water-clip unless there is a reflection to clip. By code reading that is exactly
+  equivalent — every other reader of that value sits inside `if wruns then` or inside the
+  `REFL_TRACE` gate, which already handles nil — but **no reflection has been drawn since the
+  change**. Stand a ghost at a pond or the Route 111 water's edge: the reflection should be cut at
+  the bank exactly as before, not missing, not spilling onto the grass.
 
 **Also in this change, and much smaller:** the per-run tint lookup and its branch decision are
 hoisted out of the ~8,100-iteration run loop (they have one answer per pass, not per run). Correct

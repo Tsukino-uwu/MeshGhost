@@ -922,9 +922,20 @@ theory); and `guicost_probe.lua` timed the same 8,000 gui calls with no adapter 
 proving **88% of the cost was ours and only 12% BizHawk's**. Then a timer inside `reflectiveSpans`
 found it: **37.6ms of a 62.9ms painter, 56% of the whole frame**, in the occlusion check.
 
-**Two structural faults, both fixed:** it asked `metatileAt`/`coverMask` once per PIXEL row when the
-metatile changes every 16 rows, and it tested all 16 bits of a cover mask individually when a
-metatile is almost always entirely covering or entirely open. **37.6ms -> ~5.5ms.**
+**Two structural faults there, and two more allocations found the same way afterwards — all four
+the same mistake in different clothes: the right work at the wrong FREQUENCY.**
+
+1. `reflectiveSpans` asked `metatileAt`/`coverMask` once per PIXEL row when the metatile changes
+   every 16 rows, and walked all 16 bits of a cover mask when one is almost always entirely
+   covering or entirely open. **37.6ms -> ~2.1ms.**
+2. The reflection's water-clip ran for every peer, every frame, **indoors**, where the result is
+   discarded — found by breaking the occlusion call count down by caller and reading
+   `occlBy[reflection=64.0 sprite=64.0]` in a house.
+3. `glideRemote` allocated a table per peer per FRAME for a 32-slot ring.
+4. `reflectPalFor` rebuilt a six-slot row on every tile change, constantly for a moving crowd.
+
+**Final: 67ms -> 21ms of Lua a frame at 64 peers, 19.5 -> 39.4fps, and 32 painted back to a flat
+60.0.** `spans/frame` held at 8,034-8,045 throughout — same picture, a third of the work.
 
 **The regression check is the profiler's own `spans/frame`** — the count of painted pieces — which
 held at 8,035-8,045 across every run before and after. Same count, 6.4x less work. **It is not

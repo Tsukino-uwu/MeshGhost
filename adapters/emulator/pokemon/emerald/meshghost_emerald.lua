@@ -1501,7 +1501,16 @@ genderFrames.drawnDelay = tonumber(MESHGHOST_EMERALD_DRAWN_DELAY_FRAMES
 local function glideRemote(r, targetX, targetY)
     -- The delay line: a short ring of recent positions, read from DRAWN_DELAY_FRAMES ago.
     r.hist = r.hist or {}
-    r.hist[frameCounter % 32] = { targetX, targetY }
+    -- **THE RING SLOT IS REUSED, NOT REALLOCATED (2026-09-11).** This line built a fresh two-element
+    -- table per peer per FRAME -- about 3,800 a second at 64 peers -- for a ring that only ever
+    -- holds 32 slots. After the first 32 frames every slot already exists, so writing into it
+    -- allocates nothing at all. Same GC pressure, same fix, as the painted tier's span buffers.
+    local slot = r.hist[frameCounter % 32]
+    if slot then
+        slot[1], slot[2] = targetX, targetY
+    else
+        r.hist[frameCounter % 32] = { targetX, targetY }
+    end
     -- Kept before the delay lookup overwrites targetX/Y: the speed measurement below wants where
     -- the peer actually IS, not where the delay line is replaying from.
     local rawTargetX, rawTargetY = targetX, targetY
@@ -4048,6 +4057,12 @@ genderFrames.reflectiveSpans = function(left, top, width, height, who, sc)
     local __t0
     if MESHGHOST_EMERALD_PROFILE then
         MG_RSPANS_N = (MG_RSPANS_N or 0) + 1
+        -- Broken down by CALLER, because 128 calls for 64 peers with only 64 paint passes means
+        -- one of the two is for something other than the body -- and if it is computed and
+        -- discarded it is free time.
+        MG_RSPANS_BY = MG_RSPANS_BY or {}
+        local k = tostring(who)
+        MG_RSPANS_BY[k] = (MG_RSPANS_BY[k] or 0) + 1
         __t0 = os.clock()
     end
     -- THE GRID MUST NOT BOB.
@@ -4232,12 +4247,19 @@ genderFrames.reflectPalFor = function(store, playerId, areaId, ggx, ggy, wTiles,
     if lt and (lt[3] ~= areaId or frameCounter - lt[4] > 16) then lt = nil end
     local yes = genderFrames.hasReflection(ggx, ggy, lt and lt[1], lt and lt[2], wTiles, hTiles)
     local cur = store[playerId]
-    if not cur or cur[5] ~= ggx or cur[6] ~= ggy then
-        -- Slots 1,2 are the tile stepped FROM; 5,6 the current one, so "did it change" is
-        -- answered without losing the previous.
-        store[playerId] = {
-            cur and cur[5] or ggx, cur and cur[6] or ggy, areaId, frameCounter, ggx, ggy,
-        }
+    -- Slots 1,2 are the tile stepped FROM; 5,6 the current one, so "did it change" is answered
+    -- without losing the previous.
+    --
+    -- **WRITTEN IN PLACE (2026-09-11).** This built a fresh six-element table every time a peer
+    -- changed tile — constantly, for a moving crowd — where the existing row holds exactly the
+    -- same six slots. The previous current is read out before it is overwritten, so the rotation
+    -- is identical to the rebuild it replaces.
+    if not cur then
+        store[playerId] = { ggx, ggy, areaId, frameCounter, ggx, ggy }
+    elseif cur[5] ~= ggx or cur[6] ~= ggy then
+        local fromX, fromY = cur[5], cur[6]
+        cur[1], cur[2], cur[3], cur[4], cur[5], cur[6] =
+            fromX, fromY, areaId, frameCounter, ggx, ggy
     end
     -- The KIND comes back as a second value: "ice" reflections are still and "water" ones ripple,
     -- and only the caller knows which of its two draw paths that has to reach.
@@ -10053,7 +10075,14 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
     for playerId, remote in pairs(remotes) do
         -- The loopback ghost is the one peer allowed to be in BOTH tiers at once, and only in
         -- compare mode: everyone else is painted exactly when the engine had no room for them.
-        local isLoopback = playerId:match("%-ghost$") ~= nil
+        -- Cached on the peer: a Lua pattern match per peer per frame answers a question whose
+        -- answer is fixed for the life of the id. `false` is stored, not nil, so a negative
+        -- result caches too.
+        local isLoopback = remote.__lb
+        if isLoopback == nil then
+            isLoopback = playerId:match("%-ghost$") ~= nil
+            remote.__lb = isLoopback
+        end
         local wanted
         if compareOnly then
             wanted = isLoopback
@@ -10076,7 +10105,12 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
             -- tiles is the game's own 16/8 frames rather than however far the last packet moved.
             -- RAW, not rounded to a tile: the core hands us a continuous position and rounding
             -- it here was the first step in every model that then had to re-invent the motion.
+            local __gt0 = MESHGHOST_EMERALD_PROFILE and os.clock() or nil
             local glideX, glideY = glideRemote(remote, remote.x, remote.y)
+            if __gt0 then
+                MG_GLIDE_T = (MG_GLIDE_T or 0) + (os.clock() - __gt0)
+                MG_GLIDE_N = (MG_GLIDE_N or 0) + 1
+            end
             -- ONE CAMERA COUNTER, NOT TWO. The obvious form of this line -- the player's screen
             -- position plus the tile delta -- mixes gSpriteCoordOffset (inside playerScreenPos)
             -- with gTotalCameraPixelOffset (inside the anchor), and the two are not written at
@@ -10800,12 +10834,17 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                     local wgbX, wgbY = genderFrames.gridBase()
                     if wgbX and wgi then
                         tiering.lastTile = tiering.lastTile or {}
+                        local __wt0 = MESHGHOST_EMERALD_PROFILE and os.clock() or nil
                         local wpal, wkind = genderFrames.reflectPalFor(tiering.lastTile, playerId,
                             remote.areaId,
                             math.floor((screenX - wgbX) / TILE),
                             math.floor((screenY - arc + TILE - wgbY) / TILE),
                             (FRAME_WIDTH_PX + 8) >> 4, (FRAME_HEIGHT_PX + 8) >> 4,
                             wgi.paletteSlot)
+                        if __wt0 then
+                            MG_WPAL_T = (MG_WPAL_T or 0) + (os.clock() - __wt0)
+                            MG_WPAL_N = (MG_WPAL_N or 0) + 1
+                        end
                         local wruns = wpal and genderFrames.walkerReflectRuns(
                             remote.gender, pose, frameIndex, wpal)
                         local wtop = screenY + FRAME_HEIGHT_PX - 2 - 2 * arc
@@ -10814,8 +10853,17 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                         -- the water for free, this one has to ask the map -- and "the reflection
                         -- vanishes entirely one tile from the shore, where the other tiers still
                         -- show the hat" is exactly the shape of a clip that kept nothing.
-                        local wwet = genderFrames.reflectiveSpans(screenX, wtop,
-                            FRAME_WIDTH_PX, FRAME_HEIGHT_PX, "reflection", genderFrames.scWwet())
+                        -- **ONLY WHEN THERE IS A REFLECTION TO CLIP (2026-09-11).** This ran for
+                        -- every peer on every frame, including indoors where no water exists and
+                        -- `wruns` is nil, so the answer was computed and thrown away: measured at
+                        -- 64 wasted occlusion calls a frame in a house, one per peer. Every other
+                        -- reader of `wwet` is either inside `if wruns then` or inside the
+                        -- REFL_TRACE gate, and that gate already handles nil.
+                        local wwet
+                        if wruns then
+                            wwet = genderFrames.reflectiveSpans(screenX, wtop,
+                                FRAME_WIDTH_PX, FRAME_HEIGHT_PX, "reflection", genderFrames.scWwet())
+                        end
                         -- MESHGHOST_EMERALD_REFL_TRACE only (it was COMPARE_TIERS until
                         -- 2026-09-02), on CHANGE only: what the ground test decided and where it
                         -- was asked. A reflection that does not appear is either a gate that said
@@ -11882,6 +11930,18 @@ local function guardedFrame()
                 .. string.format(" | occl %.2f ms/%.0f",
                     (MG_RSPANS_T or 0) / frameErrors.profN * 1000,
                     (MG_RSPANS_N or 0) / frameErrors.profN)
+                .. (function()
+                    local out = {}
+                    for k, v in pairs(MG_RSPANS_BY or {}) do
+                        out[#out + 1] = string.format("%s=%.1f", k, v / frameErrors.profN)
+                    end
+                    table.sort(out)
+                    return " occlBy[" .. table.concat(out, " ") .. "]"
+                end)()
+                .. string.format(" reflPal %.2f ms/%.0f", (MG_WPAL_T or 0) / frameErrors.profN * 1000,
+                    (MG_WPAL_N or 0) / frameErrors.profN)
+                .. string.format(" glide %.2f ms/%.0f", (MG_GLIDE_T or 0) / frameErrors.profN * 1000,
+                    (MG_GLIDE_N or 0) / frameErrors.profN)
                 .. string.format(" panel %.2f ms runsFor %.2f ms/%.0f",
                     (MG_PANEL_T or 0) / frameErrors.profN * 1000,
                     (MG_RF_T or 0) / frameErrors.profN * 1000,
@@ -11894,7 +11954,9 @@ local function guardedFrame()
             -- indistinguishable from "nothing was painted". Take a mark and diff it.
             MG_DRAWN_PASSES, MG_DRAWN_RUNS, MG_DRAWN_LOOP = 0, 0, 0
             MG_RSPANS_T, MG_RSPANS_N, MG_PANEL_T = 0, 0, 0
-            MG_RF_T, MG_RF_N = 0, 0
+            MG_RF_T, MG_RF_N, MG_GLIDE_T, MG_GLIDE_N = 0, 0, 0, 0
+            MG_RSPANS_BY = {}
+            MG_WPAL_T, MG_WPAL_N = 0, 0
             MG_SPANS_AT = MG_SPANS or 0
             tiering.prof = {}
         end

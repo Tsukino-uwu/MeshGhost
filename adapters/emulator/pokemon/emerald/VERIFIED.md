@@ -204,6 +204,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-11 — SPEEDCHOICE 1.2.2 ran for the first time, and `romvariant_probe.lua` resolved one anchor of four
 - 2026-09-11 — CONFIRMED DEFECT: a spawned ghost is always drawn in YOUR gender, and the cause is the palette slot
 - 2026-09-11 — the painted tier priced against CRYSTAL's, and the cost is 88% ours, not BizHawk's
+- 2026-09-11 — and then it was FIXED: 67ms to 21ms, four faults, none of them the drawing
 ## Confirmed facts
 
 ### Emerald ROM revision
@@ -4011,3 +4012,62 @@ machine with five emulators open, synthetic peers from `meshghost-fakeadapter`, 
 water. Absolute numbers are depressed by the background and are NOT comparable with the
 2026-08-21 table; the Emerald-vs-Crystal comparison is, because both sides were measured minutes
 apart under identical load.
+
+## 2026-09-11 — and then it was FIXED: 67ms to 21ms, four faults, none of them the drawing
+
+**The sequel to the entry above, same session.** Having established that 88% of the painted tier's
+cost was MeshGhost's own code rather than BizHawk's drawing, the profiler was pointed inward until
+it named the functions.
+
+| painted | before | after | Crystal (unchanged) |
+|---|---|---|---|
+| 16 | 60.0 | 60.0 | 60.0 |
+| 32 | 45.4 | **60.0** | 60.0 |
+| 64 | 19.5 | **39.4** | 59.9 |
+
+**The adapter's Lua frame at 64 peers: 67ms -> 21ms.** Section by section, before -> after:
+`draw` 62.9 -> ~17, of which the occlusion check 37.6 -> 2.1, the per-run loop 14.3 -> 9.5 (about
+6ms of which is BizHawk's own gui calls and cannot go away without making fewer of them).
+
+**The four faults, and they are one mistake wearing four hats — the right work at the wrong
+FREQUENCY:**
+
+1. `reflectiveSpans` asked `metatileAt`/`coverMask` **once per PIXEL row**, when `gy` only changes
+   every 16 pixel rows: 96 lookups a call where nine distinct tiles exist. And it walked all 16
+   bits of a cover mask when a metatile is almost always entirely covering or entirely open —
+   ~1,500 bit tests a call.
+2. The reflection's water-clip ran **for every peer, every frame, indoors**, where `wruns` is nil
+   and the result is discarded. 64 wasted occlusion calls a frame, measured by breaking the call
+   count down by caller: `occlBy[reflection=64.0 sprite=64.0]` in a house.
+3. `glideRemote` built a two-element table **per peer per frame** (~3,800 a second at 64 peers) for
+   a ring of 32 slots that already exist after the first 32 frames.
+4. `reflectPalFor` rebuilt a six-slot row **every time a peer changed tile**, constantly for a
+   moving crowd, when the existing row holds exactly those six slots.
+
+**THE REGRESSION CHECK THROUGHOUT was the profiler's own `spans/frame`** — the count of painted
+pieces — which held at **8,034-8,045 across every run, before and after all four fixes**. Same
+count, a third of the work.
+
+**What it cost to get here, recorded because the method is the transferable part:**
+
+- **Three wrong theories before the first measurement**, each plausible and each argued in detail:
+  colour depth fragmenting rows (refuted: 113 runs vs Crystal's 94), the painted tier being the
+  cheap rung (refuted by the user, and by this adapter's own README), and the per-run tint/clip
+  work being the cost (it is ~5ms of 21).
+- **Two instruments that lied.** A rung inheriting the previous crowd measured `drawn=32` while
+  asking for 16 — the contaminated sample read ~16fps where the clean one reads 45.4, which is
+  the difference between "it falls over at 32" and "cost scales with count". And a timing closure
+  allocated per call in the hottest path in the tier: the instrument adding the cost it measures.
+- **The sixth bite of this file's own forward-reference trap**, hours after writing up the fifth:
+  a pass counter referencing `tiering` from a function ~480 lines above its declaration made the
+  whole tier render nothing, with the log saying only "unrendered".
+
+**Scope.** Vanilla Emerald, INDOORS (map 1:2), player idle, synthetic peers, five emulators on one
+machine. **No reflection has been drawn since fix 2** — water is the untested half and is what
+`UNVERIFIED.md` asks to be checked first.
+
+**A consequence worth noting for a decision that is not mine:** at the shipped 8-seat room the
+painted tier now costs roughly 2.6ms a frame, so a drawn-tier-only Emerald is comfortably viable on
+performance — and the painted tier already draws a peer's OWN gender, which is the defect the
+spawn tier cannot fix without writing palette RAM. That is a change to what the player sees, so it
+wants the user's call and a side-by-side look, not an inference from this table.
