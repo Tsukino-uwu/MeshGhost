@@ -897,4 +897,53 @@ namespace MeshGhostPseudo
         return false;
     }
 
+
+    // SHORTEST-ARC interpolation between two angles in DEGREES -- the scalar form of a slerp,
+    // and the correct one for this game, whose orientation on the wire is a plain
+    // pitch/yaw/roll triple rather than a quaternion.
+    //
+    // WHY NOT A PLAIN LERP. Yaw 350 -> 10 lerps BACKWARDS through 340 degrees instead of
+    // forward through 20: a ghost spinning the long way round every time it crosses the seam,
+    // which is worse than the step this replaces. Folding the delta into the short half of the
+    // range first is the whole fix, and it is the same principle a quaternion slerp applies by
+    // negating one of the pair when their dot product is negative -- far cheaper on a scalar.
+    //
+    // The result is deliberately NOT re-wrapped into any particular range. FRotator accepts an
+    // unnormalized angle and the engine normalizes on use, and clamping here would reintroduce
+    // a discontinuity at whatever boundary was picked.
+    //
+    // EACH INPUT IS FOLDED BEFORE THE SUBTRACTION, and that is a fix rather than a tidy-up
+    // (review I3, 2026-09-11). The call site checks all three inputs with std::isfinite and then
+    // this computed `to - from` on them: two FINITE doubles near the ends of the double range
+    // subtract to infinity, and std::fmod(inf, 360.0) is NaN. That NaN went straight into an
+    // FRotator through K2_SetActorLocationAndRotation, which does not check -- and a ghost whose
+    // rotation is NaN stops rendering, which gets blamed on the game rather than on the parser.
+    // The 2026-09-02 review closed this on the raw orientation path and left the bracket path,
+    // which is the SHIPPED one, open.
+    //
+    // std::fmod of a finite value is always finite, so after folding, the difference is at most
+    // 720 in magnitude and nothing downstream can overflow. The final guard is belt-and-braces
+    // for an input this function may be handed in future: returning `from` unchanged is the same
+    // answer the rest of this file gives to a value it cannot trust -- hold the last good one.
+    inline double lerp_angle_deg(double from, double to, double t)
+    {
+        if (!std::isfinite(from) || !std::isfinite(to) || !std::isfinite(t))
+        {
+            return std::isfinite(from) ? from : 0.0;
+        }
+        const double folded_from = std::fmod(from, 360.0);
+        const double folded_to = std::fmod(to, 360.0);
+        double delta = std::fmod(folded_to - folded_from, 360.0);
+        if (delta > 180.0)
+        {
+            delta -= 360.0;
+        }
+        else if (delta < -180.0)
+        {
+            delta += 360.0;
+        }
+        const double out = from + delta * t;
+        return std::isfinite(out) ? out : from;
+    }
+
 } // namespace MeshGhostPseudo

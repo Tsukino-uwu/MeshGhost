@@ -824,6 +824,70 @@ namespace
         }
     }
 
+
+    // TWO FINITE ANGLES MUST NOT PRODUCE A NaN (review I3).
+    //
+    // The call site checks all three inputs with std::isfinite and then the old body computed
+    // `to - from` on them. Two finite doubles near the ends of the double range subtract to
+    // infinity, and std::fmod(inf, 360.0) is NaN -- written straight into an FRotator by
+    // K2_SetActorLocationAndRotation, which does not check. A ghost whose rotation is NaN stops
+    // rendering, and that gets blamed on the game.
+    //
+    // GHOST_ROTATION_SLERP is the shipped path, so this is not a theoretical branch.
+    auto angle_lerp() -> void
+    {
+        const double huge = 1.7e308; // finite, and the sum of two of these is not
+        struct Case
+        {
+            double from, to, t;
+            const char* why;
+        };
+        const Case cases[] = {
+            {huge, -huge, 0.5, "two finite extremes whose difference overflows"},
+            {-huge, huge, 0.5, "the same, the other way round"},
+            {huge, huge, 1.0, "no difference at all, at the extreme"},
+            {1e308, -1e308, 0.0, "t=0 must still be finite"},
+            {350.0, 10.0, 0.5, "the ordinary seam crossing"},
+            {0.0, 0.0, 0.5, "the trivial case"},
+            {-720.0, 720.0, 0.25, "inputs outside a single turn"},
+        };
+        for (const Case& c : cases)
+        {
+            ++g_checks;
+            const double got = lerp_angle_deg(c.from, c.to, c.t);
+            if (!std::isfinite(got))
+            {
+                char buf[256];
+                std::snprintf(buf, sizeof(buf),
+                              "lerp_angle_deg(%g, %g, %g) = %g -- a non-finite rotation reaches "
+                              "FRotator and the ghost stops rendering (%s)",
+                              c.from, c.to, c.t, got, c.why);
+                fail(buf);
+            }
+        }
+
+        // AND IT MUST STILL TAKE THE SHORT WAY ROUND, which is the whole reason it is not a plain
+        // lerp: 350 -> 10 travels +20 through the seam, not -340 back through the circle.
+        ++g_checks;
+        const double seam = lerp_angle_deg(350.0, 10.0, 0.5);
+        if (!(seam > 355.0 && seam < 365.0))
+        {
+            char buf[160];
+            std::snprintf(buf, sizeof(buf),
+                          "lerp_angle_deg(350, 10, 0.5) = %g, want ~360 -- the ghost is spinning "
+                          "the long way round every time it crosses the seam", seam);
+            fail(buf);
+        }
+        ++g_checks;
+        const double halfway = lerp_angle_deg(0.0, 90.0, 0.5);
+        if (!(halfway > 44.9 && halfway < 45.1))
+        {
+            char buf[160];
+            std::snprintf(buf, sizeof(buf), "lerp_angle_deg(0, 90, 0.5) = %g, want 45", halfway);
+            fail(buf);
+        }
+    }
+
 } // namespace
 
 auto main() -> int
@@ -841,6 +905,7 @@ auto main() -> int
     wrong_types();
     control_fields();
     reject_rule();
+    angle_lerp();
     mutate(seed, 20000);
 
     std::printf("  %ld checks across the shipped peer-JSON readers (mutator seed 0x%016llx)\n",

@@ -9,6 +9,7 @@
 // payloads yet -- step 2 of the phase's C++ rewrite is proving the transport itself is reliable
 // before building anything on top of it (agent_docs/phases/phase7.md).
 
+#include <mutex>
 #include <chrono>
 #include <string>
 #include <vector>
@@ -154,6 +155,19 @@ namespace MeshGhostPseudo
         // error; a would-block on a non-blocking socket is not treated as an error since we
         // resend fresh state next tick regardless (PROTOCOL.md's tick loop already expects that).
         auto send_line(const std::string& line) -> bool;
+        // send_edge_line is send_line for a message that is sent ONCE, on a change, and never
+        // restated -- player_frozen being the one this adapter has (ADR 0053).
+        //
+        // The difference is the only one that matters to such a message: send_line reports a
+        // WSAEWOULDBLOCK as success, because PROTOCOL.md's tick loop resends fresh state next
+        // tick anyway, so a dropped state frame costs one frame. An EDGE has no next tick to be
+        // restated on -- a dropped player_frozen means the chaser clock runs through the whole
+        // pause, which is the drift ADR 0053 exists to remove. This one says "it did not go out"
+        // so the caller can leave its latch alone and try again next tick.
+        auto send_edge_line(const std::string& line) -> bool;
+        // The shared body. `dropped` reports a line the OS refused to buffer --
+        // a success for state, a failure for an edge.
+        auto send_line_inner(const std::string& line, bool& dropped) -> bool;
 
         // Drains all currently-available bytes and returns any complete '\n'-terminated lines.
         // A trailing partial line (no '\n' yet) is buffered internally, not returned.

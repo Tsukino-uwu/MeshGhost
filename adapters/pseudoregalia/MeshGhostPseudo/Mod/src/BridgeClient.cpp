@@ -365,8 +365,37 @@ namespace MeshGhostPseudo
         return false;
     }
 
+    // send_mutex serialises the two threads that write this socket.
+    //
+    // THIRTEEN of the fourteen `bridge->` uses in this mod are on the UE4SS thread; the
+    // fourteenth -- player_frozen -- is inside game_thread_tick, and nothing here was
+    // synchronised (review I6). Two threads interleaving inside one send() on a non-blocking
+    // socket is a torn line on the wire, which NDJSON cannot resynchronise from: the core's
+    // scanner grows the malformed line to its limit and dies. The counters were racing too.
+    //
+    // A mutex rather than moving the caller: the read of WorldSettings.PauserPlayerState has to
+    // happen on the game thread and before the paused early-return (Plugin.cpp says why), so the
+    // send genuinely belongs there. One uncontended lock per line is nothing next to the syscall
+    // it guards.
+    static std::mutex send_mutex;
+
     auto BridgeClient::send_line(const std::string& line) -> bool
     {
+        bool dropped = false;
+        return send_line_inner(line, dropped);
+    }
+
+    auto BridgeClient::send_edge_line(const std::string& line) -> bool
+    {
+        bool dropped = false;
+        const bool ok = send_line_inner(line, dropped);
+        return ok && !dropped;
+    }
+
+    auto BridgeClient::send_line_inner(const std::string& line, bool& dropped) -> bool
+    {
+        std::lock_guard<std::mutex> guard(send_mutex);
+        dropped = false;
         if (!connected)
         {
             return false;
@@ -381,6 +410,9 @@ namespace MeshGhostPseudo
             {
                 // Not a real failure -- PROTOCOL.md's tick loop resends fresh state next tick
                 // regardless, so a dropped send here just means this tick's frame is skipped.
+                // Reported as DROPPED all the same, because that reasoning holds only for a
+                // message that gets restated: send_edge_line is the caller that cannot.
+                dropped = true;
                 return true;
             }
             ++counters.send_fail;

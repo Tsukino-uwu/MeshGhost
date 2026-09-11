@@ -106,6 +106,59 @@ entry without one.
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
 - OPEN — three faults with no entry of their own: the sword's MID-AIR SNAP, the BLACK FLASH on spawn, and two unattributed crashes (from `status.md`, 2026-09-02; `curve catmull-rom` has its own entry below)
 
+## [READY] five robustness fixes from the 2026-09-07 review, built and deployed, UNWATCHED (2026-09-11)
+
+**None of these changes what the game looks like.** They are crash and wedge fixes, so what is
+owed is not "does it look right" but **"does everything still work, and does the exit crash stop
+happening"**. Built with MSVC, deployed to both installs, hash-verified. Nothing here has been
+seen in a running game.
+
+**What to watch, in one session:** play normally with at least one ghost on screen, cross a zone
+boundary, open and close the pause menu, then QUIT THE GAME and say whether the exit was clean.
+Everything below either holds or does not; a ghost that fails to spawn, a nametag that never
+appears, or a missing trail is a decline.
+
+1. **I1 -- a peer could close your bridge with eighteen bytes.** The adapter classified every line
+   it read by searching the whole line for `"reject"` and then for `relay`, and ran that over
+   `render_remote` lines too -- whose orientation blob is raw JSON a peer writes. So another player
+   could put those words in their own orientation and make your adapter drop the bridge, park for
+   the relay backoff, lose every ghost, and log that THE RELAY was down. It reads the top-level
+   `type` field now. **Watch: ghosts still spawn and the bridge still says `core on port ... accepted us`.**
+
+2. **I3 -- a NaN rotation from two finite angles.** `lerp_angle_deg` subtracted before folding, so
+   two finite-but-enormous peer angles overflowed to infinity and `fmod(inf, 360)` is NaN -- written
+   straight into an FRotator, which does not check. A ghost with a NaN rotation stops rendering.
+   **Watch: ghosts face the right way and turning still looks smooth, especially a fast spin.**
+
+3. **I4 -- a stale nametag pointer after an in-tick ghost release.** The two "this ghost is gone,
+   respawn fresh" branches cleared most of a ghost's handles and not the nametag trio or the drive
+   rig, so the next spawn found a non-null pointer into freed memory and called through it. Same
+   shape as the symbolized 2026-09-01 access violation. **Watch: a ghost that despawns and comes
+   back gets its nametag back.**
+
+4. **I5 -- the afterimage sweep calling into freed components.** Its "no ghosts left" branch
+   re-enabled outlines on remembered component pointers with no liveness check at all -- and that
+   branch runs precisely when every ghost has just gone away. It asks the registry first now, and a
+   level teardown clears the two maps it was reading from. **Watch: trails still appear, and their
+   colours are still right after a zone change.**
+
+5. **I6 -- `player_frozen` was marked sent before it was sent, from the wrong thread.** The flag
+   flipped first and the result was discarded -- and the send reports a full socket buffer as
+   success while dropping the line, which is right for state (restated next tick) and wrong for an
+   edge that is never restated. A dropped freeze means the chaser clock runs through the whole
+   pause, which is the drift ADR 0053 exists to remove. It also ran on the game thread while every
+   other bridge write is on the UE4SS thread, with no mutex between them. **Watch: pause for ten
+   seconds or so with a chaser or replay ghost running, unpause, and say whether it picks up where
+   it left off rather than jumping ahead.**
+
+6. **I2 -- four detours were never taken back off at shutdown.** Seven of eleven were unregistered
+   in `~Plugin`; the fade guard's was structurally impossible to unregister (its `UFunction*` was a
+   local), and the damage guards' lambda takes `state_mutex` and walks `remotes` -- both gone by the
+   time it could fire during teardown. **This is the leading candidate for `UNVERIFIED.md`'s "Fatal
+   Error! on game exit, never root-caused", and it is a CANDIDATE, not a diagnosis** -- nothing has
+   been reproduced on demand, so the only evidence available is whether it stops happening.
+   **Watch: quit the game and say whether you got the Fatal Error box.**
+
 ## [READY] the input track's capture is built and deployed, UNWATCHED (2026-09-08 midday)
 
 **First run, 13:14-13:16, the user's own launch (build `11ee35453e62`): the plumbing worked and the

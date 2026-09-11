@@ -1397,6 +1397,20 @@ namespace MeshGhostPseudo
         uint64_t engine_tick_post_callback_id{0};
         int32_t svtwb_hook_id{-1};
         int32_t fade_hook_id{-1};
+        // **The UFunction each RegisterPreHook was installed on, kept so ~Plugin can take the
+        // hook back off (review I2, 2026-09-11).** An id alone cannot unregister anything --
+        // UnregisterHook is a method ON the function -- and the fade guard's UFunction* was a
+        // local that went out of scope the moment the guard was installed, which made that one
+        // hook structurally impossible to remove for the life of the process.
+        //
+        // Why it matters at exit rather than merely being untidy: every one of these lambdas
+        // captures `this`. A hook still installed after the Plugin is destroyed calls through a
+        // dangling capture the next time the engine runs that function, and the engine runs
+        // plenty of them during teardown. UNVERIFIED.md's "Fatal Error! on game exit, never
+        // root-caused" is exactly this shape, and the damage guards below are the worst of them:
+        // that lambda takes state_mutex and walks `remotes`, both of which are gone.
+        RC::Unreal::UFunction* fade_function{nullptr};
+        RC::Unreal::UFunction* pause_reset_function{nullptr};
         RC::Unreal::UFunction* srcd_function{nullptr}; // cached "SetRenderCustomDepth", found once
         int32_t afterimage_outline_hook_id{-1};
         // UE4SS's StaticConstructObject post-callback (2026-09-06): the feed of the object

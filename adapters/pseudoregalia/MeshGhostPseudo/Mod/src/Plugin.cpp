@@ -3401,32 +3401,10 @@ namespace MeshGhostPseudo
         // to_utf8 and to_wide_ascii deliberately did NOT move: both need a UE4SS or Windows type,
         // and dragging either into that header would make it un-compilable off Windows.
 
-        // SHORTEST-ARC interpolation between two angles in DEGREES -- the scalar form of a slerp,
-        // and the correct one for this game, whose orientation on the wire is a plain
-        // pitch/yaw/roll triple rather than a quaternion.
-        //
-        // WHY NOT A PLAIN LERP. Yaw 350 -> 10 lerps BACKWARDS through 340 degrees instead of
-        // forward through 20: a ghost spinning the long way round every time it crosses the seam,
-        // which is worse than the step this replaces. Folding the delta into the short half of the
-        // range first is the whole fix, and it is the same principle a quaternion slerp applies by
-        // negating one of the pair when their dot product is negative -- far cheaper on a scalar.
-        //
-        // The result is deliberately NOT re-wrapped into any particular range. FRotator accepts an
-        // unnormalized angle and the engine normalizes on use, and clamping here would reintroduce
-        // a discontinuity at whatever boundary was picked.
-        auto lerp_angle_deg(double from, double to, double t) -> double
-        {
-            double delta = std::fmod(to - from, 360.0);
-            if (delta > 180.0)
-            {
-                delta -= 360.0;
-            }
-            else if (delta < -180.0)
-            {
-                delta += 360.0;
-            }
-            return from + delta * t;
-        }
+        // lerp_angle_deg MOVED TO PeerJson.hpp, 2026-09-11. It takes three peer-controlled
+        // doubles and its result is written straight into an FRotator, which is the exact shape
+        // that header exists for -- and file-local here it could not be tested without a game,
+        // which is how it shipped able to produce a NaN from two finite inputs (review I3).
 
         // JSON player_id values in this wire format are always plain ASCII ids (e.g. "p1-ghost",
         // stamped by the core, never user-typed free text) -- a byte-widen is safe and avoids
@@ -12481,6 +12459,40 @@ namespace MeshGhostPseudo
         {
             salao_function->UnregisterHook(audio_listener_hook_id);
         }
+        // **THE FOUR THAT WERE NEVER TAKEN BACK OFF (review I2, fixed 2026-09-11).** Seven of
+        // eleven detours were unregistered here; these four were not, and every one of their
+        // lambdas captures `this`. A hook still installed after this object is gone calls through
+        // a dangling capture the next time the engine runs that function -- and teardown runs
+        // plenty. The damage guards are the worst of the set: that lambda takes state_mutex and
+        // walks `remotes`, both destroyed by the time it could fire.
+        //
+        // This is the leading candidate for UNVERIFIED.md's "Fatal Error! on game exit, never
+        // root-caused" -- stated as a candidate, not a diagnosis: nothing here has been watched
+        // yet, and a crash that was never reproduced on demand cannot be called fixed by reading.
+        if (init_game_state_pre_callback_id != Hook::ERROR_ID && init_game_state_pre_callback_id != 0)
+        {
+            Hook::UnregisterCallback(init_game_state_pre_callback_id);
+        }
+        if (reset_fn_probe_callback_id != Hook::ERROR_ID && reset_fn_probe_callback_id != 0)
+        {
+            Hook::UnregisterCallback(reset_fn_probe_callback_id);
+        }
+        if (pause_reset_function && pause_reset_hook_id != 0)
+        {
+            pause_reset_function->UnregisterHook(static_cast<int32_t>(pause_reset_hook_id));
+        }
+        if (fade_function && fade_hook_id != -1)
+        {
+            fade_function->UnregisterHook(fade_hook_id);
+        }
+        for (auto& [function, hook_id] : damage_hook_ids)
+        {
+            if (function && hook_id != -1)
+            {
+                function->UnregisterHook(hook_id);
+            }
+        }
+        damage_hook_ids.clear();
     }
 
     // Kept from the "Fatal world leaks detected" investigation: dumps every remote's ghost
@@ -15078,6 +15090,7 @@ namespace MeshGhostPseudo
             // `PlayerController.bShowMouseCursor` flips true exactly when the menu opens, and it is
             // a property read -- no UFunction call, nothing added to the Blueprint VM's path.
 
+            pause_reset_function = reset_fn; // kept so ~Plugin can unregister -- see the header
             pause_reset_hook_id = reset_fn->RegisterPreHook(
                 [this](UnrealScriptFunctionCallableContext&, void*) {
                     // **OBSERVE-ONLY BY DEFAULT since 2026-09-05; `guard_destroy.txt` restores the
@@ -15603,6 +15616,15 @@ namespace MeshGhostPseudo
         // sitting at a remembered position would make a genuinely fresh image look like an untouched
         // one and lose its colour. Clearing costs nothing and removes the case entirely.
         afterimage_pos_by_ptr.clear();
+        // **The other two afterimage maps go with it, since 2026-09-11 (review I5).** These are
+        // NOT compare-only: afterimage_pending_reenable's values are components the sweep calls
+        // SetRenderCustomDepth on, and afterimage_owners is what gates that call. Left across a
+        // level teardown, the first is a list of freed components and the second says they are
+        // fine to touch -- and the next level's allocator handing the same address back makes the
+        // gate agree. The comment above is right that a stale KEY is not a crash risk; a stale
+        // value reached through ProcessEvent is a different thing, and that is what these hold.
+        afterimage_pending_reenable.clear();
+        afterimage_owners.clear();
         afterimage_color_burst_pending = false;
         // Clearing the map makes every image in the next level unseen again, so the idle scan has to
         // re-prime or it would read the whole new pool as one enormous untriggered spawn.
@@ -16347,6 +16369,7 @@ namespace MeshGhostPseudo
             }
         }
 
+        fade_function = function; // kept so ~Plugin can unregister -- see the header
         fade_hook_id = function->RegisterPreHook(
             [this, from_alpha_off, to_alpha_off, duration_off](UnrealScriptFunctionCallableContext& ctx, void*) {
                 if (last_ghost_spawn_tick == 0 || tick_count - last_ghost_spawn_tick > GHOST_SPAWN_FADE_GUARD_TICKS)
@@ -19015,14 +19038,27 @@ namespace MeshGhostPseudo
                 }
                 if (resolved && frozen != player_frozen_sent)
                 {
-                    player_frozen_sent = frozen;
-                    if (bridge)
+                    // **LATCHED ONLY ON A CONFIRMED SEND, since 2026-09-11 (review I6).** This
+                    // used to set the flag first and discard the result -- and send_line reports a
+                    // WSAEWOULDBLOCK as success while dropping the line, which is right for state
+                    // (restated next tick) and wrong for an edge that is never restated. A dropped
+                    // freeze means the chaser clock runs through the whole pause, which is the
+                    // exact drift ADR 0053 exists to remove, and nothing would ever have said so.
+                    // Leaving the latch alone makes the next tick try again, which is what an edge
+                    // needs.
+                    const bool sent = bridge && bridge->send_edge_line(
+                        frozen ? R"({"type":"player_frozen","payload":{"frozen":true}})"
+                               : R"({"type":"player_frozen","payload":{"frozen":false}})");
+                    if (sent)
                     {
-                        bridge->send_line(frozen ? R"({"type":"player_frozen","payload":{"frozen":true}})"
-                                                 : R"({"type":"player_frozen","payload":{"frozen":false}})");
+                        player_frozen_sent = frozen;
+                        Output::send(STR("[MeshGhostPseudo] PLAYER_FROZEN: {} (WorldSettings.PauserPlayerState {}).\n"),
+                                     frozen ? STR("frozen") : STR("resumed"), frozen ? STR("set") : STR("cleared"));
                     }
-                    Output::send(STR("[MeshGhostPseudo] PLAYER_FROZEN: {} (WorldSettings.PauserPlayerState {}).\n"),
-                                 frozen ? STR("frozen") : STR("resumed"), frozen ? STR("set") : STR("cleared"));
+                    // A failed send is deliberately not logged: while the socket is refusing,
+                    // this runs once per frame. The change is still pending -- the latch was not
+                    // moved -- so the next tick tries again, and the line above prints when it
+                    // lands.
                 }
                 else if (!resolved)
                 {
@@ -22891,11 +22927,32 @@ namespace MeshGhostPseudo
                 // been (it only refuses while a ghost is alive, but one may have despawned
                 // between). Restore whatever is pending, then forget everything -- a stale
                 // owners map would misattribute the pool after the next ghost spawns.
+                //
+                // **ASKED THE REGISTRY WHAT IS STILL ALIVE FIRST, since 2026-09-11 (review I5).**
+                // The only guard here used to be "is this image in afterimage_owners", which says
+                // this sweep once saw the image, not that the image still exists -- and the
+                // liveness prune lives in the OTHER branch, the one with ghosts. So the branch
+                // that runs precisely when every ghost has just gone away was the one calling
+                // into components whose owner may have been destroyed with it. Same family as
+                // the tester's 2026-09-10 dump: a per-ghost pointer outliving its ghost, reached
+                // through a map that was never pruned on this path.
+                //
+                // The registry is the same liveness answer the ghosts-present branch uses, and
+                // for the same stated reason: an afterimage destroys itself when its particles
+                // finish and nobody tells us, so a remembered pointer legitimately names freed
+                // memory -- harmless to compare, fatal to call through.
+                std::vector<UObject*> live_images;
+                g_afterimage_registry.live(g_registry_tick, live_images);
+                std::set<UObject*> still_alive(live_images.begin(), live_images.end());
                 for (auto& [image, components] : afterimage_pending_reenable)
                 {
                     if (afterimage_owners.find(image) == afterimage_owners.end())
                     {
                         continue; // never seen alive by this sweep -- do not touch blind
+                    }
+                    if (still_alive.find(image) == still_alive.end())
+                    {
+                        continue; // gone with its ghost; its components went with it
                     }
                     for (UObject* component : components)
                     {
@@ -23220,6 +23277,37 @@ namespace MeshGhostPseudo
             remote.last_failed_weapon_mesh.clear();
             remote.crouch_event_shrunk = false;
             remote.crouch_input_shrunk = false;
+                // **THE NAMETAG TRIO AND THE DRIVE RIG, which this branch did not clear until
+                // 2026-09-11 (review I4).** Both release paths -- release_ghost and
+                // release_all_ghosts -- have cleared them for a while, each with its own dated
+                // comment naming the crash that taught it; these two "release the stale reference,
+                // respawn fresh" branches are the ones that never got the line, which is the same
+                // way vfx_components was missed above and found by a tester's dump.
+                //
+                // Every one of these is attached to, or outered by, the ghost PAWN: the widget
+                // component and its plate, and the drive rig's per-pawn objects. They die with the
+                // actor, so what is left here is a pointer to freed memory -- and the next
+                // ensure_ghost_spawned finds it non-null, believes the ghost already has a tag,
+                // and calls ProcessEvent on it. That is the symbolized 2026-09-01 access violation
+                // exactly.
+                //
+                // The world-SPAWNED handles stay untouched here for the reason the comment above
+                // gives: they outlive the ghost by design and have their own staleness checks.
+                remote.nametag_component = nullptr;
+                remote.nametag_plate = nullptr;
+                remote.nametag_plate_mid = nullptr;
+                remote.nametag_applied_name.clear();
+                remote.nametag_applied_color.clear();
+                remote.nametag_plate_applied_color.clear();
+                remote.nametag_plate_has_color = false;
+                remote.nametag_create_failed = false;
+                remote.drive_private_gi = nullptr;
+                remote.drive_own_hitable = nullptr;
+                if (g_drive_ghost == static_cast<UObject*>(remote.ghost))
+                {
+                    g_drive_ghost = nullptr;
+                }
+                remote.drive_prepared = false;
                 remote.ghost = nullptr;
                 remote.owning_world = nullptr;
                 continue;
@@ -23326,6 +23414,37 @@ namespace MeshGhostPseudo
             remote.last_failed_weapon_mesh.clear();
             remote.crouch_event_shrunk = false;
             remote.crouch_input_shrunk = false;
+                // **THE NAMETAG TRIO AND THE DRIVE RIG, which this branch did not clear until
+                // 2026-09-11 (review I4).** Both release paths -- release_ghost and
+                // release_all_ghosts -- have cleared them for a while, each with its own dated
+                // comment naming the crash that taught it; these two "release the stale reference,
+                // respawn fresh" branches are the ones that never got the line, which is the same
+                // way vfx_components was missed above and found by a tester's dump.
+                //
+                // Every one of these is attached to, or outered by, the ghost PAWN: the widget
+                // component and its plate, and the drive rig's per-pawn objects. They die with the
+                // actor, so what is left here is a pointer to freed memory -- and the next
+                // ensure_ghost_spawned finds it non-null, believes the ghost already has a tag,
+                // and calls ProcessEvent on it. That is the symbolized 2026-09-01 access violation
+                // exactly.
+                //
+                // The world-SPAWNED handles stay untouched here for the reason the comment above
+                // gives: they outlive the ghost by design and have their own staleness checks.
+                remote.nametag_component = nullptr;
+                remote.nametag_plate = nullptr;
+                remote.nametag_plate_mid = nullptr;
+                remote.nametag_applied_name.clear();
+                remote.nametag_applied_color.clear();
+                remote.nametag_plate_applied_color.clear();
+                remote.nametag_plate_has_color = false;
+                remote.nametag_create_failed = false;
+                remote.drive_private_gi = nullptr;
+                remote.drive_own_hitable = nullptr;
+                if (g_drive_ghost == static_cast<UObject*>(remote.ghost))
+                {
+                    g_drive_ghost = nullptr;
+                }
+                remote.drive_prepared = false;
                 remote.ghost = nullptr;
                 remote.owning_world = nullptr;
                 continue;
