@@ -30,6 +30,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 - 2026-09-11 — **The recording indicator is a screen-space widget**: the mechanism is user-confirmed on the Lua prototype, the C++ port SEEN in a screenshot, their words owed. `pseudoregalia/UNVERIFIED.md`.
 - 2026-09-11 — **What is plain `udp` FOR, now that no doc offers it?** Shipped option, or test/fuzz path only. Wants an ADR. `phases/phase10.md`.
 - 2026-09-11 — **8 of 47 preflight sections have a negative test; 39 are assumed able to fail.** `dev-scripts/negative-test-preflight.ps1` lists them each run.
+- 2026-09-11 — **The disarmed-probe WARN prints 21 entries every run**, so nobody reads it; ratchet it like the fence check. `preflight.ps1`.
 - 2026-09-11 (00:33) **Nothing is running**; ports 7777-7783 free. **Both TEVI installs are in HOT-RELOAD mode** — `-Off` before a confirmation that counts. `running-the-rig.md`.
 
 **Trimmed 2026-09-11 back to what this file is for** — short-term memory, not a progress log
