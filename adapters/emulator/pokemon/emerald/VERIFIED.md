@@ -205,6 +205,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-11 — CONFIRMED DEFECT: a spawned ghost is always drawn in YOUR gender, and the cause is the palette slot
 - 2026-09-11 — the painted tier priced against CRYSTAL's, and the cost is 88% ours, not BizHawk's
 - 2026-09-11 — and then it was FIXED: 67ms to 21ms, four faults, none of them the drawing
+- 2026-09-11 — where the painted tier's floor actually is, and why a vertical merge will not move it
 ## Confirmed facts
 
 ### Emerald ROM revision
@@ -4071,3 +4072,47 @@ painted tier now costs roughly 2.6ms a frame, so a drawn-tier-only Emerald is co
 performance — and the painted tier already draws a peer's OWN gender, which is the defect the
 spawn tier cannot fix without writing palette RAM. That is a change to what the player sees, so it
 wants the user's call and a side-by-side look, not an inference from this table.
+
+## 2026-09-11 — where the painted tier's floor actually is, and why a vertical merge will not move it
+
+**Asked after the 67ms -> 21ms work: is there more?** Two things were measured rather than argued.
+
+**1. The BizHawk floor is real.** `guicost_probe.lua` times the tier's own call volume with no
+adapter logic at all: **8,000 `gui.drawLine` calls = 6.1ms, 8,000 `gui.drawPixel` = 5.0ms**, about
+0.75us and 0.62us each. At 64 painted peers the tier issues ~8,040 of them, so **~6ms of the
+remaining ~21ms cannot be removed by any change that draws the same pixels.**
+
+**2. Merging runs VERTICALLY into rectangles — the obvious way to issue fewer calls — buys 12.8%,
+and that is not worth what it costs.** Decoding the nine walking frames from the ROM and greedily
+merging any run with an identical `x1..x2` and colour on the row below:
+
+| | per frame |
+|---|---|
+| horizontal runs (what is drawn today) | 113.1 |
+| after a vertical merge | 98.7 |
+| **saving** | **12.8%** |
+| **runs that are a SINGLE PIXEL** | **64.8%** |
+
+**The reason is the art: nearly two thirds of the runs are one pixel wide.** Emerald's character
+sprite is heavily dithered, so there are very few vertical bands to merge. And the cost of trying
+would be real — occlusion and panel clipping are computed PER PIXEL ROW, so a rectangle only
+survives where every row it covers clips identically, which means splitting it again at every tile
+boundary and every panel edge.
+
+**So the honest position on the painted tier: the large wins are taken.** What remains at 64 peers
+is roughly 6ms of BizHawk's own drawing, ~3.5ms of per-run logic, ~2ms occlusion, ~1.4ms of the
+water test, and ~4ms spread thinly across the per-peer body with no single owner. **Anything below
+that floor means drawing LESS — fewer runs, coarser edges, or peers painted less often — which is a
+decision about what a ghost may look like, not an optimisation.**
+
+**One change was kept without a measurable win, and is recorded as such.** `hasReflection` built a
+table (`{ 0 }` or `{ j, -j }`) on every innermost iteration purely to hand it to `ipairs`; it is a
+counted loop now. **Measured 20.9ms against 20.7ms before — inside the noise, no claim made.** It
+stays because a counted loop is simpler than allocating a table to iterate, so it costs nothing to
+have — unlike the Crystal experiment the same day, which ADDED a cache and was reverted when the
+A/B refused to show a gain.
+
+**And a correction to a premise worth keeping**: the OAM tier does NOT carry 64 peers. Its 56
+entries are split five ways since 2026-08-21 and **bodies get 26** (`BANDAGES.md`). With the spawn
+tier's ~11 on a typical map, **everything past roughly 37 characters is painted** — which is why
+this tier's cost is what decides what Emerald can carry.

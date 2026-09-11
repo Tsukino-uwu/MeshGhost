@@ -3586,7 +3586,13 @@ genderFrames.hasReflection = function(x, y, px, py, w, h)
             if pass == 2 then cx, cy = px, py end
             for j = 0, (w or 2) - 1 do
                 -- j = 0 is the character's own column; past that the engine checks both sides.
-                for _, dx in ipairs(j == 0 and { 0 } or { j, -j }) do
+                -- **NO TABLE PER ITERATION (2026-09-11).** This built `{ 0 }` or `{ j, -j }`
+                -- fresh on every pass purely to hand it to `ipairs` -- an allocation in the
+                -- innermost loop of a function the profiler measured at 1.4ms a frame across
+                -- 64 peers. The counted form below is exactly equivalent: j == 0 runs once
+                -- with dx = 0 (which IS j), and j > 0 runs twice, +j then -j, in that order.
+                for k = 1, (j == 0 and 1 or 2) do
+                    local dx = (k == 1) and j or -j
                     local attr = genderFrames.attrAt(cx + dx, cy + 1 + i)
                     -- The KIND, not just yes -- and the first tile that yields one wins, which is
                     -- what the engine's RETURN_REFLECTION_TYPE_AT macro does at each step of this
