@@ -6832,9 +6832,33 @@ function drawOverflow()
 					-- position against the last one and logs only the discontinuities: a smooth
 					-- walk moves 2px a frame, so any jump past 4px between consecutive frames is a
 					-- twitch, named with the position it jumped from and to.
+					--
+					-- **BUDGETED, NOT GATED (review I44, 2026-09-11).** It was the only per-frame
+					-- diagnostic in `drawOverflow` with no flag at all, while every instrument
+					-- beside it is behind one -- and a peer whose position is genuinely jumping
+					-- (a warp, a bad wire value, a seam) fires it EVERY FRAME, per peer, which is
+					-- a log nobody can read at the exact moment it matters most.
+					--
+					-- Kept ON rather than put behind a flag, because it is not a rig instrument:
+					-- it exists because the once-a-second sampling was blind to per-frame jitter
+					-- and the user could see what the samples denied (2026-08-21). A detector
+					-- that has to be turned on in advance cannot catch a fault nobody predicted,
+					-- which is the whole reason this one was written. So it stays, bounded: the
+					-- first forty are named in full, and after that only a count, once a second.
 					if o.paintedX and (math.abs(sx - o.paintedX) > 4 or math.abs(sy - o.paintedY) > 4) then
-						logFile(string.format("  TWITCH %-24s painted %d,%d -> %d,%d (%+d,%+d)",
-							id, o.paintedX, o.paintedY, sx, sy, sx - o.paintedX, sy - o.paintedY))
+						facingFrames.twitches = (facingFrames.twitches or 0) + 1
+						if facingFrames.twitches <= 40 then
+							logFile(string.format("  TWITCH %-24s painted %d,%d -> %d,%d (%+d,%+d)",
+								id, o.paintedX, o.paintedY, sx, sy, sx - o.paintedX, sy - o.paintedY))
+							if facingFrames.twitches == 40 then
+								logFile("  TWITCH: 40 reported -- further ones are counted only, "
+									.. "summarised once a second")
+							end
+						elseif (facingFrames.twitchSaidAt or 0) + 60 <= drawFrames then
+							facingFrames.twitchSaidAt = drawFrames
+							logFile(string.format("  TWITCH: %d so far this session (still happening)",
+								facingFrames.twitches))
+						end
 					end
 					-- THE DISTRIBUTION, NOT JUST THE OUTLIERS. The detector above only fires past
 					-- 4px, so a walk that moves 2px every frame and 4px at every tile boundary --

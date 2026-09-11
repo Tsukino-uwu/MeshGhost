@@ -6049,6 +6049,26 @@ end
 
 local function teleportGhost(g, mapX, mapY)
     local a = objAddr(g.objId)
+    -- **BOUNDED AT THE WRITE (review I34, 2026-09-11).** These coordinates come from a peer, and
+    -- `chooseSpawned`'s range gate FAILS OPEN for the ~7 s after every load while the
+    -- self-location scan is still running (`xmW == 0`) -- deliberately, and for a good reason its
+    -- own comment gives, but it means a same-map peer's raw x/y can reach here unchecked during
+    -- that window.
+    --
+    -- A u16 write of a wild value does not fail: it WRAPS, and the object appears somewhere
+    -- arbitrary on the map, which looks like a bug in the game rather than a bad packet. The
+    -- bound is the engine's own addressable grid plus its 7-tile border, which is the widest a
+    -- legitimate ghost is ever placed at (see chooseSpawned). The low end is -MAP_OFFSET and
+    -- not one less: the write adds MAP_OFFSET, so -8 would still produce -1 and wrap. Anything
+    -- outside is refused
+    -- rather than clamped, because clamping would park a nonsense peer at the map edge and make
+    -- it look deliberate.
+    if type(mapX) ~= "number" or type(mapY) ~= "number"
+        or mapX ~= mapX or mapY ~= mapY                       -- NaN
+        or mapX < -MAP_OFFSET or mapY < -MAP_OFFSET or mapX > 1000 or mapY > 1000 then
+        return
+    end
+    mapX, mapY = math.floor(mapX), math.floor(mapY)
     local gx, gy = mapX + MAP_OFFSET, mapY + MAP_OFFSET
     w16(a + 0x0c, gx) w16(a + 0x0e, gy)
     w16(a + 0x10, gx) w16(a + 0x12, gy)
