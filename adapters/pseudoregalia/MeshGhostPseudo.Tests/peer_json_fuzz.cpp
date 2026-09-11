@@ -719,7 +719,7 @@ namespace
         const Case cases[] = {
             {R"({"type":"bridge_ready"})", "type", "bridge_ready", "the plain shape"},
             {R"({"type":"reject","reason":"busy","code":"busy"})", "code", "busy", "the code beside the prose"},
-            {R"({ "type" : "reject" , "code" : "invalid_room_code" })", "code", "invalid_room_code", "whitespace around the colon"},
+            {R"({ "type" : "reject" , "code" : "feature_mismatch" })", "code", "feature_mismatch", "whitespace around the colon"},
 
             // THE ATTACK, in the three shapes it can take.
             {R"({"type":"render_remote","state":{"orientation":{"reject":"relay"}}})", "type", "render_remote",
@@ -799,8 +799,14 @@ namespace
              "busy is the one refusal that means try the next port"},
             {R"({"type":"reject","reason":"already serving emerald","code":"already_serving"})", true,
              "another game's core: walk on and let a second core serve this one"},
-            {R"({"type":"reject","reason":"core: relay refused connection: invalid room code","code":"invalid_room_code","retryable":false})", false,
-             "a wrong room code must NOT walk the ports and spawn cores"},
+            // A PERMANENT refusal with a code. The specific code is deliberately not the
+            // room-code one, even though that is the case that motivated the whole change:
+            // internal/gameblind's TestAdaptersNeverSpeakTheRelayProtocol forbids that literal
+            // in an adapter file, and rightly -- an adapter never sends a room code and never
+            // needs to name one. The RULE under test here is "any code that is not busy means
+            // wait", so any permanent code exercises it.
+            {R"({"type":"reject","reason":"core: relay refused connection: feature mismatch","code":"feature_mismatch","retryable":false})", false,
+             "a permanent refusal must NOT walk the ports and spawn cores"},
             {R"({"type":"reject","reason":"core: relay refused connection: server full","code":"server_full","retryable":true})", false,
              "a full relay is worth waiting out on this same core"},
             {R"({"type":"reject","reason":"core: cannot reach the relay"})", false,

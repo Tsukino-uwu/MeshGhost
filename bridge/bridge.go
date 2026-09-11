@@ -204,6 +204,45 @@ type Hello struct {
 	// a room's feature set is matched exactly.
 	Features []string `json:"features,omitempty"`
 
+	// MinProtocolVersion is the OLDEST relay this ADAPTER will work with, and
+	// it is the adapter's half of the floor the relay and the core already have
+	// on either side of the wire (protocol.MinProtocolVersion, ADR 0058).
+	//
+	// WHY AN ADAPTER GETS A SAY AT ALL, when it never learns a relay address
+	// and never sends a byte off-machine. The core's floor answers "can these
+	// two builds talk", which is a property of the WIRE. This one answers a
+	// different question that only the adapter can answer: an adapter that
+	// depends on a field the relay did not forward -- because that relay
+	// predates it -- does not fail at the handshake. It connects, renders, and
+	// is quietly missing the thing it was written for, which is the failure
+	// mode this whole project keeps rediscovering. Saying the number turns a
+	// silent degradation into a refusal that names both versions.
+	//
+	// It is a FLOOR and never an equality, for the same reason the wire's is:
+	// additive change is the only kind this protocol makes, so a newer relay's
+	// extra fields are ignored rather than fatal. And it can only ever be
+	// STRICTER than the core's own -- the core refuses anything below
+	// protocol.MinProtocolVersion first, whatever an adapter says, so this
+	// cannot be used to talk a core into accepting a relay it should not.
+	//
+	// Absent or 0 means "no opinion", which is what every shipped adapter sends
+	// today and what keeps an older adapter working unchanged.
+	//
+	// **WHEN TO RAISE IT, the user's call 2026-09-11: a MAJOR or SECURITY
+	// update to that adapter, and nothing else.** Syncing a bit more or a bit
+	// less of a game visually is not a reason -- the client and the relay
+	// already carry the safety and security floor between them, and raising
+	// this for a cosmetic change would refuse rooms for no gain and split the
+	// player base over something nobody can see.
+	//
+	// **RAISING IT IS THE MAINTAINER'S CALL AND IS SAID OUT LOUD, never inferred
+	// from a diff** (the user, 2026-09-11). An adapter is allowed to LAG -- one
+	// with no changes simply keeps the number it has. When an adapter does get
+	// a major change, its floor is set to whatever the CLIENT is at that time,
+	// which is what makes "the mod and the client were shipped together" a
+	// checkable statement rather than a hope.
+	MinProtocolVersion int `json:"min_protocol_version,omitempty"`
+
 	// RenderAllAreas asks the core to deliver every remote's state regardless
 	// of area, and to leave area-based despawns to the adapter. The core's
 	// own cross-area filter (remoteStatesAt, ADR 2026-08-13) exists because a

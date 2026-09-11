@@ -155,6 +155,11 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			// by replayLast from a hotkey; under c.mu for the same reason as
 			// its two siblings.
 			c.adapterWantsInputTracks = h.InputTracks
+			// The adapter's own protocol floor, checked against the relay's
+			// announced version when the Welcome lands. See
+			// bridge.Hello.MinProtocolVersion for why an adapter gets a say,
+			// and Core.adapterMinProtocol for why it can only tighten.
+			c.adapterMinProtocol = h.MinProtocolVersion
 			c.mu.Unlock()
 
 			// Logged from what the core PARSED, not from what the adapter
@@ -170,6 +175,14 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			// the core parsed no flag, whatever the adapter logged it sent.
 			if h.InputTracks {
 				log.Printf("core: adapter asked for input tracks -- a replay whose clip has one will stream remote_input")
+			}
+			// Same independent read, and this one matters more than the two
+			// above: a floor that was not parsed is a floor that is not being
+			// enforced, and the failure it prevents is silent by definition.
+			if h.MinProtocolVersion > 0 {
+				log.Printf("core: adapter requires relay protocol version %d or newer "+
+					"(this build's own floor is %d) -- a relay below it will be refused",
+					h.MinProtocolVersion, protocol.MinProtocolVersion)
 			}
 
 			if err := c.ConnectRelayOnAdapterHello(h.GameID, h.GameVersion, nd); err != nil {

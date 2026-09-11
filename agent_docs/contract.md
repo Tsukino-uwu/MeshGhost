@@ -996,6 +996,24 @@ then streams a replay ghost's recorded input track beside its frames as `remote_
 Off, the core never looks for a track at all -- no directory scan, no parse, no line on the
 bridge -- so an adapter that cannot use one pays nothing. Adapter-local like the two above.
 
+An adapter may also declare `"min_protocol_version"` here (added 2026-09-11, ADR 0059): the
+OLDEST relay **that adapter** will work with. The core compares it against the `protocol_version`
+the relay announces in its Welcome and refuses the session permanently below it
+(`protocol_version_mismatch`, `retryable: false`), exactly as it already does for its own floor.
+
+**It may only ever TIGHTEN.** The core applies `protocol.MinProtocolVersion` first and
+unconditionally, so an adapter naming a lower number changes nothing — a field that could loosen a
+safety check from outside the process would be worse than no field.
+
+It exists because the wire floor answers a different question. That one asks "can these two builds
+talk", which is a property of the wire; an adapter can depend on a field an older relay never
+forwards, where the wire is fine and the adapter is quietly missing the thing it was written for.
+
+Absent or `0` means "no opinion", and **every shipped adapter sends nothing today**. Raising it is
+the maintainer's call, said out loud: a major or security change to that adapter, never a cosmetic
+one, and an adapter with no changes keeps the number it has. The wire floor itself moves on the
+client and the relay together, usually at a milestone.
+
 An adapter may also declare `"features"` here — the capabilities it needs the core to negotiate
 on its behalf (see `features` above). The core advertises the union of that and its own
 configured list. **This is not a breach of "an adapter has no say in how the core reaches the

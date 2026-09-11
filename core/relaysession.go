@@ -305,16 +305,10 @@ func (c *Core) ConnectRelay(gameID string) error {
 		// classifying it as transient is what would make a client hammer a relay
 		// it can never talk to. The message names both numbers, since "update
 		// one of them" is the only fix and the player needs to know which.
-		if !protocol.AcceptsPeerVersion(w.ProtocolVersion) {
+		if rej := c.refuseWelcomeVersion(w); rej != nil {
 			_ = conn.Close()
 			c.clearRelayIfCurrent(conn)
-			return &RejectError{
-				Reason: fmt.Sprintf("this relay speaks protocol version %d, but this build needs %d or newer "+
-					"-- update the relay (or run an older client against it)",
-					w.ProtocolVersion, protocol.MinProtocolVersion),
-				Code:      protocol.CodeProtocolVersionMismatch,
-				Retryable: false,
-			}
+			return rej
 		}
 		c.mu.Lock()
 		if c.relay != conn {
@@ -1109,4 +1103,53 @@ func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welc
 		// forward-compatibility posture as unknown fields.
 		c.handleOnlineMessage(env)
 	}
+}
+
+// refuseWelcomeVersion applies BOTH protocol floors to a relay's Welcome and
+// returns the refusal, or nil.
+//
+// Split out of the connect path so the floors can be tested without a relay --
+// they are a decision about two numbers and nothing else, and the connect path
+// around them is sockets.
+//
+// THE ORDER IS LOAD-BEARING. The build's own floor runs first and
+// unconditionally: an adapter may only ever TIGHTEN, never talk this core into
+// accepting a relay it should refuse. A field that could loosen a safety check
+// from outside the process would be worse than no field.
+func (c *Core) refuseWelcomeVersion(w protocol.Welcome) *RejectError {
+	// A relay that advertises 0 -- one built before the field existed -- is
+	// refused by the same comparison rather than a special case, which is what
+	// the Version 2 cutover bought: everything older is below the floor by
+	// construction.
+	if !protocol.AcceptsPeerVersion(w.ProtocolVersion) {
+		return &RejectError{
+			Reason: fmt.Sprintf("this relay speaks protocol version %d, but this build needs %d or newer "+
+				"-- update the relay (or run an older client against it)",
+				w.ProtocolVersion, protocol.MinProtocolVersion),
+			Code:      protocol.CodeProtocolVersionMismatch,
+			Retryable: false,
+		}
+	}
+	// **THE ADAPTER'S OWN FLOOR, which is allowed to be stricter and nothing
+	// else.** The check above asks whether these two BUILDS can talk, which is
+	// a property of the wire. This one answers a question only the adapter can:
+	// it may depend on a field an older relay never forwards, and without it
+	// the adapter connects, renders, and is quietly missing the thing it was
+	// written for. See bridge.Hello.MinProtocolVersion.
+	//
+	// Zero -- every shipped adapter today -- passes.
+	c.mu.Lock()
+	floor := c.adapterMinProtocol
+	c.mu.Unlock()
+	if floor > 0 && w.ProtocolVersion < floor {
+		return &RejectError{
+			Reason: fmt.Sprintf("this relay speaks protocol version %d, but the attached game's "+
+				"adapter requires %d or newer -- update the relay, or run a build of the mod "+
+				"that matches it",
+				w.ProtocolVersion, floor),
+			Code:      protocol.CodeProtocolVersionMismatch,
+			Retryable: false,
+		}
+	}
+	return nil
 }

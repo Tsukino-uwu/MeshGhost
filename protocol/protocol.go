@@ -46,6 +46,12 @@ const Version = 2
 //
 // A peer that advertises NO version needs no special case: it predates this
 // field, so it is below the floor and the ordinary comparison refuses it.
+// **MOVING IT IS THE MAINTAINER'S CALL AND IS SAID OUT LOUD** (the user,
+// 2026-09-11): the client and the relay are raised TOGETHER, and usually only
+// after a milestone -- a v1.0.0, a v2.0.0 -- rather than because a field was
+// added. Nothing in this repo should bump it on its own reasoning; an adapter's
+// own floor (bridge.Hello.MinProtocolVersion, ADR 0059) is the knob for "this
+// mod needs a newer relay", and it can only tighten.
 const MinProtocolVersion = 2
 
 // State is the packet schema's snapshot payload — the "state" message body,

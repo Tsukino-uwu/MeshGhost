@@ -1006,6 +1006,17 @@ type Core struct {
 	// for the rest of the process.
 	adapterFeatures []string
 
+	// adapterMinProtocol is the floor the ATTACHED ADAPTER declared in its
+	// bridge Hello (bridge.Hello.MinProtocolVersion, which says why an adapter
+	// has a say). Zero means "no opinion", which is every shipped adapter.
+	//
+	// It can only ever be STRICTER than protocol.MinProtocolVersion: the core
+	// applies its own floor first and unconditionally, so this cannot talk a
+	// core into accepting a relay it should refuse.
+	//
+	// Guarded by mu.
+	adapterMinProtocol int
+
 	// unusableTransports records transports whose DIAL failed on this machine, so
 	// automatic selection stops choosing one that cannot work here.
 	//

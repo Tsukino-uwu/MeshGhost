@@ -329,7 +329,14 @@ var frozenBridgeFields = map[string][]string{
 	// qualifies the same way: "stream me a replay's input track" declares a capability of the
 	// adapter's own (it has something to draw or drive with one). The core learns nothing about
 	// the game from it, and off it does not even look for a track.
-	"Hello":       {"features", "game_id", "game_version", "input_tracks", "interpolate_orientation", "render_all_areas"},
+	// min_protocol_version qualifies on the second test, and cleanly: it is a
+	// NUMBER the core compares against the relay's announced version and
+	// nothing else. It carries no game knowledge -- there is no game whose
+	// floor differs from another game's for a reason about the GAME -- and the
+	// core never looks at what it means, only at whether one integer is below
+	// another. The adapter declares it because it is the only party that knows
+	// which relay version the mod it ships alongside actually needs.
+	"Hello":       {"features", "game_id", "game_version", "input_tracks", "interpolate_orientation", "min_protocol_version", "render_all_areas"},
 	"Event":       {"Event"},
 	"Lease":       {"Lease"},
 	"LeaseState":  {"LeaseState"},
