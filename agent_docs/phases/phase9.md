@@ -1366,3 +1366,50 @@ around the crystal player now"* — which is what makes the Crystal column of th
 **One caveat kept with the numbers:** Crystal has no `drawn=` counter the way Emerald does, so its
 painted count rests on that confirmation plus every peer sitting within +/-3 tiles of a player on a
 20x18 screen. Full record: `emerald/VERIFIED.md`, 2026-09-11.
+
+## 2026-09-11 (later still) — Crystal's painted tier audited for Emerald's faults: two found, fixed, measured, REVERTED
+
+**The user asked whether Crystal could be improved too, after Emerald's painted tier went from 67ms
+to 21ms a frame by removing work that happened at the wrong frequency.** The answer is a negative
+result, and it is worth more than the change would have been.
+
+**Two of the same patterns really are present in Crystal's `drawCharacter`:**
+
+- `partRows` was a **closure built per painted peer per frame**, capturing only `source` and
+  `fishRom` — both already arguments of the caller.
+- `paletteColors` built a **fresh colour table per painted peer per frame**, when within one frame
+  the object palettes do not change and every call site reads the table only.
+
+Both were fixed (the helper hoisted to file scope, the palette cached per frame on the emulator's
+own frame count). **Both had to hang off `ENGINE` rather than new file-scope locals — this file is
+at Lua's 200-local ceiling and the first attempt tipped it into a PARSE failure**, which is the
+trap this adapter and Emerald's both already document.
+
+**Then the A/B, at 128 painted peers — the first rung where Crystal leaves 60fps, so there is
+headroom for a difference to appear in:**
+
+| | avg fps | lowest |
+|---|---|---|
+| optimised | 49.2 | 30 |
+| original | **51.0** | 32 |
+
+**No gain. If anything slightly worse, and the gap is inside this machine's +/-10% noise, so the
+honest reading is "no measurable difference".** Reverted.
+
+**Why it was wrong, and it is the same mistake this session spent all day correcting in Emerald:
+the cost was never measured before it was optimised.** Crystal's palette build is four iterations
+of trivial work; the cache replaced it with an `emu.framecount()` call, a key computation and a
+table lookup. The PATTERN was familiar from Emerald and that was taken as sufficient reason — but
+in Emerald the equivalent allocations sat behind a profiler that had already named them as cost.
+**A pattern is a hypothesis, not a finding.**
+
+**What was kept, because it is an instrument rather than an optimisation:** `MG_CRY_SPANS`, a paint
+counter in `drawRows` (one add against a gui call measured at ~0.75us), and
+`probes/paintcount_probe.lua` to read it. Crystal had no equivalent of Emerald's `spans/frame`,
+which meant **a performance change here could not be checked at all** — a tier that silently stops
+painting gets FASTER, so a frame-rate win with no paint count is indistinguishable from a broken
+renderer. It reads **6,016 spans/frame at 64 peers, exactly 94 x 64**, matching an offline decode of
+the ROM's own sprite to the unit: two independent methods agreeing.
+
+**Crystal's ladder for the record** (1800 samples a rung, shipped drawn-only config, player idle):
+60.0 / 60.0 / 59.9 / 54.5 / 45.3 at 16 / 32 / 64 / 128 / 256 painted.

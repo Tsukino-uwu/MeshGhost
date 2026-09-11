@@ -2658,6 +2658,13 @@ local function drawRows(rows, sx, sy, colors, xflip)
 					local color = colors[run.idx]
 					if color then
 						gui.drawLine(math.max(x1, 0), y, math.min(x2, 159), y, color)
+						-- A PAINT COUNTER, always on and deliberately trivial: one add against a
+						-- gui call measured at ~0.75us. Emerald carries `spans/frame` for the same
+						-- reason and it is the only thing that made its 2026-09-11 painted-tier
+						-- work trustworthy -- a tier that silently stops painting gets FASTER, so
+						-- a frame-rate win with no paint count is indistinguishable from a broken
+						-- renderer. Read by probes/paintcount_probe.lua.
+						MG_CRY_SPANS = (MG_CRY_SPANS or 0) + 1
 					end
 				end
 			end
