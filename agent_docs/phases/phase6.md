@@ -323,13 +323,93 @@ point of picking a second, structurally different game.
   today or not) before touching code — per `CLAUDE.md`, no fix without a cited source for what's
   actually happening.
 
-## Catch-up record, written 2026-09-01 — the 2026-08-28 session that closed the question above
+## 2026-08-14 — the review sweep, as it reached TEVI
+
+**Backfilled 2026-09-11 from the commit log.** Not a TEVI session; the repo-wide server/client +
+adapter review sweep (`c72472ff`, ~15 real bugs across the Go core/relay and all three adapters)
+landed TEVI's share the same day: the stale-thread generation guard, `TcpClient` disposal, a real
+`Destroy()` on ghost/marker despawn, `OnDestroy`/`OnApplicationQuit` bridge close, a `room_x`/
+`room_y` range check, and `TryGetValue` in place of unguarded `JObject` casts. `0f34b115` added the
+relay's `MaxClients` cap and join/leave/reject visibility; `627bccaf` filled in this file's own
+missing build-log milestones and gave Emerald its dedicated Phase 8. Full record: `phase8.md`'s
+2026-08-14 sweep task, which is where that cross-cutting work was logged at the time.
+
+## 2026-08-18 — TEVI starts its own client, and one vague word cost a regression report
+
+**Backfilled 2026-09-11.** Nine commits, and **the one worth keeping is not a code fix.**
+
+- **`f0782b0d` — "menu" is not a state in a game with two menus.** The agent told the user TEVI
+  peer ghosts would *"vanish when you open a menu."* In TEVI that reads as the PAUSE menu, where
+  ghosts staying visible is the wanted behaviour — so the user read it exactly that way and told
+  the agent to put it back. **The code was right.** This file already recorded, confirmed live
+  2026-08-13, that the Characters/pause overlay does not null the player, so `player == null`
+  safely distinguishes a real main-menu return from a pause overlay. **The defect was entirely in
+  how it was described.** The log line and comment now say *main menu*, say loudly that the pause
+  overlay must keep its ghosts, and the log line is self-verifying: if it appears when the pause
+  overlay opens, the premise is wrong and the despawn goes. The game fact — pause keeps the
+  player, title drops it — was missing from `tevi/documentation.md` entirely and was added.
+  **This is the origin of the root `CLAUDE.md` rule "Name the exact state: 'main menu', never bare
+  'menu'".**
+- **`7be4ecee` — TEVI starts its own client, and takes it down again**, with `dac6d0b7` writing
+  autostart down as an intended feature of every adapter rather than a TEVI convenience.
+- **`d88849e1` — three stacked bridge bugs, and a DLL that could not have talked to a peer.** The
+  adapter drained the bridge ABOVE the "is the local player in play" gate, so a remote's state
+  could create a ghost while there was no local player at all — the exact thing the gate exists to
+  prevent — and the null branch disconnected without despawning, leaving every peer ghost frozen
+  in menus and between sessions. It also dumped `bridge_ready` and `reject` into its
+  unknown-message-type default, so **every healthy session warned about the one message meaning
+  everything was fine**, and a rejection was talked straight past — the adapter kept pushing
+  `local_state` at a core that had already refused and closed. And the compiled DLL predated a
+  `PluginVersion` bump to 0.2.0: **`game_version` mismatch is a hard reject at the relay, so the
+  shipped artifact could not have talked to a peer built from its own source.** The send gate
+  `PROTOCOL.md` requires was deliberately left to a later pass and registered as entry 5 in
+  `tevi/BANDAGES.md` — getting it wrong trades a cosmetic warning for total silence.
+
+## 2026-09-04 — one adversarial corpus for all four harnesses
+
+**Backfilled 2026-09-11.** `726ad391` gave the four bridge-decoder harnesses a single shared
+adversarial corpus, TEVI's included — and the commit records that **the audit which scoped it was
+itself wrong**, which is the part worth keeping.
+
+## 2026-09-08 — the fuzz harness was asserting nothing, in the file that warns about it
+
+**Backfilled 2026-09-11.** `c00fab81`, and it is the cleanest instance of this repo's most expensive
+failure shape. `BridgeFuzz.cs` fed `extras` keys `"anim_time"` and `"temp_pause"`; the decoder reads
+`"anim_t"` and `"pause"`. **Every value decoded to null**, so the loop whose entire purpose is
+proving a non-finite value cannot reach a callback inspected NOTHING and printed *"0 reached a
+callback non-finite (want 0)"* unconditionally. The 18 state-level cases had the same problem one
+level up. **That is the failure the file's own header cites from 2026-09-03, reproduced inside the
+file that cites it.**
+
+Fixed keys, plus the assertions that make the counter mean something: a raw narrowing to a finite
+float must arrive WITH that value (computed independently, not hard-coded), a non-finite raw must
+arrive absent, and the category now FAILS if zero values ever reach a callback. **The evidence that
+it now exercises what it claims is the part that matters** — putting the old key names back produces
+26 "arrived absent" failures, and forcing the finiteness helper to claim every raw is finite
+produces exactly 18, the nine non-finite forms times two fields. Lines fed rose from 176 to 277.
+
+## Repo-wide sweeps that touched this adapter's files — 2026-08-19, 2026-08-21, 2026-08-25
+
+**Backfilled 2026-09-11.** Days this adapter's files changed without a TEVI session: `ec5d7734`
+(2026-08-19, docs matched to code, ghost collision given a host-set switch), `c4017f7d`
+(2026-08-21, every doc read against the code) and the 2026-08-25 restructure — the
+`adapters/bizhawk/` → `adapters/emulator/` rename, `verified.md`/`unverified.md` split per game,
+every record given an index with a preflight gate behind it, and `_template` shipping the three
+files it had always mandated (`73936944`, `1b015338`, `c9ceb659`, `8646a7e5`, `abbf7c8a`,
+`ad986443`, `1a303ee5`, `02ab4afa`).
+
+## 2026-08-27 — TEVI leaves its fixed bridge port
+
+**Backfilled 2026-09-01; given its own heading 2026-09-11.** The 8-port walk, the send gate, and
+port-walk convergence with the other three adapters (`74609a6`, `5634d10`, `9a34500`).
+
+## Catch-up record, written 2026-09-01 — the 2026-08-28 session (and 2026-08-29) that closed the question above
 
 This file sat unwritten while the work happened; backfilled from the commit log and
-`adapters/tevi/VERIFIED.md`, which carries the dated evidence for every item.
+`adapters/tevi/VERIFIED.md`, which carries the dated evidence for every item. The 2026-08-27 bullet
+became its own section 2026-09-11; 2026-08-29's dust commit stays here, inside the session arc it
+belongs to.
 
-- **2026-08-27** — TEVI left its fixed bridge port: the 8-port walk, the send gate, and
-  port-walk convergence with the other three adapters (`74609a6`, `5634d10`, `9a34500`).
 - **2026-08-28, the hot-reload session** — the live-reload loop was proven in-game via BepInEx
   ScriptEngine, after three green-but-did-nothing deploy bugs (`306377f`, `9905cf8`, `7cddef2`,
   `c42b6cb`), and it carried the rest of the day:
@@ -381,7 +461,7 @@ the variable still counts, the READMEs are rewritten around the key. Built and d
 in-game menus -- is filed in `ideas.md`.
 
 
-## 2026-09-03 — the bridge decoder gets a hostile-input harness, and it needed no adapter change
+## 2026-09-03 — the bridge decoder gets a hostile-input harness, and it needed no adapter change (with 2026-09-05, the client's move to the TEVI folder)
 
 From the adapter-fuzzer entry in `ideas.md`. The plan assumed TEVI would need a refactor first — split
 the parse out of `DrainInto` so a test could reach it. **It does not.** `BridgeClient.cs` imports only
