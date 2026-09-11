@@ -50,10 +50,9 @@ Then, in order:
 Almost always: **you edited the wrong copy.**
 
 Open `meshghost.log` and find the **`config loaded from ...`** line. It prints the full path of the
-file it actually read. For TEVI and Pseudoregalia that is the copy in the game's folder, not the
-one you unzipped; for Emerald and Crystal it is `games\pokemon\<game>\config.json` — unless you
-left `meshghost.exe` in the release root, in which case the two Pokémon scripts fall back to the
-config beside it. The Lua Console says which file it chose, every run.
+file it actually read. It is always the `config.json` sitting beside the `meshghost.exe` that
+actually ran: the copy in the game's folder if you copied one in, and the one in the release root
+if you started that exe yourself. The Lua Console says which file it chose, every run.
 
 The other cause is a broken file. Only edit the text between the quotes — keep the quotes, colons
 and commas exactly as they are. And save as plain **UTF-8**; saving as "Unicode"/UTF-16 makes the
@@ -86,22 +85,22 @@ rather than a match against anything known.
 
 ## Running the client yourself instead
 
-Normally your game's mod starts the client hidden and closes it with the game. Running it yourself
-is fully supported — not a debug mode — and is the answer whenever an antivirus objects, or when
-you just want to watch the client's window.
+If you copied `meshghost.exe` in beside your game's mod, it starts the client hidden and closes it
+with the game. Running it yourself instead is fully supported — not a debug mode — and is the
+answer whenever an antivirus objects, or when you just want to watch the client's window.
 
-Set `"autostart": false` in the `config.json` your game reads, then double-click `meshghost.exe`
-before you start the game and close it after. The mod then starts nothing and simply uses whichever
-client is already running.
+The simplest way is to not copy the exe in at all: leave it in the folder you unzipped, double-click
+it before you start the game, and close it after. A mod with no exe beside it starts nothing and
+simply uses whichever client is already running. If you have already copied one in and want to keep
+it there, set `"autostart": false` in the `config.json` beside it and the mod leaves it alone.
 
 **Keep `config.json` next to the exe.** The client reads the config in the folder it runs from, so
 if you move the exe, move the config with it — they travel as a pair. Alone, the client falls back
 to built-in defaults (`127.0.0.1:7777`, your own machine) and quietly never reaches your host.
 
-For TEVI and Pseudoregalia you may not need the setting at all: the mod only starts a client
-because you copied `meshghost.exe` into the game's folder. Do not copy it in, and there is nothing
-to switch off. The setting matters most for Emerald and Crystal, because their script also falls
-back to the release root — so it can find a client to start even when you put none beside it.
+You may not need the setting at all, in any game: every mod here starts a client only because you
+copied `meshghost.exe` in beside it. Do not copy it in, and there is nothing to switch off. The
+setting is for the case where the exe is already in place and you want it left alone this time.
 
 **On Crystal, `"autostart": false` did nothing at all before 2026-09-10** — a path bug meant the
 script never read the setting. If you tried it on an older build and it kept starting a client,

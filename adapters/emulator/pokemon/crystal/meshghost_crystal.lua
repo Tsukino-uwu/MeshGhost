@@ -9868,19 +9868,27 @@ local AUTOSTART = os.getenv("MESHGHOST_NO_AUTOSTART") == nil and (function()
     return true
 end)()
 
--- BESIDE THIS SCRIPT IS THE DOCUMENTED LAYOUT (2026-09-10): a player copies meshghost.exe into
--- this folder, and the core then reads the config.json here, writes meshghost.log here, and keeps
--- its replay\ folder here -- the same per-game separation TEVI and Pseudoregalia have. It is not
--- SHIPPED here (9 MB, once per game), which is why the copy is a manual step in the README.
--- The two fallbacks stay, and are not deprecated: the release root is three levels up from
--- games/pokemon/crystal, a source checkout four up from adapters/emulator/pokemon/crystal. An install
--- that never copied the exe keeps working exactly as it did.
+-- BESIDE THIS SCRIPT IS THE ONLY PLACE AUTOSTART LOOKS (2026-09-11): a player copies
+-- meshghost.exe into this folder, and the core then reads the config.json here, writes
+-- meshghost.log here, and keeps its replay\ folder here -- the same per-game separation TEVI and
+-- Pseudoregalia have. It is not SHIPPED here (9 MB, once per game), and making that copy IS the
+-- opt-in.
+--
+-- THE TWO ../ FALLBACKS ARE GONE, and removing them is the point (the user's call, 2026-09-11).
+-- Reaching back to the release root meant an install that never opted in still had a process
+-- spawned for it, which is the one thing autostart must not do: it is a convenience a player
+-- chooses, not a requirement, and starting one program from another is exactly what an antivirus
+-- objects to. There are now two shapes and never both at once -- exe in the release root means
+-- "run it yourself", exe beside this script means autostart, still switchable with
+-- "autostart": false. MESHGHOST_CORE_DIR stays ahead of it as the dev escape hatch, the same name
+-- and the same position TEVI's CoreSearchDirs gives it, because a repo checkout runs this script
+-- where it sits and no player ever copies an exe there.
 local function findCoreExe()
-	local candidates = {
-		SCRIPT_DIR .. "/meshghost.exe",
-		SCRIPT_DIR .. "/../../../meshghost.exe",
-		SCRIPT_DIR .. "/../../../../meshghost.exe",
-	}
+	local candidates = { SCRIPT_DIR .. "/meshghost.exe" }
+	local devDir = os.getenv("MESHGHOST_CORE_DIR")
+	if devDir and devDir ~= "" then
+		table.insert(candidates, 1, devDir .. "/meshghost.exe")
+	end
 	for _, path in ipairs(candidates) do
 		local f = io.open(path, "rb")
 		if f then

@@ -952,3 +952,43 @@ the log said only "unrendered".
 
 Records: `emerald/VERIFIED.md` (the ladder, the attribution, the refuted hypothesis),
 `emerald/UNVERIFIED.md` (what to watch), `dev-scripts/README.md` (the two new dev scripts).
+
+## 2026-09-11 (later still) — autostart stops being something an install gets without asking
+
+**The player docs were rewritten first**, and the autostart change fell out of one sentence in
+them. Describing the pieces for a reader, the new "How it fits together" section in
+`docs/getting-started.md` said the mod "starts and stops" the client for you. The user's
+correction: *"can start, not 'starts'"*, because *"autostart is not the default, its opt in if you
+drag the exe into the mod folder"*.
+
+That was true of TEVI and Pseudoregalia and **not** of this adapter. `findCoreExe` searched three
+places — beside the script, the release root three levels up, a source checkout four up — so an
+install that had never copied an exe anywhere still had a core started for it from the root. The
+opt-in was not an opt-in.
+
+**Removed both `../` fallbacks; the search is the script's own folder, after `MESHGHOST_CORE_DIR`.**
+Crystal's adapter got the identical change. The user's rule: *"everything should either be 'run exe
+manually from root' or 'place exe in mod folder for autostart, toggle on/off in config'. not both
+at once"*, and the reasoning that settled it — autostart is *"a qol people can have but not a
+requirement"*, and *"what might trigger antivirus things"*. One program starting another is exactly
+what an antivirus flags, so getting it unasked is the wrong default. Reasoning, cost and the
+reversed 2026-09-10 decision: [ADR 0061](../adr/0061-2026-09-11-autostart-is-opt-in-and-looks-only-beside-the-mod.md).
+
+**The dev loop needed the escape hatch to survive it.** Nine of the eighteen local BizHawk
+launchers relied on the four-up fallback to autostart against the repo-root build; the other nine
+already set `MESHGHOST_NO_AUTOSTART=1`. The nine now set `MESHGHOST_CORE_DIR=%~dp0..`, which is why
+that variable is kept ahead of the mod folder rather than dropped with the `../` paths — the same
+name and position TEVI's `CoreSearchDirs` has had all along.
+
+**UNWATCHED in either game**, and the check is three loads of the script rather than a reading: no
+exe beside it must now start nothing even with one in the release root, a copy beside it must still
+start one hidden, and `"autostart": false` must still override that. `emerald/UNVERIFIED.md`.
+
+Docs carrying the old behaviour were corrected in the same pass: `getting-started.md` (four
+places), `troubleshooting.md` (three), `packaging/README.md`, the release `README.txt` and both
+Pokémon `README.txt` files in the zip.
+
+**Not written up here: the three painted-tier commits that precede this entry** (`04044fcb`,
+`4badbf8c`, `6960c96f` — the timer strip, the vertical-merge measurement, and the user's on-water
+confirmation). They were the user's own session; their records are those commit messages and the
+`[PARTLY CONFIRMED]` entry in `emerald/UNVERIFIED.md`, and a fuller account is theirs to add.

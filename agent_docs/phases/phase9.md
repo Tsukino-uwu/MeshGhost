@@ -1413,3 +1413,16 @@ the ROM's own sprite to the unit: two independent methods agreeing.
 
 **Crystal's ladder for the record** (1800 samples a rung, shipped drawn-only config, player idle):
 60.0 / 60.0 / 59.9 / 54.5 / 45.3 at 16 / 32 / 64 / 128 / 256 painted.
+
+## 2026-09-11 (last) — autostart looks only beside the script here too
+
+Crystal took the identical change Emerald did, in the same pass and for the same reason: both `../`
+fallbacks removed from `findCoreExe`, leaving the script's own folder after `MESHGHOST_CORE_DIR`.
+An exe in the release root no longer starts a core for an install that never opted in, which is the
+whole point — autostart is a convenience a player turns on by copying the exe in, and one program
+starting another is what an antivirus objects to. The reasoning, the cost, and the 2026-09-10
+decision it reverses: [ADR 0061](../adr/0061-2026-09-11-autostart-is-opt-in-and-looks-only-beside-the-mod.md).
+The full account of how it came up is in [phase8.md](phase8.md)'s entry of the same date.
+
+Nothing about rendering, the bridge or the wire is touched. **UNWATCHED** — three loads of the
+script, listed in `crystal/UNVERIFIED.md`.

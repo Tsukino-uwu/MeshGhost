@@ -35,12 +35,13 @@ Running the client -- two ways, pick either:
      settings, its meshghost.log and its replay\ folder are all separate from every
      other game's -- the same arrangement TEVI and Pseudoregalia use.
 
-     THE MESHGHOST ROOT STILL WORKS. The script looks in its own folder first, then
-     three folders up (the MeshGhost root), then four (a source checkout), and takes
-     the first meshghost.exe it finds -- so an older install that left the exe in the
-     root keeps working untouched. What you give up by leaving it there is the
-     separation: the client then reads whichever config.json sits next to it, and the
-     Lua Console prints which file that was, every time.
+     THE MESHGHOST ROOT NO LONGER STARTS ONE (changed 2026-09-11). The script looks
+     beside itself and nowhere else, so an exe left in the MeshGhost root is simply
+     option 1: you start it yourself. That is the point of the change -- autostart is
+     a convenience you turn on by making this copy, not something an install gets
+     without being asked, and one program starting another is exactly what an
+     antivirus objects to. The Lua Console prints which config.json the client read,
+     every time.
 
      If an antivirus objects to one program starting another -- or you simply want to
      watch the client's window -- use option 1 instead, and put "autostart": false in

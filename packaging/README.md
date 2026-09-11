@@ -119,11 +119,13 @@ adapter:
   the DLL sits where the loader finds it, the two files a player touches sit where a player
   looks, and `meshghost.log` and `replay\` land beside them. The workflow ships the config —
   1 KB — and leaves the exe as a **one-time manual copy**, called out in each game's `README.txt`.
-- **Emerald and Crystal prefer their own folder and fall back to the release root.** The script
-  looks for `meshghost.exe` beside itself first, then three levels up (the release root), then
-  four (a source checkout), and the core's working directory follows the config it found — so a
-  player who copies the exe in gets the same per-game separation TEVI and Pseudoregalia have, and
-  one who does not keeps the original zero-copy behaviour. Nothing is duplicated in the zip
+- **Emerald and Crystal look beside the script, and nowhere else** (2026-09-11). The two `../`
+  fallbacks to the release root and to a source checkout are gone: reaching back to the root meant
+  an install that never copied the exe in still had a process spawned for it, and autostart is a
+  convenience a player opts into, not a requirement. Every game now has the same two shapes and
+  never both at once — exe in the release root means you run it yourself, exe beside the mod means
+  autostart, still switchable with `"autostart": false`. `MESHGHOST_CORE_DIR` stays ahead of the
+  search as the dev escape hatch, the same name TEVI's `CoreSearchDirs` uses. Nothing is duplicated in the zip
   either way; the exe stays a one-time manual copy, as above.
 
 Shipping a client copy per mod was the obvious alternative and was rejected: it grows the

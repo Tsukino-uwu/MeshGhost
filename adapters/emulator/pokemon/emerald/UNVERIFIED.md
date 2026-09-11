@@ -49,6 +49,29 @@ being work. An entry still here has not been confirmed.
 
 ---
 
+## [READY] autostart looks only beside the script now, UNWATCHED (2026-09-11)
+
+The two `../` fallbacks are gone from `findCoreExe` — the release root three levels up and a source
+checkout four up. The script looks beside itself, after `MESHGHOST_CORE_DIR` if that is set. Full
+reasoning and what it costs: [ADR 0061](../../../../agent_docs/adr/0061-2026-09-11-autostart-is-opt-in-and-looks-only-beside-the-mod.md).
+The user's call: *"everything should either be 'run exe manually from root' or 'place exe in mod
+folder for autostart, toggle on/off in config'. not both at once"*.
+
+**What to look at, three loads of the script:**
+
+1. **No `meshghost.exe` beside the script**, and one left in the release root. The Lua Console must
+   say `meshghost.exe not found near this script -- not starting a core. Start it yourself, or put
+   a copy beside this file.`, and no new `meshghost.exe` appears in Task Manager. **This is the
+   behaviour that changed** — before today the root copy would have been started for you.
+2. **A copy beside the script.** A core starts hidden, as it always has, and dies with EmuHawk.
+3. **That copy still there, `"autostart": false` in the `config.json` beside it.** Nothing starts,
+   and a client you launched yourself is used instead.
+
+Nothing about rendering, the bridge or the wire is touched, so a ghost that appears at all proves
+the rest is unaffected. The dev launchers set `MESHGHOST_CORE_DIR=%~dp0..` and are unaffected.
+
+---
+
 ## [PARTLY CONFIRMED] the painted tier is 3.2x faster — WATER CHECKED, land occlusion still open (2026-09-11)
 
 **UPDATE, same day: the user confirmed the WATER half on screen** while surfing in vanilla

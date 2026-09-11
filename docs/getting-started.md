@@ -56,7 +56,7 @@ Inside you will find:
 
 | | |
 | --- | --- |
-| `meshghost.exe` | The client. It runs quietly in the background while you play. **You do not open this yourself** — your game's mod starts it and closes it for you. |
+| `meshghost.exe` | The client. It runs quietly in the background while you play. Copy it in beside your game's mod in step 2 and the mod starts and closes it for you; leave it here and you start it yourself. |
 | `meshghost-server.exe` | The server. Only the one person hosting ever touches this. |
 | `config.json` | The settings file. You will edit three lines of it. |
 | `games\` | One folder per supported game. Only your game's folder matters to you. |
@@ -76,10 +76,11 @@ Nothing to install. You play these through the BizHawk emulator, and you load th
 time: **Tools → Lua Console → Script → Open Script**, and pick `meshghost_emerald.lua` (or
 `meshghost_crystal.lua`) from that folder. Leave the `lib\` folder next to it where it is.
 
-Then copy **`meshghost.exe`** into that same folder, beside the script. (It also works left in the
-folder you unzipped — the script checks its own folder first and falls back there — but keeping it
-beside the script is the same rule every supported game follows, and it gives each game its own settings
-and its own log.)
+Then copy **`meshghost.exe`** into that same folder, beside the script, if you want the script to
+start and stop the client for you. That copy is the whole opt-in, and it is the same rule every
+supported game follows: it also gives each game its own settings and its own log. Leave the exe in
+the folder you unzipped instead and the script starts nothing — you run it yourself before the
+game, and it keeps using the `config.json` that sits beside it there.
 
 **TEVI** (`games\tevi\`)
 
@@ -110,9 +111,9 @@ matters.
 > | Pseudoregalia | your Pseudoregalia folder |
 >
 > **For Emerald and Crystal the `config.json` is already there**, so only `meshghost.exe` has to be
-> copied in — and they are the forgiving ones, falling back to the unzipped folder if you skip the
-> copy entirely. **For TEVI and Pseudoregalia you copy BOTH files** into the game folder, and there
-> is no fallback, because the mod looks only where the game lives.
+> copied in. **For TEVI and Pseudoregalia you copy BOTH files** into the game folder. Either way the
+> mod looks only where the game lives: skip the copy and nothing starts a client for you, which is
+> the supported way to run it if you would rather start `meshghost.exe` yourself.
 
 ## 3. Fill in three things
 
@@ -143,8 +144,9 @@ are playing — the mod says that itself.
 
 ## 4. Play
 
-Just start your game. The mod starts MeshGhost for you with no window and closes it when you
-quit — there is nothing to launch first, nothing to leave open, and no order to get right. (For
+Just start your game. If you copied the exe in at step 2, the mod starts MeshGhost for you with no
+window and closes it when you quit, so there is nothing to launch first and no order to get right;
+if you did not, start `meshghost.exe` yourself first and leave it running. (For
 Emerald and Crystal, "start the game" means opening your ROM in BizHawk and loading the script as
 in step 2.)
 
