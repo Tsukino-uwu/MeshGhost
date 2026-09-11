@@ -117,6 +117,11 @@ type circleAdapter struct {
 	mu        sync.Mutex
 	lastPrint map[string]time.Time
 	live      map[string]bool
+	// How often the synthetic peer STOPS, and for what fraction of that period.
+	// See travelled() and defaultStopPeriod for why a rig with no stops in it cannot
+	// judge an interpolator.
+	stopPeriod   float64
+	stopFraction float64
 }
 
 // inChurnWindow reports whether this client should currently pretend to be
@@ -136,9 +141,60 @@ func (a *circleAdapter) GetLocalState() (protocol.State, bool) {
 // stateAt is GetLocalState with the clock passed in, so the deterministic
 // part (the circle, the facing, the churn window) can be tested at a chosen
 // point on the path instead of at whatever moment the test happened to run.
+// travelled maps wall seconds to "seconds of movement", holding still for a
+// fraction of every stopPeriod. Continuous, monotone, and a pure function of t.
+//
+// The shape is: move for (1-fraction) of each period, then hold. Because it is
+// the ANGLE's clock rather than the angle itself, the ghost resumes from where
+// it stopped instead of jumping to where it would have been -- a jump would be
+// a teleport, which is a different test (and one the core cannot currently
+// tell from a walk; see ideas.md, review E11).
+func (a *circleAdapter) travelled(t float64) float64 {
+	if a.stopPeriod <= 0 || a.stopFraction <= 0 {
+		return t
+	}
+	moving := a.stopPeriod * (1 - a.stopFraction)
+	whole := math.Floor(t / a.stopPeriod)
+	within := t - whole*a.stopPeriod
+	if within > moving {
+		within = moving
+	}
+	return whole*moving + within
+}
+
+// stopPeriod and stopFraction shape the synthetic peer's STOPS.
+//
+// **A CONSTANT-SPEED CIRCLE IS THE MOST FLATTERING INPUT AN INTERPOLATOR CAN BE
+// GIVEN (review H15), and it is what this rig produced for its whole life.** No
+// stops, no turns, no landings, infinitely differentiable, sampled exactly on
+// the tick -- every prediction is right, every correction is zero, and
+// `dev-scripts/README.md`'s own rule is that you judge an interpolator on the
+// CORRECTION. A ladder climbed against this cannot see the thing it is climbing
+// for.
+//
+// What a stop adds is the one discontinuity a real player produces constantly
+// and a circle never does: velocity going to zero and back. That is where an
+// extrapolating interpolator overshoots and has to pull back, which is exactly
+// the artefact a verdict is supposed to be judging.
+//
+// Deliberately NOT random: the motion stays a pure function of elapsed time, so
+// two clients at the same phase are still in lockstep and a run is still
+// reproducible from its flags alone. Off by -stop-every 0.
+// OFF BY DEFAULT, and that is the same call the user made for netsim's correlated
+// loss model on the same day: a rig change that alters what a run MEANS is opt-in,
+// because every number on record was taken without it and a silent change makes
+// those incomparable without anyone noticing. 7 seconds is the suggested value
+// once it is turned on, not the default.
+const defaultStopPeriod = 0.0
+const defaultStopFraction = 0.25
+
 func (a *circleAdapter) stateAt(elapsed time.Duration) (protocol.State, bool) {
 	t := elapsed.Seconds()
-	angle := 2*math.Pi*t/a.periodSeconds + a.phase
+
+	// THE ANGLE IS DRIVEN BY A "DISTANCE TRAVELLED" CLOCK, not by wall time, so
+	// a stop genuinely stops the ghost rather than teleporting it forward when
+	// it resumes. travelled(t) is continuous and flat during a stop.
+	angle := 2*math.Pi*a.travelled(t)/a.periodSeconds + a.phase
 
 	pos := make([]float64, a.dims)
 	copy(pos, a.center)
@@ -322,6 +378,15 @@ func main() {
 	clients := flag.Int("clients", 1, "how many independent synthetic peers to run in this process, "+
 		"each with its own Core and relay connection")
 	radius := flag.Float64("radius", 10, "circle radius in position units")
+	stopEvery := flag.Float64("stop-every", defaultStopPeriod,
+		"how often the synthetic peer stops, in seconds; 0 (the default) never stops. "+
+			"Try 7. A constant-speed circle is the most "+
+			"flattering input an interpolator can be given -- no stops, no turns, every prediction "+
+			"right and every correction zero -- and dev-scripts/README.md's own rule is that you "+
+			"judge an interpolator on the CORRECTION. 0 restores the old always-moving circle, which "+
+			"is what every measurement before 2026-09-11 was taken against")
+	stopFor := flag.Float64("stop-fraction", defaultStopFraction,
+		"what fraction of each -stop-every the peer spends standing still (0..1)")
 	period := flag.Float64("period", 4, "seconds per full revolution")
 	dims := flag.Int("dims", 2, "position components to send: 2 for a 2D game (Emerald), 3 for a 3D one")
 	center := flag.String("center", "", "circle center as comma-separated position components, e.g. "+
@@ -599,6 +664,8 @@ func main() {
 			start:         start,
 			radiusUnits:   *radius,
 			periodSeconds: *period,
+			stopPeriod:    *stopEvery,
+			stopFraction:  *stopFor,
 			logInterval:   *logEvery,
 			phase:         2 * math.Pi * float64(i) / float64(*clients),
 			dims:          *dims,

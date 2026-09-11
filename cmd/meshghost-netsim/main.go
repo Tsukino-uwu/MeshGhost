@@ -525,22 +525,73 @@ func serveTCP(listenHost, targetHost string, port int, f *faults, st *stats) err
 // A partition stalls the stream rather than discarding it, for the same
 // reason: a real partition makes tcp retransmit until it gives up, so the
 // bytes are late, not gone.
+// tcpChunk is one read from the source, and the instant it is due at the
+// destination.
+type tcpChunk struct {
+	data []byte
+	due  time.Time
+}
+
+// pumpTCP copies one direction of a tcp flow, applying the delay model.
+//
+// **THE READ LOOP DOES NOT SLEEP (review H16, fixed 2026-09-11), and that is the
+// whole difference between DELAYING a stream and CLUMPING it.**
+//
+// This used to sleep inline between the read and the write, in the one goroutine
+// doing both. So the latency was not added to a flowing stream -- it became the
+// stream's SERVICE INTERVAL: at the no-arg profile's 100 ms the path could
+// complete about ten read-write cycles a second, and a 15 Hz sender's lines
+// piled up in the kernel buffer between them and crossed in bursts. The client
+// saw one clump of samples every 100 ms rather than a smooth stream delayed by
+// 100 ms, and those are different networks. Any rate or interpolation verdict
+// taken over tcp on the old rig was measuring the proxy.
+//
+// Now: the reader never blocks, each chunk is stamped with when it is due, and a
+// second goroutine writes them IN ORDER at their due times. Order is preserved
+// by construction -- a stream cannot reorder without corrupting itself, which is
+// exactly why loss, duplication and reordering stay udp-only here.
 func pumpTCP(f *faults, st *stats, d direction, src, dst net.Conn) {
+	// Bounded, so a destination that stops reading cannot make this grow without
+	// limit -- at which point the reader blocks, which is what a real congested
+	// link does anyway.
+	queue := make(chan tcpChunk, 1024)
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		for chunk := range queue {
+			if wait := time.Until(chunk.due); wait > 0 {
+				time.Sleep(wait)
+			}
+			st.forwarded.Add(1)
+			if _, werr := dst.Write(chunk.data); werr != nil {
+				return
+			}
+		}
+	}()
+
 	buf := make([]byte, 32*1024)
 	for {
 		n, err := src.Read(buf)
 		if n > 0 {
+			// Copied: buf is reused by the next read, and the chunk now
+			// outlives this iteration.
+			chunk := tcpChunk{data: append([]byte(nil), buf[:n]...), due: time.Now()}
 			if f.applies(d) {
+				// A partition holds the whole flow, so it is measured here and
+				// added to the due time rather than slept through -- the reader
+				// stays live and the bytes queue up behind it, which is what a
+				// blacked-out link actually does.
 				for f.partitioned() {
 					st.partitions.Add(1)
-					time.Sleep(50 * time.Millisecond)
+					chunk.due = chunk.due.Add(50 * time.Millisecond)
+					time.Sleep(5 * time.Millisecond)
 				}
-				if delay := f.delayFor(); delay > 0 {
-					time.Sleep(delay)
-				}
+				chunk.due = chunk.due.Add(f.delayFor())
 			}
-			st.forwarded.Add(1)
-			if _, werr := dst.Write(buf[:n]); werr != nil {
+			select {
+			case queue <- chunk:
+			case <-done:
 				return
 			}
 		}
@@ -552,6 +603,8 @@ func pumpTCP(f *faults, st *stats, d direction, src, dst net.Conn) {
 			if err != io.EOF {
 				log.Printf("netsim: tcp %s flow ended: %v", d, err)
 			}
+			close(queue)
+			<-done
 			return
 		}
 	}

@@ -3234,3 +3234,34 @@ in the decomp's save code), and recolouring the current slot instead repaints ev
 it. The shipped adapter stays read-only. *"ppl can play AP if they want to swap color"* -- the
 patch does the write, and its choice crosses the wire as built.
 
+## A teleport is interpolated like a walk, and the core cannot tell the difference (review E11, filed 2026-09-11)
+
+**The finding.** `core/interp.go`'s `lerp` refuses to blend two samples only when their `area_id`
+differs. A same-area teleport -- a death and respawn at a checkpoint in one room, a warp pad, a
+cutscene reposition -- is therefore rendered as a straight-line GLIDE from where the peer died to
+where they reappeared, through whatever geometry is between, at whatever speed the gap over the
+send interval implies (~8000 units/s in the worked example). No distance or speed test exists
+anywhere in `core/`.
+
+**Why it was not simply fixed, which is the point of this entry.** A speed threshold is GAME
+KNOWLEDGE. "Too fast to be a walk" is a number in one game's coordinate units, and `CLAUDE.md`'s
+first invariant is that the core never becomes game-aware -- no config and no feature may make it
+so. A constant picked in `core/` would be wrong for every game but the one it was measured on, and
+silently: it would snap a legitimate fast movement in a game with larger units, which is a worse
+artefact than the glide.
+
+**The shape a fix would take, if it is wanted.** The same shape ADR 0059 used for the protocol
+floor: **the ADAPTER declares the number and the core only compares it.** An adapter knows what its
+game's units mean and what its fastest legitimate movement is; the core would carry
+`max_interp_speed` (or a distance) on `bridge.Hello`, compare it against a distance it already
+computes, and hold the older sample instead of blending when the pair exceeds it. The core still
+interprets nothing -- exactly the argument `internal/gameblind`'s frozen-fields gate accepted for
+`min_protocol_version`.
+
+**It needs the user's call before anything is built, for two reasons.** It changes what the player
+SEES (a glide becomes a snap, which is a judgement about which artefact is worse, and the answer
+may differ per game), and it adds a field to the bridge contract, which is an ADR either way.
+
+**Worth knowing while it is open:** every shipped adapter today renders the glide, and nobody has
+reported it -- which may mean it is rare in these four games, or may mean it reads as ordinary lag.
+That question is answerable in a session: die at a checkpoint with a second client watching.
