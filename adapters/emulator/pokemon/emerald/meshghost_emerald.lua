@@ -6159,15 +6159,23 @@ genderFrames.door.ready = function()
     genderFrames.door.readyFor = off
     genderFrames.door.readyAns = false
 
-    local function isFrameTable(a)
+    -- **THE OFFSETS, NOT JUST THE TIMES** (tightened 2026-09-12). Checking only the five `time`
+    -- bytes was five bytes of evidence, and EX SPEEDCHOICE sailed through it while carrying door
+    -- tasks this adapter never recognised -- a build reporting "tables found" and then silently
+    -- matching nothing, which is worse than a build that says it cannot do doors. Each table's
+    -- four offsets are its identity (struct DoorAnimFrame: u8 time at +0, u16 offset at +2), and
+    -- they differ between the three, so this is twelve more bytes that a coincidence has to pass.
+    local function isFrameTable(a, o0, o1, o2, o3)
         for f = 0, 3 do
             if r8(a + f * 4) ~= 4 then return false end
         end
-        return r8(a + 16) == 0
+        if r8(a + 16) ~= 0 then return false end
+        return r16(a + 2) == o0 and r16(a + 6) == o1
+            and r16(a + 10) == o2 and r16(a + 14) == o3
     end
-    local ok = isFrameTable(flyRide.rom(genderFrames.door.FRAMES_OPEN))
-        and isFrameTable(flyRide.rom(genderFrames.door.FRAMES_CLOSE))
-        and isFrameTable(flyRide.rom(genderFrames.door.FRAMES_BIG_OPEN))
+    local ok = isFrameTable(flyRide.rom(genderFrames.door.FRAMES_OPEN), 0xffff, 0, 0x100, 0x200)
+        and isFrameTable(flyRide.rom(genderFrames.door.FRAMES_CLOSE), 0x200, 0x100, 0, 0xffff)
+        and isFrameTable(flyRide.rom(genderFrames.door.FRAMES_BIG_OPEN), 0xffff, 0, 0x200, 0x400)
     if ok then
         -- And the graphics table: its first three entries must each carry two ROM pointers.
         local base = flyRide.rom(genderFrames.door.GFX_TABLE)
@@ -6189,6 +6197,16 @@ genderFrames.door.ready = function()
     -- idiom, and a cached address is not a place to reopen it.
     genderFrames.door.fn = nil
     if ok and off == 0 then genderFrames.door.fn = genderFrames.door.TASK_ANIMATE end
+    -- **THE PASS IS LOGGED TOO, AND THAT IS NOT NOISE** (2026-09-12). Logging only the failure
+    -- made silence mean two opposite things -- "this build's tables are fine" and "nothing ever
+    -- asked" -- and EX SPEEDCHOICE sat in exactly that ambiguity for three reload cycles while
+    -- being the one build the question was about. One line per ROM, naming the addresses it
+    -- resolved, so the next reading is unambiguous without another round trip.
+    logFile(string.format("f=%d DOOR tables %s: open=%08X close=%08X big=%08X gfx=%08X off=%d",
+        frameCounter, ok and "OK" or "NOT FOUND",
+        flyRide.rom(genderFrames.door.FRAMES_OPEN), flyRide.rom(genderFrames.door.FRAMES_CLOSE),
+        flyRide.rom(genderFrames.door.FRAMES_BIG_OPEN), flyRide.rom(genderFrames.door.GFX_TABLE),
+        off))
     if not ok then
         console.log("MeshGhost: the door animation tables are not at the addresses this adapter "
             .. "knows on this build, so ghosts will not open doors here (and this client will not "
@@ -6230,29 +6248,33 @@ genderFrames.door.isDoorTask = function(t)
         or frames == flyRide.rom(genderFrames.door.FRAMES_BIG_OPEN) then
         kind = "o"
     end
-    if not kind then return nil end
     -- And tGfx must be a real entry of the graphics table: inside it, and on an entry boundary.
     local gfx = (r16(t + 0x0c) << 16) | r16(t + 0x0e)
     local tbl, entry = flyRide.rom(genderFrames.door.GFX_TABLE), genderFrames.door.GFX_ENTRY
-    if gfx < tbl or gfx >= tbl + genderFrames.door.GFX_MAX * entry
-        or (gfx - tbl) % entry ~= 0 then
-        -- **THE NEAR MISS IS WORTH ONE LINE** (2026-09-12). EX SPEEDCHOICE learned nothing from a
-        -- door the user demonstrably opened, while its frame tables validated -- so the frames
-        -- half of this signature matched and the graphics half did not, and the difference
-        -- between "its table is longer than 54 entries" and "its table is somewhere else
-        -- entirely" is one number. Logged ONCE, only on a task that already looks like a door,
-        -- because a diagnostic that fires per frame is one that changes what it measures.
-        if not genderFrames.door.missLogged then
-            genderFrames.door.missLogged = true
-            logFile(string.format(
-                "f=%d DOOR near-miss: frames=%s matched but tGfx=%08X is outside [%08X,%08X) "
-                    .. "(romOffset=%d)",
-                frameCounter, kind, gfx, tbl, tbl + genderFrames.door.GFX_MAX * entry,
-                genderFrames.romOffset or 0))
-        end
-        return nil
+    local gfxOk = gfx >= tbl and gfx < tbl + genderFrames.door.GFX_MAX * entry
+        and (gfx - tbl) % entry == 0
+    if kind and gfxOk then return kind end
+
+    -- **A HALF MATCH IS THE WHOLE DIAGNOSTIC, AND IT HAS TO WORK IN BOTH DIRECTIONS**
+    -- (2026-09-12). The first version of this log fired only when the FRAMES half matched, which
+    -- made it useless for the one build it was written for: EX SPEEDCHOICE finds its tables and
+    -- still matches no door task, so if its doors use a frame table this adapter does not know,
+    -- the log that would say so could never fire. Either half alone is already far past
+    -- coincidence, so either half alone is worth one line -- and the line carries both values, so
+    -- the next reading says which of "its graphics table is longer than 54 entries", "its
+    -- graphics table is elsewhere" and "its doors use a frame table of their own" is true.
+    --
+    -- Logged ONCE per load. A diagnostic that fires per frame is one that changes what it
+    -- measures, and this file has the scar to prove it.
+    if (kind or gfxOk) and not genderFrames.door.missLogged then
+        genderFrames.door.missLogged = true
+        logFile(string.format(
+            "f=%d DOOR half-match: frames=%08X (%s) tGfx=%08X (%s), gfx table [%08X,%08X) off=%d",
+            frameCounter, (r16(t + 0x08) << 16) | r16(t + 0x0a), kind or "unknown",
+            gfx, gfxOk and "in table" or "outside",
+            tbl, tbl + genderFrames.door.GFX_MAX * entry, genderFrames.romOffset or 0))
     end
-    return kind
+    return nil
 end
 
 genderFrames.door.sample = function()
@@ -6488,6 +6510,31 @@ genderFrames.doorTick = function(localAreaId)
             local tx, ty = math.floor(r.x + 0.5), math.floor(r.y + 0.5)
             if genderFrames.door.start("h", tx, ty) then
                 r.dOpenAt, r.dOpenX, r.dOpenY = frameCounter, tx, ty
+                r.dHold = true
+            end
+        end
+        -- **A HELD-OPEN DOOR SHUTS WHEN THE GHOST STEPS OFF IT**, which is what the engine does
+        -- and is the only version of this that is not a guess at a duration.
+        --
+        -- The hold above is this client's own inference, so no close is coming for it from the
+        -- wire -- and on EX none is coming for anything, because that build cannot recognise its
+        -- own door task to report it. Waiting for the backstop instead put a full two seconds
+        -- between a ghost walking out and the door shutting: *"feels a bit slow/long"*. The
+        -- engine's own exit closes the door the instant the walk-down completes
+        -- (`Task_ExitDoor` state 2, `IsPlayerStandingStill`), and "the peer is no longer standing
+        -- on the door tile" is that same instant, observable from a position we already have.
+        --
+        -- Only for a hold WE inferred: a door the peer opened by entering has a real close coming
+        -- from their engine, and during that one the ghost walks ONTO the door tile rather than
+        -- off it, so this test would have closed it at exactly the wrong moment.
+        if r.dHold and r.dOpenAt then
+            local offTile = r.areaId ~= localAreaId
+            if not offTile and r.x and r.y then
+                offTile = math.floor(r.x + 0.5) ~= r.dOpenX or math.floor(r.y + 0.5) ~= r.dOpenY
+            end
+            if offTile then
+                genderFrames.door.start("c", r.dOpenX, r.dOpenY)
+                r.dOpenAt, r.dHold = nil, nil
             end
         end
         if r.dk and r.dx and r.dy and r.areaId == localAreaId then
@@ -6503,8 +6550,10 @@ genderFrames.doorTick = function(localAreaId)
                 r.dKey = key
                 if started and r.dk ~= "c" then
                     r.dOpenAt, r.dOpenX, r.dOpenY = frameCounter, r.dx, r.dy
+                    -- A door the PEER reported has its own close coming; it is not ours to time.
+                    r.dHold = nil
                 elseif r.dk == "c" then
-                    r.dOpenAt = nil
+                    r.dOpenAt, r.dHold = nil, nil
                 end
             end
         end
@@ -6519,7 +6568,7 @@ genderFrames.doorTick = function(localAreaId)
             if r.areaId == localAreaId then
                 genderFrames.door.start("c", r.dOpenX, r.dOpenY)
             end
-            r.dOpenAt = nil
+            r.dOpenAt, r.dHold = nil, nil
         end
     end
 end
