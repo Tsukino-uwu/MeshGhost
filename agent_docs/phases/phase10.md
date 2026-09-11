@@ -1881,3 +1881,9 @@ weakened, because the stalled transport never returns from its first write, so "
 exactly what is asserted.
 
 `go test -count=2 ./...` clean over four runs; `dev-scripts/run-gotests-race.bat` clean tree-wide.
+
+## 2026-09-12 — two things CI caught that no local run could
+
+**A data race in `netx/quicconn`, found by the race detector and not by any local run.** `TestAHandshakedConnectionThatOpensNoStreamIsBounded` lowers the package-level `maxPending` and restores it in `t.Cleanup`; cleanups are LIFO so `l.Close()` runs first, but Close does not wait for `acceptLoop`, so that goroutine was still reading the global while the test wrote it. **Ordering the cleanups would have hidden it rather than fixed it** — a listener's own limit should not be a mutable global read at arbitrary times, so each Listener copies it in `Listen` and reads its own field after. `run-gotests-race.bat` is clean; plain `go test -race` cannot run in this shell at all, because `-race` needs cgo and the `gcc` on PATH is a shadowed install that fails on warnings-as-errors — which is exactly why that script hunts for a working compiler.
+
+**And a test that could only ever pass locally**, in `cmd/meshghost`: it read four gitignored staging artifacts. Full reasoning in `519618e1`; the short version is that its INPUTS are tracked (`packaging/config-overrides/`), so CI now checks every shippable key from tracked files instead of skipping the coverage the test existed for.

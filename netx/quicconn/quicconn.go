@@ -360,6 +360,15 @@ type Listener struct {
 	pending        int
 	refusedPending int
 	lastPendingLog time.Time
+	// maxPending is this listener's own copy of the package default, taken once
+	// in Listen and never written again. The accept loop used to read the
+	// package var directly, which the race detector caught in CI on 2026-09-12:
+	// the only writer is a test lowering it, and its t.Cleanup restore ran while
+	// this listener's goroutine was still logging a refusal. Cleanups are LIFO
+	// and Close does not wait for acceptLoop, so ordering them would not have
+	// fixed it -- a listener's own limit simply should not be a mutable global
+	// read at arbitrary times.
+	maxPending int
 
 	ql     *quic.Listener
 	accept chan *Conn
@@ -404,6 +413,9 @@ func Listen(addr string) (*Listener, error) {
 		ql:     ql,
 		accept: make(chan *Conn, 16),
 		closed: make(chan struct{}),
+		// Read here, before the goroutine below exists, so the write and every
+		// later read are ordered by the goroutine's own creation.
+		maxPending: maxPending,
 	}
 	go l.acceptLoop()
 	return l, nil
@@ -448,12 +460,17 @@ func (l *Listener) acceptLoop() {
 // A var, not a const, ONLY so a test can lower it: proving the bound with the
 // shipped value would mean completing 257 real TLS 1.3 handshakes to assert one
 // refusal. Nothing writes it outside a test.
+//
+// Each Listener COPIES it in Listen and reads its own field thereafter, so a
+// test lowering it before Listen still works while nothing reads this var
+// concurrently with the test restoring it. That was a real data race, caught by
+// the race detector in CI and not by any local run (2026-09-12).
 var maxPending = 256
 
 func (l *Listener) takePending() bool {
 	l.pendingMu.Lock()
 	defer l.pendingMu.Unlock()
-	if l.pending >= maxPending {
+	if l.pending >= l.maxPending {
 		return false
 	}
 	l.pending++
@@ -482,7 +499,7 @@ func (l *Listener) notePendingRefusal() {
 		return
 	}
 	log.Printf("quicconn: refused a connection: %d already handshaked and waiting for a stream "+
-		"(limit %d); %d refused so far", maxPending, maxPending, n)
+		"(limit %d); %d refused so far", l.maxPending, l.maxPending, n)
 }
 
 func (l *Listener) awaitStream(qc *quic.Conn) {
