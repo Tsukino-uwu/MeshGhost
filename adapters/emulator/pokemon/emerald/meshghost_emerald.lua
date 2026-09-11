@@ -6385,6 +6385,16 @@ genderFrames.door.sample = function()
     if not genderFrames.door.ready() then return nil end
     local base, stride = genderFrames.door.tasksAddr(), flyRide.TASK_SIZE
     if not base then return nil end
+    -- RESOLVED EAGERLY AND REPORTED ONCE, rather than on the first door. Both of these are cheap
+    -- and cached, and leaving them lazy meant the one question being asked about this build --
+    -- where is its map grid -- could only be answered by asking the user to walk through a door
+    -- and then reading a log. A reading that costs nothing should not cost a round trip.
+    if not genderFrames.door.mapLogged then
+        genderFrames.door.mapLogged = true
+        local m = genderFrames.door.mapAddr()
+        logFile(string.format("f=%d DOOR map grid at %s (vanilla is 03005DC0)", frameCounter,
+            m and string.format("%08X", m) or "NOT FOUND"))
+    end
     for i = 0, 15 do
         local t = base + i * stride
         -- OURS IS NOT NEWS. A door this client painted for a peer is not a door this client's
@@ -6464,8 +6474,78 @@ end
 -- The DoorGraphics entry for the metatile at a PADDED grid coordinate, and its `size`.
 -- GetDoorGraphics' walk, and its answer for a tile that is not a door in this build's table is the
 -- same as the engine's: nothing happens.
+-- **WHERE gBackupMapLayout IS -- the last IWRAM address this feature assumed.**
+--
+-- The user, once the other three worked: *"EX still don't send properly when entering, only when
+-- exiting a house"*. Exiting is inferred by the RECEIVER from a peer's position and needs nothing
+-- from the sender, so that half working while entering did not is a statement about EX's send
+-- path alone. It has the tables, it has gTasks, it learned its code address -- so the only step
+-- left is the one that asks "is that tile a door", and that reads the map grid through
+-- `gBackupMapLayout` at 0x03005DC0. IWRAM. The thing EX moves.
+--
+-- **AND THE SHIFT CANNOT BE BORROWED.** This build now has three measured IWRAM offsets and no
+-- two agree: the save block at -0x10E0, the camera at -0x10D0, gTasks at -0x1120. `iwramOffset`
+-- exists for the first and would be wrong here. Found by shape instead, like gTasks, and reported
+-- with how many candidates matched -- a lone match is evidence, several is a coin toss and should
+-- say so rather than quietly pick.
+--
+-- The failure mode is deliberately mild compared to the code address: a wrong answer here reads
+-- the wrong metatile, so a door does not animate or does not match. Nothing is executed.
+genderFrames.door.mapAddr = function()
+    if genderFrames.door.mapAt ~= nil then return genderFrames.door.mapAt end
+    local sb1 = session.saveBlockPtr(0x03005d8c)
+    if sb1 == 0 then return nil end
+    local px = memory.read_s16_le(sb1 + 0x00) + MAP_OFFSET
+    local py = memory.read_s16_le(sb1 + 0x02) + MAP_OFFSET
+    local function looksLikeLayout(a)
+        local w, h, m = memory.read_s32_le(a), memory.read_s32_le(a + 0x04), r32(a + 0x08)
+        -- A real map is at least the border it is padded with, and the player is standing in it.
+        return w > MAP_OFFSET * 2 and h > MAP_OFFSET * 2 and w < 1024 and h < 1024
+            and m >= 0x02000000 and m < 0x02040000 and (m % 2) == 0
+            and px >= 0 and py >= 0 and px < w and py < h
+    end
+
+    if looksLikeLayout(0x03005dc0) then
+        genderFrames.door.mapAt = 0x03005dc0
+        return genderFrames.door.mapAt
+    end
+    local found, count = nil, 0
+    for a = 0x03000000, 0x03008000 - 12, 4 do
+        if looksLikeLayout(a) then
+            count = count + 1
+            -- Closest to the vanilla address wins: every relocation measured on this build is a
+            -- small negative shift, not a move to the other end of IWRAM.
+            if found == nil or math.abs(a - 0x03005dc0) < math.abs(found - 0x03005dc0) then
+                found = a
+            end
+        end
+    end
+    if found then
+        genderFrames.door.mapAt = found
+        logFile(string.format(
+            "f=%d DOOR gBackupMapLayout is NOT at 03005DC0 on this build -- using %08X (%+d), "
+                .. "%d candidate(s) matched",
+            frameCounter, found, found - 0x03005dc0, count))
+        return found
+    end
+    return nil
+end
+
+-- The metatile id at a PADDED grid coordinate, read through whichever address this build keeps its
+-- map grid at. genderFrames.metatileAt is the same read hardcoded to the vanilla address, and is
+-- left alone on purpose: it backs the occlusion chain, which is a separate open question on this
+-- build (its gMapHeader is unlocated too) and not one to fold into a door fix.
+genderFrames.door.metatileAt = function(px, py)
+    local base = genderFrames.door.mapAddr()
+    if not base then return nil end
+    local w, h, map = memory.read_s32_le(base), memory.read_s32_le(base + 0x04), r32(base + 0x08)
+    if map == 0 or w <= 0 or h <= 0 then return nil end
+    if px < 0 or py < 0 or px >= w or py >= h then return nil end
+    return r16(map + (px + w * py) * 2) & 0x03ff
+end
+
 genderFrames.door.gfxFor = function(px, py)
-    local id = genderFrames.metatileAt(px, py)
+    local id = genderFrames.door.metatileAt(px, py)
     if not id then return nil end
     local base = flyRide.rom(genderFrames.door.GFX_TABLE)
     for i = 0, genderFrames.door.GFX_MAX - 1 do
@@ -6571,7 +6651,24 @@ genderFrames.door.start = function(kind, x, y)
     end
     if free == nil then return false end
     local gfx, size = genderFrames.door.gfxFor(x + MAP_OFFSET, y + MAP_OFFSET)
-    if not gfx then return false end
+    if not gfx then
+        -- ONE LINE, ONCE. A build that has the tables, has gTasks, has the code address and still
+        -- paints no door is failing at the only step left -- reading the metatile -- and the
+        -- triple below says whether the map grid is even being read from the right place.
+        -- `gBackupMapLayout` is IWRAM, and IWRAM is exactly what EX SPEEDCHOICE moves.
+        if not genderFrames.door.gfxMissLogged then
+            genderFrames.door.gfxMissLogged = true
+            logFile(string.format(
+                "f=%d DOOR no gfx for tile %d,%d (padded %d,%d): metatile=%s "
+                    .. "gBackupMapLayout@03005DC0 w=%d h=%d map=%08X",
+                frameCounter, x, y, x + MAP_OFFSET, y + MAP_OFFSET,
+                tostring(genderFrames.door.metatileAt(x + MAP_OFFSET, y + MAP_OFFSET)),
+                memory.read_s32_le(genderFrames.door.mapAddr() or 0x03005dc0),
+                memory.read_s32_le((genderFrames.door.mapAddr() or 0x03005dc0) + 0x04),
+                r32((genderFrames.door.mapAddr() or 0x03005dc0) + 0x08)))
+        end
+        return false
+    end
     local frames
     if kind == "c" then
         frames = flyRide.rom(genderFrames.door.FRAMES_CLOSE)
