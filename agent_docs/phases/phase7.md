@@ -3642,3 +3642,42 @@ symbols answered confidently and wrongly. Caught by the dump's PE `TimeDateStamp
 the rebuild IS the tester's binary (13 differing bytes against the committed old DLL, all PE and
 debug-directory timestamps), then restoring the fix, rebuilding and redeploying (both installs
 UPDATED, hashes match). Filed with the lesson.
+
+## 2026-09-11 — Pseudoregalia's share of the review backlog (full record in phase10.md)
+
+Fifteen findings from the 2026-09-07 adversarial review, built and deployed to both installs,
+**UNWATCHED** — `UNVERIFIED.md` carries two entries saying what to watch. None of them changes
+what the game is supposed to look like, so what is owed is "does everything still work", plus one
+specific thing: **whether quitting still gives the Fatal Error box.**
+
+The six that matter most:
+
+- **I1 (HIGH) — a peer could close another player's bridge with eighteen bytes.** Every line was
+  classified by bare substring — a search for `"reject"` anywhere in it, then for `relay`
+  anywhere in it — and that ran over `render_remote` lines too, whose orientation blob is raw
+  JSON a peer writes and the core is forbidden to interpret. So one peer putting our own control
+  words in their orientation made the victim drop the bridge, park for the relay backoff, lose
+  every ghost, and log that THE RELAY was down. It reads the top-level `type` field now, and the
+  two readers live in `PeerJson.hpp` so they are testable without a game.
+- **I2 — `~Plugin` unregistered seven of eleven detours**, every one of whose lambdas captures
+  `this`. The fade guard's was structurally impossible to remove (its `UFunction*` was a local that
+  went out of scope) and the damage guards' lambda takes `state_mutex` and walks `remotes`, both
+  gone by the time the engine could run it during teardown. **The leading CANDIDATE for the
+  never-root-caused exit crash — a candidate, not a diagnosis.**
+- **I3 — a NaN rotation out of two FINITE peer angles.** The call site `isfinite`-checks all
+  three inputs and `lerp_angle_deg` then subtracted them: two finite doubles near the ends of the
+  range overflow to infinity, and `fmod(inf, 360)` is NaN, written straight into an FRotator.
+- **I8 — a dev toggle permanently corrupted the player pawn's CLASS DEFAULT OBJECT.** With
+  `ghost_no_overlap` armed, `bGenerateOverlapEvents` was saved and restored through a raw `bool*`;
+  engine bools on this build are PACKED, so the restore wrote `0x01` over six other flags on the
+  template every later pawn is built from — **including the real player after the next level
+  load.** `bIsCrouched` (I7) was the same thing, per ghost per tick.
+- **I4/I5 — two stale-pointer paths**: the in-tick "respawn fresh" branches kept the nametag
+  trio and the drive rig, and the afterimage sweep's no-ghosts branch called into components with
+  no liveness check at all — the branch that runs precisely when every ghost has just gone.
+- **I6 — `player_frozen` was latched before it was sent, from the wrong thread.** A dropped
+  freeze means the chaser clock runs through the whole pause, which is the drift ADR 0053 removes.
+
+Also: I9, I10, I11, I12, I13, I14 (now `BANDAGES.md` entry 0a), I15, I16, I17, I19, I20, and the
+reject-code change (ADR 0058's adapter half). Full session record, including what was NOT done and
+why: [phase10.md](phase10.md), 2026-09-11.

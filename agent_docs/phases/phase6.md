@@ -780,3 +780,27 @@ locations are mutually exclusive on purpose, because with the adapter in both, t
 run, which is two bridge connections and two ghosts per peer, *"and every reading agrees with itself
 while being wrong"*. Rewritten to say that, plus the two faults the loop can never show: a cold-start
 fault, and anything the old instance left parented into the scene.
+
+## 2026-09-11 — TEVI's share of the review backlog (full record in phase10.md)
+
+Seven findings from the 2026-09-07 adversarial review, built and deployed to both installs,
+**UNWATCHED** — `UNVERIFIED.md` carries what to watch. Two of them are things another player
+could do to this one:
+
+- **I22 (HIGH):** `Mathf.Abs(int.MinValue)` THROWS, and since the 2026-08-28 frame-driven refresh
+  the map-marker bound runs from `Update()` rather than inside `DrainInto`'s per-line catch — so a
+  peer sending `room_x: -2147483648` killed the victim's whole `Update()`, `SendLocalState`
+  included, and the victim vanished from every other player's screen. A plain range test also fixes
+  the bound itself: `int.MinValue <= 100000` was true.
+- **I21 (HIGH):** the bridge write is a blocking write on Unity's MAIN THREAD and .NET leaves
+  `SendTimeout` infinite, so a core that stopped reading froze the game for as long as it took.
+- **I23:** the position was the one peer float that never got the finite check the animator floats
+  got in the 2026-09-02 review, and it reaches `transform.position` and `Vector3.Distance`, where a
+  NaN spreads into the physics state of whatever it touches. Nine cases in `BridgeFuzz.cs`.
+- **I24/I25/I26:** the read loop read the `stream` FIELD rather than its own connection's, held no
+  bound on a partial line, and decoded UTF-8 per chunk — which silently mutates a non-ASCII
+  `anim` or `area_id` split across a TCP read while the line stays valid JSON.
+- **I27, I28, I29** and the reject-code change (ADR 0058's adapter half): see phase10.md.
+
+The full session record, including what was NOT done and why, is in
+[phase10.md](phase10.md)'s 2026-09-11 entry.

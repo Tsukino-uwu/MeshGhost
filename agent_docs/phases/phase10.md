@@ -1726,3 +1726,93 @@ the hook. ~25s per fixture locally.
 **Left open.** 39 sections with no fixture (`status.md` carries it). The disarmed-probe warning
 prints 21 entries every run and is the same always-on shape as (3) — a candidate for the same
 treatment. The records: `pitfalls/by-lesson.md`, under the UNPROVEN entry.
+
+## 2026-09-11 (later still) — the 23-agent review's backlog, worked to zero
+
+**The session's whole shape**, from the user: *"Lets work on all of these now, before they go stale
+or something"* — the ~109 open items in the untracked `REVIEW-FINDINGS.md` left by the 2026-09-07
+adversarial review. It ended at **zero unhandled**: 148 marked fixed or verified, 6 left explicitly
+needing the user's judgement, each with the reasoning written beside it.
+
+**The first thing found was that the file was STALE.** Nine items marked open had been fixed on
+2026-09-08 without the checkbox moving — C1, F1-F4, F13, F14, F20, F21. So every remaining item was
+re-read against the current code before anything was touched, which is also how three MORE turned
+out to be already fixed later (H5, I31, I39/I40, I42). A checklist nobody re-verifies is a list of
+things that might be true.
+
+### The Go side
+
+- **E5, the largest.** `sendState` ran on the BRIDGE connection's read goroutine and wrote the relay
+  socket synchronously, so a relay that stopped reading blocked that loop for the whole ten-second
+  write deadline — the bridge buffer then fills and the adapter's next write blocks **on the game's
+  main thread**. `core/relaywriter.go` is the 2026-09-07 core→adapter fix applied to the last
+  frame-path write in the process. ADR 0060 covers both directions, retrospectively for the first.
+- **E4:** `transportDialFailures` was documented as counting CONSECUTIVE failures and nothing reset
+  it, so two failures EVER condemned quic for the session — the exact outcome the two-strike rule
+  was added to prevent.
+- **G2/G4:** a typo'd config key did nothing silently; Ctrl+C lost a recording's gzip footer, on the
+  exit path an antivirus-affected player is told to use.
+- **F12:** quic held an unbounded number of handshaked-but-streamless connections, outside every
+  bound the relay has.
+- **J2, confirmed live:** a solo session could never be told its own `session_policy` — and
+  `chaser_contact` rides that message, so the one mode the chaser exists for was the one mode its
+  opt-in could not reach.
+- **J9 and the hole behind it:** the frozen-fields gate errored only for a frozen entry with no
+  sample, so a type nobody added was invisible by default. A new AST sweep found `protocol.StatePrev`
+  on its first run.
+
+### The adapters, where the interesting ones were
+
+Six HIGHs that a **peer** could trigger on someone else's machine: an 18-byte remote bridge-kill
+(I1), `room_x = -2147483648` killing a victim's whole `Update()` and with it `SendLocalState` (I22),
+a fractional `extras.face` stopping Crystal's drawn tier for ALL peers (I37), a non-string
+`player_id` killing every Emerald tier for the session (I30), a NaN rotation from two FINITE angles
+(I3), and a malformed `\u` escape costing a whole message — the same bug in two different shapes in
+the two Lua adapters (I47).
+
+Plus **I8**, the one worth remembering: a dev toggle wrote `bGenerateOverlapEvents` on the player
+pawn's CLASS DEFAULT OBJECT through a raw `bool*`, and engine bools on this build are PACKED — so
+the restore wrote `0x01` over six other flags, on the template every later pawn is built from,
+**including the real player after the next level load**. `bIsCrouched` (I7) was the same thing per
+ghost per tick.
+
+### What the instruments were doing
+
+- **netsim's tcp path CLUMPED rather than delayed** (H16): the sleep was between the read and the
+  write in one goroutine, so the configured latency became the path's service interval — ~10 cycles
+  a second at 100 ms — and a 15 Hz stream crossed in bursts. This rig is what every rate and interp
+  verdict is judged on.
+- **The first regression test for that was invalid and was caught being so**: built on `net.Pipe`,
+  which is unbuffered, the old behaviour throttled the SENDER and the test passed against the very
+  thing it existed to catch. Rebuilt on a real socket it fails the old code with 35 of 39 gaps
+  clumped. That is this project's own lesson landing again, one level up: a test that passes for the
+  wrong reason is worse than no test.
+- **H18:** a soak that lost half its peers printed "no invariant violations" and exited 0.
+- **H15/D5:** the synthetic ghost can stop now, and loss can be correlated — both opt-in, because
+  every number on record was taken without them.
+
+### Two things not fixed, on purpose, and one gate left red
+
+- **O2 was written and then REVERTED.** Its premise is half wrong: `forgetRelaySessionLocked` does
+  not clear `remoteNames`, so the nameless ghost it describes cannot happen. The test written for it
+  refused to run — its own guard said the state was unreachable — and shipping the repair anyway
+  would have been code for a case that cannot occur, asserted by a test that proves nothing.
+- **E11 and I36 are filed rather than done**, both because the fix changes what a player SEES and
+  neither can be judged from here.
+- **A gate was left RED for four commits.** Adding `min_protocol_version` to the adapters broke
+  `TestAdaptersNeverSpeakTheRelayProtocol`, which substring-matches and so matched a field that
+  merely CONTAINS `protocol_version`. The full suite was run before that change and committed after,
+  without re-running. The gate is word-boundary aware now, and was checked both ways.
+
+### The user's calls this session
+
+- **Per-adapter protocol floors** (ADR 0059), shaped like the wire floor and allowed only to
+  TIGHTEN. All four adapters set to 2 by hand — *"what we have right now for each adapter is the
+  starting floor, similar to how we bumped up the server/client"*.
+- **Floors are never raised automatically** — *"only manually by me whenever i think it makes sense
+  to enforce new things/block out old things"*. Recorded at both numbers, in ADR 0059, and in agent
+  memory.
+- **D3 acted on:** ghosts should NOT collide, so both Lua adapters honour `session_policy` now. This
+  is the one change today that alters what the player sees, and it is in both `UNVERIFIED.md` queues
+  with what a decline looks like.
+

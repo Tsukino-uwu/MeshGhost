@@ -3807,6 +3807,25 @@ local function despawnGhost(id)
 		log("MeshGhost: dropped stale bookkeeping for " .. id .. " (its slot is the game's again)")
 		return
 	end
+	-- **ANY JUMP SHADOW TRACKING THIS GHOST GOES WITH IT (review I46, fixed 2026-09-11).**
+	--
+	-- `emote.shadow` claims an object struct of its own and writes the tracked ghost's struct
+	-- index into OBJECT_RANGE. Nothing released it here -- so a ghost that despawns MID-HOP (a
+	-- peer leaving, a map change, an area filter) left a live shadow object pointing at a struct
+	-- index that `freeStruct` can hand to the next ghost. The shadow then follows whoever lands
+	-- in that slot: the Emerald underwater-bobber shape, which cost a session there.
+	--
+	-- Matched by OBJECT_RANGE rather than by a remembered handle, deliberately: the shadow may
+	-- have been claimed frames ago and this is the one field that says who it belongs to. Only
+	-- structs carrying the shadow movement type are touched, so nothing of the game's is.
+	for sidx = 0, NUM_OBJECT_STRUCTS - 1 do
+		local sb = OBJECT_STRUCTS + sidx * OBJECT_LENGTH
+		if (u8(sb + 0x03) or 0) == 0x1B and (u8(sb + 0x20) or 0xFF) == g.st then
+			for off = 0, OBJECT_LENGTH - 1 do
+				w8(sb + off, 0)
+			end
+		end
+	end
 	w8(g.st_base + F_SPRITE, 0)
 	for off = 0, MAPOBJECT_LENGTH - 1 do
 		w8(g.mo_base + off, 0)

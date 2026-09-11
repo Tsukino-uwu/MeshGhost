@@ -15,9 +15,10 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 - 2026-09-11 — **The TEVI wire must be BUILD-INDEPENDENT** — the two installs are different builds. Type/sprite go by NAME; pool indices are still ordinal. `tevi/UNVERIFIED.md`.
 - 2026-09-11 — **config.json is LIVE on the client** (Go side green, UNWATCHED in a game). Next: a session where the user saves a change and reads the log lines. `phases/phase10.md`.
 - 2026-09-11 — **The driven ghost's hurt sit is solved (DLL port unwatched). OPEN: it never STANDS UP** — `stand_fn=` tries a candidate per launch. `pseudoregalia/UNVERIFIED.md`.
-- 2026-09-11 — **The 23-agent review: 39 findings fixed Go-side, ~109 open** in the untracked `REVIEW-FINDINGS.md` — the checklist; delete it when it empties. `phases/phase10.md`.
-- 2026-09-11 — **netsim is milder than "bad wifi" and ADR 0046's 450 ms rests on it**: Bernoulli loss never reaches the 150-500 ms regime, so 450 may be UNDER-sized. `REVIEW-FINDINGS.md` D5.
-- 2026-09-11 — **Both Archipelago proposals shipped Go-side** (version FLOOR; `reject` `code`+`retryable`). **The adapter half is open — all four still substring-match.** ADR 0058.
+- 2026-09-11 — **The 23-agent review is WORKED TO ZERO: 148 fixed/verified, 6 left needing your judgement** (E11, I36, H14, H19, O1, O3). `REVIEW-FINDINGS.md`, `phases/phase10.md`.
+- 2026-09-11 — **Today's adapter work is UNWATCHED across all four games** — six peer-triggerable HIGHs, a CDO corruption, and the one visible change: ghosts honour `ghost_collision` now. Each `UNVERIFIED.md`.
+- 2026-09-11 — **netsim has a correlated-loss model now (`-loss-burst`, opt-in) and its tcp path no longer CLUMPS**; ADR 0046's 450 ms has still never been judged on either. `phases/phase10.md`.
+- 2026-09-11 — **The Archipelago pair is DONE on both sides**, plus a per-adapter protocol floor set to 2 by hand (ADR 0059). **Floors are never raised automatically — the user's call, out loud.**
 - 2026-09-11 — **TCP_NODELAY is SET in all four adapters** (`55bf77d8`, 2026-09-06); only the Pseudoregalia half was watched. Open: a residual ~60 ms hitch that is not Nagle. `pseudoregalia/UNVERIFIED.md`.
 - 2026-09-11 — **NOT fixed, filed with its measurement: the adapter's SEND rate sets what the core sends back** — ~171/s in, ~59,000 render lines/s out at 344 ghosts. `ideas.md`.
 - 2026-09-11 — **Crystal is ACTIVE (phase 9): a second human on it, and cross-patch play.** Open: the `\uXXXX` fix, ghost solidity, a two-client AP session from the zip. `crystal/UNVERIFIED.md`.

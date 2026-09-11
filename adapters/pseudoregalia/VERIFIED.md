@@ -205,7 +205,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-06 — modded sword models now reach ghosts, replays and real peers alike (user-confirmed on screen)
 - 2026-09-07 — TCP_NODELAY fixed the Linux tester's stuttery ghosts: their cadence now matches Windows
 - 2026-09-08 — the recording indicator as a screen-space widget: stays drawn behind geometry, does not move with the field of view, pixel-aligned (user-confirmed)
-- 2026-09-11 — the camera-rig leak fix, the input history read-back and the screen-space recording indicator: three C++ ports, all three spoken for (user-confirmed)
+- 2026-09-11 — the three C++ ports the user had seen but not spoken for: the camera-rig leak fix, the input history read-back, the screen-space recording indicator (user-confirmed)
 - Pseudoregalia: 300ms interp at the 15Hz relay on the 60/25/2/2 proxy, on the fixed relay (2026-09-02)
 - Pseudoregalia: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
 ## Confirmed facts

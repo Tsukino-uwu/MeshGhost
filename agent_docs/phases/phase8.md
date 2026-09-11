@@ -840,3 +840,24 @@ window behaves like Crystal's, where a text box turned out not to hide character
 (`crystal/documentation.md`, rewritten the same day). Emerald's equivalent has never been exercised
 — `UNVERIFIED.md` lists drawn clipping under a text box as unexercised — so it is a question, not a
 claim.
+
+## 2026-09-11 — Emerald's share of the review backlog (full record in phase10.md)
+
+Six findings, **UNWATCHED**; `UNVERIFIED.md` carries what to watch. The one that mattered most:
+
+- **I30 (HIGH):** the dispatch admitted a peer on truthiness alone, and every tier below does
+  `playerId:match()`, which RAISES on a number in Lua 5.4 with no guard above the first one.
+  `guardedFrame`'s pcall swallowed it, so every tier past that point stopped **for the rest of the
+  session**, with one throttled line every 300 frames and no despawn ever sent.
+- **I32:** the savestate OAM sweep wrote slots 64..119 with none of the three gates the hardware
+  tier enforces — and the SLOT MACHINE owns exactly that range, so a state loaded inside one
+  blanked the reels. `MESHGHOST_EMERALD_HW_OVERFLOW=0` did not stop it: that flag gates
+  `tiering.hw.on`, which this path never asked about.
+- **I47:** `tonumber("ZZ", 16) % 256` raises, and `jsonDecode`'s pcall turned that into a dropped
+  line — so one malformed `\u` escape in a peer's extras cost the whole message. The path a
+  peer name containing `&`, `<` or `>` actually takes.
+- **I33, I34, I35** and the reject-code change: see phase10.md.
+- **D3:** ghosts honour the room's `ghost_collision` now, driving the walk-through mechanism this
+  adapter already had. **This is the one change that alters what the player sees.**
+
+Full session record, including what was NOT done and why: [phase10.md](phase10.md), 2026-09-11.

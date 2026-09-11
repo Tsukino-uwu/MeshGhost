@@ -13378,6 +13378,18 @@ namespace MeshGhostPseudo
         // for these two because they are cosmetic, short-lived, and spawn exactly at the healing
         // character. It is NOT accepted for the death burst, whose candidate asset (NS_BasicBurst)
         // also fires on ordinary combat hits all over the screen -- see UNVERIFIED.md.
+        //
+        // **IT MEANS "WORLD-SPAWNED ONE-SHOT", and only that (corrected 2026-09-11, review
+        // I16).** Everything above describes where the effect LIVES, which is true; what it does
+        // not say is that the code acting on it handles a single shape. `tick_remote_mirrored_vfx`
+        // requires a COUNT on the wire for a world_spawned row (`if (!wanted || !have_count)
+        // continue`), which is the one-shot protocol -- so a SUSTAINED world-spawned row would
+        // match nothing and mirror nothing, silently, while these lines read as though the case
+        // were covered.
+        //
+        // That is fine for the two rows that use it, which are genuinely one-shots. It is not
+        // fine for the next author: a sustained world-spawned effect needs the branch WRITTEN,
+        // not merely the flag set, and there is no assertion anywhere that would say so.
         bool world_spawned;
         // For a world_spawned row: how far ABOVE the actor's origin the game puts it, in world
         // units. Measured from the 2026-08-27 capture, where the player's own copies logged their
@@ -14090,6 +14102,10 @@ namespace MeshGhostPseudo
             // the recycled-pointer hazard the retained path carries.
             if (effect.world_spawned)
             {
+                // ONE-SHOT ONLY -- a count is required, which is the one-shot protocol. A
+                // sustained world-spawned row would fall out here every tick and mirror nothing.
+                // See world_spawned's own comment: the flag says WHERE an effect lives, and this
+                // is the only shape of it that is implemented.
                 if (!wanted || !have_count)
                 {
                     continue;

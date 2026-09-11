@@ -1306,3 +1306,26 @@ had been leaning on without naming — Emerald ships that vocabulary and Crystal
 Archipelago-on-V1.1 "not yet watched" when all three were watched 2026-09-09/10, still said surf was
 unreached on the patched build, and still described the mixed room as one map with two players when
 2026-09-10 ran four windows.
+
+## 2026-09-11 — Crystal's share of the review backlog (full record in phase10.md)
+
+Six findings, **UNWATCHED**; `UNVERIFIED.md` carries what to watch.
+
+- **I37 (HIGH):** `extras.face` was the only one of seven peer numerics neither floored nor
+  bounded, and it is the one that reaches a bitwise operator — in Lua 5.4 both `1.5 & 3` and
+  `(1/0) & 3` raise, and there is no pcall anywhere inside `drawOverflow`. So one peer sending a
+  fractional or infinite face stopped the shipped drawn tier **for all peers**, with the previous
+  frame's overlay never cleared.
+- **I38 (HIGH):** `send` discarded LuaSocket's `lastByteSent` and called every timeout benign, so a
+  PARTIAL write left the next tick's fresh line concatenated onto the fragment — corrupt NDJSON
+  for the rest of the connection. Emerald and the C++ adapter both fixed exactly this; Crystal was
+  the sibling that never got it.
+- **I41:** `W_OBPALS` and `MENUBOX` were file constants read on every build, while the Archipelago
+  build is measured to rearrange WRAM NON-UNIFORMLY (+6, -0x2A, +7 in one build). They are in the
+  per-build table now; the Archipelago row inherits vanilla's values and **says so, at startup**,
+  because switching them off would change what a player sees on that build.
+- **I43, I44, I45, I46, I47** and the reject-code change: see phase10.md.
+- **D3:** ghosts honour the room's `ghost_collision` now — `shouldBlock` returns false ahead of
+  the anti-stuck rules. **This is the one change that alters what the player sees.**
+
+Full session record, including what was NOT done and why: [phase10.md](phase10.md), 2026-09-11.
