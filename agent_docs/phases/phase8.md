@@ -400,6 +400,157 @@ is reproducing it by hand, per effect, for ever.
   TILES not frames — a frame-timed route drifts across the map and rides into trainers.
 - `probes/goto_map.lua`: warp anywhere, so reaching a state costs nobody's time.
 
+## 2026-08-21 — the OAM tier, and the resource lifetimes it exposed
+
+**Backfilled 2026-09-11 from the commit log.** This file had no entry for its own largest day — 36
+commits against this adapter, `7d2fe07f` through `f74a6b87`. The write-ups of the time went to
+`status.md` (since curated away), `pitfalls.md`, `verified.md`, `unverified.md` and the README's
+steps 27–36, so every fact survived and the day's *shape* did not. Nothing below is remembered;
+each item traces to a commit or to an existing `VERIFIED.md` entry.
+
+**The shape is the reusable part: the renderer was built early and worked, and nearly every entry
+after it is a fault in something the renderer had to OWN** — tile ranges, sprite slots, engine
+handles. A new tier does not fail at drawing. It fails at lifetimes.
+
+### The tier: measured first, then built
+
+- **`7d2fe07f` priced all three tiers before anything was built** — same count, same map, nobody
+  moving. At 16 peers all three read 60.0 avg, indistinguishable from a bare emulator, so the tier
+  choice is a crowd question and nothing else. At 56: OAM 60.0, painted 39.6. At 150: 10.4 painted.
+  **Two invalid attempts came first and both were convincing** — one measured a relay refusing every
+  peer at `-max-clients=8` (`drawn=0` printed in the status line throughout, read past twice), the
+  other rode a route while synthetic peers orbited a fixed map coordinate, so the painted peers were
+  off-screen and nearly free. `fpshold.lua` is what that produced; `fpsride` is the wrong instrument
+  for putting two renderers side by side.
+- **`97dee809` built the middle rung**: peers with no object slot get a real hardware sprite entry in
+  `gMain.oamBuffer[64..119]`, above `gOamLimit`, which the engine's layout pass never writes and its
+  VBlank transfer carries to the hardware regardless. Two of the file's own warnings fired before the
+  emulator did: five new file-scope locals pushed the main chunk past **Lua's 200-local ceiling**
+  (a parse failure, not a runtime one — `bizhawk-syntax-check.lua` caught it on the first compile),
+  and the screen anchor had to be *extracted and shared* rather than copied, because it is stateful
+  and a second copy puts the same peer in two places. Shipped OFF.
+
+### The comparison harness was wrong before either renderer was
+
+- **`532a0214` — "the choppiness was never the new tier."** Facing was inverted (Emerald has no
+  east-facing art; east is west plus the hardware flip, at bit 22 of the animation command). The lag
+  was the interesting half: the **shared** glide filter measured peer speed between consecutive
+  frames against a stream that arrives in bursts, so it read zero on most frames and collapsed to a
+  0.02 tiles/frame floor — unable to follow a player running at 0.25. Measured over an eight-frame
+  window instead, using the ring the delay line already kept. **All three non-engine renderers shared
+  that filter, so the painted tier had shipped with the same defect and nobody had caught it** — in
+  compare mode the painted copy is pinned to the spawned ghost's sprite, which is precisely what
+  stopped it showing. Only a third column made it visible.
+- **`e92f7e95` pinned the compare copy and stopped judging the renderer by the pipeline.** The
+  second "still trailing" report was correct and the histogram put a number on it (aligned for 1243
+  standing frames, up to 30px behind mid-run) — but the glide pipeline carries a *deliberate*
+  trailing delay reproducing the engine's own step-machine lag, so a copy placed from the glide is
+  eight frames behind by design. Position came out of the comparison entirely; what remains
+  different on screen is the renderer. See also `d3d1ac9b`: a fixed peer cannot be walked behind a
+  building, so it cannot test occlusion.
+
+### Then the lifetimes, four of them, each found live
+
+- **`43843ca9` — a DOUBLE FREE of an OBJ tile range**, and the user-confirmed fix (*"i didn't see
+  any of the orange/glitchy things anymore"*, plus 3172 frames of their own recipe scanned with no
+  orange spike). Several despawn paths could queue the same range; the first free released our bits,
+  the engine allocated that run for the show-mon picture, and the second free cleared the bits out
+  from under it. Queueing is idempotent now and the service point refuses to free a range not
+  currently marked allocated. **Three earlier theories were measured and rejected first**; what
+  found it was logging each gate component per frame rather than reasoning about them.
+- **`c10734ed` — never re-use a despawned sprite's tiles same-tick.** The sprite-copy queue executes
+  at VBlank, so a copy queued the frame before a despawn still lands *after* it: tiles freed at
+  despawn and re-claimed in the same tick get the dead sprite's frame stamped over the new owner's
+  load, once, with nothing to reload it. The hardware body did exactly that and rendered as a corner
+  of the surf blob. Frees are deferred through the same queue now. Noted in the commit as **the
+  fourth meeting with the OAM-lag class that day**, fenced the same way each time.
+- **`dd09a996` — the dive black screen was ours**, and it is the day's most quotable result. The
+  game hung black with every palette zeroed while the adapter's own logs read perfectly healthy
+  underwater. **The bisect is the method and it is cheap**: adapter dropped, fine; spawned tier off,
+  fine; blob and bobber off, fine; blob ON bobber OFF, fine; bobber ON, black. Five runs, no theory.
+  The cause was our faithful copy of the engine's underwater bobber — a dummy sprite that holds
+  another sprite's **index** and nudges it every fourth frame. Safe for the engine, which owns every
+  lifetime involved; unsafe for us, who own none. Once the slot was reused it wrote into the
+  show-mon's picture. There is no bobber now: a diver's bob is the peer's own offset, already on the
+  wire. **This is where `adapters/CLAUDE.md`'s "reproduce the EFFECT, never adopt a handle the engine
+  can recycle" comes from.**
+- **`06630dab`, `511d5cc8`, `f028a6ca`, `1892f12c`** are the same theme on the surf blob: an orphan a
+  mid-surf savestate restores, telling a dismount from a mount by ORDER rather than age, blobs born
+  at the destination and parked through jumps, and the hardware tier getting the mount-park its twin
+  already had.
+
+### The evening: two hardware effects, one fixable and one not
+
+- **`e200c7bf` — ice, user-confirmed on all three tiers.** A slide is a movement that does not
+  animate: `disableAnim` is the bit that survives a movement (`spaused` does not), and **three
+  separate things were each undoing it**. The engine also has two reflection kinds and we had one —
+  `MB_ICE` is `REFL_TYPE_ICE` with `stillReflection` TRUE, a plain vertical flip with nothing to
+  shimmer. (The mechanism named here was corrected 2026-08-27, `8af2364e`: Emerald ice runs
+  `ForcedMovement_Slip`, not `_Slide` — right screen, wrong function.)
+- **`ea40ddb3` — a dark cave is Window 0, not an overlay.** The engine DMAs each scanline's lit span
+  to `REG_WIN0H` every HBlank, so real sprites are clipped for free and only the painted tier — drawn
+  after the PPU has finished, where windows no longer exist — shone through. **The gate mattered more
+  than the clip**: an inactive buffer reads as all zeroes, "nothing lit anywhere", which would have
+  erased the tier on every ordinary map rather than in the cave that motivated it. Confirmed at
+  source instead (`gScanlineEffect.dmaDest` must be `REG_WIN0H`, non-zero state). Also recorded:
+  `WIN0H`, `WIN0V` and `BLDY` are **write-only and return convincing garbage** while their neighbours
+  read fine — the fog investigation nearly built an argument on `BLDY`.
+- **The distinction worth carrying forward, and it is the reason both are in one entry**: the flash
+  circle is readable data, so it was fixable; the fog is a priority we cannot win, so the OAM tier
+  stands down and its peers are painted. **Ask which kind an effect is before assuming either.**
+
+### And the instrument was costing what it measured
+
+**`399f9a4a` — a log line cost four frames, every second, in BOTH Lua adapters.** The whole session
+was spent saying the game felt choppy while the frame-rate average read 59.7fps, and both were true:
+a per-second mean cannot see a hitch, because ten frames lost inside one second still averages 58.
+Measuring the frame-to-frame **gap** found it immediately — and found it in the instrument, where a
+probe whose only per-second work was one log line produced one 63–83ms stall every second.
+`console.log` appends to BizHawk's GUI console on the emulator's own thread, and every write was
+followed by a flush. Buffered and throttled, the same configuration reads 0 hitches, worst gap 17ms.
+**This was shipping code, not instrumentation** — and `probes.md` had said "buffer, and flush in
+batches" since the drawn tier was built. Both adapters shipped without doing it. *The rule was
+written down and then not followed, which is worth more than the fix.*
+
+### Closed at the end of it
+
+`4718a878` **feature complete, in one voice across the docs**, and `ddf41827` parked the adapter with
+**the ferry and the rails recorded as assumptions rather than as open work** — a distinction that did
+not survive contact on 2026-08-26 (`8af2364e` later corrected the pair to the boat and Fly).
+`c0fea4bb` had finished the Acro Bike earlier the same day; `c4017f7d` read every doc against the
+code and wrote down the days this story had already missed, which is the ancestor of this entry.
+
+## 2026-08-22 — the adapter did not compile, and nothing would have said so
+
+One commit, `d551da12`, and it is filed here because the failure mode is the expensive part.
+`meshghost_emerald.lua` as committed failed with `too many local variables (limit is 200)` — 202
+declared names. **In a real session that is a silent non-load**: the adapter never starts, the game
+runs with no ghosts, and it reads as a networking fault. `status.md` had the count at 198 and had
+asked for consolidation before the next feature; the next feature happened first (`97dee809`, the
+previous day, spent five). Fixed by folding seven constants onto two tables — the pattern the file
+already used and already documented — back to 197 with headroom. **Compiling is not working**: this
+touched live surf-blob code and was queued for a surf before Emerald was next relied on.
+
+## 2026-08-23 — repo-wide, and it reached this adapter's prose
+
+`01cd8e85`, the no-invented-durations rule (the user, that day: *"we don't have to ever say
+days/hours/months/weeks/years/long time etc … we have everything logged/documented with dates"*).
+Emerald's own measured figure — "about 10 hours" to the end of Phase 5.5 — is the user's and stays;
+vague is the defect, not durations. Logged here because 40 hits were swept repo-wide and this
+adapter's files were among them.
+
+## 2026-08-25 — the restructure, as it touched Emerald
+
+Thirteen commits, almost all repo-wide mechanism rather than adapter code; the header at the top of
+this file records the rename itself. What actually changed under this adapter: `73936944`
+(`adapters/bizhawk/` → `adapters/emulator/`, and three hosts get a rules file — the reason every
+path in the entries above reads `bizhawk`), `1b015338` and `c9ceb659` (the 10,174-line `verified.md`
+and its queue split per game, which is where this adapter's `VERIFIED.md`/`UNVERIFIED.md` come
+from), `8646a7e5` (every verified record gets an index and preflight fails an entry not in it),
+`8dfa68da` (every `.lua` file gated on parsing — the mechanical answer to 2026-08-22 above),
+`d3c28ca2` (probes and dev scripts resolve their own directory rather than a developer's checkout)
+and `10065065` (six live switches that were not in a flag register).
+
 ## Catch-up record, written 2026-09-01 — the body the REOPENED header never got
 
 The header above says "REOPENED 2026-08-26 for Fly and the boat" and the file recorded nothing
@@ -519,6 +670,18 @@ So the work is "let `session_policy` reach the switch that already exists", plus
 honest-fallback log `bridge.go` already asks for. Not "find the mechanism". Details and the same
 shape in Crystal's `GHOSTS_PASSABLE`: `plans.md`, "Settings: defined once, honoured everywhere".
 
+## 2026-09-04 — pointer: a replay finding that widened this adapter's queue
+
+**Backfilled 2026-09-11.** `6047c6f2` is Pseudoregalia's ([phase7.md](phase7.md)) and is noted here
+because it re-priced an entry in every adapter's queue, this one included. The user asked whether
+backward/forward could hit the dust fault; checked in the core rather than guessed, and the answer
+widened it twice. `replayPlayer.seam` (`core/replay.go:522`) is drop-peer → wait a render tick →
+re-admit, and a despawn is the **precondition** for the offset poisoning — so all four callers are
+candidates, including **a recorded loading screen or long menu, which seams during ordinary playback
+with nobody touching a key.** That is why a tester hit it where a deliberate test had not. A rewind
+is the cheapest deliberate trigger. Recorded there in full; here so this file is not silent on a day
+its adapter's queue moved.
+
 ## 2026-09-05 — queue-only: two open halves moved in from `status.md`, nothing built or watched
 
 No Emerald work this session (it was a Pseudoregalia day — `phase7.md`, 2026-09-05). The three
@@ -530,6 +693,22 @@ the interp verdict here was judged on the BROKEN relay (the limiter hid `WriteUn
 `341a768`) and wants a re-run on the fixed one; and after the spawned -> OAM -> drawn ship, the
 attach NAMETAG BURST, rung churn and drawn clipping under a text box are unexercised. Both OPEN,
 neither new; this entry exists so the log stays complete.
+
+## 2026-09-06 — TCP_NODELAY on this adapter's bridge socket
+
+**Backfilled 2026-09-11, and the omission is the point.** `55bf77d8` edited
+`meshghost_emerald.lua` and logged itself in [phase7.md](phase7.md) and Pseudoregalia's queue only,
+because the fault that motivated it was found in a tester's replay files on that game. This file
+carried a 2026-09-06 entry for the same date — the documentation fact check below — so **nothing
+ever looked missing, and no freshness gate could fire**: the day was claimed by a heading that did
+not mention the code change.
+
+What it does: `tryPort` now sets `tcp-nodelay` on the bridge socket, `pcall`'d because `setoption`
+is a luasocket extension and a vendored build lacking it must not take the adapter down over a
+tuning flag. The bridge writes one small line per frame, and Nagle holds each write until the
+previous is acknowledged — **a 40ms floor on Linux**, measured as 46ms delivery bunches in a
+tester's files. Every bridge socket in the project got the same treatment in that commit. Unwatched
+on this game; the Emerald half has no separate confirmation.
 
 ## 2026-09-06 — the documentation fact check, as it touched Emerald's files
 
