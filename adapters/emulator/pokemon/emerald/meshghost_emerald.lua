@@ -504,6 +504,7 @@ local function tryDetectAvatarAddrOffset()
         -- cross-link, then the player WALKED 12 steps and the sprite tracked it on both axes.
         genderFrames.spriteAddrOffset = 0x20
         genderFrames.iwramOffset = -0x10E0 -- gSaveBlock1Ptr/2Ptr, see session.saveBlockPtr
+        genderFrames.camOffset = -0x10D0 -- the camera block, sixteen bytes off the save block's
         avatarAddrConfirmed = true
         return
     end
@@ -2986,11 +2987,16 @@ local COMPARE_TIERS = (MESHGHOST_COMPARE_TIERS or os.getenv("MESHGHOST_COMPARE_T
 local MAX_SPRITES = 64
 local MAP_OFFSET = 7
 
--- **THE CAMERA BLOCK DOES NOT TAKE THE SAVE-BLOCK POINTER'S SHIFT, tried and reverted
--- 2026-09-11.** On EX SPEEDCHOICE 0.4.0 these read camOff=(-1030,-1286) where vanilla reads
--- something like (-48,0), so they are clearly relocated on that build -- but applying the save
--- block's -0x10E0 made it worse, not better (the player's own tile went to (0,0)). IWRAM did not
--- move as one piece there; each block needs finding on its own, and none of this is measured yet.
+-- **THE CAMERA BLOCK HAS ITS OWN SHIFT, SIXTEEN BYTES FROM THE SAVE BLOCK'S (2026-09-11).**
+-- EX SPEEDCHOICE 0.4.0 puts gTotalCameraPixelOffsetY at 0x03004D18 -- -0x10D0 -- while its
+-- gSaveBlock1Ptr is -0x10E0. Applying the save block's shift to these was tried first and made
+-- things worse, which is the useful part of the lesson: IWRAM moved ALMOST as one piece, and
+-- "almost" is the case a blanket shift gets wrong while looking like it should work.
+--
+-- Measured by `probes/camoffset_find_probe.lua`, which needs no known address: the local player is
+-- drawn at the centre of its own screen, so sprite + offset = (120,112) on every build. It scans
+-- IWRAM for that exact s16 pair in vanilla's layout (Y first, X four bytes later) and then WALKS
+-- six steps, requiring the pair to keep centring the player. One slot survived.
 local GFIELDCAMERA_X_ADDR = 0x03005de0
 local GFIELDCAMERA_Y_ADDR = 0x03005de4
 local GTOTALCAMERAPIXELOFFSETY_ADDR = 0x03005de8
@@ -3052,10 +3058,61 @@ local RUN_ACTION = { [1] = 0x35, [2] = 0x36, [3] = 0x37, [4] = 0x38 }
 local function w8(a, v) memory.write_u8(a, v & 0xff) end
 local function w16(a, v) memory.write_u16_le(a, v & 0xffff) end
 local function w32(a, v) memory.write_u32_le(a, v & 0xffffffff) end
-local function r8(a) return memory.read_u8(a) end
-local function r16(a) return memory.read_u16_le(a) end
-local function rs16(a) return memory.read_s16_le(a) end
-local function r32(a) return memory.read_u32_le(a) end
+-- **A READ GUARD, off unless MESHGHOST_EMERALD_READ_GUARD is set (2026-09-11).**
+--
+-- BizHawk answers a read outside a memory domain with a console WARNING and a zero -- no error, no
+-- stack, nothing in any log this side can grep. On a build whose addresses are wrong that is
+-- thousands of lines a second and an emulator at 4fps, with no way to tell WHICH of the adapter's
+-- reads is walking off the end. EX SPEEDCHOICE 0.4.0 spent an evening in exactly that state and
+-- the site was guessed at three times.
+--
+-- So: when the flag is on, every read through these helpers checks the address against the GBA's
+-- real regions first, and the FIRST offender is reported with a Lua traceback naming the line that
+-- asked for it. Once, then it goes quiet -- the point is to name the site, not to re-print the
+-- flood in a different colour.
+--
+-- Off, these are the same one-line functions they always were.
+-- GLOBALS, not locals: this file is at Lua's 200-local ceiling and two more tipped it into a
+-- PARSE failure. They are only called when the guard flag is on, so the cost is nil either way.
+function mgReadOK(a)
+    return (a >= 0x02000000 and a < 0x02040000)   -- EWRAM
+        or (a >= 0x03000000 and a < 0x03008000)   -- IWRAM
+        or (a >= 0x05000000 and a < 0x05000400)   -- palette RAM
+        or (a >= 0x06000000 and a < 0x06018000)   -- VRAM
+        or (a >= 0x07000000 and a < 0x07000400)   -- OAM
+        or (a >= 0x08000000 and a < 0x0A000000)   -- cartridge
+end
+
+function mgGuard(a)
+    if MG_READ_GUARD_FIRED then return end
+    MG_READ_GUARD_FIRED = true
+    local where = debug.traceback("", 3) or "(no traceback)"
+    console.log(string.format(
+        "MeshGhost READ GUARD: out-of-range read at %s (%d). Reported ONCE. Stack:%s",
+        string.format("%08X", a), a, where))
+    local f = io.open(SCRIPT_DIR .. "read_guard.log", "a")
+    if f then
+        f:write(string.format("out-of-range read at %08X (%d)%s", a, a, where), "\n")
+        f:close()
+    end
+end
+
+local function r8(a)
+    if MESHGHOST_EMERALD_READ_GUARD and not mgReadOK(a) then mgGuard(a) return 0 end
+    return memory.read_u8(a)
+end
+local function r16(a)
+    if MESHGHOST_EMERALD_READ_GUARD and not mgReadOK(a) then mgGuard(a) return 0 end
+    return memory.read_u16_le(a)
+end
+local function rs16(a)
+    if MESHGHOST_EMERALD_READ_GUARD and not mgReadOK(a) then mgGuard(a) return 0 end
+    return memory.read_s16_le(a)
+end
+local function r32(a)
+    if MESHGHOST_EMERALD_READ_GUARD and not mgReadOK(a) then mgGuard(a) return 0 end
+    return memory.read_u32_le(a)
+end
 
 local function objAddr(i) return GOBJECTEVENTS_ADDR + avatarAddrOffset + i * OBJECTEVENT_SIZE end
 -- gSprites moves on a patched build just as gObjectEvents does, and `spriteAddrOffset` carries
@@ -3788,6 +3845,13 @@ end
 --   gMapHeader       02037318 -> mapLayout 0x00 -> primary 0x10, secondary 0x14, attributes 0x10
 --   MAPGRID_METATILE_ID_MASK 0x03FF, primary metatile count 512
 genderFrames.attrAt = function(x, y)
+    -- **THE SAME "IS THIS A POINTER" TEST THE SPAN BUILDER USES (2026-09-11).** The `layout == 0`
+    -- check below is not enough: EX SPEEDCHOICE 0.4.0 reads 0x03FF03FF at gMapHeader -- non-zero,
+    -- not a pointer -- and this function then read through it once per tile per peer per frame.
+    -- BizHawk answers each with a console warning and a zero, so there is no error and no log,
+    -- just thousands of lines a second and an emulator at 4fps. Named in one run by the read guard
+    -- (`dev-scripts/read-guard-emerald.lua`) after three wrong guesses at it.
+    if not genderFrames.mapReadable() then return nil end
     local width = memory.read_s32_le(0x03005dc0)
     local map = r32(0x03005dc0 + 0x08)
     if map == 0 or width <= 0 then return nil end
@@ -3825,8 +3889,8 @@ genderFrames.gridBase = function()
     local ax, ox = tiering.anchorX, tiering.originXStill
     local ay, oy = tiering.anchorY, tiering.originYStill
     if not (ax and ox and ay and oy) then return nil end
-    return ox + rs16(GTOTALCAMERAPIXELOFFSETX_ADDR) - (ax + MAP_OFFSET) * TILE,
-        oy + rs16(GTOTALCAMERAPIXELOFFSETY_ADDR) + (FRAME_HEIGHT_PX - TILE)
+    return ox + rs16(GTOTALCAMERAPIXELOFFSETX_ADDR + (genderFrames.camOffset or 0)) - (ax + MAP_OFFSET) * TILE,
+        oy + rs16(GTOTALCAMERAPIXELOFFSETY_ADDR + (genderFrames.camOffset or 0)) + (FRAME_HEIGHT_PX - TILE)
             - (ay + MAP_OFFSET) * TILE
 end
 
@@ -4540,14 +4604,14 @@ end
 -- +8 / +16+centerToCorner adjustment. Computed, never copied: copying a template's screen
 -- position is what drew Crystal's first ghost off the bottom of the screen.
 local function spriteScreenPos(mapX, mapY, centerToCornerVecY)
-    local sb1 = r32(GSAVEBLOCK1PTR_ADDR)
+    local sb1 = session.saveBlockPtr(GSAVEBLOCK1PTR_ADDR)
     local camX, camY = 0, 0
-    local fcx = memory.read_s32_le(GFIELDCAMERA_X_ADDR)
-    local fcy = memory.read_s32_le(GFIELDCAMERA_Y_ADDR)
+    local fcx = memory.read_s32_le(GFIELDCAMERA_X_ADDR + (genderFrames.camOffset or 0))
+    local fcy = memory.read_s32_le(GFIELDCAMERA_Y_ADDR + (genderFrames.camOffset or 0))
     if fcx > 0 then camX = 1 elseif fcx < 0 then camX = -1 end
     if fcy > 0 then camY = 1 elseif fcy < 0 then camY = -1 end
-    local x = (((mapX + camX) - rs16(sb1 + 0x00)) << 4) - rs16(GTOTALCAMERAPIXELOFFSETX_ADDR)
-    local y = (((mapY + camY) - rs16(sb1 + 0x02)) << 4) - rs16(GTOTALCAMERAPIXELOFFSETY_ADDR)
+    local x = (((mapX + camX) - rs16(sb1 + 0x00)) << 4) - rs16(GTOTALCAMERAPIXELOFFSETX_ADDR + (genderFrames.camOffset or 0))
+    local y = (((mapY + camY) - rs16(sb1 + 0x02)) << 4) - rs16(GTOTALCAMERAPIXELOFFSETY_ADDR + (genderFrames.camOffset or 0))
     local c2cY = centerToCornerVecY
     if c2cY > 127 then c2cY = c2cY - 256 end
     return x + 8, y + 16 + c2cY
@@ -4564,8 +4628,8 @@ end
 -- tile forever. Crystal hit the same thing. Waiting a frame costs nothing -- the camera settles
 -- constantly -- and it is the difference between a ghost on the grid and a ghost beside it.
 local function cameraIsSettled()
-    return memory.read_s32_le(GFIELDCAMERA_X_ADDR) == 0
-        and memory.read_s32_le(GFIELDCAMERA_Y_ADDR) == 0
+    return memory.read_s32_le(GFIELDCAMERA_X_ADDR + (genderFrames.camOffset or 0)) == 0
+        and memory.read_s32_le(GFIELDCAMERA_Y_ADDR + (genderFrames.camOffset or 0)) == 0
 end
 
 -- ghosts[playerId] = { objId, sprId, localId, tileStart, tileCount, mapX, mapY }
@@ -5256,7 +5320,7 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
         return nil
     end
 
-    local sb1 = r32(GSAVEBLOCK1PTR_ADDR)
+    local sb1 = session.saveBlockPtr(GSAVEBLOCK1PTR_ADDR)
     local playerGfx = r8(pObj + 0x05)
     local elevation = r8(pObj + 0x0b) & 0x0f
     -- DEV ONLY -- MESHGHOST_EMERALD_GHOST_ELEVATION: put the ghost on a different elevation from
@@ -5524,9 +5588,9 @@ spawnSurfBlob = function(g, mapX, mapY)
     -- tile below the ghost. The camera terms cancel while the camera is at rest, which is the
     -- only moment a ghost is placed anyway, but they are written out so the two stay
     -- distinguishable.
-    local sb1 = r32(GSAVEBLOCK1PTR_ADDR)
-    local dx = -rs16(GTOTALCAMERAPIXELOFFSETX_ADDR) - memory.read_s32_le(GFIELDCAMERA_X_ADDR)
-    local dy = -rs16(GTOTALCAMERAPIXELOFFSETY_ADDR) - memory.read_s32_le(GFIELDCAMERA_Y_ADDR)
+    local sb1 = session.saveBlockPtr(GSAVEBLOCK1PTR_ADDR)
+    local dx = -rs16(GTOTALCAMERAPIXELOFFSETX_ADDR + (genderFrames.camOffset or 0)) - memory.read_s32_le(GFIELDCAMERA_X_ADDR + (genderFrames.camOffset or 0))
+    local dy = -rs16(GTOTALCAMERAPIXELOFFSETY_ADDR + (genderFrames.camOffset or 0)) - memory.read_s32_le(GFIELDCAMERA_Y_ADDR + (genderFrames.camOffset or 0))
     local sx = (((mapX + MAP_OFFSET) - rs16(sb1 + 0x00)) << 4) + dx + 8
     local sy = (((mapY + MAP_OFFSET) - rs16(sb1 + 0x02)) << 4) + dy + 8
     w16(d + 0x20, sx) w16(d + 0x22, sy)
@@ -8887,9 +8951,9 @@ function anchorFrame(localAreaId, playerScreenX, playerScreenY, playerMapX, play
         local c = tiering.anchorCache
         return c[1], c[2], c[3], c[4]
     end
-    local sb1 = r32(GSAVEBLOCK1PTR_ADDR)
-    local camPixX = rs16(GTOTALCAMERAPIXELOFFSETX_ADDR)
-    local camPixY = rs16(GTOTALCAMERAPIXELOFFSETY_ADDR)
+    local sb1 = session.saveBlockPtr(GSAVEBLOCK1PTR_ADDR)
+    local camPixX = rs16(GTOTALCAMERAPIXELOFFSETX_ADDR + (genderFrames.camOffset or 0))
+    local camPixY = rs16(GTOTALCAMERAPIXELOFFSETY_ADDR + (genderFrames.camOffset or 0))
     if sb1 ~= 0 then
         local camX, camY = camPixX, camPixY
         -- ONLY CALIBRATE WHILE THE PLAYER IS STANDING STILL.
@@ -10203,7 +10267,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
         local ps = sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
         local slot = (r16(ps + 0x04) >> 12) & 0xF
         local romPal = GOBJECTEVENTPAL_BRENDAN_ADDR + (genderFrames.romOffset or 0)
-        local sb2 = r32(GSAVEBLOCK2PTR_ADDR)
+        local sb2 = session.saveBlockPtr(GSAVEBLOCK2PTR_ADDR)
         if sb2 ~= 0 and r8(sb2 + 0x08) == 1 then
             romPal = GOBJECTEVENTPAL_MAY_ADDR + (genderFrames.romOffset or 0)
         end
@@ -11848,7 +11912,7 @@ local function runFrame()
                 "  player: pos=(%d,%d) coords=(%d,%d) sprite=(%d,%d) camOff=(%d,%d)",
                 rs16(sb1 + 0x00), rs16(sb1 + 0x02), rs16(pa + 0x10), rs16(pa + 0x12),
                 rs16(ps + 0x20), rs16(ps + 0x22),
-                rs16(GTOTALCAMERAPIXELOFFSETX_ADDR), rs16(GTOTALCAMERAPIXELOFFSETY_ADDR)))
+                rs16(GTOTALCAMERAPIXELOFFSETX_ADDR + (genderFrames.camOffset or 0)), rs16(GTOTALCAMERAPIXELOFFSETY_ADDR + (genderFrames.camOffset or 0))))
             for playerId, g in pairs(ghosts) do
                 local ga, gs = objAddr(g.objId), sprAddr(g.sprId)
                 logFile(string.format(
