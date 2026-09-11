@@ -3860,3 +3860,54 @@ the same route Crystal's V1.0/V1.1 tables took. Neither is built yet.
 
 Full log, including every rejected candidate:
 `probes/romvariant_probe_20260911_181510.log` (untracked).
+
+## 2026-09-11 — CONFIRMED DEFECT: a spawned ghost is always drawn in YOUR gender, and the cause is the palette slot
+
+**Confirmed on screen by the user**, vanilla and Archipelago side by side in one room:
+*"ap/vanilla is not displaying the other gender for each other properly"*, and then exactly:
+***"both male on vanilla, both female on ap"***. So this is not a near-miss — each machine draws
+the peer as a copy of its own player.
+
+**The adapter was already printing the fault about itself** and nobody had read the line. Its
+per-status ghost dump carries `gfx: ghost drawn as N, peer reports M`, and the two runs disagreed
+in mirror image:
+
+```
+vanilla window:  ghost p2: gfx: ghost drawn as 0,  peer reports 89
+AP window:       ghost p1: gfx: ghost drawn as 89, peer reports 0
+```
+
+**The peer's graphicsId arrives correctly over the wire.** Nothing is lost in the protocol; the
+adapter knows what the peer is and draws something else.
+
+**The cause is a deliberate fallback, not a bug in the usual sense.** At the spawn site, a ghost
+borrows the palette slot already loaded for the local player, so the code refuses any graphic whose
+`paletteTag` differs from the player's and falls back to the player's own id — its comment says
+the alternative *"would draw in the player's colours, which is worse than not switching"*, and that
+judgement is correct as far as it goes. What the comment does not say is that **Brendan and May are
+exactly such a pair**: every Brendan state shares `OBJ_EVENT_PAL_TAG_BRENDAN` and every May state
+shares `OBJ_EVENT_PAL_TAG_MAY` (`src/data/object_events/object_event_graphics_info.h`, consulted as
+a fact per `licensing.md`). So the guard that makes bikes and surfing work across peers is the same
+guard that makes gender fail across them.
+
+**The PAINTED tier does not have this problem and already does it right.** It decodes both genders
+at load (`genderFrames.male` / `.female`, from the Brendan and May pic addresses with their own
+palettes) and draws from the PEER's value — `drawSpriteFrame(remote.gender, ...)`, where
+`remote.gender` is `extras.gender` off the wire. **The capability exists in this adapter today; it
+is the spawn tier that cannot reach it**, and the spawn tier is what a small room uses.
+
+**NOT FIXED, and the fix is not obvious — three routes, none costed:**
+
+1. **Load the peer's palette into a free OBJ slot.** The engine's own `LoadObjectEventPalette(u16
+   paletteTag)` does this, but a BizHawk Lua adapter cannot CALL a game function — only read and
+   write memory — so this means writing palette RAM directly, which is a wider write surface than
+   the object RAM the 2026-08-18 ADR cleared. That ADR would need extending.
+2. **Send a cross-gender peer down the painted tier instead**, which already renders the right
+   sprite. Cheapest, but mixes tiers by peer and the painted tier is not pixel-identical to a real
+   object event.
+3. **Leave it, documented.** It is cosmetic and self-consistent; every ghost looks like a trainer,
+   just the wrong one.
+
+**The bar here is 1:1 and this is not it** — a player of the other gender never looks like you on
+their own screen. Recorded rather than patched because route 1 touches a write boundary the user
+set, and that is the user's call, not mine.
