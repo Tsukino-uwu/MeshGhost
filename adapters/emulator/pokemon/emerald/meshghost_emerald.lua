@@ -910,17 +910,29 @@ end
 -- drawing -- Briney's ride and the Fly cutscene. Everything above them assumes there is a
 -- character on the tile to describe; see flyRide's header for why that assumption fails at
 -- exactly these two moments, and what each field is read from.
+--
+-- `dk`/`dx`/`dy` -- the door -- are the one group here that is APPENDED rather than always
+-- present, and that is the point. Every other field costs its `"name":null` on all ~20 packets a
+-- second whether it carries anything or not, which is the right trade for a field that changes
+-- constantly. A door is the opposite: three or four events a minute, and three always-null fields
+-- would add ~30 bytes to every packet forever -- about 2 MB an hour, per peer, to say "no door"
+-- twenty times a second. So the door suffix is written only while the engine actually has a door
+-- open, and the steady-state packet is byte-for-byte the one this adapter has always sent.
 local function encodeLocalState(areaId, x, y, orientation, anim, gender, gfx, sanim, sidx, act,
-    sox, soy, spaused, pspeed, noanim, invis, boat, fly, flyk)
+    sox, soy, spaused, pspeed, noanim, invis, boat, fly, flyk, dk, dx, dy)
+    local door = ""
+    if dk then
+        door = string.format(',"dk":%s,"dx":%s,"dy":%s', jsonString(dk), tostring(dx), tostring(dy))
+    end
     return string.format(
-        '{"type":"local_state","payload":{"state":{"area_id":%s,"position":[%s,%s],"orientation":%s,"anim":%s,"extras":{"gender":%s,"gfx":%s,"sanim":%s,"sidx":%s,"act":%s,"sox":%s,"soy":%s,"spaused":%s,"pspeed":%s,"noanim":%s,"invis":%s,"boat":%s,"fly":%s,"flyk":%s}}}}',
+        '{"type":"local_state","payload":{"state":{"area_id":%s,"position":[%s,%s],"orientation":%s,"anim":%s,"extras":{"gender":%s,"gfx":%s,"sanim":%s,"sidx":%s,"act":%s,"sox":%s,"soy":%s,"spaused":%s,"pspeed":%s,"noanim":%s,"invis":%s,"boat":%s,"fly":%s,"flyk":%s%s}}}}',
         jsonString(areaId), tostring(x), tostring(y), jsonString(orientation), jsonString(anim),
         jsonString(gender), tostring(gfx or "null"), tostring(sanim or "null"),
         tostring(sidx or "null"), tostring(act or "null"),
         tostring(sox or "null"), tostring(soy or "null"), tostring(spaused or "null"),
         tostring(pspeed or "null"), tostring(noanim or "null"),
         tostring(invis or "null"), tostring(boat or "null"),
-        tostring(fly or "null"), tostring(flyk or "null"))
+        tostring(fly or "null"), tostring(flyk or "null"), door)
 end
 
 local ENCODED_NO_SEND = '{"type":"local_state","payload":{"state":null}}'
@@ -2487,6 +2499,26 @@ local function handleBridgeLine(line)
                 -- the swoop at 0x80, so anything outside that is not a phase of this animation.
                 local fk = (type(st.extras) == "table" and tonumber(st.extras.flyk)) or nil
                 r.flyk = (fk and fk >= 0 and fk < 0x100 and math.floor(fk) == fk) and fk or nil
+                -- THE DOOR. Absent from the packet on every frame there is no door -- and absent
+                -- entirely from a peer that predates the field -- so nil here is the ordinary
+                -- case, not a fallback.
+                --
+                -- Bounded like every other peer-controlled value: this becomes a grid coordinate
+                -- fed to a task the engine will DMA tiles for, so an id outside the three this
+                -- adapter plays, or a tile off the map, is somebody trying to make our engine
+                -- draw somewhere it should not. genderFrames.door.gfxFor's own range check is the
+                -- backstop -- it refuses any tile whose metatile is not in this build's door
+                -- table -- and this is the gate in front of it.
+                local dk = type(st.extras) == "table" and st.extras.dk or nil
+                local dx = (type(st.extras) == "table" and tonumber(st.extras.dx)) or nil
+                local dy = (type(st.extras) == "table" and tonumber(st.extras.dy)) or nil
+                if (dk == "o" or dk == "c" or dk == "h")
+                    and dx and dy and dx >= 0 and dy >= 0 and dx < 1024 and dy < 1024
+                    and math.floor(dx) == dx and math.floor(dy) == dy then
+                    r.dk, r.dx, r.dy = dk, dx, dy
+                else
+                    r.dk, r.dx, r.dy = nil, nil, nil
+                end
             end
         end
     elseif env.type == "despawn_remote" then
@@ -5984,6 +6016,295 @@ flyRide.sample = function(objId, sprId)
                 end
                 break
             end
+        end
+    end
+end
+
+----------------------------------------------------------------------------
+-- THE DOOR A GHOST OPENS.
+--
+-- A door in this game is not a sprite and not a character: it is a TASK that redraws two
+-- metatiles. `FieldAnimateDoorOpen(x, y)` looks the door tile's metatile up in
+-- sDoorAnimGraphicsTable and creates `Task_AnimateDoor`, which walks a four-frame table copying
+-- tiles into OBJ VRAM (CopyDoorTilesToVram) and writing the BG tilemap (DrawDoorMetatileAt), then
+-- destroys itself. **It never touches the map grid, the save, or any object** -- src/field_door.c
+-- reaches only VRAM and the tilemap, which is the whole reason this is a thing an adapter may do
+-- at all. One task slot, reclaimed by the engine's own DestroyTask.
+--
+-- WHAT THE ENGINE DOES, AND THEREFORE WHAT A GHOST HAS TO REPRODUCE (src/field_screen_effect.c):
+--
+--   ENTERING (Task_DoDoorWarp) -- the player stands at (x,y) and the door is the tile ABOVE, at
+--     (x, y-1): FieldAnimateDoorOpen, walk up into it, FieldAnimateDoorClose, fade, warp.
+--   LEAVING (Task_ExitDoor) -- the player is standing ON the door at (x,y): FieldSetDoorOpened
+--     draws it open with NO animation and no task at all, then walk down, then
+--     FieldAnimateDoorClose.
+--
+-- That asymmetry is why there are three kinds on the wire rather than two. A close played against
+-- a door nobody opened animates a closed door shutting, which is a defect a ghost would show
+-- every time it came out of a house.
+--
+--   "o" -- animate open   (Task_AnimateDoor on sDoorOpenAnimFrames / sBigDoorOpenAnimFrames)
+--   "c" -- animate close  (Task_AnimateDoor on sDoorCloseAnimFrames)
+--   "h" -- HOLD open, the no-animation one: the last open frame drawn once and left there, which
+--          is what FieldSetDoorOpened does. Reproduced by creating the same task with tFrameId
+--          already on the final frame, so the engine draws that frame and then retires the task
+--          -- the engine's own drawing rather than a second copy of it in Lua.
+--
+-- THE SENDER READS THE ENGINE, IT DOES NOT INFER. Inferring "that peer must have gone through a
+-- door" from a map change cannot tell a door from a cave mouth or a staircase, and the tile it
+-- would have to guess is the one the peer is no longer standing on. The engine's own task carries
+-- both answers -- which door tile, and which of the three things is happening to it -- so that is
+-- what goes on the wire.
+--
+-- AND IT SENDS THE TILE, NEVER A POINTER. The four builds this adapter serves put these tables at
+-- four different addresses; a resolved `gfx` pointer from one peer is somebody else's data on
+-- another. The receiver looks the metatile up in ITS OWN table, which is also what makes a door
+-- that only exists on one build simply not animate rather than animate wrongly.
+--
+-- NO SOUND, the user's call 2026-09-12: the door SFX is a separate `PlaySE` at the warp, not
+-- something this task does, and a door opening across town with nobody visible to open it is a
+-- noise with no cause.
+--
+-- ADDRESSES -- vanilla, from pokeemerald.sym, shifted per build by flyRide.rom like every other
+-- ROM address in this file. gTasks and its stride are flyRide's, already cited there.
+--   Task_AnimateDoor        0808A654 (+1, Thumb)   Task_ExitDoor    080AF438 (+1, Thumb)
+--   sDoorOpenAnimFrames     08496F8C  sDoorCloseAnimFrames  08496FA0
+--   sBigDoorOpenAnimFrames  08496FB4  sDoorAnimGraphicsTable 08497174, 0x288 bytes
+-- struct DoorGraphics is 12 bytes: metatileNum u16 +0x00, sound u8 +0x02, size u8 +0x03,
+-- tiles ptr +0x04, palettes ptr +0x08 (src/field_door.c). Its data slots are named directly
+-- above Task_AnimateDoor there: tFramesHi/Lo data[0]/[1], tGfxHi/Lo data[2]/[3], tFrameId
+-- data[4], tCounter data[5], tX data[6], tY data[7].
+----------------------------------------------------------------------------
+genderFrames.door = {
+    TASK_ANIMATE = 0x0808a655,
+    TASK_EXIT = 0x080af439,
+    FRAMES_OPEN = 0x08496f8c,
+    FRAMES_CLOSE = 0x08496fa0,
+    FRAMES_BIG_OPEN = 0x08496fb4,
+    GFX_TABLE = 0x08497174,
+    GFX_ENTRY = 12,
+    -- 0x288 / 12. A bound, not a length: the table's own NULL `tiles` terminator is what stops
+    -- the walk, and this only stops a walk that never finds one from running off into ROM.
+    GFX_MAX = 54,
+    -- StartDoorAnimationTask's own priority, and the last open frame's index in a four-frame
+    -- table (entry 4 is the {0,0} terminator that ends the task).
+    PRIORITY = 0x50,
+    LAST_OPEN_FRAME = 3,
+    -- How long a ghost's door may stay open with no close behind it. A real close follows an open
+    -- within ~50 frames (the open animation is 4 frames of 4 ticks, then one walk). This is the
+    -- backstop for the close that never arrived because the peer dropped mid-warp -- without it a
+    -- door left open stays open until something else redraws that metatile.
+    HOLD_MAX_FRAMES = 120,
+}
+
+-- WHAT THE ENGINE IS DOING TO A DOOR RIGHT NOW: kind, and the door's tile in the coordinates this
+-- adapter sends (the save block's, so MAP_OFFSET comes off the padded grid the task holds).
+-- nil for the overwhelmingly common case of no door anywhere, which is one 16-entry scan of a
+-- table this file already walks for fly.
+genderFrames.door.sample = function()
+    local base, stride = flyRide.TASKS_ADDR, flyRide.TASK_SIZE
+    local animate, exit = flyRide.rom(genderFrames.door.TASK_ANIMATE),
+        flyRide.rom(genderFrames.door.TASK_EXIT)
+    local exitAt = nil
+    for i = 0, 15 do
+        local t = base + i * stride
+        if r8(t + 0x04) == 1 then
+            local fn = r32(t + 0x00)
+            if fn == animate then
+                -- data[0]<<16 | data[1] -- the frame table it was handed, which is the only place
+                -- the engine records whether this door is opening or closing.
+                local frames = (r16(t + 0x08) << 16) | r16(t + 0x0a)
+                local kind = nil
+                if frames == flyRide.rom(genderFrames.door.FRAMES_CLOSE) then
+                    kind = "c"
+                elseif frames == flyRide.rom(genderFrames.door.FRAMES_OPEN)
+                    or frames == flyRide.rom(genderFrames.door.FRAMES_BIG_OPEN) then
+                    kind = "o"
+                end
+                -- An animating door OUTRANKS a held-open one: during a house exit both tasks are
+                -- alive at once, and the close is the one carrying new information.
+                if kind then
+                    return kind, rs16(t + 0x14) - MAP_OFFSET, rs16(t + 0x16) - MAP_OFFSET
+                end
+                return nil
+            elseif fn == exit then
+                -- Task_ExitDoor's own x/y (data[2]/data[3]), written by PlayerGetDestCoords in
+                -- its state 0 -- the tile the player is standing on, which for this task IS the
+                -- door. Remembered rather than returned, so the loop can still find an animating
+                -- door in a later slot.
+                exitAt = t
+            end
+        end
+    end
+    if exitAt then
+        return "h", rs16(exitAt + 0x0c) - MAP_OFFSET, rs16(exitAt + 0x0e) - MAP_OFFSET
+    end
+    return nil
+end
+
+-- The DoorGraphics entry for the metatile at a PADDED grid coordinate, and its `size`.
+-- GetDoorGraphics' walk, and its answer for a tile that is not a door in this build's table is the
+-- same as the engine's: nothing happens.
+genderFrames.door.gfxFor = function(px, py)
+    local id = genderFrames.metatileAt(px, py)
+    if not id then return nil end
+    local base = flyRide.rom(genderFrames.door.GFX_TABLE)
+    for i = 0, genderFrames.door.GFX_MAX - 1 do
+        local e = base + i * genderFrames.door.GFX_ENTRY
+        local tiles = r32(e + 0x04)
+        -- The terminator, and the guard that says this is the table we think it is. A build that
+        -- relocated it reads something that is not a ROM pointer, and declining is the only safe
+        -- answer -- the alternative is handing the engine a garbage pointer to DMA from.
+        if tiles < 0x08000000 or tiles >= 0x0a000000 then return nil end
+        if r16(e + 0x00) == id then return e, r8(e + 0x03) end
+    end
+    return nil
+end
+
+-- LINK A FILLED-IN SLOT INTO THE TASK LIST, because a task the list does not contain is a task
+-- the engine never runs.
+--
+-- WRITTEN FROM THE STRUCTURE'S INVARIANT, NOT FROM THE ENGINE'S ROUTINE. The list is a doubly
+-- linked chain threaded through the same 16 entries -- `prev` +0x05, `next` +0x06, 0xFE meaning
+-- "I am the head" and 0xFF "I am the tail" -- held in non-decreasing `priority` (+0x07) order.
+-- Given that, there is exactly one correct place for a new entry and only one way to leave the
+-- chain consistent, so this walks the live list and puts it there: collect the order first, pick
+-- the slot, then write both directions. It is deliberately not a transcription of the engine's
+-- own insert.
+--
+-- **THE INVARIANT ABOVE IS NOT YET CONFIRMED ON A RUNNING GAME** (2026-09-12). It is read from
+-- the decompilation's declared layout, which is a fact about the struct, and the ordering claim
+-- follows from what the list is FOR -- but neither has been read back out of a live gTasks while
+-- other tasks were in it. The failure it would produce is loud and local (a door that does not
+-- animate, or one task slot of sixteen behaving oddly) rather than silent, and the caller refuses
+-- to mark a slot active unless this returns true. Confirming it is one probe's work: dump the
+-- chain head-to-tail with each entry's priority during ordinary play and check it is sorted.
+--
+-- BOUNDED, and defensively so: `pcall` catches errors, not loops (2026-08-25), and a `next` chain
+-- that does not terminate would hang the emulator rather than raise. A chain that fails to make
+-- sense leaves the slot unlinked and the caller refuses.
+genderFrames.door.insert = function(newId)
+    local base, stride = flyRide.TASKS_ADDR, flyRide.TASK_SIZE
+    local HEAD, TAIL = 0xfe, 0xff
+    local function at(i) return base + i * stride end
+
+    -- The chain as it stands, head to tail. Our own slot is still inactive at this point and so is
+    -- not in it. Sixteen entries is the whole table, so a chain longer than that is a corrupt one.
+    local order, id = {}, nil
+    for i = 0, 15 do
+        if r8(at(i) + 0x04) == 1 and r8(at(i) + 0x05) == HEAD then id = i break end
+    end
+    while id ~= nil and id ~= TAIL do
+        if #order >= 16 then return false end
+        order[#order + 1] = id
+        local nxt = r8(at(id) + 0x06)
+        id = (nxt == TAIL) and nil or nxt
+    end
+
+    -- Where it goes: ahead of the first entry that outranks it (a HIGHER priority value sorts
+    -- later), otherwise on the end.
+    local mine, prio = at(newId), r8(at(newId) + 0x07)
+    local before = nil
+    for _, other in ipairs(order) do
+        if prio < r8(at(other) + 0x07) then before = other break end
+    end
+
+    -- Then both directions, from the neighbours the position implies. Splitting "decide" from
+    -- "write" is what keeps the three cases -- only task, new head, mid-chain or tail -- from
+    -- needing three separate pointer dances.
+    local prev, next_
+    if before ~= nil then
+        prev, next_ = r8(at(before) + 0x05), before
+    elseif #order > 0 then
+        prev, next_ = order[#order], TAIL
+    else
+        prev, next_ = HEAD, TAIL
+    end
+    w8(mine + 0x05, prev)
+    w8(mine + 0x06, next_)
+    if prev ~= HEAD then w8(at(prev) + 0x06, newId) end
+    if next_ ~= TAIL then w8(at(next_) + 0x05, newId) end
+    return true
+end
+
+-- CreateTask + StartDoorAnimationTask, for one of the three kinds, at a tile in SAVE BLOCK
+-- coordinates. Returns whether the engine now owns a door animation of ours.
+genderFrames.door.start = function(kind, x, y)
+    local base, stride = flyRide.TASKS_ADDR, flyRide.TASK_SIZE
+    local animate = flyRide.rom(genderFrames.door.TASK_ANIMATE)
+    local free = nil
+    for i = 0, 15 do
+        local t = base + i * stride
+        if r8(t + 0x04) == 1 then
+            -- StartDoorAnimationTask's own refusal (`FuncIsActiveTask(Task_AnimateDoor)`). The
+            -- engine allows exactly one door animation at a time, and the one already running may
+            -- be the PLAYER'S OWN -- so a ghost yields to it rather than replacing it.
+            if r32(t + 0x00) == animate then return false end
+        elseif free == nil then
+            free = i
+        end
+    end
+    if free == nil then return false end
+    local gfx, size = genderFrames.door.gfxFor(x + MAP_OFFSET, y + MAP_OFFSET)
+    if not gfx then return false end
+    local frames
+    if kind == "c" then
+        frames = flyRide.rom(genderFrames.door.FRAMES_CLOSE)
+    elseif size == 2 then
+        frames = flyRide.rom(genderFrames.door.FRAMES_BIG_OPEN)
+    else
+        frames = flyRide.rom(genderFrames.door.FRAMES_OPEN)
+    end
+    local t = base + free * stride
+    w32(t + 0x00, animate)
+    w8(t + 0x07, genderFrames.door.PRIORITY)
+    for k = 0, 15 do w16(t + 0x08 + k * 2, 0) end
+    w16(t + 0x08, (frames >> 16) & 0xffff) w16(t + 0x0a, frames & 0xffff)
+    w16(t + 0x0c, (gfx >> 16) & 0xffff)    w16(t + 0x0e, gfx & 0xffff)
+    -- "h" starts on the LAST open frame: the engine draws it, counts it out, finds the {0,0}
+    -- terminator and retires the task, leaving the open door on the tilemap. That is
+    -- FieldSetDoorOpened's effect, produced by the engine's own drawing path.
+    if kind == "h" then w16(t + 0x10, genderFrames.door.LAST_OPEN_FRAME) end
+    w16(t + 0x14, x + MAP_OFFSET) w16(t + 0x16, y + MAP_OFFSET)
+    -- isActive LAST, and only if the slot is linked. A task marked active but absent from the
+    -- chain is a slot the engine will never run and never free -- it would leak one of sixteen,
+    -- permanently, which is a far worse outcome than a door that did not animate.
+    if not genderFrames.door.insert(free) then return false end
+    w8(t + 0x04, 1)
+    return true
+end
+
+-- Once per frame: play whatever door each peer's own engine is playing, for peers standing on the
+-- map we are standing on.
+--
+-- SAME AREA ONLY, deliberately. A peer across a seam has coordinates this client rebases every
+-- frame (xmapTranslate), and a door is a fixed tile rather than a moving character -- mirroring
+-- one across a seam is a separate question from mirroring one in the room, and doing it wrong
+-- animates a door on the wrong house.
+--
+-- Fires ONCE per event, not once per frame the peer reports it: a door task lives ~20 frames and
+-- the peer publishes it for all of them, so the key is what the peer is doing and where, and it
+-- has to change before anything is started again.
+genderFrames.doorTick = function(localAreaId)
+    for _, r in pairs(remotes) do
+        if r.dk and r.dx and r.dy and r.areaId == localAreaId then
+            local key = r.dk .. ":" .. r.dx .. "," .. r.dy
+            if key ~= r.dKey and genderFrames.door.start(r.dk, r.dx, r.dy) then
+                r.dKey = key
+                if r.dk == "c" then
+                    r.dOpenAt = nil
+                else
+                    r.dOpenAt, r.dOpenX, r.dOpenY = frameCounter, r.dx, r.dy
+                end
+            end
+        end
+        -- The close that never came. Not an error path worth a log line every time -- a peer
+        -- dropping mid-warp is ordinary -- but a door left open is visible, so it gets shut.
+        if r.dOpenAt and frameCounter - r.dOpenAt > genderFrames.door.HOLD_MAX_FRAMES then
+            if r.areaId == localAreaId then
+                genderFrames.door.start("c", r.dOpenX, r.dOpenY)
+            end
+            r.dOpenAt, r.dKey = nil, nil
         end
     end
 end
@@ -11992,6 +12313,9 @@ local function runFrame()
                 genderFrames.sendGfx = localGraphicsId()
                 flyRide.sample(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05),
                     r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
+                -- The door the engine has open right now, if any. On the table for the same
+                -- reason everything else here is: this chunk is at Lua's 200-local ceiling.
+                genderFrames.dk, genderFrames.dx, genderFrames.dy = genderFrames.door.sample()
                 genderFrames.sendAnim, genderFrames.sendIdx = genderFrames.coherentAnim(
                     genderFrames.sendGfx,
                     r8(sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)) + 0x2a),
@@ -12040,7 +12364,10 @@ local function runFrame()
                     -- the object's `invisible` bit, the vehicle standing on its tile, and the two
                     -- halves of a Fly. Sampled together, one frame, one pass over the object and
                     -- task tables -- see flyRide.sample.
-                    flyRide.invis, flyRide.boat, flyRide.fly, flyRide.flyk))
+                    flyRide.invis, flyRide.boat, flyRide.fly, flyRide.flyk,
+                    -- The door, and the only group here that is absent from the packet entirely
+                    -- when there is nothing to say -- encodeLocalState's header has why.
+                    genderFrames.dk, genderFrames.dx, genderFrames.dy))
                 if tiering.profT then
                     local pr = tiering.prof or {}
                     pr.send = (pr.send or 0) + (os.clock() - tiering.profT)
@@ -12084,6 +12411,11 @@ local function runFrame()
             -- cross-link resolves through gSprites first, so a build that did move it gets a
             -- logged refusal rather than a corrupted sprite.
             --
+            -- BEFORE THE TIERS, because a door is not a peer and belongs to none of them. It is
+            -- scenery the engine draws into the background, so it is neither spawned, nor a
+            -- hardware sprite, nor painted -- and a peer whose ghost no tier had room for still
+            -- gets their door, which is right: the door is the part you can see from across town.
+            genderFrames.doorTick(smoothAreaId)
             -- TIER ONE: real object events, as many as the map can spare (nearest peers win).
             if MESHGHOST_EMERALD_PROFILE then tiering.profT = os.clock() end
             local spawnSet = tiering.chooseSpawned(smoothAreaId, smoothX, smoothY)

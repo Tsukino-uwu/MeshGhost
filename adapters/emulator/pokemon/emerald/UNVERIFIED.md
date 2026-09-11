@@ -49,10 +49,74 @@ being work. An entry still here has not been confirmed.
 
 ---
 
-## [OPEN] EX SPEEDCHOICE has NO occlusion — its ghosts paint over scenery (2026-09-11)
+## [READY] A ghost's door OPENS — never tested in a game (2026-09-12)
+
+**Your ask: the open-door effect when a peer walks into a house.** Built, parses, passes the
+use-above-local check, and has **not been run once** — no ghost, no peer, no door. Everything below
+is what it should do, not what it did.
+
+**How it works, in one line each:**
+
+- A door in this game is a **task**, not a sprite: `Task_AnimateDoor` walks a four-frame table
+  writing OBJ VRAM and the BG tilemap. It touches no map grid, no object and no save — which is
+  what makes it something an adapter may do at all. The engine destroys the task itself.
+- **The sender reads its own engine** and puts the door tile plus one of three kinds in `extras`;
+  the receiver creates the same task from **its own** ROM tables. No pointer crosses the wire, so
+  the four builds stay independent.
+- **Three kinds, because entering and leaving are not the same event.** Entering animates the tile
+  above you. Leaving draws the door open with *no animation at all* (`FieldSetDoorOpened`) and only
+  animates the close — so a receiver that only knew "open" and "close" would animate a shut door
+  closing every time a ghost came out of a house. The third kind holds it open instead.
+- **Silent** — your call, 2026-09-12. The door SFX is a separate `PlaySE` at the warp, not part of
+  this task.
+- **Costs nothing when nothing is happening**: the three door fields are *appended* to the packet
+  only while a door is actually open, so the steady-state packet is byte-identical to yesterday's.
+  Always-present nulls would have been ~30 bytes on every packet, about 2 MB an hour per peer, to
+  say "no door" twenty times a second.
+
+**What to look at — vanilla, from savestate 3, the house you set up:**
+
+1. **A peer walks up into the door.** Their door should open on your screen, the ghost step up into
+   it, and the door shut behind them — the same animation the game plays for you, on the same tile.
+2. **The same peer comes back out.** The door should already be open as the ghost appears, then
+   shut once it has stepped down. **If it animates open first, the third kind is not firing**; if it
+   animates a closed door shutting, it is firing the wrong way round.
+3. **Your own door still works normally** — enter and leave a house yourself while peers are around.
+   A ghost's door yields to yours (the engine allows exactly one at a time and ours refuses when one
+   is running), so yours should never be interrupted or skipped.
+
+**The two things most likely to be wrong, both only the screen can answer:**
+
+- **The door may revert while you walk.** The engine redraws metatiles from the map grid as the
+  camera scrolls, and it redraws the *closed* door. The real game never hits this because the player
+  is frozen for the whole warp — but you are not frozen while a ghost uses a door. Watch for a door
+  that flickers shut and open again while you are moving. Off-screen is safe: `DrawDoorMetatileAt`
+  declines a tile the camera cannot see, so a door across town costs nothing and draws nothing.
+- **Timing.** The open is started when the peer's packet carrying it arrives, so it runs a network
+  delay behind the ghost's own step. If the ghost visibly walks into a closed door and it opens
+  after, that is the thing to say and it is fixable.
+
+**The three patched builds will do nothing here unless their door tables happen to sit at vanilla's
+addresses** — the metatile lookup refuses any tile it cannot find in a table that reads as one, so
+the failure mode is a door that does not animate rather than a wrong one. Worth a look, but vanilla
+is the test.
+
+## [OPEN] THREE of the four builds have NO occlusion — ghosts paint over scenery (2026-09-11, widened 2026-09-12)
+
+**Widened by the user on screen, 2026-09-12**, from savestate 3 in all four games at the same house
+in Littleroot: *"vanilla = everyone is hidden behind things properly"*, and SPEEDCHOICE 1.2.2, EX
+SPEEDCHOICE 0.4.0 and Archipelago each *"shown on top of the house instead of behind it"*. Four
+windows side by side, the same roof, the same peers.
+
+**That is one cause, not three, and it corrects this entry's own closing line** — which used to
+read *"Vanilla and SPEEDCHOICE both read gMapHeader correctly and occlude normally"*. SPEEDCHOICE
+does not. The adapter's own logs had been saying so all along and nobody had lined them up against
+a build: of the four sessions on 2026-09-11, the vanilla one logs the failure zero times and the
+SPEEDCHOICE, EX and Archipelago ones log it once each, **all three reading the same `0x03FF03FF`**.
+So the address is not merely unlocated on EX — it is vanilla-only, and one fix buys all three.
 
 **Not a regression and not a mystery — a known missing address, filed so it is not rediscovered from
-a screenshot.** EX SPEEDCHOICE 0.4.0 renders peers correctly in every other respect, but its
+a screenshot.** These builds render peers correctly in every other respect, but their
 `gMapHeader` is not at the address this adapter knows (it reads `0x03FF03FF` there, which is not a
 pointer), so the occlusion chain cannot be walked at all:
 
@@ -74,8 +138,15 @@ them** — this build moves each block independently. `probes/occlusion_probe.lu
 of the chain and is the place to start; a candidate is a pointer into ROM whose primary tileset is
 also a ROM pointer, confirmed by a map change rather than a single reading.
 
-**Archipelago has the same relocation and the same consequence.** Vanilla and SPEEDCHOICE both read
-gMapHeader correctly and occlude normally.
+**VANILLA IS THE ONLY BUILD THAT OCCLUDES** (corrected 2026-09-12 — see the top of this entry;
+SPEEDCHOICE was wrongly listed here as working). The signature to search for needs no new
+assumption, because the engine states the relation itself: `gBackupMapLayout.width` is the layout's
+own width plus `MAP_OFFSET_W` (15) and its height plus `MAP_OFFSET_H` (14)
+(`InitBackupMapLayoutData`, `include/fieldmap.h:18-20`). So a candidate is a word that points into
+ROM, whose `+0x00/+0x04` dimensions satisfy both of those against the live `gBackupMapLayout`, and
+whose `+0x10` and `+0x14` tilesets are ROM pointers too — then confirmed by walking to a second map
+rather than by one reading, the way `camoffset_find_probe.lua` walks six steps before believing a
+candidate.
 
 ## [READY] autostart looks only beside the script now, UNWATCHED (2026-09-11)
 
