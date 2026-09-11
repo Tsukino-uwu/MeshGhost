@@ -438,7 +438,7 @@ directly, **not** by watching a game. Nothing here is a claim about anything on 
   costs one port. QUIC cannot share with `udp` and has its own.
 - **quic-go exposes a working `ExportKeyingMaterial`** over a TLS 1.3 connection
   (`TestHandshakeIsTLS13`). This was the open question gating the shelved room-code
-  channel-binding design in `ideas.md` — it would drop straight into `quic`.
+  channel-binding design in `security-design.md` — it would drop straight into `quic`.
 - **The UDP demultiplexer survives hostile input.** `FuzzListenerSurvivesArbitraryDatagrams`,
   1,482,717 executions in 30s, no crashes and no wedged listener. Worth recording *how* that
   number was reached: the first version of the target dialled a fresh socket per execution and

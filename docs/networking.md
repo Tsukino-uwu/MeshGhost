@@ -51,9 +51,11 @@ There are three things running, and they are separate on purpose:
 The relay's whole job is: accept a connection, decide whether to admit it, hand it an id, and
 copy the bytes it sends to the other members of its room. That's it. It holds no *positions* and no
 history — a `Room` is a name, a `game_id`, a `game_version`, and a map of members (`relay.go`),
-plus the opt-in bookkeeping the planes past cosmetic need: leases, escrows, a last-state-per-member
-snapshot, and — since `world.v1`, 2026-08-17 — a **world** of opaque per-entity blobs it holds on a
-room's behalf and hands to whoever takes an authority lease next (`world.go`). None of that changes
+plus the room-wide `ghost_collision` policy the operator set, which it advertises and never
+interprets; the table of suspended sessions keyed by resume token (`resume.go`); and the opt-in
+bookkeeping the planes past cosmetic need: leases, escrows, a last-state-per-member snapshot, and
+— since `world.v1`, 2026-08-17 — a **world** of opaque per-entity blobs it holds on a room's
+behalf and hands to whoever takes an authority lease next (`world.go`). None of that changes
 what it *understands*: every one of those is an opaque string or an opaque blob, and none of it runs
 for a room that did not ask for it. It does not know what a position *means*, and by hard rule it never
 will: `area_id`, `anim`, `orientation` and `extras` are opaque, compared by equality if at all,
@@ -87,6 +89,13 @@ could ping forever without ever joining and stay under it indefinitely.
 registered. Deliberately not re-read per message: the cap the relay *enforces* has to be the
 one this connection's own `welcome` *advertised*, and re-reading `s.SendHz` mid-session would
 let the relay start enforcing a limit it never told this client about.
+
+**First, before any of that: the refusal latch.** The very first thing `OnReceive` does is ask
+whether this connection has already been refused (`rateRejected || handshakeRejected`, `relay.go`).
+A refusal is a graceful close, which means a drain window in which the peer can still send — and
+until 2026-09-07 it could send a second, valid `hello` into that window and complete a genuine join
+over a half-closed socket, taking a `max_clients` seat and spawning a ghost on every real player's
+screen. Once either latch is set nothing further from that connection is read as a message.
 
 **Then the checks, in this order** — all inside the `r == nil` branch of `OnReceive`
 (`relay.go`), which is the "not in a room yet" state. Only a `hello` is accepted here;
@@ -145,8 +154,12 @@ had added itself, and neither would ever learn about the other — which, since 
 drops state from unrostered ids (section 3), means a permanently invisible peer rather than a
 cosmetic gap.
 
-**Welcome, then announce.** `welcome` goes to the joiner with its id, the pre-join roster, and
-the room's `send_hz` (`relay.go`); a `join` goes to everyone else via
+**Welcome, then announce.** `welcome` goes to the joiner with its id, the pre-join roster, the
+room's `send_hz`, its `protocol_version`, a `resume_token`, the roster's nametags, the negotiated
+`features` and the room's `ghost_collision` policy (`relay.go`). Since 2026-09-08 its size is
+bounded by the marshalled envelope rather than by a roster count — the count it used to carry was
+sized on bytes in hand, and JSON escaping made a maximal roster overshoot `MaxLineBytes` at a
+fifth of the members it allowed, killing the joiner it was sent to; a `join` goes to everyone else via
 `Forward` to that same `rosterBeforeJoin` snapshot (`relay.go`) — not to whoever happens to
 be a member by the time the broadcast runs, which CI's race job caught 2026-08-16 delivering a
 duplicate, late `join` for a player the newcomer's own `welcome` roster had already named. Order
@@ -175,7 +188,10 @@ Adapter → bridge → core → relay → other cores → their adapters. What h
 (`bridge.go`). `handleBridgeConn` (`core/bridgeserve.go`) decodes it and calls `onAdapterFrame`
 (`core/bridgeserve.go`). The adapter always drives; the core never calls into it uninvited.
 
-**Core → relay.** `forwardLocalState` (`core/sending.go`) does seven things worth knowing:
+**Core → relay.** `forwardLocalState` (`core/sending.go`) does nine things worth knowing. The
+last of them is a hand-off rather than a write: since 2026-09-11 the line goes to `relayWriter`'s
+queue (`core/relaywriter.go`) and a writer goroutine puts it on the socket, so nothing below
+happens on a thread the game is waiting for.
 
 - It records `c.localAreaID` on *every* real frame, before any throttling and whether or not a
   relay connection even exists — the cross-area render filter needs the adapter's actual
@@ -194,6 +210,19 @@ Adapter → bridge → core → relay → other cores → their adapters. What h
   silent gap.
 - The timestamp is stamped in the *relay's* clock domain when the room negotiated `clock.v1`
   (`core/online.go`), so peers only have to agree, not be right.
+- **The line cap is checked on send** (`core/sending.go`, since 2026-09-08). `ValidateState`
+  bounds every *field* and nothing bounds the *line*, so a state that is legal field by field can
+  still not fit: 4167 bytes measured for a maximal-but-legal state carrying a `prev`, against
+  `MaxPayloadBytes` (4095). The relay turns an over-long line into `bufio.ErrTooLong`, which drops
+  the connection *without* a reject — the core reconnects, is issued a new `player_id`, and every
+  peer sees the player despawn and respawn, with no log line anywhere naming a size. The `prev` is
+  dropped first, since it is pure redundancy; the whole state is dropped only if that is not
+  enough.
+- **Every state carries the one before it** (ADR 0045, `protocol/prev.go`), as a delta, whenever
+  the rate is 25Hz or slower — so it is on in the shipped 15Hz configuration and changes the wire
+  size of every state message. It is loss cover: one dropped datagram costs nothing a receiver
+  cannot reconstruct from the next sample. It is also why dropping a queued state is sound, since
+  a newer state's `prev` is exactly the sample the queue would discard.
 - `sendState` (`core/sending.go`) uses `SendUnreliable`, not `Send`. This is the state plane,
   which the contract defines as lossy and latest-wins. On tcp there is no difference at all; on
   a datagram transport it means a lost sample is superseded by the next one ~67ms later rather
@@ -539,11 +568,32 @@ happens when each one trips*.
 - **Read queue** — 64 datagrams per connection (`udpconn.go`, `quicconn.go`), dropped
   when full rather than blocked. Blocking would let one slow reader stall the demultiplexer for
   every other connection on the shared socket.
+- **The bridge has its own, and a different line cap.** None of the above applies to the localhost
+  socket between an adapter and its core: that one tolerates a 64 KiB line
+  (`transport.DefaultMaxLineBytes`), not `MaxLineBytes`' 4096, because an input track never goes on
+  the wire. What bounds it instead is `bridge/inputlimits.go` — `MaxInputEdgesPerBatch` (64),
+  `MaxInputAxes` (8), `MaxInputLabels` (32), `MaxInputLabelLen` (32), `MaxInputAxisValue` (1e4) —
+  and, as that file puts it, those "are the only thing standing between a broken adapter and the
+  core's memory".
 
-Backpressure, in short: exactly one bounded queue, and it exists to protect everyone *else* from
-a slow peer. Since 2026-08-28 (ADR 0042) every client has its own outbox — a FIFO capped at
-`maxOutboxLines` (256, `relay/outbox.go`) drained by a dedicated writer goroutine — so a stalled
-reader delays only its own queue, never the forwarding loop. An unreliable line arriving at a
+Backpressure, in short: three bounded queues, one at each place a write could otherwise block
+something that must not stop. They are the same shape — a FIFO, a dedicated writer goroutine, and
+the overflow policy below — and they were added in that order as each blocking write was found.
+
+- **Relay → client**, since 2026-08-28 (ADR 0042): every client has its own outbox, capped at
+  `maxOutboxLines` (256, `relay/outbox.go`), so a stalled reader delays only its own queue and
+  never the forwarding loop. This is the one that protects everyone *else* from a slow peer.
+- **Core → adapter**, since 2026-09-07 (`core/adapterwriter.go`): the frame path enqueues rather
+  than writes, and coalesces `render_remote` per peer in place.
+- **Core → relay**, since 2026-09-11 (`core/relaywriter.go`, capped at the same 256): the last
+  frame-path write in the process. `sendState` used to write the relay socket on the bridge
+  connection's read goroutine, so a relay that stopped reading blocked that loop for the whole
+  ten-second write deadline; the bridge socket's buffer then filled and the adapter's next write
+  blocked **on the game's main thread**. A frozen game, on a machine where nothing was wrong,
+  because something on the far side of the internet stopped reading.
+
+So the second and third protect the *local game* from a slow remote, which is the opposite
+direction from the first. An unreliable line arriving at a
 full outbox displaces the oldest queued unreliable line (latest-wins, as the state plane is
 defined); a *reliable* line arriving at a full outbox disconnects the peer, because dropping a
 decision silently is worse than losing the client. Everything else is still dropped (receive cap,
@@ -615,8 +665,8 @@ contain it.
   is what those lines are for.
 - **There is no kick and no ban, on purpose.** A ban needs something durable to ban — an address
   — and the relay never reads one, which is the privacy property the whole design keeps. A kick
-  without a ban is theatre, since the kicked player rejoins a second later, so it is bans or
-  nothing, and it is nothing. The host's tools are the room code — change it and restart, and the
+  without a ban is theatre, since nothing stops the kicked player reconnecting immediately, so it
+  is bans or nothing, and it is nothing. The host's tools are the room code — change it and restart, and the
   room is empty — and `only_game`.
 - **Running it as a service** (systemd, NSSM, a scheduled task) is the host's own setup; the
   binary has no daemon mode and needs none — it is one foreground process that exits on a fatal

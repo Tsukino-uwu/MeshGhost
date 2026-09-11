@@ -81,7 +81,7 @@
   code crosses it in the clear with no fix available, which is recorded in `risks.md` and stated in
   the flag's own help text. QUIC is the encrypted option, and its `tls.ConnectionState` does expose
   a working `ExportKeyingMaterial` (checked, not assumed — `TestHandshakeIsTLS13`), so the shelved
-  room-code channel-binding work in `ideas.md` would drop straight into it. **First third-party
+  room-code channel-binding work in `security-design.md` would drop straight into it. **First third-party
   dependency in the repo** (`quic-go`, MIT, plus three `golang.org/x/*` at BSD-3-Clause), which
   brings a `THIRD-PARTY-NOTICES` obligation for the Go binaries and may shift the antivirus
   false-positive baseline. `go get` also raised the module's Go directive from 1.22 to 1.25.0.

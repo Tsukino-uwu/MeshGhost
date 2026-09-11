@@ -118,8 +118,9 @@ encrypted-but-unverified either way.
 Two more caveats worth saying out loud: it only helps if someone actually compares the string, and
 the certificate is regenerated on every relay restart, so the pin has to be re-copied after the host
 restarts theirs. There is no CA anywhere in this design and none is planned. The other route to
-authentication — TLS channel binding, which would remove the room code from the wire entirely rather
-than encrypting it — is designed and unbuilt (`agent_docs/ideas.md`, transport security).
+authentication — TLS channel binding (`tls-exporter`, RFC 9266), which would remove the room code
+from the wire entirely rather than encrypting it — is designed and unbuilt
+([agent_docs/security-design.md](../agent_docs/security-design.md), point 3).
 
 **What plain `udp` does have**, since it is otherwise the weakest of the three: an HMAC cookie so an
 unauthenticated stranger cannot make the listener allocate memory for a spoofed address, a
@@ -135,7 +136,7 @@ with people I don't know" has a real, checkable answer instead of a guess — se
 [CLAUDE.md](../CLAUDE.md)'s "no addresses or APIs from memory" rule applied to security
 claims, not just game memory.
 
-**Bottom line up front, current as of 2026-08-19.** MeshGhost supports room-code auth and a peer
+**Bottom line up front, current as of 2026-09-11.** MeshGhost supports room-code auth and a peer
 game-version check, and the relay/core have been hardened against several concrete malicious-peer
 attack shapes (the 2026-08-14 pass, see "What changed" below). It is safer to use with people you
 don't personally know than it was — but the wire is not *authenticated* unless someone pins a
@@ -151,8 +152,9 @@ way, all of this raises the bar from "anyone with the address" to "anyone with t
 code," not to "safe against a
 network-level attacker" — and room-code auth is enforced entirely by the relay, so it provides zero
 protection if the relay itself is an outdated build, regardless of what any client sends or believes
-it configured (see "A new risk this creates" below). Full record of the 2026-08-14 pass: the ADR in
-[agent_docs/architecture.md](../agent_docs/architecture.md) (search "room-code/version ADR").
+it configured (see "A new risk this creates" below). Full record of the 2026-08-14 pass: ADR 0013, indexed in
+[agent_docs/architecture.md](../agent_docs/architecture.md) as "Add room-code auth and a peer
+game-version check to `hello`".
 
 ## How a client actually connects, and why it matters here
 
@@ -223,8 +225,9 @@ they would a TCP sequence number.
 - **Start-order independence, added same-day**: `cmd/meshghost` no longer requires the relay
   to already be running — a permanent rejection (wrong room code, version mismatch) still
   exits loudly, but "the relay isn't up yet" now retries with backoff instead of crashing the
-  whole process. Confirmed live: see
-  [agent_docs/verified.md](../agent_docs/verified.md)'s "start-order independence" entry.
+  whole process, so the relay and the client can be started in either order. Which refusals are
+  permanent and which are retried is pinned by `TestConnectRelayOnAdapterHelloCachesPermanentReject`
+  and `TestRateLimitedRejectIsRetryableUnlikeAConfigReject` (`core`).
 - **A core-relay heartbeat, added same-day**: `Core.sendHeartbeats` sends a `ping` every
   `DefaultHeartbeatInterval` (20s) on an otherwise-quiet connection — found live after a core
   with no adapter attached (or one reporting no local state) sent nothing at all, got closed
@@ -258,8 +261,13 @@ Every fix below has a regression test that failed before it. Ranked by what it c
   counted beneath the TLS layer so a parked handshake counts too; refusals are logged once a second.
 - **One member can no longer refuse every trade in an `escrow.v1` room.** Terminal records kept
   for `EscrowRetention` counted toward the room's cap, so 64 open-then-abort pairs — under the
-  flood cap — rejected everyone else's opens for a minute, renewably. Only live exchanges count
-  now, and an opener holds at most 8 (`MaxLiveEscrowsPerMember`).
+  flood cap — rejected everyone else's opens for `EscrowRetention` (60s), renewably. An opener now
+  holds at most 8 live exchanges (`MaxLiveEscrowsPerMember`) and terminal records stop counting
+  toward the room cap. Revised again on 2026-09-08: counting only live exchanges left the table
+  itself bounded by nothing but rate × retention, and the full-table scan ran under the room lock on
+  every open. It is now O(1) off maintained counters, with the table bounded by evicting the oldest
+  terminal record — so the 2026-09-02 property that a dead exchange costs nobody a slot still holds,
+  by a different mechanism.
 - **QUIC validates source addresses.** Every unvalidated Initial gets a Retry first, so a spoofed
   packet costs a stateless reply rather than a TLS handshake and five seconds of half-open state,
   and the 3x reply toward the spoofed address is gone. Incoming streams are limited to the one
@@ -355,7 +363,67 @@ once is deaf for the rest of its life (`relay/relay.go`).
   applies, and the bad value is reported rather than silently taking the whole file with it
   (`internal/cfg/cfg.go`).
 
-## What's already true, and why (checked against the actual code, 2026-08-15)
+## What changed (2026-09-08 to 2026-09-11: the udp connect window, a listener that stopped, and the last blocking write)
+
+**An off-path attacker could hijack a udp client's session token.** During the connect exchange the
+client read its cookie and per-connection token off an *unconnected* socket, with `ReadFromUDP`, and
+discarded the sender's address. Anything arriving on that port in that window was believed — so an
+attacker spraying the ephemeral range during the handshake could make a client adopt a token the
+relay never issued, after which every datagram it sent was dropped and the session simply never
+worked. This is the same connect window the cookie and token above are described as protecting;
+they do protect it now (`netx/udpconn`).
+
+**The relay could silently stop accepting TCP for the life of the process.** `tls=auto` is the
+shipped default, so the TLS-or-plaintext sniffing listener is always in the path. Its accept loop
+returned on the *first* `Accept` error of any kind; `Serve` then retried, as the 2026-09-02
+descriptor-exhaustion fix above has it do, and the retry blocked forever on a channel nothing would
+send to. So for six days the EMFILE hardening recorded above was defeated by the wrapper sitting in
+front of it, and a relay could go deaf with its window still open (`netx/tlsx`).
+
+**An oversized `welcome` killed joiners again, at a fifth of the expected player count.** The
+roster cap added on 2026-09-01 was sized on bytes in hand — but `SanitizeDisplayName` permits `&`,
+`<` and `>`, and `encoding/json` escapes each to six characters, so a maximal entry is about 173
+bytes rather than the ~67 assumed. Measured: 3973 B at 21 members and 6019 B at the cap of 32,
+against `MaxLineBytes` 4096. Past that the *joining* client's scanner dies with "token too long" —
+the exact incident the cap was written to prevent. The bound is now the marshalled envelope itself,
+so it cannot be wrong again for a reason nobody predicted, and it applies to the resume path, which
+had had no bound at all.
+
+**Two more from that pass are peer-triggerable**, both `resume.v1`: an unbounded resume snapshot
+against a 256-line outbox meant one member holding many leases could make **another player's**
+resume disconnect-loop; and `handleWorld`'s default arm treated any unknown op as a *set*, so the
+entity cap rested on a check in another package. Both fixed with tests. Same week, smaller:
+`State.Timestamp` gained bounds ("three reported defects were one missing check"), and the core's
+bridge admission, which was checked on `hello` only, so anything that was not a hello got in.
+
+**A stalled relay could freeze the game.** `sendState` wrote the relay socket synchronously, on the
+bridge connection's read goroutine. A relay that stopped reading — a saturated uplink, a swapping
+box — blocked that loop for the whole ten-second write deadline; the bridge socket's buffer then
+filled and the adapter's next write blocked **on the game's main thread**. A frozen game, on a
+machine where nothing was wrong, because something on the far side of the internet stopped reading.
+The core→relay direction is now a bounded queue with its own writer goroutine
+(`core/relaywriter.go`), matching the core→adapter one added 2026-09-07 and the relay's own from
+2026-08-28. This was the last frame-path socket write in the process.
+
+**Three smaller ones, each visible to a player rather than an attacker:**
+
+- **`config.json` is re-read while the client runs** (2026-09-09), and `tls`, `tls_fingerprint` and
+  `room_code` are among the values that take effect without a relaunch — so the TLS mode and the
+  pin are no longer fixed at process start. A change to any of them makes the client leave the relay
+  and rejoin. The **relay** does not re-read its config; it restarts.
+- **A key that is not a setting says so** (2026-09-11). A misspelled key used to parse, be ignored,
+  and leave the setting at its default in silence — the same class of mistake as a wrongly-typed
+  value, and on record as having cost a tester their room code. The client and relay now name such
+  keys in the log (`internal/cfg`). Keys the file carries for the game's mod are declared as such,
+  so they are not reported as typos.
+- **An adapter declares the oldest relay it will work with** (2026-09-11, ADR 0059), and a floor
+  never moves by itself.
+
+**Code signing** got its two prerequisites on 2026-09-06 — the policy page and a Windows version
+resource on both executables — which is what [code-signing.md](code-signing.md) describes. The
+releases are still unsigned, and that page says who holds the keys (nobody).
+
+## What's already true, and why (checked against the actual code, 2026-09-11)
 
 **No peer-to-peer connection exists.** Clients never connect to each other — only to the
 relay (`relay`), a hub, not a mesh. A client has no mechanism to learn anything about
@@ -428,7 +496,20 @@ the scaled term is 90, so the floor is what applies),
 rather than `limits.go`: `MaxEventBytes` (1024), `MaxLeaseKeyLen` (128), `MaxEscrowBlobBytes`
 (1024), `MaxWorldKeyLen` (64), `MaxWorldBlobBytes` (768), plus
 `MaxLeasesPerRoom`/`MaxEscrowsPerRoom`/`MaxWorldKeysPerRoom`, which are per-room **memory** bounds
-rather than per-message ones and are the only limits here of that kind. Those plane bounds are meant
+rather than per-message ones and are the only limits here of that kind. The handshake and
+extension fields carry their own too: `MaxCorrIDLen` (64), `MaxFeatures` (16) and `MaxFeatureLen`
+(64), `MaxResumeTokenLen` (128), `MaxEscrowIDLen` (64) and `MaxWorldMessageBytes` (1100). Two
+**queues** are bounded rather than any message: `maxOutboxLines` (256, `relay/outbox.go`) is what
+the relay will hold for a client that stopped reading, and `maxRelayOutboxLines` (256,
+`core/relaywriter.go`) what a core will hold for a relay that did.
+
+**The bridge is bounded separately, and more loosely on purpose.** None of the above applies to the
+localhost socket between an adapter and its core: it tolerates a **64 KiB** line
+(`transport.DefaultMaxLineBytes`), not `MaxLineBytes`' 4096, because an input track never goes on
+the wire. What bounds it is `bridge/inputlimits.go` — `MaxInputEdgesPerBatch` (64), `MaxInputAxes`
+(8), `MaxInputLabels` (32), `MaxInputLabelLen` (32), `MaxInputAxisValue` (1e4) — and that file is
+blunt about what they are for: they "are the only thing standing between a broken adapter and the
+core's memory". They are not a defence against a remote peer, which never reaches this socket. Those plane bounds are meant
 to be derived from the udp datagram limit rather than `MaxLineBytes`, and two of them are not —
 corrected 2026-08-18, pinned by tests in `netx/udpconn` rather than quietly reduced, and recorded as
 an open decision in `agent_docs/risks.md`. What each limit does when it trips, and the full account
@@ -464,13 +545,17 @@ ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
   the relay is — the certificate is self-signed and unverified, because `connect_to` is a bare IP
   with no CA and no hostname to check, and the `"tls_fingerprint"` pin does not reach this path at
   all. Closing that (by binding the room code to the TLS session)
-  is scoped and unscheduled in [agent_docs/ideas.md](../agent_docs/ideas.md); the keying material
-  it needs is confirmed reachable from a quic-go connection.
+  is scoped and unscheduled in
+  [agent_docs/security-design.md](../agent_docs/security-design.md), point 3, and carried as a
+  known gap in [agent_docs/risks.md](../agent_docs/risks.md); the keying material it needs is
+  confirmed reachable from a quic-go connection (`TestHandshakeIsTLS13`).
 - **Room-code auth depends on the relay being current** — see "A new risk this creates" above.
   A stale relay binary silently provides none of the protection a client believes it configured.
-- **Audited once, adversarially, on 2026-09-02** — the resource-exhaustion, protocol-trust,
-  transport and peer-to-adapter surfaces, by reviewers who had not written the code and were not
-  shown this page (ADR 0044). That is one pass by one kind of reviewer, not a proof; the honest
+- **Audited adversarially twice, on 2026-09-02 and 2026-09-07** — the resource-exhaustion,
+  protocol-trust, transport and peer-to-adapter surfaces, by reviewers who had not written the code
+  and were not shown this page (ADR 0044 covers the first). The second found, among others, the
+  drain-window rejoin and the synchronous relay write that could freeze a game, both below. That is
+  two passes by one kind of reviewer, not a proof; the honest
   status is "the things a hostile reader found in a day are fixed, and what they chose to leave
   are listed below." A peer can still spam legitimate-looking rapid state changes right up to the
   rate cap; that is what the cap is for. The next set of eyes should read the ADR first to look
@@ -483,7 +568,9 @@ ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
   (renewable) or 64 world keys, after which every other member gets `too many`. World entries
   outlive their writer by design — custody is the plane's purpose — so a departed member's 64 keys
   stay until the room empties or a later authority drops them. No shipped adapter negotiates these
-  planes; a per-member bound of escrow's shape is the fix when one does. Related: a lease-holder
+  planes — but the shipped client config carries a `"features"` key, so a player can ask for them
+  from `config.json` without any adapter being involved; a per-member bound of escrow's shape is the
+  fix when one does. Related: a lease-holder
   handover re-sends the room's world snapshot (~53 KB) per change of holder, so two colluding
   members can turn ~200 B in into ~53 KB out per handover, up to the flood cap.
 - **Resume grace holds a seat with no socket.** A `resume.v1` identity keeps its `max_clients` slot
