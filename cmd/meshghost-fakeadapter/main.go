@@ -378,6 +378,17 @@ func main() {
 	clients := flag.Int("clients", 1, "how many independent synthetic peers to run in this process, "+
 		"each with its own Core and relay connection")
 	radius := flag.Float64("radius", 10, "circle radius in position units")
+	overBridge := flag.Bool("bridge", false,
+		"drive each synthetic peer over a REAL bridge socket, the way a game does, instead of "+
+			"calling the core in-process. Off, this tool calls adapter.RenderRemote as a direct Go "+
+			"method call -- no marshal, no queue, no coalescing, no backpressure, no line framing -- "+
+			"so it is structurally incapable of finding a bridge ceiling, which is why the "+
+			"~350-ghost one stayed hidden until a real game hit it. On, every render crosses a "+
+			"loopback socket as NDJSON and the frame path writes one too.\n"+
+			"KEEP BOTH IN MIND WHEN READING A NUMBER: off is the mode that reaches hundreds of "+
+			"peers in one process (no socket each) and is what loads the RELAY; on is the only "+
+			"mode that loads the BRIDGE. Numbers from the two are not comparable, and every "+
+			"summary line says which produced it")
 	stopEvery := flag.Float64("stop-every", defaultStopPeriod,
 		"how often the synthetic peer stops, in seconds; 0 (the default) never stops. "+
 			"Try 7. A constant-speed circle is the most "+
@@ -705,7 +716,26 @@ func main() {
 	}
 
 	var wg sync.WaitGroup
+	var bridgePeers []*bridgePeer
+	if *overBridge {
+		// Built before the tick goroutines start, so a dial failure is a startup error rather
+		// than something discovered mid-run.
+		for i := range cores {
+			bp, err := runBridgePeer(cores[i], adapters[i], *gameID, *tick, stop)
+			if err != nil {
+				log.Fatalf("meshghost-fakeadapter: client %d: %v", i, err)
+			}
+			bridgePeers = append(bridgePeers, bp)
+		}
+		log.Printf("meshghost-fakeadapter: BRIDGE MODE -- %d peer(s) over real loopback sockets. "+
+			"Every render crosses NDJSON framing, the core's writer queue and its coalescing, "+
+			"which the in-process mode skips entirely. Numbers here are NOT comparable with "+
+			"in-process ones.", len(bridgePeers))
+	}
 	for i := range cores {
+		if *overBridge {
+			break // the bridge peers have their own send and read goroutines
+		}
 		wg.Add(1)
 		go func(c *core.Core, a *circleAdapter) {
 			defer wg.Done()
@@ -753,11 +783,24 @@ func main() {
 			ticker := time.NewTicker(*statsEvery)
 			defer ticker.Stop()
 			var prev uint64
+			// **THE DIVISOR IS REAL ELAPSED TIME, NOT THE NOMINAL INTERVAL (review H14,
+			// 2026-09-11).** It used to divide by `statsEvery` whatever the clock said -- and a
+			// ticker fires LATE exactly when the process is busy, which is when this number is
+			// being read. So the rate went UP as the rig fell behind: the instrument flattered
+			// the system in proportion to how much trouble it was in, which is the worst
+			// direction for an error in a load rig to point.
+			lastAt := time.Now()
 			for {
 				select {
 				case <-stop:
 					return
 				case <-ticker.C:
+					now := time.Now()
+					elapsed := now.Sub(lastAt).Seconds()
+					lastAt = now
+					if elapsed <= 0 {
+						continue
+					}
 					var total uint64
 					for _, a := range adapters {
 						total += a.renders.Load()
@@ -779,9 +822,24 @@ func main() {
 					if *churnEvery > 0 {
 						expect = "varies: churn on"
 					}
-					log.Printf("stats: clients=%d client0_remotes=%d (%s) renders=%d (%.0f/s across all clients)",
-						len(adapters), adapters[0].liveCount(), expect,
-						total, float64(delta)/statsEvery.Seconds())
+					// THE MODE IS IN THE LINE, because a number from one mode means something
+					// different from the same number in the other -- in-process renders are
+					// produced per tick per known remote whether or not anything arrived, while
+					// bridge renders are lines that actually crossed a socket.
+					mode := "in-process"
+					extra := ""
+					if *overBridge {
+						mode = "bridge"
+						var lines, fails uint64
+						for _, bp := range bridgePeers {
+							lines += bp.linesIn.Load()
+							fails += bp.sendFails.Load()
+						}
+						extra = fmt.Sprintf(" lines_in=%d send_fails=%d", lines, fails)
+					}
+					log.Printf("stats [%s]: clients=%d client0_remotes=%d (%s) renders=%d (%.0f/s across all clients)%s",
+						mode, len(adapters), adapters[0].liveCount(), expect,
+						total, float64(delta)/elapsed, extra)
 				}
 			}
 		}()

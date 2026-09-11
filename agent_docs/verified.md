@@ -136,6 +136,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-07 — The ~350-ghost bridge ceiling: what it actually was, and the two ceilings found on the way
 - 2026-09-07 (evening) — The coalescing bridge, confirmed on a live 512-chaser run
 - 2026-09-09 — core: an aged-out peer is back on its next fresh state (a paused emulator returns), confirmed in a five-client room
+- 2026-09-11 — the bridge is not the constraint: a sweep to 256 peers over REAL sockets, and where it actually bends
 
 ## Split per game — 2026-08-25
 
@@ -1829,3 +1830,58 @@ the engine drawing that many characters is, and that is adapter/game territory r
   this change does not touch; the last CI runs on the branch were green and CI is where it is
   re-checked. What a player sees now: a peer in a menu blinks out for the length of the visit
   and is back on the first frame after; that on-screen half is the user's (`crystal/UNVERIFIED.md`).
+
+## 2026-09-11 — the bridge is not the constraint: a sweep to 256 peers over REAL sockets, and where it actually bends
+
+**Go-side, measured by the agent with tools** (the split in `CLAUDE.md`): no game, no user, one
+relay and one `meshghost-fakeadapter` process on the dev machine.
+
+**What made it measurable at all.** Until today the rig called `adapter.RenderRemote` as a direct
+Go method call — no marshal, no queue, no coalescing, no framing, no backpressure — so it was
+structurally incapable of loading the bridge, which is why the ~350-ghost ceiling a tester hit
+stayed hidden (review H14). `-bridge` drives each synthetic peer over a real loopback socket
+speaking NDJSON, through the core's own `ServeBridge`. Everything under test is on the core's side
+of that socket.
+
+**The sweep** (bridge mode, 16 ms tick, one room, `send-hz 15`):
+
+| clients | remotes each | renders/s | peers lost |
+|---|---|---|---|
+| 32 | 31 | 62,000 | 0 |
+| 64 | 63 | 252,005 | 0 |
+| 128 | 127 | 381,809 | 0 |
+| 256 | 255 | **238,625** | **247 of 256** |
+| 256, `-areas 8` | ~31 | **433,970** | 0 |
+
+**128 clients is healthy: 3.8 million lines read off real sockets in ten seconds, zero send
+failures, every client seeing all 127 of its peers.**
+
+**At 256-in-one-area it collapses, and the shape of the collapse is the finding: throughput goes
+DOWN.** 238,625/s against 128's 381,809/s while the offered load doubled, with `client0_remotes=0`.
+A cap being enforced does not look like that; saturation does.
+
+**And the cause is NOT the relay, the client, or the bridge — it is per-process render fan-out.**
+The last row is the control: the SAME 256 clients against the SAME relay, with `-areas 8` so each
+receives ~31 peers instead of 255, ran at 433,970/s — the highest number in the sweep — and lost
+nobody. More clients and more throughput, because what each one has to READ is bounded.
+
+**What the relay did under the overload was correct.** Its log carries
+`is not draining its connection (256 messages queued) — disconnecting it`: that is
+`maxOutboxLines` refusing to grow memory on behalf of a peer that has stopped reading, which is
+what `relay/outbox.go` says it is for. The peers then reconnected and were dropped again (602 joins
+for 513 clients in the earlier attempt), which is the loop that behaviour produces and is preferable
+to the alternative.
+
+**THE CAVEAT THAT BOUNDS ALL OF IT, and it is not a small one: every client here shares ONE process
+on ONE machine.** 256 real players are 256 machines, each reading only its own share — the shape
+of the last row, not the fourth. So these numbers bound what a single measuring process can drive;
+they are NOT the relay's ceiling, and nothing here has measured that. Finding it needs the load
+spread across machines.
+
+**Also confirmed in passing:** the bridge peers send a real `hello` carrying
+`min_protocol_version`, so the core logged `adapter requires relay protocol version 2 or newer` for
+each — ADR 0059's path exercised end to end by something other than its own unit test.
+
+**The earlier 513-client attempt is recorded as what it was**: a rig overload, not a MeshGhost
+result. 513 clients each reading 512 peers at 15 Hz is ~3.9 million inbound messages a second into
+one process.
