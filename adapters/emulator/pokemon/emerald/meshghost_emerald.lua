@@ -3900,7 +3900,73 @@ genderFrames.grassRuns = function(behaviour, frame)
         images, TILE, TILE, frame, pal)
 end
 
-genderFrames.reflectiveSpans = function(left, top, width, height, who)
+-- A CALL SITE'S OWN REUSABLE BUFFERS for reflectiveSpans, and the reason the buffers are the
+-- CALLER'S rather than hidden inside the function (review I36, 2026-09-11).
+--
+-- **THE COST.** reflectiveSpans allocated a table per PIXEL ROW plus one per span plus the result:
+-- about 35 tables a call for an ordinary sprite, several calls per peer per frame, which at the
+-- 19-peer Route 111 count is roughly 700 tables a frame -- ~42,000 a second of garbage on the
+-- EMULATOR THREAD, which is the thread the game itself runs on.
+--
+-- **WHY NOT A BUFFER HIDDEN INSIDE THE FUNCTION**, which is the obvious fix: the result ESCAPES to
+-- the caller, so one shared buffer means two call sites can hold what they think are two different
+-- answers and actually hold one. That failure does not raise -- it paints the wrong reflection or
+-- the wrong occlusion mask, on screen, which is not something this side can see. Giving each site
+-- its own buffer makes the sites independent by construction, so the only remaining question is
+-- per-site ("does THIS site still hold its last answer when it asks again?"), which is answerable
+-- by reading one block instead of reasoning about all of them at once. All six were read.
+--
+-- The pool lives BESIDE the result, never inside it: `hwet`'s consumer walks the result with
+-- `pairs()`, so anything extra stored in it would be iterated as if it were a row.
+-- ONE SCRATCH PER CALL SITE, lazily built. Named for the site rather than shared, which is the
+-- property that makes the reuse safe: two sites can never be handed the same buffers. Each site's
+-- own result is dead before that site asks again, which was checked by reading all six:
+--   scHwet -- compare-mode only; read into lo/hi immediately below and not referenced again
+--   scWet -- passed straight into the drawRunList a few lines down, which only reads it
+--   scBlob -- built as an argument to drawRunList and never named
+--   scOccl -- read by the COMPARE_TIERS block and the draw below it, both within this block
+--   scWwet -- used by the wading draw in this block only
+--   scWalk -- an argument to the walker draw; never named
+--
+-- On `genderFrames` rather than as six top-level locals, because this file compiles at Lua's
+-- 200-local ceiling and has been stopped from loading by one name four times.
+genderFrames.scHwet = function()
+    genderFrames.__scHwet = genderFrames.__scHwet or genderFrames.newSpanScratch()
+    return genderFrames.__scHwet
+end
+
+genderFrames.scWet = function()
+    genderFrames.__scWet = genderFrames.__scWet or genderFrames.newSpanScratch()
+    return genderFrames.__scWet
+end
+
+genderFrames.scBlob = function()
+    genderFrames.__scBlob = genderFrames.__scBlob or genderFrames.newSpanScratch()
+    return genderFrames.__scBlob
+end
+
+genderFrames.scOccl = function()
+    genderFrames.__scOccl = genderFrames.__scOccl or genderFrames.newSpanScratch()
+    return genderFrames.__scOccl
+end
+
+genderFrames.scWwet = function()
+    genderFrames.__scWwet = genderFrames.__scWwet or genderFrames.newSpanScratch()
+    return genderFrames.__scWwet
+end
+
+genderFrames.scWalk = function()
+    genderFrames.__scWalk = genderFrames.__scWalk or genderFrames.newSpanScratch()
+    return genderFrames.__scWalk
+end
+
+genderFrames.newSpanScratch = function()
+    return { map = {}, pool = {} }
+end
+
+-- `sc` is optional: without it this allocates exactly as it always did, which keeps any future
+-- call site correct by default and makes the reuse something a site opts into.
+genderFrames.reflectiveSpans = function(left, top, width, height, who, sc)
     -- THE GRID MUST NOT BOB.
     --
     -- The first version derived it from the tier's own anchors (originY, captured from
@@ -3934,11 +4000,30 @@ genderFrames.reflectiveSpans = function(left, top, width, height, who)
 
     local gxMin = math.floor((left - baseX) / TILE)
     local gxMax = math.floor((left + width - 1 - baseX) / TILE)
-    local spans = {}
+    -- Last call's rows go back to the pool and their keys are CLEARED -- the keys are absolute
+    -- pixel rows and move every call, so a row left behind would be read by a consumer as a real
+    -- answer for a row this call never looked at.
+    local spans, pool
+    if sc then
+        spans, pool = sc.map, sc.pool
+        for k, row in pairs(spans) do
+            pool[#pool + 1] = row
+            spans[k] = nil
+        end
+    else
+        spans = {}
+    end
     for py = math.floor(top), math.floor(top) + height - 1 do
         local gy = math.floor((py - baseY) / TILE)
         local inTile = py - baseY - gy * TILE
-        local list, openFrom = {}, nil
+        local list, openFrom = nil, nil
+        local nSpans = 0
+        if pool and #pool > 0 then
+            list = pool[#pool]
+            pool[#pool] = nil
+        else
+            list = {}
+        end
         for gx = gxMin, gxMax do
             local id = genderFrames.metatileAt(gx, gy)
             local mask = id and genderFrames.coverMask(id, who)
@@ -3954,13 +4039,34 @@ genderFrames.reflectiveSpans = function(left, top, width, height, who)
                 if (rowBits >> bx) & 1 == 0 then
                     if not openFrom then openFrom = tileLeft + bx end
                 elseif openFrom then
-                    list[#list + 1] = { openFrom, tileLeft + bx - 1 }
+                    -- Written INTO the existing pair where there is one: this is the allocation
+                    -- that dominates the count, because a row usually has the same number of
+                    -- spans frame after frame.
+                    nSpans = nSpans + 1
+                    local pair = list[nSpans]
+                    if pair then
+                        pair[1], pair[2] = openFrom, tileLeft + bx - 1
+                    else
+                        list[nSpans] = { openFrom, tileLeft + bx - 1 }
+                    end
                     openFrom = nil
                 end
             end
         end
         if openFrom then
-            list[#list + 1] = { openFrom, baseX + (gxMax + 1) * TILE - 1 }
+            nSpans = nSpans + 1
+            local pair = list[nSpans]
+            if pair then
+                pair[1], pair[2] = openFrom, baseX + (gxMax + 1) * TILE - 1
+            else
+                list[nSpans] = { openFrom, baseX + (gxMax + 1) * TILE - 1 }
+            end
+        end
+        -- **TRIM, because every consumer walks these with `ipairs`** -- a leftover pair from a
+        -- longer previous row would be read as a real span and painted. Trimmed from the end, so
+        -- the array never has a hole in it.
+        for i = #list, nSpans + 1, -1 do
+            list[i] = nil
         end
         spans[py] = list
     end
@@ -8981,7 +9087,7 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
             -- ground. Compare mode only, and it costs one span build for one peer.
             local hry = sy + (info.height or FRAME_HEIGHT_PX) - 2 - 2 * arcY
             local hwet = genderFrames.reflectiveSpans(sx, hry,
-                info.width or FRAME_WIDTH_PX, info.height or FRAME_HEIGHT_PX, "reflection")
+                info.width or FRAME_WIDTH_PX, info.height or FRAME_HEIGHT_PX, "reflection", genderFrames.scHwet())
             local lo, hi = nil, nil
             if hwet then
                 for y2, l in pairs(hwet) do
@@ -10329,7 +10435,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                             -- ask the map. Computed here rather than inside the draw so it is one
                             -- lookup grid for the whole reflection instead of one per run.
                             local wet = rruns and genderFrames.reflectiveSpans(
-                                screenX + cx, rtop, info.width, info.height, "reflection")
+                                screenX + cx, rtop, info.width, info.height, "reflection", genderFrames.scWet())
                             -- Once a second: where this ghost stands, and every tile its
                             -- reflection is allowed to paint over, with that tile's behaviour.
                             -- Painting over a non-water behaviour is a bug; painting only over
@@ -10436,7 +10542,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                                 drawRunList(bruns, surfBlob.framePx, bflip, pbx,
                                     pby, panelRows, dim, nil, nil,
                                     genderFrames.reflectiveSpans(pbx, pby,
-                                        surfBlob.framePx, surfBlob.framePx, "sprite"))
+                                        surfBlob.framePx, surfBlob.framePx, "sprite", genderFrames.scBlob()))
                             end
                         end
 
@@ -10447,7 +10553,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                         -- buildings"*. The mask is the same machinery as the reflection's, asked
                         -- the question for a priority-2 sprite instead of a priority-3 one.
                         local occl = genderFrames.reflectiveSpans(screenX + cx, screenY + cy,
-                            info.width, info.height, "sprite")
+                            info.width, info.height, "sprite", genderFrames.scOccl())
                         -- THE HAT ROWS' VERDICT, on change only (COMPARE_TIERS): how many pixels
                         -- of the frame's top 8 rows survive occlusion, and which metatile the top
                         -- row overlaps. The hat vanishing intermittently at speed is either this
@@ -10575,7 +10681,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                         -- vanishes entirely one tile from the shore, where the other tiers still
                         -- show the hat" is exactly the shape of a clip that kept nothing.
                         local wwet = genderFrames.reflectiveSpans(screenX, wtop,
-                            FRAME_WIDTH_PX, FRAME_HEIGHT_PX, "reflection")
+                            FRAME_WIDTH_PX, FRAME_HEIGHT_PX, "reflection", genderFrames.scWwet())
                         -- MESHGHOST_EMERALD_REFL_TRACE only (it was COMPARE_TIERS until
                         -- 2026-09-02), on CHANGE only: what the ground test decided and where it
                         -- was asked. A reflection that does not appear is either a gate that said
@@ -10761,7 +10867,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                     drawSpriteFrame(remote.gender, pose, frameIndex, dirInfo.hFlip, screenX,
                         screenY, panelRows, dim,
                         genderFrames.reflectiveSpans(screenX, screenY,
-                            FRAME_WIDTH_PX, FRAME_HEIGHT_PX, "sprite"))
+                            FRAME_WIDTH_PX, FRAME_HEIGHT_PX, "sprite", genderFrames.scWalk()))
                     MG_BODY_PAINTED = true -- gap detector: the walker-fallback body counts too
                 end
                 -- OVER the character, which is the whole point: the engine's grass sprite sits

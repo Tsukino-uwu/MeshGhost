@@ -65,3 +65,18 @@ jobs:
       # file starts calling the host. See the header of the harness itself.
       - name: Fuzz the decoders
         run: lua5.4 adapters/emulator/tests/json_fuzz.lua
+
+      # Emerald's reflectiveSpans reuses its buffers instead of allocating ~35 tables a call
+      # (review I36): at the 19-peer Route 111 count the old path was ~700 tables a frame, on the
+      # emulator thread. Measured saving 97.9% of the garbage.
+      #
+      # The risk in that change is not a crash -- reuse cannot raise. It is a slightly WRONG
+      # answer: a row left over from a previous call that a consumer reads as real, or a leftover
+      # span from a longer previous row that gets painted. Both are wrong pixels on screen, which
+      # is the one thing no check on this side can see, so this compares the reusing path against
+      # the allocating one directly and both failure modes were shown to fail it.
+      #
+      # It lifts the real function out of the adapter by text, like the fuzzer above, so it cannot
+      # drift from what ships.
+      - name: The span reuse matches the allocating path
+        run: lua5.4 adapters/emulator/tests/spans_reuse.lua

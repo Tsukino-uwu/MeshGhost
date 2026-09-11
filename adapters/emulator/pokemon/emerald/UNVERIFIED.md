@@ -49,6 +49,47 @@ being work. An entry still here has not been confirmed.
 
 ---
 
+## [READY] the painted tier stops allocating ~700 tables a frame, UNWATCHED (2026-09-11)
+
+**A pure performance change with a visual failure mode, which is why it needs your eyes** (review
+I36). It cannot crash; it can only paint slightly the wrong thing.
+
+**What it was.** `reflectiveSpans` -- the function that answers "which horizontal pixel runs of
+this sprite are over water / behind scenery" -- allocated a fresh table per PIXEL ROW, plus one per
+span, plus the result: ~35 tables a call, several calls per peer per frame. At the 19-peer Route
+111 count that is roughly **700 tables a frame, ~42,000 a second, on the emulator thread** -- the
+thread the game itself runs on.
+
+**What it is now.** Each of the six call sites owns its own reusable buffers and hands them in.
+**Measured: 25.0 KB per call down to 0.5 KB, 97.9% less garbage.**
+
+**Why the buffers are the CALLER'S and not hidden inside the function:** the result escapes to the
+caller, so one shared buffer would let two call sites hold what they think are two answers and
+actually hold one. Per-site buffers make that impossible by construction; the only question left
+is per-site ("does this site still hold its last answer when it asks again?"), and all six were
+read individually. None does.
+
+**Checked before shipping, because none of it is visible from this side:**
+`adapters/emulator/tests/spans_reuse.lua` compares the reusing path against the allocating one
+across five call shapes -- including one much SHORTER than the call before it, which is the case
+that leaves stale data behind -- plus twenty repeats through one buffer, plus a check that rows a
+call did not cover are gone rather than left over. **Both failure modes were then deliberately
+reintroduced and shown to fail the test** (removing the trim, and removing the row clearing). It
+runs in CI.
+
+**What to watch, and it is all one screen:** stand a ghost at the water's edge on Route 111 or any
+pond, with a second peer if you can.
+
+- **Reflections** are the same shape as before -- cut at the bank, not spilling onto the grass or
+  the stone lip.
+- **Occlusion** still works: walk a drawn ghost behind a building edge or a treetop and it is
+  hidden, not drawn over.
+- **The surf blob and the wading line** look as they did.
+
+**The decline to watch for is a SPILL** -- a reflection or a sprite painting one or two pixel runs
+too many, especially on the row where a ghost's frame is shortest. That is precisely what a
+leftover span from a previous call looks like, and it is what the test exists to prevent.
+
 ## [READY] ghosts now honour the room's collision policy, UNWATCHED (2026-09-11)
 
 **THIS ONE CHANGES WHAT YOU SEE** -- the adapter half of D3, which you answered: ghosts should NOT
