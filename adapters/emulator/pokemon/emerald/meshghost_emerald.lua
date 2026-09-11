@@ -747,7 +747,7 @@ local function localGraphicsId()
         + 0x05)
     -- Inlined rather than via sprAddr/rs16: those are defined much further down this file, and a
     -- forward reference here would silently read a nil global.
-    local sox = memory.read_s16_le(GSPRITES_ADDR
+    local sox = memory.read_s16_le(GSPRITES_ADDR + (genderFrames.spriteAddrOffset or 0)
         + memory.read_u8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04) * SPRITE_SIZE + 0x24)
     if gfx ~= genderFrames.sentGfx then
         -- HOW LONG TO HOLD IS MEASURED, not picked. The offset arrives four frames after the
@@ -807,7 +807,7 @@ local function localGraphicsId()
         end
     end
     genderFrames.sendSox = sox
-    genderFrames.sendSoy = memory.read_s16_le(GSPRITES_ADDR
+    genderFrames.sendSoy = memory.read_s16_le(GSPRITES_ADDR + (genderFrames.spriteAddrOffset or 0)
         + memory.read_u8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04) * SPRITE_SIZE + 0x26)
     return gfx
 end
@@ -1777,7 +1777,14 @@ local DIAG_SCREENPOS_PARTS_MAX_LOGS = 200
 
 local function playerScreenPos()
     local spriteId = memory.read_u8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)
-    local spriteAddr = GSPRITES_ADDR + (spriteId * SPRITE_SIZE)
+    -- **THROUGH THE REGION SHIFT (2026-09-11).** This built its own address instead of going
+    -- through `sprAddr`, so on a build that moves gSprites it read the WRONG sprite -- and this
+    -- function is the anchor the whole painted tier positions peers against. On SPEEDCHOICE that
+    -- put every peer off-screen: remotes counted, areas matching, three tiles away, nothing
+    -- painted, no error. Its own ghost appeared correctly on every OTHER client the whole time,
+    -- because the send path never touches this.
+    local spriteAddr = GSPRITES_ADDR + (genderFrames.spriteAddrOffset or 0)
+        + (spriteId * SPRITE_SIZE)
 
     local sx = memory.read_s16_le(spriteAddr + 0x20)
     local sy = memory.read_s16_le(spriteAddr + 0x22)
@@ -1786,8 +1793,11 @@ local function playerScreenPos()
     local cx = memory.read_s8(spriteAddr + 0x28)
     local cy = memory.read_s8(spriteAddr + 0x29)
 
-    local coordOffsetX = memory.read_s16_le(GSPRITECOORDOFFSETX_ADDR)
-    local coordOffsetY = memory.read_s16_le(GSPRITECOORDOFFSETY_ADDR)
+    -- Same region, same shift. These were missed by an earlier pass that rewrote the `rs16(...)`
+    -- call sites only -- this pair uses `memory.read_s16_le` directly, which is exactly the kind of
+    -- near-miss a grep-driven edit leaves behind.
+    local coordOffsetX = memory.read_s16_le(GSPRITECOORDOFFSETX_ADDR + (genderFrames.spriteAddrOffset or 0))
+    local coordOffsetY = memory.read_s16_le(GSPRITECOORDOFFSETY_ADDR + (genderFrames.spriteAddrOffset or 0))
 
     -- DIAGNOSTIC, added 2026-08-14 -- the combined return value stayed frozen across an entire
     -- real walked tile (see the DIAG CURVE trace), which could mean either "correct, camera
