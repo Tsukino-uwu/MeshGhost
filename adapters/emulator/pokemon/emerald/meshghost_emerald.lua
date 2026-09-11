@@ -1109,19 +1109,27 @@ local AUTOSTART = os.getenv("MESHGHOST_NO_AUTOSTART") == nil and (function()
     return true
 end)()
 
--- BESIDE THIS SCRIPT IS THE DOCUMENTED LAYOUT (2026-09-10): a player copies meshghost.exe into
--- this folder, and the core then reads the config.json here, writes meshghost.log here, and keeps
--- its replay\ folder here -- the same per-game separation TEVI and Pseudoregalia have. It is not
--- SHIPPED here (9 MB, once per game), which is why the copy is a manual step in the README.
--- The two fallbacks stay, and are not deprecated: the release root is three levels up from
--- games/pokemon/emerald, a source checkout four up from adapters/emulator/pokemon/emerald. An install
--- that never copied the exe keeps working exactly as it did.
+-- BESIDE THIS SCRIPT IS THE ONLY PLACE AUTOSTART LOOKS (2026-09-11): a player copies
+-- meshghost.exe into this folder, and the core then reads the config.json here, writes
+-- meshghost.log here, and keeps its replay\ folder here -- the same per-game separation TEVI and
+-- Pseudoregalia have. It is not SHIPPED here (9 MB, once per game), and making that copy IS the
+-- opt-in.
+--
+-- THE TWO ../ FALLBACKS ARE GONE, and removing them is the point (the user's call, 2026-09-11).
+-- Reaching back to the release root meant an install that never opted in still had a process
+-- spawned for it, which is the one thing autostart must not do: it is a convenience a player
+-- chooses, not a requirement, and starting one program from another is exactly what an antivirus
+-- objects to. There are now two shapes and never both at once -- exe in the release root means
+-- "run it yourself", exe beside this script means autostart, still switchable with
+-- "autostart": false. MESHGHOST_CORE_DIR stays ahead of it as the dev escape hatch, the same name
+-- and the same position TEVI's CoreSearchDirs gives it, because a repo checkout runs this script
+-- where it sits and no player ever copies an exe there.
 local function findCoreExe()
-    local candidates = {
-        SCRIPT_DIR .. "meshghost.exe",
-        SCRIPT_DIR .. "../../../meshghost.exe",
-        SCRIPT_DIR .. "../../../../meshghost.exe",
-    }
+    local candidates = { SCRIPT_DIR .. "meshghost.exe" }
+    local devDir = os.getenv("MESHGHOST_CORE_DIR")
+    if devDir and devDir ~= "" then
+        table.insert(candidates, 1, devDir .. "/meshghost.exe")
+    end
     for _, path in ipairs(candidates) do
         local f = io.open(path, "rb")
         if f then
@@ -3528,6 +3536,36 @@ genderFrames.coverMask = function(metatileId, who)
 end
 
 -- The metatile id at a grid coordinate, and the cache guard that goes with it.
+-- Can the map be read AT ALL on this build? gBackupMapLayout's own width/height/pointer triple is
+-- the test: a real map has a non-null pointer and plausible dimensions. On a ROM that relocated
+-- them this reads zeros or nonsense, and the caller then declines to clip rather than clipping
+-- everything. Logged once, because "no occlusion on this build" is a real limitation a person
+-- should know about rather than discover from a screenshot.
+genderFrames.mapReadable = function()
+    local width = memory.read_s32_le(0x03005dc0)
+    local height = memory.read_s32_le(0x03005dc0 + 0x04)
+    local map = r32(0x03005dc0 + 0x08)
+    -- **`~= 0` IS NOT ENOUGH, and that cost a diagnosis (2026-09-11).** On the Archipelago build
+    -- 0x02037318 holds 0x03FF03FF -- not zero, not a pointer, and it sailed through the first
+    -- version of this check. The layout must point into ROM (0x08xxxxxx) and its PRIMARY tileset
+    -- must be a real pointer too; `probes/occlusion_probe.lua` diffed both builds and that is
+    -- exactly where they part company:
+    --     AP      layout=03FF03FF  tilesets 00000000 / 00000000
+    --     vanilla layout=083EA284  tilesets 083DF704 / 083DF71C
+    local layout = r32(0x02037318)
+    local inRom = layout >= 0x08000000 and layout < 0x0A000000
+    local ok = map ~= 0 and width > 0 and height > 0 and width < 1024 and height < 1024
+        and inRom and r32(layout + 0x10) >= 0x08000000
+    if not ok and not genderFrames.mapUnreadableLogged then
+        genderFrames.mapUnreadableLogged = true
+        console.log("MeshGhost: gMapHeader is not at the address this adapter knows on this build "
+            .. "(read " .. string.format("%08X", layout) .. "), "
+            .. "so painted ghosts are drawn WITHOUT occlusion (they will not be hidden by scenery). "
+            .. "Everything else is unaffected. Logged once.")
+    end
+    return ok
+end
+
 genderFrames.metatileAt = function(x, y)
     local width = memory.read_s32_le(0x03005dc0)
     local map = r32(0x03005dc0 + 0x08)
@@ -4089,6 +4127,26 @@ genderFrames.reflectiveSpans = function(left, top, width, height, who, sc)
     -- coordinates the attribute lookups take.
     local baseX, baseY = genderFrames.gridBase()
     if not baseX then
+        if __t0 then MG_RSPANS_T = (MG_RSPANS_T or 0) + (os.clock() - __t0) end
+        return nil
+    end
+
+    -- **AN UNREADABLE MAP IS NOT A COVERED ONE (2026-09-11).**
+    --
+    -- Everything below reads gBackupMapLayout (0x03005dc0) and gMapHeader (0x02037318) at their
+    -- VANILLA addresses, and an Archipelago-patched ROM relocates both. There every lookup returns
+    -- nil, nil is treated as "covers everywhere" -- a deliberate rule, so an undecodable METATILE
+    -- never becomes a reason to paint over something -- and the result is that every run is clipped
+    -- away. Measured on the AP instance the moment the shipped ladder became drawn-only:
+    -- `passes/frame 1.0 runs/frame 128 spans/frame 0`. 128 runs in, nothing out, no error anywhere.
+    --
+    -- The two cases are different and only one of them should hide anything. An unknown METATILE is
+    -- a gap in knowledge about a map we can read. An unreadable MAP means the instrument is absent,
+    -- and hiding every ghost on the strength of a reading we did not get is the worse failure --
+    -- especially as the tier this replaced (spawned) never consulted the map at all, so AP has
+    -- always drawn its ghosts unclipped. Returning nil here means "no restriction", which is what
+    -- every other caller without occlusion already passes.
+    if not genderFrames.mapReadable() then
         if __t0 then MG_RSPANS_T = (MG_RSPANS_T or 0) + (os.clock() - __t0) end
         return nil
     end
@@ -4946,7 +5004,23 @@ tiering.budget = function(localAreaId)
     -- it can be flipped mid-session by a one-line loader script.
     local cap = tonumber(MESHGHOST_EMERALD_MAX_SPAWNED
         or os.getenv("MESHGHOST_EMERALD_MAX_SPAWNED") or "")
-    if cap and cap < budget then budget = cap end
+    -- **DRAWN-ONLY IS THE SHIPPED LADDER SINCE 2026-09-11 (the user's call), so the default cap is
+    -- ZERO and no peer takes an engine object slot.** The flag above still raises it, which is what
+    -- makes the spawned tier a dev tool rather than dead code.
+    --
+    -- WHY, and it is not only cost. The painted tier draws a peer's OWN graphic, read from the
+    -- cartridge; the spawned one has to borrow the palette slot already loaded for the player, so a
+    -- peer of the other gender came out as a copy of you — confirmed on screen the same day,
+    -- *"both male on vanilla, both female on ap"*. Every engine tier shares that limit, and no
+    -- amount of tiering fixes it. The painted tier never had it.
+    --
+    -- The cost objection is answered: this tier went from 67ms to 21ms of Lua a frame at 64 painted
+    -- peers that day (32 painted hold a flat 60fps, 64 run at 39.9), which is what made the choice
+    -- available at all. The user's reasoning: *"drawn with good performance allows us to do more
+    -- custom things/bypass hardware limitations"* — the engine tiers are bounded by object slots,
+    -- OAM entries and OBJ tiles; painting is bounded only by the host.
+    if not cap then cap = 0 end
+    if cap < budget then budget = cap end
     return budget
 end
 
@@ -8780,7 +8854,12 @@ end
 tiering.hw = {
     -- ON BY DEFAULT since 2026-09-02 (user's call, the same day: "we have watched OAM a lot" --
     -- its two limits, underwater and fog, are the stand-downs recorded in VERIFIED.md). "0" turns it off.
-    on = (MESHGHOST_EMERALD_HW_OVERFLOW or os.getenv("MESHGHOST_EMERALD_HW_OVERFLOW") or "1") ~= "0",
+    -- **OFF BY DEFAULT SINCE 2026-09-11 (the user's call): the shipped ladder is DRAWN ONLY.**
+    -- It was on from 2026-09-02. Set the flag to "1" to bring it back, which is how it stays a dev
+    -- tool. Same reason as the spawn cap above: this tier borrows the live palette, so it cannot
+    -- show a peer of the other gender either, and the painted tier can. Note this flag is read at
+    -- FILE LOAD (see FLAGS.md), so a loader script must set it BEFORE the adapter.
+    on = (MESHGHOST_EMERALD_HW_OVERFLOW or os.getenv("MESHGHOST_EMERALD_HW_OVERFLOW") or "0") == "1",
     base = 0x030022f8 + 64 * 8, -- gMain.oamBuffer[64]; gMain 0x030022c0 + 0x038 (verified.md)
     slots = 56,                 -- entries 64..119. 120..127 is margin: 125 is the game's own.
     -- THREE POOLS, BECAUSE DEPTH HERE IS THE ENTRY NUMBER AND NOTHING ELSE.
@@ -11601,7 +11680,14 @@ local function runFrame()
         -- counts above cannot tell which of the two reasons it is: the peer is somewhere else, or
         -- it is here and the spawn declined. area_id is opaque and compared by equality, so
         -- printing both sides settles it in one line. Only when the counts actually disagree.
-        if nRemotes > 0 and nGhosts == 0 then
+        -- **AND NOTHING PAINTED EITHER (corrected 2026-09-11).** This asked only whether the
+        -- SPAWNED tier had anyone, which was a fair question while spawned was the primary
+        -- rung — but the shipped ladder is drawn-only now, so `nGhosts` is always 0 and this
+        -- printed "unrendered" for every peer on every status line while the painted tier was
+        -- happily drawing them. A diagnostic that fires when nothing is wrong is worse than
+        -- none: it was read as the explanation for a real fault on another instance and cost
+        -- time before the counts were compared.
+        if nRemotes > 0 and nGhosts == 0 and nDrawn == 0 then
             -- Rebuilt from memory rather than reused: the smoothed area id is a local of the
             -- block further down and is not in scope here, and this is a once-per-300-frames
             -- diagnostic, so a fresh read costs nothing.
