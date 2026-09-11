@@ -10034,9 +10034,9 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
     end
 
     local playerScreenX, playerScreenY = playerScreenPos()
-    local __pt0 = MESHGHOST_EMERALD_PROFILE and os.clock() or nil
+    local __panelT0 = MESHGHOST_EMERALD_PROFILE and os.clock() or nil
     local panelRows = tiering.scanPanel()
-    if __pt0 then MG_PANEL_T = (MG_PANEL_T or 0) + (os.clock() - __pt0) end
+    if __panelT0 then MG_PANEL_T = (MG_PANEL_T or 0) + (os.clock() - __panelT0) end
 
     -- ANCHOR ON THE ENGINE'S OWN SCROLL, NOT ON OUR ESTIMATE OF THE PLAYER.
     --
@@ -10105,12 +10105,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
             -- tiles is the game's own 16/8 frames rather than however far the last packet moved.
             -- RAW, not rounded to a tile: the core hands us a continuous position and rounding
             -- it here was the first step in every model that then had to re-invent the motion.
-            local __gt0 = MESHGHOST_EMERALD_PROFILE and os.clock() or nil
             local glideX, glideY = glideRemote(remote, remote.x, remote.y)
-            if __gt0 then
-                MG_GLIDE_T = (MG_GLIDE_T or 0) + (os.clock() - __gt0)
-                MG_GLIDE_N = (MG_GLIDE_N or 0) + 1
-            end
             -- ONE CAMERA COUNTER, NOT TWO. The obvious form of this line -- the player's screen
             -- position plus the tile delta -- mixes gSpriteCoordOffset (inside playerScreenPos)
             -- with gTotalCameraPixelOffset (inside the anchor), and the two are not written at
@@ -10834,17 +10829,12 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                     local wgbX, wgbY = genderFrames.gridBase()
                     if wgbX and wgi then
                         tiering.lastTile = tiering.lastTile or {}
-                        local __wt0 = MESHGHOST_EMERALD_PROFILE and os.clock() or nil
                         local wpal, wkind = genderFrames.reflectPalFor(tiering.lastTile, playerId,
                             remote.areaId,
                             math.floor((screenX - wgbX) / TILE),
                             math.floor((screenY - arc + TILE - wgbY) / TILE),
                             (FRAME_WIDTH_PX + 8) >> 4, (FRAME_HEIGHT_PX + 8) >> 4,
                             wgi.paletteSlot)
-                        if __wt0 then
-                            MG_WPAL_T = (MG_WPAL_T or 0) + (os.clock() - __wt0)
-                            MG_WPAL_N = (MG_WPAL_N or 0) + 1
-                        end
                         local wruns = wpal and genderFrames.walkerReflectRuns(
                             remote.gender, pose, frameIndex, wpal)
                         local wtop = screenY + FRAME_HEIGHT_PX - 2 - 2 * arc
@@ -11938,10 +11928,6 @@ local function guardedFrame()
                     table.sort(out)
                     return " occlBy[" .. table.concat(out, " ") .. "]"
                 end)()
-                .. string.format(" reflPal %.2f ms/%.0f", (MG_WPAL_T or 0) / frameErrors.profN * 1000,
-                    (MG_WPAL_N or 0) / frameErrors.profN)
-                .. string.format(" glide %.2f ms/%.0f", (MG_GLIDE_T or 0) / frameErrors.profN * 1000,
-                    (MG_GLIDE_N or 0) / frameErrors.profN)
                 .. string.format(" panel %.2f ms runsFor %.2f ms/%.0f",
                     (MG_PANEL_T or 0) / frameErrors.profN * 1000,
                     (MG_RF_T or 0) / frameErrors.profN * 1000,
@@ -11954,9 +11940,8 @@ local function guardedFrame()
             -- indistinguishable from "nothing was painted". Take a mark and diff it.
             MG_DRAWN_PASSES, MG_DRAWN_RUNS, MG_DRAWN_LOOP = 0, 0, 0
             MG_RSPANS_T, MG_RSPANS_N, MG_PANEL_T = 0, 0, 0
-            MG_RF_T, MG_RF_N, MG_GLIDE_T, MG_GLIDE_N = 0, 0, 0, 0
+            MG_RF_T, MG_RF_N = 0, 0
             MG_RSPANS_BY = {}
-            MG_WPAL_T, MG_WPAL_N = 0, 0
             MG_SPANS_AT = MG_SPANS or 0
             tiering.prof = {}
         end
