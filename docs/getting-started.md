@@ -10,7 +10,7 @@ will be.
 ## How it fits together
 
 You play your own copy of the game, on your own save, on your own machine. Beside it runs
-`meshghost.exe`, a small client that your game's mod starts and stops for you, and it is the only
+`meshghost.exe`, a small client your game's mod can start and stop for you, and it is the only
 part that touches the network. One person in your group runs `meshghost-server.exe`, and everyone
 points their client at it.
 
