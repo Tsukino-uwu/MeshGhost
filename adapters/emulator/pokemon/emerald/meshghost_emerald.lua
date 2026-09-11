@@ -10958,14 +10958,33 @@ function detectStateLoad()
     -- something overwrites that slot. The user's narrowing found it: *"only when using savestate
     -- from water to grass"* -- the water-time roster used more slots (blob, ripples) than the
     -- grass-time one re-claims, and the leftovers are the glitch. Sweep the whole range blind.
-    pcall(function()
-        for slot = 0, tiering.hw.slots - 1 do
-            local a = tiering.hw.base + slot * 8
-            w16(a + 0, tiering.hw.d0)
-            w16(a + 2, tiering.hw.d1)
-            w16(a + 4, tiering.hw.d2)
-        end
-    end)
+    -- **BEHIND THE SAME THREE GATES THE HARDWARE TIER ITSELF ENFORCES (review I32, fixed
+    -- 2026-09-11), and this sweep had none of them.**
+    --
+    -- It writes OAM slots 64..119 blind. Those slots are only OURS while the hardware tier is on,
+    -- on a build whose addresses were confirmed, and in the OVERWORLD -- and the game owns them
+    -- elsewhere: `documentation.md` records the SLOT MACHINE and the confetti effect using
+    -- exactly this range. A savestate loaded inside a slot machine therefore had this blank the
+    -- reels. `MESHGHOST_EMERALD_HW_OVERFLOW=0` did not stop it either, because that flag gates
+    -- `tiering.hw.on` and this path never asked.
+    --
+    -- The sweep is still RIGHT when it applies -- a load rewinds gMain.oamBuffer to the save-time
+    -- session's contents and nothing of the engine's clears this range, so leftovers survive as
+    -- garbage. It just has to be as sure as the tier is that the range is ours to clear.
+    if tiering.hw.on and avatarAddrOffset == 0 and inOverworld() then
+        pcall(function()
+            for slot = 0, tiering.hw.slots - 1 do
+                local a = tiering.hw.base + slot * 8
+                w16(a + 0, tiering.hw.d0)
+                w16(a + 2, tiering.hw.d1)
+                w16(a + 4, tiering.hw.d2)
+            end
+        end)
+    else
+        logFile("state load: OAM range sweep SKIPPED -- the hardware tier is off, the avatar "
+            .. "address is unconfirmed, or the game is not in the overworld, so slots 64..119 "
+            .. "are not ours to clear (the slot machine and the confetti effect own them)")
+    end
     -- The sweep may still WRITE the restored orphan objects and sprites -- identity says they are
     -- ours-shaped and deactivating them is right -- but every tile FREE under it is suppressed:
     -- the bitmap it would edit belongs to the restored session. See freeGhostTiles.
@@ -10986,6 +11005,11 @@ function detectStateLoad()
     -- lands"*, drawn as a 32-wide blob behind a perfectly correct walker while every struct we
     -- log read clean. Kill every blob/bobber whose followed object is not the PLAYER's -- the
     -- player's own is the engine's business, and our ghosts' get respawned fresh anyway.
+    -- Same gates, and the same reason: this reads gPlayerAvatar and then WRITES sprite structs,
+    -- and "which sprite is the player's" is only answerable in the overworld on a build whose
+    -- avatar address was confirmed. Outside it, the comparison that decides "foreign" is being
+    -- made against a byte that means something else.
+    if avatarAddrOffset == 0 and inOverworld() then
     pcall(function()
         local playerObj = r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05)
         local playerSpr = r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)
@@ -11005,6 +11029,7 @@ function detectStateLoad()
             end
         end
     end)
+    end
     -- No spawned or hardware ghost until the wire has echoed a post-load state; see chooseSpawned.
     genderFrames.loadQuietUntil = frameCounter + 12
 end

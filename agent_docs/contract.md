@@ -726,10 +726,19 @@ ends and the next begins.
   - **Framing is identical on all three: one datagram carries exactly one NDJSON line.** The
     consequence worth knowing is that `send` must emit payload and its newline in a *single*
     write — two writes are two datagrams and split every line in half.
-  - **Datagram size:** `netx/udpconn.MaxDatagramBytes` (1200) bounds one message on
-    `udp`, below `MaxLineBytes` (4096). A message over that is refused, not fragmented, because
-    a fragmented datagram is lost whole when any one fragment is lost. Large `extras` therefore
-    means `tcp`.
+  - **Datagram size, and it applies to QUIC TOO -- which is the SHIPPED DEFAULT** (corrected
+    2026-09-11, review J4; this passage named `udp` alone, so it read as a caveat about a
+    transport almost nobody selects). `netx/udpconn.MaxDatagramBytes` (1200) bounds one message on
+    `udp`, below `MaxLineBytes` (4096). A message over that is refused, not fragmented, because a
+    fragmented datagram is lost whole when any one fragment is lost.
+    **quic has the same ceiling for the same reason**, set by the connection's current path MTU
+    rather than by a constant of ours: `quicconn.Conn.WriteUnreliable` hands the datagram to
+    quic-go, which REFUSES an oversized one rather than fragmenting it, and the error is logged and
+    the message dropped.
+    So "large `extras` therefore means `tcp`" is a statement about the DEFAULT CONFIGURATION, not
+    about an opt-in one. A message that only fits on tcp is a message that silently does not arrive
+    for every peer on quic -- and since the state plane is lossy by contract, nothing downstream
+    reports it as an error.
   - **`udp` cannot be encrypted.** Go's standard library has no DTLS, so `room_code` crosses
     that transport in the clear with no fix available. `quic` is always encrypted — its
     handshake is TLS 1.3 — and `tcp` optionally so, via the `tls` setting on both ends
@@ -924,6 +933,16 @@ have caused a flickering ghost in Phase 2 and an argument in Phase 5 if left unr
   already-interpolated `render_remote` calls to the adapter every frame; the adapter's job is
   purely "hold the latest state per id, draw all of them." This is chatty over the bridge,
   but the bridge is localhost — that cost is free.
+- **"Pushes every frame" means OFFERS every frame (ADR 0060, retrospective for a 2026-09-07
+  change).** Neither direction of the bridge is written synchronously from a path that produces
+  frames: each connection has a writer goroutine and a bounded queue, and the producer never waits
+  on the consumer's socket. **A render that is still queued when a newer one arrives for the same
+  player is REPLACED in place** — it is a statement of current position, so an unsent one is
+  worthless once a newer one exists, and this is what bounds the queue by peer count however far
+  behind an adapter falls. Everything else on the bridge is an EVENT, is never coalesced, and keeps
+  its order; a full queue of those means the far end is not reading at all, and the connection is
+  dropped rather than the message. **An adapter that keeps up sees exactly what it saw before**,
+  because there is never a queued render for a newer one to replace.
 - **The one exception, added 2026-08-30 (ADR 0043): ROTATION is interpolated by the adapter,
   because the core cannot.** Orientation is opaque by contract, so the core has never
   interpolated it — it holds the older bracket's value until render time crosses the newer

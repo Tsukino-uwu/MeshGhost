@@ -220,6 +220,7 @@ or if a number is duplicated — an unindexed ADR is one nobody will find.
 - [2026-09-08 — A replay streams its input track beside its frames](adr/0057-2026-09-08-a-replay-streams-its-input-track-beside-its-frames.md)
 - [2026-09-10 — The contract catches up with the code it describes](adr/0058-2026-09-10-the-contract-catches-up-with-the-code-it-describes.md)
 - [2026-09-11 — An adapter declares the oldest relay it will work with](adr/0059-2026-09-11-an-adapter-declares-the-oldest-relay-it-will-work-with.md)
+- [2026-09-11 — Neither end of the bridge blocks the other, and a superseded frame may be shed](adr/0060-2026-09-11-neither-end-of-the-bridge-blocks-the-other.md)
 
 ## Prior art
 

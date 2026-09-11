@@ -617,6 +617,43 @@ func TestTheThreeStayApart(t *testing.T) {
 // split, and the only one that lives outside Go.
 var relayOnlyVocabulary = []string{"resume_token", "room_code", "protocol_version"}
 
+// containsIdentifier is strings.Contains with a WORD BOUNDARY, and the boundary is the whole point
+// (2026-09-11).
+//
+// A bare Contains made this gate match a SUBSTRING of a longer identifier, and the case that found
+// it is a legitimate one: `min_protocol_version` is a field on bridge.Hello (ADR 0059), which is an
+// adapter's own message to its own local core -- exactly the thing this test exists to permit --
+// and it contains `protocol_version`, which is the relay's. All four adapters failed at once for
+// saying something they are entitled to say.
+//
+// The fix is not an exemption list. An exemption would have to be renewed for every future field
+// whose name happens to embed one of these words, and each renewal is a chance to wave through a
+// real violation. A boundary test asks the question the rule actually asks: does this file NAME a
+// relay-protocol field?
+//
+// Identifier characters are letters, digits and underscore -- the same set in Lua, C# and C++, and
+// the reason a hyphen or a quote on either side still counts as a boundary.
+func containsIdentifier(body, word string) bool {
+	for i := 0; ; {
+		j := strings.Index(body[i:], word)
+		if j < 0 {
+			return false
+		}
+		start := i + j
+		end := start + len(word)
+		beforeOK := start == 0 || !isIdentRune(rune(body[start-1]))
+		afterOK := end == len(body) || !isIdentRune(rune(body[end]))
+		if beforeOK && afterOK {
+			return true
+		}
+		i = start + 1
+	}
+}
+
+func isIdentRune(r rune) bool {
+	return r == '_' || (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
+}
+
 // TestAdaptersNeverSpeakTheRelayProtocol reads the adapter sources as text, because they are Lua,
 // C# and C++ and there is no other way to hold them to it from here. Vendored dependencies are
 // skipped -- what they contain is not ours and not a claim about our split.
@@ -645,7 +682,7 @@ func TestAdaptersNeverSpeakTheRelayProtocol(t *testing.T) {
 		body := strings.ToLower(string(b))
 		rel, _ := filepath.Rel(root, path)
 		for _, word := range relayOnlyVocabulary {
-			if strings.Contains(body, word) {
+			if containsIdentifier(body, word) {
 				t.Errorf("%s: contains %q, which belongs to the relay protocol. An adapter speaks "+
 					"to its own local core over the bridge and to nothing else.", rel, word)
 			}
