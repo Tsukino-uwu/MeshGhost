@@ -2488,12 +2488,18 @@ genderFrames.runsFromPixels = function(pixels)
 end
 
 genderFrames.runsFor = function(gender, pose, frameIndex)
+    local __t0 = MESHGHOST_EMERALD_PROFILE and os.clock() or nil
+    if __t0 then MG_RF_N = (MG_RF_N or 0) + 1 end
     local key = gender .. ":" .. pose .. ":" .. frameIndex
     local cached = genderFrames.runCache[key]
-    if cached then return cached end
+    if cached then
+        if __t0 then MG_RF_T = (MG_RF_T or 0) + (os.clock() - __t0) end
+        return cached
+    end
     local genderSet = genderFrames[gender] or genderFrames.male
     local runs = genderFrames.runsFromPixels((genderSet[pose] or genderSet.walk)[frameIndex])
     genderFrames.runCache[key] = runs
+    if __t0 then MG_RF_T = (MG_RF_T or 0) + (os.clock() - __t0) end
     return runs
 end
 
@@ -2616,10 +2622,24 @@ function drawRunList(runs, frameWidth, hFlip, screenX, screenY, panelRows, dim, 
     -- nothing and the log says "unrendered" with no error anywhere. That is exactly what happened
     -- when this counter was first written (2026-09-11), the sixth bite of the trap this file
     -- documents, and the second one in a single day.
+    local profT0
     if MESHGHOST_EMERALD_PROFILE then
         MG_DRAWN_PASSES = (MG_DRAWN_PASSES or 0) + 1
         MG_DRAWN_RUNS = (MG_DRAWN_RUNS or 0) + #runs
+        -- Times THIS FUNCTION only, so the profiler's `draw` section can be split into the
+        -- per-RUN loop (here) and the per-PEER setup around it (occlusion spans, pose selection,
+        -- cache lookups). Two os.clock calls per PASS -- ~63 a frame, not per run -- so the
+        -- instrument is ~0.1% of what it measures. Those have different fixes, which is the only
+        -- reason to separate them.
+        profT0 = os.clock()
     end
+    -- HOISTED OUT OF THE RUN LOOP (2026-09-11): neither the scene's additive tint nor the
+    -- decision to apply it changes between runs of the same pass, and this loop runs ~8,100 times
+    -- a frame at 64 peers. It was a table lookup plus two comparisons per run to re-answer a
+    -- question with one answer per pass.
+    local tintAdd = genderFrames.tintAdd or 0
+    local tinting = (dim and dim < 0.99) or tintAdd > 0.5
+    local dimM = dim or 1
     for i = 1, #runs do
         local r = runs[i]
         local color = r.color
@@ -2627,11 +2647,10 @@ function drawRunList(runs, frameWidth, hFlip, screenX, screenY, panelRows, dim, 
         -- fitting the live OBJ palette against the cartridge's, once per frame, in drawRemotes --
         -- the additive term is what lets a fade toward WHITE (a cave mouth) wash the painted copy
         -- out the way the hardware washes out everything else.
-        local add = genderFrames.tintAdd or 0
-        if (dim and dim < 0.99) or add > 0.5 then
+        if tinting then
             -- Per RUN, not per pixel, and only while something is actually fading the screen:
-            -- in a steady scene this whole branch is two comparisons.
-            local m = dim or 1
+            -- in a steady scene this branch is not entered at all.
+            local m, add = dimM, tintAdd
             local rr = math.floor(((color >> 16) & 0xFF) * m + add)
             local gg = math.floor(((color >> 8) & 0xFF) * m + add)
             local bb = math.floor((color & 0xFF) * m + add)
@@ -2745,6 +2764,7 @@ function drawRunList(runs, frameWidth, hFlip, screenX, screenY, panelRows, dim, 
             end
         end
     end
+    if profT0 then MG_DRAWN_LOOP = (MG_DRAWN_LOOP or 0) + (os.clock() - profT0) end
 end
 
 -- A loopback-echoed ghost (internal/relay's dev-only -loopback flag, id = "<id>-ghost") would
@@ -4016,6 +4036,20 @@ end
 -- `sc` is optional: without it this allocates exactly as it always did, which keeps any future
 -- call site correct by default and makes the reuse something a site opts into.
 genderFrames.reflectiveSpans = function(left, top, width, height, who, sc)
+    -- PROFILING (2026-09-11): the per-peer SETUP half of the painted tier is 47 of its 61ms,
+    -- and this function is the only thing called once per peer that does real work -- it
+    -- resolves occlusion against the background tilemap. Timed at the definition so every
+    -- call site is caught, including the reflection and surf-blob ones. Two os.clock calls
+    -- per CALL, which is a handful per peer, not per run.
+    -- NO CLOSURE HERE, and that is deliberate: an earlier version of this timing built a
+    -- `__done` function on every call, which is an ALLOCATION in the hottest path in the tier --
+    -- the exact GC pressure the caller-owned scratch buffers exist to avoid, added by the
+    -- instrument meant to measure it. Each exit accumulates inline instead.
+    local __t0
+    if MESHGHOST_EMERALD_PROFILE then
+        MG_RSPANS_N = (MG_RSPANS_N or 0) + 1
+        __t0 = os.clock()
+    end
     -- THE GRID MUST NOT BOB.
     --
     -- The first version derived it from the tier's own anchors (originY, captured from
@@ -4033,7 +4067,10 @@ genderFrames.reflectiveSpans = function(left, top, width, height, who, sc)
     -- same inverse as before, with MAP_OFFSET folded in so ty and tx come out in the GRID
     -- coordinates the attribute lookups take.
     local baseX, baseY = genderFrames.gridBase()
-    if not baseX then return nil end
+    if not baseX then
+        if __t0 then MG_RSPANS_T = (MG_RSPANS_T or 0) + (os.clock() - __t0) end
+        return nil
+    end
     local txMin = math.floor((left - baseX) / TILE)
     local txMax = math.floor((left + width - 1 - baseX) / TILE)
     local tyMin = math.floor((top - baseY) / TILE)
@@ -4042,7 +4079,10 @@ genderFrames.reflectiveSpans = function(left, top, width, height, who, sc)
     -- Drop the decoded masks when the map changes -- a new layout means new tilesets, and a
     -- metatile id means something else entirely under them.
     local layout = r32(0x02037318)
-    if layout == 0 then return nil end
+    if layout == 0 then
+        if __t0 then MG_RSPANS_T = (MG_RSPANS_T or 0) + (os.clock() - __t0) end
+        return nil
+    end
     if genderFrames.coverLayout ~= layout then
         genderFrames.coverCache, genderFrames.coverLayout = {}, layout
     end
@@ -4062,9 +4102,26 @@ genderFrames.reflectiveSpans = function(left, top, width, height, who, sc)
     else
         spans = {}
     end
+    -- **THE METATILE ROW IS FETCHED ONCE PER TILE ROW, NOT ONCE PER PIXEL ROW (2026-09-11).**
+    -- `gy` only changes every 16 pixel rows, so `metatileAt`/`coverMask` were being asked the
+    -- same question sixteen times over: 96 lookups a call where nine distinct tiles exist.
+    -- Measured before this: this function was 37.6ms of a 62.9ms painter at 64 peers -- 60% of
+    -- the tier and 56% of the whole frame, at 0.29ms a call, twice per peer.
+    local maskGy, maskArr = nil, {}
     for py = math.floor(top), math.floor(top) + height - 1 do
         local gy = math.floor((py - baseY) / TILE)
         local inTile = py - baseY - gy * TILE
+        if gy ~= maskGy then
+            maskGy = gy
+            local n = 0
+            for gx = gxMin, gxMax do
+                n = n + 1
+                local id = genderFrames.metatileAt(gx, gy)
+                -- `false` rather than nil, so the array stays dense and a gap cannot be read as
+                -- "not fetched yet" by the loop below.
+                maskArr[n] = (id and genderFrames.coverMask(id, who)) or false
+            end
+        end
         local list, openFrom = nil, nil
         local nSpans = 0
         if pool and #pool > 0 then
@@ -4074,8 +4131,7 @@ genderFrames.reflectiveSpans = function(left, top, width, height, who, sc)
             list = {}
         end
         for gx = gxMin, gxMax do
-            local id = genderFrames.metatileAt(gx, gy)
-            local mask = id and genderFrames.coverMask(id, who)
+            local mask = maskArr[gx - gxMin + 1]
             -- Off the map, or a metatile we could not decode: treat it as covering, so an unknown
             -- never becomes a reason to paint somewhere.
             -- mask == true means "this metatile covers everywhere" (see coverMask); a table is
@@ -4084,21 +4140,47 @@ genderFrames.reflectiveSpans = function(left, top, width, height, who, sc)
             local rowBits = 0xffff
             if type(mask) == "table" then rowBits = mask[inTile] or 0xffff end
             local tileLeft = baseX + gx * TILE
-            for bx = 0, TILE - 1 do
-                if (rowBits >> bx) & 1 == 0 then
-                    if not openFrom then openFrom = tileLeft + bx end
-                elseif openFrom then
-                    -- Written INTO the existing pair where there is one: this is the allocation
-                    -- that dominates the count, because a row usually has the same number of
-                    -- spans frame after frame.
+            -- **TWO FAST PATHS FOR THE TWO CASES THAT ARE ALMOST ALWAYS TRUE**, and they are
+            -- EXACTLY what the bit loop below does for those inputs, not an approximation of it:
+            --
+            --   all bits SET (0xffff, "covers everywhere"): the loop's first iteration closes any
+            --   open span at tileLeft-1 and every later one is a no-op.
+            --   all bits CLEAR (0, "open everywhere"): the loop's first iteration opens a span at
+            --   tileLeft and every later one is a no-op.
+            --
+            -- A metatile is overwhelmingly one or the other -- a partially covering tile is the
+            -- rare edge (a bank, a ledge, a rooftop lip), and that case still walks all 16 bits.
+            -- This turns ~1,500 bit tests a call into a handful.
+            if rowBits == 0xffff then
+                if openFrom then
                     nSpans = nSpans + 1
                     local pair = list[nSpans]
                     if pair then
-                        pair[1], pair[2] = openFrom, tileLeft + bx - 1
+                        pair[1], pair[2] = openFrom, tileLeft - 1
                     else
-                        list[nSpans] = { openFrom, tileLeft + bx - 1 }
+                        list[nSpans] = { openFrom, tileLeft - 1 }
                     end
                     openFrom = nil
+                end
+            elseif rowBits == 0 then
+                if not openFrom then openFrom = tileLeft end
+            else
+                for bx = 0, TILE - 1 do
+                    if (rowBits >> bx) & 1 == 0 then
+                        if not openFrom then openFrom = tileLeft + bx end
+                    elseif openFrom then
+                        -- Written INTO the existing pair where there is one: this is the
+                        -- allocation that dominates the count, because a row usually has the same
+                        -- number of spans frame after frame.
+                        nSpans = nSpans + 1
+                        local pair = list[nSpans]
+                        if pair then
+                            pair[1], pair[2] = openFrom, tileLeft + bx - 1
+                        else
+                            list[nSpans] = { openFrom, tileLeft + bx - 1 }
+                        end
+                        openFrom = nil
+                    end
                 end
             end
         end
@@ -4119,6 +4201,7 @@ genderFrames.reflectiveSpans = function(left, top, width, height, who, sc)
         end
         spans[py] = list
     end
+    if __t0 then MG_RSPANS_T = (MG_RSPANS_T or 0) + (os.clock() - __t0) end
     return spans
 end
 
@@ -9929,7 +10012,9 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
     end
 
     local playerScreenX, playerScreenY = playerScreenPos()
+    local __pt0 = MESHGHOST_EMERALD_PROFILE and os.clock() or nil
     local panelRows = tiering.scanPanel()
+    if __pt0 then MG_PANEL_T = (MG_PANEL_T or 0) + (os.clock() - __pt0) end
 
     -- ANCHOR ON THE ENGINE'S OWN SCROLL, NOT ON OUR ESTIMATE OF THE PLAYER.
     --
@@ -11787,13 +11872,30 @@ local function guardedFrame()
                 (p.send or 0) / frameErrors.profN * 1000, (p.drain or 0) / frameErrors.profN * 1000,
                 (p.sync or 0) / frameErrors.profN * 1000, (p.shadows or 0) / frameErrors.profN * 1000,
                 (p.draw or 0) / frameErrors.profN * 1000)
-                .. string.format(" | passes/frame %.1f runs/frame %.0f",
+                .. string.format(" | passes/frame %.1f runs/frame %.0f loop %.2f ms "
+                    .. "(setup %.2f ms) spans/frame %.0f",
                     (MG_DRAWN_PASSES or 0) / frameErrors.profN,
-                    (MG_DRAWN_RUNS or 0) / frameErrors.profN)
+                    (MG_DRAWN_RUNS or 0) / frameErrors.profN,
+                    (MG_DRAWN_LOOP or 0) / frameErrors.profN * 1000,
+                    ((p.draw or 0) - (MG_DRAWN_LOOP or 0)) / frameErrors.profN * 1000,
+                    ((MG_SPANS or 0) - (MG_SPANS_AT or 0)) / frameErrors.profN)
+                .. string.format(" | occl %.2f ms/%.0f",
+                    (MG_RSPANS_T or 0) / frameErrors.profN * 1000,
+                    (MG_RSPANS_N or 0) / frameErrors.profN)
+                .. string.format(" panel %.2f ms runsFor %.2f ms/%.0f",
+                    (MG_PANEL_T or 0) / frameErrors.profN * 1000,
+                    (MG_RF_T or 0) / frameErrors.profN * 1000,
+                    (MG_RF_N or 0) / frameErrors.profN)
             console.log(profLine)
             logFile(profLine)
             frameErrors.profSum, frameErrors.profN, frameErrors.profMax = 0, 0, 0
-            MG_DRAWN_PASSES, MG_DRAWN_RUNS = 0, 0
+            -- MG_SPANS is NOT zeroed: the drawn-gap detector at the paint site samples it
+            -- before and after a frame's painting, and a reset between those two reads is
+            -- indistinguishable from "nothing was painted". Take a mark and diff it.
+            MG_DRAWN_PASSES, MG_DRAWN_RUNS, MG_DRAWN_LOOP = 0, 0, 0
+            MG_RSPANS_T, MG_RSPANS_N, MG_PANEL_T = 0, 0, 0
+            MG_RF_T, MG_RF_N = 0, 0
+            MG_SPANS_AT = MG_SPANS or 0
             tiering.prof = {}
         end
     end

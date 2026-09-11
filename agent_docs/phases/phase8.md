@@ -861,3 +861,83 @@ Six findings, **UNWATCHED**; `UNVERIFIED.md` carries what to watch. The one that
   adapter already had. **This is the one change that alters what the player sees.**
 
 Full session record, including what was NOT done and why: [phase10.md](phase10.md), 2026-09-11.
+
+## 2026-09-11 (later) — four Emerald builds at once, and the painted tier made 2.4x faster by measuring instead of arguing
+
+**The session ran four Emerald builds against one relay** — vanilla, an Archipelago seed, SPEEDCHOICE
+1.2.2 and EX SPEEDCHOICE 0.4.0 — then added vanilla Crystal V1.1 alongside for comparison. Five
+emulators, one machine.
+
+### Three defects found before any performance work started
+
+- **D3's collision policy was a nil global.** The `session_policy` handler stored the flag on
+  `tiering`, a file-scope local declared ~900 lines BELOW the bridge dispatch, so the first policy
+  message a room ever sent would have raised inside the dispatch. **The fifth bite of the
+  forward-reference trap this adapter documents in its own source**, caught by `preflight.ps1`'s
+  Lua-globals check — not by a test, and not by a reading. The feature had never executed anywhere.
+- **A save-block pointer was checked for being non-zero, never for being a POINTER.** Ten deref
+  sites, all guarded `== 0` alone. On EX SPEEDCHOICE that address holds `F9F9F7F6`, so every guard
+  passed and the adapter read through it once per frame per site; BizHawk answers an out-of-range
+  read with a WARNING, so nothing failed and nothing stopped — the console filled and the emulator
+  visibly lagged, which is how the user found it. Fixed as a reader returning 0 for anything
+  outside EWRAM, so the ten existing guards start working.
+- **`MESHGHOST_EMERALD_HW_OVERFLOW` cannot be flipped mid-session**, though `FLAGS.md` said a
+  loader script could. It is read in a table constructor at file load. A tier-cost ladder run on
+  that claim reported `hw=16 drawn=0` while believing it was pricing the painted tier.
+
+### The cross-gender ghost, diagnosed and filed
+
+A peer of the opposite gender is drawn as a copy of YOUR player, confirmed on screen: *"both male
+on vanilla, both female on ap"*. The adapter had been printing the fault about itself since the status dump gained that line
+(`gfx: ghost drawn as 0, peer reports 89`). The graphicsId crosses the wire intact; the spawn path
+discards it, because a ghost borrows the player's loaded palette slot and refuses any graphic with
+a different `paletteTag` — and Brendan and May are exactly such a pair. **The guard that makes bikes
+and surfing work across peers is the one that makes gender fail across them.** Filed unfixed: the
+clean repair writes palette RAM, wider than the object-RAM surface the 2026-08-18 ADR cleared, and
+that boundary is the user's to move.
+
+### The painted tier, and the method that got there
+
+The user's question was why Emerald's drawn tier is demanding when Crystal's is preferred. **Three
+answers were offered before one was measured, and two were wrong.**
+
+1. *Colour depth fragments the rows* — refuted by decoding both ROMs offline: **113 runs a frame
+   against Crystal's 94**, 1.2x, not the 4-6x that story needed.
+2. *Route the cross-gender case through the painted tier, it is cheapest* — the user corrected it:
+   in Emerald that is the EXPENSIVE rung, which this adapter's own README states plainly.
+3. *The per-run logic around each draw call* — half right, and not the half that mattered.
+
+**The ladder** (`fpshold.lua`, 1800 samples a rung, painted count verified from `drawn=`, both games
+idle, indoors, away from water at the user's request):
+
+| painted | Emerald before | Emerald after | Crystal |
+|---|---|---|---|
+| 16 | 60.0 | 60.0 | 60.0 |
+| 32 | 45.4 | **59.8** | 60.0 |
+| 64 | 19.5 | **29.3** | 59.9 |
+
+**The attribution, in three steps, each one narrowing the last:** the profiler put 94% of the frame
+in the painter; a pass/run counter showed exactly ONE pass per ghost (killing the "extra passes"
+theory); and `guicost_probe.lua` timed the same 8,000 gui calls with no adapter logic at **6.1ms**,
+proving **88% of the cost was ours and only 12% BizHawk's**. Then a timer inside `reflectiveSpans`
+found it: **37.6ms of a 62.9ms painter, 56% of the whole frame**, in the occlusion check.
+
+**Two structural faults, both fixed:** it asked `metatileAt`/`coverMask` once per PIXEL row when the
+metatile changes every 16 rows, and it tested all 16 bits of a cover mask individually when a
+metatile is almost always entirely covering or entirely open. **37.6ms -> ~5.5ms.**
+
+**The regression check is the profiler's own `spans/frame`** — the count of painted pieces — which
+held at 8,035-8,045 across every run before and after. Same count, 6.4x less work. **It is not
+proof of the same picture, which is why it sits in `UNVERIFIED.md` as the thing to watch.**
+
+**Instrument faults caught along the way, all of which would have produced confident wrong
+numbers:** a rung that inherited the previous crowd measured `drawn=32` while asking for 16 (the
+contaminated sample read ~16fps where the clean one reads 45.4 — the difference between "it falls
+over at 32" and "cost scales with count"); a timing closure allocated per call in the hottest path
+in the tier, which is the GC pressure the caller-owned scratch buffers exist to prevent; and the
+pass counter itself took the **sixth** bite of the forward-reference trap, referencing `tiering`
+from a function ~480 lines above its declaration, which made the whole tier render nothing while
+the log said only "unrendered".
+
+Records: `emerald/VERIFIED.md` (the ladder, the attribution, the refuted hypothesis),
+`emerald/UNVERIFIED.md` (what to watch), `dev-scripts/README.md` (the two new dev scripts).

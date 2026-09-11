@@ -49,6 +49,57 @@ being work. An entry still here has not been confirmed.
 
 ---
 
+## [READY] the painted tier is 2.4x faster, and it changes OCCLUSION code, UNWATCHED (2026-09-11)
+
+**THIS NEEDS YOUR EYES specifically because of WHERE the fix is.** It is a pure performance change
+with no intended visual effect at all — but it rewrites the function that decides **what hides a
+painted ghost**, so if it is wrong, ghosts paint over things that should cover them.
+
+**What it did to the numbers** (`fpshold.lua`, 1800 samples a rung, painted count verified from the
+adapter's own `drawn=` line, indoors, away from water):
+
+| painted peers | before | after |
+|---|---|---|
+| 16 | 60.0 | 60.0 |
+| 32 | 45.4 (low 41) | **59.8** (low 56) |
+| 64 | 19.5 (low 16) | **29.3** (low 23) |
+
+**32 painted ghosts now hold a flat 60fps where they used to cost a quarter of the frame rate.**
+
+**What was actually wrong, and it was one function.** `reflectiveSpans` — the occlusion check —
+was **60% of the painted tier and 56% of the whole adapter frame**, at 0.29ms a call, twice per
+peer. Two structural faults:
+
+1. It asked `metatileAt`/`coverMask` **once per PIXEL row**, when the metatile only changes every
+   16 pixel rows — 96 lookups a call where nine distinct tiles exist.
+2. It tested **all 16 bits** of a metatile's cover mask one at a time, when a metatile is almost
+   always *entirely* covering or *entirely* open.
+
+Fixed: the metatile row is fetched once per tile row, and the two all-or-nothing cases take a fast
+path. A partially covering tile (a bank, a ledge, a rooftop lip) still walks all 16 bits, so the
+awkward case is unchanged. **37.6ms -> ~5.5ms, a 6.4x speedup of that function.**
+
+**WHY I BELIEVE THE PICTURE IS IDENTICAL, and why that is still not proof.** The fast paths are
+not approximations: for an all-set mask the original loop closes any open span at `tileLeft - 1`
+on its first iteration and no-ops through the rest; for an all-clear mask it opens one at
+`tileLeft` and no-ops through the rest. Both were traced against the original before the edit.
+And the profiler counts **spans/frame — the number of painted pieces — which stayed at 8,035-8,045
+across every run before and after. **Same count is strong evidence of the same picture. It is not
+the same thing as the same picture**, which is what you are being asked to check.
+
+**What to watch, and it is all normal play:**
+
+- **Walk a peer behind a building edge, a treetop, a sign, a ledge.** It should be hidden by
+  exactly what hid it before — no more, no less.
+- **The decline to look for is a ghost painting OVER something that should cover it**, or a hard
+  vertical edge of a ghost cut at a tile boundary (16px) rather than following the scenery.
+- **Reflections at water**, since the same function cuts them to the water's edge. This was all
+  measured indoors, so water is the untested half.
+
+**Also in this change, and much smaller:** the per-run tint lookup and its branch decision are
+hoisted out of the ~8,100-iteration run loop (they have one answer per pass, not per run). Correct
+by inspection, too small to measure against this machine's +/-10% noise, and not claimed as a win.
+
 ## [READY] the painted tier stops allocating ~700 tables a frame, UNWATCHED (2026-09-11)
 
 **A pure performance change with a visual failure mode, which is why it needs your eyes** (review

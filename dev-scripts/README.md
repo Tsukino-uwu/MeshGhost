@@ -716,6 +716,19 @@ ALREADY-RUNNING instance is a Lua Console GUI action nothing outside the emulato
   reads as 58fps. That disagreement cost most of an hour on 2026-08-21, when every measurement
   said 59.7fps while the user saw chop. Measuring the frame-to-frame *gap* found the cause in
   minutes — and found it in the instrumentation, which is why this one buffers its own log.
+- `force-drawn-emerald.lua` — **forces every peer onto Emerald's PAINTED tier** by setting
+  `MESHGHOST_EMERALD_MAX_SPAWNED = 0` and `MESHGHOST_EMERALD_HW_OVERFLOW = "0"`, and restores both on
+  unload. **List it BEFORE the adapter in the control file**: the adapter evaluates `tiering.hw.on` in a
+  table constructor at file LOAD, so setting the global afterwards is too late — a tier-cost ladder run
+  that way reported `hw=16 drawn=0` while believing it was pricing the painted tier. It exists so the tier
+  can be switched between rungs without the player moving, which removes "was the scene the same?" from a
+  comparison. Never ship it set: it starves the two tiers that are free.
+- `profile-emerald.lua` — sets `MESHGHOST_EMERALD_PROFILE`, so the adapter times its Lua frame and its
+  named sections (send/drain/sync/shadows/draw, plus the painter's passes, runs and occlusion) to the log
+  file as well as the console. Pair it with the above to price one rung; load it alone to profile normal
+  play. It is what found that the painted tier's cost was 88% MeshGhost's own per-peer work and only 12%
+  BizHawk's drawing (2026-09-11, `emerald/VERIFIED.md`). Read its numbers as "how much of the frame is
+  OURS" — a small number here with a low frame rate means the cost is elsewhere.
 - `bizhawk-syntax-check.lua` — `loadfile()`s each named Lua file and reports whether it *compiles*,
   running none of them, so no adapter socket or frame loop starts and nothing touches the game.
   Use it to catch a missing `end` from inside a live session. (It was written when this machine

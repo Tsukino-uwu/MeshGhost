@@ -1329,3 +1329,40 @@ Six findings, **UNWATCHED**; `UNVERIFIED.md` carries what to watch.
   the anti-stuck rules. **This is the one change that alters what the player sees.**
 
 Full session record, including what was NOT done and why: [phase10.md](phase10.md), 2026-09-11.
+
+## 2026-09-11 (later) — Crystal as the CONTROL in Emerald's painted-tier investigation
+
+**Crystal was opened alongside four Emerald builds to answer a question about Emerald**, and it
+earned its place: it is the reason the Emerald numbers mean anything. Vanilla V1.1, in a town, the
+player idle, its shipped drawn-only configuration untouched.
+
+**It is FLAT to 64 painted peers** — 60.0 / 60.0 / 60.0 / 59.9 at 0 / 16 / 32 / 64, lowest 59
+throughout, on the same machine and the same 1800-sample instrument that had Emerald at 19.5fps by
+64. Both games idle at exactly 60.0, so the background (five emulators) is measured rather than
+assumed, which is what makes the comparison fair.
+
+**The first attempt was invalid and the user caught it on screen:** *"crystal is drawing sprites at
+the top/left, not the center of the screen"*. Three separate mistakes, all mine, all in placing the
+synthetic crowd:
+
+- **`-dims 2`, when Crystal sends FOUR position components** — `{mapX, mapY, mapX*16, mapY*16}` —
+  and its painted tier draws from the PIXEL pair, which therefore never arrived.
+- **The wrong coordinate source.** `wXCoord/wYCoord` reads (7,6); the wire carries the player
+  OBJECT's map coords, (11,10). A different origin, four tiles out.
+- **The generator could only spread the first two components**, so with `-dims 4` every peer's
+  pixel pair would have been identical — 64 ghosts stacked on one tile, against the standing rule
+  that no two test characters share one.
+
+Fixed by measurement, not by guessing: `probes/idle_coords_probe.lua` (new) reads the player's tile
+while they stand still and prints the exact `-dims`/`-center` to use, plus BOTH vanilla coordinate
+layouts side by side rather than choosing between them — V1.0 and V1.1 differ by one byte, and the
+existing `ap_coord_probe` WALKS the player, which a stationary ladder cannot afford. The third was
+fixed in the tool: `meshghost-fakeadapter -dim-scale`, stated game-blind as how far each component
+moves rather than what any of them means.
+
+**The user then confirmed the corrected placement on screen** — *"kay they are drawing properly
+around the crystal player now"* — which is what makes the Crystal column of that table valid.
+
+**One caveat kept with the numbers:** Crystal has no `drawn=` counter the way Emerald does, so its
+painted count rests on that confirmation plus every peer sitting within +/-3 tiles of a player on a
+20x18 screen. Full record: `emerald/VERIFIED.md`, 2026-09-11.

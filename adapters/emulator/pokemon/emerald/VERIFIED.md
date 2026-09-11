@@ -201,6 +201,9 @@ filed under the right theme, but anything can check that it is listed.
 - CLOSED — Emerald: the Acro Bike's wheelie poses are not reproduced (2026-08-20)
 - Emerald: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), on the fixed relay (2026-09-02)
 - Emerald: two real clients still load, connect and render after the JSON depth guard (2026-09-03)
+- 2026-09-11 — SPEEDCHOICE 1.2.2 ran for the first time, and `romvariant_probe.lua` resolved one anchor of four
+- 2026-09-11 — CONFIRMED DEFECT: a spawned ghost is always drawn in YOUR gender, and the cause is the palette slot
+- 2026-09-11 — the painted tier priced against CRYSTAL's, and the cost is 88% ours, not BizHawk's
 ## Confirmed facts
 
 ### Emerald ROM revision
