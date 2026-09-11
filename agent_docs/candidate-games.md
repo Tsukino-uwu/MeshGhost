@@ -328,8 +328,8 @@ that recompiles the engine.
 
 | Project | Kind | What it would test |
 | --- | --- | --- |
-| [pokeemerald-ex-speedchoice](https://github.com/ProjectRevoTPP/pokeemerald-ex-speedchoice/releases/) | Emerald engine recompile | Address detection against a rebuilt binary, the Archipelago case again with different offsets |
-| [pokeemerald-speedchoice](https://github.com/ProjectRevoTPP/pokeemerald-speedchoice) | Emerald engine recompile | Same, and whether one detection covers both speedchoice builds |
+| [pokeemerald-ex-speedchoice](https://github.com/RevoSucks/pokeemerald-ex-speedchoice/releases/) | Emerald engine recompile | Address detection against a rebuilt binary, the Archipelago case again with different offsets |
+| [pokeemerald-speedchoice](https://github.com/RevoSucks/pokeemerald-speedchoice) | Emerald engine recompile | Same, and whether one detection covers both speedchoice builds |
 | [pokecrystal-speedchoice](https://github.com/choatix/pokecrystal-speedchoice/releases/) | Crystal engine recompile | Crystal's equivalent; GB/GBC addresses only exist after a build, so this needs its own `.sym` |
 | [Universal Pokemon Randomizer ZX](https://github.com/Ajarmar/universal-pokemon-randomizer-zx/releases) | Patcher over a vanilla ROM | Data-only in the main modes — likely the easiest win, and the most widely used |
 | [Crystal Key Item Randomizer](https://github.com/erudnick-cohen/Pokemon-Crystal-Item-Randomizer/releases) | Crystal patcher | Whether item shuffling leaves the overworld structures alone |

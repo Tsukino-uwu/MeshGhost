@@ -3803,3 +3803,60 @@ there.
 
 **Scope.** Vanilla Emerald, two clients on one machine. The guard itself remains unobservable by
 construction; what is confirmed is that adding it cost nothing.
+
+## 2026-09-11 — SPEEDCHOICE 1.2.2 ran for the first time, and `romvariant_probe.lua` resolved one anchor of four
+
+**A PATCHED ROM, so this one is the agent's to confirm and it is confirmed by tooling, not by the
+user's screen** (the gate at the top of this file). No vanilla claim is made here. What the user
+did confirm on screen, separately, is the negative: **the two Speedchoice windows showed no ghosts
+at all**, and *"only vanilla & ap can see each other"*.
+
+**First run ever on either Speedchoice build.** The README has said since 2026-08-21 that both were
+unsupported and that *"nothing has been run on either"*; that is no longer true, and what ran
+matched the prediction exactly — `overworld=false inGame=false` for the whole session, zero times
+true, every peer listed `unrendered`, and the adapter's own player coordinates reading `(1023,1023)`.
+
+**The header identifies this build outright, which nothing in the adapter reads yet.**
+
+| field | vanilla | SPEEDCHOICE 1.2.2 |
+|---|---|---|
+| game code `0x080000AC` | `BPEE` | **`SPDC`** |
+| title `0x080000A0` | `POKEMON EMER` | `POKEMON EMER` |
+
+**A four-character build ID is a cheaper detector than any address probe**, and it is hardware
+documentation (GBATEK's cartridge header), not a decomp fact. It says *which* build, not where
+anything is.
+
+**What the probe resolved, and what it refused to.** Read-only, no input, nothing drawn:
+
+| anchor | result |
+|---|---|
+| `gObjectEventGraphicsInfoPointers` | **RESOLVED `0x0850BA28`**, shift **+0x6408**, 95 of 96 entries validate as `ObjectEventGraphicsInfo` |
+| `gObjectEventPal_Brendan` | AMBIGUOUS — 45 candidates survived the palette-structure check |
+| `gObjectEvents` / `gPlayerAvatar` | AMBIGUOUS — 6 candidates survived the two-way cross-link |
+| `gSaveBlock1Ptr` | UNRESOLVED — its search needs `gObjectEvents` resolved first |
+
+**AMBIGUOUS is a result, not a failure** — the probe never picks one of several, which is the whole
+reason it exists.
+
+**One reading contradicts the shape of the failure and is worth keeping.** The vanilla
+`gSaveBlock1Ptr` site (`0x03005D8C`) holds **`0x02025A70`** on this build — a real EWRAM address,
+and only **+0x70** from where `gSaveblock1` itself lands in a locally built, `make compare`-verified
+`pokeemerald.sym` (`0x02025A00`). So on SPEEDCHOICE the pointer is PLAUSIBLE and
+the adapter's new EWRAM guard accepts it; the `(1023,1023)` garbage therefore comes from somewhere
+past the pointer (a moved `SaveBlock1` field layout, or that site not being this build's pointer at
+all), **not** from the wild-pointer fault that EX SPEEDCHOICE has. The two builds fail differently
+and must be diagnosed separately.
+
+Also observed: `gMain.callback2` held `0x080864D5` for 900 of 900 sampled frames. Recorded as an
+OBSERVATION only — it was read at a vanilla literal, so a build that moved `gMain` makes it
+meaningless.
+
+**Why this stops here rather than continuing to a fix.** Three of four anchors are ambiguous, and
+resolving them by more measurement is the expensive path. `licensing.md` now clears
+`RevoSucks/pokeemerald-speedchoice` and its `-ex-` sibling (both `license: null`, facts-only,
+checked the same day), and a hash-verified local build turns "45 candidates" into a citation —
+the same route Crystal's V1.0/V1.1 tables took. Neither is built yet.
+
+Full log, including every rejected candidate:
+`probes/romvariant_probe_20260911_181510.log` (untracked).
