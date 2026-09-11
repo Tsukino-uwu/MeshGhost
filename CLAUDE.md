@@ -95,11 +95,11 @@ to one line per entry instead. The cases: `agent_docs/claude-md-cap.md`.
   (2026-08-16). A stray branch is `git merge --ff-only`'d onto `master` and deleted.
 - **Ask before touching anything outside `C:\dev\MeshGhost`.** **Small runnable steps only**, each
   with a visible outcome ("echo to self", "see on second client").
-- **You run the scaffolding for a live test; the user only opens and closes the game.** Start the
-  relay, the core and any `dev-scripts` launcher yourself, **hidden** (`running-the-rig.md`);
-  confirm from the logs that they came up on the right transport and bridge; hand over a game ready
-  to play. Never ask the user to run a `.bat`. **Then close every process you started and verify
-  they are gone** — a live relay binds the wrong port next run; `/loop` the re-check (user, 2026-08-16).
+- **You run the scaffolding for a live test, and you may START THE GAME TOO — but ASK FIRST, in the
+  same breath as the scaffolding** (user, 2026-09-11; closing it stays theirs). Relay, core and any
+  `dev-scripts` launcher: yours, **hidden** (`running-the-rig.md`), confirmed from the logs to be on
+  the right transport and bridge. Never ask the user to run a `.bat`. **Then close every process you
+  started and verify they are gone** — a live relay binds the wrong port next run (user, 2026-08-16).
 - **The game process is the session signal — watch it, don't ask.** `EmuHawk`, `TEVI` or
   `pseudoregalia` appearing means the test has started; it exiting means done or crashed, and either
   way the scaffolding comes down. Poll `Get-Process` or arm a `Monitor` (user, 2026-08-16).
