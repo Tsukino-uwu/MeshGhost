@@ -1908,14 +1908,47 @@ since". **Nothing after this file has a phase sub-number** — there is no 7.9.
   camera rig identified by `OwningActor`, ghosts no longer rendering through walls, the bridge port
   walk, and the slide pose moving from the +43 render-Z bandage to the game's own crouch path.
   Build-log form: `adapters/pseudoregalia/README.md` steps 42-44.
-- **2026-08-27**: nine confirmed entries ending in the user declaring the adapter **feature
-  complete** — the duplicate HUD, the blob shadow, heal placement, the ghost-damages-player fix,
-  autostart's closed-port bug, the charge glow, the ranged projectile, death/pit/hurt/respawn, and
-  the afterimage outline. README steps 45-53.
+- **2026-08-27**: see the dated section below — given its own heading 2026-09-11, because it is
+  the feature-complete day and 18 commits deep, and a pointer bullet is not where a reader looks
+  for it.
 
 Evidence for both: **`adapters/pseudoregalia/VERIFIED.md`** — the adapter ledgers were split out of
 `agent_docs/verified.md` on 2026-08-25, and that file now keeps only the Go side and cross-game
 entries. What is still open: `adapters/pseudoregalia/UNVERIFIED.md`, then `agent_docs/status.md`.
+
+## 2026-08-27 — feature complete: nine confirmed entries in one day
+
+**Given its own heading 2026-09-11** (it had been a pointer bullet above). Eighteen commits, ending
+in the user declaring the adapter **feature complete** — their term for a playable, good-enough
+state, not for the end of the work, as the catch-up record below says outright. The nine: the
+duplicate HUD, the blob shadow, heal placement, the ghost-damages-player fix, autostart's
+closed-port bug, the charge glow, the ranged projectile, death/pit/hurt/respawn, and the afterimage
+outline. Build-log form: `adapters/pseudoregalia/README.md` steps 45-53; confirmations in
+`adapters/pseudoregalia/VERIFIED.md`.
+
+## 2026-08-18 — the shipped DLL predated the flag whose purpose was aiming the rig
+
+**Backfilled 2026-09-11 from the commit log.** `d88849e1` was a TEVI session (`phase6.md`), but it
+audited every compiled mod and **both were stale, and would have failed `release.yml`'s staleness
+gate.** Pseudoregalia's `main.dll` predated `STATE_SEND_TRACE` — the flag whose entire purpose is
+letting the ghost-load rig be aimed — **so the standing instruction to "read it from the mod's log"
+could not have worked**, and nothing would have said so: the flag was in the source, in the register
+and in the instructions, and absent only from the artifact anyone actually ran. Rebuilt, gates
+verified by hash, deployed to all three live installs. The adapter's own `Plugin.cpp` change that
+day was two lines. **The transferable half is the shape**: a flag is live when the DEPLOYED BINARY
+has it, and "it is in the register" is not that.
+
+## Repo-wide sweeps that touched this adapter's files — 2026-08-11, 2026-08-19, 2026-08-21, 2026-08-23, 2026-09-11
+
+**Backfilled 2026-09-11.** Days where this adapter's files changed without a Pseudoregalia session
+happening, logged so no date is unreachable and so a future reader can tell incidental churn from
+work: `e1de0f6d` (2026-08-11, the restructure that resolved contract gaps and added the Go
+skeleton), `ec5d7734` (2026-08-19, docs matched to code and ghost collision given a host-set
+switch), `c4017f7d` (2026-08-21, every doc read against the code), `01cd8e85` (2026-08-23, the
+no-invented-durations rule swept repo-wide) and `57fd2df6` (2026-09-11, getting-started reordered
+to say what MeshGhost does before how to install it). The 2026-08-25 restructure — the
+`adapters/bizhawk/` → `adapters/emulator/` rename, the per-game record split — is covered in the
+Tasks section above.
 
 ## Catch-up record, written 2026-09-01 — the five days after "feature complete"
 
@@ -1926,36 +1959,53 @@ the dated evidence for every item
 is in `adapters/pseudoregalia/VERIFIED.md` (entries through 2026-09-01), `UNVERIFIED.md`,
 `agent_docs/pitfalls/by-lesson.md`, and the ADRs named below.
 
-- **2026-08-28 — nametags.** The peer's `display_name` reaches a ghost as a
-  `UTextRenderComponent` (`f9b51a2`, `91bb841`, `1246432`, `3698d4d`), after finding the adapter
-  had been dropping handshake messages and throwing every rejection away — three stacked bugs
-  (`02cdfc5`, `243b8e9`, `c8cb15a`, `6bec7d4`). The bridge port became a config setting the same
-  day.
-- **2026-08-29 — the colour plate, and the light hunt.** `name_color` renders as an opaque plate
-  behind the glyphs (`634afc2`, `ed4d4b6`), confirmed by three peers at once (`0e9dd97`); blank
-  name means no tag (`ac2d5d6`). Then the whole glow/light subtraction night (`9c05a41` through
-  `ca95ab8`): the room brightening with company was never a copied light — every spawned pawn
-  carries the Blueprint's default 5000-intensity light the game only turns down on a real
-  player, plus a camera rig nobody looks through. Probe cost the user could feel became a gate
-  the same evening (`40922c3`, `924da4e`, `3cbecc5`, `e648a0e`).
-- **2026-08-30 — the light fixes ship; the orientation bracket; the perf finding.** Three light
-  holds shipped as defaults and the connect-time scene latch closed via the level's own
-  `FixAllLights` (`f9ef404`, `e339796`, `f4d444f`). **ADR 0043**: the core hands the adapter its
-  orientation bracket and the adapter slerps facing (`1c960dd`, `133223f`, `b74a1d1` — the
-  adapter half is `GHOST_ROTATION_SLERP`, still unwatched). And a ghost was measured costing
-  half the frame rate with none of it rendering (`7d13660`, `0457a84`).
-- **2026-08-30 → 08-31 — the reset-crash hunt.** A pawn spawned into a world made by "reset to
-  last save" killed the game. The minidump reader (`dev-scripts/read-minidump.py`), the
-  world-fingerprint probe (`probe_menuwatch/`), the race pinned, the zone-change crash fixed,
-  and hot reload promoted to a standing rule (`b96596c` … `1aa0222`).
-- **2026-09-01 — root cause, the peer ladder, and the sword-throw day.** The reset crash
-  root-caused to stale nametag pointers and user-confirmed fixed (`02c7f8a`, `7e0f722`); the
-  FWeakObjectPtr pool rule plus its preflight gate followed (`cfb201b`, `b2f4508`). The peer
-  ladder ran 150 live ghosts, ~30 above 50fps, removing three ceilings (`c6d937d` and kin;
-  property cache −59% at 16 peers) — the program that fed the project-wide 15Hz default
-  (`c16441f`) and the blind 15-vs-20 A/B (`956790c`). The thrown sword was rebuilt as our own
-  flyer after the game's class claimed the watcher's player (`ead064e` … `b2f4508`), and the
-  peer-named-asset catalog gate closed the last unbounded lookups (`0ee2a63`).
+Split into dated headings 2026-09-11, wording unchanged — each day was reachable only by reading
+this section, which is how a day's work comes to look absent from its own phase file.
+
+## 2026-08-28 — nametags
+
+The peer's `display_name` reaches a ghost as a
+`UTextRenderComponent` (`f9b51a2`, `91bb841`, `1246432`, `3698d4d`), after finding the adapter
+had been dropping handshake messages and throwing every rejection away — three stacked bugs
+(`02cdfc5`, `243b8e9`, `c8cb15a`, `6bec7d4`). The bridge port became a config setting the same
+day.
+
+## 2026-08-29 — the colour plate, and the light hunt
+
+`name_color` renders as an opaque plate
+behind the glyphs (`634afc2`, `ed4d4b6`), confirmed by three peers at once (`0e9dd97`); blank
+name means no tag (`ac2d5d6`). Then the whole glow/light subtraction night (`9c05a41` through
+`ca95ab8`): the room brightening with company was never a copied light — every spawned pawn
+carries the Blueprint's default 5000-intensity light the game only turns down on a real
+player, plus a camera rig nobody looks through. Probe cost the user could feel became a gate
+the same evening (`40922c3`, `924da4e`, `3cbecc5`, `e648a0e`).
+
+## 2026-08-30 — the light fixes ship; the orientation bracket; the perf finding
+
+Three light
+holds shipped as defaults and the connect-time scene latch closed via the level's own
+`FixAllLights` (`f9ef404`, `e339796`, `f4d444f`). **ADR 0043**: the core hands the adapter its
+orientation bracket and the adapter slerps facing (`1c960dd`, `133223f`, `b74a1d1` — the
+adapter half is `GHOST_ROTATION_SLERP`, still unwatched). And a ghost was measured costing
+half the frame rate with none of it rendering (`7d13660`, `0457a84`).
+
+## 2026-08-31 — the reset-crash hunt (begun 2026-08-30)
+
+A pawn spawned into a world made by "reset to
+last save" killed the game. The minidump reader (`dev-scripts/read-minidump.py`), the
+world-fingerprint probe (`probe_menuwatch/`), the race pinned, the zone-change crash fixed,
+and hot reload promoted to a standing rule (`b96596c` … `1aa0222`).
+
+## 2026-09-01 — root cause, the peer ladder, and the sword-throw day
+
+The reset crash
+root-caused to stale nametag pointers and user-confirmed fixed (`02c7f8a`, `7e0f722`); the
+FWeakObjectPtr pool rule plus its preflight gate followed (`cfb201b`, `b2f4508`). The peer
+ladder ran 150 live ghosts, ~30 above 50fps, removing three ceilings (`c6d937d` and kin;
+property cache −59% at 16 peers) — the program that fed the project-wide 15Hz default
+(`c16441f`) and the blind 15-vs-20 A/B (`956790c`). The thrown sword was rebuilt as our own
+flyer after the game's class claimed the watcher's player (`ead064e` … `b2f4508`), and the
+peer-named-asset catalog gate closed the last unbounded lookups (`0ee2a63`).
 
 - **2026-09-01, later — the register audit's follow-through, on the user's call.**
   `PLAYER_STATE_DIFF_ON_GHOST_SPAWN` flipped off (its reset-crash question is closed; it was a
