@@ -96,10 +96,41 @@ is what it should do, not what it did.
   delay behind the ghost's own step. If the ghost visibly walks into a closed door and it opens
   after, that is the thing to say and it is fixable.
 
-**The three patched builds will do nothing here unless their door tables happen to sit at vanilla's
-addresses** — the metatile lookup refuses any tile it cannot find in a table that reads as one, so
-the failure mode is a door that does not animate rather than a wrong one. Worth a look, but vanilla
-is the test.
+**FIRST VERSION BROKE IN THREE WAYS INSIDE A MINUTE, all from one mistake** (user, 2026-09-12):
+*"the door is not working for any of the other 3, and instead it is spam opening on the vanilla
+game itself"*, and *"EX is spamming its lua console again"*.
+
+**A function pointer is not an identity unless you already know the build.** `genderFrames.romOffset`
+is measured from the sprite DATA block, late in the ROM — and the door tables are late-ROM too,
+which is why they validate on all four builds and why nothing warned. `Task_AnimateDoor` and
+`Task_ExitDoor` are CODE, early in the ROM. One offset does not shift both. So the three patched
+clients compared against an address that was not the door task, matched an unrelated long-lived
+task, and published a door event every frame carrying **that task's own data as a tile** — new
+coordinates every frame, so a new event every frame, and vanilla opened a door for each one. The
+console spam was the same events being retried: a refused door was retried every frame rather than
+once, each retry a 54-entry ROM walk, and BizHawk logs every out-of-range read.
+
+Same family as the camera-offset lesson already in the adapter — *"IWRAM moved ALMOST as one piece,
+and 'almost' is the case a blanket shift gets wrong while looking like it should work."*
+
+**Fixed by not needing a code address to RECOGNISE a door.** A door task is now identified by its
+data: the only task whose first four slots decode to a pointer to one of the three door frame
+tables *and* a pointer landing on an entry boundary of the door graphics table. Both are things
+this build has already proven it can find, so it is build-independent by construction. To *create*
+one still needs the function pointer, and that is **learned from the engine** the first time the
+local player opens a door — but only on a rising edge, from a task we watched appear.
+
+**That edge clause is not paranoia.** Without it, both patched builds "learned" an address at frame
+2 that was exactly the one the broken version would have written — they were reading back a task
+the broken adapter had stranded in the table. A measurement that can read back your own write is
+not a measurement. **Which is why the first thing to do is reload savestate 3 on all four** and
+clear whatever the broken version left in `gTasks`.
+
+**So on the three patched builds, expect nothing until you walk through a door yourself once** —
+that is what teaches that client the address. After that, ghost doors should work there too. The
+hold-open kind stays vanilla-only for now (leaving a house draws the door with no task to
+recognise, so `Task_ExitDoor` — a code address — is the only handle); on a patched build a ghost
+leaving gets a door that opens and shuts rather than one standing open as it walks down.
 
 ## [OPEN] THREE of the four builds have NO occlusion — ghosts paint over scenery (2026-09-11, widened 2026-09-12)
 

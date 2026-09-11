@@ -6097,49 +6097,185 @@ genderFrames.door = {
     HOLD_MAX_FRAMES = 120,
 }
 
+-- **IS THIS BUILD'S DOOR MACHINERY WHERE WE THINK IT IS?** Everything below is gated on this, and
+-- the first version of this feature had no such gate -- which broke it in all three ways the user
+-- saw within a minute of it going live (2026-09-12):
+--
+--   * A FUNCTION POINTER IS NOT AN IDENTITY unless you already know the build. On the three
+--     patched ROMs, `Task_ExitDoor` shifted by genderFrames.romOffset landed on whatever happens
+--     to live there -- an ordinary long-lived task -- so those clients published a door event
+--     every frame, with that task's own data[2]/data[3] as the "tile". Coordinates that change
+--     every frame are a NEW event every frame to any receiver, and vanilla dutifully opened a
+--     door for each one: *"it is spam opening on the vanilla game itself"*.
+--   * A REFUSED DOOR WAS RETRIED EVERY FRAME on the receive side (the fix for that is in
+--     doorTick), so each of those bogus events cost a 54-entry ROM walk per peer per frame on a
+--     build where the table is not there -- BizHawk answers every out-of-range read with a console
+--     line: *"EX is spamming its lua console again"*. The same shape as the gMapHeader read that
+--     cost an emulator 4fps, and the same lesson: guard the POINTER, not the symptom.
+--
+-- So: prove the tables are tables before touching any of them, once per ROM, and say so in the log
+-- when they are not -- a build with no ghost doors is a real limitation someone should be able to
+-- read rather than deduce from a door that never opens.
+--
+-- The proof is the tables' own shape, not a checksum: every door frame table is four frames of
+-- `time` 4 followed by a zero terminator (struct DoorAnimFrame is u8 time at +0, u16 offset at
+-- +2, so 4 bytes a frame), and every DoorGraphics entry carries two ROM pointers. A build whose
+-- tables sit elsewhere fails both.
+genderFrames.door.ready = function()
+    -- Not before the ROM variant is known. Answering with vanilla's offset while detection is
+    -- still pending would test the wrong addresses and log the wrong verdict -- and on a patched
+    -- build it would log it twice, once wrongly. Uncached on purpose: this is the pre-answer.
+    local off = genderFrames.romOffset
+    if off == nil then return false end
+    if genderFrames.door.readyFor == off then return genderFrames.door.readyAns end
+    genderFrames.door.readyFor = off
+    genderFrames.door.readyAns = false
+
+    local function isFrameTable(a)
+        for f = 0, 3 do
+            if r8(a + f * 4) ~= 4 then return false end
+        end
+        return r8(a + 16) == 0
+    end
+    local ok = isFrameTable(flyRide.rom(genderFrames.door.FRAMES_OPEN))
+        and isFrameTable(flyRide.rom(genderFrames.door.FRAMES_CLOSE))
+        and isFrameTable(flyRide.rom(genderFrames.door.FRAMES_BIG_OPEN))
+    if ok then
+        -- And the graphics table: its first three entries must each carry two ROM pointers.
+        local base = flyRide.rom(genderFrames.door.GFX_TABLE)
+        for i = 0, 2 do
+            local e = base + i * genderFrames.door.GFX_ENTRY
+            local tiles, pal = r32(e + 0x04), r32(e + 0x08)
+            if tiles < 0x08000000 or tiles >= 0x0a000000
+                or pal < 0x08000000 or pal >= 0x0a000000 then
+                ok = false
+                break
+            end
+        end
+    end
+
+    genderFrames.door.readyAns = ok
+    -- Vanilla's code address is known and needs no learning; every other build waits until the
+    -- player opens a door and sample() reads it off the engine's own task. Written as an `if`
+    -- rather than an `and/or` ternary on purpose -- this file has a recorded scar from that
+    -- idiom, and a cached address is not a place to reopen it.
+    genderFrames.door.fn = nil
+    if ok and off == 0 then genderFrames.door.fn = genderFrames.door.TASK_ANIMATE end
+    if not ok then
+        console.log("MeshGhost: the door animation tables are not at the addresses this adapter "
+            .. "knows on this build, so ghosts will not open doors here (and this client will not "
+            .. "tell peers about its own). Everything else is unaffected. Logged once per ROM.")
+    end
+    return ok
+end
+
 -- WHAT THE ENGINE IS DOING TO A DOOR RIGHT NOW: kind, and the door's tile in the coordinates this
 -- adapter sends (the save block's, so MAP_OFFSET comes off the padded grid the task holds).
 -- nil for the overwhelmingly common case of no door anywhere, which is one 16-entry scan of a
 -- table this file already walks for fly.
+-- **A DOOR TASK IS RECOGNISED BY ITS DATA, NOT BY ITS FUNCTION POINTER** (2026-09-12, and this is
+-- the whole fault the user saw).
+--
+-- `genderFrames.romOffset` is measured from the SPRITE DATA block, which lives late in the ROM --
+-- and so do the door tables, which is why they validate on all four builds and why `ready()`
+-- passed everywhere. `Task_AnimateDoor` and `Task_ExitDoor` are CODE, early in the ROM, and a
+-- patch that inserts or removes code moves those by a DIFFERENT amount. One offset does not shift
+-- both. So on the three patched builds the comparison was against an address that is not the door
+-- task at all, it matched an unrelated long-lived task, and this client published a door event
+-- every frame carrying that task's own data as a tile. Vanilla played every one of them.
+--
+-- Same shape as the camera-offset lesson already in this file -- *"IWRAM moved ALMOST as one
+-- piece, and 'almost' is the case a blanket shift gets wrong while looking like it should work"*
+-- -- and a reminder that a pointer comparison that cannot fail loudly will fail quietly instead.
+--
+-- The fix needs no code address on any build. A door task is the only task in the table whose
+-- first four data slots decode to **a pointer to one of the three door frame tables** and **a
+-- pointer that lands on an entry of the door graphics table** -- both of which this build has
+-- already proven it can find. That is a far stronger identification than a function pointer, and
+-- it is build-independent by construction.
+genderFrames.door.isDoorTask = function(t)
+    local frames = (r16(t + 0x08) << 16) | r16(t + 0x0a)
+    local kind = nil
+    if frames == flyRide.rom(genderFrames.door.FRAMES_CLOSE) then
+        kind = "c"
+    elseif frames == flyRide.rom(genderFrames.door.FRAMES_OPEN)
+        or frames == flyRide.rom(genderFrames.door.FRAMES_BIG_OPEN) then
+        kind = "o"
+    end
+    if not kind then return nil end
+    -- And tGfx must be a real entry of the graphics table: inside it, and on an entry boundary.
+    local gfx = (r16(t + 0x0c) << 16) | r16(t + 0x0e)
+    local tbl, entry = flyRide.rom(genderFrames.door.GFX_TABLE), genderFrames.door.GFX_ENTRY
+    if gfx < tbl or gfx >= tbl + genderFrames.door.GFX_MAX * entry then return nil end
+    if (gfx - tbl) % entry ~= 0 then return nil end
+    return kind
+end
+
 genderFrames.door.sample = function()
+    if not genderFrames.door.ready() then return nil end
     local base, stride = flyRide.TASKS_ADDR, flyRide.TASK_SIZE
-    local animate, exit = flyRide.rom(genderFrames.door.TASK_ANIMATE),
-        flyRide.rom(genderFrames.door.TASK_EXIT)
-    local exitAt = nil
     for i = 0, 15 do
         local t = base + i * stride
         if r8(t + 0x04) == 1 then
-            local fn = r32(t + 0x00)
-            if fn == animate then
-                -- data[0]<<16 | data[1] -- the frame table it was handed, which is the only place
-                -- the engine records whether this door is opening or closing.
-                local frames = (r16(t + 0x08) << 16) | r16(t + 0x0a)
-                local kind = nil
-                if frames == flyRide.rom(genderFrames.door.FRAMES_CLOSE) then
-                    kind = "c"
-                elseif frames == flyRide.rom(genderFrames.door.FRAMES_OPEN)
-                    or frames == flyRide.rom(genderFrames.door.FRAMES_BIG_OPEN) then
-                    kind = "o"
+            local kind = genderFrames.door.isDoorTask(t)
+            if kind then
+                -- **AND THIS IS WHERE THE CODE ADDRESS COMES FROM ON A PATCHED BUILD.** Creating
+                -- a door task needs the function pointer that `romOffset` cannot give us -- so
+                -- rather than guess it, take it from the engine the first time the LOCAL player
+                -- opens a door: this task was identified by its data, so its `func` is this
+                -- build's Task_AnimateDoor, measured rather than derived. Until that happens a
+                -- patched build simply does not paint ghost doors, which is the right way round.
+                --
+                -- **ONLY FROM A DOOR THAT WAS NOT THERE LAST FRAME**, and that clause is the
+                -- whole value of this (2026-09-12). Learning from whatever is already in the
+                -- table at load reads back a task THIS ADAPTER may have put there itself -- the
+                -- broken first version stranded some -- and a measurement that can read back your
+                -- own write is not a measurement. Both patched builds "learned" an address at
+                -- frame 2 that was exactly the one the broken version would have written; an edge
+                -- cannot do that, because the engine has to create the task while we watch.
+                if genderFrames.door.fn == nil and genderFrames.door.sawNone then
+                    genderFrames.door.fn = r32(t + 0x00)
+                    logFile(string.format("f=%d DOOR learned Task_AnimateDoor=%08X (romOffset=%d)",
+                        frameCounter, genderFrames.door.fn, genderFrames.romOffset or 0))
                 end
-                -- An animating door OUTRANKS a held-open one: during a house exit both tasks are
-                -- alive at once, and the close is the one carrying new information.
-                if kind then
-                    return kind, rs16(t + 0x14) - MAP_OFFSET, rs16(t + 0x16) - MAP_OFFSET
-                end
-                return nil
-            elseif fn == exit then
-                -- Task_ExitDoor's own x/y (data[2]/data[3]), written by PlayerGetDestCoords in
-                -- its state 0 -- the tile the player is standing on, which for this task IS the
-                -- door. Remembered rather than returned, so the loop can still find an animating
-                -- door in a later slot.
-                exitAt = t
+                return genderFrames.door.publish(kind, rs16(t + 0x14), rs16(t + 0x16))
             end
         end
     end
-    if exitAt then
-        return "h", rs16(exitAt + 0x0c) - MAP_OFFSET, rs16(exitAt + 0x0e) - MAP_OFFSET
+    -- NO DOOR TASK ANYWHERE IN THE TABLE THIS FRAME -- which is what earns the right to learn a
+    -- code address from the next one that appears. Anything sitting in the table at load is
+    -- something we did not watch arrive, and on these builds may be our own stranded write.
+    genderFrames.door.sawNone = true
+    -- THE HOLD-OPEN KIND IS VANILLA-ONLY FOR NOW, and says so rather than guessing. Leaving a
+    -- house draws the door open with no animation and therefore no task to recognise by its data
+    -- -- the only handle on it is `Task_ExitDoor` itself, a CODE address, which is exactly what
+    -- the paragraph above says cannot be shifted by this offset. On a patched build the close
+    -- still plays and its first frame is the fully-open door, so a ghost coming out gets a door
+    -- that opens and shuts rather than one that stands open while it walks down. That is a
+    -- smaller gap than a wrong door, and the honest one until the code shift is measured.
+    if (genderFrames.romOffset or 0) ~= 0 then return nil end
+    for i = 0, 15 do
+        local t = base + i * stride
+        if r8(t + 0x04) == 1 and r32(t + 0x00) == genderFrames.door.TASK_EXIT then
+            -- Task_ExitDoor's own x/y (data[2]/data[3]), written by PlayerGetDestCoords in its
+            -- state 0 -- the tile the player stands on, which for this task IS the door.
+            return genderFrames.door.publish("h", rs16(t + 0x0c), rs16(t + 0x0e))
+        end
     end
     return nil
+end
+
+-- THE LAST GATE BEFORE A DOOR GOES ON THE WIRE: is that padded tile actually a door?
+--
+-- The engine asks this too, and asks it FIRST -- `FieldAnimateDoorOpen` runs
+-- `MetatileBehavior_IsDoor` before it will start anything. Skipping it is what let a task match by
+-- pointer alone turn into a stream of events pointing at arbitrary tiles. Matching the metatile
+-- against this build's own door table is the stricter form of the same question, and it costs one
+-- short ROM walk on the handful of frames a door is actually open.
+genderFrames.door.publish = function(kind, px, py)
+    if px < MAP_OFFSET or py < MAP_OFFSET then return nil end
+    if not genderFrames.door.gfxFor(px, py) then return nil end
+    return kind, px - MAP_OFFSET, py - MAP_OFFSET
 end
 
 -- The DoorGraphics entry for the metatile at a PADDED grid coordinate, and its `size`.
@@ -6230,16 +6366,20 @@ end
 -- CreateTask + StartDoorAnimationTask, for one of the three kinds, at a tile in SAVE BLOCK
 -- coordinates. Returns whether the engine now owns a door animation of ours.
 genderFrames.door.start = function(kind, x, y)
+    -- This build's Task_AnimateDoor, learned from the engine in sample() -- nil until the local
+    -- player has opened a door once. On vanilla ready() seeds it, so it is never nil there.
+    local animate = genderFrames.door.fn
+    if animate == nil then return false end
     local base, stride = flyRide.TASKS_ADDR, flyRide.TASK_SIZE
-    local animate = flyRide.rom(genderFrames.door.TASK_ANIMATE)
     local free = nil
     for i = 0, 15 do
         local t = base + i * stride
         if r8(t + 0x04) == 1 then
             -- StartDoorAnimationTask's own refusal (`FuncIsActiveTask(Task_AnimateDoor)`). The
             -- engine allows exactly one door animation at a time, and the one already running may
-            -- be the PLAYER'S OWN -- so a ghost yields to it rather than replacing it.
-            if r32(t + 0x00) == animate then return false end
+            -- be the PLAYER'S OWN -- so a ghost yields to it rather than replacing it. Asked of
+            -- the task's DATA, for the reason isDoorTask exists.
+            if genderFrames.door.isDoorTask(t) then return false end
         elseif free == nil then
             free = i
         end
@@ -6286,25 +6426,38 @@ end
 -- the peer publishes it for all of them, so the key is what the peer is doing and where, and it
 -- has to change before anything is started again.
 genderFrames.doorTick = function(localAreaId)
+    if not genderFrames.door.ready() then return end
     for _, r in pairs(remotes) do
         if r.dk and r.dx and r.dy and r.areaId == localAreaId then
             local key = r.dk .. ":" .. r.dx .. "," .. r.dy
-            if key ~= r.dKey and genderFrames.door.start(r.dk, r.dx, r.dy) then
+            if key ~= r.dKey then
+                -- **THE KEY IS SET WHETHER OR NOT THE DOOR STARTED**, and that is the whole point
+                -- of it. The first version only recorded the event on success, so an event this
+                -- client could not play -- a tile with no door in its table, a door already
+                -- animating -- came back for another 54-entry ROM walk on the very next frame,
+                -- and the one after that, for as long as the peer kept reporting it. One refusal
+                -- per event is the contract: this key means "seen", not "played".
+                local started = genderFrames.door.start(r.dk, r.dx, r.dy)
                 r.dKey = key
-                if r.dk == "c" then
-                    r.dOpenAt = nil
-                else
+                if started and r.dk ~= "c" then
                     r.dOpenAt, r.dOpenX, r.dOpenY = frameCounter, r.dx, r.dy
+                elseif r.dk == "c" then
+                    r.dOpenAt = nil
                 end
             end
         end
         -- The close that never came. Not an error path worth a log line every time -- a peer
         -- dropping mid-warp is ordinary -- but a door left open is visible, so it gets shut.
+        --
+        -- **IT DOES NOT CLEAR dKey.** Clearing it was the second half of the spam: a peer still
+        -- reporting the same open would re-arm on the next frame, open again, time out again, and
+        -- so on every two seconds forever. The event has been seen; the timeout is the end of it,
+        -- not permission to replay it.
         if r.dOpenAt and frameCounter - r.dOpenAt > genderFrames.door.HOLD_MAX_FRAMES then
             if r.areaId == localAreaId then
                 genderFrames.door.start("c", r.dOpenX, r.dOpenY)
             end
-            r.dOpenAt, r.dKey = nil, nil
+            r.dOpenAt = nil
         end
     end
 end
