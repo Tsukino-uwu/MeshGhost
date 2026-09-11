@@ -1062,3 +1062,7 @@ the set and the order to use it in.
 
 **Known gap: EX SPEEDCHOICE has no occlusion** — its gMapHeader is unlocated, so its ghosts paint
 unclipped. It logs that once. Everything else on that build works.
+
+## 2026-09-12 — the same session, past midnight: records and the two open watch items
+
+No new work — the session above ran past midnight and its records landed on this date. The two things it left open are filed in `emerald/UNVERIFIED.md`: **land occlusion behind scenery** (water is user-confirmed, scenery is not) and **EX SPEEDCHOICE having no occlusion at all** because its `gMapHeader` is unlocated. The porting method for a fifth build is in `emerald/PROBES.md`.
