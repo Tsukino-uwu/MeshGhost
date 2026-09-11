@@ -147,9 +147,15 @@ end
 -- Anything after that point is not evidence either way, so the probe says so instead of ruling.
 local function stillOverworld()
     local cb2 = memory.read_u32_le(GMAIN_CALLBACK2_ADDR)
+    -- SPEEDCHOICE 1.2.2's CB2_Overworld is 0x080864D4/D5 (romvariant_probe sampled it across 900
+    -- consecutive overworld frames, 2026-09-11). Without it this probe declared "the game left the
+    -- overworld" on the very first frame of every run on that build and reported NOT MEASURED --
+    -- three times, each looking like the player was somewhere awkward rather than like the gate
+    -- being wrong.
     if cb2 ~= CB2_OVERWORLD_ADDR and cb2 ~= CB2_OVERWORLD_ADDR + 1
         and cb2 ~= CB2_OVERWORLD_ARCHIPELAGO_ADDR
-        and cb2 ~= CB2_OVERWORLD_ARCHIPELAGO_ADDR + 1 then
+        and cb2 ~= CB2_OVERWORLD_ARCHIPELAGO_ADDR + 1
+        and cb2 ~= 0x080864d4 and cb2 ~= 0x080864d5 then
         return false
     end
     if not playerObjEventExistsAt(objBase) then return false end
@@ -181,6 +187,12 @@ MESHGHOST_DEV_TICK = function()
             avatarOffset = 0
         elseif playerObjEventExistsAt(GOBJECTEVENTS_ADDR + AVATAR_ADDR_ARCHIPELAGO_SHIFT) then
             avatarOffset = AVATAR_ADDR_ARCHIPELAGO_SHIFT
+        -- SPEEDCHOICE 1.2.2, measured 2026-09-11 (objevents_pick_probe.lua picked 0x020373F4 out of
+        -- six candidates using the save-block tile, and romvariant_probe independently put
+        -- gPlayerAvatar 0xA4 past its vanilla address too). Without this the probe sat printing
+        -- "no player object event at either known base" forever on that build.
+        elseif playerObjEventExistsAt(GOBJECTEVENTS_ADDR + 0xA4) then
+            avatarOffset = 0xA4
         else
             if frames % 300 == 0 then
                 log("waiting: no player object event at either known gObjectEvents base "

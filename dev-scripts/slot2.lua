@@ -1,0 +1,12 @@
+-- Set the savestate slot for load_slot.lua, which reads it as a global. DEV TOOL.
+--
+-- The dev loader shares one Lua environment per emulator, and load_slot.lua takes its slot from
+-- MESHGHOST_LOAD_SLOT -- an environment variable fixed at emulator launch, or this global. So this
+-- one line is how a running instance is told which state to load without a relaunch.
+--
+-- List it BEFORE load_slot.lua in the control file, and load_slot.lua before the adapter (its own
+-- header says why: a savestate load was recorded killing the adapter on 2026-08-26).
+--
+-- Slot 2 is the user's four-Emerald town setup, where every instance can see the others
+-- (2026-09-11). Slot 1 is the user's own and is never written or loaded by tooling.
+MESHGHOST_LOAD_SLOT = 2

@@ -110,6 +110,21 @@ local GSPRITECOORDOFFSETY_ADDR = 0x02021bbe
 -- the sprite-address detection above. Scoped to this Archipelago Emerald base-patch version,
 -- same portability caveat as every other Archipelago-specific address in this file.
 local AVATAR_ADDR_ARCHIPELAGO_SHIFT = 0x284
+-- SPEEDCHOICE 1.2.2 (cartridge game code "SPDC"), measured 2026-09-11 and corroborated twice.
+-- `probes/romvariant_probe.lua` resolved gObjectEvents to six AMBIGUOUS candidates and refused
+-- to pick, which was right; `probes/objevents_pick_probe.lua` then decided between them with a
+-- fact that probe did not have -- on this build gSaveBlock1Ptr WORKS, so the player's true
+-- tile is known, and exactly one candidate (0x020373F4) held it at slot 0 with real NPC tiles
+-- in slots 1..3. The other five were solid zeros. 0x020373F4 - 0x02037350 = 0xA4, and the same
+-- search independently put gPlayerAvatar at 0x02037634, which is 0xA4 past its vanilla address
+-- too: two structures, one shift.
+-- The ROM side moves by a different amount, and that is also measured twice: romvariant_probe
+-- RESOLVED gObjectEventGraphicsInfoPointers at 0x0850BA28 (+0x6408, 95 of 96 entries
+-- validating as ObjectEventGraphicsInfo), and 0x0849EC00 -- the Brendan palette at +0x6408 --
+-- was among the palette candidates its byte-signature search turned up.
+-- **WRITTEN AS LITERALS AT THEIR USE SITES, NOT AS LOCALS**: this file is at Lua's hard
+-- ceiling of 200 locals per main function and three more tipped it into a PARSE failure
+-- ("too many local variables"), the same trap Crystal hit the same day.
 
 local GMAIN_CALLBACK2_ADDR = 0x030022c4
 local CB2_OVERWORLD_ADDR = 0x08085e5c
@@ -131,11 +146,18 @@ local CB2_OVERWORLD_ADDR = 0x08085e5c
 -- patch version; a future Archipelago Emerald world update could recompile to a different
 -- address, the same portability risk noted in ideas.md for any other fixed-address assumption.
 local CB2_OVERWORLD_ARCHIPELAGO_ADDR = 0x080867f1
+-- SPEEDCHOICE 1.2.2: `romvariant_probe.lua` sampled gMain.callback2 across 900 consecutive
+-- overworld frames and read 0x080864D5 on every one of them. Recorded as an OBSERVATION with
+-- the caveat the probe itself prints: the site it was read from is a vanilla literal, so a
+-- build that moved gMain would make it meaningless. gMain has NOT moved here -- the same probe
+-- run read a coherent gSaveBlock1Ptr and map layout through neighbouring IWRAM addresses.
+-- Stored even (the thumb bit is added by the comparison below, as for the two above).
 
 local function inOverworld()
     local callback2 = memory.read_u32_le(GMAIN_CALLBACK2_ADDR)
     return callback2 == CB2_OVERWORLD_ADDR or callback2 == CB2_OVERWORLD_ADDR + 1
         or callback2 == CB2_OVERWORLD_ARCHIPELAGO_ADDR or callback2 == CB2_OVERWORLD_ARCHIPELAGO_ADDR + 1
+        or callback2 == 0x080864d4 or callback2 == 0x080864d5 -- SPEEDCHOICE 1.2.2
 end
 
 local TILE = 16 -- confirmed on screen in Phase 3, see phase4_multiplayer.lua's header.
@@ -332,6 +354,10 @@ local function detectSpriteAddrOffset()
         console.log("MeshGhost: sprite data found at the known Archipelago-shifted ROM address.")
         return SPRITE_ADDR_ARCHIPELAGO_SHIFT
     end
+    if bytesMatchAt(GOBJECTEVENTPAL_BRENDAN_ADDR + 0x6408, BRENDAN_PAL_REF_BYTES) then -- SPEEDCHOICE
+        console.log("MeshGhost: sprite data found at the known SPEEDCHOICE-shifted ROM address.")
+        return 0x6408
+    end
     console.log("MeshGhost: WARNING -- Brendan/May sprite data not found at the vanilla address "
         .. "or the known Archipelago-shifted address. Falling back to vanilla addresses, but "
         .. "the decoded sprite is likely wrong on this ROM.")
@@ -388,6 +414,9 @@ end
 -- AVATAR_ADDR_ARCHIPELAGO_SHIFT once detected. Declared here (before getLocalState() and
 -- playerScreenPos() are defined) so both can close over it as an upvalue.
 local avatarAddrOffset = 0
+-- ON `genderFrames`, not a new local: this file is at Lua's 200-local ceiling and three new
+-- constants tipped it into a parse failure earlier today. Read through a helper below.
+
 local avatarAddrConfirmed = false
 
 local function tryDetectAvatarAddrOffset()
@@ -400,6 +429,13 @@ local function tryDetectAvatarAddrOffset()
     if playerObjEventExistsAt(GOBJECTEVENTS_ADDR + AVATAR_ADDR_ARCHIPELAGO_SHIFT) then
         console.log("MeshGhost: gObjectEvents/gPlayerAvatar found at the known Archipelago-shifted address.")
         avatarAddrOffset = AVATAR_ADDR_ARCHIPELAGO_SHIFT
+        avatarAddrConfirmed = true
+        return
+    end
+    if playerObjEventExistsAt(GOBJECTEVENTS_ADDR + 0xA4) then -- SPEEDCHOICE 1.2.2
+        console.log("MeshGhost: gObjectEvents/gPlayerAvatar found at the known SPEEDCHOICE-shifted address.")
+        avatarAddrOffset = 0xA4
+        genderFrames.spriteAddrOffset = 0x4 -- gSprites, measured by gsprites_scan_probe.lua
         avatarAddrConfirmed = true
         return
     end
@@ -2932,7 +2968,14 @@ local function rs16(a) return memory.read_s16_le(a) end
 local function r32(a) return memory.read_u32_le(a) end
 
 local function objAddr(i) return GOBJECTEVENTS_ADDR + avatarAddrOffset + i * OBJECTEVENT_SIZE end
-local function sprAddr(i) return GSPRITES_ADDR + i * SPRITE_SIZE end
+-- gSprites moves on a patched build just as gObjectEvents does, and `spriteAddrOffset` carries
+-- that shift. SPEEDCHOICE 1.2.2 measured at +0x4 by `probes/gsprites_scan_probe.lua`, which
+-- narrowed EWRAM to a single candidate by cross-link and then WALKED the player 12 steps to
+-- confirm the sprite tracked it -- 5 x-steps and 6 y-steps, constant offset. gSprites is a
+-- runtime array, so unlike the ROM data it cannot be found by searching the cartridge; it
+-- needs a live probe, and a candidate that survives the search is still only a candidate
+-- until something moves.
+local function sprAddr(i) return GSPRITES_ADDR + (genderFrames.spriteAddrOffset or 0) + i * SPRITE_SIZE end
 
 local function tileIsAllocated(n)
     return (r8(SSPRITETILEALLOCBITMAP_ADDR + (n // 8)) >> (n % 8)) & 1 == 1
