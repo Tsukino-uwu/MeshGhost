@@ -557,16 +557,74 @@ The header above says "REOPENED 2026-08-26 for Fly and the boat" and the file re
 after it. Backfilled from the commit log; evidence in
 `adapters/emulator/pokemon/emerald/VERIFIED.md`, `BANDAGES.md` (entry 4) and `UNVERIFIED.md`.
 
-- **2026-08-26 — the Fly session, nine faults end to end** (`330c6d7`, `ea4b0b6`, `29ad111`,
-  `58ea70c`, `7074055`, `c22da7c`, `6f91538`, `87ff6ba`, `983f78f`): ROM addresses shifted on a
-  patched ROM, the bird's arc anchored to the screen rather than the world, and three renderers
-  showing three different fly faults. Fly is registered as a bandage where it compensates.
-- **2026-08-27** — Ice was the wrong function (`8af2364`), and the flag register was found
-  disagreeing with its own code in both directions at once (`2da653e`, `067ee12`) — the audit
-  that produced the register-completeness rule in `_template/FLAGS.md`.
-- **2026-08-28** — Emerald spent a session at 5fps because its own fix had been written in
-  Crystal (`583647a`); all four adapters started reading the bridge-port config, two having read
-  no config at all (`15b2715`).
+Its three bullets were given their own dated headings on 2026-09-11 — the day they covered was
+findable only by reading this section, which is how Fly came to look absent from its own phase file.
+The 08-26 entry is expanded from the commits at the same time; 08-27 and 08-28 are as written.
+
+## 2026-08-26 — Fly, and the assumption that did not survive contact
+
+**Backfilled 2026-09-01, expanded 2026-09-11 from the commits.** Emerald was parked on 2026-08-21
+with the boat and Fly recorded as **assumptions** rather than open work (`ddf41827`) — deliberately,
+so they could not quietly become a memory of having checked. They could not have been more wrong:
+nine faults, end to end (`330c6d7`, `ea4b0b6`, `29ad111`, `58ea70c`, `7074055`, `c22da7c`,
+`6f91538`, `87ff6ba`, `983f78f`).
+
+**Fly is not an overworld event at all**, which is the root of most of it: the character is taken
+off the map and a bird sprite flies the arc in SCREEN coordinates. Four results worth keeping:
+
+- **`ea4b0b64` — every ROM address Fly needs is shifted on a patched ROM, and none of them fail
+  loudly.** The task function pointers, the bird's sprite template and the arc callback are all
+  compared or written raw, so on an Archipelago seed every comparison simply never matches: no
+  peer ever appears to fly, no boat ever appears, **and nothing in any log says why.** Same
+  silent-nil shape the graphics pointer table had before `genderFrames.romOffset`. All five sites
+  go through it now; the show-mon banner scan still does not, and that stays a named gap.
+- **`29ad1114` — three bugs, each hiding the next.** The bird was spawned and destroyed on *every
+  frame* of a departure: the engine's arc callback sets "done" past 0x80 and keeps incrementing,
+  because in the real game the task tears the sprite down — and there is no task here. Retiring on
+  done, finding the peer still flying, and spawning a fresh one seeded past the end is one loop
+  that produced BOTH reported symptoms (the blink, and the passenger not following). Latched: 0
+  visibility flips against 43. Underneath it, the bird started at arc position 80 of 128, because
+  **a bird and its passenger are two different events** — the engine's swoops down EMPTY and is
+  handed the character about twenty frames later. Underneath THAT, a stale `fly==1` branch still
+  retired the bird, so the descent spawned one and destroyed it the same frame.
+- **`70740553` — the arc was anchored at screen centre**, found *by finally looking at the screen*
+  rather than at struct fields. `StartFlyBirdSwoopDown` parks the bird at (120,0) and hangs the
+  whole cosine off it — correct for the engine, which flies exactly one character: the player, who
+  **is** the centre. A ghost is not, so a peer's departure dragged the ghost to the watcher's own
+  feet before lifting it. Also: **a carried sprite was never put back.** The bird writes its
+  passenger in screen coordinates with the scroll bit clear, and nothing on the engine's side ever
+  recomputes a sprite position from map coordinates — so every carry ended with the sprite parked
+  where the arc let go. That is the user's *"3 tiles left, 4 tiles up"* and the teleport after.
+- **`58ea70c3` — the frame nobody wrote, and the savestate that decides whether the bug exists.**
+  A ghost was handed `graphicsInfo(wantedGfx)` to load its first frame, and `wantedGfx` is nil in
+  the ordinary case; nil info makes `loadGhostFrameNow` take its early return, leaving the ghost
+  drawing from VRAM **nobody has written**. Grey rubbish. It survived because something usually
+  repaints a ghost within a frame or two — and a landing is exactly where that stops being true,
+  which is why the report was always "broken sprite AFTER landing" and never during. **The method
+  half matters as much**: a landing can only be watched from the town the flyer arrives in, so a
+  watcher in the wrong town sees the departure, never the arrival, **and reports success.** Two
+  paired runs came back clean while the bug was still there.
+
+**It ships bandaged, not finished** — the user's call, *"good nuff for now"* and *"not properly
+working fully yet"*; four compensations in `BANDAGES.md` §4, one confirmed case (a same-town fly
+watched from a second instance). **The boat is built and still never watched; rails were never
+built.** README step 38.
+
+## 2026-08-27 — the flag register disagreed with its own code, in both directions
+
+Ice was the wrong function (`8af2364`) — Emerald's ice runs `ForcedMovement_Slip`, not `_Slide`;
+right screen, wrong mechanism, and it stops being right the moment a character is pushed a way it
+is not facing. The flag register was found disagreeing with its own code **in both directions at
+once** (`2da653e`, `067ee12`) — the audit that produced the register-completeness rule in
+`_template/FLAGS.md`.
+
+## 2026-08-28 — a session at 5fps, because the fix had been written in the other game
+
+`583647a3`: Emerald ran a whole session at 5fps because its own fix had been written in Crystal —
+the cross-adapter shape this repo keeps re-learning, and the reason `_template/` back-ports in the
+same pass. All four adapters started reading the bridge-port config that day, **two of them having
+read no config at all** (`15b2715`). The release-files run that became README step 41 is this date
+too, recorded 2026-09-10.
 
 ## 2026-09-02 — the documentation pass, as it touched Emerald's files
 
