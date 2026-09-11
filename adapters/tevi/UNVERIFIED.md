@@ -105,6 +105,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — **replay and chaser ghosts have never been watched here** — they are made by the client and ride the ordinary ghost path (`core/localpeer.go`), so they should work; only Pseudoregalia has been seen (2026-09-11)
 - READY — **projectiles: what is still unmirrored** — the confirmed half (walls, colours, no watcher damage) is in `VERIFIED.md`; the plain-shot distance, the drawn-sprite animation and four more shots are unwatched (2026-09-10)
 - READY — **from the orbitar/core-expansion evening**: the blue trail's count/parameters and its dodge-vs-hover order, and the `map_markers` config key — one AMBIGUOUS, needs a yes/no (2026-09-10)
 - READY — meshghost.exe and config.json now live in the TEVI folder (beside TEVI.exe) and the plugin looks NOWHERE else -- not the plugin folder, not BepInEx\scripts; both installs deployed 2026-09-05 with the files moved up; the start log names the folder used. Unwatched on TEVI (Pseudoregalia's half confirmed).
@@ -118,6 +119,26 @@ entry without one.
 - Pending -- the bridge walk DEADLOCK: seen live, fixed, and the fix is not reproduced (2026-08-28)
 - Pending -- the charged attack WORKS; whether it is 1:1 was never settled (2026-08-28)
 - PARTLY CONFIRMED 2026-08-27 — the send gate works; the port walk converges badly
+
+## [READY] Replay and chaser ghosts should already work here, and nobody has looked (2026-09-11)
+
+**Why this is filed at all.** `docs/getting-started.md` said Emerald and Crystal "do not do
+replays or chasers yet" and that TEVI and Pseudoregalia do. Checking that claim against the code
+found it unsupportable in both halves: a replay or chaser ghost is invented by the CLIENT, not by
+any mod, and `core/localpeer.go` opens by saying nothing downstream of `storeRemoteState` can tell
+where a sample came from — it "renders through the same buffer, the same bridge messages and the
+same adapter code as a real peer". There is no per-adapter capability here to have or lack.
+
+So the page now describes the mechanism and names Pseudoregalia as the one it has been watched in.
+That leaves this: it *should* work here and has never been seen.
+
+**What to look at.** Set `"record_on_launch": true` in `config.json`, play for a bit, close the
+game; then set `"chaser": {"enabled": true}` and play again.
+
+**What correct looks like.** A ghost of your own past, following your route a few seconds behind,
+drawn exactly like another player's ghost and solid to nothing. **A negative is just as useful** —
+if nothing appears, that is a real finding about this adapter, not a missing feature.
+
 ## [READY] From the orbitar / core-expansion evening: what is still unwatched (2026-09-10)
 
 **The confirmed work drained to [`VERIFIED.md`](VERIFIED.md) 2026-09-10** ("a peer's orbitars, their

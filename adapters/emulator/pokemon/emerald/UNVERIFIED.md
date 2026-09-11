@@ -155,6 +155,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../../../_template/UNVERIFIED.md`](../../../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — **replay and chaser ghosts have never been watched here** — they are made by the client and ride the ordinary ghost path (`core/localpeer.go`), so they should work; only Pseudoregalia has been seen (2026-09-11)
 - READY — the JSON decoder refuses input nested past 64 levels instead of following it; load and connect confirmed, the guard itself is not observable (2026-09-03)
 - READY — `"autostart": false` in config.json now stops the mod starting a client (the old MESHGHOST_NO_AUTOSTART still counts), built and deployed 2026-09-03, unwatched
 - READY — the launcher forgets a child the port walk has moved off (mirrored from TEVI 2026-09-02); the path is not reachable by launch timing here, unwatched
@@ -172,6 +173,25 @@ relay is the one that stands (`VERIFIED.md`, 2026-09-02), and the bike issue fil
 on a bike shows only when you are on one) is deterministic, not intermittent: the spawned tier wears
 the LOCAL player's graphic while `MESHGHOST_GHOST_PEER_GFX` stays off (`FLAGS.md`). Older READY entries
 (the 2026-08-18..21 sessions) stay below with their own headings.
+
+## [READY] Replay and chaser ghosts should already work here, and nobody has looked (2026-09-11)
+
+**Why this is filed at all.** `docs/getting-started.md` said Emerald and Crystal "do not do
+replays or chasers yet" and that TEVI and Pseudoregalia do. Checking that claim against the code
+found it unsupportable in both halves: a replay or chaser ghost is invented by the CLIENT, not by
+any mod, and `core/localpeer.go` opens by saying nothing downstream of `storeRemoteState` can tell
+where a sample came from — it "renders through the same buffer, the same bridge messages and the
+same adapter code as a real peer". There is no per-adapter capability here to have or lack.
+
+So the page now describes the mechanism and names Pseudoregalia as the one it has been watched in.
+That leaves this: it *should* work here and has never been seen.
+
+**What to look at.** Set `"record_on_launch": true` in `config.json`, play for a bit, close the
+game; then set `"chaser": {"enabled": true}` and play again.
+
+**What correct looks like.** A ghost of your own past, following your route a few seconds behind,
+drawn exactly like another player's ghost and solid to nothing. **A negative is just as useful** —
+if nothing appears, that is a real finding about this adapter, not a missing feature.
 
 ## [OPEN] a peer getting on a bike shows only when YOU are on one too — reported 2026-09-03
 

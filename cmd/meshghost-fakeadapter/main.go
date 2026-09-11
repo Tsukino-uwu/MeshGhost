@@ -52,8 +52,8 @@ import (
 // printing to the console (this demo's stand-in for a real adapter's silent
 // gui.drawImage redraw) is throttled to logInterval per remote.
 type circleAdapter struct {
-	start         time.Time
-	radiusUnits   float64
+	start       time.Time
+	radiusUnits float64
 	// dimScale multiplies the circle offset PER COMPONENT. nil means the historical
 	// behaviour: components 0 and 1 circle, everything past them holds its center value.
 	//

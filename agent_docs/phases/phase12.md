@@ -155,3 +155,65 @@ happened.
 [phase10.md](phase10.md)'s 2026-09-11 (later) entry — written before this file existed.
 **From this date, delivery and gate work logs HERE**; phase10's earlier gate entries stay as
 written, because a past entry is never edited.
+
+## 2026-09-11 (evening) — every claim in `docs/` re-checked, and what four days had made untrue
+
+The user asked for a fact-check across the user-facing docs, `reviewing.md` above all. Ten files,
+~2,750 lines. Three search agents fanned out, then **every finding was re-verified by hand against
+the file it named before any edit** — which mattered, because four of them were wrong.
+
+**What held.** `integrating.md` end to end: every message type, field, reject code and reason string,
+the QUIC and UDP wire constants, the tag story, the licensing paragraph. `config.md`'s key census: no
+key in the doc that does not exist, none in code or the shipped config it omits, every default right,
+every relay/core/mod attribution right. `reviewing.md`'s ten-package relay import list (checked with
+`go list -deps`), its hello-check ordering step for step, its fuzz census (25 CI steps / 27 targets /
+8 packages), and its reproducible-build recipe flag for flag. `code-signing.md` and `antivirus.md`
+whole.
+
+**The four corrections to the search pass, all caught by re-reading the source:**
+
+- **`ghost_collision` is per-adapter, and the obvious fix would have been a new error.** Three pages
+  said "no shipped mod acts on it yet". The proposed fix was "the shipped adapters read it". The
+  relay's own flag help has it right: the **two Lua adapters** read `session_policy` and go
+  walk-through on `disabled`; **the two PC adapters do not read it** and hold anyway, because neither
+  ships ghosts solid. Swapping one blanket claim for the opposite blanket claim is not a fix.
+- `security.md` was reported as telling readers three times to search `architecture.md` for a string
+  it does not contain. It says it **once**.
+- The code-signing prerequisites landed **2026-09-06**, not 09-08.
+- `networking.md`'s `sendState` paragraph was reported as a false "synchronous" claim. It is not
+  false — `sendState` genuinely still chooses `SendUnreliable` over `Send`. The section is
+  *incomplete*, which is a different edit.
+
+Three reported findings were **dropped** on re-reading: `readBufferBytes = 65535` described as "a 64
+KiB buffer" is ordinary rounding; §9 "Two files" is correct about the relay, which is what that
+section is about; and `reviewing.md`'s paraphrase of CLAUDE.md's regression-test rule is fair.
+
+**The load-bearing corrections.** `getting-started.md` sent Emerald and Crystal players to BizHawk's
+Lua Console for a line only `meshghost.exe` writes, into `meshghost.log` — so the two games whose
+players were sent there are the two that could never show it. `security.md` said it had been audited
+adversarially **once** when the second review, on 2026-09-07, is cited by that same page two hundred
+lines earlier. `networking.md` said "exactly one bounded queue" when there are three, and the
+sentence explaining what the one is for is backwards for two of them. And `security.md`'s changelog
+stopped at 2026-09-08 with four days of hardening under it, including a udp session-token hijack and
+a TLS wrapper that had been quietly defeating the 2026-09-02 descriptor-exhaustion fix for six days.
+
+**Three dead cross-references, all of a shape preflight cannot see** — its link gate resolves link
+*targets*, not section names inside them. The TLS channel-binding design was cited twice as living in
+`ideas.md`, which contains no mention of channel binding at all (it is in `security-design.md`; the
+same wrong pointer was in `verified.md` and ADR 0021, both repointed). `verified.md` has no
+"start-order independence" entry. `architecture.md` does not contain the string readers were told to
+search for. **A gate that checks whether a link resolves says nothing about whether it lands on what
+the sentence promised**, and these three had survived every run.
+
+**One claim was false in a way no doc edit could settle**: `getting-started.md` said Emerald and
+Crystal "do not do replays or chasers yet" and TEVI and Pseudoregalia do. `core/localpeer.go` opens
+by saying a client-invented ghost renders "through the same buffer, the same bridge messages and the
+same adapter code as a real peer" — there is no per-adapter capability to have or lack. The user
+confirmed the assumption behind it was never tested: only Pseudoregalia has been watched. The page
+now describes the mechanism and claims no per-game behaviour, and the untested half is filed in
+TEVI's, Emerald's and Crystal's `UNVERIFIED.md`.
+
+**Left alone deliberately**: `Plugin.cpp`'s comment that `session_policy` is "honoured by zero of
+four" is stale, but `preflight.ps1` hashes every source into the committed DLL's `built-from.txt`, so
+a comment-only edit marks that DLL STALE and buys a C++ rebuild and a deploy. Recorded rather than
+touched.

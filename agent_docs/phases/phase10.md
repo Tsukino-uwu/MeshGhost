@@ -1842,3 +1842,42 @@ ghost per tick.
 **What is left is four items, all the user's call and none of them work-in-progress:** E11 (filed by
 their decision, design answer in `ideas.md`), H19 (fake clocks across core tests), O1 (the clock
 re-anchor), O3 (the insurance shipped; the hunt itself was declined).
+
+## 2026-09-11 (evening) — the shipped config warned about its own keys, and two tests that raced yesterday's writer
+
+**Found while fact-checking `docs/`, not while looking for it.** `docs/config.md` documents a handful
+of `client` keys as legitimate and read by the game's mod rather than by `meshghost.exe`. Checking
+that claim against the code found the claim right and the CODE wrong: `WarnUnknownKeys` (`f45c6c91`,
+this morning) builds its known-key set from `fileConfig`'s json tags by reflection, and to reflection
+"a key the mod reads" and "a key nobody reads" are the same thing — absent from the struct. So an
+untouched release told every player that six of its own shipped defaults were "being IGNORED, so
+whatever they were meant to change is still at its default": `autostart`, `map_markers`,
+`input_display`, Pseudoregalia's `ghost_range` trio, and the three `replay.indicator*` keys.
+
+The fix is a caller-supplied `notSettings` set, qualified the way the warner names a section
+(`client.autostart`, `client.replay.indicator`), and such a key is skipped rather than descended
+into — the subtree belongs to whoever owns it. **The accepted set must keep coming from reflection**
+(a curated list of settings is the failure `unknownkeys.go` exists to prevent), but a key belonging
+to a different reader is not derivable from this binary's types at all, so it is the caller's to
+declare. The relay passes nil: nothing but the relay reads `"server"`.
+
+Pinned against **all five** shipped configs rather than the root one — the per-game files carry keys
+the root does not, and checking one would have missed three. Confirmed failing on every one first,
+then confirmed silent with a real `meshghost.exe` run against the real
+`packaging/release/config.json`.
+
+**The two `core` failures that came with it are the more interesting half, and they were
+pre-existing.** The full suite failed twice under `-count=2 ./...` in
+`TestAStalledRelayDoesNotBlockTheFramePath` and `TestForwardLocalStateRespectsMinSendInterval`, and
+both passed in isolation — `-count=40` never reproduced them. The cause is not flakiness in the
+product: **yesterday's `relayWriter` made the relay write asynchronous, and both tests still read the
+write counter synchronously**, as they could when `forwardLocalState` wrote the socket itself. Under
+CPU contention the writer goroutine has not been scheduled when the assertion runs, so the count is 0.
+
+Reproduced deterministically by running six concurrent `core` suites for load — ~20 failures in 20,
+where 40 quiet repeats gave none. **Load, not repetition, was the axis**, which is worth remembering
+the next time a test only fails in the full run. Both now wait for the writer; neither assertion is
+weakened, because the stalled transport never returns from its first write, so "exactly 1" is still
+exactly what is asserted.
+
+`go test -count=2 ./...` clean over four runs; `dev-scripts/run-gotests-race.bat` clean tree-wide.
