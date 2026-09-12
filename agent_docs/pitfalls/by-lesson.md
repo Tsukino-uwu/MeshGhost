@@ -7203,7 +7203,7 @@ repo root, against a tree with nothing planted in it. Also: the harness verifies
 reading the file back, because a plant that quietly did nothing is reported as a blind gate, and
 the fix then gets applied to an innocent check.
 
-## THE FAULT WAS A DEVIATION WE ADDED ON PURPOSE, and it masked everything under it for a month (Emerald, 2026-09-13)
+## THE FAULT WAS A DEVIATION WE ADDED ON PURPOSE, and it masked everything under it (Emerald, 2026-08-19 to 2026-09-13)
 
 **Symptom.** The painted ghost never looked like the player. Reported over many sessions in many
 shapes -- *"really choppy"*, *"lagging behind"*, *"it slides after turning"*, *"running still don't

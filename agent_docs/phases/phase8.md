@@ -1145,3 +1145,60 @@ engine object slot -- and the shipped ladder is drawn-only with a spawned cap of
 ran; the review's own growth cell caught that the same day. It hangs on the tier-independent
 `despawn_remote` handler now. Commits `52da7f3b` and `49bb2072`; queued in the adapter's
 `UNVERIFIED.md`, which records that the first attempt was inert.
+
+## 2026-09-13 — the painted ghost reaches 1:1, and the thing hiding it was ours
+
+**The night's result, user-confirmed on screen:** *"It actually looks identical now"* — the painted
+ghost against the player, walking and running, turns and stops, at 0 interp / 100Hz. Recorded in the
+adapter's `VERIFIED.md`; the lesson in `pitfalls/by-lesson.md`, "THE FAULT WAS A DEVIATION WE ADDED
+ON PURPOSE".
+
+**What it turned out to be.** `drawnDelay` — the tier rendered every peer EIGHT FRAMES IN THE PAST,
+deliberately, to imitate a spawned ghost's trailing. The camera is slaved to the player's own sprite
+and stops the instant the player does, so those frames were spent sliding across a stationary
+screen: 8px walking, a whole tile running. The user's framing settled the default: *"a ghost is never
+in the same game, but its supposed to look 1:1 to what a player did in another game"*, and *"8 was
+just a thing we added, that was hiding the issue all along"*. It ships at 0 now.
+
+**Seven defects were fixed underneath it, each measured before it was touched** (the new
+`MESHGHOST_EMERALD_MOVE_TRACE`): both axes advancing in proportion, so corners were cut diagonally;
+a limit of 1.25x the measured rate, a speed nothing in the game moves at; `pspeed` read as
+`MOVE_SPEED_*` when it is `PLAYER_SPEED_*`; the axis re-decided every frame, giving a 2px staircase;
+a permanent two-pixel gap that only showed at corners; the facing taken live while the position was
+delayed (and the wire's facing is early at source, so the pose now comes from the model's own
+motion); and a crawl at the end of motion when the gait went nil at idle.
+
+**Draw order against the player** landed the same night and is confirmed: a ghost standing higher up
+the screen goes behind, a ghost sharing your tile goes behind (the tie is ours — the engine has no
+rule, two characters never share a tile in vanilla). `_template/README.md` gains the standing rule:
+a ghost may never hide the player.
+
+**The bikes are the open work.** The user reported teleporting, sliding, wrong facing, no bike
+graphic and a sideways snap on mounting. Four causes found and fixed, none yet judged on screen: the
+sender ramped every gait at walking pace (a tile the Acro bike crosses in four frames spread over
+sixteen, so the wire crept a pixel then leapt eleven); the receiver had no field that describes a
+bike, so `mspd` — the engine's own `MOVE_SPEED_*` — now goes on the wire; `FAST_2`'s uneven
+2,3,3,2,3,3 was averaged where the ceiling is the honest value; and the peer-graphic gate was one
+flag holding two tiers with different constraints, so the painted tier now has its own. The paint
+origin is normalised to the walker's centring, which was the sideways snap.
+
+**Documentation.** `documentation.md` gained the engine's movement model from the decompilation,
+confirmed on a live NPC: the step cadence per gait, the tile flipping a whole tile ahead of the
+pixels, motion living in `pos1`, the pose swapping twice a tile, turning differing between NPC and
+player, the camera being slaved to the player's sprite, how both bikes work, and how surf, dive and
+fly fit the same model.
+
+**Two instrument traps cost real time and are now in `checklists/before-a-probe.md`:** a screenshot
+does not contain the painted overlay (`client.screenshot` grabs the emulator's video output), and
+editing a loaded script does not reload it — the dev loader watches the SET of paths, not the bytes.
+
+**Three self-inflicted breakages, all caught the same session:** a sliced `return` in
+`encodeLocalState` (no state on the wire, no ghost on either screen), one `local` too many at Lua's
+200-local ceiling (a LOAD failure, so the whole adapter stopped), and a heredoc that ate a backslash
+in `shot-fast.lua`. The first is why "grep the RESULT of every scripted edit" exists.
+
+**And a licensing slip, caught by the user:** three verbatim lines of decompiled C went into an
+adapter comment. Removed and reworded as facts. Preflight gained a section that looks for reproduced
+source ANYWHERE in tracked text, not only in fenced blocks in `documentation.md` — the shape the
+existing check watches was not the shape the violation took.
+

@@ -825,3 +825,7 @@ while `Summons`, `RejectedAnims`, `Orbs` and `Platforms` on the same object are 
 by `BulletManager`'s own `bullets` array length, which is the most this build can have alive at
 once. Found by the growth cell of the third adversarial review (P2f-1); queued in
 [`../../adapters/tevi/UNVERIFIED.md`](../../adapters/tevi/UNVERIFIED.md).
+
+## 2026-09-13 — the shared UNVERIFIED rule, no TEVI work
+
+Only this adapter's `UNVERIFIED.md` header changed, with the other three and the template: a user's confirmation of a dev-toggled behaviour settles the DEFAULT too, so it is not re-asked. Emerald's session is where it came from (`phase8.md`, 2026-09-13); nothing in TEVI was touched.

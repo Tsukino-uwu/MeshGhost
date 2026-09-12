@@ -3693,3 +3693,7 @@ Two things touched this tree today, neither of them Pseudoregalia work in its ow
   (peer field → sink, C++) died to the session cap before reporting. Pseudoregalia is the only
   memory-unsafe adapter of the four, so it is first in line when the pass resumes.
   `REVIEW-FINDINGS.md` holds the standing list.
+
+## 2026-09-13 — the shared UNVERIFIED rule, no Pseudoregalia work
+
+Only this adapter's `UNVERIFIED.md` header changed, with the other three and the template: a user's confirmation of a dev-toggled behaviour settles the DEFAULT too, so it is not re-asked. Emerald's session is where it came from (`phase8.md`, 2026-09-13); nothing in Pseudoregalia was touched.

@@ -54,9 +54,9 @@
 --   assumption.
 --
 -- Sprite-tile allocator (src/sprite.c):
---   gReservedSpriteTileCount: `EWRAM_DATA u16 gReservedSpriteTileCount = 0;` (line 287).
+--   gReservedSpriteTileCount: a u16 in EWRAM, initialised to 0, at line 287.
 --   Runtime address 0x02021b3a (pokeemerald.map, ewram_data section of src/sprite.o).
---   sSpriteTileAllocBitmap: `EWRAM_DATA static u8 sSpriteTileAllocBitmap[128] = {0};` (line
+--   sSpriteTileAllocBitmap: a file-static 128-byte array in EWRAM, zeroed, at line
 --   288, declared immediately after gReservedSpriteTileCount). It has NO entry of its own in
 --   pokeemerald.map (static arrays are sometimes omitted from the symbol list even when other
 --   statics in the same file, e.g. gOamLimit, are present) -- its address is DERIVED, the same
@@ -73,7 +73,7 @@
 --   set -- this probe treats "allocated" strictly as bitmap-bit-set, and reports the reserved
 --   count separately, rather than conflating the two.
 --
---   gReservedSpritePaletteCount: `COMMON_DATA u8 gReservedSpritePaletteCount = 0;`
+--   gReservedSpritePaletteCount: a u8 in COMMON data, initialised to 0
 --   (src/sprite.c:278). Runtime address 0x0300301c (pokeemerald.map, common_data section).
 --
 -- Overworld/battle context (same idiom as meshghost_emerald.lua:79-85 and battle_probe.lua,

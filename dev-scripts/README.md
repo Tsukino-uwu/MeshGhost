@@ -794,6 +794,34 @@ this folder 2026-09-03, where 123 of them had piled up; see `dev-logs/README.md`
 - `bizhawk-input-demo.lua` — the same behavioural test in the other direction (holds Down, slot 4),
   with screenshots either side for looking at, NOT for proof.
 
+## Emerald movement session toggles (2026-09-13)
+
+Small globals-only scripts for the dev loader. Each sets ONE global and prints a line; they exist
+because a Lua global outlives the script that set it, so every "on" needs an explicit "off" -- a
+file dropped from the loader's target list does NOT undo what it set.
+
+- `sort-on.lua` / `no-sort.lua` — the drawn tier's draw-order mask against the player (the one that
+  puts a ghost behind you when it stands higher up the screen). `no-sort.lua` subtracts the feature
+  out for an A/B.
+- `sort-trace-on.lua` / `sort-trace-off.lua` — what `maskBehindPlayer` decided and the numbers it
+  decided from, once a second per painted peer, into the adapter's own log. Written because "the
+  ghost is still on top" is three different failures wearing one face.
+- `move-trace-on.lua` / `move-trace-off.lua` — the per-frame target-vs-model trace
+  (`probes/movetrace.log`): what the glide is chasing, where the model is, the delta and the limit.
+  This is the instrument that found the wrong-enum speed lookup and the permanent two-pixel gap.
+- `drawn-delay-8.lua` — restores the OLD 8-frame trailing delay. The shipped default is 0 since
+  2026-09-13; the 8 is for a tier comparison, both renderers of one peer on screen together.
+- `square-2run.lua` / `square-2walk.lua` — settings for `probes/square_drive.lua`: a 2x2 square,
+  running or walking, corners flowing.
+- `slot5.lua` / `slot9.lua` / `slot10.lua` — savestate slots for `load_slot.lua`: the seam position,
+  the Mach bike and the Acro bike. List one BEFORE `load_slot.lua`, and that before the adapter.
+- `seam-trace-on.lua` / `seam-trace-off.lua` — a window around every map-connection crossing
+  (the wire, the translation, the glide model and the PAINTED pixel, one line per frame per
+  peer, into `probes/seamtrace.log`). Written for the seam work of 2026-09-12 and kept: a
+  crossing is the one event where four coordinate frames have to agree.
+- `shot-fast.lua` — settings for `bizhawk-screenshot-loop.lua`: a shot every other frame, for
+  catching something that lives in three. Remember a screenshot cannot see the painted overlay.
+
 ## Adapter-specific investigation tools
 
 Emerald-side one-offs, kept because the questions recur. Each is loaded through

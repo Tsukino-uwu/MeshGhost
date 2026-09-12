@@ -209,6 +209,9 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-11 — USER-CONFIRMED ON SCREEN: the 3x painted tier still draws correctly, reflections included
 - 2026-09-12 — Emerald: a ghost opens the door, on all four builds
 - 2026-09-12 — Emerald: occlusion works on ALL FOUR builds, not just vanilla
+- 2026-09-12 — USER-CONFIRMED ON SCREEN: three seam defects fixed, walking and running
+- 2026-09-12 — USER-CONFIRMED ON SCREEN: drawn ghosts sort against the player
+- 2026-09-13 — USER-CONFIRMED ON SCREEN: the painted ghost is IDENTICAL to the player
 ## Confirmed facts
 
 ### Emerald ROM revision
@@ -239,7 +242,7 @@ filed under the right theme, but anything can check that it is listed.
   `make compare`-verified build above. `03005d8c g 00000004 gSaveBlock1Ptr` (4-byte pointer).
 - Source: `pret/pokeemerald` build artifacts `pokeemerald.map` and `pokeemerald.sym`,
   generated from the verified local build; struct layout from `include/global.h` L1081
-  (`extern struct SaveBlock1 *gSaveBlock1Ptr;`).
+  (the header declares `gSaveBlock1Ptr` as a pointer to a `SaveBlock1`). *(Expression removed 2026-09-13 under the licensing rule; the fact it recorded is unchanged.)*
 - Notes: this is a pointer, not a fixed struct address — the save block can relocate, so it
   must be re-read every frame rather than cached.
 

@@ -13,7 +13,11 @@
 -- output, so a PAINTED ghost -- a gui.* overlay -- is not in it (probes.md, "A screenshot does not
 -- contain your overlay"). These shots answer questions about the GAME; the adapter's own counters
 -- answer questions about the overlay.
-local here = debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\][^/\]*$") or "."
+--
+-- The pattern below needs a LITERAL backslash in its character class. Written with the editor
+-- rather than through a shell heredoc, which ate one and left `[/\]` -- a file that does not parse,
+-- caught by preflight's `luac -p` sweep and by nothing else (2026-09-13).
+local here = debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
 MESHGHOST_SHOT_INTERVAL = 2
 MESHGHOST_SHOT_PREFIX = "flip"
 MESHGHOST_SHOT_DIR = here .. "/shots/flip"

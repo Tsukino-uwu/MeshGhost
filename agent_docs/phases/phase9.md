@@ -1437,3 +1437,7 @@ was unbounded; it was one of three, and that claim is corrected in place because
 what left the other two open. Found by the Lua-adapters cell of the third adversarial review
 (P2c-1, P2c-2); queued in
 [`../../adapters/emulator/pokemon/crystal/UNVERIFIED.md`](../../adapters/emulator/pokemon/crystal/UNVERIFIED.md).
+
+## 2026-09-13 — the shared UNVERIFIED rule, no Crystal work
+
+Only this adapter's `UNVERIFIED.md` header changed, with the other three and the template: a user's confirmation of a dev-toggled behaviour settles the DEFAULT too, so it is not re-asked. Emerald's session is where it came from (`phase8.md`, 2026-09-13); nothing in Crystal was touched.

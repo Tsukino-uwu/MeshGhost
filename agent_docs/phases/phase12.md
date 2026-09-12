@@ -290,3 +290,7 @@ un-campaigned target must declare `// fuzz-census: no-ci-step -- <reason>` in it
 draft inferred the opt-out from an env-var guard and silently exempted the wrong set, which is the
 same hand-maintenance failure. The gate found two on its first run, both also reported by the
 instrument-integrity cell of the review. Commit `41972ff9`, with the `/adversarial-review` skill.
+
+## 2026-09-13 — preflight learns to look for reproduced expression anywhere
+
+The fenced-block check watches `documentation.md`; the violation it was written for landed in a Lua COMMENT in the Emerald adapter instead — three verbatim lines of decompiled C, caught by the user asking rather than by any gate. A new section greps tracked text for the SHAPE of reproduced source (a decomp-style typed declaration, a pointer-typed struct), deliberately narrow so prose arrows like `spawn -> OAM -> drawn` do not bury it: measured over the tree, the narrow form finds five lines, four of them real. It FAILS rather than warns, because licensing is the one rule with no judgement call in it. Also: `/config.json` ignored (a developer rig's own core config, beside the `dev-scripts/config.json` rule it mirrors), and `dev-scripts/README.md` now documents the session toggles.

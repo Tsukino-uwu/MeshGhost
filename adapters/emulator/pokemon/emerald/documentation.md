@@ -188,16 +188,16 @@ movement actions inherits correct motion for free.
 
 ### The bikes are two different machines (src/bike.c)
 
-**The Mach bike ACCELERATES across tiles.** `sMachBikeSpeeds[] = {PLAYER_SPEED_NORMAL,
-PLAYER_SPEED_FAST, PLAYER_SPEED_FASTEST}` is indexed by `bikeFrameCounter`, which climbs by one on
-every successful move and is capped at 2, so a straight line gets faster the longer it runs and
+**The Mach bike ACCELERATES across tiles.** Its speed table (`sMachBikeSpeeds`) holds three tiers —
+normal, fast and fastest — and is indexed by `bikeFrameCounter`, which climbs by one on every
+successful move and is capped at the last tier, so a straight line gets faster the longer it runs;
 `MachBikeTransition_TrySlowDown` walks it back down. **Its speed is therefore not a property of
 "being on a bike" but of how long you have been going** — a ghost's per-frame quantum has to change
 mid-ride, which is why the speed is sent every frame rather than latched at mount.
 
-**`gPlayerAvatar.bikeSpeed` is a derived byte and a trap.** It is
-`bikeFrameCounter + (bikeFrameCounter >> 1)`, so it takes the values **0, 1, 3** — at the slowest
-Mach tier a moving player reports `PLAYER_SPEED_STANDING`. That is the field this adapter used to
+**`gPlayerAvatar.bikeSpeed` is a derived byte and a trap.** It is computed from
+`bikeFrameCounter` plus half of itself, which for the three tiers yields the values **0, 1, 3** — so
+at the slowest Mach tier a moving player reports `PLAYER_SPEED_STANDING`. That is the field this adapter used to
 send as `pspeed`, which is why a bike ghost was rendered at walking pace: the source said "standing"
 while the player rode. The honest source is the sprite's own `data[4]` (`MOVE_SPEED_*`), which is
 what `NpcTakeStep` indexes.
@@ -222,11 +222,10 @@ the fishing alignment). This is only how each one MOVES, because that is what a 
 quantum depends on — and `PlayerNotOnBikeMoving` (`src/field_player_avatar.c:608`) decides all of it
 in one place:
 
-- **Surfing is RUNNING speed.** `PlayerWalkFast`, with the decomp's own comment beside it: *"same
-  speed as running"* — `MOVE_SPEED_FAST_1`, 8 frames a tile, 2px a frame.
-- **Underwater is always WALKING speed.** The dash branch explicitly excludes it
-  (`!(flags & PLAYER_AVATAR_FLAG_UNDERWATER) && (heldKeys & B_BUTTON) && ...`), so B does nothing
-  down there: `MOVE_SPEED_NORMAL`, 16 frames a tile.
+- **Surfing is RUNNING speed.** It issues the same walk-fast action running does, and the source
+  says as much in a comment beside it — `MOVE_SPEED_FAST_1`, 8 frames a tile, 2px a frame.
+- **Underwater is always WALKING speed.** The dash branch requires the underwater flag to be
+  CLEAR, so B does nothing down there: `MOVE_SPEED_NORMAL`, 16 frames a tile.
 - **Running on foot needs three things to agree**: B held, `FLAG_SYS_B_DASH` (the Running Shoes),
   and `IsRunningDisallowed` for the tile you are standing on. A peer can therefore be holding B and
   still walking, which is why a ghost must never infer a gait from an input.

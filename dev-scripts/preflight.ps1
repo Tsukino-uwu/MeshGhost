@@ -852,6 +852,52 @@ if ((Test-Path $cmake) -and (Test-Path $pseudoBuiltFrom)) {
 }
 
 # ---------------------------------------------------------------------------
+Section "No reproduced expression ANYWHERE, not just documentation.md"
+
+# The section below this one watches fenced blocks in documentation.md. That is where three
+# violations landed in August -- and it is not where the next one landed. On 2026-09-13 three
+# verbatim lines of decompiled C went into a Lua COMMENT in the adapter, quoting a subpriority
+# formula, and every check in this file passed: the shape was right (a comment), the file was not
+# documentation.md, and there was no fence. The user caught it by asking.
+#
+# So this looks for the SHAPE OF REPRODUCED SOURCE anywhere in tracked text: a typed declaration in
+# the decomp's own style (`u8 x = `, `EWRAM_DATA u16 y = `, `static u8 t[128] = `) or a pointer-typed
+# struct (`struct Sprite *`). Deliberately NARROW -- a bare `->` is how this repo's prose writes an
+# arrow ("spawn -> OAM -> drawn") and flagging it would bury the real thing in noise. Measured over
+# the whole tree when this was written: the narrow form finds 5 lines, 4 of them real.
+#
+# WHY IT IS A FAIL AND NOT A WARN. Licensing is the one rule in CLAUDE.md with no judgement call in
+# it -- expression never enters the repo, and a permissive licence is not an exception. A yellow
+# line that shipped anyway is how the fenced-block check spent weeks being ignored.
+#
+# THE ALLOWLIST IS FOR FALSE POSITIVES ONLY -- prose that happens to match -- never for "this quote
+# is short enough". Each entry names the file and what makes it prose.
+$exprAllow = @{
+    'adapters/emulator/pokemon/crystal/VERIFIED.md' = 1   # prose: "the player's struct for *placement*"
+}
+$exprDecl = '\b(?:EWRAM_DATA|COMMON_DATA|IWRAM_DATA|static\s+)?\b(?:u8|u16|u32|s8|s16|s32|bool8)\s+[A-Za-z_]\w*\s*(?:\[[^\]]*\])?\s*='
+$exprPtr  = '\bstruct\s+\w+\s*\*\s*\w'
+$exprFiles = @(& git ls-files '*.md' '*.lua' '*.go' '*.ps1' '*.bat' '*.txt')
+$exprHits = @()
+foreach ($f in $exprFiles) {
+    if (-not (Test-Path $f)) { continue }
+    $norm = ($f -replace '\\', '/')
+    if ($norm -eq 'dev-scripts/preflight.ps1') { continue }   # this section names the patterns itself
+    $n = @(Select-String -Path $f -Pattern $exprDecl, $exprPtr -AllMatches).Count
+    $allowed = if ($exprAllow.ContainsKey($norm)) { $exprAllow[$norm] } else { 0 }
+    if ($n -gt $allowed) { $exprHits += "${norm}: $n line(s), $allowed accepted as prose" }
+}
+if ($exprFiles.Count -eq 0) {
+    Report-Fail "no tracked text files found -- this check would pass vacuously"
+} elseif ($exprHits.Count -gt 0) {
+    Report-Fail ("source-shaped line(s) in tracked text -- a fact may be RECORDED with a citation, " +
+        "expression may never be reproduced (CLAUDE.md, agent_docs/licensing.md). Reword it as what " +
+        "the code DOES, or add the file to this section's `$exprAllow if the match is prose: " +
+        ($exprHits -join "; "))
+} else {
+    Report-Pass "no reproduced C declaration in $($exprFiles.Count) tracked text file(s)"
+}
+
 Section "No reproduced expression in documentation.md"
 
 # Each adapter's documentation.md records HOW THE GAME WORKS, under a header rule of its own:

@@ -11622,18 +11622,19 @@ end
 -- 2026-09-12: *"drawn ghosts can draw on top of the player itself"*, and asked for the game's own
 -- sorting rather than a blanket "never cover the player", so the two tiers agree.
 --
--- THE ENGINE'S RULE, from the decomp rather than from watching it (pokeemerald
--- src/event_object_movement.c:7773, `SetObjectSubpriorityByElevation`):
+-- THE ENGINE'S RULE, read from the decompilation rather than guessed at
+-- (pokeemerald `src/event_object_movement.c:7773`, `SetObjectSubpriorityByElevation`).
 --
---     u16 y = (sprite->y - sprite->centerToCornerVecY + gSpriteCoordOffsetY + 8) & 0xFF;
---     y = (16 - (y >> 4)) << 1;
---     sprite->subpriority = sElevationToSubpriority[elevation] + y + subpriority;
+-- WHAT IT COMPUTES, in our own words -- the source itself is not reproduced here, because facts
+-- may be recorded with a citation and expression may not (CLAUDE.md, agent_docs/licensing.md):
+-- it takes the sprite's BOTTOM edge in screen space (its y less its centre-to-corner vector, plus
+-- the global sprite coordinate offset), adds 8, keeps the low byte, and divides by 16 to get a
+-- band; the band is subtracted from 16, doubled, and added to a per-elevation base from
+-- `sElevationToSubpriority` plus the caller's own subpriority. Lower subpriority draws in FRONT.
 --
--- `sprite->y - centerToCornerVecY` is the sprite's BOTTOM edge on screen -- where the character
--- stands -- and lower subpriority draws in front, so the lower character wins, banded per 16px.
--- Both halves of our comparison use the same expression, so the constants cancel and only the band
--- matters; it is written out in full anyway, because a formula copied from a decomp is only
--- trustworthy while it still looks like the decomp.
+-- The consequence is all this code needs: the character standing lower on the screen is in front,
+-- decided in 16px bands, with elevation shifting whole bands at once. Both halves of our comparison
+-- go through the same banding, so every constant cancels and only the band matters.
 --
 -- ELEVATION IS NOT IN IT YET, and that is a real limitation rather than an oversight:
 -- `sElevationToSubpriority` offsets whole bands (115 against 83) and the peer's elevation is not on
