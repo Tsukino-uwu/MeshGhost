@@ -1833,6 +1833,26 @@ local function glideRemote(r, targetX, targetY)
     local quantum = ANIM_PX[r.anim]
     local vehiclePx = r.pspeed and PLAYER_SPEED_PX[r.pspeed]
     if vehiclePx and (not quantum or vehiclePx > quantum) then quantum = vehiclePx end
+    -- IT FINISHES AT THE SPEED IT WAS TRAVELLING (2026-09-13).
+    --
+    -- The gait comes from `anim`, so the frame the peer stops -- or blips through idle while
+    -- turning around -- `anim` is "idle", the quantum is nil, and the limit falls back to the
+    -- measured filter with its 0.02 floor: 0.4px a frame, a fifth of walking pace, for whatever
+    -- ground the model still owed. That is a slide at exactly the two moments the user reported,
+    -- *"running and then stopping causes a small slide at the end"* and *"walking left/right causes
+    -- a small slide when turning around"* -- the ghost arriving in slow motion after the peer has
+    -- already finished.
+    --
+    -- This file already had the rule, written for the old high-water mark: A CHARACTER FINISHES ITS
+    -- STEP AT SPEED. IT NEVER CRAWLS THE LAST BIT IN. So the travelling quantum is held until the
+    -- model actually arrives, and only then forgotten -- the next movement starts from its own
+    -- gait rather than inheriting this one.
+    if quantum then
+        r.gQuantum = quantum
+    elseif r.gQuantum and dist > 0.02 then
+        quantum = r.gQuantum
+    end
+    if dist <= 0.02 then r.gQuantum = nil end
     if quantum then
         if dist > 1 then
             -- A character that needs to cover ground RUNS; it does not walk faster. The next real
