@@ -158,14 +158,20 @@ type Conn struct {
 	mu            sync.Mutex
 	readDeadline  time.Time
 	writeDeadline time.Time
+
+	// dgramSlot holds the one datagram send that is allowed to be parked inside
+	// quic-go at a time. See WriteUnreliable, which explains why there is a slot
+	// at all and why one is the right number.
+	dgramSlot chan struct{}
 }
 
 func newConn(qc *quic.Conn, stream *quic.Stream) *Conn {
 	c := &Conn{
-		qc:     qc,
-		stream: stream,
-		in:     make(chan []byte, readQueue),
-		closed: make(chan struct{}),
+		qc:        qc,
+		stream:    stream,
+		in:        make(chan []byte, readQueue),
+		closed:    make(chan struct{}),
+		dgramSlot: make(chan struct{}, 1),
 	}
 	go c.streamLoop()
 	go c.datagramLoop()
@@ -273,10 +279,77 @@ func (c *Conn) WriteUnreliable(p []byte) (int, error) {
 		return 0, net.ErrClosed
 	default:
 	}
-	if err := c.qc.SendDatagram(p); err != nil {
-		return 0, err
+
+	// THE WRITE DEADLINE REACHES THIS PATH TOO, and until 2026-09-12 it did
+	// not: SetWriteDeadline stored a value that only Write above ever read.
+	//
+	// quic-go's SendDatagram is not a fire-and-forget call. Its queue holds 32
+	// frames and its own comment says "Once that limit is reached, Add blocks
+	// until the queue size has reduced", on a select with no timeout. A quic
+	// peer whose congestion window has collapsed therefore parked the relay's
+	// writer goroutine for that client -- and every reliable join, leave and
+	// reject queued behind it -- past the bound relay/outbox.go is written
+	// around, which says in as many words "this is the call that can block for
+	// the whole write timeout". On this path there was no write timeout. Found
+	// by the transports cell of the third adversarial review (P1d-2).
+	//
+	// DROPPING IS THE CORRECT ANSWER HERE, not a compromise: this is the lossy
+	// plane, the contract is latest-wins, and a sample that cannot be queued
+	// now is superseded by the next one in milliseconds. What is NOT acceptable
+	// is reporting it -- transport.Send closes the connection on a write error,
+	// so returning one would turn a congested moment into a disconnect. It
+	// counts as written, which on a lossy plane is what "sent" already means.
+	//
+	// One goroutine, one slot. A goroutine is needed because SendDatagram takes
+	// no context and cannot be asked to give up; the slot is what stops them
+	// accumulating, and one is the right number because a relay client has
+	// exactly one writer goroutine (relay/outbox.go) -- so at most one send can
+	// be outstanding before the caller is back here asking again. The parked
+	// goroutine ends on its own when the queue drains or the connection closes.
+	//
+	// p is copied because it outlives the call. transport reuses its scratch
+	// buffer between sends, and an async read of it would be a data race the
+	// race detector would find long after this landed.
+	dl := c.writeDeadlineNow()
+	select {
+	case c.dgramSlot <- struct{}{}:
+	default:
+		// A previous datagram is still parked. Dropping without spawning is the
+		// whole point of the slot.
+		return len(p), nil
 	}
-	return len(p), nil
+	buf := append([]byte(nil), p...)
+	done := make(chan error, 1)
+	go func() {
+		defer func() { <-c.dgramSlot }()
+		done <- c.qc.SendDatagram(buf)
+	}()
+
+	var timeout <-chan time.Time
+	if !dl.IsZero() {
+		t := time.NewTimer(time.Until(dl))
+		defer t.Stop()
+		timeout = t.C
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			return 0, err
+		}
+		return len(p), nil
+	case <-timeout:
+		// The deadline the caller set. The send is still parked and will finish
+		// or die with the connection; this caller is released.
+		return len(p), nil
+	case <-c.closed:
+		return 0, net.ErrClosed
+	}
+}
+
+func (c *Conn) writeDeadlineNow() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.writeDeadline
 }
 
 // closeLinger is how long a closing connection stays alive after its stream
