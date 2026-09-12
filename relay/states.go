@@ -71,6 +71,37 @@ func (r *Room) forwardState(senderID string, payload []byte) (protocol.State, bo
 	// need that copy first, and an aliasing bug on the fan-out path is not
 	// worth one allocation.
 	line := protocol.AppendEnvelope(nil, protocol.TypeState, statePayload)
+	// A state can pass ValidateState and still marshal into a line no receiver
+	// will accept. AreaID and Anim are bounded with len() (ValidOpaqueString),
+	// but encoding/json escapes '&', '<' and '>' to six bytes each on the way
+	// back out, and `prev` carries its own copy of both. Measured 2026-09-12:
+	// an inbound line of 1185 bytes -- which this relay's own 4096-byte inbound
+	// cap admits -- leaves here at 6305.
+	//
+	// An oversized line is not a reject: it is bufio.ErrTooLong in every OTHER
+	// member's read loop, so one sender drops the whole room's ghosts with no
+	// explanation anywhere. Checked BEFORE recordState so a line nobody can
+	// receive is never stored and re-served to a joiner as a Join seed.
+	//
+	// Same ladder as core/sending.go, and measured on the bytes actually going
+	// out for the same reason it measures its own there -- the bound is spent
+	// on the wire. prev is pure redundancy (ADR 0045), so it goes first; the
+	// whole state goes only if dropping prev was not enough. An honest client
+	// already applied this bound to these same bytes before sending, so no
+	// frame it would have sent is dropped here.
+	if len(line) > protocol.MaxPayloadBytes {
+		if st.Prev != nil {
+			st.Prev = nil
+			if p, err := json.Marshal(st); err == nil {
+				statePayload = p
+				line = protocol.AppendEnvelope(nil, protocol.TypeState, statePayload)
+			}
+		}
+		if len(line) > protocol.MaxPayloadBytes {
+			logOversizedForwardThrottled(senderID, len(line))
+			return protocol.State{}, false
+		}
+	}
 	// Remembered before forwarding, and independent of the
 	// per-recipient rate gate below: a late joiner should be seeded
 	// with the newest sample, not the newest one that happened to be
@@ -235,3 +266,24 @@ func logStateDropThrottled(who, playerID string, st protocol.State) {
 const dropLogInterval = 5 * time.Second
 
 var lastStateDropLog atomic.Pointer[time.Time]
+
+// logOversizedForwardThrottled reports a state that was valid but whose
+// forwarded line no receiver could have read. Separate from
+// logStateDropThrottled because StateRejectReason has nothing to say here --
+// every field IS within its own bound, which is exactly the trap.
+func logOversizedForwardThrottled(playerID string, size int) {
+	now := time.Now()
+	last := lastOversizedForwardLog.Load()
+	if last != nil && now.Sub(*last) < dropLogInterval {
+		return
+	}
+	stamp := now
+	lastOversizedForwardLog.Store(&stamp)
+	log.Printf("relay: NOT forwarding a %d-byte state from %s -- a receiver accepts at most %d, "+
+		"and an over-long line drops its connection rather than rejecting the message. Every field "+
+		"is within its own limit; something in area_id/anim/orientation/extras is near maximum and "+
+		"grows when re-encoded (repeats suppressed for %s)",
+		size, playerID, protocol.MaxPayloadBytes, dropLogInterval)
+}
+
+var lastOversizedForwardLog atomic.Pointer[time.Time]
