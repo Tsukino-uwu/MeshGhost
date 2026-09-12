@@ -266,6 +266,14 @@ or whose frame is more than 16 old), so a returning peer never read a wrong refl
 What was real is the table growing by one row per distinct `player_id` a session ever renders and
 never shrinking -- bounded per relay connection by the roster, unbounded across reconnects.
 
+**CORRECTED THE SAME DAY, and the correction is the useful part.** The clear was first hung on
+`despawnGhost`, which returns immediately unless the peer holds an ENGINE OBJECT SLOT -- and the
+shipped ladder is drawn-only with a spawned cap of ZERO, so `ghosts` is always empty and it never
+ran once, while the rows are written by the DRAWN path that actually ships. A fix on a dead path is
+worse than no fix, because it reads as done. It now hangs on the `despawn_remote` handler, which is
+tier-independent and always runs. Found by a later cell of the same review (P2f-3) reviewing the
+earlier fix on the day it landed, and confirmed by reading `engineBudget`'s own comment.
+
 **Nothing about this should be visible**, which is exactly why it needs a look rather than a shrug:
 the risk in the change is a row dropped too eagerly, and that would show as a REFLECTION not drawn
 or drawn without its ripple.

@@ -1101,6 +1101,9 @@ local connected = false
 -- would swallow that silently -- leaving a peer's ghost standing in the game forever after a
 -- bridge drop, which is exactly the bug the call exists to prevent.
 local despawnAllGhosts
+-- Forward-declared because the despawn HANDLER (handleBridgeLine) is above its definition
+-- and is the only caller that always runs. See its comment for why.
+local forgetPeerRenderState
 -- `connected` is a socket fact; `ready` is a protocol one. The core answers every hello with
 -- bridge_ready or reject (agent_docs/contract.md), and only bridge_ready means this core is ours.
 local ready = false
@@ -2543,6 +2546,19 @@ local function handleBridgeLine(line)
         -- nothing while looking like it worked.
         if type(payload) == "table" and type(payload.player_id) == "string" then
             remotes[payload.player_id] = nil
+            -- HERE, NOT IN despawnGhost, and that correction is the whole point.
+            --
+            -- The rows this drops were first cleared from `despawnGhost` on 2026-09-12, which
+            -- returns immediately unless the peer holds an ENGINE OBJECT SLOT -- and the shipped
+            -- ladder is drawn-only with a spawned cap of ZERO (see engineBudget), so `ghosts` is
+            -- always empty and the clear never ran once. Meanwhile `tiering.lastTile` is written
+            -- by the DRAWN path, which is the tier that actually ships. A fix on a dead path is
+            -- worse than no fix: it reads as done.
+            --
+            -- This drop is tier-independent and always runs, which is what the rows need.
+            -- Found by the growth cell of the third adversarial review (P2f-3), reviewing the
+            -- earlier fix on the same day it landed.
+            forgetPeerRenderState(payload.player_id)
         end
     end
 end
@@ -4956,6 +4972,11 @@ end
 -- forgetPeerRenderState drops the per-peer rows this adapter's own rendering
 -- built for a ghost, so they go out the same door the ghost does.
 --
+-- CALLED FROM THE despawn_remote HANDLER, which is tier-independent and always
+-- runs -- not only from despawnGhost, which returns unless the peer holds an
+-- engine object slot and therefore never fired on the shipped drawn-only
+-- ladder. Both call it; the handler is the one that matters.
+--
 -- THE RULE IS ALREADY WRITTEN DOWN A FEW LINES BELOW -- "every door out of a
 -- state has to remove what the state spawned" -- and these two rows were the
 -- ones not following it. reflectPalFor and rippleDue keep a six-slot row per
@@ -4970,7 +4991,7 @@ end
 -- table growing by one row per distinct player_id the session ever renders and
 -- never shrinking -- bounded per relay connection by the roster, unbounded
 -- across reconnects. Cheap to hold and cheaper to drop.
-local function forgetPeerRenderState(playerId)
+forgetPeerRenderState = function(playerId)
     -- `tiering` is forward-declared above and assigned further down the file, so
     -- it is nil until load finishes. Nothing can despawn a ghost that early, but
     -- indexing nil in Lua is a hard error that would take the whole adapter down

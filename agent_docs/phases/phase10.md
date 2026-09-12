@@ -2130,3 +2130,25 @@ Still open from the six: P1d-1/3/4 (udp loses a Reject on close; an oversized re
 closes the connection; `net.ErrClosed` hides why udp and quic peers vanish), P1b-2 (unthrottled
 TLS-handshake log), X2-1 (the udp fuzz target never admits a connection, so the token path its own
 seeds describe is unreachable), and the lower-ranked remainder.
+
+## 2026-09-12 (last) — the pass reviewed its own fix, and was right to
+
+P2f, relaunched last with a rewritten brief, found that the Emerald reflection-row clear shipped
+earlier the same day sits on a DEAD PATH: `forgetPeerRenderState` hung on `despawnGhost`, which
+returns unless the peer holds an engine object slot, and the shipped ladder is drawn-only with a
+spawned cap of zero -- so `ghosts` is always empty and it never ran, while the rows it drops are
+written by the drawn path that actually ships. Verified by reading `engineBudget`'s own comment,
+which states the drawn-only default in as many words. Moved to the `despawn_remote` handler, which
+is tier-independent.
+
+**A fix on a dead path is worse than no fix, because it reads as done** -- and the only reason this
+was caught is that a later cell of the same pass reviewed a change the pass itself had produced.
+Worth remembering when the next pass is scoped: the cells are cheap enough to run against your own
+work, not only against what you inherited.
+
+The bridge decision landed with it (P4a-2/-4/-6, the user's call): a hello is mandatory before the
+core will act for a connection. Fifteen tests dialled and went straight to frames; adding their
+hellos produced two mistakes worth recording -- a game id resolved per FILE rather than per
+FUNCTION, which gave one test a hello for the wrong game and closed its connection, and a test that
+expressed "no opt-in" by sending no hello at all, which would have passed today because nothing
+would arrive.
