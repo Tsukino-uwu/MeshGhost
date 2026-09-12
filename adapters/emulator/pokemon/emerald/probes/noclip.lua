@@ -17,6 +17,20 @@
 -- into, so a few tiles of margin is the same cheat for a fraction of the cost. It is re-applied
 -- rather than done once because the engine streams fresh blocks in from ROM as the camera scrolls.
 --
+-- AND NPCs, WHICH ARE A SECOND CHECK ENTIRELY (2026-09-12, the user: *"i want it to affect npc's as
+-- well, i keep walking into one"*). Map collision and object collision are separate paths:
+-- `DoesObjectCollideWithObjectAt` (event_object_movement.c:4724) walks gObjectEvents and blocks on
+-- a match only `if (AreElevationsCompatible(...))`. That function (:7789) returns TRUE when either
+-- side is ELEVATION_TRANSITION (0) or when the two are EQUAL -- so two different NON-ZERO
+-- elevations pass straight through each other. This is the engine's own mechanism for characters
+-- that should not block, not a patched check.
+--
+-- So every non-player object is put on an elevation the player is not on, and put back on unload.
+-- The value is chosen from the ODD elevations, which all share `sElevationToSubpriority`'s 115
+-- (:7725) -- so the NPC keeps the draw order it had, and the only thing that changes is whether it
+-- blocks. Elevation is the LOW NIBBLE of the object event's +0x0B, which is where this adapter
+-- already reads it.
+--
 -- WHAT IT DOES NOT DO. A block whose id is MAPGRID_UNDEFINED (0x03FF) reports collision whatever
 -- its bits say, so the map's outer border still stops you -- you cannot walk off the world. Ledges
 -- and one-way tiles go through `IsMetatileDirectionallyImpassable`, which reads the tileset's
@@ -113,14 +127,60 @@ local function tick()
     end
 end
 
-console.log("noclip: ON -- collision cleared around the player. Drop this line from the loader "
-    .. "target to put every tile back.")
+-- ===== NPCs: a different elevation, so nothing blocks =====
+local GOBJECTEVENTS_ADDR = 0x02037350
+local GPLAYERAVATAR_ADDR = 0x02037590
+local OBJECTEVENT_SIZE = 0x24
+local OBJ_SLOTS = 16
+local elevWas = {}
+
+local function elevTick()
+    local ok, playerObj = pcall(memory.read_u8, GPLAYERAVATAR_ADDR + 0x05)
+    if not ok then return end
+    local pElevByte = memory.read_u8(GOBJECTEVENTS_ADDR + playerObj * OBJECTEVENT_SIZE + 0x0b)
+    local pElev = pElevByte & 0x0f
+    -- An odd elevation the player is not standing on, so subpriority is unchanged and the two can
+    -- never compare equal. Never 0: that is ELEVATION_TRANSITION, which is compatible with
+    -- everything and would block exactly as before.
+    local want = (pElev == 3) and 1 or 3
+    for slot = 0, OBJ_SLOTS - 1 do
+        local o = GOBJECTEVENTS_ADDR + slot * OBJECTEVENT_SIZE
+        local active = (memory.read_u8(o) & 0x01) ~= 0
+        if active and slot ~= playerObj then
+            local byte = memory.read_u8(o + 0x0b)
+            if (byte & 0x0f) ~= want then
+                -- Remember the FIRST value only: the engine rewrites this as an NPC changes
+                -- elevation, and keeping the latest would restore one of ours.
+                if elevWas[slot] == nil then elevWas[slot] = byte & 0x0f end
+                memory.write_u8(o + 0x0b, (byte & 0xf0) | want)
+            end
+        end
+    end
+end
+
+local function elevRestore()
+    local n = 0
+    for slot, was in pairs(elevWas) do
+        local o = GOBJECTEVENTS_ADDR + slot * OBJECTEVENT_SIZE
+        local okr, byte = pcall(memory.read_u8, o + 0x0b)
+        if okr then
+            pcall(memory.write_u8, o + 0x0b, (byte & 0xf0) | was)
+            n = n + 1
+        end
+    end
+    elevWas = {}
+    return n
+end
+
+console.log("noclip: ON -- collision cleared around the player, and NPCs put on another elevation. "
+    .. "Drop this line from the loader target to put every tile and every NPC back.")
 
 if MESHGHOST_DEV_LOADER then
-    MESHGHOST_DEV_TICK = tick
+    MESHGHOST_DEV_TICK = function() tick() elevTick() end
     MESHGHOST_DEV_UNLOAD = function()
-        console.log(("noclip: OFF -- restored %d of %d tiles"):format(restore(), cleared))
+        console.log(("noclip: OFF -- restored %d of %d tiles and %d NPC elevations")
+            :format(restore(), cleared, elevRestore()))
     end
 else
-    while true do tick() emu.frameadvance() end
+    while true do tick() elevTick() emu.frameadvance() end
 end

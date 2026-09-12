@@ -1827,7 +1827,26 @@ local function glideRemote(r, targetX, targetY)
         end
         limit = quantum / TILE
     end
-    if dist > 0 then
+    -- WITHIN ONE FRAME'S REACH, BE THE TARGET -- do not carry a permanent gap (2026-09-12).
+    --
+    -- Moving at exactly the peer's speed means a gap once opened is never closed: the model chases
+    -- a target receding at its own rate, and `dist` sat at a constant 0.1250 -- two pixels -- for
+    -- entire runs. Two pixels is invisible in a straight line and is NOT invisible at a corner: the
+    -- peer turns on the tile boundary while the model is still two pixels short of it, so the ghost
+    -- keeps walking the old way for two frames and then turns. The user, watching exactly that:
+    -- *"walking left, turning down, they keep sliding a bit left before starting to move down"*.
+    --
+    -- Closing it with extra SPEED is what the 1.25x catch-up did, and that produced a slide of its
+    -- own at a rate no character moves at. So the model instead simply IS the delayed target
+    -- whenever it is within one frame's legal movement of it: no motion is invented, nothing moves
+    -- faster than the engine can, and the ghost turns on the same frame its target does.
+    --
+    -- The rate limit still governs everything further away, which is the case the filter exists for
+    -- -- a sparse or bursty stream, where a whole tile can arrive at once.
+    if dist > 0 and dist <= limit then
+        r.gX, r.gY = targetX, targetY
+        r.gAxis = nil
+    elseif dist > 0 then
         local move = math.min(dist, limit)
         -- ONE AXIS AT A TIME, DOMINANT AXIS FIRST -- because the character never moves diagonally.
         --
@@ -1844,6 +1863,24 @@ local function glideRemote(r, targetX, targetY)
         -- movement is unchanged -- `limit` is spent either way -- so this is not a speed change,
         -- and `move` is still clamped to `dist`, so it cannot overshoot.
         local ax, ay = math.abs(ddx), math.abs(ddy)
+        -- AND IT COMMITS TO THE AXIS UNTIL THAT AXIS IS DONE (2026-09-12).
+        --
+        -- "Dominant axis first" is only half the rule. Once the model has nearly caught up, the
+        -- remainder on BOTH axes is a pixel or two, so the dominant one flips frame to frame and
+        -- the ghost walks a 2px staircase -- a diagonal, drawn as alternating single steps, which
+        -- is what the user kept seeing through a corner: *"the turns still look a bit off, as if
+        -- the player is sliding/gliding"*. The engine cannot produce it: a character commits to a
+        -- direction for a whole step and only reconsiders when the step ends (Crystal reached the
+        -- same rule from the other side -- "commit whole tiles; decide only at boundaries").
+        --
+        -- So the axis is STICKY: it is re-chosen only when the axis we are on has nothing left to
+        -- give. A quarter-pixel is the "nothing left" threshold -- below it the remainder cannot
+        -- move a pixel on screen, so holding the axis for it would stall the other one.
+        local EPS = 0.015
+        if r.gAxis == "x" and ax <= EPS then r.gAxis = nil end
+        if r.gAxis == "y" and ay <= EPS then r.gAxis = nil end
+        if r.gAxis == nil then r.gAxis = (ax >= ay) and "x" or "y" end
+        if r.gAxis == "x" then ay = 0 else ax = 0 end
         if ax >= ay then
             local spend = math.min(move, ax)
             if ddx ~= 0 then r.gX = r.gX + (ddx > 0 and spend or -spend) end
