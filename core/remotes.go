@@ -261,6 +261,28 @@ func (c *Core) remoteStatesAt(now int64) (map[string]protocol.State, map[string]
 			// Join stores the new name unconditionally; the Leave path is
 			// where a name is dropped. Deleting it here only cost a returning
 			// peer its tag.
+			//
+			// THE MEMORY IS BOUNDED BY THE SAME NUMBER THE SEAT WAS, because
+			// this branch is reached by GIVING a seat back and a relay can
+			// drive it in a loop: join an id, send it one state, go quiet, and
+			// 3s later the seat is free and the id is remembered here forever
+			// with its nametag. Nothing else evicts either -- a Leave does, and
+			// a relay is under no obligation to send one. Left uncapped, both
+			// maps grow for the life of the connection, and the bill lands on
+			// the next adapter to attach as one non-coalescing remote_name per
+			// entry (core/remotenames.go). Found by the third adversarial
+			// review (P3a-1, P3b-1).
+			//
+			// Full means forget this peer completely -- the tag too -- rather
+			// than remember it half way. It is then exactly an id that left:
+			// whoever holds it next arrives with a Join and is admitted fresh.
+			// An honest room cannot reach this, because it can never have had
+			// more than MaxRosterSize members to age out in the first place.
+			if len(c.agedOut) >= protocol.MaxRosterSize {
+				delete(c.remoteNames, id)
+				atomic.AddUint64(&c.stats.remotesAgedOut, 1)
+				continue
+			}
 			if c.agedOut == nil {
 				c.agedOut = make(map[string]struct{})
 			}

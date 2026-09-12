@@ -131,12 +131,45 @@ func (c *Core) storeRemoteNameOpts(playerID string, raw *protocol.Nametag, quiet
 // standing there, and stays that way until each of them happens to reconnect --
 // because a Join only ever announces an ARRIVAL, and names are deliberately not
 // in the state stream.
+// A NAME IS ONLY KEPT FOR SOMEBODY THE ROSTER SAYS IS HERE, and that
+// membership test is also this map's only bound.
+//
+// Welcome.Nametags is a map the RELAY fills, and nothing in the protocol ties
+// its keys to Welcome.Roster: until 2026-09-12 every entry was stored, for any
+// id, with no cap. The roster merge above is capped at protocol.MaxRosterSize
+// and this ran after it, so a relay could seed the map with ids that were never
+// in the room -- and c.remoteNames had no eviction for an id that never joins,
+// never sends a state and never leaves. Each one costs a non-coalescing
+// remote_name on every later adapter attach (pushRemoteNames), and past
+// adapterQueueCap the core calls the adapter stuck and tears the bridge down:
+// ghosts, chasers, replays and any in-progress recording, on every game launch
+// for the life of the core process.
+//
+// Gating on the roster rather than counting to a limit is deliberate. The
+// roster is already capped, so membership IS the cap -- one rule, and no second
+// number to keep in step with the first. Found by the third adversarial review
+// (P3a-1, P3b-1).
 func (c *Core) storeRosterNames(names map[string]protocol.Nametag) {
 	if len(names) > 0 {
 		log.Printf("core: the room's welcome carried %d nametag(s)", len(names))
 	}
-	for id, raw := range names {
-		c.storeRemoteName(id, &raw)
+	c.mu.Lock()
+	keep := make([]string, 0, len(names))
+	for id := range names {
+		if _, member := c.roster[id]; member {
+			keep = append(keep, id)
+		}
+	}
+	c.mu.Unlock()
+	// Says so rather than dropping in silence: a name that never appears is
+	// otherwise indistinguishable from a renderer fault, which is the exact
+	// confusion storeRemoteNameOpts' own logging was added to end.
+	if dropped := len(names) - len(keep); dropped > 0 {
+		log.Printf("core: ignoring %d welcome nametag(s) for ids that are not in the room's roster", dropped)
+	}
+	for _, id := range keep {
+		tag := names[id]
+		c.storeRemoteName(id, &tag)
 	}
 }
 

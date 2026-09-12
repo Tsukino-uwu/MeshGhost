@@ -499,6 +499,35 @@ func (c *Core) forgetRelaySessionLocked() {
 	// the reset has to be explicit here, or a stale id could outlive the
 	// connection that named it and pass the trust check on the next one.
 	c.roster = make(map[string]struct{})
+	// THE ROSTER'S TWO SHADOW MAPS GO WITH IT, and they were left behind until
+	// 2026-09-12. Both are keyed by player_id, which the comment above says is
+	// only meaningful inside the connection that assigned it -- so a name and an
+	// aged-out mark outliving that connection are the same defect as a stale
+	// roster entry, minus the trust check that makes the roster's version
+	// visible. Nothing ever emptied either one: a Leave clears a single id and a
+	// relay under no obligation to send Leaves simply never does. What
+	// accumulates is charged to the NEXT adapter, one non-coalescing
+	// remote_name per entry from pushRemoteNames (core/remotenames.go).
+	//
+	// agedOut clears wholesale: the age-out that fills it skips local ids
+	// outright (core/remotes.go), so every member is a relay peer.
+	c.agedOut = nil
+	// remoteNames does NOT. It holds the player's own chaser and replay tags
+	// too, and those ghosts outlive a relay drop -- their samples come from a
+	// goroutine in this process, not from the socket that just died. Clearing
+	// the map wholesale would strip the nametag off every one of them on a
+	// reconnect, which is the same shape as the near-miss recorded on
+	// 2026-09-12 in pitfalls/method.md: a gate that turns on where a value came
+	// from must ask that question, not a question that merely correlates.
+	//
+	// isLocalPeerID, never a c.localPeers lookup: membership is dropped and
+	// re-admitted at every seam and a reconnect can land inside one, while the
+	// id itself never changes (core/localpeer.go).
+	for id := range c.remoteNames {
+		if !isLocalPeerID(id) {
+			delete(c.remoteNames, id)
+		}
+	}
 }
 
 func (c *Core) clearRelayIfCurrent(conn transport.Transport) {
