@@ -1887,3 +1887,34 @@ exactly what is asserted.
 **A data race in `netx/quicconn`, found by the race detector and not by any local run.** `TestAHandshakedConnectionThatOpensNoStreamIsBounded` lowers the package-level `maxPending` and restores it in `t.Cleanup`; cleanups are LIFO so `l.Close()` runs first, but Close does not wait for `acceptLoop`, so that goroutine was still reading the global while the test wrote it. **Ordering the cleanups would have hidden it rather than fixed it** — a listener's own limit should not be a mutable global read at arbitrary times, so each Listener copies it in `Listen` and reads its own field after. `run-gotests-race.bat` is clean; plain `go test -race` cannot run in this shell at all, because `-race` needs cgo and the `gcc` on PATH is a shadowed install that fails on warnings-as-errors — which is exactly why that script hunts for a working compiler.
 
 **And a test that could only ever pass locally**, in `cmd/meshghost`: it read four gitignored staging artifacts. Full reasoning in `519618e1`; the short version is that its INPUTS are tracked (`packaging/config-overrides/`), so CI now checks every shippable key from tracked files instead of skipping the coverage the test existed for.
+
+## 2026-09-12 — the review's working file is deleted, and what it held now lives where the next session will look
+
+**`REVIEW-FINDINGS.md` is gone.** The untracked root checklist from the 2026-09-07 23-agent review
+(162 items, 154 closed) was the only home for the detail behind the four items `status.md` listed as
+"needing your call", which meant a file whose own header said "delete it when the list is empty" was
+load-bearing. Each survivor was checked against the code and written into the permanent record
+first:
+
+- **E11** (a same-area teleport is interpolated like a walk) was already in `ideas.md`, with the
+  user's own answer -- a snap, and only past a long distance -- and left filed because nothing has
+  been reported.
+- **O1** (re-anchor the clock at a relay drop, instead of the current monotonic clamp's freeze) →
+  a new `ideas.md` entry. Its reasoning also sits in the assertion in `core/reconnect_test.go`,
+  whose pointer now names that entry instead of the deleted file.
+- **H19** (4 of 43 `core` test files use `newFakeClock`; `core_test.go` alone has 29 sleeps) and
+  **O3** (one unreproduced `core` failure from 2026-09-08, whose next step is to capture the WHOLE
+  output rather than the tail) → `testing.md`, beside its existing known-gaps list.
+- **A1/D1** (four tracked shipped DLLs carrying the maintainer's paths) was already a risk in
+  `risks.md`, where it correctly says each clears at a rebuild, not a code change.
+- The **bitfield audit** (38 unsafe / 26 safe bool sites, 2026-09-07) → `pseudoregalia/FLAGS.md`, as
+  a probe-reliability warning, which is what it mostly is.
+
+**One correction came out of fact-checking it, and it is the reason this was not a copy-paste.** The
+review's own closing summary said the remaining unsafe bool sites were all out of the shipped path.
+Reading the code says otherwise: the `bHidden` nudge runs on every ghost every `LOG_INTERVAL_TICKS`
+in every build (deliberately outside the `trace_remotes.txt` gate) and `bOrientRotationToMovement`
+is read and written raw once per ghost spawn in an ungated DIAG block -- both raw writes on packed
+engine bools, which stamp their byte's neighbours and may never do the thing they intend. Recorded
+in `FLAGS.md` with the field names rather than the review's line numbers, which are stale:
+`Plugin.cpp` was ~23k lines at the audit and is 27,900 now.

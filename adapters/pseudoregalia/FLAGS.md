@@ -257,6 +257,53 @@ until that is fixed, **only a subtraction printing a NON-ZERO count is evidence.
 The promotion job ran 2026-08-30: the three proven light fixes are code now, and the two rows
 above stayed instruments because the acceptance run passed without them.
 
+## Arming one of these can LIE: the bitfield audit of 2026-09-07 (carried here 2026-09-12)
+
+**Why it belongs in the flag register.** Most of the remaining bitfield-blind bool accesses in
+`Plugin.cpp` sit inside probe paths, so arming a probe here can produce a reading that is
+internally consistent and wrong. `UNVERIFIED.md`'s "two subtraction toggles LIE" entry is most
+likely this and nothing else.
+
+**The rule, measured on this build** (`VERIFIED.md`, `PLAYER_FIELDS.md`): ENGINE-declared bools are
+packed into a shared byte, so a raw `bool*` read returns true for any non-zero neighbour and a raw
+write stamps every neighbour; BLUEPRINT-declared bools are separate properties and read correctly.
+`mg_read_bool`/`mg_write_bool` go through the `FBoolProperty`'s own offset and mask and are the only
+safe way to touch an engine bool. So the split is **engine = unsafe, BP = safe** -- not "all bools
+are unsafe".
+
+**The audit.** 64 `<bool>` access sites on 2026-09-07: **38 unsafe, 26 safe, 0 unknown.**
+`mg_read_bool` itself was verified correct against the submodule's
+`FBoolProperty::GetPropertyValueInContainer`. Treat the counts as a dated measurement --
+`Plugin.cpp` was ~23k lines then and is 27,900 now, and on 2026-09-12 it holds 58 raw
+`mg_property_value<bool>` sites against 27 `mg_read_bool` and 14 `mg_write_bool` calls. **The
+review's line numbers are stale, which is why the list below names FIELDS.**
+
+**Two were in the shipped path and are FIXED (2026-09-11):** `bVisible` per ghost per mesh per tick,
+and `bIsCrouched` read AND written on a ghost every tick -- the read meant "is any of the seven
+flags in this byte set" and the write stamped all seven.
+
+**Correction to the review's own summary, checked against the code 2026-09-12: "the rest are not in
+a shipped path" is wrong. Two more run in every build:**
+
+- **the `bHidden` nudge** -- `*hidden_ptr = true; *hidden_ptr = false;` on each ghost every
+  `LOG_INTERVAL_TICKS`, deliberately left OUTSIDE the `g_remote_trace_armed` gate so arming the
+  trace changes nothing visual. Being a raw write it zeroes the rest of the `AActor` flag byte, and
+  if `bHidden` is not bit 0 the intended re-render nudge never happens at all.
+- **`bOrientRotationToMovement = false`** -- read raw and written raw once per ghost spawn, inside
+  the ungated spawn DIAG block, clobbering its CharacterMovement bitfield neighbours. Note the
+  sibling write elsewhere in the same file already uses `mg_write_bool`, so this one is an
+  unconverted straggler rather than a deliberate exception.
+
+**The flag-gated remainder, by field:** `bRenderCustomDepth` on ghost meshes (where the "read it
+first so this stays cheap" early-out can never fire, because the read is unreliable) and on
+afterimage components; and `dump_object_property_values`, which is the already-filed "~30 manager
+bools read uniformly true" defect -- its sibling `snapshot_scalar_properties` was converted in the
+2026-08-29 light session and this one, plus three flag-gated cousins, was not.
+
+**What to do with this.** Convert the site before trusting any subtraction sweep that reads or
+writes an engine bool, and prefer `mg_read_bool`/`mg_write_bool` in anything new without checking
+whether the field is engine or BP -- they are correct for both.
+
 ## Dormant — recorded negatives and retired approaches
 
 | Flag | Why it is kept |

@@ -341,6 +341,31 @@ was spent closing the restart/re-attach cluster instead (`core/reconnect_test.go
    partial-loss paths have no tests, which is exactly the "a checker with no test of its own passes
    forever" failure this file already warns about for the fakeadapter checkers.
 
+## Two more, carried out of the 2026-09-07 review (recorded 2026-09-12)
+
+Both were worked to the point of a decision and then filed rather than fixed, so they live here
+instead of in a working file that gets deleted.
+
+1. **The core's tests mostly still sleep.** Only 4 of 43 `core` test files use `newFakeClock`, and
+   `core_test.go` alone holds 29 `time.Sleep`s (counts taken 2026-09-07). `preflight.ps1` exempts
+   `_test.go` from its sleep check, so nothing pulls them along. Real, and a mechanical change
+   across a large surface -- which is the reason it is not a tidy-up task: **each sleep has to be
+   shown to be a CLOCK dependency rather than a scheduling one**, and getting that wrong converts a
+   slow test into a flaky one, which is strictly worse than the sleep. Wants its own pass, one file
+   at a time, with `-count=10` after each.
+
+2. **One unidentified `core` failure, seen once on 2026-09-08 and never reproduced.** During a full
+   `run-gotests.bat` (packages in parallel, `-count=2`), `./core/` failed once. **The captured tail
+   held only teardown noise** -- "use of closed network connection" from a relay and two cores
+   shutting down -- and not the test name, and the output was lost before it was re-captured. Not
+   reproduced since: seven consecutive `go test ./core/ -count=2` runs and a later full
+   `run-gotests.bat` are all clean. So it is either a genuine rare flake or **port contention
+   between `./core/` and `./internal/e2e/`**, which both bind loopback while the suite runs packages
+   concurrently. Recorded rather than waved through because this repo's own history (2026-08-16,
+   2026-09-05) says the flake seen once and ignored is the one CI finds on a slower machine.
+   **If it recurs, capture the WHOLE output, not the tail** -- the test name is the one thing
+   missing, and without it there is nothing to bisect.
+
 ## Running the things the script doesn't
 
 ### Race detector

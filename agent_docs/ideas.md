@@ -72,6 +72,7 @@ is USED, that project is checked and recorded there first.
 - Fuzz the PEER, not just ourselves: an adapter that stops reading, a write that fails, a reconnect racing the close (filed 2026-09-06, after a bug no peer COUNT would have found)
 - The everything-fuzzer's peer space: eight ids became a wide space, a flood past the roster cap and eight hostile ids (the user's ask; BUILT 2026-09-06, and it found a deadlock the same evening)
 - Crystal: a peer's OWN SPRITE PIXELS over the wire -- custom outfits, a run pose on a cartridge that has none -- deferred behind the colour-only version (the user's call, 2026-09-09)
+- Re-anchor the clock at a relay drop, instead of rewinding or freezing it (review O1, filed 2026-09-12)
 
 ---
 
@@ -3276,3 +3277,26 @@ So: **a snap, and only past a LONG distance**, which is exactly the threshold sh
 above. **LEFT FILED, the user's call the same day**: nothing has been reported, so this waits for
 someone to actually see it rather than shipping a snap nobody asked for on a guess at the number.
 When it is picked up, the answer to "what should it do" is already here.
+
+## Re-anchor the clock at a relay drop, instead of rewinding or freezing it (review O1, filed 2026-09-12)
+
+**The state today is a deliberate trade, not an oversight.** Review E9 stopped `nowMs` from stepping
+BACKWARDS when a relay connection drops -- a rewind left every peer's interpolation buffer unsorted
+and despawned the whole chaser pack, the same visible signature as the 2026-09-05 queue-hole bug.
+The monotonic clamp that fixes it costs the other direction: the emitted clock is held STILL until
+real time catches up, so in a room carrying a +5 s offset, outgoing timestamps freeze for up to five
+seconds after a drop. Chasers and replays read the same clock, so they stall with it.
+
+Keeping the clamp is the lesser of the two -- a freeze is bounded by the offset and self-heals,
+where an unsorted buffer is a corruption that persists -- but it is a cost, and it is not nothing.
+
+**The fix that avoids both** is to re-anchor at the drop: carry the offset forward as a baseline so
+the emitted value stays continuous rather than either rewinding or freezing. That needs a new
+persistent term in `nowMsLocked`, which is the root every outgoing timestamp, every render time and
+every playback due-time comes from, and it cannot simply live in `clock.offsetMs` because
+`clockAdjustLocked` returns 0 once `activeFeatures` is cleared.
+
+**Why it is filed rather than done.** It touches the one function everything time-shaped reads, and
+it was found during a fix pass for a different bug; attempting it in the same pass was declined
+deliberately. The reasoning is written into the assertion in `core/reconnect_test.go` so the next
+reader of that test inherits it, and this entry exists so it is findable without reading the test.

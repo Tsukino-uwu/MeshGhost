@@ -237,7 +237,8 @@ func TestRelayDropForgetsEverythingThatConnectionTaughtUs(t *testing.T) {
 	// than either rewound or frozen), which needs a new persistent term in
 	// nowMsLocked -- the root every timestamp, render time and playback due-time
 	// comes from. Recorded as the known residual rather than attempted in the
-	// same pass; see REVIEW-FINDINGS.md E9.
+	// same pass; filed in agent_docs/ideas.md ("Re-anchor the clock
+	// at a relay drop", review O1).
 	if after.lastNowMs < before.lastNowMs {
 		t.Errorf("lastNowMs went BACKWARDS across the relay drop (%d, was %d) -- the emitted clock "+
 			"rewinds by the dropped offset, which leaves every peer's interpolation buffer unsorted "+
