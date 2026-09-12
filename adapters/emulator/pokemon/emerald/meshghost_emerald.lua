@@ -1625,19 +1625,33 @@ local STEP_DURATION_FRAMES = { walking = 16, running = 8 }
 -- positions arrive at, and however uneven, it turns them into continuous motion, and it cannot
 -- beat against anything because there is no periodicity in it to beat with.
 --
--- MATCHING THE SPAWNED GHOST, deliberately: the user's call, 2026-08-19, asked for the two
--- renderers to be *"1:1 to the spawned ghost as much as possible"*.
+-- THE TRAILING DELAY IS ZERO, AND THE REASON IT USED TO BE EIGHT IS WORTH KEEPING (2026-09-13).
 --
--- A drawn ghost is naturally AHEAD of a spawned one -- not by error, but because the engine cannot
--- begin a step until its object is standing on a tile, so an engine-driven ghost always trails the
--- truth by up to one step. Ours has no such rule and sits where the peer actually is. That is the
--- better behaviour for a real peer and the wrong one for a comparison, so the trailing distance is
--- reproduced here rather than the step machine that causes it: the filter follows the peer's
--- position from a few frames ago. Same lag, none of the two-clock beating that five separate
--- movement models produced.
--- On genderFrames rather than as a chunk local, for the ceiling reason above.
+-- It was 8 frames to match the SPAWNED tier: the user's call on 2026-08-19 asked for the two
+-- renderers to be *"1:1 to the spawned ghost as much as possible"*, and a drawn ghost is naturally
+-- AHEAD of a spawned one -- not by error, but because the engine cannot begin a step until its
+-- object is standing on a tile, so an engine-driven ghost always trails the truth by up to one
+-- step. Ours has no such rule and sits where the peer actually is, so the lag was reproduced here
+-- rather than the step machine that causes it.
+--
+-- THAT IS THE WRONG STANDARD, and the user said so plainly once the difference was on screen
+-- (2026-09-13): *"a ghost is never in the same game, but its supposed to look 1:1 to what a player
+-- did in another game"*. The bar is the PEER'S OWN MOTION, not our other renderer -- and a spawned
+-- ghost trails only because of an engine limitation the painted tier does not share. Imitating it
+-- made the faithful renderer less faithful.
+--
+-- What the delay cost, measured all of one session: the camera is slaved to the player's own sprite
+-- and stops the instant the player does, so a ghost N frames behind spends those N frames sliding
+-- across a stationary screen -- 8px walking, a WHOLE TILE running (documentation.md, "What that
+-- means for a ghost that is DELAYED"). With it at zero the user's verdict was *"it actually looks
+-- identical now"*.
+--
+-- The env var still sets it, so a TIER-COMPARISON session -- the case the 8 was written for, both
+-- renderers of one peer side by side -- can have the old behaviour back with
+-- dev-scripts/drawn-delay-8.lua. On genderFrames rather than as a chunk local, for the ceiling
+-- reason above.
 genderFrames.drawnDelay = tonumber(MESHGHOST_EMERALD_DRAWN_DELAY_FRAMES
-    or os.getenv("MESHGHOST_EMERALD_DRAWN_DELAY_FRAMES") or "") or 8
+    or os.getenv("MESHGHOST_EMERALD_DRAWN_DELAY_FRAMES") or "") or 0
 
 local function glideRemote(r, targetX, targetY)
     -- The delay line: a short ring of recent positions, read from DRAWN_DELAY_FRAMES ago.

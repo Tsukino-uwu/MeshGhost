@@ -4346,3 +4346,48 @@ across, only noticable if you stand directly under and swap facing directions a 
 were tested and DISPROVED with the trace: it is not animation-phase (the in-phase `BuildOamBuffer`
 sample never disagreed with the frame-boundary read) and not the flip source (the anim command's
 hFlip and the OAM bit always matched).
+
+## 2026-09-13 — USER-CONFIRMED ON SCREEN: the painted ghost is IDENTICAL to the player
+
+The user, after a night of measuring the drawn tier against the player at 0 interp / 100Hz:
+*"It actually looks identical now, so this might have been the issue the whole time"* — with the
+trailing delay set to ZERO (`MESHGHOST_EMERALD_DRAWN_DELAY_FRAMES = 0`, dev toggle
+`dev-scripts/drawn-delay-0.lua`).
+
+**Scope: vanilla, on foot, walking and running, the PAINTED tier, with no spawned ghost on screen
+to compare against** (`budget=0` on the maps tested — the object array was full, which is why every
+reading this session was of the painted tier). Not watched on a bike, surfing, or beside a spawned
+ghost.
+
+**THE DELAY WAS THE LAST AND LARGEST ARTIFACT, and it is not a defect** — it is a design parameter
+imitating a spawned ghost's natural trailing. Its cost is structural and is now written up in
+`documentation.md` ("What that means for a ghost that is DELAYED"): the camera is slaved to the
+player's own sprite, so it stops the instant the player does, and a ghost N frames behind spends
+those N frames sliding across a stationary screen — 8px walking, a whole tile running. That is
+exactly what the user kept reporting as *"a small slide at the end... especially when running"*.
+
+**Six defects were fixed underneath it, each measured before it was touched** (probes/movetrace.log,
+per-frame target vs model). They were real and would have shown on their own; the delay was simply
+larger than all of them:
+
+1. The glide advanced BOTH axes in proportion, so every corner was cut diagonally.
+2. Its limit was a measured rate x1.25 — 2.5px a frame running, a speed nothing in this game moves
+   at.
+3. `pspeed` was read as `MOVE_SPEED_*` when it is `PLAYER_SPEED_*` (one more, and STANDING on foot),
+   so a running peer moved at 1px a frame against a target advancing 2px until it was a tile behind.
+4. The axis was re-decided every frame, so a nearly-caught-up model walked a 2px staircase.
+5. It carried a permanent 2px gap — moving at exactly the peer's speed can never close one — which
+   is invisible in a straight line and very visible at a corner.
+6. The facing was taken live off the wire while the position was delayed, and the wire's facing is
+   ALREADY early (the engine sets `facingDirection` at the START of a step), so the ghost turned
+   before the motion belonging to that turn arrived. It now comes from the model's own motion —
+   from where the ghost is actually going — with the wire's facing kept for a peer standing still.
+
+**RESOLVED THE SAME NIGHT — the shipped default is now 0** (added 2026-09-13, same session). Asked
+whether to change it, the user gave the standard rather than the answer: *"a ghost is never in the
+same game, but its supposed to look 1:1 to what a player did in another game"*. The 8 existed to
+imitate a SPAWNED ghost's trailing, and a spawned ghost trails only because the engine cannot begin
+a step mid-tile — an engine limitation the painted tier does not share, so copying it made the
+faithful renderer less faithful. The env var still sets it and `dev-scripts/drawn-delay-8.lua`
+restores the old value for the one case it was written for: a tier comparison, both renderers of a
+single peer on screen together. Both instances then ran the shipped default with no toggle loaded.
