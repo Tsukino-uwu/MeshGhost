@@ -140,6 +140,19 @@ func (r *Room) forwardState(senderID string, payload []byte) (protocol.State, bo
 //
 // Only for a client that opted into filtering: anyone else was already being
 // sent everything and needs no catching up.
+// arrivalSeedInterval is the shortest gap between two arrival seeds for one
+// client. It bounds the fan-out described on Client.lastArrivalSeed without
+// costing a real transition anything:
+//
+// A seed exists to cover the gap until each peer in the new area speaks again,
+// which is at most one protocol.DefaultIdleKeepalive (250ms). Two seeds closer
+// together than that are covering the same gap with the same contents -- at the
+// shipped 15Hz send rate, under three states can even have arrived from any
+// peer in between. And no game this repo adapts moves a player through two
+// areas inside a fifth of a second: TEVI and Pseudoregalia load between rooms,
+// and a Pokemon warp runs an animation.
+const arrivalSeedInterval = 200 * time.Millisecond
+
 func (r *Room) seedArrivalInto(arrival, area string) {
 	r.mu.Lock()
 	c, ok := r.members[arrival]
@@ -147,6 +160,14 @@ func (r *Room) seedArrivalInto(arrival, area string) {
 		r.mu.Unlock()
 		return
 	}
+	// Checked under r.mu, before the O(N) walk below rather than after it --
+	// the walk and the marshals it feeds are the cost being bounded.
+	now := time.Now() // wall-clock: a rate limit on a real client's real message rate
+	if !c.lastArrivalSeed.IsZero() && now.Sub(c.lastArrivalSeed) < arrivalSeedInterval {
+		r.mu.Unlock()
+		return
+	}
+	c.lastArrivalSeed = now
 	var seeds []protocol.State
 	for id, m := range r.members {
 		if id == arrival || m.suspended || m.lastArea != area {

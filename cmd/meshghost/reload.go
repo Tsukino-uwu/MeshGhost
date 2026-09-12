@@ -183,7 +183,19 @@ func (w *configWatcher) reload() []string {
 	for _, l := range lines {
 		log.Printf("meshghost: config.json changed: %s", l)
 	}
+	// THE THREE RELAUNCH-ONLY CONNECTION KEYS DO NOT CARRY FORWARD, and this is
+	// the half that makes holding them back actually hold.
+	//
+	// Everything else becomes "what is live" for the next diff, which is right:
+	// it WAS applied. These three were not. Letting the file's value land here
+	// would mean the first edit reports "needs a relaunch" and the SECOND edit
+	// -- of any other key at all, a name, a colour -- rejoins carrying the relay
+	// address from the first, since applyLive reads them from prev. The gate
+	// would hold for exactly one save. What is live stays live until a relaunch
+	// reads the file from the top.
+	live := w.prev
 	w.prev = next
+	w.prev.relayAddr, w.prev.room, w.prev.roomCode = live.relayAddr, live.room, live.roomCode
 	return lines
 }
 
@@ -257,12 +269,37 @@ func applyLive(prev, next *liveValues, c *core.Core, rebind func([]hotkeyBinding
 		})
 	}
 
+	// WHERE YOU ARE CONNECTED IS NOT LIVE-EDITABLE, and the three keys that
+	// decide it are held back here rather than passed to the core below.
+	//
+	// The rest of this file exists because editing config.json and having it
+	// take effect is a good thing -- names, colours, toggles and hotkeys all
+	// apply without touching the game. connect_to, room and room_code are the
+	// exception: a live re-read means anything on this machine that can WRITE
+	// this file can move a running session onto a relay of its choosing, in the
+	// couple of seconds before the next poll, with the player still playing and
+	// nothing on screen saying so. tls_fingerprint was already relaunch-only for
+	// the same reason, and these three are the keys that decide who the
+	// fingerprint is even being checked against.
+	//
+	// The counter-argument -- that a process which can write your config can
+	// also kill the core and start its own -- is true and is not enough: it
+	// argues that one hole is no worse than another, not that this one should
+	// stay open. The user's call, 2026-09-12: "ip/adress and/or room related
+	// stuffs probly don't make sense to have as live editable". Found by the
+	// third adversarial review (P4a-5).
+	//
+	// A change to any of them is REPORTED, not silently ignored -- a player who
+	// edits the relay address and sees nothing happen has been given a puzzle.
+	const relaunchToMove = "needs the client relaunched -- where you connect is deliberately not live-editable"
+	changed("connect_to", prev.relayAddr, next.relayAddr, relaunchToMove)
+	changed("room", prev.room, next.room, relaunchToMove)
+	changed("room_code", prev.roomCode, next.roomCode, relaunchToMove)
+
 	// Connection: a fresh Hello is the only way these take effect, so the
-	// core leaves the session and rejoins with them.
+	// core leaves the session and rejoins with them -- to the SAME relay and
+	// room, which are carried over from what is live rather than from the file.
 	conn := false
-	conn = changed("connect_to", prev.relayAddr, next.relayAddr, "rejoining") || conn
-	conn = changed("room", prev.room, next.room, "rejoining") || conn
-	conn = changed("room_code", prev.roomCode, next.roomCode, "rejoining") || conn
 	conn = changed("name", prev.name, next.name, "rejoining") || conn
 	conn = changed("name_color", prev.nameColor, next.nameColor, "rejoining") || conn
 	conn = changed("max_receive_hz_per_player", prev.maxReceiveHz, next.maxReceiveHz, "rejoining") || conn
@@ -273,7 +310,9 @@ func applyLive(prev, next *liveValues, c *core.Core, rebind func([]hotkeyBinding
 			lines = append(lines, warning)
 		}
 		rejoined := c.SetConnectionSettings(core.ConnectionSettings{
-			RelayAddr: next.relayAddr, Room: next.room, RoomCode: next.roomCode,
+			// prev, not next: see the block above. A rejoin triggered by a name
+			// change must not carry a relay address the file changed too.
+			RelayAddr: prev.relayAddr, Room: prev.room, RoomCode: prev.roomCode,
 			DisplayName: next.name, NameColor: next.nameColor, MaxReceiveHz: maxHz, Offline: next.offline,
 		})
 		if rejoined {
@@ -316,5 +355,5 @@ func applyLive(prev, next *liveValues, c *core.Core, rebind func([]hotkeyBinding
 // player learns the file is live without reading anything else.
 func describeReloadable(path string) string {
 	return "meshghost: " + strings.TrimSpace(path) + " is re-read when saved: smoothing, ghost collision, chaser, replay and hotkey " +
-		"settings apply without a relaunch; a change to the relay, room or name rejoins the relay"
+		"settings apply without a relaunch, and a name change rejoins the relay; the relay address and room need a relaunch"
 }

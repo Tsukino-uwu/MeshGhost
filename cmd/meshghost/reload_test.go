@@ -78,8 +78,16 @@ func TestApplyLiveNamesEveryChangedKeyAndAppliesTheLiveGroups(t *testing.T) {
 		t.Errorf("replay settings not applied: gzip=%v delta=%v inputs=%v save_last=%s seek=%s record_on_launch=%v",
 			c.ReplayGzip, c.ReplayDelta, c.ReplayInputs, c.SaveLastSpan, c.ReplaySeek, c.RecordOnLaunch)
 	}
-	if c.Room != "r2" || c.DisplayName != "n2" || c.RelayAddr != "10.0.0.1:7777" || !c.Offline || c.MaxReceiveHz != 20 {
-		t.Errorf("connection settings not applied: room=%q name=%q relay=%q offline=%v hz=%d", c.Room, c.DisplayName, c.RelayAddr, c.Offline, c.MaxReceiveHz)
+	if c.DisplayName != "n2" || !c.Offline || c.MaxReceiveHz != 20 {
+		t.Errorf("connection settings not applied: name=%q offline=%v hz=%d", c.DisplayName, c.Offline, c.MaxReceiveHz)
+	}
+	// WHERE YOU ARE CONNECTED IS NOT LIVE-EDITABLE since 2026-09-12, so the two
+	// that moved a running session are carried over from what is live rather
+	// than taken from the file -- while still being NAMED in the report above,
+	// with the relaunch effect. The user's call; see reload.go.
+	if c.RelayAddr == "10.0.0.1:7777" || c.Room == "r2" {
+		t.Errorf("a saved config moved the live session: relay=%q room=%q -- editing this file must not "+
+			"be able to put a running player in somebody else's room", c.RelayAddr, c.Room)
 	}
 	if len(rebound) != 6 || rebound[0].chord != "ctrl+shift+F1" {
 		t.Errorf("hotkeys not rebound: %+v", rebound)
@@ -166,5 +174,70 @@ func TestConfigWatcherAppliesASaveAndFallsBackForARemovedKey(t *testing.T) {
 	w.poll() // nothing new: no re-apply
 	if w.havePending {
 		t.Error("a poll with no change left a pending state")
+	}
+}
+
+// F5 from the 2026-09-12 adversarial review (P4a-5), and specifically the half
+// that is easy to get wrong.
+//
+// connect_to, room and room_code stopped being live-editable that day: a live
+// re-read meant anything on this machine that can WRITE config.json could move
+// a running session onto a relay of its choosing, with the player still playing
+// and nothing on screen saying so.
+//
+// THE TRAP IS THE SECOND SAVE. reload() replaces `prev` with what it just read,
+// so if the file's relay address landed there, the next save of ANY other key
+// -- a name, a colour -- would rejoin carrying it, because applyLive builds the
+// Hello from prev. The gate would hold for exactly one save and then open. That
+// is what this test is for; the first save is the easy case.
+func TestASavedConfigCannotMoveALiveSessionEvenOnTheSecondSave(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	write := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// A visibly different mtime even where the filesystem clock is coarse.
+		future := time.Now().Add(2 * time.Second)
+		if err := os.Chtimes(path, future, future); err != nil {
+			t.Fatal(err)
+		}
+	}
+	save := func(w *configWatcher, body string) {
+		t.Helper()
+		write(body)
+		w.poll() // first sight: pending
+		w.poll() // held still: applied
+	}
+
+	write(`{"client": {"connect_to": "127.0.0.1:7777", "room": "mine", "name": "me"}}`)
+	base := liveValues{curve: "linear", predict: "linear"}
+	live := base
+	applyFileConfig(path, nil, live.targets())
+	c := core.New()
+	t.Cleanup(c.StopChasers)
+	c.RelayAddr, c.Room, c.DisplayName = live.relayAddr, live.room, live.name
+	w := newConfigWatcher(path, nil, base, live, c, nil)
+	if c.RelayAddr != "127.0.0.1:7777" || c.Room != "mine" {
+		t.Fatalf("setup: relay=%q room=%q", c.RelayAddr, c.Room)
+	}
+
+	// Save one: the relay and room are moved. Reported, not applied.
+	save(w, `{"client": {"connect_to": "10.0.0.1:9999", "room": "theirs", "name": "me"}}`)
+	if c.RelayAddr != "127.0.0.1:7777" || c.Room != "mine" {
+		t.Fatalf("the first save moved the session: relay=%q room=%q", c.RelayAddr, c.Room)
+	}
+
+	// Save two changes only the NAME -- which legitimately rejoins. The relay
+	// and room it rejoins with must still be the live ones.
+	save(w, `{"client": {"connect_to": "10.0.0.1:9999", "room": "theirs", "name": "renamed"}}`)
+	if c.DisplayName != "renamed" {
+		t.Errorf("a name change stopped applying: %q", c.DisplayName)
+	}
+	if c.RelayAddr != "127.0.0.1:7777" || c.Room != "mine" {
+		t.Fatalf("the SECOND save moved the session: relay=%q room=%q -- the gate held for one save "+
+			"and then let the first save's address through on the back of a name change",
+			c.RelayAddr, c.Room)
 	}
 }

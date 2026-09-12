@@ -167,6 +167,9 @@ func (r *Room) releasedLeaseLocked(holder string) {
 // itself, with the relay's map correct and the new host stale. Building it here
 // and delivering it in the same sendMu window makes "grant, then snapshot" a
 // fact of the total order rather than a hope.
+// The `to` list is what a CHANGE is announced to. A renew that changes nothing
+// a receiver can see is answered to the asker alone -- see the comment on the
+// broadcast below.
 func (r *Room) grantLeaseLocked(key, holder string, ttl time.Duration, to []string) []outgoing {
 	l := r.leases[key]
 	// Captured before the assignment below. A renew, and a re-claim by the
@@ -174,6 +177,13 @@ func (r *Room) grantLeaseLocked(key, holder string, ttl time.Duration, to []stri
 	// re-sending the world on every renew would put the busiest client's whole
 	// world back on the wire at its renew rate.
 	previousHolder := ""
+	// Captured with it, for the same reason: what the ROOM can observe about a
+	// renew is the holder and the expiry, and the expiry only to the resolution
+	// anything renders it at. See the broadcast test below.
+	previousExpirySec := int64(0)
+	if l != nil {
+		previousExpirySec = l.expiresAt.Unix()
+	}
 	if l == nil {
 		l = &lease{}
 		r.leases[key] = l
@@ -203,8 +213,27 @@ func (r *Room) grantLeaseLocked(key, holder string, ttl time.Duration, to []stri
 		Key: key, Holder: holder, Seq: r.nextSeq(),
 		ExpiresAt: l.expiresAt.UnixMilli(), Reason: protocol.LeaseGranted,
 	}
+	// A RENEW THAT CHANGES NOTHING VISIBLE IS THE ASKER'S BUSINESS, NOT THE
+	// ROOM'S -- the same rule the denied claim above already follows, and for
+	// the same reason: this is an N-way fan-out driven by ONE client's message
+	// rate. A renew takes no table slot, so leaseTableFullLocked never sees it,
+	// and nothing else bounded it: at the per-connection flood cap a single
+	// client turns ~120 renews a second into 120xN sends, plus a re-armed timer
+	// each time. Found by the third adversarial review (P1a-2).
+	//
+	// The test is "did anything a receiver can render change", not "was this a
+	// renew". The holder is the fact everyone needs; the expiry is a countdown,
+	// which nothing renders finer than a second -- so a burst of renews inside
+	// one second collapses to a single broadcast, and a real extension still
+	// announces itself the moment it crosses into the next second. The ASKER
+	// always gets its answer, because a client must be able to tell a renew that
+	// worked from one that was denied.
+	announce := to
+	if holder == previousHolder && l.expiresAt.Unix() == previousExpirySec {
+		announce = []string{holder}
+	}
 	var outs []outgoing
-	if o, ok := out(protocol.TypeLeaseState, st, to); ok {
+	if o, ok := out(protocol.TypeLeaseState, st, announce); ok {
 		outs = append(outs, o)
 	}
 	if holder != previousHolder {

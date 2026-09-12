@@ -318,6 +318,22 @@ type Client struct {
 	// with an empty area and quietly fail open for a message or two.
 	lastArea string
 
+	// lastArrivalSeed is when this client was last handed an arrival seed, and
+	// it exists because that seed is an N-WAY FAN-OUT DRIVEN BY ONE CLIENT'S
+	// MESSAGE RATE. seedArrivalInto fires whenever a sender's area_id differs
+	// from its previous one, walks every member under r.mu and marshals a state
+	// per peer standing in the new area -- so a client alternating two area ids
+	// on consecutive states buys O(N) work and N reliable sends per message, up
+	// to its flood cap, in a DEFAULT COSMETIC ROOM with no opt-in plane
+	// involved. Found by the third adversarial review (P1c-4).
+	//
+	// Throttled rather than gated, because the seed is required rather than a
+	// nicety: without it, walking into a room where somebody is standing still
+	// shows an empty room until that peer's next keepalive. See
+	// seedArrivalInto's own comment, and arrivalSeedInterval for why 200ms
+	// cannot cost a real transition anything. Guarded by Room.mu.
+	lastArrivalSeed time.Time
+
 	// out is this client's outbound queue and its single writer goroutine, so
 	// a peer that has stopped draining its socket blocks only itself. See
 	// outbox.go for the defect this fixes and the overflow policy. Created
@@ -1445,7 +1461,9 @@ func (s *Server) handleConn(conn net.Conn) {
 		// removed in a review pass as genuinely unnecessary, not just
 		// redundant defense-in-depth.
 		rateWindow time.Time
-		rateCount  int
+		// A float because the bucket drains by a fraction of a message per
+		// nanosecond; see where it is spent.
+		rateCount float64
 		// rateRejected is set once the rate limit has tripped, so the lines
 		// still arriving while the connection drains are ignored rather than
 		// each re-tripping the limit (which used to log one "rejecting and
@@ -1577,13 +1595,30 @@ func (s *Server) handleConn(conn net.Conn) {
 			// for a refused hello, a second one that would be ACTED ON.
 			return
 		}
+		// A LEAKY BUCKET, NOT A TUMBLING WINDOW. It was the latter until
+		// 2026-09-12: the count reset to zero the moment a whole second had passed
+		// since the window opened, so msgLimit messages at the very end of one
+		// window and msgLimit more at the start of the next both passed -- 2x the
+		// cap across the boundary, repeatable every second by a sender that keeps
+		// time. Minor alone, and worth fixing because it multiplies whatever it
+		// gates: every per-message fan-out in this package is bounded by this
+		// number and by nothing else. Found by the third adversarial review
+		// (P1a-3).
+		//
+		// Draining continuously rather than in steps makes the allowance the same
+		// across any one-second span, wherever that span starts. The bucket is
+		// credited at msgLimit per second and floored at zero, so a genuinely idle
+		// client still gets its full burst.
 		now := time.Now()
-		if now.Sub(rateWindow) >= time.Second {
-			rateWindow = now
-			rateCount = 0
+		if !rateWindow.IsZero() {
+			rateCount -= float64(msgLimit) * now.Sub(rateWindow).Seconds()
+			if rateCount < 0 {
+				rateCount = 0
+			}
 		}
+		rateWindow = now
 		rateCount++
-		if rateCount > msgLimit {
+		if rateCount > float64(msgLimit) {
 			// A Reject before the close, not a bare hangup — same posture as
 			// rejectAndClose's handshake refusals, applied here for the first
 			// time to an already-joined connection. ReasonRateLimited is

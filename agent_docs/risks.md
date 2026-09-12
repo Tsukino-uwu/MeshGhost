@@ -680,6 +680,63 @@ being worked belongs here, as a risk, until someone picks it up. Each keeps its 
 - **Emerald: VRAM/sprite injection** — Stage 1 ran 2026-08-14 and is written up; Stages 2–5 not
   started. `ideas.md`, `environment.md`.
 
+## A hostile RELAY can spend a client's CPU, and the client does not rate-limit it (accepted 2026-09-12)
+
+`max_receive_hz_per_player` is a **request** in the client's `Hello` that the **relay** is trusted to
+honour, and there is no cap on the receive side at all. So a relay that is itself the problem can
+send a client as many state messages as the socket carries, and the core parses each one under the
+lock the frame path also needs. Worst case in the third adversarial review (P3b-2, rated *plausible*
+rather than *would-bet*): sustained inbound contends that lock hard enough to push the adapter's
+send onto the game's main thread, which is a freeze.
+
+**Accepted, the user's call 2026-09-12,** for two reasons that both have to hold:
+
+- **A rate limit would not remove the exposure**, only narrow one path to it. The same relay can
+  deny service by simply not forwarding anything, and no client-side cap touches that.
+- **A cap set wrong is worse than no cap.** Dropped states do not announce themselves; they show up
+  as ghosts that stutter, which this repo's own history says is the failure class that costs the
+  most to diagnose (`agent_docs/hz-ceiling.md`, the 2026-08-28/08-30 pair).
+
+**What WAS fixed, so the accepted risk is the smaller one:** the per-message amplifier is gone.
+`hasSeq` compared the sought seq against up to 1024 held snapshots on every state carrying loss
+cover -- which on a lossy link is every state -- under `c.mu`. It is now a binary search over the
+run of snapshots sharing the sample's timestamp (`core/interp.go`, `hasSample`, commit `83e1c554`).
+
+**Bounded by what it is not:** no code execution, no file access, nothing reaching other players,
+and it ends when the client disconnects. A player is exposed only while connected to a relay that is
+attacking them, which is the same trust boundary `docs/security.md`'s "You trust whoever hosts"
+already draws.
+
+**What would reopen it:** public or third-party hosting becoming normal -- the same trigger the
+malicious-host entry below names, and for the same reason.
+
+## Live config re-read: the connection keys were removed from it (closed 2026-09-12)
+
+Recorded because the REASONING is the reusable part, not because anything is still open.
+
+`meshghost.exe` re-reads `config.json` about a second after a save. Until 2026-09-12 that included
+`connect_to`, `room` and `room_code`, so anything else running on the machine that could write that
+file could move a live session onto a relay of its choosing, mid-play, with nothing on screen saying
+so (third adversarial review, P4a-5).
+
+The argument for leaving it -- **that a process which can write your config can equally kill the
+core and start its own, so locking it buys almost nothing** -- was the one first put to the user, and
+they rejected it: *"its nice to live edit toggles/hotkeys/names etc, but ip/adress and/or room
+related stuffs probly don't make sense to have as live editable"* (2026-09-12). The rejection is
+right and the reason is worth keeping: **"an attacker has other options" argues that one hole is no
+worse than another, not that this one should stay open**, and the live switch it protects was a
+convenience with a cheap substitute (a relaunch) rather than a capability.
+
+Live still: names, colours, smoothing, ghost collision, the chaser and replay sections, hotkeys,
+`max_receive_hz_per_player`, `offline`. Relaunch-only now: `connect_to`, `room`, `room_code`,
+alongside `tls_fingerprint`, which already was -- and which those three decide the meaning of.
+
+**The half that was nearly missed, kept as the lesson:** holding the keys back at the point of use is
+only half a fix. `configWatcher.reload` replaces "what is live" with what it just read, so the
+file's relay address would have landed there anyway and the NEXT save of any other key -- a name, a
+colour -- would have rejoined carrying it. The gate would have held for exactly one save.
+`cmd/meshghost/reload_test.go` pins the second save, not the first.
+
 ## A malicious HOST is outside the threat model (recorded 2026-09-11)
 
 Every hardening pass in `docs/security.md` defends the relay and its clients against a malicious

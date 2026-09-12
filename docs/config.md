@@ -27,10 +27,16 @@ Everything below is taken from the two programs' own config definitions (`cmd/me
 to it: smoothing (`interp`, `local_interp`, `extrapolate`, `curve`, `predict`), `ghost_collision`, the whole
 `chaser` section (the pack restarts from the new values), the `replay` section (most of it applies
 to the next recording or replay; `save_last`, `seek` and `split_times` at once) and the `hotkeys`
-apply without a relaunch; a change to `connect_to`, `room`, `room_code`, `name`, `name_color`,
-`max_receive_hz_per_player` or `offline` makes the client leave the relay and rejoin with the new
-values (your ghosts blink out and back for the others); `transport`, `tls`, `show_console` and the
-other launch-time keys are named in the log as needing a relaunch. A key you remove falls back to
+apply without a relaunch; a change to `name`, `name_color`, `max_receive_hz_per_player` or
+`offline` makes the client leave the relay and rejoin with the new values (your ghosts blink out and
+back for the others); `connect_to`, `room`, `room_code`, `transport`, `tls`, `show_console` and the
+other launch-time keys are named in the log as needing a relaunch.
+
+**Where you connect is deliberately not live-editable (2026-09-12).** `connect_to`, `room` and
+`room_code` used to rejoin on a save like the others, and no longer do: a live re-read means
+anything else running on your PC that can write this file could move you into somebody else's room
+while you were playing, with nothing on screen saying so. Editing them is still reported in the log
+-- it just waits for a relaunch, the same as `tls_fingerprint` already did. A key you remove falls back to
 its default. The keys a game's mod reads itself (`ghost_range*`, `replay.indicator*`,
 `input_display`) were already re-read by the mod on its own poll. Before this, only those mod-read
 keys changed on a save and everything else waited for the next launch -- a tester's report.
