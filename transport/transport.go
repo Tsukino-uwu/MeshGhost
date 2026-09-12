@@ -460,9 +460,10 @@ func (c *NDJSONConn) Send(payload []byte) error {
 //
 // The distinction is the difference between one skipped message and a dropped
 // player. udpconn's checkWritable refuses a payload too large for one datagram
-// BEFORE writing -- and a Welcome for a room of 16 named players is 1195 bytes
-// against the 1182 a udp reliable payload can carry, measured 2026-09-12, on
-// the SHIPPED DEFAULT transport. Closing on that turned "this one message will
+// BEFORE writing -- and a Welcome for a room of six players whose names contain
+// '&' is 1291 bytes against the 1181 one Send can carry, measured 2026-09-12, on
+// the SHIPPED DEFAULT transport and inside the relay's own default client cap of
+// 8. Closing on that turned "this one message will
 // not fit" into a hangup with no Reject, no reason, and nothing in the client's
 // log but a disconnect. Found by the transports cell of the third adversarial
 // review (P1d-3).
@@ -518,6 +519,31 @@ func (c *NDJSONConn) SendUnreliable(payload []byte) error {
 	c.writeBuf = append(c.writeBuf, '\n')
 	_, err := uw.WriteUnreliable(c.writeBuf)
 	return err
+}
+
+// MaxPayloadBytes reports the largest payload one Send can carry on this
+// connection, or 0 when the underlying transport imposes no limit of its own
+// (tcp and quic both stream, so neither does).
+//
+// The '\n' Send appends is already deducted: this package adds that byte, so
+// this package is the one that has to account for it. A caller comparing a
+// marshalled message against this number is asking exactly the right question.
+//
+// Structural, like unreliableWriter below and for the same reason -- and 0 is
+// the safe answer for a net.Conn that says nothing, because a caller reads it
+// as "no transport limit" and falls back to whatever bound the protocol itself
+// imposes. Added 2026-09-12 with the P1d-3 fix, so the relay can size a Welcome
+// to the connection rather than discovering the limit as a failed write.
+func (c *NDJSONConn) MaxPayloadBytes() int {
+	m, ok := c.conn.(interface{ MaxPayloadBytes() int })
+	if !ok {
+		return 0
+	}
+	n := m.MaxPayloadBytes()
+	if n <= 1 {
+		return 0
+	}
+	return n - 1
 }
 
 // unreliableWriter is the optional escape hatch a datagram-based net.Conn

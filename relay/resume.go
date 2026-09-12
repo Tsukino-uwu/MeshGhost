@@ -363,7 +363,7 @@ func (s *Server) resumeInto(nd transport.Transport, transportName string, r *Roo
 		ResumeToken:     newToken,
 		Resumed:         true,
 		ServerTimeMs:    time.Now().UnixMilli(),
-	}, roster, rosterNames)
+	}, roster, rosterNames, sendBudget(nd))
 	sendEnvelope(nd, protocol.TypeWelcome, welcome)
 
 	// The members the bounded Welcome could not carry, handed over as ordinary

@@ -662,9 +662,17 @@ func (r *Room) tryAdd(c *Client) {
 const maxPendingBeforeWelcome = 64
 
 // boundWelcomeRoster trims the roster (and the nametags that go with it) until the
-// Welcome's MARSHALLED envelope fits protocol.MaxPayloadBytes, and returns the members it
+// Welcome's MARSHALLED envelope fits budget, and returns the members it
 // could not carry -- which the caller hands over as ordinary Joins (see the
 // bounded-Welcome comment at the send site).
+//
+// budget comes from sendBudget, NOT from protocol.MaxPayloadBytes: on udp the
+// connection carries 1181 bytes, not 4095, and a Welcome sized to the receiver's
+// scanner rather than to the wire is a message that cannot be sent at all. On
+// the shipped default transport that is 16 members with plain names and SIX with
+// escaped ones, measured 2026-09-12 -- inside DefaultMaxClients, so it needs no
+// configuration at all. Third reopening of the 2026-09-01 incident, each one at
+// a fraction of the previous member count. See sendBudget (P1d-3).
 //
 // **Measured, not counted, since 2026-09-08.** This was maxWelcomeRoster = 32, sized on
 // 2026-09-01 by an arithmetic that counted the bytes IN HAND: "a roster id is ~7 bytes and
@@ -686,7 +694,7 @@ const maxPendingBeforeWelcome = 64
 // the encoder what the line weighs rather than predicting it. The search is a binary one
 // over roster prefixes -- adding a member never shrinks the line, so the fit is monotone --
 // which costs ~10 marshals of a <=4KB value on a join, not one per member.
-func boundWelcomeRoster(w protocol.Welcome, roster []string, names map[string]protocol.Nametag) (protocol.Welcome, []string) {
+func boundWelcomeRoster(w protocol.Welcome, roster []string, names map[string]protocol.Nametag, budget int) (protocol.Welcome, []string) {
 	withPrefix := func(k int) protocol.Welcome {
 		out := w
 		out.Roster = roster[:k]
@@ -701,7 +709,7 @@ func boundWelcomeRoster(w protocol.Welcome, roster []string, names map[string]pr
 		}
 		return out
 	}
-	if welcomeLineBytes(withPrefix(len(roster))) <= protocol.MaxPayloadBytes {
+	if welcomeLineBytes(withPrefix(len(roster)), budget) <= budget {
 		return withPrefix(len(roster)), nil
 	}
 	// Largest prefix that fits. lo always fits (or is 0, which is sent anyway --
@@ -710,7 +718,7 @@ func boundWelcomeRoster(w protocol.Welcome, roster []string, names map[string]pr
 	lo, hi := 0, len(roster)
 	for lo < hi {
 		mid := (lo + hi + 1) / 2
-		if welcomeLineBytes(withPrefix(mid)) <= protocol.MaxPayloadBytes {
+		if welcomeLineBytes(withPrefix(mid), budget) <= budget {
 			lo = mid
 		} else {
 			hi = mid - 1
@@ -722,15 +730,16 @@ func boundWelcomeRoster(w protocol.Welcome, roster []string, names map[string]pr
 // welcomeLineBytes is what sendEnvelope would put on the wire for this Welcome.
 // A marshal failure is reported as over-budget so the caller shrinks rather than
 // grows; protocol.Welcome contains nothing json.Marshal can refuse, so this is a
-// guard against a future field, not a live path.
-func welcomeLineBytes(w protocol.Welcome) int {
+// guard against a future field, not a live path. budget is passed only so that
+// failure can be expressed relative to it.
+func welcomeLineBytes(w protocol.Welcome, budget int) int {
 	env, err := envelope(protocol.TypeWelcome, w)
 	if err != nil {
-		return protocol.MaxPayloadBytes + 1
+		return budget + 1
 	}
 	b, err := json.Marshal(env)
 	if err != nil {
-		return protocol.MaxPayloadBytes + 1
+		return budget + 1
 	}
 	return len(b)
 }
@@ -1466,6 +1475,45 @@ func transportName(conn net.Conn) string {
 	return "tcp"
 }
 
+// sendBudget is the largest payload one reliable Send can carry to this client:
+// the smaller of what a receiver's line scanner accepts and what this
+// particular connection can physically carry.
+//
+// THE TWO ARE NOT THE SAME NUMBER, and until 2026-09-12 this relay only knew
+// the first. protocol.MaxPayloadBytes (4095) is a property of the RECEIVER --
+// one under the line limit its scanner is configured with. A udp reliable
+// payload carries 1181, a property of the WIRE, and udp is the shipped default
+// transport. Every message this relay measures before sending was measured
+// against the receiver's number alone, so on udp a Welcome for a room of 16
+// players with maximal display names (1195 bytes, measured) was built, sent,
+// refused by the transport, and -- before the companion fix in transport.Send
+// -- took the connection down with it. The sixteenth player to join a named
+// room could not get in, and nothing in any log said why.
+//
+// Structural, exactly like transportName above: transport.NDJSONConn answers
+// for whatever net.Conn it wraps, and a Transport that says nothing (a test
+// fake, a net.Pipe) reports 0, which reads as "no transport limit" and leaves
+// the protocol bound standing. The floor cannot move upward -- a transport that
+// claimed more than the receiver accepts would be claiming something about a
+// machine it cannot see.
+//
+// **It is reachable on a stock relay with stock settings.** Measured
+// 2026-09-12: with ordinary 24-rune names the Welcome crosses 1181 bytes at 16
+// members, but SanitizeDisplayName permits '&', '<' and '>' and encoding/json
+// spends six bytes on each, so with names full of them it crosses at SIX --
+// inside DefaultMaxClients, which is 8. Nobody has to configure anything, and
+// the affected player is the one who did nothing.
+func sendBudget(conn transport.Transport) int {
+	m, ok := conn.(interface{ MaxPayloadBytes() int })
+	if !ok {
+		return protocol.MaxPayloadBytes
+	}
+	if n := m.MaxPayloadBytes(); n > 0 && n < protocol.MaxPayloadBytes {
+		return n
+	}
+	return protocol.MaxPayloadBytes
+}
+
 func (s *Server) handleConn(conn net.Conn) {
 	// protocol.MaxLineBytes is a tighter limit than transport's generous
 	// package default, and it is shared: the core's dialed relay connection
@@ -1930,7 +1978,7 @@ func (s *Server) handleConn(conn net.Conn) {
 				Features:     effectiveFeatures(joined, newClient),
 				ResumeToken:  newToken,
 				ServerTimeMs: time.Now().UnixMilli(),
-			}, rosterBeforeJoin, rosterNames)
+			}, rosterBeforeJoin, rosterNames, sendBudget(nd))
 			sendEnvelope(nd, protocol.TypeWelcome, welcome)
 
 			// The members the bounded Welcome could not carry -- see its comment above.

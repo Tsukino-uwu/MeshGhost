@@ -58,9 +58,9 @@ func TestAWelcomeIsBoundedByItsSerializedSize(t *testing.T) {
 		Features:     allFeatures,
 		ResumeToken:  strings.Repeat("a", protocol.ResumeTokenBytes*2),
 		ServerTimeMs: time.Now().UnixMilli(),
-	}, roster, names)
+	}, roster, names, protocol.MaxPayloadBytes)
 
-	if got := welcomeLineBytes(welcome); got > protocol.MaxLineBytes {
+	if got := welcomeLineBytes(welcome, protocol.MaxPayloadBytes); got > protocol.MaxLineBytes {
 		t.Fatalf("welcome is %d bytes, over protocol.MaxLineBytes=%d — this is the line the "+
 			"joining core's scanner kills the connection over", got, protocol.MaxLineBytes)
 	}
@@ -90,13 +90,13 @@ func TestAWelcomeIsBoundedByItsSerializedSize(t *testing.T) {
 	// slightly smaller, so its crossing sits a member or two later -- which is
 	// exactly why the assertion below is on the bound and not on a count.
 	full := func(n int) int {
-		w, _ := boundWelcomeRoster(protocol.Welcome{PlayerID: "p99", SendHz: 20}, roster[:n], names)
+		w, _ := boundWelcomeRoster(protocol.Welcome{PlayerID: "p99", SendHz: 20}, roster[:n], names, protocol.MaxPayloadBytes)
 		w.Roster = roster[:n]
 		w.Nametags = make(map[string]protocol.Nametag, n)
 		for _, id := range roster[:n] {
 			w.Nametags[id] = names[id]
 		}
-		return welcomeLineBytes(w)
+		return welcomeLineBytes(w, protocol.MaxPayloadBytes)
 	}
 	if full(32) <= protocol.MaxLineBytes {
 		t.Fatalf("an unbounded Welcome at the old cap of 32 measures %d bytes, which now fits %d — "+

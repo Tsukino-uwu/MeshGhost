@@ -239,6 +239,10 @@ func (r *Room) stateSnapshotLocked(to string) []outgoing {
 	if !ok || !recipient.wants(protocol.FeatureSnapshotV1) {
 		return nil
 	}
+	seedBudget := protocol.MaxPayloadBytes
+	if recipient.Conn != nil {
+		seedBudget = sendBudget(recipient.Conn)
+	}
 	var outs []outgoing
 	for id, st := range r.lastState {
 		if id == to {
@@ -278,9 +282,16 @@ func (r *Room) stateSnapshotLocked(to string) []outgoing {
 		if !ok {
 			continue
 		}
-		if n := len(protocol.AppendEnvelope(nil, o.env.Type, o.env.Payload)); n > protocol.MaxPayloadBytes {
-			log.Printf("relay: room %q: %s's seed for %s is %d bytes as a join, over the %d a receiver can read -- "+
-				"not seeding it (they appear on that peer's next state)", r.Name, id, to, n, protocol.MaxPayloadBytes)
+		// Against the RECIPIENT'S OWN budget, not the protocol's. A seed rides
+		// the reliable plane, and on udp that carries 1181 bytes rather than
+		// 4095 -- so a seed this check passed could still be a message the
+		// recipient's connection cannot physically take, which before
+		// 2026-09-12 closed it. Dropping the seed is already the chosen cost
+		// here; this just measures it against the number that decides.
+		// See sendBudget (P1d-3).
+		if n := len(protocol.AppendEnvelope(nil, o.env.Type, o.env.Payload)); n > seedBudget {
+			log.Printf("relay: room %q: %s's seed for %s is %d bytes as a join, over the %d that connection can take -- "+
+				"not seeding it (they appear on that peer's next state)", r.Name, id, to, n, seedBudget)
 			continue
 		}
 		outs = append(outs, o)

@@ -213,6 +213,26 @@ func (c *Conn) WriteUnreliable(p []byte) (int, error) {
 	return c.rawWrite(c.lossyBuf)
 }
 
+// MaxPayloadBytes is the largest payload one reliable Write can carry on this
+// connection: MaxDatagramBytes less this transport's own reliable framing (the
+// control prefix, the per-connection token and the sequence number).
+//
+// It exists so a caller that BUILDS a message can size it to fit, instead of
+// discovering the limit as an error after the fact. checkWritable has always
+// refused an oversized payload -- honestly, and naming tcp as the workaround --
+// but the relay never had a way to ASK, so it sized its Welcome against
+// protocol.MaxPayloadBytes (4095), which is what a receiver's line scanner
+// accepts and has nothing to do with what a datagram carries. A room of 16
+// players with plain 24-rune names produced 1195 bytes against the 1182 here --
+// and six players whose names contain '&' produced 1291, which is inside the
+// relay's own DEFAULT client cap of 8. The joining player was hung up on with no
+// Reject and no reason (measured 2026-09-12; P1d-3's other half).
+//
+// Read structurally by transport.NDJSONConn, which subtracts its own newline
+// before reporting a Send budget upward -- this package must not know that
+// framing exists, and does not.
+func (c *Conn) MaxPayloadBytes() int { return MaxDatagramBytes - 2 - tokenLen - seqLen }
+
 // checkWritable rejects a write that is closed or would risk IP
 // fragmentation, accounting for overhead bytes the caller's payload will
 // gain on the wire.
