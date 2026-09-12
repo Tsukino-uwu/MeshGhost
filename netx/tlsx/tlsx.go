@@ -53,6 +53,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -343,6 +344,59 @@ type sniffListener struct {
 	// channel for the life of the process. See acceptLoop.
 	fatal    chan struct{}
 	fatalErr error
+
+	// THE REFUSALS ARE THE ATTACK, so they are counted and logged at most once
+	// a second rather than once each. Both lines this listener writes about a
+	// stranger -- a plaintext connection under tls=required, and a handshake
+	// that failed -- were one line per attempt, from an unauthenticated source,
+	// on a port that exists to be reached from the internet. A machine opening
+	// connections in a loop therefore turned a connection flood into a disk
+	// flood, with the host's own log as the amplifier. netx.limitListener and
+	// quicconn's notePendingRefusal both cap the same class the same way and
+	// have said so in a comment since they shipped; this listener is the one
+	// place that did not. Found by the pre-auth cell of the third adversarial
+	// review (P1b-2, 2026-09-12).
+	//
+	// Counted separately because they mean different things: a plaintext client
+	// is misconfigured and a failed handshake may be an attack or a version
+	// mismatch, and an operator reading one line an hour needs to know which
+	// they have.
+	refusedPlain atomic.Int64
+	lastPlainLog atomic.Int64 // unix nanos
+	failedShake  atomic.Int64
+	lastShakeLog atomic.Int64 // unix nanos
+}
+
+// throttled reports whether this line may be written now, given the unix-nano
+// stamp of the last one of its kind. The CompareAndSwap is what makes two
+// per-connection goroutines racing here produce one line rather than two --
+// this listener handshakes on a goroutine per connection, so unlike
+// limitListener's Accept loop there is no single writer. Same shape as
+// netx.limitListener.noteRefusal otherwise.
+func throttled(last *atomic.Int64) bool {
+	now := time.Now().UnixNano()
+	prev := last.Load()
+	if now-prev < int64(time.Second) {
+		return true
+	}
+	return !last.CompareAndSwap(prev, now)
+}
+
+func (l *sniffListener) notePlaintextRefusal(addr net.Addr) {
+	n := l.refusedPlain.Add(1)
+	if throttled(&l.lastPlainLog) {
+		return
+	}
+	l.logf("meshghost: refused a plaintext connection from %s -- this relay is configured "+
+		"tls=required, so only encrypted clients are accepted (%d refused so far)", addr, n)
+}
+
+func (l *sniffListener) noteHandshakeFailure(addr net.Addr, err error) {
+	n := l.failedShake.Add(1)
+	if throttled(&l.lastShakeLog) {
+		return
+	}
+	l.logf("meshghost: tls handshake with %s failed: %v (%d failed so far)", addr, err, n)
 }
 
 func (l *sniffListener) acceptLoop() {
@@ -414,8 +468,7 @@ func (l *sniffListener) classify(c net.Conn) {
 
 	if first[0] != tlsRecordHandshake {
 		if l.mode == Required {
-			l.logf("meshghost: refused a plaintext connection from %s — this relay is configured "+
-				"tls=required, so only encrypted clients are accepted", c.RemoteAddr())
+			l.notePlaintextRefusal(c.RemoteAddr())
 			_ = c.Close()
 			return
 		}
@@ -427,7 +480,7 @@ func (l *sniffListener) classify(c net.Conn) {
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
 	if err := tc.HandshakeContext(ctx); err != nil {
-		l.logf("meshghost: tls handshake with %s failed: %v", c.RemoteAddr(), err)
+		l.noteHandshakeFailure(c.RemoteAddr(), err)
 		_ = c.Close()
 		return
 	}

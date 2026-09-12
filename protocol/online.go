@@ -313,6 +313,25 @@ func NormalizeFeatures(features []string) []string {
 		if f == "" {
 			continue
 		}
+		// BOUNDED HERE, NOT ONLY IN validateFeatures, and the difference is the
+		// direction of travel. validateFeatures gates a Hello, so the RELAY is
+		// protected from a client's list; nothing gated a Welcome, so the CLIENT
+		// took whatever the relay answered with. c.activeFeatures is then read
+		// by protocol.HasFeature -- a linear scan -- under c.mu on every inbound
+		// plane message and every send decision, so a thousand-entry answer is a
+		// thousand string compares per message, held against the lock the render
+		// path also wants. Found by the parity cell of the third adversarial
+		// review (X1-6).
+		//
+		// Dropped rather than refused, because nothing here is lost: a name
+		// longer than MaxFeatureLen cannot equal any feature this project
+		// implements, and neither can the seventeenth entry of a list whose
+		// first sixteen already carry every plane that exists. A caller that
+		// needs to REFUSE an over-long list rather than shrink it still has
+		// validateFeatures, and the relay still uses it.
+		if !ValidOpaqueString(f, MaxFeatureLen) {
+			continue
+		}
 		if _, dup := seen[f]; dup {
 			continue
 		}
@@ -323,6 +342,11 @@ func NormalizeFeatures(features []string) []string {
 		return nil
 	}
 	sort.Strings(out)
+	// After the sort, so the cap keeps a deterministic set rather than
+	// whichever sixteen happened to arrive first.
+	if len(out) > MaxFeatures {
+		out = out[:MaxFeatures]
+	}
 	return out
 }
 
@@ -408,7 +432,17 @@ func validateFeatures(features []string) bool {
 		return false
 	}
 	for _, f := range features {
-		if len(f) > MaxFeatureLen {
+		// ValidOpaqueString, not len(). This was the last bare length check on
+		// an opaque string in this package, and the inconsistency is not
+		// theoretical: it is what let a control character through in X1-4 on
+		// another field, and a feature name is compared for equality to decide
+		// what a whole ROOM negotiates -- so an invalid-UTF-8 one is a
+		// capability nobody can name twice the same way. Unreachable from the
+		// wire today, because encoding/json replaces a bad byte with U+FFFD on
+		// the way in; that is a property of the decoder in front of it, not of
+		// this function, and this function is exported. Found by the parity
+		// cell of the third adversarial review (X1-8).
+		if !ValidOpaqueString(f, MaxFeatureLen) {
 			return false
 		}
 	}
@@ -742,6 +776,18 @@ const MaxHelloFieldLenForID = MaxHelloFieldLen
 // relay on receive and at the core before send, the same two-enforcement-
 // point discipline as ValidateState.
 func ValidateEvent(e Event) bool {
+	// From, and it was the only peer id on any receive validator in this
+	// package with no bound at all. The relay stamps it when forwarding, so an
+	// honest one is always a real player id -- but this same function is what
+	// the CORE checks an inbound event with (core/online.go), where the relay
+	// is the thing being validated, and From is handed to the adapter as the
+	// peer an event came from. Empty is allowed: it is the shape a relay that
+	// predates the field sends, and refusing it would drop every event from an
+	// older relay rather than one from a hostile one. Found by the parity cell
+	// of the third adversarial review (X1-7).
+	if !ValidOpaqueString(e.From, MaxHelloFieldLenForID) {
+		return false
+	}
 	if !ValidOpaqueString(e.To, MaxHelloFieldLenForID) {
 		return false
 	}

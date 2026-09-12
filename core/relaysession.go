@@ -1222,6 +1222,23 @@ func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welc
 	case protocol.TypeLeave:
 		var l protocol.Leave
 		if err := json.Unmarshal(env.Payload, &l); err == nil {
+			// THE SAME GATE ITS TWO NEIGHBOURS HAVE, and it did not have it
+			// until 2026-09-12 -- Join above and State below both refuse an id
+			// this core would never have handed out, and the case between them
+			// took whatever arrived. A relay that says `leave` for "chaser:1"
+			// or "replay:lap1" reaches straight past every namespace guard the
+			// 09-12 pass added and despawns the PLAYER'S OWN ghost: their
+			// chaser pack, or the replay they are racing, gone mid-run with
+			// nothing in any log. Cheaper for a hostile relay than anything it
+			// can do with a state, because a leave needs no plausible contents
+			// at all. Found by the parity cell of the third adversarial review
+			// (X1-5).
+			//
+			// A local id is dropped rather than acted on: this core owns those
+			// namespaces, so the relay has nothing to say about them.
+			if !acceptableRelayPeerID(l.PlayerID) {
+				break
+			}
 			c.mu.Lock()
 			delete(c.roster, l.PlayerID)
 			// Dropped with the roster entry, not left behind: player ids are
