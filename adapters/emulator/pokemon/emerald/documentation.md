@@ -127,6 +127,65 @@ pose cannot be derived from the position alone.
 elevation offset from `sElevationToSubpriority` (115 or 83), lower subpriority in front. So the
 character lower on the screen is drawn in front, and elevation moves whole bands at once.
 
+### The frame, in order — and why the camera is the part that matters
+
+`CB2_Overworld` does the player's decision FIRST and the presentation after
+(`src/overworld.c:1443-1476`):
+
+```
+FieldClearPlayerInput / ProcessPlayerFieldInput / PlayerStep   <- input becomes a movement action
+OverworldBasic:
+    ScriptContext_RunScript / RunTasks
+    AnimateSprites          <- sprite animation is stepped
+    CameraUpdate            <- the world scrolls
+    UpdateCameraPanning
+    BuildOamBuffer          <- the picture is assembled
+```
+
+**The camera is slaved to the player's own sprite.** `CameraUpdateCallback`
+(`src/field_camera.c:332`) copies its speed straight off the sprite the camera is bound to —
+`movementSpeedX = gSprites[spriteId].sCamera_MoveX` — and `CameraUpdate` then does
+`gTotalCameraPixelOffsetX -= movementSpeedX` every frame, with
+`gSpriteCoordOffsetX = gTotalCameraPixelOffsetX - sHorizontalCameraPan` (:461).
+
+So the player's sprite does not travel across the screen at all: it sits still and **the world
+scrolls under it at exactly the step cadence** — 1px a frame walking, 2px running. Every other
+character's screen position is its map position plus `gSpriteCoordOffset`, which is why an NPC
+walking towards you moves on screen at the SUM of both cadences, and why a character standing still
+appears to move at the camera's rate.
+
+### What that means for a ghost that is DELAYED
+
+This is the part no amount of movement-model work can remove, and it is worth stating plainly
+because it looks exactly like a bug:
+
+**A ghost rendered N frames behind its peer keeps moving for N frames after that peer stops**, and
+because the camera stops the instant the player does, those N frames are spent sliding across a
+stationary screen. At walking pace `drawnDelay = 8` is 8 pixels; running it is 16 — a whole tile of
+travel after the peer has already come to rest. The user's report is precisely that shape:
+*"running and then stopping causes a small slide at the end... especially when running for a bit
+then stopping"* (2026-09-13).
+
+A SPAWNED ghost has a bounded version of the same thing for a different reason — the engine cannot
+begin or abandon a step mid-tile, so it finishes the tile it is on. The painted tier's delay was
+chosen to imitate that (`glideRemote`'s header), and the two are not the same shape: one is a fixed
+time, the other is however much of a tile remains.
+
+**So the delay is a DESIGN PARAMETER, not a defect**, and it is the one knob that trades "the ghost
+matches a spawned ghost's trailing" against "the ghost stops when the peer stops".
+`MESHGHOST_EMERALD_DRAWN_DELAY_FRAMES` sets it; 0 makes the ghost stop with the peer and gives up
+the imitation.
+
+### Movement types: what drives an NPC rather than a player
+
+Both go through `UpdateObjectEventCurrentMovement`. The player's callback is `MovementType_Player`
+(`src/field_player_avatar.c:322`), whose movement comes from `PlayerStep` reading the d-pad; an NPC
+gets one of the `MovementType_*` callbacks (wander, pace, look around, face direction), which issue
+the same movement actions from their own script rather than from input. **Everything below that
+point is identical** — the same actions, the same step machine, the same animation. That is why an
+NPC is a fair reference for what a ghost should look like, and why a spawned ghost driven by real
+movement actions inherits correct motion for free.
+
 ### What this means for MeshGhost's renderers
 
 A **spawned** ghost is a real object event, so it inherits every line above for free — cadence,
