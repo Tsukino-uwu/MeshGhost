@@ -403,6 +403,25 @@ func (c *Conn) writeDeadlineNow() time.Time {
 // this — only the connection object survives a moment longer.
 const closeLinger = 250 * time.Millisecond
 
+// CloseWrite half-closes this connection: the stream sends its FIN, so the peer
+// knows the line just written was the last one, while the quic connection stays
+// up and Read keeps working until the caller closes for real.
+//
+// It is one call because quic already draws this line where net.TCPConn does:
+// closing a stream closes the SENDING half of it. What Close adds on top is
+// tearing down the connection underneath, which is the part that must not
+// happen yet.
+//
+// transport.CloseGracefully asserts for this method and hard-closes anything
+// without it, which is what quic got until 2026-09-12 -- so the drain it asked
+// for read nothing, and the relay's rate-limit path (which half-closes
+// precisely to consume a flooding client's remaining traffic rather than
+// discard it) silently did not work here. The Reject itself always survived, on
+// this transport only, because closeLinger below covers it by another route;
+// that is why the gap was invisible. Same finding as netx/udpconn's CloseWrite,
+// which has the fuller note (P1d-1).
+func (c *Conn) CloseWrite() error { return c.stream.Close() }
+
 func (c *Conn) Close() error { return c.closeWith(nil) }
 
 // closeWith is Close, recording why. A nil reason means "this side decided

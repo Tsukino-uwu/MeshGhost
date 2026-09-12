@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -44,6 +45,12 @@ type Conn struct {
 	// publication edge -- nothing may read it without first observing that
 	// channel closed. See closeReason.
 	closeErr error
+
+	// writeClosed is set by CloseWrite: no NEW payload may go out, while
+	// everything else about the connection keeps working. Its own flag rather
+	// than a second channel because retryLoop and sendAck must go on writing
+	// through it -- that is the entire point of half-closing. See CloseWrite.
+	writeClosed atomic.Bool
 
 	// readBuf holds the remainder of a datagram that did not fit in the
 	// caller's buffer. Real UDP discards that remainder; an in-memory queue
@@ -268,6 +275,12 @@ func (c *Conn) checkWritable(p []byte, overhead int) error {
 	case <-c.closed:
 		return c.closeReason()
 	default:
+	}
+	if c.writeClosed.Load() {
+		// Half-closed: same answer net.TCPConn gives for a write after
+		// CloseWrite. Only NEW payloads are refused -- retryLoop and sendAck
+		// call rawWrite directly and keep going. See CloseWrite.
+		return net.ErrClosed
 	}
 	if len(p)+overhead > MaxDatagramBytes {
 		return fmt.Errorf("%w: %d bytes (+%d framing), limit %d — use the tcp transport for messages this large",
@@ -525,6 +538,37 @@ func (c *Conn) handleControl(b []byte) []byte {
 		c.relMu.Unlock()
 		return nil
 	}
+	return nil
+}
+
+// CloseWrite half-closes this connection: no new payload may be written, while
+// everything already queued keeps being retransmitted, acks keep flowing both
+// ways, and Read keeps working until the caller closes for real.
+//
+// IT EXISTS FOR transport.CloseGracefully, whose whole job is "the last thing I
+// wrote must actually arrive". That method asserts for this method and falls
+// back to a hard Close for a connection that cannot half-close -- which, until
+// 2026-09-12, was this one. On udp a hard close is strictly worse than the tcp
+// reset CloseGracefully was written to avoid, in two ways at once:
+//
+//   - Close ends retryLoop, so the Reject the relay just wrote gets exactly ONE
+//     datagram and no retransmission. One dropped packet and a client with a
+//     wrong room code or an old protocol version never learns why -- it sees a
+//     silence indistinguishable from a network fault, so it treats a PERMANENT
+//     refusal as transient and reconnects for as long as the player leaves the
+//     game running. relay.rejectAndClose exists precisely to prevent that, and
+//     was quietly not working on the shipped default transport.
+//   - Close also unregisters this Conn from its listener, so the drain
+//     CloseGracefully asks for reads nothing at all. The relay's rate-limit
+//     path depends on that drain to consume a flooding client's remaining
+//     traffic instead of resetting it.
+//
+// Idempotent, and returns nil always: there is nothing here that can fail, and
+// net.TCPConn.CloseWrite on an already half-closed connection is the shape
+// being matched. Found by the transports cell of the third adversarial review
+// (P1d-1).
+func (c *Conn) CloseWrite() error {
+	c.writeClosed.Store(true)
 	return nil
 }
 
