@@ -248,9 +248,42 @@ func (r *Room) stateSnapshotLocked(to string) []outgoing {
 			continue
 		}
 		snapshot := st
-		if o, ok := out(protocol.TypeJoin, protocol.Join{PlayerID: id, State: &snapshot}, []string{to}); ok {
-			outs = append(outs, o)
+		// MEASURED AS A JOIN, because that is what it is now.
+		//
+		// forwardState bounds the line it sends and checks BEFORE recordState,
+		// so everything in r.lastState fits as a `state`. It does not follow
+		// that it fits here: wrapping the same payload in a Join adds the
+		// envelope's own type change plus `"player_id":"…","state":`, which is
+		// 24 + len(id) bytes more. A sender that lands its own state just under
+		// the cap is therefore stored, and re-served to every later snapshot.v1
+		// joiner as a line that is OVER it -- and an over-cap line is not a
+		// reject, it is bufio.ErrTooLong in that joiner's read loop, so it
+		// reconnects, gets the same snapshot, and loops. The one client who
+		// cannot get into the room is the one who did nothing.
+		//
+		// Same defect and same fix as the 2026-09-12 forward-seam one, reached
+		// by the other door; found by the parity cell of the same review (X1-1),
+		// which is the cell whose job is exactly "who else is of this shape".
+		//
+		// Dropping the seed rather than the joiner: a missing seed costs that
+		// peer's ghost one keepalive of lateness (they appear on their next
+		// state, ~50ms), which is precisely the cost snapshot.v1 exists to
+		// avoid and is enormously cheaper than the reconnect loop. prev is
+		// stripped first for the same reason forwardState strips it -- it is
+		// pure redundancy, and a seed carries no loss to cover.
+		if snapshot.Prev != nil {
+			snapshot.Prev = nil
 		}
+		o, ok := out(protocol.TypeJoin, protocol.Join{PlayerID: id, State: &snapshot}, []string{to})
+		if !ok {
+			continue
+		}
+		if n := len(protocol.AppendEnvelope(nil, o.env.Type, o.env.Payload)); n > protocol.MaxPayloadBytes {
+			log.Printf("relay: room %q: %s's seed for %s is %d bytes as a join, over the %d a receiver can read -- "+
+				"not seeding it (they appear on that peer's next state)", r.Name, id, to, n, protocol.MaxPayloadBytes)
+			continue
+		}
+		outs = append(outs, o)
 	}
 	return outs
 }

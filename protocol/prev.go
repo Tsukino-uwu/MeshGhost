@@ -112,9 +112,13 @@ func BuildPrev(prev, cur *State) *StatePrev {
 }
 
 // ApplyPrev reconstructs the previous sample from the state that carries it.
-// Returns ok=false when cur carries no prev. The result has no Prev of its own
-// and cur's PlayerID (the relay stamps that on the carrying state, and the
-// previous sample came from the same sender).
+// The result has no Prev of its own and keeps cur's PlayerID (the relay stamps
+// that on the carrying state, and the previous sample came from the same
+// sender).
+//
+// Returns ok=false for two reasons: cur carries no prev, or the reconstruction
+// would break a bound neither ValidateState nor validPrev can see on its own --
+// the extras union below, which is the only field this function creates.
 func ApplyPrev(cur *State) (State, bool) {
 	p := cur.Prev
 	if p == nil {
@@ -159,6 +163,32 @@ func ApplyPrev(cur *State) (State, bool) {
 			} else {
 				m[k] = v
 			}
+		}
+		// THE UNION IS THE ONE FIELD THIS FUNCTION CREATES, so it is the one
+		// field neither validator has seen.
+		//
+		// ValidateState bounds cur.Extras and validPrev bounds p.Extras, each on
+		// its own, and until 2026-09-12 nothing bounded what they add up to. The
+		// keys need only be DISJOINT: ~1020 bytes of `a0…` on the state and
+		// ~1020 bytes of `b0…` on its prev both pass, the whole line is ~2300
+		// bytes and comfortably inside the 4095 cap, and the reconstruction is
+		// ~2046 -- twice the bound `adapters/_template/PROTOCOL.md` and
+		// `agent_docs/contract.md` promise adapter authors, handed to them as
+		// render_remote.state.extras.
+		//
+		// Found by the parity cell of the third adversarial review (X1-2), and
+		// it is the third instance of the class validPrev's own comment names:
+		// a check applied to the state and not to what the delta makes of it.
+		// The other two were the orientation depth (2026-09-08) and the
+		// timestamp (2026-09-12, ten lines down).
+		//
+		// DROPPING THE COVER RATHER THAN THE STATE is the right degradation and
+		// costs almost nothing: prev is pure redundancy (ADR 0045), so the ghost
+		// walks over one recovered sample it would only have had if a packet had
+		// been lost. The carrying state is untouched -- this returns before
+		// anything is handed back, and the caller stores cur regardless.
+		if !extrasWithinLimit(m) {
+			return State{}, false
 		}
 		out.Extras = m
 	}

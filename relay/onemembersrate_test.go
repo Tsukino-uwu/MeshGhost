@@ -10,6 +10,7 @@ package relay
 // wall clock per assertion.
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -224,5 +225,91 @@ func TestTheEscrowSectionCannotFillAWholeResumeSnapshot(t *testing.T) {
 	if !found {
 		t.Error("a LIVE exchange was cut in favour of terminal ones -- a live one is waiting on this " +
 			"client to deposit or commit; a terminal one is history it can also ask for")
+	}
+}
+
+// X1-1 from the parity cell. forwardState bounds the line it sends and checks
+// BEFORE recordState, so everything in r.lastState fits as a `state`. Wrapping
+// the same payload in a Join adds 24 + len(player_id) bytes, and nothing
+// measured THAT -- so a sender landing just under the cap was stored and
+// re-served to every later snapshot.v1 joiner as a line over it.
+//
+// An over-cap line is not a reject: it is bufio.ErrTooLong in the joiner's read
+// loop, so it reconnects, is handed the same snapshot, and loops. The client
+// who cannot get into the room is the one who did nothing.
+func TestASeedIsMeasuredAsTheJoinItIsSentAs(t *testing.T) {
+	r := newRoom("emerald", "", "room1", nil)
+	r.tryAdd(&Client{PlayerID: "loud", Conn: &recordingTransport{}})
+	joiner := &Client{PlayerID: "joiner", Conn: &recordingTransport{}, features: []string{protocol.FeatureSnapshotV1}}
+	r.tryAdd(joiner)
+
+	// A state as close to the cap as forwardState will let through, which needs
+	// the ESCAPING route: area_id and anim are bounded by len() at 256 each, and
+	// encoding/json writes '&' as six bytes, so those two fields alone are worth
+	// ~3072 wire bytes. That is the 2026-09-12 forward-seam mechanism, and it is
+	// what makes a state that is legal-but-huge reachable at all. extras then
+	// fills the gap, one byte at a time, so the result lands INSIDE the 28-byte
+	// window a Join wrapper adds rather than somewhere convenient.
+	stateLine := func(v protocol.State) int {
+		t.Helper()
+		b, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(protocol.AppendEnvelope(nil, protocol.TypeState, b))
+	}
+	base := protocol.State{
+		PlayerID: "loud", Timestamp: 1000,
+		AreaID:   strings.Repeat("&", protocol.MaxAreaIDLen),
+		Anim:     strings.Repeat("&", protocol.MaxAnimLen),
+		Position: []float64{1, 2},
+	}
+	var st protocol.State
+	if protocol.ValidateState(base) && stateLine(base) <= protocol.MaxPayloadBytes {
+		st = base
+	}
+	for pad := 1; pad < protocol.MaxExtrasBytes; pad++ {
+		cand := base
+		cand.Extras = map[string]any{"p": strings.Repeat("v", pad)}
+		if !protocol.ValidateState(cand) || stateLine(cand) > protocol.MaxPayloadBytes {
+			break
+		}
+		st = cand
+	}
+	if st.PlayerID == "" {
+		t.Fatal("could not build a near-cap state")
+	}
+
+	body, err := json.Marshal(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	asState := len(protocol.AppendEnvelope(nil, protocol.TypeState, body))
+	joinBody, err := json.Marshal(protocol.Join{PlayerID: "loud", State: &st})
+	if err != nil {
+		t.Fatal(err)
+	}
+	asJoin := len(protocol.AppendEnvelope(nil, protocol.TypeJoin, joinBody))
+	t.Logf("the same payload is %d bytes as a state and %d as a join (cap %d)", asState, asJoin, protocol.MaxPayloadBytes)
+	if asState > protocol.MaxPayloadBytes {
+		t.Fatalf("test premise broken: the state itself is over the cap, so forwardState would never store it")
+	}
+	if asJoin <= protocol.MaxPayloadBytes {
+		t.Skipf("this payload does not straddle the cap (%d as a join) -- nothing to prove here", asJoin)
+	}
+
+	r.recordState("loud", st)
+	r.mu.Lock()
+	outs := r.stateSnapshotLocked("joiner")
+	r.mu.Unlock()
+
+	// Before the fix: one outgoing, over the cap, which kills the joiner's read
+	// loop the moment it arrives.
+	for _, o := range outs {
+		if n := len(protocol.AppendEnvelope(nil, o.env.Type, o.env.Payload)); n > protocol.MaxPayloadBytes {
+			t.Fatalf("a seed went out at %d bytes, %d over what a receiver can read -- "+
+				"the joiner's scanner dies on it and it reconnects into the same snapshot",
+				n, n-protocol.MaxPayloadBytes)
+		}
 	}
 }
