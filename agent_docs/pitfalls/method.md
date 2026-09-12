@@ -1472,3 +1472,38 @@ the check eagerly. Costs one line per load. The same session then paid for it tw
 locator meant "where is this build's map grid?" could only be answered by asking the user to walk
 through a door so a log could be read. **A reading that costs nothing should never cost a round
 trip through the user.**
+
+## A GATE THAT DISTINGUISHES BY ORIGIN MUST LIVE WHERE THE ORIGIN IS STILL KNOWN -- a relay-id check in shared code would have deleted every replay ghost (core, 2026-09-12)
+
+**Symptom.** The third adversarial review found that a hostile relay could mint a `player_id` in
+this core's OWN namespace — `chaser:1`, `replay:whatever` — and land its states in the buffer the
+local chaser feeds, rendering cosmetic and exempt from the stale age-out. The obvious fix is a
+shape gate refusing those prefixes, and the obvious home for it is `storeRemoteState`, which every
+inbound sample passes through. Written that way it builds, and the new regression test passes.
+
+It also silently deletes replays and chasers entirely. `feedLocalPeer` routes this core's own
+ghosts through the same function, under exactly the prefixes the gate refuses. Caught by running
+the existing replay/chaser tests before committing — nothing shipped.
+
+**Cause.** The gate distinguished by **origin**, not by value: "relay-supplied" versus "minted by
+us". `storeRemoteState` is where those two origins *converge*, and past that point the value alone
+cannot say which it was — a `chaser:1` from a hostile relay and a `chaser:1` from our own pack are
+byte-identical. The property the gate existed to refuse was the property the other caller depends
+on being allowed. Both are correct; they point opposite ways.
+
+**Fix.** The gate went to the three relay-facing doors instead — the welcome roster, the join arm
+and the state arm — where the caller still knows the value came off a socket. `storeRemoteState`
+now carries a comment saying why it is deliberately NOT there, because the next reader will
+otherwise "notice the gap" and close it.
+
+**The general rule: origin is a property of the CALLER, not of the value, so a check that turns on
+origin belongs at the boundary and nowhere downstream of it.** Before adding any refusal to an
+existing function, enumerate its callers and ask which of them must NOT be refused — a refusal
+applies to every caller, including the ones whose whole identity is the thing being refused. The
+"defence in depth, put it where everything passes" instinct is right for a bound on SIZE or SHAPE
+that no legitimate caller can exceed, and wrong for anything that encodes trust.
+
+**And the sub-lesson, which is the part that nearly let it through:** a call-site sweep had already
+been done that session — for a different finding, on the relay's emit paths — and the confidence
+from it was carried into this fix without re-sweeping. **A sweep done for finding X does not cover
+fix Y.** The scope of a sweep is the question it was asked, not the session it happened in.
