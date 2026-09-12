@@ -1135,3 +1135,13 @@ the hardcoded `03005E00`, so Fly and Briney's-boat detection have been reading t
 EX all along; and the cross-map (`xmap`) system still reads `gMapHeader` at the vanilla address for
 its connections pointer, so cross-map ghosts stay vanilla-shaped on patched builds.
 `genderFrames.door.tasksAddr()` and `genderFrames.mapLayoutPtr()` are the handles for each.
+
+## 2026-09-12 — reflection rows go out with the ghost, on the path that actually runs
+
+Logged in full in [phase10.md](phase10.md) with the rest of the third review's work. The per-peer
+rows `reflectPalFor` and `rippleDue` keep in `tiering.lastTile`/`hwLastTile` were never dropped when
+a ghost despawned. The first fix hung on `despawnGhost`, which returns unless the peer holds an
+engine object slot -- and the shipped ladder is drawn-only with a spawned cap of zero, so it never
+ran; the review's own growth cell caught that the same day. It hangs on the tier-independent
+`despawn_remote` handler now. Commits `52da7f3b` and `49bb2072`; queued in the adapter's
+`UNVERIFIED.md`, which records that the first attempt was inert.
