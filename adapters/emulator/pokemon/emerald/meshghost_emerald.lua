@@ -1646,13 +1646,28 @@ local function glideRemote(r, targetX, targetY)
     -- table per peer per FRAME -- about 3,800 a second at 64 peers -- for a ring that only ever
     -- holds 32 slots. After the first 32 frames every slot already exists, so writing into it
     -- allocates nothing at all. Same GC pressure, same fix, as the painted tier's span buffers.
+    -- THE FACING RIDES IN THE RING WITH THE POSITION (2026-09-12).
+    --
+    -- Everything visible about a ghost has to describe the SAME INSTANT. The position this tier
+    -- paints comes from `drawnDelay` frames ago; the facing was taken live off the wire. So the
+    -- ghost turned eight frames before the motion belonging to that turn arrived -- it faced the
+    -- new way while still travelling the old one, which is a slide no character can perform. The
+    -- user, who spotted the shape of it exactly: *"its turning before its actually supposed to
+    -- turn... it turns, slides a bit, then moves in that direction"*.
+    --
+    -- A third slot in the same ring, so the facing cannot drift from the position it belongs to --
+    -- no second buffer to keep in step, and no extra allocation (the slots are reused).
     local slot = r.hist[frameCounter % 32]
     if slot then
-        slot[1], slot[2] = targetX, targetY
+        slot[1], slot[2], slot[3] = targetX, targetY, r.orientation
     else
-        r.hist[frameCounter % 32] = { targetX, targetY }
+        r.hist[frameCounter % 32] = { targetX, targetY, r.orientation }
     end
     local old = r.hist[(frameCounter - genderFrames.drawnDelay) % 32]
+    -- Published for the painted tier. Nil until the ring has filled, and the draw site falls back
+    -- to the live value then -- which is right: before the ring is full there is no older facing to
+    -- honour, and a peer standing still has the same one either way.
+    r.gOrient = old and old[3] or nil
     if old then targetX, targetY = old[1], old[2] end
 
     -- First sight, a new area, or further than two tiles: a warp or a dropped peer. Snap, and do
@@ -1928,11 +1943,37 @@ local function glideRemote(r, targetX, targetY)
             genderFrames.mvBuf = {}
         end
     end
+    -- FACE WHERE IT IS ACTUALLY GOING (2026-09-12).
+    --
+    -- The wire's facing is the engine's `facingDirection`, which is set at the START of a step --
+    -- so it flips while the previous step's pixels are still playing out, and a ghost that believes
+    -- it turns early and then finishes the old leg: *"there is still a small slide/glide in the
+    -- current walking direction after turning to move in another direction"*. Delaying the facing
+    -- with the position (the ring) fixed the 8-frame version of this; it cannot fix the part that
+    -- is ALREADY early on the sender.
+    --
+    -- Crystal reached the same rule from its own stutter work: the stride's axis came from the
+    -- peer's reported facing, and it now comes from where the ghost is going (pitfalls/by-lesson,
+    -- "from stuttery to clean", layer 3). A character in this game cannot face one way and travel
+    -- another, so the MOTION is the honest source and the wire's facing is what to use when there
+    -- is no motion to read -- standing still, or turning on the spot, which is the one case the
+    -- wire is describing something real that no position can show.
+    local mvx, mvy = r.gX - prevX, r.gY - prevY
+    if math.abs(mvx) > 0.001 or math.abs(mvy) > 0.001 then
+        if math.abs(mvx) >= math.abs(mvy) then
+            r.gFacing = (mvx > 0) and "east" or "west"
+        else
+            r.gFacing = (mvy > 0) and "south" or "north"
+        end
+    end
     local dx, dy = math.abs(r.gX - prevX), math.abs(r.gY - prevY)
 
     -- Movement, for the walk cycle: a filter never quite arrives, so "is it moving" is a question
     -- about whether it is still meaningfully closing, not about being exactly equal.
     r.gMoved = (math.abs(targetX - r.gX) + math.abs(targetY - r.gY)) > 0.02
+    -- STOPPED: hand the facing back to the wire. A character standing still can still TURN, and
+    -- that turn is real -- it is the only facing change no amount of watching a position can show.
+    if not r.gMoved then r.gFacing = nil end
     -- Distance covered, in tiles. The engine changes pose every 8 pixels, so this keeps a tile at
     -- two poses whatever rate the peer's positions arrived at.
     r.gDist = (r.gDist or 0) + dx + dy
@@ -11986,7 +12027,14 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
             -- frame anyone can see, and stepping its timer would be work with no output.
             if screenX + FRAME_WIDTH_PX > 0 and screenX < SCREEN_WIDTH_PX
                 and screenY + FRAME_HEIGHT_PX > 0 and screenY < SCREEN_HEIGHT_PX then
-                local dirInfo = DIRECTION_ANIM[remote.orientation] or DIRECTION_ANIM.south
+                -- THE DELAYED FACING, to match the delayed position this tier paints (see the ring
+                -- in glideRemote). The live value is the fallback for a peer whose ring has not
+                -- filled yet.
+                -- MOTION FIRST, then the delayed wire facing for a peer that is not moving, then
+                -- the live one before the ring has filled. Never the live one while moving: that is
+                -- the early turn this tier spent a session chasing.
+                local dirInfo = DIRECTION_ANIM[remote.gFacing or remote.gOrient or remote.orientation]
+                    or DIRECTION_ANIM.south
                 local frameIndex, pose
                 -- MOVEMENT IS A POSITION FACT, NOT A TAG. A forced move -- a cutscene, an NPC
                 -- pushing you, a scripted walk -- does not put the game in runningState 2, so the
