@@ -17,6 +17,8 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 
 - 2026-09-11 — **Autostart is opt-in everywhere now: the two Pokémon scripts look ONLY beside themselves** (ADR 0061). UNWATCHED in either game; three loads to check. Each `UNVERIFIED.md`.
 
+- 2026-09-13 — **Emerald's painted ghost is 1:1 on foot (confirmed); the BIKES are fixed but UNJUDGED** — four causes found, none watched. `emerald/UNVERIFIED.md`.
+- 2026-09-13 — **noclip does not reach WATER**: it clears collision bits, and water blocks through the metatile BEHAVIOUR path. `emerald/probes/noclip.lua`.
 - 2026-09-11 — **TEVI: some bullet BIRTH rows never reach the watcher**, so shots go missing under sustained fire — likely the extras-cap trim dropping rows oldest-first. `tevi/UNVERIFIED.md`.
 - 2026-09-11 — **TEVI: bullet families that move themselves fly STRAIGHT on a ghost**; the game's own `BulletBehave` is off for good (it damaged the watcher). `tevi/UNVERIFIED.md`.
 - 2026-09-11 — **The TEVI wire must be BUILD-INDEPENDENT** — the two installs are different builds. Type/sprite go by NAME; pool indices are still ordinal. `tevi/UNVERIFIED.md`.
