@@ -38,7 +38,7 @@ keys changed on a save and everything else waited for the next launch -- a teste
 ## `client` — read by `meshghost.exe`
 
 | Key | Shipped value | What it does |
-|---|---|---|
+| --- | --- | --- |
 | `connect_to` | `127.0.0.1:7777` | The host's address and **tcp** port. Only the tcp port is ever needed: the handshake is tcp and asks the server what else it serves. |
 | `transport` | `auto` | What the session moves to *after* connecting: `tcp` stays, `udp` or `quic` upgrade if the server offers them, `auto` takes the best on offer. Asking for one the server lacks degrades to tcp, never to a timeout. **Running the Windows client under Wine or Proton?** `auto` handles it: Wine cannot create UDP sockets at all, so quic and udp are impossible there, and the client checks once at startup and goes straight to tcp with one line in the log rather than dialling something that cannot work. A client running natively on Linux is unaffected and still gets quic, even from the same `config.json`. |
 | `tls` | `auto` | Encryption of the tcp legs, including the handshake that carries the room code: `off`, `auto` (plaintext fallback with a log warning) or `required` (refuse an unencrypted server). |
@@ -66,7 +66,7 @@ Also in the `client` section, shipped at values you should not need to change: `
 ## `server` — read by `meshghost-server.exe`
 
 | Key | Shipped value | What it does |
-|---|---|---|
+| --- | --- | --- |
 | `listen_on` | `0.0.0.0:7777` | The tcp address and port to serve. This is the port to forward, both tcp and udp. |
 | `listen_quic` | empty | Where quic listens. Empty reuses `listen_on`'s port number, so hosting means forwarding one number. |
 | `listen_udp` | empty | Where the plain `udp` transport listens. Empty reuses `listen_on`'s port unless quic is served too, in which case udp moves aside to 7780 so quic keeps the shared number -- on `listen_on`'s own interface, so a relay bound to `0.0.0.0` serves udp there too. **Serving plain `udp` to anyone outside this machine means forwarding UDP on that port as well**, on top of the one `listen_on` names; `hosting.md` covers only the shipped `tcp,quic`, which needs the single number. Plain udp is never encrypted and no client picks it on its own, so this is opt-in in both directions. (It moved aside to *loopback* until 2026-09-08, which made forwarding it unusable for a public relay.) |

@@ -48,7 +48,7 @@ SignPath's terms distinguish three roles. As of 2026-09-06 one person, the proje
 (GitHub `Tsukino-uwu`), holds all three:
 
 | Role | Who | What it means |
-|---|---|---|
+| --- | --- | --- |
 | Committer | Tsukino-uwu | May push to `master`. |
 | Reviewer | Tsukino-uwu | Approves changes before they are merged. |
 | Approver | Tsukino-uwu | Authorises a signing request on SignPath. |

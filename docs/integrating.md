@@ -37,7 +37,7 @@ does not tell you, plus the decisions you have to make first.
 Your real question is how much work you are signing up for.
 
 | Route | What it means | Choose it when |
-|---|---|---|
+| --- | --- | --- |
 | **Run our client beside your game** | Launch `meshghost.exe` as a second process and speak the loopback bridge to it — one JSON object per line over a localhost socket. Zero protocol work. | **Almost always, and in any language.** By far the least work, and a real option even with full source. See [Run it beside your game](#run-it-beside-your-game-any-language). |
 | **Import the Go packages** | Compile the client (or the relay) straight into your binary. | Your game is in Go *and* a second process is genuinely unacceptable. See [If your game is in Go](#if-your-game-is-in-go). |
 | **Reimplement the client** | Speak the relay protocol directly, from inside your game, in your language. | You cannot ship a second process and you are not in Go. The hardest route — most of this file is the detail it needs. |
@@ -275,7 +275,7 @@ build is below the protocol floor below and will not reach you anyway.
 And a great deal is **not** answered at all, which is deliberate and will look like your bug:
 
 | What you did | What happens |
-|---|---|
+| --- | --- |
 | Sent malformed JSON | Silently dropped. No error, no close. |
 | Sent anything before `hello` | Silently ignored. |
 | Sent a line over 4096 bytes | Connection closed with **no `reject`** — a bare hangup. |
@@ -333,7 +333,7 @@ that resolved to nothing, and every library package lived under `internal/`, whi
 refuses from outside the owning module. Both are gone. Six packages are importable:
 
 | Package | What it is | Want it when |
-|---|---|---|
+| --- | --- | --- |
 | `core` | The client: relay connection, snapshot buffer, interpolation, remote tracking. | You are replacing `meshghost.exe`. **Start here** — it is the one most embedders actually need. |
 | `protocol` | The wire messages and their validation. No dependencies. | Always, in practice; `core` and `relay` both speak it. |
 | `relay` | The server: rooms, forwarding, limits. | You want to host the relay inside your own process rather than run the shipped binary. |

@@ -581,7 +581,6 @@ ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
   reply to the claimed address, plus one HMAC on the relay — 1.5x on the wire. Nothing is
   remembered for an unvalidated address, and `udp` is opt-in. Recorded so it is not rediscovered.
 
-
 ### Why `auto` and not `off` — a policy decision, 2026-08-19
 
 The flags used to default to `off` so that a client could not suddenly demand encryption from a
