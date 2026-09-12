@@ -366,13 +366,35 @@ func (c *NDJSONConn) readLoop() {
 // connection (an oversized line, an idle timeout) with no offending message
 // ever reaching a caller's OnReceive to trigger its own Close() call.
 func (c *NDJSONConn) fail(err error) {
-	// net.ErrClosed is not a failure to report: it can only be produced by
-	// THIS process calling Close() on the connection, never by the peer or by
-	// the network. Every place that closes deliberately -- the relay answering
-	// a query_only transport-discovery hello, a rejected
-	// hello, a hello timeout, an oversized line, a rate-limit trip -- already
-	// logs its own reason, so passing this to OnError only ever adds a second,
-	// scarier-looking line about the close it just decided on.
+	// net.ErrClosed is not a failure to report: it means THIS process closed the
+	// connection, never the peer and never the network. Every place that closes
+	// deliberately -- the relay answering a query_only transport-discovery
+	// hello, a rejected hello, a hello timeout, an oversized line, a rate-limit
+	// trip -- already logs its own reason, so passing this to OnError only ever
+	// adds a second, scarier-looking line about the close it just decided on.
+	//
+	// **That was a claim about tcp, applied to every transport, and it was false
+	// on two of the three until 2026-09-12.** On a datagram transport the peer
+	// cannot hang up -- so the terminal failures that DO exist there all end in
+	// a local close, and every one of them arrived here as net.ErrClosed and was
+	// swallowed: udp retry exhaustion, which is the only way that transport ever
+	// notices a vanished peer; a quic connection dying of an idle timeout or a
+	// broken path; and a quic peer tripping a 64 KiB line limit it had no way to
+	// learn existed. Every disconnect that was not a deliberate hangup looked
+	// exactly like one.
+	//
+	// SO THE TEST IS THE FLAG, NOT THE ERROR VALUE. c.closed is set before the
+	// socket is closed at every site that closes deliberately (see the field),
+	// so "did this side close it" is a fact this package already owns -- while
+	// the error value is a claim anything may make. quic-go's own connection
+	// errors answer errors.Is(err, net.ErrClosed) with true, deliberately, so
+	// that generic code treats them as a closed connection: no amount of naming
+	// causes down in netx could have got past a check on the identity alone.
+	// netx names them anyway, because a reported error still has to SAY
+	// something (see each package's closeReason), but this is the line that
+	// decides whether anyone hears it.
+	//
+	// Found by the transports cell of the third adversarial review (P1d-4).
 	//
 	// Found 2026-08-16 by reproducing it: a client on the shipped default
 	// transport (udp) made the relay log
@@ -382,7 +404,7 @@ func (c *NDJSONConn) fail(err error) {
 	// it put an error line at the top of the log a remote tester is asked to
 	// send back. OnDisconnect still fires either way, so nothing that reacts
 	// to a connection ending is affected.
-	if err != io.EOF && !errors.Is(err, net.ErrClosed) {
+	if err != io.EOF && !(errors.Is(err, net.ErrClosed) && c.closed.Load()) {
 		c.cbMu.Lock()
 		onError := c.onError
 		c.cbMu.Unlock()

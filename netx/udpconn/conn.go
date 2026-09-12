@@ -39,6 +39,12 @@ type Conn struct {
 	closed chan struct{}
 	once   sync.Once
 
+	// closeErr is WHY this connection ended, or nil for a close this side
+	// decided on. Written inside once.Do before closed is closed, which is the
+	// publication edge -- nothing may read it without first observing that
+	// channel closed. See closeReason.
+	closeErr error
+
 	// readBuf holds the remainder of a datagram that did not fit in the
 	// caller's buffer. Real UDP discards that remainder; an in-memory queue
 	// must not, or a short Read would silently eat half a JSON line.
@@ -128,8 +134,29 @@ func (c *Conn) Read(p []byte) (int, error) {
 	case <-timeout:
 		return 0, os.ErrDeadlineExceeded
 	case <-c.closed:
-		return 0, net.ErrClosed
+		return 0, c.closeReason()
 	}
+}
+
+// closeReason is what a Read or Write on a closed connection reports: the cause
+// if this connection died of one, and net.ErrClosed if it was simply closed.
+//
+// The distinction is the whole point. transport.fail suppresses net.ErrClosed
+// from OnError because on tcp it can only mean a local Close(), and reporting
+// it would put a scarier second line under every deliberate hangup. That
+// reasoning does not survive the move to a datagram transport: here retry
+// exhaustion -- a peer that has GONE -- closes the connection too, and answering
+// net.ErrClosed made the one failure this transport can actually detect
+// indistinguishable from hanging up on someone. Naming it here keeps
+// transport's rule intact and makes its comment true (P1d-4, 2026-09-12).
+//
+// Safe to read without a lock: closeErr is written before close(c.closed) and
+// every caller here has already received from that channel.
+func (c *Conn) closeReason() error {
+	if c.closeErr != nil {
+		return c.closeErr
+	}
+	return net.ErrClosed
 }
 
 // Write sends p reliably: it is retransmitted until the far end acks it or
@@ -239,7 +266,7 @@ func (c *Conn) MaxPayloadBytes() int { return MaxDatagramBytes - 2 - tokenLen - 
 func (c *Conn) checkWritable(p []byte, overhead int) error {
 	select {
 	case <-c.closed:
-		return net.ErrClosed
+		return c.closeReason()
 	default:
 	}
 	if len(p)+overhead > MaxDatagramBytes {
@@ -322,7 +349,11 @@ func (c *Conn) retryLoop() {
 				// signal, so this is the only way a vanished client is
 				// ever noticed, and relay's existing disconnect
 				// path turns it into a real leave for the rest of the room.
-				c.Close()
+				//
+				// CLOSED WITH A REASON, because this is the discovery, not
+				// merely a close: see ErrPeerUnresponsive for what reporting
+				// it as an ordinary hangup cost.
+				c.closeWith(ErrPeerUnresponsive)
 				return
 			}
 			for _, w := range resend {
@@ -497,8 +528,15 @@ func (c *Conn) handleControl(b []byte) []byte {
 	return nil
 }
 
-func (c *Conn) Close() error {
+func (c *Conn) Close() error { return c.closeWith(nil) }
+
+// closeWith is Close, recording why. A nil reason means "this side decided to",
+// which is what Close itself always means; anything else is a cause Read and
+// Write will report instead of a bare net.ErrClosed. See closeReason.
+func (c *Conn) closeWith(reason error) error {
 	c.once.Do(func() {
+		// Before the channel close, which is the publication edge for it.
+		c.closeErr = reason
 		close(c.closed)
 		if c.owner != nil {
 			c.owner.forget(c.remote.String())

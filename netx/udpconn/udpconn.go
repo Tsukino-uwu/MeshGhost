@@ -65,6 +65,7 @@
 package udpconn
 
 import (
+	"errors"
 	"time"
 )
 
@@ -183,6 +184,20 @@ const (
 // truncation: a half-written JSON line would be a parse error at the far
 // end with no clue as to why.
 var ErrDatagramTooLarge error = tooLargeError{}
+
+// ErrPeerUnresponsive is what Read reports once the retry budget for a reliable
+// payload has run out and this connection has been closed as a result.
+//
+// It exists because UDP has no disconnect signal, so retry exhaustion is the
+// ONLY way this transport ever notices a peer that has gone away -- and until
+// 2026-09-12 that discovery was thrown away. Read answered net.ErrClosed, which
+// transport.fail deliberately suppresses from OnError on the grounds that only
+// a local Close() can produce it. True on tcp; false here, where the most
+// interesting failure this transport can report produced exactly that error. A
+// player whose path to the relay broke, and a relay watching players vanish,
+// both got silence and a plain disconnect. Found by the transports cell of the
+// third adversarial review (P1d-4).
+var ErrPeerUnresponsive = errors.New("udpconn: peer stopped acknowledging reliable messages")
 
 // tooLargeError is ErrDatagramTooLarge's own type, and it exists for one
 // method: NotWritten.

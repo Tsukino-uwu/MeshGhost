@@ -147,7 +147,13 @@ func (c *Conn) dialedReadLoop() {
 	for {
 		n, src, err := c.pc.ReadFromUDP(buf)
 		if err != nil {
-			c.once.Do(func() { close(c.closed) })
+			// With the reason: this side's socket dying is the client's
+			// equivalent of the relay noticing a peer stop acking, and it was
+			// reported as a plain net.ErrClosed until 2026-09-12 -- which
+			// transport.fail suppresses, so a player whose socket failed saw
+			// only a disconnect. A local Close() reaches here too and finds
+			// once already spent, so it keeps its nil reason. See closeReason.
+			c.closeWith(err)
 			return
 		}
 		if !fromRelay(src, c.remote) {

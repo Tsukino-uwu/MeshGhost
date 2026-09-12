@@ -153,6 +153,11 @@ type Conn struct {
 	closed chan struct{}
 	once   sync.Once
 
+	// closeErr is WHY this connection ended, or nil for a close this side
+	// decided on. Written inside once.Do before closed is closed, which is the
+	// publication edge. See closeReason.
+	closeErr error
+
 	readBuf []byte
 
 	mu            sync.Mutex
@@ -192,8 +197,14 @@ func (c *Conn) streamLoop() {
 			return
 		}
 	}
-	// The stream ended: the peer closed, or the connection died.
-	c.Close()
+	// The stream ended: the peer closed, or the connection died -- and WHICH is
+	// the whole content of sc.Err(), which this discarded until 2026-09-12.
+	// nil is a clean FIN; anything else is the quic-level cause (an idle
+	// timeout, a CONNECTION_CLOSE, a path that broke) or bufio.ErrTooLong from
+	// this package's own 64 KiB line limit, which a peer could trip with no way
+	// to learn it existed. Read reports it and transport.fail hands it to
+	// OnError, where a bare net.ErrClosed was suppressed. See closeReason.
+	c.closeWith(sc.Err())
 }
 
 func (c *Conn) datagramLoop() {
@@ -246,8 +257,25 @@ func (c *Conn) Read(p []byte) (int, error) {
 	case <-timeout:
 		return 0, os.ErrDeadlineExceeded
 	case <-c.closed:
-		return 0, net.ErrClosed
+		return 0, c.closeReason()
 	}
+}
+
+// closeReason is what a Read or Write on a closed connection reports: the cause
+// if this connection died of one, and net.ErrClosed if it was simply closed.
+//
+// Same rule and same reason as netx/udpconn's, which carries the full note:
+// transport.fail suppresses net.ErrClosed from OnError because on tcp only a
+// local Close() produces it, and on a transport where every terminal failure
+// produces it too, that suppression swallowed the cause of every disconnect.
+//
+// Safe to read without a lock: closeErr is written before close(c.closed), and
+// every caller here has already received from that channel.
+func (c *Conn) closeReason() error {
+	if c.closeErr != nil {
+		return c.closeErr
+	}
+	return net.ErrClosed
 }
 
 // Write sends p on the reliable, ordered stream.
@@ -375,8 +403,15 @@ func (c *Conn) writeDeadlineNow() time.Time {
 // this — only the connection object survives a moment longer.
 const closeLinger = 250 * time.Millisecond
 
-func (c *Conn) Close() error {
+func (c *Conn) Close() error { return c.closeWith(nil) }
+
+// closeWith is Close, recording why. A nil reason means "this side decided
+// to"; anything else is a cause Read and Write report instead of a bare
+// net.ErrClosed. See closeReason.
+func (c *Conn) closeWith(reason error) error {
 	c.once.Do(func() {
+		// Before the channel close, which is the publication edge for it.
+		c.closeErr = reason
 		close(c.closed)
 		// Closing the stream first signals FIN, so the peer learns the message
 		// it is about to receive is the last one.
