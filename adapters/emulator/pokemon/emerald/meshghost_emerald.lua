@@ -919,11 +919,22 @@ end
 -- twenty times a second. So the door suffix is written only while the engine actually has a door
 -- open, and the steady-state packet is byte-for-byte the one this adapter has always sent.
 local function encodeLocalState(areaId, x, y, orientation, anim, gender, gfx, sanim, sidx, act,
-    sox, soy, spaused, pspeed, noanim, invis, boat, fly, flyk, dk, dx, dy)
+    sox, soy, spaused, pspeed, noanim, invis, boat, fly, flyk, dk, dx, dy, mspd)
     local door = ""
     if dk then
         door = string.format(',"dk":%s,"dx":%s,"dy":%s', jsonString(dk), tostring(dx), tostring(dy))
     end
+    -- `mspd` -- MOVE_SPEED_*, the constant the engine's own step table is indexed by, read off the
+    -- player's sprite at the send site. APPENDED like the door rather than slotted into the format
+    -- above, so not one existing argument position moves: this list is twenty-two long and a silent
+    -- off-by-one in it would put a peer's graphic id into its animation field.
+    --
+    -- It is the only field that describes EVERY gait. `anim` knows walking and running; `pspeed`
+    -- (gPlayerAvatar.bikeSpeed) reads STANDING on foot and on the acro bike. A receiver that has to
+    -- move a ghost at the peer's real speed needs this one, and a peer too old to send it simply
+    -- leaves it nil, which is the behaviour that shipped before.
+    local ms = ""
+    if mspd then ms = string.format(',"mspd":%d', mspd) end
     -- WHAT THIS MACHINE ACTUALLY PUT ON THE WIRE, for the seam trace on the OTHER side of the same
     -- rig (2026-09-12). Every seam reading so far has inferred the sender's stream from what a peer
     -- received, and a receiver cannot tell "the peer moved" from "the peer's coordinates were
@@ -938,7 +949,7 @@ local function encodeLocalState(areaId, x, y, orientation, anim, gender, gfx, sa
         tostring(sox or "null"), tostring(soy or "null"), tostring(spaused or "null"),
         tostring(pspeed or "null"), tostring(noanim or "null"),
         tostring(invis or "null"), tostring(boat or "null"),
-        tostring(fly or "null"), tostring(flyk or "null"), door)
+        tostring(fly or "null"), tostring(flyk or "null"), door .. ms)
 end
 
 local ENCODED_NO_SEND = '{"type":"local_state","payload":{"state":null}}'
@@ -1842,11 +1853,29 @@ local function glideRemote(r, targetX, targetY)
     --
     -- Check what a field IS and DOES, never what its name suggests -- adapters/_template/probes.md
     -- has carried that rule since 2026-08-19, and this is the fourth entry under it.
+    -- The engine's own per-frame pixel counts, indexed by MOVE_SPEED_* (documentation.md, "A step
+    -- is a fixed table").
+    --
+    -- FAST_2 -- the acro bike -- is the uneven one: 2,3,3,2,3,3. It is entered here as its MAXIMUM
+    -- rather than its average, and that is not a fudge: this number is a CEILING, and the model
+    -- lands exactly on its target whenever the target is within one frame's reach. A ceiling of 3
+    -- therefore reproduces 2 on the frames the engine moves 2 and 3 on the frames it moves 3,
+    -- because the WIRE is already carrying the real pattern -- the sender ramps on the engine's own
+    -- step length now. The average was worse than either: it could not keep up on a 3px frame and
+    -- overshot the 2px ones, which is the gait the user called out first.
+    local ENGINE_PX = { [0] = 1, [1] = 2, [2] = 3, [3] = 4, [4] = 8 }
     local ANIM_PX = { walking = 1, running = 2 }
     local PLAYER_SPEED_PX = { [1] = 1, [2] = 2, [3] = 4, [4] = 8 }
-    local quantum = ANIM_PX[r.anim]
-    local vehiclePx = r.pspeed and PLAYER_SPEED_PX[r.pspeed]
-    if vehiclePx and (not quantum or vehiclePx > quantum) then quantum = vehiclePx end
+    -- THE ENGINE'S OWN SPEED FIRST. `mspd` is MOVE_SPEED_*, which indexes the same step table the
+    -- game uses, so it is exact for every gait including both bikes: 1, 2, (2,3,3,2,3,3), 4, 8
+    -- pixels a frame. The two older sources stay as the fallback for a peer that does not send it,
+    -- and neither can describe a bike -- `anim` says "walking" on one and `pspeed` says STANDING.
+    local quantum = r.mspd and ENGINE_PX[r.mspd]
+    if not quantum then
+        quantum = ANIM_PX[r.anim]
+        local vehiclePx = r.pspeed and PLAYER_SPEED_PX[r.pspeed]
+        if vehiclePx and (not quantum or vehiclePx > quantum) then quantum = vehiclePx end
+    end
     -- IT FINISHES AT THE SPEED IT WAS TRAVELLING (2026-09-13).
     --
     -- The gait comes from `anim`, so the frame the peer stops -- or blips through idle while
@@ -2063,7 +2092,17 @@ local inRealGlide = false
 -- relevant frame -- exactly the one a reported "snap at the end" needs to be visible in).
 local glideJustCompleted = false
 
-local function smoothPosition(rawX, rawY, areaId, anim)
+-- `stepFrames` is the ENGINE'S OWN step length for the gait the player is in, passed in rather
+-- than inferred here (2026-09-13). Inferring it from `anim` worked for the two gaits `anim` can
+-- describe and failed completely on a bike: `anim` reads "walking" on both of them, so a tile the
+-- acro bike crosses in FOUR frames was ramped over SIXTEEN. The wire then crept a pixel a frame
+-- and leapt eleven when the tile flipped again -- measured on the watcher, `d(tgt)=0.6875` in one
+-- frame -- and no receiver can render that as anything but a teleport.
+--
+-- It is a PARAMETER because this function sits two thousand lines above `rs16` and `sprAddr`: the
+-- value is read at the send site, where the memory readers exist. Nil keeps the old `anim`-derived
+-- behaviour, which is what a caller that cannot read it should get.
+local function smoothPosition(rawX, rawY, areaId, anim, stepFrames)
     if glideJustCompleted then
         inRealGlide = false
         glideJustCompleted = false
@@ -2109,13 +2148,13 @@ local function smoothPosition(rawX, rawY, areaId, anim)
         committedTileX, committedTileY = rawX, rawY
         committedAreaId = areaId
         tileChangeFrame = frameCounter
-        activeStepDuration = STEP_DURATION_FRAMES[anim] or STEP_DURATION_FRAMES.walking
+        activeStepDuration = stepFrames or STEP_DURATION_FRAMES[anim] or STEP_DURATION_FRAMES.walking
         inRealGlide = false
     elseif rawX ~= committedTileX or rawY ~= committedTileY then
         prevTileX, prevTileY = committedTileX, committedTileY
         committedTileX, committedTileY = rawX, rawY
         tileChangeFrame = frameCounter
-        activeStepDuration = STEP_DURATION_FRAMES[anim] or STEP_DURATION_FRAMES.walking
+        activeStepDuration = stepFrames or STEP_DURATION_FRAMES[anim] or STEP_DURATION_FRAMES.walking
         inRealGlide = true
     end
 
@@ -2813,6 +2852,12 @@ local function handleBridgeLine(line)
                 r.noanim = na ~= nil and na ~= 0 or nil
                 local ps = (type(st.extras) == "table" and tonumber(st.extras.pspeed)) or nil
                 r.pspeed = (ps and ps >= 0 and ps <= 4 and math.floor(ps) == ps) and ps or nil
+                -- MOVE_SPEED_*, the constant the engine steps by, and the only field that describes
+                -- every gait: `anim` knows walking and running, `pspeed` reads STANDING on foot and
+                -- on the acro bike. Bounded exactly like every other peer-controlled number here --
+                -- it indexes a table, and a peer is not trusted to stay in range.
+                local ms = (type(st.extras) == "table" and tonumber(st.extras.mspd)) or nil
+                r.mspd = (ms and ms >= 0 and ms <= 4 and math.floor(ms) == ms) and ms or nil
                 -- THE ENGINE IS NOT DRAWING THIS CHARACTER. Four fields, all nil for a peer that
                 -- predates them, and nil everywhere means exactly the old behaviour -- a ghost
                 -- drawn as a character, which is right for every state but these two.
@@ -5468,6 +5513,30 @@ local FORCE_GHOST_GFX = tonumber(MESHGHOST_FORCE_GHOST_GFX
 -- player is using -- which changes nothing visually but keeps the wire format and the plumbing
 -- live and exercised. Set MESHGHOST_GHOST_PEER_GFX to opt in and continue the investigation.
 local PEER_GFX_ENABLED = MESHGHOST_GHOST_PEER_GFX or os.getenv("MESHGHOST_GHOST_PEER_GFX")
+
+-- ONE GATE WAS HOLDING TWO TIERS WITH DIFFERENT CONSTRAINTS (2026-09-13).
+--
+-- `MESHGHOST_GHOST_PEER_GFX` is off by default for a SPAWNED-tier reason, recorded in FLAGS.md
+-- and confirmed on screen 2026-08-18: spawning clones a donor object event, and the 32-wide
+-- graphics -- both bikes, surfing, underwater, fishing -- need OAM and subsprite tables this
+-- code copies blind while forcing `subspriteTableNum = 0`, a field the engine manages itself.
+-- Every special state rendered corrupted.
+--
+-- NONE OF THAT APPLIES TO THE PAINTED TIER. It clones nothing and asks the engine for nothing:
+-- it decodes the graphic's own images and paints pixels, and it already centres a 32-wide frame
+-- the way the engine does (which the fishing work paid for). When a decode fails it falls
+-- through to the cached walker -- which is exactly what ships today -- so the worst case of
+-- letting it through is the behaviour already in place.
+--
+-- The user, on a bike: *"when i get on a bike, the ghost don't show it"*. The gate was the whole
+-- reason -- a peer's graphic was never looked at, so every painted ghost wore a walker whatever
+-- the peer was riding. The SPAWNED tier keeps the old gate until its own problem is solved.
+-- ON `genderFrames`, NOT A NEW FILE-SCOPE LOCAL. This chunk is at Lua's 200-local ceiling, and one
+-- more crossed it: "too many local variables (limit is 200) in main function" is a LOAD failure,
+-- so the adapter did not run at all and both screens lost every ghost (2026-09-13). The file says
+-- this in four places; it still caught me, because `local X = true` does not look like a cost.
+genderFrames.peerGfxDrawn = (MESHGHOST_GHOST_PEER_GFX_DRAWN == nil) and true
+    or MESHGHOST_GHOST_PEER_GFX_DRAWN
 
 local function wantedGfx(remote)
     if FORCE_GHOST_GFX then return FORCE_GHOST_GFX end
@@ -10332,13 +10401,30 @@ function anchorFrame(localAreaId, playerScreenX, playerScreenY, playerMapX, play
         -- Normalised to the walker's own centring so the grid means the same thing whatever the
         -- player happens to be riding.
         local pspr = sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
+        -- NORMALISE THE ORIGIN TO THE WALKER'S CENTRING, or every ghost moves when the LOCAL
+        -- player changes graphic (2026-09-13).
+        --
+        -- `playerScreenPos` returns the FRAME's top-left, and the engine centres a sprite by
+        -- `centerToCornerVec = -(width >> 1)`: -8 for the 16-wide walker, -16 for a 32-wide bike,
+        -- surf or fishing frame. The painted tier positions every peer from this origin, so the
+        -- moment the LOCAL player mounts a bike the origin slides 8px and every ghost on screen
+        -- slides with it -- the user: *"why does the ghost snap to the side, when the player gets
+        -- on a bike?"*. Nothing about the peers changed; the ruler did.
+        --
+        -- This file already learned it for the tile grid a few lines below (`originXStill`, the
+        -- surfing reflection, 2026-08-19) and the paint origin never got the same treatment.
+        -- Adding the centring back makes the origin mean "where a WALKER-sized frame would sit",
+        -- which is what a peer's own frame is measured against -- and a peer whose graphic is
+        -- itself 32 wide gets its own `cx` correction in the peer-graphic path.
+        local ctcX = memory.read_s8(pspr + 0x28) + (FRAME_WIDTH_PX // 2)
+        local ctcY = memory.read_s8(pspr + 0x29) + (FRAME_HEIGHT_PX // 2)
         if fresh or (settled and camX % 16 == 0) then
-            tiering.anchorX, tiering.originX = tx + camX / 16, playerScreenX
+            tiering.anchorX, tiering.originX = tx + camX / 16, playerScreenX - ctcX
             tiering.originXStill = playerScreenX - rs16(pspr + 0x24)
                 - memory.read_s8(pspr + 0x28) - (FRAME_WIDTH_PX // 2)
         end
         if fresh or (settled and camY % 16 == 0) then
-            tiering.anchorY, tiering.originY = ty + camY / 16, playerScreenY
+            tiering.anchorY, tiering.originY = ty + camY / 16, playerScreenY - ctcY
             tiering.originYStill = playerScreenY - rs16(pspr + 0x26)
                 - memory.read_s8(pspr + 0x29) - (FRAME_HEIGHT_PX // 2)
         end
@@ -12312,7 +12398,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                     drawAnim = remote.lastMoveAnim
                     drawIdx = math.floor(((remote.gDist or 0) - (remote.gDistBase or 0)) * 2) % 4
                 end
-                if PEER_GFX_ENABLED and remote.gfx and remote.gfx ~= 0 and remote.sanim then
+                if genderFrames.peerGfxDrawn and remote.gfx and remote.gfx ~= 0 and remote.sanim then
                     -- PINNED MEANS PINNED, animation included. The pin locks POSITION to the
                     -- spawned sprite while the frame index still came from the wire at delivery
                     -- rate -- so at Mach top speed the painted twin strobed across pedal frames
@@ -13586,7 +13672,21 @@ local function runFrame()
                     console.log("MeshGhost: local gender = " .. localGender)
                 end
             end
-            smoothX, smoothY = smoothPosition(state.x, state.y, state.areaId, state.anim)
+            -- THE ENGINE'S OWN STEP SPEED, from the player's sprite rather than guessed from the
+            -- animation tag. `NpcTakeStep` indexes its tables by `sprite->data[4]` (MOVE_SPEED_*)
+            -- and spends `sStepTimes[speed]` frames on a tile: 16, 8, 6, 4, 2
+            -- (documentation.md, "A step is a fixed table, one entry a frame"). data[0] is at
+            -- 0x2E, so data[4] is 0x36.
+            --
+            -- This is the one source that describes every gait -- walking, running, both bikes,
+            -- surfing -- because it is what the engine itself steps by. `anim` describes only two
+            -- of them and `gPlayerAvatar.bikeSpeed` reads STANDING on foot AND on the acro bike,
+            -- which is how a bike ended up ramped at walking pace.
+            local mspd = rs16(sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)) + 0x36)
+            if mspd < 0 or mspd > 4 then mspd = nil end
+            local stepFrames = mspd and ({ [0] = 16, [1] = 8, [2] = 6, [3] = 4, [4] = 2 })[mspd]
+            genderFrames.sendMspd = mspd
+            smoothX, smoothY = smoothPosition(state.x, state.y, state.areaId, state.anim, stepFrames)
             smoothAreaId = state.areaId
             if DIAG_STEP_CURVE and inRealGlide and diag.stepCurveLogs < DIAG_STEP_CURVE_MAX_LOGS then
                 local realX, realY = playerScreenPos()
@@ -13661,7 +13761,7 @@ local function runFrame()
                     flyRide.invis, flyRide.boat, flyRide.fly, flyRide.flyk,
                     -- The door, and the only group here that is absent from the packet entirely
                     -- when there is nothing to say -- encodeLocalState's header has why.
-                    genderFrames.dk, genderFrames.dx, genderFrames.dy))
+                    genderFrames.dk, genderFrames.dx, genderFrames.dy, genderFrames.sendMspd))
                 if tiering.profT then
                     local pr = tiering.prof or {}
                     pr.send = (pr.send or 0) + (os.clock() - tiering.profT)
