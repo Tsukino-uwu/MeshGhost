@@ -7202,3 +7202,41 @@ clean. Two of the three were invisible in the only direction anyone ever ran pre
 repo root, against a tree with nothing planted in it. Also: the harness verifies its own plants by
 reading the file back, because a plant that quietly did nothing is reported as a blind gate, and
 the fix then gets applied to an innocent check.
+
+## THE FAULT WAS A DEVIATION WE ADDED ON PURPOSE, and it masked everything under it for a month (Emerald, 2026-09-13)
+
+**Symptom.** The painted ghost never looked like the player. Reported over many sessions in many
+shapes -- *"really choppy"*, *"lagging behind"*, *"it slides after turning"*, *"running still don't
+look like how the player does it"*, *"a small slide at the end, especially when running"* -- and
+every investigation found something real, fixed it, and left the ghost still looking wrong.
+
+**Cause.** `drawnDelay`: the painted tier deliberately rendered each peer EIGHT FRAMES IN THE PAST.
+It was added to imitate the SPAWNED tier, which trails by up to a step because the engine cannot
+begin one mid-tile. Nothing about it was a bug in the usual sense -- it did exactly what it was
+written to do. But the camera is slaved to the player's own sprite and stops the instant the player
+does, so those eight frames were spent sliding across a stationary screen: 8px walking, a WHOLE TILE
+running. Set to zero, the user's verdict was immediate: *"It actually looks identical now"*.
+
+**The user's framing, which is the lesson:** *"8 was just a thing we added, that was hiding the issue
+all along"* — and *"a ghost is never in the same game, but its supposed to look 1:1 to what a player
+did in another game"*.
+
+**Why it cost so much more than its size.** A deliberate deviation from the truth is a CONFOUND in
+every judgement made afterwards. With it in, nobody -- user or agent -- could tell a defect from the
+offset we had chosen: every "it still looks off" had two possible authors, and six real defects
+underneath were each found, fixed, and then judged against a ghost that was still a tile out of
+place. The fixes were right; the verdicts on them were unreadable.
+
+**The rules this adds:**
+
+- **Never make one renderer deliberately less faithful to match another.** Match the TRUTH -- what
+  the peer actually did -- and let the tiers differ, or improve the other tier. The comparison the
+  bar is set against is the PLAYER, never our own second implementation.
+- **A deliberate deviation must be the FIRST thing subtracted when something looks wrong**, before
+  any measurement of anything else. It is the one variable known to be non-zero, and this repo's own
+  rule already says to re-run with the instrument off -- a deviation is an instrument that never
+  gets switched off.
+- **When a fault survives several correct fixes, stop fixing and ask what is ADDED.** Six defects
+  were found and fixed here before the thing masking them was questioned, and it had been sitting
+  in the file's own header the whole time, described accurately, since 2026-08-19.
+

@@ -4359,8 +4359,12 @@ to compare against** (`budget=0` on the maps tested — the object array was ful
 reading this session was of the painted tier). Not watched on a bike, surfing, or beside a spawned
 ghost.
 
-**THE DELAY WAS THE LAST AND LARGEST ARTIFACT, and it is not a defect** — it is a design parameter
-imitating a spawned ghost's natural trailing. Its cost is structural and is now written up in
+**THE DELAY WAS THE LAST AND LARGEST ARTIFACT — and calling it "not a defect" was too kind to it.**
+The user's framing, which is the better one: *"8 was just a thing we added, that was hiding the issue
+all along"*. It was a deliberate deviation from the peer's real motion, imitating a spawned ghost's
+trailing, and while it was in place every verdict on this tier was confounded — a defect and our own
+offset were indistinguishable from the outside. Filed as a lesson in
+`agent_docs/pitfalls/by-lesson.md`, "THE FAULT WAS A DEVIATION WE ADDED ON PURPOSE". Its cost is structural and is now written up in
 `documentation.md` ("What that means for a ghost that is DELAYED"): the camera is slaved to the
 player's own sprite, so it stops the instant the player does, and a ghost N frames behind spends
 those N frames sliding across a stationary screen — 8px walking, a whole tile running. That is

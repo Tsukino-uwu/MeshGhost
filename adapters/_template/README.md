@@ -1276,6 +1276,27 @@ ghost's health to zero" sets the *player's* health to zero. That is the likelies
 a historical "kept respawning with 0 health" bug in the same adapter. Stop the ghost RUNNING the
 logic; do not try to hand it a private copy of state that has no private copy.
 
+## Hard rule: never make a renderer deliberately less faithful to match another one
+
+**The bar is the PEER'S OWN MOTION — what the player did in their game — never a second
+implementation of ours.** The user, 2026-09-13: *"a ghost is never in the same game, but its
+supposed to look 1:1 to what a player did in another game"*.
+
+If two tiers disagree, the honest answers are to improve the worse one or to accept the difference.
+The dishonest one is to degrade the better one until they match, and Emerald shows what that costs:
+its painted tier rendered every peer eight frames in the past, on purpose, to imitate the trailing a
+SPAWNED ghost has because the engine cannot begin a step mid-tile. That delay then became the
+dominant artifact — the camera stops the instant the player does, so the ghost spent those frames
+sliding across a stationary screen, a whole tile of it at running speed.
+
+**And it masked everything underneath.** A deliberate deviation is a confound in every judgement
+made afterwards: with it in, neither the user nor an agent can tell a defect from the offset we
+chose, so six real defects were found, fixed, and then judged against a ghost that was still a tile
+out of place. **When a fault survives several correct fixes, stop fixing and ask what is ADDED** —
+the deviation is the one variable known to be non-zero, and it is the first thing to subtract.
+Full write-up: [pitfalls/by-lesson.md](../../agent_docs/pitfalls/by-lesson.md), "THE FAULT WAS A
+DEVIATION WE ADDED ON PURPOSE".
+
 ## Hard rule: a ghost may never hide the player
 
 **Whatever the sorting rule is, the player wins a tie.** A ghost is cosmetic; taking the player off
