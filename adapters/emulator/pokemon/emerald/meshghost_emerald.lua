@@ -4953,6 +4953,34 @@ end
 -- it -- so re-spawning is the correct response to a documented engine lifecycle, not a patch over
 -- a bug of ours. What WOULD have been a bandage is what this replaces: cleaning up a slot we no
 -- longer own and hoping the numbers still meant what they meant.
+-- forgetPeerRenderState drops the per-peer rows this adapter's own rendering
+-- built for a ghost, so they go out the same door the ghost does.
+--
+-- THE RULE IS ALREADY WRITTEN DOWN A FEW LINES BELOW -- "every door out of a
+-- state has to remove what the state spawned" -- and these two rows were the
+-- ones not following it. reflectPalFor and rippleDue keep a six-slot row per
+-- player_id in tiering.lastTile (the drawn path) and tiering.hwLastTile (the
+-- hardware one), and nothing ever removed either.
+--
+-- What that costs is small and worth being exact about, because the 2026-09-12
+-- review filed it as a leak and the interesting part is that it mostly is not:
+-- the rows are six numbers, and reflectPalFor already IGNORES a stale one (it
+-- drops any row whose area differs or whose frame is more than 16 old), so a
+-- returning peer never reads a wrong reflection out of it. What is left is the
+-- table growing by one row per distinct player_id the session ever renders and
+-- never shrinking -- bounded per relay connection by the roster, unbounded
+-- across reconnects. Cheap to hold and cheaper to drop.
+local function forgetPeerRenderState(playerId)
+    -- `tiering` is forward-declared above and assigned further down the file, so
+    -- it is nil until load finishes. Nothing can despawn a ghost that early, but
+    -- indexing nil in Lua is a hard error that would take the whole adapter down
+    -- rather than misbehave quietly, which is not a bet worth taking to save a
+    -- comparison on a path that runs once per despawn.
+    if not tiering then return end
+    if tiering.lastTile then tiering.lastTile[playerId] = nil end
+    if tiering.hwLastTile then tiering.hwLastTile[playerId] = nil end
+end
+
 local function despawnGhost(playerId)
     local g = ghosts[playerId]
     if not g then return end
@@ -4984,6 +5012,7 @@ local function despawnGhost(playerId)
         local q = genderFrames.pendingTileFrees
         q[#q + 1] = { objId = g.objId, tileStart = g.tileStart, tileCount = g.tileCount }
         ghosts[playerId] = nil
+        forgetPeerRenderState(playerId)
         return
     end
     if ghostAlive(g) then
@@ -5003,6 +5032,7 @@ local function despawnGhost(playerId)
     -- Not ours any more: drop the bookkeeping and touch nothing. The engine already reclaimed
     -- both the slot and the tiles when it tore the map down.
     ghosts[playerId] = nil
+    forgetPeerRenderState(playerId)
 end
 
 despawnAllGhosts = function()

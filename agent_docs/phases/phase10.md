@@ -2047,3 +2047,52 @@ went to the user rather than being taken as a side effect of a security fix.
 
 TEVI's four peer-input fixes are in `adapters/tevi/UNVERIFIED.md`, built and deployed to both
 installs (hash `363B574C`); nothing adapter-side is claimed here. Nothing pushed.
+
+## 2026-09-12 (continued) — sections E and F worked to the end
+
+The user's order: finish the known backlog, then relaunch the seven cells that died to the cap.
+
+**Section E, a peer against the relay/host.** `7c22fc52`: a lease RENEW that changed nothing was
+broadcast room-wide and takes no table slot, so nothing bounded it at ~120/s x N; `seedArrivalInto`
+fired on every area change and walks every member under `r.mu`, measured at **80 seeds in a burst
+that now costs 8**; and the per-connection flood cap was a TUMBLING window, so 2x the cap crossed a
+boundary — it is a leaky bucket now, which matters because it multiplies every fan-out above it.
+`cb1e5710` + `5c382181`: three evictions and budgets ordered by age alone, in the three places where
+age is what a third party controls — a committed escrow record whose party is still away, a
+suspended member's addressed backlog against a broadcast flood, and the escrow section of a resume
+snapshot pushing world/lease/state off a 192-line budget.
+
+**E1 and E8 were dropped rather than fixed, which is what the T1 against `risks.md` was for.**
+`risks.md:621` already covers E8 in its own words and its reasoning covers E1: no shipped adapter
+negotiates `event.v1`, and a per-recipient gate on a RELIABLE plane is a contract decision for when
+a plane ships and its usage is known.
+
+**Section F, a hostile local process against the bridge.** `325c187e`: the state ring had a span
+ceiling and no COUNT bound — and `maxInputRingEdges`, the same bound on the ring one line away,
+states the lesson and names this very buffer as the one that only got half of it. Its teardown had
+the same asymmetry: the input ring is disarmed when the adapter goes and the state ring was not. And
+a bridge connection whose FIRST line is not NDJSON is hung up on now, which is what stops a browser
+POSTing into 7778 and having every header skipped until its body arrives as a line the bridge parses.
+
+**F5 went the OTHER way from the recommendation put to the user, and they were right.** `connect_to`,
+`room` and `room_code` are relaunch-only now. The argument for leaving them live — that a process
+able to write your config could kill the core anyway — argues one hole is no worse than another, not
+that this one should stay open. The near-miss is in `risks.md`: holding the keys back where they are
+USED is half a fix, because `reload()` replaces "what is live" with what it just read, so the gate
+would have held for exactly one save.
+
+**F2, F4, F6 and F7 are one mechanism and are NOT fixed**: the adapter slot is claimable without a
+hello. `core/bridgeserve.go` already flags it as "the unauthenticated-loopback design ... needs a
+decision, not a patch"; every candidate fix changes the adapter contract and the autostart flow, so
+it is with the user for an ADR.
+
+**Two review claims did not survive a read, and both are worth as much as a fix.** C7's premise is
+the documented design, stated on the field it overrides. D5/D6 were filed as memory leaks and are
+not — pooled instance ids are stable and finite, and Emerald's reflection rows are six numbers whose
+staleness is already handled by a 16-frame check. Reading D5 found a real defect underneath: the
+mark was never cleared, so a pooled effect a ghost had borrowed made the LOCAL player's own later
+effect on that object stop mirroring, a session-long decay with nothing logged.
+
+Two accepted risks written up with their reasoning in `risks.md`: the client's missing inbound rate
+limit (and why a wrong cap is worse than none), and the config decision. Adapter work is queued in
+TEVI's and Emerald's `UNVERIFIED.md`; nothing adapter-side is claimed. Nothing pushed.

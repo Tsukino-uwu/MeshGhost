@@ -252,6 +252,28 @@ under `luac 5.4` and the shared fuzz harness is green.
    stall and the total is quadratic in how long it lasts -- on the emulator thread. Capped at
    4096, the same number the core bounds a line by.
 
+## [READY] per-peer reflection rows go out the door with the ghost (2026-09-12)
+
+From the third adversarial review's container sweep (P2f). `reflectPalFor` and `rippleDue` keep a
+six-slot row per `player_id` in `tiering.lastTile` (the drawn path) and `tiering.hwLastTile` (the
+hardware one), and nothing removed either when a ghost despawned. `despawnGhost` now drops both, at
+both of its exits -- the same rule the function already states a few lines down: *"every door out of
+a state has to remove what the state spawned."*
+
+**Filed as a memory leak by the review; it mostly is not, and the difference is the point.** A row
+is six numbers, and `reflectPalFor` already ignores a stale one (it drops any row whose area differs
+or whose frame is more than 16 old), so a returning peer never read a wrong reflection out of it.
+What was real is the table growing by one row per distinct `player_id` a session ever renders and
+never shrinking -- bounded per relay connection by the roster, unbounded across reconnects.
+
+**Nothing about this should be visible**, which is exactly why it needs a look rather than a shrug:
+the risk in the change is a row dropped too eagerly, and that would show as a REFLECTION not drawn
+or drawn without its ripple.
+
+**What to watch:** a ghost standing on or beside water with a visible reflection, then walk it away
+and back -- the reflection and its ripple come back. Then have a peer leave and rejoin, and check
+their reflection still appears. A missing or still reflection where there was one is a decline.
+
 ## This run — watch these first
 
 **The READY entries below, newest first, at most ten.** Each says what to look at and what correct looks
@@ -260,6 +282,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../../../_template/UNVERIFIED.md`](../../../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — **per-peer reflection rows are cleared on despawn** — invisible if right; a reflection that stops being drawn, or stops rippling, is the way it would be wrong (2026-09-12)
 - READY — **replay and chaser ghosts have never been watched here** — they are made by the client and ride the ordinary ghost path (`core/localpeer.go`), so they should work; only Pseudoregalia has been seen (2026-09-11)
 - READY — the JSON decoder refuses input nested past 64 levels instead of following it; load and connect confirmed, the guard itself is not observable (2026-09-03)
 - READY — `"autostart": false` in config.json now stops the mod starting a client (the old MESHGHOST_NO_AUTOSTART still counts), built and deployed 2026-09-03, unwatched
