@@ -45,6 +45,26 @@ const (
 	// SHAPE and never reads the meaning.
 	MaxInputLabelLen = 32
 
+	// MaxInputFrame bounds InputEdge.F, and the reason is written three fields
+	// down in bridge.go already: "a JSON number is a float64 to every reader
+	// that is not Go". That sentence is why M is 32 bits and not 64. It applies
+	// to F word for word and was never applied.
+	//
+	// **A reader that is not Go is exactly what is on the other end.** The
+	// Pseudoregalia adapter parses `f` into a double and then does
+	// `static_cast<uint64_t>(max(0.0, f))`. A `uint64` near its own maximum
+	// serializes to 18446744073709551615, whose nearest double is 2^64 exactly
+	// -- one past the destination's range, so the cast is undefined behaviour,
+	// in the player's game process, from a clip a friend sent them. The `m`
+	// field on the line above that cast IS guarded, which is what makes this a
+	// missing guard rather than an unconsidered case (P2e-1, 2026-09-12).
+	//
+	// 2^53 is where a double stops representing consecutive integers, so it is
+	// the largest F that can survive the trip meaning what it said. It is not a
+	// restrictive bound: 9,007,199,254,740,992 against the tens of thousands the
+	// four adapters' own frame counters actually reach in a session.
+	MaxInputFrame = 1 << 53
+
 	// MaxInputAxisValue bounds the magnitude of one analog axis. Sticks are
 	// normalized to ±1 and a cursor is screen space, so this is far above any
 	// real value; it exists to refuse the infinities and 1e308s that survive a
@@ -113,6 +133,12 @@ func ValidateInputSample(s InputSample) bool {
 		if e.T < 0 || e.T > protocol.MaxTimestampMs {
 			return false
 		}
+		// Bounded for the same reason T is, one destination further along: see
+		// MaxInputFrame, where the narrowing this prevents is in the adapter's
+		// process rather than in ours.
+		if e.F > MaxInputFrame {
+			return false
+		}
 		if !validInputAxes(e.Ax) {
 			return false
 		}
@@ -159,6 +185,10 @@ func InputSampleRejectReason(s InputSample) string {
 		}
 		if e.T > protocol.MaxTimestampMs {
 			return fmt.Sprintf("edge %d: t %d is past the %d cap", i, e.T, int64(protocol.MaxTimestampMs))
+		}
+		if e.F > MaxInputFrame {
+			return fmt.Sprintf("edge %d: frame %d is past the %d cap (a double cannot carry it exactly)",
+				i, e.F, uint64(MaxInputFrame))
 		}
 		if n := len(e.Ax); n > MaxInputAxes {
 			return fmt.Sprintf("edge %d: %d axes over the %d cap", i, n, MaxInputAxes)

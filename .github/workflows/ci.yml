@@ -213,6 +213,14 @@ jobs:
         run: bash dev-scripts/ci-fuzz.sh ./bridge FuzzEnvelopeUnmarshalNeverPanics 30s
       - name: Fuzz bridge - hello decode never panics
         run: bash dev-scripts/ci-fuzz.sh ./bridge FuzzHelloUnmarshalNeverPanics 30s
+      # The two above decode into plain structs with no custom UnmarshalJSON, so
+      # between them they campaign encoding/json and no line of package bridge.
+      # This one has the package's own validator as its SUBJECT -- it was only
+      # ever an ORACLE, in core's track-parser target, always on a one-edge batch
+      # (X2-3 and X2-7, 2026-09-12). An input track is a file one player sends
+      # another, and the adapter reading it back narrows its fields in C++.
+      - name: Fuzz bridge - the input-sample validator and its reject reason agree
+        run: bash dev-scripts/ci-fuzz.sh ./bridge FuzzValidateInputSampleAgreesWithItsOwnRejectReason 30s
       # The four planes past cosmetic (2026-08-17) parse their own
       # attacker-controlled shapes: an event payload is opaque bytes forwarded
       # to other players, and a lease key or escrow id becomes a map key in the
