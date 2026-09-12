@@ -92,7 +92,7 @@ func (c *Core) storeRemoteState(st protocol.State) {
 	// the cover costs a receiver one seq comparison per state. The carrying
 	// state is stored WITHOUT it: the buffer holds samples, not packets.
 	if st.Prev != nil {
-		if prev, ok := protocol.ApplyPrev(&st); ok && !b.hasSeq(prev.Seq) {
+		if prev, ok := protocol.ApplyPrev(&st); ok && !b.hasSample(prev.Seq, prev.Timestamp) {
 			b.add(prev)
 			atomic.AddUint64(&c.stats.prevRecovered, 1)
 		}
