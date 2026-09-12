@@ -186,6 +186,23 @@ func validPrev(p *StatePrev) bool {
 	if p == nil {
 		return true
 	}
+	// THE ONE BOUND THIS FUNCTION OMITTED, despite its own comment above
+	// promising every bound the carrying state must meet. ValidateState applies
+	// exactly this to state.timestamp and says why on MaxTimestampMs; nothing
+	// applied it here, so any int64 walked in as prev.timestamp -- and ApplyPrev
+	// copies the timestamp across verbatim, so the sample that reaches the
+	// buffer is one ValidateState would have refused.
+	//
+	// The consequence is the third defect MaxTimestampMs lists, reached by the
+	// side door: the peer's newest timestamp becomes permanently the newest
+	// anything will ever be, the stale age-out can never fire for it, and the
+	// room keeps a frozen ghost holding a roster seat for the rest of the
+	// session. Same shape as the orientation-depth omission recorded below --
+	// a check applied to the state and not to the delta it carries. Found by
+	// the third adversarial review (P2b-1).
+	if p.Timestamp < 0 || p.Timestamp > MaxTimestampMs {
+		return false
+	}
 	if p.AreaID != nil && !ValidOpaqueString(*p.AreaID, MaxAreaIDLen) {
 		return false
 	}

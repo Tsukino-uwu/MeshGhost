@@ -448,6 +448,9 @@ func (c *Core) clearRelaySession(conn transport.Transport) (bool, relayRetry) {
 // The caller must hold c.mu.
 func (c *Core) forgetRelaySessionLocked() {
 	c.playerID = ""
+	// With the id it used to be inferred from: one Welcome per CONNECTION, and
+	// this is where a connection ends. See Core.welcomed.
+	c.welcomed = false
 	c.relayGame = ""
 	c.relayOwner = nil
 	// Cleared so a reconnect (to this relay again, or a different,
@@ -958,7 +961,15 @@ func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welc
 	switch env.Type {
 	case protocol.TypeWelcome:
 		c.mu.Lock()
-		alreadyWelcomed := c.playerID != ""
+		// A FLAG OF OUR OWN, not "is the relay-supplied id non-empty".
+		//
+		// This keyed off c.playerID != "" until 2026-09-12, which let the relay
+		// decide whether its own second Welcome was legal: name the client "",
+		// and the guard below never fires again. c.welcomed is set by this
+		// branch and cleared only by forgetRelaySessionLocked, so nothing the
+		// relay sends can talk it back down. Found by the third adversarial
+		// review (P3a-5).
+		alreadyWelcomed := c.welcomed
 		c.mu.Unlock()
 		if alreadyWelcomed {
 			// A second Welcome mid-connection is protocol-illegal — Welcome
@@ -970,7 +981,29 @@ func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welc
 		}
 		var w protocol.Welcome
 		if err := json.Unmarshal(env.Payload, &w); err == nil {
+			// THE ID THE RELAY GIVES *US* GETS THE SAME SHAPE CHECK AS THE ONES
+			// IT GIVES OUR PEERS, and it did not until 2026-09-12: the 09-12
+			// player_id fix bounded Join and State and left Welcome, the one
+			// that names this client, assigned verbatim.
+			//
+			// The three it now refuses, all reachable with one Welcome:
+			//   - empty, which is what made the second-Welcome guard above a
+			//     guard the relay controlled;
+			//   - unbounded, since this id is compared against every inbound
+			//     state's player_id and is reported to the adapter;
+			//   - "replay:"/"chaser:"-shaped, which collides with the namespace
+			//     this core hands its own ghosts (core/localpeer.go).
+			//
+			// Refused by dropping the Welcome rather than repairing it: an id is
+			// the relay's to assign, so there is nothing correct to substitute,
+			// and ConnectRelay then fails the dial instead of running a session
+			// under a name nothing agrees on.
+			if !acceptableRelayPeerID(w.PlayerID) {
+				log.Printf("core: the relay's welcome named this client with an unusable player_id -- refusing the session")
+				return
+			}
 			c.mu.Lock()
+			c.welcomed = true
 			// MERGED into the roster, not assigned over it. The relay adds a
 			// joining client to the room before it sends that client's
 			// Welcome, so another player joining in that window has its Join

@@ -1640,6 +1640,10 @@ func TestCoreDependsOnOrderedLifecycleDelivery(t *testing.T) {
 func TestSecondWelcomeIgnored(t *testing.T) {
 	c := New()
 	c.playerID = "p1"
+	// What a real first Welcome sets, and since 2026-09-12 the field the guard
+	// actually reads: "is playerID non-empty" was a test the RELAY could fail
+	// on purpose by naming this client "". See Core.welcomed.
+	c.welcomed = true
 	c.roster["p2"] = struct{}{}
 
 	payload, err := json.Marshal(protocol.Welcome{PlayerID: "p1", Roster: []string{"attacker-injected-id"}})

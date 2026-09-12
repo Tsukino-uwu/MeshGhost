@@ -828,6 +828,17 @@ type Core struct {
 	// in agent_docs/architecture.md.
 	roster map[string]struct{}
 
+	// welcomed is whether THIS connection has already had its one Welcome.
+	//
+	// A field rather than the "is playerID non-empty" test it replaced, and the
+	// difference is who decides: playerID is whatever the relay put in the
+	// Welcome, so a relay that named this client "" made the illegal-second-
+	// Welcome guard stop firing for the rest of the connection, and could then
+	// reset the roster, the feature set, the clock and the resume token at will.
+	// Cleared with the rest of the session in forgetRelaySessionLocked. Found by
+	// the third adversarial review (P3a-5).
+	welcomed bool
+
 	// agedOut is every id the age-out in remoteStatesAt took a roster seat
 	// from WITHOUT the relay saying it left. Such a peer is not gone: a
 	// BizHawk window that paused (menu open, focus lost with "run in

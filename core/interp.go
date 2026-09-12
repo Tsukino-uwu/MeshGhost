@@ -72,6 +72,28 @@ type remoteBuffer struct {
 	// diagnostics, see transitMeter); printed by the dry log.
 	lastTransitMs int64
 
+	// lastArrivalMs is WHEN a sample last arrived, on the receiver's own
+	// clock -- not what the sender said the time was. Stamped by
+	// storeRemoteState from the same c.nowMsLocked() everything else reads.
+	//
+	// It exists because the stale age-out judged silence by the newest
+	// TIMESTAMP, which is a value the sender chooses. MaxTimestampMs is
+	// 1<<42 ms, which lands in the year 2109, so any in-schema future
+	// timestamp put a peer permanently beyond the cutoff: never aged out,
+	// never despawned, holding a roster seat for the rest of the session,
+	// for an ~83-year window and with no error anywhere. Found by the third
+	// adversarial review (P2b-2).
+	//
+	// Used as an ADDITIONAL condition rather than a replacement, deliberately.
+	// A peer that is actually sending has a recent arrival, so this can never
+	// despawn anything the timestamp rule kept -- it only reaches peers that
+	// stopped sending, which is exactly the set the age-out is for. Judging
+	// silence by arrival ALONE would also be defensible and would fix a second
+	// thing (a peer whose clock runs behind ages out while sending happily),
+	// but that changes when a ghost disappears on screen for honest rooms too,
+	// which is the user's call and not a side effect of a security fix.
+	lastArrivalMs int64
+
 	// historyMs is how far back this buffer must reach, in milliseconds --
 	// the FUNCTIONAL bound, derived from the Core's render settings rather
 	// than fixed, so a large interpolation delay or a long prediction window

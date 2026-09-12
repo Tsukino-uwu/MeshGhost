@@ -81,6 +81,9 @@ func (c *Core) storeRemoteState(st protocol.State) {
 	// window derived once would then be wrong for the rest of the session.
 	b.historyMs = c.requiredHistoryMsLocked()
 	b.lastTransitMs = c.nowMsLocked() - st.Timestamp
+	// The receiver's own clock, so the age-out has one fact about this peer
+	// that the peer does not supply. See remoteBuffer.lastArrivalMs.
+	b.lastArrivalMs = c.nowMsLocked()
 	c.transit.record(b.lastTransitMs)
 	// LOSS COVER (ADR 0045): a state may carry the sample sent before it. If
 	// that sample never arrived here, it goes into the buffer first, in its
@@ -235,7 +238,15 @@ func (c *Core) remoteStatesAt(now int64) (map[string]protocol.State, map[string]
 		// player owns its own clip's end. An adapter that stops sending frames
 		// altogether stops driving render ticks too, so nothing is drawn in the
 		// meantime either way.
-		if stale > 0 && !local && buf.newestTimestamp() < cutoff {
+		// EITHER kind of silence, and the second one is the one a peer cannot
+		// lie its way out of: a timestamp is chosen by the sender and
+		// MaxTimestampMs lets it name the year 2109, which put it permanently
+		// past this cutoff. lastArrivalMs is stamped here on receive. A peer
+		// that is genuinely sending satisfies both, so nothing that survives
+		// today despawns now -- see the field for why this is an extra
+		// condition and not a replacement.
+		silent := buf.newestTimestamp() < cutoff || buf.lastArrivalMs < cutoff
+		if stale > 0 && !local && silent {
 			// Dropped from the map, not merely skipped: keeping it would hold
 			// its snapshots forever and let it spring back to life.
 			delete(c.remotes, id)
