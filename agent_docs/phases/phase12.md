@@ -271,3 +271,11 @@ reached before the step that tells them to copy the exe (`2c3ce628`).
 
 **And the shipped `config.json` stopped warning about its own keys** (`c611741d`), with two tests
 that had raced the new writer fixed alongside it.
+
+## 2026-09-12 — pointer: a formatting-only pass over four `docs/` pages
+
+`e58a53d3` normalised markdown table delimiters (`|---|` to `| --- |`, the MD060 lint rule) in
+`code-signing.md`, `config.md`, `integrating.md` and `security.md`, plus one stray blank line. **No
+prose changed.** Committed on its own so the third adversarial review that followed started from a
+clean tree and its diffs carried no unrelated noise; that review's record is
+[phase10.md](phase10.md), 2026-09-12.
