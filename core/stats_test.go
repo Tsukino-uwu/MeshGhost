@@ -14,7 +14,7 @@ import (
 
 func TestStatsCountCrossAreaDiscardsAtRenderTime(t *testing.T) {
 	c := New()
-	c.roster = map[string]struct{}{"near": {}, "far": {}}
+	c.roster = map[string]int64{"near": 0, "far": 0}
 	c.localAreaID = "town"
 
 	now := time.Now().UnixMilli()
@@ -50,7 +50,7 @@ func TestStatsCountCrossAreaDiscardsAtRenderTime(t *testing.T) {
 // could actually take.
 func TestStatsCountNothingCrossAreaWhenLocalAreaUnknown(t *testing.T) {
 	c := New()
-	c.roster = map[string]struct{}{"far": {}}
+	c.roster = map[string]int64{"far": 0}
 	c.localAreaID = "" // no adapter frame yet
 
 	now := time.Now().UnixMilli()

@@ -501,7 +501,7 @@ func (c *Core) forgetRelaySessionLocked() {
 	// case, which now merges so a Join that arrives first isn't erased -- so
 	// the reset has to be explicit here, or a stale id could outlive the
 	// connection that named it and pass the trust check on the next one.
-	c.roster = make(map[string]struct{})
+	c.roster = make(map[string]int64)
 	// THE ROSTER'S TWO SHADOW MAPS GO WITH IT, and they were left behind until
 	// 2026-09-12. Both are keyed by player_id, which the comment above says is
 	// only meaningful inside the connection that assigned it -- so a name and an
@@ -831,7 +831,8 @@ func runBeforeArmingAutoRetryHook() {
 // It logs and stops retrying instead; ConnectRelayOnAdapterHello's own
 // permanent-reject caching means this doesn't spam the relay either.
 func (c *Core) reconnectWithBackoff(gameID, adapterGameVersion string, bridgeConn transport.Transport) {
-	backoff, backoffMax := c.reconnectBackoffBounds()
+	initial, backoffMax := c.reconnectBackoffBounds()
+	backoff, holdFirst := c.resumeReconnectBackoff(initial, backoffMax)
 	for {
 		// STOP IF THE GAME IS GONE, checked every iteration -- the equivalent of
 		// the test retryRelayForSoloAdapter has always made, which this loop
@@ -863,6 +864,21 @@ func (c *Core) reconnectWithBackoff(gameID, adapterGameVersion string, bridgeCon
 		if transportIsClosed(bridgeConn) {
 			return
 		}
+		// WAIT BEFORE THE FIRST DIAL TOO, when the session this loop replaces
+		// achieved nothing. Every sleep in this loop used to be AFTER a failed
+		// dial, so a relay that welcomed and dropped got a free immediate
+		// redial every time -- see Core.reconnectBackoff. Looping rather than
+		// sleeping inline so the "is the game gone" check above still runs
+		// between the wait and the dial: this sleep reaches the ceiling, and a
+		// player can quit inside it.
+		if holdFirst {
+			holdFirst = false
+			log.Printf("core: the last relay session ended almost as soon as it started -- "+
+				"waiting %s before trying again", backoff)
+			time.Sleep(backoff) // wall-clock: paces real reconnect attempts
+			backoff = c.escalateReconnectBackoff(backoff, backoffMax)
+			continue
+		}
 		err := c.ConnectRelayOnAdapterHello(gameID, adapterGameVersion, bridgeConn)
 		if err == nil {
 			return
@@ -872,8 +888,54 @@ func (c *Core) reconnectWithBackoff(gameID, adapterGameVersion string, bridgeCon
 			return
 		}
 		time.Sleep(backoff) // wall-clock: paces real reconnect attempts
-		backoff = nextBackoffWithin(backoff, backoffMax)
+		backoff = c.escalateReconnectBackoff(backoff, backoffMax)
 	}
+}
+
+// resumeReconnectBackoff decides what a starting reconnect loop waits, from
+// what the PREVIOUS session managed. See Core.reconnectBackoff for the failure
+// this closes; holdFirst is whether to wait before the first dial rather than
+// only after a failed one.
+//
+// The threshold is the backoff itself rather than a new constant, and that is
+// what keeps it honest in both directions: a session that outlived the wait we
+// were about to impose is progress by definition, so an ordinary relay restart
+// resets to the floor and a flaky link settles where its uptime matches its own
+// backoff -- rather than escalating to the ceiling and overshooting
+// DefaultResumeGrace, which would turn a blip into a despawn for the whole room.
+func (c *Core) resumeReconnectBackoff(initial, max time.Duration) (backoff time.Duration, holdFirst bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	upAt := c.relaySessionUpAt
+	c.relaySessionUpAt = time.Time{} // cleared, not read: one verdict per session
+	held := c.reconnectBackoff
+	if held < initial {
+		held = initial
+	}
+	// No session at all to judge (a first connect, or a dial that never got a
+	// Welcome): the loop's own failure path owns the cadence from here.
+	if upAt.IsZero() {
+		c.reconnectBackoff = initial
+		return initial, false
+	}
+	if c.clk().Since(upAt) >= held {
+		c.reconnectBackoff = initial
+		return initial, false
+	}
+	c.reconnectBackoff = held
+	return held, true
+}
+
+// escalateReconnectBackoff doubles within max and REMEMBERS the result, so the
+// escalation survives this loop returning -- which it does the instant a dial
+// succeeds, however briefly.
+func (c *Core) escalateReconnectBackoff(cur, max time.Duration) time.Duration {
+	next := nextBackoffWithin(cur, max)
+	c.mu.Lock()
+	c.reconnectBackoff = next
+	c.mu.Unlock()
+	return next
 }
 
 // retryRelayForSoloAdapter keeps trying the relay for an adapter that was
@@ -1004,6 +1066,10 @@ func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welc
 			}
 			c.mu.Lock()
 			c.welcomed = true
+			// The moment this session came UP, which is what tells the next
+			// reconnect loop whether the last one achieved anything. See
+			// Core.relaySessionUpAt.
+			c.relaySessionUpAt = c.clk().Now()
 			// MERGED into the roster, not assigned over it. The relay adds a
 			// joining client to the room before it sends that client's
 			// Welcome, so another player joining in that window has its Join
@@ -1019,7 +1085,7 @@ func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welc
 			// Safe against a stale id outliving its connection because the
 			// roster is now cleared explicitly on disconnect.
 			if c.roster == nil {
-				c.roster = make(map[string]struct{}, len(w.Roster))
+				c.roster = make(map[string]int64, len(w.Roster))
 			}
 			for _, id := range w.Roster {
 				// continue, not break: one unusable id is no reason to refuse

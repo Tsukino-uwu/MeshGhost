@@ -508,14 +508,61 @@ func (c *Core) handleOnlineMessage(env protocol.Envelope) bool {
 // a relay echoing something this Core never sent.
 func (c *Core) observePong(pong protocol.Pong) {
 	recvAt := time.Now() // wall-clock: half of an RTT measurement of the real network
+	// THE RELAY'S CLOCK READING IS A TIMESTAMP AND GETS A TIMESTAMP'S BOUND.
+	// Nothing checked it until 2026-09-12, while every other int64 that crosses
+	// this wire goes through ValidateState's identical pair. Found by the third
+	// adversarial review (P3b-4).
+	if pong.ServerTimeMs < 0 || pong.ServerTimeMs > protocol.MaxTimestampMs {
+		return
+	}
 	c.mu.Lock()
 	sentAt, ok := c.pendingPings[pong.Nonce]
-	if ok {
-		delete(c.pendingPings, pong.Nonce)
-		c.clock.observe(sentAt, recvAt, pong.ServerTimeMs)
+	if !ok {
+		c.mu.Unlock()
+		return
+	}
+	delete(c.pendingPings, pong.Nonce)
+	before := c.clock
+	c.clock.observe(sentAt, recvAt, pong.ServerTimeMs)
+	// AND THE OFFSET IT PRODUCES IS BOUNDED, because the estimate is one-way in
+	// practice: nowMsLocked clamps its output monotonically (it must -- see the
+	// page it spends on why a render time may never rewind), so an offset that
+	// moves the clock forward is latched by the very next reading and no later
+	// correction can bring it back. One accepted sample therefore decides the
+	// rest of the session, and the only thing gating acceptance is beating the
+	// best RTT so far, which a relay does by replying quickly.
+	//
+	// What a large forward offset costs: every render time runs past every
+	// sample any peer has sent, so the whole room edge-holds, and the stale
+	// age-out despawns everyone on every tick. No error is raised anywhere,
+	// which is the part that makes it worth refusing rather than absorbing.
+	//
+	// REFUSED, not clamped: a clamped offset is still a number this Core
+	// invented, and reverting to the previous estimate keeps whatever honest
+	// measurement it already had. Refusing everything leaves offset 0, which is
+	// the pre-clock.v1 behaviour -- degraded (peers whose clocks disagree stop
+	// interpolating) and not broken.
+	//
+	// The bound is deliberately generous rather than tight. clock.v1 exists to
+	// correct ORDINARY machine skew, and a player running without time sync can
+	// legitimately be seconds or minutes out -- refusing those would regress the
+	// exact case the feature was added for. An hour is past the point where the
+	// machine's clock is breaking TLS certificate validation too, so nothing
+	// beyond it is a skew this is entitled to repair.
+	if off := c.clock.offsetMs; off > maxClockOffsetMs || off < -maxClockOffsetMs {
+		c.clock = before
+		c.mu.Unlock()
+		log.Printf("core: ignoring the relay's clock -- it puts this room %s away from this machine's "+
+			"own clock, which is past anything clock sync is meant to correct", time.Duration(off)*time.Millisecond)
+		return
 	}
 	c.mu.Unlock()
 }
+
+// maxClockOffsetMs bounds how far a relay's clock may move this client's. See
+// observePong, which explains why an offset is refused rather than clamped and
+// why the bound is an hour rather than something tighter.
+const maxClockOffsetMs = int64(60 * 60 * 1000)
 
 // recordPingSent remembers when a nonce went out, bounding the map so a relay
 // that never answers cannot make it grow. Pings are sequential per

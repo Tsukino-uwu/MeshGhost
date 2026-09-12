@@ -826,7 +826,46 @@ type Core struct {
 	// in a State was accepted with no cross-check, so a hostile or
 	// compromised relay could inject state for an arbitrary id. See the ADR
 	// in agent_docs/architecture.md.
-	roster map[string]struct{}
+	// The VALUE is when the seat was granted, on the injectable clock, and it
+	// is there so a seat with nothing behind it can be taken back.
+	//
+	// The age-out that frees seats walks c.remotes -- the BUFFER map -- so it
+	// only ever sees an id that has sent at least one state. An id admitted by
+	// a Join and never heard from again therefore held its seat for the whole
+	// connection, and MaxRosterSize of those (a relay can send them as fast as
+	// the socket allows, breaking no rule) locked the roster shut: no later
+	// join is admitted, and neither is the player's OWN chaser or replay, since
+	// admitLocalPeer goes through the same capped admission. What the player
+	// sees is a room that stops showing arrivals and a pack of ghosts that
+	// refuses to spawn, with PeersKnown pinned at 512. Found by the third
+	// adversarial review (P3a-4).
+	//
+	// Zero means "unset" -- the same convention remoteBuffer.historyMs uses,
+	// and it keeps a bare `c.roster[id] = 0` in a test out of the sweep.
+	roster map[string]int64
+
+	// reconnectBackoff and relaySessionUpAt carry the retry cadence ACROSS
+	// reconnect loops, because until 2026-09-12 it did not survive one.
+	//
+	// reconnectWithBackoff sleeps only after a FAILED dial and returns the
+	// moment one succeeds, so the escalation lived entirely inside one call. A
+	// relay that welcomes and then immediately drops therefore paid nothing: the
+	// disconnect started a fresh loop, whose first dial went out with no wait at
+	// all, and the client redialled at RTT cadence for as long as the relay
+	// cared to keep it up -- a TLS handshake, a goroutine set and a fresh map
+	// per cycle, none of it visible as an error. Found by the third adversarial
+	// review (P3b-3), and it is also the engine that made P3a-1 fast.
+	//
+	// relaySessionUpAt is when the current session was welcomed, on the
+	// injectable clock. The rule resumeReconnectBackoff applies to it is
+	// self-normalising: a session that lasted at least as long as the wait we
+	// were about to impose counts as progress and resets the cadence to the
+	// floor. An ordinary relay restart resets; a flaky link settles at the point
+	// where its uptime matches its own backoff instead of escalating to the
+	// ceiling and outliving DefaultResumeGrace; a welcome-then-drop, which is
+	// over in less than a round trip, escalates all the way.
+	reconnectBackoff time.Duration
+	relaySessionUpAt time.Time
 
 	// welcomed is whether THIS connection has already had its one Welcome.
 	//
@@ -1205,7 +1244,7 @@ func New() *Core {
 		LocalInterpolationDelay: DefaultLocalGhostDelay,
 		IdleKeepalive:           DefaultIdleKeepalive,
 		HeartbeatInterval:       DefaultHeartbeatInterval,
-		roster:                  make(map[string]struct{}),
+		roster:                  make(map[string]int64),
 	}
 }
 

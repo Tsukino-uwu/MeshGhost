@@ -30,7 +30,7 @@ func TestLocalGhostsAreNotDelayedByTheNetworkInterpolationDelay(t *testing.T) {
 	c.InterpolationDelay = 450 * time.Millisecond
 	c.LocalInterpolationDelay = 25 * time.Millisecond
 	c.playerID = "me"
-	c.roster = map[string]struct{}{"p1": {}, "chaser:1": {}}
+	c.roster = map[string]int64{"p1": 0, "chaser:1": 0}
 
 	// x IS the sample's age in ms, negative into the past, so a rendered x
 	// reads directly as "this ghost is drawn |x| ms behind now".
@@ -85,7 +85,7 @@ func TestALocalGhostStillInterpolatesRatherThanEdgeHolding(t *testing.T) {
 		c.InterpolationDelay = 450 * time.Millisecond
 		c.LocalInterpolationDelay = localDelay
 		c.playerID = "me"
-		c.roster = map[string]struct{}{"replay:pb": {}}
+		c.roster = map[string]int64{"replay:pb": 0}
 		base := c.nowMs()
 		// Samples every 10ms, x = age in ms, so any x that is not a multiple
 		// of 10 can only have come from interpolating between two of them.

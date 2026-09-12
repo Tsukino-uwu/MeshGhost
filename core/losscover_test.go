@@ -98,7 +98,7 @@ func receiverWith(t *testing.T, states ...protocol.State) (*Core, *remoteBuffer)
 	t.Helper()
 	c := New()
 	c.playerID = "p1"
-	c.roster["p2"] = struct{}{}
+	c.roster["p2"] = 0
 	for _, st := range states {
 		c.storeRemoteState(st)
 	}

@@ -1644,7 +1644,7 @@ func TestSecondWelcomeIgnored(t *testing.T) {
 	// actually reads: "is playerID non-empty" was a test the RELAY could fail
 	// on purpose by naming this client "". See Core.welcomed.
 	c.welcomed = true
-	c.roster["p2"] = struct{}{}
+	c.roster["p2"] = 0
 
 	payload, err := json.Marshal(protocol.Welcome{PlayerID: "p1", Roster: []string{"attacker-injected-id"}})
 	if err != nil {
@@ -1693,7 +1693,7 @@ func TestOversizedInboundStateFieldsDropped(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			c := New()
 			c.playerID = "self"
-			c.roster["p2"] = struct{}{}
+			c.roster["p2"] = 0
 
 			st.PlayerID = "p2"
 			c.storeRemoteState(st)
@@ -1726,7 +1726,7 @@ func TestNonFiniteInboundPositionDropped(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			c := New()
 			c.playerID = "self"
-			c.roster["p2"] = struct{}{}
+			c.roster["p2"] = 0
 
 			c.storeRemoteState(protocol.State{PlayerID: "p2", AreaID: "a", Position: pos, Anim: "idle"})
 
@@ -1747,7 +1747,7 @@ func TestNonFiniteInboundPositionDropped(t *testing.T) {
 func TestKnownPlayerIDStateIsAccepted(t *testing.T) {
 	c := New()
 	c.playerID = "self"
-	c.roster["p2"] = struct{}{}
+	c.roster["p2"] = 0
 
 	c.storeRemoteState(protocol.State{PlayerID: "p2", AreaID: "a", Position: []float64{1, 2}, Anim: "idle"})
 

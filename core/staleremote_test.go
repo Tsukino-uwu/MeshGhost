@@ -30,7 +30,7 @@ func TestASilentPeerIsDespawnedRatherThanLeftStanding(t *testing.T) {
 	c.InterpolationDelay = 0
 	c.RemoteStaleAfter = 100 * time.Millisecond
 	c.playerID = "me"
-	c.roster = map[string]struct{}{"ghosty": {}}
+	c.roster = map[string]int64{"ghosty": 0}
 
 	c.storeRemoteState(protocol.State{
 		PlayerID: "ghosty", AreaID: "a", Position: []float64{1, 2}, Timestamp: c.nowMs(),
@@ -67,7 +67,7 @@ func TestAPeerThatKeepsSendingIsNeverAgedOut(t *testing.T) {
 	c.InterpolationDelay = 0
 	c.RemoteStaleAfter = 100 * time.Millisecond
 	c.playerID = "me"
-	c.roster = map[string]struct{}{"steady": {}}
+	c.roster = map[string]int64{"steady": 0}
 
 	rendered := map[string]bool{}
 	for i := 0; i < 12; i++ {
@@ -94,7 +94,7 @@ func TestAgingOutCanBeDisabled(t *testing.T) {
 	c.InterpolationDelay = 0
 	c.RemoteStaleAfter = -1
 	c.playerID = "me"
-	c.roster = map[string]struct{}{"frozen": {}}
+	c.roster = map[string]int64{"frozen": 0}
 
 	c.storeRemoteState(protocol.State{
 		PlayerID: "frozen", AreaID: "a", Position: []float64{1, 2}, Timestamp: c.nowMs(),

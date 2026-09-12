@@ -143,7 +143,7 @@ func TestRenderRemoteCarriesTheBracketOverTheBridge(t *testing.T) {
 	c := New()
 	c.InterpolationDelay = 0
 	c.adapterWantsOrientBracket = true // the opt-in this message depends on
-	c.roster["p2"] = struct{}{}
+	c.roster["p2"] = 0
 	now := time.Now().UnixMilli()
 	c.storeRemoteState(protocol.State{PlayerID: "p2", Timestamp: now - 100, Position: []float64{0, 0, 0}, AreaID: "a", Orientation: rot(0)})
 	c.storeRemoteState(protocol.State{PlayerID: "p2", Timestamp: now + 100, Position: []float64{10, 0, 0}, AreaID: "a", Orientation: rot(90)})
@@ -196,7 +196,7 @@ func TestNoBracketUnlessTheAdapterAskedForIt(t *testing.T) {
 		c := New()
 		c.InterpolationDelay = 0
 		c.adapterWantsOrientBracket = want
-		c.roster["p2"] = struct{}{}
+		c.roster["p2"] = 0
 		now := time.Now().UnixMilli()
 		c.storeRemoteState(protocol.State{PlayerID: "p2", Timestamp: now - 100, Position: []float64{0, 0, 0}, AreaID: "a", Orientation: rot(0)})
 		c.storeRemoteState(protocol.State{PlayerID: "p2", Timestamp: now + 100, Position: []float64{10, 0, 0}, AreaID: "a", Orientation: rot(90)})

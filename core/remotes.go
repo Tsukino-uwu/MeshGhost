@@ -141,6 +141,53 @@ func (c *Core) requiredHistoryMsLocked() int64 {
 	return need
 }
 
+// rememberAgedOutLocked records that id lost its roster seat to silence rather
+// than to a Leave, so a state from it can retake one. Extracted so the seatless
+// sweep below and the buffered age-out above cannot drift apart on the cap --
+// two copies of a bound is how a set of numbers meant to agree stops agreeing.
+// Caller holds c.mu and has already taken the seat.
+func (c *Core) rememberAgedOutLocked(id string) {
+	atomic.AddUint64(&c.stats.remotesAgedOut, 1)
+	// Full means forget this peer completely -- the tag too -- rather than
+	// remember it half way. It is then exactly an id that left: whoever holds
+	// it next arrives with a Join and is admitted fresh.
+	if len(c.agedOut) >= protocol.MaxRosterSize {
+		delete(c.remoteNames, id)
+		return
+	}
+	if c.agedOut == nil {
+		c.agedOut = make(map[string]struct{})
+	}
+	c.agedOut[id] = struct{}{}
+}
+
+// sweepSeatlessLocked takes back roster seats that have never had a state
+// behind them. Caller holds c.mu; cutoff is remoteStatesAt's own.
+//
+// THE AGE-OUT ABOVE CANNOT SEE THESE, because it walks c.remotes and an id that
+// only ever appeared in a Join has no buffer there. See Core.roster for what a
+// relay does with that: MaxRosterSize stateless Joins, which cost it nothing,
+// lock the room shut for real arrivals AND for the player's own chasers and
+// replays, since admitLocalPeer shares the admission.
+//
+// Local ids are exempt for the same reason they are exempt above: a chaser or
+// replay is admitted before its feeding goroutine has produced anything, and
+// dropping its seat in that window is the 2026-09-08 regression ADR 0053 was
+// written to fix.
+func (c *Core) sweepSeatlessLocked(cutoff int64) {
+	for id, seatedAt := range c.roster {
+		// Zero is "unset" (see Core.roster) and never sweeps.
+		if seatedAt == 0 || seatedAt >= cutoff || isLocalPeerID(id) {
+			continue
+		}
+		if _, buffered := c.remotes[id]; buffered {
+			continue
+		}
+		delete(c.roster, id)
+		c.rememberAgedOutLocked(id)
+	}
+}
+
 func (c *Core) dropRemote(playerID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -203,6 +250,11 @@ func (c *Core) remoteStatesAt(now int64) (map[string]protocol.State, map[string]
 	// "no sample for this long" needs no knowledge of what a sample means.
 	stale := c.remoteStaleAfter()
 	cutoff := c.nowMsLocked() - stale.Milliseconds()
+	// The seats the loop below is structurally unable to see: a Join with no
+	// state behind it never creates a buffer, so it never appears here.
+	if stale > 0 {
+		c.sweepSeatlessLocked(cutoff)
+	}
 	for id, buf := range c.remotes {
 		// THE ID, NOT A c.localPeers LOOKUP -- the same rule cosmetic is built
 		// from, for the same reason (localpeer.go). Membership is dropped and
@@ -289,16 +341,7 @@ func (c *Core) remoteStatesAt(now int64) (map[string]protocol.State, map[string]
 			// whoever holds it next arrives with a Join and is admitted fresh.
 			// An honest room cannot reach this, because it can never have had
 			// more than MaxRosterSize members to age out in the first place.
-			if len(c.agedOut) >= protocol.MaxRosterSize {
-				delete(c.remoteNames, id)
-				atomic.AddUint64(&c.stats.remotesAgedOut, 1)
-				continue
-			}
-			if c.agedOut == nil {
-				c.agedOut = make(map[string]struct{})
-			}
-			c.agedOut[id] = struct{}{}
-			atomic.AddUint64(&c.stats.remotesAgedOut, 1)
+			c.rememberAgedOutLocked(id)
 			continue
 		}
 		var st protocol.State

@@ -129,7 +129,7 @@ func TestALocalPeerRendersWithItsNametagAndNeverReachesTheRelay(t *testing.T) {
 
 	// A relay peer rendered through the same core does NOT get the flag.
 	c.mu.Lock()
-	c.roster["p7"] = struct{}{}
+	c.roster["p7"] = 0
 	c.mu.Unlock()
 	c.storeRemoteState(protocol.State{PlayerID: "p7", Timestamp: c.nowMs(), AreaID: "a", Position: []float64{9, 9}, Anim: "idle"})
 	pumpUntil(t, fa, func() bool { _, ok := fa.renderMsgOf("p7"); return ok }, "the relay peer to render")

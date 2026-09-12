@@ -364,7 +364,7 @@ func TestALateDropFromASupersededConnectionChangesNothing(t *testing.T) {
 	c.activeFeatures = []string{protocol.FeatureResumeV1}
 	c.clock = clockSync{offsetMs: 7, bestRTTMs: 3}
 	c.lastNowMs = 1234
-	c.roster = map[string]struct{}{"p-peer": {}}
+	c.roster = map[string]int64{"p-peer": 0}
 	c.mu.Unlock()
 
 	before := snapshotSession(c)

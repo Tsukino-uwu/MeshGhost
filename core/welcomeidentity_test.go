@@ -42,7 +42,7 @@ func TestAnEmptyPlayerIDCannotSwitchOffTheSecondWelcomeGuard(t *testing.T) {
 	// chose. Before the fix this left the guard's own test false forever.
 	c.playerID = ""
 	c.welcomed = true
-	c.roster["p2"] = struct{}{}
+	c.roster["p2"] = 0
 
 	welcome := make(chan protocol.Welcome, 1)
 	reject := make(chan protocol.Reject, 1)

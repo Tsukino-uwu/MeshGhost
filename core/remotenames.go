@@ -37,7 +37,7 @@ import (
 // is always admitted (a repeated join is not a new seat). Caller holds c.mu.
 func (c *Core) admitToRosterLocked(playerID string) bool {
 	if c.roster == nil {
-		c.roster = make(map[string]struct{})
+		c.roster = make(map[string]int64)
 	}
 	if _, present := c.roster[playerID]; present {
 		return true
@@ -45,7 +45,9 @@ func (c *Core) admitToRosterLocked(playerID string) bool {
 	if len(c.roster) >= protocol.MaxRosterSize {
 		return false
 	}
-	c.roster[playerID] = struct{}{}
+	// Stamped with the admission, so remoteStatesAt can tell a seat that is
+	// merely new from one that has never carried anything. See Core.roster.
+	c.roster[playerID] = c.nowMsLocked()
 	return true
 }
 
