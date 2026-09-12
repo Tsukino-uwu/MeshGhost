@@ -149,6 +149,28 @@ type sampleRing struct {
 // session.
 const maxRingSpan = 10 * time.Minute
 
+// maxRingSamples bounds the ring by COUNT as well as by span, and it is the half
+// that was missing until 2026-09-12.
+//
+// maxInputRingEdges, the same bound on the ring beside this one, states the
+// lesson and names this very buffer as the one that only got half of it: "span
+// alone is not a bound -- a time-bounded buffer fed at an uncapped rate is an
+// unbounded buffer". G8 gave this ring a span ceiling and stopped there. The
+// span answers a fat-fingered `save_last`; it answers nothing at all about the
+// RATE, and the rate is a local process's to choose -- the bridge applies no
+// limit on inbound frames, and its line cap is transport's 64 KiB rather than
+// the relay's 4096. Found by the third adversarial review (P4a-1).
+//
+// 200,000 matches maxInputRingEdges, and lands above the fastest real feed at
+// the largest span this ring will hold: Pseudoregalia's adapter sends ~180Hz,
+// which is 108,000 samples over the ten-minute ceiling. At the ~128 bytes a
+// plain sample costs that is ~26MB; a sample carrying a large extras map costs
+// more, which is the reason to have the bound rather than a reason to raise it.
+//
+// Dropping the OLDEST, exactly as the span cutoff does: the ring's whole purpose
+// is "the last N of play", so the newest sample is never the one to refuse.
+const maxRingSamples = 200_000
+
 // setSpan is the raw setter and clamps SILENTLY: armRing is the config path and
 // says out loud what it asked for and what took effect, and repeating that here
 // would log once per adapter attach for a setting that has not changed.
@@ -175,6 +197,11 @@ func (r *sampleRing) add(st protocol.State) {
 	drop := 0
 	for drop < len(r.buf)-1 && r.buf[drop].Timestamp < cutoff {
 		drop++
+	}
+	// The COUNT bound, applied after the span one so the two agree on which end
+	// they take from. See maxRingSamples.
+	if over := len(r.buf) - drop - maxRingSamples; over > 0 {
+		drop += over
 	}
 	if drop > 0 {
 		// Copy down rather than reslice forever: a reslice keeps the whole

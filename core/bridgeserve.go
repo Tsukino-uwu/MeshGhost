@@ -38,11 +38,40 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 
 	nd.OnError(func(err error) { log.Printf("core: bridge connection error: %v", err) })
 	nd.OnDisconnect(func(err error) { c.bridgeConnGone(nd) })
+	// spoke is whether this connection has ever produced a line this bridge
+	// could read. See the first-line rule in OnReceive below. Written and read
+	// only there, which transport guarantees is one goroutine per connection.
+	spoke := false
 	nd.OnReceive(func(payload []byte) {
 		var env bridge.Envelope
 		if err := json.Unmarshal(payload, &env); err != nil {
+			// A CONNECTION WHOSE FIRST LINE IS NOT NDJSON IS NOT AN ADAPTER, and
+			// is hung up on rather than listened to.
+			//
+			// It used to be "ignore the line, keep the connection", which is what
+			// lets a NON-NDJSON protocol talk to this port by prefix: a browser
+			// on any page can POST to 127.0.0.1:7778 without reading the reply,
+			// and every header line is simply skipped until the request BODY --
+			// which the page chooses -- arrives as a line this bridge does parse.
+			// The classic cross-protocol shape, and the same reason Redis added
+			// its POST/Host guard. Found by the third adversarial review (P4a-3);
+			// whether Chrome's Private Network Access already blocks the request
+			// is not something this side should be relying on.
+			//
+			// ONLY THE FIRST LINE, deliberately. A mid-session unparseable line
+			// is a bug in an adapter that has already proved it speaks the
+			// protocol, and dropping its connection would cost the player their
+			// ghosts over one bad frame -- the 2026-09-06 slow-adapter lesson.
+			// An HTTP request cannot get past this, because its first line is
+			// always the request line.
+			if !spoke {
+				log.Printf("core: a bridge connection opened with a line that is not NDJSON -- closing it " +
+					"(this port speaks one protocol, and something else is talking to it)")
+				_ = nd.Close()
+			}
 			return
 		}
+		spoke = true
 		// ADMISSION APPLIES TO EVERY MESSAGE, NOT JUST HELLO. Only the hello
 		// case checked attachedAdapter, so every other bridge message was
 		// dispatched off whatever connection reached the socket. The bridge
@@ -494,6 +523,17 @@ func (c *Core) finishBridgeTeardown(nd transport.Transport, wasAdapter, ownsRela
 		log.Printf("core: closing the input track on adapter disconnect: %v", err)
 	}
 	c.SetInputRingSpan(0)
+	// AND THE STATE RING BESIDE IT, which was left armed until 2026-09-12 while
+	// its sibling one line up was disarmed here from the start.
+	//
+	// The ring is fed from the adapter's frames, so an armed ring with no
+	// adapter holds whatever the last session left in it for the life of the
+	// core process -- and it is fed again the moment ANY bridge connection
+	// starts sending, whether or not it ever became the adapter. SetRingSpan(0)
+	// frees the buffer outright (see sampleRing.setSpan), and armRing puts it
+	// back when the next adapter attaches, which is the same path that armed it
+	// for this one. Found by the third adversarial review (P4a-1).
+	c.SetRingSpan(0)
 }
 
 // onAdapterFrame is the one entry point a wire-speaking adapter drives, per
