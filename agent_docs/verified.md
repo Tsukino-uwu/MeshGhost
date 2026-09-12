@@ -138,6 +138,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-09 — core: an aged-out peer is back on its next fresh state (a paused emulator returns), confirmed in a five-client room
 - 2026-09-11 — the bridge is not the constraint: a sweep to 256 peers over REAL sockets, and where it actually bends
 - 2026-09-12 — three numbers from the third review's backlog, each measured rather than reasoned
+- 2026-09-12 (later) — the Welcome a stock relay cannot send, measured at six players
 
 ## Split per game — 2026-08-25
 
@@ -1948,3 +1949,60 @@ is recorded rather than glossed: `core/welcomeidentity_test.go` and parts of
 `core/hostileclip_test.go` reference identifiers the fix introduces, so they do not compile against
 the old tree. For those the pre-fix behaviour was confirmed by reverting only the file that could be
 reverted independently.
+
+## 2026-09-12 (later) — the Welcome a stock relay cannot send, measured at six players
+
+Go-side, confirmed with tools on this machine: a relay serving `netx.UDP` on loopback, real clients
+through `netx.Dial`, and the relay's own `welcomeLineBytes` reading the marshalled line.
+
+**The number, and why it is not the one the review expected**
+
+`protocol.MaxPayloadBytes` is 4095 — one under the line limit a receiver's scanner is configured
+with. A udp reliable `Send` carries **1181**: `MaxDatagramBytes` 1200, less 2 control bytes, 8 token
+bytes, 8 sequence bytes and the newline `transport` appends. Every reliable-send budget in the
+project was sized to the first number. Measured against the second:
+
+| roster | plain 24-rune names | names of `&` |
+|---|---|---|
+| 4 | 413 B | 923 B |
+| 6 | 565 B | **1291 B** |
+| 8 | 701 B | 1659 B |
+| 12 | 931 B | 2401 B |
+| 16 | **1195 B** | 3145 B |
+
+`protocol.SanitizeDisplayName` permits `&`, `<` and `>`; `encoding/json` escapes each to six bytes
+with HTML escaping on, which is the setting every marshal in the relay uses. So a maximal escaped
+nametag entry is ~173 bytes against ~34 for a plain one.
+
+**Six is inside `DefaultMaxClients`, which is 8.** No operator has to configure anything. On a stock
+relay, on the shipped default transport, the sixth player into a room where five people put an
+ampersand in their name is built a Welcome that `checkWritable` refuses; before `9a087808` that also
+closed their connection, and after it they simply never receive a Welcome. Everyone already in the
+room sees nothing at all, which is what makes it hard to report: the only person affected is the one
+who did nothing.
+
+**Confirmed by reverting, not by reasoning.** `relay/welcomebudget_test.go` fails without
+`f3243376` — and it fails at the SIXTH member of its twelve-member fixture, which is the table
+above arriving on its own from a direction that was not looking for it.
+
+**Two more measurements from the same cluster**
+
+- **quic-go's connection errors claim `net.ErrClosed`.** `*quic.ApplicationError` implements
+  `Is(net.ErrClosed) == true` deliberately, so generic code treats a dead connection as a closed
+  one. Confirmed by `netx/quicconn/died_test.go` failing an `errors.Is` assertion while carrying the
+  peer's real error code in its message. This is why P1d-4's fix had to move to `transport.fail`
+  reading its own `closed` flag: no cause named underneath could get past a check on the identity.
+- **`CloseGracefully`'s drain was not happening on either datagram transport, and the obvious test
+  cannot see it.** `TestConformanceTheRejectStillArrivesAfterCloseGracefully` passes on all three
+  WITHOUT `c119c935`: on loopback the single udp datagram is not lost, and quic's `closeLinger`
+  covers its own case by another route. Only `...KeepsReadingDuringTheDrain` fails, on udp and quic
+  both. Two of the four fixes in this cluster would have been called green by the assertion anyone
+  would write first.
+
+**The gates**
+
+`dev-scripts/run-gotests.bat` green after each of the four commits; `run-gotests-race.bat` green
+after the two that touch close ordering (`617dd796`, `c119c935`), with the MSYS2 mingw64 toolchain.
+Every regression test here was confirmed failing without its fix by reverting the source, except
+`netx/udpconn/halfclose_test.go`, which names a method the fix introduces and so cannot compile
+against the old tree — its behaviour is covered by the conformance test above, which can.

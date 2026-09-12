@@ -71,6 +71,16 @@
   choice). The assertion tests were retrofitted onto events and escrow on 2026-08-18
   (`netx/udpconn/world_bounds_test.go`), so the gap can no longer widen unnoticed;
   `MaxWorldBlobBytes` was derived this way from the start and does fit.
+  **The cost of this risk shrank on 2026-09-12 without the risk itself moving.** `transport.Send`
+  used to CLOSE the connection on any write error, so one of these messages did not merely go
+  undelivered — it hung up on that player, with no Reject and nothing in their log but a
+  disconnect. It now asks the error whether any of it reached the wire (`writeNeverHappened`), and
+  `checkWritable`'s refusal says no, so the message is dropped and the session continues. What is
+  written above is now the whole of it. Found by the transports cell of the 2026-09-12 review
+  (P1d-3), whose other half is that the relay was sizing its **Welcome** against the same wrong
+  number and reaching this same refusal at six named members — that one WAS fixed, because the
+  relay already had a trimming ladder and only needed the right budget to trim against
+  (`relay.sendBudget`).
 - **A lossy world write over quic is bounded by the path MTU, not by our own constants.** quic's
   `SendUnreliable` is a real datagram path (RFC 9221) and quic-go refuses a datagram larger than the
   connection's *current* path MTU rather than fragmenting it — a dynamic value that can sit below

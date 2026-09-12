@@ -2131,7 +2131,7 @@ closes the connection; `net.ErrClosed` hides why udp and quic peers vanish), P1b
 TLS-handshake log), X2-1 (the udp fuzz target never admits a connection, so the token path its own
 seeds describe is unreachable), and the lower-ranked remainder.
 
-## 2026-09-12 (last) — the pass reviewed its own fix, and was right to
+## 2026-09-12 — the pass reviewed its own fix, and was right to
 
 P2f, relaunched last with a rewritten brief, found that the Emerald reflection-row clear shipped
 earlier the same day sits on a DEAD PATH: `forgetPeerRenderState` hung on `despawnGhost`, which
@@ -2152,3 +2152,50 @@ hellos produced two mistakes worth recording -- a game id resolved per FILE rath
 FUNCTION, which gave one test a hello for the wrong game and closed its connection, and a test that
 expressed "no opt-in" by sending no hello at all, which would have passed today because nothing
 would arrive.
+
+## 2026-09-12 (last) — the transports cluster, and a finding the review under-rated
+
+P1d-1, P1d-3 and P1d-4 are three faces of one thing: what a connection means by "closed" is
+different on a stream and on a datagram, and every layer above was written for the stream.
+
+- `9a087808` — `transport.Send` closes the connection on any write error, which is right for the
+  case it was written for (a deadline expiring with a line half-sent leaves a stream NDJSON cannot
+  resynchronize, the 2026-09-01 150-peer incident) and wrong for one produced BEFORE the syscall.
+  It now asks the error whether any of it was written, structurally, the same trick
+  `unreliableWriter` uses; `udpconn.ErrDatagramTooLarge` answers no.
+- `f3243376` — **and the review said this was latent. It is not.** Every reliable-send budget in
+  the project is sized to `protocol.MaxPayloadBytes` (4095), which is what a RECEIVER's line
+  scanner accepts. A udp Send carries 1181, which is what the WIRE takes. Measured 2026-09-12: a
+  Welcome crosses at 16 members with plain names and at **six** with names containing `&` — which
+  `SanitizeDisplayName` permits and `encoding/json` spends six bytes on each — against
+  `DefaultMaxClients` of 8. So on a stock relay, on the default transport, with names a player can
+  type, the sixth person into that room is built a Welcome that cannot be sent, never receives one,
+  times out and reconnects into the same wall, while everyone already in the room sees nothing at
+  all. `sendBudget` asks the connection the way `transportName` already does; both Welcomes and the
+  snapshot.v1 join seed use it.
+- `617dd796` — `transport.fail` suppresses `net.ErrClosed` from `OnError` on the stated grounds
+  that only a local `Close()` produces it. True on tcp. On a datagram transport the peer cannot
+  hang up, so every terminal failure that exists there ends in a local close and arrived as exactly
+  that error: udp retry exhaustion (the only way that transport ever notices a vanished peer), a
+  quic idle timeout or broken path, and a quic peer tripping a 64 KiB line limit it had no way to
+  learn about. All swallowed.
+- `c119c935` — `CloseGracefully` asserts for `CloseWrite` and degrades to a hard close without one,
+  which neither datagram transport had. On udp that is worse than the reset it exists to avoid:
+  `Close` ends `retryLoop`, so a Reject goes out as ONE datagram with nothing behind it, and it
+  unregisters the Conn from its listener so the drain reads nothing.
+
+**The lesson worth keeping is in the third one.** Naming the causes down in `netx` was necessary and
+was not sufficient: quic-go's `*quic.ApplicationError` answers `errors.Is(err, net.ErrClosed)` with
+true, deliberately, so generic code treats a dead connection as a closed one. No cause named
+underneath could have got past a check on the identity. The fix is that `transport` stops asking the
+error and reads `c.closed`, a fact it already owns — *an error value is a claim anything may make; a
+flag you set yourself is not.*
+
+**And the drain is the assertion that catches it.** `TestConformanceTheRejectStillArrives...` passes
+on all three transports WITHOUT the fix, because on loopback the single datagram is not lost and
+quic's `closeLinger` covers its own case. Only "does the peer's next line still get read" fails.
+Two of the four fixes here would have been called green by the obvious test.
+
+Records: `agent_docs/verified.md`, `agent_docs/risks.md` (the maximal-event and maximal-escrow
+entries: an oversized reliable message no longer closes the connection, so those gaps cost a dropped
+message rather than a dropped player).

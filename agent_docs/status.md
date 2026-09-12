@@ -10,10 +10,9 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 
 ## Open now
 
-- 2026-09-12 — **Review pass 3's backlog is CLOSED — every finding fixed, dropped with a reason, or awaiting the user.** 16 commits, nothing pushed. `REVIEW-FINDINGS.md`, `phases/phase10.md`.
-- 2026-09-12 — **The 7 cells that died to the cap have been RELAUNCHED** (X1, P2c, P2e, X2, P1b, P1d). Until they land, 3 of 4 adapters are unreviewed. `REVIEW-FINDINGS.md`.
-- 2026-09-12 — **DECISION OWED: the bridge adapter slot is claimable with no hello** (F2/F4/F6/F7, one mechanism). Wants an ADR; `core/bridgeserve.go:70-77` already flags it.
-- 2026-09-12 — **Adapter fixes from the pass are UNWATCHED**: 5 in TEVI (built, deployed, hash-verified), 1 in Emerald. Each `UNVERIFIED.md`.
+- 2026-09-12 — **Review pass 3: all 17 cells have run (~74 claims); the transports cluster is fixed and the fuzz-coverage one is next.** 44 commits, nothing pushed. `REVIEW-FINDINGS.md`, `phases/phase10.md`.
+- 2026-09-12 — **A stock relay could not welcome the 6th player into a room of escaped names, on the default transport.** Fixed (`relay.sendBudget`); the measurement is in `verified.md`.
+- 2026-09-12 — **Adapter fixes from the pass are UNWATCHED**: 6 in TEVI (built, deployed, hash-verified), 2 in Crystal, 1 in Emerald. Each `UNVERIFIED.md`.
 
 - 2026-09-11 — **Autostart is opt-in everywhere now: the two Pokémon scripts look ONLY beside themselves** (ADR 0061). UNWATCHED in either game; three loads to check. Each `UNVERIFIED.md`.
 
