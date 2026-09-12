@@ -1003,3 +1003,12 @@ not.
 
 The same commit cleared the Pseudoregalia drive rig's per-pawn pointers in both release paths
 (preflight's stale-pointer check) and shipped that DLL to both installs.
+
+## 2026-09-12 — the replay reader hardened against a clip somebody sent you
+
+Logged in full in [phase10.md](phase10.md) with the rest of the third review's backlog: the clip and
+archive budgets moved from a sample count to a measured per-node memory cost (a 596-byte line of
+nested extras holds 21,896 bytes), the clip count is bounded by the roster, `speed` can no longer
+wrap the playback wait negative into a hot spin, `attachTrack` reserves only what a clip may keep,
+an input track's header is validated like the wire's, and a zip's track is not attached for an
+adapter that never asked. Commit `6ce852fc`.

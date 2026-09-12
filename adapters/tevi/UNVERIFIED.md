@@ -97,6 +97,50 @@ that fails to spawn, a marker that never appears, or a bullet that stops mirrori
    kind most likely to be orphaned. **Watch: after restarting a core under a running game, no
    leftover marker appears on the full map.**
 
+## [READY] five peer-input fixes from the 2026-09-12 review, built and deployed, UNWATCHED (2026-09-12)
+
+**None of these changes what the game looks like when a peer behaves**, so what is owed is "does
+everything still work" rather than "does it look right". Built, deployed to both installs,
+hash-verified `363B574C`. Four are things another player could do to your machine; the fifth is a
+decay you would have noticed eventually as your own effects quietly stopping.
+
+**What to watch, in one session:** two clients, ghosts on screen. Summon a core expansion (Sable
+and Celia) on one and check it appears on the other and disappears again. Boost so the shield
+shows. Fire orbs so the muzzle flashes mirror. Then keep playing for a while and check your OWN
+effects are still reaching the other client late in the session — that is the fifth one.
+
+1. **A peer can no longer make this machine Instantiate sprite rigs without limit.**
+   `visual.Summons` is keyed on a free string off the wire and every unseen key ran
+   `CreateRealGhostVisual` — a full player sprite rig plus a trail — with nothing counting, while
+   the creation guard tested the CONTROLLER NAME rather than the key, so one valid controller name
+   minted unlimited keys. The sweep only `SetActive(false)`s; nothing is destroyed mid-session.
+   Capped at four, **sized from what the game itself produces**: `ReadSummons` emits a row only for
+   `Character.Type.Celia` and `Character.Type.Sable` and keys on `cb.type.ToString()`, so an honest
+   peer makes exactly two, and `StartSummonTrail`'s orb pairing assumes the same two. **Watch: both
+   summons still render and still vanish when the peer dismisses them.**
+2. **Shield rotation is Infinity-checked, not only NaN-checked.** All seven components had the NaN
+   test; only `dx/dy/dz/sc` had the Infinity one, so an infinite `rz` reached
+   `transform.eulerAngles` and Unity logged an invalid-rotation error every frame. The platform
+   path right below already checked both, which is what makes this an oversight rather than a
+   policy. **Watch: a boosting peer's shield still appears, at the right angle.**
+3. **The flash pool index is bounded.** It went into `op.GetPooledObject(pool)` unchecked while
+   both sibling paths bound theirs. What the game assembly does with an out-of-range index could
+   not be read — which is the reason to bound it, not a reason not to. `x`/`y` gained the same
+   Infinity check as the shield. **Watch: orb shoot and charge flashes still mirror.**
+4. **The summon path counts against the rejected-name cap** it shares with the anim path
+   (`MaxRejectedAnimNamesPerPeer`) instead of adding to the same `HashSet` without a bound.
+5. **A pooled effect a ghost borrowed is un-marked when it goes inactive.** `ghostSpawnedEffects`
+   marks pooled objects a ghost used so the watcher does not echo them back as local activity — and
+   nothing ever removed a mark. A pooled object belongs to the GAME and is reused, so once a ghost
+   had borrowed one, the LOCAL player's own later effect on that object read as "ours" and was
+   never mirrored to anybody. Session-long decay, nothing logged. **Watch: late in a session, your
+   own hits and effects are still appearing on the other client.**
+   *(The 2026-09-12 review reported this pair as a memory leak. That does not survive a read —
+   pooled instance ids are stable and the pools are finite. The defect is staleness, not size.)*
+
+**None of the five is verified by anything on this side.** The Go-side half of the same review is
+confirmed with tools and is in `../../agent_docs/verified.md`; this is the half that needs eyes.
+
 ## This run — watch these first
 
 **The READY entries below, newest first, at most ten.** Each says what to look at and what correct looks
@@ -105,6 +149,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — **five peer-input fixes from the 2026-09-12 adversarial review** — summon cap, shield/flash Infinity checks, pool-index bound, and a stale effect mark that stopped your OWN effects mirroring late in a session (2026-09-12)
 - READY — **replay and chaser ghosts have never been watched here** — they are made by the client and ride the ordinary ghost path (`core/localpeer.go`), so they should work; only Pseudoregalia has been seen (2026-09-11)
 - READY — **projectiles: what is still unmirrored** — the confirmed half (walls, colours, no watcher damage) is in `VERIFIED.md`; the plain-shot distance, the drawn-sprite animation and four more shots are unwatched (2026-09-10)
 - READY — **from the orbitar/core-expansion evening**: the blue trail's count/parameters and its dodge-vs-hover order, and the `map_markers` config key — one AMBIGUOUS, needs a yes/no (2026-09-10)

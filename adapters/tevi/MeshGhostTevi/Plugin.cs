@@ -725,6 +725,12 @@ namespace MeshGhostTevi
         // must not grow anything without bound.
         private const int MaxRejectedAnimNamesPerPeer = 4;
 
+        // MaxSummonTypesPerGhost bounds visual.Summons, which is keyed on a free peer string and
+        // Instantiates a full sprite rig per unseen key. Two is what the game produces (ReadSummons
+        // filters to Character.Type.Celia and Character.Type.Sable and keys on cb.type.ToString());
+        // four leaves room for a summon a later build might add. See ApplyGhostSummons.
+        private const int MaxSummonTypesPerGhost = 4;
+
         private bool IsPlayableAnimName(RemoteGhostVisual visual, string anim)
         {
             if (visual == null || visual.Pc == null || visual.Pc.anim == null)
@@ -1969,8 +1975,25 @@ namespace MeshGhostTevi
                 bool nearPlayer = false;
                 foreach (GameObject go in pool)
                 {
-                    if (go == null || !go.activeInHierarchy)
+                    if (go == null)
                     {
+                        continue;
+                    }
+                    if (!go.activeInHierarchy)
+                    {
+                        // THE MARK LASTS AS LONG AS THE ACTIVATION IT DESCRIBES, and until
+                        // 2026-09-12 it lasted forever. A pooled object belongs to the GAME and is
+                        // reused: once a ghost had borrowed it, its id stayed in this set, so the
+                        // next time the LOCAL player's own effect came up on that object the check
+                        // below read it as ours and skipped counting it. The player's effect then
+                        // never mirrored to anybody, permanently, for every pooled object any ghost
+                        // had ever used -- a session-long decay with nothing logged.
+                        //
+                        // Not the memory leak the third adversarial review's salvage reported
+                        // (P2f). That claim does not survive a read: instance ids of pooled objects
+                        // are stable and the pools are finite, which is what the comment on the Add
+                        // side already says. The bug is the STALENESS, not the size.
+                        ghostSpawnedEffects.Remove(go.GetInstanceID());
                         continue;
                     }
                     // Ours, played for a ghost. Not local activity, and counting it is the echo.
@@ -2692,6 +2715,35 @@ namespace MeshGhostTevi
                     SummonGhost sg;
                     if (!visual.Summons.TryGetValue(type, out sg) || sg.Go == null)
                     {
+                        // A PEER DOES NOT GET TO DECIDE HOW MANY SPRITE RIGS WE INSTANTIATE.
+                        //
+                        // `type` is a free string off the wire and this dictionary is keyed on it,
+                        // so every unseen value used to run CreateRealGhostVisual -- a full player
+                        // sprite rig, plus a trail -- with nothing counting. The creation guard
+                        // below tests the CONTROLLER NAME, so one valid controller name is enough
+                        // to mint unlimited keys, and the sweep at the bottom of this method only
+                        // SetActive(false)s: nothing is destroyed mid-session. That is remote-driven
+                        // GameObject growth on the victim's machine, ending in OOM, which is over
+                        // the line this project draws. Found by the third adversarial review
+                        // (P2d-1 + P2f-1).
+                        //
+                        // SIZED FROM WHAT THE GAME ITSELF PRODUCES, not guessed: ReadSummons above
+                        // emits a row only for Character.Type.Celia and Character.Type.Sable, and
+                        // keys it on cb.type.ToString() -- so an honest peer can produce exactly two
+                        // distinct keys, and StartSummonTrail's own orb pairing assumes the same
+                        // two. Double that, so a future third summon still renders while a peer
+                        // inventing keys cannot grow the dictionary.
+                        if (visual.Summons.Count >= MaxSummonTypesPerGhost)
+                        {
+                            visual.RejectedAnims = visual.RejectedAnims ?? new HashSet<string>();
+                            if (visual.RejectedAnims.Count < MaxRejectedAnimNamesPerPeer
+                                && visual.RejectedAnims.Add("summoncap"))
+                            {
+                                Logger.LogWarning($"MeshGhost: {playerId} is naming more than {MaxSummonTypesPerGhost} "
+                                    + $"summon types; the game itself produces two, so the rest are not rendered.");
+                            }
+                            continue;
+                        }
                         if (cloneTemplate == null || cloneTemplate.spranim_prefer == null
                             || cloneTemplate.spranim_prefer.pixel == null || AreaResource.Instance == null)
                         {
@@ -2701,8 +2753,12 @@ namespace MeshGhostTevi
                         if (controller == null)
                         {
                             // Logged through the visual's rejected-name set so it is said once.
+                            // COUNTED against the same cap the anim path uses, which this bypassed
+                            // until 2026-09-12: it shares the HashSet and did not share the bound,
+                            // so a peer cycling controller names grew it without limit (P2d-4).
                             visual.RejectedAnims = visual.RejectedAnims ?? new HashSet<string>();
-                            if (visual.RejectedAnims.Add("summon:" + controllerName))
+                            if (visual.RejectedAnims.Count < MaxRejectedAnimNamesPerPeer
+                                && visual.RejectedAnims.Add("summon:" + controllerName))
                             {
                                 Logger.LogWarning($"MeshGhost: no animator controller named '{controllerName}' for {playerId}'s summon {type}; not rendering it.");
                             }
@@ -3073,9 +3129,16 @@ namespace MeshGhostTevi
             {
                 float dx = CellF(row, 0), dy = CellF(row, 1), dz = CellF(row, 2), sc = CellF(row, 3);
                 float rx = CellF(row, 4), ry = CellF(row, 5), rz = CellF(row, 6);
+                // THE THREE ROTATION COMPONENTS GET BOTH CHECKS, and until 2026-09-12 they got only
+                // the NaN half while the four offset/scale ones got both -- an oversight rather
+                // than a policy, since the platform path a hundred lines below applies both to its
+                // own values. An infinite rz reached transform.eulerAngles and Unity logged an
+                // invalid-rotation error EVERY FRAME for as long as the peer kept sending it.
+                // Found by the third adversarial review (P2d-2).
                 bool finite = !(float.IsNaN(dx) || float.IsNaN(dy) || float.IsNaN(dz) || float.IsNaN(sc)
                     || float.IsNaN(rx) || float.IsNaN(ry) || float.IsNaN(rz)
-                    || float.IsInfinity(dx) || float.IsInfinity(dy) || float.IsInfinity(dz) || float.IsInfinity(sc));
+                    || float.IsInfinity(dx) || float.IsInfinity(dy) || float.IsInfinity(dz) || float.IsInfinity(sc)
+                    || float.IsInfinity(rx) || float.IsInfinity(ry) || float.IsInfinity(rz));
                 if (finite)
                 {
                     GhostShield gs = visual.Shield;
@@ -4261,7 +4324,18 @@ namespace MeshGhostTevi
                 if (seq <= visual.LastFlashSeq) continue;
                 int pool = (int)CellF(row, 1);
                 float x = CellF(row, 2), y = CellF(row, 3);
-                if (op == null || float.IsNaN(x) || float.IsNaN(y)) continue;
+                // THE POOL INDEX IS BOUNDED HERE, and it was not until 2026-09-12 while both
+                // sibling paths bound theirs -- PoolCarryingKind tests `i < pooledObjectsList.Count`
+                // before touching it, and the MirroredCommonEffectTable path picks from a fixed
+                // table. What GetPooledObject does with an out-of-range index lives in the game
+                // assembly and could not be read, which is the reason to bound it rather than a
+                // reason not to: an index we cannot predict the handling of is one a peer must not
+                // choose freely. Infinity joins NaN on x/y for the same reason as the shield
+                // rotation above. Found by the third adversarial review (P2d-3).
+                if (op == null || op.pooledObjectsList == null
+                    || pool < 0 || pool >= op.pooledObjectsList.Count
+                    || float.IsNaN(x) || float.IsNaN(y)
+                    || float.IsInfinity(x) || float.IsInfinity(y)) continue;
                 GameObject fx = op.GetPooledObject(pool);
                 if (fx == null) continue;
                 bool left = row[4] is bool lb && lb;

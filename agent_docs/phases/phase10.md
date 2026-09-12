@@ -1981,3 +1981,69 @@ victim, a bounding negative, and what would have to exist for it to be false. No
 
 **The user stopped the session here** (going to bed), choosing to work the confirmed backlog before
 relaunching the failed cells. Nothing pushed; CI has not seen either fix.
+
+## 2026-09-12 — working the third review's backlog: eleven Go-side findings closed
+
+Picked up from `REVIEW-FINDINGS.md` (untracked working file) with the user's instruction to finish
+the backlog the ten completed cells produced before relaunching the seven that died to the cap.
+
+**First, the red CI nobody had read.** `gh run list` showed three failures on `110f099e` —
+`origin/master`, i.e. the last PUSHED commit. All three were already fixed by the eight local
+unpushed commits, and that was confirmed rather than assumed: `preflight -TreeOnly` clean,
+`spans_reuse.lua` and `json_fuzz.lua` OK, and the `quicconn` race clean over `-race -count=5`.
+
+**Section B — a hostile relay against a client that joined it.** Seven fixes in four commits:
+
+- `47c4aa7a` — `c.remoteNames` and `c.agedOut` shadow the roster, and neither had a bound or a
+  teardown. Two routes: `Welcome.Nametags`, whose keys the protocol never tied to `Welcome.Roster`;
+  and join / one state / go quiet, cycled, since the age-out gives the seat back and deliberately
+  keeps the tag. The bill lands on the NEXT adapter — one non-coalescing `remote_name` per entry
+  from `pushRemoteNames`, past `adapterQueueCap` the core calls the adapter stuck and tears the
+  bridge down, every game launch for the life of the process. The teardown clear is a FILTERED loop
+  and not `= nil`: the map also holds the player's own chaser and replay tags, and those ghosts
+  outlive a relay drop. Same shape as the near-miss recorded yesterday.
+- `d0dc9ecf` — `handleOnlineMessage` forwarded all four opt-in planes with no capability check
+  while every send path gated. The gate deliberately is NOT the mirror of `sendControlOn`:
+  `activeFeatures` comes out of the relay's own Welcome, so `planeNegotiated` also requires that
+  THIS side asked. `ValidateLeaseState`/`ValidateEscrowState` did not exist — those two were the
+  only relay→client messages reaching a game with nothing checked at all.
+- `c8f20a86` — `prev.timestamp` had no bound (the one `validPrev`'s own comment promises and
+  omitted); the age-out judged silence by a timestamp the SENDER chooses, so one in-schema future
+  state made a peer permanently undespawnable; and the second-Welcome guard read `c.playerID != ""`,
+  a field the relay fills. Reading the last one turned up its larger half: **the id that names US**
+  was assigned verbatim, while yesterday's fix bounded only the ids naming our peers.
+- `5f3bef6e` — the reconnect backoff never survived a reconnect (every sleep came after a FAILED
+  dial, and the loop returns on success), so a welcome-then-drop cycle redialled at RTT cadence;
+  `Pong.ServerTimeMs` was unbounded and `nowMsLocked` latches monotonically, so one pong moved the
+  clock **82.7 years**, measured; and a Join with no state behind it held a roster seat forever,
+  because the age-out walks the BUFFER map.
+- `83e1c554` — the loss cover's duplicate check scanned up to 1024 snapshots per message under
+  `c.mu`; it takes the timestamp now and looks up the run that shares it.
+
+**Section C — a hostile replay clip, the position nobody had looked at.** `6ce852fc`. The clip and
+archive budgets were counted in SAMPLES and sized on "128 bytes each", which is true of the `{}`
+line that was measured and nothing else. **Measured here rather than taken from the review**, and
+the measurement changed the fix: holding 20,000 decoded samples and reading `HeapAlloc` either
+side gives 126 B for `{}`, 4,129 B for ~90 flat extras keys, and **21,896 B for extras nested five
+deep — from a 596-byte line**, 36.7x its length, against 2.9x for a 1,644-byte flat one. So the
+line length is not a usable proxy: a byte budget over input would pass the 40 GB case and refuse
+the 9 GB one. Cost is charged per decoded NODE instead. Four more from the same file: the clip
+COUNT was bounded by neither budget (the test fixture is 100 KB of zip yielding 552 clips), `speed`
+divides the due time and wrapped `time.Duration` negative into a hot spin, `attachTrack` reserved
+capacity for the whole source track once per clip, and the zip path attached input tracks with no
+capability test — which also made the DISK path's gate a no-op, since it tests `clip.track != nil`.
+
+**Two findings did not survive a read, and that is worth as much as the fixes.** C7's premise
+(a clip's `start_delay` overriding the config) is the documented design, stated on the field it
+overrides. D5's "never cleared" is not a memory leak — pooled instance ids are stable and the pools
+finite — but reading it found a real defect underneath: the mark was never cleared, so once a ghost
+had borrowed a pooled effect, the LOCAL player's own later effect on that object read as ours and
+stopped mirroring. Session-long decay, nothing logged.
+
+**Not decided here, deliberately.** B9's client-side inbound rate limit is a design change with a
+visible cost; and judging the age-out by arrival ALONE would fix a second thing (a peer whose clock
+runs behind ages out while sending happily) but changes when ghosts disappear in honest rooms. Both
+went to the user rather than being taken as a side effect of a security fix.
+
+TEVI's four peer-input fixes are in `adapters/tevi/UNVERIFIED.md`, built and deployed to both
+installs (hash `363B574C`); nothing adapter-side is claimed here. Nothing pushed.
