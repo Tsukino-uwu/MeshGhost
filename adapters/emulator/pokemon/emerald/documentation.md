@@ -186,6 +186,60 @@ point is identical** — the same actions, the same step machine, the same anima
 NPC is a fair reference for what a ghost should look like, and why a spawned ghost driven by real
 movement actions inherits correct motion for free.
 
+### The bikes are two different machines (src/bike.c)
+
+**The Mach bike ACCELERATES across tiles.** `sMachBikeSpeeds[] = {PLAYER_SPEED_NORMAL,
+PLAYER_SPEED_FAST, PLAYER_SPEED_FASTEST}` is indexed by `bikeFrameCounter`, which climbs by one on
+every successful move and is capped at 2, so a straight line gets faster the longer it runs and
+`MachBikeTransition_TrySlowDown` walks it back down. **Its speed is therefore not a property of
+"being on a bike" but of how long you have been going** — a ghost's per-frame quantum has to change
+mid-ride, which is why the speed is sent every frame rather than latched at mount.
+
+**`gPlayerAvatar.bikeSpeed` is a derived byte and a trap.** It is
+`bikeFrameCounter + (bikeFrameCounter >> 1)`, so it takes the values **0, 1, 3** — at the slowest
+Mach tier a moving player reports `PLAYER_SPEED_STANDING`. That is the field this adapter used to
+send as `pspeed`, which is why a bike ghost was rendered at walking pace: the source said "standing"
+while the player rode. The honest source is the sprite's own `data[4]` (`MOVE_SPEED_*`), which is
+what `NpcTakeStep` indexes.
+
+**The Acro bike is a state machine, not a speed.** `sAcroBikeTransitions[]` has thirteen entries —
+face, turn, move, normal-to-wheelie, wheelie-to-normal, wheelie idle, hopping standing, hopping
+moving, side jump, turn jump, wheelie moving, wheelie rising, wheelie lowering — selected by
+`CheckMovementInputAcroBike` from an input HISTORY (`sAcroBikeTricksList`, a d-pad direction plus B
+within 4 frames is the jump). Its cadence is stated in its own comment: **"it takes 6 frames to
+advance 1 tile"**, which is `MOVE_SPEED_FAST_2` — the deliberately uneven 2,3,3,2,3,3.
+
+**What that means for a ghost.** A wheelie, a bunny hop, a side jump and a turn jump are ordinary
+MOVEMENT ACTIONS (`MOVEMENT_ACTION_ACRO_*`), so they reach a peer the same way any other action
+does: through the graphic and the sprite animation on the wire. A ghost reproduces them by wearing
+the peer's own graphic and animation frame — it cannot derive them from position, because a wheelie
+in place moves nothing at all and a hop moves exactly like a step.
+
+### Surf, Dive and Fly, as the movement model sees them
+
+The states have their own sections further down (the rider plus a second sprite, the underwater bob,
+the fishing alignment). This is only how each one MOVES, because that is what a ghost's per-frame
+quantum depends on — and `PlayerNotOnBikeMoving` (`src/field_player_avatar.c:608`) decides all of it
+in one place:
+
+- **Surfing is RUNNING speed.** `PlayerWalkFast`, with the decomp's own comment beside it: *"same
+  speed as running"* — `MOVE_SPEED_FAST_1`, 8 frames a tile, 2px a frame.
+- **Underwater is always WALKING speed.** The dash branch explicitly excludes it
+  (`!(flags & PLAYER_AVATAR_FLAG_UNDERWATER) && (heldKeys & B_BUTTON) && ...`), so B does nothing
+  down there: `MOVE_SPEED_NORMAL`, 16 frames a tile.
+- **Running on foot needs three things to agree**: B held, `FLAG_SYS_B_DASH` (the Running Shoes),
+  and `IsRunningDisallowed` for the tile you are standing on. A peer can therefore be holding B and
+  still walking, which is why a ghost must never infer a gait from an input.
+- **Fly is not movement at all.** It is a field-effect sequence that hides the character and puts it
+  on a bird sprite; nothing steps, so no position on the wire describes it. That is why it is the
+  one state this adapter lets past the peer-graphics gate, and why it has its own handling.
+
+**All of which the ghost gets for free, because they converge.** Surf, dive, both bikes, running and
+walking all end as ordinary movement actions stepped by `NpcTakeStep` at some `MOVE_SPEED_*` — and
+that constant is exactly what the sprite's `data[4]` reports and what this adapter now sends as
+`mspd`. **A per-state table of speeds would be a second source to keep in sync with the engine; the
+engine's own step speed is one source that is right by construction.**
+
 ### What this means for MeshGhost's renderers
 
 A **spawned** ghost is a real object event, so it inherits every line above for free — cadence,
