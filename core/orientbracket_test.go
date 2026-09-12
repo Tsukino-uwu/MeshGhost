@@ -258,6 +258,8 @@ func TestHelloOptInReachesRenderRemoteEndToEnd(t *testing.T) {
 	_, bridge2Addr := startCore(t, relayAddr, "spinner", "room1", "bob")
 
 	adapter1 := dialFakeAdapter(t, bridge1Addr)
+	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
+	adapter1.hello("spinner")
 	adapter2 := dialFakeAdapter(t, bridge2Addr)
 	adapter2.helloInterpolateOrientation("spinner")
 
@@ -289,7 +291,15 @@ func TestNoOptInMeansNoBracketOnTheWire(t *testing.T) {
 	_, bridge2Addr := startCore(t, relayAddr, "stepper", "room1", "bob")
 
 	adapter1 := dialFakeAdapter(t, bridge1Addr)
-	adapter2 := dialFakeAdapter(t, bridge2Addr) // no hello opt-in
+	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
+	adapter1.hello("stepper")
+	adapter2 := dialFakeAdapter(t, bridge2Addr)
+	// A PLAIN hello, which is the whole contrast: adapter2 introduces itself like any
+	// adapter and simply does not ask for the bracket, where adapter2 in the test above
+	// calls helloInterpolateOrientation. "No opt-in" was once expressed by sending no
+	// hello at all, which stopped being a distinction on 2026-09-12 when the core began
+	// requiring one -- and would have made this test pass because NOTHING arrived.
+	adapter2.hello("stepper")
 
 	yaw := 0.0
 	sawRender := false

@@ -235,6 +235,8 @@ func TestAPeersGhostSurvivesOurOwnReconnect(t *testing.T) {
 
 	bob, bobBridge := startCore(t, relayAddr, "emerald", "room1", "bob")
 	bobAdapter := dialFakeAdapter(t, bobBridge)
+	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
+	bobAdapter.hello("emerald")
 	waitForPlayerID(t, bob)
 
 	// Alice has no adapter of her own; her state goes straight through the

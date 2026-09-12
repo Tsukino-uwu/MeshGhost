@@ -684,6 +684,8 @@ func TestMismatchedSecondAdapterDoesNotKillFirstAdaptersRelaySession(t *testing.
 	// peer and confirm state sent by the first adapter still reaches it.
 	core2, bridge2Addr := startCore(t, relayAddr, "emerald", "room1", "bob")
 	adapter2 := dialFakeAdapter(t, bridge2Addr)
+	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
+	adapter2.hello("emerald")
 	time.Sleep(50 * time.Millisecond)
 
 	sent := protocol.State{AreaID: "emerald-0001", Position: []float64{5, 6}, Anim: "walking"}
@@ -752,7 +754,11 @@ func TestTwoCoresExchangeStateOverRealRelay(t *testing.T) {
 	core2, bridge2Addr := startCore(t, relayAddr, "emerald", "room1", "bob")
 
 	adapter1 := dialFakeAdapter(t, bridge1Addr)
+	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
+	adapter1.hello("emerald")
 	adapter2 := dialFakeAdapter(t, bridge2Addr)
+	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
+	adapter2.hello("emerald")
 
 	// Give core2's join a moment to land at the relay before core1 sends
 	// state, so the relay's room already has both members (this is what
@@ -799,7 +805,11 @@ func TestDisconnectDespawnsRemote(t *testing.T) {
 	_, bridge2Addr := startCore(t, relayAddr, "emerald", "room1", "bob")
 
 	adapter1 := dialFakeAdapter(t, bridge1Addr)
+	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
+	adapter1.hello("emerald")
 	adapter2 := dialFakeAdapter(t, bridge2Addr)
+	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
+	adapter2.hello("emerald")
 	time.Sleep(50 * time.Millisecond)
 
 	sent := protocol.State{AreaID: "a", Position: []float64{1, 1}, Anim: "idle"}
@@ -861,7 +871,11 @@ func TestOwnRelayDisconnectDespawnsRemotes(t *testing.T) {
 	core2, bridge2Addr := startCore(t, relayAddr, "emerald", "room1", "bob")
 
 	adapter1 := dialFakeAdapter(t, bridge1Addr)
+	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
+	adapter1.hello("emerald")
 	adapter2 := dialFakeAdapter(t, bridge2Addr)
+	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
+	adapter2.hello("emerald")
 	time.Sleep(50 * time.Millisecond)
 
 	sent := protocol.State{AreaID: "a", Position: []float64{1, 1}, Anim: "idle"}
@@ -919,7 +933,11 @@ func TestBridgeDisconnectDespawnsForPeer(t *testing.T) {
 	_, bridge2Addr := startCore(t, relayAddr, "emerald", "room1", "bob")
 
 	adapter1 := dialFakeAdapter(t, bridge1Addr)
+	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
+	adapter1.hello("emerald")
 	adapter2 := dialFakeAdapter(t, bridge2Addr)
+	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
+	adapter2.hello("emerald")
 
 	sent := protocol.State{AreaID: "a", Position: []float64{1, 1}, Anim: "idle"}
 	adapter1.frame(&sent)
@@ -1053,7 +1071,11 @@ func TestCrossAreaFiltersRemote(t *testing.T) {
 	_, bridge2Addr := startCore(t, relayAddr, "emerald", "room1", "bob")
 
 	adapter1 := dialFakeAdapter(t, bridge1Addr)
+	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
+	adapter1.hello("emerald")
 	adapter2 := dialFakeAdapter(t, bridge2Addr)
+	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
+	adapter2.hello("emerald")
 
 	// adapter2 must establish its own core's local area before filtering
 	// engages at all -- see remoteStatesAt's comment on the empty-
@@ -1141,6 +1163,8 @@ func TestRenderAllAreasDeliversCrossArea(t *testing.T) {
 	_, bridge2Addr := startCore(t, relayAddr, "emerald", "room1", "bob")
 
 	adapter1 := dialFakeAdapter(t, bridge1Addr)
+	// A real adapter introduces itself before the core will act for it (core/bridgeserve.go).
+	adapter1.hello("emerald")
 	adapter2 := dialFakeAdapter(t, bridge2Addr)
 	adapter2.helloAllAreas("emerald")
 

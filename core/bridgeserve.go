@@ -42,6 +42,9 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 	// could read. See the first-line rule in OnReceive below. Written and read
 	// only there, which transport guarantees is one goroutine per connection.
 	spoke := false
+	// warnedNoHello keeps the "never sent a hello" line to one per connection.
+	// Same goroutine as spoke, so no lock: transport delivers OnReceive serially.
+	warnedNoHello := false
 	nd.OnReceive(func(payload []byte) {
 		var env bridge.Envelope
 		if err := json.Unmarshal(payload, &env); err != nil {
@@ -96,22 +99,44 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 		// send-rate budget and one area_id. Found by the 2026-09-07 review, by
 		// two agents independently.
 		//
-		// WHAT THIS DOES NOT CLOSE. It refuses a non-hello message while a
-		// DIFFERENT connection holds the slot. It does NOT require a hello: the
-		// bridge has always accepted frames from a connection that never
-		// handshook -- every fakeAdapter in the suite relies on it -- and making
-		// one mandatory is a contract change, filed rather than done here. So a
-		// process that connects BEFORE the game still gets in; that is the
-		// unauthenticated-loopback design and it needs a decision, not a patch.
-		// What is closed is the case that needs no race to win.
+		// A HELLO IS NOW MANDATORY, which is the decision this comment used to
+		// say was owed (the user's call, 2026-09-12).
+		//
+		// It was "filed rather than done here" because making one mandatory is a
+		// contract change. What settled it: the window BEFORE the game starts.
+		// Nothing held the slot then, so a process that merely connected first
+		// got everything the paragraph above lists -- the core dialling the relay
+		// with ITS room, room code and name, the player's own states forwarded
+		// under an id it was given, and the render_remote stream for every peer
+		// -- without ever saying who it was.
+		//
+		// BE HONEST ABOUT WHAT THIS BUYS: it does not stop a hostile local
+		// process, which can send a hello of its own. It stops it being SILENT.
+		// Taking the slot now means CLAIMING it, so the real game's hello gets
+		// the "busy" refusal below, which is logged and which the player can see
+		// -- where before, the squatter needed no hello and the game's arrival
+		// simply found the slot taken. A visible takeover instead of an invisible
+		// one is the whole of the improvement, and it is worth having.
+		//
+		// The remaining exposure is unchanged and is the unauthenticated-loopback
+		// design itself: see docs/security.md and cmd/meshghost's bridgeIsLoopback.
+		// Found by the bridge cell of the third adversarial review (P4a-2, -4, -6).
 		if env.Type != bridge.TypeHello {
 			c.mu.Lock()
-			impostor := c.attachedAdapter != nil && c.attachedAdapter != nd
+			attached := c.attachedAdapter
 			c.mu.Unlock()
-			if impostor {
-				// Silent: this is usually a second copy of the game, whose own
-				// hello already got "busy" and said why. A line per message
-				// would let it flood the log at frame rate.
+			if attached != nd {
+				// Covers both cases with one test, and they want different
+				// logging. A DIFFERENT connection holding the slot is usually a
+				// second copy of the game, whose own hello already got "busy" and
+				// said why; a line per message would let it flood at frame rate.
+				// NOBODY holding it means this connection never handshook, which
+				// no shipped adapter does and which is worth saying once.
+				if attached == nil && !warnedNoHello {
+					warnedNoHello = true
+					log.Printf("core: ignoring %s from a bridge connection that never sent a hello -- "+
+						"an adapter must introduce itself before the core will act for it", env.Type)
+				}
 				return
 			}
 		}

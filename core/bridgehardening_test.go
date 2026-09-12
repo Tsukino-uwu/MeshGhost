@@ -18,6 +18,7 @@ package core
 import (
 	"encoding/json"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,6 +49,19 @@ func bridgePipe(t *testing.T, c *Core) (net.Conn, <-chan struct{}) {
 		}
 	}()
 	return client, done
+}
+
+// bridgePipeReadable is bridgePipe for a test that wants to READ the core's
+// reply. bridgePipe spawns a goroutine that drains the connection so it can
+// tell when the core hangs up, and that goroutine consumes exactly the bytes a
+// test like this is looking for -- which cost one debugging cycle before it was
+// split out.
+func bridgePipeReadable(t *testing.T, c *Core) net.Conn {
+	t.Helper()
+	server, client := net.Pipe()
+	t.Cleanup(func() { server.Close(); client.Close() })
+	go c.handleBridgeConn(server)
+	return client
 }
 
 // bridgeEnvelopeFor builds one bridge envelope with an arbitrary payload, so a
@@ -183,5 +197,88 @@ func TestABadLineMidSessionDoesNotDropAnAdapter(t *testing.T) {
 	case <-done:
 		t.Fatal("one unparseable line dropped an adapter that had already handshaked")
 	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+// P4a-2/-4/-6, the user's decision on 2026-09-12: a hello is mandatory.
+//
+// The window that settled it is the one BEFORE the game starts. Nothing held
+// the adapter slot then, so a process that merely connected first had the core
+// dial the relay with ITS room, room code and name, had the player's states
+// forwarded under an id it was given, and received the render_remote stream --
+// without ever saying who it was.
+//
+// What this buys, stated as the code states it: it does not stop a hostile
+// local process, which can send a hello of its own. It stops it being SILENT.
+func TestTheBridgeIgnoresAConnectionThatNeverSaidHello(t *testing.T) {
+	c := New()
+	client, _ := bridgePipe(t, c)
+
+	// local_state is the message that matters: it is the one forwarded to the
+	// relay under the real player's identity.
+	line, err := json.Marshal(bridgeEnvelopeFor(t, "local_state", map[string]any{
+		"state": map[string]any{"area_id": "town", "position": []float64{1, 2}},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Write(append(line, '\n')); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	time.Sleep(150 * time.Millisecond)
+
+	// ASSERTED ON THE RENDER TICK, not on attachedAdapter. A first draft checked
+	// the latter and passed against the unfixed code, because the old path never
+	// set it either -- it simply ACTED on the frame. A frame that is acted on
+	// drives tickRenders, which is the observable difference and is also the
+	// thing the abuse needs: the tick is what forwards the player's state and
+	// what answers with everybody else's.
+	if ticks := c.ticksBegun(); ticks != 0 {
+		t.Fatalf("a local_state from a connection that never sent a hello drove %d render tick(s) -- "+
+			"that tick forwards the player's own state to the relay and hands back every peer's", ticks)
+	}
+	c.mu.Lock()
+	attached := c.attachedAdapter
+	c.mu.Unlock()
+	if attached != nil {
+		t.Fatal("a connection that never sent a hello took the adapter slot")
+	}
+}
+
+// The converse, and the reason the fix is worth having rather than merely
+// tighter: a squatter now has to CLAIM the slot, so the real game's hello is
+// refused out loud instead of the takeover being invisible.
+func TestASecondHelloIsRefusedOutLoudRatherThanSilently(t *testing.T) {
+	c := New()
+	first := bridgePipeReadable(t, c)
+	hello, err := json.Marshal(bridgeEnvelopeFor(t, "hello", map[string]any{"game_id": "testgame"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.Write(append(hello, '\n')); err != nil {
+		t.Fatalf("write first hello: %v", err)
+	}
+	time.Sleep(150 * time.Millisecond)
+
+	c.mu.Lock()
+	claimed := c.attachedAdapter != nil
+	c.mu.Unlock()
+	if !claimed {
+		t.Fatal("the first hello did not claim the adapter slot")
+	}
+
+	second := bridgePipeReadable(t, c)
+	if _, err := second.Write(append(hello, '\n')); err != nil {
+		t.Fatalf("write second hello: %v", err)
+	}
+	_ = second.SetReadDeadline(time.Now().Add(testTimeout))
+	buf := make([]byte, 512)
+	n, err := second.Read(buf)
+	if err != nil {
+		t.Fatalf("the second hello got no answer at all: %v -- a refusal a player cannot see "+
+			"is the thing this change exists to remove", err)
+	}
+	if !strings.Contains(string(buf[:n]), "busy") {
+		t.Fatalf("the second hello was answered with %q, which does not say the core is busy", buf[:n])
 	}
 }
