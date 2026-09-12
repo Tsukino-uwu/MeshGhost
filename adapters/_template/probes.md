@@ -118,6 +118,58 @@ Related, when a write of yours keeps getting undone: something is **maintaining*
 what state *it* reads rather than writing harder — re-asserting every tick just loses the race
 visibly.
 
+## A driven leg is MEASURED, not timed — hold until the state changes, then stop — 2026-09-12
+
+**A probe that drives input must end each leg on the game's own state, never on a frame count.**
+"One tile" is a fact about the position; a frame count is a guess at how long that takes, and the
+guess is wrong the moment anything changes what a step costs — riding a bike, rough terrain, a
+different game speed, or simply a step boundary the leg does not divide into.
+
+**The case.** Emerald's `probes/seam_shuttle.lua` first held each direction for a fixed 20 frames.
+A walking step is 16, so every leg leaked four frames into the next one: the character never
+stopped, and it drifted further each lap. The user, watching it: *"you are walking to fast/to far
+left"*, then *"now you are walking to far right"*, then the rule itself — ***"i never told you to
+spam moving in a direction. i said 1 tile specifically for this reason"***. Rewritten to press
+until the tile coordinate changes (or the map does, since a seam rebases x) and then release, it
+was right first time: *"there we go, now it works like a probe should."*
+
+**The shape that works**, and all four parts earn their place:
+
+1. **Press until the state says the leg is done** — `x ~= startX or area ~= startArea`. Both tests,
+   because across a seam the new map's numbering can compare equal to where the leg started.
+2. **Then STAND STILL for a fixed settle** (24 frames here). The stop is not politeness: an adapter
+   that only re-calibrates while the player is settled — Emerald's anchor wants four still frames —
+   is otherwise measured in a state the player never sits in.
+3. **A stuck-leg escape** (90 frames) so a wall, an NPC or a locked map turns the probe around
+   instead of pinning the d-pad down forever.
+4. **Re-read the pointer every frame.** A save-block pointer moves; a cached one reads a plausible
+   number from nowhere.
+
+**The general form: driving input is a state machine over the game's own state, not a metronome.**
+A timed press is indistinguishable from spamming the button, and it produces a probe whose own
+motion is a second variable in every reading it takes.
+
+## Check the sibling game's `probes/` before writing one — 2026-09-12
+
+**Before writing a probe, look for it in the adapter for the same series or genre.** Two games in
+one lineage raise the same questions, so the instrument usually already exists and has already been
+through a live session: what it logs, what it refuses to trust, and the countdown it gives the user
+are all things the other game paid for. Porting one is an address swap and a few minutes; writing a
+new one is a session.
+
+**The case.** Emerald needed a probe that paces a route/town seam so a crossing fault repeats
+instead of happening once. Crystal's `probes/seam_shuttle.lua` — 30 lines, written for the user's
+own back-and-forth repro on 2026-08-27 — was exactly that, and its sibling `seam_drive.lua` is the
+instrumented version. Emerald's port changed the addresses (a `SaveBlock1` pointer and GBA reads
+instead of Crystal's flat WRAM) and nothing else, and it carried across two things a fresh script
+would have missed: re-read the save-block POINTER every frame rather than caching it, and keep a
+leg long enough for the adapter's anchor to settle at each end.
+
+**The same applies to what the probe is FOR** — the engine behaviour it is asking about has usually
+been met and solved once already in the sibling adapter, whose comments carry the dated reasoning.
+[README.md](README.md), "And the adapter for the same SERIES or GENRE", is that rule; this is its
+probe half.
+
 ## Drive the input one way, then reverse it — a probe the player can actually run
 
 When you need to find *which* of 32k bytes is a thing, the hard part is usually the reference: a

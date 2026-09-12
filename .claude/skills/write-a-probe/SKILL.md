@@ -32,6 +32,7 @@ measurement.**
 
 | Goal | Section in `probes.md` |
 |---|---|
+| anything, before writing a line of it | "Check the sibling game's `probes/` before writing one" — same series/genre, the instrument usually exists |
 | find a value you cannot name | "Drive the input one way, then reverse it"; "Reverse the STATE too, not just the input" |
 | a general search that is not going anywhere | "How to find things — the general form"; "Ways of finding things that worked" |
 | reach a state to measure it | "Or play to it"; "Edit the world instead of travelling to it" |

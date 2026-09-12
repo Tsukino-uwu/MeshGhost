@@ -4269,3 +4269,42 @@ on screen after the change as well as before it.
 address for its connections pointer, so cross-map ghosts remain vanilla-shaped on patched builds.
 Separate feature, separate confirmation; `genderFrames.mapLayoutPtr()` is the handle when it is
 picked up.
+
+## 2026-09-12 — USER-CONFIRMED ON SCREEN: three seam defects fixed, walking and running
+
+The user, pacing a route/town connection with two instances: *"seams work fine now"*, and
+separately *"i also tested seams with running, worked fine for both walking/running"*. The two
+symptoms that opened it, in their words: *"on emerald1, the ghost is moving slow while crossing"*
+and *"on emerald2 the ghost is snapping/teleporting around a bit when the player is crossing"* —
+emerald2's half confirmed first (*"now emerald 2 looks fine"*), emerald1's after the third fix.
+
+**Scope: vanilla, walking and running, an east/west connection (0:17 <-> 0:10).** Not watched on
+either bike, and not on a north/south seam. The fixes name no speed — the sub-tile ramp takes its
+length from `STEP_DURATION_FRAMES[anim]`, which is per-gait — so a bike should follow, but that is
+reasoning, not a sighting.
+
+**The three causes, each measured before it was touched** (`probes/seam_shuttle.lua` plus the
+`MESHGHOST_EMERALD_SEAM_TRACE` window, which puts the wire, the translation, the glide model and the
+PAINTED pixel on one line per frame):
+
+1. **`smoothPosition` snapped its sub-tile interpolator at a seam**, throwing away the phase of a
+   step that was still in flight, so a WHOLE TILE went on the wire in one frame — 48.9 -> 50.0 while
+   walking at 1/16 a frame. The step is carried across now; a WARP still snaps, and so does a
+   teleport onto a connected map (a savestate load from eighteen tiles away glided the wire across
+   all eighteen before that guard existed).
+2. **The paint anchor stayed in the old map's numbering** while every peer's model was rebased, and
+   `anchorFrame`'s `fresh` test re-latched it mid-handover — the one-tile spike its own `settled`
+   guard exists to prevent. A STATIONARY peer's painted x went 48 -> (unpainted) -> 64 while the
+   camera moved one pixel.
+3. **`glideRemote` measured the RAW target while chasing one `drawnDelay` frames older**, both 8, so
+   the speed burst expired exactly as the delayed target began to move. At a seam that left a whole
+   tile to cover at the 0.02 floor: 0.4px a frame, a fifth of walking pace.
+
+**Known residual, seen and accepted:** on the CROSSER's own screen the peer is not painted for
+exactly one frame at each crossing (the mid-handover frame). Same site as the 2026-08-20 nine-frame
+dropout, which stays fixed.
+
+**Method worth keeping:** Crystal was read FIRST, and its cross-map comments named two of the three
+causes before Emerald was instrumented at all — the user's rule that day: *"when its the same
+genre/series of games its probly worth cross checking if we have done other games before"*
+(`adapters/_template/README.md`, "And the adapter for the same SERIES or GENRE").

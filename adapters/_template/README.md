@@ -1561,6 +1561,34 @@ because host resources may already be invalid. Full symptom-to-fix write-up in
 already been answered once per host in this repo. Re-deriving them is how you find the answer by
 breaking something instead of by reading.
 
+### And the adapter for the same SERIES or GENRE, for everything the host cannot explain
+
+**The host answers "how do I run"; a sibling GAME answers "how does this kind of game behave".**
+Two games in one series share an engine lineage, so they meet the same problems — map connections,
+warps, save layout, how a step is timed — and the older adapter has usually already paid for the
+answer. **Before instrumenting a symptom, grep the sibling for the feature and read its COMMENTS**,
+which carry the dated reasoning the code alone does not; then diff the two implementations. The
+pairs today: **Emerald ↔ Crystal** (Pokémon, both BizHawk Lua) and **TEVI ↔ Pseudoregalia** (2D and
+3D action, different hosts — the shared half is the game shape, not the runtime).
+
+**A working sibling is also a free bisection.** One game showing the fault and one not means the
+difference between their two implementations *is* the bug's address — the same reasoning as
+[pitfalls/by-lesson.md](../../agent_docs/pitfalls/by-lesson.md)'s "an asymmetric survivor is a
+bisection for free", with the asymmetry across games instead of across peers.
+
+**The user's rule, 2026-09-12**, on being asked to chase two seam defects in Emerald: *"how does
+crystal handle seams? they are smooth in that game"* — *"both are pokemon games, and play really
+similar to each other. so just in general when its the same genre/series of games its probly worth
+cross checking if we have done other games before"*, and how the issues were solved there. Reading
+Crystal's cross-map block first turned a blind investigation into a diff: its `xmap.build` clears
+`connsFor` when a read lands mid-map-load so the next frame re-reads, and its comments record that
+**pacing a seam back and forth makes builds land mid-load constantly** — the exact thing the user
+was doing. Emerald's equivalent latches the new map's key *before* its reads and returns early on
+failure, so one unlucky frame can leave an empty connection table stamped as valid.
+
+The probe half of this rule — the sibling's `probes/` folder usually already holds the instrument —
+is in [probes.md](probes.md), "Check the sibling game's `probes/` before writing one".
+
 ## Every adapter starts the client, and stops it again
 
 **This is expected of a new adapter, not optional.** MeshGhost should feel like part of starting

@@ -78,7 +78,9 @@ the agent's equivalent is a probe that writes to the log. They are complements, 
 - **"Ask the game what it has, before you guess at what it might have"** — enumerate first.
   Guessing at names produces plausible numbers instead of errors, which is worse than crashing.
 - **"Read the working adapter for the same host before writing a new script"** — open it and copy
-  its shape before writing anything.
+  its shape before writing anything. **And the adapter for the same SERIES or GENRE** for what the
+  host cannot explain: a sibling game has met the same engine behaviour and its comments carry the
+  fix (Emerald <-> Crystal, TEVI <-> Pseudoregalia).
 - **"A new game gets its own `agent_docs/phases/phaseN.md`"** — create it when the folder is
   created, and **ASK the user for the phase number.**
 

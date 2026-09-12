@@ -924,6 +924,12 @@ local function encodeLocalState(areaId, x, y, orientation, anim, gender, gfx, sa
     if dk then
         door = string.format(',"dk":%s,"dx":%s,"dy":%s', jsonString(dk), tostring(dx), tostring(dy))
     end
+    -- WHAT THIS MACHINE ACTUALLY PUT ON THE WIRE, for the seam trace on the OTHER side of the same
+    -- rig (2026-09-12). Every seam reading so far has inferred the sender's stream from what a peer
+    -- received, and a receiver cannot tell "the peer moved" from "the peer's coordinates were
+    -- rebased" -- which is the whole question at a connection. Three assignments on a table, no
+    -- formatting and no I/O: the trace pays for the string, not this.
+    genderFrames.sentArea, genderFrames.sentX, genderFrames.sentY = areaId, x, y
     return string.format(
         '{"type":"local_state","payload":{"state":{"area_id":%s,"position":[%s,%s],"orientation":%s,"anim":%s,"extras":{"gender":%s,"gfx":%s,"sanim":%s,"sidx":%s,"act":%s,"sox":%s,"soy":%s,"spaused":%s,"pspeed":%s,"noanim":%s,"invis":%s,"boat":%s,"fly":%s,"flyk":%s%s}}}}',
         jsonString(areaId), tostring(x), tostring(y), jsonString(orientation), jsonString(anim),
@@ -1646,9 +1652,6 @@ local function glideRemote(r, targetX, targetY)
     else
         r.hist[frameCounter % 32] = { targetX, targetY }
     end
-    -- Kept before the delay lookup overwrites targetX/Y: the speed measurement below wants where
-    -- the peer actually IS, not where the delay line is replaying from.
-    local rawTargetX, rawTargetY = targetX, targetY
     local old = r.hist[(frameCounter - genderFrames.drawnDelay) % 32]
     if old then targetX, targetY = old[1], old[2] end
 
@@ -1696,11 +1699,33 @@ local function glideRemote(r, targetX, targetY)
     -- The same history ring the delay line uses already holds where the target was N frames ago, so
     -- average speed is one subtraction and needs no new state. Averaging over the window turns
     -- "nothing arrived this frame" into the peer's real speed instead of a standstill.
+    --
+    -- MEASURE THE STREAM YOU ARE CHASING, NOT THE ONE IN FRONT OF IT (2026-09-12). This window sat
+    -- on the RAW target while the filter moves toward a target `drawnDelay` frames older, and the
+    -- two lengths are the same number -- 8 and 8 -- so a burst entered the window exactly when it
+    -- happened and left it exactly when the delayed target began to move. The measurement expired
+    -- on the frame it was needed: a perfect miss, by construction.
+    --
+    -- Invisible on an ordinary step, because the wire carries sub-tile progress and the target
+    -- creeps every frame. A SEAM has no such ramp: crossing a map connection rebases the peer's
+    -- coordinate, so a whole tile arrives in ONE frame. The speed burst was then spent dragging the
+    -- ghost toward the OLD delayed target, `gSpd`'s high-water mark was cleared by the arrival
+    -- (`dist <= 0.05`), and the real tile that followed was covered at the 0.02 floor -- 0.025 tiles
+    -- a frame, 0.4px, a fifth of walking pace, ~40 frames for one tile. Measured on the watcher's
+    -- side of the user's back-and-forth repro (probes/seamtrace.log, the user: *"on emerald1, the
+    -- ghost is moving slow while crossing"*).
+    --
+    -- Looking back `drawnDelay + WINDOW` puts the measurement in the same time frame as the target,
+    -- so the burst lands on the frame the ghost has to spend it. The ring holds 32 slots, so the
+    -- pair has to fit inside it -- an over-large DRAWN_DELAY_FRAMES would wrap onto the slot being
+    -- written this frame and measure a speed of zero forever.
     local WINDOW = 8
-    local was = r.hist[(frameCounter - WINDOW) % 32]
+    local lookBack = genderFrames.drawnDelay + WINDOW
+    if lookBack >= 32 then lookBack = WINDOW end
+    local was = r.hist[(frameCounter - lookBack) % 32]
     local tspd = 0
     if was then
-        tspd = (math.abs(rawTargetX - was[1]) + math.abs(rawTargetY - was[2])) / WINDOW
+        tspd = (math.abs(targetX - was[1]) + math.abs(targetY - was[2])) / WINDOW
     elseif r.tgtPrevX then
         tspd = math.abs(targetX - r.tgtPrevX) + math.abs(targetY - r.tgtPrevY)
     end
@@ -1816,7 +1841,40 @@ local function smoothPosition(rawX, rawY, areaId, anim)
         glideJustCompleted = false
     end
 
-    if committedTileX == nil or areaId ~= committedAreaId then
+    -- A SEAM IS NOT A WARP, AND THIS IS THE SEND PATH'S HALF OF THAT (2026-09-12).
+    --
+    -- Crossing a map CONNECTION changes the area id while the world stays continuous and the
+    -- player's step stays in flight. Snapping here threw that step's phase away and put a WHOLE
+    -- TILE on the wire in a single frame -- measured 48.9 -> 50.0 while the player was walking one
+    -- tile at 1/16 per frame. No receiver can tell that from real movement, so every peer rendered
+    -- a tile of travel that never happened, and it is the same defect at every gait: the phase is
+    -- lost whether the player is walking, running or on a Mach Bike, because the step duration is
+    -- whatever this function was already using.
+    --
+    -- `xmapRebase` leaves the seam's tile delta for exactly this: express the interpolator's two
+    -- endpoints in the new map's numbering and let the ramp finish. A WARP leaves no delta (the
+    -- connection lookup misses, which is what a door IS), so it still snaps, and it should -- the
+    -- engine rebuilt the world and there is nothing to carry.
+    local seam = genderFrames.xmapSeam
+    local carried = false
+    -- AND IT HAS TO PROVE THE STEP IS REAL. The carry claims "the same step is still in flight",
+    -- and that claim is checkable: the rebased endpoint must land on the tile the ENGINE says the
+    -- player is on, give or take the step itself. A savestate load crosses the same two maps
+    -- without walking -- measured 2026-09-12, loading slot 5 from eighteen tiles away had this
+    -- branch glide the wire across all eighteen at 1.125 tiles a frame -- and so does any other
+    -- teleport that happens to land on a connected map. Those fall through to the snap below,
+    -- which is what a discontinuity deserves.
+    if committedTileX ~= nil and areaId ~= committedAreaId and seam
+        and seam.from == committedAreaId and seam.to == areaId
+        and math.abs((committedTileX + seam.dx) - rawX) <= 1
+        and math.abs((committedTileY + seam.dy) - rawY) <= 1 then
+        genderFrames.xmapSeam = nil
+        prevTileX, prevTileY = prevTileX + seam.dx, prevTileY + seam.dy
+        committedTileX, committedTileY = committedTileX + seam.dx, committedTileY + seam.dy
+        committedAreaId = areaId
+        carried = true
+    end
+    if not carried and (committedTileX == nil or areaId ~= committedAreaId) then
         -- First sample, or a map transition -- nothing to interpolate from, snap instead of
         -- gliding across a map boundary or from nothing. Never a real glide.
         prevTileX, prevTileY = rawX, rawY
@@ -2240,6 +2298,47 @@ genderFrames.xmapRebase = function(newKey)
             for _, p in pairs(r.hist) do p[1], p[2] = p[1] + dx, p[2] + dy end
         end
     end
+    -- THE PAINT ANCHOR IS PART OF THE FRAME, AND MOVES WITH IT (2026-09-12).
+    --
+    -- Every peer's model has just been shifted into the new map's numbering. The drawn tier paints
+    -- `origin + (glide - anchor) * TILE + camPix`, so leaving `anchorX/anchorY` in the OLD map's
+    -- numbering makes the subtraction span two coordinate frames for as long as the anchor lasts.
+    -- It did not last long, and that was the other half of the defect: `anchorFrame`'s `fresh` test
+    -- fires on the area change and re-latches from the engine mid-handover, exactly the one-tile
+    -- spike its own `settled` guard exists to prevent -- the tile counter flips to the destination
+    -- tile a frame before the picture does. Measured across one crossing: a STATIONARY peer's
+    -- painted x went 48 -> (not painted at all) -> 64 while the camera moved one pixel, a ~15px
+    -- jump, which is the user's *"the ghost is snapping/teleporting around a bit when the player is
+    -- crossing"* (probes/seamtrace.log, 2026-09-12).
+    --
+    -- So shift the anchor by the same delta and stamp its area, which suppresses the re-latch: one
+    -- coordinate frame, no spike, and the anchor still re-calibrates normally the next time the
+    -- player stands still. ONLY the tile-valued half moves -- `origin`/`originStill` are SCREEN
+    -- positions and the screen is continuous across a seam, so shifting those would manufacture a
+    -- twitch and nothing else (Crystal learned that one first: `xmap.rebaseEntry`'s comment).
+    -- The per-frame cache is dropped too, or the tiers would paint this frame from the numbers
+    -- anchorFrame worked out before the rebase.
+    -- HANDED TO `anchorFrame`, NOT APPLIED HERE. `tiering` is declared a thousand lines below this
+    -- block, so touching it from inside this function reads a nil GLOBAL and throws -- the same
+    -- late-binding trap the comment below records for `ghosts` and `ghostAlive`. The first version
+    -- of this fix did exactly that; `dev-scripts/lua-forward-refs.py` caught it before it ran.
+    -- `genderFrames` is defined early and is how this block reaches anything, so the delta waits
+    -- there. anchorFrame applies it at the top of the next call, which is this same frame: xmapTick
+    -- runs before either tier paints.
+    genderFrames.xmapAnchorShift = { dx = dx, dy = dy, key = newKey }
+    -- AND THE SAME DELTA GOES TO THE SEND PATH, which has the identical problem one layer up:
+    -- `smoothPosition` snaps its sub-tile interpolator whenever the area changes, so a step that is
+    -- in flight when the player crosses loses its phase and this machine puts a WHOLE TILE on the
+    -- wire in one frame. Every peer then renders a tile of travel that never happened -- at a fifth
+    -- speed before 2026-09-12 and at a sprint after, which is the same defect read twice.
+    --
+    -- Stashed rather than computed there because only this function has the departing map's
+    -- connection table: `xmapBuild` replaces it later this same frame. A WARP reaches neither site
+    -- (no connection entry, this function returns before here), so a door still snaps, which is
+    -- correct -- the world really was rebuilt. "A seam is not a warp" is already this adapter's
+    -- rule for freeing tiles (agent_docs/pitfalls, 2026-09-02); this is the same line drawn on the
+    -- send path.
+    genderFrames.xmapSeam = { dx = dx, dy = dy, from = xm.lastKey, to = newKey, at = frameCounter }
     -- Count only: ghostAlive is ALSO defined later than this function, the same late-binding trap
     -- that just cost an hour with `ghosts` itself. The count is enough for the log.
     local n = 0
@@ -5222,6 +5321,22 @@ tiering = {
     animTrace = (MESHGHOST_EMERALD_ANIM_TRACE
         or os.getenv("MESHGHOST_EMERALD_ANIM_TRACE")) and true or false,
     animTraceBuf = nil,
+
+    -- THE SEAM TRACE (probe, off by default -- MESHGHOST_EMERALD_SEAM_TRACE). A WINDOW around
+    -- every seam event, never a single frame: 60 frames of ring buffer before it and 150 after,
+    -- because both symptoms it exists for are about what happens either side of the crossing.
+    --
+    -- Armed by the ENV at launch or by the GLOBAL at any time (dev-scripts/seam-trace-on.lua
+    -- through the dev loader) -- the global is read every frame rather than latched at load, so
+    -- arming it needs no relaunch. Setting the global false turns it off again, which has to be
+    -- possible explicitly: a global outlives the script that set it, exactly like
+    -- MESHGHOST_EMERALD_TEST_PEER's "off".
+    seamTrace = (MESHGHOST_EMERALD_SEAM_TRACE
+        or os.getenv("MESHGHOST_EMERALD_SEAM_TRACE")) and true or false,
+    seamRing = nil,
+    seamDumpUntil = nil,
+    seamLastKey = nil,
+    seamLastSrc = nil,
 }
 
 -- WHERE THE GAME'S OWN UI IS, so the drawn tier can stay out of it.
@@ -5416,6 +5531,10 @@ if tiering.animTrace then
     console.log("MeshGhost: PROBE FLAG IN USE -- MESHGHOST_EMERALD_ANIM_TRACE: writing a per-frame "
         .. "player-vs-ghost animation trace to probes/animtrace.log. Dev only, and it costs a "
         .. "file write every 120 frames.")
+end
+if tiering.seamTrace then
+    console.log("MeshGhost: PROBE FLAG IN USE -- MESHGHOST_EMERALD_SEAM_TRACE: writing a window "
+        .. "around every seam crossing to probes/seamtrace.log. Dev only.")
 end
 
 -- How many object slots ghosts may hold on this map right now. Counted from the array itself
@@ -9908,6 +10027,25 @@ end
 --
 -- A GLOBAL because this chunk is at Lua's 200-local ceiling.
 function anchorFrame(localAreaId, playerScreenX, playerScreenY, playerMapX, playerMapY)
+    -- A SEAM MOVED THE WHOLE COORDINATE FRAME: move the anchor with it, before anything reads it.
+    -- `xmapRebase` shifted every peer's model by the seam delta and left this note; applying it
+    -- here keeps the paint in ONE frame (`origin + (glide - anchor) * TILE + camPix`) and, by
+    -- stamping the area, stops the `fresh` test below re-latching from a mid-handover frame -- the
+    -- one-tile spike the `settled` guard exists to prevent, and the ~15px jump the user saw as the
+    -- ghost *"snapping/teleporting around a bit"* while crossing (2026-09-12).
+    --
+    -- Only the tile-valued half moves. `originX/originY` and the `Still` pair are SCREEN positions
+    -- and the screen is continuous across a seam; shifting those manufactures a twitch and nothing
+    -- else (Crystal met that one first -- `ENGINE.xmap.rebaseEntry`'s comment says so in as many
+    -- words). Above the cache check, so a cache built before the crossing cannot outlive it.
+    local shift = genderFrames.xmapAnchorShift
+    if shift then
+        genderFrames.xmapAnchorShift = nil
+        if tiering.anchorX then tiering.anchorX = tiering.anchorX + shift.dx end
+        if tiering.anchorY then tiering.anchorY = tiering.anchorY + shift.dy end
+        tiering.anchorArea = shift.key
+        tiering.anchorAt, tiering.anchorCache = nil, nil
+    end
     if tiering.anchorAt == frameCounter and tiering.anchorCache then
         local c = tiering.anchorCache
         return c[1], c[2], c[3], c[4]
@@ -11162,6 +11300,124 @@ end
 -- drawn tier renders exactly the peers the spawned tier could not take.
 -- compareOnly: draw NOTHING except the loopback ghost. That is the MESHGHOST_COMPARE_TIERS case
 -- where the overflow tier itself is off -- the comparison ghost is wanted, a painted crowd is not.
+-- ===== SORTING A PAINTED GHOST AGAINST THE PLAYER =====
+--
+-- A spawned ghost gets this for free: it is a real object event, and the engine sorts objects by
+-- where they STAND, so a character one tile above you is drawn behind you. A painted one is put on
+-- the finished frame, so it covers everything it overlaps -- including the player. The user,
+-- 2026-09-12: *"drawn ghosts can draw on top of the player itself"*, and asked for the game's own
+-- sorting rather than a blanket "never cover the player", so the two tiers agree.
+--
+-- THE ENGINE'S RULE, from the decomp rather than from watching it (pokeemerald
+-- src/event_object_movement.c:7773, `SetObjectSubpriorityByElevation`):
+--
+--     u16 y = (sprite->y - sprite->centerToCornerVecY + gSpriteCoordOffsetY + 8) & 0xFF;
+--     y = (16 - (y >> 4)) << 1;
+--     sprite->subpriority = sElevationToSubpriority[elevation] + y + subpriority;
+--
+-- `sprite->y - centerToCornerVecY` is the sprite's BOTTOM edge on screen -- where the character
+-- stands -- and lower subpriority draws in front, so the lower character wins, banded per 16px.
+-- Both halves of our comparison use the same expression, so the constants cancel and only the band
+-- matters; it is written out in full anyway, because a formula copied from a decomp is only
+-- trustworthy while it still looks like the decomp.
+--
+-- ELEVATION IS NOT IN IT YET, and that is a real limitation rather than an oversight:
+-- `sElevationToSubpriority` offsets whole bands (115 against 83) and the peer's elevation is not on
+-- the wire. On one elevation -- every ordinary route and town -- this is exact; across a bridge or
+-- a ledge band it can sort the wrong way. Noted in UNVERIFIED.md rather than guessed at.
+-- ON `genderFrames`, NOT A NEW FILE-SCOPE LOCAL: this chunk sits at Lua's 200-local ceiling, and
+-- crossing it is a hard parse failure at load ("too many local variables"), not a warning.
+genderFrames.sortBand = function(bottomY)
+    return (math.floor(bottomY + 8) & 0xFF) >> 4
+end
+
+-- The player's OPAQUE pixels, in screen coordinates, as one span list per row -- built from the
+-- player's CURRENT graphic and animation frame, so a bike, a surf blob or a fishing rod masks with
+-- its own shape rather than a walker's box. Cached per frame: several peers can overlap the player
+-- at once and the decode is the expensive half.
+--
+-- Returns rows, top, bottom, left, right -- the box so a caller can reject a non-overlapping ghost
+-- without touching the rows at all, which is the common case and has to stay free.
+genderFrames.playerMask = function()
+    if genderFrames.pmAt == frameCounter then
+        return genderFrames.pmRows, genderFrames.pmT, genderFrames.pmB, genderFrames.pmL, genderFrames.pmR
+    end
+    genderFrames.pmAt, genderFrames.pmRows = frameCounter, nil
+    local gfx = localGraphicsId()
+    if not gfx then return nil end
+    local pd = sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
+    local ok, runs = pcall(genderFrames.runsForPeerGfx, gfx, r8(pd + 0x2a), r8(pd + 0x2b))
+    if not ok or not runs or #runs == 0 then return nil end
+    local px, py = playerScreenPos()
+    if not px then return nil end
+    local rows, t, b, l, r = {}, nil, nil, nil, nil
+    for i = 1, #runs do
+        local run = runs[i]
+        local y = math.floor(py + run.y)
+        local list = rows[y]
+        if not list then list = {} rows[y] = list end
+        local x1, x2 = px + run.x1, px + run.x2
+        list[#list + 1] = { x1, x2 }
+        if t == nil or y < t then t = y end
+        if b == nil or y > b then b = y end
+        if l == nil or x1 < l then l = x1 end
+        if r == nil or x2 > r then r = x2 end
+    end
+    genderFrames.pmRows, genderFrames.pmT, genderFrames.pmB, genderFrames.pmL, genderFrames.pmR =
+        rows, t, b, l, r
+    return rows, t, b, l, r
+end
+
+-- Cut the player's pixels out of one peer's keep-span mask, or hand back the mask untouched.
+--
+-- `keepSpans` is STRICT in drawRunList -- a row missing from the table paints NOTHING on that row
+-- -- so this has to emit a span list for every row the ghost covers, not just the rows the player
+-- touches. That asymmetry is the whole reason this is a function rather than three lines at the
+-- call site; the first version of it lost the ghost's head and shoulders to rows it never wrote.
+genderFrames.maskBehindPlayer = function(occl, left, top, width, height)
+    local rows, pt, pb, pl, pr = genderFrames.playerMask()
+    if not rows then return occl end
+    -- No overlap: the overwhelmingly common case, and it costs four compares.
+    if top + height - 1 < pt or top > pb or left + width - 1 < pl or left > pr then return occl end
+    -- WHO IS IN FRONT. Both bottom edges through the engine's own banding; the ghost is behind only
+    -- when it stands strictly higher up the screen. A TIE keeps today's behaviour (the ghost paints
+    -- over), because on the same band the engine's answer comes from OAM slot order, which is not
+    -- ours to reproduce -- and two characters sharing a band are overlapping so heavily that either
+    -- answer reads the same.
+    if genderFrames.sortBand(top + height) >= genderFrames.sortBand(pb + 1) then return occl end
+    local out = {}
+    for y = top, top + height - 1 do
+        local base = occl and occl[y]
+        if occl and not base then
+            out[y] = nil          -- already fully occluded by scenery: leave it that way
+        else
+            local pieces = base or { { left, left + width - 1 } }
+            local cut = rows[y]
+            if not cut then
+                out[y] = pieces
+            else
+                local acc = pieces
+                for c = 1, #cut do
+                    local cx1, cx2 = cut[c][1], cut[c][2]
+                    local next_ = {}
+                    for s = 1, #acc do
+                        local sx1, sx2 = acc[s][1], acc[s][2]
+                        if cx2 < sx1 or cx1 > sx2 then
+                            next_[#next_ + 1] = { sx1, sx2 }
+                        else
+                            if sx1 < cx1 then next_[#next_ + 1] = { sx1, cx1 - 1 } end
+                            if sx2 > cx2 then next_[#next_ + 1] = { cx2 + 1, sx2 } end
+                        end
+                    end
+                    acc = next_
+                end
+                out[y] = acc
+            end
+        end
+    end
+    return out
+end
+
 local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, compareOnly)
     -- The GBA's visible display. Hardware geometry, identical on every cartridge -- not a fact
     -- about this game. Declared inside this function on purpose: the main chunk is at Lua's hard
@@ -11437,6 +11693,14 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                 screenX = screenX + (COMPARE_TIERS and COMPARE_DRAWN_OFFSET_TILES_X
                     or LOOPBACK_GHOST_OFFSET_TILES_X) * TILE
                 screenY = screenY + LOOPBACK_GHOST_OFFSET_TILES_Y * TILE
+            end
+
+            -- The seam trace's painted column, stamped where the number is FINAL and before the
+            -- off-screen cull below -- a peer culled at x=-900 has a position worth reading, and
+            -- the alternative (stamping after) would report the same blank for "off screen" as
+            -- for "never reached the paint at all". Two assignments on a probe flag, no I/O.
+            if tiering.seamTrace or MESHGHOST_EMERALD_SEAM_TRACE then
+                remote.dbgScreenX, remote.dbgScreenY, remote.dbgScreenAt = screenX, screenY, frameCounter
             end
 
             -- OFF-SCREEN PEERS COST NOTHING. A peer in this area can be anywhere on a map far
@@ -12022,8 +12286,13 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                         -- logs the frame with what the panel scanner believed, on the emulator's
                         -- frame clock so it lays against the screenshots.
                         local spansBefore = MG_SPANS or 0
+                        -- BEHIND THE PLAYER WHEN THE ENGINE WOULD PUT IT THERE. Hands back `occl`
+                        -- untouched unless this peer both overlaps the player and stands higher up
+                        -- the screen, so the ordinary case pays four compares and nothing else.
                         drawRunList(runs, info.width, gfxFlip, screenX + cx, screenY + cy,
-                            panelRows, dim, nil, nil, occl)
+                            panelRows, dim, nil, nil,
+                            genderFrames.maskBehindPlayer(occl, screenX + cx, screenY + cy,
+                                info.width, info.height))
                         if COMPARE_TIERS and playerId:match("%-ghost$")
                             and (MG_SPANS or 0) == spansBefore and #runs > 0 then
                             local pr = {}
@@ -13121,6 +13390,99 @@ local frameErrors = { lastLogged = nil, consecutive = 0 }
 -- failing. This does not close that entry, but it stops the log lying about the difference --
 -- the count says whether this is a blip or a subsystem that has been broken for 5000 frames.
 
+-- THE SEAM TRACE -- a WINDOW around every crossing, never a line at the moment of one.
+--
+-- Built for two symptoms the user reported on 2026-09-12, both at a route/town connection: the
+-- drawn ghost SNAPS when the LOCAL player crosses, and a peer crossing one looks like it SLOWS
+-- DOWN. Those are questions about five things that have to agree, so all five go on one line, per
+-- frame, per peer: the connection table's state, the wire (srcAreaId/sx/sy), the translation into
+-- our frame (x/y), the glide model (gX/gY) and the PAINTED screen position. Watching any one of
+-- them alone is what made this exact class of fault take nine tries in Crystal
+-- (agent_docs/pitfalls/by-lesson.md, "from stuttery to clean", layer 2).
+--
+-- `conns` IS THE FIRST COLUMN ON PURPOSE. xmapBuild stamps connsFor with the new map before it
+-- reads anything, so a read that lands mid-load latches an EMPTY table as valid and nothing ever
+-- re-reads it -- after which a rebase silently does nothing and a peer stops being translated.
+-- Crystal's own build clears connsFor instead, with a comment recording that PACING a seam makes
+-- builds land mid-load constantly. The count here is what tells those apart on the record.
+--
+-- Defined at the END of the file, not beside the xmap block it belongs to: every local it reads
+-- (rs16, session, the camera addresses, remotes) is declared later in the file than that block,
+-- and a function closing over a not-yet-declared local silently reads a nil GLOBAL instead -- the
+-- late-binding trap this file has already paid for twice. On `tiering`, not a new top-level local:
+-- this chunk is at Lua's 200-local ceiling.
+tiering.seamTraceTick = function()
+    local xm = genderFrames.xmap
+    local key = genderFrames.xmapLocalKey()
+    local sb1 = session.saveBlockPtr(GSAVEBLOCK1PTR_ADDR)
+    if sb1 == 0 then return end
+    local nconn = 0
+    for _ in pairs(xm.conns or {}) do nconn = nconn + 1 end
+    -- The EVENT that opens the window: either end of a crossing. A local one is our own map key
+    -- changing; a peer's is its wire area changing. Both are recorded, because the two symptoms
+    -- are the same crossing watched from the two sides.
+    local event = nil
+    if tiering.seamLastKey and key and tiering.seamLastKey ~= key then
+        event = "LOCAL " .. tostring(tiering.seamLastKey) .. "->" .. tostring(key)
+    end
+    if key then tiering.seamLastKey = key end
+    tiering.seamLastSrc = tiering.seamLastSrc or {}
+    local parts = {}
+    for id, r in pairs(remotes) do
+        local prev = tiering.seamLastSrc[id]
+        if prev and r.srcAreaId and prev ~= r.srcAreaId then
+            event = (event and (event .. " + ") or "")
+                .. "PEER " .. id .. " " .. tostring(prev) .. "->" .. tostring(r.srcAreaId)
+        end
+        tiering.seamLastSrc[id] = r.srcAreaId
+        -- WHAT WAS PAINTED, or that nothing was. The draw site stamps these for the frame it drew;
+        -- an unstamped frame means the peer was culled, off screen, or never reached the paint --
+        -- which is a finding, not a blank, so it is spelled out rather than left as a stale number.
+        local scr = (r.dbgScreenAt == frameCounter)
+            and string.format("%.1f,%.1f", r.dbgScreenX or 0, r.dbgScreenY or 0) or "NOT-PAINTED"
+        parts[#parts + 1] = string.format(
+            "%s src=%s s=%s,%s xy=%s,%s g=%s,%s scr=%s step=%s dist=%s anim=%s",
+            id, tostring(r.srcAreaId), tostring(r.sx), tostring(r.sy),
+            tostring(r.x), tostring(r.y), tostring(r.gX), tostring(r.gY),
+            scr, tostring(r.gStepping), tostring(r.gDist), tostring(r.anim))
+    end
+    -- THE PORT IS THE FIRST FIELD because both emulators in a two-instance rig share this script's
+    -- folder and therefore this log. An instrument that cannot say WHICH instance it measured is
+    -- not an instrument -- the same lesson dev-scripts/tevi-label-windows.ps1 exists for, and the
+    -- same one behind the per-game screenshot folders in probes.md.
+    local line = string.format(
+        "p%s f=%d key=%s tile=%d,%d sent=%s@%s,%s camPix=%d,%d conns=%d@%s our=%s,%s "
+            .. "anchor=%s,%s origin=%s,%s anchorArea=%s | %s%s",
+        tostring(currentPort), frameCounter, tostring(key),
+        rs16(sb1 + 0x00), rs16(sb1 + 0x02),
+        tostring(genderFrames.sentArea), tostring(genderFrames.sentX),
+        tostring(genderFrames.sentY),
+        rs16(GTOTALCAMERAPIXELOFFSETX_ADDR + (genderFrames.camOffset or 0)),
+        rs16(GTOTALCAMERAPIXELOFFSETY_ADDR + (genderFrames.camOffset or 0)),
+        nconn, tostring(xm.connsFor), tostring(xm.ourW), tostring(xm.ourH),
+        tostring(tiering.anchorX), tostring(tiering.anchorY),
+        tostring(tiering.originX), tostring(tiering.originY),
+        tostring(tiering.anchorArea),
+        (#parts > 0) and table.concat(parts, " || ") or "no-peers",
+        event and ("   <<< " .. event) or "")
+    tiering.seamRing = tiering.seamRing or {}
+    local ring = tiering.seamRing
+    ring[#ring + 1] = line
+    -- 60 frames of lead-in kept at all times, 150 frames of tail once a crossing opens the window:
+    -- one second either side at 60fps, which is the span both symptoms live in.
+    if event and not tiering.seamDumpUntil then tiering.seamDumpUntil = frameCounter + 150 end
+    if not tiering.seamDumpUntil then
+        while #ring > 60 do table.remove(ring, 1) end
+    elseif frameCounter >= tiering.seamDumpUntil then
+        local tf = io.open(SCRIPT_DIR .. "probes/seamtrace.log", "a")
+        if tf then
+            tf:write(table.concat(ring, string.char(10)) .. string.char(10))
+            tf:close()
+        end
+        tiering.seamRing, tiering.seamDumpUntil = {}, nil
+    end
+end
+
 local function guardedFrame()
     -- MESHGHOST_EMERALD_PROFILE (dev): price the LUA side of the frame. os.clock around runFrame,
     -- reported once every 300 frames as an average -- cheap enough to leave on for a whole ride.
@@ -13156,6 +13518,11 @@ local function guardedFrame()
                 tostring(g2 and ghostAlive(g2) or false), tostring(tiering.hw.placed)))
         end
     end
+    -- AFTER runFrame, so the painted position on the line is the one this frame actually drew.
+    -- The global is read here rather than latched at load so the probe can be armed mid-session
+    -- through the dev loader; `pcall` because an instrument must never be able to take the
+    -- adapter down, and a trace that errors would do it every frame.
+    if tiering.seamTrace or MESHGHOST_EMERALD_SEAM_TRACE then pcall(tiering.seamTraceTick) end
     MG_DRAWN_CALLS, MG_BODY_PAINTED, tiering.overlayCleared = 0, nil, nil
     if t0 then
         local dt = os.clock() - t0
