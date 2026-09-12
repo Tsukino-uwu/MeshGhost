@@ -385,6 +385,10 @@ type Client struct {
 	// \"leave\", want \"welcome\"").
 	holdUntilWelcome bool
 	pending          [][]byte
+	// pendingUnreliable[i] says whether pending[i] is a state sample rather than
+	// a lifecycle line, so the overflow in forwardLine can drop the same CLASS the
+	// outbox drops rather than whatever happened to arrive last.
+	pendingUnreliable []bool
 
 	// gateMu guards lastStateTo, which maps a *sender's* player_id to the
 	// last time a State from that sender was forwarded *to this client*.
@@ -535,16 +539,51 @@ func (r *Room) forwardLine(payload []byte, to []string, unreliable bool) {
 		// costs at most a few duplicated-then-superseded samples, which
 		// latest-wins absorbs by construction.
 		if c.holdUntilWelcome {
-			if len(c.pending) < maxPendingBeforeWelcome {
-				c.pending = append(c.pending, payload)
-			} else {
-				// Only reachable if this client's own Welcome write is
-				// blocked for as long as it takes the room to produce 64
-				// messages, which means the connection is already failing.
-				// Logged rather than grown without bound, so one stalled
-				// joiner cannot be used to make the relay allocate.
-				log.Printf("relay: %s has not been welcomed after %d queued messages — dropping further ones until its Welcome completes", id, maxPendingBeforeWelcome)
+			// THE SAME TWO-CLASS OVERFLOW POLICY THE OUTBOX USES. This queue had
+			// a bare count until 2026-09-12: past 64 it dropped whatever arrived
+			// next, reliable included.
+			//
+			// A dropped state is harmless here (latest-wins), which is what made
+			// the bare count look sufficient. A dropped `join` or `leave` is not:
+			// this client never learns that peer exists, and storeRemoteState then
+			// discards every state it sends for the rest of the session as an
+			// unannounced id -- a permanently invisible player, with nothing
+			// logged on the receiving side.
+			//
+			// The comment that stood here called the overflow "only reachable if
+			// this client's own Welcome write is blocked for as long as it takes
+			// the room to produce 64 messages". That is ROOM SIZE, not a stalled
+			// socket: at the 150 peers agent_docs/scaling.md documents, 15Hz each
+			// fills 64 in ~29ms, which one Welcome write can span. No attacker is
+			// needed, and it gets worse the more successful the room is. Found by
+			// the parity cell of the third adversarial review (X1-3).
+			if len(c.pending) >= maxPendingBeforeWelcome {
+				drop := -1
+				for i, u := range c.pendingUnreliable {
+					if u {
+						drop = i
+						break
+					}
+				}
+				switch {
+				case drop >= 0:
+					c.pending = append(c.pending[:drop], c.pending[drop+1:]...)
+					c.pendingUnreliable = append(c.pendingUnreliable[:drop], c.pendingUnreliable[drop+1:]...)
+				case unreliable:
+					// Every held line is a lifecycle line and this one is a
+					// sample, so it yields -- exactly as the outbox has it.
+					continue
+				default:
+					// 64 lifecycle lines behind one unwritten Welcome is a
+					// connection genuinely failing, which is the case the
+					// original comment described. The bound stays.
+					log.Printf("relay: %s has not been welcomed after %d queued lifecycle messages -- "+
+						"dropping further ones until its Welcome completes", id, maxPendingBeforeWelcome)
+					continue
+				}
 			}
+			c.pending = append(c.pending, payload)
+			c.pendingUnreliable = append(c.pendingUnreliable, unreliable)
 			continue
 		}
 
@@ -731,6 +770,9 @@ func (r *Room) markWelcomedAndFlush(playerID string) {
 		}
 		queued, conn := c.pending, c.Conn
 		c.pending = nil
+		// Cleared with it, always: two slices indexed together drift the moment one
+		// is reset and the other is not.
+		c.pendingUnreliable = nil
 		r.mu.Unlock()
 
 		if conn == nil {
@@ -739,6 +781,7 @@ func (r *Room) markWelcomedAndFlush(playerID string) {
 			if c, ok := r.members[playerID]; ok {
 				c.holdUntilWelcome = false
 				c.pending = nil
+				c.pendingUnreliable = nil
 			}
 			r.mu.Unlock()
 			return
@@ -750,6 +793,7 @@ func (r *Room) markWelcomedAndFlush(playerID string) {
 				if c, ok := r.members[playerID]; ok {
 					c.holdUntilWelcome = false
 					c.pending = nil
+					c.pendingUnreliable = nil
 				}
 				r.mu.Unlock()
 				return
@@ -1718,6 +1762,25 @@ func (s *Server) handleConn(conn net.Conn) {
 			// agent_docs/architecture.md.
 			if hello.QueryOnly {
 				sendEnvelope(nd, protocol.TypeTransports, protocol.Transports{Offers: s.transportOffers()})
+				// LATCHED, like every other terminating hello path. It was not
+				// until 2026-09-12, and CloseGracefully deliberately keeps the
+				// read loop scanning for the drain -- so a second hello
+				// pipelined behind this one re-entered the block above and ran
+				// the WHOLE join: a room, a player_id, an outbox goroutine, a
+				// max_clients seat, a joinSnapshot under r.mu, and a Join
+				// broadcast to every real member for a socket that was already
+				// half-closed. The Welcome write then fails and sendEnvelope
+				// only logs, so nothing stops it; the member dies as a Leave a
+				// moment later. Every real player in the room sees a ghost
+				// appear and vanish.
+				//
+				// The comment above says "No room is joined, no player_id
+				// assigned, no slot reserved, and nobody in any room is told
+				// anything", which is the property this restores rather than
+				// one it had. Found by the pre-auth cell of the third
+				// adversarial review (P1b-1); rejectlatch_test.go already pins
+				// the same attack through the room-code door.
+				handshakeRejected = true
 				// The offer is the whole point of a query-only hello and is the last
 				// line written: a reset here loses it and the client falls back to
 				// guessing a transport. See handshakeCloseDrain.

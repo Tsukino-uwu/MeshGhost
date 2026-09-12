@@ -384,7 +384,20 @@ func (s Snapshot) String() string {
 		}
 		fmt.Fprintf(&b, " members=%d seq=%d", len(r.Members), r.Seq)
 		if len(r.Features) > 0 {
-			fmt.Fprintf(&b, " features=%s", strings.Join(r.Features, ","))
+			// %q, like the four fields around it. This was %s until 2026-09-12,
+			// and a room's feature set is the one string here that a STRANGER
+			// chooses and that then sticks for the room's whole life:
+			// validateFeatures bounds the count and each length and checks no
+			// characters at all, unlike every other opaque string, and
+			// IsRoomScopedFeature admits anything unrecognised. So a hello whose
+			// features carried a newline forged whole `room "admin" game=...`
+			// lines inside this dump, permanently, for an operator to read.
+			//
+			// protocol/displayname.go records the identical hole for display
+			// names ("a name containing a newline could forge relay log lines")
+			// -- this is that lesson, unapplied one field over. Found by the
+			// parity cell of the third adversarial review (X1-4).
+			fmt.Fprintf(&b, " features=%q", strings.Join(r.Features, ","))
 		}
 		// Only once the room has actually forwarded something: a line reading
 		// "0 states, 0% cross-area" on a freshly created room is noise that

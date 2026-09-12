@@ -313,3 +313,71 @@ func TestASeedIsMeasuredAsTheJoinItIsSentAs(t *testing.T) {
 		}
 	}
 }
+
+// X1-3 from the parity cell. The pre-Welcome hold had a bare count where the
+// outbox one file over has a two-class policy: past 64 it dropped whatever
+// arrived next, reliable included. A dropped state is harmless (latest-wins);
+// a dropped join means the receiving client never learns that peer exists and
+// discards its states for the rest of the session as an unannounced id.
+func TestTheWelcomeHoldDropsSamplesRatherThanLifecycleLines(t *testing.T) {
+	r := newRoom("emerald", "", "room1", nil)
+	held := &Client{PlayerID: "joining", Conn: &recordingTransport{}, holdUntilWelcome: true}
+	r.tryAdd(held)
+	r.tryAdd(&Client{PlayerID: "mover", Conn: &recordingTransport{}})
+
+	// Fill the hold past its bound with state samples, exactly as a busy room
+	// does while one client's Welcome is still being written.
+	st, err := json.Marshal(protocol.State{PlayerID: "mover", Timestamp: 1, AreaID: "town", Position: []float64{1, 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateLine := protocol.AppendEnvelope(nil, protocol.TypeState, st)
+	for i := 0; i < maxPendingBeforeWelcome*2; i++ {
+		r.forwardLine(stateLine, []string{"joining"}, true)
+	}
+
+	// Now the line that matters: somebody joins.
+	jb, err := json.Marshal(protocol.Join{PlayerID: "newcomer"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.forwardLine(protocol.AppendEnvelope(nil, protocol.TypeJoin, jb), []string{"joining"}, false)
+
+	r.mu.Lock()
+	queued := append([][]byte(nil), held.pending...)
+	r.mu.Unlock()
+
+	if len(queued) > maxPendingBeforeWelcome {
+		t.Fatalf("the hold grew to %d, past its %d bound", len(queued), maxPendingBeforeWelcome)
+	}
+	found := false
+	for _, line := range queued {
+		if strings.Contains(string(line), "newcomer") {
+			found = true
+		}
+	}
+	// Before the fix: the join is message 129 behind 64 states and is dropped,
+	// so this client never hears of "newcomer" at all.
+	if !found {
+		t.Fatal("a join was dropped from the pre-welcome hold in favour of state samples -- " +
+			"the receiving client then discards that peer's states forever as an unannounced id")
+	}
+}
+
+// X1-4. Every sibling field in this dump uses %q; the one a STRANGER chooses
+// used %s, and a room's feature set sticks for the room's whole life.
+func TestARoomsFeaturesCannotForgeLinesInTheIntrospectDump(t *testing.T) {
+	forged := "x\n  room \"admin\" game=\"emerald\" members=99 seq=0"
+	s := Snapshot{
+		Rooms: []RoomSnapshot{{
+			Name: "real", GameID: "emerald",
+			Features: []string{forged},
+		}},
+	}
+	out := s.String()
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "room \"admin\"") {
+			t.Fatalf("a room's feature string forged a whole room line in the operator's dump:\n%s", out)
+		}
+	}
+}

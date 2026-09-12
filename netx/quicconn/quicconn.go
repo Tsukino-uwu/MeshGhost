@@ -490,6 +490,7 @@ func (l *Listener) notePendingRefusal() {
 	l.pendingMu.Lock()
 	n := l.refusedPending + 1
 	l.refusedPending = n
+	pending := l.pending
 	quiet := time.Since(l.lastPendingLog) < time.Second
 	if !quiet {
 		l.lastPendingLog = time.Now()
@@ -498,8 +499,15 @@ func (l *Listener) notePendingRefusal() {
 	if quiet {
 		return
 	}
+	// pending, then the limit -- not the limit twice. It read
+	// `l.maxPending, l.maxPending, n` until 2026-09-12, so the one number an
+	// operator watching a handshake flood actually wants (how close the listener
+	// is to its bound) was never printed, and the line looked correct because
+	// at the moment it fires the two happen to be equal. netx.LimitListener's
+	// equivalent logs `l.open.Load()` against `l.max` and is the shape to copy.
+	// Found by the transports cell of the third adversarial review (P1d-11).
 	log.Printf("quicconn: refused a connection: %d already handshaked and waiting for a stream "+
-		"(limit %d); %d refused so far", l.maxPending, l.maxPending, n)
+		"(limit %d); %d refused so far", pending, l.maxPending, n)
 }
 
 func (l *Listener) awaitStream(qc *quic.Conn) {
