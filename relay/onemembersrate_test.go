@@ -11,6 +11,7 @@ package relay
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -178,5 +179,50 @@ func TestABroadcastFloodCannotEvictAMembersAddressedBacklog(t *testing.T) {
 	if !addressed {
 		t.Fatal("a broadcast flood pushed the one ADDRESSED event out of a suspended member's " +
 			"backlog -- anybody in the room could decide what they come back knowing")
+	}
+}
+
+// E7 (P1c-3). maxMissedEventsPerMember's own comment states the rule -- a
+// section that could fill the 192-line snapshot "would push the escrow, world
+// and lease lines off the end and break, to save the event plane, three planes
+// that were not broken" -- and the escrow section had no cap at all. A client
+// does not choose how many exchanges it is a party to: anyone can open one
+// naming it as the counterparty.
+func TestTheEscrowSectionCannotFillAWholeResumeSnapshot(t *testing.T) {
+	r := newRoom("emerald", "", "room1", nil)
+	r.tryAdd(&Client{PlayerID: "victim", Conn: &recordingTransport{}})
+
+	r.mu.Lock()
+	r.escrows = make(map[string]*escrow)
+	for i := 0; i < maxEscrowRecordsPerRoom; i++ {
+		r.escrows[fmt.Sprintf("t-%d", i)] = &escrow{
+			parties: [2]string{"mallory", "victim"}, phase: protocol.EscrowPhaseAborted,
+			terminal: true, terminalAt: time.Now().Add(-time.Duration(i) * time.Second),
+		}
+	}
+	// One LIVE exchange, which is the line the victim actually has to act on.
+	r.escrows["live-one"] = &escrow{
+		parties: [2]string{"partner", "victim"}, phase: protocol.EscrowPhaseDeposited,
+	}
+	lines := r.escrowSnapshotLocked("victim")
+	r.mu.Unlock()
+
+	// Before the fix: 257, against a whole-snapshot budget of 192 -- so the
+	// world, lease and state sections were dropped off the tail entirely.
+	if len(lines) > maxEscrowSnapshotLines {
+		t.Errorf("the escrow section emitted %d lines, past its %d cap and %d of the whole %d-line "+
+			"snapshot budget", len(lines), maxEscrowSnapshotLines, len(lines), maxSnapshotLines)
+	}
+	// And the live one survives the cut, because it is the one still waiting on
+	// this client rather than an outcome it can ask for.
+	found := false
+	for _, o := range lines {
+		if strings.Contains(string(o.env.Payload), "live-one") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("a LIVE exchange was cut in favour of terminal ones -- a live one is waiting on this " +
+			"client to deposit or commit; a terminal one is history it can also ask for")
 	}
 }

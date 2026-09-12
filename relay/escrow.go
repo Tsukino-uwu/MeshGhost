@@ -14,6 +14,7 @@ package relay
 
 import (
 	"encoding/json"
+	"sort"
 	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
@@ -127,11 +128,13 @@ func (r *Room) openedEscrowLocked(opener string) {
 	r.escrowsLiveBy[opener]++
 }
 
-// evictTerminalEscrowLocked deletes the oldest terminal record and reports
-// whether it found one. Oldest first because a retained record's whole purpose
-// is to answer a party that dropped mid-trade, and the older it is the more
-// likely that party has already been answered or has given up. Caller holds
-// r.mu.
+// evictTerminalEscrowLocked deletes one terminal record and reports whether it
+// found one. Caller holds r.mu.
+//
+// Oldest first WITHIN a class, because a retained record's whole purpose is to
+// answer a party that dropped mid-trade, and the older it is the more likely
+// that party has already been answered or has given up.
+//
 // AGE ALONE IS THE WRONG ORDER WHEN A THIRD PARTY CONTROLS THE CHURN, which is
 // what this now guards. The per-member cap counts LIVE exchanges only, so
 // somebody uninvolved can open-and-abort in a loop, fill the table with fresh
@@ -419,13 +422,54 @@ func (r *Room) abortEscrowsOfLocked(party string) []outgoing {
 // This is the half of resumption that makes atomicity survive a crash: a
 // client that dropped in the instant between commit and delivery learns the
 // outcome instead of being left permanently unsure. Caller holds r.mu.
+// maxEscrowSnapshotLines bounds this section of a resume snapshot, and the
+// number is deliberately the one maxMissedEventsPerMember already uses: a
+// quarter of maxSnapshotLines.
+//
+// That constant's own comment states the rule this section was not following --
+// a section that could fill the 192-line budget "would push the escrow, world
+// and lease lines off the end and break, to save the event plane, three planes
+// that were not broken". The escrow section had no cap at all, and a client does
+// not choose how many exchanges it is a party to: anyone can open one naming it
+// as the counterparty, and terminal records accumulate up to
+// maxEscrowRecordsPerRoom. So a third party could make a victim's resume all
+// escrow, dropping the world, lease and state seeds off the tail. Found by the
+// third adversarial review (P1c-3).
+const maxEscrowSnapshotLines = maxSnapshotLines / 4
+
 func (r *Room) escrowSnapshotLocked(to string) []outgoing {
-	var outs []outgoing
+	// LIVE FIRST, then terminal, and that order is the whole value of the cap:
+	// a live exchange is waiting on this client to deposit or commit, while a
+	// terminal one is an outcome it can also learn by asking. Within terminal,
+	// newest first -- the older a finished trade is, the more likely this client
+	// already saw it before the drop.
+	type held struct {
+		id string
+		e  *escrow
+	}
+	var live, done []held
 	for id, e := range r.escrows {
 		if !e.isParty(to) {
 			continue
 		}
-		if o, ok := out(protocol.TypeEscrowState, r.escrowStateLocked(id, e), []string{to}); ok {
+		if e.terminal {
+			done = append(done, held{id, e})
+		} else {
+			live = append(live, held{id, e})
+		}
+	}
+	sort.Slice(done, func(i, j int) bool { return done[i].e.terminalAt.After(done[j].e.terminalAt) })
+	// Map order is random, so without this two resumes of the same room could
+	// send different subsets once the cap bites -- and a client's own retry
+	// would be answered differently each time.
+	sort.Slice(live, func(i, j int) bool { return live[i].id < live[j].id })
+
+	var outs []outgoing
+	for _, h := range append(live, done...) {
+		if len(outs) >= maxEscrowSnapshotLines {
+			break
+		}
+		if o, ok := out(protocol.TypeEscrowState, r.escrowStateLocked(h.id, h.e), []string{to}); ok {
 			outs = append(outs, o)
 		}
 	}
