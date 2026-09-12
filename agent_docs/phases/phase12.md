@@ -279,3 +279,14 @@ that had raced the new writer fixed alongside it.
 prose changed.** Committed on its own so the third adversarial review that followed started from a
 clean tree and its diffs carried no unrelated noise; that review's record is
 [phase10.md](phase10.md), 2026-09-12.
+
+## 2026-09-12 — the fuzz census checks itself
+
+`docs/reviewing.md` said "the census is maintained by hand" in a paragraph that was itself wrong
+about which of two targets runs its seeds, and the roster had been wrong five times by the repo's
+own count. `preflight.ps1` now walks every `func Fuzz` in the tree and requires a CI step and a
+roster row for each; `ci-fuzz.sh` already caught the opposite direction, so the pair is closed. An
+un-campaigned target must declare `// fuzz-census: no-ci-step -- <reason>` in its own file: a first
+draft inferred the opt-out from an env-var guard and silently exempted the wrong set, which is the
+same hand-maintenance failure. The gate found two on its first run, both also reported by the
+instrument-integrity cell of the review. Commit `41972ff9`, with the `/adversarial-review` skill.

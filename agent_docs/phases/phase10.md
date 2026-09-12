@@ -2096,3 +2096,37 @@ effect on that object stop mirroring, a session-long decay with nothing logged.
 Two accepted risks written up with their reasoning in `risks.md`: the client's missing inbound rate
 limit (and why a wrong cap is worse than none), and the config decision. Adapter work is queued in
 TEVI's and Emerald's `UNVERIFIED.md`; nothing adapter-side is claimed. Nothing pushed.
+
+## 2026-09-12 (later) — the six relaunched cells, and what they found
+
+The seven cells that died to the cap were relaunched; six returned (P2f's brief was rewritten
+first, since both claims salvaged from its partial run had been wrong in the same way). **All 17
+cells have now run.** 44 new claims; the Go-side fixes:
+
+- `20450fea` — two bounds that exist only where a value is COMBINED or RE-WRAPPED, both from the
+  parity cell. `ApplyPrev` unions a state's extras with its prev's, each bounded alone and the sum
+  by nothing: measured, a 2086-byte legal line reconstructs to **1945 bytes of extras** against a
+  1024 cap. And a stored state re-served inside a `join` is 24 + len(player_id) bigger than the
+  line `forwardState` measured before storing it: **exactly 4095 as a state, 4123 as a join**,
+  which is `bufio.ErrTooLong` in the joiner's read loop and a reconnect loop it cannot escape.
+- `2676a1da` — the pre-Welcome hold dropped whatever arrived next past 64, reliable included, where
+  the outbox one file over drops by CLASS. A dropped join means the receiving client discards that
+  peer's states forever as an unannounced id. Its own comment called the overflow unreachable
+  without a stalled socket; it is room size (~29ms at 150 peers). Plus the query-only hello not
+  latching its refusal (a second hello behind it ran a whole join for a half-closed socket), a `%s`
+  where four sibling fields use `%q` in the introspect dump, and a refusal log printing its limit
+  twice.
+- `61cc04b9` — `WriteUnreliable` never read the write deadline, and quic-go's datagram queue blocks
+  at 32 frames with no timeout, so a congested quic peer parked the relay's writer goroutine for
+  that client and everything reliable queued behind it.
+
+**Two things the tests caught that the review did not.** Writing the hold fix produced its own
+near-miss: the new slice is indexed alongside `c.pending` and there are THREE resets of it, so
+pairing one would have desynchronised them. And the quic converse test failed first time because a
+datagram arrives verbatim while a stream line arrives framed -- the same asymmetry that cell filed
+separately (P1d-7).
+
+Still open from the six: P1d-1/3/4 (udp loses a Reject on close; an oversized reliable message
+closes the connection; `net.ErrClosed` hides why udp and quic peers vanish), P1b-2 (unthrottled
+TLS-handshake log), X2-1 (the udp fuzz target never admits a connection, so the token path its own
+seeds describe is unreachable), and the lower-ranked remainder.

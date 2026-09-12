@@ -8274,13 +8274,52 @@ ENGINE.xmap.build(here) end
 	local peerProg = state.extras and tonumber(state.extras.prog) or nil
 	local peerPal = state.extras and tonumber(state.extras.pal) or nil -- nil from an older peer
 	local peerClo = state.extras and tonumber(state.extras.clo) or nil -- the same, see paletteColors
+	-- FLOORED FOR EXACTLY THE REASON `face` BELOW IS, and they were not until 2026-09-12.
+	--
+	-- The comment on peerFace says it "was the only one of the peer numerics here that was
+	-- neither floored nor bounded, and it is the one that reaches `&`". That was wrong when it
+	-- was written: these two are two lines above it and both reach `&` as well -- `pal` at
+	-- paletteColors' `W_OBPALS + (palIndex & 7) * 8` and again at oam.place's
+	-- `(palIndex & 0x07) | 0x08`, `clo` at `bgr555(clothing & 0x7FFF)`.
+	--
+	-- In Lua 5.4 `0.5 & 7` and `(1/0) & 7` both RAISE ("number has no integer representation"),
+	-- and both decoders already turn 1e999 into a non-finite number -- tests/json_fuzz.lua
+	-- prints that every run. There is no pcall inside drawOverflow, and drawOverflow is the
+	-- last call in tick, so one peer sending a fractional `pal` stopped the shipped drawn tier
+	-- for EVERY peer in the room and left the previous frame's overlay on screen, following the
+	-- player around. That is the user's own report from 2026-09-11, reachable again by a
+	-- different field. Found by the Lua-adapters cell of the third adversarial review
+	-- (P2c-1, P2c-2).
+	--
+	-- The bounds are what the fields are: a palette slot is three bits at both sinks, and the
+	-- clothing colour is the 15-bit BGR555 value bgr555 takes. Masking here as well as at the
+	-- sink costs nothing and means no future reader has to remember.
+	if peerPal then
+		if peerPal ~= peerPal or peerPal == math.huge or peerPal == -math.huge then
+			peerPal = nil
+		else
+			peerPal = math.floor(peerPal) & 0x07
+		end
+	end
+	if peerClo then
+		if peerClo ~= peerClo or peerClo == math.huge or peerClo == -math.huge then
+			peerClo = nil
+		else
+			peerClo = math.floor(peerClo) & 0x7FFF
+		end
+	end
 	local peerWalking = (state.anim == "walk")
 	-- Only the low two bits are used, but the whole byte is carried so a log shows the direction
 	-- the sender was in as well as the stride -- the pair is what makes a facing trace readable.
 	--
 	-- **FLOORED AND BOUNDED BEFORE ANYTHING TOUCHES IT WITH A BITWISE OPERATOR (review I37, fixed
-	-- 2026-09-11).** It was the only one of the peer numerics here that was neither floored nor
-	-- bounded, and it is the one that reaches `&`: in Lua 5.4 `1.5 & 3` and `(1/0) & 3` both
+	-- 2026-09-11).** This said "it was the ONLY one of the peer numerics here that was neither
+	-- floored nor bounded" until 2026-09-12, and that was wrong when it was written: `pal` and
+	-- `clo` are two lines above and both reach `&` too (they are floored now, and say so). The
+	-- claim is corrected rather than deleted because believing it is what left the other two
+	-- open from 2026-09-11 to 2026-09-12 -- a fix that names itself the last of its kind stops
+	-- anyone looking.
+	-- What is true is the mechanism: in Lua 5.4 `1.5 & 3` and `(1/0) & 3` both
 	-- RAISE ("number has no integer representation"), and both decoders already decode 1e999 to
 	-- a non-finite number -- `tests/json_fuzz.lua` says so in its own output every run. There is
 	-- no pcall anywhere inside `drawOverflow`, so one peer sending a fractional or infinite face

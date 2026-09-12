@@ -4121,9 +4121,55 @@ namespace MeshGhostTevi
             }
         }
 
+        // GhostBulletCapFallback is used only when the game's own pool cannot be read --
+        // a moment during a scene load, or a build whose field name moved. Deliberately
+        // generous: the point is that SOME number exists, and refusing a real player's
+        // shots because reflection missed once would be a worse bug than the one this
+        // guards. See SpawnGhostBullet.
+        private const int GhostBulletCapFallback = 512;
+
+        // GhostBulletCap is the game's own concurrent-bullet ceiling for this build.
+        private int GhostBulletCap()
+        {
+            if (BulletManager.Instance != null && BulletsField != null
+                && BulletsField.GetValue(BulletManager.Instance) is bulletScript[] pool && pool.Length > 0)
+            {
+                return pool.Length;
+            }
+            return GhostBulletCapFallback;
+        }
+
         private void SpawnGhostBullet(string playerId, RemoteGhostVisual visual, int seq, object[] row, Vector3 worldOffset)
         {
             if (BulletManager.Instance == null || BulletPrefabField == null || cloneTemplate == null) return;
+            // A PEER DOES NOT GET TO DECIDE HOW MANY BULLETS WE INSTANTIATE, and until
+            // 2026-09-12 nothing counted them -- while every sibling container on this same
+            // visual is capped (Summons at 4, RejectedAnims at 4, Orbs and Platforms at 2).
+            //
+            // Each row here is a full Instantiate of the game's bullet prefab plus a pooled
+            // follower, and each one is stepped on the frame thread by TickGhostBullets for
+            // BulletSafetyLife (12s) plus BulletLingerAfterDeath. The key is a peer-chosen
+            // seq that only has to increase, extras allows ~30 rows per state, and a state
+            // arrives at the room rate -- so the resident count is bounded by nothing but
+            // how long the peer keeps sending. Found by the growth cell of the third
+            // adversarial review (P2f-1).
+            //
+            // SIZED FROM THE GAME'S OWN POOL, not guessed: BulletManager's `bullets` array is
+            // the most bullets this build can have alive at once, for everybody on screen
+            // together. One ghost can never legitimately need more of its own than the whole
+            // game can hold, so anything past it is impossible for an honest peer. Read live
+            // rather than cached, because it is the game's number and not ours.
+            if (visual.Bullets.Count >= GhostBulletCap())
+            {
+                visual.RejectedAnims = visual.RejectedAnims ?? new HashSet<string>();
+                if (visual.RejectedAnims.Count < MaxRejectedAnimNamesPerPeer
+                    && visual.RejectedAnims.Add("bulletcap"))
+                {
+                    Logger.LogWarning($"MeshGhost: {playerId} has more live bullets than this build's own "
+                        + $"bullet pool holds ({GhostBulletCap()}); the rest are not spawned.");
+                }
+                return;
+            }
             var prefab = BulletPrefabField.GetValue(BulletManager.Instance) as bulletScript;
             if (prefab == null) return;
             float x = CellF(row, 3), y = CellF(row, 4), angle = CellF(row, 5), speed = CellF(row, 6), scale = CellF(row, 7);

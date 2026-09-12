@@ -126,6 +126,30 @@ work": a two-client session, ghosts on screen, walking and turning, a map change
    core that sends bytes and never a newline grows the buffer forever, concatenating onto it every
    frame: quadratic work in how long it goes on, on the emulator thread.
 
+## [READY] two more peer numerics floored before they reach `&`, UNWATCHED (2026-09-12)
+
+`extras.pal` and `extras.clo` were neither floored nor bounded, and both reach a bitwise operator
+-- `pal` at `paletteColors`' `W_OBPALS + (palIndex & 7) * 8` and again at `oam.place`, `clo` at
+`bgr555(clothing & 0x7FFF)`. In Lua 5.4 `0.5 & 7` RAISES, and the decoder already turns `1e999`
+into a non-finite number, which raises too. There is no pcall inside `drawOverflow` and
+`drawOverflow` is the last call in `tick`, so **one peer sending a fractional `pal` stopped the
+shipped drawn tier for EVERY peer in the room** and left the previous frame's overlay on screen
+following the player around -- which is the symptom reported on 2026-09-11, reachable again
+through a different field.
+
+**This is a fix that was applied to one of three.** The `face` comment right below these two said
+it "was the only one of the peer numerics here that was neither floored nor bounded", which was
+wrong when it was written. That claim is corrected in place rather than deleted, because believing
+it is what left the other two open. Found by the Lua-adapters cell of the third adversarial review
+(P2c-1, P2c-2).
+
+**Nothing here should look different**, which is why it needs eyes rather than a shrug: the risk in
+the change is a palette or a clothing colour now being masked where it was not.
+
+**What to watch:** a peer standing beside you in the overworld with the drawn tier doing the work
+(the shipped default) -- their sprite's colours, and specifically their clothing colour, look the
+same as before. A ghost that goes the wrong colour is a decline.
+
 ## This run — watch these first
 
 **The READY entries below, newest first, at most ten.** Each says what to look at and what correct looks
@@ -134,6 +158,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../../../_template/UNVERIFIED.md`](../../../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — **`extras.pal` and `extras.clo` are floored before they reach `&`** — a fractional one raised inside the draw loop and stopped the drawn tier for every peer; watch ghost colours are unchanged (2026-09-12)
 - READY — **replay and chaser ghosts have never been watched here** — they are made by the client and ride the ordinary ghost path (`core/localpeer.go`), so they should work; only Pseudoregalia has been seen (2026-09-11)
 - READY — Crystal read NEITHER its own `config.json` NOR `"autostart"`: two path concatenations were missing this file's separator, fixed 2026-09-10 (see the entry below — it explains why the 2026-09-03 autostart entry could never have passed)
 - READY — `\uXXXX` in a bridge message decodes properly instead of becoming "?" (2026-09-03), unwatched

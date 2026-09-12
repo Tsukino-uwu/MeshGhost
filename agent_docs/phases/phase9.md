@@ -1426,3 +1426,14 @@ The full account of how it came up is in [phase8.md](phase8.md)'s entry of the s
 
 Nothing about rendering, the bridge or the wire is touched. **UNWATCHED** — three loads of the
 script, listed in `crystal/UNVERIFIED.md`.
+
+## 2026-09-12 — two more peer numerics floored before they reach `&`
+
+`extras.pal` and `extras.clo` were neither floored nor bounded and both reach a bitwise operator,
+which RAISES in Lua 5.4 for a fractional or non-finite value -- inside `drawOverflow`, which has no
+pcall and is the last call in `tick`, so one peer stopped the shipped drawn tier for every peer in
+the room. The `face` fix of 2026-09-11 named itself "the only one of the peer numerics here" that
+was unbounded; it was one of three, and that claim is corrected in place because believing it is
+what left the other two open. Found by the Lua-adapters cell of the third adversarial review
+(P2c-1, P2c-2); queued in
+[`../../adapters/emulator/pokemon/crystal/UNVERIFIED.md`](../../adapters/emulator/pokemon/crystal/UNVERIFIED.md).

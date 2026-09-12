@@ -141,6 +141,28 @@ effects are still reaching the other client late in the session — that is the 
 **None of the five is verified by anything on this side.** The Go-side half of the same review is
 confirmed with tools and is in `../../agent_docs/verified.md`; this is the half that needs eyes.
 
+## [READY] a peer cannot spawn unlimited BULLETS either, built and deployed, UNWATCHED (2026-09-12)
+
+The same shape as the summon cap above and found by a different cell of the same review (P2f-1):
+`visual.Bullets` is keyed on a peer-chosen `seq` that only has to increase, and every row was a
+full `Instantiate` of the game's bullet prefab plus a pooled follower, stepped on the frame thread
+for twelve seconds. Nothing counted them -- while every sibling container on the same object is
+capped (`Summons` 4, `RejectedAnims` 4, `Orbs` 2, `Platforms` 2). `extras` allows roughly thirty
+rows per state at the room rate.
+
+**Sized from the game, not guessed:** the cap is `BulletManager`'s own `bullets` array length --
+the most bullets this build can have alive at once, for everyone on screen together. One ghost
+cannot legitimately need more of its own than the whole game can hold. Read live rather than
+cached, with a generous fallback for the moment during a scene load when reflection cannot reach
+it, because refusing a real player's shots would be a worse bug than the one this guards.
+
+**What to watch:** a peer firing normally -- orbs, charged shots, whatever they have -- and the
+bullets appearing on your screen as they did before, with their trails. Then sustained fire from
+both of you at once. A shot that stops appearing, or a warning in the log naming a bullet cap
+during ordinary play, is a decline: it would mean the ceiling is below what the game really does.
+
+Built, deployed to both installs, hash-verified `842BD652`.
+
 ## This run — watch these first
 
 **The READY entries below, newest first, at most ten.** Each says what to look at and what correct looks
@@ -149,6 +171,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — **a peer cannot spawn unlimited bullets** — capped at the game's own bullet-pool length; watch that ordinary fire still shows every shot (2026-09-12)
 - READY — **five peer-input fixes from the 2026-09-12 adversarial review** — summon cap, shield/flash Infinity checks, pool-index bound, and a stale effect mark that stopped your OWN effects mirroring late in a session (2026-09-12)
 - READY — **replay and chaser ghosts have never been watched here** — they are made by the client and ride the ordinary ghost path (`core/localpeer.go`), so they should work; only Pseudoregalia has been seen (2026-09-11)
 - READY — **projectiles: what is still unmirrored** — the confirmed half (walls, colours, no watcher damage) is in `VERIFIED.md`; the plain-shot distance, the drawn-sprite animation and four more shots are unwatched (2026-09-10)

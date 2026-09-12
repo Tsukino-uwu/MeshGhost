@@ -816,3 +816,12 @@ rejected-name cap it shares. The fifth is not what the review reported: `ghostSp
 a leak (pooled ids are stable, pools finite) but its marks were never cleared, so a pooled effect a
 ghost had borrowed made the LOCAL player's own later effect on that object stop mirroring. Commit
 `ec380854`.
+
+## 2026-09-12 (continued) — the bullet dictionary gets the cap its siblings had
+
+`visual.Bullets` is keyed on a peer-chosen `seq` and every row was a full `Instantiate` plus a
+pooled follower, stepped on the frame thread for twelve seconds, with nothing counting them --
+while `Summons`, `RejectedAnims`, `Orbs` and `Platforms` on the same object are all capped. Bounded
+by `BulletManager`'s own `bullets` array length, which is the most this build can have alive at
+once. Found by the growth cell of the third adversarial review (P2f-1); queued in
+[`../../adapters/tevi/UNVERIFIED.md`](../../adapters/tevi/UNVERIFIED.md).
