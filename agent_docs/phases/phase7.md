@@ -3681,3 +3681,15 @@ The six that matter most:
 Also: I9, I10, I11, I12, I13, I14 (now `BANDAGES.md` entry 0a), I15, I16, I17, I19, I20, and the
 reject-code change (ADR 0058's adapter half). Full session record, including what was NOT done and
 why: [phase10.md](phase10.md), 2026-09-11.
+
+## 2026-09-12 — pointer: the review's Pseudoregalia survivors, and a security pass that did not reach this adapter
+
+Two things touched this tree today, neither of them Pseudoregalia work in its own right:
+
+- `9fda4ffb` moved the 23-agent review's surviving items out of the deleted working checklist and
+  into `pseudoregalia/FLAGS.md` (the bitfield audit's probe-reliability warning). Full record:
+  [phase10.md](phase10.md), 2026-09-12.
+- The **third adversarial review** ran the same day and **never reached this adapter**: cell P2e
+  (peer field → sink, C++) died to the session cap before reporting. Pseudoregalia is the only
+  memory-unsafe adapter of the four, so it is first in line when the pass resumes.
+  `REVIEW-FINDINGS.md` holds the standing list.

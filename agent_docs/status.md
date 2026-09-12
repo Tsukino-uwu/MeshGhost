@@ -10,6 +10,9 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 
 ## Open now
 
+- 2026-09-12 — **Adversarial review pass 3 is HALF-RUN: 10 of 17 cells, rest lost to the cap.** 3 of 4 adapters and both sweeps unreviewed. `REVIEW-FINDINGS.md`.
+- 2026-09-12 — **~28 review findings open; 2 HIGHs fixed** (`70a8bab9`, `16b21a29`), neither pushed. `REVIEW-FINDINGS.md`.
+
 - 2026-09-11 — **Autostart is opt-in everywhere now: the two Pokémon scripts look ONLY beside themselves** (ADR 0061). UNWATCHED in either game; three loads to check. Each `UNVERIFIED.md`.
 
 - 2026-09-11 — **TEVI: some bullet BIRTH rows never reach the watcher**, so shots go missing under sustained fire — likely the extras-cap trim dropping rows oldest-first. `tevi/UNVERIFIED.md`.
@@ -33,7 +36,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 - 2026-09-11 — **The disarmed-probe WARN prints 21 entries every run**, so nobody reads it; ratchet it like the fence check. `preflight.ps1`.
 - 2026-09-11 — **Replay/chaser ghosts are UNWATCHED in TEVI, Emerald and Crystal** — client-made, so they should just work; `docs/` no longer claims either way. Each `UNVERIFIED.md`.
 - 2026-09-11 — **`Plugin.cpp` still says `session_policy` is "honoured by zero of four"** (two read it now). Untouched on purpose: editing it marks the committed DLL stale.
-- 2026-09-12 (01:30) **Nothing is running** — the four Emerald emulators and their cores were torn down and verified gone. The four Emerald dev-loader targets still point at the adapter, so a relaunch hot-loads it. **Both TEVI installs are in HOT-RELOAD mode** — `-Off` before a confirmation that counts. `running-the-rig.md`.
+- 2026-09-12 (01:30) **Nothing is running** — Emerald emulators/cores torn down, verified gone. **TEVI is HOT-RELOAD: `-Off` before a real confirmation.** `running-the-rig.md`.
 
 **Trimmed 2026-09-11 back to what this file is for** — short-term memory, not a progress log
 (the user's call). Eighteen items left: eleven had been carried across sessions marked *"still open,

@@ -207,6 +207,8 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-11 — and then it was FIXED: 67ms to 21ms, four faults, none of them the drawing
 - 2026-09-11 — where the painted tier's floor actually is, and why a vertical merge will not move it
 - 2026-09-11 — USER-CONFIRMED ON SCREEN: the 3x painted tier still draws correctly, reflections included
+- 2026-09-12 — Emerald: a ghost opens the door, on all four builds
+- 2026-09-12 — Emerald: occlusion works on ALL FOUR builds, not just vanilla
 ## Confirmed facts
 
 ### Emerald ROM revision

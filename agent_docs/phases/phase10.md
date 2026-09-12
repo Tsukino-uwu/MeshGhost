@@ -1918,3 +1918,66 @@ is read and written raw once per ghost spawn in an ungated DIAG block -- both ra
 engine bools, which stamp their byte's neighbours and may never do the thing they intend. Recorded
 in `FLAGS.md` with the field names rather than the review's line numbers, which are stale:
 `Plugin.cpp` was ~23k lines at the audit and is 27,900 now.
+
+## 2026-09-12 (later) — the third adversarial review: 10 cells of 17, two fixes, and a cap
+
+**What was asked.** The user wanted a review read from the seat of a bad actor — "running
+commands/programs/ACE etc, towards the server, or just trying to do things towards/against another
+client". The third such pass; ADR 0044 (five reviewers) and the 23-agent pass are the first two.
+
+**Method, and the one thing that differed from pass 2.** 17 read-only agents decomposed by
+**(position × class)**, not by component. The argument for it, which is also what the pass then
+demonstrated: a component split gives `protocol/` to one reader and `relay/` to another, so nobody
+owns the seam between a validator and the marshal that spends what it measured — and that seam held
+the top finding. Agents got a prohibition block, a claim record and a flat exclusion list of
+accepted risks regenerated from `docs/security.md` + `risks.md`; they did **not** get the ~20 seed
+hypotheses from planning, because handing an agent your own model turns echo into what reads as
+corroboration.
+
+**A fifth attacker position was found before any agent ran**, by the check the plan mandates ahead
+of writing briefs: *list every entry point that parses a stranger's bytes and name which cell owns
+each*. Four positions and fifteen cells had silently left **a hostile replay clip** un-owned —
+`docs/config.md` tells players "a zip is the easy way to send a clip to someone", and
+`replay/active/` parses `.ndjson`, `.ndjson.gz` and `.zip`. Two cells were added for it and both
+found real gaps, so the check paid for itself on its first use.
+
+**Two fixes shipped, each with a test that failed first.**
+
+- `70a8bab9` — **the relay forwarded a state line no receiver could read.** `area_id`/`anim` are
+  bounded with `len()`; the relay re-encodes with `encoding/json`, which escapes `&`/`<`/`>` to six
+  bytes each, and `prev` carries its own copy of both. Measured: a **1185-byte inbound line that
+  `ValidateState` accepts left `forwardState` at 6305 bytes**, against a receiver cap of 4095. Not a
+  reject — `bufio.ErrTooLong` in every *other* member's read loop, and `recordState` remembered it,
+  so a `snapshot.v1` joiner was re-seeded and killed on arrival too. **This is the state-plane half
+  of the defect fixed for the world plane on 2026-09-08** (`ValidOpaqueStringOnWire`), which was
+  applied to `World.Authority`/`Key` and to nothing else. Fixed with the same
+  drop-prev-then-drop-state ladder `core/sending.go` already uses, checked before `recordState`.
+- `16b21a29` — **the core did not bound the shape of a relay-supplied `player_id`.** It becomes a
+  key in four tables and reaches the game mod verbatim. Now refused if empty, past
+  `MaxHelloFieldLenForID` (a bound that existed for exactly this and was applied only to ids a
+  *client* sends), or carrying the `chaser:`/`replay:` prefix — a relay minting `chaser:1` landed
+  states in the buffer this core's own chaser feeds, rendered cosmetic, and was **exempt from the
+  stale age-out**, so it never despawned.
+
+**The near-miss is the more useful record of the two.** The first draft of the second fix put the
+gate inside `storeRemoteState` — which `feedLocalPeer` shares, so it would have silently deleted
+every replay and chaser ghost. The replay/chaser tests caught it before the commit. The lesson
+generalises past this fix: **a shared helper is the wrong place for a gate one of its callers must
+fail**, and the code now carries a comment saying why the gate is not there. Filed as a pitfalls
+candidate.
+
+**The 5-hour session cap ended wave 1 at 10 completed cells of 17.** Lost: P2c (both Pokémon
+adapters), P2e (Pseudoregalia), X1 (guard parity), X2 (instrument integrity), P1b (pre-auth
+lifecycle), P1d (transports); P2f delivered its container table before dying and that was salvaged.
+So **three of the four adapters were never reviewed -- only TEVI was, and the unreviewed three include the only memory-unsafe one**, and both
+cross-cutting sweeps are missing — that is the honest shape of this pass's coverage and it belongs
+in the ADR when one is written. Relaunch order: X1 > P2c > P2e > X2 > P1b > P1d.
+
+**Everything found, fixed and still open is in `REVIEW-FINDINGS.md`** — the session working
+checklist, untracked by `.gitignore:273`, recreated for this pass after the previous one was emptied
+earlier today. ~30 findings across five positions, each with file:line, the concrete input, the
+victim, a bounding negative, and what would have to exist for it to be false. Nothing there is
+"verified" that I did not re-read or measure myself; agent-only leads are marked as such.
+
+**The user stopped the session here** (going to bed), choosing to work the confirmed backlog before
+relaunching the failed cells. Nothing pushed; CI has not seen either fix.

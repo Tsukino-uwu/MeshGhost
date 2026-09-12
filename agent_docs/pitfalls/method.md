@@ -1426,7 +1426,7 @@ git show --stat <that commit>                  # deleted, or RENAMED?
 history is a `git log` question, and a rename looks exactly like a deletion to every tool that only
 sees the working tree.
 
-## A MEASUREMENT THAT CAN READ BACK YOUR OWN WRITE IS NOT A MEASUREMENT (Emerald, 2026-09-12)
+## A MEASUREMENT THAT CAN READ BACK YOUR OWN WRITE IS NOT A MEASUREMENT -- an address "learned" at frame 2 was our own stranded write (Emerald, 2026-09-12)
 
 **Symptom.** A patched build was asked to discover an address it could not derive — this build's
 `Task_AnimateDoor` — by watching its own engine and reading the `func` of any task recognisable as
@@ -1452,7 +1452,7 @@ Sibling of the rule one level up in `CLAUDE.md` — *never log the value you jus
 worked* — which this is the discovery-time form of: there, you re-read your own write; here, you
 *search* and find it.
 
-## LOG THE PASS, NOT ONLY THE FAILURE — silence that means two opposite things (Emerald, 2026-09-12)
+## LOG THE PASS, NOT ONLY THE FAILURE -- silence meant "verified good" and "never ran", and three fixes aimed at the wrong build (Emerald, 2026-09-12)
 
 **Symptom.** One build of four could not animate a ghost's door. Its address tables were checked at
 load by a routine that logged **only when the check failed**, and it logged nothing — so its log
