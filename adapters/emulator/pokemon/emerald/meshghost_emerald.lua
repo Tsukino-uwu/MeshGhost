@@ -13907,9 +13907,12 @@ tiering.seamTraceTick = function()
     -- The EVENT that opens the window: either end of a crossing. A local one is our own map key
     -- changing; a peer's is its wire area changing. Both are recorded, because the two symptoms
     -- are the same crossing watched from the two sides.
-    local event = nil
+    -- NOT `event`: that is BizHawk's own API table, which this file registers hooks through.
+    -- Shadowing a host global inside a function is how a later line in it silently loses the
+    -- API (preflight's Lua-globals check caught this one, 2026-09-13).
+    local seamEvent = nil
     if tiering.seamLastKey and key and tiering.seamLastKey ~= key then
-        event = "LOCAL " .. tostring(tiering.seamLastKey) .. "->" .. tostring(key)
+        seamEvent = "LOCAL " .. tostring(tiering.seamLastKey) .. "->" .. tostring(key)
     end
     if key then tiering.seamLastKey = key end
     tiering.seamLastSrc = tiering.seamLastSrc or {}
@@ -13917,7 +13920,7 @@ tiering.seamTraceTick = function()
     for id, r in pairs(remotes) do
         local prev = tiering.seamLastSrc[id]
         if prev and r.srcAreaId and prev ~= r.srcAreaId then
-            event = (event and (event .. " + ") or "")
+            seamEvent = (seamEvent and (seamEvent .. " + ") or "")
                 .. "PEER " .. id .. " " .. tostring(prev) .. "->" .. tostring(r.srcAreaId)
         end
         tiering.seamLastSrc[id] = r.srcAreaId
@@ -13950,13 +13953,13 @@ tiering.seamTraceTick = function()
         tostring(tiering.originX), tostring(tiering.originY),
         tostring(tiering.anchorArea),
         (#parts > 0) and table.concat(parts, " || ") or "no-peers",
-        event and ("   <<< " .. event) or "")
+        seamEvent and ("   <<< " .. seamEvent) or "")
     tiering.seamRing = tiering.seamRing or {}
     local ring = tiering.seamRing
     ring[#ring + 1] = line
     -- 60 frames of lead-in kept at all times, 150 frames of tail once a crossing opens the window:
     -- one second either side at 60fps, which is the span both symptoms live in.
-    if event and not tiering.seamDumpUntil then tiering.seamDumpUntil = frameCounter + 150 end
+    if seamEvent and not tiering.seamDumpUntil then tiering.seamDumpUntil = frameCounter + 150 end
     if not tiering.seamDumpUntil then
         while #ring > 60 do table.remove(ring, 1) end
     elseif frameCounter >= tiering.seamDumpUntil then

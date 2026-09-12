@@ -7240,3 +7240,137 @@ place. The fixes were right; the verdicts on them were unreadable.
   were found and fixed here before the thing masking them was questioned, and it had been sitting
   in the file's own header the whole time, described accurately, since 2026-08-19.
 
+## Emerald: three seam defects, and the sibling adapter named two of them before a probe was written (2026-09-12)
+
+**Symptom.** Crossing a route/town connection with two clients: the watcher saw the peer's ghost
+*"moving slow while crossing"*; the crosser saw its ghost *"snapping/teleporting around a bit"*.
+Both user-confirmed fixed the same session (`emerald/VERIFIED.md`).
+
+**The method that found them, which is the transferable part.** CRYSTAL WAS READ FIRST. Its
+cross-map block carries three fixes in its comments, and two of them were Emerald's bugs: keep the
+DEPARTING map's connection table (the rebuild destroys the answer to "was this a seam or a warp"),
+and never shift screen-space values on a rebase (it manufactures a twitch). That turned a blind
+investigation into a diff before a single probe existed. The user's rule from it: when two games
+share a series, check how the sibling solved it.
+
+**Cause 1 — the sender snapped its sub-tile interpolator at a seam.** `smoothPosition` treats any
+area change as a discontinuity, which is right for a WARP and wrong for a CONNECTION: the world is
+continuous and the step is still in flight, so the phase was thrown away and a WHOLE TILE went on
+the wire in one frame (measured 48.9 -> 50.0 while walking at 1/16 a frame). A warp still snaps, and
+so does a teleport onto a connected map -- a savestate load from eighteen tiles away glided the wire
+across all eighteen before that guard was added.
+
+**Cause 2 — the paint anchor stayed in the old map's numbering** while every peer's model was
+rebased, and the anchor's own `fresh` test then re-latched it MID-HANDOVER, which is the one-tile
+spike its `settled` guard exists to prevent. A stationary peer's painted x went 48 -> (unpainted) ->
+64 while the camera moved one pixel.
+
+**Cause 3 — the receiver measured a stream it was not chasing.** The glide's speed window sat on the
+RAW target while the filter moves toward one `drawnDelay` frames older, and both were 8 -- so the
+burst left the window exactly as the delayed target began to move. Invisible on an ordinary step,
+where the wire creeps every frame; at a seam, where a whole tile arrives at once, it left the ghost
+covering that tile at the 0.02 floor: 0.4px a frame, a fifth of walking pace.
+
+**The rules this adds:**
+
+- **A seam is not a warp, on every path that treats them alike.** This adapter already had the rule
+  for freeing tiles; the SEND path had the same bug, and so did the paint anchor. When a distinction
+  is discovered once, grep for every other place that tests the same condition.
+- **Two lengths that happen to be equal are a coincidence waiting to bite.** `drawnDelay` and the
+  speed window were both 8 for unrelated reasons, and the measurement expired exactly when it was
+  needed. Measure the stream you are CHASING, not the one in front of it.
+
+## Emerald: the draw-order mask, and three defects an instrument named that a screenshot could not (2026-09-12)
+
+**Symptom.** *"the ghost is still drawn on top of the player"*, with a screenshot showing a ghost one
+tile above the player painted over it. Three attempted fixes changed nothing on screen.
+
+**Cause 1 — the mask was never called.** Only the peer-graphic path was hooked; a peer with no `gfx`
+on the wire paints through the walker fallback, which was untouched. The trace found it by printing
+when it decided NOTHING: no line at all is a reading.
+
+**Cause 2 — a frame bottom was compared against an INK bottom.** The ghost's came from its frame
+(top + height); the player's came from its lowest opaque pixel, 15px below instead of 16, because
+the art has transparent rows under the feet. Two characters a tile apart therefore landed in the
+SAME 16px band, where the tie rule let the ghost paint over. This is why the first version changed
+nothing: the comparison was right and its two inputs were different quantities.
+
+**Cause 3 — the flip was dropped.** `runsForPeerGfx` returns hFlip as its THIRD return value; the
+mask was built from unflipped runs, so EAST was mirrored against the pixels it had to cover. Three
+facings looked right, which is what a dropped flip looks like from outside.
+
+**And a wasted hour on a blind instrument.** Several screenshot bursts were taken of the painted
+ghost before remembering that `client.screenshot` captures the emulator's VIDEO OUTPUT and a painted
+ghost is a `gui.*` overlay -- documented in `_template/probes.md` since 2026-08-26, unread. The
+adapter's own span counters answered it in one line: 118 spans painted, so the ghost was there and
+the camera was not lying; the screenshots were.
+
+**The rules this adds:**
+
+- **An instrument must log when it decides NOTHING.** "The mask decided not to apply" and "the mask
+  was never reached" produce identical screens and opposite fixes.
+- **Compare like with like, and say which quantity each side is.** A frame edge and an ink edge are
+  both "the bottom" in English and differ by whatever the art leaves empty.
+- **A function's extra return values are part of its contract.** Dropping the third one silently
+  produced a mask that was right in three cases out of four.
+
+## Emerald: a delayed ghost's every visible field must come from the SAME INSTANT (2026-09-13)
+
+**Symptom.** *"its turning before its actually supposed to turn... it turns, slides a bit, then moves
+in that direction"*, and separately a ghost that moved at walking pace while its peer ran.
+
+**Cause 1 — the facing was taken live while the position was delayed.** The painted tier read
+`remote.orientation` off the wire and painted a position from `drawnDelay` frames ago, so a ghost
+adopted the new direction eight frames before the motion belonging to it arrived. The facing now
+rides in the same ring SLOT as the position, which makes drift between them impossible rather than
+merely unlikely.
+
+**Cause 2 — and the wire's facing is early at the SOURCE.** The engine sets `facingDirection` at the
+START of a step, so it flips while the previous step's pixels are still playing out. No amount of
+delaying fixes a value that is already early: the pose now comes from the model's OWN MOTION, with
+the wire's facing kept only for a peer that is not moving -- a turn on the spot being the one facing
+change no position can show. Crystal reached the same rule in its own stutter work.
+
+**Cause 3 — a field's NAME is not its enum.** `pspeed` was read as `MOVE_SPEED_*` when it carries
+`PLAYER_SPEED_*`: one more than the step table's index, and `STANDING` on foot even while dashing,
+because the underlying byte is `gPlayerAvatar.bikeSpeed` and the engine maintains it for BIKES. A
+running peer was given 1px a frame against a target advancing 2px until it was a tile behind and the
+catch-up rule lurched it forward. **Check what a field IS and DOES, never what its name suggests.**
+
+**Cause 4 — moving at exactly the peer's speed can never close a gap.** The model sat a constant 2px
+behind for entire runs. Invisible in a straight line; at a corner the peer turns on the tile boundary
+while the ghost is still two pixels short of it, so it walks the old way for two more frames. Closing
+that with extra SPEED is what a 1.25x catch-up did, and it slid at a rate no character moves at. The
+model now simply IS the delayed target whenever it is within one frame's legal movement.
+
+**The rule this adds, beyond the specifics:** **anything a renderer shows about a peer -- position,
+facing, pose, graphic -- has to be sampled at one instant and travel together.** Mixing a live field
+with a delayed one produces motion the source game cannot perform, and it reads as a bug in whatever
+you changed last.
+
+## Three ways I broke a working adapter in one session, and what each check would have caught (2026-09-13)
+
+All three were mine, all three were caught by something other than the edit itself, and the user saw
+two of them on screen before any instrument did.
+
+**1. A scripted edit sliced a `return` out of a function.** Removing a block that ended just above
+`encodeLocalState`'s tail took the `return string.format(...)` with it. The function returned nil,
+`sendLine` concatenated nil, and the frame guard swallowed the error EVERY FRAME -- no state on the
+wire, no ghost on either screen, and a log full of one identical line. I had run the forward-
+reference checker after that edit and never checked the function still RETURNED anything. **"Grep
+the RESULT of every scripted edit" means the result you intended, not the absence of a new error.**
+
+**2. One `local` too many crossed Lua's 200-local ceiling.** `local PEER_GFX_DRAWN = true` is a
+LOAD failure -- "too many local variables (limit is 200) in main function" -- so the whole adapter
+refused to compile and nothing rendered. The file warns about this in four places. A declaration
+that looks free is not free in a chunk at its ceiling; put it on an existing table.
+
+**3. A shell heredoc ate a backslash.** `[/\\]` in a Lua pattern reached the file as `[/\]`, which
+does not parse. Already a filed lesson (2026-09-08) and already in my own notes; I used a heredoc
+anyway. Only preflight's `luac -p` sweep noticed.
+
+**The thing worth carrying:** every one of these was invisible to the check I DID run and visible to
+one I did not. After an edit to a live file, the question is not "did my change land" but "does the
+file still do what it did before, plus my change" -- and the cheapest proof is the thing the file
+produces: a load line, a return value, a parse.
+
