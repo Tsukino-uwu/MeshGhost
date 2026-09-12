@@ -804,3 +804,15 @@ could do to this one:
 
 The full session record, including what was NOT done and why, is in
 [phase10.md](phase10.md)'s 2026-09-11 entry.
+
+## 2026-09-12 — five peer-input fixes from the third adversarial review
+
+Logged in full in [phase10.md](phase10.md) with the rest of that backlog, and waiting on the user in
+[`../../adapters/tevi/UNVERIFIED.md`](../../adapters/tevi/UNVERIFIED.md). The summon dictionary is
+keyed on a free peer string and Instantiated a sprite rig per unseen key, capped now at four (what
+`ReadSummons` can actually produce); shield rotation and flash coordinates gained the Infinity check
+their siblings already had; the flash pool index is bounded; the summon path counts against the
+rejected-name cap it shares. The fifth is not what the review reported: `ghostSpawnedEffects` is not
+a leak (pooled ids are stable, pools finite) but its marks were never cleared, so a pooled effect a
+ghost had borrowed made the LOCAL player's own later effect on that object stop mirroring. Commit
+`ec380854`.
