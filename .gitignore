@@ -269,6 +269,14 @@ adapters/**/config.json
 /relay.err.log
 /core.err.log
 
+# Editor-local workspace settings. Written by VS Code extensions, not by a person:
+# the CMake one stamps an absolute path to this clone into it the first time a
+# C++ target is configured, which is precisely what the leak gates refuse in a
+# tracked file (.githooks/pre-commit, preflight's "no script hardcodes an absolute
+# path to the clone"). Nothing here is shared: a second machine's copy would name a
+# different directory.
+.vscode/
+
 # Session working checklist, local only (committed once by mistake 2026-09-08, untracked 2026-09-09)
 REVIEW-FINDINGS.md
 
