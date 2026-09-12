@@ -382,9 +382,24 @@ func TestHostileWorldStateIsDroppedOnReceive(t *testing.T) {
 			Entries: make([]protocol.WorldEntry, protocol.MaxWorldKeysPerRoom+1)},
 	}
 
+	// EVERY CASE BELOW NEGOTIATES THE PLANE, and that is load-bearing rather
+	// than setup noise. Since 2026-09-12 handleOnlineMessage refuses an
+	// inbound plane this side never asked for (planeNegotiated), so a core
+	// built with New() and nothing else drops all five of these before
+	// ValidateWorldState is ever reached -- the assertions would still pass,
+	// while testing the gate five times and the validator not at all.
+	negotiated := func() *Core {
+		c := New()
+		c.Features = []string{protocol.FeatureWorldV1}
+		c.mu.Lock()
+		c.activeFeatures = []string{protocol.FeatureWorldV1}
+		c.mu.Unlock()
+		return c
+	}
+
 	for name, st := range cases {
 		t.Run(name, func(t *testing.T) {
-			c := New()
+			c := negotiated()
 			delivered := false
 			c.OnWorldState = func(protocol.WorldState) { delivered = true }
 
@@ -403,21 +418,40 @@ func TestHostileWorldStateIsDroppedOnReceive(t *testing.T) {
 		})
 	}
 
+	valid := protocol.WorldState{
+		Authority: "sim", Holder: "p1", Seq: 4, Reason: protocol.WorldSnapshot,
+		Entries: []protocol.WorldEntry{{Key: "e0", Blob: json.RawMessage(`{"hp":1}`)}},
+	}
+	payload, err := json.Marshal(valid)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
 	// The converse, so the check is not simply refusing everything.
 	t.Run("a valid one is delivered", func(t *testing.T) {
-		c := New()
+		c := negotiated()
 		delivered := false
 		c.OnWorldState = func(protocol.WorldState) { delivered = true }
-		payload, err := json.Marshal(protocol.WorldState{
-			Authority: "sim", Holder: "p1", Seq: 4, Reason: protocol.WorldSnapshot,
-			Entries: []protocol.WorldEntry{{Key: "e0", Blob: json.RawMessage(`{"hp":1}`)}},
-		})
-		if err != nil {
-			t.Fatalf("marshal: %v", err)
-		}
 		c.handleOnlineMessage(protocol.Envelope{Type: protocol.TypeWorldState, Payload: payload})
 		if !delivered {
 			t.Fatal("a valid world_state was dropped")
+		}
+	})
+
+	// And the gate itself: the same message, into a room that never agreed the
+	// plane. This is the configuration every shipped adapter runs in.
+	t.Run("a valid one is refused in a room that never asked for the plane", func(t *testing.T) {
+		c := New()
+		delivered := false
+		c.OnWorldState = func(protocol.WorldState) { delivered = true }
+		if handled := c.handleOnlineMessage(protocol.Envelope{
+			Type: protocol.TypeWorldState, Payload: payload,
+		}); !handled {
+			t.Fatal("handleOnlineMessage did not claim a world_state at all")
+		}
+		if delivered {
+			t.Fatal("a world_state reached the game in a cosmetic room that negotiated no world plane -- " +
+				"the send path has always refused this direction, and the receive path did not")
 		}
 	})
 }

@@ -630,6 +630,85 @@ type EscrowState struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+// MaxStateReasonLen bounds the human-readable Reason a relay attaches to a
+// LeaseState or EscrowState. Derived from MaxHelloFieldLen rather than
+// repeating a fourth loose 128 — see MaxHelloFieldLenForID, which was created
+// for exactly that drift. Every Reason this repo's relay sends is one of the
+// Lease*/Escrow* constants above, the longest of which is 23 bytes.
+const MaxStateReasonLen = MaxHelloFieldLen
+
+// MaxEscrowParties is how many players one exchange has. Two, by definition —
+// "a trade is two-sided, both or neither" is what the whole plane is for
+// (EscrowOp). It exists as a bound because Parties, Deposited, Committed and
+// Blobs are collections a RELAY fills, and a receiver that trusted their
+// length would iterate as many entries as a 4 KiB line can hold.
+const MaxEscrowParties = 2
+
+// ValidateLeaseState reports whether a LeaseState from a relay is within
+// bounds. The exact mirror of ValidateLease, which is what a relay running
+// this code applied to the request that produced it.
+//
+// UNTIL 2026-09-12 THERE WAS NO SUCH FUNCTION, and core's receive path called
+// none: lease_state and escrow_state were the only two relay→client messages
+// forwarded to a game with nothing checked at all, while event, state and
+// world_state each had their own mirror. Found by the third adversarial review
+// (P3a-2). Measured with len(), not JSONWireLen, deliberately: the wire form
+// was already bounded by the line cap on the way in, and a receiver that
+// measured more strictly than the sender would drop legitimate traffic — the
+// inverse of the 2026-09-08/09-12 forwarding bug, and just as invisible.
+func ValidateLeaseState(st LeaseState) bool {
+	if st.Key == "" || !ValidOpaqueString(st.Key, MaxLeaseKeyLen) {
+		return false
+	}
+	if !ValidOpaqueString(st.Holder, MaxHelloFieldLenForID) {
+		return false
+	}
+	return ValidOpaqueString(st.Reason, MaxStateReasonLen)
+}
+
+// ValidateEscrowState reports whether an EscrowState from a relay is within
+// bounds. The mirror of ValidateEscrow, plus the collection bounds a request
+// has no equivalent of: an Escrow names one counterparty, an EscrowState
+// carries the whole party list.
+func ValidateEscrowState(st EscrowState) bool {
+	if st.ID == "" || !ValidOpaqueString(st.ID, MaxEscrowIDLen) {
+		return false
+	}
+	switch st.Phase {
+	case EscrowPhaseOpen, EscrowPhaseDeposited, EscrowPhaseCommitted, EscrowPhaseAborted:
+	default:
+		// A closed set, unlike Reason: an adapter switches on Phase to decide
+		// whether an item changed hands, so an unrecognised one is not a
+		// forward-compatible extension, it is a step nobody can act on.
+		return false
+	}
+	if !ValidOpaqueString(st.Reason, MaxStateReasonLen) {
+		return false
+	}
+	for _, ids := range [][]string{st.Parties, st.Deposited, st.Committed} {
+		if len(ids) > MaxEscrowParties {
+			return false
+		}
+		for _, id := range ids {
+			if id == "" || !ValidOpaqueString(id, MaxHelloFieldLenForID) {
+				return false
+			}
+		}
+	}
+	if len(st.Blobs) > MaxEscrowParties {
+		return false
+	}
+	for id, blob := range st.Blobs {
+		if id == "" || !ValidOpaqueString(id, MaxHelloFieldLenForID) {
+			return false
+		}
+		if JSONWireLen(blob) > MaxEscrowBlobBytes {
+			return false
+		}
+	}
+	return true
+}
+
 // ValidateEscrow reports whether an Escrow request is within bounds.
 func ValidateEscrow(e Escrow) bool {
 	switch e.Op {

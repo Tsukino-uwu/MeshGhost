@@ -385,9 +385,41 @@ func (c *Core) sendWorld(req protocol.World) error {
 // the bridge. Both, not either — an in-process host may want to observe
 // traffic it also forwards. Returns false for a type it does not handle, so
 // handleRelayMessage's own switch keeps its unknown-type fallthrough.
+// planeNegotiated gates an inbound opt-in plane on BOTH halves of the
+// negotiation: the room agreed it (Welcome.Features) and this side asked for it
+// (Core.Features plus the adapter's own bridge Hello).
+//
+// THE SECOND HALF IS THE ONE THAT DOES THE WORK, and it is why this is not
+// simply the mirror of sendControlOn. activeFeatures comes out of the relay's
+// own Welcome, so a hostile relay opens that gate by writing to it; what it
+// cannot do is make this client have asked. A default cosmetic room asks for
+// nothing at all, which is every shipped adapter -- so in the configuration
+// almost everybody runs, all four opt-in planes are refused here outright.
+//
+// What that stops: until 2026-09-12 handleOnlineMessage forwarded event,
+// lease_state, escrow_state and world_state to the adapter with no capability
+// check whatsoever, while the SEND path gated all four. An empty
+// {"type":"event","payload":{}} passes ValidateEvent, and the event lane does
+// not coalesce -- so repeating it fills the adapter queue to adapterQueueCap,
+// at which point the core declares the adapter stuck and tears the bridge down
+// (core/adapterwriter.go). Found by the third adversarial review (P3a-2).
+//
+// c.Features is read without c.mu, matching effectiveFeatures: it is a caller's
+// own setting, fixed before the core runs.
+func (c *Core) planeNegotiated(feature string) bool {
+	c.mu.Lock()
+	agreed := protocol.HasFeature(c.activeFeatures, feature)
+	asked := protocol.HasFeature(c.adapterFeatures, feature)
+	c.mu.Unlock()
+	return agreed && (asked || protocol.HasFeature(c.Features, feature))
+}
+
 func (c *Core) handleOnlineMessage(env protocol.Envelope) bool {
 	switch env.Type {
 	case protocol.TypeEvent:
+		if !c.planeNegotiated(protocol.FeatureEventV1) {
+			return true
+		}
 		var ev protocol.Event
 		if err := json.Unmarshal(env.Payload, &ev); err != nil {
 			return true
@@ -403,8 +435,19 @@ func (c *Core) handleOnlineMessage(env protocol.Envelope) bool {
 		}
 		c.pushToAdapter(bridge.TypeEvent, bridge.Event{Event: ev})
 	case protocol.TypeLeaseState:
+		if !c.planeNegotiated(protocol.FeatureLeaseV1) {
+			return true
+		}
 		var st protocol.LeaseState
 		if err := json.Unmarshal(env.Payload, &st); err != nil {
+			return true
+		}
+		if !protocol.ValidateLeaseState(st) {
+			// These two planes were the only relay->client messages reaching a
+			// game with nothing checked at all: no such validator existed
+			// before 2026-09-12, while event, state and world_state each had
+			// their own mirror on this side. Same hostile-relay posture, same
+			// reason.
 			return true
 		}
 		if c.OnLeaseState != nil {
@@ -412,8 +455,14 @@ func (c *Core) handleOnlineMessage(env protocol.Envelope) bool {
 		}
 		c.pushToAdapter(bridge.TypeLeaseState, bridge.LeaseState{LeaseState: st})
 	case protocol.TypeEscrowState:
+		if !c.planeNegotiated(protocol.FeatureEscrowV1) {
+			return true
+		}
 		var st protocol.EscrowState
 		if err := json.Unmarshal(env.Payload, &st); err != nil {
+			return true
+		}
+		if !protocol.ValidateEscrowState(st) {
 			return true
 		}
 		if c.OnEscrowState != nil {
@@ -421,6 +470,9 @@ func (c *Core) handleOnlineMessage(env protocol.Envelope) bool {
 		}
 		c.pushToAdapter(bridge.TypeEscrowState, bridge.EscrowState{EscrowState: st})
 	case protocol.TypeWorldState:
+		if !c.planeNegotiated(protocol.FeatureWorldV1) {
+			return true
+		}
 		var st protocol.WorldState
 		if err := json.Unmarshal(env.Payload, &st); err != nil {
 			return true
