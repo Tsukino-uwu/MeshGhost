@@ -54,6 +54,26 @@ func (e *escrow) isParty(id string) bool {
 	return e.parties[0] == id || e.parties[1] == id
 }
 
+// escrowOwedToSuspendedLocked reports whether a party to e is currently away
+// with the outcome still unread -- the one case a retained record is FOR. See
+// evictTerminalEscrowLocked, which is its only caller and explains why the
+// eviction order needs it. Caller holds r.mu.
+//
+// A member who is not suspended either read the outcome as it happened or has
+// left the room, and an id no longer in r.members is one whose resume grace
+// already ran out.
+func (r *Room) escrowOwedToSuspendedLocked(e *escrow) bool {
+	for _, id := range e.parties {
+		if id == "" {
+			continue
+		}
+		if c, ok := r.members[id]; ok && c.suspended {
+			return true
+		}
+	}
+	return false
+}
+
 // maxEscrowRecordsPerRoom bounds the escrow TABLE, live and terminal together.
 //
 // Live exchanges are already bounded by protocol.MaxEscrowsPerRoom (64), but a
@@ -112,16 +132,42 @@ func (r *Room) openedEscrowLocked(opener string) {
 // is to answer a party that dropped mid-trade, and the older it is the more
 // likely that party has already been answered or has given up. Caller holds
 // r.mu.
+// AGE ALONE IS THE WRONG ORDER WHEN A THIRD PARTY CONTROLS THE CHURN, which is
+// what this now guards. The per-member cap counts LIVE exchanges only, so
+// somebody uninvolved can open-and-abort in a loop, fill the table with fresh
+// terminal records, and push out an older one -- and the record most likely to
+// be pushed out is a COMMITTED one whose party dropped in the moment between
+// the relay committing and the message arriving, because that is precisely a
+// record that has been sitting there a while.
+//
+// That party then resumes and is told nothing. "Both or neither" holds on the
+// relay's side -- the swap did happen -- and is broken from theirs: they cannot
+// tell a completed trade from one that never finished, which is the exact
+// uncertainty EscrowRetention exists to remove and the reason the escrow plane
+// exists at all rather than a lease. Found by the third adversarial review
+// (P1c-1).
+//
+// So the choice is made in two passes: anything no SUSPENDED party is still
+// waiting on goes first, oldest of those; only if every terminal record is owed
+// to somebody currently away does the oldest of THOSE go, which keeps the
+// table bounded rather than letting a full table refuse new exchanges.
 func (r *Room) evictTerminalEscrowLocked() bool {
-	oldestID, oldestAt := "", time.Time{}
-	var oldest *escrow
-	for id, e := range r.escrows {
-		if !e.terminal {
-			continue
+	pick := func(owed bool) (string, *escrow) {
+		bestID, bestAt := "", time.Time{}
+		var best *escrow
+		for id, e := range r.escrows {
+			if !e.terminal || r.escrowOwedToSuspendedLocked(e) != owed {
+				continue
+			}
+			if best == nil || e.terminalAt.Before(bestAt) {
+				bestID, bestAt, best = id, e.terminalAt, e
+			}
 		}
-		if oldest == nil || e.terminalAt.Before(oldestAt) {
-			oldestID, oldestAt, oldest = id, e.terminalAt, e
-		}
+		return bestID, best
+	}
+	oldestID, oldest := pick(false)
+	if oldest == nil {
+		oldestID, oldest = pick(true)
 	}
 	if oldest == nil {
 		return false

@@ -227,9 +227,29 @@ func (r *Room) queueMissedEventLocked(id string, ev protocol.Event) {
 	}
 	q := r.missedEvents[id]
 	if len(q) >= maxMissedEventsPerMember {
-		// Oldest first: the newer half of a trade conversation is the half the
-		// returning client still needs in order to answer.
-		q = append(q[:0], q[1:]...)
+		// A BROADCAST GOES BEFORE ANYTHING ADDRESSED TO THIS MEMBER, and until
+		// 2026-09-12 the choice was age alone.
+		//
+		// Age alone means anybody in the room can decide what a suspended member
+		// comes back knowing: a broadcast (to:"") reaches everyone, including
+		// this backlog, so 64 of them at the sender's flood cap push out every
+		// addressed event underneath -- and addressed is the half that was aimed
+		// at THIS member and is the half a trade conversation is made of. They
+		// resume believing nothing happened. One member's message rate deciding
+		// another's history is the same shape as the escrow eviction fixed the
+		// same day. Found by the third adversarial review (P1c-2).
+		//
+		// Within a class it is still oldest-first, for the reason that was
+		// already here: the newer half of a conversation is the half a returning
+		// client needs in order to answer.
+		drop := 0
+		for i, held := range q {
+			if held.To == "" {
+				drop = i
+				break
+			}
+		}
+		q = append(q[:drop], q[drop+1:]...)
 		r.missedEventsDroppedOnce.Do(func() {
 			log.Printf("relay: room %q: %s missed more than %d events while it was away "+
 				"-- the oldest are being dropped, so its replay on resume will be incomplete",
