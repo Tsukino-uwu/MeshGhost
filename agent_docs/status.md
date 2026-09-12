@@ -13,7 +13,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 - 2026-09-12 — **Review pass 3: all 17 cells have run (~74 claims); the transports cluster is fixed and the fuzz-coverage one is next.** 44 commits, nothing pushed. `REVIEW-FINDINGS.md`, `phases/phase10.md`.
 - 2026-09-12 — **A stock relay could not welcome the 6th player into a room of escaped names, on the default transport.** Fixed (`relay.sendBudget`); the measurement is in `verified.md`.
 - 2026-09-12 — **Three fuzz targets pointed at nothing; one is measured 0% → 89.7% on the code its own seeds describe.** Fixed, plus two new targets for the core's own sockets. `verified.md`.
-- 2026-09-12 — **Adapter fixes from the pass are UNWATCHED**: 6 in TEVI, 2 in Pseudoregalia, 2 in Crystal, 1 in Emerald — all built, deployed and hash-verified. Each `UNVERIFIED.md`.
+- 2026-09-12 — **Adapter fixes from the pass are UNWATCHED**: 6 in TEVI, 2 in Pseudoregalia, 3 in Crystal, 1 in Emerald — all built, deployed and hash-verified. Each `UNVERIFIED.md`.
 
 - 2026-09-11 — **Autostart is opt-in everywhere now: the two Pokémon scripts look ONLY beside themselves** (ADR 0061). UNWATCHED in either game; three loads to check. Each `UNVERIFIED.md`.
 
