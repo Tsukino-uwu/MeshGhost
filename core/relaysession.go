@@ -960,6 +960,11 @@ func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welc
 				c.roster = make(map[string]struct{}, len(w.Roster))
 			}
 			for _, id := range w.Roster {
+				// continue, not break: one unusable id is no reason to refuse
+				// the real peers listed after it.
+				if !acceptableRelayPeerID(id) {
+					continue
+				}
 				if !c.admitToRosterLocked(id) {
 					break
 				}
@@ -1063,6 +1068,9 @@ func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welc
 	case protocol.TypeJoin:
 		var j protocol.Join
 		if err := json.Unmarshal(env.Payload, &j); err == nil {
+			if !acceptableRelayPeerID(j.PlayerID) {
+				break
+			}
 			c.mu.Lock()
 			admitted := c.admitToRosterLocked(j.PlayerID)
 			c.mu.Unlock()
@@ -1073,7 +1081,14 @@ func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welc
 			}
 			c.storeRemoteName(j.PlayerID, j.Nametag)
 			if j.State != nil {
-				c.storeRemoteState(*j.State)
+				// A Join's seed state is BY DEFINITION that player's, so the
+				// id is taken from the Join rather than believed from the
+				// state -- the two were never compared, and an honest relay
+				// always agrees. This is what keeps the seed from being a
+				// second, ungated door into storeRemoteState.
+				seed := *j.State
+				seed.PlayerID = j.PlayerID
+				c.storeRemoteState(seed)
 			}
 		}
 	case protocol.TypeLeave:
@@ -1094,6 +1109,9 @@ func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welc
 	case protocol.TypeState:
 		var st protocol.State
 		if err := json.Unmarshal(env.Payload, &st); err == nil {
+			if !acceptableRelayPeerID(st.PlayerID) {
+				break
+			}
 			c.storeRemoteState(st)
 		}
 	default:

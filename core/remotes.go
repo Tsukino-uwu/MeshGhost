@@ -18,6 +18,11 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
+// NOTE: no acceptableRelayPeerID gate here, deliberately. feedLocalPeer routes
+// this core's OWN replay and chaser ghosts through this function, and their ids
+// carry the very prefixes that gate refuses -- so bounding the id here would
+// silently delete both features. The gate belongs at the relay-facing callers,
+// which is where it is.
 func (c *Core) storeRemoteState(st protocol.State) {
 	if st.PlayerID == "" {
 		return

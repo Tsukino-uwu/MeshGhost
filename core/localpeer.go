@@ -43,6 +43,31 @@ func isLocalPeerID(id string) bool {
 	return strings.HasPrefix(id, localPeerReplayPrefix) || strings.HasPrefix(id, localPeerChaserPrefix)
 }
 
+// acceptableRelayPeerID is the shape a RELAY-announced player_id must have
+// before this core will key anything by it. Three refusals, all about shape and
+// none about meaning, so this stays as blind to a game as everything else here.
+//
+//   - Empty, which names nobody.
+//   - Past protocol.MaxHelloFieldLenForID. That bound's own comment says it is
+//     "only about refusing an unbounded string before it is used as a map key",
+//     and until 2026-09-12 it was applied to ids a CLIENT sends the relay and
+//     never to the ones the relay sends back -- though it is the second kind
+//     that becomes a key in c.roster, c.remotes, c.remoteNames and c.agedOut,
+//     and that is handed to the game mod verbatim.
+//   - Carrying a local-peer prefix. isLocalPeerID above says relay ids "never
+//     carry a colon prefix like these", which is true of an honest relay and is
+//     not a guarantee. A relay that mints "chaser:1" lands its states in the
+//     very buffer this core's own chaser feeds, renders cosmetic, and -- since
+//     the stale age-out deliberately skips local ids -- leaves a ghost that
+//     never despawns and a seat that never frees.
+//
+// Found by the third adversarial review (P3a-3, P3a-6).
+func acceptableRelayPeerID(id string) bool {
+	return id != "" &&
+		protocol.ValidOpaqueString(id, protocol.MaxHelloFieldLenForID) &&
+		!isLocalPeerID(id)
+}
+
 // THIS, NOT A MEMBERSHIP LOOKUP, IS WHAT render_remote.cosmetic MUST BE BUILT
 // FROM. There used to be an isLocalPeer(id) beside this that asked whether the
 // id was in c.localPeers, and sendRenderRemote used it. A seam DROPS the peer
