@@ -80,3 +80,12 @@ jobs:
       # drift from what ships.
       - name: The span reuse matches the allocating path
         run: lua5.4 adapters/emulator/tests/spans_reuse.lua
+
+      # Crystal takes three numbers off the wire -- extras.sprite, extras.emote, extras.fly -- and
+      # uses each twice: as arithmetic into a ROM address, and as a key into a table that is never
+      # cleared. All three were RANGE-checked and nothing else, so 83.5 passed every gate they had,
+      # and there are as many floats between 1 and 255 as anywhere else: one permanent memo entry
+      # per state, at the room's send rate, for the session. The address half needs a running
+      # emulator; the growth half is arithmetic, which is what this checks (P2c-3/4/5).
+      - name: A peer's number cannot reach a ROM offset without being an integer
+        run: lua5.4 adapters/emulator/tests/peer_rom_index.lua

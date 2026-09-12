@@ -3428,10 +3428,49 @@ facingFrames.ROD = {
 -- SPECIES -> GRAPHICS is two hops, both in bank 0x23: `MonMenuIcons[species - 1]` gives an ICON
 -- index (several species share one), and `IconPointers[icon]` gives the address of its eight
 -- tiles. Memoised per species -- neither table can change.
+-- peerRomIndex is the gate every peer number that becomes a ROM OFFSET and a MEMO KEY goes
+-- through. It returns an integer inside [lo, hi], or nil.
+--
+-- **IN RANGE IS NOT THE SAME CHECK AS IS AN INTEGER, and the three functions below had only the
+-- first until 2026-09-12.** `sprite`, `emote` and `fly` all arrive as `tonumber(state.extras.x)`,
+-- which is a FLOAT for "83.5" as readily as an integer for "83". Each was then used twice over:
+--
+--   * as arithmetic into a ROM address -- `OVERWORLD_SPRITES_ROM + (id - 1) * STRIDE`,
+--     `EMOTES_ROM + idx * 6`, `iconTbl + species - 1` -- so a fractional value asks the emulator
+--     to read a fractional address, which is not a thing;
+--   * as a key into a table that is NEVER cleared (`ENGINE.spriteSigs`, `facingFrames.emoteRom`,
+--     `facingFrames.iconRom`), memoised deliberately because "neither table can change" and a
+--     session touches a handful of ids. A peer sending 83.0001, 83.0002, ... adds one permanent
+--     entry per sample, at the room's state rate, for as long as the session runs. The range check
+--     does not slow that down at all: there are as many floats between 1 and 251 as anywhere else.
+--
+-- The growth half is the one that needs no emulator to see, and it is the reason this is a
+-- refusal rather than a floor: `math.floor(83.5)` would give a legible sprite for a value the peer
+-- never meant, where nil falls back to the peer's default the way an older client already does.
+--
+-- Non-finite is refused first even though every caller's range check already excludes it, because
+-- that ordering is what `pal` and `clo` two sites away use (P2c-1/P2c-2, the same day) and a
+-- reader should not have to prove the range check gets there first. Found by the Lua-adapters cell
+-- of the third adversarial review (P2c-3, P2c-4, P2c-5).
+--
+-- A FIELD ON `ENGINE`, NOT A NEW FILE-SCOPE LOCAL, and that is not a style choice: this chunk sits
+-- at Lua's 200-local ceiling for a main function, and adding a 201st raises "too many local
+-- variables" at LOAD time -- the whole adapter failing to start, in the emulator, with no ghost
+-- and no obvious cause. Caught by `luac -p` before it ever ran (2026-09-12).
+function ENGINE.peerRomIndex(v, lo, hi)
+	if type(v) ~= "number" or v ~= v or v == math.huge or v == -math.huge then
+		return nil
+	end
+	if v ~= math.floor(v) or v < lo or v > hi then
+		return nil
+	end
+	return math.tointeger(v)
+end
+
 facingFrames.iconRom = {}
 facingFrames.iconGfx = function(species)
-	if not facingFrames.iconTbl or not facingFrames.iconPtrs or not species
-		or species < 1 or species > 251 then
+	species = ENGINE.peerRomIndex(species, 1, 251) -- integer AND in range; see ENGINE.peerRomIndex
+	if not facingFrames.iconTbl or not facingFrames.iconPtrs or not species then
 		return nil
 	end
 	local cached = facingFrames.iconRom[species]
@@ -3486,7 +3525,8 @@ facingFrames.ICON_BOX = {
 -- $f8 for the reason the fishing rod is: those tiles hold whatever the LOCAL game last loaded
 -- there, which on a receiving machine has nothing to do with what the peer is doing.
 facingFrames.emoteGfx = function(idx)
-	if not EMOTES_ROM or not idx or idx < 0 or idx > 11 then
+	idx = ENGINE.peerRomIndex(idx, 0, 11) -- integer AND in range; see ENGINE.peerRomIndex
+	if not EMOTES_ROM or not idx then
 		return nil
 	end
 	local cached = facingFrames.emoteRom[idx]
@@ -10358,7 +10398,8 @@ end
 -- Memoised: six ROM reads per sprite id, once. A session touches a handful of ids.
 ENGINE.spriteSigs = {}
 function ENGINE.spriteSig(id)
-	if not OVERWORLD_SPRITES_ROM or not id or id < 1 or id > 255 then
+	id = ENGINE.peerRomIndex(id, 1, 255) -- integer AND in range; see ENGINE.peerRomIndex
+	if not OVERWORLD_SPRITES_ROM or not id then
 		return nil
 	end
 	local c = ENGINE.spriteSigs[id]
