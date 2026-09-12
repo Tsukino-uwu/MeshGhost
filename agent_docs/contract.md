@@ -1230,6 +1230,24 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
 - ADR 0044 (2026-09-02): a core tracks at most **512** remote players (`MaxRosterSize`; a `join`
   past it and every `state` for that id are ignored), and the relay closes connections past
   **8 per seat, floor 64** per listener, joined or not (`relay.MaxOpenConnsFor`, beneath TLS).
+- **A client refuses an inbound `event`, `lease_state`, `escrow_state` or `world_state` unless
+  BOTH sides negotiated that plane** — the room agreed it *and* this client asked for it (ADR 0062,
+  2026-09-12). The send paths always gated on the room's agreed features; the receive paths gated on
+  nothing. The gate is an AND rather than the send path's mirror because `Welcome.Features` is
+  filled by the relay, so a check reading only that is one the relay writes for itself. A refused
+  message is claimed and dropped: no callback, nothing forwarded to the adapter, no error.
+- `lease_state` and `escrow_state` are checked on receive (`ValidateLeaseState`,
+  `ValidateEscrowState`) — until 2026-09-12 they were the only relay→client messages reaching a game
+  with nothing checked at all. Max `reason`: **128 bytes** (`MaxStateReasonLen`, derived from
+  `MaxHelloFieldLen`). An `escrow_state`'s `parties`, `deposited`, `committed` and `blobs` are each
+  bounded at **2** (`MaxEscrowParties`) — an exchange is two-sided by definition, and those four are
+  collections the RELAY fills. Both validators measure with `len()` rather than `JSONWireLen`,
+  deliberately: the core is a terminal receiver here, the wire form was already bounded by the line
+  cap on the way in, and a receiver stricter than its sender silently drops legitimate traffic.
+- Max `prev.timestamp`: the same bound `state.timestamp` gets (`MaxTimestampMs`), applied from
+  2026-09-12. `validPrev` had always promised "every bound the carrying state must meet" and applied
+  all of them except this one, so any int64 rode in on the loss cover and `ApplyPrev` copied it
+  verbatim into the buffer.
 - An unknown message `type` is ignored, not treated as an error — same forward-compatibility
   posture as the existing unknown-*field* rule above.
 

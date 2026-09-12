@@ -137,6 +137,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-07 (evening) — The coalescing bridge, confirmed on a live 512-chaser run
 - 2026-09-09 — core: an aged-out peer is back on its next fresh state (a paused emulator returns), confirmed in a five-client room
 - 2026-09-11 — the bridge is not the constraint: a sweep to 256 peers over REAL sockets, and where it actually bends
+- 2026-09-12 — three numbers from the third review's backlog, each measured rather than reasoned
 
 ## Split per game — 2026-08-25
 
@@ -1885,3 +1886,65 @@ each — ADR 0059's path exercised end to end by something other than its own un
 **The earlier 513-client attempt is recorded as what it was**: a rig overload, not a MeshGhost
 result. 513 clients each reading 512 peers at 15 Hz is ~3.9 million inbound messages a second into
 one process.
+
+## 2026-09-12 — three numbers from the third review's backlog, each measured rather than reasoned
+
+Go-side facts, confirmed with tools on this machine. **The adapter half of the same pass is NOT
+here** — it is in TEVI's and Emerald's `UNVERIFIED.md`, waiting on the user, per the rule that
+nothing adapter-side about a vanilla game is called verified without them seeing it.
+
+**What a replay sample actually costs to hold**
+
+The budgets guarding a shared clip counted SAMPLES and were sized on "128 bytes each on 64-bit".
+Measured by holding 20,000 decoded `protocol.State` values and reading `runtime.MemStats.HeapAlloc`
+either side, per shape:
+
+| sample | line on disk | resident/sample | x line | at the 2,000,000 the parser accepted |
+|---|---|---|---|---|
+| `{}` | 2 B | 126 B | — | 0.23 GB |
+| timestamp + position | 40 B | 160 B | 4.0x | 0.30 GB |
+| ~90 flat `extras` keys | 926 B | 4,129 B | 4.5x | 7.69 GB |
+| `extras` nested 5 deep | 596 B | 21,896 B | 36.7x | **40.78 GB** |
+| near-maximal, flat | 1,644 B | 4,849 B | 2.9x | 9.03 GB |
+
+**The line length is not a usable proxy, and that decided the shape of the fix**: the worst row is
+the SMALLEST of the big lines. A budget counting input bytes passes the 40 GB case and refuses the
+9 GB one. The cost tracks the number of decoded NODES, so that is what `replaySampleCost` charges.
+
+The harness was temporary and deleted; the numbers are reproduced in `core/replay.go`'s own comment
+on `replayMaxBytes` so nobody has to re-derive them.
+
+**One pong moved this client's clock 82.7 years**
+
+`Pong.ServerTimeMs` was bounded by nothing, and `nowMsLocked` clamps its output monotonically — it
+must, and spends a page saying why — so a single accepted sample latches for the session. Measured
+in `core/hostilerelaycost_test.go` against the pre-fix code: an in-schema `MaxTimestampMs` reading
+produced an offset of **724676h8m49s**, i.e. 82.7 years. Every render time then runs past every
+sample any peer has sent, so the room edge-holds and the stale age-out despawns everyone each tick.
+
+**100 KB of zip yields 552 clips, and one client's alternating area_id costs 80 seeds**
+
+Both from the new regression tests, both printed by the tests themselves:
+
+- `core/hostileclip_test.go` builds an archive of 552 single-sample clips and it is **100,486
+  bytes**. Each clip was a `replayPlayer`, a goroutine and one of the 512 roster seats real players
+  share; `MaxRosterSize` was applied INSIDE each goroutine, after the spawn, so the overflow woke
+  only to log "roster full" and exit.
+- `relay/onemembersrate_test.go` drives twenty area changes through `seedArrivalInto` against eight
+  standing peers. Before the throttle: **80 seeds**, each an O(N) walk under `r.mu` and a marshal
+  per peer. After: 8.
+
+**The gates these were confirmed under**
+
+`dev-scripts/run-gotests.bat` green after every commit in the series (build, vet, `-count=2`,
+including `internal/e2e` and `internal/gameblind`). `dev-scripts/preflight.ps1` clean. The
+`quicconn` race fix that CI reported on 2026-09-11 was re-confirmed locally under `-race -count=5`
+with the MSYS2 mingw64 compiler, which is the toolchain `run-gotests-race.bat` discovers.
+
+**Every regression test in the series was confirmed to FAIL without its fix**, by reverting the
+source file and re-running — including the two that needed the pre-fix COMMIT rather than a stash,
+because their fixes were already committed by then. Two could not be shown failing that way and it
+is recorded rather than glossed: `core/welcomeidentity_test.go` and parts of
+`core/hostileclip_test.go` reference identifiers the fix introduces, so they do not compile against
+the old tree. For those the pre-fix behaviour was confirmed by reverting only the file that could be
+reverted independently.

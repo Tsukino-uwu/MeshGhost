@@ -1507,3 +1507,148 @@ that no legitimate caller can exceed, and wrong for anything that encodes trust.
 been done that session — for a different finding, on the relay's emit paths — and the confidence
 from it was carried into this fix without re-sweeping. **A sweep done for finding X does not cover
 fix Y.** The scope of a sweep is the question it was asked, not the session it happened in.
+
+## A BOUND IS MEASURED THE WAY THE PARTY THAT MUST SATISFY IT MEASURES IT -- and a SAMPLE COUNT is not a memory bound at all (core, 2026-09-12)
+
+**Symptom.** Two shapes of the same mistake, found in one pass, which is what makes it a rule
+rather than two entries.
+
+The first is the repeat, and a repeat promotes: `relay/states.go` bounded `area_id` and `anim` with
+`len()` and then re-encoded the state with `encoding/json`, which escapes `&`, `<` and `>` to six
+bytes each -- and `prev` carries its own copy of both. Measured: a 1185-byte inbound line that
+`ValidateState` accepts left `forwardState` at **6305 bytes**, against a receiver cap of 4095. Not a
+reject: `bufio.ErrTooLong` in every OTHER member's read loop, so one sender drops the whole room's
+ghosts. The world plane had the identical defect fixed on 2026-09-08 (`ValidOpaqueStringOnWire`),
+applied there to `World.Authority`/`Key` and to nothing else.
+
+The second is the same error in a different unit. `core/replay.go` budgeted a clip and an archive in
+SAMPLES, sized on "128 bytes each on 64-bit" -- true of the `{}` line that figure was measured
+against and of nothing else. Measured 2026-09-12 by holding 20,000 decoded samples and reading
+`HeapAlloc` either side:
+
+    {}                      2 B line ->    126 B/sample ->  0.23 GB at 2,000,000
+    timestamp + position   40 B line ->    160 B/sample ->  0.30 GB
+    ~90 flat extras keys  926 B line ->  4,129 B/sample ->  7.69 GB
+    extras nested 5 deep  596 B line -> 21,896 B/sample -> 40.78 GB
+    near-maximal, flat  1,644 B line ->  4,849 B/sample ->  9.03 GB
+
+**Cause.** A bound was written in the unit that was convenient to the code holding it, not the unit
+the cost is actually spent in.
+
+**Fix.** Ask who has to satisfy the bound, and measure it their way.
+
+- A **forwarder** measures what it will WRITE. `relay/states.go` now applies the same
+  drop-prev-then-drop-state ladder `core/sending.go` already used, on the marshalled bytes, before
+  `recordState` -- so a line nobody can receive is never stored and re-served to a joiner either.
+- A **terminal receiver** measures what it was HANDED. This is the part that is easy to get wrong in
+  the other direction: after two forwarding bugs the instinct is to reach for `JSONWireLen`
+  everywhere, and `ValidateLeaseState`/`ValidateEscrowState` deliberately do not. The core is
+  terminal for those, the wire form was already bounded by the line cap on the way in, and a
+  receiver stricter than its sender drops legitimate traffic -- the inverse defect, equally silent.
+- A **memory budget** measures memory. The replay budgets now charge a per-sample cost estimated
+  from the DECODED value, walking containers and entries, because **the line length is not a usable
+  proxy**: the worst row above is the SMALLEST of the big lines. 596 bytes of nested extras cost
+  36.7x their length; 1,644 bytes of flat ones cost 2.9x. A budget counting input bytes would have
+  passed the 40 GB case and refused the 9 GB one.
+
+**Reach for this first when** a constant's comment justifies its value with an arithmetic ("N of
+these at M bytes is X MB"). Check the M. It was measured against something, and the something is
+usually the smallest legal value rather than the largest.
+
+## A GUARD ITS SIBLING HAS AND THIS ONE DOES NOT IS THE HIGHEST-YIELD THING TO GREP FOR (core/relay/protocol, 2026-09-12)
+
+**Symptom.** Eleven of the roughly twenty-five defects fixed in one review pass were the same
+structural shape, and several of them had a comment a few lines away describing the rule they were
+breaking:
+
+- `validPrev` applied every bound `ValidateState` applies except the timestamp one -- while its own
+  doc comment promised "every bound the carrying state must meet".
+- `handleOnlineMessage` forwarded four opt-in planes with no capability check while every matching
+  SEND path gated.
+- `lease_state` and `escrow_state` had no receive validator while `event`, `state` and `world_state`
+  each had one.
+- The input ring had a COUNT bound and a span bound; the state ring beside it had only the span --
+  and `maxInputRingEdges`' own comment states the lesson and NAMES the state ring as the buffer that
+  only got half of it.
+- The input ring was disarmed at bridge teardown; the state ring one line away was not.
+- A Welcome's peer ids got `acceptableRelayPeerID`; the id naming THIS client was assigned verbatim.
+- `maxMissedEventsPerMember` picked its value from "a section that could fill the 192-line snapshot
+  would push the escrow, world and lease lines off the end" -- and the escrow section had no cap.
+
+**Cause.** A guard is written for the site that motivated it. Nothing walks the other sites of the
+same kind, so the second, third and fourth get it only if whoever wrote them happened to look.
+
+**Fix, as a method rather than a patch.** Build the roster before hunting: grep `func Validate*`,
+`func Valid*`, `Clamp*`, `Sanitize*`, `Max*` consts, and every `len(...) >` comparison. Then for
+each one ask "what ELSE is of this kind, and does it go through this?". The pairs that pay:
+
+    send path            vs   receive path
+    wire path            vs   file path
+    one plane            vs   its twin
+    a struct's field     vs   the same field inside its delta/nested type
+    a buffer             vs   the buffer declared beside it
+    admission            vs   teardown
+    an id we are given   vs   an id we are given about ourselves
+
+**Reach for this first when** a fix is finished. Before closing it, ask what else has that shape --
+the answer is rarely nothing, and finding it costs one grep against the cost of the next review pass
+finding it instead.
+
+## AN EVICTION ORDERED BY AGE IS ORDERED BY WHATEVER A THIRD PARTY CONTROLS (relay, 2026-09-12)
+
+**Symptom.** Three separate bounded structures in one package chose their victim by age alone, and
+in all three the age is something an uninvolved member drives:
+
+- A terminal escrow record is retained so a party who dropped between the relay committing and the
+  message arriving can resume and be told the outcome. The per-member cap counts LIVE exchanges
+  only, so somebody uninvolved could open-and-abort in a loop and push out an older record -- and
+  the record most likely to go is exactly a committed one that has been waiting a while. That party
+  resumes and is told nothing: "both or neither" holds on the relay's side and is broken from
+  theirs, which is the uncertainty the plane exists to remove.
+- A suspended member's event backlog is 64 slots, oldest-out. A broadcast reaches every backlog, so
+  64 of them push out the ADDRESSED events underneath -- the half aimed at that member, and the half
+  a conversation is made of.
+- The escrow section of a resume snapshot had no cap, and a client does not choose how many
+  exchanges it is a party to: anyone can open one naming it as the counterparty.
+
+**Cause.** "Oldest first" is the right rule when age correlates with irrelevance. It stops being
+that the moment an attacker can manufacture youth.
+
+**Fix.** Order by what the entry is FOR, then by age within that class:
+
+- Escrow eviction: anything no suspended party is still waiting on goes first, oldest of those; only
+  if every terminal record is owed does the oldest of THOSE go. The converse needs its own test --
+  a table where everything is owed must still evict, or a full table refuses new exchanges forever.
+- The backlog: broadcasts before anything addressed to this member.
+- The resume section: live exchanges before terminal ones, capped at a quarter of the budget, which
+  is the number the sibling section already uses.
+
+**Reach for this first when** you see `.Before(oldest)` or `q[1:]` in anything bounded. Ask who
+decides the age of the entries, and whether that is the same person the bound is protecting.
+
+## A LIVE-RELOADED SETTING IS A WRITE PRIMITIVE FOR ANYTHING THAT CAN WRITE THE FILE -- and holding it back at the point of USE is half a fix (cmd/meshghost, 2026-09-12)
+
+**Symptom.** `meshghost.exe` re-reads `config.json` about a second after a save, and that included
+`connect_to`, `room` and `room_code` -- so anything else on the machine able to write that file
+could move a live session onto a relay of its choosing, mid-play, with nothing on screen saying so.
+
+**The argument for leaving it, which was put to the user and rejected:** a process that can write
+your config can equally kill the core and start its own, so locking it buys almost nothing. That
+is true and it is not enough. **It argues that one hole is no worse than another, not that this one
+should stay open**, and what it protected was a convenience with a cheap substitute (a relaunch)
+rather than a capability. The user's call, 2026-09-12: *"its nice to live edit toggles/hotkeys/names
+etc, but ip/adress and/or room related stuffs probly don't make sense to have as live editable"*.
+
+**The half that was nearly shipped broken, which is the reusable part.** Holding the three keys back
+where they are USED left the gate holding for exactly one save. `configWatcher.reload` replaces
+"what is live" with what it just read -- so the file's relay address landed there anyway, and the
+NEXT save of any other key at all (a name, a colour) would have rejoined carrying it, because the
+rejoin builds its Hello from that same "what is live". The fix has two halves: refuse the value at
+the point of use, AND stop it becoming the baseline the next diff is measured against.
+
+`cmd/meshghost/reload_test.go` therefore pins the SECOND save, not the first. A test of the first
+save passes against the broken version.
+
+**Reach for this first when** anything is excluded from a reload. Ask what the excluded value does
+to the state the next reload diffs against -- an exclusion that leaks into the baseline is not an
+exclusion, it is a delay.

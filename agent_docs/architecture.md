@@ -222,6 +222,7 @@ or if a number is duplicated — an unindexed ADR is one nobody will find.
 - [2026-09-11 — An adapter declares the oldest relay it will work with](adr/0059-2026-09-11-an-adapter-declares-the-oldest-relay-it-will-work-with.md)
 - [2026-09-11 — Neither end of the bridge blocks the other, and a superseded frame may be shed](adr/0060-2026-09-11-neither-end-of-the-bridge-blocks-the-other.md)
 - [2026-09-11 — Autostart is opt-in, and looks only beside the mod](adr/0061-2026-09-11-autostart-is-opt-in-and-looks-only-beside-the-mod.md)
+- [2026-09-12 — A client refuses a plane it never asked for, and bounds what the two unchecked ones carry](adr/0062-2026-09-12-a-client-refuses-a-plane-it-never-asked-for.md)
 
 ## Prior art
 

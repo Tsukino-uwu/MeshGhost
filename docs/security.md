@@ -423,6 +423,79 @@ The core→relay direction is now a bounded queue with its own writer goroutine
 resource on both executables — which is what [code-signing.md](code-signing.md) describes. The
 releases are still unsigned, and that page says who holds the keys (nobody).
 
+## What changed (2026-09-12: the third adversarial review, worked to the end of what it found)
+
+Seventeen reviewers were planned, split by **who is attacking whom** rather than by which file they
+read — because the pass before this one split by component, and a component split cannot see a seam
+that lives between two correct-looking halves. Ten finished. Everything below is from those ten;
+what the other seven would have found is not known, and the gap is named in the bullet above rather
+than quietly left out.
+
+**A relay you connected to could kill your game's bridge, and it took no invalid message to do it.**
+Two ways, both fixed. The core kept a nametag for every id a relay ever mentioned, with no cap and
+no clearing when the connection ended — and hands the whole set to the next adapter that attaches,
+one message each, on a lane that cannot coalesce. Past the queue limit the core calls the adapter
+stuck, closes its socket and tears down the ghosts, the chasers, the replays and any recording in
+progress; then the next game launch does it again, for as long as the process lives. Separately, the
+core forwarded `event`, `lease_state`, `escrow_state` and `world_state` to the game with **no check
+that the room had negotiated that plane at all**, while every matching send path did check — and an
+empty event is a legal event, so repeating one filled the same queue to the same end.
+
+**A relay could also make a client's ghosts freeze, or never despawn.** `Pong.ServerTimeMs` was
+bounded by nothing and the client's clock only ever moves forward, so one reply moved it **82.7
+years** — measured — after which every ghost in the room ages out on every frame. A peer's timestamp
+was likewise trusted for "have we heard from them lately", and the schema allows the year 2109, so
+one state dated ahead made a peer permanently undespawnable, holding a seat in a room that holds
+512. The reconnect backoff never survived a reconnect either: a relay that welcomed a client and
+immediately dropped it got an unlimited free redial, at round-trip speed.
+
+**A replay clip somebody sends you is a stranger's file, and the budget guarding it counted the
+wrong thing.** Clips are shared — the docs suggest zipping one to send it — and everything in
+`replay/active/` is loaded the moment a game launches. The size limit counted SAMPLES, sized on an
+assumption of 128 bytes each, which is true of an empty sample and of nothing else. Measured this
+day: a 596-byte line of nested `extras` costs **21.9 KB** held, so the accepted file count asks for
+**40 GB**. The line length is not a usable proxy either — the worst case is the *smallest* of the
+big lines — so the budget now charges what a sample actually costs. Four more from the same file: a
+zip's clip COUNT was bounded by nothing (100 KB of archive yields 552 ghosts, each taking one of the
+512 seats real players share), a clip's `speed` could wrap the playback timer negative into a busy
+loop, one input track re-allocated per clip that matched it, and a zip's input track was handed to
+adapters that never asked for one.
+
+**In a room, one member's message rate decided things for everybody else.** A lease renew that
+changed nothing was broadcast to the whole room and counted against no table, so it fanned out at
+whatever rate the holder liked. Alternating your own `area_id` made the relay re-seed you with every
+peer in the area, once per message. The per-connection flood cap was a tumbling window, so twice the
+limit crossed a boundary — minor alone, and it multiplied both of those. And three bounded
+structures chose what to discard by age alone, in the three places where a third party controls the
+age: a committed trade outcome whose party was still away, a disconnected member's addressed
+messages against a flood of broadcasts, and the trade section of a resume overrunning the budget the
+world, lease and position sections share.
+
+**Where you connect is no longer live-editable.** Saving `config.json` still applies your name,
+colours, smoothing, chaser, replay and hotkey settings without a relaunch — but `connect_to`, `room`
+and `room_code` now wait for one. A live re-read meant any other program on your PC able to write
+that file could move you into someone else's room while you played, with nothing on screen saying
+so. The counter-argument, that such a program could kill the client anyway, argues one hole is no
+worse than another rather than that this one should stay open.
+
+**Two more on the bridge.** The buffer holding your recent play for the save-last hotkey was bounded
+by TIME and not by COUNT — and the ring beside it, which already had both, says so in its own
+comment and names this one as the buffer that only got half of it. It also stayed armed after the
+game closed. And a connection to the bridge port whose first line is not the protocol is now hung up
+on rather than ignored, which is what stops a web page POSTing at `127.0.0.1:7778` and having its
+headers skipped until the part it chose arrives as a line the bridge reads.
+
+**In TEVI**, a peer could name unlimited "summon" types and have the game create a full character
+rig for each one, on your machine, until it ran out of memory. It is capped at four now, sized from
+the two the game itself can produce. Three smaller ones beside it, including a pooled effect a ghost
+had borrowed being marked as ours forever — which quietly stopped YOUR own effects from reaching
+other players, later and later into a session.
+
+**Two of the review's own claims did not survive being read**, and they are recorded because a
+review that is never wrong is a review nobody checked: one described the documented design of a
+setting as a defect, and another called two collections memory leaks when they are bounded by the
+game's own object pools. Reading the second found a real bug underneath it anyway.
+
 ## What's already true, and why (checked against the actual code, 2026-09-11)
 
 **No peer-to-peer connection exists.** Clients never connect to each other — only to the
@@ -551,7 +624,7 @@ ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
   confirmed reachable from a quic-go connection (`TestHandshakeIsTLS13`).
 - **Room-code auth depends on the relay being current** — see "A new risk this creates" above.
   A stale relay binary silently provides none of the protection a client believes it configured.
-- **Audited adversarially twice, on 2026-09-02 and 2026-09-07** — the resource-exhaustion,
+- **Audited adversarially three times, on 2026-09-02, 2026-09-07 and 2026-09-12** — the resource-exhaustion,
   protocol-trust, transport and peer-to-adapter surfaces, by reviewers who had not written the code
   and were not shown this page (ADR 0044 covers the first). The second found, among others, the
   drain-window rejoin and the synchronous relay write that could freeze a game, both below. That is
@@ -560,6 +633,11 @@ ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
   are listed below." A peer can still spam legitimate-looking rapid state changes right up to the
   rate cap; that is what the cap is for. The next set of eyes should read the ADR first to look
   past what the last set found. How to be that next set: [reviewing.md](reviewing.md).
+  **The third pass is the one to read honestly**: ten of its seventeen reviewers finished and seven
+  did not, so three of the four game adapters were never looked at — including the only one written
+  in a memory-unsafe language — and both of its cross-cutting sweeps are missing. What the ten found
+  is fixed and listed below; what the seven would have found is unknown, and "unknown" is not
+  "clean".
 - **Room squatting under no-auth.** The first `hello` for a room name fixes its `game_version` and
   feature set; every later joiner that disagrees is refused. With `room_code` unset, a stranger who
   connects first locks that room name for everyone else. This is what the no-auth posture means;
