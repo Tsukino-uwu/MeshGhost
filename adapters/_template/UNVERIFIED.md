@@ -50,6 +50,7 @@ considered done/fixed until i actually confirm it as such."*
   *"looks correct, think its perfect now etc. means its done/verified"* (user, 2026-09-10). Only
   voiced uncertainty (*"im unsure if its working correctly"*) or a defect they describe keeps an
   entry here.
+- **AND IT SETTLES THE DEFAULT, TOO — do not re-ask.** When the user judges a dev-toggled behaviour BETTER on screen, that verdict is the decision about what ships; asking "shall I make it the default?" spends their time on a checkpoint they have already passed. The user, 2026-09-13, after *"it actually looks identical now"* was met with exactly that question: *"what part of ... was unclear?"*. This does NOT loosen the rules that need an explicit yes — a wire/protocol floor, a push, a release, or any change to what a player sees that the user has NOT just watched and approved.
 - **If it is genuinely ambiguous, ASK.** *"its also always fine to ask if unsure, and i can give a
   direct yes/no follow up."* This is the clause that was missing: faced with a call it could not
   make, a session chose to HOLD SILENTLY, and a silent hold is indistinguishable from a decline.
