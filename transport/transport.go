@@ -429,7 +429,7 @@ func (c *NDJSONConn) Send(payload []byte) error {
 	c.writeBuf = append(c.writeBuf[:0], payload...)
 	c.writeBuf = append(c.writeBuf, '\n')
 	_, err := c.conn.Write(c.writeBuf)
-	if err != nil {
+	if err != nil && !writeNeverHappened(err) {
 		// **A failed write POISONS a stream connection, found live 2026-09-01 at 150 peers:**
 		// a write deadline can expire with the line HALF-WRITTEN, and NDJSON cannot
 		// resynchronize after that -- the peer's scanner sees a line that never ends, grows it
@@ -444,10 +444,37 @@ func (c *NDJSONConn) Send(payload []byte) error {
 		// (a RESET) before this call even returns, so anything that asks "is this
 		// connection still alive?" between the close and the caller handling the error
 		// must be told the truth. See the closed field.
+		//
+		// THE EXCEPTION IS A WRITE THAT NEVER HAPPENED, and it is not a softening of
+		// the rule above -- it is that rule's own premise. Nothing is mis-framed if no
+		// byte reached the wire, so there is nothing to resynchronize and nothing to
+		// close. See writeNeverHappened.
 		c.closed.Store(true)
 		_ = c.conn.Close()
 	}
 	return err
+}
+
+// writeNeverHappened reports whether err says the connection refused the
+// message outright, before putting any of it on the wire.
+//
+// The distinction is the difference between one skipped message and a dropped
+// player. udpconn's checkWritable refuses a payload too large for one datagram
+// BEFORE writing -- and a Welcome for a room of 16 named players is 1195 bytes
+// against the 1182 a udp reliable payload can carry, measured 2026-09-12, on
+// the SHIPPED DEFAULT transport. Closing on that turned "this one message will
+// not fit" into a hangup with no Reject, no reason, and nothing in the client's
+// log but a disconnect. Found by the transports cell of the third adversarial
+// review (P1d-3).
+//
+// A structural interface rather than an error value, for the same reason
+// unreliableWriter below is one: this package has no internal dependencies, so
+// it cannot import netx/udpconn to compare against a sentinel. A net.Conn that
+// has never heard of any of this still works -- its errors simply never claim
+// the exemption, which is the safe answer.
+func writeNeverHappened(err error) bool {
+	var nw interface{ NotWritten() bool }
+	return errors.As(err, &nw) && nw.NotWritten()
 }
 
 // SendUnreliable sends payload with no delivery guarantee, for the lossy

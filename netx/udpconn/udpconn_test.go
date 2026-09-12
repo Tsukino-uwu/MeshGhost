@@ -264,6 +264,27 @@ func TestOversizedWriteIsRefusedNotFragmented(t *testing.T) {
 	if !strings.Contains(err.Error(), "tcp") {
 		t.Errorf("error %q should name the workaround (the tcp transport)", err)
 	}
+
+	// AND IT MUST SAY SO STRUCTURALLY, not only in prose. transport.Send
+	// closes the connection on a write error -- correct on a stream, where a
+	// timed-out write can leave a line half-sent and NDJSON cannot
+	// resynchronize -- and asks the error whether any of it reached the wire
+	// before deciding. checkWritable refuses this one before the syscall, so
+	// the answer is no and the session survives one skipped message.
+	//
+	// Asserted here rather than only in netx's conformance suite because the
+	// two halves live in packages that cannot import each other (transport has
+	// no internal dependencies at all): nothing but a test on each side keeps
+	// the method and the caller in agreement. Through the %w wrap, because
+	// that is how it reaches transport. See tooLargeError (P1d-3, 2026-09-12).
+	var nw interface{ NotWritten() bool }
+	if !errors.As(err, &nw) {
+		t.Fatalf("error %v does not implement NotWritten; transport.Send will close the "+
+			"connection over a message that never left this process", err)
+	}
+	if !nw.NotWritten() {
+		t.Error("NotWritten() = false for an error produced before the write")
+	}
 }
 
 // TestReadDeadlineExpires confirms deadlines work, which

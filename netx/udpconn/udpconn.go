@@ -65,7 +65,6 @@
 package udpconn
 
 import (
-	"errors"
 	"time"
 )
 
@@ -183,4 +182,30 @@ const (
 // fragmentation. It is deliberately an error rather than a silent
 // truncation: a half-written JSON line would be a parse error at the far
 // end with no clue as to why.
-var ErrDatagramTooLarge = errors.New("udpconn: message too large for one datagram")
+var ErrDatagramTooLarge error = tooLargeError{}
+
+// tooLargeError is ErrDatagramTooLarge's own type, and it exists for one
+// method: NotWritten.
+//
+// transport.Send closes the connection on a write error, because on a stream a
+// failed write can leave a line half-sent and NDJSON cannot resynchronize after
+// that. That reasoning does not reach this error at all -- checkWritable
+// produces it before a byte leaves the process -- and until 2026-09-12 the
+// distinction did not exist, so one oversized reliable message hung up on the
+// player. On the shipped default transport that is reachable at 16 named
+// players in a room, where the Welcome measures 1195 bytes against the 1182 a
+// reliable payload carries. Found by the transports cell of the third
+// adversarial review (P1d-3).
+//
+// A method rather than a sentinel comparison because transport has no internal
+// dependencies by design and cannot import this package; it asks the error
+// structurally, the same trick unreliableWriter uses in the other direction.
+// The method is on the sentinel itself rather than on checkWritable's wrapper
+// so errors.As finds it through the %w.
+type tooLargeError struct{}
+
+func (tooLargeError) Error() string { return "udpconn: message too large for one datagram" }
+
+// NotWritten reports that a Write failing with this error put no bytes on the
+// wire, so the connection is unharmed and only the message was lost.
+func (tooLargeError) NotWritten() bool { return true }
