@@ -2244,6 +2244,16 @@ function's own comment predicts, and it survived four passes over that family pr
 is NOT a use-after-free (the ring is expected to hold freed pointers, so the destroy path checks
 `FindAllOf` first; what it cannot see is a RECYCLED address). And the adapter half of P2e-1.
 
+**Crystal's P2c-3/4/5 closed the same day** (`19a1352a`): `sprite`, `emote` and `fly` were
+range-checked and nothing else, and each is used both as arithmetic into a ROM address and as a key
+into a memo table that is never cleared. There are as many floats between 1 and 255 as anywhere
+else -- 1000 samples produced 1000 permanent entries on the harness, and `memory.read_u8` was handed
+the address 66028.0006. Two things fell out of writing it. The gate had to be `ENGINE.peerRomIndex`
+rather than a file-scope local, because that chunk is at Lua's **200-local ceiling** and a 201st
+raises at LOAD -- the whole adapter failing to start in the emulator, caught by `luac -p` before it
+ran. And the growth check had to go through `ENGINE.spriteSig` rather than through the new gate, for
+the reason the second method note below gives.
+
 **The method note.** *A target's seeds are a statement about what it reaches, and the statement is
 checkable.* The fuzz-census gate added earlier in this pass cannot catch any of these: every one of
 them is registered, stepped and rostered. What catches them is coverage, and coverage is a
