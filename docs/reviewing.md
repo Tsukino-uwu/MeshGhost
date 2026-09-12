@@ -124,9 +124,11 @@ the part that does not share the author's blind spots. Run any of them for as lo
 suspicion lasts; CI runs a short campaign against nearly all of them on each push — as of
 2026-09-10, **25 explicit steps in `.github/workflows/ci.yml` against the 27 `Fuzz*` targets in the
 tree**, across eight packages, one step per target. The two with no step are the schedule fuzzers in `core`, opt-in on
-purpose because each stands up a real relay socket; they both still run their seeds in the ordinary
-test job — `FuzzSchedule` from a committed corpus in `core/testdata/fuzz/`, and
-`FuzzNameDeliverySurvivesAnyConnectOrdering` from the seeds in the target itself. (A third, `FuzzParseInputTrackNeverPanics`, was unwired until 2026-09-10 — a file
+purpose because each stands up a real relay socket; only `FuzzSchedule` still runs its seeds in the ordinary
+test job, from the target plus a committed corpus in `core/testdata/fuzz/`.
+`FuzzNameDeliverySurvivesAnyConnectOrdering` runs **nothing** — its skip is before `f.Fuzz`, so it
+takes the seeds with it. This page claimed otherwise until 2026-09-12, in the same paragraph that
+warns the census is maintained by hand. (A third, `FuzzParseInputTrackNeverPanics`, was unwired until 2026-09-10 — a file
 parser that shipped with an ADR and no step, while this page and two others said the gap was only
 the socket-bound pair. Worth knowing as a reviewer: the census is maintained by hand.) (The property-style targets that pin an encoder against its decoder have their own steps
 too, since 2026-09-06 — they used to run only as ordinary tests.) Nothing here needs

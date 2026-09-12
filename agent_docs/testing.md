@@ -444,9 +444,15 @@ checks):
 | `FuzzAppendEnvelopeMatchesMarshal` (protocol) | Our hand-built envelope is byte-identical to what `encoding/json` would produce, for every payload `encoding/json` itself produced — the hazard is encoding (HTML escaping, U+2028/9, invalid UTF-8 → U+FFFD, whitespace), not logic. Wired into CI 2026-09-06. |
 | `FuzzExtrasSizingMatchesMarshal` (protocol) | The fast `extras` sizer computes exactly the length `json.Marshal` would; a disagreement is a moved validation boundary, a state one end accepts and the other rejects. Wired 2026-09-06. |
 | `FuzzSanitizeDisplayNameIsAlwaysSafeToShowAndLog` / `FuzzSanitizeNameColorIsAlwaysAHexColourOrNothing` (protocol) | Whatever arrives, the sanitized name is safe to log and to re-send as JSON, the colour is `#RRGGBB` or empty, and sanitizing twice equals sanitizing once — the relay and every client both do it. Wired 2026-09-06. |
+| `FuzzHelloProtocolVersion` (relay) | Every protocol version a hello can carry lands on the same verdict `protocol.AcceptsPeerVersion` gives, and a refusal carries the right reject CODE and `Retryable` — the only relay target that pins a verdict rather than liveness. Wired since it shipped; **missing from this table until 2026-09-12**, found by the review cell whose job is auditing the instruments, and now enforced by preflight's fuzz-census gate so a target cannot be absent from here again. |
 
-**Two targets exist that CI does NOT campaign** (they still run in every `go test` on their seed
-corpus): `FuzzSchedule` and `FuzzNameDeliverySurvivesAnyConnectOrdering` (both `core`) stand up real
+**Two targets exist that CI does NOT campaign**, and **only one of them runs its seeds** — this
+paragraph said both did until 2026-09-12, and `docs/reviewing.md` said it too. `FuzzSchedule` runs
+its five seeds plus its committed corpus entry in every `go test`; `FuzzNameDeliverySurvivesAnyConnectOrdering`
+runs **nothing at all**, because its `f.Skip` sits before `f.Fuzz` and therefore skips the seed
+corpus with the campaign. That is deliberate (the file says why, and it destabilised the whole suite
+when it ran by default) but it means the two connect orderings that differed live on 2026-08-28 are
+exercised by no automated run anywhere. Both `core`; both stand up real
 relay sockets per iteration, so a continuous campaign is socket-bound long before it is idea-bound
 (ephemeral-port exhaustion, TIME_WAIT). Deliberately opt-in, run short and at low parallelism by hand;
 the file headers say so. **Four more sat unwired until 2026-09-06** — the two encoder pins and the two

@@ -426,6 +426,8 @@ var scheduleOps = [8]string{
 	"a.attach", "b.attach", "a.dropRelay", "b.dropRelay",
 }
 
+// fuzz-census: no-ci-step -- stands up real relay sockets per input, so a continuous
+// campaign is ephemeral-port-bound long before it is idea-bound. Run by hand.
 func FuzzSchedule(f *testing.F) {
 	// The seeds are the orderings already known to matter, so a plain `go
 	// test` run -- which replays the corpus rather than fuzzing -- covers

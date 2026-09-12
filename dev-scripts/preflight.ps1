@@ -576,7 +576,8 @@ $budgeted = @(
     'adapters/tevi/CLAUDE.md',
     'adapters/pseudoregalia/CLAUDE.md',
     '.claude/skills/new-adapter/SKILL.md',
-    '.claude/skills/write-a-probe/SKILL.md'
+    '.claude/skills/write-a-probe/SKILL.md',
+    '.claude/skills/adversarial-review/SKILL.md'
 )
 $withinCap = 0
 $lineCount = @{}
@@ -2167,6 +2168,65 @@ if ($flagsSeen -eq 0) {
 }
 
 # ---------------------------------------------------------------------------
+Section "Fuzz census: every target has a CI step and a roster row"
+
+# THE CENSUS IS MAINTAINED BY HAND, AND HAS BEEN WRONG FIVE TIMES.
+#
+# docs/reviewing.md says so in as many words -- "the census is maintained by hand" -- in a
+# paragraph that was itself wrong about which of two targets runs its seeds. A fuzz target with no
+# CI step is a target that never runs; a target missing from agent_docs/testing.md's roster is one
+# the next reviewer does not know exists. Both fail silently, which is the whole problem: a green
+# tick means the steps that EXIST passed.
+#
+# dev-scripts/ci-fuzz.sh already catches the opposite direction -- a step naming a target that is
+# gone -- so this closes the pair. Found by the instrument-integrity cell of the 2026-09-12
+# adversarial review (X2-5), which is the cell whose whole job is auditing the instruments.
+#
+# Deliberately NOT checked here: whether a target is any good. That is a reading job, and the same
+# review found targets with a step, a row, and no reach into the code they name.
+$fuzzTargets = @{}
+foreach ($f in @(Get-ChildItem -Recurse -File -Filter '*_test.go' | Where-Object { $_.FullName -notmatch '\\(\.git|node_modules)\\' })) {
+    foreach ($m in [regex]::Matches((Get-Content -LiteralPath $f.FullName -Raw), '(?m)^func\s+(Fuzz\w+)\s*\(')) {
+        $fuzzTargets[$m.Groups[1].Value] = (Resolve-Path -Relative $f.FullName) -replace '^\.[\\/]', '' -replace '\\', '/'
+    }
+}
+if ($fuzzTargets.Count -eq 0) {
+    Report-Fail "no Fuzz targets found at all -- this gate is looking in the wrong place"
+} else {
+    $ciText = ''
+    if (Test-Path -LiteralPath '.github/workflows/ci.yml') { $ciText = Get-Content -LiteralPath '.github/workflows/ci.yml' -Raw }
+    $rosterText = ''
+    if (Test-Path -LiteralPath 'agent_docs/testing.md') { $rosterText = Get-Content -LiteralPath 'agent_docs/testing.md' -Raw }
+
+    # A target may be deliberately un-campaigned -- the two socket-bound schedule fuzzers are,
+    # because each stands up real relay sockets and a continuous campaign is port-bound long
+    # before it is idea-bound. That opt-out has to be DECLARED, in the target's own file, as
+    #
+    #     // fuzz-census: no-ci-step -- <reason>
+    #
+    # rather than inferred. A first draft of this gate inferred it from an env-var guard, which
+    # silently exempted whichever targets happened to have one and missed FuzzSchedule, which has
+    # no guard and no step -- the exact hand-maintenance failure this gate exists to end. An
+    # opt-out still needs a ROSTER row: not running is a fact a reviewer must be able to find.
+    $noStep = @()
+    $noRow  = @()
+    foreach ($name in ($fuzzTargets.Keys | Sort-Object)) {
+        $src = Get-Content -LiteralPath $fuzzTargets[$name] -Raw
+        $optOut = $src -match ('(?m)^//\s*fuzz-census:\s*no-ci-step\b.*\r?\n(?:.*\r?\n)??func\s+' + [regex]::Escape($name) + '\s*\(')
+        if (-not $optOut -and $ciText -notmatch [regex]::Escape($name)) { $noStep += "$name ($($fuzzTargets[$name]))" }
+        if ($rosterText -notmatch [regex]::Escape($name)) { $noRow += "$name ($($fuzzTargets[$name]))" }
+    }
+    if ($noStep.Count -gt 0) {
+        Report-Fail ("{0} fuzz target(s) have no step in ci.yml -- they never run:`n          {1}" -f $noStep.Count, ($noStep -join "`n          "))
+    }
+    if ($noRow.Count -gt 0) {
+        Report-Fail ("{0} fuzz target(s) are missing from agent_docs/testing.md's roster -- the next reviewer cannot see them:`n          {1}" -f $noRow.Count, ($noRow -join "`n          "))
+    }
+    if ($noStep.Count -eq 0 -and $noRow.Count -eq 0) {
+        Report-Pass "all $($fuzzTargets.Count) fuzz target(s) have a CI step (or a documented opt-out) and a roster row"
+    }
+}
+
 Section "ADR index coverage"
 
 # The decision log was split out of architecture.md on 2026-08-25 -- 2,332 of its 2,501 lines --

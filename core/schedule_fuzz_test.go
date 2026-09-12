@@ -49,6 +49,8 @@ import (
 // socket-bound long before it is idea-bound. A future version that wants to explore deeply should
 // drive the core over an in-memory transport instead, which is a bigger change than it sounds
 // because the ordering being tested is partly the ordering of real dials.
+// fuzz-census: no-ci-step -- stands up real relay sockets per input, so a continuous
+// campaign is ephemeral-port-bound long before it is idea-bound. Run by hand.
 func FuzzNameDeliverySurvivesAnyConnectOrdering(f *testing.F) {
 	// Seeds: the two orderings that actually differed live, plus a couple of gap shapes.
 	f.Add(true, uint8(0), uint8(0))   // peer first, no gaps -- the case that failed
