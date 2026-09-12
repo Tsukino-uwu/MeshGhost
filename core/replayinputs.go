@@ -85,7 +85,22 @@ func (rc *replayClip) attachTrack(t *inputTrack) {
 	if t == nil || len(rc.samples) == 0 {
 		return
 	}
-	edges := make([]inputEdgeLine, 0, len(t.edges))
+	// CAPACITY FOR WHAT THIS CLIP MAY KEEP, not for the source track. The loop
+	// below stops at replayMaxTrackEdges, so a cap of len(t.edges) reserved
+	// memory for edges it was never going to hold -- and the attach happens once
+	// PER CLIP, while the archive's edge budget is spent once at PARSE.
+	//
+	// One track attaching to every clip that shares its recording_id (replay.go)
+	// therefore multiplied: 512 clips x 500,000 edges x 64 B is 15.3 GB, from a
+	// zip of one small track and 512 one-sample clips. The clip count is now
+	// bounded too (see the roster check in loadReplayAll), and this stops the
+	// per-attach allocation being sized by the attacker rather than by the cap.
+	// Found by the third adversarial review (P5b-3).
+	room := len(t.edges)
+	if room > replayMaxTrackEdges {
+		room = replayMaxTrackEdges
+	}
+	edges := make([]inputEdgeLine, 0, room)
 	cut := 0
 	dropped := 0
 	for _, e := range t.edges {

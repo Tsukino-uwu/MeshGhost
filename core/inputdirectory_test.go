@@ -84,7 +84,7 @@ func TestInputTrackIsRefusedByTheReplayParser(t *testing.T) {
 		t.Fatalf("StopInputRecording: %v", err)
 	}
 
-	if _, err := loadReplay(path); err == nil {
+	if _, err := loadReplay(path, true); err == nil {
 		t.Fatal("the clip parser accepted an input track")
 	} else if !strings.Contains(err.Error(), "meshghost_replay") {
 		t.Errorf("refused with %q, want a sentence naming the missing meshghost_replay key", err)

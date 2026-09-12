@@ -290,7 +290,7 @@ func TestASessionFlapsBetweenSoloAndJoinedAndTheRecordingSurvivesIt(t *testing.T
 	}
 
 	// THE RECORDING IS ONE CLIP, and the flapping is invisible in it.
-	clip, err := loadReplay(path)
+	clip, err := loadReplay(path, true)
 	if err != nil {
 		t.Fatalf("the recording made across the flap does not load: %v", err)
 	}

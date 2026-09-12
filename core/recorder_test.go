@@ -290,7 +290,7 @@ func TestSaveLastWritesTheRingAsAReplay(t *testing.T) {
 	}
 	// Through loadReplay, the same door StartReplays uses, so the gzip the
 	// recorder now writes is exercised end to end rather than assumed.
-	if _, err := loadReplay(path); err != nil {
+	if _, err := loadReplay(path, true); err != nil {
 		t.Fatalf("the saved file does not load as a replay: %v", err)
 	}
 	if _, m, _ := c.StopRecording(); m != 30 {
@@ -355,7 +355,7 @@ func TestARecordingIsPlainTrimmedAndStillLoads(t *testing.T) {
 		t.Fatalf("StopRecording = %d, %v, want 1 sample", n, err)
 	}
 
-	clip, err := loadReplay(path)
+	clip, err := loadReplay(path, true)
 	if err != nil {
 		t.Fatalf("the recording does not load: %v", err)
 	}
@@ -403,7 +403,7 @@ func TestRecordingCanStillBeWrittenGzipped(t *testing.T) {
 	if _, n, err := c.StopRecording(); err != nil || n != 1 {
 		t.Fatalf("StopRecording = %d, %v", n, err)
 	}
-	if _, err := loadReplay(path); err != nil {
+	if _, err := loadReplay(path, true); err != nil {
 		t.Fatalf("the gzipped recording does not load: %v", err)
 	}
 }
@@ -501,7 +501,7 @@ func TestARecordingDeltaEncodesExtrasAndLoadsBackIdentical(t *testing.T) {
 	}
 
 	// THE CLIP IS WHOLE: every sample comes back with everything it had.
-	clip, err := loadReplay(path)
+	clip, err := loadReplay(path, true)
 	if err != nil {
 		t.Fatalf("the delta recording does not load: %v", err)
 	}
@@ -542,7 +542,7 @@ func TestARecordingDeltaEncodesExtrasAndLoadsBackIdentical(t *testing.T) {
 	if got := len(plainRaw[1].Extras); got != len(frames[1]) {
 		t.Errorf("with delta off the second line carries %d extras, want all %d", got, len(frames[1]))
 	}
-	if _, err := loadReplay(plain); err != nil {
+	if _, err := loadReplay(plain, true); err != nil {
 		t.Fatalf("a full (non-delta) recording does not load: %v", err)
 	}
 }

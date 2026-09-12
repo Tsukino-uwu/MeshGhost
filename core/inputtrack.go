@@ -112,6 +112,30 @@ func parseInputTrackLimited(r io.Reader, name string, maxEdges int) (*inputTrack
 		return nil, fmt.Errorf("%s: %d labels, over the %d the mask has bits for",
 			name, len(hdr.Labels), bridge.MaxInputLabels)
 	}
+	// THE HEADER'S OWN THREE FIELDS GET THE BRIDGE'S CHECK, and until 2026-09-12
+	// they got none at all. The per-edge validation below builds a synthetic
+	// InputSample carrying only the edge, so Labels, Axes and Source never went
+	// through validInputNames or the Source length bound on this path -- and
+	// Axes was never length-checked here in any form, though the wire path
+	// bounds it. _template/PROTOCOL.md promises adapter authors the opposite.
+	//
+	// Nothing shipped crashes on it today: the Pseudoregalia adapter, the only
+	// one that consumes tracks, defends itself. So this is a broken promise to
+	// the NEXT adapter author rather than a live fault -- which is exactly the
+	// kind that is only cheap to fix before somebody relies on it. Found by the
+	// third adversarial review (P5b-4).
+	if !bridge.ValidateInputSample(bridge.InputSample{
+		Labels: hdr.Labels, Axes: hdr.Axes, Source: hdr.Source,
+		// One inert edge, because an InputSample with no edges and no tables is
+		// refused as an adapter burning a line to say nothing -- a rule about
+		// the WIRE that says nothing about a file's header.
+		Edges: []bridge.InputEdge{{}},
+	}) {
+		return nil, fmt.Errorf("%s: line 1: %s", name, bridge.InputSampleRejectReason(bridge.InputSample{
+			Labels: hdr.Labels, Axes: hdr.Axes, Source: hdr.Source,
+			Edges: []bridge.InputEdge{{}},
+		}))
+	}
 
 	track := &inputTrack{file: name, header: hdr}
 	line := 1

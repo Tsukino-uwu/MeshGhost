@@ -93,6 +93,96 @@ const (
 // the same archive stops at the first clip's worth and says so.
 var replayMaxSamplesPerArchive = replayMaxSamples
 
+// A SAMPLE COUNT IS NOT A MEMORY BOUND, which is what both budgets above were
+// being used as. The 2,000,000 was sized on "128 bytes each on 64-bit" -- true
+// of the "{}" line it was measured against, and of nothing else.
+//
+// Measured here 2026-09-12, holding 20,000 decoded samples and reading
+// HeapAlloc either side:
+//
+//	line                 line size   resident/sample   at 2,000,000
+//	{}                        2 B          126 B          0.23 GB
+//	timestamp + position     40 B          160 B          0.30 GB
+//	~90 flat extras keys    926 B        4,129 B          7.69 GB
+//	extras nested 5 deep    596 B       21,896 B         40.78 GB
+//	near-maximal, flat    1,644 B        4,849 B          9.03 GB
+//
+// THE LINE LENGTH IS NOT A USABLE PROXY, which is the part that decides the
+// shape of the fix: the worst row is the SMALLEST of the big lines. 596 bytes
+// of nested extras cost 36.7x their length, while 1,644 bytes of flat ones cost
+// 2.9x. A budget counting input bytes would pass the 40 GB case and refuse the
+// 9 GB one. What the cost actually tracks is the number of DECODED NODES, so
+// that is what gets charged.
+//
+// Both files reachable here are untrusted by construction: docs/config.md tells
+// players "a zip is the easy way to send a clip to someone", and StartReplays
+// loads everything in replay/active/ the moment the adapter attaches -- i.e.
+// the moment somebody launches their game after dropping a friend's pack in.
+// Found by the third adversarial review (P5a-1 + P5b-2).
+// replayMaxBytes is what one clip, and one archive, may cost in held samples.
+// 256 MB is the figure replayMaxSamples was chosen to deliver and never did; it
+// is kept as the intent, now enforced in its own unit. A var, not a const, for
+// the same reason replayMaxSamplesPerArchive is one: tripping the real value
+// needs a quarter of a gigabyte of resident samples, which is not a test.
+var replayMaxBytes = 256 << 20
+
+const (
+	// replaySampleBaseCost is a held protocol.State with nothing in it: 126 B
+	// measured, rounded up to the next power of two so the estimate errs high.
+	replaySampleBaseCost = 128
+	// replayContainerCost is one decoded map or slice. A two-entry Go map
+	// measures ~340 B all-in; 384 rounds that up.
+	replayContainerCost = 384
+	// replayEntryCost is one key/value inside a container: an interface header,
+	// the key string, and the bucket slot. ~46 B measured across a 90-key map;
+	// 64 rounds up.
+	replayEntryCost = 64
+	// replayCostWalkLimit stops the estimate walking a pathological tree
+	// forever. Reaching it means the sample is enormous, so the walk RETURNS the
+	// budget-busting figure rather than a partial one -- an estimate that gave
+	// up must never read as cheap.
+	replayCostWalkLimit = 4096
+)
+
+// replaySampleCost estimates what holding st will cost, in bytes. Deliberately
+// an over-estimate: this is a refusal threshold, and the failure that matters
+// is letting something through, not refusing a clip 20% before the true limit.
+func replaySampleCost(st *protocol.State) int {
+	n := replaySampleBaseCost + len(st.AreaID) + len(st.Anim) + len(st.Orientation)
+	nodes := 0
+	n += replayValueCost(st.Extras, &nodes)
+	return n
+}
+
+// replayValueCost walks one decoded JSON value. nodes carries the budget across
+// the whole tree so a wide-and-shallow shape is bounded as well as a deep one.
+func replayValueCost(v any, nodes *int) int {
+	*nodes++
+	if *nodes > replayCostWalkLimit {
+		return replayMaxBytes
+	}
+	switch t := v.(type) {
+	case map[string]any:
+		n := replayContainerCost + len(t)*replayEntryCost
+		for k, e := range t {
+			n += len(k) + replayValueCost(e, nodes)
+		}
+		return n
+	case []any:
+		n := replayContainerCost + len(t)*replayEntryCost
+		for _, e := range t {
+			n += replayValueCost(e, nodes)
+		}
+		return n
+	case string:
+		return len(t)
+	default:
+		// A number, bool or null, already paid for by its container's entry
+		// cost.
+		return 0
+	}
+}
+
 // replayClip is a loaded file: the sanitized header, the samples after trim,
 // and the seams skip_gaps introduced.
 type replayClip struct {
@@ -137,10 +227,10 @@ func (rc *replayClip) duration() time.Duration {
 // to disk, and parseReplay bounds what it will accept by line length
 // (protocol.MaxLineBytes) and sample count (replayMaxSamples) whatever the
 // stream underneath claims about its size.
-func loadReplay(path string) (*replayClip, error) {
+func loadReplay(path string, wantTracks bool) (*replayClip, error) {
 	name := filepath.Base(path)
 	if strings.HasSuffix(strings.ToLower(path), ".zip") {
-		return loadReplayZip(path, name)
+		return loadReplayZip(path, name, wantTracks)
 	}
 	f, err := os.Open(path)
 	if err != nil {
@@ -174,10 +264,10 @@ type loadedClip struct {
 // "everything in here plays", so a zip behaves like a folder that happens to be
 // one file. Taking only the first would leave someone who zipped two clips
 // watching one ghost with nothing anywhere saying why.
-func loadReplayAll(path string) ([]loadedClip, error) {
+func loadReplayAll(path string, wantTracks bool) ([]loadedClip, error) {
 	name := filepath.Base(path)
 	if !strings.HasSuffix(strings.ToLower(path), ".zip") {
-		clip, err := loadReplay(path)
+		clip, err := loadReplay(path, wantTracks)
 		if err != nil {
 			return nil, err
 		}
@@ -195,6 +285,10 @@ func loadReplayAll(path string) ([]loadedClip, error) {
 	// entry may still be a full-size clip; what it may not do is be the
 	// hundredth one. See replayMaxSamplesPerArchive.
 	budget := replayMaxSamplesPerArchive
+	// The same budget in the unit that actually bounds memory. See
+	// replayMaxBytes: the sample count was standing in for this and is off by
+	// up to 160x on a sample the validators accept.
+	byteBudget := replayMaxBytes
 	// A ZIP MAY CARRY ITS CLIPS' INPUT TRACKS (ADR 0057): an entry whose first
 	// line is an input header is a track, not a clip, and is matched to a clip
 	// in the same archive by recording_id once every entry has been read. Its
@@ -220,6 +314,17 @@ func loadReplayAll(path string) ([]loadedClip, error) {
 			log.Printf("core: replay skipped: %s: %v", inner, err)
 			continue
 		} else if isTrack {
+			// AN ADAPTER THAT NEVER ASKED FOR INPUT TRACKS IS NOT GIVEN ONE,
+			// and this path did not check until 2026-09-12 while the disk path
+			// (StartReplays' findTrack) always has. A zip's track was attached
+			// at parse, so findTrack's `clip.track != nil` short-circuit then
+			// skipped its own gate and the edges streamed to an adapter with no
+			// way to use them. Refusing here rather than dropping it later also
+			// saves the parse and the memory. Found by the third adversarial
+			// review (P5b-5).
+			if !wantTracks {
+				continue
+			}
 			if trackBudget <= 0 {
 				log.Printf("core: replay: %s holds more than %d input edges in total -- "+
 					"the remaining tracks are not loaded", name, replayMaxTrackEdgesPerArchive)
@@ -234,16 +339,32 @@ func loadReplayAll(path string) ([]loadedClip, error) {
 			tracks = append(tracks, tr)
 			continue
 		}
-		if budget <= 0 {
+		if budget <= 0 || byteBudget <= 0 {
 			// Said once, not once per remaining entry: an archive built to
 			// exhaust this has plenty of entries left and the log is the thing
 			// it would flood.
-			log.Printf("core: replay: %s holds more than %d samples in total -- "+
-				"the rest of the archive is not loaded (one zip may cost as much "+
-				"memory as one clip, no more)", name, replayMaxSamplesPerArchive)
+			log.Printf("core: replay: %s is past the whole-archive budget (%d samples or %d MB) -- "+
+				"the rest of it is not loaded (one zip may cost as much memory as one clip, no more)",
+				name, replayMaxSamplesPerArchive, replayMaxBytes>>20)
 			break
 		}
-		clip, err := readZipEntry(entry, inner, budget)
+		// THE CLIP COUNT IS BOUNDED TOO, and by the roster rather than by a
+		// number of its own. Every clip becomes a replayPlayer with a goroutine
+		// and a roster seat, and MaxRosterSize was applied INSIDE each goroutine
+		// -- after the spawn -- so an archive of N tiny clips minted N players
+		// and started N goroutines, of which N-512 woke, took c.mu, logged "the
+		// roster is full" and exited. The 512 that did fit then filled the
+		// roster the room's real players share, so the ghosts a player came for
+		// never appeared. Neither budget above stops this: N clips of one sample
+		// each cost almost nothing. Found by the third adversarial review
+		// (P5a-2 + P5b-6).
+		if len(out) >= protocol.MaxRosterSize {
+			log.Printf("core: replay: %s holds more than %d clips -- the rest are not loaded, "+
+				"because every clip takes a roster seat and the room's real players need those too",
+				name, protocol.MaxRosterSize)
+			break
+		}
+		clip, spent, err := readZipEntry(entry, inner, budget, byteBudget)
 		if err != nil {
 			// One bad entry does not condemn the archive: the others still play,
 			// and the log says which one was dropped.
@@ -251,6 +372,7 @@ func loadReplayAll(path string) ([]loadedClip, error) {
 			continue
 		}
 		budget -= len(clip.samples)
+		byteBudget -= spent
 		out = append(out, loadedClip{name: inner, clip: clip})
 	}
 	if len(out) == 0 {
@@ -322,28 +444,28 @@ func readZipInputTrack(entry *zip.File, name string, maxEdges int) (*inputTrack,
 	return parseInputTrackLimited(r, name, maxEdges)
 }
 
-func readZipEntry(entry *zip.File, name string, maxSamples int) (*replayClip, error) {
+func readZipEntry(entry *zip.File, name string, maxSamples, maxBytes int) (*replayClip, int, error) {
 	rc, err := entry.Open()
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", name, err)
+		return nil, 0, fmt.Errorf("%s: %w", name, err)
 	}
 	defer rc.Close()
 	var r io.Reader = rc
 	if strings.HasSuffix(strings.ToLower(entry.Name), ".gz") {
 		gz, err := gzip.NewReader(rc)
 		if err != nil {
-			return nil, fmt.Errorf("%s: not a gzip file: %w", name, err)
+			return nil, 0, fmt.Errorf("%s: not a gzip file: %w", name, err)
 		}
 		defer gz.Close()
 		r = gz
 	}
-	return parseReplayLimited(r, name, maxSamples)
+	return parseReplayWithin(r, name, maxSamples, maxBytes)
 }
 
 // loadReplayZip reads the FIRST clip in a zip, for the one caller that plays
 // exactly one file (the replay-last hotkey).
-func loadReplayZip(path, name string) (*replayClip, error) {
-	all, err := loadReplayAll(path)
+func loadReplayZip(path, name string, wantTracks bool) (*replayClip, error) {
+	all, err := loadReplayAll(path, wantTracks)
 	if err != nil {
 		return nil, err
 	}
@@ -359,9 +481,23 @@ func parseReplay(r io.Reader, name string) (*replayClip, error) {
 // spend ONE budget across all its entries rather than giving each entry a fresh
 // one. See replayMaxSamplesPerArchive.
 func parseReplayLimited(r io.Reader, name string, maxSamples int) (*replayClip, error) {
+	clip, _, err := parseReplayWithin(r, name, maxSamples, replayMaxBytes)
+	return clip, err
+}
+
+// parseReplayWithin is parseReplayLimited with the MEMORY budget supplied too,
+// and it returns what the clip spent of it so an archive can subtract. See
+// replayMaxBytes: a sample count was never a memory bound, and the two budgets
+// are spent together because neither implies the other -- 2,000,000 tiny
+// samples are cheap, and 40,000 deeply-nested ones are 40 GB.
+func parseReplayWithin(r io.Reader, name string, maxSamples, maxBytes int) (*replayClip, int, error) {
 	if maxSamples > replayMaxSamples {
 		maxSamples = replayMaxSamples
 	}
+	if maxBytes > replayMaxBytes {
+		maxBytes = replayMaxBytes
+	}
+	spent := 0
 	sc := bufio.NewScanner(r)
 	// The wire's own line cap, applied BEFORE decoding: a longer line is
 	// refused, never allocated for.
@@ -369,16 +505,16 @@ func parseReplayLimited(r io.Reader, name string, maxSamples int) (*replayClip, 
 
 	if !sc.Scan() {
 		if err := sc.Err(); err != nil {
-			return nil, fmt.Errorf("%s: %w", name, err)
+			return nil, 0, fmt.Errorf("%s: %w", name, err)
 		}
-		return nil, fmt.Errorf("%s: empty file", name)
+		return nil, 0, fmt.Errorf("%s: empty file", name)
 	}
 	var hdr replayHeader
 	if err := json.Unmarshal(sc.Bytes(), &hdr); err != nil {
-		return nil, fmt.Errorf("%s: line 1 is not a replay header: %w", name, err)
+		return nil, 0, fmt.Errorf("%s: line 1 is not a replay header: %w", name, err)
 	}
 	if hdr.Format == 0 {
-		return nil, fmt.Errorf("%s: line 1 has no meshghost_replay key -- not a replay file", name)
+		return nil, 0, fmt.Errorf("%s: line 1 has no meshghost_replay key -- not a replay file", name)
 	}
 	if hdr.Format > replayFormatVersion {
 		// Latest version assumed; an older reader plays what it understands.
@@ -427,7 +563,7 @@ func parseReplayLimited(r io.Reader, name string, maxSamples int) (*replayClip, 
 					"still being written, or the game that wrote it did not close it", name, line)
 				break
 			}
-			return nil, fmt.Errorf("%s: line %d: %w", name, line, err)
+			return nil, 0, fmt.Errorf("%s: line %d: %w", name, line, err)
 		}
 		st.PlayerID = ""
 		st.Prev = nil
@@ -438,33 +574,44 @@ func parseReplayLimited(r io.Reader, name string, maxSamples int) (*replayClip, 
 		// The same caps a relay packet meets, and here they are also what
 		// keeps a hand-edited file from ever reaching the adapter malformed.
 		if !protocol.ValidateState(st) {
-			return nil, fmt.Errorf("%s: line %d: %s", name, line, protocol.StateRejectReason(st))
+			return nil, 0, fmt.Errorf("%s: line %d: %s", name, line, protocol.StateRejectReason(st))
 		}
 		if len(clip.samples) > 0 && st.Timestamp < clip.samples[len(clip.samples)-1].Timestamp {
-			return nil, fmt.Errorf("%s: line %d: timestamp %d goes backwards (previous %d)", name, line, st.Timestamp, clip.samples[len(clip.samples)-1].Timestamp)
+			return nil, 0, fmt.Errorf("%s: line %d: timestamp %d goes backwards (previous %d)", name, line, st.Timestamp, clip.samples[len(clip.samples)-1].Timestamp)
 		}
 		if len(clip.samples) >= maxSamples {
-			return nil, fmt.Errorf("%s: more than %d samples", name, maxSamples)
+			return nil, 0, fmt.Errorf("%s: more than %d samples", name, maxSamples)
+		}
+		// THE OTHER BUDGET, and the one the sample count was standing in for.
+		// Charged from the DECODED sample, because what a line costs to hold has
+		// almost nothing to do with how long it was -- see replayMaxBytes for the
+		// measurements, where 596 bytes of nested extras cost 36.7x their length
+		// and 1,644 flat ones cost 2.9x.
+		spent += replaySampleCost(&st)
+		if spent > maxBytes {
+			return nil, 0, fmt.Errorf("%s: line %d takes it past %d MB of samples -- "+
+				"a clip is bounded by what it costs to hold, not only by how many lines it has",
+				name, line, maxBytes>>20)
 		}
 		clip.samples = append(clip.samples, st)
 	}
 	if err := sc.Err(); err != nil {
 		if errors.Is(err, bufio.ErrTooLong) {
-			return nil, fmt.Errorf("%s: line %d is longer than %d bytes", name, line+1, protocol.MaxLineBytes)
+			return nil, 0, fmt.Errorf("%s: line %d is longer than %d bytes", name, line+1, protocol.MaxLineBytes)
 		}
-		return nil, fmt.Errorf("%s: %w", name, err)
+		return nil, 0, fmt.Errorf("%s: %w", name, err)
 	}
 	if len(clip.samples) == 0 {
-		return nil, fmt.Errorf("%s: header only, no samples", name)
+		return nil, 0, fmt.Errorf("%s: header only, no samples", name)
 	}
 
 	clip.applyTrim()
 	clip.applySkipGaps()
 	if len(clip.samples) == 0 {
-		return nil, fmt.Errorf("%s: trim left no samples", name)
+		return nil, 0, fmt.Errorf("%s: trim left no samples", name)
 	}
 	clip.t0 = clip.samples[0].Timestamp
-	return clip, nil
+	return clip, spent, nil
 }
 
 // mergeCarriedExtras applies one delta line's extras onto the running value.
@@ -644,6 +791,32 @@ func (p *replayPlayer) stopped() bool {
 // stop or a seek is noticed promptly and a goroutine stall can never approach
 // the stale age-out. Returns a command if one arrived first; stopped=true
 // means the player was halted.
+// replayWaitFor turns "this many milliseconds until the next sample" into one
+// sleep, and it exists as its own function so the clamp can be tested without
+// a clock.
+//
+// CLAMPED IN MILLISECONDS, BEFORE THE CONVERSION, and the order is the whole
+// point. time.Duration(ms) * time.Millisecond multiplies by 1e6, so it
+// overflows int64 past ~9.2e12 ms and comes out NEGATIVE -- at which point a
+// clamp applied afterwards never fires (a negative is not greater than 50ms),
+// time.After returns immediately, and the caller's loop becomes a hot spin
+// taking c.mu through nowMs on every pass, for the life of the session.
+//
+// That span is reachable from a file. A clip's `speed` has a floor of 0.1 and
+// the due time divides by it, so it MULTIPLIES a timestamp difference by ten
+// AFTER ValidateState cleared it against MaxTimestampMs (2^42 ms): 4.4e12
+// becomes 4.4e13, and 4.4e13 * 1e6 wraps. Found by the third adversarial review
+// (P5b-1).
+func replayWaitFor(ms int64) time.Duration {
+	if ms > 50 {
+		ms = 50
+	}
+	if ms < 0 {
+		ms = 0
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
 func (p *replayPlayer) sleepUntil(due int64) (cmd *replayCmd, stopped bool) {
 	for {
 		if p.stopped() {
@@ -658,10 +831,20 @@ func (p *replayPlayer) sleepUntil(due int64) (cmd *replayCmd, stopped bool) {
 		if now >= due {
 			return nil, false
 		}
-		wait := time.Duration(due-now) * time.Millisecond
-		if wait > 50*time.Millisecond {
-			wait = 50 * time.Millisecond
-		}
+		// CLAMPED IN MILLISECONDS, BEFORE THE CONVERSION, and the order is the
+		// whole point. `time.Duration(due-now) * time.Millisecond` multiplies by
+		// 1e6, so it overflows int64 somewhere past ~9.2e12 ms and comes out
+		// NEGATIVE -- at which case the clamp below never fires (a negative is
+		// not greater than 50ms), time.After returns immediately, and this loop
+		// becomes a hot spin taking c.mu through nowMs on every pass, for the
+		// life of the session.
+		//
+		// That span is reachable from a file. A clip's `speed` has a floor of
+		// 0.1, and `due` divides by it -- so it MULTIPLIES a timestamp
+		// difference by ten AFTER ValidateState cleared it against
+		// MaxTimestampMs (2^42 ms). 4.4e12 becomes 4.4e13, and 4.4e13 * 1e6
+		// wraps. Found by the third adversarial review (P5b-1).
+		wait := replayWaitFor(due - now)
 		select {
 		case <-p.stop:
 			return nil, true
@@ -923,7 +1106,7 @@ func (c *Core) StartReplays() int {
 		// filepath.Join of the LISTING's own name, cleaned: nothing inside a
 		// file ever chooses a path, and a listing entry cannot escape dir.
 		path := filepath.Join(dir, filepath.Base(name))
-		loaded, err := loadReplayAll(path)
+		loaded, err := loadReplayAll(path, wantTracks)
 		if err != nil {
 			log.Printf("core: replay skipped: %v", err)
 			continue

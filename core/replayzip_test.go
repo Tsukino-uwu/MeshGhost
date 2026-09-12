@@ -97,7 +97,7 @@ func TestAZipWithOneClipBehavesLikeThatClip(t *testing.T) {
 		"rec-20260904-010101.ndjson": clipBytes(map[string]any{"name": "PB", "speed": 2.0}, walkStates(30, 10)),
 	}, []string{"rec-20260904-010101.ndjson"})
 
-	all, err := loadReplayAll(path)
+	all, err := loadReplayAll(path, true)
 	if err != nil {
 		t.Fatalf("loadReplayAll: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestAZipWithNothingPlayableSaysSo(t *testing.T) {
 	dir := t.TempDir()
 	empty := filepath.Join(dir, "empty.zip")
 	zipWith(t, empty, map[string][]byte{"notes.txt": []byte("hello")}, []string{"notes.txt"})
-	_, err := loadReplayAll(empty)
+	_, err := loadReplayAll(empty, true)
 	if err == nil || !strings.Contains(err.Error(), "no .ndjson inside") {
 		t.Fatalf("loadReplayAll on a zip with no clip = %v, want a 'no .ndjson inside' error", err)
 	}
@@ -126,7 +126,7 @@ func TestAZipWithNothingPlayableSaysSo(t *testing.T) {
 		"broken.ndjson": []byte("{\"this\":\"is not a replay header\"}\n"),
 		"good.ndjson":   clipBytes(map[string]any{"name": "Good"}, walkStates(10, 10)),
 	}, []string{"broken.ndjson", "good.ndjson"})
-	all, err := loadReplayAll(mixed)
+	all, err := loadReplayAll(mixed, true)
 	if err != nil {
 		t.Fatalf("a zip with one bad entry and one good one failed entirely: %v", err)
 	}

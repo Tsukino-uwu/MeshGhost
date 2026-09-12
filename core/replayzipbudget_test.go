@@ -56,7 +56,7 @@ func TestAZipSpendsOneSampleBudgetAcrossAllItsEntries(t *testing.T) {
 	t.Run("a generous budget loads every clip", func(t *testing.T) {
 		defer restoreArchiveBudget(replayMaxSamplesPerArchive)
 		replayMaxSamplesPerArchive = 1000
-		all, err := loadReplayAll(path)
+		all, err := loadReplayAll(path, true)
 		if err != nil {
 			t.Fatalf("loadReplayAll: %v", err)
 		}
@@ -70,7 +70,7 @@ func TestAZipSpendsOneSampleBudgetAcrossAllItsEntries(t *testing.T) {
 		defer restoreArchiveBudget(replayMaxSamplesPerArchive)
 		// Exactly one clip's worth: the first entry consumes it all.
 		replayMaxSamplesPerArchive = perClip
-		all, err := loadReplayAll(path)
+		all, err := loadReplayAll(path, true)
 		if err != nil {
 			t.Fatalf("loadReplayAll: %v", err)
 		}
@@ -87,7 +87,7 @@ func TestAZipSpendsOneSampleBudgetAcrossAllItsEntries(t *testing.T) {
 		defer restoreArchiveBudget(replayMaxSamplesPerArchive)
 		// Enough for the first clip and one sample of the second.
 		replayMaxSamplesPerArchive = perClip + 1
-		all, err := loadReplayAll(path)
+		all, err := loadReplayAll(path, true)
 		if err != nil {
 			t.Fatalf("loadReplayAll: %v", err)
 		}
@@ -111,7 +111,7 @@ func TestALooseClipIsNotBoundedByTheArchiveBudget(t *testing.T) {
 	if err := os.WriteFile(path, clipBytes(nil, walkStates(10, 50)), 0o600); err != nil {
 		t.Fatalf("write clip: %v", err)
 	}
-	all, err := loadReplayAll(path)
+	all, err := loadReplayAll(path, true)
 	if err != nil {
 		t.Fatalf("a loose clip was refused by the ARCHIVE budget: %v", err)
 	}

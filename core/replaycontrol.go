@@ -243,16 +243,19 @@ func (c *Core) replayLast() error {
 	// everything up to this instant rather than everything up to the last time
 	// a 64KiB buffer happened to fill.
 	c.flushRecordingIfOpen()
-	clip, err := loadReplay(filepath.Join(c.replayDir(), filepath.Base(name)))
+	// Read BEFORE the load, not after: a zip attaches its own track at parse
+	// time, and the `clip.track == nil` test below would then skip its own gate.
+	// See loadReplayAll's track branch (P5b-5).
+	c.mu.Lock()
+	wantTracks := c.adapterWantsInputTracks
+	c.mu.Unlock()
+	clip, err := loadReplay(filepath.Join(c.replayDir(), filepath.Base(name)), wantTracks)
 	if err != nil {
 		return err
 	}
 	// The newest recording's track is very often the one still being written
 	// -- the same "let me see what I just did" moment the flush above serves.
 	// The recorder flushes the input track with the clip (flushRecordingIfOpen).
-	c.mu.Lock()
-	wantTracks := c.adapterWantsInputTracks
-	c.mu.Unlock()
 	if wantTracks && clip.track == nil && clip.header.RecordingID != "" {
 		c.attachTrackFromIndex(clip, name, c.inputTrackIndex())
 	}

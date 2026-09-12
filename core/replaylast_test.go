@@ -78,7 +78,7 @@ func TestATruncatedLastLineLosesOnlyThatLine(t *testing.T) {
 	if err := os.WriteFile(cut, append(whole, []byte(`{"seq":11,"timestamp":1000100,"area_id":"a","posit`)...), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	clip, err := loadReplay(cut)
+	clip, err := loadReplay(cut, true)
 	if err != nil {
 		t.Fatalf("a file with a half-written last line did not load: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestATruncatedLastLineLosesOnlyThatLine(t *testing.T) {
 	if err := os.WriteFile(middle, []byte(strings.Join(lines, "")), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadReplay(middle); err == nil {
+	if _, err := loadReplay(middle, true); err == nil {
 		t.Fatal("a corrupt line in the MIDDLE was accepted; only a truncated final line may be dropped")
 	}
 }
