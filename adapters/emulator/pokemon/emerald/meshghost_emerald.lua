@@ -1770,6 +1770,63 @@ local function glideRemote(r, targetX, targetY)
     if tspd > (r.gSpd or 0) then r.gSpd = tspd end
     if dist <= 0.05 then r.gSpd = nil end
     local limit = math.min(math.max(tspd, r.gSpd or 0, 0.02) * 1.25, 0.25)
+
+    -- MOVE AT A SPEED THE ENGINE ACTUALLY PRODUCES (2026-09-12).
+    --
+    -- The limit above is a measured rate times 1.25 -- a catch-up factor -- so after a turn, where
+    -- the model still owes ground on the axis it was walking, it closes that gap at 1.25x the
+    -- peer's speed. At running pace that is 2.5px a frame, and NOTHING in this game moves at 2.5px
+    -- a frame. The user, watching a running square: *"like its sliding after running another
+    -- direction"*. A character here is stepped by a fixed table -- `NpcTakeStep`, documented in
+    -- documentation.md -- and every entry in it is a whole number of pixels:
+    --
+    --     MOVE_SPEED_NORMAL 1px   FAST_1 2px   FAST_2 2,3,3,2,3,3   FASTER 4px   FASTEST 8px
+    --
+    -- The peer tells us which one it is: `pspeed` is that same MOVE_SPEED constant, already on the
+    -- wire and already validated to 0..4. So the ghost moves at the peer's OWN quantum, and a frame
+    -- of motion is a frame the engine could have produced.
+    --
+    -- CATCHING UP IS ALSO DONE AT A REAL SPEED. Falling behind cannot be answered with a fraction,
+    -- so a model more than a tile adrift steps up to the next quantum -- a character that needs to
+    -- cover ground RUNS; it does not walk faster. Anything larger than that is a discontinuity, and
+    -- the two-tile guard above has already snapped it.
+    --
+    -- FAST_2 IS APPROXIMATED, and says so: its 2,3,3,2,3,3 is uneven per frame and reproducing it
+    -- exactly needs the peer's step PHASE, which is not on the wire. The average (16/6 px) is used
+    -- until it is -- the one place here that is not frame-exact.
+    -- `pspeed` IS NOT `MOVE_SPEED_*`, AND ASSUMING IT WAS COST AN ITERATION (2026-09-12).
+    --
+    -- It is `gPlayerAvatar.bikeSpeed`, a PLAYER_SPEED_* constant (pokeemerald include/bike.h:18):
+    -- STANDING 0, NORMAL 1, FAST 2, FASTER 3, FASTEST 4 -- one MORE than the MOVE_SPEED_* enum the
+    -- step table is indexed by, where 0 is already walking. Indexed as MOVE_SPEED it made a running
+    -- peer (`pspeed` 0 on foot) move at 1px a frame against a target advancing 2px, so the model
+    -- lost a pixel every frame until it was a full tile behind and the catch-up rule lurched it
+    -- forward. Measured in probes/movetrace.log: `d(tgt)=-0.1250 d(model)=-0.0625` for five frames
+    -- running, `dist` climbing 0.75 -> 1.06.
+    --
+    -- AND ON FOOT THE FIELD READS 0 ANYWAY. `GetPlayerSpeed` (src/bike.c:1022) computes FAST for a
+    -- dash, but the adapter sends the raw `bikeSpeed` byte, which the engine maintains for BIKES;
+    -- a running player on foot still reports STANDING. So the gait comes from `anim`, which this
+    -- adapter already derives from runningState and the dash flag, and `pspeed` covers the vehicles
+    -- `anim` cannot describe. The larger of the two wins: a mach bike reads FASTEST while its anim
+    -- is still "walking", and a dash reads "running" while pspeed is 0.
+    --
+    -- Check what a field IS and DOES, never what its name suggests -- adapters/_template/probes.md
+    -- has carried that rule since 2026-08-19, and this is the fourth entry under it.
+    local ANIM_PX = { walking = 1, running = 2 }
+    local PLAYER_SPEED_PX = { [1] = 1, [2] = 2, [3] = 4, [4] = 8 }
+    local quantum = ANIM_PX[r.anim]
+    local vehiclePx = r.pspeed and PLAYER_SPEED_PX[r.pspeed]
+    if vehiclePx and (not quantum or vehiclePx > quantum) then quantum = vehiclePx end
+    if quantum then
+        if dist > 1 then
+            -- A character that needs to cover ground RUNS; it does not walk faster. The next real
+            -- quantum up, never a fraction.
+            local faster = (quantum <= 1 and 2) or (quantum <= 2 and 4) or 8
+            if faster > quantum then quantum = faster end
+        end
+        limit = quantum / TILE
+    end
     if dist > 0 then
         local move = math.min(dist, limit)
         -- ONE AXIS AT A TIME, DOMINANT AXIS FIRST -- because the character never moves diagonally.
@@ -1803,6 +1860,35 @@ local function glideRemote(r, targetX, targetY)
                 local sp2 = math.min(move, ax)
                 r.gX = r.gX + (ddx > 0 and sp2 or -sp2)
             end
+        end
+    end
+    -- MESHGHOST_EMERALD_MOVE_TRACE (probe, off by default): the delayed target this filter is
+    -- chasing, the model, and the per-frame delta -- one line per frame per peer.
+    --
+    -- The question it exists for: this filter was chosen because the position stream was SPARSE
+    -- (measured 2026-08-19: one frame in eight, in 2-4px jumps, because the core delivered at the
+    -- relay's 8-20/s). At 100Hz with interp 0 and the sender's own per-frame sub-tile ramp the
+    -- stream is nearly dense, so the premise may no longer hold -- and "the filter still helps" and
+    -- "the filter is now only lag" produce very different numbers here. d(model) against d(target)
+    -- is what tells them apart; the ENGINE's answer for comparison is a flat 1px or 2px a frame.
+    if MESHGHOST_EMERALD_MOVE_TRACE then
+        genderFrames.mvBuf = genderFrames.mvBuf or {}
+        local b = genderFrames.mvBuf
+        b[#b + 1] = string.format(
+            "p%s f=%d tgt=%.4f,%.4f d(tgt)=%.4f,%.4f model=%.4f,%.4f d(model)=%.4f,%.4f "
+                .. "dist=%.4f limit=%.4f pspeed=%s anim=%s",
+            tostring(currentPort), frameCounter, targetX, targetY,
+            targetX - (r.mvPrevTX or targetX), targetY - (r.mvPrevTY or targetY),
+            r.gX, r.gY, r.gX - prevX, r.gY - prevY,
+            dist, limit, tostring(r.pspeed), tostring(r.anim))
+        r.mvPrevTX, r.mvPrevTY = targetX, targetY
+        if #b >= 240 then
+            local tf = io.open(SCRIPT_DIR .. "probes/movetrace.log", "a")
+            if tf then
+                tf:write(table.concat(b, string.char(10)) .. string.char(10))
+                tf:close()
+            end
+            genderFrames.mvBuf = {}
         end
     end
     local dx, dy = math.abs(r.gX - prevX), math.abs(r.gY - prevY)
