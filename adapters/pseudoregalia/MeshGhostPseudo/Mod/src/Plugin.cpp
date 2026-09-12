@@ -15569,6 +15569,31 @@ namespace MeshGhostPseudo
             // shipped without ever being added to these lines. Dropping the reference is the whole
             // fix -- the level's teardown destroys the components, exactly as with the weapon glow.
             remote.vfx_components.clear();
+            // **The ONE-SHOT RING, and it is the fifth instance of the family the block above
+            // predicts** -- "anything actor-shaped added to RemoteGhost in future belongs in these
+            // lines too". release_ghost clears this ring and says why in as many words; this
+            // function, which runs at LoadMap PRE, at InitGameState PRE (a same-level "retry last
+            // save") and at the pause-menu reset, never touched it.
+            //
+            // It is NOT a use-after-free, and that is what made it survive: the ring is expected to
+            // hold freed pointers -- a one-shot burst destroys itself when its particles finish and
+            // nothing tells us -- so destroy_world_spawned_components checks every candidate
+            // against FindAllOf before touching it. What that check cannot see is an address the
+            // level RECYCLED. Two consequences, both of them silent:
+            //
+            //   - a later release_ghost for this peer walks the stale ring, finds a recycled
+            //     address that is now a LIVE NiagaraComponent belonging to somebody else, and
+            //     destroys it;
+            //   - the detection pass builds its "ours, do not measure" exclusion set by walking
+            //     this same ring, so a new component at a recycled address is excluded from
+            //     measurement and the LOCAL player's own effect quietly stops being mirrored.
+            //
+            // Dropped rather than destroyed, exactly like every line around it: this hook's whole
+            // premise is that the level's own teardown is about to reclaim all of it, and calling
+            // into an actor here is what this file has crashed on four times.
+            //
+            // Found by the growth cell of the third adversarial review (P2e-2, 2026-09-12).
+            remote.recent_one_shot_components.clear();
             // Belt and braces: the projectile effect is protected by tick_remote_projectile's own
             // world-staleness check rather than by this hook, so it does not crash today. It is
             // cleared here anyway because "safe as long as one specific tick path runs first" is a
@@ -19032,7 +19057,41 @@ namespace MeshGhostPseudo
                         {
                             continue; // an edge with no due time can never apply
                         }
-                        e.f = static_cast<uint64_t>((std::max)(0.0, f)); // parenthesised: <windows.h>'s max macro
+                        // **THE SAME GUARD `m` HAS ON THE THIRD LINE OF THIS BLOCK.** A
+                        // floating-point value outside the destination integer's range makes
+                        // static_cast undefined behaviour -- in the player's game process, from a
+                        // clip a friend sent them -- and `f` and `t` had none while `m` was checked
+                        // for finiteness AND range. `(std::max)(0.0, f)` handles negatives, and NaN
+                        // only by luck; it does nothing at all about 1e300 or an infinity.
+                        //
+                        // The Go side now bounds both (bridge.MaxInputFrame, and
+                        // protocol.MaxTimestampMs for `t`), so nothing the shipped core sends can
+                        // reach these casts out of range. This is belt as well as braces:
+                        // `remote_input` comes from the core and the core is its only writer, and
+                        // two comparisons are cheaper than depending on that staying true.
+                        //
+                        // The two bounds are RESTATED here rather than shared, because there is no
+                        // mechanism to share a Go constant with this file -- so they are written as
+                        // the powers of two they are, which is how the Go side derives them too
+                        // (2^53 is where a double stops counting integers; 2^42 is
+                        // protocol.MaxTimestampMs). A drift makes this side stricter or looser by a
+                        // factor of two, never wrong by a silent digit.
+                        //
+                        // Bounds, not clamps: an edge whose frame or time is nonsense is dropped,
+                        // because unlike a capsule height or a colour channel there is no "bounded
+                        // wrong value" here that reads as anything but wrong -- it would apply an
+                        // input at an arbitrary moment. See PeerJson.hpp's clamp_to_float for the
+                        // other half of that distinction.
+                        //
+                        // Found by the growth cell of the third adversarial review (P2e-1).
+                        constexpr double MAX_INPUT_FRAME = 9007199254740992.0; // 2^53, bridge.MaxInputFrame
+                        constexpr double MAX_INPUT_T_MS = 4398046511104.0;     // 2^42, protocol.MaxTimestampMs
+                        if (!std::isfinite(f) || f < 0.0 || f > MAX_INPUT_FRAME ||
+                            !std::isfinite(t) || t < 0.0 || t > MAX_INPUT_T_MS)
+                        {
+                            continue;
+                        }
+                        e.f = static_cast<uint64_t>(f);
                         e.t = static_cast<int64_t>(t);
                         e.m = (std::isfinite(m) && m >= 0.0 && m <= 4294967295.0) ? static_cast<uint32_t>(m) : 0u;
                         e.at = at;

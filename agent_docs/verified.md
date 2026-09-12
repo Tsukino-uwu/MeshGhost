@@ -139,6 +139,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-11 — the bridge is not the constraint: a sweep to 256 peers over REAL sockets, and where it actually bends
 - 2026-09-12 — three numbers from the third review's backlog, each measured rather than reasoned
 - 2026-09-12 (later) — the Welcome a stock relay cannot send, measured at six players
+- 2026-09-12 (last) — a fuzz target at 0.0% on the code its own seeds were written for
 
 ## Split per game — 2026-08-25
 
@@ -2006,3 +2007,55 @@ after the two that touch close ordering (`617dd796`, `c119c935`), with the MSYS2
 Every regression test here was confirmed failing without its fix by reverting the source, except
 `netx/udpconn/halfclose_test.go`, which names a method the fix introduces and so cannot compile
 against the old tree — its behaviour is covered by the conformance test above, which can.
+
+## 2026-09-12 (last) — a fuzz target at 0.0% on the code its own seeds were written for
+
+Go-side, confirmed with tools on this machine. `go test -coverprofile` restricted to one fuzz
+target's seed corpus, before and after, plus live campaigns.
+
+**The instrument that pointed at nothing**
+
+`FuzzListenerSurvivesArbitraryDatagrams` exchanged only hello/cookie, and
+`udpconn.Listener.handle` routes ctrlData, ctrlLossy and ctrlAck through `l.lookup(key)` — which
+finds nothing when no connection was ever admitted. Coverage over the seed corpus alone:
+
+| function | before | after |
+|---|---|---|
+| `Conn.handleControl` | **0.0%** | 89.7% |
+| `Conn.sendAck` | 0.0% | 100.0% |
+| `Conn.deliver` | 0.0% | 66.7% |
+
+Nine of that target's seeds were written for `handleControl` specifically — the token compare, the
+`seqLen` bound, the reorder window — and had been bouncing off a nil check since they were added.
+The campaign after the fix: **14.5M execs in 80s, corpus 55 → 71**. Those 16 new interesting inputs
+are coverage that did not exist before.
+
+**The other three instruments**
+
+- `bridge`'s two targets both `json.Unmarshal` into a plain struct with no custom `UnmarshalJSON`
+  and marshal back, so between them they campaign `encoding/json` and no line of `bridge` (X2-3).
+- `ValidateInputSample` had the opposite problem: used as the ORACLE in core's track-parser target,
+  always on a batch of exactly one hand-built edge, so its edge cap, its within-batch monotonicity
+  and its entire header half were unreachable (X2-7). Its real property is that it and
+  `InputSampleRejectReason` agree — **24.9M execs in 60s says they do**.
+- Nothing anywhere pushed arbitrary bytes into the core's relay connection or its bridge socket
+  (X2-4). Both now exist: **5.0M execs / 338 new inputs** and **396k / 85** respectively in 40s
+  each, no failures. The lower bridge rate is a pipe round trip against a function call.
+
+**The bound that a comment three fields away already justified**
+
+`bridge.InputEdge.F` had no upper bound. `bridge.go` says *"a JSON number is a float64 to every
+reader that is not Go"* as the reason `M` is 32 bits and not 64; the same sentence applies to `F`
+and was never applied. Measured: a `uint64` at its maximum serializes to `18446744073709551615`,
+whose nearest double is 2^64 exactly — one past the range of the `static_cast<uint64_t>` the
+Pseudoregalia adapter narrows it with, which is undefined behaviour. Bounded at 2^53, where a
+double stops representing consecutive integers.
+
+**The gates**
+
+`run-gotests.bat` green after each commit; `run-gotests-race.bat` green after the one that adds
+atomics to `netx/tlsx`. Every regression test in this batch was confirmed failing without its fix
+by reverting the source, except `netx/udpconn/halfclose_test.go` (it names a method the fix
+introduces, so it cannot compile against the old tree; the conformance test covers the same
+behaviour and can). The Pseudoregalia half of P2e-1 and P2e-2 are NOT here — they are built,
+deployed to both installs at hash `BEBC2023`, and waiting in that adapter's `UNVERIFIED.md`.

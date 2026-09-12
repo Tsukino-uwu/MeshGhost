@@ -2153,7 +2153,7 @@ FUNCTION, which gave one test a hello for the wrong game and closed its connecti
 expressed "no opt-in" by sending no hello at all, which would have passed today because nothing
 would arrive.
 
-## 2026-09-12 (last) — the transports cluster, and a finding the review under-rated
+## 2026-09-12 — the transports cluster, and a finding the review under-rated
 
 P1d-1, P1d-3 and P1d-4 are three faces of one thing: what a connection means by "closed" is
 different on a stream and on a datagram, and every layer above was written for the stream.
@@ -2199,3 +2199,52 @@ Two of the four fixes here would have been called green by the obvious test.
 Records: `agent_docs/verified.md`, `agent_docs/risks.md` (the maximal-event and maximal-escrow
 entries: an oversized reliable message no longer closes the connection, so those gaps cost a dropped
 message rather than a dropped player).
+
+## 2026-09-12 (last) — the instruments, and what a target's seeds are a claim about
+
+The coverage cell's findings, all four of them variations on one thing: a fuzz target that is
+registered, has a CI step, has a roster row, runs green, and reaches nothing.
+
+- `f399f07e` — **X2-1, measured rather than argued.** The udp target only ever exchanged
+  hello/cookie, and `Listener.handle` routes every application frame through `l.lookup`, so no
+  `Conn` ever existed and `Conn.handleControl` was unreachable for the whole campaign. Nine of its
+  seeds were written for that code and had been bouncing off a nil check since the day they landed.
+  Coverage over the seed corpus alone: `handleControl` **0.0% → 89.7%**, `sendAck` 0 → 100%,
+  `deliver` 0 → 66.7%. Completing the handshake once in setup costs one round trip; the token is
+  then known, so nine new seeds get PAST the constant-time compare instead of only proving that a
+  wrong token is refused. 80s live: 14.5M execs, corpus 55 → 71.
+- `e4960d8e` — **X2-3 and X2-7, which are one thing from two sides.** Neither of `bridge`'s two
+  targets calls anything in `bridge` (both marshal a plain struct; between them they campaign
+  `encoding/json`), while `ValidateInputSample` — the obvious thing they should point at — was
+  executed constantly and tested never, as the ORACLE in core's track-parser target, always on a
+  one-edge batch. Its real property turned out to be that it and `InputSampleRejectReason` AGREE:
+  two hand-maintained ladders over one set of rules, where a rule in only the first logs
+  `input batch refused: ` with nothing after the colon. 60s: 24.9M execs, they agree.
+- `3ffcf8d0` — **X2-4.** Twenty-seven targets and not one pushed arbitrary bytes into either thing
+  the CORE reads from. Every relay target fuzzes the other direction; `FuzzEverything` drives the
+  bridge only with legal frames and its relay delivers nothing at all. Both now exist, and the
+  relay one's invariants are the five findings this pass already fixed in that path.
+
+**P2e-1 rode in with X2-3**, because it is the same file. `InputEdge.F` had no bound, and the
+reason it needs one is written three fields away in `bridge.go` — *"a JSON number is a float64 to
+every reader that is not Go"*, which is why `M` is 32 bits. A reader that is not Go is exactly what
+is on the other end: the Pseudoregalia adapter narrows `f` with a bare `static_cast<uint64_t>`, and
+a `uint64` near its maximum serializes to a number whose nearest double is 2^64 — one past the
+destination, so undefined behaviour in the player's process. The `m` field on the line above that
+cast IS guarded.
+
+`7d2c5066` — five more of the same shape. P1b-2 (both of `netx/tlsx`'s stranger-facing log lines
+were one per attempt, while `netx.limitListener` and `quicconn` both cap the identical class and say
+why), X1-5 (`Join` above and `State` below both gate a relay-supplied id; the `Leave` between them
+did not, so a relay could despawn the player's OWN chaser), X1-6, X1-7, X1-8.
+
+**Two Pseudoregalia fixes, built and deployed, waiting on the user** (`UNVERIFIED.md`): P2e-2, the
+one-shot burst ring that `release_all_ghosts` never cleared — the fifth instance of the family that
+function's own comment predicts, and it survived four passes over that family precisely because it
+is NOT a use-after-free (the ring is expected to hold freed pointers, so the destroy path checks
+`FindAllOf` first; what it cannot see is a RECYCLED address). And the adapter half of P2e-1.
+
+**The method note.** *A target's seeds are a statement about what it reaches, and the statement is
+checkable.* The fuzz-census gate added earlier in this pass cannot catch any of these: every one of
+them is registered, stepped and rostered. What catches them is coverage, and coverage is a
+measurement — `handleControl` at 0.0% is not an argument anyone has to be persuaded by.
