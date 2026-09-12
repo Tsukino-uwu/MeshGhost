@@ -1652,3 +1652,69 @@ save passes against the broken version.
 **Reach for this first when** anything is excluded from a reload. Ask what the excluded value does
 to the state the next reload diffs against -- an exclusion that leaks into the baseline is not an
 exclusion, it is a delay.
+
+## A TARGET'S SEEDS ARE A CLAIM ABOUT WHAT IT REACHES, AND COVERAGE IS HOW YOU CHECK IT (netx/udpconn, bridge, core, 2026-09-12)
+
+**Symptom.** Twenty-seven fuzz targets, every one registered, stepped in CI, listed in the roster,
+running green. Four of them reached nothing worth reaching:
+
+- `FuzzListenerSurvivesArbitraryDatagrams` never completed a handshake, and
+  `udpconn.Listener.handle` routes every application frame through `l.lookup`. So
+  `Conn.handleControl` -- the constant-time token compare, the `seqLen` bound, the reorder window,
+  the ack path -- was at **0.0%** for the whole campaign, while NINE of that target's own seeds were
+  written for exactly that code.
+- `bridge`'s two targets `json.Unmarshal` into plain structs with no custom `UnmarshalJSON` and
+  marshal back. Between them they campaign `encoding/json` and no line of `bridge`.
+- `ValidateInputSample` was the reverse: used as the ORACLE in another package's target -- the thing
+  a parser's output is checked AGAINST -- and always on a batch of exactly one hand-built edge, so
+  it ran constantly and its edge cap, its within-batch ordering and its whole header half never ran
+  at all.
+- Nothing anywhere pushed arbitrary bytes into the two sockets the CORE reads from, though five
+  findings in that same pass were about what the core does with a line the relay chose.
+
+**Cause.** Every one of these is invisible to the checks that exist. The fuzz census gate added
+earlier in the same pass asks "is this target registered, stepped and rostered", and all four
+answered yes. A green campaign proves no input broke anything it reached; it says nothing about
+what it reached. And a seed corpus is written by whoever believed the target reached that code --
+so the seeds are the strongest evidence of the belief and no evidence at all of the fact.
+
+**Fix, as a method.** `go test ./pkg -run FuzzName -count=1 -coverprofile=x` then
+`go tool cover -func=x` on the functions the target is FOR. It restricts to that one target's seed
+corpus, takes seconds, and answers the question directly: `handleControl 0.0%` is not a claim
+anyone has to be talked into. Do it before extending a target and after fixing one -- the number
+either moved or the fix was cosmetic (here: 0.0% to 89.7%, `sendAck` 0 to 100%, and the live corpus
+grew 55 to 71 because there was somewhere new to go).
+
+**Reach for this first when** a target has seeds naming a code path, when a target's assertion never
+fires, or when a review says a surface is unfuzzed and the roster says otherwise. The two are not in
+conflict: a target can exist, run, and reach nothing.
+
+## THE ASSERTION ANYONE WOULD WRITE FIRST CAN PASS AGAINST THE BROKEN CODE (netx, 2026-09-12)
+
+**Symptom.** `transport.CloseGracefully` asserts for `CloseWrite` and silently degrades to a hard
+close without it -- which neither datagram transport had. The obvious test is
+"after `CloseGracefully`, does the message written just before it still arrive?", because that is
+what the method exists for. It passes on all three transports **against the unfixed code**: on
+loopback the single udp datagram is not lost, and quic's `closeLinger` covers its own case by
+another route. Only "does the peer's next line still get READ during the drain" fails, and it fails
+on both.
+
+**Cause.** The visible half of a two-part promise is the half that gets tested, and it is often the
+half that another mechanism accidentally covers. `CloseGracefully` promises two things -- stop
+writing, keep reading -- and the second is invisible from outside unless you have a peer that is
+still talking.
+
+**A second shape of the same trap, from the same day.** A test written for the fix's own
+vocabulary cannot fail against the old tree: `netx/udpconn/halfclose_test.go` names `CloseWrite`, so
+without the fix it does not compile rather than failing. That is not a regression test, it is a
+compile check wearing one. When it happens, say so and point at the test that CAN fail -- here the
+conformance one, which asks only for behaviour.
+
+**Fix, as a method.** For any promise with more than one clause, write the assertion for the clause
+nobody would notice was broken, and confirm it red before the fix. Then ask of the obvious
+assertion: *what would have to also be true for this to pass anyway?* Loopback not dropping a
+packet, a linger timer, a retry elsewhere -- each is a reason the green light means nothing.
+
+**Reach for this first when** a fix lands and its test was green on the first run against the old
+code. That is the tell, and the correct response is to find the other clause rather than to be
+pleased.
