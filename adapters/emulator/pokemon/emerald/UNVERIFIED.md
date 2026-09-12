@@ -49,37 +49,30 @@ being work. An entry still here has not been confirmed.
 
 ---
 
-## [READY] drawn ghosts sort against the player like the engine does, UNWATCHED (2026-09-12)
+## [OPEN] the painted tier does not reproduce the engine's step machine (2026-09-12)
 
-The user, after the seam work: *"i also noticed drawn ghosts can draw on top of the player itself"*,
-and, asked which behaviour they wanted, chose the game's own sorting over a blanket "never cover the
-player" — so the painted tier and the spawned tier agree rather than differing by design.
+The user, watching a peer run a 2x2 square at 0 interp: *"looks slightly delayed when starting to
+move, and also slides a bit when changing walking direction"*, then *"the ghost still looks pretty
+bad, compared to how the player is doing things"*. One cause is FIXED (the glide moved on both axes
+at once, so every corner was cut diagonally — a character in this game has no diagonal); the rest is
+a design gap written up in `documentation.md`, "How a moving character actually works".
 
-A spawned ghost gets this free: it is a real object event and the engine sorts objects by where they
-stand. A painted one goes on the finished frame, so it covered whatever it overlapped, the player
-included. The rule now reproduced is the decomp's own (`pokeemerald src/event_object_movement.c:7773`,
-`SetObjectSubpriorityByElevation`): the sprite's BOTTOM edge, banded per 16px, lower character in
-front. The mask is the player's real opaque pixels for their CURRENT graphic and animation frame
-(`runsForPeerGfx`), so a bike, a surf blob or a rod masks with its own shape.
+**The engine steps; the painted tier eases.** `NpcTakeStep` spends a fixed cadence per gait — 16
+frames of 1px walking, 8 of 2px running, no pause between steps — and flips the tile coordinate a
+whole tile AHEAD of the pixels. The painted tier computes a speed each frame and eases toward a
+position `drawnDelay` frames old. It can match on average and still land on different pixels every
+frame, which is what the report keeps meaning.
 
-**What to look at, with a peer beside you on the SAME map (this is the painted tier, so either fill
-the spawn slots or use a peer the spawned tier cannot take):**
+**Also measured, and the reason this tier is what the user sees at all: `budget=0` on both maps
+tested** — no free object slots, so no peer can get a spawned ghost, which would inherit the step
+machine for free. Whether that budget is real or too conservative is its own question, and worth
+answering FIRST: it decides whether the painted tier is the exception or the everyday case.
 
-1. **A ghost standing one tile ABOVE you, overlapping** — your sprite must cover it, exactly the way
-   an NPC standing there would be covered. Before this change the ghost was painted over you.
-2. **A ghost standing one tile BELOW you** — it must still draw IN FRONT of you, unchanged.
-3. **Walk past each other** — the swap should happen as you cross, not early or late, and the ghost
-   must not lose pixels anywhere else on screen (the mask is built per row; a bug here eats the
-   ghost's head, which is what the first draft did).
-4. **On a bike and while surfing**, where the player's own shape is not a walker's.
-
-**Two limits, stated rather than left to be discovered:**
-
-- **Elevation is not in the comparison.** `sElevationToSubpriority` offsets whole bands (115 against
-  83) and a peer's elevation is not on the wire, so a bridge or a ledge band can still sort the wrong
-  way. Exact on one elevation, which is every ordinary route and town.
-- **A tie keeps the old behaviour** (the ghost paints over). On one band the engine decides by OAM
-  slot order, which is not ours to reproduce.
+**Not yet decided, and the user's call:** reproduce the step machine in the painted tier (flat
+1px/2px per frame, decisions only at tile boundaries, pose every 8 frames) versus getting peers a
+real slot more often. `drawnDelay = 8` frames (~133ms) is a separate deliberate lag that may also
+be part of "slightly delayed when starting to move" — it exists to match a spawned ghost's natural
+trailing, and it is an existing knob (`MESHGHOST_EMERALD_DRAWN_DELAY_FRAMES`), not a code change.
 
 ## [READY] autostart looks only beside the script now, UNWATCHED (2026-09-11)
 

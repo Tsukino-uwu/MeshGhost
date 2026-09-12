@@ -4308,3 +4308,41 @@ dropout, which stays fixed.
 causes before Emerald was instrumented at all — the user's rule that day: *"when its the same
 genre/series of games its probly worth cross checking if we have done other games before"*
 (`adapters/_template/README.md`, "And the adapter for the same SERIES or GENRE").
+
+## 2026-09-12 — USER-CONFIRMED ON SCREEN: drawn ghosts sort against the player
+
+The user: *"same tile works properly now, and facing right as well"*, after *"i also noticed drawn
+ghosts can draw on top of the player itself"* and, asked which behaviour they wanted, choosing the
+game's own sorting over a blanket "never cover the player".
+
+**Confirmed:** a ghost sharing the player's tile goes BEHIND (the player is never hidden), and the
+mask lines up with the player's sprite in every facing including EAST. **Scope: vanilla, on foot,
+the painted tier.** Not watched on a bike or while surfing.
+
+**The rule reproduced** is the decomp's own (`pokeemerald src/event_object_movement.c:7773`,
+`SetObjectSubpriorityByElevation`): the sprite's BOTTOM edge banded per 16px, lower character in
+front. The mask is the player's real opaque pixels for their current graphic and animation frame,
+so a bike or a surf blob masks with its own shape.
+
+**Three defects on the way there, each found by an instrument rather than a guess:**
+
+1. **The walker fallback was never hooked.** Only the peer-graphic path was masked, so a peer with
+   no `gfx` on the wire painted through `drawSpriteFrame` untouched — `maskBehindPlayer` was never
+   called at all. The trace found it by printing when it decided NOTHING.
+2. **A frame bottom was compared against an INK bottom.** The player's came from its lowest opaque
+   pixel, 15px below the ghost's frame bottom instead of 16, which collapsed two adjacent tiles into
+   one band — where the tie rule let the ghost win. This is why the first version changed nothing.
+3. **The flip was dropped.** `runsForPeerGfx` returns hFlip as its THIRD return; the mask was built
+   from unflipped runs, so east was mirrored against the pixels it had to cover.
+
+**The tie is OURS, not the engine's, and deliberately so:** two characters never share a tile in
+vanilla (collision prevents it), so there is no rule to copy — only an OAM slot order that means
+nothing here. Ghosts are walk-through, so sharing a tile is ordinary in MeshGhost. The standing rule
+is now in `adapters/_template/README.md`: **a ghost may never hide the player.**
+
+**Known residual, seen and accepted by the user:** standing directly under a ghost and swapping
+facing repeatedly shows a brief artifact during the turn — *"not noticable when walking/running
+across, only noticable if you stand directly under and swap facing directions a lot"*. Two theories
+were tested and DISPROVED with the trace: it is not animation-phase (the in-phase `BuildOamBuffer`
+sample never disagreed with the frame-boundary read) and not the flip source (the anim command's
+hFlip and the OAM bit always matched).

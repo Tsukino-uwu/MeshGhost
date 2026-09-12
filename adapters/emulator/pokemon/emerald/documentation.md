@@ -62,6 +62,83 @@ it produces a `1` per direction change.
 
 A tile is **16 pixels**.
 
+## How a moving character actually works — the engine's step machine (2026-09-12)
+
+**This is the reference any MeshGhost renderer is judged against**, so it is written from the
+decompilation first and confirmed on a live NPC second (`probes/npc_step_probe.lua`), which is the
+order `CLAUDE.md` requires. The user's question that prompted it: *"can we look at how a moving npc
+works?"* — an NPC is the engine moving a character with its own machinery, which is exactly what a
+ghost has to look like.
+
+### A step is a fixed table, one entry a frame
+
+`NpcTakeStep` (`pokeemerald src/event_object_movement.c:8298`) indexes `sNpcStepFuncTables` by the
+object's speed and its own timer, so a step is a fixed cadence rather than a rate:
+
+| Speed | Frames | Pixels per frame | Used by |
+|---|---|---|---|
+| `MOVE_SPEED_NORMAL` | 16 | 1,1,1,… | walking |
+| `MOVE_SPEED_FAST_1` | 8 | 2,2,2,… | **running** (`StartRunningAnim`, :5112) |
+| `MOVE_SPEED_FAST_2` | 6 | **2,3,3,2,3,3** | deliberately uneven |
+| `MOVE_SPEED_FASTER` | 4 | 4,4,4,4 | |
+| `MOVE_SPEED_FASTEST` | 2 | 8,8 | |
+
+**Confirmed live on a walking NPC**, one line per frame: `pos1.y` fell by exactly 1 every frame
+while the sprite's step timer (`data[5]`) ran 1..16 and reset — and **there is no pause between
+steps**. A character that walks two tiles moves 32 frames of 1px, not two bursts with a gap.
+
+### The tile coordinate is a whole tile AHEAD of the pixels
+
+`ShiftObjectEventCoords` (:2117) copies `currentCoords` into `previousCoords` and sets
+`currentCoords` to the DESTINATION at the moment the step begins. Measured: the tile flipped from
+`23,71` to `23,70` on the same frame the timer reset to 1, with the sprite still a full 16px short
+of that tile.
+
+**So "where is this character" has two honest answers during a step**, and they disagree by a whole
+tile for the whole step. Anything that mixes them — a mask built from one and a position from the
+other, a model that takes the tile as truth mid-step — is wrong for 16 frames out of every 16.
+`previousCoords` exists precisely because the engine itself needs the answer it just left.
+
+### Motion lives in the sprite's `pos1`, not `pos2`
+
+The step functions add to `sprite->x/y` (`pos1`). Across a whole walking NPC capture, `pos2` stayed
+`0,0` — it carries hops, bobs and per-frame alignment, never ordinary walking. A probe that watches
+`pos2` for movement sees an NPC that teleports one tile at a time; that is a real reading this
+repo's own instrument produced before it was fixed.
+
+### The walk animation swaps twice per tile
+
+The animation command index advanced every 8 frames while walking (`anim=5/0` for frames 1-8,
+`5/1` for 9-16, then `5/2` on the next tile), so one tile shows two animation frames and a step's
+pose cannot be derived from the position alone.
+
+### Turning is a movement action too — and it differs between NPC and player
+
+- **An NPC turns instantly.** `FaceDirection` (:5048) sets the direction, re-points the still frame
+  with `SetStepAnim`, and sets `sprite->animPaused = TRUE`. One frame, no animation.
+- **The player does NOT.** `PlayerTurnInPlace` (`src/field_player_avatar.c:1027`) issues
+  `GetWalkInPlaceFastMovementAction`, a WALK IN PLACE: the walk cycle animates for the action's
+  duration while the tile never changes. That is why `runningState` has a dedicated value for
+  turning, and why a facing change is several frames of animation rather than a flip.
+
+### Draw order is by where a character STANDS
+
+`SetObjectSubpriorityByElevation` (:7773): the sprite's bottom edge, banded per 16px, plus an
+elevation offset from `sElevationToSubpriority` (115 or 83), lower subpriority in front. So the
+character lower on the screen is drawn in front, and elevation moves whole bands at once.
+
+### What this means for MeshGhost's renderers
+
+A **spawned** ghost is a real object event, so it inherits every line above for free — cadence,
+early tile flip, animation, draw order. This is the whole argument for preferring that tier.
+
+A **painted** ghost inherits none of it. To match, it has to reproduce the step machine rather than
+approximate it: move a flat 1px per frame (2 running) while a step is in flight, decide only at tile
+boundaries, swap the pose every 8 frames, and never move on both axes at once — a character in this
+game has no diagonal. A filter that computes a speed each frame and eases toward a delayed point can
+be right on average and still land on different pixels on every frame, which is what "the ghost
+looks bad compared to the player" has meant every time it has been reported.
+
 ## Which state machine is running: `gMain.callback2`
 
 Emerald tracks what the game is currently doing as a **function pointer** — the current "callback".

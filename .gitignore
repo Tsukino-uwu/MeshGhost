@@ -229,6 +229,12 @@ relay-*.err.log
 # looking like peers vanishing). Never commit one; delete strays.
 dev-scripts/config.json
 
+# The same thing one level up: since autostart looks beside the RELEASE ROOT, a core the adapter
+# spawns reads the repo root's config.json. That is where a developer's rig settings go (interp 0,
+# a fast min_send) and they are per-machine by definition -- the SHIPPED config is
+# packaging/release/config.json, which stays tracked. Never commit one; delete strays.
+/config.json
+
 # BizHawk dev loader: its control file and log are per-session dev state, not project content.
 # The wildcard covers the per-instance files a two-game session makes (MESHGHOST_DEV_LOADER_TARGET).
 dev-scripts/bizhawk-dev-loader.target

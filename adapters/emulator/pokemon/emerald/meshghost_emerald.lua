@@ -1772,8 +1772,38 @@ local function glideRemote(r, targetX, targetY)
     local limit = math.min(math.max(tspd, r.gSpd or 0, 0.02) * 1.25, 0.25)
     if dist > 0 then
         local move = math.min(dist, limit)
-        r.gX = r.gX + ddx / dist * move
-        r.gY = r.gY + ddy / dist * move
+        -- ONE AXIS AT A TIME, DOMINANT AXIS FIRST -- because the character never moves diagonally.
+        --
+        -- This split the frame's budget across BOTH axes in proportion (`ddx/dist`, `ddy/dist`),
+        -- which walks a straight line toward the delayed target. A straight line to a point past a
+        -- CORNER is a diagonal, so every direction change had the ghost cut across the turn instead
+        -- of walking it: the user, watching a square at 0 interp -- *"slides a bit when changing
+        -- walking direction"*. Nothing in Emerald moves diagonally; a corner is two axis-aligned
+        -- legs, and a renderer that rounds it off is showing a motion the game cannot produce.
+        --
+        -- Dominant axis first is what reproduces the ORDER of those legs without storing a path:
+        -- just after a corner the axis the peer was already walking still holds the larger
+        -- remainder, so it finishes, and only then does the new one start. The frame's total
+        -- movement is unchanged -- `limit` is spent either way -- so this is not a speed change,
+        -- and `move` is still clamped to `dist`, so it cannot overshoot.
+        local ax, ay = math.abs(ddx), math.abs(ddy)
+        if ax >= ay then
+            local spend = math.min(move, ax)
+            if ddx ~= 0 then r.gX = r.gX + (ddx > 0 and spend or -spend) end
+            move = move - spend
+            if move > 0 and ddy ~= 0 then
+                local sp2 = math.min(move, ay)
+                r.gY = r.gY + (ddy > 0 and sp2 or -sp2)
+            end
+        else
+            local spend = math.min(move, ay)
+            if ddy ~= 0 then r.gY = r.gY + (ddy > 0 and spend or -spend) end
+            move = move - spend
+            if move > 0 and ddx ~= 0 then
+                local sp2 = math.min(move, ax)
+                r.gX = r.gX + (ddx > 0 and sp2 or -sp2)
+            end
+        end
     end
     local dx, dy = math.abs(r.gX - prevX), math.abs(r.gY - prevY)
 
@@ -11342,27 +11372,69 @@ genderFrames.playerMask = function()
     if genderFrames.pmAt == frameCounter then
         return genderFrames.pmRows, genderFrames.pmT, genderFrames.pmB, genderFrames.pmL, genderFrames.pmR
     end
-    genderFrames.pmAt, genderFrames.pmRows = frameCounter, nil
+    -- Cleared with the rows, not just set beside them: every `return nil` below leaves this
+    -- function early, and a frame bottom left over from the previous frame would be a plausible
+    -- number from the wrong frame -- the failure mode this repo files under "never trust a reading
+    -- an instrument did not take this frame".
+    genderFrames.pmAt, genderFrames.pmRows, genderFrames.pmFrameBottom = frameCounter, nil, nil
     local gfx = localGraphicsId()
     if not gfx then return nil end
     local pd = sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
-    local ok, runs = pcall(genderFrames.runsForPeerGfx, gfx, r8(pd + 0x2a), r8(pd + 0x2b))
+    -- THE THIRD RETURN IS THE FLIP, and dropping it is a mask that is mirrored against the pixels
+    -- it is supposed to cover. Emerald draws EAST as the west art with the OAM flip bit set
+    -- (`sAnim_FaceEast/GoEast/RunEast`, hFlip at bit 22 of the anim command), so the player's own
+    -- mask has to be mirrored exactly the way `drawRunList` mirrors a run it draws. The user, on
+    -- the first version: *"except when facing to the right (weird mask specifically for 1 tile
+    -- below and facing right)"* -- three of the four facings were right, which is what a dropped
+    -- flip looks like from the outside.
+    -- IN PHASE IF THE HOOK IS ARMED, the boundary read otherwise. `pmSnapAt` is stamped inside
+    -- BuildOamBuffer, so it belongs to the frame whose picture this overlay lands on; the live read
+    -- below belongs to the frame after it. Both are kept so the trace can say whether they actually
+    -- disagreed -- a fix that changes nothing because the two were equal all along is the kind this
+    -- repo has shipped before.
+    local liveNum, liveIdx = r8(pd + 0x2a), r8(pd + 0x2b)
+    local useNum, useIdx = liveNum, liveIdx
+    if genderFrames.pmSnapAt and (frameCounter - genderFrames.pmSnapAt) <= 1 then
+        useNum, useIdx = genderFrames.pmSnapNum, genderFrames.pmSnapIdx
+    end
+    genderFrames.pmLive, genderFrames.pmUsed = liveNum .. "/" .. liveIdx, useNum .. "/" .. useIdx
+    -- TWO SOURCES FOR THE FLIP, and only one of them is what the hardware obeys. `runsForPeerGfx`
+    -- reports the hFlip bit of the ANIMATION COMMAND (bit 22); the PPU draws from the sprite's OAM
+    -- attribute 1 (bit 12). In the steady state they agree -- a facing is a facing -- but a TURN is
+    -- exactly where an engine is free to set one before the other, and the reported fault lives in
+    -- those few frames: *"the small transition from facing left to right has some green in it"*.
+    -- Logged rather than acted on: which one to trust is a question the disagreement itself
+    -- answers, and there is no point swapping sources on a hunch.
+    genderFrames.pmOamFlip = (r16(pd + 0x02) & 0x1000) ~= 0
+    local ok, runs, pinfoRet, pflip = pcall(genderFrames.runsForPeerGfx, gfx, useNum, useIdx)
     if not ok or not runs or #runs == 0 then return nil end
     local px, py = playerScreenPos()
     if not px then return nil end
+    -- THE FRAME'S BOTTOM, NOT THE INK'S. The sort has to compare like with like: a peer's bottom is
+    -- its FRAME bottom (top + height), so the player's must be too. Taking it from the lowest
+    -- opaque pixel instead made the player read 15px below the ghost rather than 16 -- the art has
+    -- transparent rows under the feet -- and two characters a tile apart then landed in the SAME
+    -- 16px band, where the tie rule lets the ghost paint over. That is exactly the screenshot the
+    -- user sent (2026-09-12): ghost one tile up, still on top.
+    local pinfo = pinfoRet or graphicsInfo(gfx)
+    local pw = (pinfo and pinfo.width) or FRAME_WIDTH_PX
+    genderFrames.pmFrameBottom = py + ((pinfo and pinfo.height) or FRAME_HEIGHT_PX)
     local rows, t, b, l, r = {}, nil, nil, nil, nil
     for i = 1, #runs do
         local run = runs[i]
         local y = math.floor(py + run.y)
         local list = rows[y]
         if not list then list = {} rows[y] = list end
-        local x1, x2 = px + run.x1, px + run.x2
+        local rx1, rx2 = run.x1, run.x2
+        if pflip then rx1, rx2 = pw - 1 - run.x2, pw - 1 - run.x1 end
+        local x1, x2 = px + rx1, px + rx2
         list[#list + 1] = { x1, x2 }
         if t == nil or y < t then t = y end
         if b == nil or y > b then b = y end
         if l == nil or x1 < l then l = x1 end
         if r == nil or x2 > r then r = x2 end
     end
+    genderFrames.pmCmdFlip = pflip and true or false
     genderFrames.pmRows, genderFrames.pmT, genderFrames.pmB, genderFrames.pmL, genderFrames.pmR =
         rows, t, b, l, r
     return rows, t, b, l, r
@@ -11375,18 +11447,63 @@ end
 -- touches. That asymmetry is the whole reason this is a function rather than three lines at the
 -- call site; the first version of it lost the ghost's head and shoulders to rows it never wrote.
 genderFrames.maskBehindPlayer = function(occl, left, top, width, height)
+    -- MESHGHOST_EMERALD_NO_SORT (dev): hand back the caller's own mask and do nothing else, so a
+    -- session can be run with the draw-order work subtracted out. "Re-run with the probe off before
+    -- believing a result" applies to a FEATURE too: with a ghost missing from the screen and the
+    -- mask's own log saying it kept every row, the only honest next step is to remove the suspect
+    -- and look again.
+    if MESHGHOST_EMERALD_NO_SORT then return occl end
     local rows, pt, pb, pl, pr = genderFrames.playerMask()
+    -- WHY IT DECIDED WHAT IT DECIDED, once a second while a peer is on screen. The first version of
+    -- this sort shipped without it and the user's screenshot could only say "still on top" -- which
+    -- is three different failures wearing the same face: no player mask, no overlap, or a band
+    -- comparison that came out backwards. Throttled, and it prints the numbers it decided FROM.
+    -- ONCE A SECOND FOR THE STEADY STATE, AND EVERY FRAME THE TWO READINGS DISAGREE. The
+    -- disagreement is the rare event and the whole question, so it is never sampled away: a
+    -- throttle that only fires on round numbers is how a transition-only fault stays invisible.
+    if MESHGHOST_EMERALD_SORT_TRACE
+        and (frameCounter % 60 == 0 or genderFrames.pmLive ~= genderFrames.pmUsed
+             or genderFrames.pmCmdFlip ~= genderFrames.pmOamFlip) then
+        logFile(string.format(
+            "SORT f=%d ghost=%s,%s %sx%s bottom=%s band=%s | player=%s box=%s,%s..%s,%s bottom=%s band=%s",
+            frameCounter, tostring(left), tostring(top), tostring(width), tostring(height),
+            tostring(top and height and (top + height)),
+            tostring(top and height and genderFrames.sortBand(top + height)),
+            rows and "mask" or "NO-MASK", tostring(pl), tostring(pt), tostring(pr), tostring(pb),
+            tostring(genderFrames.pmFrameBottom),
+            tostring(genderFrames.pmFrameBottom
+                and genderFrames.sortBand(genderFrames.pmFrameBottom))
+            .. " anim live=" .. tostring(genderFrames.pmLive)
+            .. " used=" .. tostring(genderFrames.pmUsed)
+            .. " flip cmd=" .. tostring(genderFrames.pmCmdFlip)
+            .. " oam=" .. tostring(genderFrames.pmOamFlip)))
+    end
     if not rows then return occl end
     -- No overlap: the overwhelmingly common case, and it costs four compares.
-    if top + height - 1 < pt or top > pb or left + width - 1 < pl or left > pr then return occl end
+    if math.floor(top + height - 1) < pt or math.floor(top) > pb
+        or left + width - 1 < pl or left > pr then return occl end
     -- WHO IS IN FRONT. Both bottom edges through the engine's own banding; the ghost is behind only
     -- when it stands strictly higher up the screen. A TIE keeps today's behaviour (the ghost paints
     -- over), because on the same band the engine's answer comes from OAM slot order, which is not
     -- ours to reproduce -- and two characters sharing a band are overlapping so heavily that either
     -- answer reads the same.
-    if genderFrames.sortBand(top + height) >= genderFrames.sortBand(pb + 1) then return occl end
+    -- A TIE PUTS THE GHOST BEHIND, so the player is never hidden by one.
+    --
+    -- This is the one place the engine cannot be copied, because the situation does not exist in
+    -- the game it came from: two characters never share a tile in vanilla -- collision prevents it
+    -- -- so there is no rule to reproduce, only an OAM slot order that means nothing here. Ghosts
+    -- are walk-through by default, so sharing a tile is ordinary in MeshGhost, and the user found
+    -- what the old tie did: *"still fully hidden by the drawn ghosts if standing on the same tile
+    -- as it"*. A cosmetic layer may never take the player off their own screen.
+    if genderFrames.sortBand(top + height)
+        > genderFrames.sortBand(genderFrames.pmFrameBottom or (pb + 1)) then return occl end
+    -- INTEGER ROWS, because drawRunList looks its spans up as `keepSpans[math.floor(y)]` and `top`
+    -- is a FLOAT here -- it comes off the sub-tile glide. Keyed by the raw float this table would
+    -- answer nil for every lookup, and a nil row paints NOTHING: the ghost would have vanished
+    -- outright instead of sorting. Same class as the `math.floor, NOT a shift` note in drawRunList.
     local out = {}
-    for y = top, top + height - 1 do
+    local yTop, yBot = math.floor(top), math.floor(top + height - 1)
+    for y = yTop, yBot do
         local base = occl and occl[y]
         if occl and not base then
             out[y] = nil          -- already fully occluded by scenery: leave it that way
@@ -11414,6 +11531,39 @@ genderFrames.maskBehindPlayer = function(occl, left, top, width, height)
                 out[y] = acc
             end
         end
+    end
+    -- WHAT THE MASK ACTUALLY EMITTED, for the rows the ghost covers. A mask is a claim about every
+    -- row, and the failure that matters is a row that came back EMPTY where the player has no
+    -- pixels at all -- invisible in any log of the inputs, and on screen it is the ghost being
+    -- eaten rather than sorted. Counted, with the first empty row named, under the probe flag.
+    if MESHGHOST_EMERALD_SORT_TRACE and frameCounter % 60 == 0 then
+        local nEmpty, firstEmpty, nFull = 0, nil, 0
+        for y = yTop, yBot do
+            local sp = out[y]
+            if not sp or #sp == 0 then
+                nEmpty = nEmpty + 1
+                if not firstEmpty then firstEmpty = y end
+            else
+                nFull = nFull + 1
+            end
+        end
+        -- AND THE EXTENTS, not just the count. "32 rows kept" says nothing about WHERE they were
+        -- kept: a span list of {0,0} on every row counts as kept and paints nothing. Three sample
+        -- rows -- above the player's ink, inside it, and at the ghost's foot -- with the ghost's
+        -- own x range beside them, so a span that cannot intersect the sprite is visible as such.
+        local function sp(y)
+            local l = out[y]
+            if not l or #l == 0 then return "-" end
+            local parts = {}
+            for i = 1, #l do parts[i] = l[i][1] .. ".." .. l[i][2] end
+            return table.concat(parts, ",")
+        end
+        logFile(string.format("SORTMASK f=%d rows=%d..%d kept=%d empty=%d firstEmpty=%s occl=%s "
+            .. "inkRows=%d..%d ghostX=%d..%d | r%d=%s r%d=%s r%d=%s",
+            frameCounter, yTop, yBot, nFull, nEmpty, tostring(firstEmpty),
+            occl and "yes" or "no", pt or -1, pb or -1,
+            math.floor(left), math.floor(left + width - 1),
+            yTop, sp(yTop), yTop + 16, sp(yTop + 16), yBot, sp(yBot)))
     end
     return out
 end
@@ -12552,10 +12702,29 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                         end
                     end
 
+                    -- THE WALKER FALLBACK NEEDS THE PLAYER SORT TOO, and forgetting it here is why
+                    -- the first version changed nothing on screen: the peer-graphic path above was
+                    -- masked, this one was not, and a peer with no `gfx` on the wire paints through
+                    -- THIS call. The trace said so in one line -- `maskBehindPlayer` was never
+                    -- reached at all -- which is the whole reason it prints when it decides nothing.
+                    -- DID THE BODY ACTUALLY REACH THE SCREEN? `MG_SPANS` counts the pixel runs
+                    -- drawRunList really emits, so the delta across this one call separates "the
+                    -- paint ran" from "the paint drew something" -- the distinction the drawn
+                    -- tier's own gap detector exists for, and the one that decides whether a ghost
+                    -- nobody can see was masked away or never painted at all.
+                    local __sp0 = MG_SPANS or 0
                     drawSpriteFrame(remote.gender, pose, frameIndex, dirInfo.hFlip, screenX,
                         screenY, panelRows, dim,
-                        genderFrames.reflectiveSpans(screenX, screenY,
-                            FRAME_WIDTH_PX, FRAME_HEIGHT_PX, "sprite", genderFrames.scWalk()))
+                        genderFrames.maskBehindPlayer(
+                            genderFrames.reflectiveSpans(screenX, screenY,
+                                FRAME_WIDTH_PX, FRAME_HEIGHT_PX, "sprite", genderFrames.scWalk()),
+                            screenX, screenY, FRAME_WIDTH_PX, FRAME_HEIGHT_PX))
+                    if MESHGHOST_EMERALD_SORT_TRACE and frameCounter % 60 == 0 then
+                        logFile(string.format("SORTPAINT f=%d walker at=%s,%s spans=%d pose=%s frame=%s dim=%s",
+                            frameCounter, tostring(screenX), tostring(screenY),
+                            (MG_SPANS or 0) - __sp0, tostring(pose), tostring(frameIndex),
+                            tostring(dim)))
+                    end
                     MG_BODY_PAINTED = true -- gap detector: the walker-fallback body counts too
                 end
                 -- OVER the character, which is the whole point: the engine's grass sprite sits
@@ -13099,10 +13268,21 @@ local function runFrame()
         local nClipped = genderFrames.clippedRuns or 0
         genderFrames.clippedRuns = 0
         logFile(string.format(
-            "status: frame=%d connected=%s ready=%s port=%s remotes=%d ghosts=%d hw=%d drawn=%d "
+            -- `budget` is HOW MANY OBJECT SLOTS this map has left for ghosts, and it belongs on
+            -- this line because `ghosts=0` has two completely different meanings without it: no
+            -- peer wanted a slot, or the map had none to give. A route full of NPCs puts every
+            -- peer on the painted overflow tier -- which is the tier a session then spends its
+            -- time judging, without anyone noticing it was never the engine-driven one
+            -- (2026-09-12: a "the ghost looks bad" report read against ghosts=0).
+            "status: frame=%d connected=%s ready=%s port=%s remotes=%d ghosts=%d budget=%s hw=%d drawn=%d "
                 .. "clipped=%d overworld=%s inGame=%s slide=%d/%d paused=%d",
             frameCounter, tostring(connected), tostring(ready), tostring(currentPort),
-            nRemotes, nGhosts, tiering.hw.placed or 0,
+            nRemotes, nGhosts,
+            tostring((function()
+                local ok, b = pcall(tiering.budget, genderFrames.xmapLocalKey())
+                return ok and b or "?"
+            end)()),
+            tiering.hw.placed or 0,
             nDrawn, nClipped, tostring(inOverworld()), tostring(session.live),
             (tiering.slide or {}).legs or 0, (tiering.slide or {}).step or 0,
             (tiering.slide or {}).paused or 0))
@@ -13635,6 +13815,24 @@ if avatarAddrOffset == 0 and not MESHGHOST_EMERALD_NO_FISH_HOOK then
             end
         end)
         if not aok then tiering.fishAlignActive = false end
+        -- THE PLAYER'S ANIMATION STATE, SAMPLED IN PHASE WITH THE PICTURE (2026-09-12).
+        --
+        -- The draw-order mask needs the silhouette the PPU is about to draw, and a read taken
+        -- between frames is a different frame's: this hook's own header records that the engine
+        -- steps sprite animations BEFORE it builds OAM, which is why the fishing alignment moved
+        -- here in the first place. Standing still the two agree and nothing shows; through a facing
+        -- change they do not, and the mask then cuts the ghost to a silhouette the player is not
+        -- wearing -- background through the notch. The user: *"the small transition from facing
+        -- left to right has some green in it"*.
+        --
+        -- Three reads, no allocation, and the frame stamp is what lets the mask say whether this is
+        -- fresh or whether it is falling back to the boundary read (a patched ROM never gets here:
+        -- the hook is vanilla-gated).
+        pcall(function()
+            local pd = sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
+            genderFrames.pmSnapNum, genderFrames.pmSnapIdx, genderFrames.pmSnapAt =
+                r8(pd + 0x2a), r8(pd + 0x2b), frameCounter
+        end)
     end, 0x08006A0C, "meshghost_fish_align")
     if tiering.hookOk and tiering.hookId then
         MESHGHOST_FISH_ALIGN_HOOK = tiering.hookId

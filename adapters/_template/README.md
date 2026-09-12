@@ -1276,6 +1276,27 @@ ghost's health to zero" sets the *player's* health to zero. That is the likelies
 a historical "kept respawning with 0 health" bug in the same adapter. Stop the ghost RUNNING the
 logic; do not try to hand it a private copy of state that has no private copy.
 
+## Hard rule: a ghost may never hide the player
+
+**Whatever the sorting rule is, the player wins a tie.** A ghost is cosmetic; taking the player off
+their own screen is a cost no cosmetic layer is allowed to impose, and it is worse than any sorting
+error it might be trying to reproduce faithfully.
+
+**Where this bites: the case the game has no rule for.** Copy the engine's own draw order wherever
+it has one — Emerald sorts overworld objects by where they stand
+(`pokeemerald src/event_object_movement.c`, `SetObjectSubpriorityByElevation`), so a peer standing
+higher up the screen is drawn behind the player and one standing lower is drawn in front, exactly
+as an NPC would be. But two characters never SHARE a tile in that game, because collision prevents
+it, so the engine's answer there is an OAM slot order that means nothing to us. **Ghosts are
+walk-through by default, so sharing a tile is ordinary in MeshGhost** — a situation the source game
+never has to have an opinion about. The user, asked directly (2026-09-12): *"ghosts should be behind
+the player, if a player and ghost share the same tile"*, after finding the opposite: *"still fully
+hidden by the drawn ghosts if standing on the same tile as it"*.
+
+**So: reproduce the engine where it has an answer, and put the ghost behind where it does not.**
+The same reasoning applies to any tier a game gives you — a spawned or engine-driven ghost usually
+inherits the right order for free, and it is the PAINTED/overlay tiers that have to be told.
+
 ## Hard rule: never let a ghost exist before the player is actually in the game
 
 **Find the game's own "I am in play" signal early, gate every spawn on it, and do that before the
