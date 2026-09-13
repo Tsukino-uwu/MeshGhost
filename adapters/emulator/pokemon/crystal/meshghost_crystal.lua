@@ -394,6 +394,10 @@ local ADDRESSES = {
 		-- graphics are byte-identical between the two ROMs, including CHRIS, KRIS and RED, and the
 		-- five that differ are the tail the patch adds. See verified.md.
 		OVERWORLD_SPRITES_ROM = 0x14564,
+		-- This build's rows for ids $65/$66 are the run sprites a vanilla cartridge does not have
+		-- (measured with the table above), so a runner here sends their art over the wire. See
+		-- ENGINE.WIRE_ART_IDS for everything that is enforced on both ends.
+		WIRE_ART = true,
 		-- MEASURED 2026-08-26 the same way, and it is the entry that makes this build's faster
 		-- bike work at all. Scanning for the table's own signature (see ENGINE.gaitGroups) finds
 		-- it at 0x004700 on Crystal V1.0, V1.1 and speedchoice 8.1 alike -- one hit each, all
@@ -1641,6 +1645,7 @@ local function getLocalState()
 	end
 	local base = OBJECT_STRUCTS
 	local facing = u8(base + F_DIRECTION) or 0
+	local artH, artI, artD = ENGINE.wireArtChunk(u8(base + F_SPRITE) or 0)
 	return {
 		area_id = areaId(),
 		-- FOUR COMPONENTS. `position` is `[]float64` and VARIABLE LENGTH by contract -- two for
@@ -1770,7 +1775,11 @@ local function getLocalState()
 			-- The species that carried this player, for the same window as `entry`. One byte, and
 			-- only ever non-nil around a fly.
 			fly = (ENGINE.entry == 0xFC and ENGINE.entryAt
-				and emu.framecount() - ENGINE.entryAt < 240) and ENGINE.flySpecies or nil },
+				and emu.framecount() - ENGINE.entryAt < 240) and ENGINE.flySpecies or nil,
+			-- The run sprite's art for a receiver whose cartridge lacks it: its hash while worn, a
+			-- chunk of its pixels during a burst. nil on every other build and sprite. See
+			-- ENGINE.wireArtChunk for what may be sent and ENGINE.wireArtIngest for what is accepted.
+			arth = artH, arti = artI, artd = artD },
 	}
 end
 
@@ -1797,7 +1806,12 @@ function getLocalState()
 	do
 		local ex = {}
 		for k, v in pairs(st.extras or {}) do ex[k] = v end
-		ex.entry, ex.fly, ex.jump = nil, nil, nil
+		ex.entry, ex.fly, ex.jump, ex.arti, ex.artd = nil, nil, nil, nil, nil
+		-- A stepping stride held for a whole battle would stand the ghost mid-stride: a receiver shows
+		-- the face byte verbatim (facingFrames.pose), so the held copy rests on the standing view.
+		if type(ex.face) == "number" and ex.face < 0x10 and (ex.face & 1) == 1 then
+			ex.face = ex.face - 1
+		end
 		MESHGHOST_CRYSTAL_HELD = { area_id = st.area_id, position = st.position,
 			orientation = st.orientation, anim = "idle", extras = ex }
 	end
@@ -2427,7 +2441,10 @@ local function invalidateTileCache()
 	tileCacheSig = sig
 	local kept = {}
 	for k, v in pairs(tileCache) do
-		if type(k) == "string" then -- "rom:<offset>": the cartridge cannot have moved
+		-- "rom:<offset>" and "art:<hash>:<tile>" cannot have moved. The content-keyed "vram:" entries
+		-- can never be WRONG, but they are dropped here anyway so a long session's worth of every
+		-- map's characters does not accumulate.
+		if type(k) == "string" and (k:sub(1, 4) == "rom:" or k:sub(1, 4) == "art:") then
 			kept[k] = v
 		end
 	end
@@ -2636,8 +2653,27 @@ end
 
 local function readVram(a) return memory.read_u8(a, "VRAM") or 0 end
 
+-- KEYED BY THE TILE'S OWN 16 BYTES, NOT BY ITS INDEX (2026-09-13).
+--
+-- The index key went stale in place a second time. The user, on vanilla, after getting off the bike:
+-- the Archipelago peer's ghost *"looks as if its on a bike"*, *"but only when facing down"* -- and a
+-- reload of the adapter made it normal again, which is a cache and nothing else. invalidateTileCache
+-- clears on a change to `wUsedSprites`, the surf lesson below, but the id there changing is not the
+-- pixels behind it changing: any tile decoded between the two was cached with the OLD art and never
+-- cleared again, because nothing changed after it. Down alone, because down's tiles were the ones
+-- decoded in that window. (The ordering is inferred from the symptom and the reload, not traced.)
+--
+-- A content key cannot race: new pixels are a new key the frame they land, and identical pixels
+-- still share one decode. One 16-byte read per drawn tile per frame. The index-keyed path stays as
+-- the fallback for a failed bulk read.
 local function decodeTile(tileIndex)
-	return decodeTileAt(tileIndex, readVram, VRAM_BANK1 + tileIndex * 16)
+	local base = VRAM_BANK1 + tileIndex * 16
+	local ok, b = pcall(memory.read_bytes_as_array, base, 16, "VRAM")
+	if not ok or type(b) ~= "table" or #b ~= 16 then
+		return decodeTileAt(tileIndex, readVram, base)
+	end
+	return decodeTileAt("vram:" .. string.char(table.unpack(b)),
+		function(a) return b[a - base + 1] or 0 end, base)
 end
 
 -- The same, for a tile inside a sprite's cartridge graphics.
@@ -3378,7 +3414,20 @@ function facingFrames.pose(act, face, facing, moving, stride)
 		-- its last stride byte, and the engine itself stands a stopped character.
 		if face and face < 0x10 then
 			local fs = face & 3
-			return facing, moving and ((fs & 1) == 1), fs, false, nil
+			-- A TURN ON THE SPOT IS AN ANIMATION, AND THE FACE BYTE IS ITS EVERY FRAME (2026-09-13).
+			-- The user: the ghost *"just looks at the direction instantly"*. The move trace on a driven
+			-- turn up -> right: the peer's engine ran STEP_TYPE_TURN with OBJECT_ACTION_STEP, face `04`
+			-- for two ticks, `0D` (right, stride 1, a stepping view) for ~8 frames, then `0E`, `0C` --
+			-- and the receiver had every byte on time and drew `stepping=false` throughout, because the
+			-- stepping view was gated on `moving` and a turn in place never moves. Shown verbatim since,
+			-- and the user confirmed the turn on screen in both directions the same day. The gate only
+			-- ever said no when the peer was NOT walking (walking clears `rearm` and sets `moving` the
+			-- same frame), which is exactly the turn; the same trace shows the sender's own byte going
+			-- odd -> even as it settles (`0D` -> `0E` -> `0C`), and a held out-of-play state has its
+			-- stride evened at the source.
+			-- The core takes extras from the same snapshot as the position (core/interp.go), so this is
+			-- in step at any interpolation delay.
+			return facing, (fs & 1) == 1, fs, false, nil
 		end
 		return facing, moving, stride, false, nil
 	end
@@ -3595,6 +3644,17 @@ local function drawCharacter(source, sx, sy, palIndex, facing, walking, prog, st
 			if ft then
 				return decodeRomTile(fishRom, ft)
 			end
+		end
+		if source.art then
+			-- Wire art is the cartridge layout verbatim (ENGINE.wireArtChunk copies 24 tiles from the
+			-- sprite's graphics), so the same offset mapping as the ROM branch below applies.
+			local t = ((offset & 0x80) ~= 0) and (12 + (offset & 0x7F)) or offset
+			if t > 23 then
+				return decodeTileAt("art:none", function() return 0 end, 0)
+			end
+			local art = source.art
+			return decodeTileAt(string.format("art:%08X:%d", art.h, t),
+				function(a) return art[a] or 0 end, t * 16 + 1)
 		end
 		if source.rom then
 			-- THE CARTRIDGE LAYOUT IS NOT THE VRAM LAYOUT, and an offset carries the VRAM one.
@@ -4186,6 +4246,34 @@ facingFrames.statsEnv = (os.getenv("MESHGHOST_CRYSTAL_COMPARE_STATS") or "") ~= 
 function facingFrames.stats()
 	return COMPARE_TIERS
 		and (facingFrames.statsEnv or _G.MESHGHOST_CRYSTAL_COMPARE_STATS == true)
+end
+
+-- MESHGHOST_CRYSTAL_MOVE_TRACE (probe, off by default; dev-scripts/crystal-move-trace-on/off.lua).
+-- One `S` line per frame for what this client's engine SENDS, one `R` line per frame per drawn peer
+-- for what it RECEIVES and what the model does with it, each stamped with the frame counter AND the
+-- wall clock -- so two instances' logs can be laid side by side and the time from a peer's first
+-- engine pixel to its ghost's first pixel read directly, which no single-instance counter can give.
+-- The question it exists for (2026-09-13, the user, two clients at 100Hz/0 interp): the ghost
+-- *"is not as sharp/instant"* as the player. Emerald's answer was a deviation added on purpose; the
+-- candidates here are the model's commit threshold, the cushion and the camera-beat gate. Buffered,
+-- flushed every 240 lines, one file per bridge port.
+function facingFrames.mvTrace(line)
+	if not _G.MESHGHOST_CRYSTAL_MOVE_TRACE then
+		return
+	end
+	local b = facingFrames.mvBuf or {}
+	facingFrames.mvBuf = b
+	local t = socketCore and socketCore.gettime and socketCore.gettime() or 0
+	b[#b + 1] = string.format("%.3f f=%d %s", t, emu.framecount(), line)
+	if #b >= 240 then
+		local tf = io.open(string.format("%s/probes/movetrace_%s.log", SCRIPT_DIR,
+			os.getenv("MESHGHOST_BRIDGE_PORT") or "default"), "a")
+		if tf then
+			tf:write(table.concat(b, "\n"), "\n")
+			tf:close()
+		end
+		facingFrames.mvBuf = {}
+	end
 end
 
 local lastMenuBox = nil
@@ -5147,7 +5235,12 @@ function drawOverflow()
 				end
 			end
 		end
-		if tile then
+		-- Wire art first: when it is present, `o.sprite` is only the stand-in (ENGINE.lastPortable),
+		-- and the peer's own run pixels are the thing to draw. Painted only -- no `vram` on this source,
+		-- so the hardware tier declines it and nothing reaches game memory.
+		if o.art then
+			source = { art = o.art }
+		elseif tile then
 			source = { vram = tile }
 		else
 			local gfx, _, pal = spriteGfxInRom(o.sprite)
@@ -5513,8 +5606,11 @@ function drawOverflow()
 				-- available, so guessing is not required.
 				-- "Wants to move" is now: mid-step (committed distance unfinished), or a target at
 				-- least half a tile away -- NOT any 2px of disagreement, which is mostly noise.
+				-- One stride of the peer's own gait since 2026-09-13 (see "COMMIT ON THE PEER'S FIRST
+				-- ENGINE QUANTUM" below); half a tile before that, and still under the legacy global.
 				local wants = (o.stepLeft or 0) > 0
-					or (math.abs(qx - o.modelX) + math.abs(qy - o.modelY)) >= 8
+					or (math.abs(qx - o.modelX) + math.abs(qy - o.modelY))
+						>= (_G.MESHGHOST_CRYSTAL_LEGACY_CUSHION and 8 or (GAIT_PX[o.gait or 1] or 2))
 				if not wants then
 					o.modelStill = (o.modelStill or 0) + 1
 					if o.modelStill >= 30 then
@@ -5701,6 +5797,42 @@ function drawOverflow()
 								o.modelX, o.modelY, o.stepLeft = tX, tY, 0
 								if COMPARE_TIERS then
 									facingFrames.modelSnaps = (facingFrames.modelSnaps or 0) + 1
+								end
+							elseif not _G.MESHGHOST_CRYSTAL_LEGACY_CUSHION then
+								-- COMMIT ON THE PEER'S FIRST ENGINE QUANTUM (2026-09-13).
+								--
+								-- The user, two clients at 100Hz / 0 interp: the ghost *"is not as
+								-- sharp/instant compared to when a player does it"*. Measured with
+								-- MESHGHOST_CRYSTAL_MOVE_TRACE across both instances: the TARGET arrived
+								-- 19-32ms after the peer's first engine pixel, and the MODEL first moved at
+								-- 65-69ms -- two to three more frames, and it then rode 8px (two bike
+								-- ticks) behind the peer. Everything past the wire's own frame or two was
+								-- the thresholds below: 8px before a model at rest would move, and a
+								-- three-stride CUSHION while walking. Both were built against arrival
+								-- jitter at 15Hz / 450ms, and both are a delay added on purpose -- the
+								-- same shape as Emerald's `drawnDelay`, which was the fault there.
+								--
+								-- WHY ONE STRIDE IS NOT A GUESS. The target is the engine's own position
+								-- (`stepProgress` per gait on the sender), so a stride of displacement is
+								-- a step that has STARTED, never noise -- a standing peer's position does
+								-- not move at all -- and a started step finishes its tile: in the same
+								-- session's traces, 319,494 idle frames across both builds were all
+								-- tile-aligned, so the committed tile is exactly the one the peer is
+								-- crossing. The walking flag is not consulted: it reads idle for two frames
+								-- at the top of each step (measured 2026-08-22, see `idleFor` below),
+								-- which is precisely where the old chaining rule refused.
+								-- The larger remainder picks the axis; after a corner within one tile of
+								-- lag only one axis has any.
+								--
+								-- The old thresholds stay behind MESHGHOST_CRYSTAL_LEGACY_CUSHION, so the
+								-- two can be compared live by hot reload rather than from memory.
+								if adx >= st or ady >= st then
+									if adx >= ady then
+										o.stepDX, o.stepDY = (dx > 0 and 1 or -1), 0
+									else
+										o.stepDX, o.stepDY = 0, (dy > 0 and 1 or -1)
+									end
+									o.stepLeft = 16
 								end
 							elseif adx >= ady and adx >= 8 then
 								o.stepDX, o.stepDY = (dx > 0 and 1 or -1), 0
@@ -5967,6 +6099,34 @@ function drawOverflow()
 					if math.abs(dy) < 2 then sy2 = dy end
 					o.modelX, o.modelY = o.modelX + sx2, o.modelY + sy2
 				end
+			end
+			if _G.MESHGHOST_CRYSTAL_MOVE_TRACE and o.only ~= "hw" then
+				facingFrames.mvTrace(string.format("R %s tgt=%s,%s model=%d,%d left=%d dir=%d,%d walk=%s "
+					.. "gait=%s cam=%s/%d still=%d face=%s cu=%s",
+					tostring(id), tostring(o.pixX), tostring(o.pixY), o.modelX, o.modelY, o.stepLeft or 0,
+					o.stepDX or 0, o.stepDY or 0, tostring(o.walking), tostring(o.gait),
+					tostring(facingFrames.camMoved), facingFrames.camDelta or 0,
+					facingFrames.camStillFor or -1, tostring(o.facing), tostring(o.catchup or false)))
+			end
+			-- FACE WHERE THE MODEL IS GOING (2026-09-13), the rule Emerald reached on 2026-09-12.
+			--
+			-- `o.facing` is the wire's orientation, and it changes on the same frame as a step's first
+			-- pixel (measured 2026-09-13 from the move trace: 636 of 750 step starts; the other 114 were
+			-- a turn on the spot 6-7 frames before the step) -- so at a corner the wire has already turned
+			-- while this model is still finishing the previous tile, and a ghost posed from it looks
+			-- the new way and slides the old way for as long as the model trails. Anything shown about
+			-- a peer has to come from one instant, and the body's instant is the model's. So while a
+			-- committed step is unfinished, its direction IS the facing; the wire's facing is kept for
+			-- a model that is not stepping, where it is the only evidence -- a turn on the spot, or a
+			-- walk into a wall, moves nothing. Overwritten here rather than beside it, so every reader
+			-- below this line (the turn rearm, the pose, the flip) sees the same value. The wire's
+			-- value comes back with the next message. MESHGHOST_CRYSTAL_WIRE_FACING reverts it.
+			if (o.stepLeft or 0) > 0 and not _G.MESHGHOST_CRYSTAL_WIRE_FACING then
+				local sdx, sdy = o.stepDX or 0, o.stepDY or 0
+				if sdy > 0 then o.facing = 0
+				elseif sdy < 0 then o.facing = 1
+				elseif sdx < 0 then o.facing = 2
+				elseif sdx > 0 then o.facing = 3 end
 			end
 			local gx = o.modelX - pTile.x * 16
 			local gy = o.modelY - pTile.y * 16
@@ -6985,6 +7145,15 @@ function drawOverflow()
 					local poseFacing, poseWalking, poseStride, poseHide, poseRod =
 						facingFrames.pose(o.act, o.face, o.facing, moving,
 							o.stepLatch and (o.stepLatch - 1) or 0)
+					-- MOVE TRACE, pose half: what the ghost is SHOWN doing, beside the inputs that
+					-- decided it, so a turn on the spot can be read against the peer's own `S` lines.
+					if _G.MESHGHOST_CRYSTAL_MOVE_TRACE and o.only ~= "hw" then
+						facingFrames.mvTrace(string.format("P %s act=%s face=%s wireDir=%s walk=%s idle=%s "
+							.. "rearm=%s moving=%s -> dir=%s stepping=%s stride=%s",
+							tostring(id), tostring(o.act), tostring(o.face), tostring(o.facing),
+							tostring(o.walking), tostring(o.idleFor), tostring(o.rearm), tostring(moving),
+							tostring(poseFacing), tostring(poseWalking), tostring(poseStride)))
+					end
 					-- A LANDING PEER IS THE POKEMON, NOT THE CHARACTER. For the whole descent the
 					-- engine draws no character at all -- `FlyToAnim` hides them and flies a
 					-- cutscene sprite carrying the mon's icon -- so the ghost is hidden here and
@@ -8796,6 +8965,23 @@ ENGINE.xmap.build(here) end
 			return (mine and tonumber(state.extras.gfx) == mine) and id or nil
 		end)()
 		or nil
+	-- THE RUN SPRITE OVER THE WIRE, and what a dropped id falls back to (2026-09-13).
+	--
+	-- A dropped id used to leave `peerSprite` nil, and the drawn tier's last resort for nil is THIS
+	-- machine's player sprite, read live -- so an Archipelago peer running past a vanilla player on a
+	-- bike was painted ON A BIKE (the user, the same day; the probe read sprite $02 on the watcher).
+	-- That is the "ghost mimics the local player" fault the per-id gate was built to end on
+	-- 2026-08-26, surviving in the one case the gate still drops. So: the peer's own art if it has
+	-- arrived (ENGINE.wireArtIngest enforces what may), else the last sprite this peer wore that DID
+	-- port -- its own walking character, in practice, a moment before it started running -- and the
+	-- local player only for a peer that has never worn a portable sprite at all.
+	ENGINE.wireArtIngest(id, state.extras, peerSprite ~= nil)
+	local peerArt = (peerSprite == nil) and ENGINE.wireArtFor(id) or nil
+	if peerSprite then
+		ENGINE.lastPortable[id] = peerSprite
+	else
+		peerSprite = ENGINE.lastPortable[id]
+	end
 
 	-- A peer that should not be blocking is DRAWN rather than spawned: no tile, no collision,
 	-- and its engine slot freed for a peer who is actually moving.
@@ -8906,7 +9092,7 @@ ENGINE.xmap.build(here) end
 		overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait, pal = peerPal, clo = peerClo,
 			yoff = peerYoff, emote = peerEmote, jump = peerJump, drop = dropT, flyMon = a.flySpecies,
 			pixX = peerPixX and (peerPixX + offsetX * 16), pixY = peerPixY,
-			x = x, y = y, sprite = peerSprite,
+			x = x, y = y, sprite = peerSprite, art = peerArt,
 			facing = ORIENTATION_TO_DIR[state.orientation],
 			lastX = prev and prev.lastX, lastY = prev and prev.lastY, movedAt = prev and prev.movedAt,
 			fromX = prev and prev.fromX, fromY = prev and prev.fromY,
@@ -9217,7 +9403,7 @@ ENGINE.xmap.build(here) end
 			overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait, pal = peerPal, clo = peerClo,
 			yoff = peerYoff, emote = peerEmote, jump = peerJump, drop = dropT, flyMon = a.flySpecies,
 			pixX = peerPixX and (peerPixX + offsetX * 16), pixY = peerPixY,
-			x = x, y = y, sprite = peerSprite,
+			x = x, y = y, sprite = peerSprite, art = peerArt,
 				facing = ORIENTATION_TO_DIR[state.orientation],
 				lastX = prev and prev.lastX, lastY = prev and prev.lastY,
 				movedAt = prev and prev.movedAt,
@@ -10415,6 +10601,181 @@ function ENGINE.spriteSig(id)
 	return v
 end
 
+-- WIRE ART: THE RUN SPRITE, CARRIED FROM THE RUNNER'S OWN CARTRIDGE (2026-09-13).
+--
+-- The user, from a vanilla window: *"running in AP shows as being on a bike in vanilla for the
+-- ghost"*. The Archipelago build repoints ids $65/$66 to a pair of 12-view walking sprites, one per
+-- palette 0/1 (measured 2026-08-26, UNVERIFIED.md), and vanilla's rows for those ids are other
+-- characters -- so `spriteSig` rightly drops the id, and there is no run art anywhere on a vanilla or
+-- speedchoice cartridge to paint instead. The user's call the same day: send it over the wire, *"but
+-- we have to make sure to properly clamp/validate/enforce so its specifically that and nothing
+-- else"*. The repo carries no art; the pixels come from the peer's own ROM at runtime.
+--
+-- WHAT IS ENFORCED, and each check is the whole of a door:
+--   * SENDER: only a build whose table says it has run rows (`WIRE_ART`, Archipelago), only for the
+--     two ids in WIRE_ART_IDS, only while its player is wearing one. The hash rides every state; the
+--     pixel chunks only for three seconds after the sprite goes on and after a new peer appears.
+--   * RECEIVER: only for a peer whose id is one of those two AND whose row this cartridge does NOT
+--     share (`portable` false) -- an Archipelago receiver already has the art and ignores all of it.
+--     Hash an integer in 32 bits; index an integer 0..N-1; data exactly 70 lowercase hex characters.
+--     Any field malformed and the whole state's art is ignored, never partly used.
+--   * ASSEMBLY: all N chunks, 385 bytes, the pad byte zero, and FNV-1a of the 384 art bytes equal
+--     to the announced hash -- or the lot is discarded.
+--   * MEMORY: at most 4 graphics in assembly and 8 finished, across all peers; past either cap the
+--     table is simply cleared. A finished graphic is keyed by its hash, so peers on one seed share it.
+--   * USE: the painted tier draws it through the emulator's overlay. Nothing here is ever written to
+--     game memory, so a hostile peer can change what ITS OWN ghost looks like and nothing else.
+--
+-- 384 bytes: a walking sprite's cartridge graphics are 24 tiles of 16 (standing then stepping), not
+-- the 12 its size column reports -- see drawCharacter. Eleven chunks of 35 bytes, eleven because a
+-- sender stamps the chunk index from the frame counter and the core forwards only some frames: a
+-- prime count cannot alias against a send interval of 2, 3 or 4 frames the way 8 or 12 would.
+ENGINE.WIRE_ART_IDS = { [0x65] = true, [0x66] = true }
+ENGINE.WIRE_ART_BYTES, ENGINE.WIRE_ART_CHUNK, ENGINE.WIRE_ART_N = 384, 35, 11
+ENGINE.wireArtSend = A.WIRE_ART == true
+ENGINE.wireArtMine, ENGINE.wireArtBurstUntil = {}, 0
+ENGINE.wireArtPartial, ENGINE.wireArtPartialN = {}, 0
+ENGINE.wireArtDone, ENGINE.wireArtDoneN = {}, 0
+ENGINE.wireArtPeer, ENGINE.wireArtSeen, ENGINE.wireArtSeenN = {}, {}, 0
+ENGINE.lastPortable = {}
+
+function ENGINE.fnv32(bytes, n)
+	local v = 2166136261
+	for i = 1, n do
+		v = ((v ~ bytes[i]) * 16777619) & 0xFFFFFFFF
+	end
+	return v
+end
+
+-- Sender: returns hash, and chunk index + hex only inside a burst window. nil when not wearing art.
+function ENGINE.wireArtChunk(spriteId)
+	if not ENGINE.wireArtSend or not ENGINE.WIRE_ART_IDS[spriteId] then
+		ENGINE.wireArtWorn = nil
+		return nil
+	end
+	local now = emu.framecount()
+	if ENGINE.wireArtWorn ~= spriteId then
+		ENGINE.wireArtWorn = spriteId
+		ENGINE.wireArtBurstUntil = now + 180
+	end
+	local m = ENGINE.wireArtMine[spriteId]
+	if m == nil then
+		m = false
+		local gfx = spriteGfxInRom(spriteId)
+		if gfx then
+			local bytes = {}
+			for i = 1, ENGINE.WIRE_ART_BYTES do
+				bytes[i] = romByte(gfx + i - 1)
+			end
+			bytes[ENGINE.WIRE_ART_BYTES + 1] = 0 -- pad to N * CHUNK
+			local hex = {}
+			for c = 0, ENGINE.WIRE_ART_N - 1 do
+				local s = {}
+				for k = 1, ENGINE.WIRE_ART_CHUNK do
+					s[k] = string.format("%02x", bytes[c * ENGINE.WIRE_ART_CHUNK + k])
+				end
+				hex[c + 1] = table.concat(s)
+			end
+			m = { h = ENGINE.fnv32(bytes, ENGINE.WIRE_ART_BYTES), hex = hex }
+			logFile(string.format("wire art: sprite $%02X ready to send, hash %08X, %d chunks",
+				spriteId, m.h, ENGINE.WIRE_ART_N))
+		end
+		ENGINE.wireArtMine[spriteId] = m
+	end
+	if not m then
+		return nil
+	end
+	if now > ENGINE.wireArtBurstUntil then
+		return m.h
+	end
+	local i = now % ENGINE.WIRE_ART_N
+	return m.h, i, m.hex[i + 1]
+end
+
+-- Receiver: called once per arriving peer state, before the entry is built.
+function ENGINE.wireArtIngest(id, ex, portable)
+	-- A peer this client has not heard from yet reopens the SENDER's burst, so a late joiner is sent
+	-- the chunks too. Capped: a relay churning ids cannot grow this without bound.
+	if not ENGINE.wireArtSeen[id] then
+		if ENGINE.wireArtSeenN >= 64 then
+			ENGINE.wireArtSeen, ENGINE.wireArtSeenN = {}, 0
+		end
+		ENGINE.wireArtSeen[id] = true
+		ENGINE.wireArtSeenN = ENGINE.wireArtSeenN + 1
+		ENGINE.wireArtBurstUntil = emu.framecount() + 180
+	end
+	ENGINE.wireArtPeer[id] = nil
+	if portable or type(ex) ~= "table" then
+		return
+	end
+	local sid = ENGINE.peerRomIndex(tonumber(ex.sprite), 1, 255)
+	if not sid or not ENGINE.WIRE_ART_IDS[sid] then
+		return
+	end
+	local h = ENGINE.peerRomIndex(ex.arth, 0, 0xFFFFFFFF)
+	if not h then
+		return
+	end
+	local hasI, hasD = ex.arti ~= nil, ex.artd ~= nil
+	local i, d = nil, nil
+	if hasI or hasD then
+		i = ENGINE.peerRomIndex(ex.arti, 0, ENGINE.WIRE_ART_N - 1)
+		d = ex.artd
+		if not i or type(d) ~= "string" or #d ~= ENGINE.WIRE_ART_CHUNK * 2 or d:find("[^0-9a-f]") then
+			return -- malformed: none of this state's art is used, including the hash
+		end
+	end
+	ENGINE.wireArtPeer[id] = h
+	if not d or ENGINE.wireArtDone[h] then
+		return
+	end
+	local p = ENGINE.wireArtPartial[h]
+	if not p then
+		if ENGINE.wireArtPartialN >= 4 then
+			ENGINE.wireArtPartial, ENGINE.wireArtPartialN = {}, 0
+		end
+		p = { n = 0 }
+		ENGINE.wireArtPartial[h] = p
+		ENGINE.wireArtPartialN = ENGINE.wireArtPartialN + 1
+	end
+	if not p[i] then
+		p[i] = d
+		p.n = p.n + 1
+	end
+	if p.n < ENGINE.WIRE_ART_N then
+		return
+	end
+	ENGINE.wireArtPartial[h] = nil
+	ENGINE.wireArtPartialN = math.max(0, ENGINE.wireArtPartialN - 1)
+	local bytes = {}
+	for c = 0, ENGINE.WIRE_ART_N - 1 do
+		local s = p[c]
+		for k = 0, ENGINE.WIRE_ART_CHUNK - 1 do
+			bytes[#bytes + 1] = tonumber(s:sub(k * 2 + 1, k * 2 + 2), 16)
+		end
+	end
+	local ok = #bytes == ENGINE.WIRE_ART_BYTES + 1 and bytes[#bytes] == 0
+		and ENGINE.fnv32(bytes, ENGINE.WIRE_ART_BYTES) == h
+	if not ok then
+		logFile(string.format("wire art: %s sent chunks that do not hash to %08X -- discarded", tostring(id), h))
+		return
+	end
+	bytes[#bytes] = nil
+	bytes.h = h
+	if ENGINE.wireArtDoneN >= 8 then
+		ENGINE.wireArtDone, ENGINE.wireArtDoneN = {}, 0
+	end
+	ENGINE.wireArtDone[h] = bytes
+	ENGINE.wireArtDoneN = ENGINE.wireArtDoneN + 1
+	logFile(string.format("wire art: assembled %08X from %s (sprite $%02X) -- painted from now on", h,
+		tostring(id), sid))
+end
+
+function ENGINE.wireArtFor(id)
+	local h = ENGINE.wireArtPeer[id]
+	return h and ENGINE.wireArtDone[h] or nil
+end
+
 if romClass == "known" then
 	log("ROM: " .. romWhy .. " — addresses verified against a byte-identical build.")
 elseif romClass == "archipelago" then
@@ -10976,6 +11337,18 @@ local function tick()
 		local state = getLocalState()
 		diagnose(state)
 		send({ type = "local_state", payload = { state = state } })
+		if _G.MESHGHOST_CRYSTAL_MOVE_TRACE and state and state.position then
+			local p = state.position
+			-- `ex=` is the encoded extras size against protocol.MaxExtrasBytes (1024): the wire-art
+			-- chunk is the largest thing ever added to it, and a state over the cap is refused whole.
+			facingFrames.mvTrace(string.format("S pos=%d,%d walk=%s dir=%s dur=%d steptype=%d act=%d face=%02X gait=%s spr=%s ex=%d art=%s",
+				p[3] or -1, p[4] or -1, tostring(state.anim), tostring(state.orientation),
+				u8(OBJECT_STRUCTS + F_STEP_DURATION) or -1, u8(OBJECT_STRUCTS + 0x09) or -1,
+				u8(OBJECT_STRUCTS + F_ACTION) or -1, u8(OBJECT_STRUCTS + F_FACING) or 0,
+				tostring(state.extras and state.extras.gait), tostring(state.extras and state.extras.sprite),
+				state.extras and #jsonEncode(state.extras) or 0,
+				tostring(state.extras and state.extras.arti)))
+		end
 	end
 
 	drawOverflow()

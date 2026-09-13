@@ -809,6 +809,10 @@ file dropped from the loader's target list does NOT undo what it set.
 - `move-trace-on.lua` / `move-trace-off.lua` — the per-frame target-vs-model trace
   (`probes/movetrace.log`): what the glide is chasing, where the model is, the delta and the limit.
   This is the instrument that found the wrong-enum speed lookup and the permanent two-pixel gap.
+- `crystal-move-trace-on.lua` / `crystal-move-trace-off.lua` — Crystal's per-frame motion trace
+  (`MESHGHOST_CRYSTAL_MOVE_TRACE`): what each client's engine sends, and per drawn peer what arrives,
+  what the model does and the pose drawn, wall-clock stamped so two instances' logs pair up with
+  `adapters/emulator/pokemon/crystal/probes/movetrace_pair.py`. Large; arm it for a question.
 - `drawn-delay-8.lua` — restores the OLD 8-frame trailing delay. The shipped default is 0 since
   2026-09-13; the 8 is for a tier comparison, both renderers of one peer on screen together.
 - `square-2run.lua` / `square-2walk.lua` — settings for `probes/square_drive.lua`: a 2x2 square,
