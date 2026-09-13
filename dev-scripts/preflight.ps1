@@ -1615,7 +1615,7 @@ $adapters = @(
     "adapters/pseudoregalia", "adapters/tevi"
 )
 $lagging = @()
-foreach ($name in @("README.md", "FLAGS.md", "BANDAGES.md", "documentation.md")) {
+foreach ($name in @("README.md", "FLAGS.md", "BANDAGES.md", "documentation.md", "SYNCED.md")) {
     $tplTime = Git-LastCommit "adapters/_template/$name"
     if (-not $tplTime) { continue }
     foreach ($a in $adapters) {
@@ -1783,7 +1783,7 @@ Section "Adapter file set"
 #
 # An adapter is any directory holding a documentation.md (the one file every adapter must have
 # from the moment its folder exists), excluding _template itself.
-$mandated = @('README.md', 'documentation.md', 'BANDAGES.md', 'FLAGS.md', 'VERIFIED.md', 'UNVERIFIED.md')
+$mandated = @('README.md', 'documentation.md', 'BANDAGES.md', 'FLAGS.md', 'SYNCED.md', 'VERIFIED.md', 'UNVERIFIED.md')
 $adapterDirs = @(& git ls-files | Where-Object { $_ -like '*/documentation.md' } |
                  ForEach-Object { Split-Path $_ -Parent } |
                  ForEach-Object { $_ -replace '\\', '/' } |
@@ -2262,6 +2262,110 @@ if ($flagsSeen -eq 0) {
     $flagMissing | Sort-Object -Unique | Select-Object -First 20 | ForEach-Object { Write-Host "          $_" }
 } else {
     Report-Pass "$flagsSeen compile-time flag(s) across four adapters are all named in their FLAGS.md"
+}
+
+# ---------------------------------------------------------------------------
+Section "SYNCED.md matches the send code"
+
+# Each adapter's SYNCED.md lists every extras key it sends and, per key, how the receiving game
+# checks it -- which makes it the guard checklist as well as a player-facing page (the user,
+# 2026-09-13). A hand-kept list drifts the moment a key is added in code, so:
+#   * the extras keys in the send code == the backticked keys in the page's Key tables, both ways;
+#   * every group lists the same keys in its summary table and its details table;
+#   * no "Checked on arrival" cell is empty;
+#   * the count of "not checked yet" cells is a RATCHET per adapter: a fixed gap must lower the
+#     number here, and a new unguarded key cannot ship without raising it on purpose.
+# Keys are read from adapters/ source only -- packaging/release/ holds staged copies of the Lua.
+$syncedSets = @(
+    @{ Doc = 'adapters/pseudoregalia/SYNCED.md'; Src = 'adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp'
+       Start = 'std::string local_state = std::format\('; End = 'json_escape\(area_id\)'
+       Key = '\\"([a-z_]+)\\":'; Unchecked = 6 }
+    @{ Doc = 'adapters/tevi/SYNCED.md'; Src = 'adapters/tevi/MeshGhostTevi/BridgeClient.cs'
+       Start = 'public void SendLocalState\('; End = 'object extras = extrasMap;'
+       Key = '(?:extrasMap\["|\{\s*")([a-z_]+)"'; Unchecked = 20 }
+    @{ Doc = 'adapters/emulator/pokemon/crystal/SYNCED.md'; Src = 'adapters/emulator/pokemon/crystal/meshghost_crystal.lua'
+       Start = '^\s*extras = \{'; End = 'arth = artH'
+       Key = '(?<![=~<>])\b([a-z]+)\s*=(?!=)'; Unchecked = 2 }
+    @{ Doc = 'adapters/emulator/pokemon/emerald/SYNCED.md'; Src = 'adapters/emulator/pokemon/emerald/meshghost_emerald.lua'
+       Start = '^local function encodeLocalState\('; End = '^local ENCODED_NO_SEND'
+       Key = '"([a-z_]+)":%[sd]'; Unchecked = 1 }
+)
+$syncedBase = @('type', 'payload', 'state', 'area_id', 'position', 'orientation', 'anim', 'extras')
+$syncedProblems = @(); $syncedKeysSeen = 0
+foreach ($ss in $syncedSets) {
+    if (-not (Test-Path -LiteralPath $ss.Doc)) { $syncedProblems += "$($ss.Doc) is missing"; continue }
+    if (-not (Test-Path -LiteralPath $ss.Src)) { $syncedProblems += "$($ss.Src) is missing -- update this section's table"; continue }
+
+    # The send code: the first block from Start to End, keys matched inside it.
+    $codeKeys = @{}; $inBlock = $false; $blockDone = $false
+    foreach ($line in (Get-Content -LiteralPath $ss.Src)) {
+        if ($blockDone) { break }
+        if (-not $inBlock -and $line -match $ss.Start) { $inBlock = $true }
+        if ($inBlock) {
+            foreach ($m in [regex]::Matches($line, $ss.Key)) {
+                $k = $m.Groups[1].Value
+                if ($syncedBase -notcontains $k) { $codeKeys[$k] = $true }
+            }
+            if ($line -match $ss.End) { $blockDone = $true }
+        }
+    }
+    if (-not $blockDone -or $codeKeys.Count -eq 0) {
+        $syncedProblems += "$($ss.Src): the send block ($($ss.Start) .. $($ss.End)) was not found or held no keys -- the extractor no longer fits the code"
+        continue
+    }
+    $syncedKeysSeen += $codeKeys.Count
+
+    # The page: walk its tables. A table's first row is its header; "Key" tables name keys, a
+    # "Checked on arrival" column is the checklist.
+    $docKeys = @{}; $unchecked = 0; $section = ''; $groups = [ordered]@{}
+    $header = $null; $checkCol = -1; $isKeyTable = $false; $isDetails = $false; $lineNo = 0
+    foreach ($line in (Get-Content -Encoding UTF8 -LiteralPath $ss.Doc)) {
+        $lineNo++
+        if ($line -match '^## (.+)$') { $section = $Matches[1] }
+        if ($line -notmatch '^\|') { $header = $null; continue }
+        $cells = @($line.Trim().Trim('|').Split('|') | ForEach-Object { $_.Trim() })
+        if ($null -eq $header) {
+            $header = $cells
+            $checkCol = [array]::IndexOf($cells, 'Checked on arrival')
+            $isKeyTable = ($cells[0] -eq 'Key')
+            $isDetails = ($checkCol -ge 0)
+            continue
+        }
+        if ($cells[0] -match '^-+$') { continue }
+        if ($checkCol -ge 0) {
+            if ($checkCol -ge $cells.Count -or $cells[$checkCol] -eq '') {
+                $syncedProblems += "$($ss.Doc):$lineNo has an empty 'Checked on arrival' cell -- write the check, or 'not checked yet'"
+            } elseif ($cells[$checkCol] -match 'not checked yet') { $unchecked++ }
+        }
+        if ($isKeyTable -and $cells[0] -match '^`([a-z_]+)`$') {
+            $k = $Matches[1]; $docKeys[$k] = $true
+            $g = "$section|$(if ($isDetails) { 'details' } else { 'summary' })"
+            if (-not $groups.Contains($g)) { $groups[$g] = @() }
+            $groups[$g] += $k
+        }
+    }
+
+    foreach ($k in $codeKeys.Keys) { if (-not $docKeys.ContainsKey($k)) { $syncedProblems += "$($ss.Doc) does not list '$k', which $($ss.Src) sends" } }
+    foreach ($k in $docKeys.Keys) { if (-not $codeKeys.ContainsKey($k)) { $syncedProblems += "$($ss.Doc) lists '$k', which $($ss.Src) does not send" } }
+    foreach ($g in @($groups.Keys)) {
+        if ($g -notlike '*|summary') { continue }
+        $name = $g.Substring(0, $g.Length - '|summary'.Length)
+        $d = "$name|details"
+        $sum = ($groups[$g] | Sort-Object) -join ','
+        $det = if ($groups.Contains($d)) { ($groups[$d] | Sort-Object) -join ',' } else { '' }
+        if ($sum -ne $det) { $syncedProblems += "$($ss.Doc) '## $name': the summary table and its details table list different keys" }
+    }
+    if ($unchecked -gt $ss.Unchecked) {
+        $syncedProblems += "$($ss.Doc) has $unchecked 'not checked yet' cell(s), recorded $($ss.Unchecked) -- a new value arrives unguarded: guard it, or raise the number here on purpose"
+    } elseif ($unchecked -lt $ss.Unchecked) {
+        $syncedProblems += "$($ss.Doc) is down to $unchecked 'not checked yet' cell(s) (recorded $($ss.Unchecked)) -- the guards are landing; lower Unchecked in this section so the floor holds"
+    }
+}
+if ($syncedProblems.Count -gt 0) {
+    Report-Fail "$($syncedProblems.Count) SYNCED.md problem(s) -- the page is the guard checklist, so it must match the code:"
+    $syncedProblems | Select-Object -First 30 | ForEach-Object { Write-Host "          $_" }
+} else {
+    Report-Pass "$syncedKeysSeen extras key(s) across $($syncedSets.Count) adapters match their SYNCED.md, every one with a check cell"
 }
 
 # ---------------------------------------------------------------------------

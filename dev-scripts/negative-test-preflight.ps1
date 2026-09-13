@@ -205,6 +205,18 @@ $fixtures = @(
         Why = "a relative link in .github/, where GitHub's own surfaces drop the branch segment (2026-09-11, both CONTRIBUTING.md links)"
         Plant = { param($wt) Plant-TextLine $wt '.github/CONTRIBUTING.md' 'Planted by the negative-test harness: [the rules](../CLAUDE.md).' } },
 
+    @{  Name = 'synced-unsent-key'
+        Section = 'SYNCED.md matches the send code'
+        Expect = 'FAIL'
+        Why = 'a SYNCED.md row for a key the send code never sends -- the page and the code disagree'
+        Plant = { param($wt) Plant-TextLine $wt 'adapters/emulator/pokemon/emerald/SYNCED.md' "| Key | On the other screen | Sent |`n| --- | --- | --- |`n| ``planted_key`` | planted by the negative-test harness | always |" } },
+
+    @{  Name = 'synced-unchecked-rises'
+        Section = 'SYNCED.md matches the send code'
+        Expect = 'FAIL'
+        Why = "one more 'not checked yet' cell than recorded -- a new value arriving unguarded"
+        Plant = { param($wt) Plant-TextLine $wt 'adapters/emulator/pokemon/emerald/SYNCED.md' "| Message | Direction | What happens | Checked on arrival |`n| --- | --- | --- | --- |`n| ``planted`` | to the game | planted by the negative-test harness | not checked yet |" } },
+
     @{  Name = 'documentation-fence'
         Section = 'No reproduced expression in documentation.md'
         Expect = 'WARN'
