@@ -34,7 +34,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 - 2026-09-11 — **v1.1.7's engine fault site is ASSUMED FIXED by the hardened DLL** (the user's call): no action unless another crash is reported, then the feature ships OFF. `pseudoregalia/UNVERIFIED.md`.
 - 2026-09-11 — **Client/config/log/replays moved to the GAME ROOT for both PC games.** Pseudoregalia confirmed; **the TEVI half is UNWATCHED.** `tevi/UNVERIFIED.md`.
 - 2026-09-11 — Replay hotkeys: chords-only is the open half; the indicator half shipped 2026-09-05 (ADR 0052). `ideas.md`.
-- 2026-09-13 — **The shipped hotkeys are now bare `shift+N`, and a bound chord IS taken from the focused window (measured).** Open, needs a screen: whether a GAME still sees `shift+1`..`shift+4`. `adr/0063`, `phases/phase10.md`.
+- 2026-09-13 — **The shipped hotkeys are bare `shift+N` everywhere, the user's call: one comfortable default, and a per-game override only once a game is shown to conflict.** `adr/0063`.
 - 2026-09-11 — **Ghost cost: four things confirmed on screen 2026-09-06; the timing numbers are MEASURED, not watched.** `pseudoregalia/VERIFIED.md`, `UNVERIFIED.md`.
 - 2026-09-11 — **What is plain `udp` FOR, now that no doc offers it?** Shipped option, or test/fuzz path only. Wants an ADR. `phases/phase10.md`.
 - 2026-09-11 — **8 of 47 preflight sections have a negative test; 39 are assumed able to fail.** `dev-scripts/negative-test-preflight.ps1` lists them each run.

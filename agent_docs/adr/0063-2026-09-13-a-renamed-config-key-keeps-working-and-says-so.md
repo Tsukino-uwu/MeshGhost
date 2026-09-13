@@ -68,8 +68,15 @@ keystroke reaches the client at all. The cost runs the other way — those chord
 usual job everywhere until MeshGhost exits, which on a Nordic layout means `!`, `"`, `#`, `¤` and
 `%`. Written into `docs/config.md`'s `hotkeys` row so a player meets it before a puzzle.
 
-**Still open, and it needs a person at a screen:** whether a GAME still sees these keys. A game
-reading the keyboard through RawInput/DirectInput/`GetAsyncKeyState` bypasses the window message
-queue the measurement above used, so Pseudoregalia and TEVI may each answer differently, and
-`shift+1`…`shift+4` are common item-slot bindings. Until that is confirmed on screen, the finding
-above is what is known: taken from a normal window, unknown in a game.
+**One default everywhere, and a per-game override only once a game is shown to conflict** — the
+user's call the same day, after a tester playing under Proton had been using this exact set with no
+conflict to report. Proton is the Windows client with Wine's `user32` doing the registration, so
+those chords really did bind: it is the same code path a Windows player takes, not a no-op (a
+NATIVE Linux client registers nothing at all — `internal/hotkey/hotkey_other.go`).
+
+What that report does not settle is whether a game *loses* the keys, since a game that never used
+`shift+1`…`shift+4` produces no conflict to notice, and one reading the keyboard through
+RawInput/DirectInput bypasses the window message queue the table above measured. That is accepted
+rather than open: if a game is ever shown to conflict, the fix is that game's own
+`packaging/config-overrides/<game>.json`, which already replaces a shipped key per game — not a
+retreat to a three-finger default for everyone.
