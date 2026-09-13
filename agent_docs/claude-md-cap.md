@@ -96,7 +96,7 @@ me & other users to read not just for ai usage"* — and they had never asked fo
 was applied by an earlier pass that generalised this rule past its own argument.
 
 **So the sorting question is who reads it, not how big it is.** Uncapped: each shipped adapter's
-`README.md` and `documentation.md`, `pseudoregalia/PLAYER_FIELDS.md`, the root `README.md`, `docs/`,
+`README.md`, `documentation.md` and `SYNCED.md`, the root `README.md`, `docs/`,
 `packaging/README.md`, `dev-scripts/README.md`. Still capped, because an agent either auto-loads
 them or is told to read them end to end: the five `CLAUDE.md` files, `.claude/skills/`, the indexes
 (`agent_docs/README.md`, `architecture.md`, `pitfalls.md`), every probe file, and all of

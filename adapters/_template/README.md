@@ -78,6 +78,9 @@ The counterpart rule for content lives in each file: `BANDAGES.md` for compensat
   belong in `BANDAGES.md`), and everything in it must be publishable — facts observed from a running
   copy, never source, decompiled output, asset content or verbatim dumps. The licensing assessment
   behind that is in [agent_docs/licensing.md](../../agent_docs/licensing.md).
+- [SYNCED.md](SYNCED.md) — **what the adapter sends**: every key in the update, what it changes
+  on the other player's screen, and how the receiving game checks it. User-facing, and the guard
+  checklist at the same time.
 - [probes.md](probes.md) — **how to build a probe that answers something**: how to search for a
   value you cannot name, how to instrument a running game without changing what it does, how much a
   probe is allowed to cost, and the traps that make a probe lie. Not copied into an adapter folder —
@@ -142,16 +145,17 @@ same as any two unrelated games — grouping by franchise just keeps the top lev
 | `documentation.md` | **Immediately** — start it with the first mechanic you learn | [documentation.md](documentation.md) |
 | `BANDAGES.md` | **Immediately, empty** — an empty register is the goal, an absent one is a gap | [BANDAGES.md](BANDAGES.md) |
 | `FLAGS.md` | **Immediately, with its first row** — mandated for every adapter and checked by `preflight.ps1` alongside the five files below (a Lua adapter registers its environment variables and globals here; "no compile-time switches" is not "no switches") | [FLAGS.md](FLAGS.md) |
+| `SYNCED.md` | **With the first key the adapter sends** — every key, what it does on the other screen, and its check on arrival; preflight compares it to the send code | [SYNCED.md](SYNCED.md) |
 | `VERIFIED.md` | **Immediately, empty** — this game's dated, user-confirmed facts. Split per game 2026-08-25; `agent_docs/verified.md` keeps only Go-side and cross-game entries | [VERIFIED.md](VERIFIED.md) |
 | `UNVERIFIED.md` | **Always** — this game's queue waiting on the user. Split per game 2026-08-25; mandated for every adapter and checked by `preflight.ps1` since 2026-08-27 | [UNVERIFIED.md](UNVERIFIED.md) |
 | `PROBES.md` | Once `probes/` holds more than a couple of scripts — an index of what each one answered | [probes-README.md](probes-README.md) |
 | `CLAUDE.md` | Only once this host has rules of its own that no other adapter needs | none — see "A host `CLAUDE.md` is optional, and capped" below |
 
-**`README.md`, `documentation.md`, `BANDAGES.md`, `FLAGS.md`, `VERIFIED.md` and `UNVERIFIED.md` are
-expected of EVERY adapter, with no exceptions** — `dev-scripts/preflight.ps1`'s adapter-file-set
-check fails on a missing one. Create all six when the folder is created; three of them start empty
-(`BANDAGES.md`, `VERIFIED.md`, `UNVERIFIED.md` — `documentation.md` starts with the first mechanic
-and `FLAGS.md` with its first row).
+**`README.md`, `documentation.md`, `BANDAGES.md`, `FLAGS.md`, `SYNCED.md`, `VERIFIED.md` and
+`UNVERIFIED.md` are expected of EVERY adapter, with no exceptions** — `dev-scripts/preflight.ps1`'s
+adapter-file-set check fails on a missing one. Create all seven when the folder is created; three of
+them start empty (`BANDAGES.md`, `VERIFIED.md`, `UNVERIFIED.md` — `documentation.md` starts with the
+first mechanic, `FLAGS.md` with its first row, `SYNCED.md` with the four basics).
 (This sentence named three until 2026-09-06, while the check had mandated six since 2026-08-27.)
 
 ## Seven traps that are NOT specific to the host that found them
@@ -339,18 +343,17 @@ accidently add something wrong/bad anywhere"*).
 about the game: that section, the provenance sentence, and the no-workarounds rule. Delete none of
 them.
 
-**A state inventory is not expected either** — it is worth a file
-only when the game gives you far more readable state than you sync, and its form is completely
-game-specific: memory addresses for Emerald, C# class fields for TEVI, reflected UE properties for
-Pseudoregalia. Only Pseudoregalia has one (`PLAYER_FIELDS.md`), because UE reflection hands you
-hundreds of properties and an inventory with sync status pays for itself. Emerald's addresses are
-few and each was its own research project, so they live in `agent_docs/verified.md` and that is the
-right call — **don't create an inventory file for a game whose readable surface is small.**
+**What the adapter SENDS gets its own page: `SYNCED.md`, in every adapter** (the user's call,
+2026-09-13, replacing Pseudoregalia's `PLAYER_FIELDS.md`, which mixed a key list with field maps and
+investigation history). It lists every key in the update, what it changes on the other player's
+screen, and — per key — how the receiving game checks it, so it is also the checklist that no peer
+value reaches the engine unguarded. It answers a different question from `documentation.md` and the
+two do not merge: `SYNCED.md` is *what crosses the wire and what is done with it*,
+`documentation.md` is *how the game's mechanics work*. Preflight keeps it honest against the send
+code. Start from [SYNCED.md](SYNCED.md).
 
-Where one does exist, it answers a different question from `documentation.md` and the two should
-not merge: the inventory is *which state exists and which we sync*, `documentation.md` is *how the
-game's mechanics work*. Copy the shape from `adapters/pseudoregalia/PLAYER_FIELDS.md`; there is
-deliberately no template, since a stub with no content would go stale immediately.
+**A full state inventory — every readable field, synced or not — is still not expected.** A field
+the game has but we do not send belongs in `documentation.md` once measured, not in a list of its own.
 
 ## Starting a new game's adapter
 

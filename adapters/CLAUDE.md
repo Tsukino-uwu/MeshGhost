@@ -281,5 +281,5 @@ stops a stationary ghost blocking a doorway, and it is load-bearing. Make the se
   register and the value win.** Flags that only work as a set are marked there; never switch one off alone.
 - **`documentation.md` records how the GAME works — no bandages in it, ever**, only what the game
   itself handles, and only what WE measured or saw on a running copy, plus its known unknowns (`CLAUDE.md`, *measured or observed only*).
-- **USER-FACING, so no working notes** (user, 2026-09-13): the adapter's `README.md`, `documentation.md`, `BANDAGES.md` and the player-facing
-  field/schema docs. Audit queues, "edited on" markers, rule history and "treat this as unestablished" go to `UNVERIFIED.md`, the phase file or `status.md`.
+- **USER-FACING, so no working notes** (user, 2026-09-13): the adapter's `README.md`, `documentation.md`, `BANDAGES.md` and `SYNCED.md`
+  (every sent key, and its check on arrival, never an empty cell). Audit queues, "edited on" markers, rule history and "treat this as unestablished" go to `UNVERIFIED.md`, the phase file or `status.md`.

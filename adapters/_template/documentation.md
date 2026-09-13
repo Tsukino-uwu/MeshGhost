@@ -52,11 +52,10 @@ line each. No code listings: the code is one click away and stays the source of 
 | **`documentation.md`** (this) | How does the game do X? |
 | `BANDAGES.md` | Where the adapter compensates instead of reproducing the mechanism |
 | `VERIFIED.md` (this adapter's own) | Dated evidence behind every claim here — split per game 2026-08-25; `agent_docs/verified.md` keeps only the Go side and the index |
-| A state inventory, *if the game warrants one* | Which state exists, which is synced, how to promote one |
+| `SYNCED.md` | What the adapter sends, what the other player's game does with it, and how each value is checked |
 
-Most adapters have no inventory file — Emerald's addresses and TEVI's class fields live in
-`verified.md`. Pseudoregalia has `PLAYER_FIELDS.md` because UE reflection exposes far more than it
-syncs. See `README.md`'s folder convention.
+A field the game has but the adapter does not send is described here, once measured; a field it
+sends is listed in `SYNCED.md` too. See `README.md`'s folder convention.
 
 Everything in it should be measured from a running game, with each entry saying how confident it
 is. Mark inferences as inferences.

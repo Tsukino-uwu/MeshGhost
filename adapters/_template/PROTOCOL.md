@@ -296,7 +296,8 @@ for real per-game data the core schema has no field for: Emerald carries player 
 Crystal carries the sprite id its spawned object event should wear, TEVI carries its room-grid
 coordinates for the map marker, and Pseudoregalia carries movement/action state enums for its
 Animator. Treat it as "your adapter's private channel to itself across the
-wire," not an afterthought field.
+wire," not an afterthought field. **Every key goes in the adapter's `SYNCED.md`** with its check on
+arrival ([SYNCED.md](SYNCED.md) is the template; preflight compares it to the send code).
 
 Core → adapter, zero or more times per frame, one per currently-known remote:
 

@@ -40,6 +40,7 @@ of the documentation, written for people *using* MeshGhost, is [`../docs/`](../d
 - `phases/` — **the complete running log per phase, appended every session** ([phases/README.md](phases/README.md) is the index and the rule). Read as dated records: paths are left as they were written, so files written before the 2026-08-17 module move say `internal/protocol|transport|bridge|core|relay|netx` for what is now at the repo root, and files before 2026-08-25 say `adapters/bizhawk/` for `adapters/emulator/`; `internal/README.md` became `../docs/networking.md` and `../docs/security.md`.
 - [risks.md](risks.md) — assumptions and the risk register, open and closed, plus the known gaps carried out of `status.md`.
 - [bandages-core.md](bandages-core.md) — shipped compensations in the Go side; per-adapter bandages live in each adapter's `BANDAGES.md`.
+- Each adapter's `SYNCED.md` — what that game sends, what the other player's game does with it, and every value's check on arrival (the guard checklist; template `adapters/_template/SYNCED.md`).
 - [doc-history.md](doc-history.md) — the dated record of every doc-restructuring pass, what was left alone and why, and the archived idea texts. Quotes rules in their wording at the time, on purpose.
 - [project-history.md](project-history.md) — the pre-planning retrospective, and the six Phase 0 questions with how each closed.
 

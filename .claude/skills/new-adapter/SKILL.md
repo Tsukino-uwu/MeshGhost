@@ -70,7 +70,7 @@ the agent's equivalent is a probe that writes to the log. They are complements, 
 ## Then, in `adapters/_template/README.md`, these sections in this order
 
 - **"Folder convention"** — where the files go, and which are expected of every adapter
-  (`README.md`, `BANDAGES.md`, `FLAGS.md`, `documentation.md` — no exceptions).
+  (`README.md`, `BANDAGES.md`, `FLAGS.md`, `documentation.md`, `SYNCED.md` — no exceptions).
 - **"Starting a new game's adapter"** — the numbered setup steps.
 - **"First, work out what you will be able to READ"** — the access-model table applied.
 - **"Where does this already happen normally?"** — pick the common path, not the matching
