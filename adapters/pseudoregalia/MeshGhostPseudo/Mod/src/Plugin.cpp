@@ -7651,11 +7651,85 @@ namespace MeshGhostPseudo
         // single property found via TFieldRange is itself the grounding: there is nowhere else for
         // an 8-byte pointer to go, so writing to "the one property this function has" is not a
         // guess about which of several params to use, just that pointer's real reflected offset.
+        // **Stranded materials: the mesh belongs to the ASSET, the materials belong to the
+        // COMPONENT. Measured 2026-09-13.**
+        //
+        // The user's repro: take damage, swap costume during the hurt flash, and the watcher's
+        // ghost is left with a mangled model that survives every later swap and clears only on a
+        // save reset. The watcher's own log called that swap `outfit mesh applied` with a readback
+        // matching the target, because the readback reads the property that was written and never
+        // the render state.
+        //
+        // What the engine said when asked (probes/probe_outfitswap/Scripts/materials.lua, against a
+        // live glitched ghost): the ghost wore `Kindred` while all four of its material slots
+        // rendered MaterialInstanceDynamics parented to `KrystalBody`/`KrystalFace` -- the costume
+        // it had been wearing moments earlier. The local player, dumped in the same pass as the
+        // control, wore its own costume with zero foreign slots, which is what makes this a bug
+        // rather than a normal engine detail: a dynamic instance per slot is ordinary, one parented
+        // to a DIFFERENT costume is not.
+        //
+        // The chain, every step of it in that session's UE4SS.log: outfit applied (Krystal) ->
+        // peer hurt, so MIRROR_HURT_REACTION runs the game's own `BPI_PerformDamageResponse` on the
+        // ghost -> the game's flash builds a dynamic instance per slot over whatever is worn AT
+        // THAT MOMENT and parks them in the component's `OverrideMaterials` -> outfit applied
+        // (Kindred) swaps the MESH out from under them. `OverrideMaterials` is not a property of
+        // the mesh asset, so nothing in the swap touches it, and the overrides outlive the costume
+        // they were built for. That is also why the player never shows it: the costume mod's own
+        // swap path rebuilds them, and this adapter's swap only ever wrote the mesh.
+        //
+        // **`Reset()` and not `Empty()`, deliberately.** This file already refuses to GROW a UE
+        // TArray from this DLL -- the allocator is not the game's, and a heap the engine may later
+        // realloc or free is a crash taken on for a cosmetic feature (see GHOST_ATTACK_LOCKOUT's
+        // note on `hitActorsArray`). Shrinking is the other direction and is provably safe here:
+        // `Reset(0)` takes its no-reallocate branch whenever `NewSize <= ArrayMax`, which 0 always
+        // is, so it runs `DestructItems` -- a no-op for a trivially destructible `UObject*` -- and
+        // then sets `ArrayNum = 0`. It never calls the allocator. `Empty()` DOES (`ResizeTo`), so
+        // it is the wrong one no matter how much better its name reads.
+        //
+        // The orphaned instances are ordinary UObjects and are collected normally once nothing
+        // references them; nothing here frees anything.
+        //
+        // Safe to call on any mesh this adapter swaps, because this adapter puts no materials of
+        // its own on a ghost's body or weapon -- its one `CreateDynamicMaterialInstance` is on the
+        // nametag's TextRenderComponent, a different component entirely.
+        auto clear_override_materials(UObject* mesh_component) -> int32_t
+        {
+            if (!mesh_component)
+            {
+                return 0;
+            }
+            auto* overrides = mg_property_value<TArray<UObject*>>(mesh_component, STR("OverrideMaterials"));
+            if (!overrides)
+            {
+                return 0;
+            }
+            const int32_t had = overrides->Num();
+            if (had > 0)
+            {
+                overrides->Reset();
+            }
+            return had;
+        }
+
         auto call_set_skeletal_mesh_asset(UObject* mesh_component, UObject* new_mesh) -> void
         {
             if (!mesh_component || !new_mesh)
             {
                 return;
+            }
+            // Before the setter, never after: the component must re-initialise against a clean
+            // slot list, which is the same ordering lesson the Dream Breaker and T-pose fixes both
+            // taught this file -- let the function that does the real work run against a state
+            // nothing has clobbered. Clearing afterwards would leave the engine to bind the new
+            // mesh through the previous costume's overrides first.
+            //
+            // Every caller swaps a mesh, and a mesh swap is exactly when an override built for the
+            // OLD asset stops being valid -- so this lives here rather than at the call sites,
+            // where a future third caller would have to remember it.
+            if (const int32_t dropped = clear_override_materials(mesh_component); dropped > 0)
+            {
+                Output::send(STR("[MeshGhostPseudo] dropped {} stranded override material(s) before the mesh swap (they belonged to the previous asset).\n"),
+                             dropped);
             }
             UFunction* function = mesh_component->GetFunctionByNameInChain(STR("SetSkeletalMeshAsset"));
             if (!function)
