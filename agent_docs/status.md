@@ -10,8 +10,6 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 
 ## Open now
 
-- 2026-09-13 — **Every adapter has a SYNCED.md; 29 values arrive unguarded** (6/20/2/1, ratcheted). Each `SYNCED.md`, `phases/phase12.md`.
-
 - 2026-09-12 — **Review pass 3: all 17 cells have run (~74 claims); the transports cluster is fixed and the fuzz-coverage one is next.** 44 commits, nothing pushed. `REVIEW-FINDINGS.md`, `phases/phase10.md`.
 - 2026-09-12 — **A stock relay could not welcome the 6th player into a room of escaped names, on the default transport.** Fixed (`relay.sendBudget`); the measurement is in `verified.md`.
 - 2026-09-12 — **Three fuzz targets pointed at nothing; one is measured 0% → 89.7% on the code its own seeds describe.** Fixed, plus two new targets for the core's own sockets. `verified.md`.
@@ -43,7 +41,11 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 - 2026-09-11 — **Replay/chaser ghosts are UNWATCHED in TEVI, Emerald and Crystal** — client-made, so they should just work; `docs/` no longer claims either way. Each `UNVERIFIED.md`.
 - 2026-09-11 — **`Plugin.cpp` still says `session_policy` is "honoured by zero of four"** (two read it now). Untouched on purpose: editing it marks the committed DLL stale.
 - 2026-09-13 **Nothing is running** — Crystal rig down, loader targets `none`. **TEVI is HOT-RELOAD: `-Off` before a real confirmation.** `running-the-rig.md`.
-- 2026-09-13 — **AUDIT QUEUED: "measured or observed only" for all pre-rule content** — start at the two preflight ratchets. `phases/phase9.md`, `licensing.md`.
+- 2026-09-13, hold to 2026-09-16 — **AUDIT QUEUED: "measured or observed only" for all pre-rule content** — start at the two preflight ratchets. `phases/phase9.md`, `licensing.md`.
+- 2026-09-13, hold to 2026-09-16 — **SYNCED.md: guard the 29 `not checked yet` values** (6/20/2/1) and lower each ratchet. Each `SYNCED.md`; whole-message gaps in each `UNVERIFIED.md`.
+- 2026-09-13, hold to 2026-09-16 — **SYNCED.md is not checked by CI on a code-only push** (`docs.yml` may not filter adapter paths). Wire it into the adapter workflows, or accept. `phases/phase12.md`.
+- 2026-09-13, hold to 2026-09-16 — **`Plugin.cpp` comments still name the deleted `PLAYER_FIELDS.md`**; repoint at the next rebuild. `pseudoregalia/UNVERIFIED.md`.
+- 2026-09-13, hold to 2026-09-16 — **`adapters/CLAUDE.md` says `session_policy` is handled by zero of four**; Crystal and Emerald act on `ghost_collision` now. Their `SYNCED.md`.
 - 2026-09-13 — **Crystal: ghost starts on the peer's first step — MEASURED, NOT JUDGED**, owed netsim; dismount flicker filed for later. `crystal/UNVERIFIED.md`.
 
 **Trimmed 2026-09-11 back to what this file is for** — short-term memory, not a progress log
