@@ -1202,3 +1202,7 @@ adapter comment. Removed and reworded as facts. Preflight gained a section that 
 source ANYWHERE in tracked text, not only in fenced blocks in `documentation.md` — the shape the
 existing check watches was not the shape the violation took.
 
+
+## 2026-09-13 — SYNCED.md, and a decomp-derived code block cut from documentation.md
+
+Emerald has a `SYNCED.md` (18 extras; one `not checked yet`: `position` is tested only for presence). CI's gates run then failed on the fence gate, which had been warning on a clean tree since a decomp-written code block landed in `documentation.md`'s camera section. The user chose to cut it rather than allow-list it -- it was read, not measured -- and to keep nothing of it anywhere, a working note in the page and a restatement in `UNVERIFIED.md` included; what is left in the queue is a plain question to measure. The rest of that section belongs to the queued audit. Source-citation ratchet 20 -> 19.

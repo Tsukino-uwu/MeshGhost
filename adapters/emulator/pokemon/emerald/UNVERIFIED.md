@@ -1131,3 +1131,9 @@ Crystal judgements. **Rig note:** with the adapter's autostart on, a core restar
 loses the race to the adapter's own spawn, which runs from the REPO ROOT and reads `config.json`
 there — the ladder's last steps were driven through a temporary root `config.json` (`connect_to`
 127.0.0.2, `interp`), deleted at teardown; never commit one.
+
+## [OPEN] within one overworld frame, does the camera scroll before or after sprites animate? (2026-09-13)
+
+Unmeasured, and it decides how a delayed ghost can line up with the scrolling world. To measure: a
+per-frame trace stamping the frame counter at the camera offset change and at the player sprite's
+animation step, over a few frames of walking, read in the order they land.

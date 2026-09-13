@@ -127,20 +127,7 @@ pose cannot be derived from the position alone.
 elevation offset from `sElevationToSubpriority` (115 or 83), lower subpriority in front. So the
 character lower on the screen is drawn in front, and elevation moves whole bands at once.
 
-### The frame, in order — and why the camera is the part that matters
-
-`CB2_Overworld` does the player's decision FIRST and the presentation after
-(`src/overworld.c:1443-1476`):
-
-```
-FieldClearPlayerInput / ProcessPlayerFieldInput / PlayerStep   <- input becomes a movement action
-OverworldBasic:
-    ScriptContext_RunScript / RunTasks
-    AnimateSprites          <- sprite animation is stepped
-    CameraUpdate            <- the world scrolls
-    UpdateCameraPanning
-    BuildOamBuffer          <- the picture is assembled
-```
+### Why the camera is the part that matters
 
 **The camera is slaved to the player's own sprite.** `CameraUpdateCallback`
 (`src/field_camera.c:332`) copies its speed straight off the sprite the camera is bound to —

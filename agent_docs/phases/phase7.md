@@ -3697,3 +3697,7 @@ Two things touched this tree today, neither of them Pseudoregalia work in its ow
 ## 2026-09-13 — the shared UNVERIFIED rule, no Pseudoregalia work
 
 Only this adapter's `UNVERIFIED.md` header changed, with the other three and the template: a user's confirmation of a dev-toggled behaviour settles the DEFAULT too, so it is not re-asked. Emerald's session is where it came from (`phase8.md`, 2026-09-13); nothing in Pseudoregalia was touched.
+
+## 2026-09-13 — SYNCED.md replaces PLAYER_FIELDS.md (docs only, no DLL change)
+
+`PLAYER_FIELDS.md` is gone: its key tables became `SYNCED.md` (all 37 extras, each with its check on arrival; 6 `not checked yet`), and its measured facts became `documentation.md`'s "Holding the sword, and throwing it" and "Ability fields". The count rows were then corrected -- `clamp_count_to_int` refuses a value outside 0..1e9 to 0 rather than clamping, and the page now says the limit is a safety bound. Whole-message gaps and the stale `Plugin.cpp` comments are an OPEN entry in `UNVERIFIED.md`. The cross-adapter story is `phase12.md`, 2026-09-13.

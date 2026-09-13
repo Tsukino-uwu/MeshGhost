@@ -919,7 +919,7 @@ Section "Measured or observed only: no NEW source-derived claims (ratchet)"
 $ratchetDecompLabel = 5
 $ratchetDecompCites = @{
     'adapters/emulator/pokemon/crystal/documentation.md' = 38
-    'adapters/emulator/pokemon/emerald/documentation.md' = 20
+    'adapters/emulator/pokemon/emerald/documentation.md' = 19
 }
 $labelHits = 0
 foreach ($f in @(& git ls-files | Where-Object { $_ -match '\.(md|lua|go|cs|cpp|h)$' })) {
