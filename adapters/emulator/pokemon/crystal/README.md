@@ -60,6 +60,8 @@ judged on screen at all.
   arrays, how a character comes to exist, the lifecycle states, and each movement class the adapter
   mirrors. Every adapter carries one, decompilation or not
   ([adapters/_template/README.md](../../../_template/README.md)).
+- **[SYNCED.md](SYNCED.md)** lists everything Crystal sends to other players, what their game does
+  with it, and how each value is checked when it arrives.
 - **[BANDAGES.md](BANDAGES.md)** carries this adapter's shipped compensations, and
   **[FLAGS.md](FLAGS.md)** its runtime switches.
 
