@@ -3760,3 +3760,12 @@ reverse-applied and rebuilt rather than a second guess stacked on the first; pro
 stay. Mechanism unmeasured; the leading theory and what the next attempt must do differently are in
 `UNVERIFIED.md`. The lesson for the record: the fix was released unwatched on the user's explicit
 call, and a change to what one ghost DRAWS was never judged with two real players before it shipped.
+
+## 2026-09-13 (evening) — the outfit echo is a ghost SPAWN, not the materials fix
+
+The revert did not fix it (*"this still didn't fix it"*), so the one-behaviour-change reasoning was
+wrong: the echo was never introduced by `d133352b`. `echo_watch.lua` (read-only, changes only) on
+the Steam install while the other client swapped: the local player's real mesh took the ghost's
+costume 2.5 s after the apply, and the player's `dynamicEyesMat` rebuild lined up five of five with
+the replay loop's ghost spawns. A spawn re-runs costume setup on the player; the swap only decides
+the costume. What performs the apply is not measured yet. Detail and next steps: `UNVERIFIED.md`.
