@@ -325,3 +325,36 @@ paths (the adapter-gate rule caught the attempt), so drift is caught by local pr
 before then, and they asked that the items not age out. Preflight ages a status item by its newest
 date, so no gate changed; `status.md`'s header now says what the marker means. The subagent miscount
 became a pitfall (`pitfalls/by-lesson.md`, "A subagent's inventory of the wire was wrong twice").
+
+## 2026-09-13 — A per-game config carries only the keys that game reads
+
+**Found by the user reading the file, not by a check.** After the config rename went out they
+asked why `map_markers` — TEVI's pause-menu peer markers — was in Pseudoregalia's `config.json`.
+It was there because `stage-release.ps1` cuts the SAME client block for every game, strips only the
+`$hidden` advanced keys, and then applies per-game overrides: there was no per-game **removal** at
+all. `ghost_range*` escapes that only because it arrives the other way, added per game from
+`config-overrides/pseudoregalia.json`. So a key one mod reads went to all four games, and nothing
+complained — `notClientSettings` deliberately keeps both out of the unknown-key warning, which is
+exactly why it survived unnoticed since `63b6ca5c`.
+
+**Why it is worth fixing at all, given nothing breaks:** a player edits a setting in their own
+game's config, nothing happens, and there is no way for them to learn the key was never theirs.
+That is a support question with no self-service answer.
+
+**What was built.** `Remove-ClientKey` (a scalar line, or a nested block closed by the first line at
+its own indent) plus a `$gameOnly` table naming the one game each such key belongs to —
+`map_markers` → TEVI, `input_display` → Pseudoregalia. The root `config.json` keeps both: it is the
+complete reference, and `docs/config.md` documents each with its reader, now including the sentence
+that adding it to another game's file does nothing. Ownership lives in the script rather than in
+three override files saying "not mine", because that is the shape that drifts.
+
+**A latent bug fell out of writing it.** The override path rendered a non-string with
+`[string]$prop.Value`, and `[string]$true` is `True` — not JSON. No override had ever been a
+boolean, so it had never fired; it would have produced a config no client could read, at the first
+attempt to move `map_markers` the other way. Fixed in the same pass.
+
+**The pin.** `TestEachGameConfigCarriesOnlyItsOwnModKeys` asserts the ownership both ways — a key
+absent from the games that do not read it, and PRESENT in the one that does, so a too-eager strip
+fails too. It skips in a clean checkout like its neighbours (the per-game files are gitignored
+staging output), and it was watched to fail before it was kept: re-adding `map_markers` to the
+staged Pseudoregalia file failed it with the line naming `$gameOnly`, and re-staging turned it green.

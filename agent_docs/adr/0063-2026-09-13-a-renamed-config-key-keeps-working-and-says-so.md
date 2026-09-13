@@ -41,8 +41,9 @@
   `room` would have dropped an existing player into `default` — a real room, just not their
   friends' — with only an "is not a setting" line to explain it.
 - **Kept indefinitely.** The alias costs three map entries and one pass over bytes already in
-  memory. Dropping it later is a deliberate decision with its own dated line here, not an
-  expiry — a player's config.json can be years old and still be the file they use.
+  memory. Dropping it later is a deliberate decision with its own dated line here, not an expiry:
+  a config.json written for the first release (2026-08-11) is still the file that player edits,
+  and nothing ever rewrites it for them.
 
 ## Also decided that day: the shipped hotkeys, and what a system-wide chord costs
 

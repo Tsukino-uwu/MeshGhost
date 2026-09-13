@@ -60,6 +60,48 @@ foreach ($exe in @('meshghost.exe', 'meshghost-server.exe')) {
     }
 }
 
+# Removes one key from a client block held as TEXT -- a scalar line, or a nested block and
+# everything in it. Used for the keys only one game's mod reads (see $gameOnly below); $hidden's
+# own loop stays a one-line regex because every key on that list is a scalar.
+#
+# A block is found by its OPENING line and closed by the first line at the SAME indent that starts
+# with }, which is exactly how this file is laid out and is checked by the caller re-reading the
+# result. Not a brace counter: the shipped config has no strings containing braces, and a counter
+# that is wrong is wrong silently, while an unclosed block throws here.
+#
+# Throws rather than shrugging when the key is not there at all. A key that stops existing is a
+# rename or a deletion, and the wrong outcome then is four game configs quietly keeping it.
+function Remove-ClientKey {
+    param([string]$Text, [string]$Name)
+
+    $lines = $Text -split "`r?`n"
+    $open = -1
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match ('^\s*"' + [regex]::Escape($Name) + '"\s*:')) { $open = $i; break }
+    }
+    if ($open -lt 0) {
+        throw "stage-release: client key '$Name' is not in packaging\release\config.json -- if it was renamed or removed, update `$gameOnly."
+    }
+    $last = $open
+    if ($lines[$open] -match '\{\s*$') {
+        $indent = ($lines[$open] -replace '^(\s*).*$', '$1')
+        $close = -1
+        for ($i = $open + 1; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match ('^' + $indent + '\},?\s*$')) { $close = $i; break }
+        }
+        if ($close -lt 0) {
+            throw "stage-release: client key '$Name' opens a block that never closes at its own indent."
+        }
+        $last = $close
+    }
+    $kept = @()
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($i -ge $open -and $i -le $last) { continue }
+        $kept += $lines[$i]
+    }
+    return ($kept -join "`n")
+}
+
 Write-Host '== Staging into packaging\release\ =='
 # A running relay or client HOLDS its .exe open, and staging while one runs is an ordinary thing to
 # do -- mid-session you often want to restage a config without stopping the session. So an
@@ -161,6 +203,28 @@ foreach ($f in $modFolders) {
     foreach ($h in $hidden) {
         $text = [regex]::Replace($text, '(?m)^\s*"' + [regex]::Escape($h) + '"\s*:.*\r?\n', '')
     }
+    # A key ONE game's mod reads is stripped from every OTHER game's file. The root config.json
+    # keeps them all -- it is the complete reference, and docs/config.md documents each with its
+    # reader -- but a per-game file carrying a setting nothing in that game reads is an invitation
+    # to a support question ("why does map_markers do nothing in Pseudoregalia?"). Asked by the
+    # user 2026-09-13, having spotted map_markers in the Pseudoregalia file.
+    #
+    # Ownership lives here rather than in the per-game override files because it is one statement
+    # about one key -- listing it in three files as "not mine" is how those three drift. The
+    # counterpart in code is notClientSettings in cmd/meshghost/main.go, which says the same keys
+    # belong to a mod rather than to the client; this says WHICH mod.
+    #
+    # Removed rather than moved into the override file: an override value is a scalar, and
+    # input_display is a hand-laid-out block whose layout would be lost to a re-emit -- the same
+    # reason this whole script is text surgery instead of ConvertTo-Json.
+    $gameOnly = @{
+        'map_markers'   = 'tevi'           # TEVI's pause-menu peer markers (CoreLauncher.cs)
+        'input_display' = 'pseudoregalia'  # Pseudoregalia's input overlay (Plugin.cpp)
+    }
+    foreach ($key in $gameOnly.Keys) {
+        if ($gameOnly[$key] -eq (Split-Path $f -Leaf)) { continue }
+        $text = Remove-ClientKey -Text $text -Name $key
+    }
     $text = [regex]::Replace($text, '(\r?\n)(\s*\r?\n)+', '$1$1')        # one blank line at most
     $text = [regex]::Replace($text, '\r?\n\s*\r?\n(\s*})', "`n" + '$1')     # none before a closing brace
     $text = [regex]::Replace($text, ',(\s*\r?\n\s*})', '$1')               # no comma on the last key
@@ -174,7 +238,14 @@ foreach ($f in $modFolders) {
             # A string value is emitted quoted, a number bare (2026-09-06: Pseudoregalia's three
             # distance-tier ranges are the first numeric per-game keys; before this every override
             # became a quoted string, which is wrong for a number a player is meant to edit).
-            $literal = if ($prop.Value -is [string]) { '"' + $prop.Value + '"' } else { [string]$prop.Value }
+            # A string is emitted quoted, a number bare (2026-09-06: Pseudoregalia's three
+            # distance-tier ranges are the first numeric per-game keys). A BOOLEAN needs its own
+            # case: [string]$true is "True", which is not JSON and would have produced a file no
+            # client could read. Nothing had overridden a bool yet, so it had never fired
+            # (2026-09-13).
+            $literal = if ($prop.Value -is [string]) { '"' + $prop.Value + '"' }
+                       elseif ($prop.Value -is [bool]) { if ($prop.Value) { 'true' } else { 'false' } }
+                       else { [string]$prop.Value }
             $pattern = '("' + [regex]::Escape($prop.Name) + '"\s*:\s*)("[^"]*"|[-0-9.]+|true|false)'
             # A real match test, not "did the text change": an override whose value equals the
             # source's (Pseudoregalia's local_game_bridge, once the root config carried it) used

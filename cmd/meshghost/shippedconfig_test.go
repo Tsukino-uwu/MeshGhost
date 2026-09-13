@@ -304,6 +304,70 @@ func TestTheShippedPredictorIsWhatTheReleaseShips(t *testing.T) {
 	}
 }
 
+// A GAME'S CONFIG CARRIES ONLY KEYS SOMETHING IN THAT GAME READS.
+//
+// The root config.json is the complete reference and keeps every key; the
+// per-game files are cut from its client block, so before 2026-09-13 a key only
+// ONE mod read went to all four games -- map_markers (TEVI's pause-menu peer
+// markers) sat in Pseudoregalia's file, and input_display (Pseudoregalia's
+// overlay) in TEVI's. Nothing broke: notClientSettings keeps both out of the
+// unknown-key warning, which is exactly why it went unnoticed until the user
+// read the file and asked why map_markers was there.
+//
+// It is a support question waiting to happen -- a player edits a setting in
+// their own game's config and nothing happens, with no way to know the key was
+// never theirs -- so stage-release.ps1 now strips each from the games that do
+// not read it ($gameOnly). This is the pin on that: the ownership table lives in
+// a PowerShell script, which no Go test would otherwise touch.
+//
+// Skipped in a clean checkout for the same reason as the test above: the
+// per-game files are gitignored staging output.
+func TestEachGameConfigCarriesOnlyItsOwnModKeys(t *testing.T) {
+	// key -> the one game whose mod reads it, by its folder under games/.
+	owner := map[string]string{
+		"map_markers":   filepath.Join("tevi"),
+		"input_display": filepath.Join("pseudoregalia"),
+	}
+	games := map[string]string{
+		"tevi":            filepath.Join("packaging", "release", "games", "tevi", "config.json"),
+		"pseudoregalia":   filepath.Join("packaging", "release", "games", "pseudoregalia", "config.json"),
+		"pokemon/emerald": filepath.Join("packaging", "release", "games", "pokemon", "emerald", "config.json"),
+		"pokemon/crystal": filepath.Join("packaging", "release", "games", "pokemon", "crystal", "config.json"),
+	}
+	for game, rel := range games {
+		t.Run(game, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join("..", "..", rel))
+			if err != nil {
+				if os.IsNotExist(err) {
+					t.Skipf("%s is staging output (gitignored); run dev-scripts/stage-release.ps1 to check it", rel)
+				}
+				t.Fatalf("reading %s: %v", rel, err)
+			}
+			var root map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &root); err != nil {
+				t.Fatalf("%s does not parse: %v", rel, err)
+			}
+			var client map[string]json.RawMessage
+			if err := json.Unmarshal(root["client"], &client); err != nil {
+				t.Fatalf("%s has no readable \"client\" section: %v", rel, err)
+			}
+			for key, ownedBy := range owner {
+				_, present := client[key]
+				want := ownedBy == game
+				if present && !want {
+					t.Errorf("%s carries %q, which only %s's mod reads -- a player editing it here "+
+						"gets no effect and no explanation. stage-release.ps1's $gameOnly strips it.",
+						rel, key, ownedBy)
+				}
+				if !present && want {
+					t.Errorf("%s is MISSING %q, which its own mod reads -- $gameOnly stripped it from "+
+						"the game that owns it, or the key left the root config.json.", rel, key)
+				}
+			}
+		})
+	}
+}
+
 // THE SHIPPED CONFIG MUST NOT WARN ABOUT ITSELF.
 //
 // WarnUnknownKeys (2026-09-11) names every key in "client" that has no field in

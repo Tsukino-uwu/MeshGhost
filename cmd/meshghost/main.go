@@ -215,9 +215,13 @@ type fileConfig struct {
 // config, so a mod that gains a key fails the suite rather than a player's log.
 var notClientSettings = map[string]bool{
 	// Read by every shipped mod.
-	"client.autostart":     true, // whether the mod starts this client at all
-	"client.map_markers":   true, // the mod's on-screen peer markers
-	"client.input_display": true, // the mod's input overlay (a whole subtree)
+	"client.autostart": true, // whether the mod starts this client at all
+	// Read by ONE mod each, and since 2026-09-13 shipped only in that game's own
+	// config.json -- stage-release.ps1's $gameOnly strips each from the others,
+	// because a key a player can edit to no effect is a support question. They
+	// stay listed here because the ROOT config.json still carries both.
+	"client.map_markers":   true, // TEVI's pause-menu peer markers
+	"client.input_display": true, // Pseudoregalia's input overlay (a whole subtree)
 	// Pseudoregalia's distance tiers, in its per-game config.json.
 	"client.ghost_range":          true,
 	"client.ghost_range_far":      true,
