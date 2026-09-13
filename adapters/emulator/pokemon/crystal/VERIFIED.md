@@ -146,6 +146,10 @@ filed under the right theme, but anything can check that it is listed.
 
 - CONFIRMED ON SCREEN 2026-09-09 — Crystal: surfing peers across all five builds, in the peer's own gender palette
 - CONFIRMED ON SCREEN 2026-09-10 — Crystal: a peer's clothing colour crosses the wire and paints its ghost on every build, the local player untouched
+- CONFIRMED ON SCREEN 2026-09-13 — Crystal: an Archipelago runner shows its own RUN sprite on a vanilla client, the art carried over the wire
+- CONFIRMED ON SCREEN 2026-09-13 — Crystal: a ghost no longer keeps the watcher's bike pixels after the watcher dismounts
+- CONFIRMED ON SCREEN 2026-09-13 — Crystal: a ghost plays the turn-in-place animation, in both directions across builds
+- AGENT-CONFIRMED 2026-09-13 (patched ROM) — Crystal: what running is on the Archipelago build, and where that build keeps the loaded tileset
 
 ## Confirmed facts
 
@@ -2579,3 +2583,67 @@ shows a stutter at 450ms, this entry is the first thing to reopen.
   the evening and are in `pitfalls.md`: the clothing colour is palette word 2 (index 3 is the
   outline), and the hardware is copied from the SECOND palette block, 128 bytes past the one the
   adapter reads.
+
+## CONFIRMED ON SCREEN 2026-09-13 — Crystal: an Archipelago runner shows its own RUN sprite on a vanilla client, the art carried over the wire
+
+- Date: 2026-09-13
+- Observed: two windows in one room, an Archipelago V1.0-base seed and vanilla V1.0, 100Hz relay,
+  `-interp=0ms`. Before: *"running in AP shows as being on a bike in vanilla for the ghost"* — the
+  vanilla player was on the bike, and the ghost wore it. After the change, the Archipelago player
+  ran past the vanilla window and the ghost showed the run sprite: *"it works"*.
+- Source: the user, on screen. The vanilla adapter's log: `wire art: assembled 7F0C4726 from p26
+  (sprite $65) -- painted from now on`; the Archipelago adapter's: `wire art: sprite $65 ready to
+  send, hash 7F0C4726, 11 chunks`. The move trace counted all eleven chunk indices sent 21-26 times
+  each, extras 202 bytes against the 1024 cap (91 without a chunk).
+- Notes: two causes, both fixed. The run ids `$65`/`$66` describe different graphics on the two
+  cartridges, so the per-id gate correctly dropped the id, and the drawn tier's last resort then wore
+  the WATCHING player's live sprite — the 2026-08-26 "mimics the local player" fault in the one case
+  the gate still drops. The fallback is now the peer's own last portable sprite, and the run art
+  travels from the runner's cartridge (`ENGINE.WIRE_ART_IDS`: only those two ids, only to a receiver
+  whose row differs, 384 bytes that must hash to the announced value, capped caches, overlay pixels
+  only). Unwatched halves: a speedchoice receiver, a second Archipelago client (which should ignore
+  the chunks), and a peer joining while the runner is already running.
+
+## CONFIRMED ON SCREEN 2026-09-13 — Crystal: a ghost no longer keeps the watcher's bike pixels after the watcher dismounts
+
+- Date: 2026-09-13
+- Observed: same room. With the vanilla player getting off the bike, the Archipelago peer's walking
+  ghost *"looks as if its on a bike"*, *"but only when facing down, not up/left/right"*; an adapter
+  reload cleared it. After the change, mounting and dismounting again: *"works now"*.
+- Source: the user, on screen; `probes/player_sprite_probe.lua` read the vanilla player's sprite as
+  `$02` (the bike) at the time.
+- Notes: the drawn tier cached decoded VRAM tiles by tile INDEX, cleared when `wUsedSprites` changes —
+  and a tile decoded between that record changing and the new pixels landing kept the old art. Down
+  alone because down's tiles were the ones decoded in that window; the ordering is inferred from the
+  symptom and the reload, not traced. VRAM decodes are now keyed by the tile's own 16 bytes. **Still
+  open**: a brief flicker on the ghost at the moment of dismounting, never measured
+  ([UNVERIFIED.md](UNVERIFIED.md)).
+
+## CONFIRMED ON SCREEN 2026-09-13 — Crystal: a ghost plays the turn-in-place animation, in both directions across builds
+
+- Date: 2026-09-13
+- Observed: the user, of both ghosts: *"facing direction animations are not synced at all currently
+  (ghosts just looks at the direction instantly)"*. After the change, with turns driven on the
+  Archipelago side and made by the user: *"Yee it works for both"*.
+- Source: the user, on screen; the move trace of a driven turn left → right (`probes/turn_drive.lua`).
+  Sender: step type 10, action 2, `OBJECT_FACING` `08` ×3 frames, `0D` ×8, `0E` ×2, `0C`. Receiver,
+  before: every byte on time and `stepping=false` throughout. After: `0D` drawn as the stepping view
+  for eight frames, `0E` and `0C` standing — the same sequence, ~26ms behind the wire.
+- Notes: the stepping view was gated on the peer MOVING, and a turn on the spot never moves. The face
+  byte is the frame the engine draws, and the core takes extras from the same snapshot as the
+  position, so it is shown verbatim; a held out-of-play state has its stride evened at the sender.
+  The same measurement corrected `documentation.md`, which said a turn in place was a `SPIN`.
+
+## AGENT-CONFIRMED 2026-09-13 (patched ROM) — Crystal: what running is on the Archipelago build, and where that build keeps the loaded tileset
+
+- Date: 2026-09-13
+- Observed: on an Archipelago V1.0-base seed, `probes/player_sprite_probe.lua` read the player's
+  `OBJECT_SPRITE` go `$01` → `$65` when running and back to `$01` on walking, with `OBJECT_WALKING`
+  `$0A` while running — gait group 2, the bike's. `probes/tileset_header_probe.lua` found one run of
+  37 `Tilesets`-shaped entries in ROM at `$4D46B` and exactly one WRAM match, the header at flat
+  `$11E0` (collision pointer `$11E7`), six reads a second apart; on vanilla V1.0 the same probe found
+  `$4D596` and `$11D9`, the `.sym`'s own addresses.
+- Source: the two probe logs of 2026-09-13 (02:02 and 01:32/01:33).
+- Notes: agent-confirmed because the ROM is patched (`CLAUDE.md`). Only one gender was measured
+  running (`$65`); `$66` is inferred as the other from the table rows' palettes. The header address
+  is used by `probes/noclip.lua` only — no shipped code reads it.

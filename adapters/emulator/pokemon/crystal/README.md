@@ -263,8 +263,8 @@ unwatched says so and is in [UNVERIFIED.md](UNVERIFIED.md).
     build. Everything a build can move is now read off that cartridge rather than assumed.
 25. **FEATURE COMPLETE, 2026-08-27.** The user's own line, added by hand and deliberately left
     without a description — **the scope of it has not been stated, and nothing here should invent
-    one.** Read it against the open list directly below, which still has Teleport unbuilt and
-    RUNNING's gait unmeasured on the Archipelago build; whether those sit inside or outside this
+    one.** Read it against the open list directly below, which then had Teleport unbuilt and
+    RUNNING's gait unmeasured on the Archipelago build (running came later, step 34); whether those sit inside or outside this
     call is the user's to say. `UNVERIFIED.md` carries the question.
 26. Made **drawn the only shipped tier** and the spawned ladder a dev opt-in — the user's call,
     2026-09-02, after watching both side by side: the spawned ghost snapped a little whenever IT
@@ -320,6 +320,17 @@ unwatched says so and is in [UNVERIFIED.md](UNVERIFIED.md).
     across four windows, 2026-09-09 and 2026-09-10 ([VERIFIED.md](VERIFIED.md)) — with one gap the
     record keeps: a real coloured Archipelago seed is still unwatched, and the mechanism was
     exercised with a probe instead.
+34. Showed running on a cartridge that has no running. An Archipelago player runs in a sprite of its
+    own that vanilla and speedchoice do not have, so their clients drew the runner in whatever the
+    watcher was wearing — a bike, if they were on one. The runner's client now sends that sprite's
+    pixels from its own cartridge, once, in small pieces the receiver checks and caches, and a ghost
+    with nothing to wear keeps its own last look instead of borrowing the watcher's. Confirmed on a
+    vanilla screen, 2026-09-13 ([VERIFIED.md](VERIFIED.md)).
+35. Made a ghost turn on the spot the way the player does. A turn is a short animation — the new
+    direction shows a stepping pose for a moment before it settles — and the ghost used to snap
+    straight to standing. Every frame of it was already arriving; the ghost now draws the game's own
+    pose byte while it stands still. Confirmed in both directions across builds, 2026-09-13
+    ([VERIFIED.md](VERIFIED.md)).
 
 
 ### Further work past "good enough"
@@ -332,9 +343,9 @@ authoritative list, [UNVERIFIED.md](UNVERIFIED.md) has every measurement waiting
   earlier confirmations were a loopback ghost, whose motion is the local player's own — so a peer
   flying, digging or spinning while the watcher does not is still largely unexercised.
 - **Nothing crosses builds by assumption.** Sprite ids, item ids and gaits each differ between
-  vanilla and the Archipelago seed, and each had to be measured. Turbo is fixed and confirmed, and
-  surf was confirmed across all five builds on 2026-09-09; **RUNNING is untested and its gait
-  unmeasured**.
+  vanilla and the Archipelago seed, and each had to be measured. Turbo is fixed and confirmed, surf
+  was confirmed across all five builds on 2026-09-09, and running on a vanilla screen on 2026-09-13
+  (step 34); a speedchoice watcher of a runner is still unwatched.
 - **The shipped interpolation is 450ms since 2026-09-02** (step 27), judged on the drawn tier on the
   worst-case link. Most confirmations above predate that and were made at the dev rig's
   `-interp=0ms`, which is the configuration a 1:1 judgement needs and the one that hides a whole
@@ -366,7 +377,7 @@ authoritative list, [UNVERIFIED.md](UNVERIFIED.md) has every measurement waiting
 - `probes/` — every development tool, and none of it ships. Eighty scripts covering the address
   hunt, the spawn recipe worked out one failure at a time, the Archipelago re-measurement, and the
   savestate-driven rigs that make an expensive state (a fly, a ledge, a whirlpool) repeatable.
-  **About twenty of them WRITE and seventeen hold the controller**; they are indexed, one line each, in
+  **About twenty of them WRITE and eighteen hold the controller**; they are indexed, one line each, in
   [PROBES.md](PROBES.md) — read that rather than the folder listing.
 - `logs/` — where the adapter's own runs land, one timestamped `.log` per script load (probes write
   theirs beside themselves in `probes/`). A run therefore leaves a record without anyone copying

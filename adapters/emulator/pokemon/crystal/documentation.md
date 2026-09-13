@@ -15,11 +15,8 @@ This is [CLAUDE.md](../../../../CLAUDE.md)'s standing rule — *is this fine sit
 forever?* — applied to prose. No, or merely unclear, means out. Full guidance and the two edge
 cases: [adapters/_template/README.md](../../../_template/README.md).
 
-> **Measured from a running game** during Phase 9 (2026-08-17 onward), mostly on vanilla V1.0, and
-> cross-checked against the public `pret/pokecrystal` decompilation. **Facts watched on a running
-> game are marked `[measured]` with a date; facts read from the decompilation are marked
-> `[from the decomp]` and carry a file citation.** They are different kinds of evidence and the file
-> should say which one it is leaning on -- the same three-label vocabulary Emerald uses.
+> **Measured from a running game** during Phase 9 (2026-08-17 onward), mostly on vanilla V1.0.
+> **Facts are marked `[measured]` or `[seen on screen]` with a date.**
 
 **What this file is: how *the game* does things**, per mechanic, readable by someone who has never
 seen our code. **Nothing here describes an adapter workaround** — those belong in
@@ -228,9 +225,34 @@ counting 3, 2, 1, while walking holds 4-7. **The camera moves at the same rates*
 group 3 without touching `GetStepVector`, and why `STANDING` (255, nibble 15) is past the real
 ones: an object left there with a live step type reads a vector out of whatever follows the table
 and is dragged off the map. [measured 2026-08-26] V1.0, V1.1 and speedchoice 8.1 all carry three
-groups at `0x004700`; an Archipelago seed carries four at `0x0048C9`. **Which mode uses the fourth
-was not measured** — do not assume it is running. **The count is the cartridge's, not the
-family's.** [UNVERIFIED.md](UNVERIFIED.md).
+groups at `0x004700`; an Archipelago seed carries four at `0x0048C9`. **The count is the
+cartridge's, not the family's.** [UNVERIFIED.md](UNVERIFIED.md).
+
+**On the Archipelago build, RUNNING is group 2 — the bike's gait — and the fourth group is the faster
+bike.** [measured 2026-09-13] with `probes/player_sprite_probe.lua` on an Archipelago V1.0-base seed:
+a running player's `OBJECT_WALKING` read `$0A` (group 2, facing left) while its `OBJECT_SPRITE` read
+`$65`, one of the two ids that build repoints to a walking-shaped sprite of its own; walking again,
+the sprite went back to `$01`. So a runner is told apart from a rider by its **sprite**, never by its
+gait. The fourth group is the mode the user has called the turbo bike since 2026-08-26
+([VERIFIED.md](VERIFIED.md)).
+
+### The player's movement, as measured
+
+- **Gaits in use** — walking is group 1 and the bike group 2 [measured 2026-08-25, a bike lap:
+  `OBJECT_WALKING` `08`/`09`]; ice glides at group 2 in the standing pose (*Ice*, below); on the
+  Archipelago build running is group 2 and the fourth group is the faster bike (above).
+- **A step's direction and its first pixel land on the same frame.** [measured 2026-09-13, the
+  adapter's move trace, both builds]: of 750 step starts after standing, 636 changed the sent
+  direction on the frame the position first moved; the other 114 changed it 6-7 frames earlier,
+  which is a turn on the spot followed by a step (*Turning in place*, below). The map coordinates
+  take the destination on that first frame too [measured 2026-08-18] (*Position*, above).
+- **Every tick moves the same distance**: on screen a walk is `2, 0, 2, 0` per video frame
+  [measured 2026-08-23] (*The camera*, below), and a tick is two video frames on average, with no
+  fixed parity [measured 2026-08-23] (*The engine's object clock*, below).
+- **The stepping or standing view shown is `OBJECT_FACING`'s stride** — odd strides step, even ones
+  stand — [measured 2026-09-13, a driven turn: `0D` drawn stepping, `0E`/`0C` standing, the same on
+  the watching client once it drew the byte verbatim]; and deriving the stride from step progress
+  instead made a ghost pedal at double speed on the bike [seen on screen 2026-08-25].
 
 ## Map identity
 
@@ -507,7 +529,9 @@ sprite table's size field reports 192 bytes — that field describes the standin
 
 **Which view is drawn is a function of how far through its step a character is**, and the partition
 is exact with no overlap, across all four directions: the **stepping** view at 0, 2, 4 and 14
-pixels into the step, the **standing** view at 6, 8, 10 and 12.
+pixels into the step, the **standing** view at 6, 8, 10 and 12 — **at the walk**. On the bike that
+partition is wrong: a ghost posed from it pedalled at double speed [seen on screen 2026-08-25], and
+the view drawn follows `OBJECT_FACING`'s own stride (*The player's movement, as measured*, above).
 
 **The two feet come from mirroring the stepping view**, so the flip carries two unrelated meanings
 depending on direction. Facing down or up, both flips are legitimate and alternating between them
@@ -528,13 +552,9 @@ one axis walking, 4px on the bike. They are 8-bit and wrap at 256, so a differen
 frames has to be read the short way round.
 
 **`wPlayerBGMapOffsetX` / `wPlayerBGMapOffsetY` ($d14c / $d14d) are NOT the camera**, despite moving
-by the same amounts at the same times. They are a *per-frame delta*: `_HandlePlayerStep` subtracts
-the step vector from them (opposite sign to `hSC`), and `ApplyBGMapAnchorToObjects` — reached from
-`_UpdateSprites` every frame — reads them, adds them to every object's sprite X and Y as a
-correction, and **zeroes them**. So their value is "how far the camera moved since the sprites were
-last positioned", returning to zero each frame; integrating them as an absolute position tracks the
-camera most of the time and diverges without warning, disagreeing with `hSC` read on the same frame
-on about 9% of frames. Consequences before using either:
+by the same amounts at the same times, in the opposite direction: integrating them as an absolute
+position tracks the camera most of the time and diverges without warning, disagreeing with `hSC`
+read on the same frame on about 9% of frames. Consequences before using either:
 
 - **The two run in opposite directions**, so a difference on one is the negation of the same
   difference on the other. **Both scroll registers also run inverted to map pixels** — walking
@@ -610,9 +630,9 @@ sometimes land on consecutive frames. So the counts below are exact in ticks, ap
 - **`SPIN` (4)** — turns a character **counterclockwise**: `OBJECT_STEP_FRAME` is used as two
   two-bit fields, a timer in the low bits and a facing index in bits 4 and 5, and the direction
   advances **down → right → up → left** every **4 ticks**. The facing byte is the direction with
-  stride 0, so a spinning character always shows a **standing** view. Used for **turning in place**
-  (much the most common — see below), the **spin tiles**, a **whirlpool**, and the departure and
-  arrival of **Teleport** and **Dig**. The 4-tick cadence is [measured] — the facing cycling
+  stride 0, so a spinning character always shows a **standing** view. Used for the **spin tiles**, a
+  **whirlpool**, and the departure and arrival of **Teleport** and **Dig** — not for turning in place
+  (below). The 4-tick cadence is [measured] — the facing cycling
   `0C → 04 → 08 → 00` at **8 video frames each**, identically on a whirlpool and on a Dig
   (`probes/whirlpool_drive.lua`, `probes/dig_drive.lua`, 2026-08-26).
 - **`SPIN_FLICKER` (5)** — spins the direction exactly as above and then sets `OBJECT_FACING` to
@@ -636,13 +656,16 @@ sometimes land on consecutive frames. So the counts below are exact in ticks, ap
   every **2 ticks**: the walk cycle runs at **double speed** while it falls. The fall is a sprite Y
   offset starting high above the tile; the top phase is 16 ticks at the full `$60`.
 
-### Turning in place is a spin, and it happens constantly
+### Turning in place is a STEP that goes nowhere, and it happens constantly
 
-Tapping a direction the character is not already facing turns it without moving it, using the same
-counterclockwise `SPIN` for **4 ticks** — two at the old direction, two at the new
-(`engine/overworld/map_objects.asm`'s turning step). So a turn passes visibly through an
-intermediate direction rather than snapping, and anything reconstructing a pose from position alone
-misses it every time a player looks around.
+Tapping a direction a standing player is not facing turns it without moving it, and **it goes
+straight from the old direction to the new one, with the STEP action, not `SPIN`.** [measured
+2026-09-13, the adapter's move trace on an Archipelago V1.0-base seed, turns driven by
+`probes/turn_drive.lua`, left → right]: `OBJECT_STEP_TYPE` `10`, `OBJECT_ACTION` `2`; `OBJECT_FACING`
+`08` (left, standing) for three frames, then `0D` — **right, stride 1, a STEPPING view** — for eight
+frames, then `0E` (stride 2) for two, then `0C`. So a turn shows the new direction's stepping pose
+for a moment before settling, and anything reconstructing a pose from position alone, or gating the
+stepping view on the character moving, shows a snap instead.
 
 ## A newly created object is not drawn for two to four frames
 
@@ -811,17 +834,42 @@ went away.
 Measured 2026-08-27 across ~90 driven crossings on two seams; addresses and the coordinate
 arithmetic in `VERIFIED.md`.
 
+## Tile collision: the loaded tileset, and a map edge that stays solid
+
+- **The loaded tileset's header in WRAM is a byte-for-byte copy of one 15-byte entry of a table in
+  the ROM**, and it moves with the tileset. [measured 2026-09-13, `probes/tileset_header_probe.lua`,
+  which finds the ROM table by the shape of its entries and then every entry in WRAM]: on vanilla V1.0
+  the table at ROM `$4D596` and the header at WRAM flat `$11D9` — exactly the `.sym` addresses of
+  `Tilesets` and `wTileset` from our byte-identical build; on an Archipelago V1.0-base seed the table
+  at ROM `$4D46B` and the header at flat `$11E0`. Both builds: 37 entries, one WRAM match, stable
+  across six reads a second apart.
+- **Pointing the header's collision pointer (`wTilesetCollisionAddress`, flat `$11E0` vanilla /
+  `$11E7` Archipelago) at a table of our own changes what the player may walk on.** [seen on screen
+  2026-09-13 by the user, with `probes/noclip.lua` on both builds]: the player walked where the
+  original table blocks them.
+- **A map's outer edge stayed solid when every tile of the map had been opened that way.** [seen on
+  screen 2026-09-13 by the user]
+- **The CPU-visible WRAM zero run `$C8C0-$CD1F` is identical on vanilla V1.0 and the Archipelago
+  seed**, while every zero run at `$D000` and above moved between them. [measured 2026-09-13,
+  `probes/zero_runs_probe.lua`, ten seconds of re-reads with no byte of it changing]
+
 ## Known unknowns
 
 Open questions about **the game**, kept here so a later session can strike one through and point at
 the section that answered it rather than re-deriving that it was ever open.
 
-- **What decides the fourth gait on the Archipelago build.** Vanilla has three; the patched
-  cartridge has a fourth, which the drawn tier's plausibility test first rejected as a register
-  rebase. It is read correctly now, but what the game means by it is not established.
+- ~~**What decides the fourth gait on the Archipelago build.**~~ Answered 2026-09-13 in *How a
+  character crosses a tile*: it is the faster bike, and running uses group 2 with a sprite of its own.
+  What SELECTS either on that build was not measured and is not recorded here.
 - **Whether the object-struct layout is identical on every Archipelago seed**, or only on the two
   base patches looked at so far. Measured per build, never derived.
 - **Which colours a coloured Archipelago seed assigns, and where it writes them.** The
   clothing-colour mechanism was exercised with a probe rather than with a seed that chose colours.
 - **What Teleport does to the object arrays.** Fly and Dig are mapped; Teleport is not.
-- **RUNNING's gait on the Archipelago build** -- unmeasured, and named as open in the build story.
+- ~~**RUNNING's gait on the Archipelago build**~~ -- measured 2026-09-13: group 2, sprite `$65`
+  (*How a character crosses a tile*).
+- **Why a map's outer edge stays solid** when every tile inside the map reads as walkable, and what
+  one step past an edge with no neighbouring map would do.
+- **Whether a moving player ever turns before stepping**, and how long input stays locked after a turn
+  on the spot.
+- **What resets `wPlayerBGMapOffsetX/Y`**, and so what produces their 9% disagreement with `hSC`.

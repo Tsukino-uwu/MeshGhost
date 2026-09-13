@@ -50,6 +50,109 @@ being work. An entry still here has not been confirmed.
 
 ---
 
+## [READY] 2026-09-13 — the drawn ghost starts on its peer's first step, and faces where it is going (MEASURED, not yet judged)
+
+The user, two clients at 100Hz / `-interp=0ms`: moving *"looks kinda fine but its not as
+sharp/instant for the ghost compared to when a player does it"*. The move trace
+(`MESHGHOST_CRYSTAL_MOVE_TRACE`, both instances, wall-clock stamped, paired by
+`mvlag.py`-style matching of `S` and `R` lines) measured it before anything changed, on bike steps:
+
+| | Archipelago moves, vanilla watches | vanilla moves, Archipelago watches |
+|---|---|---|
+| peer's first engine pixel → TARGET arrives | 19ms | 31-32ms |
+| → MODEL first moves, before | 69ms | 64-65ms |
+| → MODEL first moves, after | 19-44ms (same frame as the target) | — |
+| model behind the peer while moving, before | mostly 8px | 4-8px |
+| model behind the peer while moving, after | 0-4px | — |
+
+**Cause:** `decideBoundary` committed a tile only when the target was 8px ahead from rest, or three
+strides ahead while walking — a cushion built against 15Hz / 450ms arrival jitter, and a delay added
+on purpose (Emerald's `drawnDelay` shape). **Fix:** commit on one stride of the peer's own gait, walking
+flag or not (the target is the engine's own position, so a stride of displacement is a step that has
+started). `MESHGHOST_CRYSTAL_LEGACY_CUSHION` restores the old thresholds for an A/B.
+
+**And the facing:** while a committed step is unfinished, the ghost faces that step's direction; the
+wire's facing only when the model is not stepping (a turn on the spot, a walk into a wall).
+`MESHGHOST_CRYSTAL_WIRE_FACING` reverts it.
+
+**What to look at:** start and stop on foot and on the bike, corners taken without stopping, and a
+long straight — against the player in the other window. Correct: the ghost starts and stops as
+sharply as the player, never faces the new way while still sliding the old way, and no stutter at
+tile boundaries appears (the stutter is what the cushion was built to hide). **Also still owed at
+shipped settings**: the cushion's reason was 450ms arrival jitter, so the netsim rig has to be
+looked at too before this is called done there.
+
+## [OPEN] 2026-09-13 — a brief flicker on the ghost when the WATCHER gets off the bike (future work, the user's call)
+
+The user, on vanilla after the stale-tile fix of the same day (`VERIFIED.md`): *"it flickers for a
+tiny bit when getting of the bike"*. **Never measured** — the sprite trace was armed for it and the
+run it covered contained no dismount. Candidates, none tested: the frames where `wUsedSprites` has
+changed and the VRAM tiles behind it are still being rewritten (the drawn tier validates only the
+FIRST tile against the cartridge before trusting VRAM, so a half-written sprite passes), or a frame
+where `residentSpriteTile` finds no entry and the ghost is not drawn at all. **The instrument is
+already built**: `MESHGHOST_CRYSTAL_SPRITE_TRACE` on the watcher, mount and dismount a few times with
+a peer's ghost on screen, and read which frames changed source, base or pixel signature. The user
+asked for it to be filed here and solved later.
+
+## [OPEN] 2026-09-13 — a walking peer seen by a watcher on a faster gait may move at the WATCHER's speed (read from code, unmeasured)
+
+The drawn model's per-frame budget on a camera frame is the camera's delta, raised to the peer's
+stride only while the peer reports walking. So when the watcher's camera moves faster than the peer
+walks — a walker watched from the bike — a committed step can advance 4px per beat where the peer
+moves 2. Read from `drawOverflow`, not traced. **To settle:** one client on the bike beside a walking
+one, `MESHGHOST_CRYSTAL_MOVE_TRACE` on the watcher, and the per-frame model deltas against the peer's
+gait. Do not change the budget before that trace: it was last reshaped for the turbo glide
+(2026-08-26) and a stationary peer's case depends on it.
+
+## [READY] 2026-09-13 — noclip rebuilt: walls, water and NPCs, doors kept, on both builds (MEASURED; used by the user)
+
+`probes/noclip.lua` now writes a FILTERED copy of the loaded collision table — the warp-family and
+grass values kept, everything else `$00` — into the last 512 bytes of `wOverworldMapBlocks`, only if
+they read zero, and sets `EMOTE_OBJECT` on NPCs within two tiles, standing down while any real
+decoration object exists. Archipelago addresses measured the same session (`VERIFIED.md`,
+agent-confirmed). The old version pointed at zeroes, and its header claimed doors still warped —
+never measured. Why each choice was made, and which of its premises are unmeasured: the tool's header.
+
+**Seen by the user:** it was used to walk around both games, and a map's outer edge stayed solid.
+**Not yet seen:** doors, stairs and caves warping with it on; NPCs walk-through; grass encounters;
+what happens on water while surfing. Each is also on the "to measure" list below.
+
+## [OPEN] 2026-09-13 — to measure: the player's step machine (read in the decomp as a map, not yet seen)
+
+Under the repo's rule since 2026-09-13 (`CLAUDE.md`, *Measured or observed only*), none of these is a
+fact until measured, so none is stated in `documentation.md`. Each line is a question, with where to
+look and the cheapest instrument. The move trace (`MESHGHOST_CRYSTAL_MOVE_TRACE`, `S` lines carry
+step type, action and face) answers most of them.
+
+- Does the bike keep ONE speed however long it is ridden, or does it accelerate? (walking byte over a
+  long straight ride)
+- On Route 17, is the bike's gait group 1 in every direction but down?
+- Is surfing group 1? Is getting onto the water one group-0 step, and leaving it a group-1 step?
+- Does a door, staircase or cave tile walk the player one tile down on arrival, at group 1?
+- Does holding any button change a vanilla step at all (no running)?
+- Is an object struct updated a frame or more before the sprites and scroll show it?
+- Do `wXCoord`/`wYCoord` change on a step's LAST tick, a tile after the object's map coordinates?
+- Is a new direction ignored until the current step ends?
+- Does the stride counter advance every four ticks and carry across steps, and does a stop always
+  settle on an even stride?
+- Does a scripted step given to an object other than `wCenteredObject` leave the camera still?
+- Does a MOVING player ever turn first? How many ticks is input locked after a turn on the spot?
+- `wPlayerBGMapOffsetX/Y`: when exactly is the pair zeroed? `documentation.md`'s camera section gives
+  a mechanism that was never measured (its 9% disagreement was).
+
+## [OPEN] 2026-09-13 — to measure: tile collision (read in the decomp as a map, not yet seen)
+
+- Does a tile whose map block id is 0 read as solid whatever the collision table says?
+- Is the strip around a map, on a side with no neighbouring map, block 0 in `wOverworldMapBlocks`?
+- What happens one step past such an edge — a connection to a map that does not exist? **Measure
+  from a savestate only**; do not walk a real save there.
+- Is all of `wOverworldMapBlocks` zeroed on a map load, and is its tail past the map's extent unused?
+- Does a warp fire only on the tile the player STANDS on, and only for collision values `$60`, `$68`
+  and `$70-$7F`? (With noclip's filtered table: walk onto a door.)
+- Does `$00` read as walkable floor, and is a wall blocked from one side only when its value says so?
+- Does setting `EMOTE_OBJECT` on an NPC let the player walk through it, and does an emote ending
+  delete every object carrying the bit? (The second one only from a savestate.)
+
 ## [READY] autostart looks only beside the script now, UNWATCHED (2026-09-11)
 
 The two `../` fallbacks are gone from `findCoreExe` — the release root three levels up and a source
@@ -2656,7 +2759,9 @@ later, which is three groups of four four-byte rows and not one byte more.
 **What RUNNING uses on that build was never measured.** The user reports the patch adds running as
 well as a second bike speed, and group 3 is the only gait vanilla does not have — but nothing here
 establishes which mode uses which gait, and no run was ever watched. Do not assume a gait for
-running; measure it the way the fourth gait was measured.
+running; measure it the way the fourth gait was measured. *Answered 2026-09-13: running is group 2
+wearing sprite `$65`, measured on the patched ROM; its ghost on a vanilla client was confirmed on
+screen the same day with the run art carried over the wire (`VERIFIED.md`).*
 
 ### What was built
 
@@ -2725,9 +2830,8 @@ and letting a vanilla and an Archipelago player share a room is the entire point
    bounded (the model tracks the peer's true position and snaps past 24px) so it will TRAIL rather
    than desync, but whether it trails visibly at 8px is a screen question and nothing else.
    **Do not tune a rate at it** — measure where the budget goes first.
-2. **That a running AP player's object actually carries a different sprite id.** Everything above
-   assumes it, from the shape of the repointed entries. One read of `OBJECT_SPRITE` while running
-   settles it, and it is a patched ROM, so the confirmation is mine.
+2. ~~**That a running AP player's object actually carries a different sprite id.**~~ Settled
+   2026-09-13: `$65`, read while running (`VERIFIED.md`, agent-confirmed on the patched ROM).
 3. **A vanilla client and an Archipelago client in one room.** Both halves of this work only exist
    for that session, and neither has been in one. Two machines, or two emulators with two cores.
 4. **That nothing changed on vanilla.** Nothing on a three-group cartridge ever writes index
