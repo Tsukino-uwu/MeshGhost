@@ -319,3 +319,9 @@ two negative-test fixtures prove it fails. The gaps above key level went to `tev
 **Left open.** A code-only push does not run the check in CI: `docs.yml` may not filter on adapter
 paths (the adapter-gate rule caught the attempt), so drift is caught by local preflight and
 `release.ps1`. `Plugin.cpp` comments still name `PLAYER_FIELDS.md`; changing them needs a rebuild.
+
+**Filed afterwards, same day.** Four follow-ups joined the "measured or observed only" audit in
+`status.md` with `hold to 2026-09-16` -- the user's timing, as their weekly usage limit runs out
+before then, and they asked that the items not age out. Preflight ages a status item by its newest
+date, so no gate changed; `status.md`'s header now says what the marker means. The subagent miscount
+became a pitfall (`pitfalls/by-lesson.md`, "A subagent's inventory of the wire was wrong twice").

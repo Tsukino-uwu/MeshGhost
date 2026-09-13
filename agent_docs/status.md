@@ -6,7 +6,7 @@ more than 2 days before this file's last commit fails preflight** — at this pr
 already not current on 2026-09-02 (user's call). At the start of a session re-date what is still current and move the rest to `plans.md`,
 `ideas.md`, the adapter's `UNVERIFIED.md` or `risks.md`; a quiet repo does not go red, because age is
 measured against this file's own last commit. Records are never listed here — `verified.md`, the phase
-files and each `VERIFIED.md` hold them. Why two lines and a date, not a total cap: [claude-md-cap.md](claude-md-cap.md).
+files and each `VERIFIED.md` hold them. Why two lines and a date, not a total cap: [claude-md-cap.md](claude-md-cap.md). **An item may say `hold to <date>`** when the user has scheduled it past the two days: preflight ages it by its newest date, so it stays until then, and only the user's call sets that date.
 
 ## Open now
 

@@ -7474,3 +7474,20 @@ to 808 and still passed.
 
 **The rule this adds:** a count that disagrees with a second instrument is the instrument's fault until
 shown otherwise -- and in `preflight.ps1`, never hand `git ls-files` a `*` glob.
+
+## A subagent's inventory of the wire was wrong twice, and read like a record (2026-09-13)
+
+**Symptom.** None, until the rows were written. Three read-only Explore passes listed every extras
+key per adapter with file:line citations for `SYNCED.md`. Their reports were precise enough to paste.
+
+**Cause.** An inventory is a summary written by something that did not have to be right: TEVI's
+report said 29 keys where the send code writes 26, and Crystal's framing implied peer values never
+reach game memory, when the spawned tier writes the peer's sprite and facing into the ghost's object
+struct. Both read as fact because they carried line numbers.
+
+**Fix.** Every row was re-read at its code site before it was written, which caught both; preflight's
+"SYNCED.md matches the send code" now extracts the keys from the source itself, so the count cannot
+come from a report again.
+
+**The rule this adds:** a delegated search is where to look, never what to write -- the same rule
+`CLAUDE.md` gives a decompilation, applied to our own agents. Re-read the site, then write the row.
