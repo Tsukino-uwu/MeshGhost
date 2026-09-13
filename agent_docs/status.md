@@ -12,7 +12,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 
 - 2026-09-13 — **CI: `core` under `-race` is at its 600 s package limit** — 402 s green (02:12), timed out, then 573 s green on re-run; no `core/` change. Next red is likely. CI run 34758790057.
 - 2026-09-13 — **Pseudoregalia: a costume the watcher owns but never WORE is unresolvable, and the retry is unbounded** (1,798 warnings/20 min). `pseudoregalia/UNVERIFIED.md`.
-- 2026-09-13 — **Pseudoregalia: a ghost SPAWN re-runs the local player's costume setup, copying a peer's swap onto the watcher** (5/5 measured). Not the materials fix (reverted, no change). `pseudoregalia/UNVERIFIED.md`.
+- 2026-09-13 — **Pseudoregalia: the outfit echo was the costume mod's save file shared by two games on ONE PC — not MeshGhost; the materials fix is restored.** `pseudoregalia/UNVERIFIED.md`, `running-the-rig.md`.
 - 2026-09-12 — **Review pass 3: all 17 cells have run (~74 claims); the transports cluster is fixed and the fuzz-coverage one is next.** 44 commits, nothing pushed. `REVIEW-FINDINGS.md`, `phases/phase10.md`.
 - 2026-09-12 — **A stock relay could not welcome the 6th player into a room of escaped names, on the default transport.** Fixed (`relay.sendBudget`); the measurement is in `verified.md`.
 - 2026-09-12 — **Three fuzz targets pointed at nothing; one is measured 0% → 89.7% on the code its own seeds describe.** Fixed, plus two new targets for the core's own sockets. `verified.md`.
