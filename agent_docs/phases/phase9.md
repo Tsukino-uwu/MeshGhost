@@ -1441,3 +1441,71 @@ what left the other two open. Found by the Lua-adapters cell of the third advers
 ## 2026-09-13 — the shared UNVERIFIED rule, no Crystal work
 
 Only this adapter's `UNVERIFIED.md` header changed, with the other three and the template: a user's confirmation of a dev-toggled behaviour settles the DEFAULT too, so it is not re-asked. Emerald's session is where it came from (`phase8.md`, 2026-09-13); nothing in Crystal was touched.
+
+## 2026-09-13 — the ghost moves when its peer does, runs across builds, turns on the spot; and a stricter evidence rule
+
+**The rig.** Two BizHawk windows in one room — vanilla V1.0 and an Archipelago seed on a V1.0 base —
+relay at 100Hz, both cores `-interp=0ms`, noclip on both. Asked for by the user to bring Crystal's
+movement to the 1:1 standard Emerald had reached the night before (`phase8.md`, 2026-09-13).
+
+**What was measured, fixed and confirmed**, each with its record:
+
+- **Sharpness.** The user: the ghost *"is not as sharp/instant"*. A new wall-clock move trace on both
+  instances measured the wire at 19-32ms and the drawn model's first move at 65-69ms; the cause was a
+  commit threshold and a walking cushion built for 15Hz / 450ms. Commit now happens on one stride; the
+  model moves on the frame its target arrives. The ghost also faces its committed step instead of the
+  wire's early facing. **Measured, not yet judged**, and still owed a netsim look (`crystal/UNVERIFIED.md`).
+- **Running on vanilla.** *"running in AP shows as being on a bike in vanilla"* — the watcher's own bike,
+  borrowed by a fallback. The runner's sprite (`$65`, gait group 2, measured on the patched ROM) now
+  travels over the wire from the runner's own cartridge, enforced to exactly those pixels. **Confirmed**:
+  *"it works"*. The user asked for the enforcement: *"make sure to properly clamp/validate/enforce so its
+  specifically that and nothing else"* (`crystal/FLAGS.md`, `WIRE_ART`).
+- **Bike pixels after dismounting**, down-facing only, cleared by a reload: an index-keyed tile cache.
+  Keyed by content now. **Confirmed**: *"works now"*. A brief flicker at the dismount itself is filed for
+  later, the user's call.
+- **Turning in place** snapped: the ghost gated the stepping pose on motion. Drawn from the face byte now.
+  **Confirmed**: *"Yee it works for both"*. The trace also showed a turn is a STEP, not a SPIN, which
+  corrected `crystal/documentation.md`.
+- **noclip** rebuilt for walls, water and NPCs on both builds, after measuring the Archipelago build's
+  tileset header by matching ROM table entries in WRAM with a vanilla self-check. The user found a map
+  edge stays solid.
+
+**Three agents ran read-only research**: the Crystal adapter against Emerald's fixes, the decompilation's
+movement model, and the Archipelago build's running and faster bike. Nothing from the last was written to
+the repo; the running facts recorded here were measured on the ROM.
+
+**The rule that came out of the records pass.** Documentation was first written from the decompilation,
+reworded with a citation per claim. The user stopped it: *"i don't want to just slightly alter
+words/descriptions from a decomp and then call it a day as 'good enough' when we haven't actually measured
+or observed by ourself"*, and set that repo-wide. Worked out together the same hour: a claim is a fact
+only when it names our own dated evidence; a source is where to look; short names may point; a
+byte-identical build's `.sym` proves an address, not a meaning; API docs say how to call, not what a
+call does. `CLAUDE.md`, `agent_docs/licensing.md`, `_template/documentation.md`, and a preflight ratchet.
+Also the user's: `documentation.md`, the adapter README, `BANDAGES.md` and player-facing schema docs
+are user-facing and carry no working notes (`adapters/CLAUDE.md`). **The audit of everything written
+before the rule is queued** (`status.md`).
+
+**Worth checking in Emerald, by the sibling rule**: whether its painted tier caches decoded tiles by
+slot, whether a peer with an unportable look falls back to the watcher's, and whether a turn on the spot
+is drawn. None has been looked at.
+
+Lessons: `pitfalls/by-lesson.md`, four entries of this date. Methods: `_template/probes.md`.
+
+**The audit, where to start** (queued for the next session; the rule is `CLAUDE.md`'s *measured or
+observed only*):
+
+1. The two preflight ratchets name the floor: 5 uses of the retired `[from the decomp]` label (4 in
+   `crystal/documentation.md`, 1 in `emerald/documentation.md`), and 38 + 20 source-file citation lines
+   in Crystal's and Emerald's `documentation.md`. Each line is either backed by our own dated
+   measurement, or moved to that adapter's `UNVERIFIED.md` as a question — and the ratchet lowered.
+2. Emerald's `documentation.md` sections written from the decompilation (the bikes, surf, dive and fly
+   section of 2026-09-13; the boat section) and its header's label vocabulary.
+3. Source-cited claims in adapter code comments (`meshghost_emerald.lua`, `meshghost_crystal.lua`, the
+   probes' headers), `VERIFIED.md`/`UNVERIFIED.md` bodies and `pitfalls/`.
+4. The other two games' outside sources, under the same test.
+
+**Found on the way out, not this session's doing:** preflight's "No reproduced expression ANYWHERE"
+section, written the previous session, listed files with `git ls-files '*.md'` — which on this machine
+resolves `git` to the MSYS2 copy and expands `*.md` to the two root files. It scanned 626 files and 2
+of the 184 Markdown files; filtered from the plain listing it scans 808 and still passes. The trap was
+already documented at the top of `preflight.ps1` (`$trackedMd`).

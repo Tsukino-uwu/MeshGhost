@@ -1867,6 +1867,12 @@ The tempting fix — hide the sword when the watcher has not got one — is exac
 broken, and it would have hidden the real defect (the wrong value being SENT, because
 `weaponEquipped?` means "in hand" rather than "owned"). `pseudoregalia/UNVERIFIED.md` has the trail.
 
+**The same rule covers a LIVE peer whose appearance this client cannot reproduce: never borrow the
+watcher's.** Crystal, 2026-09-13: a runner's sprite had no counterpart on the watching cartridge, the
+fallback wore the watcher's own live sprite, and the ghost rode the watcher's bike. Fall back to the
+peer's own last good look; carry what is missing from the peer if it matters, validated to exactly
+that and nothing else (`crystal/FLAGS.md`, `WIRE_ART`).
+
 ## Hard rule: every field in a `render_remote` came from a stranger — treat it that way
 
 The core bounds what it forwards (sizes, finite positions, a roster cap of 512 ids, sanitized
@@ -2093,6 +2099,13 @@ order that works:
 3. **What reaches the screen?** Only then the painted result.
 
 Measuring (3) first is the natural instinct and it cannot distinguish any of the four.
+
+**Two more from Crystal, 2026-09-13, both answered at step 1 or 2 with the renderer untouched until
+then.** A ghost that felt late: the wire delivered the peer's first pixel in 19-32ms and the model moved
+at 65-69ms, so the delay was a threshold in step 2. A turn that snapped: every frame of the engine's own
+turn pose was arriving, and step 2 gated it away. **If the engine sends the frame it draws, draw that
+frame. And a cache of decoded graphics is keyed by the pixels, never by the slot** — a slot rewritten a
+moment after its record changes serves the old art forever.
 
 **Step 0 separates a DELIVERY fault from a PRODUCTION one with one number, and nobody has to watch a
 screen: movement per sample either side of the wide gaps.** A slow frame rate moves the character

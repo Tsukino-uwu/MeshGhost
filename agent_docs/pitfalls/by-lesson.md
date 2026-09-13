@@ -7374,3 +7374,103 @@ one I did not. After an edit to a live file, the question is not "did my change 
 file still do what it did before, plus my change" -- and the cheapest proof is the thing the file
 produces: a load line, a return value, a parse.
 
+## Crystal: the ghost's lag was a cushion we built, and two instances' clocks proved it before anything changed (2026-09-13)
+
+**Symptom.** Two clients at 100Hz / `-interp=0ms`, vanilla and Archipelago: moving *"looks kinda fine
+but its not as sharp/instant for the ghost compared to when a player does it"*.
+
+**The method, which is the transferable part.** No single emulator can time a ghost against the player
+it copies -- the player is in the OTHER window. So the adapter gained a per-frame trace
+(`MESHGHOST_CRYSTAL_MOVE_TRACE`) with the WALL CLOCK on every line: `S` lines for what one engine sends,
+`R` lines for what the other receives and does with it. Paired by time
+(`crystal/probes/movetrace_pair.py`), the numbers split the delay into its owners at once: the wire
+delivered the peer's first engine pixel in 19-32ms, and the drawn model first moved at 65-69ms.
+
+**Cause.** `decideBoundary` waited for the target to be 8px ahead from rest and kept a three-stride
+cushion while walking -- both written against 15Hz / 450ms arrival jitter. Emerald's `drawnDelay` was the
+same shape the night before: a delay added on purpose, masking everything under it.
+
+**Fix.** Commit on one stride of the peer's own gait; the model now moves on the frame its target
+arrives, 0-4px behind the peer instead of 8. The old thresholds stay behind a dev global for an A/B.
+
+**The rule this adds:** when a renderer feels late, time it against the SOURCE on a shared clock before
+reading its code -- the pair of numbers (wire vs model) names the owner, and a deliberate threshold is
+the first suspect.
+
+## Crystal: a cache keyed by WHERE served old pixels, and a fallback that read the watcher made the ghost copy them (2026-09-13)
+
+**Symptom 1.** An Archipelago runner seen from vanilla *"shows as being on a bike"* -- and the vanilla
+player was on one. **Cause:** the run sprite's id means different graphics on the two cartridges, the
+per-id gate correctly dropped it, and the drawn tier's last resort was the WATCHING player's live
+sprite. That is the 2026-08-26 "ghost mimics the local player" fault, surviving in the one case the gate
+still drops. **Fix:** the peer's own last portable sprite first, the run art over the wire for the real
+thing.
+
+**Symptom 2.** After the vanilla player dismounted, the peer's walking ghost *"looks as if its on a
+bike"*, *"only when facing down"*; reloading the adapter cleared it. **Cause:** VRAM decodes were cached
+by tile INDEX and cleared when `wUsedSprites` changed -- and a tile decoded between that record changing
+and the new pixels landing kept the old art forever. One direction only, because only its tiles were
+decoded in that window. The surf blob hit the same cache on 2026-08-25, and the fix then (clear on the
+record) left this gap. **Fix:** key each VRAM decode by the tile's own 16 bytes.
+
+**The rules this adds:**
+
+- **A fallback for a peer must never read the watcher's own live state.** It will be wrong in exactly the
+  case it exists for, and it looks like the peer doing what the watcher does.
+- **Cache decoded pixels by their CONTENT, never by the slot they were read from.** Invalidating on a
+  signal that the slot changed races the write that changes it.
+- **"A reload fixes it" is a cache, and nothing else.** Stop theorising about the renderer.
+
+## Crystal: a turn animation that arrived every frame and was never drawn (2026-09-13)
+
+**Symptom.** *"facing direction animations are not synced at all currently (ghosts just looks at the
+direction instantly)"*.
+
+**What found it.** `probes/turn_drive.lua` turned the sender on the spot, holding a direction only
+until the engine's own direction byte changed; the trace put the sender's face bytes (`08` x3, `0D` x8,
+`0E` x2, `0C`) beside the receiver's pose. The receiver had every byte on time and drew
+`stepping=false` throughout.
+
+**Cause.** The stepping view was gated on the peer MOVING -- a rule written so a stopped peer's stale
+stride would not show -- and a turn on the spot never moves. `documentation.md` also said a turn was a
+`SPIN`; the trace showed the STEP action and a direct switch.
+
+**Fix.** Draw the face byte's stride verbatim; the core takes extras from the same snapshot as the
+position, so it is in step at any interpolation delay.
+
+**The rule this adds:** when the engine sends the frame it DRAWS, draw that frame. A gate that infers a
+pose from motion will hide every animation that does not move.
+
+## Five of mine from the same session, and the rule the user made of the last (2026-09-13)
+
+1. **Two instances loaded the same probe in the same second and wrote one log file.** The Archipelago
+   run overwrote the vanilla self-check; it had to be re-run on one window. Name a probe's log by
+   build or bridge port, never by the second alone.
+2. **A driver pressed the d-pad in a window the user was using** -- they were loading savestates, and the
+   trace's frame counter jumping was the only sign. Ask, or check the frame counter, first.
+3. **A wait loop grepped the wrong field** (`walk=` for `dir=`) and ran to its three-minute timeout
+   instead of firing. Test a wait condition against the log once before trusting it to wake you.
+4. **noclip's first version pointed collision at zeroes, and its header said "a door still warps you"**
+   -- never measured. It is how the rebuilt tool kept the warp values, and why its header now marks
+   every unmeasured premise.
+5. **Crystal documentation written from the decompilation, reworded, one file citation per claim.**
+   The user: *"i don't want to just slightly alter words/descriptions from a decomp and then call it a
+   day as 'good enough' when we haven't actually measured or observed by ourself."* That became
+   `CLAUDE.md`'s **measured or observed only -- nothing borrowed** (`agent_docs/licensing.md` has the
+   cases), and every section written that way this session was cut to what we measured.
+
+## A licensing gate that scanned 2 Markdown files of 184, because `git` in PowerShell is MSYS2's (2026-09-13)
+
+**Symptom.** None visible: preflight's "No reproduced expression ANYWHERE" section passed. A new
+ratchet written beside it the next session reported 0 uses of a label `git grep` found 5 times.
+
+**Cause.** PowerShell resolves `git` to devkitPro's MSYS2 copy, whose runtime glob-expands `'*.md'` to
+the two root-level files before git sees the pathspec. `preflight.ps1` already documents this at its
+top and lists Markdown through `$trackedMd` for exactly this reason; the section added on 2026-09-13
+used the glob anyway. `*.lua` and `*.go` survived only because no file matches them at the root.
+
+**Fix.** Filter the plain `git ls-files` listing instead of passing globs. The gate went from 626 files
+to 808 and still passed.
+
+**The rule this adds:** a count that disagrees with a second instrument is the instrument's fault until
+shown otherwise -- and in `preflight.ps1`, never hand `git ls-files` a `*` glob.

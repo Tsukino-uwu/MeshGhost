@@ -40,7 +40,9 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 - 2026-09-11 — **The disarmed-probe WARN prints 21 entries every run**, so nobody reads it; ratchet it like the fence check. `preflight.ps1`.
 - 2026-09-11 — **Replay/chaser ghosts are UNWATCHED in TEVI, Emerald and Crystal** — client-made, so they should just work; `docs/` no longer claims either way. Each `UNVERIFIED.md`.
 - 2026-09-11 — **`Plugin.cpp` still says `session_policy` is "honoured by zero of four"** (two read it now). Untouched on purpose: editing it marks the committed DLL stale.
-- 2026-09-12 (01:30) **Nothing is running** — Emerald emulators/cores torn down, verified gone. **TEVI is HOT-RELOAD: `-Off` before a real confirmation.** `running-the-rig.md`.
+- 2026-09-13 **Nothing is running** — Crystal rig down, loader targets `none`. **TEVI is HOT-RELOAD: `-Off` before a real confirmation.** `running-the-rig.md`.
+- 2026-09-13 — **AUDIT QUEUED: "measured or observed only" for all pre-rule content** — start at the two preflight ratchets. `phases/phase9.md`, `licensing.md`.
+- 2026-09-13 — **Crystal: ghost starts on the peer's first step — MEASURED, NOT JUDGED**, owed netsim; dismount flicker filed for later. `crystal/UNVERIFIED.md`.
 
 **Trimmed 2026-09-11 back to what this file is for** — short-term memory, not a progress log
 (the user's call). Eighteen items left: eleven had been carried across sessions marked *"still open,

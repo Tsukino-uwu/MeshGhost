@@ -7,6 +7,7 @@
 - **When a change does nothing, read the loader log for `LOAD FAILED` and per-tick errors BEFORE anything else** — an unloaded adapter looks like a dead relay.
 - **Declare a `local` above every use, in file scope and inside a function** — preflight's "Lua globals resolve" now fails it; `luac -p` never could.
 - **Absence of output is not absence of pixels**: clear the overlay on every exit path. And `a and b or c` is not a ternary for a boolean.
+- Cache decoded pixels by their CONTENT, never by the slot they came from; a peer's fallback never reads the watcher's live state (Crystal, 2026-09-13) — [by-lesson.md](../pitfalls/by-lesson.md)
 
 ## Every lesson filed here
 

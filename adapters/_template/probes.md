@@ -2386,3 +2386,23 @@ its field. Stage 2, a separate reload once that file is on disk, makes the calls
 mapped key, each path disarming itself on its first Lua error. What the pawn already latches, what
 the engine can be asked, and what is opaque to the script host (a struct with no reflected fields
 comes back empty) fall out as three columns. `adapters/pseudoregalia/probes/probe_inputcensus/`.
+
+## Time a ghost against its player on the WALL CLOCK, across two instances (Crystal, 2026-09-13)
+
+A ghost's lag cannot be read in one emulator: the player it copies is in the other window, and two
+emulators' frame counters share nothing. So stamp every trace line with the wall clock (Crystal's
+`MESHGHOST_CRYSTAL_MOVE_TRACE` uses LuaSocket's `gettime`), write one line per frame for what the
+SENDER's engine produced and one per frame per peer for what the RECEIVER got and did, and pair the
+two files by time afterwards (`crystal/probes/movetrace_pair.py`). For each start of motion it gives
+two numbers — the wire's delay and the renderer's — and the difference names the owner. It found a
+three-frame renderer delay behind a feeling of *"not as sharp"*, and the same trace later put a turn's
+face bytes beside the pose drawn, frame for frame. Budget it: ~39MB per instance in a two-hour session.
+
+## Find a struct on a patched build by matching a ROM table in RAM, self-checked on the stock build (Crystal, 2026-09-13)
+
+When a patch moves memory non-uniformly, no neighbour's offset carries over — but a structure the game
+COPIES from a ROM table is findable exactly: find the table in ROM by the shape of its entries, then look
+for any whole entry byte-for-byte in RAM. Fifteen specific bytes do not match by accident. **Run it on
+the stock build first**, where a byte-identical build's `.sym` knows the answer; a probe that
+reproduces that is a measurement on the patched one. `crystal/probes/tileset_header_probe.lua` found
+the loaded tileset header this way (vanilla `$11D9`, Archipelago `$11E0`), one match on each build.
