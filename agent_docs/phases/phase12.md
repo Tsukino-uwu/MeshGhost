@@ -294,3 +294,28 @@ instrument-integrity cell of the review. Commit `41972ff9`, with the `/adversari
 ## 2026-09-13 — preflight learns to look for reproduced expression anywhere
 
 The fenced-block check watches `documentation.md`; the violation it was written for landed in a Lua COMMENT in the Emerald adapter instead — three verbatim lines of decompiled C, caught by the user asking rather than by any gate. A new section greps tracked text for the SHAPE of reproduced source (a decomp-style typed declaration, a pointer-typed struct), deliberately narrow so prose arrows like `spawn -> OAM -> drawn` do not bury it: measured over the tree, the narrow form finds five lines, four of them real. It FAILS rather than warns, because licensing is the one rule with no judgement call in it. Also: `/config.json` ignored (a developer rig's own core config, beside the `dev-scripts/config.json` rule it mirrors), and `dev-scripts/README.md` now documents the session toggles.
+
+## 2026-09-13 — SYNCED.md: a page per adapter that is also the guard checklist
+
+**What the user asked.** Why only Pseudoregalia had `PLAYER_FIELDS.md`, and whether every adapter
+should have a schema of what it sends. It was a mix of a synced-keys table, a field map and
+investigation history. Decided together: a new mandated file, `SYNCED.md` (the user picked the
+name), **user-facing** like the README, documentation and bandage register, laid out as a short
+summary table per group plus a fold-out details table (the user's pick from three mock-ups), with
+*Read from* naming the game's field and our function, never a line. The user then noted it doubles
+as the dev's checklist that every value has a clamp or guard, which became the design: a
+*Checked on arrival* cell is mandatory, and an unguarded value says `not checked yet`.
+
+**What was done.** Template first (`3dab00d5`), then Pseudoregalia with `PLAYER_FIELDS.md` split
+into it and `documentation.md` (`fc3872f6`), TEVI (`51711511`), Crystal (`67602b58`), Emerald
+(`70b144bd`), each written from the send and receive code rather than from records. Three Explore
+passes did the first inventory; every row was re-read at its code site, and that caught the passes
+out twice (TEVI sends 26 extras, not 29; Crystal writes more than the action into ghost memory).
+Preflight's new section (`a7cd1ebf`) holds 97 keys to their pages both ways, pairs each summary
+with its details, refuses an empty check cell and ratchets `not checked yet` at 6 / 20 / 2 / 1;
+two negative-test fixtures prove it fails. The gaps above key level went to `tevi/` and
+`pseudoregalia/UNVERIFIED.md` as OPEN (`ee43ebd7`).
+
+**Left open.** A code-only push does not run the check in CI: `docs.yml` may not filter on adapter
+paths (the adapter-gate rule caught the attempt), so drift is caught by local preflight and
+`release.ps1`. `Plugin.cpp` comments still name `PLAYER_FIELDS.md`; changing them needs a rebuild.
