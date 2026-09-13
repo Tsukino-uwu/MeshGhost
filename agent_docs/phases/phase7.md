@@ -3750,3 +3750,13 @@ decline on the materials fix stays attributable.
 the local pawn, single client, no relay), `inspect.lua` (binding + materials + visibility, ghost
 and player), `materials.lua` (per-slot material origin — the one that found it), `meshfns.lua`
 (the full 380-name function dump that confirmed this build has **no** `EmptyOverrideMaterials`).
+
+## 2026-09-13 (after v1.2.9) — the materials fix regressed and is reverted
+
+The user, on v1.2.9: *"whenever a player swap outfit it applies to other clients/players now, not
+just the ghosts"*. v1.2.9's DLL carried exactly one behaviour change over v1.2.8 (the config commit
+only corrected two comments in `Plugin.cpp`), so the `Plugin.cpp` half of `d133352b` was
+reverse-applied and rebuilt rather than a second guess stacked on the first; probes and records
+stay. Mechanism unmeasured; the leading theory and what the next attempt must do differently are in
+`UNVERIFIED.md`. The lesson for the record: the fix was released unwatched on the user's explicit
+call, and a change to what one ghost DRAWS was never judged with two real players before it shipped.
