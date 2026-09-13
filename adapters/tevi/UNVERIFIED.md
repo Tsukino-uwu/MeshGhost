@@ -752,3 +752,20 @@ out-of-range double into infinity without throwing, and a NaN there froze that o
 Animator. Built with `build-tevi.bat` and deployed to both installs 2026-09-02. A normal session
 cannot produce a non-finite value, so the watch is only "ghost animation phase and pause still
 behave as on 2026-09-01". ADR 0044, `docs/security.md`.
+
+## [OPEN] the unguarded values SYNCED.md lists, plus three whole-message gaps it cannot show (2026-09-13)
+
+Every per-key and per-cell gap is a `not checked yet` row in [SYNCED.md](SYNCED.md) (20 today;
+preflight ratchets the count). Three gaps live above the key level and are recorded here instead,
+read off the code 2026-09-13:
+
+- **One wrong-type scalar drops the whole update.** `DrainInto` casts `room_x`, `trail`, `vfx_seq`
+  and the other scalars with `(int?)`/`(bool?)` inside one object initializer, so text where a number
+  belongs throws and the `catch` skips the message -- contradicting the comment above the parsers
+  that one bad field must not cost the message.
+- **The extras soft cap trims only bullets and counts characters, not bytes.** A frame over it with
+  no `bul`/`buld` goes out whole, and a non-ASCII controller or clip name is under-counted.
+- **Comments disagree with the code:** `BridgeClient.cs` describes bullet rows as 13 cells in a
+  300 ms ring; the code sends 15 cells in a 150 ms ring.
+
+Each fix is a `*.cs` change: rebuild, deploy, and a watched session.

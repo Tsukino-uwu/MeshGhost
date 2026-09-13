@@ -3204,3 +3204,19 @@ absent on this same build and fell back to plain `Deactivate` (logged, 2026-09-0
 comment in `Plugin.cpp` rests on it). Two lookup mechanisms, one build, opposite answers. Neither is
 established as right yet — and the C++ side's conclusion is load-bearing for the glow teardown, so
 this is worth an hour before anything else trusts either lookup.
+
+## [OPEN] the unguarded values SYNCED.md lists, plus two whole-message gaps it cannot show (2026-09-13)
+
+Every per-key gap is a `not checked yet` row in [SYNCED.md](SYNCED.md) (6 today; preflight
+ratchets the count): `h_speed`/`v_speed` reach the ghost's properties unbounded, and
+`json_vec3_member` does not refuse `1e999`, so `weapon_pos`/`weapon_rot`/`prj_pos`/`prj_rot` can
+carry an infinity to a transform. Two gaps sit above the key level, read off the code 2026-09-13:
+
+- **A remote trace casts unclamped doubles to `int`** (`static_cast<int>(remote.target_move_state)`
+  and two siblings in the TRACE line) -- undefined behaviour on an out-of-range value, reachable only
+  while the remote trace is armed.
+- **The extras line has no runtime size check.** The six asset-path strings are unbounded, so a
+  modded asset with a long path could push the update past the 1024-byte cap and have it dropped.
+
+Plugin.cpp still names the deleted `PLAYER_FIELDS.md` in a dozen comments; fold the repoint into
+the next rebuild. Each fix is a `Mod/src` change: `build-pseudoregalia.bat`, deploy, a watched session.
