@@ -10,7 +10,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 
 ## Open now
 
-- 2026-09-13 — **Every adapter has a SYNCED.md now, and 29 values arrive unguarded** (`not checked yet`: Pseudoregalia 6, TEVI 20, Crystal 2, Emerald 1; preflight ratchets each). Each `SYNCED.md`; whole-message gaps in `tevi/`, `pseudoregalia/UNVERIFIED.md`.
+- 2026-09-13 — **Every adapter has a SYNCED.md; 29 values arrive unguarded** (6/20/2/1, ratcheted). Each `SYNCED.md`, `phases/phase12.md`.
 
 - 2026-09-12 — **Review pass 3: all 17 cells have run (~74 claims); the transports cluster is fixed and the fuzz-coverage one is next.** 44 commits, nothing pushed. `REVIEW-FINDINGS.md`, `phases/phase10.md`.
 - 2026-09-12 — **A stock relay could not welcome the 6th player into a room of escaped names, on the default transport.** Fixed (`relay.sendBudget`); the measurement is in `verified.md`.
