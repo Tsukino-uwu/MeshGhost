@@ -10,6 +10,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 
 ## Open now
 
+- 2026-09-13 — **CI: `core` under `-race` is at its 600 s package limit** — 402 s green (02:12), timed out, then 573 s green on re-run; no `core/` change. Next red is likely. CI run 34758790057.
 - 2026-09-13 — **Pseudoregalia: a costume the watcher owns but never WORE is unresolvable, and the retry is unbounded** (1,798 warnings/20 min). `pseudoregalia/UNVERIFIED.md`.
 - 2026-09-13 — **Pseudoregalia: the outfit-swap-during-hurt glitch is stranded override materials; fixed and deployed, UNWATCHED.** `pseudoregalia/UNVERIFIED.md`, `probes/probe_outfitswap/`.
 - 2026-09-12 — **Review pass 3: all 17 cells have run (~74 claims); the transports cluster is fixed and the fuzz-coverage one is next.** 44 commits, nothing pushed. `REVIEW-FINDINGS.md`, `phases/phase10.md`.
