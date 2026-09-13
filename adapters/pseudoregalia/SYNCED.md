@@ -179,9 +179,9 @@ No health value is sent: only the moments you are hurt or die.
 
 | Key | Type | Read from | Checked on arrival |
 | --- | --- | --- | --- |
-| `hurt_count` | running total | each drop of `CurrentHp` (`game_thread_tick`) | kept to 0–1,000,000,000; acts only when it rises; a new ghost starts from the first value |
-| `death_count` | running total | each time `CurrentHp` reaches 0 (`game_thread_tick`) | kept to 0–1,000,000,000; acts only when it rises; a new ghost starts from the first value |
-| `blink_count` | running total | stays 0 while `MIRROR_PLAYER_BLINK` is off (`game_thread_tick`) | kept to 0–1,000,000,000 |
+| `hurt_count` | running total | each drop of `CurrentHp` (`game_thread_tick`) | a number from 0 to 1,000,000,000, anything else reads as 0; acts only when it rises; a new ghost starts from the first value |
+| `death_count` | running total | each time `CurrentHp` reaches 0 (`game_thread_tick`) | a number from 0 to 1,000,000,000, anything else reads as 0; acts only when it rises; a new ghost starts from the first value |
+| `blink_count` | running total | stays 0 while `MIRROR_PLAYER_BLINK` is off (`game_thread_tick`) | a number from 0 to 1,000,000,000, anything else reads as 0 |
 | `prj` | 0 or 1 | the player's own `PRJ_PlayerCutter_C` shot, while it is active (`game_thread_tick`) | on only if `prj_pos` and `prj_rot` also read |
 | `prj_vfx` | text, asset path | the shot's effect asset (`game_thread_tick`) | at most 512 bytes, only an asset your own game has loaded |
 | `prj_pos` | list of 3 numbers, 1 decimal | the shot's location (`game_thread_tick`) | not checked yet |
