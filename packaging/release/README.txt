@@ -45,8 +45,8 @@ SETUP
    "client":
 
        "connect_to"  the host's address, which they will give you
-       "room"        a word your whole group agrees on
-       "name"        your nametag (leave empty for none)
+       "room_name"   a word your whole group agrees on
+       "player_name" your nametag (leave empty for none)
 
    Keep the quotes and commas exactly as they are, and save as UTF-8.
 
@@ -64,7 +64,7 @@ HOSTING
 -------
 Double-click meshghost-server.exe and leave the window open. It prints
 what to forward on your router when it starts. Give your friends the
-address it shows, and the "room" word.
+address it shows, and the "room_name" word.
 
 If you cannot forward ports, docs\hosting.txt covers the alternatives.
 

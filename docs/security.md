@@ -472,7 +472,7 @@ messages against a flood of broadcasts, and the trade section of a resume overru
 world, lease and position sections share.
 
 **Where you connect is no longer live-editable.** Saving `config.json` still applies your name,
-colours, smoothing, chaser, replay and hotkey settings without a relaunch — but `connect_to`, `room`
+colours, smoothing, chaser, replay and hotkey settings without a relaunch — but `connect_to`, `room_name`
 and `room_code` now wait for one. A live re-read meant any other program on your PC able to write
 that file could move you into someone else's room while you played, with nothing on screen saying
 so. The counter-argument, that such a program could kill the client anyway, argues one hole is no

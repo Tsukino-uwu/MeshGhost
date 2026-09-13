@@ -68,7 +68,7 @@ Setup, once more -- the client and its settings go in the GAME'S OWN FOLDER:
    up top. meshghost.log and the replay\ folder appear next to them, so everything you would
    ever open is in one place. Copy meshghost.exe again whenever you update MeshGhost.
 
-4. Open that config.json and set "connect_to" to your host's address, plus "room" and "name".
+4. Open that config.json and set "connect_to" to your host's address, plus "room_name" and "player_name".
    This is the file the client reads -- NOT the config.json left in the folder you unzipped.
 
    Do you have to let the game start the client? No. Leave "autostart": true and the mod

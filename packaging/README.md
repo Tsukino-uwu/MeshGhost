@@ -159,7 +159,7 @@ fix this from the client side; the
 only mitigation is telling hosts plainly to update the relay, not just the client, before
 relying on a room code.
 
-`"room"` remains real functionality (lets multiple groups share one server without seeing each
+`"room_name"` remains real functionality (lets multiple groups share one server without seeing each
 other) but is still not itself a secret — it's a label, checked for equality but not
 constant-time-compared or meant to be hard to guess. `room_code` is the actual secret.
 

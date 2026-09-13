@@ -35,7 +35,7 @@ Then, in order:
 
 1. **Check `connect_to` matches the host's real address exactly.** Typos here are the single most
    common cause of "nothing happens".
-2. **Check everyone typed the same `room`.** You only ever see people in your room. It is
+2. **Check everyone typed the same `room_name`.** You only ever see people in your room. It is
    case-sensitive.
 3. **Check the host has their port open** — see [hosting.md](hosting.md). That is their setup, not
    yours. If one person can connect and another cannot, suspect the transport they are on: a

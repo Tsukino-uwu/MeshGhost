@@ -788,7 +788,7 @@ there on the user's explicit instruction, 2026-08-17.
   - `dlls\main.dll` ← `dev-scripts\build-pseudoregalia.bat` output, staged under
     `packaging\release\games\pseudoregalia\…\MeshGhostPseudo\dlls\main.dll`
   - `meshghost.exe` ← the repo-root client, rebuilt with `go build -o meshghost.exe ./cmd/meshghost`
-  - `config.json` — the mod's OWN client settings (`connect_to`, `transport`, `room`, `interp`).
+  - `config.json` — the mod's OWN client settings (`connect_to`, `transport`, `room_name`, `interp`).
     Not the release-folder `config.json`; the mod starts the client and points it at this one.
 
   **Copying only the DLL is the mistake to avoid**, and it fails in a way that does not look like

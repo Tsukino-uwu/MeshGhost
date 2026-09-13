@@ -175,7 +175,7 @@ func (w *configWatcher) poll() {
 // changed, and logs it.
 func (w *configWatcher) reload() []string {
 	next := w.base
-	applyFileConfig(w.path, w.explicit, next.targets())
+	loadClientConfig(w.path, w.explicit, next.targets())
 	lines := applyLive(&w.prev, &next, w.c, w.rebind)
 	if len(lines) == 0 {
 		log.Printf("meshghost: config.json was saved with no client setting changed")
@@ -274,7 +274,7 @@ func applyLive(prev, next *liveValues, c *core.Core, rebind func([]hotkeyBinding
 	//
 	// The rest of this file exists because editing config.json and having it
 	// take effect is a good thing -- names, colours, toggles and hotkeys all
-	// apply without touching the game. connect_to, room and room_code are the
+	// apply without touching the game. connect_to, room_name and room_code are the
 	// exception: a live re-read means anything on this machine that can WRITE
 	// this file can move a running session onto a relay of its choosing, in the
 	// couple of seconds before the next poll, with the player still playing and
@@ -293,15 +293,15 @@ func applyLive(prev, next *liveValues, c *core.Core, rebind func([]hotkeyBinding
 	// edits the relay address and sees nothing happen has been given a puzzle.
 	const relaunchToMove = "needs the client relaunched -- where you connect is deliberately not live-editable"
 	changed("connect_to", prev.relayAddr, next.relayAddr, relaunchToMove)
-	changed("room", prev.room, next.room, relaunchToMove)
+	changed("room_name", prev.room, next.room, relaunchToMove)
 	changed("room_code", prev.roomCode, next.roomCode, relaunchToMove)
 
 	// Connection: a fresh Hello is the only way these take effect, so the
 	// core leaves the session and rejoins with them -- to the SAME relay and
 	// room, which are carried over from what is live rather than from the file.
 	conn := false
-	conn = changed("name", prev.name, next.name, "rejoining") || conn
-	conn = changed("name_color", prev.nameColor, next.nameColor, "rejoining") || conn
+	conn = changed("player_name", prev.name, next.name, "rejoining") || conn
+	conn = changed("player_name_color", prev.nameColor, next.nameColor, "rejoining") || conn
 	conn = changed("max_receive_hz_per_player", prev.maxReceiveHz, next.maxReceiveHz, "rejoining") || conn
 	conn = changed("offline", prev.offline, next.offline, "applied") || conn
 	if conn {

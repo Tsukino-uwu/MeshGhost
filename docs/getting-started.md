@@ -123,16 +123,17 @@ mod. Notepad is fine.
 In the `"client"` section near the top, set three things:
 
 ```json
-"connect_to": "the host's address, which they will give you",
-"room":       "a word your whole group agrees on",
-"name":       "what you want on your nametag"
+"connect_to":  "the host's address, which they will give you",
+"room_name":   "a word your whole group agrees on",
+"player_name": "what you want on your nametag"
 ```
 
 - **`connect_to`** — whoever is hosting gives you this. It looks like `203.0.113.40:7777`. The
   prefilled `127.0.0.1:7777` means "my own computer", so leave it only if you are also the host.
-- **`room`** — any word, as long as everyone types the *same* word. You only ever see people in
+- **`room_name`** — any word, as long as everyone types the *same* word. You only ever see people in
   your room.
-- **`name`** — optional. Blank means no nametag is drawn above your ghost.
+- **`player_name`** — optional. Blank means no nametag is drawn above your ghost, and so does the
+  placeholder word `nickname` the file ships with — it is there to show what goes in the field.
 - **`room_code`** — only if the host tells you they set one. Leave it empty otherwise.
 
 Keep the quotes, colons and commas exactly as they are, or the file will not load. Save it as
@@ -177,7 +178,7 @@ in order. Nine times in ten it is a typo in `connect_to`, or the host's port not
 You do not need anyone else to use MeshGhost. With no server running, the game plays normally and
 you can:
 
-- **Record yourself** — `ctrl+shift+F9` starts and stops. Recordings land in the `replay` folder.
+- **Record yourself** — `shift+4` starts and stops. Recordings land in the `replay` folder.
 - **Race your own ghost** — drop a recording into `replay\active\` and it plays back beside you
   next time you play. Take it out to stop.
 - **Turn on the chaser** — a ghost of you from a few seconds ago, tailing you as you play. Needs

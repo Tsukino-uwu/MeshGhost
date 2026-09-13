@@ -1064,3 +1064,32 @@ wraps at ~95 columns — offered and not taken, and it changes nothing a reader 
 bullet was **deleted rather than corrected**: accurate wording would have pointed a player at "your
 game's mod version", which is precisely what `game_version` does not track (`Plugin.cs` says so
 outright), so any version sentence in a player-facing doc invites the confusion it was meant to prevent.
+
+## The config rename (2026-09-13) — three keys, an alias, and a shipped word that means "not set"
+
+Read from a tester's own `config.json`: `"name": "Default Name 123"`, `"name_color": "#facade"` —
+placeholders they had typed to work out what the fields wanted, which is the job a shipped blank
+silently fails to do. The pass that followed renamed `room` → `room_name`, `name` → `player_name`
+and `name_color` → `player_name_color` (ADR 0063), shipped `player_name` as the word `nickname`
+which the client reads back as unset, moved `ghost_collision` down beside the `ghost_range*` trio,
+and took the tester's short hotkey chords as the defaults.
+
+**The bug the rename uncovered was worth more than the rename.** `"room": ""` was not the default
+room — it was a real, separate one, because a present-but-empty value beats a flag default and the
+relay keys rooms on the string it is handed. Two players whose files differed only in
+blank-versus-`default` would never have seen each other, and nothing at either end could have said
+why. Blank now resolves to `default`, in one place both startup and the reload diff read, so it
+cannot come back as a phantom "needs a relaunch" either.
+
+**Every doc that names a config key had to be sorted into two piles**, and the piles look identical
+in a grep: `docs/config.md`, `getting-started.md`, `troubleshooting.md`, `hosting.md`,
+`security.md`, both game READMEs and `packaging/README.md` name the CONFIG KEY and were renamed;
+`docs/integrating.md` and `docs/networking.md`'s hello examples name the WIRE field
+`protocol.Hello.Room`, which does not change and must not, or an integrator's client stops being
+able to join a room. Dated records — ADR 0048, the phase files — were left as the record of what
+was true then.
+
+**And one claim was checked rather than carried over.** The plan asserted that no adapter reads
+these keys; the grep confirming it (all of `adapters/**`, minus vendored `build/_deps`) was run
+before it was written down, and the result is in the ADR so nobody has to run it again. The only
+hits were two prose comments in Pseudoregalia's `Plugin.cpp`.

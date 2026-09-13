@@ -32,7 +32,7 @@ Setup, once:
    two files you actually touch live up top, and meshghost.log and the replay\ folder appear
    next to them. Copy meshghost.exe again whenever you update MeshGhost.
 
-   Open that config.json and set "connect_to" to your host's address, plus "room" and "name".
+   Open that config.json and set "connect_to" to your host's address, plus "room_name" and "player_name".
    With "autostart": true (the default) the mod starts meshghost.exe from there when you
    launch TEVI and stops it when you quit; with "autostart": false you double-click it
    yourself before you play. It reads the config.json next to itself either way.

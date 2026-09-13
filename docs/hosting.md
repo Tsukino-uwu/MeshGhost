@@ -17,7 +17,7 @@ that.
 2. **Make your machine reachable** — pick whichever of the options below fits you. This is the
    only part that ever gives anyone trouble.
 3. **Tell your friends your address**, e.g. `203.0.113.40:7777`. They put it in `connect_to`. Tell
-   them the `room` word too.
+   them the `room_name` word too.
 4. **To stop:** close the window, or Ctrl+C. It says goodbye to everyone first so their games
    notice immediately, rather than each client waiting out its own idle timeout (~17 seconds) with
    the ghosts frozen in place — though the ghosts themselves go stale and vanish after 3 seconds.

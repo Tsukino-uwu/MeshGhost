@@ -39,9 +39,9 @@ type shippedConfig struct {
 		ConnectTo             string `json:"connect_to"`
 		Transport             string `json:"transport"`
 		TLS                   string `json:"tls"`
-		Room                  string `json:"room"`
-		Name                  string `json:"name"`
-		NameColor             string `json:"name_color"`
+		Room                  string `json:"room_name"`
+		Name                  string `json:"player_name"`
+		NameColor             string `json:"player_name_color"`
 		LocalGameBridge       string `json:"local_game_bridge"`
 		Interp                string `json:"interp"`
 		LocalInterp           string `json:"local_interp"`
@@ -173,12 +173,36 @@ func TestShippedConfigDeliberateDivergences(t *testing.T) {
 	// listen_on: the -addr FLAG defaults to 127.0.0.1, which is right for development and useless
 	// for hosting -- a host has to accept connections from other machines. The shipped server
 	// config is for someone hosting, so it binds every interface.
-	// name_color: the FLAG defaults to blank (no box), and the shipped file carries a real hex on
-	// purpose -- the user's call, 2026-09-03: a player who opens the file should see what the value
-	// looks like. Harmless while "name" is blank, since a colour is ignored without a name; a player
-	// who wants a plain tag blanks it. docs/config.md says the same.
+	// player_name_color: the FLAG defaults to blank (no box), and the shipped file carries a real hex
+	// on purpose -- the user's call, 2026-09-03: a player who opens the file should see what the value
+	// looks like. Harmless while the name is the placeholder, since a colour is ignored without a
+	// name; a player who wants a plain tag blanks it. docs/config.md says the same.
 	if cfg.Client.NameColor != "#A89975" {
-		t.Errorf("shipped name_color should be the example hex #A89975, got %q", cfg.Client.NameColor)
+		t.Errorf("shipped player_name_color should be the example hex #A89975, got %q", cfg.Client.NameColor)
+	}
+	// player_name: the FLAG defaults to blank, and the shipped file carries the placeholder word,
+	// which the client resolves BACK to blank (namePlaceholder). Same reason as the colour and the
+	// user's call, 2026-09-13: a blank taught nobody what the field wanted, and a tester filled
+	// theirs with "Default Name 123" to find out. The two halves are pinned together here because
+	// shipping a placeholder the client does not recognise would put that word over every new
+	// player's ghost.
+	if cfg.Client.Name != namePlaceholder {
+		t.Errorf("shipped player_name should be the placeholder %q, got %q", namePlaceholder, cfg.Client.Name)
+	}
+	if !isPlaceholderName(cfg.Client.Name) {
+		t.Errorf("the client does not recognise the shipped player_name %q as a placeholder, so it "+
+			"would be drawn as a real nametag", cfg.Client.Name)
+	}
+	// room_name: the FLAG defaults to "default" and the shipped file is BLANK, which normalizeRoom
+	// resolves to the same room. Shipped blank so the file reads as something to fill in, and pinned
+	// with the resolution because an empty room that did NOT normalize would be a real, separate
+	// room -- two players differing only in blank-versus-"default" would silently never meet.
+	if cfg.Client.Room != "" {
+		t.Errorf("shipped room_name should be blank, got %q", cfg.Client.Room)
+	}
+	if normalizeRoom(cfg.Client.Room) != defaultRoom {
+		t.Errorf("a blank shipped room_name resolves to %q, not the -room flag default %q",
+			normalizeRoom(cfg.Client.Room), defaultRoom)
 	}
 	if cfg.Server.ListenOn != "0.0.0.0:7777" {
 		t.Errorf("shipped listen_on should bind every interface for a host, got %q",
@@ -226,8 +250,8 @@ func TestShippedConfigNeverRecordsOrChasesBySurprise(t *testing.T) {
 		t.Errorf("shipped chaser numbers drifted from the flag defaults: %+v", cfg.Client.Chaser)
 	}
 	want := map[string]string{
-		"record_toggle": "ctrl+shift+F9", "save_last": "ctrl+shift+F10", "replay_last": "ctrl+shift+F11",
-		"replay_restart": "ctrl+shift+F5", "replay_rewind": "ctrl+shift+F6", "replay_fast_forward": "ctrl+shift+F7",
+		"record_toggle": "shift+4", "save_last": "shift+5", "replay_last": "shift+2",
+		"replay_restart": "shift+F2", "replay_rewind": "shift+1", "replay_fast_forward": "shift+3",
 	}
 	for k, v := range want {
 		if cfg.Client.Hotkeys[k] != v {

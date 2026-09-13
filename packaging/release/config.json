@@ -1,16 +1,14 @@
 {
   "client": {
     "connect_to": "127.0.0.1:7777",
-    "name": "",
-    "name_color": "#A89975",
-    "room": "default",
+    "player_name": "nickname",
+    "player_name_color": "#A89975",
+    "room_name": "",
     "room_code": "",
     "show_console": false,
     "offline": false,
     "autostart": true,
     "map_markers": true,
-
-    "ghost_collision": "disabled",
 
     "interp": "450ms",
     "local_interp": "25ms",
@@ -45,14 +43,16 @@
       "player_side": "left", "ghost_side": "right"
     },
     "hotkeys": {
-      "record_toggle": "ctrl+shift+F9", "save_last": "ctrl+shift+F10",
-      "replay_last": "ctrl+shift+F11", "replay_restart": "ctrl+shift+F5",
-      "replay_rewind": "ctrl+shift+F6", "replay_fast_forward": "ctrl+shift+F7"
+      "record_toggle": "shift+4", "save_last": "shift+5",
+      "replay_last": "shift+2", "replay_restart": "shift+F2",
+      "replay_rewind": "shift+1", "replay_fast_forward": "shift+3"
     },
 
     "game": "",
     "game_version": "",
-    "features": []
+    "features": [],
+
+    "ghost_collision": "disabled"
   },
   "server": {
     "listen_on": "0.0.0.0:7777",

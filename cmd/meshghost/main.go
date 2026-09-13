@@ -71,13 +71,21 @@ func logRunBanner(autostarted bool) {
 // "connect_to" (not "relay") is the address you connect out to, and
 // "local_game_bridge" (not "bridge") makes clear that socket never leaves
 // the machine -- see packaging/release/config.json and its README.txt.
+//
+// "room_name", "player_name" and "player_name_color" are the newest of those
+// (2026-09-13) and came from watching a tester work out what the file wanted:
+// "room" reads like a mode rather than a word you agree on with friends, and
+// "name" sat in the same file as replay.name and chaser.name, which mean two
+// other things. The old spellings still work -- clientKeyRenames below -- and
+// the WIRE field is untouched: protocol.Hello.Room is still "room", because
+// that one is a contract with anybody who integrates.
 type fileConfig struct {
 	Relay     *string `json:"connect_to"`
 	Bridge    *string `json:"local_game_bridge"`
 	Game      *string `json:"game"`
-	Room      *string `json:"room"`
-	Name      *string `json:"name"`
-	NameColor *string `json:"name_color"`
+	Room      *string `json:"room_name"`
+	Name      *string `json:"player_name"`
+	NameColor *string `json:"player_name_color"`
 	Interp    *string `json:"interp"`
 	// LocalInterp is the render delay for a LOCAL ghost -- a replay or a
 	// chaser -- which is a different number for a different job than Interp;
@@ -220,6 +228,21 @@ var notClientSettings = map[string]bool{
 	"client.replay.indicator_timer_color": true,
 }
 
+// clientKeyRenames are the old spellings of client keys that were renamed, and
+// what each is called now. cfg.RenameOldKeys applies them to the raw bytes
+// before anything decodes the file, so an existing config keeps working and the
+// player is told once what to rename (2026-09-13).
+//
+// NOT notClientSettings entries: that map is a claim that ANOTHER READER owns
+// the key, which would be a lie here and would silence a genuine typo. An old
+// spelling is this binary's own key under its previous name, which is a
+// different thing and is handled in a different place.
+var clientKeyRenames = map[string]string{
+	"room":       "room_name",
+	"name":       "player_name",
+	"name_color": "player_name_color",
+}
+
 type chaserFileConfig struct {
 	Enabled *bool   `json:"enabled"`
 	Count   *int    `json:"count"`
@@ -267,8 +290,8 @@ type replayFileConfig struct {
 	Inputs *bool `json:"inputs"`
 	// Name and Color label the recordings this client writes -- the clip
 	// header a replay ghost draws its nametag from. Blank falls back to the
-	// player's own "name"/"name_color", so a clip is born labelled rather
-	// than needing its header edited inside a .gz afterwards.
+	// player's own "player_name"/"player_name_color", so a clip is born labelled
+	// rather than needing its header edited inside a .gz afterwards.
 	Name  *string `json:"name"`
 	Color *string `json:"color"`
 }
@@ -367,6 +390,11 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) str
 	if data == nil {
 		return shown
 	}
+	// A key renamed since this file was written is moved to its current name
+	// FIRST, on the raw bytes, so everything below -- the decoder,
+	// ApplyDespiteBadValue, and the unknown-key warner reading clientSection(data)
+	// -- sees only current names and none of them needs to know a rename happened.
+	data = cfg.RenameOldKeys(data, "client", clientKeyRenames, shown, "meshghost")
 	var rc rootConfig
 	if err := json.Unmarshal(data, &rc); err != nil {
 		if !cfg.ApplyDespiteBadValue(err, shown, "meshghost") {
@@ -467,6 +495,88 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) str
 		cfg.Override(explicit, "hotkey-replay-rewind", t.hotkeys.replayRewind, h.ReplayRewind)
 		cfg.Override(explicit, "hotkey-replay-fast-forward", t.hotkeys.replayFastForward, h.ReplayFastForward)
 	}
+	return shown
+}
+
+// namePlaceholder is what packaging/release/config.json ships in player_name,
+// and it means UNSET -- exactly as if the key were empty, so no nametag is
+// drawn. A shipped blank taught nobody what the field wanted: a tester filled
+// theirs with "Default Name 123" to find out, which is the job a placeholder
+// does properly (the user's call, 2026-09-13).
+//
+// Matched case-insensitively and with surrounding space trimmed, so "nickname",
+// "Nickname", "NICKNAME", "  nickname  " and "" are one answer: no tag. The cost
+// is that this exact word cannot be somebody's real nametag; any variation
+// ("Nickname!") can, and docs/config.md says so.
+const namePlaceholder = "nickname"
+
+// defaultRoom is where an empty room_name lands. Every other empty setting in
+// this file means "leave it alone", and the room was the one exception: an
+// empty string was a REAL room, distinct from "default", so two players whose
+// files differed only in blank-versus-"default" joined different rooms and
+// neither was told. The relay keys rooms on the string it is given
+// (relay.roomKey), so nothing downstream can notice the mistake either.
+const defaultRoom = "default"
+
+// normalizeRoom is the one place an empty or whitespace-only room becomes the
+// default room. It is a string function so the shipped-config test can pin it
+// against the -room flag's default without starting anything.
+func normalizeRoom(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return defaultRoom
+	}
+	return s
+}
+
+// isPlaceholderName reports whether a name is the shipped placeholder, i.e. a
+// player who has not chosen one yet.
+func isPlaceholderName(s string) bool {
+	return strings.EqualFold(strings.TrimSpace(s), namePlaceholder)
+}
+
+// Said once per process, not once per reload: the file is re-read on every
+// save, and a line repeated on each one is a line people stop reading.
+var (
+	loggedRoomDefault     bool
+	loggedPlaceholderName bool
+)
+
+// normalizeIdentity resolves the two settings whose empty value means something
+// other than "unset", AFTER flags and file have both had their say.
+//
+// It touches t.room and t.name and nothing else. t.replayName, t.chaser.name
+// and t.chaser.color are different settings that happen to share a word with
+// these, and a placeholder must never reach them -- pinned by
+// TestThePlaceholderDoesNotLeakIntoReplayOrChaserNames.
+func normalizeIdentity(t configTargets) {
+	if t.room != nil {
+		if room := normalizeRoom(*t.room); room != *t.room {
+			if !loggedRoomDefault {
+				log.Printf("meshghost: room_name is empty, so you are in the default room (%q). "+
+					"Everyone who wants to see each other picks the same word here.", defaultRoom)
+				loggedRoomDefault = true
+			}
+			*t.room = room
+		}
+	}
+	if t.name != nil && isPlaceholderName(*t.name) && *t.name != "" {
+		if !loggedPlaceholderName {
+			log.Printf("meshghost: player_name is still the placeholder %q, so no nametag is drawn "+
+				"above your ghost. Put your own name there to be labelled.", *t.name)
+			loggedPlaceholderName = true
+		}
+		*t.name = ""
+	}
+}
+
+// loadClientConfig is applyFileConfig plus the resolution step, and it is what
+// every non-test caller uses: startup and the reload watcher both, so the
+// values they compare are the SAME values. Normalizing in only one of them
+// would make an empty room_name read as a change on the first save and ask the
+// player to relaunch for nothing.
+func loadClientConfig(path string, explicit map[string]bool, t configTargets) string {
+	shown := applyFileConfig(path, explicit, t)
+	normalizeIdentity(t)
 	return shown
 }
 
@@ -761,15 +871,15 @@ func main() {
 	// the player's own -name follows -- empty draws nothing at all -- and the
 	// numbering below already skips an empty name rather than emitting " 1".
 	chaserName := flag.String("chaser-name", "", "a nametag for the chasers, numbered when there are several. Empty (the default) draws no tag at all, which is usually what you want for a ghost of yourself (config: chaser.name)")
-	chaserColor := flag.String("chaser-color", "", "colour for that tag, as a hex code like \"#7A2A2A\". Ignored without a name, exactly like name_color (config: chaser.color)")
+	chaserColor := flag.String("chaser-color", "", "colour for that tag, as a hex code like \"#7A2A2A\". Ignored without a name, exactly like player_name_color (config: chaser.color)")
 	chaserSpawn := flag.Duration("chaser-spawn-delay", 0, "a chaser appears only once you have been moving for this long; 0 means the chaser's own delay (config: chaser.spawn_delay)")
 	chaserContact := flag.Bool("chaser-contact", false, "tell the adapter a chaser may hurt on touch (config: chaser.contact); no shipped adapter honours this yet")
-	hkRecord := flag.String("hotkey-record", "ctrl+shift+F9", "system-wide chord: start/stop recording (config: hotkeys.record_toggle); empty unbinds")
-	hkSaveLast := flag.String("hotkey-save-last", "ctrl+shift+F10", "system-wide chord: save the last replay.save_last seconds (config: hotkeys.save_last)")
-	hkReplayLast := flag.String("hotkey-replay-last", "ctrl+shift+F11", "system-wide chord: play the newest recording now (config: hotkeys.replay_last)")
-	hkRestart := flag.String("hotkey-replay-restart", "ctrl+shift+F5", "system-wide chord: restart every replay ghost (config: hotkeys.replay_restart)")
-	hkRewind := flag.String("hotkey-replay-rewind", "ctrl+shift+F6", "system-wide chord: rewind every replay ghost by replay.seek (config: hotkeys.replay_rewind)")
-	hkFastForward := flag.String("hotkey-replay-fast-forward", "ctrl+shift+F7", "system-wide chord: fast-forward every replay ghost by replay.seek (config: hotkeys.replay_fast_forward)")
+	hkRecord := flag.String("hotkey-record", "shift+4", "system-wide chord: start/stop recording (config: hotkeys.record_toggle); empty unbinds")
+	hkSaveLast := flag.String("hotkey-save-last", "shift+5", "system-wide chord: save the last replay.save_last seconds (config: hotkeys.save_last)")
+	hkReplayLast := flag.String("hotkey-replay-last", "shift+2", "system-wide chord: play the newest recording now (config: hotkeys.replay_last)")
+	hkRestart := flag.String("hotkey-replay-restart", "shift+F2", "system-wide chord: restart every replay ghost (config: hotkeys.replay_restart)")
+	hkRewind := flag.String("hotkey-replay-rewind", "shift+1", "system-wide chord: rewind every replay ghost by replay.seek (config: hotkeys.replay_rewind)")
+	hkFastForward := flag.String("hotkey-replay-fast-forward", "shift+3", "system-wide chord: fast-forward every replay ghost by replay.seek (config: hotkeys.replay_fast_forward)")
 	replayName := flag.String("replay-name", "",
 		"name written into the header of every recording this client makes, which is what a replay "+
 			"ghost's nametag shows. Blank uses your own -name (config: replay.name)")
@@ -797,7 +907,7 @@ func main() {
 			"header start_delay is 0s (config: replay.start_delay)")
 	configPath := flag.String("config", "config.json",
 		"path to an optional JSON config file with a \"client\" section "+
-			"(connect_to/local_game_bridge/game/room/name/interp/local_interp/curve/extrapolate/min_send/keepalive/stats/room_code/game_version/"+
+			"(connect_to/local_game_bridge/game/room_name/player_name/interp/local_interp/curve/extrapolate/min_send/keepalive/stats/room_code/game_version/"+
 			"max_receive_hz_per_player/transport/show_console/features/replay/hotkeys/chaser) -- a friendlier alternative to flags for non-developer use; "+
 			"a warning is logged if it doesn't exist; any flag explicitly passed on the command line "+
 			"overrides the same field from this file")
@@ -857,7 +967,7 @@ func main() {
 	// The flag values BEFORE the file: what every later re-read of the file
 	// starts from (reload.go), so a key removed from the file falls back here.
 	base := snapshot(targets)
-	configShown := applyFileConfig(*configPath, explicit, targets)
+	configShown := loadClientConfig(*configPath, explicit, targets)
 	if *replayDir == "" {
 		// Beside the config file, read or not: that is the one folder a player
 		// autostarted by their game can find, and the one the README names.

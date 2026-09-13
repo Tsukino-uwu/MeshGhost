@@ -2513,7 +2513,7 @@ namespace MeshGhostPseudo
     constexpr double NAMETAG_PLATE_BEHIND = 4.0; // units behind the text, along the facing
     // A peer with NO colour gets NO plate -- text only. That is the user's rule (restated
     // 2026-08-29: blank means no nametag box), and the DEFAULT for people who never touch
-    // their config lives in the shipped config.json instead: name_color "#A89975", the
+    // their config lives in the shipped config.json instead: player_name_color "#A89975", the
     // parchment the user picked from a probe lineup as reading well against this game's
     // palette without white's glare (the same 0.66/0.60/0.46 the winning tags wore, as bytes).
 
@@ -18268,7 +18268,7 @@ namespace MeshGhostPseudo
             // NO VALID COLOUR MEANS NO PLATE (user's rule, restated 2026-08-29): the string
             // below only goes on when a colour took, and comes off when one goes away. The
             // parchment DEFAULT for peers who never edited their config is the shipped
-            // config.json's name_color, not anything applied here.
+            // config.json's player_name_color, not anything applied here.
             if (entry.nametag_plate_mid && entry.nametag_plate_applied_color != wanted_color)
             {
                 entry.nametag_plate_has_color = set_plate_color(entry.nametag_plate_mid, wanted_color);

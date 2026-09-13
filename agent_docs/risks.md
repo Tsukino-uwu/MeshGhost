@@ -725,7 +725,7 @@ malicious-host entry below names, and for the same reason.
 Recorded because the REASONING is the reusable part, not because anything is still open.
 
 `meshghost.exe` re-reads `config.json` about a second after a save. Until 2026-09-12 that included
-`connect_to`, `room` and `room_code`, so anything else running on the machine that could write that
+`connect_to`, `room_name` and `room_code`, so anything else running on the machine that could write that
 file could move a live session onto a relay of its choosing, mid-play, with nothing on screen saying
 so (third adversarial review, P4a-5).
 
@@ -738,7 +738,7 @@ worse than another, not that this one should stay open**, and the live switch it
 convenience with a cheap substitute (a relaunch) rather than a capability.
 
 Live still: names, colours, smoothing, ghost collision, the chaser and replay sections, hotkeys,
-`max_receive_hz_per_player`, `offline`. Relaunch-only now: `connect_to`, `room`, `room_code`,
+`max_receive_hz_per_player`, `offline`. Relaunch-only now: `connect_to`, `room_name`, `room_code`,
 alongside `tls_fingerprint`, which already was -- and which those three decide the meaning of.
 
 **The half that was nearly missed, kept as the lesson:** holding the keys back at the point of use is

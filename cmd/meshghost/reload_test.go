@@ -50,7 +50,7 @@ func TestApplyLiveNamesEveryChangedKeyAndAppliesTheLiveGroups(t *testing.T) {
 		"chaser.color", "chaser.contact false -> true", "chaser.spawn_delay", "chaser pack restarted: 2 ghost(s)",
 		"replay.record_on_launch false -> true", "replay.save_last 30s -> 1m0s", "replay.start_delay", "replay.seek 5s -> 10s",
 		"replay.split_times", "replay.gzip", "replay.delta true -> false", "replay.inputs", "replay.name", "replay.color",
-		"connect_to 127.0.0.1:7777 -> 10.0.0.1:7777", "room r1 -> r2", "room_code", "name n1 -> n2", "name_color",
+		"connect_to 127.0.0.1:7777 -> 10.0.0.1:7777", "room_name r1 -> r2", "room_code", "player_name n1 -> n2", "player_name_color",
 		"max_receive_hz_per_player 30 -> 20", "offline false -> true",
 		"hotkeys.record_toggle", "hotkeys.save_last", "hotkeys.replay_last", "hotkeys.replay_restart", "hotkeys.replay_rewind", "hotkeys.replay_fast_forward",
 		"bridge", "game a -> b", "game_version", "min_send", "keepalive", "stats", "transport tcp -> quic", "tls auto -> off",
