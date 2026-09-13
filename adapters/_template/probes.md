@@ -592,6 +592,23 @@ mismatch is visible.
   and on the player doing the real thing, at 50 ms steps: the player's own stand-up blends its sit
   montage out in 150-200 ms, which named the second call and its number.
   `pseudoregalia/probes/probe_pawndiff/Scripts/pawn_census.lua`, `standup_hunt.lua`.
+- **DUMP THE GHOST AND THE PLAYER IN THE SAME PASS, ALWAYS — the control is what makes a field
+  evidence (Pseudoregalia, 2026-09-13).** Hunting a mangled ghost model, the probe printed the
+  anim binding and the materials for the glitched ghost *and* for the local player beside it. The
+  binding read `DIVERGED` on the ghost, which looked like the answer for about ten seconds — until
+  the same line showed `DIVERGED` on the player, who looked perfectly fine. One theory dead, no
+  live test spent on it. In the same dump the materials separated cleanly: ghost 4 of 4 slots
+  foreign, player 0 of 0. **A field that reads "wrong" on the broken thing means nothing until the
+  working thing has been asked the same question** — and widening the dump to every mesh the pawn
+  owns produced two more false positives (a weapon material and a `LightMesh` with no mesh at all)
+  that the control killed on sight. `pseudoregalia/probes/probe_outfitswap/`.
+- **Ask what a material was BUILT FROM, not how many there are (Pseudoregalia, 2026-09-13).** The
+  same hunt first compared slot COUNTS, which passed — the two costumes happened to have four slots
+  each — while the model was visibly wrong. The finding was one level down: each slot's rendering
+  material is a `MaterialInstanceDynamic`, and its `Parent` names the asset it was created from. A
+  parent naming a costume the pawn is not wearing is the bug stated by the engine, and no count can
+  see it. Read `GetMaterial(i)`, its `Parent`, and what the mesh asset itself declares for that
+  slot, and print all three per slot. `probe_outfitswap/Scripts/materials.lua`.
 
 ## Or play to it — reaching a state is a legitimate way to measure it (2026-08-19)
 
