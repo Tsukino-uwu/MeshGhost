@@ -516,7 +516,7 @@ protocol above is actually run and watched.
    2026-08-15 — built and confirmed live at the FULL scope**, not the MVP cut point this entry also
    offered: continuous position/rotation sync through flight and wall bounces, the resting pose, and
    the landed sword's glow ring. See `agent_docs/verified.md`'s "thrown Dream Breaker" entry for the
-   measurements and the two wrong turns, and `PLAYER_FIELDS.md` for the fields involved. Kept here
+   measurements and the two wrong turns, and `adapters/pseudoregalia/documentation.md` for the fields involved. Kept here
    as a pointer only; the open follow-on is the empty-hand recall glow (item below), whose blocked
    precondition — a real thrown-weapon actor on the ghost — this work now provides.
 
@@ -620,7 +620,7 @@ protocol above is actually run and watched.
    project, just not a place to look for ideas.
 
 2. **Sync the trail (afterimage) color.** Raised by the user (2026-08-15) while investigating the
-   base slide/ultra-hop trail effect itself (see `PLAYER_FIELDS.md`'s trail-VFX entry —
+   base slide/ultra-hop trail effect itself (see `adapters/pseudoregalia/documentation.md`'s afterimage trail section —
    `Spawn After Image(Duration: float)` found on the pawn, base trail sync not yet built).
    **Rescoped 2026-08-15, same day**: originally thought this needed reflecting into a
    third-party mod's own class (the

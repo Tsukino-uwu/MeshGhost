@@ -267,7 +267,7 @@ four shipped adapters publishable despite two of them being built on unlicensed 
 | 2 External decompilation | Your own implementation, plus cited facts | Any of its source text or data tables. `pokeemerald` has **no licence at all** — strictest handling |
 | 3 Managed bytecode | Your own code; a `HintPath` reference to a local file | **The decompiled output, and the game DLL itself.** TEVI's `Assembly-CSharp.dll` is the user's own local copy and is gitignored |
 | 4 Debug symbols | Cited facts | The `.pdb`; it is the developer's material |
-| 5 Runtime reflection | Your code, and summarised findings — e.g. `PLAYER_FIELDS.md` | Wholesale verbatim dumps; summarise instead |
+| 5 Runtime reflection | Your code, and summarised findings — e.g. Pseudoregalia's `documentation.md` "Ability fields" | Wholesale verbatim dumps; summarise instead |
 | 6 Community artifacts | Facts, once the licence is checked **first** | Their source or assets. Several referenced here have no licence |
 | 7 Static RE | Cited facts | Disassembly or decompiled listings. Byte signatures are a grey area — prefer describing what is matched |
 | 8 Memory scanning | Addresses and layouts | Nothing much to copy; this is the cleanest by construction |

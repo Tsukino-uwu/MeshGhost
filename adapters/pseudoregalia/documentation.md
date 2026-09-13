@@ -39,7 +39,7 @@ listings; the code is one click away and stays the source of truth.
 | File | Answers |
 | --- | --- |
 | **`documentation.md`** (this) | How does the game do X? |
-| `PLAYER_FIELDS.md` | Which fields exist, which we sync, how to promote one |
+| `SYNCED.md` | What we send, what the other player's game does with it, and how each value is checked |
 | `BANDAGES.md` | Where we compensate instead of reproducing the mechanism |
 | `VERIFIED.md` | Dated, user-confirmed evidence behind most claims here; agent-measured ones are in `UNVERIFIED.md` and `agent_docs/pitfalls/` |
 | `UNVERIFIED.md` | What is believed to work but nobody has watched yet |
@@ -116,7 +116,7 @@ Alongside them: `CapsuleHalfHeight`, `horizontalSpeed`/`verticalSpeed`, `afterIm
 `afterimageColor`, and the uptime timers (`actionStateUptime`, `moveStateUptime`, and their
 `previousMoveState`/`previousActionState` counterparts) measuring how long the current state has been held.
 
-Full field inventory and sync status: `PLAYER_FIELDS.md`.
+Which of these we send: `SYNCED.md`. Which other fields exist by name: "Ability fields" below.
 
 ---
 
@@ -517,6 +517,53 @@ component starts with.
 *Confidence: high for the three assets seen, and two more (a leek, a needle) were worn on live
 instances and in replays on 2026-09-06 without an attach change; a mod that also moves the socket
 or scale would show up as a change on the attach line, which has never fired.*
+
+## Holding the sword, and throwing it
+
+> **Fields** `weaponEquipped?` on the pawn · `animEquippedWeapon` on `animBPref` · `weaponRef` →
+> the thrown `BP_looseWeapon_C` actor: `weaponState`, `idleGlowVFX`, `ProjectileMovement.Velocity`
+
+**In hand or not is `weaponEquipped?` on the pawn, and the animation's copy is
+`animEquippedWeapon`.** A save-pair comparison (0% and 100% completion, every reflected property on
+`animBPref` dumped at spawn) found `animEquippedWeapon` to be the one field of 230 that differs
+between an armed and an unarmed character; `WeaponMesh`'s 250 properties never differed. Calling the
+pawn's own `changeEquippedWeapon`/`updateWeaponEquip` after the value was already written showed
+nothing; calling them before writing it shows or hides the sword. *Measured 2026-08-15,
+`VERIFIED.md`.*
+
+**A thrown sword is a separate actor, `BP_looseWeapon_C`, pointed at by the pawn's `weaponRef`.**
+`weaponRef` is not a "thrown" flag: after a pickup it still points at the last thrown sword, which
+the game parks at the world's origin rather than destroying. Thrown means the actor exists,
+`weaponEquipped?` is false, and it is away from the origin. The game spawns a fresh actor per throw.
+
+- **`weaponState`** is `0` in flight and `3` once landed, the same across five throws.
+- **The landed glow ring** is the actor's `idleGlowVFX` component, asset `NS_WeaponIdle`.
+- **Wall bounces** show as a sharp reversal of `ProjectileMovement.Velocity` on one axis; the game
+  plays `NS_WallKickHit` at each one. *Measured 2026-09-01 (`probe_swordthrow`).*
+- **The actor carries a `PlayerPickup` box**, so a collidable copy could be picked up by a local player.
+- **Its engine bools are packed**: `bHidden` and `bActorIsBeingDestroyed` read `true` on a live actor
+  through a byte read. The Blueprint bools (`isEmbedded?`, `hasLight?`) are separate and read correctly.
+
+*Measured 2026-08-15 and 2026-09-01 across throws in real play, `VERIFIED.md`.*
+
+## Ability fields: which exist, by name
+
+A full reflection dump of `BP_PlayerGoatMain_C` and `ABP_PlayerGoat_C` during real play
+(2026-08-15, `VERIFIED.md`) found these fields and functions. **This says a name exists on this
+build, not what it does**: no value below has been watched changing unless another section of this
+file says so, and several first guesses from a name were wrong.
+
+| Ability | Fields and functions |
+| --- | --- |
+| The sword | `weaponEquipped?`, `animEquippedWeapon`, `weaponRef`, `WeaponMesh`, `spawnWeapon`, `recallWeapon`, `changeEquippedWeapon` |
+| Charge attack and ranged shot | `obtainedChargeAttack?`, `chargeAttackHoldTime`, `chargingVFX`, `obtainedProjectile?`, `projectileFullDamage` |
+| Power meter | `currentPower`, `maxPower`, `baseMaxPower`, `powerAccum`, `powerLevel`, `powerDamageMultiplier`, `changePowerAmount`, `powerBuildUpgrades`, `powerMeterUpgrades`, `obtainedPowerBoost?` |
+| Plunge | `obtainedPlunge?`, `doGroundPound`, `doGroundPoundHighJump`, `hasGroundPound`, `altAirBackflip`, `canFlipJump?` |
+| Slide and slide jump | `obtainedSlide?`, `canSlide`, `obtainedSlideJump`, `bunnyhopJumpCap` |
+| Wall ride | `obtainedWallRide?`, `wallRideButtonHeld?`, `wallRideVFX`, `wallRideSFX` |
+| Wall and air kicks | `wallKickActive`, `tryWeaponKick?`, `obtainedAirKick?`, `currentAirKicks`, `'wall event kick thing'` |
+| Light | `obtainedLight?` |
+| Outfits | `outfitDataTable`, `changeActiveOutfit`, `tryAddOutfitToUnlockedList` |
 
 ## Animation montages
 

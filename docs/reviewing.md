@@ -79,7 +79,7 @@ you can start reading at the right line instead of the top of the file.
    does with each field is its own review, and each adapter's own folder carries it —
    `documentation.md` for how that game works and `FLAGS.md` for every switch it has, in
    `adapters/pseudoregalia/`, `adapters/tevi/`, and `adapters/emulator/pokemon/<game>/` for the
-   two Pokémon ROMs. `adapters/pseudoregalia/PLAYER_FIELDS.md` is a worked per-field table.
+   two Pokémon ROMs. Each adapter's `SYNCED.md` is the per-field table: every value it receives, and how it is checked.
 
 **Dependencies.** One: `github.com/quic-go/quic-go`, plus its `golang.org/x` transitive set. TLS,
 HMAC, JSON and the UDP socket are the Go standard library. There is no dependency for the wire

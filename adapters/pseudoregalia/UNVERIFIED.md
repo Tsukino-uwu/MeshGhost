@@ -2263,7 +2263,7 @@ gone rather than left to rot. Where each piece went:
   this entry had ruled out are each kept as a recorded negative in `FLAGS.md`. `VERIFIED.md`,
   2026-08-27.
 - **`CurrentHp`'s own measurements** (max 80, 5 per pit fall, where it lives, why the HUD caches
-  nothing) live in `PLAYER_FIELDS.md` and `documentation.md`, which is where a field belongs.
+  nothing) live in `documentation.md`, which is where a field belongs.
 
 Left here as a one-time marker because the entry was cited from `status.md` while it was open;
 delete it freely once nothing points at it.

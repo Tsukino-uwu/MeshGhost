@@ -4,7 +4,7 @@
 
 **Loaded automatically** the first time this session reads or edits anything under
 `adapters/pseudoregalia/`. Per-game facts live in this adapter's own `documentation.md`,
-`FLAGS.md`, `BANDAGES.md` and `PLAYER_FIELDS.md`.
+`FLAGS.md`, `BANDAGES.md` and `SYNCED.md`.
 
 **These are HOST rules, sitting at game scope for now.** Pseudoregalia is the only Unreal game
 here, so per `../CLAUDE.md`'s create-a-level-on-demand rule there is no `adapters/unreal/` yet; a

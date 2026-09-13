@@ -38,7 +38,7 @@ block with the same keys in the same order.
 **The *Sent* column uses these words only:**
 
 | Word | Means |
-|---|---|
+| --- | --- |
 | `always` | In every update. |
 | `while <state>` | Only while the named thing is happening; absent otherwise. |
 | `counter` | A running total that only goes up. The other game acts when it rises, so a lost update never loses the event. |
@@ -65,7 +65,7 @@ details block: one row per cell or word, each with its own *Checked on arrival*.
 What the game tells the MeshGhost client when it connects.
 
 | Field | Value | What it does |
-|---|---|---|
+| --- | --- | --- |
 | `game_id` | `"<game>"` | Only players running the same game see each other. |
 | `game_version` | the adapter's version | A room can refuse a client whose version differs. |
 | `min_protocol_version` | `2` | The oldest client this adapter can talk to. |
@@ -73,7 +73,7 @@ What the game tells the MeshGhost client when it connects.
 ## The basics
 
 | Field | What this game puts in it | Example |
-|---|---|---|
+| --- | --- | --- |
 | `area_id` | `<which room/map you are in>` | `"<example>"` |
 | `position` | `<where you stand>` | `[0, 0]` |
 | `orientation` | `<which way you face>` | `"<example>"` |
@@ -82,7 +82,7 @@ What the game tells the MeshGhost client when it connects.
 <details><summary>Details</summary>
 
 | Field | Type | Read from | Checked on arrival |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `area_id` | text | `<game field>` (`<our function>`) | `<check>` |
 | `position` | list of numbers | `<game field>` (`<our function>`) | the MeshGhost client drops a non-number or out-of-range position before it arrives |
 | `orientation` | `<type>` | `<game field>` (`<our function>`) | `<check>` |
@@ -93,13 +93,13 @@ What the game tells the MeshGhost client when it connects.
 ## `<Group, e.g. Movement & pose>`
 
 | Key | On the other screen | Sent |
-|---|---|---|
+| --- | --- | --- |
 | `<key>` | `<what the other player sees>` | always |
 
 <details><summary>Details</summary>
 
 | Key | Type | Read from | Checked on arrival |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `<key>` | whole number | `<game field>` (`<our function>`) | kept to 0–255 |
 
 </details>
@@ -110,7 +110,7 @@ Messages besides the regular update: what this game sends, and what it does with
 MeshGhost client sends it. A message the game ignores is listed with "ignored".
 
 | Message | Direction | What happens | Checked on arrival |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `despawn_remote` | to the game | The other player's ghost is removed. | `<check>` |
 
 ## When nothing is sent

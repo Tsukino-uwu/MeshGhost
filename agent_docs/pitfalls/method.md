@@ -248,7 +248,7 @@ know the incident, not just the rule, so you can judge when it applies.
   never differed at all — ruling it out completely, not just the handful of properties anyone
   had thought to check by name. Source: the Phase 7 Dream Breaker weapon-visibility
   investigation, 2026-08-15 (`agent_docs/verified.md`'s "cross-save" entries,
-  `adapters/pseudoregalia/PLAYER_FIELDS.md`, `adapters/pseudoregalia/README.md`'s build-log step
+  `adapters/pseudoregalia/documentation.md`, `adapters/pseudoregalia/README.md`'s build-log step
   20). **Generalizes to**: any adapter/engine with runtime property reflection (UE4SS, other
   Lua/C++ modding APIs) — when two save files, game modes, or player states produce a visibly
   different result and the responsible field isn't obvious, this diff-driven search finds it

@@ -278,7 +278,7 @@ from a clip recorded BEFORE the pickup; and *"recordings look a bit weird as if 
 floating in the air/frozen for a bit"* when picking an item up.
 
 **The first question is answered by the probe's very first block.** Reading had already cleared the
-show/hide path (`UNVERIFIED.md`), leaving the SEND side: `PLAYER_FIELDS.md:264` records that
+show/hide path (`UNVERIFIED.md`), leaving the SEND side: `documentation.md` ("Holding the sword, and throwing it") records that
 `weaponEquipped?` means the sword is IN HAND rather than owned, and nothing established what it
 reads before the pickup. The probe prints a BASELINE census as soon as a pawn exists — if
 `weaponEquipped?` is already `true` on a fresh save, that is the whole diagnosis and the adapter is
@@ -420,7 +420,7 @@ showed read `true`.
 the entire question, was invisible while the output looked complete. It now prints each component's
 own name beside its parent's, so the two collapsing into one is visible rather than silent.
 
-**What it CANNOT see:** `bVisible`/`bHiddenInGame` are stock engine bools, and `PLAYER_FIELDS.md`
+**What it CANNOT see:** `bVisible`/`bHiddenInGame` are stock engine bools, and `documentation.md`
 records that this game's stock bools can read as garbage through a byte-wide reflection read — both
 are printed so they can disagree out loud. It reads three NAMED meshes, so an aura living on a
 fourth component nobody has named would leave three clean readings and the glow still on screen.

@@ -23,7 +23,7 @@
 -- UStruct:ForEachFunction, LoopAsync (vendored RE-UE4SS/docs/lua-api); engine names
 -- USkeletalMeshComponent::SkeletalMesh / SkinnedAsset / SkeletalMeshAsset, USceneComponent::AttachParent,
 -- AttachSocketName, RelativeLocation/Rotation/Scale3D, bVisible (docs.unrealengine.com); the game's
--- own `weaponRef` / `weaponEquipped?` (PLAYER_FIELDS.md). Every read pcall-guarded; absent prints "?".
+-- own `weaponRef` / `weaponEquipped?` (documentation.md). Every read pcall-guarded; absent prints "?".
 --
 -- Deploy over the scratch slot; trigger the reloader. Dev-only tooling; never ships.
 

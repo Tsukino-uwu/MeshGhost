@@ -2,7 +2,7 @@
 -- SAME event, so one run answers both:
 --
 --   (1) A replay ghost wears the Dream Breaker from a clip recorded BEFORE the pickup. Reading
---       says the show/hide path is innocent and the suspect is what we SEND: PLAYER_FIELDS.md
+--       says the show/hide path is innocent and the suspect is what we SEND: documentation.md
 --       records that 'weaponEquipped?' means the sword is IN HAND, not owned, and nothing
 --       establishes what it reads before the pickup. If it is already true on a fresh save,
 --       that is the whole diagnosis.
@@ -25,7 +25,7 @@
 -- class at 10Hz -- cheaper than probe_swordthrow's three-class 250ms walk. UNLOAD IT AFTERWARDS:
 -- a loaded probe is a suspect in every later report.
 --
--- Field names are this repo's own measured records (PLAYER_FIELDS.md), not guesses.
+-- Field names are this repo's own measured records (documentation.md), not guesses.
 
 local TAG = "[MeshGhostPickup]"
 local INTERVAL_MS = 100

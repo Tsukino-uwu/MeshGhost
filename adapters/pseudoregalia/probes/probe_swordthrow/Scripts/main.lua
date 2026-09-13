@@ -16,7 +16,7 @@
 -- ForEachProperty. ~12 object-space walks/s while armed (3 classes at 250ms) -- heavier than a
 -- shipped path is allowed to be, fine for a two-minute capture; unload it after.
 --
--- Grounded field names (this repo's own measured records, PLAYER_FIELDS.md / documentation.md):
+-- Grounded field names (this repo's own measured records, documentation.md):
 -- pawn 'weaponEquipped?', 'weaponRef', 'WeaponMesh'; BP_looseWeapon_C 'weaponState';
 -- PRJ_PlayerCutter_C 'ProjectileMovement' (UProjectileMovementComponent: Velocity, bIsActive --
 -- docs.unrealengine.com).

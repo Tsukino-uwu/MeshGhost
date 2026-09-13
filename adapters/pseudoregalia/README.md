@@ -22,7 +22,7 @@ adapter's own `VERIFIED.md`/`UNVERIFIED.md` are where everything since is record
 | File | Answers |
 | --- | --- |
 | [documentation.md](documentation.md) | How does *the game* do X? |
-| [PLAYER_FIELDS.md](PLAYER_FIELDS.md) | Which fields exist, which we sync, how to promote one |
+| [SYNCED.md](SYNCED.md) | What this game sends, what the other player's game does with it, and how each value is checked |
 | [FLAGS.md](FLAGS.md) | What every compile-time switch does, and which are recorded negatives |
 | [BANDAGES.md](BANDAGES.md) | Where we compensate instead of reproducing the mechanism |
 | [PROBES.md](PROBES.md) | The dev-only Lua probes (twenty-one folders as of 2026-09-06), what each was for |
@@ -206,7 +206,7 @@ Roughly in order:
     generalized reflection dumper and turning on UE4SS's own console/actor-dumper mods, then
     mapping every in-game ability to real internal field names — and a follow-up live *value*
     trace to sort genuinely live fields from persistent "obtained" flags and static constants.
-    (7.6 — see [PLAYER_FIELDS.md](PLAYER_FIELDS.md))
+    (7.6 — see [documentation.md](documentation.md)'s "Ability fields")
 20. Found a reusable diagnostic along the way: diff a 0%-completion save against a 100% one.
     Dumping every reflected property's *value* at the moment that matters on both saves, then
     diffing, finds the field that actually differs without guessing names first — here, 1 real

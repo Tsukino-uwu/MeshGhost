@@ -264,7 +264,7 @@ above stayed instruments because the acceptance run passed without them.
 internally consistent and wrong. `UNVERIFIED.md`'s "two subtraction toggles LIE" entry is most
 likely this and nothing else.
 
-**The rule, measured on this build** (`VERIFIED.md`, `PLAYER_FIELDS.md`): ENGINE-declared bools are
+**The rule, measured on this build** (`VERIFIED.md`, `documentation.md`): ENGINE-declared bools are
 packed into a shared byte, so a raw `bool*` read returns true for any non-zero neighbour and a raw
 write stamps every neighbour; BLUEPRINT-declared bools are separate properties and read correctly.
 `mg_read_bool`/`mg_write_bool` go through the `FBoolProperty`'s own offset and mask and are the only

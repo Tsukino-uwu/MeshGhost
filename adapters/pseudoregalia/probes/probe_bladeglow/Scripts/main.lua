@@ -16,7 +16,7 @@
 -- one pawn and the right answer came from diffing two.
 --
 -- WHAT THIS CANNOT SEE, said up front:
---   * `bVisible`/`bHiddenInGame` are STOCK ENGINE BOOLS, and PLAYER_FIELDS.md records that this
+--   * `bVisible`/`bHiddenInGame` are STOCK ENGINE BOOLS, and documentation.md records that this
 --     game's stock bools read as garbage through a byte-wide reflection read (bHidden and
 --     bActorIsBeingDestroyed both read true on a live actor). Both are printed so they can
 --     disagree out loud rather than one of them being quietly trusted.
@@ -126,7 +126,7 @@ local function sample()
             on_change(p .. "isLocalPlayer", tostring(controller ~= nil))
 
             -- The unlock flag the user's report is about. A Blueprint bool, so unlike the stock
-            -- engine bools it is expected to read correctly (PLAYER_FIELDS.md).
+            -- engine bools it is expected to read correctly (documentation.md).
             on_change(p .. "obtainedLight?", tostring(read(pawn, "obtainedLight?", "obtainedLight?")))
             on_change(p .. "weaponEquipped?", tostring(read(pawn, "weaponEquipped?", "weaponEquipped?")))
 

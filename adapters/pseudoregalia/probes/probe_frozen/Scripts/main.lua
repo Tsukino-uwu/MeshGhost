@@ -29,7 +29,7 @@
 -- AActor, AWorldSettings and UWidget (dev.epicgames.com/documentation, the per-class pages); the
 -- probe does not assume any of them exists on THIS build -- a name that does not resolve is
 -- reported in COVERAGE, never silently skipped. The measured names (BP_PlayerGoatMain_C,
--- CharacterMovement, horizontalSpeed, verticalSpeed) are this repo's own PLAYER_FIELDS.md.
+-- CharacterMovement, horizontalSpeed, verticalSpeed) are this repo's own documentation.md.
 --
 -- NO WINDOW TO HIT. Everything logs ON CHANGE plus a few seconds of per-sample lines either side
 -- of any change. Do these, in any order, taking as long as you like between them:
