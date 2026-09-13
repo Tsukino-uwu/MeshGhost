@@ -315,7 +315,7 @@ LoopAsync(SAMPLE_MS, function()
 
             local n_all, n_cand
             alt_mesh, n_all, n_cand = pick_mesh(addr_of(orig_mesh))
-            flinch, _ = pick_montage()
+            flinch = pick_montage()   -- second return (the count) is logged inside; not needed here
             fout("chosen alternate mesh: " .. ((alt_mesh ~= nil) and full_str(alt_mesh) or "NONE FOUND"))
             fout("chosen montage: " .. ((flinch ~= nil) and full_str(flinch) or "NONE FOUND"))
             if alt_mesh == nil then

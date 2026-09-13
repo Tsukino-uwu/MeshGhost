@@ -3701,3 +3701,52 @@ Only this adapter's `UNVERIFIED.md` header changed, with the other three and the
 ## 2026-09-13 — SYNCED.md replaces PLAYER_FIELDS.md (docs only, no DLL change)
 
 `PLAYER_FIELDS.md` is gone: its key tables became `SYNCED.md` (all 37 extras, each with its check on arrival; 6 `not checked yet`), and its measured facts became `documentation.md`'s "Holding the sword, and throwing it" and "Ability fields". The count rows were then corrected -- `clamp_count_to_int` refuses a value outside 0..1e9 to 0 rather than clamping, and the page now says the limit is a safety bound. Whole-message gaps and the stale `Plugin.cpp` comments are an OPEN entry in `UNVERIFIED.md`. The cross-adapter story is `phase12.md`, 2026-09-13.
+
+## 2026-09-13 — the outfit-swap-during-hurt glitch: stranded override materials, found and fixed
+
+**The report.** The user, with both installs live: a ghost's model goes glitched and stays that
+way, and the way to reproduce it is *"take damage, during the hurt/blink animation swap
+outfit(sometimes, so probly some timing during red/non red flash required?)"*. Two more facts from
+them made it tractable: it **persists** afterwards, and **a reset to last save clears it**.
+
+**Two theories died before a live test was spent on either.** The first was the anim binding —
+`animBPref` versus `VisualMesh.AnimScriptInstance` — which read `DIVERGED` on the glitched ghost
+and looked like the answer until the same probe's **control**, the local player, read `DIVERGED`
+identically while looking perfectly fine (they are different classes by design,
+`ABP_PlayerGoat_C` and `ABP_CopySybil_C`). The second was a material COUNT mismatch, which passed:
+both costumes happened to have four slots. The lesson is filed in `_template/probes.md` — dump the
+ghost and the player in the same pass, and ask what a material was BUILT FROM, not how many.
+
+**What the engine said.** `probes/probe_outfitswap/Scripts/materials.lua`, run against the live
+glitched ghost while it stood still: it wore `Kindred` while all four slots rendered
+MaterialInstanceDynamics parented to `KrystalBody`/`KrystalFace`. Player in the same pass: zero
+foreign slots. The chain was then readable straight out of that session's `UE4SS.log` — outfit
+applied (Krystal) → the peer was hurt, so `MIRROR_HURT_REACTION` ran the game's own
+`BPI_PerformDamageResponse` on the ghost → the flash built a dynamic instance per slot over the
+costume worn **at that moment** and parked them in the component's `OverrideMaterials` → outfit
+applied (Kindred) swapped the MESH out from under them. `OverrideMaterials` belongs to the
+component, not the mesh asset, so nothing in the swap touched it. The log still said `outfit mesh
+applied` with a matching readback, because **the readback reads the property that was written,
+never the render state** — which is why a year of clean-looking logs never showed this.
+
+**The fix** (`d133352b`): clear `OverrideMaterials` inside `call_set_skeletal_mesh_asset`, before
+the setter runs. In the setter rather than at the two call sites, so the WEAPON path is covered
+too — it shares the recipe and measured clean here only because no weapon was swapped during a
+flash. `Reset()` and not `Empty()`: `Reset(0)` takes its no-reallocate branch and only zeroes
+`ArrayNum`, never calling the allocator, which is the line this file already draws around growing
+a UE TArray from this DLL. It logs `dropped N stranded override material(s)` when it fires.
+
+**Shipped in v1.2.9 UNVERIFIED, the user's explicit call** — *"its either relasing it now untested,
+or waiting until tue in 2days ... keep it unverified but assumed to work"*. The READY entry in
+`UNVERIFIED.md` says what to run and what correct looks like.
+
+**Also found, not fixed, filed as its own OPEN entry:** a peer's costume the watcher OWNS but has
+never WORN this session never resolves — the catalog enumerates loaded objects only — so the ghost
+silently keeps the previous costume and retries ~1.5×/s forever: **1,798 warnings in one 20-minute
+session**, continuing long after the ghost went quiet. Deliberately kept out of this build so a
+decline on the materials fix stays attributable.
+
+**Probes added:** `probes/probe_outfitswap/` — `main.lua` (drives an idle and a mid-montage swap on
+the local pawn, single client, no relay), `inspect.lua` (binding + materials + visibility, ghost
+and player), `materials.lua` (per-slot material origin — the one that found it), `meshfns.lua`
+(the full 380-name function dump that confirmed this build has **no** `EmptyOverrideMaterials`).

@@ -10,7 +10,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 
 ## Open now
 
-- 2026-09-13 — **Pseudoregalia: a peer's costume the watcher OWNS but has never worn is unresolvable forever** — the catalog sees loaded objects only, so the ghost holds the stale outfit and retries ~1.5×/s with a log line, unbounded. `pseudoregalia/UNVERIFIED.md`.
+- 2026-09-13 — **Pseudoregalia: a costume the watcher owns but never WORE is unresolvable, and the retry is unbounded** (1,798 warnings/20 min). `pseudoregalia/UNVERIFIED.md`.
 - 2026-09-13 — **Pseudoregalia: the outfit-swap-during-hurt glitch is stranded override materials; fixed and deployed, UNWATCHED.** `pseudoregalia/UNVERIFIED.md`, `probes/probe_outfitswap/`.
 - 2026-09-12 — **Review pass 3: all 17 cells have run (~74 claims); the transports cluster is fixed and the fuzz-coverage one is next.** 44 commits, nothing pushed. `REVIEW-FINDINGS.md`, `phases/phase10.md`.
 - 2026-09-12 — **A stock relay could not welcome the 6th player into a room of escaped names, on the default transport.** Fixed (`relay.sendBudget`); the measurement is in `verified.md`.
