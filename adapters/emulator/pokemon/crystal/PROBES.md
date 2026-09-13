@@ -14,7 +14,7 @@ has been read, its conclusion belongs in `VERIFIED.md`.
 live, with no emulator relaunch. See `agent_docs/environment.md`. Older probes here predate the
 loader and run their own frame loop, so they still work opened directly in the Lua Console.
 
-## Twenty of these WRITE, and seventeen hold the controller. Read this before running one.
+## Twenty of these WRITE, and eighteen hold the controller. Read this before running one.
 
 Called out here rather than only in their own headers, because a folder index that hides a
 memory-writing tool is the worst kind of gap — nobody reads a header they did not know existed.
@@ -36,18 +36,22 @@ convention, unless `MESHGHOST_GOTO_UNDO_SLOT` says otherwise), `grant_test_kit.l
 badges/HMs into the party, `grant_items.lua` writes the bag, `grant_flash.lua` sets the Flash
 status flag, `set_level.lua` writes a party Pokémon's level, experience and stats,
 `ap_bag_grant.lua` and `ap_force_state.lua` write bag/state on an Archipelago build,
-and `noclip.lua` redirects `wTilesetCollisionAddress` into a WRAM zero region.
+and `noclip.lua` redirects `wTilesetCollisionAddress` to a filtered table it writes into the unused
+tail of `wOverworldMapBlocks`, and sets `EMOTE_OBJECT` on nearby NPCs (2026-09-13).
 **None writes the `.sav`** — but an in-game save afterwards makes their changes
 permanent, so savestate first and reload after. `noclip_off.lua` restores the collision pointer.
 
 **The three grant probes are kept SEPARATE on purpose** — badges/moves, bag, and levels — so that
 what each one changed stays obvious when something later looks wrong.
 
-**Seventeen hold the controller**, and the count keeps growing because a savestate-driven rig is
+**Eighteen hold the controller**, and the count keeps growing because a savestate-driven rig is
 now the normal way to reach an expensive state: `action_probe`, `bump_probe`, `dig_drive`,
 `door_loop`, `fish_drive`, `fly_drive`, `ice_probe`, `idle_cycle_drive`, `ledge_drive`,
 `menu_clip_check`, `menu_state_table`, `seam_drive`, `seam_shuttle`, `square_drive`,
-`surf_follow_probe`, `trainer_check`, `whirlpool_drive` — plus anything loaded alongside them.
+`surf_follow_probe`, `trainer_check`, `turn_drive`, `whirlpool_drive` — plus anything loaded alongside them.
+**Check before driving a window the user may be holding** (2026-09-13): a driver pressed the d-pad
+while the user was loading savestates in the same window; the frame counter jumping backwards and
+forwards in the trace was the only sign.
 Unload them before handing the game back — in a loopback session the ghost IS the local player
 echoed, so a probe jittering the player jitters the ghost, and that reads as a rendering fault.
 One left loaded on 2026-08-22 became a suspect for a ghost wiggle and cost a round of diagnosis.
@@ -135,7 +139,9 @@ the user nothing, which is the point.
 | `goto_map.lua` | **Writes + savestates slot 8.** Warps the player to a named map, doing exactly what the game's own `warp` script command does, in the same order. |
 | `goto_route39.lua` | One line of config pointing `goto_map` at Route 39 — the user's designated worst case (*"a big route, and fills up things due to having a lot of npc's"*). List it ABOVE `goto_map.lua` in the loader's control file. |
 | `load_undo.lua` | Loads savestate slot 8 — the undo for a `goto_map` warp. One action, then quiet. |
-| `noclip.lua` | **Writes.** Walk through anything, by redirecting `wTilesetCollisionAddress` into a WRAM zero region — *not* Emerald's approach, because Game Boy keeps the collision table in ROM, which this project never writes. |
+| `turn_drive.lua` | **Holds the d-pad.** Turns on the spot, one direction at a time: holds a direction only until the engine's own `OBJECT_DIRECTION` changes, then waits 90 frames — measured, not timed, so a press cannot run on into a step. What produced the turn-in-place frame sequence of 2026-09-13 (`documentation.md`, *Turning in place*). |
+| `movetrace_pair.py` | Reads logs only. Pairs two instances' `MESHGHOST_CRYSTAL_MOVE_TRACE` logs by wall clock: a peer's first engine pixel to the watcher's target and model (`lag`), a turn's face bytes against the drawn pose (`turn`), direction change against a step's first pixel (`dirflip`), idle tile alignment (`idle`). |
+| `noclip.lua` | **Writes** (2026-09-13 version). Points the tileset's collision pointer at a filtered copy of the real table in the unused tail of `wOverworldMapBlocks` — warp-family and grass values kept — and sets `EMOTE_OBJECT` on NPCs within two tiles, standing down while any real decoration object exists; per build (vanilla, Archipelago V1.0 base). Which of its premises are measured and which are not: its header. The superseded row below described the first version: walk through anything, by redirecting `wTilesetCollisionAddress` into a WRAM zero region — *not* Emerald's approach, because Game Boy keeps the collision table in ROM, which this project never writes. |
 | `noclip_off.lua` | **Writes.** Turns noclip off and proves it, restoring the pointer if an unclean unload left it redirected. |
 | `grant_test_kit.lua` | **Writes.** Grants the badges, HMs and field moves a test session needs to reach water, ledges, dark caves and the sky without playing through the game. |
 | `grant_items.lua` | **Writes the bag, and holds one byte every frame.** Super Rod (the drawn tier's fishing class cannot be watched without one), Master Balls, Max Repels, Rare Candies — all idempotent one-shot writes. **Permanent repel** is the exception and the only per-frame part: `wRepelEffect` is a STEP COUNTER the engine decrements, so "permanent" means topping it up, the same shape as Emerald's `testkit.lua`. It suppresses wild Pokémon **below your lead's level, not all of them** (`CheckRepelEffect`), so pair it with `set_level.lua` when encounters keep coming. The key-item pocket has no quantity byte where the other two do — cited from `ram/wram.asm`, because assuming otherwise corrupts the bag. |
@@ -165,6 +171,9 @@ wrong. Results and what is still unmeasured: `phase9.md` and `VERIFIED.md`.
 | `ap_state_probe.lua` | the map-identity and game-state addresses |
 | `ap_scroll_probe.lua` | `wBGMapOffsetX` / `wBGMapOffsetY` |
 | `ap_scroll_watch.lua` | watches the scroll-offset neighbourhood directly |
+| `tileset_header_probe.lua` | Read-only. The loaded tileset header and the ROM table it is copied from, by finding the table by its entries' shape and every entry in WRAM; self-checks on vanilla against the `.sym`. **2026-09-13**: header at flat `$11E0`, table at ROM `$4D46B` (vanilla `$11D9` / `$4D596`). |
+| `zero_runs_probe.lua` | Read-only. Every run of ≥ 256 zero bytes in CPU-visible WRAM, re-read for ten seconds, reporting any byte that became non-zero. **2026-09-13**: `$C8C0-$CD1F` identical on both builds, every bank-1 run moved. |
+| `player_sprite_probe.lua` | Read-only. The local player's `OBJECT_SPRITE` and `OBJECT_WALKING`, a line on every change, for a minute. **2026-09-13**: a runner on the Archipelago build wears `$65` at gait group 2. |
 | `ap_battlemode_probe.lua` | `wBattleMode` — **settled 2026-08-19** by one trainer battle: `0x1234` read 2 for the whole fight and returned to 0; `0x015A` read 1 in both a wild and a trainer battle, which is what ruled it out |
 
 ## Added 2026-08-26/27 — the mixed vanilla + Archipelago session

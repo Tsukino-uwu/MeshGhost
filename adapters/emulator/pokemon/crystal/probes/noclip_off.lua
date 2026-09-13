@@ -1,41 +1,54 @@
 -- MeshGhost — Crystal: turn noclip OFF and prove it (DEV TOOL, one action)
 --
--- noclip.lua redirects wTilesetCollisionAddress into a WRAM zero region. Its unload handler
--- restores the pointer, but an unload only runs if the loader dropped the file while it was
--- healthy -- so this checks the pointer itself and restores the recorded original if it still
--- points into WRAM. Original for this session's tileset, from noclip's own log: bank 6, $640E.
-local logfile
-do
-	local dir = "."
-	local info = debug.getinfo(1, "S")
-	if info and info.source and info.source:sub(1, 1) == "@" then
-		dir = info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
-	end
-	logfile = io.open(dir .. "/noclip_off.log", "w")
+-- noclip.lua redirects the tileset collision pointer into WRAM and flags nearby NPCs EMOTE_OBJECT.
+-- Its unload handler undoes both, but an unload only runs if the loader dropped the file while it was
+-- healthy -- so this checks the pointer itself and, if it still points into WRAM, restores the value
+-- from the ROM `Tilesets` entry matching the loaded header (the same lookup noclip.lua uses, so it is
+-- right for whichever tileset is loaded, on either build). NPC flags are NOT touched here: a flag this
+-- tool cannot attribute might belong to a real emote, and any map change rebuilds every object anyway.
+-- Addresses and their provenance: noclip.lua's header.
+local BUILDS = {
+	PM_CRYSTAL = { tilesetsRom = 0x4D596, header = 0x11D9 },
+	AP_CRYSTAL = { tilesetsRom = 0x4D46B, header = 0x11E0 },
+}
+local title = ""
+for i = 0x134, 0x13E do
+	local c = memory.read_u8(i, "ROM")
+	if c == 0 then break end
+	title = title .. string.char(c)
 end
-local function say(m)
-	console.log(m)
-	if logfile then logfile:write(m, "\n") logfile:flush() end
-end
-local function u8(a) return memory.read_u8(a, "WRAM") end
-local function w8(a, v) memory.write_u8(a, v, "WRAM") end
-local COLL_BANK, COLL_ADDR = 0x11DF, 0x11E0 -- d1df/d1e0 flattened
+local build = BUILDS[title]
+
 local done = false
 MESHGHOST_DEV_TICK = function()
 	if done then return end
 	done = true
-	local lo, hi = u8(COLL_ADDR), u8(COLL_ADDR + 1)
-	local ptr = lo + hi * 256
-	if ptr >= 0xC000 and ptr <= 0xDFFF then
-		w8(COLL_BANK, 6)
-		w8(COLL_ADDR, 0x0E)
-		w8(COLL_ADDR + 1, 0x64)
-		say(string.format("noclip WAS still on (pointer $%04X in WRAM). Restored bank 6 "
-			.. "$640E; read back $%02X%02X. Walk into a wall to confirm -- and any door/map "
-			.. "change also rewrites this pointer with the game's own value.",
-			ptr, u8(COLL_ADDR + 1), u8(COLL_ADDR)))
-	else
-		say(string.format("noclip already off: collision pointer is $%04X (ROM side), "
-			.. "the game's own.", ptr))
+	if not build then
+		console.log(string.format("noclip_off: ROM title %q has no addresses here -- nothing done.", title))
+		return
 	end
+	local h = memory.read_bytes_as_array(build.header, 9, "WRAM")
+	local ptr = h[8] + h[9] * 256
+	if ptr < 0xC000 then
+		console.log(string.format("noclip_off: already off -- collision pointer is $%04X (ROM side).", ptr))
+		return
+	end
+	local t = memory.read_bytes_as_array(build.tilesetsRom, 37 * 15, "ROM")
+	for e = 0, 36 do
+		local same = true
+		for k = 1, 6 do
+			if t[e * 15 + k] ~= h[k] then same = false break end
+		end
+		if same then
+			local real = t[e * 15 + 8] + t[e * 15 + 9] * 256
+			memory.write_u8(build.header + 7, real & 0xFF, "WRAM")
+			memory.write_u8(build.header + 8, (real >> 8) & 0xFF, "WRAM")
+			console.log(string.format("noclip_off: WAS on (pointer $%04X). Restored tileset %d's $%04X; "
+				.. "read back $%02X%02X. Leave the map to reset any NPC still walk-through.", ptr, e, real,
+				memory.read_u8(build.header + 8, "WRAM"), memory.read_u8(build.header + 7, "WRAM")))
+			return
+		end
+	end
+	console.log("noclip_off: pointer is in WRAM but the header matches no ROM entry -- walk through a "
+		.. "door; the map load writes the game's own pointer back.")
 end
