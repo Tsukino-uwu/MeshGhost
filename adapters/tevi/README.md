@@ -25,6 +25,8 @@ Phase 6 fully done 2026-08-13.**
   file; **the user overturned that 2026-08-18** and every adapter now carries one — being able to
   look something up is not the same as having looked
   ([adapters/_template/README.md](../_template/README.md)'s folder convention).
+- **[SYNCED.md](SYNCED.md)** lists everything TEVI sends to other players, what their game does
+  with it, and how each value is checked when it arrives.
 - Owned by the project author, unlike the Ori titles (see
   [agent_docs/ideas.md](../../agent_docs/ideas.md)), which was the deciding factor.
 - IL2CPP vs Mono build status: **confirmed Mono** (2026-08-11) — see

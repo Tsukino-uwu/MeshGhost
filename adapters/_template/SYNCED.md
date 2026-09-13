@@ -43,6 +43,8 @@ block with the same keys in the same order.
 | `while <state>` | Only while the named thing is happening; absent otherwise. |
 | `counter` | A running total that only goes up. The other game acts when it rises, so a lost update never loses the event. |
 | `for a moment after <event>` | A short window after something happens, then gone. |
+| `when it changes` | Only in the update where the value changes. |
+| `with <key>` | Exactly when the named key is sent; it only means something alongside it. |
 
 **A key whose value holds rows, cells or a list of words** gets a layout sub-table inside its
 details block: one row per cell or word, each with its own *Checked on arrival*.
