@@ -403,3 +403,16 @@ visit, which is past the core's 3s age-out -- and until 2026-09-09 an aged-out p
 length of a menu visit and returning on the first frame after; a longer absence is the paused
 window itself, not the rig. Check `RunInBackground` in the user's `config.ini` before reading
 "ghost missing" as a network fault, and read the adapter log's mtime: a paused window's log stops.
+
+## Two games on one PC share the save folder, and a mod's save can make them copy each other (2026-09-13)
+
+Unreal writes saves to `%LOCALAPPDATA%\<game>\Saved\SaveGames`, which belongs to the Windows user,
+not the install, so two installs (or two copies of one) on the same machine read and write the
+SAME files. On Pseudoregalia the costume mod keeps `currentOutfit` in `UI_Overhaul File <N>.sav`
+and re-applies it to the local player whenever a player-class pawn spawns, ghosts included: one
+game's costume pick showed up on the other game's player at its next ghost spawn. It looked exactly
+like a MeshGhost regression and took a revert, a reinstall and four probes to clear (a native
+`SetSkeletalMeshAsset` hook named the writer). **Before blaming the adapter for one client affecting
+the other's OWN character, suspect the shared save folder.** A different save slot per instance
+should keep them apart — the file name carries the slot number; unmeasured.
+`pseudoregalia/UNVERIFIED.md`, `phases/phase7.md`.

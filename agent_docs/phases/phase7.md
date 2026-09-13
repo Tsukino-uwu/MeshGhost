@@ -3769,3 +3769,12 @@ the Steam install while the other client swapped: the local player's real mesh t
 costume 2.5 s after the apply, and the player's `dynamicEyesMat` rebuild lined up five of five with
 the replay loop's ghost spawns. A spawn re-runs costume setup on the player; the swap only decides
 the costume. What performs the apply is not measured yet. Detail and next steps: `UNVERIFIED.md`.
+
+## 2026-09-13 (late) — the outfit echo was the costume mod's save file; the materials fix is restored
+
+`echo_hook.lua`, a logging pre-hook on the native `SetSkeletalMeshAsset`, put every call beside the
+adapter's lines: the watcher's player was set to the peer's costume 46 ms after a replay-ghost spawn,
+with no adapter apply beside it. The value was the costume mod's `currentOutfit` in
+`UI_Overhaul File 7.sav`, in the per-user save folder both local games share. Not MeshGhost, not
+reachable across two machines. The lesson filed in `running-the-rig.md`. The revert of `d133352b`
+was undone so the source matches v1.2.9 again; that fix's own purpose is still unwatched.
