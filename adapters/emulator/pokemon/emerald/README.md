@@ -57,6 +57,8 @@ the project is [status.md](../../../../agent_docs/status.md); the running log is
   mechanics this adapter depends on is a different artifact from the decompilation, and being able
   to look something up is not the same as having looked
   ([adapters/_template/README.md](../../../_template/README.md)'s folder convention).
+- **[SYNCED.md](SYNCED.md)** lists everything Emerald sends to other players, what their game does
+  with it, and how each value is checked when it arrives.
 - Reading local state is trivial — the `pokeemerald` decompilation documents player X/Y,
   map bank/number, and camera offset rather than requiring reverse engineering. See
   [agent_docs/licensing.md](../../../../agent_docs/licensing.md) for the rule on how that decomp
