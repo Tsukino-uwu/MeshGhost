@@ -173,21 +173,20 @@ to reproduce, and no amount of source reading substitutes for it. A memory read 
 line is authoritative for *"which field, which value, which function"* — and says nothing about
 whether the result feels right.
 
-**So mark them.** `[player]`, `[measured]` and — where a game has a cleared decompilation —
-`[from the decomp]`, which Emerald ships and is a materially different evidence class from either:
-it says what the game's own code does, without a claim that anyone watched it. Any clear convention
-will do, but declare it at the top of the file and then actually use it.
+**So mark them, and only these two:** `[player]` / `[seen on screen <date>]` for what a person
+watched, `[measured <date>, <instrument>]` for what a probe, trace or test read. Declare the
+convention at the top of the file and then actually use it.
 
-**`[from the decomp]` MARKS A FACT, and never licenses reproducing expression.** It is a provenance
-label, not a permission: which routine runs, which field it sets, what a value means, cited by
-file — all facts, and all fine. Source text, a pasted table, or prose shaped like the original is
-never fine, and this file's own preamble already says so *"regardless of what a licence permits"*
-(`CLAUDE.md`: facts may be used and recorded with a citation; expression never). The label does not
-relax that by one word.
+**`[from the decomp]` IS RETIRED (the user, 2026-09-13), and so is every other "a source says"
+label.** This file holds what we KNOW about how the game works — measured or watched, naming where —
+plus a plainly marked list of what we know we do not know yet. **Nothing is written here while we are
+unsure how it works**: a reader takes every line as how the mechanic IS. A decompilation, a wiki or
+another project is still the fastest way to learn WHERE to look, but what it says goes to the
+adapter's `UNVERIFIED.md` as a question to measure, and enters this file only as our own measurement.
+Rewording a source's explanation is still that source's information (`CLAUDE.md`, *Measured or
+observed only — nothing borrowed*). Short names from a source may point at our own value.
 
-The reason to carry it anyway is that it makes the boundary **auditable**: a decomp-derived claim
-is greppable, so anyone can go and check that what sits under the label is a fact described in our
-own words. An unlabelled document hides its provenance, which is the worse position to be in. The value shows up later: an unlabelled document invites a future session to
+The value of the two labels shows up later: an unlabelled document invites a future session to
 "verify" a player-observed stage by finding a plausible-looking field, and to treat a measured
 field as proof the experience is reproduced. **Where only `[player]` exists, the code path is an
 open question, and the file should look like one.**

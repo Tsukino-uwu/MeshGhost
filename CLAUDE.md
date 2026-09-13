@@ -58,21 +58,25 @@ to one line per entry instead. The cases: `agent_docs/claude-md-cap.md`.
   a false regression (2026-08-18). **Name the exact state: "main menu", never bare "menu".**
 - **No addresses or APIs from memory.** Every offset, hook and third-party call traces to a file in
   a repo or a documentation page; anything suspiciously tidy is invented until confirmed against it.
-- **If a game has a cleared decompilation, READ IT FIRST** (`licensing.md` clears the `pret`
-  decomps; `environment.md` has them built locally). Measurement CONFIRMS what the source says, it
-  does not discover it, and a probe cannot tell you what a byte MEANS (2026-08-23; `pitfalls.md`).
+- **If a game has a cleared decompilation, READ IT FIRST — as a MAP, never as evidence** (`licensing.md`
+  clears the `pret` decomps; `environment.md` has them built locally): it says where to measure, our
+  measurement makes it a fact, and a probe cannot tell you what a byte MEANS (2026-08-23; `pitfalls.md`).
 
 ## What may enter the repo
 
 - **Nothing goes in that couldn't be published. The test is "fine in a public repo forever?", not
   "does a license permit it?"** No or unclear means out; a permissive license is not an exception.
-  **Facts may be used and recorded with a citation; expression never** — decompiler output,
-  disassembly, game binaries, assets, ROMs, symbol files, verbatim dumps, structurally identical
-  code. It also filters which approaches to adopt, and clean isn't enough: **the repo must WORK for
+- **MEASURED OR OBSERVED ONLY — NOTHING BORROWED** (user, 2026-09-13). **A claim is written as fact
+  only when it names OUR evidence, dated**: a probe log or trace, a test, a file we built or hashed (a
+  byte-identical build's `.sym` proves an ADDRESS, never what the byte means), or the user on screen.
+  A decomp, wiki, dump or other project is where to LOOK; what it says waits in `UNVERIFIED.md` as
+  something to measure. A short name may point at our value; source text, tables, assets, ROMs,
+  symbol files, dumps, structurally identical code, and a rewording of a source's explanation never
+  enter. How to call an API may cite its docs; what it does, only once observed. `licensing.md`.
+- The rule also filters which approaches to adopt, and clean isn't enough: **the repo must WORK for
   a user who has only it plus what they legitimately own** (`agent_docs/access-models.md`).
 - **Read a project's license before reading its source** (`agent_docs/licensing.md`); not listed
-  there means not checked, so don't use it. Learning a fact is normal; copying source or assets is
-  not. **A private or invite-only source is a harder no: never named, linked, cited or derived from
+  there means not checked, so don't use it. Reading is normal; copying source or assets is not. **A private or invite-only source is a harder no: never named, linked, cited or derived from
   in any tracked file** — agent memory only, and what it touches stays independently measured.
 - **No personal username, home path or machine-identifying detail in any tracked file — prose
   counts.** Genericize, cite outside files by filename only, suspect pasted tool output above all.

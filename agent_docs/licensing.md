@@ -70,6 +70,37 @@ attributed") was **removed on the user's call, 2026-08-18**, from `access-models
 `CLAUDE.md`; this file was missed in that pass, so the repo stated the rule two ways until
 2026-08-18. The prohibition is unconditional. Why: `access-models.md`.
 
+**Standing rule since 2026-09-13, and stricter than the one above: MEASURED OR OBSERVED ONLY —
+NOTHING BORROWED.** The user, on reading a Crystal section written from the decompilation with a
+file citation per claim: *"i don't want to just slightly alter words/descriptions from a decomp and
+then call it a day as 'good enough' when we haven't actually measured or observed by ourself. our
+measurement and observation is what makes the information useful to begin with, writing whats from a
+decomp is just rewriting that same information."* "Facts, never code" said what may not be COPIED;
+it left open where a fact may COME FROM, and a reworded source walked through that gap. The rule,
+as decided with the user the same day:
+
+- **A claim is written as fact only when it names OUR evidence, with its date**: a probe log or trace,
+  a test, a file we built or hashed ourselves, or the user's confirmation on screen.
+- **A source is a map, never the evidence.** A decompilation, a wiki, a dump or another project may be
+  read first — it is the fastest way to learn WHERE to measure — but what it says enters a tracked
+  file only as a question to measure (the adapter's `UNVERIFIED.md`), and becomes a fact only as our
+  own measurement. The private-source rule above already treated a private source this way; this
+  makes every source the same.
+- **Names may point.** A short identifier from a source (a RAM label, a routine name) may sit beside
+  our own measured value so the next reader can find it — short identifiers carry no copyright, and a
+  name alone is not a claim. Never a list of them in bulk: a symbol table is a table.
+- **A `.sym` from a build WE made byte-identical to the ROM** (hash compared) proves an ADDRESS, never
+  what the byte means; a name suggests a meaning, and names have misled this repo (a published
+  `wMapGroup` label measured as the X coordinate — `ADDRESSES.archipelago` in
+  `adapters/emulator/pokemon/crystal/meshghost_crystal.lua`). The `.sym` itself is never committed.
+- **API and tool documentation** may be cited for HOW to call something; what the call does in our
+  setup is recorded only once observed.
+- **`documentation.md` holds only what we know**, plus a plainly marked list of what we know we do not
+  know. A reader takes every line there as how the mechanic IS, so nothing unsure goes in.
+- **Enforcement**: the `[from the decomp]` label is retired; preflight fails a new one beyond the
+  count recorded when the rule landed, and the audit of everything written before brings it to zero
+  (`agent_docs/status.md`).
+
 [access-models.md](access-models.md)'s "What any of this means for a PUBLIC repo" applies that rule
 per approach — what may be committed and what may not, for each way of reading a game — plus the two
 things that sit outside copyright entirely (EULA reverse-engineering clauses, and anti-circumvention

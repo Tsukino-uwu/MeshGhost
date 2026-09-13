@@ -877,7 +877,11 @@ $exprAllow = @{
 }
 $exprDecl = '\b(?:EWRAM_DATA|COMMON_DATA|IWRAM_DATA|static\s+)?\b(?:u8|u16|u32|s8|s16|s32|bool8)\s+[A-Za-z_]\w*\s*(?:\[[^\]]*\])?\s*='
 $exprPtr  = '\bstruct\s+\w+\s*\*\s*\w'
-$exprFiles = @(& git ls-files '*.md' '*.lua' '*.go' '*.ps1' '*.bat' '*.txt')
+# Filtered from the plain listing, NOT `git ls-files '*.md' ...`: PowerShell's `git` here is the
+# MSYS2 copy, which glob-expands `*.md` to the two root files first (see $trackedMd near the top).
+# This section was written with the glob on 2026-09-13 and scanned 2 markdown files of 184 locally
+# until the next session measured it; CI, on Linux, was never affected.
+$exprFiles = @(& git ls-files | Where-Object { $_ -match '\.(md|lua|go|ps1|bat|txt)$' })
 $exprHits = @()
 foreach ($f in $exprFiles) {
     if (-not (Test-Path $f)) { continue }
@@ -896,6 +900,53 @@ if ($exprFiles.Count -eq 0) {
         ($exprHits -join "; "))
 } else {
     Report-Pass "no reproduced C declaration in $($exprFiles.Count) tracked text file(s)"
+}
+
+Section "Measured or observed only: no NEW source-derived claims (ratchet)"
+
+# CLAUDE.md "MEASURED OR OBSERVED ONLY -- NOTHING BORROWED", the user's rule of 2026-09-13
+# (agent_docs/licensing.md has the reasoning and the cases). A claim is a fact only when it names OUR
+# evidence; a decompilation is where to look, and what it says waits in UNVERIFIED.md as a question.
+#
+# Two counts, both RATCHETS recorded the day the rule landed, because the tree written before it still
+# carries source-derived content and the audit that removes it is queued (agent_docs/status.md):
+#   * the retired `[from the decomp]` LABEL anywhere in tracked text (a backticked mention -- the rule
+#     naming the label -- is not a use);
+#   * source-file CITATIONS in any adapter's documentation.md (engine/..asm, src/..c and the like),
+#     which is the shape a decomp-derived claim takes when it carries no label at all.
+# A count that GROWS is a new borrowed claim: measure it, or move it to UNVERIFIED.md as a question.
+# A count that SHRINKS is the audit working: lower the recorded number so the floor holds.
+$ratchetDecompLabel = 5
+$ratchetDecompCites = @{
+    'adapters/emulator/pokemon/crystal/documentation.md' = 38
+    'adapters/emulator/pokemon/emerald/documentation.md' = 20
+}
+$labelHits = 0
+foreach ($f in @(& git ls-files | Where-Object { $_ -match '\.(md|lua|go|cs|cpp|h)$' })) {
+    if (-not (Test-Path $f)) { continue }
+    $labelHits += @(Select-String -LiteralPath $f -Pattern '(?<!`)\[from the decomp' -AllMatches | ForEach-Object { $_.Matches }).Count
+}
+if ($labelHits -gt $ratchetDecompLabel) {
+    Report-Fail "the retired [from the decomp] label is used $labelHits time(s), recorded $ratchetDecompLabel -- a new source-derived claim: measure it and label it [measured <date>, <instrument>], or move it to that adapter's UNVERIFIED.md as a question (CLAUDE.md, agent_docs/licensing.md)"
+} elseif ($labelHits -lt $ratchetDecompLabel) {
+    Report-Fail "the retired [from the decomp] label dropped to $labelHits (recorded $ratchetDecompLabel) -- the audit is working; lower `$ratchetDecompLabel in this file so the floor holds"
+} else {
+    Report-Pass "retired [from the decomp] label: $labelHits use(s), at the recorded floor"
+}
+$citePattern = '\b(engine|home|src|data|constants|ram|gfx|maps|include)/[A-Za-z0-9_/]+\.(asm|c|h|inc|pal)\b'
+$citeProblems = @()
+foreach ($f in @($trackedMd | Where-Object { $_ -like 'adapters/*documentation.md' })) {
+    if (-not (Test-Path $f)) { continue }
+    $norm = ($f -replace '\\', '/')
+    $n = @(Select-String -LiteralPath $f -Pattern $citePattern).Count
+    $allowed = if ($ratchetDecompCites.ContainsKey($norm)) { $ratchetDecompCites[$norm] } else { 0 }
+    if ($n -gt $allowed) { $citeProblems += "${norm}: $n line(s) citing source files, recorded $allowed (grew)" }
+    elseif ($n -lt $allowed) { $citeProblems += "${norm}: $n line(s), recorded $allowed (shrank -- lower the recorded number)" }
+}
+if ($citeProblems.Count -gt 0) {
+    Report-Fail ("source-file citations in documentation.md moved off their recorded floor: " + ($citeProblems -join "; "))
+} else {
+    Report-Pass "source-file citations in documentation.md at their recorded floor (the audit lowers them)"
 }
 
 Section "No reproduced expression in documentation.md"
