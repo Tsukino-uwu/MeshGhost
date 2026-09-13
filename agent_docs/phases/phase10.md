@@ -2258,3 +2258,54 @@ the reason the second method note below gives.
 checkable.* The fuzz-census gate added earlier in this pass cannot catch any of these: every one of
 them is registered, stepped and rostered. What catches them is coverage, and coverage is a
 measurement — `handleControl` at 0.0% is not an argument anyone has to be persuaded by.
+
+## 2026-09-13 — The config rename, and what a system-wide chord actually costs
+
+**Read from a tester's own `config.json`, not from a bug report.** Theirs carried
+`"name": "Default Name 123"` and `"name_color": "#facade"` — placeholders typed to find out what
+the fields wanted — and every hotkey rebound to a bare `shift+N`. The user asked whether `room`
+could be blank, whether the keys could be named better, and whether the tester's chords should be
+the defaults. Commit `707de675`; the decisions are ADR 0063.
+
+**What the reading found before any of that got answered.** `"room": ""` was not the default room:
+`cfg.Override` treats present-but-empty as a value that beats the flag default, and
+`relay.roomKey` keys the room map on whatever string arrives, so blank was a **real, separate
+room**. Two players whose files differed only in blank-versus-`default` would have sat in different
+rooms with nothing at either end able to notice, which is the worst shape a bug can take here —
+everything works, nobody appears. Blank now resolves in `normalizeIdentity`, reached through
+`loadClientConfig`, which is the single path **both** startup and the reload diff take; normalizing
+in only one of them would have made an untouched blank room report "needs the client relaunched" on
+the first save of any other key.
+
+**The alias is the part worth reusing.** `cfg.RenameOldKeys` moves an old spelling on the RAW BYTES
+before anything decodes them, so the decoder, `ApplyDespiteBadValue` and `WarnUnknownKeys` all see
+only current names and no second accepted-key list exists to drift from the reflection
+`WarnUnknownKeys` is built on. Without it a rename is worse than no rename: the old `room` becomes
+an unknown key, is ignored, and the player silently joins `default` — a real room, just not their
+friends'. It touches only the top level of the named section, because `client.replay.name` and
+`client.chaser.name` share a word with the player's nametag and mean other things; that is the
+first test in `internal/cfg/alias_test.go` and again in `cmd/meshghost/clientkeys_test.go`.
+
+**The hotkey question was measured rather than reasoned about, and the measurement needed its own
+control.** First attempt: register `shift+1`…`shift+5`, SendKeys them at a WinForms text box, read
+what landed — nothing landed, which looked like proof of interception. It was not: the harness had
+thrown (`$timer` created inside an event handler was null in the inner handler), and an empty text
+box is also what a crashed form returns. The user saw the exception dialog before the transcript
+did. With `$script:`-scoped timers the control run typed `!"#¤%`, and only then did the same run
+with the client up mean anything:
+
+| | text box received | client saw |
+| --- | --- | --- |
+| no client | `!"#¤%` | — |
+| client, six chords bound | nothing | all five fired |
+
+So a bound chord is withheld from the focused window (`RegisterHotKey`'s page documents the match
+happening before delivery and no pass-through). It is not a keylogger — `WM_HOTKEY` carries which
+of the six actions fired and nothing else — but those chords stop doing their usual job everywhere
+until MeshGhost exits. **Still open, and it is the user's to confirm on screen:** whether a game
+reading RawInput/DirectInput still sees `shift+1`…`shift+4`, which are common item-slot bindings.
+
+**The method note.** *An empty result and a crashed instrument look identical, so a measurement
+without a control is not a measurement.* The rule this repo already had — re-run with the probe off
+before believing a result — has a twin: run the arm where the effect must NOT appear, and check the
+instrument can still see. Ten seconds, and it was the difference between a finding and a guess.
