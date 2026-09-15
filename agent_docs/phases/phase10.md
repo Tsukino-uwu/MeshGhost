@@ -2432,3 +2432,21 @@ DO NOT SHARE and what each file is); the client's memory is `known_servers.json`
 `config.json` with no folder, because it is not a secret and filing it under `private/` would
 teach the wrong lesson. `.gitignore` and `stage-release.ps1` cover both names. The live scratch
 run was repeated under the new names, nine checks clean, the README present.
+
+## 2026-09-15 (late) — Zone-scoped authority: a question the docs had not asked
+
+**The user's question**, looking at Rain World: if the first player is the host and decides the
+world, who owns a zone the host has never loaded, or is not in? Rain World, as the user describes
+it, simulates one whole zone at a time and never loads another until someone enters it.
+
+**The answer was already built and only the prose was world-shaped.** `beyond-cosmetic.md` §2's
+host subsection reads as one lease for "the enemies"; leases, custody and adoption are all per
+opaque key, and a released key's world survives it (`relay/leases.go`, `relay/world.go`). So the
+key is the zone, the first entrant owns it, and every case (empty zone, owned zone, owner leaves
+with or without others present, simultaneous entry, group-wide clocks) falls out with no relay
+change. Written up as a new §2 subsection, "There is no host: authority is per loaded zone".
+
+**Left open, on the record:** an entity that crosses between two owners' zones is a two-authority
+handoff that nothing makes atomic (`kill-credit.md` #20); the 64-entity custody ceiling is per
+room, shared by every loaded zone. A coupling refused in writing: the core never derives an
+authority key from `area_id`. No code, no contract change, nothing pushed.

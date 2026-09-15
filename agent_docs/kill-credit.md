@@ -325,6 +325,11 @@ participation gating only the reward. Recorded as the fallback, not adopted.
     from `udpconn`'s reorder window, not chosen — with blobs ≤768 bytes. Comfortable for bosses and
     genuinely tight for a field full of trash mobs. **This is the first place the design meets a
     real number rather than a worry.**
+20. **An entity that crosses zones under per-zone authority.** Custody is namespaced by the
+    authority key, so a creature walking from one owner's zone into another's is a `drop` under one
+    key and a `set` under another, by two different clients, and nothing makes that pair atomic.
+    Coarser zones or a per-game handoff rule are the options; nothing built decides it
+    (`beyond-cosmetic.md` §2, "There is no host: authority is per loaded zone", 2026-09-15).
 
 ---
 

@@ -175,6 +175,61 @@ does: spawning and driving entities is runtime state, exactly like the ghost paw
 adapter already clones and poses through the game's own systems. `CLAUDE.md`'s save rule is
 untouched by any of this.
 
+#### There is no host: authority is per loaded zone (2026-09-15)
+
+The subsection above says "who owns the enemies" as if it were one key, and a user question showed
+the hole in that reading: *"what happens if another player goes to another zone the host hasn't
+been to / is not currently in? Who has ownership / decides what happens in multiple separated
+zones?"* The case in mind was Rain World, which the user describes as loading and simulating one
+whole zone at a time, with every other zone unloaded until a player enters it. A "host" that
+decides the world from its own view has no view of a zone it never loaded.
+
+**The answer is that nothing built is world-scoped, so nothing built needs a host.** A lease is
+held per opaque key (`relay/leases.go`), custody is namespaced per authority key (`relay/world.go`'s
+`worldKey`), a new holder adopts only that key's blobs (`worldSnapshotLocked`), and releasing a key
+deliberately leaves its world in place (`freeLeaseLocked`). So the unit of authority is **whatever
+the game loads as a unit**, and the lease key names it — `zone:<id>` — one owner per loaded zone,
+different zones with different owners, a player alone in a zone owning it. The first player into a
+zone owns it, exactly as the user guessed. Every case falls out of the primitives with no relay
+change:
+
+| Case | What happens |
+|---|---|
+| Enter a zone nobody has loaded | The claim is uncontested; the adoption snapshot carries custody's last blobs for that key, if anyone was ever there |
+| Enter a zone someone else owns | The claim is refused; the adapter suppresses its own spawning and renders the owner's stream |
+| The owner leaves, others remain | The owner's game unloads the zone, so it releases; the next claimant among those still inside takes over, seeded from custody |
+| The owner leaves, the zone is empty | It unloads everywhere and custody holds it un-owned until the next entrant. Nobody simulates an empty zone — which is exactly what singleplayer does, so this case is 1:1 for free |
+| Two players enter at once | Arrival picks one, the same as every other lease |
+| State that belongs to the group, not a zone (a cycle timer) | Its own coarser key, held by whoever asked first; granularities coexist on one primitive |
+
+**The claim has to go out when the transition starts, not when the zone is up.** Claim → wait →
+act still holds, and a load screen is the one place the round trip is free: the answer lands before
+the zone's first simulated frame. A game that cannot stall its load has already spawned everything
+locally by the time it hears "no", and the loser despawns at the load boundary — a rollback, but
+the only kind that is invisible.
+
+**What it costs is that the handover stops being exceptional.** The discontinuity above — enemies
+snapping to their last replicated pose, forgetting what they were doing — is paid on every zone
+crossing where somebody stays behind, not once per host disconnect. One handover is cheaper than a
+world-wide key would make it, because adoption sends only that key's blobs; the total is not.
+
+Two things per-zone authority does not answer, and they stay open:
+
+- **An entity that crosses zones.** A creature walking from one owner's zone into another's is a
+  handoff between two authorities: a `drop` under one key and a `set` under another, by two
+  different clients, and nothing makes that atomic — custody is namespaced by authority precisely
+  so the relay never has to arbitrate the collision. Coarser zones, or a per-game handoff rule, are
+  the options; nothing built decides it (`kill-credit.md` #20).
+- **The ceiling is per room, not per zone.** `contract.md`'s 64 entities of custody are shared by
+  every loaded zone in the room (`kill-credit.md` #19).
+
+**And one coupling to refuse.** The adapter derives the zone key from what its game loads as a
+unit; the core never derives it from `area_id`, whose granularity is chosen for what the adapter
+*displays* (`culling.md`) and can legitimately differ. Same rule as `CLAUDE.md`'s "compare by
+equality only": the moment game-agnostic code turns an `area_id` into an authority key, it is
+branching on its contents. Nothing here needs a save write — custody is runtime state, as the
+paragraph above already says — and, as everywhere in this file, recording it is not permission.
+
 So the honest position is that the ceiling is **movable by a game's adapter**, not by the relay,
 and that the thing which decides it is how much of a game's own authority can be switched off
 rather than anything in this repo. At that point it is a game-specific netcode project reusing this
@@ -583,4 +638,4 @@ as a green light is misreading it.
 `plans.md` (depth ladder, non-goals) · `kill-credit.md` (the worked design for one problem this
 file leaves open: who gets the reward, and when a shared enemy is dead) · `contract.md` (event
 plane, packet schema, transport contract) · `architecture.md` (the exclusion, and the ADR log) · `access-models.md` (what each game
-lets you read) · `bandages-core.md` (Go-side compensations)
+lets you read) · `bandages-core.md` (Go-side compensations) · `culling.md` (area granularity is the adapter's display choice, never an authority boundary)
