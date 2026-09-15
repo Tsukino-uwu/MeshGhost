@@ -1,6 +1,9 @@
 # Chaser contact damage (Pseudoregalia), closing the ghost-attack leaks, freezing during dialogue
 
-Planned 2026-09-15.
+Planned 2026-09-15. **Status as of 2026-09-15 (evening): Part D is DONE and committed (`e546d38c`,
+ADR 0068). Parts A, B, C and E are NOT started; each begins with a probe in a running game, and Part
+A's instrument is written and parked at `adapters/pseudoregalia/probes/probe_hitlist/` (never loaded).
+The next session starts at Part A step 1. This file is deleted when the last part lands.**
 
 ## Context
 
@@ -50,21 +53,21 @@ Three premises below were stale when written; the parts that rest on them start 
   a fresh spawn the adapter already sees, and a player respawn is the adapter's own fact. The window
   is adapter-side (ADR 0068).
 
-**Part D is DONE on the Go side** (2026-09-15, ADR 0068): the mode, the flag, the file reader with
-the legacy bool, hot reload, the policy push, the shipped configs, the contract, the tests. Parts A,
-B, C and E remain and each begins with a probe in a running game.
-
 ## Part A: make every ghost attack inert (bug fix, first)
 
-1. **Measure each leak.** Use a Lua probe through the MeshGhostScratch slot with hot reload
-   (`/write-a-probe`, `agent_docs/checklists/before-a-probe.md`). Put a loopback ghost 2 tiles to the
-   side. For Sunsetter, for Strikebreak and for a lever hit, find:
+1. **Measure each leak.** The instrument is written and parked: `probes/probe_hitlist/Scripts/main.lua`
+   (read-only; loads over the MeshGhostScratch slot, `PROBES.md`). It has never run, so its first run
+   is also its self-check; read `/write-a-probe` and `checklists/before-a-probe.md` before loading it.
+   Put a loopback ghost 2 tiles to the side. For Sunsetter, for Strikebreak and for a lever hit, find:
    - which actor performs the query (the ghost pawn, a spawned hitbox, or a projectile actor);
    - which array or flag records the victims;
    - how a switch or lever receives the hit.
 
    Start from the hitActorsArray mechanism in `documentation.md`. The hypothesis to test is that these
-   attacks use a separate actor or array that `GHOST_PREHIT_PLAYER` never touches.
+   attacks use a separate actor or array that `GHOST_PREHIT_PLAYER` never touches. The probe reads
+   every pawn's `hitActorsArray` and both health locations; "no array changed and the health moved
+   anyway" is itself the answer, and the next instrument is then `probe_leakcount`'s class census at
+   the moment of the hit.
 2. **Fix the cause, one path at a time.** Extend the pre-mark idea to that actor or array, covering the
    player, every other ghost and interactables. Use the game's own attack-owner check instead, if one
    exists. Never skip the attack montages: the user wants all animations (`BANDAGES.md`).
@@ -112,46 +115,42 @@ move.
 3. **The user confirms on screen:** during a conversation and a note, chasers stop in place. They
    resume when the player regains control, with no hit on resume.
 
-## Part D: the contract revision (Go side)
+## Part D: the contract revision (Go side) — DONE 2026-09-15, commit `e546d38c`
 
-1. **Write a new ADR** in `agent_docs/adr/`, indexed in `architecture.md`. It covers:
-   - `chaser.contact` changes from a bool to `"off"|"hurt"|"kill"`;
-   - `session_policy.chaser_contact` carries `"hurt"` or `"kill"`, and stays absent when off;
-   - a legacy bool `true` maps to `"hurt"`;
-   - a grace window after a chaser seam or respawn, so a chaser that reappears on the player doesn't
-     hit instantly;
-   - how this carve-out fits root `CLAUDE.md`'s "nothing that ships writes game state". Either reword
-     that rule or add a pointer, **only with the user's yes** and within the 200-line cap.
-2. **Code changes:**
-   - `core/core.go`: the `ChaserContact` type.
-   - `core/settings.go` and `cmd/meshghost/reload.go`: hot reload.
-   - `cmd/meshghost/main.go`: the `-chaser-contact` flag and its help text.
-   - `core/bridgeserve.go`: emit the mode.
-   - `bridge/bridge.go`: the field doc.
-   - `packaging/release/games/pseudoregalia/config.json`: `"contact": "off"`.
-   - `contract.md`: document the mode.
-3. **Tests:**
-   - bool-to-mode config parsing, including a legacy `true`;
-   - the policy is absent when contact is off or the chaser is disabled;
-   - extend `internal/e2e/chaser_e2e_test.go`;
-   - keep the existing "contact ships off" test.
+What shipped, so the adapter work reads the right shape:
 
-   `dev-scripts/run-gotests.bat` must be green, plus `run-gotests-race.bat` if settings reload is
-   touched.
+- ADR 0068 (`agent_docs/adr/0068-...`), indexed in `architecture.md`. `chaser.contact` is
+  `"off" | "hurt" | "kill"`; a legacy bool `true` reads as `"hurt"`, `false` as `"off"`; any other
+  value is refused (the flag exits at launch, a saved file keeps its old value and says so).
+- `session_policy.chaser_contact` carries `"hurt"` or `"kill"` and is absent when off or when the
+  chaser is disabled. `"enabled"` is retired; no adapter ever read it.
+- The grace window is **adapter-side**, no wire change: it starts from the chaser spawn the adapter
+  already sees (a seam is a despawn plus a fresh spawn) and from the player's own respawn. Its
+  length is measured in Part E.
+- Root `CLAUDE.md` unchanged (the user's call): the ADR explains that contact triggers the game's own
+  damage path exactly as an enemy does and writes no state.
+- `core.ChaserContact` (`core/chaser.go`), the string flag, the bool-or-word file reader
+  (`cmd/meshghost/main.go`), hot reload, the policy push, the five shipped `config.json` files,
+  `contract.md`, `bridge.go`, the template `PROTOCOL.md`/`README.md`, `docs/config.md`.
+- Tests green including race and the two e2e runs; the e2e chaser test starts the real binary with
+  `-chaser-contact kill` and asserts the word arrives.
 
 ## Part E: the Pseudoregalia adapter
 
 1. **Read the policy.** Parse `render_remote.cosmetic` and `session_policy.chaser_contact` in
-   `Plugin.cpp`. Neither is read anywhere today. Hot reload must update both.
+   `Plugin.cpp`. Neither is read anywhere today (five handlers, none for `session_policy`; the
+   message arrives in the same TCP segment as `bridge_ready`, `Plugin.cpp` ~27968). The value is the
+   word `"hurt"` or `"kill"`, or the field is absent. Hot reload must update both.
 2. **Contact test.** Each tick on the game thread, test the player capsule against each chaser's last
    applied position, using the capsule's radius and height. This is an overlap, never collision, so
    chaser collision stays off.
    - Only chasers (`chaser:` ids) qualify, never real peers or replays.
    - Skip while `player_frozen` is set (pause, items, dialogue, notes).
-   - Skip during the post-seam grace window.
+   - Skip during the grace window after a chaser spawn and after the player's respawn; its length
+     is measured here, not fixed by the ADR.
    - Skip during the player's i-frames or death.
-   - First confirm the adapter really sends `player_frozen`. The README says it does, but
-     `UNVERIFIED.md` still lists it as the blocker.
+   - `player_frozen` IS sent (see the corrections above); the one open item is I6 in `UNVERIFIED.md`
+     (pause about ten seconds with a chaser running, unpause, it resumes where it left off).
 3. **Apply the damage** through the path measured in Part B:
    - hurt calls the game's own contact hit;
    - kill uses the game's own death or instakill path.
@@ -170,9 +169,8 @@ move.
 
 ## Verification
 
-- **Go side (verified by Claude):**
-  - `run-gotests.bat` green, plus the race run if concurrency is touched;
-  - check CI with `gh run list -L 5` after the commit.
+- **Go side (verified by Claude): done 2026-09-15** — build, vet, gofmt, the package tests, the race
+  run and the two e2e tests, all green on the committed tree. CI runs when the user pushes.
 - **Live (the user confirms on screen):** Claude starts the relay, core and scaffolding hidden, and
   asks before launching Pseudoregalia. The checks are small steps, in order:
   1. A loopback ghost uses Sunsetter, Strikebreak and swings next to the player, another ghost and a
