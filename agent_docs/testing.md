@@ -495,7 +495,8 @@ and this table is where the next session checks. The udp one is deliberately unw
 2026-09-15: plain udp no longer ships (ADR 0065), so the exposure it fuzzed is a dev build's, and
 the manual script below is where it runs.
 
-If CI's fuzz job fails, the reproducing input is uploaded as the `fuzz-failure-corpus` artifact:
+If CI's fuzz job fails, the reproducing input is uploaded as the `fuzz-failure-corpus-<shard>` artifact (the
+job is six parallel shards since 2026-09-15, one artifact each; every target and fuzz time is unchanged):
 drop it into `testdata/fuzz/<Target>/`, where `go test ./<pkg>` replays it — commit it as a
 regression test.
 

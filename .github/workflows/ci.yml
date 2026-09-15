@@ -7,7 +7,7 @@ name: CI
 # counted 30 on 2026-09-15 -- 29 in the release build plus netx/udpconn's one, which is behind
 # the meshghost_devudp tag and deliberately has no step (ADR 0065) -- and agent_docs/testing.md
 # names the two core targets with no step here and why (both are socket-bound schedule fuzzers
-# that are opt-in on purpose; they still run on their seed corpus in the test job). COUNT BOTH
+# that are opt-in on purpose; they still run on their seed corpus in the race job). COUNT BOTH
 # RATHER THAN TRUSTING THIS LINE: it said eleven across four for as long as the two bridge targets
 # had existed, on 2026-09-10 it still said 26/two while the tree held 27 and three were unwired --
 # a target had shipped with an ADR and no step -- and on 2026-09-15 it said 25/eight while the
@@ -61,7 +61,7 @@ jobs:
   # filter and runs on every push, which is what that sentence always claimed.
 
   test:
-    name: Build, vet, test (race)
+    name: Build, vet, format
     # Linux, not Windows, specifically for the race detector: on Windows it
     # needs a working cgo C toolchain, and a machine can easily have a `gcc`
     # on PATH that is the wrong install (found live 2026-08-16 -- the dev
@@ -113,13 +113,6 @@ jobs:
             GOOS=${target%/*} GOARCH=${target#*/} go build -o /dev/null ./cmd/meshghost-relay
           done
 
-      # -count=3 because this suite has caught a real race by failing
-      # intermittently rather than reliably (see CLAUDE.md and the pending-
-      # payload fix in transport, which lived in internal/transport until the
-      # 2026-08-17 move of the library packages to the repo root). The race detector is the
-      # deterministic version of the "run it repeatedly and watch" ritual
-      # that replaced; running both is belt and braces, and the whole suite
-      # is only a few seconds.
       # gofmt is not vet: `go vet` passes happily on misformatted source, so
       # nothing caught cmd/meshghost-relay/main.go drifting out of gofmt shape
       # until the 2026-08-18 audit read it. A formatting gate is cheap and the
@@ -133,8 +126,53 @@ jobs:
             exit 1
           fi
 
+
+  race:
+    name: Test (race) - ${{ matrix.name }}
+    # Linux, not Windows, specifically for the race detector: on Windows it
+    # needs a working cgo C toolchain, and a machine can easily have a `gcc`
+    # on PATH that is the wrong install (found live 2026-08-16 -- the dev
+    # box's `gcc` resolved to a devkitPro MSYS2 copy whose headers `-race`
+    # can't use). On Linux it just works with no toolchain setup at all.
+    # The Go code is platform-agnostic (net, encoding/json, no syscalls), so
+    # a race here is a race on Windows too; the windows job below covers the
+    # actual shipping target.
+    #
+    # Three runners, not one: `go test ./...` already runs packages side by side,
+    # but on one four-core runner the two long packages starve each other and the
+    # job's wall time was the slowest of them -- 10m29s on 2026-09-15, with core
+    # alone at Go's ten-minute package limit. Each shard gets a whole runner, and
+    # the job takes its longest shard. The command and the count are unchanged;
+    # every package is in exactly one shard, and the third shard's `go list`
+    # subtraction means a new package lands there without anyone editing this.
+    #
+    # -count=3 because this suite has caught a real race by failing
+    # intermittently rather than reliably (see CLAUDE.md and the pending-
+    # payload fix in transport, which lived in internal/transport until the
+    # 2026-08-17 move of the library packages to the repo root). The race detector is the
+    # deterministic version of the "run it repeatedly and watch" ritual
+    # that replaced; running both is belt and braces.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: core
+            packages: ./core
+          - name: relay and end to end
+            packages: ./relay ./internal/e2e
+          - name: everything else
+            packages: $(go list ./... | grep -v -E '/(core|relay|internal/e2e)$')
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
+          cache: true
+
       - name: Test with race detector
-        run: go test -race -count=3 ./...
+        run: go test -race -count=3 ${{ matrix.packages }}
 
   vuln:
     name: Known vulnerabilities in dependencies
@@ -173,8 +211,172 @@ jobs:
           fi
 
   fuzz:
-    name: Fuzz the parsers
+    name: Fuzz ${{ matrix.name }}
     runs-on: ubuntu-latest
+    # Six shards in parallel instead of one job running all 29 targets end to end. The
+    # serial job took 17m24s on 2026-09-15 -- each target is its own instrumented build
+    # plus its campaign, and they only ever ran one after another. The targets, their
+    # fuzz times and the wrapper are unchanged; what changed is that the job's wall time
+    # is now its longest shard (about three and a half minutes) rather than the sum.
+    # Shards group by package so a shard's instrumented build is shared by its targets.
+    # There is no cap that made four jobs the limit: a public repo runs 20 at once.
+    #
+    # dev-scripts/preflight.ps1's fuzz census reads this file for every Fuzz* target's
+    # NAME, so a target lives here as a literal line, never in a variable or a script.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # A relay is a listening port strangers connect to, so every byte it
+          # parses is attacker-controlled. Each target gets a short campaign per
+          # push -- enough to catch a regression that makes previously-safe
+          # input crash, not a substitute for a long campaign when the parsing
+          # or limit code actually changes. Run one of those by hand with
+          # -fuzztime=10m; each target's doc comment carries the exact command.
+          #
+          # The four planes past cosmetic (2026-08-17) parse their own
+          # attacker-controlled shapes: an event payload is opaque bytes forwarded
+          # to other players, and a lease key or escrow id becomes a map key in the
+          # relay's own state. Same exposure as the state plane, so the same
+          # treatment. world.v1 retains attacker-chosen opaque bytes for a room's
+          # lifetime and hands them to whoever takes a lease next, and an authority
+          # string is compared for equality against a lease key -- a non-UTF-8 one
+          # becomes a DIFFERENT string across JSON, so every write is silently
+          # denied while the client's own validation passed. That target was written
+          # with the plane and left out of CI, the same omission
+          # FuzzListenerSurvivesArbitraryDatagrams had; it had therefore never run.
+          - name: "protocol - the wire"
+            targets: |
+              ./protocol FuzzValidateStateIsStableAcrossTheWire 45s
+              ./protocol FuzzValidPositionsSurviveNarrowingToFloat32 30s
+              ./protocol FuzzEnvelopeUnmarshalNeverPanics 30s
+              ./protocol FuzzValidateEventIsStableAcrossTheWire 30s
+              ./protocol FuzzValidateLeaseAndEscrowNeverPanic 30s
+              ./protocol FuzzValidateWorldIsStableAcrossTheWire 30s
+          # Room feature stickiness compares normalized capability lists by string
+          # equality, so a normalizer that is not idempotent would refuse two
+          # clients a shared room for no reason -- a handshake failure with no
+          # legible cause.
+          #
+          # Rate resolution is where a relay's advertised send_hz and a peer's
+          # requested receive cap enter this process, and every caller trusts the
+          # answer without re-checking it: core drives its send loop with it, the
+          # relay sizes a flood cap with it. A resolver that let a value escape
+          # [MinSendHz, MaxSendHz] would put a client at a rate nothing enforces.
+          # Added 2026-09-01 alongside the DefaultSendHz 20 -> 15 change -- a
+          # constant that moves is a constant worth fuzzing around.
+          #
+          # extras and orientation were bounded by SIZE and never by SHAPE until
+          # 2026-09-03: 490 levels of nesting fit inside the 1024-byte extras cap and
+          # 127 inside orientation's 256, measured 2026-08-24. Every receiver then
+          # walks that structure, and the receivers are four hand-written decoders in
+          # three languages. The depth target pins the two depth checkers against each
+          # other -- one scans raw bytes, the other walks a decoded value -- because
+          # orientation is bounded by the scanner ALONE, so a scanner more permissive
+          # than the walk is a hole in the field that never gets decoded.
+          #
+          # Four pins that existed in the tree without a step here until 2026-09-06 (the user's
+          # call: CI runs every Go test it can). Two are encoder-vs-encoding/json pins -- our hand
+          # encoders must produce exactly the bytes json.Marshal would, or a size limit checked at
+          # one end and enforced at the other becomes a moved validation boundary. Two are the
+          # sanitizer pins -- a display name or colour must be safe to log and re-send whatever
+          # arrives, and sanitizing twice must equal sanitizing once, because the relay and every
+          # client both do it.
+          - name: "protocol - limits, encoders and sanitizers"
+            targets: |
+              ./protocol FuzzNormalizeFeaturesIsIdempotent 30s
+              ./protocol FuzzClampRatesAlwaysLandInRange 20s
+              ./protocol FuzzDepthBoundsAgreeAndNeverPanic 30s
+              ./protocol FuzzAppendEnvelopeMatchesMarshal 30s
+              ./protocol FuzzExtrasSizingMatchesMarshal 30s
+              ./protocol FuzzSanitizeDisplayNameIsAlwaysSafeToShowAndLog 30s
+              ./protocol FuzzSanitizeNameColorIsAlwaysAHexColourOrNothing 20s
+          # The bridge is the OTHER protocol, and it had no fuzzing (and no tests at
+          # all) until 2026-08-25. Its exposure is different from the relay's rather
+          # than smaller: the bytes come from a game mod on the same machine -- a Lua
+          # script a user edits -- and a panic decoding them takes the core down and
+          # every ghost with it. Four adapters in three languages compose these
+          # messages by hand, so malformed input is the ordinary case, not the attack.
+          # The two decode targets go into plain structs with no custom UnmarshalJSON,
+          # so between them they campaign encoding/json and no line of package bridge.
+          # The third has the package's own validator as its SUBJECT -- it was only
+          # ever an ORACLE, in core's track-parser target, always on a one-edge batch
+          # (X2-3 and X2-7, 2026-09-12). An input track is a file one player sends
+          # another, and the adapter reading it back narrows its fields in C++.
+          #
+          # The room-code proof's two incoming messages (ADR 0067): bytes from an
+          # unauthenticated peer on both sides, refused or answered, never a panic.
+          - name: "bridge, pake and transport"
+            targets: |
+              ./bridge FuzzEnvelopeUnmarshalNeverPanics 30s
+              ./bridge FuzzHelloUnmarshalNeverPanics 30s
+              ./bridge FuzzValidateInputSampleAgreesWithItsOwnRejectReason 30s
+              ./pake FuzzMessagesNeverPanic 30s
+              ./transport FuzzReadLoopNeverExceedsItsLineLimit 45s
+          # THE CLIENT'S OWN TWO MOUTHS. Most targets fuzz what a SERVER reads, or a
+          # file, or a pure function. Until 2026-09-12 nothing pushed arbitrary bytes
+          # into the two things the core itself reads from -- the relay connection
+          # (docs/security.md treats a hostile relay as a real threat model, and the
+          # 2026-09-12 pass fixed five findings in that exact path) and the bridge
+          # socket (loopback with no authentication, by design). FuzzEverything drives
+          # the bridge, but only ever with legal frames, and its relay is a stand-in
+          # that delivers nothing. X2-4.
+          #
+          # The client's known-servers file (known_servers.json, ADR 0066) is bytes
+          # off a disk a hand may have edited: the loader must error or load, never panic.
+          #
+          # A replay file (ADR 0047, 2026-09-03) is a stranger's bytes by design --
+          # shared and hand-edited -- and the loader is the only parser in core
+          # that reads a file. It must never panic, and anything it accepts must
+          # pass the same per-sample validation a relay packet does. Its sibling,
+          # the input track, is a FILE for the same reason, so it is a stranger's
+          # bytes the moment one person sends another a clip. Added 2026-09-10 -- it
+          # shipped with ADR 0056 on 2026-09-08 and had no step, while this comment,
+          # agent_docs/testing.md and docs/reviewing.md all said the only unwired
+          # targets were the two socket-bound ones. Nothing was watching the count;
+          # the doc sweep that found it was reading by hand.
+          - name: "core - what it reads"
+            targets: |
+              ./core FuzzHostileRelayLines 45s
+              ./core FuzzHostileBridgeLines 45s
+              ./core FuzzKnownRelaysFileNeverPanics 30s
+              ./core FuzzParseReplayNeverPanics 30s
+              ./core FuzzParseInputTrackNeverPanics 30s
+          # The user's standard, 2026-09-03: "a fuzzer that doesn't fuzz everything randomly won't
+          # catch things we didn't think about". One client, random config inside and outside every
+          # limit, random order and timing of frames, files, controls, relay messages and clock resets,
+          # checked against the invariants a player would state. No relay sockets, so it can run here.
+          #
+          # Two things a player types by hand and nothing else parsed: a hotkey chord, and the
+          # nested config blocks. Must never panic and must never admit a value past its rule.
+          - name: "core - everything, and what a player types"
+            targets: |
+              ./core FuzzEverything 60s
+              ./internal/hotkey FuzzParseNeverPanicsAndOnlyAdmitsDocumentedChords 20s
+              ./cmd/meshghost FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane 20s
+          # The relay's POST-JOIN dispatch had no fuzz coverage at all until
+          # 2026-08-17: the first target dials, writes one line and hangs up, so the
+          # switch reaching handleEvent/handleLease/handleEscrow/handleWorld -- where
+          # a lease key, an escrow id and a worldKey all become keys in the relay's
+          # own maps -- was only ever exercised by hand-written, well-formed tests.
+          #
+          # The protocol version stopped being a constant comparison on 2026-09-08 and
+          # became a FLOOR -- a decision with two outcomes, made before the room is
+          # touched. Both other relay targets hard-code protocol.Version in their
+          # hello, so it was the one field nothing varied; the third drives it across
+          # the floor, both int32 edges and negatives, and asserts the relay's verdict
+          # matches protocol.AcceptsPeerVersion exactly, which is what stops the two
+          # ends drifting into "some players cannot join".
+          #
+          # netx/udpconn's FuzzListenerSurvivesArbitraryDatagrams has no step since 2026-09-15:
+          # plain udp is compiled only under the meshghost_devudp tag and no release carries it
+          # (ADR 0065). The test job's vet step still compiles it; dev-scripts/run-gotests-udp.bat
+          # runs its tests and fuzz seeds by hand.
+          - name: "relay"
+            targets: |
+              ./relay FuzzRelaySurvivesArbitraryLines 45s
+              ./relay FuzzRelaySurvivesArbitraryPostJoinMessages 45s
+              ./relay FuzzHelloProtocolVersion 45s
     steps:
       - uses: actions/checkout@v7
 
@@ -198,182 +400,36 @@ jobs:
       # wrapper forgives ONLY that bare deadline, and still fails on a real find, on a
       # failing seed-corpus entry, and on anything else non-zero. See its own header.
       #
-      # A relay is a listening port strangers connect to, so every byte it
-      # parses is attacker-controlled. Each target gets a short campaign per
-      # push -- enough to catch a regression that makes previously-safe
-      # input crash, not a substitute for a long campaign when the parsing
-      # or limit code actually changes. Run one of those by hand with
-      # -fuzztime=10m; each target's doc comment carries the exact command.
-      #
-      # -run=XXX so the ordinary tests in these packages don't run three
-      # more times here; the test job above already ran them under -race.
-      - name: Fuzz protocol - state survives a relay forward unchanged
-        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzValidateStateIsStableAcrossTheWire 45s
-      - name: Fuzz protocol - accepted positions cannot overflow float32
-        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzValidPositionsSurviveNarrowingToFloat32 30s
-      - name: Fuzz protocol - envelope decode never panics
-        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzEnvelopeUnmarshalNeverPanics 30s
-      # The bridge is the OTHER protocol, and it had no fuzzing (and no tests at
-      # all) until 2026-08-25. Its exposure is different from the relay's rather
-      # than smaller: the bytes come from a game mod on the same machine -- a Lua
-      # script a user edits -- and a panic decoding them takes the core down and
-      # every ghost with it. Four adapters in three languages compose these
-      # messages by hand, so malformed input is the ordinary case, not the attack.
-      - name: Fuzz bridge - envelope decode never panics
-        run: bash dev-scripts/ci-fuzz.sh ./bridge FuzzEnvelopeUnmarshalNeverPanics 30s
-      - name: Fuzz bridge - hello decode never panics
-        run: bash dev-scripts/ci-fuzz.sh ./bridge FuzzHelloUnmarshalNeverPanics 30s
-      # The two above decode into plain structs with no custom UnmarshalJSON, so
-      # between them they campaign encoding/json and no line of package bridge.
-      # This one has the package's own validator as its SUBJECT -- it was only
-      # ever an ORACLE, in core's track-parser target, always on a one-edge batch
-      # (X2-3 and X2-7, 2026-09-12). An input track is a file one player sends
-      # another, and the adapter reading it back narrows its fields in C++.
-      - name: Fuzz bridge - the input-sample validator and its reject reason agree
-        run: bash dev-scripts/ci-fuzz.sh ./bridge FuzzValidateInputSampleAgreesWithItsOwnRejectReason 30s
-      # THE CLIENT'S OWN TWO MOUTHS. Everything above fuzzes what a SERVER
-      # reads, or a file, or a pure function. Until 2026-09-12 nothing pushed
-      # arbitrary bytes into the two things the core itself reads from -- the
-      # relay connection (docs/security.md treats a hostile relay as a real
-      # threat model, and the 2026-09-12 pass fixed five findings in that exact
-      # path) and the bridge socket (loopback with no authentication, by
-      # design). FuzzEverything drives the bridge, but only ever with legal
-      # frames, and its relay is a stand-in that delivers nothing. X2-4.
-      - name: Fuzz core - a hostile relay's lines
-        run: bash dev-scripts/ci-fuzz.sh ./core FuzzHostileRelayLines 45s
-      - name: Fuzz core - arbitrary bytes into the bridge socket
-        run: bash dev-scripts/ci-fuzz.sh ./core FuzzHostileBridgeLines 45s
-      # The client's known-servers file (known_servers.json, ADR 0066) is bytes
-      # off a disk a hand may have edited: the loader must error or load, never panic.
-      - name: Fuzz core - the known-servers file
-        run: bash dev-scripts/ci-fuzz.sh ./core FuzzKnownRelaysFileNeverPanics 30s
-      # The room-code proof's two incoming messages (ADR 0067): bytes from an
-      # unauthenticated peer on both sides, refused or answered, never a panic.
-      - name: Fuzz pake - the proof's messages
-        run: bash dev-scripts/ci-fuzz.sh ./pake FuzzMessagesNeverPanic 30s
-      # The four planes past cosmetic (2026-08-17) parse their own
-      # attacker-controlled shapes: an event payload is opaque bytes forwarded
-      # to other players, and a lease key or escrow id becomes a map key in the
-      # relay's own state. Same exposure as the state plane above, so the same
-      # treatment.
-      - name: Fuzz protocol - events survive a relay forward unchanged
-        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzValidateEventIsStableAcrossTheWire 30s
-      - name: Fuzz protocol - lease and escrow bounds never panic
-        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzValidateLeaseAndEscrowNeverPanic 30s
-      # Room feature stickiness compares normalized capability lists by string
-      # equality, so a normalizer that is not idempotent would refuse two
-      # clients a shared room for no reason -- a handshake failure with no
-      # legible cause.
-      - name: Fuzz protocol - feature normalization is idempotent
-        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzNormalizeFeaturesIsIdempotent 30s
-      # Rate resolution is where a relay's advertised send_hz and a peer's
-      # requested receive cap enter this process, and every caller trusts the
-      # answer without re-checking it: core drives its send loop with it, the
-      # relay sizes a flood cap with it. A resolver that let a value escape
-      # [MinSendHz, MaxSendHz] would put a client at a rate nothing enforces.
-      # Added 2026-09-01 alongside the DefaultSendHz 20 -> 15 change -- a
-      # constant that moves is a constant worth fuzzing around.
-      - name: Fuzz protocol - send and receive rates always resolve in range
-        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzClampRatesAlwaysLandInRange 20s
-      - name: Fuzz transport - framing honours its line limit
-        run: bash dev-scripts/ci-fuzz.sh ./transport FuzzReadLoopNeverExceedsItsLineLimit 45s
-      # world.v1 (2026-08-17) retains attacker-chosen opaque bytes for a room's
-      # lifetime and hands them to whoever takes a lease next, and an authority
-      # string is compared for equality against a lease key -- a non-UTF-8 one
-      # becomes a DIFFERENT string across JSON, so every write is silently
-      # denied while the client's own validation passed. This target was written
-      # with the plane and left out of CI, the same omission
-      # FuzzListenerSurvivesArbitraryDatagrams had; it had therefore never run.
-      - name: Fuzz protocol - world writes survive a relay forward unchanged
-        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzValidateWorldIsStableAcrossTheWire 30s
-      # extras and orientation were bounded by SIZE and never by SHAPE until
-      # 2026-09-03: 490 levels of nesting fit inside the 1024-byte extras cap and
-      # 127 inside orientation's 256, measured 2026-08-24. Every receiver then
-      # walks that structure, and the receivers are four hand-written decoders in
-      # three languages. This target pins the two depth checkers against each
-      # other -- one scans raw bytes, the other walks a decoded value -- because
-      # orientation is bounded by the scanner ALONE, so a scanner more permissive
-      # than the walk is a hole in the field that never gets decoded.
-      - name: Fuzz protocol - the two JSON depth bounds agree
-        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzDepthBoundsAgreeAndNeverPanic 30s
-      # Four pins that existed in the tree without a step here until 2026-09-06 (the user's
-      # call: CI runs every Go test it can). Two are encoder-vs-encoding/json pins -- our hand
-      # encoders must produce exactly the bytes json.Marshal would, or a size limit checked at
-      # one end and enforced at the other becomes a moved validation boundary. Two are the
-      # sanitizer pins -- a display name or colour must be safe to log and re-send whatever
-      # arrives, and sanitizing twice must equal sanitizing once, because the relay and every
-      # client both do it.
-      - name: Fuzz protocol - hand-built envelopes match encoding/json byte for byte
-        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzAppendEnvelopeMatchesMarshal 30s
-      - name: Fuzz protocol - the extras size check matches encoding/json's length
-        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzExtrasSizingMatchesMarshal 30s
-      - name: Fuzz protocol - a sanitized display name is always safe to show and log
-        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzSanitizeDisplayNameIsAlwaysSafeToShowAndLog 30s
-      - name: Fuzz protocol - a sanitized name colour is a hex colour or nothing
-        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzSanitizeNameColorIsAlwaysAHexColourOrNothing 20s
-      - name: Fuzz relay - survives arbitrary bytes and still serves clients
-        run: bash dev-scripts/ci-fuzz.sh ./relay FuzzRelaySurvivesArbitraryLines 45s
-      # The relay's POST-JOIN dispatch had no fuzz coverage at all until
-      # 2026-08-17: the target above dials, writes one line and hangs up, so the
-      # switch reaching handleEvent/handleLease/handleEscrow/handleWorld -- where
-      # a lease key, an escrow id and a worldKey all become keys in the relay's
-      # own maps -- was only ever exercised by hand-written, well-formed tests.
-      - name: Fuzz relay - survives arbitrary post-join messages
-        run: bash dev-scripts/ci-fuzz.sh ./relay FuzzRelaySurvivesArbitraryPostJoinMessages 45s
-      # The protocol version stopped being a constant comparison on 2026-09-08 and
-      # became a FLOOR -- a decision with two outcomes, made before the room is
-      # touched. Both relay targets above hard-code protocol.Version in their
-      # hello, so it was the one field nothing varied; this drives it across the
-      # floor, both int32 edges and negatives, and asserts the relay's verdict
-      # matches protocol.AcceptsPeerVersion exactly, which is what stops the two
-      # ends drifting into "some players cannot join".
-      - name: Fuzz relay - every protocol version a hello can carry
-        run: bash dev-scripts/ci-fuzz.sh ./relay FuzzHelloProtocolVersion 45s
-      # netx/udpconn's FuzzListenerSurvivesArbitraryDatagrams has no step since 2026-09-15:
-      # plain udp is compiled only under the meshghost_devudp tag and no release carries it
-      # (ADR 0065). The test job's vet step still compiles it; dev-scripts/run-gotests-udp.bat
-      # runs its tests and fuzz seeds by hand.
-      # A replay file (ADR 0047, 2026-09-03) is a stranger's bytes by design --
-      # shared and hand-edited -- and the loader is the only parser in core
-      # that reads a file. It must never panic, and anything it accepts must
-      # pass the same per-sample validation a relay packet does.
-      - name: Fuzz core - replay loader never panics and only admits wire-valid samples
-        run: bash dev-scripts/ci-fuzz.sh ./core FuzzParseReplayNeverPanics 30s
-      # Its sibling, and for the same reason: an input track is a FILE, so it is a stranger's bytes
-      # the moment one person sends another a clip. Added 2026-09-10 -- it shipped with ADR 0056 on
-      # 2026-09-08 and had no step, while this comment, agent_docs/testing.md and docs/reviewing.md
-      # all said the only unwired targets were the two socket-bound ones. Nothing was watching the
-      # count; the doc sweep that found it was reading by hand.
-      - name: Fuzz core - input-track loader never panics
-        run: bash dev-scripts/ci-fuzz.sh ./core FuzzParseInputTrackNeverPanics 30s
-      # The user's standard, 2026-09-03: "a fuzzer that doesn't fuzz everything randomly won't
-      # catch things we didn't think about". One client, random config inside and outside every
-      # limit, random order and timing of frames, files, controls, relay messages and clock resets,
-      # checked against the invariants a player would state. No relay sockets, so it can run here.
-      - name: Fuzz core - everything at once holds the player's invariants
-        run: bash dev-scripts/ci-fuzz.sh ./core FuzzEverything 60s
-      # Two things a player types by hand and nothing else parsed: a hotkey chord, and the
-      # nested config blocks. Must never panic and must never admit a value past its rule.
-      - name: Fuzz hotkey - chord parser admits only documented chords
-        run: bash dev-scripts/ci-fuzz.sh ./internal/hotkey FuzzParseNeverPanicsAndOnlyAdmitsDocumentedChords 20s
-      - name: Fuzz client config - hand-edited config never panics or zeroes a default
-        run: bash dev-scripts/ci-fuzz.sh ./cmd/meshghost FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane 20s
+      # -run=XXX (inside the wrapper) so the ordinary tests in these packages don't run
+      # again here; the race job already ran them under -race. Each target is its own
+      # ::group:: so the log folds per target the way the old one-step-per-target job did.
+      - name: Fuzz every target in this shard
+        run: |
+          while read -r pkg target secs; do
+            [ -z "$target" ] && continue
+            echo "::group::$target ($pkg, $secs)"
+            bash dev-scripts/ci-fuzz.sh "$pkg" "$target" "$secs"
+            echo "::endgroup::"
+          done <<'TARGETS'
+          ${{ matrix.targets }}
+          TARGETS
       # A fuzz failure writes the exact reproducing input to
       # testdata/fuzz/<Target>/<hash>. Without this it exists only inside a
       # deleted runner and the log shows a hash nobody can reproduce from;
       # with it, the input can be downloaded and dropped straight into the
       # repo, where `go test ./<pkg>` replays it as an ordinary test case.
+      # One artifact per shard: two shards failing at once must not collide.
       - name: Upload the failing input
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: fuzz-failure-corpus
+          name: fuzz-failure-corpus-${{ strategy.job-index }}
           path: '**/testdata/fuzz/**'
           if-no-files-found: ignore
 
   windows:
     name: Build and test on the shipping target
-    # The race detector doesn't run here (see the test job), but this is the
+    # The race detector doesn't run here (see the race job), but this is the
     # platform every user actually runs, and it's the one that would catch a
     # path-handling or line-ending assumption the Linux job can't.
     runs-on: windows-latest

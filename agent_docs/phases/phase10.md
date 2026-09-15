@@ -2699,3 +2699,29 @@ comment on `Core.Extrapolate` fixed.
 **Open, for the user on screen** (`run-netsim.bat` no-arg, two real peers, the second held still,
 the config above): first "identical to 450 linear?", then jump, land, spam left/right, a wall.
 Floor-sink inside a gap is expected and is Track B's. Nothing here changes what ships.
+
+## 2026-09-15 (after prediction) — CI read: the core package at the ten-minute limit, the ring fixed, CI sharded
+
+The push of the day's commits was read as CLAUDE.md asks. Four runs green, two red: the Docs gate
+(two `status.md` items over two lines, `phase7.md` without a 2026-09-15 heading for the parked
+probe commit -- fixed in `11ef9866`) and the race job, where `core` hit Go's default ten-minute
+`go test` limit (528s the run before). Not a hang: the dump's only running test was 0s in. Local
+ranking under `-race` put two ring-bound tests at 52 of 127 seconds, and the cause was in shipping
+code -- both rings copied every live sample down one slot per add once full. Reslice instead;
+`core/ringcost_test.go` fails on the old rings by ~5,000x and passes the fixed ones by ~3x; the
+method in `pitfalls/method.md`. Core under `-race`: 129s -> 79s locally.
+
+The user then asked why CI takes 11-17 minutes a push and 11 more per release, whether GitHub caps
+a workflow at four jobs (it does not: 256 per matrix, 20 at once on a public repo), and whether the
+fuzz job could run its targets side by side. It ran 29 targets end to end, 17m24s. `ci.yml` now:
+the fuzz job is six parallel shards grouped by package, every target and fuzz time unchanged,
+one `fuzz-failure-corpus-<shard>` artifact each; the race tests are three shards on their own
+runners (core | relay + e2e | `go list` minus those), same `-race -count=3`; build, vet, format and
+cross-compile stay one short job. Expected wall time: the longest shard, about five minutes, in
+place of seventeen. The release workflow was left as it is: its two jobs each run the full suite
+twice and run in sequence (unix 4 min, then windows 6-7 min); running the Windows tests beside the
+unix job instead of after it is the next cut, not made here.
+
+Seen in the dump, not fixed: 222 `relayWriter.run` goroutines parked for minutes, one per test that
+connected a relay and never tore its core down (there is no `Core.Close`). Cost in tests is nil;
+in a real process every drop path closes its writer. An observation, not an open item.

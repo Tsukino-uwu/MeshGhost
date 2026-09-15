@@ -127,7 +127,8 @@ go test -race -count=3 ./...
 the part that does not share the author's blind spots. Run any of them for as long as your
 suspicion lasts; CI runs a short campaign against nearly all of them on each push — as of
 2026-09-10, **25 explicit steps in `.github/workflows/ci.yml` against the 27 `Fuzz*` targets in the
-tree**, across eight packages, one step per target. The two with no step are the schedule fuzzers in `core`, opt-in on
+tree**, across eight packages, one step per target (since 2026-09-15 one line per target, spread across six
+parallel shards so the job takes its longest shard's time rather than the sum). The two with no step are the schedule fuzzers in `core`, opt-in on
 purpose because each stands up a real relay socket; only `FuzzSchedule` still runs its seeds in the ordinary
 test job, from the target plus a committed corpus in `core/testdata/fuzz/`.
 `FuzzNameDeliverySurvivesAnyConnectOrdering` runs **nothing** — its skip is before `f.Fuzz`, so it

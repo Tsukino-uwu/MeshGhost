@@ -7,5 +7,5 @@ target writes its input and hangs up, so a single-line seed only ever exercises 
 corpus lived here that did not exist.
 
 Each file is Go's corpus format (`go test fuzz v1`, then one `[]byte(...)` literal). A failing
-input CI uploads as `fuzz-failure-corpus` goes in this folder too, under any name, and becomes a
+input CI uploads as `fuzz-failure-corpus-<shard>` goes in this folder too, under any name, and becomes a
 regression test on the next `go test ./relay`.

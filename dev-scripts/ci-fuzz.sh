@@ -62,7 +62,7 @@ if [ "$code" -eq 0 ]; then
 fi
 
 if printf '%s' "$out" | grep -qE "Failing input written to|failure while testing seed corpus entry"; then
-  echo "::error::$target found a real failing input -- download the fuzz-failure-corpus artifact and commit it under testdata/fuzz/$target/"
+  echo "::error::$target found a real failing input -- download that shard's fuzz-failure-corpus-<shard> artifact and commit it under testdata/fuzz/$target/"
   exit 1
 fi
 
