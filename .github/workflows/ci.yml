@@ -2,13 +2,16 @@ name: CI
 
 # Runs the Go client/server checks CLAUDE.md requires before any change to the
 # Go side is called done -- build, vet, the full test suite, and a
-# short fuzz campaign against twenty-five targets across eight packages (protocol 13, bridge 2, relay 3, transport 1, netx/udpconn 1, core 3, internal/hotkey 1, cmd/meshghost 1).
-# That is every target in the tree but two: `grep -hc '^func Fuzz' $(git ls-files '*_test.go')`
-# counted 27 on 2026-09-10, and agent_docs/testing.md names the two with no step here and why
-# (both are socket-bound schedule fuzzers that are opt-in on purpose; they still run on their
-# seed corpus in the test job). COUNT BOTH RATHER THAN TRUSTING THIS LINE: it said eleven across
-# four for as long as the two bridge targets had existed, and on 2026-09-10 it still said 26/two
-# while the tree held 27 and three were unwired -- a target had shipped with an ADR and no step. Until this existed,
+# short fuzz campaign against twenty-seven targets across seven packages (protocol 13, bridge 3, relay 3, transport 1, core 5, internal/hotkey 1, cmd/meshghost 1).
+# That is every target a release build carries but two: `grep -hc '^func Fuzz' $(git ls-files '*_test.go')`
+# counted 30 on 2026-09-15 -- 29 in the release build plus netx/udpconn's one, which is behind
+# the meshghost_devudp tag and deliberately has no step (ADR 0065) -- and agent_docs/testing.md
+# names the two core targets with no step here and why (both are socket-bound schedule fuzzers
+# that are opt-in on purpose; they still run on their seed corpus in the test job). COUNT BOTH
+# RATHER THAN TRUSTING THIS LINE: it said eleven across four for as long as the two bridge targets
+# had existed, on 2026-09-10 it still said 26/two while the tree held 27 and three were unwired --
+# a target had shipped with an ADR and no step -- and on 2026-09-15 it said 25/eight while the
+# tree held 30 (bridge had 3, core had 7). Until this existed,
 # every one of those ran only when a human remembered to run them, and
 # release.yml shipped binaries without running a single test.
 #

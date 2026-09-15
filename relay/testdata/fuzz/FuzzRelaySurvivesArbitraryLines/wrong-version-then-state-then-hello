@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"type\":\"hello\",\"payload\":{\"protocol_version\":-1,\"game_id\":\"g\"}}\n{\"type\":\"state\",\"payload\":{\"position\":[1,2]}}\n{\"type\":\"hello\",\"payload\":{\"protocol_version\":1,\"game_id\":\"g\",\"room\":\"r\",\"display_name\":\"x\"}}\n")

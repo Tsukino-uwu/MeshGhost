@@ -2,6 +2,7 @@ package transport
 
 import (
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -31,6 +32,21 @@ func FuzzReadLoopNeverExceedsItsLineLimit(f *testing.F) {
 	// Deliberately small so a fuzzer-sized input can actually cross it;
 	// the production value is 4KiB-64KiB and would need huge inputs to test.
 	const maxLine = 128
+
+	// The other half of the property: not only is no oversized payload
+	// DELIVERED, none is ever BUFFERED. The probe sees every split call's
+	// buffer length; a read loop holding more than the limit before refusing
+	// is exactly the blind spot the delivered-payload check alone leaves.
+	var peak atomic.Int64
+	bufferProbe = func(n int) {
+		for {
+			cur := peak.Load()
+			if int64(n) <= cur || peak.CompareAndSwap(cur, int64(n)) {
+				return
+			}
+		}
+	}
+	f.Cleanup(func() { bufferProbe = nil })
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		client, server := net.Pipe()
@@ -70,6 +86,9 @@ func FuzzReadLoopNeverExceedsItsLineLimit(f *testing.F) {
 		case n := <-oversized:
 			t.Fatalf("delivered a %d-byte payload past the %d-byte line limit", n, maxLine)
 		default:
+		}
+		if n := peak.Load(); n > maxLine {
+			t.Fatalf("the read loop buffered %d bytes of one line, past the %d-byte limit", n, maxLine)
 		}
 	})
 }

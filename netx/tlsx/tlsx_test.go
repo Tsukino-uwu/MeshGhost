@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -378,5 +379,86 @@ func TestClientClosesTheSocketOnAFailedHandshake(t *testing.T) {
 			// it is not a working connection.
 			_ = err
 		}
+	}
+}
+
+// TestAHandshakeThatNeverFinishesIsClosedAtTheTimeout is finding E3 of the
+// fourth adversarial review: no test wrote 0x16 followed by garbage or by
+// nothing, and none ever waited out the handshake timeout -- so a listener
+// that held such a socket forever (and its open-connection slot with it)
+// would have run green. This one waits it out, and asserts one throttled
+// log line rather than one per failure.
+func TestAHandshakeThatNeverFinishesIsClosedAtTheTimeout(t *testing.T) {
+	cfg, _, err := tlsx.ServerConfig(testALPN)
+	if err != nil {
+		t.Fatalf("ServerConfig: %v", err)
+	}
+	raw, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	const hold = 300 * time.Millisecond
+	var logged atomic.Int32
+	ln, err := tlsx.NewListener(raw, tlsx.ListenConfig{
+		Mode:             tlsx.Auto,
+		TLS:              cfg,
+		HandshakeTimeout: hold,
+		Logf:             func(string, ...any) { logged.Add(1) },
+	})
+	if err != nil {
+		t.Fatalf("NewListener: %v", err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			c.Close() // nothing here should ever be handed up
+		}
+	}()
+
+	for _, tc := range []struct {
+		name  string
+		bytes []byte
+		// held: the listener has nothing to refuse until the timer fires (a
+		// silent socket); false when Go's TLS server can reject the bytes as
+		// soon as they arrive (a record that is not a ClientHello).
+		held bool
+	}{
+		{"0x16 then garbage", append([]byte{0x16}, []byte("this is not a ClientHello, and never will be")...), false},
+		{"0x16 then nothing", []byte{0x16}, true},
+		{"nothing at all", nil, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, err := net.DialTimeout("tcp", raw.Addr().String(), testTimeout)
+			if err != nil {
+				t.Fatalf("dial: %v", err)
+			}
+			defer c.Close()
+			if len(tc.bytes) > 0 {
+				if _, err := c.Write(tc.bytes); err != nil {
+					t.Fatalf("write: %v", err)
+				}
+			}
+			started := time.Now()
+			_ = c.SetReadDeadline(time.Now().Add(10 * hold))
+			_, err = c.Read(make([]byte, 1))
+			if err == nil {
+				t.Fatal("read a byte from a listener that should have closed the connection")
+			}
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				t.Fatalf("the connection was still open %s after a %s handshake timeout", 10*hold, hold)
+			}
+			if waited := time.Since(started); tc.held && waited < hold/2 {
+				t.Fatalf("closed after %s, before the %s timeout could have fired", waited, hold)
+			}
+		})
+	}
+	// Three failures inside a second: the throttle lets at most two lines out
+	// (the sub-tests run for ~300 ms each, so one interval may elapse).
+	if n := logged.Load(); n > 2 {
+		t.Fatalf("%d handshake-failure lines for 3 failures; want at most 2 (one a second)", n)
 	}
 }

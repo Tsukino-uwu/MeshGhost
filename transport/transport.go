@@ -192,6 +192,15 @@ type NDJSONConn struct {
 
 var _ Transport = (*NDJSONConn)(nil)
 
+// bufferProbe, when set by a test, is told how many bytes the read loop's
+// scanner is holding each time it looks for a line. Nil in production, and
+// checked once per split call, which is the whole cost. It exists because the
+// fuzz target that guards the line limit asserted only on the payload it was
+// DELIVERED (fourth adversarial review, E6): a read loop that buffered far
+// past the limit before refusing would have run green forever. What bounds
+// the buffer is scanner.Buffer's max below; this is how a test measures it.
+var bufferProbe func(n int)
+
 // Dial connects to addr over TCP (bounded by DefaultDialTimeout) and starts
 // the read loop immediately. Register callbacks (OnReceive etc.) right
 // after Dial returns and before calling Send — the read loop begins
@@ -268,6 +277,9 @@ func (c *NDJSONConn) readLoop() {
 	// anyone gets. One capture, bounded, only in the failure case.
 	var overflowHead []byte
 	scanner.Split(func(data []byte, atEOF bool) (int, []byte, error) {
+		if bufferProbe != nil {
+			bufferProbe(len(data))
+		}
 		advance, token, err := bufio.ScanLines(data, atEOF)
 		if atEOF && err == nil && token != nil && bytes.IndexByte(data[:advance], '\n') < 0 {
 			// A TORN TAIL IS NOT A MESSAGE. bufio.ScanLines hands back whatever
