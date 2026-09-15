@@ -186,13 +186,12 @@ Both are independent of TLS and could land first.
   empty code deserves a louder warning than it currently gets. Auto-generating a random room code
   when none is set would close it properly, at the cost of the zero-config "just give them the
   address" flow; that's a product call, not a technical one.
-- **No per-IP connection cap.** `MaxClients` (8, global) is reserved only *after* a successful
-  Hello (`relay.go:753`), so N unauthenticated connections each hold a goroutine and a socket for
-  `HelloTimeout`. TLS would make each one cost real handshake CPU an unauthenticated stranger can
-  trigger, so a handshake timeout is part of the plan above. A real per-IP cap needs
-  `conn.RemoteAddr()`, which `docs/security.md`'s privacy section asserts is never called anywhere
-  as a privacy property — so it needs its own decision rather than being smuggled into a TLS
-  change.
+- **Per-IP connection cap — decided 2026-09-15, ADR 0064.** Until then `MaxClients` (8, global)
+  was reserved only *after* a successful Hello and the open-connection cap was per listener, so
+  one address could hold every slot. The cap is now also per client address, kept in memory in
+  `netx/srclimit` and never logged; the relay reaches it through an interface it hands the
+  `net.Conn` to, so `relay`, `core` and `cmd/` still never call `RemoteAddr` (pinned by
+  `internal/gameblind`). The same table budgets wrong room codes per address.
 
 ### Follow-up: let the relay advertise its transports — BUILT 2026-08-16, same day
 

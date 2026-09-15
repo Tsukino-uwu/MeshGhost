@@ -218,11 +218,10 @@
   cited CelesteNet's token as the reason TCP is safer by construction, so shipping without it was
   a claim the code did not honour. **Neither defence helps against an on-path attacker**, who can
   read cookie and token straight off the wire — the same limit TCP sequence numbers have, and
-  the reason `quic` exists. **Still
-  open, and unchanged by any of this: there is no per-IP connection cap** — `MaxClients` (8,
-  global) is only reserved after a successful hello. A real cap would need `conn.RemoteAddr()`,
-  which `docs/security.md` currently asserts is never called anywhere as a privacy property, so
-  it needs its own decision rather than being folded into transport work.
+  the reason `quic` exists. The per-IP connection cap this entry called "still open" was decided
+  and built 2026-09-15 (ADR 0064, `netx/srclimit`); and plain `udp` itself stopped shipping the
+  same day (ADR 0065): it compiles only under the `meshghost_devudp` build tag, so everything in
+  this entry describes a dev build, not a release.
 - **First third-party dependency, with two knock-on risks** (added 2026-08-16). `quic-go` (MIT)
   plus three `golang.org/x/*` modules (BSD-3-Clause) are now compiled into the shipped binaries.
   (1) Both licences require their notice to travel with a binary, so `THIRD-PARTY-NOTICES.txt`

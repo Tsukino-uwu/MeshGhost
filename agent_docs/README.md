@@ -50,6 +50,7 @@ of the documentation, written for people *using* MeshGhost, is [`../docs/`](../d
 - [plans.md](plans.md) — the roadmap: committed, in progress, done; non-goals; the depth ladder.
 - [ideas.md](ideas.md) — where future plans and brainstorming are kept so they are not forgotten; nothing scheduled; title index at the top.
 - [security-design.md](security-design.md) — the unscheduled security design behind `docs/security.md`'s posture (moved out of `ideas.md` 2026-09-02).
+- [tls-planning.md](tls-planning.md) — the scheduled next piece of work (2026-09-15): TLS always on, a persisted relay identity, trust on first use plus a room-code PAKE; nothing manual for anyone.
 - [candidate-games.md](candidate-games.md) — games that might get an adapter and prior-art reads; nothing checked (moved out of `ideas.md` 2026-09-02).
 
 ## Rules that load themselves, and the two skills

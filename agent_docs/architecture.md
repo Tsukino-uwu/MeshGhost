@@ -224,6 +224,8 @@ or if a number is duplicated — an unindexed ADR is one nobody will find.
 - [2026-09-11 — Autostart is opt-in, and looks only beside the mod](adr/0061-2026-09-11-autostart-is-opt-in-and-looks-only-beside-the-mod.md)
 - [2026-09-12 — A client refuses a plane it never asked for, and bounds what the two unchecked ones carry](adr/0062-2026-09-12-a-client-refuses-a-plane-it-never-asked-for.md)
 - [2026-09-13 — A renamed config key keeps working, and says so](adr/0063-2026-09-13-a-renamed-config-key-keeps-working-and-says-so.md)
+- [2026-09-15 — Per-source state lives in `netx`, in memory, and is never logged](adr/0064-2026-09-15-per-source-state-lives-in-netx-and-is-never-logged.md)
+- [2026-09-15 — Plain `udp` is dormant: refused by releases, kept behind a build tag](adr/0065-2026-09-15-plain-udp-is-dormant-behind-a-build-tag.md)
 
 ## Prior art
 
