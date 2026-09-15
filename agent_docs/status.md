@@ -15,7 +15,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 - 2026-09-15 — **Both `config.json` files are LIVE** (relay: room_code/only_game/max_clients; client: smoothing, chaser, replay, hotkeys); never watched with a real client editing one. `phases/phase10.md`.
 - 2026-09-15 — **Review pass 3's remainder lost its detail** (the cell reports were never tracked): P1b's timer sum FIXED today, P2f-3 already fixed in the Lua; the rest needs a re-run. `phases/phase10.md`.
 - 2026-09-15 — **PARKED, the user's call: measure whether quic's congestion controller paces datagrams late after a loss** (the 2026-09-02 bike glide). Instrument, matrix and decision rule in `ideas.md`.
-- 2026-09-15 — **Adapter work from 2026-09-11/12 is UNWATCHED in all four games** (peer-input hardening, `ghost_collision` in the Pokémon pair, autostart opt-in, replay/chaser ghosts). Each `UNVERIFIED.md`.
+- 2026-09-16 — **Adapter work from 2026-09-11 to 09-16 is UNWATCHED in all four games** (peer-input hardening, today's 29 SYNCED.md guards, autostart opt-in, replay/chaser ghosts). Each `UNVERIFIED.md`.
 - 2026-09-15 — **TEVI open**: bullet BIRTH rows missing under sustained fire; self-moving bullets fly straight on a ghost; pool indices ordinal across builds; game-root move unwatched. `tevi/UNVERIFIED.md`.
 - 2026-09-15 — **Pseudoregalia open**: the driven ghost never STANDS UP after its hurt sit (`stand_fn=`); a ~60 ms hitch, not Nagle; a never-worn costume retries unbounded. `pseudoregalia/UNVERIFIED.md`.
 - 2026-09-15 — **Emerald open**: the painted ghost's BIKES are fixed but unjudged (four causes, none watched); `noclip` does not reach water. `emerald/UNVERIFIED.md`.
@@ -26,10 +26,8 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 - 2026-09-15 — **netsim: ADR 0046's 450 ms has never been judged on the correlated-loss model** (`-loss-burst`, opt-in since 2026-09-11). `phases/phase10.md`.
 - 2026-09-15 — **preflight chores**: 39 of 47 sections have no negative test (`negative-test-preflight.ps1` lists them); the disarmed-probe WARN prints 21 entries every run — ratchet it.
 - 2026-09-15 — **`Plugin.cpp` comments are stale** (`session_policy` "zero of four"; the deleted `PLAYER_FIELDS.md`): fix at the next rebuild, since editing marks the committed DLL stale.
+- 2026-09-16 — **The audit's second sweep is open**: routine-name prose the citation grep cannot see, in every `documentation.md`, then code comments and `pitfalls/`. `phases/phase9.md` (2026-09-16).
 - 2026-09-15 — **Nothing is running**; loader targets `none`. **TEVI is HOT-RELOAD: `-Off` before a real confirmation.** `running-the-rig.md`.
-- 2026-09-13, hold to 2026-09-16 — **AUDIT QUEUED: "measured or observed only" for all pre-rule content** — start at the two preflight ratchets. `phases/phase9.md`, `licensing.md`.
-- 2026-09-13, hold to 2026-09-16 — **SYNCED.md: guard the 29 `not checked yet` values** (6/20/2/1) and lower each ratchet. Each `SYNCED.md`; whole-message gaps in each `UNVERIFIED.md`.
-- 2026-09-13, hold to 2026-09-16 — **SYNCED.md is not checked by CI on a code-only push** (`docs.yml` may not filter adapter paths). Wire it into the adapter workflows, or accept. `phases/phase12.md`.
 
 **Trimmed 2026-09-15**: records of finished work were dropped and items already queued in an
 adapter's `UNVERIFIED.md` folded into one line per game; every pointer was checked against its

@@ -3783,3 +3783,7 @@ was undone so the source matches v1.2.9 again; that fix's own purpose is still u
 
 `e546d38c` (ADR 0068, logged in `phase10.md`) added the parked `probe_hitlist` under `probes/`, its `PROBES.md`
 entry and one `UNVERIFIED.md` line; nothing adapter-side ran. Next: Part A of `chaser-planning.md`.
+
+## 2026-09-16 — pointer: the 6 SYNCED.md guards, and the DLL rebuilt
+
+`96ed6168`, logged in `phase12.md` (2026-09-16): `h_speed`/`v_speed` bounded and the four vec3 triples refused when non-finite, the stale `Plugin.cpp` comments refreshed, `main.dll` rebuilt and deployed to both installs; unwatched in a game.

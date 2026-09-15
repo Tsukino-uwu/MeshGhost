@@ -829,3 +829,7 @@ once. Found by the growth cell of the third adversarial review (P2f-1); queued i
 ## 2026-09-13 — the shared UNVERIFIED rule, no TEVI work
 
 Only this adapter's `UNVERIFIED.md` header changed, with the other three and the template: a user's confirmation of a dev-toggled behaviour settles the DEFAULT too, so it is not re-asked. Emerald's session is where it came from (`phase8.md`, 2026-09-13); nothing in TEVI was touched.
+
+## 2026-09-16 — pointer: the 20 SYNCED.md guards, and the DLL rebuilt
+
+`96ed6168`, logged in `phase12.md` (2026-09-16): every "not checked yet" cell in `tevi/SYNCED.md` is guarded, the DLL rebuilt and deployed to both installs; unwatched in a game.

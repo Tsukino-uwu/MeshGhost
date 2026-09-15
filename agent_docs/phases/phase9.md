@@ -1509,3 +1509,19 @@ section, written the previous session, listed files with `git ls-files '*.md'` �
 resolves `git` to the MSYS2 copy and expands `*.md` to the two root files. It scanned 626 files and 2
 of the 184 Markdown files; filtered from the plain listing it scans 808 and still passes. The trap was
 already documented at the top of `preflight.ps1` (`$trackedMd`).
+
+## 2026-09-16 — the "measured or observed only" audit of documentation.md, Crystal half
+
+The 38 source-file citation lines and the 6 `[from the decomp]` labels (two split across a line
+break, invisible to the preflight grep) were each read against `VERIFIED.md`, `UNVERIFIED.md` and
+this file. Most lines mixed a measured fact with a routine chain or a constant list read off the
+decompilation; every claim left in `documentation.md` now carries a dated `[measured …, <probe>]`
+or `[user on screen …]` label, the two build-comparison claims are `[address only: byte-identical
+build, 2026-09-09]`, and the four bulk lists (actions, facings, flag bits, the 0x28 struct) are cut
+to the entries we read off an object. Two corrections on the way: the `_UpdateSprites` address
+`01:d0ed` is not where our byte-identical build's symbol file puts it, so it is out; and the emote
+object sits 16px above the character (OAM y 76→60, 2026-08-26), not "two tiles". What moved to
+`UNVERIFIED.md` is one `[OPEN]` "to measure" entry dated today, one bullet per question with what
+settles it, pointing at the 2026-08-23 collision and 2026-08-26 Fly/SPIN/shared-tile entries where
+those already ask the same thing. Both preflight ratchets are 0. Also today: `prog` and `gait`
+floored and bounded on arrival (`2f3495df`); unwatched in a game.

@@ -50,6 +50,145 @@ being work. An entry still here has not been confirmed.
 
 ---
 
+## [OPEN] 2026-09-16 — to measure: what the audit of `documentation.md` moved out (read in the decomp as a map, never seen)
+
+The 2026-09-16 audit of `documentation.md` against `VERIFIED.md` and this file, under the rule
+since 2026-09-13 (`CLAUDE.md`, *Measured or observed only*), removed every claim there that named no
+evidence of ours. Each is a question here, with what settles it. Where an older entry in this file
+already carries the decomp's reading, the line points at it instead of repeating it.
+
+### How a character comes to exist
+
+- Is it `InitializeVisibleSprites`, called from map setup, that assigns structs at map load, and
+  does it walk every map object? (Break on the routine's address from our byte-identical build's
+  `.sym` with both object arrays watched.)
+- Does `CheckObjectEnteringVisibleRange` scan `wYCoord - 1` walking up, `wXCoord - 1` walking left
+  and `wXCoord + 10` walking right — a COLUMN on the horizontal axes? Only `wYCoord + 9` walking
+  down was measured (2026-08-18). (Place a map object on each candidate line with its struct id
+  `-1` and walk that way, the `probes/spawn_test3.lua` method.)
+
+### The player's appearance
+
+- Is the sprite chosen from a per-gender table keyed on `wPlayerState` — `SPRITE_KRIS` `0x60` on
+  foot, a bike sprite per gender, a surfing-Pikachu state on one shared sprite? Only Chris on foot,
+  a bike sprite loaded in place and one shared surf sprite were measured. (Read `OBJECT_SPRITE` on
+  slot 0 of a Kris save on foot, on the bike and surfing.)
+- Does `_SetPlayerPalette` write `0` (red) for Chris and `1` (blue) for Kris into `OBJECT_PALETTE`
+  at spawn? The colours are confirmed on screen (2026-09-09); the values and the routine are not.
+  (Read `OBJECT_PALETTE` on slot 0 of a Chris save and a Kris save.)
+- Are an object palette's four words transparent, skin, clothing and outline in that order, and
+  does the time-of-day tint move only word 0? Only the clothing word was measured (2026-09-10).
+  (Dump the live object palettes across a day/night change with the sprite in view.)
+
+### Action and facing
+
+- Does `OBJECT_ACTION` index a pair-pointer table, and do the values `7` (`SHADOW`) and `9`
+  through `0x10` (the dolls, the bounce, the tree, boulder dust, grass shake, skyfall) exist as
+  named? A player's object has been read holding 1 through 6 only, and 8 on the emote object.
+  (Read the action byte on the game's own objects: a doll in a house, a boulder being pushed, grass
+  walked through, the Burned Tower floor-fall.)
+- Do facing values `0x14` (`EMOTE`), `0x15` (`SHADOW`) and the doll and tree entries above them
+  exist, and is `0x14` drawn as the emote box in place of a character? (Read `OBJECT_FACING` on an
+  emote object, a hop's shadow and a doll.)
+- Not moved, but of the same kind: the `SKYFALL` class stays in `documentation.md` with a cadence
+  read off the decomp (this file, 2026-08-23, "What is a derivation from the source, not a
+  measurement"); `probes/action_probe.lua` exists to measure it and has never been run.
+
+### Warps and forced movement
+
+- Which routine zeroes `hMapEntryMethod`, and on which frame relative to `wMapStatus` returning to
+  `HANDLE`? The 2026-08-26 entry "a peer that arrives by Fly now drops out of the sky" carries the
+  decomp's answer; the probes saw only that the byte is set at the warp and zero again later. (Log
+  the byte and `wMapStatus` per frame through a door, `probes/transition_probe.lua`.)
+- The whirlpool chain — the tile forcing `PLAYERMOVEMENT_FORCE_TURN`, applied through
+  `ApplyMovement`, whose first call is `FreezeAllOtherObjects`: named from the decomp in the
+  2026-08-26 SPIN entry ("RESOLVED to a mechanism"); only the freeze itself was measured. (Break on
+  the routine's `.sym` address during a whirlpool: does it fire, and do the NPCs' step fields stop
+  on that frame?)
+
+### Map objects and object structs
+
+- The 16-byte map-object layout past the first four bytes and the type nibble: which bytes are the
+  movement type, the radius, the two time-of-day bytes, the palette (the high nibble of the type
+  byte?), the script pointer and the event flag. The 2026-08-23 trainer-clone entry carries the
+  reading. (Change one byte at a time on a cloned object and watch what changes.)
+- Type values other than trainer `2`: script `0`, itemball `1`, four dummy types `3`-`6`. Does
+  facing a type-2 object talk to the trainer, and does facing `3`-`6` do nothing and leave the
+  script pointer unread? Only "type 0 dereferences the pointer" (2026-08-18) and "type 2 is a
+  trainer" (2026-08-23) are measured. (Set each type on a spawned object with a known pointer and
+  face it.)
+- `_CheckTrainerBattle`: does it walk the map objects rather than the structs, and test the sprite,
+  the type, the struct id, the sight range and the event flag in that order? (Clone a trainer and
+  clear one field at a time; which clearing stops the `!`.)
+- The collision check, `IsNPCAtCoord`: does the player pass through an object with no sprite, or
+  with `EMOTE_OBJECT` set; does a mid-step object block both its current tile and its
+  `LAST_MAP_X`/`LAST_MAP_Y` tile; does `NOCLIP_OBJS` govern the object's OWN movement rather than
+  whether the player is blocked? The 2026-08-23 entry "what the source says about ghost collision"
+  carries the reading, and the 2026-09-13 tile-collision entry already asks the `EMOTE_OBJECT`
+  half. (Set each bit on a spawned ghost and walk into it, standing and mid-step.)
+- Does `DespawnEmote` zero every struct carrying `EMOTE_OBJECT` when an emote ends, ignoring
+  `WONT_DELETE`? Same two entries. (From a savestate: a ghost wearing the bit, then a bite or a
+  trainer's `!`.)
+- The flag bits never flipped: the six remaining in `OBJECT_FLAGS1` (`INVISIBLE` was read as bit
+  0 on 2026-08-18 but never set), the eight in `OBJECT_FLAGS2` — among them `IN_GRASS`, the two
+  priority bits and `UNDER_TILES` — and the two in `OBJECT_PALETTE` beside `SWIMMING`. Does the
+  engine set and clear `IN_GRASS` as a character moves, and do the priority and `UNDER_TILES` bits
+  put a character behind scenery? (Flip each on a spawned ghost and watch.)
+- Struct fields `0x0e`/`0x0f`, `0x16`, `0x19` and `0x1b`/`0x1c`: are they the tile collision under
+  the character and the last one, the wander radius, the sprite x offset, and the movement-script
+  and step indices? (Watch each on a wandering NPC, a scripted NPC and the player crossing
+  terrain.)
+- Speedchoice: is the object struct's layout unchanged field for field? The `.sym` agrees offset
+  for offset (2026-09-09), which proves addresses; a running ghost on that build proves the layout.
+  (Read slot 0 on Speedchoice through a walk, a ride and a surf.)
+
+### The sprite engine
+
+- `wStateFlags`' `SPRITE_UPDATES_DISABLED` bit: which way does it read — does `_UpdateSprites`
+  return when it is clear, so that SET means updates run? And where is `_UpdateSprites`:
+  `documentation.md` gave `01:d0ed`, while our byte-identical build's `.sym` puts it at `01:5920`,
+  so the address was wrong and is out too. (Read the bit on the overworld and on the fly map screen
+  beside `wSpriteUpdatesEnabled`.)
+- Is it `DisableSpriteUpdates` that every full-screen UI calls, the party menu and the PC included?
+  The fly map screen is the one measured (2026-08-26). (Read `wSpriteUpdatesEnabled` in each.)
+
+### Fishing, Fly, ice, Dig, the ledge hop
+
+- Fishing: does the cast copy four two-tile blocks into VRAM bank 1 at sprite tiles `$02`, `$06`,
+  `$0a` and `$fc`? The overwrite and the sheet were seen (2026-08-26); the bank and the tile ids
+  were not. (Dump VRAM bank 1 before and after a cast.)
+- The Fly landing's numbers — the icon rising from y 252 to 84 at 2px a frame over 44 frames, a
+  swing of 88 decaying by 2 a frame scaling a cosine: the 2026-08-26 entry "the REAL fly landing"
+  and `VERIFIED.md`'s Fly confirmation both say read off the decomp, and the user saw only that the
+  spiral matches. Do `FlyFromAnim`/`FlyToAnim` zero `wStateFlags`, and does the landing zero the
+  shadow OAM past the player's entries? (Log the icon's OAM x/y per frame through a landing; read
+  `wStateFlags` and OAM through it.)
+- Ice: is it `DoPlayerMovement` forcing `STEP_ICE` that produces the glide, and does
+  `SetFacingStepAction` test `SLIDING` before touching `OBJECT_STEP_FRAME`? Setting the bit stopped
+  the stride (confirmed 2026-08-26); who reads it was not measured. Do movement-script commands and
+  permanently-still templates set `SLIDING`? (Read `OBJECT_FLAGS1` on scripted and on still NPCs.)
+- Dig and Escape Rope: do `EscapeRopeFunction` and `DigFunction` share one routine and one script,
+  differing by `wEscapeRopeOrDigType`, the text box and a Kabuto-chamber check; does the departure
+  run as `STEP_TYPE_SLEEP` for 32 and the arrival as `STEP_TYPE_RETURN_DIG` (`0x12`) alternating on
+  bit 0 of `OBJECT_STEP_DURATION`? Both phases' actions and lengths were measured (2026-08-26); the
+  step types were not, and the Dig MOVE has not been used on screen, only the item. (Log
+  `OBJECT_STEP_TYPE` and `OBJECT_STEP_DURATION` through both, `probes/dig_drive.lua`.)
+- Teleport's rise — a Sine-scaled `OBJECT_JUMP_HEIGHT` into `OBJECT_SPRITE_Y_OFFSET` over 16
+  ticks: the 2026-08-26 TELEPORT entry carries the whole reading; nothing is measured.
+- The ledge hop: does `.TryJump` match the collision high nybble against a ledge range and the
+  facing against a direction table, then issue `STEP_LEDGE` becoming `JumpStep`; is the step type
+  chosen by `wCenteredObject`; is the arc a sixteen-entry curve indexed by `OBJECT_JUMP_HEIGHT >> 1`,
+  accumulated by the step vector's speed each tick? Step types 8/9, the y-offset sequence and the
+  two-tile motion were measured (2026-08-26). (Log `OBJECT_JUMP_HEIGHT` beside the offset per tick
+  through a hop.)
+- The shadow: does `MovementFunction_Shadow` park it at `OBJECT_SPRITE_Y_OFFSET` 14 facing down or
+  up and 12 sideways, take its lifetime from the parent's step duration, switch to
+  `STEP_TYPE_TRACKING_OBJECT` and delete itself; is it one tile drawn twice with the right half
+  x-flipped; is its template sprite-less with the emote palette? (Read the shadow object's struct
+  per tick through a hop; dump its OAM entries.)
+- Tile `$fc` shared by the shadow and the rod: the 2026-08-26 entry "the jump shadow and the
+  fishing rod SHARE A TILE" already carries it as an untested pairing.
+
 ## [READY] 2026-09-13 — the drawn ghost starts on its peer's first step, and faces where it is going (MEASURED, not yet judged)
 
 The user, two clients at 100Hz / `-interp=0ms`: moving *"looks kinda fine but its not as

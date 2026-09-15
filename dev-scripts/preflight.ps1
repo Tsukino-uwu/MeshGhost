@@ -917,9 +917,9 @@ Section "Measured or observed only: no NEW source-derived claims (ratchet)"
 #     which is the shape a decomp-derived claim takes when it carries no label at all.
 # A count that GROWS is a new borrowed claim: measure it, or move it to UNVERIFIED.md as a question.
 # A count that SHRINKS is the audit working: lower the recorded number so the floor holds.
-$ratchetDecompLabel = 5
+$ratchetDecompLabel = 0
 $ratchetDecompCites = @{
-    'adapters/emulator/pokemon/crystal/documentation.md' = 38
+    'adapters/emulator/pokemon/crystal/documentation.md' = 0
     'adapters/emulator/pokemon/emerald/documentation.md' = 0
 }
 $labelHits = 0
