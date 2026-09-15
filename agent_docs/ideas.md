@@ -2296,6 +2296,54 @@ sending datagrams outside the controller (quic-go has no public switch for that;
 reason to change the default transport: quic is the default for encryption and spoof resistance, and a
 hint of glide after a lost packet on a bike at 15Hz is the price so far.
 
+**2026-09-15 — Valve's GameNetworkingSockets considered as a transport, and declined as a
+dependency.** The user asked whether it (BSD-3-Clause) via the `nielsAD/gns` Go binding (MPL-2.0,
+cgo, 8 commits, last pushed 2021; both licences checked that day, `licensing.md`) offered anything
+for the quic path. Everything it ships the stack already has: reliable plus unreliable messages
+(one stream plus datagrams, ADR 0021), per-packet encryption (TLS always on with TOFU and the
+room-code PAKE, ADRs 0066/0067 — standalone GNS has no identity story at all), a QUIC-derived
+ack model (we run QUIC), and lag/loss simulation (netsim). Its unreliable messages must also fit
+one packet, so it would not fix the oversized-event bandage. What it adds — ICE peer-to-peer and
+prioritised message lanes — this project deliberately does not do (relay-only so peers never learn
+each other's address; one stream and one datagram class, no measured contention between them).
+The cost would be cgo, a C++ toolchain, protobuf and OpenSSL or libsodium, the end of the pure-Go
+cross-compile in CI, and a crash boundary the race detector cannot see across. A player would notice
+nothing. **Kept as a MAP, nothing copied:** it paces unreliable sends with a bounded, game-set rate
+rather than a loss-reactive congestion window — which is exactly the mechanism this entry suspects —
+and it exposes per-connection quality figures (ping, a quality estimate, out-of-order rate, bytes
+pending), a model for a loss/reorder meter beside `transitMeter` should one be wanted.
+
+**The measurement, written down 2026-09-15 and PARKED, not scheduled (the user's call).**
+
+*What already exists.* `transitMeter` (`core/interp.go`) records arrival minus the sender's
+timestamp per sample — count, mean, max, and how many exceeded 200 ms — and `Stats.PrevRecovered`
+counts samples recovered from the loss cover; both print in `Stats.String()` (`core/stats.go`).
+`cmd/meshghost-fakeadapter` drives real cores against a real relay with `-transport tcp|udp|quic`,
+`-stop-every`/`-stop-fraction` (a peer that stops is what exposes a late cluster: the "I stopped
+here" sample has no successor), `-clients` and `-stats-every`. The netsim proxy mirrors the relay's
+ports on `127.0.0.2` and injects `-latency`/`-jitter`/`-loss` from a printed, replayable `-seed`.
+Plain udp, kept behind `-tags meshghost_devudp` for exactly this (ADR 0065), is the no-controller
+control. No game is needed.
+
+*The one instrument to add.* The meter gives totals, not where in time the late samples land. Add a
+fixed-bucket histogram of transit delay (≤50, ≤100, ≤150, ≤200, ≤300, ≤500, >500 ms) and a counter of
+samples that arrive within a short window after a recovered sample with transit above the running
+mean. Dev-only in effect: printed only when non-zero, guarded by `Core.mu` like the meters beside it,
+with a unit test that feeds one gap and fails without the change.
+
+*Run matrix.* Relay on loopback, netsim in front, two fake peers with stops, at least five minutes
+each (a clean light test closes nothing that depends on sustained load). Pairs share one seed:
+(A) quic and (B) dev-udp under the condition seen on 2026-09-02, `-latency 75ms -jitter 25ms
+-loss 0.02`; then (C) quic and (D) dev-udp under the no-arg netsim profile (loss 0.05, reorder 0.03).
+All processes hidden per `running-the-rig.md`; closed and confirmed gone after.
+
+*Decision rule, fixed before running.* The theory holds if quic's histogram tail is clearly heavier
+than udp's on the same seed and its after-recovery counter is non-zero while udp's is near zero. Then
+choose, in this entry: a larger initial congestion window (read quic-go's `Config` on file first —
+it is not known to expose one), accepting the glide and saying so in `docs/`, or a mitigation above
+the transport like the loss cover was. If the two transports look alike, the glide has another cause
+and this entry says so. Never a rate or tick change, and the default transport does not move.
+
 ## Adapter-specific settings in the per-game config.json, read by the mod itself, instead of in-game menus — filed 2026-09-03
 
 **The user's thought, the night `"autostart"` moved from an environment variable into the config:**

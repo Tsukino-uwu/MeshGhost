@@ -2527,3 +2527,22 @@ built); cross-area views such as Emerald's `render_all_areas` cannot survive a s
 index and `ideas.md`. **Nothing scheduled**; the tripwire is one area's crowd saturating one
 machine's uplink, which is past every game's crowd limit. Commit 97e74128, nothing pushed. Tree-only
 preflight still fails on two pre-existing `status.md` items (length and age), untouched here.
+
+## 2026-09-15 (after multi-relay) — Valve's GameNetworkingSockets: considered, declined, one measurement parked
+
+**The question (user):** whether GameNetworkingSockets (via the `nielsAD/gns` Go binding) has
+anything worth putting into the quic transport, with reliability, stability and safety the goal;
+the user's own read was that it might not be noticeable next to what runs today. **The answer:**
+it is not. Every capability it ships is already here (stream plus datagrams, TLS with TOFU and the
+PAKE, netsim), the two it adds (ICE peer-to-peer, lanes) are things this project chose against, and
+the binding is cgo — a C++ toolchain, protobuf, OpenSSL or libsodium, and the end of the pure-Go
+cross-compile — for no change a player could see. Both licences checked and recorded
+(`licensing.md`, BSD-3-Clause and MPL-2.0); nothing adopted, nothing copied. **What it was worth:**
+its bounded send-rate model for unreliable messages is the mechanism the 2026-09-02 "quic datagrams
+are congestion-controlled" entry in `ideas.md` suspects behind the bike glide at 2% loss, which has
+never been measured. **The user chose to write the measurement down and park the build**: the
+instrument (a transit-delay histogram plus an after-recovery counter beside `transitMeter`), the
+quic-versus-dev-udp run matrix on shared netsim seeds, and the decision rule are all in that
+`ideas.md` entry now. **The user also ruled, when a new `-planning.md` was proposed:** those files
+were temporary scratch plans meant to be built and then deleted, and no new one is created — a
+parked plan lives in `ideas.md`. Docs only; no `.go` change; nothing pushed.
