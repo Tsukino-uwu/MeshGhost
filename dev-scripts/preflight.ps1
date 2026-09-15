@@ -2280,10 +2280,10 @@ Section "SYNCED.md matches the send code"
 $syncedSets = @(
     @{ Doc = 'adapters/pseudoregalia/SYNCED.md'; Src = 'adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp'
        Start = 'std::string local_state = std::format\('; End = 'json_escape\(area_id\)'
-       Key = '\\"([a-z_]+)\\":'; Unchecked = 6 }
+       Key = '\\"([a-z_]+)\\":'; Unchecked = 0 }
     @{ Doc = 'adapters/tevi/SYNCED.md'; Src = 'adapters/tevi/MeshGhostTevi/BridgeClient.cs'
        Start = 'public void SendLocalState\('; End = 'object extras = extrasMap;'
-       Key = '(?:extrasMap\["|\{\s*")([a-z_]+)"'; Unchecked = 20 }
+       Key = '(?:extrasMap\["|\{\s*")([a-z_]+)"'; Unchecked = 0 }
     @{ Doc = 'adapters/emulator/pokemon/crystal/SYNCED.md'; Src = 'adapters/emulator/pokemon/crystal/meshghost_crystal.lua'
        Start = '^\s*extras = \{'; End = 'arth = artH'
        Key = '(?<![=~<>])\b([a-z]+)\s*=(?!=)'; Unchecked = 0 }

@@ -850,7 +850,7 @@ namespace MeshGhostPseudo
     // Trail-VFX heuristic-trigger attempts, 2026-08-15 -- ABANDONED, not dead code kept for
     // reference. Five real live-test rounds tried to infer "the real game just spawned an
     // afterimage" from polled actionState/hSpeed (see verified.md's "Pseudoregalia ghost trail"
-    // entry and PLAYER_FIELDS.md's trail-VFX section for the full account): every repeat-interval
+    // entry and documentation.md (PLAYER_FIELDS.md until 2026-09-13)'s trail-VFX section for the full account): every repeat-interval
     // variant either fired once instead of repeating, mis-fired on a quick 180-degree turn-around
     // (which shares actionState 18 with a real slide), or missed Solar Wind's ultra hop entirely.
     // Replaced with a real UFunction::RegisterPostHookForInstance hook directly on the local
@@ -1119,7 +1119,7 @@ namespace MeshGhostPseudo
     // ANIM_PULSE_TRACE/GHOST_COLLISION_ENABLED: flip, rebuild, deploy, watch the log, flip back --
     // this project's established discovery-toggle workflow, not a runtime keybind.
     // Flipped back off 2026-08-15 after one real capture session (see verified.md's "Pseudoregalia
-    // ability field schema" entry and adapters/pseudoregalia/PLAYER_FIELDS.md) -- its job (finding
+    // ability field schema" entry and adapters/pseudoregalia/documentation.md (documentation.md (PLAYER_FIELDS.md until 2026-09-13) until 2026-09-13)) -- its job (finding
     // real field names) is done; ABILITY_FIELD_TRACE below is the next real step, not this.
     // Flipped ON then back off 2026-08-15 for the "trigger the pawn's own system" pass (ideas.md's
     // Pseudoregalia item 3). Job done: it produced the FX/ability entry-point list and, crucially,
@@ -1129,7 +1129,7 @@ namespace MeshGhostPseudo
     // slideTick/slideOverheadCheck.
     // **ON for the 2026-08-27 health hunt.** The user's ask, in their words: *"i just want to
     // figure out where th whole health portion thing is and decouple/remove it from the ghost all
-    // together"*. Where this game keeps health has never been established -- PLAYER_FIELDS.md has
+    // together"*. Where this game keeps health has never been established -- documentation.md (PLAYER_FIELDS.md until 2026-09-13) has
     // no entry for it, and the confirmed coupling (damage to a ghost hurting the real player,
     // respawning at 0 health) has only ever been treated with engine-level flags rather than by
     // finding the actual state. Two dumps taken either side of taking damage, then diffed, is how
@@ -1146,7 +1146,7 @@ namespace MeshGhostPseudo
     constexpr uint64_t OBJECT_REFLECTION_DUMP_INTERVAL_TICKS = 300;
 
     // Live-*value* trace for the ability field schema OBJECT_REFLECTION_DUMP found (see
-    // verified.md's "Pseudoregalia ability field schema" entry and PLAYER_FIELDS.md) -- that dump
+    // verified.md's "Pseudoregalia ability field schema" entry and documentation.md (PLAYER_FIELDS.md until 2026-09-13)) -- that dump
     // only confirmed these fields EXIST and are spelled this way; it never read a single value.
     // This traces the actual live values of the highest-priority subset (weapon-held state,
     // charge-attack, power meter, a few wall-kick/wall-ride/plunge flags) at the existing
@@ -1170,7 +1170,7 @@ namespace MeshGhostPseudo
     // and released, and the two together are what a mirror needs. Flip back off with it.
     constexpr bool ABILITY_FIELD_TRACE = false;
 
-    // Trail-VFX prototype test, 2026-08-15 (see PLAYER_FIELDS.md's trail-VFX section and
+    // Trail-VFX prototype test, 2026-08-15 (see documentation.md (PLAYER_FIELDS.md until 2026-09-13)'s trail-VFX section and
     // call_spawn_after_image's own comment): calls 'Spawn After Image' on every remote ghost at a
     // slow, easy-to-eyeball cadence (~3s), independent of any real trigger condition on the real
     // player -- deliberately decoupled, same phased approach already used for weaponEquipped?
@@ -1221,7 +1221,7 @@ namespace MeshGhostPseudo
     // call_montage_stop already proves works here) or a state-machine pose (needs a property we
     // aren't syncing); (b) how many ticks the throw state actually lasts -- if it's a handful, the
     // send cadence drops it and it needs the landed?/jumped? monotonic-counter pulse treatment
-    // (PLAYER_FIELDS.md's bucket 2 predicted exactly this for a "weapon thrown" moment); and
+    // (documentation.md (PLAYER_FIELDS.md until 2026-09-13)'s bucket 2 predicted exactly this for a "weapon thrown" moment); and
     // (c) the real name of the throw entry point, via the one-shot filtered function dump, since
     // the log that originally held it has since been overwritten by later sessions.
     // Flip back to false once the capture is done, same convention as every flag above.
@@ -1533,7 +1533,7 @@ namespace MeshGhostPseudo
     //
     // Same coordinates + different appearance means the difference is INSIDE the actor, not in the
     // transform we're syncing -- structurally the same bug as the slide floor-sinking fix
-    // (PLAYER_FIELDS.md): a mesh hangs off its parent at an offset fixed at construction, and it's
+    // (documentation.md (PLAYER_FIELDS.md until 2026-09-13)): a mesh hangs off its parent at an offset fixed at construction, and it's
     // the object's own logic -- which a teleported copy never runs, since our prop has collision
     // off and never actually lands on anything -- that adjusts it. Do NOT "fix" this by nudging
     // render Z by a guessed constant; the slide fix earned its constant from a measurement, and
@@ -6745,7 +6745,7 @@ namespace MeshGhostPseudo
             return true;
         }
 
-        // Trail-VFX prototype, 2026-08-15 (see PLAYER_FIELDS.md's trail-VFX section): 'Spawn After
+        // Trail-VFX prototype, 2026-08-15 (see documentation.md (PLAYER_FIELDS.md until 2026-09-13)'s trail-VFX section): 'Spawn After
         // Image' is the real lead OBJECT_REFLECTION_DUMP found for the yellow/blue slide/ultra-hop
         // trail -- a clean, single-float-param callable function, same shape as the calls above.
         // This is a prototype call only: confirmed to exist and take a plausible param, NOT yet
@@ -7588,7 +7588,7 @@ namespace MeshGhostPseudo
         // a repeating timer, counting an externally-set N down," which is why the count must be
         // written first: an earlier attempt that called this WITHOUT setting it produced nothing.
         // None of this function's own reflected properties are real named parameters (all internal
-        // Blueprint temporaries -- see PLAYER_FIELDS.md), so it's called with a zero-filled buffer
+        // Blueprint temporaries -- see documentation.md (PLAYER_FIELDS.md until 2026-09-13)), so it's called with a zero-filled buffer
         // sized to its own PropertiesSize, matching how a Blueprint VM stack frame is normally
         // allocated regardless of real inputs.
         auto call_spawn_num_afterimages(UObject* pawn) -> void
@@ -18614,6 +18614,17 @@ namespace MeshGhostPseudo
             json_number_member(line, xb, xe, "action_state", action_state);
             json_number_member(line, xb, xe, "h_speed", h_speed);
             json_number_member(line, xb, xe, "v_speed", v_speed);
+            // FINITE AND BOUNDED (2026-09-16; SYNCED.md said "size not checked yet"). Both are
+            // written straight onto the ghost's own horizontalSpeed/verticalSpeed for its
+            // animation blend, and the chaser path turns them into a velocity vector. sscanf
+            // reads 1e999 as inf, and an inf speed is a NaN the moment it is multiplied. The
+            // bound is a safety limit far past any speed the game produces, the same shape as
+            // the counters' 1,000,000,000; a value outside it reads as 0, like a missing field.
+            {
+                constexpr double SPEED_LIMIT = 1.0e6;
+                if (!std::isfinite(h_speed) || h_speed < -SPEED_LIMIT || h_speed > SPEED_LIMIT) h_speed = 0.0;
+                if (!std::isfinite(v_speed) || v_speed < -SPEED_LIMIT || v_speed > SPEED_LIMIT) v_speed = 0.0;
+            }
             json_number_member(line, xb, xe, "anim_jump_type", anim_jump_type);
             json_number_member(line, xb, xe, "movement_mode", movement_mode);
             double land_count = 0, jump_count = 0;
@@ -18679,7 +18690,8 @@ namespace MeshGhostPseudo
             json_number_member(line, xb, xe, "recall_glow", recall_glow_num);
             bool recall_glow = recall_glow_num != 0;
             double weapon_x = 0, weapon_y = 0, weapon_z = 0;
-            bool has_weapon_pos = json_vec3_member(line, xb, xe, "weapon_pos", weapon_x, weapon_y, weapon_z);
+            bool has_weapon_pos = json_vec3_member(line, xb, xe, "weapon_pos", weapon_x, weapon_y, weapon_z) &&
+                                  std::isfinite(weapon_x) && std::isfinite(weapon_y) && std::isfinite(weapon_z); // finite or not sent, see prj_pos
 
             // Ranged projectile -- see MIRROR_PEER_PROJECTILE. Best-effort like every other extra:
             // a peer on an older build sends none of these and simply renders no shot.
@@ -18689,8 +18701,14 @@ namespace MeshGhostPseudo
             const std::string projectile_vfx_in = json_string_member(line, xb, xe, "prj_vfx");
             double prj_x = 0.0, prj_y = 0.0, prj_z = 0.0;
             double prj_pitch = 0.0, prj_yaw = 0.0, prj_roll = 0.0;
-            const bool has_prj_pos = json_vec3_member(line, xb, xe, "prj_pos", prj_x, prj_y, prj_z);
-            const bool has_prj_rot = json_vec3_member(line, xb, xe, "prj_rot", prj_pitch, prj_yaw, prj_roll);
+            // A TRIPLE WITH A NON-FINITE COMPONENT READS AS NOT SENT (2026-09-16; SYNCED.md said
+            // "not checked yet" for all four triples). sscanf's %lf turns 1e999 into inf, and the
+            // shot's transform goes straight into an FVector/FRotator on the game thread. The
+            // same fallback the ghost's own position takes above.
+            const bool has_prj_pos = json_vec3_member(line, xb, xe, "prj_pos", prj_x, prj_y, prj_z) &&
+                                     std::isfinite(prj_x) && std::isfinite(prj_y) && std::isfinite(prj_z);
+            const bool has_prj_rot = json_vec3_member(line, xb, xe, "prj_rot", prj_pitch, prj_yaw, prj_roll) &&
+                                     std::isfinite(prj_pitch) && std::isfinite(prj_yaw) && std::isfinite(prj_roll);
 
             // Death/respawn blink -- see MIRROR_PLAYER_BLINK. A counter, not a flag, for the same
             // reason the montage and land/jump pulses are counters: the blink is shorter than the
@@ -18702,7 +18720,8 @@ namespace MeshGhostPseudo
             double hurt_count_num = 0.0;
             json_number_member(line, xb, xe, "hurt_count", hurt_count_num);
             double weapon_pitch = 0, weapon_yaw = 0, weapon_roll = 0;
-            bool has_weapon_rot = json_vec3_member(line, xb, xe, "weapon_rot", weapon_pitch, weapon_yaw, weapon_roll);
+            bool has_weapon_rot = json_vec3_member(line, xb, xe, "weapon_rot", weapon_pitch, weapon_yaw, weapon_roll) &&
+                                  std::isfinite(weapon_pitch) && std::isfinite(weapon_yaw) && std::isfinite(weapon_roll); // finite or not sent, see prj_pos
 
             // Checked before ensure_ghost_spawned/ensure_ghost_hijacked, both of which insert a
             // default-constructed RemoteGhost via remotes[player_id] on their very first call for
@@ -19032,9 +19051,10 @@ namespace MeshGhostPseudo
         }
         else if (type == "recording_state")
         {
-            // **The first core -> adapter STATE message this adapter has ever handled**, and
-            // `adapters/CLAUDE.md` notes that `session_policy` is honoured by zero of four
-            // adapters -- so this is the shape being established rather than followed.
+            // **The first core -> adapter STATE message this adapter has ever handled**; when it
+            // was written `session_policy` was honoured by no adapter, so this was the shape
+            // being established rather than followed (the two Pokemon adapters act on its
+            // `ghost_collision` since 2026-09-11; this one ships no solid ghost and reads it not at all).
             //
             // Payload-scoped reads for the reason render_remote's are (PeerJson.hpp): the fields
             // are the core's own, but reading them off the whole line would find a peer-controlled
@@ -21696,7 +21716,7 @@ namespace MeshGhostPseudo
             }
 
             // Live-value trace for the ability field schema (see ABILITY_FIELD_TRACE's own
-            // comment and PLAYER_FIELDS.md). Every pointer here is read defensively -- a name not
+            // comment and documentation.md (PLAYER_FIELDS.md until 2026-09-13)). Every pointer here is read defensively -- a name not
             // resolving just means "not this build/this object", same posture as every other
             // GetValuePtrByPropertyNameInChain call in this file, not a new pattern.
             if constexpr (ABILITY_FIELD_TRACE)
@@ -22935,7 +22955,7 @@ namespace MeshGhostPseudo
                         //
                         // The format stays inside this adapter -- both the writer above and the
                         // reader in apply_mirrored_vfx are this file, and the wire carries the
-                        // string opaquely -- so this is not a contract change. `PLAYER_FIELDS.md`
+                        // string opaquely -- so this is not a contract change. `documentation.md (PLAYER_FIELDS.md until 2026-09-13)`
                         // documents the shape.
                         if (MIRRORED_EFFECTS[i].world_spawned)
                         {
@@ -27464,7 +27484,7 @@ namespace MeshGhostPseudo
         }
 
         // The live check of the value read, on every edge that flips the jump bit: the pawn's own
-        // Blueprint latch `jumpButtonHeld?` (a confirmed live-read bool, PLAYER_FIELDS.md) moved
+        // Blueprint latch `jumpButtonHeld?` (a confirmed live-read bool, documentation.md (PLAYER_FIELDS.md until 2026-09-13)) moved
         // in step with the jump button on 24 of 24 presses in the census. If the bytes read here
         // mean what the header says, the two agree on the same frame.
         if (button_edge && input_have_prev && ((mask ^ input_prev_mask) & 1u))

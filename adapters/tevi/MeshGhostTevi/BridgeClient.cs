@@ -589,6 +589,16 @@ namespace MeshGhostTevi
             return v.HasValue && !float.IsNaN(v.Value) && !float.IsInfinity(v.Value) ? v : null;
         }
 
+        // A normalised animation phase: finite, then kept to 0..1 (2026-09-16; SYNCED.md said
+        // the range was not checked). The sender wraps its own value before sending, so anything
+        // outside is a peer's invention, and the drift correction on the other side assumes both
+        // phases live on the same unit circle.
+        private static float? UnitOrNull(float? v)
+        {
+            float? f = FiniteOrNull(v);
+            return f.HasValue ? (float?)Math.Min(1f, Math.Max(0f, f.Value)) : null;
+        }
+
         // The position is the ONE peer float that never got the FiniteOrNull treatment the
         // animator floats got in the 2026-09-02 review (found by the next one -- review I23,
         // 2026-09-11). Newtonsoft turns "NaN"/"Infinity" and out-of-range doubles into non-finite
@@ -1061,7 +1071,7 @@ namespace MeshGhostTevi
                                 TrailHaveEffect = (bool?)extras?["trail_fx"],
                                 WeaponRgba = (int?)extras?["weapon_rgba"],
                                 TempPause = FiniteOrNull((float?)extras?["pause"]),
-                                AnimTime = FiniteOrNull((float?)extras?["anim_t"]),
+                                AnimTime = UnitOrNull((float?)extras?["anim_t"]),
                                 VfxSeq = (int?)extras?["vfx_seq"],
                                 VfxEffect = (int?)extras?["vfx_id"],
                                 VfxFacingLeft = (bool?)extras?["vfx_left"],

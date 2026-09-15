@@ -90,8 +90,8 @@
 | `action_state` | whole number | `actionState` on the player (`game_thread_tick`) | kept to 0–255 |
 | `anim_jump_type` | whole number | `animJumpType` on the player (`game_thread_tick`) | kept to 0–255 |
 | `movement_mode` | whole number | `MovementMode` on `CharacterMovement` (`game_thread_tick`) | kept to 0–255 |
-| `h_speed` | number | `horizontalSpeed` on the player (`game_thread_tick`) | must start like a number; size not checked yet |
-| `v_speed` | number | `verticalSpeed` on the player (`game_thread_tick`) | must start like a number; size not checked yet |
+| `h_speed` | number | `horizontalSpeed` on the player (`game_thread_tick`) | a real number between −1,000,000 and 1,000,000 (a safety limit far past any real speed), anything else reads as 0 |
+| `v_speed` | number | `verticalSpeed` on the player (`game_thread_tick`) | a real number between −1,000,000 and 1,000,000 (a safety limit far past any real speed), anything else reads as 0 |
 | `land_count` | running total | each time `landed?` on the animation turns on (`game_thread_tick`) | acts only when it rises; a new ghost starts from the first value it gets |
 | `jump_count` | running total | each time `jumped?` on the animation turns on (`game_thread_tick`) | acts only when it rises; a new ghost starts from the first value |
 | `capsule_half` | number, 1 decimal | `CapsuleHalfHeight` on `CapsuleComponent` (`game_thread_tick`) | kept to 0–4096 |
@@ -184,8 +184,8 @@ No health value is sent: only the moments you are hurt or die.
 | `blink_count` | running total | stays 0 while `MIRROR_PLAYER_BLINK` is off (`game_thread_tick`) | a number from 0 to 1,000,000,000 (a safety limit far past any real count), anything else reads as 0 |
 | `prj` | 0 or 1 | the player's own `PRJ_PlayerCutter_C` shot, while it is active (`game_thread_tick`) | on only if `prj_pos` and `prj_rot` also read |
 | `prj_vfx` | text, asset path | the shot's effect asset (`game_thread_tick`) | at most 512 bytes, only an asset your own game has loaded |
-| `prj_pos` | list of 3 numbers, 1 decimal | the shot's location (`game_thread_tick`) | not checked yet |
-| `prj_rot` | list of 3 numbers, 1 decimal | the shot's rotation (`game_thread_tick`) | not checked yet |
+| `prj_pos` | list of 3 numbers, 1 decimal | the shot's location (`game_thread_tick`) | all three must be real numbers, or the list reads as not sent and no shot is shown |
+| `prj_rot` | list of 3 numbers, 1 decimal | the shot's rotation (`game_thread_tick`) | all three must be real numbers, or the list reads as not sent and no shot is shown |
 
 </details>
 
@@ -206,8 +206,8 @@ No health value is sent: only the moments you are hurt or die.
 | Key | Type | Read from | Checked on arrival |
 | --- | --- | --- | --- |
 | `weapon_thrown` | 0 or 1 | `weaponRef` exists and is away from the world's origin (`game_thread_tick`) | anything but 0 means thrown |
-| `weapon_pos` | list of 3 numbers, 1 decimal | the thrown sword's location (`game_thread_tick`) | used only when thrown and both lists read; values not checked yet |
-| `weapon_rot` | list of 3 numbers, 1 decimal | the thrown sword's rotation (`game_thread_tick`) | used only when thrown and both lists read; values not checked yet |
+| `weapon_pos` | list of 3 numbers, 1 decimal | the thrown sword's location (`game_thread_tick`) | used only when thrown and both lists read; all three must be real numbers, or the list reads as not sent |
+| `weapon_rot` | list of 3 numbers, 1 decimal | the thrown sword's rotation (`game_thread_tick`) | used only when thrown and both lists read; all three must be real numbers, or the list reads as not sent |
 | `weapon_state` | whole number | `weaponState` on the thrown sword (`game_thread_tick`) | kept to 0–255 |
 | `weapon_glow` | text, asset path | `idleGlowVFX`'s asset, while landed (`game_thread_tick`) | at most 512 bytes, only an asset your own game has loaded; empty keeps the last one |
 | `weapon_bounce` | running total | each sharp reversal of the sword's speed in flight (`game_thread_tick`) | acts only when it rises; a new ghost starts from the first value |

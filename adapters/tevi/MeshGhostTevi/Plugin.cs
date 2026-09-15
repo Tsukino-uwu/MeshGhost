@@ -1591,7 +1591,9 @@ namespace MeshGhostTevi
             {
                 visual.TrailColor = new Color32(0, 223, 255, 128);
             }
-            visual.TrailOrder = state.TrailOrder ?? TrailSortingOrder;
+            // Kept to the sorting-order range Unity actually honours (2026-09-16; SYNCED.md said
+            // "not checked yet"): a peer's order past it would put its trail over the HUD.
+            visual.TrailOrder = state.TrailOrder.HasValue ? Mathf.Clamp(state.TrailOrder.Value, -32767, 32767) : TrailSortingOrder;
             visual.TrailHaveEffect = state.TrailHaveEffect ?? false;
         }
 
@@ -2444,24 +2446,33 @@ namespace MeshGhostTevi
                     orb.Go.SetActive(true);
                     orb.Go.transform.position = peerRoot + new Vector3(row[1], row[2], 0f);
 
-                    int sprite = (int)row[3];
+                    // THE TWO SPRITE INDICES AND THE DRAW LAYER ARE BOUNDED (2026-09-16; SYNCED.md
+                    // said "not checked yet" for each). An index is only ever an honest peer's
+                    // position in this build's own orb tables, so it is kept to -1 (none) up to a
+                    // ceiling far past any table here, and the lookup itself is caught: what the
+                    // game does with an index past its table lives in its assembly and could not
+                    // be read. The draw layer is kept to the sorting-order range Unity honours,
+                    // the same bound as the trail's.
+                    int sprite = Mathf.Clamp((int)row[3], -1, OrbSpriteIndexMax);
                     if (orb.Render != null)
                     {
                         orb.Render.enabled = sprite != -1;
                         if (sprite >= 0 && CommonResource.Instance != null)
                         {
-                            Sprite s = CommonResource.Instance.GetOrb(sprite);
+                            Sprite s = null;
+                            try { s = CommonResource.Instance.GetOrb(sprite); } catch (System.Exception) { }
                             if (s != null) orb.Render.sprite = s;
                         }
-                        orb.Render.sortingOrder = (int)row[4];
+                        orb.Render.sortingOrder = Mathf.Clamp((int)row[4], -32767, 32767);
                     }
-                    int glowSprite = (int)row[5];
+                    int glowSprite = Mathf.Clamp((int)row[5], -1, OrbSpriteIndexMax);
                     if (orb.Glow != null)
                     {
                         orb.Glow.enabled = glowSprite != -1;
                         if (glowSprite >= 0 && CommonResource.Instance != null)
                         {
-                            Sprite s = CommonResource.Instance.GetGlowOrb(glowSprite);
+                            Sprite s = null;
+                            try { s = CommonResource.Instance.GetGlowOrb(glowSprite); } catch (System.Exception) { }
                             if (s != null) orb.Glow.sprite = s;
                         }
                         Color c = orb.Glow.color;
@@ -2479,7 +2490,10 @@ namespace MeshGhostTevi
                             orb.Crystal.transform.eulerAngles = new Vector3(0f, 0f, row[9]);
                         }
                     }
+                    // The ring's size x100, kept to a safety limit far past any ring the game
+                    // draws (2026-09-16); anything above it reads as none, like 0 does.
                     int chargeScale = (int)row[10];
+                    if (chargeScale > OrbChargeScaleMax) chargeScale = 0;
                     if (orb.Charge != null)
                     {
                         orb.Charge.enabled = chargeScale > 0;
@@ -2705,10 +2719,16 @@ namespace MeshGhostTevi
                     float phase = CellF(row, 6);
                     float sx = CellF(row, 7), sy = CellF(row, 8);
                     bool visibleNow = row.Length > 9 && row[9] is bool vb ? vb : true;
-                    float peerSpeed = row.Length > 10 && row[10] is float ps && !float.IsNaN(ps) && !float.IsInfinity(ps) ? ps : 1f;
+                    // The animator's speed and the scale are BOUNDED as well as finite (2026-09-16;
+                    // SYNCED.md said "range/size not checked yet"): a speed past the limit reads
+                    // as 1 like a missing one, and a scale past it skips the row, since a summon
+                    // scaled to the sky is a peer's invention and not a state the game reaches.
+                    float peerSpeed = row.Length > 10 && row[10] is float ps && !float.IsNaN(ps) && !float.IsInfinity(ps)
+                        && ps >= 0f && ps <= PeerAnimSpeedMax ? ps : 1f;
                     if (string.IsNullOrEmpty(type) || string.IsNullOrEmpty(controllerName)
                         || float.IsNaN(dx) || float.IsNaN(dy) || float.IsInfinity(dx) || float.IsInfinity(dy)
-                        || float.IsNaN(sx) || float.IsNaN(sy) || float.IsInfinity(sx) || float.IsInfinity(sy))
+                        || float.IsNaN(sx) || float.IsNaN(sy) || float.IsInfinity(sx) || float.IsInfinity(sy)
+                        || Mathf.Abs(sx) > PeerScaleMax || Mathf.Abs(sy) > PeerScaleMax)
                     {
                         continue;
                     }
@@ -3135,10 +3155,13 @@ namespace MeshGhostTevi
                 // own values. An infinite rz reached transform.eulerAngles and Unity logged an
                 // invalid-rotation error EVERY FRAME for as long as the peer kept sending it.
                 // Found by the third adversarial review (P2d-2).
+                // The scale is bounded too (2026-09-16; SYNCED.md said "size not checked yet"):
+                // past the limit the row is skipped like a non-finite one.
                 bool finite = !(float.IsNaN(dx) || float.IsNaN(dy) || float.IsNaN(dz) || float.IsNaN(sc)
                     || float.IsNaN(rx) || float.IsNaN(ry) || float.IsNaN(rz)
                     || float.IsInfinity(dx) || float.IsInfinity(dy) || float.IsInfinity(dz) || float.IsInfinity(sc)
-                    || float.IsInfinity(rx) || float.IsInfinity(ry) || float.IsInfinity(rz));
+                    || float.IsInfinity(rx) || float.IsInfinity(ry) || float.IsInfinity(rz))
+                    && Mathf.Abs(sc) <= PeerScaleMax;
                 if (finite)
                 {
                     GhostShield gs = visual.Shield;
@@ -3455,6 +3478,40 @@ namespace MeshGhostTevi
         private static readonly FieldInfo BulletStartSizeField = typeof(bulletScript).GetField("startSize", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo BulletCachePosField = typeof(bulletScript).GetField("cachepos", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo BulletFlagsField = typeof(bulletScript).GetField("flags", BindingFlags.NonPublic | BindingFlags.Instance);
+
+        // PEER-CHOSEN VALUES THAT HAD NO BOUND UNTIL 2026-09-16 (each was a "not checked yet" cell
+        // in SYNCED.md). Every limit here is a safety limit far past what the game produces, in
+        // the same spirit as the counters' caps: it refuses a peer's invention, never an honest
+        // state. Sprite indices are positions in this build's own tables; scales and speeds are
+        // multipliers on a character-sized rig.
+        private const int OrbSpriteIndexMax = 4095;
+        private const int OrbChargeScaleMax = 10000; // x100, so a ring 100 times its natural size
+        private const float PeerScaleMax = 100f;
+        private const float PeerAnimSpeedMax = 100f;
+        private const float BulletTimeMax = 3600f; // seconds; the ghost's own safety life is 12
+
+        // The bullet flags a peer sends are MASKED TO THE BITS THIS BUILD DEFINES: the field is a
+        // [Flags] enum, and Enum.ToObject accepts any integer, so an undefined bit would reach
+        // BulletBehave as a state no shooter on this build can produce. The mask is read once
+        // from the enum's own values -- names and values from the assembly, never its code.
+        private static int bulletFlagsDefinedMask = -1;
+        private static int BulletFlagsDefined(int flags)
+        {
+            if (bulletFlagsDefinedMask == -1)
+            {
+                int mask = 0;
+                try
+                {
+                    if (BulletFlagsField != null)
+                    {
+                        foreach (object v in System.Enum.GetValues(BulletFlagsField.FieldType)) mask |= System.Convert.ToInt32(v);
+                    }
+                }
+                catch (System.Exception) { mask = 0; }
+                bulletFlagsDefinedMask = mask;
+            }
+            return flags & bulletFlagsDefinedMask;
+        }
         private static readonly FieldInfo BulletLifeField = typeof(bulletScript).GetField("life", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo BulletTimeDeleteField = typeof(bulletScript).GetField("TimeDelete", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo BulletStayField = typeof(bulletScript).GetField("isStayAtOwner", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -3562,22 +3619,29 @@ namespace MeshGhostTevi
                 b.SetSpriteSize(fallbackScale, justSpawn: false);
             }
             if (parts.Length > 1) ApplyCounters(b, parts[1]);
+            // Flags masked to this build's defined bits; life and delete time finite and kept to
+            // 0..BulletTimeMax (2026-09-16; each was a "not checked yet" cell in SYNCED.md). A
+            // lifetime past the limit is moot anyway -- TickGhostBullets retires every ghost
+            // bullet at its own safety life -- but a NaN or negative one reaches the game's
+            // timers as a state no shooter produces.
             int flags;
             if (parts.Length > 2 && parts[2].Length > 0 && BulletFlagsField != null
-                && int.TryParse(parts[2], System.Globalization.NumberStyles.Integer, ci, out flags) && flags != 0)
+                && int.TryParse(parts[2], System.Globalization.NumberStyles.Integer, ci, out flags) && BulletFlagsDefined(flags) != 0)
             {
-                try { BulletFlagsField.SetValue(b, System.Enum.ToObject(BulletFlagsField.FieldType, flags)); }
+                try { BulletFlagsField.SetValue(b, System.Enum.ToObject(BulletFlagsField.FieldType, BulletFlagsDefined(flags))); }
                 catch (System.Exception) { }
             }
             float life;
             if (parts.Length > 3 && parts[3].Length > 0
-                && float.TryParse(parts[3], System.Globalization.NumberStyles.Float, ci, out life))
+                && float.TryParse(parts[3], System.Globalization.NumberStyles.Float, ci, out life)
+                && !float.IsNaN(life) && !float.IsInfinity(life) && life >= 0f && life <= BulletTimeMax)
             {
                 b.SetLife(life);
             }
             float del;
             if (parts.Length > 4 && parts[4].Length > 0
-                && float.TryParse(parts[4], System.Globalization.NumberStyles.Float, ci, out del))
+                && float.TryParse(parts[4], System.Globalization.NumberStyles.Float, ci, out del)
+                && !float.IsNaN(del) && !float.IsInfinity(del) && del >= 0f && del <= BulletTimeMax)
             {
                 b.SetTimeDelete(del);
             }
@@ -3917,9 +3981,14 @@ namespace MeshGhostTevi
             string packed = row != null && row.Length > 14 ? row[14] as string : null;
             if (string.IsNullOrEmpty(packed)) return;
             string[] parts = packed.Split('|');
+            // A NAME, not a number in a name's place (2026-09-16; SYNCED.md said the latter was
+            // not checked): Enum.TryParse accepts "999" and yields an undefined value, so the
+            // name must start with a letter and, once parsed, be one this build defines.
             Bullet.BulletType bt; Bullet.SpriteType st;
-            if (parts.Length > 7 && parts[7].Length > 0 && System.Enum.TryParse(parts[7], out bt)) b.type = bt;
-            if (parts.Length > 8 && parts[8].Length > 0 && System.Enum.TryParse(parts[8], out st)) b.sprite = st;
+            if (parts.Length > 7 && parts[7].Length > 0 && char.IsLetter(parts[7][0])
+                && System.Enum.TryParse(parts[7], out bt) && System.Enum.IsDefined(typeof(Bullet.BulletType), bt)) b.type = bt;
+            if (parts.Length > 8 && parts[8].Length > 0 && char.IsLetter(parts[8][0])
+                && System.Enum.TryParse(parts[8], out st) && System.Enum.IsDefined(typeof(Bullet.SpriteType), st)) b.sprite = st;
         }
 
         private void TrackFollowerActivity(ObjectPooler op)
@@ -4035,7 +4104,8 @@ namespace MeshGhostTevi
                         BulletDiag($"RECV-FLAGS seq={(int)seqF} flags={(int)flagsF} spawned={have} dead={(have && gbf.DiedAt != float.NegativeInfinity)}");
                     }
                     if (!have || gbf.B == null || gbf.DiedAt != float.NegativeInfinity) continue;
-                    try { BulletFlagsField.SetValue(gbf.B, System.Enum.ToObject(BulletFlagsField.FieldType, (int)flagsF)); }
+                    // Masked to this build's defined bits (2026-09-16), see BulletFlagsDefined.
+                    try { BulletFlagsField.SetValue(gbf.B, System.Enum.ToObject(BulletFlagsField.FieldType, BulletFlagsDefined((int)flagsF))); }
                     catch (System.Exception) { }
                 }
             }
@@ -4173,8 +4243,18 @@ namespace MeshGhostTevi
             var prefab = BulletPrefabField.GetValue(BulletManager.Instance) as bulletScript;
             if (prefab == null) return;
             float x = CellF(row, 3), y = CellF(row, 4), angle = CellF(row, 5), speed = CellF(row, 6), scale = CellF(row, 7);
-            if (float.IsNaN(x) || float.IsNaN(y) || float.IsNaN(angle) || float.IsNaN(speed) || float.IsInfinity(x) || float.IsInfinity(y)) return;
-            int type = (int)CellF(row, 1), sprite = (int)CellF(row, 2);
+            // Angle and speed refuse infinity as well as NaN (2026-09-16; SYNCED.md said
+            // "infinity not checked yet"): an infinite angle is a NaN after the cosine below,
+            // and an infinite speed is a bullet nowhere on the first step.
+            if (float.IsNaN(x) || float.IsNaN(y) || float.IsNaN(angle) || float.IsNaN(speed) || float.IsInfinity(x) || float.IsInfinity(y)
+                || float.IsInfinity(angle) || float.IsInfinity(speed)) return;
+            // The type and sprite ORDINALS must be values this build's enums define (2026-09-16;
+            // SYNCED.md said "not checked yet"). An undefined ordinal is either another build's
+            // numbering -- in which case the names in cell 15 win, see ApplyEnumNames -- or a
+            // peer's invention; either way the prefab's own value stays.
+            float typeF = CellF(row, 1), spriteF = CellF(row, 2);
+            int type = !float.IsNaN(typeF) && !float.IsInfinity(typeF) && System.Enum.IsDefined(typeof(Bullet.BulletType), (int)typeF) ? (int)typeF : -1;
+            int sprite = !float.IsNaN(spriteF) && !float.IsInfinity(spriteF) && System.Enum.IsDefined(typeof(Bullet.SpriteType), (int)spriteF) ? (int)spriteF : -1;
 
             GameObject go = Instantiate(prefab.gameObject);
             go.name = $"MeshGhostRemote_{playerId}_bullet{seq}";
@@ -4186,8 +4266,8 @@ namespace MeshGhostTevi
             b.SetAllRef(BulletManager.Instance, CommonResource.Instance, TeamManager.Instance, GameSystem.Instance, WorldManager.Instance);
             b.owner = cloneTemplate; // a follower asks owner.isPlayer(); this bullet is never in the pool
             b.EnableMe();
-            b.type = (Bullet.BulletType)type;
-            b.sprite = (Bullet.SpriteType)sprite;
+            if (type != -1) b.type = (Bullet.BulletType)type;
+            if (sprite != -1) b.sprite = (Bullet.SpriteType)sprite;
             ApplyEnumNames(b, row); // a peer on another build: its NAMES win over its ordinals
             b.SetAngle(angle);
             b.speed = speed;
@@ -4382,6 +4462,14 @@ namespace MeshGhostTevi
                     || pool < 0 || pool >= op.pooledObjectsList.Count
                     || float.IsNaN(x) || float.IsNaN(y)
                     || float.IsInfinity(x) || float.IsInfinity(y)) continue;
+                // AND THE POOL MUST BE A FLASH POOL (2026-09-16; SYNCED.md said limiting it was
+                // not checked). Tested on the pool's own template by component, not by the
+                // numbers 7 and 12, because a pool index is an ordinal that differs between
+                // builds (the standalone and Steam copies disagree): any other pooled effect is
+                // one a shot never lights, and a peer must not get to light it at will.
+                List<GameObject> flashPool = op.pooledObjectsList[pool];
+                if (flashPool == null || flashPool.Count == 0 || flashPool[0] == null
+                    || (flashPool[0].GetComponent<OrbShootFlash>() == null && flashPool[0].GetComponent<OrbChargeFlash>() == null)) continue;
                 GameObject fx = op.GetPooledObject(pool);
                 if (fx == null) continue;
                 bool left = row[4] is bool lb && lb;
@@ -4390,8 +4478,9 @@ namespace MeshGhostTevi
                 fx.transform.position = worldOffset + new Vector3(x, y, 0f);
                 flashesWeLit.Add(fx.GetInstanceID());
                 fx.SetActive(true);
-                if (pool == 7) fx.GetComponent<OrbShootFlash>()?.Setup(c, dir);
-                else if (pool == 12) fx.GetComponent<OrbChargeFlash>()?.Setup(c, dir);
+                // Dispatched by component, not by pool number, for the reason the guard above gives.
+                fx.GetComponent<OrbShootFlash>()?.Setup(c, dir);
+                fx.GetComponent<OrbChargeFlash>()?.Setup(c, dir);
             }
             visual.LastFlashSeq = maxSeq;
         }

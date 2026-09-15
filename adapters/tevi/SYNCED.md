@@ -70,7 +70,7 @@
 
 | Key | Type | Read from | Checked on arrival |
 | --- | --- | --- | --- |
-| `anim_t` | number, 0 to 1 | the animator's `normalizedTime`, wrapped (`Update`) | must be a real number; range not checked yet |
+| `anim_t` | number, 0 to 1 | the animator's `normalizedTime`, wrapped (`Update`) | must be a real number, then kept to 0–1 |
 | `pause` | number, seconds | `GameSystem.GetTempPause()` (`Update`) | must be a real number; only "above 0" is used |
 
 </details>
@@ -114,7 +114,7 @@
 | `trail_rate` | number | the player's `SpriteAnimation` (`ReadTrailParams`) | must be a real number above 0, otherwise the game's default |
 | `trail_decay` | number | the player's `SpriteAnimation` (`ReadTrailParams`) | must be a real number above 0, otherwise the game's default |
 | `trail_rgba` | whole number, colour | the player's `SpriteAnimation` (`ReadTrailParams`) | any whole number reads as a colour |
-| `trail_order` | whole number | the player's `SpriteAnimation` (`ReadTrailParams`) | not checked yet |
+| `trail_order` | whole number | the player's `SpriteAnimation` (`ReadTrailParams`) | kept to −32767–32767, the draw-order range Unity honours |
 | `trail_fx` | true/false | the player's `SpriteAnimation` (`ReadTrailParams`) | true or false |
 | `weapon_rgba` | whole number, colour | the weapon sprite's colour (`ReadWeaponStrobe`) | any whole number reads as a colour |
 | `vfx_seq` | running total | each mirrored effect the game starts near the player (`WatchLocalVfx`) | acts only when it rises; a new ghost starts from the first value |
@@ -161,14 +161,14 @@
 | --- | --- | --- |
 | 1 | which orb | must be 0 or 1 |
 | 2–3 | offset from the player | real numbers |
-| 4 | the orb's sprite, as a number in the game's orb table | not checked yet |
-| 5 | its draw layer | not checked yet |
-| 6 | the glow's sprite, as a number in the game's glow table | not checked yet |
+| 4 | the orb's sprite, as a number in the game's orb table | kept to −1–4095 (a safety limit far past any table), and a number your game's table lacks keeps the sprite it had |
+| 5 | its draw layer | kept to −32767–32767, the draw-order range Unity honours |
+| 6 | the glow's sprite, as a number in the game's glow table | kept to −1–4095, and a number your game's table lacks keeps the sprite it had |
 | 7 | the glow's opacity × 100 | kept to 0–1 |
 | 8 | the crystal's colour, −1 for none | any whole number reads as a colour |
 | 9 | the crystal's opacity × 100 | kept to 0–1 |
 | 10 | the crystal's rotation | real number |
-| 11 | the charge ring's size × 100, 0 for none | not checked yet |
+| 11 | the charge ring's size × 100, 0 for none | above 10,000 (a ring 100 times its size, a safety limit) reads as none |
 
 **`summons`, one row per summon.**
 
@@ -180,16 +180,16 @@
 | 5 | which way it faces | `"RIGHT"` faces right, anything else left |
 | 6 | the clip it plays | that animator must have a state by that name |
 | 7 | how far into the clip | kept to 0–1 |
-| 8–9 | its scale | real numbers; size not checked yet |
+| 8–9 | its scale | real numbers no larger than 100 either way (a safety limit far past any real scale), otherwise the row is skipped |
 | 10 | whether it is visible yet | true or false, missing means visible |
-| 11 | the animator's speed | real number, otherwise 1; range not checked yet |
+| 11 | the animator's speed | real number from 0 to 100, otherwise 1 |
 
 **`shield`.**
 
 | Cell | Carries | Checked on arrival |
 | --- | --- | --- |
 | 1–3 | where it is | real numbers |
-| 4 | its scale | real number; size not checked yet |
+| 4 | its scale | real number no larger than 100 either way (a safety limit), otherwise the row is skipped |
 | 5–7 | its rotation | real numbers |
 | 8–10 | its three colours | 8 hex digits each, otherwise unchanged |
 | 11 | whether it is up | true or false, missing means up |
@@ -221,7 +221,7 @@
 | `bul` | list of rows, 15 cells each | each new bullet the player owns (`ReadBullets`) | a row shorter than 13 cells is skipped; no more live bullets than your game's own bullet pool; see the cells below |
 | `buld` | list of numbers | bullets that died early (`ReadBulletDeaths`) | a value that is not a number is skipped; only a bullet this ghost already fired is stopped |
 | `buldp` | list of numbers, pairs | where each stopped (`ReadBulletDeathPositions`) | real numbers, one pair per bullet, otherwise the bullet stops where it is |
-| `bulf` | list of numbers, pairs | a bullet number and its new behaviour flags (`ReadBulletFlagUpdates`) | real numbers and a bullet this ghost fired; the flags themselves are not checked yet |
+| `bulf` | list of numbers, pairs | a bullet number and its new behaviour flags (`ReadBulletFlagUpdates`) | real numbers and a bullet this ghost fired; only the flag bits your own game defines are kept |
 | `flash` | list of rows, 6 cells each | shot and charged-shot flashes near the player (`ReadFlashes`) | see the cells below |
 
 **`bul`, one row per bullet.**
@@ -229,11 +229,11 @@
 | Cell | Carries | Checked on arrival |
 | --- | --- | --- |
 | 1 | the bullet's number | fires only when above the last one seen; a new ghost starts from the first rows it gets |
-| 2 | its type, as a number | not checked yet (the name in cell 15 wins when this build has it) |
-| 3 | its sprite, as a number | only used to set a sprite below 91; otherwise not checked yet |
+| 2 | its type, as a number | must be a type your own game defines, otherwise ignored (the name in cell 15 wins when this build has it) |
+| 3 | its sprite, as a number | must be a sprite your own game defines, otherwise ignored; only used to set a sprite below 91 |
 | 4–5 | where it started | real numbers, otherwise not fired |
-| 6 | its angle | must be a number; infinity not checked yet |
-| 7 | its speed | must be a number; infinity not checked yet |
+| 6 | its angle | must be a real number, otherwise not fired |
+| 7 | its speed | must be a real number, otherwise not fired |
 | 8 | its scale | used only when above 0 |
 | 9 | the effect's pool | must carry the effect kind below, otherwise the first pool that does |
 | 10 | the effect's kind | must be 0–7 |
@@ -249,20 +249,20 @@
 | --- | --- | --- |
 | 1 | start size | must be a number above 0 |
 | 2 | counters, as `slot:value` pairs | slot 0–9 and a real number |
-| 3 | behaviour flags | not checked yet |
-| 4 | life | not checked yet |
-| 5 | delete time | not checked yet |
+| 3 | behaviour flags | only the flag bits your own game defines are kept |
+| 4 | life | a real number from 0 to 3,600 seconds, otherwise unchanged |
+| 5 | delete time | a real number from 0 to 3,600 seconds, otherwise unchanged |
 | 6 | tint | 8 hex digits, otherwise unchanged |
 | 7 | effect pool's name | never used to find anything |
-| 8 | type name | must be a type name this build parses; a number in its place is not checked yet |
-| 9 | sprite name | must be a sprite name this build parses; a number in its place is not checked yet |
+| 8 | type name | must start with a letter and be a type name your own game defines |
+| 9 | sprite name | must start with a letter and be a sprite name your own game defines |
 
 **`flash`, one row per flash.**
 
 | Cell | Carries | Checked on arrival |
 | --- | --- | --- |
 | 1 | the flash's number | fires only when above the last one seen; a new ghost starts from the first rows it gets |
-| 2 | its pool (7 for a shot, 12 for a charged shot) | must be a pool the game has; limiting it to 7 and 12 is not checked yet |
+| 2 | its pool (7 for a shot, 12 for a charged shot) | must be a pool your own game has whose effect is a shot or charged-shot flash, otherwise skipped |
 | 3–4 | where it is | real numbers |
 | 5 | whether it faces left | true or false |
 | 6 | its colour | 8 hex digits, otherwise white |
