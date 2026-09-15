@@ -17,7 +17,7 @@
 // is self-signed. What authenticates it is the Verifier the client passes
 // to Client: core's known-relays store remembers each relay's fingerprint
 // on first connect and checks it afterwards (trust on first use, the SSH
-// model, agent_docs/tls-planning.md). So:
+// model, ADR 0066). So:
 //
 //   - Passive capture -- someone reading traffic on shared wifi, a VPN, an
 //     ISP -- is blocked on every connection.
@@ -285,9 +285,28 @@ func Client(conn net.Conn, alpn string, verify Verifier, timeout time.Duration) 
 
 // IsTLS reports whether conn is an established TLS connection.
 func IsTLS(conn net.Conn) bool {
-	_, ok := conn.(*tls.Conn)
-	return ok
+	switch conn.(type) {
+	case *tls.Conn, interface{ ConnectionState() tls.ConnectionState }:
+		return true
+	}
+	return false
 }
+
+// servedConn is what NewListener hands up: the handshaked *tls.Conn plus
+// the moment the raw socket was accepted, BEFORE the sniff and the
+// handshake. The relay's hello timeout counts from that moment
+// (Server.handleConn asks through AcceptedAt), so the sniff's own timeout
+// and the hello timeout overlap instead of adding up: until 2026-09-15 a
+// stranger could hold a socket for the sniff's 10 s and then the hello
+// timer's 10 s, twice what the contract promised (third adversarial
+// review, P1b; found again by the fourth's harness).
+type servedConn struct {
+	*tls.Conn
+	acceptedAt time.Time
+}
+
+// AcceptedAt is when the raw connection was accepted from the listener.
+func (c *servedConn) AcceptedAt() time.Time { return c.acceptedAt }
 
 // PeerFingerprint is the fingerprint of the leaf certificate the peer
 // presented on conn -- a *tls.Conn, or anything exposing its TLS state the
@@ -298,6 +317,8 @@ func PeerFingerprint(conn net.Conn) string {
 	var state tls.ConnectionState
 	switch c := conn.(type) {
 	case *tls.Conn:
+		state = c.ConnectionState()
+	case interface{ ConnectionState() tls.ConnectionState }: // servedConn
 		state = c.ConnectionState()
 	case interface{ TLSConnectionState() tls.ConnectionState }:
 		state = c.TLSConnectionState()
@@ -477,7 +498,8 @@ func (l *sniffListener) acceptLoop() {
 // classify reads the one byte that decides what this connection is, then
 // either refuses it or completes a TLS handshake on it.
 func (l *sniffListener) classify(c net.Conn) {
-	deadline := time.Now().Add(l.timeout)
+	acceptedAt := time.Now()
+	deadline := acceptedAt.Add(l.timeout)
 	_ = c.SetReadDeadline(deadline)
 
 	first := make([]byte, 1)
@@ -506,7 +528,7 @@ func (l *sniffListener) classify(c net.Conn) {
 		_ = c.Close()
 		return
 	}
-	l.deliver(accepted{conn: tc})
+	l.deliver(accepted{conn: &servedConn{Conn: tc, acceptedAt: acceptedAt}})
 }
 
 func (l *sniffListener) deliver(a accepted) {

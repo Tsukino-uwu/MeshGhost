@@ -364,3 +364,5 @@ staged Pseudoregalia file failed it with the line naming `$gameOnly`, and re-sta
 The fourth review's fixes touched `ci.yml`, the hooks, `preflight.ps1` and `stage-release.ps1`
 (the 2026-09-15 entry in `phase10.md`), and the TLS work the same evening added a fuzz step to
 `ci.yml` and a `private/` refusal to `stage-release.ps1` (ADR 0066, the evening entry there).
+The night of 2026-09-15 is there too: the private-IP test fixtures moved to RFC 5737 ranges so the
+leak check's negative fixture proves something again, and the one LF `.bat` was re-checked out.

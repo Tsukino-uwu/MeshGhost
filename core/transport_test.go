@@ -30,15 +30,15 @@ func offers(kv ...any) []protocol.TransportOffer {
 // port the relay named — not the one in connect_to.
 func TestExplicitPreferenceIsHonouredExactly(t *testing.T) {
 	c := &Core{Transport: netx.UDP}
-	kind, addr := c.chooseTransport("10.0.0.5:7777", offers("tcp", 7777, "udp", 7777, "quic", 7780))
-	if kind != netx.UDP || addr != "10.0.0.5:7777" {
-		t.Fatalf("got %v at %q, want udp at 10.0.0.5:7777", kind, addr)
+	kind, addr := c.chooseTransport("192.0.2.5:7777", offers("tcp", 7777, "udp", 7777, "quic", 7780))
+	if kind != netx.UDP || addr != "192.0.2.5:7777" {
+		t.Fatalf("got %v at %q, want udp at 192.0.2.5:7777", kind, addr)
 	}
 
 	c = &Core{Transport: netx.QUIC}
-	kind, addr = c.chooseTransport("10.0.0.5:7777", offers("tcp", 7777, "udp", 7777, "quic", 7780))
-	if kind != netx.QUIC || addr != "10.0.0.5:7780" {
-		t.Fatalf("got %v at %q, want quic at 10.0.0.5:7780", kind, addr)
+	kind, addr = c.chooseTransport("192.0.2.5:7777", offers("tcp", 7777, "udp", 7777, "quic", 7780))
+	if kind != netx.QUIC || addr != "192.0.2.5:7780" {
+		t.Fatalf("got %v at %q, want quic at 192.0.2.5:7780", kind, addr)
 	}
 }
 
@@ -49,11 +49,11 @@ func TestExplicitPreferenceIsHonouredExactly(t *testing.T) {
 // is not.
 func TestExplicitPreferenceNeverFallsSidewaysToUDP(t *testing.T) {
 	c := &Core{Transport: netx.QUIC}
-	kind, addr := c.chooseTransport("10.0.0.5:7777", offers("tcp", 7777, "udp", 7777))
+	kind, addr := c.chooseTransport("192.0.2.5:7777", offers("tcp", 7777, "udp", 7777))
 	if kind == netx.UDP {
 		t.Fatal("a client that asked for quic was given udp — an unencryptable transport")
 	}
-	if kind != netx.TCP || addr != "10.0.0.5:7777" {
+	if kind != netx.TCP || addr != "192.0.2.5:7777" {
 		t.Fatalf("got %v at %q, want tcp at the configured address", kind, addr)
 	}
 }

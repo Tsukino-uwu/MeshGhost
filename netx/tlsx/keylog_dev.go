@@ -9,7 +9,7 @@ package tlsx
 // log format Wireshark reads, so a capture of an encrypted session can be
 // decoded on the developer's own machine. A release build has no such
 // hook: keylog_release.go's keyLogWriter is always nil, and the environment
-// variable does nothing. Plan step 8 of agent_docs/tls-planning.md.
+// variable does nothing (ADR 0066).
 
 import (
 	"log"

@@ -408,8 +408,8 @@ func TestBridgeIsLoopback(t *testing.T) {
 		"0.0.0.0:7778",
 		":7778", // empty host binds every interface
 		"[::]:7778",
-		"192.168.1.10:7778",
-		"10.0.0.5:7778",
+		"198.51.100.10:7778",
+		"192.0.2.5:7778",
 		"example.com:7778",
 	}
 	for _, addr := range remote {

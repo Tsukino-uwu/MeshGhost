@@ -89,8 +89,10 @@ func TestAChangedIdentityWarnsLoudlyAndUpdatesTheEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := k.Verifier(addr)(relayB); err != nil {
-		// Deliberate for now: no PAKE yet, so a change is warned about, not
-		// refused (agent_docs/tls-planning.md, the accepted trade-off).
+		// Deliberate: the store alone warns about a change and never refuses
+		// (ADR 0066, the accepted trade-off). With a room code set the proof
+		// decides instead (ADR 0067, core/roomproof.go); without one nothing
+		// can, and a code-less relay is open to anyone by definition.
 		t.Fatalf("a changed identity was refused: %v", err)
 	}
 	warning := (*lines)[len(*lines)-1]

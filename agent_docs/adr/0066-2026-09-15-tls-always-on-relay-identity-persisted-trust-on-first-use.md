@@ -19,8 +19,9 @@
   rather than optional"*, *"I just want it to be automatic and nothing manual required"*; and
   2026-09-15: TOFU first, the PAKE afterwards, one at a time). `netx/tlsx` (`identity.go`,
   `Verifier`), `netx/quicconn.DialWith` and `Options.TLS`, `netx.TLSOptions{Server, Verify}`,
-  `core/knownrelays.go`, both mains. The plan and the reasoning behind each choice:
-  `agent_docs/tls-planning.md`.
+  `core/knownrelays.go`, both mains. The plan it was built from (`agent_docs/tls-planning.md`)
+  was deleted once everything in it had landed, later on 2026-09-15; this ADR and ADR 0067 carry
+  its decisions, and `security-design.md` the reasoning that was not about a single step.
 - **Why.** Until this date a client under the shipped `auto` never fell back to plaintext (ADR-less
   fix `bf47f160`, fourth review A1), but the mode still existed, so a relay could be run plaintext
   and a client told to accept it; the certificate lived in memory and was regenerated every

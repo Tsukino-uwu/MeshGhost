@@ -1060,7 +1060,7 @@ func (l locatedConfig) logPath(name string) string {
 // identityDir is where the relay's identity lives (tlsx.LoadOrCreateIdentity):
 // the private/ folder beside the config, for the same reason the log is there --
 // and so that "uninstall" is still "delete the folder", and moving the install
-// moves the identity with it (the user's call, agent_docs/tls-planning.md).
+// moves the identity with it (the user's call, ADR 0066).
 func (l locatedConfig) identityDir() string {
 	return filepath.Join(l.dir(), tlsx.IdentityDirName)
 }

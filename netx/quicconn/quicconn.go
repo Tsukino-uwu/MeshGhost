@@ -164,6 +164,10 @@ type Conn struct {
 	qc     *quic.Conn
 	stream *quic.Stream
 
+	// acceptedAt is when the listener took this connection in, set only on
+	// the accepting side; zero on a dialed connection. See AcceptedAt.
+	acceptedAt time.Time
+
 	in     chan []byte
 	closed chan struct{}
 	once   sync.Once
@@ -488,6 +492,11 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 // scoped-but-unscheduled room-code channel-binding work
 // (agent_docs/ideas.md) can reach ExportKeyingMaterial without this package
 // having to change shape later; nothing calls it yet.
+// AcceptedAt is when the listener took this connection in -- before it
+// waited for the client's first stream -- or zero on a dialed connection.
+// The relay's hello timeout counts from it (relay.Server.handleConn).
+func (c *Conn) AcceptedAt() time.Time { return c.acceptedAt }
+
 func (c *Conn) TLSConnectionState() tls.ConnectionState {
 	return c.qc.ConnectionState().TLS
 }
@@ -725,6 +734,7 @@ func (l *Listener) awaitStream(qc *quic.Conn, release func()) {
 	if release != nil {
 		defer release()
 	}
+	acceptedAt := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	stream, err := qc.AcceptStream(ctx)
@@ -732,8 +742,13 @@ func (l *Listener) awaitStream(qc *quic.Conn, release func()) {
 		_ = qc.CloseWithError(0, "no stream")
 		return
 	}
+	c := newConn(qc, stream)
+	// The relay's hello timeout counts from here rather than from the
+	// moment it sees the connection, so this wait and the hello timer
+	// overlap instead of adding up (see tlsx.servedConn).
+	c.acceptedAt = acceptedAt
 	select {
-	case l.accept <- newConn(qc, stream):
+	case l.accept <- c:
 	case <-l.closed:
 		_ = qc.CloseWithError(0, "listener closed")
 	}

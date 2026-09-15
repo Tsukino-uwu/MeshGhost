@@ -395,3 +395,47 @@ func TestAHandshakeThatNeverFinishesIsClosedAtTheTimeout(t *testing.T) {
 		t.Fatalf("%d handshake-failure lines for 3 failures; want at most 2 (one a second)", n)
 	}
 }
+
+// TestAnAcceptedConnectionSaysWhenItWasAccepted: what NewListener hands up
+// carries the moment the raw socket was accepted, so the relay's hello
+// timeout can count from there and the sniff's timeout and the hello
+// timer overlap rather than add up (pass-3 P1b, closed 2026-09-15).
+func TestAnAcceptedConnectionSaysWhenItWasAccepted(t *testing.T) {
+	cfg, _, err := tlsx.ServerConfig(testALPN)
+	if err != nil {
+		t.Fatalf("ServerConfig: %v", err)
+	}
+	raw, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	ln, err := tlsx.NewListener(raw, tlsx.ListenConfig{TLS: cfg, HandshakeTimeout: testTimeout, Logf: func(string, ...any) {}})
+	if err != nil {
+		t.Fatalf("NewListener: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+
+	before := time.Now()
+	go func() {
+		c := dialTLS(t, ln.Addr().String())
+		_, _ = c.Write([]byte("x\n"))
+	}()
+	c, err := ln.Accept()
+	if err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	defer c.Close()
+	a, ok := c.(interface{ AcceptedAt() time.Time })
+	if !ok {
+		t.Fatalf("an accepted %T does not say when it was accepted", c)
+	}
+	if at := a.AcceptedAt(); at.Before(before) || at.After(time.Now()) {
+		t.Fatalf("accepted at %v, outside [%v, now]", at, before)
+	}
+	if !tlsx.IsTLS(c) {
+		t.Fatalf("an accepted %T is not reported as TLS", c)
+	}
+	if tlsx.PeerFingerprint(c) != "" {
+		t.Fatal("a client that presented no certificate has a peer fingerprint")
+	}
+}

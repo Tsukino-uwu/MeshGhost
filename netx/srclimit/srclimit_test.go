@@ -38,8 +38,8 @@ func newTable(t *testing.T, o Options) (*Table, *clock) {
 
 func TestOpenConnectionsAreCappedPerAddressAndFreedOnRelease(t *testing.T) {
 	tb, _ := newTable(t, Options{MaxOpenPerSource: 2})
-	a := tcpAddr(t, "10.0.0.1:1111")
-	b := tcpAddr(t, "10.0.0.2:1111")
+	a := tcpAddr(t, "192.0.2.1:1111")
+	b := tcpAddr(t, "192.0.2.2:1111")
 	if !tb.Acquire(a) || !tb.Acquire(a) {
 		t.Fatal("the first two connections from one address were refused")
 	}
@@ -47,7 +47,7 @@ func TestOpenConnectionsAreCappedPerAddressAndFreedOnRelease(t *testing.T) {
 		t.Fatal("a third connection from one address was accepted past the cap")
 	}
 	// Different ports, same host: still the same source.
-	if tb.Acquire(tcpAddr(t, "10.0.0.1:2222")) {
+	if tb.Acquire(tcpAddr(t, "192.0.2.1:2222")) {
 		t.Fatal("the cap is keyed by port, not by host")
 	}
 	if !tb.Acquire(b) {
@@ -89,8 +89,8 @@ func TestIPv6ZonesDoNotSplitOneSource(t *testing.T) {
 
 func TestWrongRoomCodesAreBudgetedPerAddressAndLeakBack(t *testing.T) {
 	tb, clk := newTable(t, Options{AuthBurst: 3, AuthRefillPerSecond: 1})
-	c := fakeConn{remote: tcpAddr(t, "10.0.0.9:5")}
-	other := fakeConn{remote: tcpAddr(t, "10.0.0.10:5")}
+	c := fakeConn{remote: tcpAddr(t, "192.0.2.9:5")}
+	other := fakeConn{remote: tcpAddr(t, "192.0.2.10:5")}
 	for i := 0; i < 3; i++ {
 		if tb.Blocked(c) {
 			t.Fatalf("blocked after %d failures, burst is 3", i)
@@ -127,7 +127,7 @@ func TestWrongRoomCodesAreBudgetedPerAddressAndLeakBack(t *testing.T) {
 
 func TestAZeroBurstTracksNothing(t *testing.T) {
 	tb, _ := newTable(t, Options{})
-	c := fakeConn{remote: tcpAddr(t, "10.0.0.9:5")}
+	c := fakeConn{remote: tcpAddr(t, "192.0.2.9:5")}
 	for i := 0; i < 100; i++ {
 		tb.NoteAuthFailure(c)
 	}

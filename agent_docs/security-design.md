@@ -28,7 +28,8 @@ this file is exempt from `licensing.md`'s gate until something from a project is
 
 ## Relay/client — transport security (TLS) — **CONFIDENTIALITY DONE 2026-08-19, MADE UNCONDITIONAL AND TOFU ADDED 2026-09-15**
 
-**What shipped 2026-09-15 (ADR 0066, `agent_docs/tls-planning.md`)**: no mode — every connection
+**What shipped 2026-09-15 (ADR 0066; the plan file it was built from is deleted, the ADRs carry
+the decisions)**: no mode — every connection
 is TLS on tcp and quic, a plaintext client is closed and a plaintext relay refused; the relay's
 identity is persisted (`private/server.key`, `server.crt`, `server.fingerprint` beside its config) and
 served on both transports; the client remembers each relay's fingerprint on first connect
@@ -180,7 +181,7 @@ fixes it by replacing the shared secret with a per-player keypair, which costs a
 the `tls_fingerprint` pin to the quic path, so the pin stops covering only the tcp leg — **done
 2026-09-15 in a stronger form: one identity on both transports, remembered automatically (ADR
 0066)**; (2) the channel binding in point 3, which retires the room-code-on-the-wire problem on
-both TLS transports at once — **now the room-code PAKE, chosen and unbuilt**; (3) the per-IP cap
+both TLS transports at once — **done 2026-09-15 as the room-code PAKE (ADR 0067)**; (3) the per-IP cap
 below — **done 2026-09-15 (ADR 0064)**. mTLS sits behind all three.
 
 **When to revisit:** if MeshGhost ever grows a **long-lived public relay** — one where the host

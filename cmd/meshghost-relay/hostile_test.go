@@ -177,6 +177,14 @@ func sendHello(t *testing.T, c net.Conn, hello protocol.Hello) {
 // readEnvelope reads one line and decodes it, failing on silence.
 func readEnvelope(t *testing.T, c net.Conn) protocol.Envelope {
 	t.Helper()
+	env, _ := readEnvelopeLine(t, c)
+	return env
+}
+
+// readEnvelopeLine is readEnvelope keeping the raw line as well, for a
+// caller that hands it to a paketest.Prover.
+func readEnvelopeLine(t *testing.T, c net.Conn) (protocol.Envelope, []byte) {
+	t.Helper()
 	_ = c.SetReadDeadline(time.Now().Add(hostileDialTimeout))
 	line, err := bufio.NewReader(c).ReadBytes('\n')
 	if err != nil {
@@ -186,7 +194,7 @@ func readEnvelope(t *testing.T, c net.Conn) protocol.Envelope {
 	if err := json.Unmarshal(line, &env); err != nil {
 		t.Fatalf("the relay answered something that is not an envelope: %q", line)
 	}
-	return env
+	return env, line
 }
 
 // readReject reads one line and requires it to be a Reject.
@@ -316,9 +324,12 @@ func TestShippedStackRejectsAWrongRoomCode(t *testing.T) {
 // that completed a handshake is handed to the relay, where the hello timer
 // starts. Since 2026-09-15 a plaintext first byte is refused at the sniff,
 // so the cheapest way a stranger reaches the relay's timer is a completed
-// handshake followed by silence -- which is what this test does. That the
-// two timers add up is the pass-3 P1b remainder, recorded, not fixed here;
-// this test asserts the relay's half.
+// handshake followed by silence -- which is what this test does. The two
+// timers used to add up (the pass-3 P1b remainder); since later the same
+// day the relay's timer counts from the moment the socket was ACCEPTED
+// (tlsx.servedConn.AcceptedAt, relay.TestTheHelloTimeoutCountsFromAccept),
+// so a stranger is held for one window, not two. This test asserts the
+// relay's half on the shipped stack.
 func TestShippedStackClosesASilentConnectionAtTheHelloTimeout(t *testing.T) {
 	captureLog(t)
 	const hold = 300 * time.Millisecond
@@ -393,13 +404,53 @@ func TestShippedStackCapsOpenConnectionsFromOneSource(t *testing.T) {
 func TestShippedStackThrottlesRoomCodeGuessesFromOneSource(t *testing.T) {
 	captureLog(t)
 	addr, srv := startShippedStack(t, stackOpts{roomCode: "right-code"})
-	for i := 0; i < relay.RoomCodeAttemptBurst; i++ {
+	// The budget refills one whole token per second (RoomCodeAttemptsPerSecond),
+	// and every guess here costs a real OPAQUE exchange -- under the race
+	// detector on CI's runner the burst alone took 1.5 s, one token came back
+	// mid-burst, and the guess after the burst was answered with a KE2 instead
+	// of the rate-limit Reject (2026-09-15, three of three runs). So: guess
+	// until the relay blocks, allowing exactly the refill the wall clock
+	// permits, and fail if it blocks EARLY or never blocks at all.
+	rateLimited := protocol.CodeForReason(protocol.ReasonRateLimited)
+	started := time.Now()
+	guesses := 0
+	for {
 		c := dialTLS(t, addr)
-		sendHelloWithCode(t, c, helloFor(), "wrong", srv.PakeIdentity)
-		if rej := readReject(t, c); rej.Code != protocol.CodeInvalidRoomCode {
-			t.Fatalf("guess %d: code %q, want %q", i+1, rej.Code, protocol.CodeInvalidRoomCode)
+		prover := paketest.New(t, "wrong", srv.PakeIdentity)
+		hello := helloFor()
+		hello.PakeKE1 = prover.KE1()
+		sendHello(t, c, hello)
+		env, line := readEnvelopeLine(t, c)
+		guesses++
+		if env.Type == protocol.TypePake {
+			// Not blocked yet: finish the proof so the relay charges it.
+			_ = prover.Handle(line, func(out []byte) error { _, err := c.Write(append(out, '\n')); return err })
+			if rej := readReject(t, c); rej.Code != protocol.CodeInvalidRoomCode {
+				t.Fatalf("guess %d: code %q, want %q", guesses, rej.Code, protocol.CodeInvalidRoomCode)
+			}
+			_ = c.Close()
+			refilled := int(time.Since(started) / time.Second)
+			if guesses > relay.RoomCodeAttemptBurst+refilled+1 {
+				t.Fatalf("%d wrong codes in %s and the source is still not rate limited (burst %d, refill %v/s)",
+					guesses, time.Since(started), relay.RoomCodeAttemptBurst, relay.RoomCodeAttemptsPerSecond)
+			}
+			continue
+		}
+		if env.Type != protocol.TypeReject {
+			t.Fatalf("guess %d: got a %q, want a pake or a reject", guesses, env.Type)
+		}
+		var rej protocol.Reject
+		if err := json.Unmarshal(env.Payload, &rej); err != nil {
+			t.Fatalf("unmarshal reject: %v", err)
+		}
+		if rej.Code != rateLimited {
+			t.Fatalf("guess %d: reject %q (%q), want rate limited", guesses, rej.Code, rej.Reason)
 		}
 		_ = c.Close()
+		if guesses <= relay.RoomCodeAttemptBurst {
+			t.Fatalf("rate limited on guess %d, before the burst of %d was spent", guesses, relay.RoomCodeAttemptBurst)
+		}
+		break
 	}
 	// The budget is spent: the right code from the same address is refused
 	// as rate limited, and so is another wrong one.

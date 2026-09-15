@@ -27,7 +27,7 @@ func TestApplyLiveNamesEveryChangedKeyAndAppliesTheLiveGroups(t *testing.T) {
 		chaserName: "Why?", chaserColor: "", chaserContact: false, chaserSpawn: time.Second,
 	}
 	next := liveValues{
-		relayAddr: "10.0.0.1:7777", bridgeAddr: "127.0.0.1:7790", gameID: "b", room: "r2", name: "n2", nameColor: "#222222",
+		relayAddr: "192.0.2.1:7777", bridgeAddr: "127.0.0.1:7790", gameID: "b", room: "r2", name: "n2", nameColor: "#222222",
 		interp: 300 * time.Millisecond, localInterp: 120 * time.Millisecond, minSend: 66 * time.Millisecond, keepalive: 2 * time.Second,
 		extrapolate: 50 * time.Millisecond, curve: "catmull-rom", predict: "damped", stats: time.Second, roomCode: "code", gameVersion: "v2", maxReceiveHz: 20,
 		ghostCollision: "disabled", transport: "quic", legacyTLS: "off", legacyPin: "ab", showConsole: true, offline: true, features: "x",
@@ -50,7 +50,7 @@ func TestApplyLiveNamesEveryChangedKeyAndAppliesTheLiveGroups(t *testing.T) {
 		"chaser.color", "chaser.contact false -> true", "chaser.spawn_delay", "chaser pack restarted: 2 ghost(s)",
 		"replay.record_on_launch false -> true", "replay.save_last 30s -> 1m0s", "replay.start_delay", "replay.seek 5s -> 10s",
 		"replay.split_times", "replay.gzip", "replay.delta true -> false", "replay.inputs", "replay.name", "replay.color",
-		"connect_to 127.0.0.1:7777 -> 10.0.0.1:7777", "room_name r1 -> r2", "room_code", "player_name n1 -> n2", "player_name_color",
+		"connect_to 127.0.0.1:7777 -> 192.0.2.1:7777", "room_name r1 -> r2", "room_code", "player_name n1 -> n2", "player_name_color",
 		"max_receive_hz_per_player 30 -> 20", "offline false -> true",
 		"hotkeys.record_toggle", "hotkeys.save_last", "hotkeys.replay_last", "hotkeys.replay_restart", "hotkeys.replay_rewind", "hotkeys.replay_fast_forward",
 		"bridge", "game a -> b", "game_version", "min_send", "keepalive", "stats", "transport tcp -> quic", "tls  -> off",
@@ -85,7 +85,7 @@ func TestApplyLiveNamesEveryChangedKeyAndAppliesTheLiveGroups(t *testing.T) {
 	// that moved a running session are carried over from what is live rather
 	// than taken from the file -- while still being NAMED in the report above,
 	// with the relaunch effect. The user's call; see reload.go.
-	if c.RelayAddr == "10.0.0.1:7777" || c.Room == "r2" {
+	if c.RelayAddr == "192.0.2.1:7777" || c.Room == "r2" {
 		t.Errorf("a saved config moved the live session: relay=%q room=%q -- editing this file must not "+
 			"be able to put a running player in somebody else's room", c.RelayAddr, c.Room)
 	}
@@ -224,14 +224,14 @@ func TestASavedConfigCannotMoveALiveSessionEvenOnTheSecondSave(t *testing.T) {
 	}
 
 	// Save one: the relay and room are moved. Reported, not applied.
-	save(w, `{"client": {"connect_to": "10.0.0.1:9999", "room": "theirs", "name": "me"}}`)
+	save(w, `{"client": {"connect_to": "192.0.2.1:9999", "room": "theirs", "name": "me"}}`)
 	if c.RelayAddr != "127.0.0.1:7777" || c.Room != "mine" {
 		t.Fatalf("the first save moved the session: relay=%q room=%q", c.RelayAddr, c.Room)
 	}
 
 	// Save two changes only the NAME -- which legitimately rejoins. The relay
 	// and room it rejoins with must still be the live ones.
-	save(w, `{"client": {"connect_to": "10.0.0.1:9999", "room": "theirs", "name": "renamed"}}`)
+	save(w, `{"client": {"connect_to": "192.0.2.1:9999", "room": "theirs", "name": "renamed"}}`)
 	if c.DisplayName != "renamed" {
 		t.Errorf("a name change stopped applying: %q", c.DisplayName)
 	}

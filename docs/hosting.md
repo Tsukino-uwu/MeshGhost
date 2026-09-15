@@ -202,7 +202,7 @@ to forward.
 
 | | |
 | --- | --- |
-| **tcp** — always served whether you list it or not | Works everywhere, and the only one that can be inspected when something goes wrong, so it is easiest to get help with. Its weakness: one lost packet holds up the positions queued behind it, so a bad connection looks "stuttery, then catches up". Not encrypted unless `tls` is on — which it is, by default, on both ends. |
+| **tcp** — always served whether you list it or not | Works everywhere, and the only one that can be inspected when something goes wrong, so it is easiest to get help with. Its weakness: one lost packet holds up the positions queued behind it, so a bad connection looks "stuttery, then catches up". Always encrypted, like quic. |
 | **quic** — the other half of the default | UDP underneath, so one lost packet does not hold up the ones behind it, and encrypted always with nothing to switch on. Keeps tcp's port number, so hosting stays one number to forward. Harder to troubleshoot than tcp. Not *faster*: on a connection that is not dropping packets both arrive at the same speed, and the win is smoothness when it is. |
 
 **What to forward, per transport:**

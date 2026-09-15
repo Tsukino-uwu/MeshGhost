@@ -4,7 +4,7 @@ package core
 // model. A relay's certificate is self-signed and connect_to is a bare IP,
 // so nothing external can vouch for it; what a client CAN do is remember the
 // fingerprint it saw the first time and notice when it changes. That is
-// what this file is (ADR 0066, agent_docs/tls-planning.md).
+// what this file is (ADR 0066).
 //
 // What happens on a mismatch is deliberately mild for now: the entry is
 // updated, the connection goes ahead (still encrypted), and the log says
@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
@@ -197,7 +198,13 @@ func (k *KnownRelays) loadLocked() error {
 		return nil
 	}
 	data, err := os.ReadFile(k.path)
-	if errors.Is(err, os.ErrNotExist) {
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+		// No file yet -- including the case where a path component is a
+		// FILE, not a folder. Windows reports that as "not found" and Linux
+		// as ENOTDIR, and only the first satisfies os.ErrNotExist; the test
+		// that plants a file where the folder should be passed here and
+		// failed in CI (2026-09-15). Either way the store is empty and the
+		// first write will say it could not be written.
 		return nil
 	}
 	if err != nil {

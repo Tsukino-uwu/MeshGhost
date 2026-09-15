@@ -2565,3 +2565,60 @@ forbidden; "other issues" is allowed in the question but a finding still names a
 stayed at its 120-line cap by dropping the "map, not a copy" intro and folding "which fixes are
 legal" into two lines. `docs/security.md`'s pass-4 paragraph now says where that review ran, and
 the user neutralised who asked to "someone hosting" (`7b7c3cac`). Docs only; nothing pushed.
+
+## 2026-09-15 (night) — CI read after the push; the TLS leftovers and the pass-3 P1b timer closed
+
+**What the user asked.** *"What do we have that is tls-planning related and not finished yet?"*,
+then three CI run links (`b322c224`, all red), then *"i want to fix up everything that is left"*,
+with `REVIEW-FINDINGS.md` added to the list; the chaser and prediction plans wait for another chat.
+
+**What CI said** (`gh run view --log-failed`, runs 34997993769/…788/…4110):
+- `core.TestAnUnwritableStoreStillConnects` 3/3 on Linux: the fixture plants a FILE where the
+  `tls` folder should be; Linux reports `ENOTDIR`, which `errors.Is(err, os.ErrNotExist)` does not
+  match (Windows maps the same case to not-found, which is why it passed here). Fix:
+  `core/knownrelays.go` treats `syscall.ENOTDIR` as "no file yet".
+- `cmd/meshghost-relay.TestShippedStackThrottlesRoomCodeGuessesFromOneSource` 3/3 under `-race`:
+  "got a pake, want a reject". The relay charges a wrong KE3 synchronously before its Reject, so
+  this is not an ordering race; six OPAQUE exchanges took 1.5 s on the runner and one whole token
+  (1/s) came back mid-burst. The test now guesses until blocked, bounded by burst + the seconds
+  elapsed + 1, and fails if blocked before the burst is spent or never.
+- `gates`: the leak check WARNed on a clean tree (RFC 1918 addresses in `cmd/meshghost`,
+  `core` and `netx/srclimit` test fixtures), so the private-IP negative fixture "proved nothing".
+  Fixtures moved to 192.0.2.x / 198.51.100.x, which the check ignores by design.
+- `Docs`: `status.md` (6 items over two lines, 25 older than two days). Rewritten in place: records
+  of finished work dropped, per-game unwatched items folded into one line each, the
+  `adapters/CLAUDE.md` `session_policy` line fixed instead of carried (the Pokémon pair act on
+  `ghost_collision`; the PC adapters read it not at all). `core` under `-race` took 528 s in that
+  run, against the 600 s limit.
+
+**Pass-3 P1b, the sum of two timers — fixed.** `tlsx.NewListener` hands up a `servedConn`
+(`*tls.Conn` plus the accept time, taken BEFORE the sniff); `quicconn.Conn` records the moment
+before its first-stream wait; `relay.handleConn` asks for `AcceptedAt()` and starts the hello
+timer with what is left of `HelloTimeout`. `tlsx.IsTLS` and `PeerFingerprint` accept the wrapper
+through its `ConnectionState()` method. Tests: `relay.TestTheHelloTimeoutCountsFromAccept` (a
+listener that back-dates accept by all but 100 ms; the connection closes in ~100 ms, not 2 s),
+`TestAConnectionWithNoAcceptTimeGetsTheWholeWindow`, `tlsx.TestAnAcceptedConnectionSaysWhenItWasAccepted`.
+`contract.md` now says the 10 s is "of being accepted", handshake included.
+
+**The rest of the pass-3 remainder cannot be worked**: the cell reports were never tracked, and
+`git log -S` finds no commit carrying those IDs' detail; only the one-line summaries survive in
+the local `REVIEW-FINDINGS.md`. P2f-3 turned out already fixed — the Emerald `despawn` handler
+calls `forgetPeerRenderState` on the drawn tier and says why. Recorded there and in `status.md`.
+
+**TLS docs closed** (plan step 9's leftovers). A false alarm first: the release `config.txt` and
+`hosting.txt` still described `tls: auto` and the pin — but `packaging/release/docs/` is ignored
+and regenerated from `docs/` by `stage-release.ps1`, so those were a stale local staging copy, and
+`docs/config.md` and `docs/hosting.md` were already current (edited anyway, so the next staging
+has nothing to surprise). Real fixes: `docs/hosting.md`'s tcp row ("not encrypted unless `tls` is
+on"), `security-design.md` ("chosen and unbuilt" → done, ADR 0067). `agent_docs/tls-planning.md` deleted (everything in it
+landed); the README index, the four living code comments and ADR 0066 point at the ADRs instead.
+
+**Gates.** `run-gotests.bat` green over the finished tree (20 packages). `run-gotests-race.bat`:
+19 packages green (`core` 394 s), and ONE failure — `cmd/meshghost-netsim`'s
+`TestTCPDelayDoesNotClumpTheStream`, a 10 ms-spacing timing test, while every other package ran
+beside it; the same test passed 6/6 under `-race` standalone and 8/8 without, so it is filed as a
+flake under parallel load, not chased. (This machine's bare `go test -race` cannot build cgo —
+the `.bat` prepends the MSYS2 gcc, the PATH-shadow rule again; and ThreadSanitizer intermittently
+fails to map its shadow memory here, "error code: 87", which is the machine, not a test.) The new
+relay test was shown failing with the fix stashed. Root binaries rebuilt with `-o`; preflight
+down to the known-DLL warnings. Nothing pushed. **Still unwatched in a real game**: a coded join, and the identity-changed warning.

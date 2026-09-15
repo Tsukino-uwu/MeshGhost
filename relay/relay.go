@@ -1767,7 +1767,23 @@ func (s *Server) handleConn(conn net.Conn) {
 	if helloTimeout <= 0 {
 		helloTimeout = DefaultHelloTimeout
 	}
-	helloTimer := time.AfterFunc(helloTimeout, func() {
+	// Counted from ACCEPT, not from here. On the shipped stack a connection
+	// reaches this handler only after tlsx's sniff and handshake, which have
+	// their own timeout of the same length; charging the hello timeout from
+	// this point let a stranger hold a socket for the sum of the two, twice
+	// what contract.md promises (pass-3 P1b, closed 2026-09-15). A listener
+	// that knows when it accepted says so through AcceptedAt (tlsx and
+	// quicconn do); one that does not gets the full window from here.
+	helloWait := helloTimeout
+	if a, ok := conn.(interface{ AcceptedAt() time.Time }); ok {
+		if at := a.AcceptedAt(); !at.IsZero() {
+			helloWait -= time.Since(at)
+			if helloWait < 0 {
+				helloWait = 0
+			}
+		}
+	}
+	helloTimer := time.AfterFunc(helloWait, func() {
 		mu.Lock()
 		stillWaiting := room == nil
 		mu.Unlock()

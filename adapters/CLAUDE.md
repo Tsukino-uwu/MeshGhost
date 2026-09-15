@@ -169,8 +169,8 @@ not. Only the mechanism and the numbers inside it are per-game, and those number
 adapter's `FLAGS.md`, never in the player's config.
 
 **An adapter that genuinely cannot honour one must log that once, at startup, rather than silently
-appearing to comply** — the log line is the only signal anyone gets. Live proof: `session_policy` is
-handled by ZERO of four adapters, so `ghost_collision` does nothing anywhere (`_template/PROTOCOL.md`).
+appearing to comply** — the log line is the only signal anyone gets. Live proof: `session_policy`'s
+`ghost_collision` is acted on by the two Pokémon adapters only (walk-through on `disabled`, since 2026-09-11); the two PC adapters ship no solid ghost and read it not at all (`_template/PROTOCOL.md`).
 **`render_remote.cosmetic: true` outranks `ghost_collision` from room AND client: a replay/chaser ghost is a picture, never solid or damageable** (ADR 0047) -- and it too is read by ZERO of four (2026-09-10): it holds only because no adapter ships ghosts solid. **The adapter that turns collision on is the one that has to implement it.**
 
 ## Hard rule: the adapter may not cost the game its frame rate

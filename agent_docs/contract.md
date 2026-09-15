@@ -832,7 +832,10 @@ ends and the next begins.
   buffered — the earlier `bufio.Reader.ReadBytes` approach let a peer streaming bytes with no
   newline grow memory without bound before any check could run), plus a per-line idle read
   deadline and a per-`Send` write deadline. The relay additionally closes any connection that
-  hasn't completed a `hello` and joined a room within `HelloTimeout` (10s by default) — the idle
+  hasn't completed a `hello` and joined a room within `HelloTimeout` (10s by default) of being
+  ACCEPTED — the TLS sniff and handshake, or quic's wait for a first stream, count against the
+  same window rather than adding their own (since 2026-09-15; `AcceptedAt` on the accepted
+  connection) — the idle
   deadline alone doesn't cover this, since it resets on any successfully read line, not only a
   completed `hello`.
 
@@ -1198,7 +1201,8 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
   server-wide, across every room the relay is hosting combined, not per room. A relay already
   at capacity refuses an additional join the same way a `game_id` mismatch is refused.
 - Hello timeout: an unauthenticated connection that hasn't completed a `hello` and joined a
-  room within **10 seconds** (`DefaultHelloTimeout`, `Server.HelloTimeout`) is closed. See
+  room within **10 seconds** of being accepted (`DefaultHelloTimeout`, `Server.HelloTimeout`;
+  the handshake's own time counts, since 2026-09-15) is closed. See
   "Transport" above for why the idle read deadline alone doesn't cover this case.
 - The relay stamps `player_id` on every `state` message from the connection's own
   relay-assigned id, server-side — never trusted from the client's payload, since a peer could
