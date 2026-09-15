@@ -162,8 +162,10 @@ func (r *inputRing) add(e inputEdgeLine) {
 		drop += over
 	}
 	if drop > 0 {
-		n := copy(r.buf, r.buf[drop:])
-		r.buf = r.buf[:n]
+		// Reslice, never copy down: sampleRing.add says why (O(1) per edge
+		// instead of the whole live buffer moved per edge; the dead prefix is
+		// reclaimed by append's next regrowth, not accumulated).
+		r.buf = r.buf[drop:]
 	}
 }
 

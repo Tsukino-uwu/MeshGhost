@@ -1718,3 +1718,29 @@ packet, a linger timer, a retry elsewhere -- each is a reason the green light me
 **Reach for this first when** a fix lands and its test was green on the first run against the old
 code. That is the tell, and the correct response is to find the other clause rather than to be
 pleased.
+
+## A FULL RING THAT COPIES DOWN IS O(n) PER ADD, AND CI'S TEN-MINUTE LIMIT IS WHERE IT SHOWED (core, 2026-09-15)
+
+**Symptom.** CI's race job timed out the whole `core` package at Go's default ten-minute `go test`
+limit (run 35015767091; 528s the run before, when the package still passed). The goroutine dump
+named no hung test -- the one listed was 0s in -- so the package was simply too slow, not stuck.
+Locally, `go test -race -count=1 ./core` ranked the tests: two of 403 took 52 of 127 seconds, both
+"the ring is bounded by count" tests that feed 205,000 samples into a 200,000-slot ring.
+
+**Cause.** Both `sampleRing.add` and `inputRing.add` dropped their expired prefix with
+`copy(r.buf, r.buf[drop:])`. A full ring drops about one sample per add, so every add moved every
+live sample down one slot: 200,000 moves per sample at the cap, and in a game the whole live buffer
+memmoved once per frame while `replay.save_last` (on by default, 30s) is armed. The comment beside
+the copy said a reslice "keeps the whole backing array alive and growing for as long as the ring is
+on" -- wrong: `append` grows from the slice's LENGTH, so the shrunk capacity runs out within a
+quarter-ring of adds and the next allocation drops the dead prefix.
+
+**Fix.** `r.buf = r.buf[drop:]`, O(1). `core/ringcost_test.go` pins it as a ratio against the same
+ring's fill in the same run (a full add may cost at most 100x a filling add; the copy-down was
+about 5,000x), plus a `cap(r.buf) <= 2*cap` bound so the reslice cannot leak its prefix. Windows'
+half-millisecond clock read a few hundred adds as 0s, which is why the baseline is the 200,000-add
+fill and not a handful of empty adds. Core under `-race` went 129s -> 79s locally.
+
+**Reach for this first when** a package's total time creeps toward the limit with no hung test in
+the dump: rank the tests with `-json`, and read the top one's inner loop for a per-item cost that
+scales with the container.

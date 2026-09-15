@@ -204,10 +204,19 @@ func (r *sampleRing) add(st protocol.State) {
 		drop += over
 	}
 	if drop > 0 {
-		// Copy down rather than reslice forever: a reslice keeps the whole
-		// backing array alive and growing for as long as the ring is on.
-		n := copy(r.buf, r.buf[drop:])
-		r.buf = r.buf[:n]
+		// Reslice, never copy down. A full ring drops about one sample per
+		// add, and copying the live ones down a slot each time is O(n) per
+		// sample: at the cap that is 200,000 samples moved per add, which is
+		// what put the core's tests at Go's ten-minute limit under the race
+		// detector (2026-09-15), and in a game it is the whole buffer memmoved
+		// once per frame. The reslice is O(1). The dead prefix it leaves is
+		// bounded, not leaked: append grows a slice from its LENGTH, so the
+		// next time the shrunk capacity runs out it allocates fresh and the
+		// old array, prefix included, is garbage -- about one copy of the
+		// live samples per quarter-ring of adds, amortised to a few slots
+		// per add. The earlier "copy down rather than reslice forever"
+		// reasoning assumed the prefix accumulated; it does not.
+		r.buf = r.buf[drop:]
 	}
 }
 
