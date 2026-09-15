@@ -2511,3 +2511,19 @@ not per thing, timers preferably synced; and a better-suited owner may take over
 voluntary handoff, which is the owner-leaves-the-zone path and so no new mismatch. Open: the
 per-game save split and the area filter on the world/event planes (the only relay-side item, an ADR
 when built). All in `beyond-cosmetic.md` §5, "The shape", point 6. Nothing built, nothing pushed.
+
+## 2026-09-15 (after the six interactions) — More than one relay: the MMO question, answered on file
+
+**The question (user):** how an MMO glues many servers into one world (the login / world / channel
+processes of a MapleStory server pack; WoW layers and zone servers), whether that would lower load or
+let players jump between servers, and whether MeshGhost could go from a private group to that size.
+Worked through in chat over several rounds until the shape held: a room is already the shard, the
+ADR 0041 area filter is already the interest management, relays never forward to each other, and the
+one missing piece for more than one machine is a router that assigns opaque area labels to relays by
+consistent hash and hands the client an address. Crossing an area is the client reconnecting,
+pre-connected to stay 1:1; membership becomes a router-issued ticket (a contract revision if ever
+built); cross-area views such as Emerald's `render_all_areas` cannot survive a split room.
+**Recorded, at the user's ask, in `multi-relay.md`**, pointed at from `scaling.md`, the `agent_docs`
+index and `ideas.md`. **Nothing scheduled**; the tripwire is one area's crowd saturating one
+machine's uplink, which is past every game's crowd limit. Commit 97e74128, nothing pushed. Tree-only
+preflight still fails on two pre-existing `status.md` items (length and age), untouched here.
