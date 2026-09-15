@@ -1103,6 +1103,14 @@ type Server struct {
 	// and doesn't defend against.
 	RoomCode string
 
+	// SourceGuard, when set, budgets wrong room codes per client address:
+	// Blocked is asked before the code is compared and NoteAuthFailure told
+	// after a failed compare. Nil (the default, and every test that does not
+	// set it) means one guess per connection is the only bound, which is
+	// what a stranger with the address had until 2026-09-15 -- hundreds of
+	// guesses a second (fourth adversarial review, A3). See SourceGuard.
+	SourceGuard SourceGuard
+
 	// OnlyGame, when non-empty, restricts this relay to a single game: any
 	// Hello whose game_id differs is refused at the handshake. Empty (the
 	// default) means "host any game", the pre-existing posture. Distinct
@@ -1173,6 +1181,23 @@ type Server struct {
 	// rather than a separate one — server-wide join bookkeeping is a
 	// single small critical section, not worth its own lock).
 	clientCount int
+}
+
+// SourceGuard is the relay's view of per-address policy, and it is typed on
+// net.Conn ON PURPOSE. The relay never reads a client's address
+// (docs/security.md; internal/gameblind pins it): it hands the connection
+// to the guard and gets back a yes or a no, and the guard -- netx/srclimit
+// -- is what calls RemoteAddr, on its side of that line. RemoteAddr is a
+// net.Conn method, so it crosses every wrapper in the shipped stack
+// (tracking, *tls.Conn, the limiter); a method type-asserted on the
+// connection would not, which is the netx/limit.go bug class.
+type SourceGuard interface {
+	// Blocked reports whether conn's source has used up its budget of
+	// wrong room codes and must be refused before the code is compared --
+	// the right code included, because the budget is the address's.
+	Blocked(conn net.Conn) bool
+	// NoteAuthFailure records one wrong room code from conn's source.
+	NoteAuthFailure(conn net.Conn)
 }
 
 // NewServer creates an empty Server with no rooms.
@@ -1792,9 +1817,22 @@ func (s *Server) handleConn(conn net.Conn) {
 			// can't be timed byte-by-byte; an empty configured s.RoomCode
 			// means auth is off (the pre-existing no-auth posture).
 			if s.RoomCode != "" {
+				// The per-address budget, BEFORE the compare: a source that
+				// has guessed wrong too often is told "rate limited" (a
+				// retryable reason the client already backs off on) without
+				// its next guess being evaluated at all -- so the reply says
+				// nothing about whether that guess was right. Nil guard means
+				// no budget, the pre-2026-09-15 posture.
+				if s.SourceGuard != nil && s.SourceGuard.Blocked(conn) {
+					rejectHandshake(hello, protocol.ReasonRateLimited)
+					return
+				}
 				given := []byte(hello.RoomCode)
 				want := []byte(s.RoomCode)
 				if len(given) != len(want) || subtle.ConstantTimeCompare(given, want) != 1 {
+					if s.SourceGuard != nil {
+						s.SourceGuard.NoteAuthFailure(conn)
+					}
 					rejectHandshake(hello, protocol.ReasonInvalidRoomCode)
 					return
 				}

@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -76,6 +77,7 @@ func startShippedStack(t *testing.T, opts stackOpts) (string, *relay.Server) {
 
 	srv := relay.NewServer()
 	srv.RoomCode = opts.roomCode
+	srv.SourceGuard = opts.sources // as main wires it: one table for the listeners and the relay
 	srv.MaxClients = opts.maxClients
 	if opts.helloTimeout > 0 {
 		srv.HelloTimeout = opts.helloTimeout
@@ -330,5 +332,47 @@ func TestShippedStackCapsOpenConnectionsFromOneSource(t *testing.T) {
 		t.Fatal("read a byte from a silent relay")
 	} else if ne, ok := err.(net.Error); !ok || !ne.Timeout() {
 		t.Fatalf("the connection after a release was closed (%v); the freed slot was not given back", err)
+	}
+}
+
+// TestShippedStackThrottlesRoomCodeGuessesFromOneSource is finding A3 through
+// the shipped stack and the shipped table: one address gets
+// relay.RoomCodeAttemptBurst wrong codes, and the next hello -- right or
+// wrong -- is refused as rate limited before the code is compared.
+func TestShippedStackThrottlesRoomCodeGuessesFromOneSource(t *testing.T) {
+	captureLog(t)
+	addr, _ := startShippedStack(t, stackOpts{roomCode: "right-code", tls: tlsx.Auto})
+	for i := 0; i < relay.RoomCodeAttemptBurst; i++ {
+		c := dialRaw(t, addr)
+		sendHello(t, c, helloFor("wrong"))
+		if rej := readReject(t, c); rej.Code != protocol.CodeInvalidRoomCode {
+			t.Fatalf("guess %d: code %q, want %q", i+1, rej.Code, protocol.CodeInvalidRoomCode)
+		}
+		_ = c.Close()
+	}
+	// The budget is spent: the right code from the same address is refused
+	// as rate limited, and so is another wrong one.
+	for _, code := range []string{"right-code", "wrong"} {
+		c := dialRaw(t, addr)
+		sendHello(t, c, helloFor(code))
+		rej := readReject(t, c)
+		if rej.Code != protocol.CodeForReason(protocol.ReasonRateLimited) {
+			t.Fatalf("after the burst, %q got code %q (%q), want rate limited", code, rej.Code, rej.Reason)
+		}
+		_ = c.Close()
+	}
+}
+
+// TestAShortRoomCodeWarnsAtStartup holds the startup line to its word for
+// the three cases a host can be in.
+func TestAShortRoomCodeWarnsAtStartup(t *testing.T) {
+	if got := roomCodeStartupNotice(""); !strings.Contains(got, "WARNING: no room code") {
+		t.Fatalf("empty code: %q", got)
+	}
+	if got := roomCodeStartupNotice("abc"); !strings.Contains(got, "only 3 characters") {
+		t.Fatalf("short code: %q", got)
+	}
+	if got := roomCodeStartupNotice("long-enough-code"); strings.Contains(got, "characters") || !strings.Contains(got, "enabled") {
+		t.Fatalf("long code: %q", got)
 	}
 }

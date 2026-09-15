@@ -582,7 +582,14 @@ func main() {
 
 	server := relay.NewServer()
 	server.Loopback = *loopback
-	server.RoomCode = *roomCode
+	// Trimmed for the same reason only_game is, below: hand-typed into
+	// config.json, and a trailing space refused every client with nothing
+	// but "invalid room code" to show for it (fourth review, B7). The value
+	// itself is never lower-cased or otherwise normalized -- a code is a
+	// secret, and the client sends it as typed.
+	server.RoomCode = strings.TrimSpace(*roomCode)
+	*roomCode = server.RoomCode
+	server.SourceGuard = sources
 	// Trimmed because this is normally hand-typed into config.json and a
 	// stray space would otherwise refuse every client for no visible
 	// reason. Deliberately not lower-cased or otherwise normalized -- that
@@ -641,13 +648,7 @@ func main() {
 	if *loopback {
 		log.Printf("meshghost-relay: -loopback enabled — dev-only, do not use with real peers")
 	}
-	if *roomCode == "" {
-		log.Printf("meshghost-relay: WARNING: no room code configured -- anyone who has this " +
-			"relay's address can join any room. Set -room-code (or \"room_code\" in config.json) " +
-			"before exposing this relay beyond a friend you directly hand the address to.")
-	} else {
-		log.Printf("meshghost-relay: room-code auth enabled")
-	}
+	log.Print(roomCodeStartupNotice(*roomCode))
 	// Echo the configured value back rather than just "restriction on":
 	// a typo'd game_id refuses every client with no other visible cause,
 	// and this log line is the operator's only way to spot it.
@@ -700,6 +701,32 @@ func main() {
 		n := shutdown(lns, shutdownDrain)
 		log.Printf("meshghost-relay: closed %d listener(s) and %d client connection(s) -- goodbye",
 			len(lns), n)
+	}
+}
+
+// shortRoomCodeLen is the length below which the startup line warns. A guess
+// budget of one attempt a second per address (relay.RoomCodeAttemptsPerSecond)
+// makes a short code a matter of patience rather than impossibility: eight
+// characters is where a printable-ASCII code stops being one an attacker
+// with a few addresses can walk through in a session. Reasoned, not
+// measured against an attacker.
+const shortRoomCodeLen = 8
+
+// roomCodeStartupNotice is the one line the host reads about their room
+// code. A function so a test can hold it to its word.
+func roomCodeStartupNotice(code string) string {
+	switch {
+	case code == "":
+		return "meshghost-relay: WARNING: no room code configured -- anyone who has this " +
+			"relay's address can join any room. Set -room-code (or \"room_code\" in config.json) " +
+			"before exposing this relay beyond a friend you directly hand the address to."
+	case len(code) < shortRoomCodeLen:
+		return fmt.Sprintf("meshghost-relay: room-code auth enabled -- but the code is only %d "+
+			"characters. Guesses are limited to about one a second per address, which makes a "+
+			"short code slow to break rather than impossible; use %d or more if strangers can "+
+			"reach this relay.", len(code), shortRoomCodeLen)
+	default:
+		return "meshghost-relay: room-code auth enabled"
 	}
 }
 
