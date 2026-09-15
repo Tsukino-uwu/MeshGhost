@@ -498,10 +498,16 @@ explicitly, because "the game did it" is the exact sentence that rule exists to 
   released. Same for identities and exchanges — the refusal above stands for durable relay state.
 - **Both opt-ins stand**: off unless the relay host turns it on, negotiated per room via
   `features`, refused at join on a relay without it (the three-step list above, unchanged).
-- **A new binding, found here:** a world keyed by game and room *name* on a shared relay would
-  hand one group's world to the next group that picks the same name. The stored world has to be
-  bound to the room code as well — which is one more reason the code should leave the wire as a
-  PAKE (ADR 0066's plan step 5) before any of this is built, so the binding is to something proven.
+- **Room-name reuse, and who it concerns.** A stored world outlives the room code that guarded
+  the live room, so on a relay shared by groups who do not know each other, the next group to
+  create a room with the same name inherits the last group's world — and a stranger who creates
+  the name first puts your world behind their code. **On a private relay this is nothing**: the
+  user's framing, 2026-09-15 — *"either you connect to the server, or you don't"* — is exactly
+  right, because everyone who can reach the relay is already trusted with what it holds, and the
+  room name is a sufficient key. So it is the relay host's concern, not the design's: a host who
+  turns persistence on for a relay shared by strangers is choosing it, and the setup text says so.
+  An earlier draft of this bullet made a proven room code (ADR 0066's PAKE step) a prerequisite;
+  it is not, and that dependency is withdrawn.
 
 **4. What persistence does not simplify, so nobody expects it to.** The hold before world load is
 still per-game work; persistence only makes "adopt" the usual answer. Suppressing the game's own

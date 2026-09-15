@@ -2495,3 +2495,5 @@ invariant ("writes nothing but its log") is marked superseded by ADR 0066 with t
 that survives: the relay writes only about itself, never a byte a client sent. The shape is §5's
 new "The shape, agreed 2026-09-15" subsection, five numbered points, with the user's bar restated:
 built with the first shared-world adapter, not before. Nothing pushed.
+
+**Correction, same day:** the room-code binding in point 3 was withdrawn on the user's objection ("either you connect to the server, or you don't"): on a private relay the room name is a sufficient key; room-name reuse is a shared-relay concern for the host who turns persistence on, not a PAKE dependency.
