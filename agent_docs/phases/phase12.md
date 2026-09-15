@@ -366,3 +366,11 @@ The fourth review's fixes touched `ci.yml`, the hooks, `preflight.ps1` and `stag
 `ci.yml` and a `private/` refusal to `stage-release.ps1` (ADR 0066, the evening entry there).
 The night of 2026-09-15 is there too: the private-IP test fixtures moved to RFC 5737 ranges so the
 leak check's negative fixture proves something again, and the one LF `.bat` was re-checked out.
+
+## 2026-09-15 (later) — pointer: CI sharded, the fuzz job six ways and the race tests three
+
+`41b5a8d1`: `ci.yml`'s fuzz job is a six-shard matrix and its race tests a three-shard one, every
+target, fuzz time and `-count=3` unchanged; `ci-fuzz.sh`'s message names the per-shard artifact.
+The run on that push: green in 5m17s wall against 17m24s the run before. The read that led there
+(the core package at Go's ten-minute limit, the ring fix) is the "after prediction" entry in
+`phase10.md`. Not touched: `release.yml`, whose two serial jobs are the next cut.
