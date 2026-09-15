@@ -2367,3 +2367,14 @@ symbol. Nothing pushed; `gh run list -L 5` was green on the last push (2026-09-1
 **Next**: `agent_docs/tls-planning.md` — scheduled, prerequisite landed. And the E-items that are
 tests only (E3's server-side sniff timeout, E6's buffering assertion) land in this session's last
 commit; the pass-3 remainder stays open.
+
+**Addendum, end of session.** After the entry above: the E-items landed (`b45b3592`), the
+records (`462fa62d`), and three things the gates and the user found — the release help text still
+named udp (`329ea8ea`); a test of mine bound `0.0.0.0` and put a Windows Firewall prompt on the
+user's screen per test binary (`aba22305`, rule in `testing.md` Traps: **never bind a wildcard in a
+test**); and the race script's first run over the E6 probe found a real race in that probe
+(`cbb30dd1`, now an atomic pointer; `transport` 3× clean under `-race`, the full race script not
+re-run since). The Go PAKE survey for `tls-planning.md` is in `licensing.md` (`0f53d2a2`); the
+user's call: **TOFU first, OPAQUE afterwards, one at a time**. Step 1 of TOFU was started and
+reverted unbuilt so the tree stays green; the settled design and the full file map are in
+`HANDOFF.md` at the root (untracked), for the next session. Nothing pushed.
