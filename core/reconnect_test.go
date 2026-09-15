@@ -110,11 +110,16 @@ func TestRelayDropForgetsEverythingThatConnectionTaughtUs(t *testing.T) {
 	peerState := protocol.State{AreaID: "zone-a", Position: []float64{1, 2}, Anim: "idle"}
 	selfState := protocol.State{AreaID: "zone-a", Position: []float64{0, 0}, Anim: "idle"}
 	deadline := time.Now().Add(testTimeout)
+	// polled is the snapshot the loop accepted. The ping-in-flight precondition
+	// below reads THIS one, not the later `before`: a pong can land between the
+	// two reads and empty pendingPings again, which failed the setup check once
+	// under the full gate's load (2026-09-15) with nothing wrong in the code.
+	var polled sessionFields
 	for time.Now().Before(deadline) {
 		peerAdapter.frame(&peerState)
 		fa.frame(&selfState)
-		got := snapshotSession(c)
-		if got.rosterSize > 0 && got.remotesSize > 0 && got.pendingPings > 0 {
+		polled = snapshotSession(c)
+		if polled.rosterSize > 0 && polled.remotesSize > 0 && polled.pendingPings > 0 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -156,7 +161,7 @@ func TestRelayDropForgetsEverythingThatConnectionTaughtUs(t *testing.T) {
 		{"activeFeatures", before.featureCount == 0},
 		{"clock", before.clock == clockSync{}},
 		{"lastNowMs", before.lastNowMs == 0},
-		{"pendingPings", before.pendingPings == 0},
+		{"pendingPings", polled.pendingPings == 0}, // see polled: a pong may have landed since
 		{"roster", before.rosterSize == 0},
 		{"remotes", before.remotesSize == 0},
 		{"resumeToken", before.resumeToken == ""},
