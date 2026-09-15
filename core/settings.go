@@ -135,7 +135,10 @@ func (c *Core) connectionSettings() ConnectionSettings {
 // running), so the next tick uses them. A curve or prediction name the core
 // does not know is refused with an error and nothing changes -- a typo in a
 // file saved mid-session must not silently pick a default.
-func (c *Core) SetSmoothing(interp, localInterp, extrapolate time.Duration, curve CurveMode, predict PredictMode) error {
+func (c *Core) SetSmoothing(interp, localInterp, extrapolate, correction time.Duration, curve CurveMode, predict PredictMode) error {
+	if correction < 0 {
+		return fmt.Errorf("correction %s is negative -- 0 turns error decay off, a positive duration is the time a correction slides over", correction)
+	}
 	switch curve {
 	case CurveLinear, CurveCatmullRom:
 	default:
@@ -152,6 +155,7 @@ func (c *Core) SetSmoothing(interp, localInterp, extrapolate time.Duration, curv
 	c.Extrapolate = extrapolate
 	c.Curve = curve
 	c.Predict = predict
+	c.Correction = correction
 	c.mu.Unlock()
 	return nil
 }

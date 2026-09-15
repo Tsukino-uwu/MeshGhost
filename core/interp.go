@@ -104,6 +104,16 @@ type remoteBuffer struct {
 	// defaultSnapshotAgeMs, which is what every test constructing a bare
 	// remoteBuffer relies on.
 	historyMs int64
+
+	// correction is the error-decay offset (correction.go): where this ghost
+	// is drawn minus where the buffer says it is, shrinking towards zero.
+	// nil when there is none, which is always while Core.Correction is 0.
+	// correctionAt is the receiver clock it was last decayed to; topSpeed is
+	// the peer's remembered top speed in position units per millisecond, the
+	// yardstick that tells a wrong guess from a warp.
+	correction   []float64
+	correctionAt int64
+	topSpeed     float64
 }
 
 // add inserts a snapshot IN TIMESTAMP ORDER, which is not the order they
@@ -159,6 +169,7 @@ func (b *remoteBuffer) add(s protocol.State) {
 	if drop > 0 {
 		b.snapshots = b.snapshots[drop:]
 	}
+	b.noteSpeed()
 }
 
 // at returns the interpolated state for renderTime (same units as

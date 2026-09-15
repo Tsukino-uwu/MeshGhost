@@ -633,7 +633,7 @@ func TestAnUnparsableChordIsStillReportedAlone(t *testing.T) {
 func TestBareFlagDefaultsAreNotCalledTheShippedDefaults(t *testing.T) {
 	shipped := func(predict core.PredictMode) bool {
 		return runningTheShippedSmoothing(core.DefaultInterpolationDelay, core.DefaultLocalGhostDelay,
-			0, 0, core.CurveLinear, predict)
+			0, 0, 0, core.CurveLinear, predict)
 	}
 	if shipped(core.PredictLinear) {
 		t.Error("a run with the flag's default predictor is not the shipped configuration and must not say it is")
@@ -644,11 +644,15 @@ func TestBareFlagDefaultsAreNotCalledTheShippedDefaults(t *testing.T) {
 	// The rest of the line's settings, so this test also fails if a later
 	// change loosens one of the checks that were already there.
 	if runningTheShippedSmoothing(core.DefaultInterpolationDelay, core.DefaultLocalGhostDelay,
-		0, 500*time.Millisecond, core.CurveLinear, shippedPredict) {
+		0, 500*time.Millisecond, 0, core.CurveLinear, shippedPredict) {
 		t.Error("extrapolation on is a dev rig, whatever else matches")
 	}
 	if runningTheShippedSmoothing(core.DefaultInterpolationDelay, core.DefaultLocalGhostDelay,
-		0, 0, core.CurveCatmullRom, shippedPredict) {
+		0, 0, 100*time.Millisecond, core.CurveLinear, shippedPredict) {
+		t.Error("error decay on is a dev rig, whatever else matches")
+	}
+	if runningTheShippedSmoothing(core.DefaultInterpolationDelay, core.DefaultLocalGhostDelay,
+		0, 0, 0, core.CurveCatmullRom, shippedPredict) {
 		t.Error("a non-linear curve is a dev rig, whatever else matches")
 	}
 }

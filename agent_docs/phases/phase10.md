@@ -2645,3 +2645,57 @@ anywhere; the three it called notable are settled (the timer sum fixed above; th
 reason closed with P1d-1 on 2026-09-12; the udp black hole moot under ADR 0065). A future pass
 that wants them re-runs the pre-auth, transports and adapter-growth cells. Everything else in the
 file was already in the phase entries, `docs/security.md`, `verified.md` and each `UNVERIFIED.md`.
+
+## 2026-09-15 — Prediction groundwork: A1 measured, A3 error decay built (ships off)
+
+`prediction-planning.md` (parked 2026-09-14) picked up at the user's ask; scope A1 + A3, on
+`master` (a worktree was offered and declined). ADR 0069; `core/correction.go`; eleven tests in
+`core/correction_test.go`. Nothing pushed; the screen verdict is open.
+
+**A1, the headroom.** Headless Go rig, no game: one relay, `meshghost-netsim.exe` on 127.0.0.2
+with the launcher's no-arg WORST-CASE profile (100ms ± 50 one-way, 5% loss, 3% reorder, 1s
+blackout every 45s), a second netsim on 127.0.0.3 with the same plus `-loss-burst 250ms`, and two
+`meshghost-fakeadapter.exe` cores per link in their own rooms (circles, radius 10/6, period 4/6s,
+`-interp 450ms`, `-transport auto` → quic on every peer), six minutes, prediction off. The fake
+adapter now prints client 0's core stats line beside its own (`-stats-every`); until today its
+transit and dry meters were computed and never printed. Read from that line:
+
+| link | transit avg / max | buffer dry (of moving renders) | dry avg / max past newest | loss cover recovered |
+|---|---|---|---|---|
+| worst-case, peer A | 204ms / 469ms | 449 of 21,844 (2.1%) | 444ms / 1,165ms | 659 of 4,375 |
+| worst-case, peer B | 205ms / 438ms | 427 of 21,865 (2.0%) | 413ms / 927ms | 688 of 4,375 |
+| + `-loss-burst 250ms` (a DIFFERENT network) | 204ms / 486–548ms | 1,380 of 21,871 (6.3%) | 380ms / 1,611ms | 425 of 4,375 |
+| clean loopback | 0ms / 14ms | 0 of 22,492 | — | 0 |
+
+What it says: on the worst-case link the 450 is spent — transit peaks past it and the dry renders
+are the blackouts (seven in six minutes ≈ 2%). On a clean link nothing is spent: transit ~0, never
+dry, so a per-peer delay of roughly one send interval plus margin (~100ms) would serve it, about
+350ms earlier than today. That is A2's whole prize and it is per PEER, so the worst link keeps
+its 450. One correction to the plan fell out of the reading: the per-peer delay must cover the
+high percentile of ABSOLUTE transit (timestamps are the sender's on the synced clock), not the
+jitter range. A2 stays undecided. `status.md`'s "450 never judged on `-loss-burst`" stands: 6% dry
+is a Go-side number, not a screen judgement.
+
+**A3, error decay.** When a received sample changes where a remote is drawn at the current render
+time, the buffer keeps the drawn position and slides the difference away as `exp(-dt/correction)`;
+snaps on an area or shape change, a warp (judged against the peer's top speed as measured BEFORE
+the sample), a local peer, a despawn. New knob `correction` (flag, file key, hot reload, the
+shipped-config check, both fuzzers), `0s` in the release file: off is byte-identical, pinned by a
+test over linear/catmull × linear/damped. Numbers gate (`TestCorrectionOnANetsimShapedLink`, a
+synthesized walk with a twelve-sample burst straddling every reversal, 200ms ± 50 transit with
+reordering, 60Hz): largest frame-to-frame move 128 units off, 20 on, at 16 per frame of walking;
+mean error 60 → 51. Race detector at `-count=10` clean on the eleven. A wrong first version of
+that test lost only four samples on one side of each reversal and showed NO jump either way — a
+guess that is nearly right needs no decay — and its one 50-unit jump was a spawn artifact (two
+reordered first samples switching the edge hold before the render time reached them), now
+excluded; worth knowing before trusting a numbers gate.
+
+**Verification rerun, the knob on.** Same worst-case rig, two fake-adapter cores at `interp
+450ms`, `extrapolate 100ms`, `predict damped`, `correction 100ms`, four minutes: predicted renders
+141/140, dry renders 141/140 — prediction fired ONLY inside dry gaps, as the plan expected at 450
+— avg 85–90ms ahead, most at the cap; no new log lines, nothing dropped. The stale "shipped 250ms"
+comment on `Core.Extrapolate` fixed.
+
+**Open, for the user on screen** (`run-netsim.bat` no-arg, two real peers, the second held still,
+the config above): first "identical to 450 linear?", then jump, land, spam left/right, a wall.
+Floor-sink inside a gap is expected and is Track B's. Nothing here changes what ships.

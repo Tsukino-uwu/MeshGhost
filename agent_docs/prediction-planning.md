@@ -1,6 +1,8 @@
-# Plan (parked, 2026-09-14): prediction without floor-sink or left/right snap
+# Plan (started 2026-09-15): prediction without floor-sink or left/right snap
 
-Not scheduled, and not required. Written down so the reasoning survives until it is picked up.
+Written 2026-09-14 so the reasoning survives. **Status 2026-09-15: A1 measured and A3 built
+(ADR 0069, ships off; screen verdict open); A2 undecided; A4 and Track B untouched.** The numbers
+and the session record: `phases/phase10.md`, entry of 2026-09-15.
 
 **The baseline every step must match on screen: linear interp at 450ms, prediction off. It looks
 perfect (user, 2026-09-14).** This plan is worth doing for two reasons. It could lower the delay
@@ -83,11 +85,19 @@ pawn already has one). An older peer ignores it. It needs an ADR superseding ADR
 450ms. Read the stats line (`transit`, `buffer dry`) to learn how much of the 450 the worst link
 really uses, then repeat on a clean localhost link. If dry renders are ~0 on the worst link at
 450, that says how much there is to win on good links. The numbers go in the phase file.
+**DONE 2026-09-15** (two headless fake-adapter cores per link, six minutes, quic; `phase10.md`):
+the worst-case link's transit averages ~200ms and peaks ~470-550ms, so 450 sits at the edge (dry
+on ~2% of moving renders, nearly all inside the 1s blackouts); the clean link's transit is ~0 and
+never dry, so a good link could render ~350ms earlier. The correlated-loss link (`-loss-burst`, a
+different network) is dry on ~6%.
 
 **A2. Adaptive per-peer delay (option 1).** This reopens a parked item in `plans.md`, which logs
 per-peer adaptive interp as "not something to work on for now".
-- Per peer, delay = (high percentile of transit) − (low percentile of transit) + one send interval
-  + margin, clamped to `[interp_min, interp]`. It moves under a slew limit: a render clock that jumps
+- Per peer, delay = (high percentile of transit) + one send interval + margin, clamped to
+  `[interp_min, interp]`. **The ABSOLUTE transit, not the jitter range** (corrected 2026-09-15 by
+  the A1 reading): samples carry the sender's timestamp on the synced clock and the render time is
+  `now − delay`, so a sample must have ARRIVED by the time the render reaches its timestamp. The
+  clean link's ~0ms transit is what makes ~100ms serve it. It moves under a slew limit: a render clock that jumps
   is itself a snap, so the delay stretches or compresses time gradually and never skips it.
 - New setting `interp_min`, default = `interp`, which means off and byte-identical to today.
   Settable live through `SetSmoothing`.
@@ -100,7 +110,11 @@ per-peer adaptive interp as "not something to work on for now".
   interp` is identical to today; plus a fuzz config field.
 - Screen: sweep `interp_min` from bad to good (the user's preference); the user says when it GETS good.
 
-**A3. Error decay as a gap filler (option 2).**
+**A3. Error decay as a gap filler (option 2). BUILT 2026-09-15: `core/correction.go`, knob
+`correction`, ADR 0069, ships `0s`; eleven tests including the numbers gate; the screen verdict is
+open (the config to judge is in the ADR). The design below is what was built, with one addition:
+the offset is judged against the peer's top speed as measured BEFORE the new sample, or a warp
+would raise its own bound.**
 - Per remote, keep a visual `offset` vector. In `storeRemoteState`, under `c.mu`, compute the
   render position at `now` before and after `buf.add`, and add `before − after` to the offset, so
   the ghost stays exactly where it was drawn at the moment a correction lands. Each tick in
@@ -173,14 +187,15 @@ the user's intent confirmed first.
   on `c.mu` paths), at `-count=10`. Every behaviour change gets a regression test that fails
   without it. Rebuild the root `meshghost*.exe` with `-o` before any launcher test. Read
   `gh run list -L 5` after the `.go` commit.
-- **Numbers before screen.** A Go test replays a recorded clip (`replay/`) through a simulated
-  netsim-shaped link and asserts: the largest frame-to-frame jump (A3), the render-time slew (A2),
-  and the average lateness against the 450 baseline. Numbers decide whether a step is ready to
-  show, never whether it is good.
+- **Numbers before screen.** A Go test drives a synthesized walk (tests synthesize clips; nothing
+  recorded is checked in) through a simulated netsim-shaped link and asserts: the largest
+  frame-to-frame jump (A3, `TestCorrectionOnANetsimShapedLink`), the render-time slew (A2), and the
+  average lateness against the 450 baseline. Numbers decide whether a step is ready to show, never
+  whether it is good.
 - **Screen (the user).** `run-netsim.bat` with no arguments, two real peers, the second client held
   still while the user watches their own ghost. For each step: first "does it look identical to 450
   linear?", then jump, land, spam left/right, and run into a wall. The verdict is judged on the
   worst-case link only.
 - **Records.** A dated entry in the active phase file for each step. A new ADR for anything that
-  touches the contract or the bridge, indexed in `architecture.md`. Fix the stale "shipped 250ms"
-  comment on `Core.Extrapolate` (`core/core.go`) when Track A first touches that file.
+  touches the contract or the bridge, indexed in `architecture.md`. The stale "shipped 250ms"
+  comment on `Core.Extrapolate` (`core/core.go`) was fixed 2026-09-15.

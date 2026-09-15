@@ -14,6 +14,7 @@
     "local_interp": "25ms",
     "curve": "linear",
     "extrapolate": "0s",
+    "correction": "0s",
     "predict": "damped",
 
     "keepalive": "250ms",

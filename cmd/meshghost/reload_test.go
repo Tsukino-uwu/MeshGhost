@@ -17,7 +17,7 @@ func TestApplyLiveNamesEveryChangedKeyAndAppliesTheLiveGroups(t *testing.T) {
 	prev := liveValues{
 		relayAddr: "127.0.0.1:7777", bridgeAddr: "127.0.0.1:7778", gameID: "a", room: "r1", name: "n1", nameColor: "#111111",
 		interp: 450 * time.Millisecond, localInterp: 100 * time.Millisecond, minSend: 50 * time.Millisecond, keepalive: time.Second,
-		extrapolate: 0, curve: "linear", predict: "linear", stats: 0, roomCode: "", gameVersion: "v1", maxReceiveHz: 30,
+		extrapolate: 0, correction: 0, curve: "linear", predict: "linear", stats: 0, roomCode: "", gameVersion: "v1", maxReceiveHz: 30,
 		ghostCollision: "enabled", transport: "tcp", legacyTLS: "", legacyPin: "", showConsole: false, offline: false, features: "",
 		recordOnLaunch: false, saveLast: 30 * time.Second, replayStart: 0, replaySeek: 5 * time.Second,
 		splitTimes: false, replayGzip: false, replayDelta: true, replayInputs: false, replayName: "", replayColor: "",
@@ -29,7 +29,7 @@ func TestApplyLiveNamesEveryChangedKeyAndAppliesTheLiveGroups(t *testing.T) {
 	next := liveValues{
 		relayAddr: "192.0.2.1:7777", bridgeAddr: "127.0.0.1:7790", gameID: "b", room: "r2", name: "n2", nameColor: "#222222",
 		interp: 300 * time.Millisecond, localInterp: 120 * time.Millisecond, minSend: 66 * time.Millisecond, keepalive: 2 * time.Second,
-		extrapolate: 50 * time.Millisecond, curve: "catmull-rom", predict: "damped", stats: time.Second, roomCode: "code", gameVersion: "v2", maxReceiveHz: 20,
+		extrapolate: 50 * time.Millisecond, correction: 100 * time.Millisecond, curve: "catmull-rom", predict: "damped", stats: time.Second, roomCode: "code", gameVersion: "v2", maxReceiveHz: 20,
 		ghostCollision: "disabled", transport: "quic", legacyTLS: "off", legacyPin: "ab", showConsole: true, offline: true, features: "x",
 		recordOnLaunch: true, saveLast: 60 * time.Second, replayStart: time.Second, replaySeek: 10 * time.Second,
 		splitTimes: true, replayGzip: true, replayDelta: false, replayInputs: true, replayName: "rn", replayColor: "#333333",
@@ -44,7 +44,7 @@ func TestApplyLiveNamesEveryChangedKeyAndAppliesTheLiveGroups(t *testing.T) {
 	lines := applyLive(&prev, &next, c, func(b []hotkeyBinding) { rebound = b })
 	report := strings.Join(lines, "\n")
 	for _, key := range []string{
-		"interp 450ms -> 300ms", "local_interp", "extrapolate", "curve linear -> catmull-rom", "predict linear -> damped",
+		"interp 450ms -> 300ms", "local_interp", "extrapolate", "correction 0s -> 100ms", "curve linear -> catmull-rom", "predict linear -> damped",
 		"ghost_collision enabled -> disabled",
 		"chaser.enabled false -> true", "chaser.count 1 -> 2", "chaser.delay", "chaser.spacing", "chaser.name Why? -> past",
 		"chaser.color", "chaser.contact off -> kill", "chaser.spawn_delay", "chaser pack restarted: 2 ghost(s)",

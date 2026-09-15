@@ -24,6 +24,7 @@ func FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane(f *testing.F) {
 	f.Add(`{"client":{"replay":{"record_on_launch":true,"save_last":"45s","seek":"abc"},"chaser":{"count":99,"delay":"-3s"},"hotkeys":{"record_toggle":"win+F12"}}}`)
 	f.Add(`{"client":{"replay":"not an object","chaser":[1,2],"hotkeys":null}}`)
 	f.Add(`{"client":{"chaser":{"count":-1,"delay":"1e9h","spawn_delay":"NaN"},"interp":"-1ms"}}`)
+	f.Add(`{"client":{"correction":"-1ms","extrapolate":"100ms"}}`)
 	// chaser.contact: the legacy bool, a mode, a non-mode, a number (ADR 0068).
 	f.Add(`{"client":{"chaser":{"contact":true}}}`)
 	f.Add(`{"client":{"chaser":{"contact":"kill"}}}`)
@@ -43,7 +44,10 @@ func FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane(f *testing.F) {
 			t.Fatal(err)
 		}
 		var relayAddr, bridgeAddr, gameID, room, name, gameVersion, roomCode, transport string
-		var interp, minSend time.Duration
+		// Every duration key the file can carry needs a target here: a seed
+		// naming a key with a nil target dereferences it (found 2026-09-15 by
+		// the correction seed, which was the first to name extrapolate).
+		var interp, minSend, extrapolate, correction time.Duration
 		var maxReceiveHz int
 		var showConsole, recordOnLaunch, splitTimes, chaserOn bool
 		contact := "off"
@@ -54,6 +58,7 @@ func FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane(f *testing.F) {
 		shown := applyFileConfig(path, map[string]bool{}, configTargets{
 			relayAddr: &relayAddr, bridgeAddr: &bridgeAddr, gameID: &gameID,
 			room: &room, name: &name, interp: &interp, minSend: &minSend,
+			extrapolate: &extrapolate, correction: &correction,
 			roomCode: &roomCode, gameVersion: &gameVersion, maxReceiveHz: &maxReceiveHz,
 			transport: &transport, showConsole: &showConsole,
 			recordOnLaunch: &recordOnLaunch, saveLast: &saveLast, replayStart: &replayStart, replaySeek: &replaySeek, splitTimes: &splitTimes,

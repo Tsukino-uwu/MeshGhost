@@ -85,6 +85,27 @@ func (c *Core) storeRemoteState(st protocol.State) {
 	// that the peer does not supply. See remoteBuffer.lastArrivalMs.
 	b.lastArrivalMs = c.nowMsLocked()
 	c.transit.record(b.lastTransitMs)
+	// ERROR DECAY (correction.go, 2026-09-15): remember where this ghost is
+	// drawn RIGHT NOW, before the new sample can move it, so the difference
+	// can be slid away instead of jumped. Two extra renders per received
+	// state, under c.mu, and only with the knob on -- off, nothing here runs
+	// and the render is byte-identical to before the knob existed. The meter
+	// is nil: these are probes, not renders, and c.extrapolation is a
+	// network statistic. A local peer (replay, chaser) is never corrected,
+	// for the reason remoteStatesAt never predicts one.
+	correct := c.Correction > 0 && !isLocalPeerID(st.PlayerID)
+	var drawn protocol.State
+	var okDrawn bool
+	var speedBefore float64
+	var renderTime int64
+	if correct {
+		now := c.nowMsLocked()
+		renderTime = now - c.InterpolationDelay.Milliseconds()
+		b.decayCorrection(now, c.Correction.Milliseconds())
+		speedBefore = b.topSpeed
+		drawn, okDrawn = b.atAhead(renderTime, c.Extrapolate.Milliseconds(), c.Curve, c.Predict, nil)
+		drawn = b.withCorrection(drawn)
+	}
 	// LOSS COVER (ADR 0045): a state may carry the sample sent before it. If
 	// that sample never arrived here, it goes into the buffer first, in its
 	// own timestamp order, so the ghost walks through it instead of over the
@@ -99,6 +120,11 @@ func (c *Core) storeRemoteState(st protocol.State) {
 		st.Prev = nil
 	}
 	b.add(st)
+	if correct {
+		after, okAfter := b.atAhead(renderTime, c.Extrapolate.Milliseconds(), c.Curve, c.Predict, nil)
+		reach := c.Extrapolate.Milliseconds() + c.Correction.Milliseconds()
+		b.noteCorrection(drawn, okDrawn, after, okAfter, speedBefore, reach, c.nowMsLocked())
+	}
 }
 
 // requiredHistoryMsLocked is how far back a remote's buffer must reach for the
@@ -383,6 +409,18 @@ func (c *Core) remoteStatesAt(now int64) (map[string]protocol.State, map[string]
 		}
 		if !ok {
 			continue
+		}
+		// ERROR DECAY (correction.go): draw at the sliding offset, advanced
+		// to this tick first. The zero-dt tick right after a store leaves the
+		// offset whole, which is what keeps the drawn position continuous. A
+		// knob turned off live drops whatever was still sliding.
+		if buf.correction != nil {
+			if local || c.Correction <= 0 {
+				buf.correction = nil
+			} else {
+				buf.decayCorrection(now, c.Correction.Milliseconds())
+				st = buf.withCorrection(st)
+			}
 		}
 		if !c.adapterRenderAllAreas && c.localAreaID != "" && st.AreaID != c.localAreaID {
 			// The client side of the relay's cross-area fan-out question:

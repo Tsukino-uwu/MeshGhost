@@ -94,6 +94,10 @@ type fuzzEverythingCfg struct {
 	// rate, and PredictLinear never ran in this target at all.
 	minSend     time.Duration
 	extrapolate time.Duration
+	// correction is the error-decay knob (correction.go, 2026-09-15): with
+	// it on, every store runs two probe renders under c.mu and every render
+	// tick decays a per-remote offset, on the same paths extrapolate fuzzes.
+	correction time.Duration
 	// allAreas and orientBracket are the two declarations a hello can carry.
 	// Every attach here sent a bare hello, so the adapter-owns-visibility
 	// path and the orientation bracket -- peer-controlled bytes the core
@@ -123,6 +127,8 @@ var (
 	// small pack" down to "one render line per frame", which is roughly what
 	// a real adapter managed at the count where a tester's session broke.
 	fuzzEverythingDrains = [8]int{0, 0, 0, 0, 64 << 10, 8 << 10, 1 << 10, 256}
+	// Half off, so the schedules this target was written for still dominate.
+	fuzzEverythingCorrections = [4]time.Duration{0, 0, 20 * time.Millisecond, 48 * time.Hour}
 )
 
 // fuzzEverythingDrainEvery is the adapter's frame: one read allowance per
@@ -170,8 +176,11 @@ func decodeFuzzEverythingCfg(b []byte) fuzzEverythingCfg {
 		drainBytes: fuzzEverythingDrains[(b[1]>>5)&0x07],
 		drainEvery: fuzzEverythingDrainEvery,
 		// More free bits of bytes that had them to spare.
-		minSend:       fuzzEverythingDurations[(b[2]>>3)&0x07],
-		extrapolate:   fuzzEverythingDurations[(b[3]>>3)&0x07],
+		minSend:     fuzzEverythingDurations[(b[2]>>3)&0x07],
+		extrapolate: fuzzEverythingDurations[(b[3]>>3)&0x07],
+		// Two free bits of b[6] pick from a four-entry slice of the duration
+		// alphabet: off, short, longer, and the absurd one the clamps must eat.
+		correction:    fuzzEverythingCorrections[(b[6]>>6)&0x03],
 		allAreas:      b[4]&0x08 != 0,
 		orientBracket: b[4]&0x10 != 0,
 		inputTracks:   b[4]&0x20 != 0,
@@ -379,6 +388,7 @@ func FuzzEverything(f *testing.F) {
 		c.ChaserName = "F"
 		c.MinSendInterval = cfg.minSend
 		c.Extrapolate = cfg.extrapolate
+		c.Correction = cfg.correction
 		rt := &recordingTransport{}
 		c.mu.Lock()
 		c.relay = rt

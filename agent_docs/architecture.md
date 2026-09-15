@@ -231,6 +231,7 @@ or if a number is duplicated — an unindexed ADR is one nobody will find.
 - [2026-09-15 — TLS is always on, the relay's identity is persisted, and clients remember it (trust on first use)](adr/0066-2026-09-15-tls-always-on-relay-identity-persisted-trust-on-first-use.md)
 - [2026-09-15 — The room code is proven, not sent: OPAQUE bound to the relay's identity, and the floor moves to protocol 3](adr/0067-2026-09-15-the-room-code-is-proven-not-sent-opaque-bound-to-the-relay-identity.md) — a contract revision
 - [2026-09-15 — Chaser contact is a mode: `off`, `hurt` or `kill`, and the game does the hurting](adr/0068-2026-09-15-chaser-contact-is-a-mode-hurt-or-kill.md) — a contract revision; no adapter honours it yet
+- [2026-09-15 — A fifth render knob: a correction slides instead of jumping (`correction`, ships off)](adr/0069-2026-09-15-a-fifth-render-knob-corrections-slide-instead-of-jumping.md) — step A3 of `prediction-planning.md`; not a contract revision
 
 ## Prior art
 

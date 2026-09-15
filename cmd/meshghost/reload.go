@@ -36,6 +36,7 @@ import (
 type liveValues struct {
 	relayAddr, bridgeAddr, gameID, room, name, nameColor string
 	interp, localInterp, minSend, keepalive, extrapolate time.Duration
+	correction                                           time.Duration
 	curve, predict                                       string
 	stats                                                time.Duration
 	roomCode, gameVersion                                string
@@ -60,7 +61,7 @@ func (v *liveValues) targets() configTargets {
 	return configTargets{
 		relayAddr: &v.relayAddr, bridgeAddr: &v.bridgeAddr, gameID: &v.gameID, room: &v.room,
 		name: &v.name, nameColor: &v.nameColor, interp: &v.interp, localInterp: &v.localInterp,
-		minSend: &v.minSend, keepalive: &v.keepalive, extrapolate: &v.extrapolate, curve: &v.curve,
+		minSend: &v.minSend, keepalive: &v.keepalive, extrapolate: &v.extrapolate, correction: &v.correction, curve: &v.curve,
 		predict: &v.predict, stats: &v.stats, roomCode: &v.roomCode, gameVersion: &v.gameVersion,
 		maxReceiveHz: &v.maxReceiveHz, ghostCollision: &v.ghostCollision, transport: &v.transport,
 		legacyTLS: &v.legacyTLS, legacyPin: &v.legacyPin, showConsole: &v.showConsole, offline: &v.offline,
@@ -93,7 +94,7 @@ func snapshot(t configTargets) liveValues {
 	return liveValues{
 		relayAddr: *t.relayAddr, bridgeAddr: *t.bridgeAddr, gameID: *t.gameID, room: *t.room,
 		name: *t.name, nameColor: *t.nameColor, interp: *t.interp, localInterp: *t.localInterp,
-		minSend: *t.minSend, keepalive: *t.keepalive, extrapolate: *t.extrapolate, curve: *t.curve,
+		minSend: *t.minSend, keepalive: *t.keepalive, extrapolate: *t.extrapolate, correction: *t.correction, curve: *t.curve,
 		predict: *t.predict, stats: *t.stats, roomCode: *t.roomCode, gameVersion: *t.gameVersion,
 		maxReceiveHz: *t.maxReceiveHz, ghostCollision: *t.ghostCollision, transport: *t.transport,
 		legacyTLS: *t.legacyTLS, legacyPin: *t.legacyPin, showConsole: *t.showConsole, offline: *t.offline,
@@ -187,13 +188,14 @@ func applyLive(prev, next *liveValues, c *core.Core, rebind func([]hotkeyBinding
 	smoothing = changed("interp", prev.interp, next.interp, "applied") || smoothing
 	smoothing = changed("local_interp", prev.localInterp, next.localInterp, "applied") || smoothing
 	smoothing = changed("extrapolate", prev.extrapolate, next.extrapolate, "applied") || smoothing
+	smoothing = changed("correction", prev.correction, next.correction, "applied") || smoothing
 	smoothing = changed("curve", prev.curve, next.curve, "applied") || smoothing
 	smoothing = changed("predict", prev.predict, next.predict, "applied") || smoothing
 	if smoothing {
-		if err := c.SetSmoothing(next.interp, next.localInterp, next.extrapolate, core.CurveMode(next.curve), core.PredictMode(next.predict)); err != nil {
+		if err := c.SetSmoothing(next.interp, next.localInterp, next.extrapolate, next.correction, core.CurveMode(next.curve), core.PredictMode(next.predict)); err != nil {
 			lines = append(lines, fmt.Sprintf("smoothing NOT applied -- %v; the previous values stay", err))
 			next.curve, next.predict = prev.curve, prev.predict
-			next.interp, next.localInterp, next.extrapolate = prev.interp, prev.localInterp, prev.extrapolate
+			next.interp, next.localInterp, next.extrapolate, next.correction = prev.interp, prev.localInterp, prev.extrapolate, prev.correction
 		}
 	}
 

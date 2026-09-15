@@ -829,7 +829,9 @@ measured limits: [hz-ceiling.md](hz-ceiling.md). Neither of the next two is star
   link by the 2026-09-01 ocean-profile sweep — also delays a same-city friend's ghost that 250ms
   would serve. The refinement: each ghost gets the smallest buffer its SENDER's link needs, derived
   from that peer's measured arrival jitter/loss (the core already sees per-peer arrival times in
-  `remoteBuffer`). Sizing per peer, not a protocol change — nothing crosses the wire.
+  `remoteBuffer`). Sizing per peer, not a protocol change — nothing crosses the wire. **The
+  headroom was measured 2026-09-15** (`prediction-planning.md` A1, numbers in `phases/phase10.md`):
+  ~350ms to win on a clean link, nothing on the worst-case one. Still not scheduled.
 
 ## Crowds that PLAY, not just survive: the measured optimization ladder (filed 2026-09-01)
 

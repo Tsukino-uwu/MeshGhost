@@ -24,7 +24,7 @@ Everything below is taken from the two programs' own config definitions (`cmd/me
 
 **Saving the file while the game runs applies it (2026-09-09).** `meshghost.exe` re-reads
 `config.json` about a second after a save and logs one line per changed key saying what happened
-to it: smoothing (`interp`, `local_interp`, `extrapolate`, `curve`, `predict`), `ghost_collision`, the whole
+to it: smoothing (`interp`, `local_interp`, `extrapolate`, `correction`, `curve`, `predict`), `ghost_collision`, the whole
 `chaser` section (the pack restarts from the new values), the `replay` section (most of it applies
 to the next recording or replay; `save_last`, `seek` and `split_times` at once) and the `hotkeys`
 apply without a relaunch; a change to `player_name`, `player_name_color`, `max_receive_hz_per_player` or
@@ -73,7 +73,7 @@ if it ever changes. A file still carrying `"tls": "off"` or `"auto"`, or a non-e
 `tls_fingerprint`, refuses to start and says so, because a security setting is never silently
 ignored; `"tls": "required"` runs with a note to delete it. Delete the keys.
 
-Also in the `client` section, shipped at values you should not need to change: `game` (empty; announced by the mod, not set by you), `game_version` (empty), `min_send` (`0s`), `keepalive` (`250ms`; how often an unchanged state is re-sent, `0` sends every frame), `extrapolate` (`0s`; a prediction window, `0` holds the newest sample), `curve` (`linear`; or `catmull-rom`), `predict` (`damped`; how a ghost is carried past its newest sample when `extrapolate` is on — `linear` continues the last velocity, `accelerated` fits the curve of a jump from three samples but amplifies jitter, `damped` is linear prediction scaled back on any axis whose velocity is changing, the middle ground), `stats` (`0s`; log a one-line summary every so often, e.g. `10s`), `features` (`[]`; capabilities beyond the cosmetic ghost, every member of a room must list the same set), and `show_console` (`false`; open a window for a client a mod started silently).
+Also in the `client` section, shipped at values you should not need to change: `game` (empty; announced by the mod, not set by you), `game_version` (empty), `min_send` (`0s`), `keepalive` (`250ms`; how often an unchanged state is re-sent, `0` sends every frame), `extrapolate` (`0s`; a prediction window, `0` holds the newest sample), `curve` (`linear`; or `catmull-rom`), `predict` (`damped`; how a ghost is carried past its newest sample when `extrapolate` is on — `linear` continues the last velocity, `accelerated` fits the curve of a jump from three samples but amplifies jitter, `damped` is linear prediction scaled back on any axis whose velocity is changing, the middle ground), `correction` (`0s`; when a new sample says a ghost was drawn in the wrong place, slide it to the right place over this long instead of jumping there in one frame; `0` jumps, and a warp or an area change still snaps), `stats` (`0s`; log a one-line summary every so often, e.g. `10s`), `features` (`[]`; capabilities beyond the cosmetic ghost, every member of a room must list the same set), and `show_console` (`false`; open a window for a client a mod started silently).
 
 ## `server` — read by `meshghost-server.exe`
 

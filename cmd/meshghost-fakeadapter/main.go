@@ -460,6 +460,12 @@ func main() {
 	recordDir := flag.String("record", "", "record client 0's own state stream to this folder as a replay file "+
 		"(ADR 0047; the file appears at the first frame and closes on exit). Works with -relay \"\" (offline)")
 	interp := flag.Duration("interp", core.DefaultInterpolationDelay, "interpolation delay for remote ghosts")
+	// The three render knobs a real client has beside -interp, so this headless
+	// receiver can measure them on a netsim link the way meshghost.exe would run
+	// them (prediction-planning.md, 2026-09-15). Same names, same defaults.
+	extrapolate := flag.Duration("extrapolate", 0, "prediction window past the newest sample, as meshghost -extrapolate")
+	predict := flag.String("predict", string(core.PredictLinear), "linear, damped or accelerated, as meshghost -predict")
+	correction := flag.Duration("correction", 0, "error-decay time constant, as meshghost -correction")
 	localInterp := flag.Duration("local-interp", core.DefaultLocalGhostDelay,
 		"render delay for a LOCAL ghost -- a replay or a chaser -- which is not the network one; "+
 			"see core.DefaultLocalGhostDelay. -replay-dir here is how this is eyeballed offline")
@@ -648,6 +654,9 @@ func main() {
 		c := core.New()
 		c.InterpolationDelay = *interp
 		c.LocalInterpolationDelay = *localInterp
+		c.Extrapolate = *extrapolate
+		c.Predict = core.PredictMode(*predict)
+		c.Correction = *correction
 		c.Transport = transportKind
 		c.RelayAddr = *relayAddr
 		c.Room = *room
@@ -885,6 +894,14 @@ func main() {
 					log.Printf("stats [%s]: clients=%d client0_remotes=%d (%s) renders=%d (%.0f/s across all clients)%s",
 						mode, len(adapters), adapters[0].liveCount(), expect,
 						total, float64(delta)/elapsed, extra)
+					// Client 0's CORE line as well -- the same summary meshghost.exe
+					// prints under -stats, with the transit and buffer-dry meters
+					// that say what a link is doing to the interpolation buffer.
+					// Added 2026-09-15 for the prediction plan's headroom
+					// measurement (agent_docs/prediction-planning.md, A1): this
+					// tool is the only headless receiver, and until now its core's
+					// meters were computed and never printed.
+					log.Print(cores[0].Stats().String())
 				}
 			}
 		}()

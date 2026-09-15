@@ -103,6 +103,9 @@ type fileConfig struct {
 	Curve *string `json:"curve"`
 	// Predict is "linear" (default) or "accelerated" -- see core.PredictMode.
 	Predict *string `json:"predict"`
+	// Correction is the error-decay time constant (core.Core.Correction).
+	// Absent or "0" jumps on every correction, which is the shipped behaviour.
+	Correction *string `json:"correction"`
 	// Stats is how often to log the one-line summary, e.g. "10s". Absent or "0"
 	// disables it. In the FILE as well as on the flag because the client a player
 	// actually runs is usually started by their game, which passes no flags -- so
@@ -362,6 +365,7 @@ type configTargets struct {
 	minSend        *time.Duration
 	keepalive      *time.Duration
 	extrapolate    *time.Duration
+	correction     *time.Duration
 	curve          *string
 	predict        *string
 	stats          *time.Duration
@@ -466,6 +470,7 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) str
 	cfg.OverrideDuration(explicit, "min-send", t.minSend, fc.MinSend, shown, "meshghost", "min_send")
 	cfg.OverrideDuration(explicit, "keepalive", t.keepalive, fc.Keepalive, shown, "meshghost", "keepalive")
 	cfg.OverrideDuration(explicit, "extrapolate", t.extrapolate, fc.Extrapolate, shown, "meshghost", "extrapolate")
+	cfg.OverrideDuration(explicit, "correction", t.correction, fc.Correction, shown, "meshghost", "correction")
 	cfg.Override(explicit, "curve", t.curve, fc.Curve)
 	cfg.Override(explicit, "predict", t.predict, fc.Predict)
 	cfg.OverrideDuration(explicit, "stats", t.stats, fc.Stats, shown, "meshghost", "stats")
@@ -846,6 +851,13 @@ func main() {
 			"did not. Only does anything alongside a SMALL -interp: at the shipped 250ms the "+
 			"render time never reaches the newest sample. Judge it per game on screen; a game "+
 			"that moves on a fixed beat is where it is most likely to look wrong")
+	correction := flag.Duration("correction", 0,
+		"OPT-IN, default off. When a new sample says a ghost was drawn in the wrong place -- a "+
+			"hole in a loss burst that prediction filled with a guess, a reversal inside a gap -- "+
+			"slide it to the corrected place over about this long (e.g. 100ms) instead of jumping "+
+			"there in one frame. 0 jumps, which is what every session before 2026-09-15 did. A warp, "+
+			"an area change or a despawn still snaps. Judge it per game on screen; it only shows "+
+			"where a render can be wrong, which at the shipped -interp is inside a loss gap")
 	predict := flag.String("predict", string(core.PredictLinear),
 		"how a ghost is carried past its newest sample when -extrapolate is on: \"linear\" "+
 			"(continue the last measured velocity) or \"accelerated\" (fit the curvature too, so "+
@@ -976,7 +988,7 @@ func main() {
 			"header start_delay is 0s (config: replay.start_delay)")
 	configPath := flag.String("config", "config.json",
 		"path to an optional JSON config file with a \"client\" section "+
-			"(connect_to/local_game_bridge/game/room_name/player_name/interp/local_interp/curve/extrapolate/min_send/keepalive/stats/room_code/game_version/"+
+			"(connect_to/local_game_bridge/game/room_name/player_name/interp/local_interp/curve/extrapolate/correction/min_send/keepalive/stats/room_code/game_version/"+
 			"max_receive_hz_per_player/transport/show_console/features/replay/hotkeys/chaser) -- a friendlier alternative to flags for non-developer use; "+
 			"a warning is logged if it doesn't exist; any flag explicitly passed on the command line "+
 			"overrides the same field from this file")
@@ -1005,6 +1017,7 @@ func main() {
 		minSend:        minSend,
 		keepalive:      keepalive,
 		extrapolate:    extrapolate,
+		correction:     correction,
 		curve:          curve,
 		predict:        predict,
 		stats:          stats,
@@ -1139,6 +1152,10 @@ func main() {
 	c.MinSendInterval = *minSend
 	c.IdleKeepalive = *keepalive
 	c.Extrapolate = *extrapolate
+	if *correction < 0 {
+		log.Fatalf("meshghost: -correction %s is negative -- 0 turns error decay off, a positive duration is the time a correction slides over", *correction)
+	}
+	c.Correction = *correction
 	switch core.PredictMode(*predict) {
 	case core.PredictLinear, core.PredictAccelerated, core.PredictDamped:
 		c.Predict = core.PredictMode(*predict)
@@ -1169,7 +1186,7 @@ func main() {
 	// "the shipped values" is the part a reader needs: a dev rig is only worth
 	// noticing when it has departed from what a player would actually run.
 	smoothingNote := " (NOT the shipped defaults -- this is a dev rig)"
-	if runningTheShippedSmoothing(*interp, *localInterp, *minSend, *extrapolate, c.Curve, c.Predict) {
+	if runningTheShippedSmoothing(*interp, *localInterp, *minSend, *extrapolate, *correction, c.Curve, c.Predict) {
 		smoothingNote = " (the shipped defaults)"
 	}
 	// The keepalive belongs on this line for the same reason the other two do:
@@ -1187,6 +1204,9 @@ func main() {
 	}
 	if *extrapolate > 0 {
 		keepaliveNote += ", EXTRAPOLATING up to " + extrapolate.String() + " past the newest sample"
+	}
+	if *correction > 0 {
+		keepaliveNote += ", corrections slide over " + correction.String() + " instead of jumping"
 	}
 	log.Printf("meshghost: smoothing: interpolation delay %s, minimum send interval %s%s%s",
 		*interp, *minSend, keepaliveNote, smoothingNote)
@@ -1399,9 +1419,9 @@ const shippedPredict = core.PredictDamped
 // is what the release ships, but this line exists to remove exactly that class
 // of ambiguity: Crystal lost two rounds of renderer work to a setting that was
 // right by accident and unrecorded.
-func runningTheShippedSmoothing(interp, localInterp, minSend, extrapolate time.Duration, curve core.CurveMode, predict core.PredictMode) bool {
+func runningTheShippedSmoothing(interp, localInterp, minSend, extrapolate, correction time.Duration, curve core.CurveMode, predict core.PredictMode) bool {
 	return interp == core.DefaultInterpolationDelay && localInterp == core.DefaultLocalGhostDelay &&
-		minSend == 0 && extrapolate == 0 && curve == core.CurveLinear && predict == shippedPredict
+		minSend == 0 && extrapolate == 0 && correction == 0 && curve == core.CurveLinear && predict == shippedPredict
 }
 
 // resolveMaxReceiveHz applies protocol.ClampReceiveHz to what the player asked

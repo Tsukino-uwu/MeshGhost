@@ -682,10 +682,21 @@ type Core struct {
 	// OPT-IN, and it is a per-GAME judgement rather than a setting with a right
 	// answer. It removes the visible half of InterpolationDelay, and pays for it
 	// with a correction every time a peer does not do what was predicted. Only
-	// meaningful alongside a small InterpolationDelay: at the shipped 250ms the
-	// render time is always behind the newest sample, so there is nothing to
-	// predict. See remoteBuffer.extrapolate.
+	// meaningful alongside a small InterpolationDelay: at the shipped 450ms the
+	// render time is behind the newest sample except inside a loss gap, so
+	// there is little to predict. See remoteBuffer.extrapolate.
 	Extrapolate time.Duration
+
+	// Correction is the fifth render knob (2026-09-15, correction.go): the
+	// time constant over which a ghost slides from where it was drawn to
+	// where a new sample says it is, instead of jumping there in one frame.
+	// Zero -- the default, and what ships -- is exactly the behaviour before
+	// the knob existed: every correction is a jump. Only does anything when
+	// a render can be wrong, which is a render past the newest sample: a
+	// loss gap at the shipped delay, or any Extrapolate window. Read
+	// prediction-planning.md before turning it on for a game; it is judged
+	// on screen like Curve and Extrapolate.
+	Correction time.Duration
 
 	// IdleKeepalive is how often a state identical to the last one sent goes
 	// out anyway. Change suppression (forwardLocalState) drops the rest: a
