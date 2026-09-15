@@ -22,6 +22,7 @@ import (
 
 	"github.com/Tsukino-uwu/MeshGhost/internal/cfg"
 	"github.com/Tsukino-uwu/MeshGhost/netx"
+	"github.com/Tsukino-uwu/MeshGhost/netx/srclimit"
 	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 	"github.com/Tsukino-uwu/MeshGhost/relay"
@@ -491,57 +492,18 @@ func main() {
 	}
 	*quicAddr = resolvedQuic
 
-	// One listener per selected transport, all feeding the same Server.
-	// relay.Serve takes any net.Listener and handleConn any net.Conn, so
-	// nothing in relay knows or cares which is which -- and a
-	// single room can hold clients arriving over different transports,
-	// because Room.Forward sends through the transport.Transport interface.
-	type boundListener struct {
-		kind netx.Kind
-		ln   *trackingListener
-	}
-	// One certificate for the whole process, generated once. Per-connection
-	// generation would be a free CPU lever for an unauthenticated stranger,
-	// and a per-listener one would print two different fingerprints for one
-	// relay.
-	var tlsOpts netx.TLSOptions
-	var fingerprint string
-	if tlsChoice != tlsx.Off {
-		cfg, fp, err := tlsx.ServerConfig(netx.TLSALPN)
-		if err != nil {
-			log.Fatalf("meshghost-relay: tls: %v", err)
-		}
-		tlsOpts = netx.TLSOptions{Mode: tlsChoice, Server: cfg}
-		fingerprint = fp
-	}
-
-	// Whatever the TLS mode, every listener gets the open-connection bound
-	// (relay.MaxOpenConnsFor); the log line it prints is rate-limited.
-	tlsOpts.MaxOpenConns = relay.MaxOpenConnsFor(*maxClients)
-
-	var listeners []boundListener
-	for _, k := range kinds {
-		bind := *addr
-		if k == netx.QUIC {
-			bind = *quicAddr
-		}
-		if k == netx.UDP {
-			bind = *udpAddr
-		}
-		ln, err := netx.ListenWithTLS(k, bind, tlsOpts)
-		if err != nil {
-			log.Fatalf("meshghost-relay: listen %s on %s: %v", k, bind, err)
-		}
-		// Wrapped so Ctrl+C can reach the connections this listener handed
-		// out: closing a listener does NOT close them (quic-go's Listener.Close
-		// says so in as many words, and quic is the shipped default), and a
-		// client whose relay simply vanishes waits out its own idle timeout.
-		listeners = append(listeners, boundListener{kind: k, ln: trackConns(ln)})
-		label := k.String()
-		if k == netx.TCP && tlsChoice != tlsx.Off {
-			label = fmt.Sprintf("%s, tls %s", k, tlsChoice)
-		}
-		log.Printf("meshghost-relay: listening on %s (%s)", ln.Addr(), label)
+	sources := newSourceTable(*maxClients)
+	listeners, fingerprint, err := buildListeners(listenerConfig{
+		kinds:      kinds,
+		addr:       *addr,
+		quicAddr:   *quicAddr,
+		udpAddr:    *udpAddr,
+		tls:        tlsChoice,
+		maxClients: *maxClients,
+		sources:    sources,
+	})
+	if err != nil {
+		log.Fatalf("meshghost-relay: %v", err)
 	}
 
 	// Say what encryption is and is not doing, in the log the host actually
@@ -739,6 +701,105 @@ func main() {
 		log.Printf("meshghost-relay: closed %d listener(s) and %d client connection(s) -- goodbye",
 			len(lns), n)
 	}
+}
+
+// boundListener is one served transport: which kind, and the listener that
+// tracks the connections it hands out so shutdown can reach them.
+type boundListener struct {
+	kind netx.Kind
+	ln   *trackingListener
+}
+
+// listenerConfig is what buildListeners needs from the resolved flags.
+type listenerConfig struct {
+	kinds                   []netx.Kind
+	addr, quicAddr, udpAddr string
+	tls                     tlsx.Mode
+	maxClients              int
+	// sources is the per-address table (newSourceTable); nil means no
+	// per-source bound, which only a test asks for.
+	sources *srclimit.Table
+}
+
+// newSourceTable is the one per-address table a relay process keeps: the
+// connection cap per address for every listener, and the wrong-room-code
+// budget the relay consults. In memory, bounded, never logged (ADR 0064).
+func newSourceTable(maxClients int) *srclimit.Table {
+	return srclimit.New(srclimit.Options{
+		MaxOpenPerSource:    relay.MaxOpenConnsPerSourceFor(maxClients),
+		AuthBurst:           relay.RoomCodeAttemptBurst,
+		AuthRefillPerSecond: relay.RoomCodeAttemptsPerSecond,
+	})
+}
+
+// buildListeners brings up one listener per selected transport, wrapped the
+// way the shipped relay wraps them: the open-connection limiter, then TLS
+// (tcp only), then connection tracking. It is a function rather than a block
+// of main so a test can drive a hostile client through the SAME stack a
+// stranger meets -- before 2026-09-15 every relay test listened raw, and the
+// wrapper layers were exactly where three shipped bugs had lived
+// (netx/limit.go's story).
+//
+// All listeners feed the same Server: relay.Serve takes any net.Listener and
+// handleConn any net.Conn, so nothing in relay knows or cares which is which
+// -- and a single room can hold clients arriving over different transports,
+// because Room.Forward sends through the transport.Transport interface.
+//
+// Returns the TLS fingerprint alongside, empty when tls is off. On error,
+// every listener already opened is closed again.
+func buildListeners(c listenerConfig) ([]boundListener, string, error) {
+	// One certificate for the whole process, generated once. Per-connection
+	// generation would be a free CPU lever for an unauthenticated stranger,
+	// and a per-listener one would print two different fingerprints for one
+	// relay.
+	var tlsOpts netx.TLSOptions
+	var fingerprint string
+	if c.tls != tlsx.Off {
+		cfg, fp, err := tlsx.ServerConfig(netx.TLSALPN)
+		if err != nil {
+			return nil, "", fmt.Errorf("tls: %w", err)
+		}
+		tlsOpts = netx.TLSOptions{Mode: c.tls, Server: cfg}
+		fingerprint = fp
+	}
+
+	// Whatever the TLS mode, every listener gets the open-connection bound
+	// (relay.MaxOpenConnsFor); the log line it prints is rate-limited.
+	tlsOpts.MaxOpenConns = relay.MaxOpenConnsFor(c.maxClients)
+	// And the per-address half of it, through one table every listener
+	// shares, so one address is one source whichever transport it arrives
+	// on. The same table is the relay's room-code guard (Server.SourceGuard);
+	// the relay only ever hands it a connection and gets back yes or no.
+	tlsOpts.Sources = c.sources
+
+	var listeners []boundListener
+	for _, k := range c.kinds {
+		bind := c.addr
+		if k == netx.QUIC {
+			bind = c.quicAddr
+		}
+		if k == netx.UDP {
+			bind = c.udpAddr
+		}
+		ln, err := netx.ListenWithTLS(k, bind, tlsOpts)
+		if err != nil {
+			for _, bl := range listeners {
+				_ = bl.ln.Close()
+			}
+			return nil, "", fmt.Errorf("listen %s on %s: %w", k, bind, err)
+		}
+		// Wrapped so Ctrl+C can reach the connections this listener handed
+		// out: closing a listener does NOT close them (quic-go's Listener.Close
+		// says so in as many words, and quic is the shipped default), and a
+		// client whose relay simply vanishes waits out its own idle timeout.
+		listeners = append(listeners, boundListener{kind: k, ln: trackConns(ln)})
+		label := k.String()
+		if k == netx.TCP && c.tls != tlsx.Off {
+			label = fmt.Sprintf("%s, tls %s", k, c.tls)
+		}
+		log.Printf("meshghost-relay: listening on %s (%s)", ln.Addr(), label)
+	}
+	return listeners, fingerprint, nil
 }
 
 // shutdownDrain is how long shutdown keeps the process alive after telling the

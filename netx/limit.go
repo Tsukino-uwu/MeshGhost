@@ -6,6 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/Tsukino-uwu/MeshGhost/netx/srclimit"
 )
 
 // LimitListener bounds how many connections accepted from ln may be open at
@@ -27,19 +29,48 @@ import (
 // A refusal is logged at most once per second: the refusals are the attack,
 // and a line per refusal would turn a connection flood into a disk flood.
 func LimitListener(ln net.Listener, max int, logf func(string, ...any)) net.Listener {
-	if max <= 0 {
+	return LimitListenerWith(ln, LimitOptions{Max: max, Logf: logf})
+}
+
+// LimitOptions configures LimitListenerWith.
+type LimitOptions struct {
+	// Max bounds open connections across the whole listener; 0 means the
+	// listener is returned untouched.
+	Max int
+	// Sources, when set, additionally bounds open connections PER CLIENT
+	// ADDRESS (srclimit.Options.MaxOpenPerSource). A global cap alone is
+	// what one machine walks straight through: hold all Max sockets from
+	// one address and every real player is refused with a bare close
+	// (fourth adversarial review, 2026-09-13, finding A5). The table is
+	// shared with the other listeners and with the relay's room-code
+	// guard so one address is one source everywhere; ADR 0064.
+	Sources *srclimit.Table
+	// Logf receives the throttled refusal lines. Nil means none.
+	Logf func(string, ...any)
+}
+
+// LimitListenerWith is LimitListener with a per-source bound too.
+func LimitListenerWith(ln net.Listener, o LimitOptions) net.Listener {
+	if o.Max <= 0 {
 		return ln
 	}
-	return &limitListener{Listener: ln, max: int64(max), logf: logf}
+	return &limitListener{Listener: ln, max: int64(o.Max), sources: o.Sources, logf: o.Logf}
 }
 
 type limitListener struct {
 	net.Listener
 	max     int64
+	sources *srclimit.Table
 	open    atomic.Int64
 	refused atomic.Int64
 	lastLog atomic.Int64 // unix nanos of the last refusal line
-	logf    func(string, ...any)
+	// The per-source refusals get their own count and throttle: the line
+	// prints different numbers (this address's cap, not the listener's),
+	// and folding them into one would either misreport the numbers or let
+	// one kind of flood silence the other's line.
+	refusedSource atomic.Int64
+	lastSourceLog atomic.Int64
+	logf          func(string, ...any)
 }
 
 // Open reports how many accepted connections are currently open. For tests.
@@ -57,7 +88,27 @@ func (l *limitListener) Accept() (net.Conn, error) {
 			l.noteRefusal()
 			continue
 		}
-		lc := &limitedConn{Conn: c, release: func() { l.open.Add(-1) }}
+		// The address is taken ONCE, here, and the release closure keeps it:
+		// Close runs the underlying Close before release (limitedConn.Close),
+		// and what RemoteAddr returns on a closed connection is not something
+		// three different net.Conn implementations promise.
+		var release func()
+		if l.sources != nil {
+			addr := c.RemoteAddr()
+			if !l.sources.Acquire(addr) {
+				l.open.Add(-1)
+				_ = c.Close()
+				l.noteSourceRefusal()
+				continue
+			}
+			release = func() {
+				l.open.Add(-1)
+				l.sources.Release(addr)
+			}
+		} else {
+			release = func() { l.open.Add(-1) }
+		}
+		lc := &limitedConn{Conn: c, release: release}
 		if uw, ok := c.(unreliableWriter); ok {
 			return &limitedLossyConn{limitedConn: lc, uw: uw}, nil
 		}
@@ -75,6 +126,22 @@ func (l *limitListener) noteRefusal() {
 	if l.logf != nil {
 		l.logf("netx: refused a connection: %d already open (limit %d); %d refused so far",
 			l.open.Load(), l.max, n)
+	}
+}
+
+// noteSourceRefusal logs a per-address refusal at most once a second, by
+// count only -- the address itself is never printed (docs/security.md's
+// privacy section; the table keeps it in memory and nowhere else).
+func (l *limitListener) noteSourceRefusal() {
+	n := l.refusedSource.Add(1)
+	now := time.Now().UnixNano()
+	last := l.lastSourceLog.Load()
+	if now-last < int64(time.Second) || !l.lastSourceLog.CompareAndSwap(last, now) {
+		return
+	}
+	if l.logf != nil {
+		l.logf("netx: refused a connection: its address already holds as many as one address may; "+
+			"%d refused so far for that reason", n)
 	}
 }
 

@@ -62,6 +62,7 @@ import (
 	quic "github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/qlog"
 
+	"github.com/Tsukino-uwu/MeshGhost/netx/srclimit"
 	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 )
 
@@ -487,6 +488,11 @@ type Listener struct {
 	pending        int
 	refusedPending int
 	lastPendingLog time.Time
+	refusedSource  int
+	lastSourceLog  time.Time
+	// sources is the per-address table, shared with netx.LimitListener; nil
+	// means no per-source bound. See Options.
+	sources *srclimit.Table
 	// maxPending is this listener's own copy of the package default, taken once
 	// in Listen and never written again. The accept loop used to read the
 	// package var directly, which the race detector caught in CI on 2026-09-12:
@@ -503,9 +509,26 @@ type Listener struct {
 	once   sync.Once
 }
 
+// Options configures ListenWith.
+type Options struct {
+	// Sources, when set, bounds handshaked-and-waiting-for-a-stream
+	// connections per client address, on top of the listener-wide
+	// maxPending. The pending window is per listener and had no per-source
+	// fairness at all: 26 real handshakes a second from one machine kept it
+	// full (fourth adversarial review, 2026-09-13, finding A5). The slot is
+	// released when the connection is handed to Accept, where
+	// netx.LimitListener takes over the count with the same table.
+	Sources *srclimit.Table
+}
+
 // Listen binds addr and serves QUIC with a freshly generated self-signed
 // certificate.
 func Listen(addr string) (*Listener, error) {
+	return ListenWith(addr, Options{})
+}
+
+// ListenWith is Listen with Options.
+func ListenWith(addr string, o Options) (*Listener, error) {
 	tlsConf, err := newSelfSignedTLSConfig()
 	if err != nil {
 		return nil, err
@@ -543,6 +566,7 @@ func Listen(addr string) (*Listener, error) {
 		// Read here, before the goroutine below exists, so the write and every
 		// later read are ordered by the goroutine's own creation.
 		maxPending: maxPending,
+		sources:    o.Sources,
 	}
 	go l.acceptLoop()
 	return l, nil
@@ -572,11 +596,42 @@ func (l *Listener) acceptLoop() {
 			l.notePendingRefusal()
 			continue
 		}
+		// The per-source half of the same bound. The address is taken once
+		// and kept for the release, for the reason netx/limit.go gives.
+		var release func()
+		if l.sources != nil {
+			addr := qc.RemoteAddr()
+			if !l.sources.Acquire(addr) {
+				l.releasePending()
+				_ = qc.CloseWithError(0, "too many connections from one address")
+				l.noteSourceRefusal()
+				continue
+			}
+			release = func() { l.sources.Release(addr) }
+		}
 		// Wait for the client's stream on its own goroutine: a client that
 		// completes the handshake and then opens no stream must not stall
 		// every other pending connection.
-		go l.awaitStream(qc)
+		go l.awaitStream(qc, release)
 	}
+}
+
+// noteSourceRefusal is notePendingRefusal for the per-address bound: once a
+// second, a count, never the address.
+func (l *Listener) noteSourceRefusal() {
+	l.pendingMu.Lock()
+	n := l.refusedSource + 1
+	l.refusedSource = n
+	quiet := time.Since(l.lastSourceLog) < time.Second
+	if !quiet {
+		l.lastSourceLog = time.Now()
+	}
+	l.pendingMu.Unlock()
+	if quiet {
+		return
+	}
+	log.Printf("quicconn: refused a connection: its address already holds as many as one address "+
+		"may; %d refused so far for that reason", n)
 }
 
 // maxPending bounds connections that have handshaked and not yet opened a
@@ -637,8 +692,15 @@ func (l *Listener) notePendingRefusal() {
 		"(limit %d); %d refused so far", pending, l.maxPending, n)
 }
 
-func (l *Listener) awaitStream(qc *quic.Conn) {
+// awaitStream waits for the client's first stream and hands the connection
+// up. release, when non-nil, gives back the per-source pending slot; it runs
+// whether the stream arrived or not, because either way this connection
+// leaves the pending window.
+func (l *Listener) awaitStream(qc *quic.Conn, release func()) {
 	defer l.releasePending()
+	if release != nil {
+		defer release()
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	stream, err := qc.AcceptStream(ctx)

@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/netx/quicconn"
+	"github.com/Tsukino-uwu/MeshGhost/netx/srclimit"
 	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 	"github.com/Tsukino-uwu/MeshGhost/netx/udpconn"
 )
@@ -166,13 +167,19 @@ func (k Kind) String() string {
 // including the datagram ones — the demultiplexing that makes that true for
 // UDP lives in the udpconn subpackage, and QUIC's equivalent in quicconn.
 func Listen(k Kind, addr string) (net.Listener, error) {
+	return listenWith(k, addr, nil)
+}
+
+// listenWith is Listen with the per-source table quic's pending gate needs;
+// the other kinds have no pre-Accept window and take it from LimitListener.
+func listenWith(k Kind, addr string, sources *srclimit.Table) (net.Listener, error) {
 	switch k {
 	case TCP:
 		return net.Listen("tcp", addr)
 	case UDP:
 		return udpconn.Listen(addr)
 	case QUIC:
-		return quicconn.Listen(addr)
+		return quicconn.ListenWith(addr, quicconn.Options{Sources: sources})
 	case Auto:
 		return nil, fmt.Errorf("netx: %q is a client-only setting and cannot be listened on — a relay must name the transports it serves", Auto)
 	default:
@@ -236,6 +243,12 @@ type TLSOptions struct {
 	// listener, counted beneath the TLS layer so handshakes count too; 0
 	// means unbounded. Listen-side only. See LimitListener.
 	MaxOpenConns int
+
+	// Sources, when set, bounds the same thing PER CLIENT ADDRESS, through
+	// every listener that shares the table -- and quic's pending gate, the
+	// window before Accept that MaxOpenConns cannot see. Listen-side only.
+	// See LimitOptions.Sources and package srclimit.
+	Sources *srclimit.Table
 }
 
 func (o TLSOptions) logf(format string, args ...any) {
@@ -252,12 +265,12 @@ func (o TLSOptions) logf(format string, args ...any) {
 // with TLS on is still drivable by hand with netcat. Under tlsx.Required a
 // plaintext connection is closed without being handed to the caller.
 func ListenWithTLS(k Kind, addr string, opts TLSOptions) (net.Listener, error) {
-	ln, err := Listen(k, addr)
+	ln, err := listenWith(k, addr, opts.Sources)
 	if err != nil {
 		return nil, err
 	}
 	// Before the TLS wrap, so a connection parked in its handshake counts.
-	ln = LimitListener(ln, opts.MaxOpenConns, opts.logf)
+	ln = LimitListenerWith(ln, LimitOptions{Max: opts.MaxOpenConns, Sources: opts.Sources, Logf: opts.logf})
 	if k != TCP || opts.Mode == tlsx.Off {
 		return ln, nil
 	}

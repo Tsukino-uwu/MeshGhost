@@ -110,6 +110,52 @@ const (
 	MinMaxOpenConns  = 64
 )
 
+// MaxOpenConnsPerSourceFor is the per-ADDRESS half of MaxOpenConnsFor,
+// applied through netx/srclimit: how many connections one client address
+// may hold open at once, across every listener. Two per seat, floored at
+// 16.
+//
+// Sized from what a client actually holds, checked 2026-09-15: ONE
+// connection at a time -- the discovery query closes before the session is
+// dialled (core/transportpick.go) and a reconnect starts only after the
+// previous session ended. Everything above one is relay-side overlap: close
+// propagation on a resume, and a quic connection briefly counted by both
+// the pending gate and the limiter as it is handed up. So one address may
+// legitimately be a whole household behind one NAT filling every seat, and
+// the 2x is a margin over that, not a measurement (ADR 0064). At the default
+// of 8 seats an address gets 16 of the listener's 64 slots, so the flood
+// that used to refuse every real player from one machine now needs four.
+func MaxOpenConnsPerSourceFor(maxClients int) int {
+	if n := maxClients * OpenConnsPerSourcePerSeat; n > MinMaxOpenConnsPerSource {
+		return n
+	}
+	return MinMaxOpenConnsPerSource
+}
+
+const (
+	OpenConnsPerSourcePerSeat = 2
+	MinMaxOpenConnsPerSource  = 16
+)
+
+// RoomCodeAttemptBurst and RoomCodeAttemptsPerSecond budget wrong room codes
+// PER CLIENT ADDRESS, through Server.SourceGuard (netx/srclimit). Until
+// 2026-09-15 the only bound on guessing was one guess per connection, and a
+// connection cost the guesser a couple of round trips: hundreds of guesses
+// a second from one machine, so a dictionary word fell in minutes (fourth
+// adversarial review, finding A3).
+//
+// A code is tried on BOTH legs of a join -- the discovery query carries it
+// and so does the session hello -- so one typo costs two attempts. A burst
+// of 6 is three typos free; after that an address gets one attempt back per
+// second, and while it is over budget every hello from it is refused as
+// "rate limited" before the code is even compared, the right code included
+// (the budget is the address's, not the code's). Both numbers are reasoned
+// from the join's shape, not measured against an attacker; ADR 0064.
+const (
+	RoomCodeAttemptBurst      = 6
+	RoomCodeAttemptsPerSecond = 1.0
+)
+
 // MaxMessagesPerSecondFor returns the per-client flood cap for a room running
 // at sendHz. It only ever scales UP from MaxMessagesPerSecond: lowering a
 // relay's send_hz must never start disconnecting clients that are still
