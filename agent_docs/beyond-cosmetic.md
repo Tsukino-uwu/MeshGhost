@@ -520,6 +520,51 @@ sixty-four small ones, and that sizing question is open (`kill-credit.md` #19).
 the game (ADR 0050), which is right for ghosts. A shared session cannot start offline, so that
 preset must refuse instead — one more thing settled at join, never in a config file.
 
+**6. Six interactions found on the second pass (2026-09-15) — four decided by the user, two open.**
+The user asked what else the shape had missed in how the game and the server interact. An Explore
+sweep of the tree the same day found three of these with evidence and three by reasoning; the user
+then decided four of them in one reply.
+
+- **Pause, cutscenes, dialogue: the world never stops while online — user decision 2026-09-15**
+  (*"you don't just pause a online game"*). Under a shared-world preset the adapter keeps the
+  simulation running through all three, as every online game does; releasing the zone on a freeze
+  and reclaiming after is out. Nothing does this today: the frozen signal is bridge-only and
+  chaser-only (`bridge/bridge.go`'s `player_frozen`, `core/chaser.go`'s `gameplayNowMs`, ADR 0053)
+  and never reaches the wire. Cosmetic mode is untouched — pausing with ghosts stays fine and the
+  chaser freeze stays. The cost is per game: finding where the game stops its world, and keeping
+  it going.
+- **Dying never rewinds the world — user decision 2026-09-15.** Custody is latest-wins and cannot
+  go backwards, so "reload checkpoint" becomes "respawn the player, the world stays". The rule
+  that unifies it with the lobby wait in point 1: **the adapter re-adopts custody on every world
+  load** — start, death, checkpoint, save slot.
+- **A save is two things.** The player part (position, health, inventory) stays the player's
+  own; the world part (doors, kills, pickups) is custody's. The seed uploads and the adoption
+  overwrites only the world part. Which fields are which is per game and unstated — open.
+- **No area filter on the world or event plane — open, and the only relay-side item.** ADR 0041
+  taught the relay to drop cross-area state for clients that ask; that filter is one function,
+  `stateRecipients` in `relay/relay.go`, and only the state plane calls it. A world write goes
+  to every member but the writer (`relay/world.go`, the recipient loop in `handleWorld`) and a
+  broadcast event to every member (`relay/online.go`, `memberIDsLocked`). Per-zone entity streams
+  therefore scale the way state did before 0041. The fix shape is the same mechanism reused, plus
+  a snapshot on zone *entry* rather than on join — a contract change with its own ADR when built.
+- **Level logic: synced or not, per thing — user decision 2026-09-15** (*"sometimes platforms
+  might be fine to not sync but a timer is probly good to sync if posible"*). The same
+  per-entity-class policy `kill-credit.md` uses for enemies, extended to things that move on their
+  own: elevators, platforms, timers, scripted sequences. `game-shapes.md` classifies doors and
+  levers by what they consume; this adds the moving class. What "not synced" means for a moving
+  thing: each player sees it at their own phase, so a ghost standing on your platform floats on
+  their screen — the adapter chooses per class and the user judges on screen. A timer is a clock,
+  and `game-shapes.md` already calls the clock the contested resource, so timers default to a
+  group key where the game allows.
+- **Arrival, not merit — and a better-suited owner can still take over, the user's proposal
+  2026-09-15.** The relay keeps arbitrating by arrival and never judges. What it may add is a
+  **measurement**: it already knows every member's round trip from ping and pong, and can publish
+  the numbers to the room the way it serves its clock. The holder decides for itself — a large,
+  sustained gap, with hysteresis so it never flaps — and hands off by a voluntary release with a
+  pre-arranged next claimant. That is the owner-leaves-the-zone path: same code, same custody
+  snapshot, so no new mismatch, only the ordinary handover discontinuity. Publishing the numbers
+  is a small contract addition with its own ADR when built.
+
 As everywhere in this file: a shape on record is not permission. Building any of it is a contract
 revision with its own ADR, and the memory-write gate in `plans.md` applies.
 

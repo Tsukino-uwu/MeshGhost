@@ -2497,3 +2497,17 @@ new "The shape, agreed 2026-09-15" subsection, five numbered points, with the us
 built with the first shared-world adapter, not before. Nothing pushed.
 
 **Correction, same day:** the room-code binding in point 3 was withdrawn on the user's objection ("either you connect to the server, or you don't"): on a private relay the room name is a sufficient key; room-name reuse is a shared-relay concern for the host who turns persistence on, not a PAKE dependency.
+
+## 2026-09-15 (last) — Six interactions the shape had missed, four decided by the user
+
+**The question:** anything else missed in how the game and the server interact? An Explore sweep
+found three with tree evidence (the frozen signal is bridge-only and chaser-only, never on the
+wire; nothing discusses death or a save load against custody; the ADR 0041 area filter is
+`stateRecipients` alone, so world writes and events reach every member whatever their zone) and
+three by reasoning (a save is two things; level logic is an unnamed moving class; arrival lets the
+worst link own a zone). **The user decided four in one reply:** the world never pauses while online
+(*"you don't just pause a online game"*); dying never rewinds the world; level logic is synced or
+not per thing, timers preferably synced; and a better-suited owner may take over by a measured,
+voluntary handoff, which is the owner-leaves-the-zone path and so no new mismatch. Open: the
+per-game save split and the area filter on the world/event planes (the only relay-side item, an ADR
+when built). All in `beyond-cosmetic.md` §5, "The shape", point 6. Nothing built, nothing pushed.
