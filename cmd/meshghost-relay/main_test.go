@@ -334,20 +334,11 @@ func TestListeningLineNamesTheAddressFamily(t *testing.T) {
 			t.Errorf("%s: %q does not say %q", tc.addr, got, tc.want)
 		}
 	}
-	// And what a wildcard bind actually reports on this OS is printed, not
-	// assumed: bind 0.0.0.0, read the address back, and require the line to
-	// describe THAT family. (Go turns a wildcard into a dual-stack IPv6 socket
-	// where the OS allows it, which is what makes the note necessary.)
-	ln, err := net.Listen("tcp", "0.0.0.0:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	defer ln.Close()
-	line := listeningLine(ln.Addr(), "tcp")
-	if !strings.Contains(line, "every") {
-		t.Fatalf("a wildcard bind (%s) got no family note: %q", ln.Addr(), line)
-	}
-	t.Logf("this OS reports a 0.0.0.0 bind as %s: %s", ln.Addr(), line)
+	// Deliberately NO real wildcard bind here: a test binary opening 0.0.0.0
+	// is a new executable every compile, and Windows Firewall asks about each
+	// one -- a prompt on the user's screen per test run (seen 2026-09-15).
+	// The family note is a pure function of the address the OS reports, and
+	// the synthetic addresses above cover both shapes it can report.
 }
 
 // TestConfigIsFoundInTheWorkingDirectoryFirstThenBesideTheExecutable is
