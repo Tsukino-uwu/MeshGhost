@@ -2546,3 +2546,22 @@ quic-versus-dev-udp run matrix on shared netsim seeds, and the decision rule are
 `ideas.md` entry now. **The user also ruled, when a new `-planning.md` was proposed:** those files
 were temporary scratch plans meant to be built and then deleted, and no new one is created — a
 parked plan lives in `ideas.md`. Docs only; no `.go` change; nothing pushed.
+
+## 2026-09-15 (after GameNetworkingSockets) — The review skill learns its four reader modes
+
+**The user asked whether varying a reviewer's guidance (blind / some / everything) and the brief's
+strictness (a vague "is it safe to host this?" against the current strict cell brief) would make
+future adversarial passes better or worse.** Working it through against the record: the skill's
+"blind" (prohibition 9) was blind to the findings only — an in-repo agent still loads `CLAUDE.md`,
+the ADRs and the repo's attack vocabulary. **The user then corrected the premise**: the fourth
+review (this day's host-question pass) was run by the asker on their own machine with their own
+setup, no MeshGhost rules, notes or memories loaded — a genuinely external critic, and the
+best-documented pass on file. So the modes are four, not three, and the external one is the only
+unbiased reader. Recorded in `.claude/skills/adversarial-review/SKILL.md` (commit `c1afba2f`):
+External opens every pass with one real person's vague question, host and player alternating;
+in-repo blind hunts; some guidance (contract, architecture, the census) is the strict-cell default;
+everything (the security doc's claims) falsifies and never hunts. Vague plus everything is
+forbidden; "other issues" is allowed in the question but a finding still names a damage. The skill
+stayed at its 120-line cap by dropping the "map, not a copy" intro and folding "which fixes are
+legal" into two lines. `docs/security.md`'s pass-4 paragraph now says where that review ran, and
+the user neutralised who asked to "someone hosting" (`7b7c3cac`). Docs only; nothing pushed.
