@@ -41,6 +41,8 @@ needs its own measurement pass before any of the above is re-ranked by it.
 - **The wire format** — JSON vs binary, ratified 2026-08-30, with the tripwire that reopens it.
 - **Coalescing writes** — deferred, with the measurement it would need.
 - **What a recording costs on disk** — ~310 MB/hour measured, and the three ways to shrink it.
+- **More than one relay** — lives in [multi-relay.md](multi-relay.md): a room is the shard, a router
+  assigning areas to relays is the only missing piece, nothing scheduled (filed 2026-09-15).
 
 ## Efficiency, standing: the four axes, and three additions from the 2026-08-30 pass
 
@@ -416,6 +418,8 @@ server, not a home host — and binary's ~30% would make it ~39 MB/s.
 3. **But no wire format saves you at 1000: filtering is not optional.** 30% off an impossible
    number is still impossible. This is the same conclusion the culling entries reach, arrived at
    from the other direction.
+4. **How several relays would carry it, and why relays never forward to each other:**
+   [multi-relay.md](multi-relay.md) (filed 2026-09-15; a design on file, nothing scheduled).
 
 **Caveats, so nobody treats these as measurements.** The per-recipient term is fitted from 8->128
 and extrapolated 8x past the largest room ever benchmarked; it likely UNDERCOUNTS real network

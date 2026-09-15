@@ -22,6 +22,7 @@ of the documentation, written for people *using* MeshGhost, is [`../docs/`](../d
 - …decide who receives what: [culling.md](culling.md) — the culling model, distance culling, adaptive Hz, culling an isolated player's uploads (split out of `scaling.md` 2026-09-02; nothing scheduled).
 - …raise `send_hz` or touch the snapshot buffer: [hz-ceiling.md](hz-ceiling.md) — where the buffer edge-holds, what timestamps cost, bandwidth per room size.
 - …ask how many ghosts a game can hold: [crowd-limits.md](crowd-limits.md) — per game and per map, with the measuring rig; the game-side pair to `scaling.md`.
+- …ask how more than one relay could carry a room: [multi-relay.md](multi-relay.md) — MMO sharding mapped onto rooms and the area filter, the router design, why relays never talk to each other; nothing scheduled (2026-09-15).
 - …start effect/VFX work: [effect-investigation.md](effect-investigation.md) — how to search for, mirror and confirm a game's visual effect, told through the Pseudoregalia trail.
 - …drive a running game yourself: [playing.md](playing.md) — what an agent may change, how to steer input, navigate, use screenshots.
 - …run a live test: [running-the-rig.md](running-the-rig.md) — start the scaffolding hidden, the netsim default, two games at once, several agents, crash dumps, the savestate slots (split out of `environment.md` 2026-09-02).

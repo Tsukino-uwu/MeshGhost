@@ -1729,6 +1729,8 @@ culling model, distance culling the downlink, "stop sending when nobody can see 
 format (JSON vs binary, ratified), and coalescing writes. They were scattered across ~700 lines
 here and are one subject — what the Go side can carry — so they now live together, with the scale
 principle at the top of that file. **New efficiency or scale ideas go there, not here.**
+The multi-relay design (a router assigning areas to relays; filed 2026-09-15) is
+[multi-relay.md](multi-relay.md), pointed at from `scaling.md`.
 
 ## BUG: with MESHGHOST_BRIDGE_PORT set, a rejected adapter hot-loops and its own log line is a lie (2026-08-28)
 
