@@ -88,6 +88,19 @@ const (
 	DefaultHelloTimeout = 10 * time.Second
 )
 
+// EffectiveMaxClients is the seat count the relay ENFORCES for a configured
+// max_clients: the value itself, or DefaultMaxClients when it is zero or
+// negative. One function so the enforcement (tryReserveSlot) and the startup
+// banner cannot disagree -- until 2026-09-15 the banner printed the raw
+// configured 0 while eight seats were enforced (fourth adversarial review,
+// B7), the same lie MaxMessagesPerSecondFor's comment records for the rate cap.
+func EffectiveMaxClients(configured int) int {
+	if configured <= 0 {
+		return DefaultMaxClients
+	}
+	return configured
+}
+
 // MaxOpenConnsFor is the per-listener bound on accepted connections, joined
 // or not, that cmd/meshghost-relay applies through netx.LimitListener. Eight
 // per seat, floored at 64: a real client uses one connection (plus a brief

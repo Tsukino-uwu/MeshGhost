@@ -24,6 +24,7 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/internal/cfg"
 	"github.com/Tsukino-uwu/MeshGhost/internal/hotkey"
 	"github.com/Tsukino-uwu/MeshGhost/netx"
+	"github.com/Tsukino-uwu/MeshGhost/netx/quicconn"
 	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
@@ -834,6 +835,10 @@ func main() {
 			"means an encrypted session with no proof of who is on the other end. Note the relay "+
 			"regenerates its certificate every restart, so this has to be updated when the host "+
 			"restarts theirs")
+	qlog := flag.Bool("qlog", false,
+		"write quic-go's qlog trace for the quic connection into the directory the QLOGDIR "+
+			"environment variable names (dev diagnostics: packets, losses, congestion window). Off "+
+			"by default; the variable alone does nothing")
 	exitWithPID := flag.Int("exit-with-pid", 0,
 		"exit when the process with this pid does -- set by a game adapter that starts this "+
 			"client for you, so a crashed game can't leave an invisible orphan holding the bridge "+
@@ -1076,6 +1081,12 @@ func main() {
 		log.Printf("meshghost: tls_fingerprint is set, so tls is REQUIRED for this session " +
 			"rather than \"auto\" -- a pin that fell back to plaintext when it failed to match " +
 			"would announce an interfering relay by connecting to it anyway.")
+	}
+
+	if *qlog {
+		quicconn.SetQLog(true)
+		log.Printf("meshghost: qlog tracing ON for the quic connection -- traces go to QLOGDIR=%q "+
+			"(empty means quic-go writes nothing); a dev diagnostic", os.Getenv("QLOGDIR"))
 	}
 
 	c := core.New()

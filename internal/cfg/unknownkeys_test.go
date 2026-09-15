@@ -132,3 +132,25 @@ func TestAForeignSectionIsNotDescendedInto(t *testing.T) {
 		t.Fatalf("a nested key another program owns was reported:\n%s", out)
 	}
 }
+
+// TestAKeyInTheWrongCaseIsAppliedAndSoNotReported: encoding/json matches keys
+// case-insensitively, so "Room_Code" IS a setting the decoder applied. Until
+// 2026-09-15 this check said it was being ignored -- false, and the opposite
+// of what a host reading the warning would do next (fourth review, B7).
+func TestAKeyInTheWrongCaseIsAppliedAndSoNotReported(t *testing.T) {
+	type section struct {
+		RoomCode string `json:"room_code"`
+	}
+	got := captureLog(t, func() {
+		WarnUnknownKeys([]byte(`{"Room_Code": "x", "ROOM_CODE": "y"}`), section{}, "config.json", "test", "server", nil)
+	})
+	if got != "" {
+		t.Fatalf("a wrong-case key was reported as unknown although the decoder applies it:\n%s", got)
+	}
+	got = captureLog(t, func() {
+		WarnUnknownKeys([]byte(`{"room_cod": "x"}`), section{}, "config.json", "test", "server", nil)
+	})
+	if got == "" {
+		t.Fatal("a genuine typo was not reported")
+	}
+}

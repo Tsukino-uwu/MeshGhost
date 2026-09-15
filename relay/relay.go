@@ -1251,11 +1251,7 @@ func (s *Server) transportOffers() []protocol.TransportOffer {
 func (s *Server) tryReserveSlot() (ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	maxClients := s.MaxClients
-	if maxClients <= 0 {
-		maxClients = DefaultMaxClients
-	}
-	if s.clientCount >= maxClients {
+	if s.clientCount >= EffectiveMaxClients(s.MaxClients) {
 		return false
 	}
 	s.clientCount++

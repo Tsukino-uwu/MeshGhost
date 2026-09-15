@@ -57,6 +57,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	quic "github.com/quic-go/quic-go"
@@ -112,17 +113,24 @@ func clientTLSConfig() *tls.Config {
 	}
 }
 
+// qlogEnabled gates the qlog tracer below. Set once at startup by a binary's
+// -qlog flag (SetQLog); read by every quicConfig call after that. Atomic so a
+// test can flip it without the race detector objecting to the listener's
+// goroutines reading it.
+var qlogEnabled atomic.Bool
+
+// SetQLog turns quic-go's qlog tracing on or off for every connection made
+// after the call. Off by default: until 2026-09-15 the tracer was always
+// installed and the QLOGDIR environment variable alone decided whether it
+// wrote, so an environment a stranger's handshake ran under could make the
+// relay write a file per connection with no line in the startup output
+// saying so (fourth adversarial review, B5). Now the operator asks for it
+// explicitly and the binary logs where the traces go.
+func SetQLog(enabled bool) { qlogEnabled.Store(enabled) }
+
 func quicConfig() *quic.Config {
-	return &quic.Config{
+	cfg := &quic.Config{
 		EnableDatagrams: true,
-		// Dev diagnostics only: quic-go writes a qlog trace of every packet,
-		// loss declaration, congestion-window change and pacing pause for the
-		// connection when the QLOGDIR environment variable names a directory,
-		// and this tracer returns nil (no trace, no cost) when it is unset --
-		// which is the shipped state. Added 2026-09-02 to read why datagrams
-		// stalled for up to 770ms through meshghost-netsim at 2% loss while
-		// tcp on the same proxy never exceeded its configured delay.
-		Tracer: qlog.DefaultConnectionTracer,
 		// This protocol is one bidirectional stream per connection plus
 		// datagrams, so nothing else is granted. quic-go's defaults (100
 		// bidirectional, 100 unidirectional, 512 KiB per stream, 1.5 MiB per
@@ -140,6 +148,16 @@ func quicConfig() *quic.Config {
 		InitialConnectionReceiveWindow: 64 * 1024,
 		MaxConnectionReceiveWindow:     256 * 1024,
 	}
+	// Dev diagnostics only, and only when asked (SetQLog): quic-go writes a
+	// qlog trace of every packet, loss declaration, congestion-window change
+	// and pacing pause for the connection into the directory the QLOGDIR
+	// environment variable names. Added 2026-09-02 to read why datagrams
+	// stalled for up to 770ms through meshghost-netsim at 2% loss while tcp
+	// on the same proxy never exceeded its configured delay.
+	if qlogEnabled.Load() {
+		cfg.Tracer = qlog.DefaultConnectionTracer
+	}
+	return cfg
 }
 
 // ------------------------------------------------------------------- Conn

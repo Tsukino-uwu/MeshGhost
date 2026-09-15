@@ -1,8 +1,10 @@
 package main
 
 import (
+	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Tsukino-uwu/MeshGhost/netx"
@@ -42,11 +44,13 @@ func applyTestConfigFull(path string) (addr, onlyGame, transport, quicAddr strin
 // applyTestConfigWithTLS is applyTestConfigFull plus the tls key.
 func applyTestConfigWithTLS(path string) (addr, onlyGame, transport, quicAddr, tlsMode string) {
 	var maxClients, sendHz, resumeGrace int
-	var roomCode string
+	var roomCode, udpAddr, ghostCollision string
+	var qlog bool
 	applyFileConfig(path, map[string]bool{}, configTargets{
 		addr: &addr, roomCode: &roomCode, onlyGame: &onlyGame,
 		maxClients: &maxClients, sendHz: &sendHz, resumeGrace: &resumeGrace,
-		transport: &transport, quicAddr: &quicAddr, tlsMode: &tlsMode,
+		transport: &transport, quicAddr: &quicAddr, udpAddr: &udpAddr, tlsMode: &tlsMode,
+		ghostCollision: &ghostCollision, qlog: &qlog,
 	})
 	return addr, onlyGame, transport, quicAddr, tlsMode
 }
@@ -284,4 +288,64 @@ func TestResolveQuicAddr(t *testing.T) {
 		}
 	})
 
+}
+
+// TestServerSectionIsFoundCaseInsensitively: the unknown-key check looks at
+// the section encoding/json decoded, and the decoder matches "Server" (B7).
+func TestServerSectionIsFoundCaseInsensitively(t *testing.T) {
+	for _, in := range []string{`{"server":{"a":1}}`, `{"Server":{"a":1}}`, `{"SERVER":{"a":1}}`} {
+		if got := serverSection([]byte(in)); string(got) != `{"a":1}` {
+			t.Errorf("serverSection(%s) = %q, want the section", in, got)
+		}
+	}
+	if got := serverSection([]byte(`{"client":{}}`)); got != nil {
+		t.Errorf("serverSection found %q in a file with no server section", got)
+	}
+}
+
+// TestListeningLineNamesTheAddressFamily is finding B1: a wildcard bind is a
+// dual-stack socket on the OSes that ship this relay, and the line has to say
+// so, because the firewall rule a host writes is per family.
+func TestListeningLineNamesTheAddressFamily(t *testing.T) {
+	mustTCP := func(s string) net.Addr {
+		a, err := net.ResolveTCPAddr("tcp", s)
+		if err != nil {
+			t.Fatalf("resolve %s: %v", s, err)
+		}
+		return a
+	}
+	for _, tc := range []struct {
+		addr net.Addr
+		want string
+	}{
+		{mustTCP("[::]:7777"), "IPv6 AND IPv4"},
+		{mustTCP("0.0.0.0:7777"), "every IPv4 address"},
+		{mustTCP("127.0.0.1:7777"), ""},
+		{mustTCP("203.0.113.9:7777"), ""},
+	} {
+		got := listeningLine(tc.addr, "tcp")
+		if tc.want == "" {
+			if strings.Contains(got, "every") {
+				t.Errorf("%s: a specific address got a family note: %q", tc.addr, got)
+			}
+			continue
+		}
+		if !strings.Contains(got, tc.want) {
+			t.Errorf("%s: %q does not say %q", tc.addr, got, tc.want)
+		}
+	}
+	// And what a wildcard bind actually reports on this OS is printed, not
+	// assumed: bind 0.0.0.0, read the address back, and require the line to
+	// describe THAT family. (Go turns a wildcard into a dual-stack IPv6 socket
+	// where the OS allows it, which is what makes the note necessary.)
+	ln, err := net.Listen("tcp", "0.0.0.0:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	line := listeningLine(ln.Addr(), "tcp")
+	if !strings.Contains(line, "every") {
+		t.Fatalf("a wildcard bind (%s) got no family note: %q", ln.Addr(), line)
+	}
+	t.Logf("this OS reports a 0.0.0.0 bind as %s: %s", ln.Addr(), line)
 }

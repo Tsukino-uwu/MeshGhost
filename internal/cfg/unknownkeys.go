@@ -79,7 +79,12 @@ func WarnUnknownKeys(raw []byte, v any, path, prog, where string, notSettings ma
 		if !ok {
 			continue
 		}
-		known[name] = f.Type
+		// Lower-cased on both sides of the lookup: encoding/json matches a key
+		// to a field case-insensitively, so "Room_Code" IS applied -- and
+		// until 2026-09-15 this function then told the host it was being
+		// ignored (fourth adversarial review, B7). The check has to match the
+		// decoder it speaks for.
+		known[strings.ToLower(name)] = f.Type
 	}
 
 	var unknown []string
@@ -89,7 +94,7 @@ func WarnUnknownKeys(raw []byte, v any, path, prog, where string, notSettings ma
 		if notSettings[where+"."+key] {
 			continue
 		}
-		ft, ok := known[key]
+		ft, ok := known[strings.ToLower(key)]
 		if !ok {
 			unknown = append(unknown, key)
 			continue

@@ -22,6 +22,7 @@ import (
 
 	"github.com/Tsukino-uwu/MeshGhost/internal/cfg"
 	"github.com/Tsukino-uwu/MeshGhost/netx"
+	"github.com/Tsukino-uwu/MeshGhost/netx/quicconn"
 	"github.com/Tsukino-uwu/MeshGhost/netx/srclimit"
 	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
@@ -89,6 +90,11 @@ type fileConfig struct {
 	// while a session is being debugged. See the TLS-over-tcp ADR in
 	// agent_docs/architecture.md.
 	TLS *string `json:"tls"`
+	// QLog turns on quic-go's per-connection qlog trace, written into the
+	// directory the QLOGDIR environment variable names. Dev diagnostics;
+	// absent or false means no trace and no cost. Until 2026-09-15 the
+	// environment variable alone turned it on, silently (B5).
+	QLog *bool `json:"qlog"`
 }
 
 // rootConfig is the top-level shape of the config file: a "server" section
@@ -115,6 +121,7 @@ type configTargets struct {
 	quicAddr       *string
 	udpAddr        *string
 	tlsMode        *string
+	qlog           *bool
 }
 
 func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
@@ -165,6 +172,7 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	cfg.Override(explicit, "listen-quic", t.quicAddr, sc.QuicAddr)
 	cfg.Override(explicit, "listen-udp", t.udpAddr, sc.UDPAddr)
 	cfg.Override(explicit, "tls", t.tlsMode, sc.TLS)
+	cfg.Override(explicit, "qlog", t.qlog, sc.QLog)
 }
 
 // sharesAddrPort is the default for both -listen-quic and -listen-udp: empty
@@ -332,6 +340,10 @@ func main() {
 			"memory and never written to disk, so this stops someone READING the network, not "+
 			"someone actively impersonating this relay -- unless you hand players the "+
 			"fingerprint printed below at startup and they set \"tls_fingerprint\"")
+	qlog := flag.Bool("qlog", false,
+		"write quic-go's qlog trace for every quic connection into the directory the QLOGDIR "+
+			"environment variable names (dev diagnostics: packets, losses, congestion window). Off "+
+			"by default; the variable alone does nothing")
 	configPath := flag.String("config", "config.json",
 		"path to an optional JSON config file with a \"server\" section "+
 			"({\"listen_on\": \"...\", \"listen_quic\": \"...\", \"room_code\": \"...\", "+
@@ -365,7 +377,14 @@ func main() {
 		quicAddr:       quicAddr,
 		udpAddr:        udpAddr,
 		tlsMode:        tlsMode,
+		qlog:           qlog,
 	})
+	if *qlog {
+		quicconn.SetQLog(true)
+		log.Printf("meshghost-relay: qlog tracing ON for every quic connection -- traces go to QLOGDIR=%q "+
+			"(empty means quic-go writes nothing); this is a dev diagnostic, not for a public relay",
+			os.Getenv("QLOGDIR"))
+	}
 
 	// Fatal on an unrecognized tls mode, same reasoning as the transport
 	// list below: tlsx.Off is the zero value, so a lenient parse would hand
@@ -518,7 +537,9 @@ func main() {
 	// use site (joinOrCreateRoom, the adapters) already relies on.
 	server.OnlyGame = strings.TrimSpace(*onlyGame)
 	server.Offers = offers
-	server.MaxClients = *maxClients
+	// The ENFORCED value, so the banner below and tryReserveSlot agree; a
+	// configured 0 means the default and used to be printed as 0 (B7).
+	server.MaxClients = relay.EffectiveMaxClients(*maxClients)
 	server.SendHz = *sendHz
 	server.GhostCollision = *ghostCollision
 	server.ResumeGrace = time.Duration(*resumeGrace) * time.Second
@@ -532,7 +553,7 @@ func main() {
 		}()
 		log.Printf("meshghost-relay: introspection on -- logging relay state every %s", *introspect)
 	}
-	log.Printf("meshghost-relay: max clients (total, across all rooms): %d", *maxClients)
+	log.Printf("meshghost-relay: max clients (total, across all rooms): %d", server.MaxClients)
 	// Clamp and warn rather than refuse to start -- a typo in a cosmetic
 	// tuning knob must not stop a host booting (see the ADR in
 	// agent_docs/architecture.md). effectiveSendHz never differs from
@@ -745,9 +766,42 @@ func buildListeners(c listenerConfig) ([]boundListener, string, error) {
 		if k == netx.TCP && c.tls != tlsx.Off {
 			label = fmt.Sprintf("%s, tls %s", k, c.tls)
 		}
-		log.Printf("meshghost-relay: listening on %s (%s)", ln.Addr(), label)
+		log.Print(listeningLine(ln.Addr(), label))
 	}
 	return listeners, fingerprint, nil
+}
+
+// listeningLine is the "listening on" line, and it names the ADDRESS FAMILY
+// the socket actually covers. Go binds a wildcard -- "0.0.0.0" included --
+// as a dual-stack IPv6 socket wherever the OS allows it (Linux, Windows), so a
+// host who wrote 0.0.0.0, firewalled IPv4, and read a line saying 0.0.0.0 had
+// an IPv6 side open they never knew about; the transport offers carry only a
+// port, so an IPv6 client got quic over IPv6 too (fourth adversarial review,
+// B1). The line now says what the operating system reported back, in words.
+func listeningLine(addr net.Addr, label string) string {
+	return fmt.Sprintf("meshghost-relay: listening on %s (%s)%s", addr, label, familyNote(addr))
+}
+
+// familyNote is the address-family clause listeningLine appends: empty for a
+// specific address, and for a wildcard which families it reaches.
+func familyNote(addr net.Addr) string {
+	var ip net.IP
+	switch a := addr.(type) {
+	case *net.TCPAddr:
+		ip = a.IP
+	case *net.UDPAddr:
+		ip = a.IP
+	default:
+		return ""
+	}
+	if ip == nil || !ip.IsUnspecified() {
+		return ""
+	}
+	if ip.To4() != nil {
+		return " -- every IPv4 address of this machine"
+	}
+	return " -- every address of this machine, IPv6 AND IPv4 (a dual-stack wildcard: firewall both families, " +
+		"or bind an explicit IPv4 address to serve only that)"
 }
 
 // shutdownDrain is how long shutdown keeps the process alive after telling the
@@ -930,5 +984,13 @@ func serverSection(data []byte) json.RawMessage {
 	if err := json.Unmarshal(data, &root); err != nil {
 		return nil
 	}
-	return root["server"]
+	// Case-insensitively, because that is how encoding/json found the section
+	// it decoded: a "Server" section was applied and then never checked for
+	// typos (fourth adversarial review, B7).
+	for k, v := range root {
+		if strings.EqualFold(k, "server") {
+			return v
+		}
+	}
+	return nil
 }
