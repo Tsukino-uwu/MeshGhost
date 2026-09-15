@@ -509,13 +509,12 @@ game's own object pools. Reading the second found a real bug underneath it anywa
 
 ## What changed (2026-09-15: hosting on the internet, the fourth review)
 
-**The question was a host's, this time.** Someone hosting a Pokémon Crystal randomizer community
-asked, before putting `meshghost-server` on a rented server: *"can you look for possible security or
-other issues?"* The review ran on the asker's own machine with their own setup, with none of this
-repo's internal notes or working rules loaded. Nine reviewers who had not written the code read it
-from the positions an attacker would actually stand in — a stranger who has the address, someone on
-the network path, a member of a room, a hostile server, and the test instruments themselves — and
-found twenty-nine things. What
+**The question was a host's, this time.** Someone hosting asked, before putting `meshghost-server`
+on a rented server: *"can you look for possible security or other issues?"* The review ran on the
+asker's own machine with their own setup, with none of this repo's internal notes or working rules
+loaded. Nine reviewers who had not written the code read it from the positions an attacker would
+actually stand in — a stranger who has the address, someone on the network path, a member of a
+room, a hostile server, and the test instruments themselves — and found twenty-nine things. What
 follows is what a host needs to know: what a stranger with your address can and cannot do now, and
 the few settings that matter on a server other people can reach. Two decisions came out of it
 (ADR 0064 and ADR 0065), and the next piece of work, forcing encryption on with nothing manual for
