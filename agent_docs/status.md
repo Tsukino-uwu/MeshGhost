@@ -10,10 +10,14 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 
 ## Open now
 
-- 2026-09-13 — **CI: `core` under `-race` is at its 600 s package limit** — 402 s green (02:12), timed out, then 573 s green on re-run; no `core/` change. Next red is likely. CI run 34758790057.
+- 2026-09-15 — **CI: `core` under `-race` is at its 600 s package limit** — 402 s green (02:12), timed out, then 573 s green on re-run; no `core/` change. Next red is likely; locally `run-gotests-race.bat` passed 2026-09-15 (`core` under the limit). CI run 34758790057.
+- 2026-09-15 — **Flake seen once, fixed as an instrument**: `core.TestRelayDropForgetsEverythingThatConnectionTaughtUs` asserted on a second snapshot a pong could empty; it now reads the one it polled (`e0d9dae5`). Watch CI's next runs.
 - 2026-09-13 — **Pseudoregalia: a costume the watcher owns but never WORE is unresolvable, and the retry is unbounded** (1,798 warnings/20 min). `pseudoregalia/UNVERIFIED.md`.
 - 2026-09-13 — **Pseudoregalia: the outfit echo was the costume mod's save file shared by two games on ONE PC — not MeshGhost; the materials fix is restored.** `pseudoregalia/UNVERIFIED.md`, `running-the-rig.md`.
-- 2026-09-12 — **Review pass 3: all 17 cells have run (~74 claims); the transports cluster is fixed and the fuzz-coverage one is next.** 44 commits, nothing pushed. `REVIEW-FINDINGS.md`, `phases/phase10.md`.
+- 2026-09-15 — **Review pass 4 (the Crystal dev's "can I run this on a server"): 29 findings; A, B, D and E fixed or closed, C recorded in `risks.md`; nothing pushed.** `REVIEW-FINDINGS.md`, `phases/phase10.md`, `docs/security.md`'s 2026-09-15 section.
+- 2026-09-15 — **`tls-planning.md` is the scheduled next piece of work** (forced TLS, persisted relay identity, room-code PAKE); its prerequisite, no shipped udp, landed (ADR 0065). `agent_docs/tls-planning.md`.
+- 2026-09-15 — **The relay's config.json is LIVE for room_code/only_game/max_clients** (Go side green through the shipped stack; never watched with a real client editing it). `cmd/meshghost-relay/reload.go`.
+- 2026-09-15 — **Review pass 3's remainder** (P1b-3..6, P1d-5..10, X2-8..14; P2f-3's dead-path question on Emerald) is still open; pass 4 closed P1b's "two timers" sibling in `hostile_test.go`'s comment only. `REVIEW-FINDINGS.md`.
 - 2026-09-12 — **A stock relay could not welcome the 6th player into a room of escaped names, on the default transport.** Fixed (`relay.sendBudget`); the measurement is in `verified.md`.
 - 2026-09-12 — **Three fuzz targets pointed at nothing; one is measured 0% → 89.7% on the code its own seeds describe.** Fixed, plus two new targets for the core's own sockets. `verified.md`.
 - 2026-09-12 — **Adapter fixes from the pass are UNWATCHED**: 6 in TEVI, 2 in Pseudoregalia, 3 in Crystal, 1 in Emerald — all built, deployed and hash-verified. Each `UNVERIFIED.md`.

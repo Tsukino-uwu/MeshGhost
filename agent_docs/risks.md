@@ -646,6 +646,44 @@ enabling the planes.
 **Closes when** a per-member bound and a handover rate land with the first adapter that ships a
 lease or world plane, with a test in the shape of `relay/escrow_cap_test.go`.
 
+## Opt-in plane findings from the fourth review, recorded rather than fixed (2026-09-15)
+
+The fourth adversarial review (2026-09-13, "can I run this on a server") put five findings in the
+member position of a room that negotiated an opt-in plane. No shipped adapter negotiates one, so
+none is reachable in a cosmetic room; each is a contract decision to make when a plane ships, and
+the escrow per-opener cap is the template. Recorded with the review's numbers so they are not
+rediscovered; each names the fix it would want.
+
+- **C1 — a reliable-plane flood disconnects a slower peer instead of degrading it.** A reliable
+  line meeting a full 256-line outbox is never dropped: the recipient is disconnected
+  (`relay/outbox.go`, by design — a lost leave strands a ghost). Events have no per-recipient gate
+  (`allowStateFrom` is consulted only for state), so one `event.v1` member at the 120 msg/s cap
+  pushes ~1.25 Mbit/s of reliable lines at every peer; a peer below that fills in ~2 s and is
+  disconnected, then re-tripped on each resume snapshot (up to 192 lines plus 64 replayed events
+  into the same queue). The bytes are the accepted fan-out; the new part is that the SENDER chooses
+  who gets dropped. Fix it would want: a per-recipient event budget shaped like `allowStateFrom` —
+  a contract change with its own ADR.
+- **C2 — anyone can open an escrow naming any member, in a room-global client-chosen id space.**
+  `escrow.go`'s admission requires only that the counterparty is a member (a suspended one
+  included); no consent. The reference control plane (`cmd/meshghost-fakeadapter`) deposits into
+  every open it hears and uses predictable ids (`<self>-t<n>`), so an attacker can pre-open
+  `p3-t1` naming p3, burn p3's next trade and collect its deposit. Bounding: `Parties` is
+  relay-built, and nothing can deposit, commit or abort AS the victim. Fix it would want: ids scoped
+  by opener, or a consent step — an ADR when a real adapter needs escrow.
+- **C3 — escrow id existence is probeable** for the 60 s retention window. Speculative; costs an
+  attacker one open per guess and reveals only that an id is taken.
+- **C4 — exact display-name duplication is allowed** (`protocol/displayname.go`): on-screen
+  impersonation of another player's tag. `player_id` stays distinct and a nametag is explicitly a
+  label, not an identity (`docs/security.md`); design-accepted.
+- **C7 — arithmetic on two accepted risks**: in a `lease.v1`+`world.v1` room a member can release
+  and re-claim its own authority key ~60 pairs/s and each re-claim re-sends the ~53 KB world to
+  itself — ~25 Mbit/s of relay uplink from ~10 KB/s in, self-directed. Bounded by the flood cap
+  and the member's own downlink; the handover rate the entry above asks for closes it.
+
+Also from that pass, in the shipped configuration, and accepted with its reason: **the per-source
+connection cap refuses with a bare close, not a Reject** — it sits in `netx` below the protocol and
+cannot write one (ADR 0064). The same is true of the listener-wide cap it extends.
+
 ## Known gaps carried out of `status.md` (2026-09-02)
 
 These sat in `status.md` with a pointer to code or to a decision record, and nowhere else. `status.md`

@@ -195,7 +195,14 @@ the ones that carry security weight, in the order a reviewer would want them:
 
 - [0044 — the first adversarial review](../agent_docs/adr/0044-2026-09-02-the-first-adversarial-review-and-what-it-changed.md):
   what hostile readers found, what was fixed, what was left alone and why. Read this first; it
-  shows where the last review looked, so the next one can look elsewhere.
+  shows where the last review looked, so the next one can look elsewhere. Three passes followed
+  (2026-09-07, 2026-09-12, 2026-09-13); the fourth was the first to ask the question a host asks —
+  "I want to run this on a server" — with nine read-only reviewers split by where the attacker
+  stands (a stranger with the address, an on-path observer, a room member, a hostile relay, the
+  test instruments themselves). Its findings and fixes are the 2026-09-15 section of
+  [security.md](security.md); its two decisions are
+  [0064 — per-source state lives in `netx` and is never logged](../agent_docs/adr/0064-2026-09-15-per-source-state-lives-in-netx-and-is-never-logged.md)
+  and [0065 — plain udp is dormant](../agent_docs/adr/0065-2026-09-15-plain-udp-is-dormant-behind-a-build-tag.md).
 - [0013 — room-code auth and the game-version check](../agent_docs/adr/0013-2026-08-14-add-room-code-auth-and-a-peer-game-version-check.md)
   and [0015 — the two review passes that hardened the relay](../agent_docs/adr/0015-2026-08-14-two-review-passes-across-the-go-layer-and-all.md):
   the first hardening, and why auth is a relay-side check rather than a client-side one.

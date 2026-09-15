@@ -2059,3 +2059,39 @@ by reverting the source, except `netx/udpconn/halfclose_test.go` (it names a met
 introduces, so it cannot compile against the old tree; the conformance test covers the same
 behaviour and can). The Pseudoregalia half of P2e-1 and P2e-2 are NOT here — they are built,
 deployed to both installs at hash `BEBC2023`, and waiting in that adapter's `UNVERIFIED.md`.
+
+## 2026-09-15 — the fourth review's Go-side facts, each with its instrument
+
+All confirmed by tools in this repo on this date; none is adapter-side, so nothing here waits on a
+game. The tests named are the instruments and run in `run-gotests.bat`.
+
+- **One address could hold every open-connection slot; now it holds 16 of 64 at the default seat
+  count.** `TestShippedStackCapsOpenConnectionsFromOneSource` through the shipped listener stack:
+  the 17th idle socket from loopback is closed at once, and a released slot admits again. The
+  three per-source tests fail with `srclimit.Acquire` disabled.
+- **Six wrong room codes from one address, then "rate limited" for the right one too.**
+  `TestShippedStackThrottlesRoomCodeGuessesFromOneSource`; the relay-side contract in
+  `TestAWrongRoomCodeIsReportedToTheGuardAndABlockedSourceIsRefusedFirst` (a blocked hello is not
+  counted as a failure — the code was never compared). Whole-token leak: blocked for a full
+  second, `netx/srclimit` tests.
+- **50 refused hellos → at most 2 log lines, count preserved** (`TestRefusedHellosLogAtMostOnceASecond`);
+  **a dead outbox costs one write and one line, not twenty** (`TestAnOutboxStopsAtTheFirstFailedSend`).
+- **A client under `auto` refuses a silent relay and a plaintext relay alike**
+  (`TestAutoNeverFallsBackToPlaintext`), and the discovery leg's options refuse a plaintext session
+  (`TestATLSDiscoveryLegForbidsAPlaintextSession`, now on behaviour rather than a mode).
+- **A junk pin refuses to start** (`TestAPinThatIsNotAFingerprintIsAnErrorNotAnAbsence`: `<paste
+  here>`, `TODO`, 63 hex, 65 hex all refused; colons and case accepted).
+- **A release binary carries no udp**: `go tool nm meshghost.exe | grep -c udpconn` = 0, same for
+  `meshghost-relay.exe`; `-transport tcp,udp`, a client `-transport udp`, and a non-empty
+  `listen_udp` each exit with the refusal line (seen live). The tagged build passes its own script.
+- **A wildcard bind on this machine reports as dual-stack**: `TestListeningLineNamesTheAddressFamily`
+  binds `0.0.0.0:0` and logs what the OS returned; the line names the family either way.
+- **A relay started from a foreign working directory finds the config beside its executable** (seen
+  live: "config read from C:\...\config.json (beside the executable; there is none at ...\Temp\config.json
+  in the working directory)").
+- **`room_code`/`only_game`/`max_clients` apply on save without dropping the member already in**
+  (`TestRelayReloadAppliesTheThreeLiveKeysWithoutDroppingAnyone`, through the shipped stack).
+- **The goodbye is parallel**: four members whose half-close takes 300 ms each are closed in under
+  1.2 s (`TestShutdownHalfClosesClientsInParallel`; 1.20 s serial with the goroutine removed).
+- **Fuzz census, counted**: 30 targets in the tree, 29 in the release build, 27 wired in CI; the
+  two unwired are core's opt-in schedule fuzzers; `ci.yml`'s header said 25/eight.

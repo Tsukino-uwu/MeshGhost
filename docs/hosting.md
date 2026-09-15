@@ -280,5 +280,9 @@ nothing for them because neither ships ghosts that block you. See
 
 - **[config.md](config.md)** — every key including the ones not covered here, with its shipped value.
 - **[security.md](security.md)** — what is checked-safe, what is encrypted, and the gaps that remain.
+  **Running this on a server other people can reach?** Read its
+  [What changed (2026-09-15: hosting on the internet)](security.md#what-changed-2026-09-15-hosting-on-the-internet-the-fourth-review)
+  section: what a stranger with your address can and cannot do, and the handful of settings that
+  matter on a VPS.
 - **[reviewing.md](reviewing.md)** — auditing the code you are about to run on your own machine.
 - **[networking.md](networking.md)** — how the relay actually works, traced through the real code.

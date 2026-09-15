@@ -2309,3 +2309,61 @@ reading RawInput/DirectInput still sees `shift+1`…`shift+4`, which are common 
 without a control is not a measurement.* The rule this repo already had — re-run with the probe off
 before believing a result — has a twin: run the arm where the effect must NOT appear, and check the
 instrument can still see. Ten seconds, and it was the difference between a finding and a guess.
+
+## 2026-09-15 — The fourth review worked to the end: a host's question, answered in code
+
+**The question was the Crystal dev's**, put to the user before running `meshghost-server` on a
+rented server: *"i want to run this on a server, can you look for possible security or other
+issues"*. The 2026-09-13 pass answered it with nine read-only cells split by attacker position
+(a stranger with the address, an on-path observer, a room member, a hostile relay, the instruments)
+and 29 findings, A1–A5, B1–B7, C1–C7, D1–D3, E1–E7. Every one was re-verified against the tree
+before a line changed: all 29 still held, and no pass-4 entry existed here.
+
+**What the user decided** (the plan file carries the questions; the answers, in their words):
+targeted A1/A2 fixes now, *"and then the tls-planning & udp-planning right afterwards so we
+actually fix everything"*; per-address state allowed in `netx`, in memory, never logged; the udp
+plan included as written; all of B; and, when the A1 premise turned out to be false (below), *"option
+1? we are changing tls to always be enabled/forced later on anyway?"* — a client under `auto` never
+falls back. Also: the page for the Crystal dev is a dated section in `docs/security.md`, one home
+per fact, no standalone page (*"or would easily go stale due to being in multiple places?"*).
+
+**The plan's own double-check caught the thing that would have derailed it.** The first draft of A1
+kept `auto`'s fallback "only when the relay answered in plaintext", on the belief that an old relay
+answers a ClientHello with a Reject line. It does not: `relay.go` drops an unparseable line silently
+and closes at the hello timeout, so an old relay and an attacker blackholing the handshake are the
+same event on the wire. The reviewer agent read that in `relay.go:1733-1736`; the fix shape changed
+before any code did. Same check corrected the per-source cap's reasoning: a client holds ONE
+connection at a time (`queryTransports` closes the discovery leg before the session dials), so the
+2× is a margin over a household behind one NAT, not "two legs per client".
+
+**What landed, in commit order.** `cb00fffa` the hostile harness on the shipped stack (E1) and the
+per-address connection cap (A5, `netx/srclimit`); `7635061d` the per-address wrong-code budget through
+`relay.Server.SourceGuard` (A3); `360cb41f` throttled refusal lines and the outbox that stops at its
+first failed write (A4, C5, C6, `internal/throttle`); `bf47f160` no plaintext fallback (A1);
+`196415b4` a pin must be 64 hex (A2); `80e9dc5c` plain udp dormant behind `meshghost_devudp` (D1–D3,
+ADR 0065); `9f6da621` ADR 0064 and the records; `e0d9dae5` a fixture race in a core test the gate
+exposed; `20101ba0` B1 (listening line names the family), B5 (qlog opt-in), B7 (case-insensitive
+keys, effective max_clients); `0691108b` B3 (a dying listener says goodbye) and B6 (parallel goodbye
+under a deadline); `afea8d2b` B2 (config beside the executable, log beside the config); `2618a57d`
+B4 (room_code, only_game, max_clients live). Every fix carries a regression test shown red with the
+fix reverted, named in its commit body; the two that could not be are said so (EffectiveMaxClients'
+banner; the harness's baseline tests).
+
+**What the harness found on its first run**, before any fix: a byte-less socket is held by the TLS
+sniff's own 10 s before the relay's hello timer starts — pass 3's P1b "sum of two timers", still
+open, now with a comment in `hostile_test.go` saying which timer the test asserts.
+
+**Recorded, not fixed**: C1, C2, C3, C4, C7 in `risks.md` (opt-in planes, contract decisions for
+when one ships); the bare close a per-address refusal gets; the shared budget behind one NAT.
+`status.md` carries what is open; `docs/security.md`'s "What changed (2026-09-15)" is the host's
+page, linked from `hosting.md` and `reviewing.md`.
+
+**Gates.** `run-gotests.bat` green after Stage 1+A5, after Stage 2, after Stage 3 (second run;
+the first failed only on the fixture race, fixed and shown 20× green), and after Stage 4 (below);
+`run-gotests-race.bat` clean after Stage 2 (20 packages) and after Stage 4. `run-gotests-udp.bat`
+green (10 packages including `udpconn`). `go tool nm` on both rebuilt root binaries: no `udpconn`
+symbol. Nothing pushed; `gh run list -L 5` was green on the last push (2026-09-13) at session start.
+
+**Next**: `agent_docs/tls-planning.md` — scheduled, prerequisite landed. And the E-items that are
+tests only (E3's server-side sniff timeout, E6's buffering assertion) land in this session's last
+commit; the pass-3 remainder stays open.

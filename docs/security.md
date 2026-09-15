@@ -13,7 +13,7 @@
  │  meshghost.exe  (core)   │                          │  meshghost.exe  (core)   │
  └────────────┬─────────────┘                          └─────────────┬────────────┘
               │                                                      │
-              │        RELAY PROTOCOL — tcp / quic / udp             │
+              │        RELAY PROTOCOL — tcp / quic                   │
               │        (handshake is ALWAYS tcp, then upgrades)      │
               │                                                      │
               └──────────────────►  ┌─────────────────┐  ◄───────────┘
@@ -75,7 +75,7 @@ while hosting is friend-to-friend; revisit if public or third-party hosting ever
 | --- | --- | --- | --- |
 | **tcp** | **Optional**, TLS 1.3 — **on by default** (`auto`), in a release and from the flags alike | **No**, unless a fingerprint is pinned | Encrypted by default under `auto`, which still serves plaintext on the SAME port -- so netcat debugging survives while real sessions are protected. `off` opts out; `required` refuses plaintext outright. Always carries the handshake. |
 | **quic** (default) | **Yes**, TLS 1.3 | **No** — the certificate is self-signed and unverified | Stops a passive eavesdropper. Does **not** stop an active man-in-the-middle, who presents their own certificate and is accepted. |
-| **udp** | **No** | No | Go's standard library has no DTLS, so this one cannot be fixed the same way. |
+| **udp** | **No** | No | **Not shipped since 2026-09-15** (ADR 0065): Go's standard library has no DTLS, so it could never be encrypted, and it rescued no player quic could not. A release refuses the name; the code is a dev build's comparison tool. |
 
 So the honest summary is **encrypted-by-default, authenticated-only-if-you-ask**. A room code raises
 the bar from "anyone with the address" to "anyone with the address and the code" — not to "safe
@@ -87,24 +87,24 @@ string by some other route puts it in `"tls_fingerprint"`. A relay presenting an
 refused rather than trusted. Without it, TLS (on `tcp`) and quic alike give you encryption and no
 proof of who is on the other end.
 
-**`auto` withdraws its own plaintext fallback once TLS is proven to work.** The discovery leg runs
-first, over tcp; if it completes a TLS handshake, `core.resolveTransport` escalates the session's
-mode from `tlsx.Auto` to `tlsx.Required` before the session connection is made
-(`core/transportpick.go`). The reasoning is that a plaintext session to a relay that has *just*
-demonstrated it speaks TLS could only be someone interfering — the fallback exists for relays built
-before TLS was added, and once it is known not to be needed it is an attack surface rather than a
-compatibility measure. So a default client against a default relay is not merely "encrypted if
-nothing goes wrong": it will refuse to complete an unencrypted session. The one exception is a
-transport that cannot carry TLS at all — plain `udp`, which has no DTLS in Go — where escalating
-would kill the transport rather than secure it; that session stays plaintext and the client logs
-that it is, in those words, rather than letting it look encrypted.
+**A client with `tls` on never falls back to plaintext** (since 2026-09-15). `auto` and `required`
+differ only on the relay side; on the client both refuse a relay that does not complete a TLS
+handshake, on the discovery leg and the session leg alike, on every reconnect. Until that date
+`auto` fell back to plaintext once with a warning, so a client could still reach a relay built
+before TLS existed — and the fourth adversarial review showed what that allowance cost: *any*
+failed handshake took the fallback (a reset, a dropped ClientHello, the 3 s discovery timeout),
+the plaintext redial carried the room code, and a middlebox that resets TLS on a non-443 port did
+it by accident. The allowance could not be kept for old relays either, because a plaintext relay
+never answers a ClientHello with bytes — it drops the line it cannot parse and closes at its hello
+timeout, which is exactly what an attacker blackholing the handshake looks like. Every release
+since 2026-08-19 speaks TLS, so the fallback went (`netx.DialWithTLS` carries the reasoning); the
+one way to reach a relay deliberately run with `tls` `off` is to set `off` on the client too.
 
-**Setting a pin forces `tls` to `required` for that session** (since 2026-09-07). It has to: under
-`auto`, "the pin did not match" and "this relay is too old to speak TLS" reach the client as the same
-error, and `auto`'s job is to fall back to plaintext on that error — so a pin under the shipped
-default turned detection of an interfering relay into an automatic downgrade *to* it. The escalation
-is logged when it happens. A pin therefore cannot be combined with `-transport udp`, which has no
-handshake to authenticate; that is refused at startup rather than at dial time.
+**Setting a pin forces `tls` to `required` for that session** (since 2026-09-07), and **a pin must
+be a whole fingerprint** (since 2026-09-15): 64 hex digits, with or without colons. A placeholder
+such as `<paste here>` used to normalize to nothing and mean "no pin" while the log said the relay
+was pinned — an unauthenticated session under a line saying it was authenticated; now it refuses to
+start.
 
 **The pin authenticates the tcp leg only.** `netx.DialWithTLS` returns a plain dial for anything
 that is not tcp, so the fingerprint is never consulted on the quic path; `netx/quicconn`'s client
@@ -496,6 +496,80 @@ review that is never wrong is a review nobody checked: one described the documen
 setting as a defect, and another called two collections memory leaks when they are bounded by the
 game's own object pools. Reading the second found a real bug underneath it anyway.
 
+## What changed (2026-09-15: hosting on the internet, the fourth review)
+
+**The question was a host's, this time.** Someone hosting a Pokémon Crystal randomizer community
+asked, before putting `meshghost-server` on a rented server: *"can you look for possible security or
+other issues?"* Nine reviewers who had not written the code read it from the positions an attacker
+would actually stand in — a stranger who has the address, someone on the network path, a member of
+a room, a hostile server, and the test instruments themselves — and found twenty-nine things. What
+follows is what a host needs to know: what a stranger with your address can and cannot do now, and
+the few settings that matter on a server other people can reach. Two decisions came out of it
+(ADR 0064 and ADR 0065), and the next piece of work, forcing encryption on with nothing manual for
+anyone, is scheduled behind it.
+
+**One machine can no longer fill the server.** The server accepts 64 connections per listener,
+counted before anyone says hello, and a single address could hold all 64 open and silent —
+refreshing them every ten seconds — so every real player was refused with a bare disconnect,
+indistinguishable from the server being down. Each address now gets its own share: twice the seat
+count, so 16 on a default server, enough for a whole household behind one home router to fill every
+seat and more. A flood from one machine now needs four machines, and the addresses it costs are
+kept in memory only, never in the log (see the privacy section below).
+
+**A room code cannot be guessed at the speed connections can be opened.** A wrong code cost the
+guesser one connection, and a connection is a couple of round trips: hundreds of guesses a second
+from one machine, a dictionary word in minutes. Each address now gets six wrong codes, then one more
+per second; while over budget it is told "rate limited" before its next code is even compared, the
+right code included, so the reply never says whether a guess was close. A code is checked on both
+legs of a join, so a friend's typo costs two of the six — three typos are free. The server also
+warns at startup if the code is under eight characters. **On a server strangers can reach, set a
+room code, and make it long: eight characters or more.**
+
+**A stranger cannot erase your log.** Every refused hello, every socket that never said hello and
+every reset wrote one line, and the log keeps one megabyte plus one rotated copy — so about 1,900
+refused connections rolled the startup banner (your certificate fingerprint included) and every
+join and leave off the end in seconds. A member that stopped reading cost 256 lines every twelve
+seconds the same way. Every line a stranger can cause is now at most one a second, carrying a count,
+and a dead connection's queue is dropped after its first failed write.
+
+**A player's client never quietly downgrades to plaintext.** With the shipped `tls` setting a
+client that failed a TLS handshake for any reason — a reset, a timeout, something on the path
+breaking it — reconnected in plaintext with the room code readable, and on a tcp-only server the
+whole session then ran in the clear. Now a client with `tls` on refuses any server that does not
+complete the handshake; the only way to talk to a server you deliberately run with `tls` `off` is
+to set `off` on the client too. A pinned fingerprint must now be the whole fingerprint: a
+placeholder used to pin nothing while the log said it was pinned.
+
+**Plain udp is gone from releases.** It could never be encrypted, it rescued no player quic could
+not (quic runs over udp, so whatever blocks one blocks both, and tcp is the fallback anyway), and it
+was attack surface for no benefit. A `transport` or `listen_udp` still naming it refuses to start
+and says why. The default `tcp,quic` is unchanged.
+
+**What a server operator sees is truer.** The "listening on" line says which address families the
+socket covers — a wildcard bind is dual-stack on Linux and Windows, so `0.0.0.0` had an IPv6 side
+open that a v4-only firewall never saw. A server started from a directory other than its own (a
+service manager's default) now looks for `config.json` beside the executable too, says which file it
+read or that it found none, and writes its log beside that config. `room_code`, `only_game` and
+`max_clients` are re-read when the file is saved, without disconnecting anyone — a leaked code no
+longer costs a restart. A server that dies of a listener error says goodbye to its players the way
+Ctrl+C does, and the goodbye no longer waits on one stalled member. The qlog packet trace is written
+only when asked for with `-qlog`, not whenever an environment variable happens to be set. A key typed
+in the wrong case is no longer applied and simultaneously reported as ignored, a `max_clients` of
+`0` is printed as the 8 it enforces, and a trailing space in `room_code` no longer refuses everyone.
+
+**On a server strangers can reach, then:** set a `room_code` of eight characters or more; leave
+`tls` at `auto` (or set `required`, which refuses old clients outright) and give players the
+fingerprint line out of band if you want them to be sure it is you; bind `0.0.0.0` and firewall
+both IPv4 and IPv6, or bind one explicit address; keep `transport` at `tcp,quic` and forward that
+one port number for both tcp and udp; run it from its own folder or give `-config` an absolute
+path; and read the startup lines — every one of the settings above prints what it decided.
+
+**What was looked at and not changed.** Five findings sit in the position of a room member on an
+opt-in plane no shipped game negotiates; they are recorded in `agent_docs/risks.md` with their
+numbers, for when a plane ships. The test instruments were made honest as part of the same pass: a
+hostile-client harness now drives the exact listener stack a stranger meets, the fuzz census was
+recounted, and the udp fuzz target moved with its transport to the dev build.
+
 ## What's already true, and why (checked against the actual code, 2026-09-11)
 
 **No peer-to-peer connection exists.** Clients never connect to each other — only to the
@@ -529,11 +603,18 @@ plain tcp and udp. A cosmetic room mints none and parks nothing.
 process lifetime, carrying no information about the connection it came from.
 
 **The relay itself doesn't read a client's IP, and logs one only when TLS is enabled and a
-connection is refused.** `relay`, `core` and `cmd/` contain no `RemoteAddr()` call site
-(re-grepped 2026-08-19); the occurrences are in `netx/` -- the `net.Conn` method that
-`netx/udpconn` and `netx/quicconn` must implement, plus a stub on a fake conn in `transport`'s own
-tests -- plus `udpconn`'s own internal keying of its connection map by remote address, which is how
-a single shared UDP socket is demultiplexed at all and is never surfaced upward or logged.
+connection is refused.** `relay`, `core` and `cmd/` contain no `RemoteAddr()` call site — a test
+fails the build on one since 2026-09-15 (`internal/gameblind`); the occurrences are in `netx/`, the
+`net.Conn` method the transports must implement.
+
+**Since 2026-09-15 `netx` does keep one thing per client address, in memory only** (ADR 0064): how
+many connections that address holds open, and how many wrong room codes it has sent in the last few
+seconds. That is what bounds a single machine that used to be able to hold every connection slot or
+guess room codes hundreds of times a second (see the 2026-09-15 section above). The table is capped
+at 4096 addresses, an address is forgotten as soon as it is idle and the table needs the room, and
+**no address in it is ever written to the log or to disk** — the throttled refusal lines print
+counts. The relay reaches it through an interface it hands the connection to, so the relay still
+never reads the address itself.
 
 **The one exception, added 2026-08-19 with TLS over tcp:** `netx/tlsx`'s listener names the peer
 address in two log lines — a plaintext connection refused under `"tls": "required"`, and a failed
@@ -603,16 +684,18 @@ ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
   `MaxWorldBlobBytes`, ~52KiB per room, freed with the room) and opt-in per room, so it is not a
   resource gap; what it is, is a new place a client could smuggle something into, and it is not
   inspected because by hard rule it cannot be. Same posture as `extras`, with a longer lifetime.
-- **`tcp` is plaintext only if you turn `tls` off; `udp` always.** On `tcp` that is a setting rather
-  than a limit, since 2026-08-19: `"tls": "auto"` or `"required"` encrypts it, and `auto` is now the default
-  to keep the "greppable with netcat" debuggability property (see "Why TCP is the mandatory
-  handshake leg" below); the shipped release config sets `auto`. On `udp` it
-  is *unavoidable*, since Go's standard library has no DTLS. So with `tls` off a room code crosses
-  either in the clear: anyone positioned between a client and the relay can read it. That is the
-  honest ceiling of what room-code auth buys in that configuration — "anyone with the address and
-  the code," not "safe against a network-level attacker." With `tls` on, `tcp` reaches quic's level
-  below — encrypted, unauthenticated by default — and with a fingerprint pinned it goes one step
-  *past* quic, because the pin covers the tcp leg and nothing else (see above).
+- **`tcp` is plaintext only if you turn `tls` off** — on both ends, since 2026-09-15: a client with
+  `tls` on refuses a plaintext relay. On `tcp` that is a setting rather than a limit, since
+  2026-08-19: `"tls": "auto"` or `"required"` encrypts it, and `auto` is the default to keep the
+  "greppable with netcat" debuggability property on the relay side (see "Why TCP is the mandatory
+  handshake leg" below); the shipped release config sets `auto`. So only with `tls` off on the
+  client does a room code cross in the clear, and then anyone positioned between a client and the
+  relay can read it. That is the honest ceiling of what room-code auth buys in that configuration —
+  "anyone with the address and the code," not "safe against a network-level attacker." With `tls`
+  on, `tcp` reaches quic's level below — encrypted, unauthenticated by default — and with a
+  fingerprint pinned it goes one step *past* quic, because the pin covers the tcp leg and nothing
+  else (see above). Plain `udp`, which could never be encrypted, stopped shipping the same day (ADR
+  0065).
   **`quic` is the exception, since 2026-08-16**: its handshake *is* TLS 1.3, so the session is
   encrypted and the source address cannot be forged. What it still does not give is proof of *who*
   the relay is — the certificate is self-signed and unverified, because `connect_to` is a bare IP
@@ -624,9 +707,10 @@ ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
   confirmed reachable from a quic-go connection (`TestHandshakeIsTLS13`).
 - **Room-code auth depends on the relay being current** — see "A new risk this creates" above.
   A stale relay binary silently provides none of the protection a client believes it configured.
-- **Audited adversarially three times, on 2026-09-02, 2026-09-07 and 2026-09-12** — the resource-exhaustion,
-  protocol-trust, transport and peer-to-adapter surfaces, by reviewers who had not written the code
-  and were not shown this page (ADR 0044 covers the first). The second found, among others, the
+- **Audited adversarially four times, on 2026-09-02, 2026-09-07, 2026-09-12 and 2026-09-13** — the resource-exhaustion,
+  protocol-trust, transport and peer-to-adapter surfaces, and on the fourth the internet-facing
+  relay specifically, by reviewers who had not written the code
+  and were not shown this page (ADR 0044 covers the first; the 2026-09-15 section above the fourth). The second found, among others, the
   drain-window rejoin and the synchronous relay write that could freeze a game, both below. That is
   two passes by one kind of reviewer, not a proof; the honest
   status is "the things a hostile reader found in a day are fixed, and what they chose to leave
@@ -655,9 +739,19 @@ ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
   for the grace window after dropping, so eight identities cycling reconnects can hold all eight
   default seats while rarely being connected. Bounded by `max_clients`, and no cheaper for the
   attacker than holding eight connections.
-- **The UDP admission cookie is a small reflector.** A 2-byte spoofable hello gets an 18-byte
-  reply to the claimed address, plus one HMAC on the relay — 1.5x on the wire. Nothing is
-  remembered for an unvalidated address, and `udp` is opt-in. Recorded so it is not rediscovered.
+- **A connection refused by the per-address cap gets a bare close, not a reason** (2026-09-15). The
+  cap sits in `netx`, below the protocol, and cannot write a Reject; the listener-wide cap it extends
+  has always behaved the same. A player behind a NAT that already holds its share sees "the server
+  dropped me", not "too many from your address". Accepted; the share is two connections per seat
+  with a floor of 16, so a household fills it only by holding twice its seats open.
+- **The per-address budgets trust the address.** A source that is spoofed or spread across many
+  machines is bounded only by the listener-wide caps the budgets sit inside. And a household behind
+  one NAT shares one budget of wrong room codes: one member's typos block the others for a second
+  per attempt (three typos are free; a code rides both legs of a join, so that is six attempts).
+- **Five findings in the member position of an opt-in plane are recorded, not fixed** — a reliable
+  flood that gets a slower peer disconnected, an escrow anyone can open naming anyone, and three
+  smaller ones. None is reachable in a cosmetic room; each is a contract decision for when a plane
+  ships. They are in [agent_docs/risks.md](../agent_docs/risks.md), with the numbers.
 
 ### Why `auto` and not `off` — a policy decision, 2026-08-19
 
