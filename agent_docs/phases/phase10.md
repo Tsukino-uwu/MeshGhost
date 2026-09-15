@@ -2622,3 +2622,15 @@ the `.bat` prepends the MSYS2 gcc, the PATH-shadow rule again; and ThreadSanitiz
 fails to map its shadow memory here, "error code: 87", which is the machine, not a test.) The new
 relay test was shown failing with the fix stashed. Root binaries rebuilt with `-o`; preflight
 down to the known-DLL warnings. Nothing pushed. **Still unwatched in a real game**: a coded join, and the identity-changed warning.
+
+## 2026-09-15 (after the night entry) — Multi-relay: who trusts whom, answered on file
+
+The user asked whether the relay and the router should prove themselves to each other, "strict/
+manual", so the router knows every registered relay is the host's — and clarified it meant a
+credential of its own, never the room code. Answered in `multi-relay.md`, new section "Who
+trusts whom": strict default is mutual fingerprint pinning of the identities ADR 0066 already
+persists; optional looser mode is a long random cluster secret proved by a keyed MAC over the TLS
+exporter; neither is a PAKE, because OPAQUE earns its round trip only for a short human-typed
+secret. The player's trust in a relay chains from the router's answer (address plus fingerprint),
+and in a cluster the router becomes the OPAQUE server that issues the ticket. Design only, nothing
+scheduled; the user's call that the extra work is assumed worth it at the scale that needs a router.

@@ -72,7 +72,8 @@ bytes per second. That heartbeat is the only connection a relay ever makes to an
 and it never carries game traffic. Startup order is router, then relays, then players; a player
 who asks before any relay has registered is told none is available. The alternative for a host
 who runs machines they control is a fixed list of relay addresses in the router's config, which
-lets the router start last.
+lets the router start last. Either way a registration is accepted only from an identity the
+router was told to expect ("Who trusts whom", below).
 
 ## Assignment: how areas land on relays
 
@@ -123,7 +124,55 @@ of any of this.
 Today the room code is proven to one relay and bound to that relay's TLS identity (ADR 0067).
 With several relays the client proves it once to the router and receives a short-lived ticket any
 relay of that room accepts, the login-server ticket of the MMO shape. This is the one new protocol
-piece and a contract revision when built: a new ADR then, not now.
+piece and a contract revision when built: a new ADR then, not now. The proof goes to the router,
+which holds the room record in a cluster ("Who trusts whom", below).
+
+## Who trusts whom
+
+Written 2026-09-15, from the user's question that day: should the relay and the router prove
+themselves to each other, strict and manual, so the router knows every relay it hands areas to
+is the host's? Yes, and with a credential of its own that no client ever sees: the room code is
+the players' secret and stays theirs. The extra work is assumed worth it at the scale that needs
+a router at all (the user's call); one relay without a router is today's setup and pays none of it.
+
+**What an unproven registration would cost.** A relay that registers is assigned areas, and
+from then on receives every state of every player standing in them and may inject any ghost into
+them. Registration is where the cluster is either the host's or anyone's.
+
+**Strict, the default: the identities already on disk, pinned both ways.** Every relay persists
+a TLS identity and writes its fingerprint to `private/server.fingerprint` (ADR 0066); a router
+gets the same. The router's config lists, one line per relay, the fingerprint of each relay it
+accepts, and a registration from any other certificate is refused whatever it announces. Each
+relay is started with the router's fingerprint and refuses any other router. No trust on first use
+on this leg in either direction, no secret to leak, and removing a relay is deleting a line. The
+cost is the manual part: a new relay is a config edit, and a relay reinstalled without its
+`private/` folder is a new identity that drops out until it is listed.
+
+**Optional, looser: a cluster secret.** One long random value the operator generates once and
+puts in the router's config and every relay's. At registration the relay proves it holds the
+value with a keyed MAC over the TLS session's exporter, so the value never crosses the wire, and
+relays then come and go with no router edit. The price is one value shared by every machine: a
+copy leaking from any relay admits a rogue relay until the value is rotated everywhere, and the
+router tells relays apart by address only.
+
+**Why neither is a PAKE.** OPAQUE (ADR 0067) is there because the room code is short and typed
+by a human, and a PAKE denies an interceptor an offline guess at a short secret. A cluster secret
+is machine-generated and read from a file, so it can be 32 random bytes and a keyed MAC over it is
+already unguessable; a PAKE here would buy a round trip and an Argon2id step for nothing. The pin
+list has no secret at all.
+
+**The player's trust in a relay chains from the router.** The router's answer to "room X, area
+Y" carries the relay's address and its fingerprint, learned at registration. The client pins that
+fingerprint for the connection, so ADR 0066's trust-on-first-use path is never taken for a relay
+in a cluster. The one identity a player still meets cold is the router's, remembered on first use
+as a relay is today, or pinned from a value the host published beside the address.
+
+**Where the room code goes.** ADR 0067 binds the OPAQUE login to one relay's fingerprint, which
+cannot hold when a player is meant to land on any of several. In a cluster the router is the
+OPAQUE server: it holds the one record per room, bound to its own fingerprint, and issues the
+ticket of the previous section; a relay in a cluster holds no room code and accepts the ticket.
+The pin list and the cluster secret are configuration, not protocol; the ticket stays the one
+new protocol piece.
 
 ## Failure
 
