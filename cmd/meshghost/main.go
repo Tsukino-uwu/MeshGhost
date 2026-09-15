@@ -814,12 +814,10 @@ func main() {
 		"which transport to move to AFTER connecting. The handshake is always tcp and this "+
 			"cannot be changed -- so you never need to know which port a transport is on, and a "+
 			"preference the relay does not serve degrades to a working tcp session instead of a "+
-			"timeout. auto (the default): take the best on offer, preferring quic, and never udp "+
-			"unless it is all there is. tcp: stay on tcp (reliable, and the only one readable "+
-			"with netcat while debugging). udp: upgrade if the relay serves it -- better on a "+
-			"lossy connection, but CANNOT be encrypted (Go has no DTLS), so your room code "+
-			"crosses the wire in the clear. quic: same loss behaviour as udp but encrypted and "+
-			"hard to spoof")
+			"timeout. auto (the default): take the best on offer, preferring quic. tcp: stay on "+
+			"tcp (reliable, and the only one readable with netcat while debugging). quic: "+
+			"loss-tolerant, encrypted and hard to spoof. (udp, the plain unencrypted transport, "+
+			"stopped being an option on 2026-09-15 and is refused by name)")
 	tlsMode := flag.String("tls", tlsx.Auto.String(),
 		"encrypt the connection to the relay: auto (the default), off, or required. This covers "+
 			"the tcp handshake every client makes -- the one that carries your room code -- so it "+

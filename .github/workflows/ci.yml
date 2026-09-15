@@ -85,6 +85,13 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      # Plain udp is dormant (ADR 0065, 2026-09-15): compiled only under this tag, tested
+      # only by hand. Vetting the tagged tree here is the anti-rot step -- a refactor that
+      # breaks netx/udpconn fails this job instead of the next manual comparison run. No
+      # udp tests or fuzzing in CI, on purpose.
+      - name: Vet the dev-only udp build
+        run: go vet -tags meshghost_devudp ./...
+
       # The release ships Linux and macOS builds of the client and server in the same zip
       # as the Windows ones, but the release workflow is workflow_dispatch only -- so
       # without this, a break on a platform no CI job runs would first appear on release
@@ -311,11 +318,10 @@ jobs:
       # ends drifting into "some players cannot join".
       - name: Fuzz relay - every protocol version a hello can carry
         run: bash dev-scripts/ci-fuzz.sh ./relay FuzzHelloProtocolVersion 45s
-      # udp parses stranger datagrams *before* address validation, room code or
-      # protocol version -- the most exposed pre-auth surface in the project,
-      # and since 2026-08-16 it is also on the fallback path rather than opt-in.
-      - name: Fuzz udpconn - listener survives arbitrary datagrams
-        run: bash dev-scripts/ci-fuzz.sh ./netx/udpconn FuzzListenerSurvivesArbitraryDatagrams 45s
+      # netx/udpconn's FuzzListenerSurvivesArbitraryDatagrams has no step since 2026-09-15:
+      # plain udp is compiled only under the meshghost_devudp tag and no release carries it
+      # (ADR 0065). The test job's vet step still compiles it; dev-scripts/run-gotests-udp.bat
+      # runs its tests and fuzz seeds by hand.
       # A replay file (ADR 0047, 2026-09-03) is a stranger's bytes by design --
       # shared and hand-edited -- and the loader is the only parser in core
       # that reads a file. It must never panic, and anything it accepts must

@@ -1,3 +1,5 @@
+//go:build meshghost_devudp
+
 package udpconn
 
 // The world plane's bounds are DERIVED from this package's own constants, not

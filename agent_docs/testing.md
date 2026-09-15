@@ -271,13 +271,14 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
   (a bystander folded nothing and so had nothing to adopt when it joined in; an encounter first
   seen mid-fight wrongly claimed to have watched it from the start), which is the argument for
   writing them before believing a model.
-  The live form is `-enemies N -features event.v1`, best run through `cmd/meshghost-netsim` on udp
-  so loss and reordering are real:
+  The live form is `-enemies N -features event.v1`, best run through `cmd/meshghost-netsim` on
+  quic so loss and reordering are real (it was udp until 2026-09-15, when plain udp stopped
+  shipping — ADR 0065; netsim's udp mirroring is what carries quic's datagrams):
 
   ```
-  meshghost-relay.exe -addr 127.0.0.1:7777 -transport udp
+  meshghost-relay.exe -addr 127.0.0.1:7777 -transport tcp,quic
   meshghost-netsim.exe -listen 127.0.0.2 -target 127.0.0.1 -loss 0.05 -jitter 25ms -latency 20ms -reorder 0.05
-  meshghost-fakeadapter.exe -relay 127.0.0.2:7777 -transport udp -room soak -clients 4       -game-id credittest -features event.v1 -enemies 3 -enemy-reset-every 8s -duration 60s
+  meshghost-fakeadapter.exe -relay 127.0.0.2:7777 -transport quic -room soak -clients 4       -game-id credittest -features event.v1 -enemies 3 -enemy-reset-every 8s -duration 60s
   ```
 
   Each client gets a different difficulty scale, so the ratchet actually fires; a run where
@@ -288,8 +289,9 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
   no checker. Verified to have teeth on 2026-08-19 by regressing one client's fold and watching
   invariant 13 name it against the two healthy peers.
 - **`netx/conformance_test.go`** — **the transport conformance suite: one set of
-  behavioural assertions run against tcp, udp AND quic.** The point of `netx` is that the
-  three are interchangeable behind one interface, so a behaviour that holds on one and not another
+  behavioural assertions run against tcp AND quic** (and udp too under the `meshghost_devudp`
+  tag, since 2026-09-15 — see "Manual udp runs" below). The point of `netx` is that the
+  transports are interchangeable behind one interface, so a behaviour that holds on one and not another
   breaks a documented guarantee while every per-transport test still passes — each of those only
   asks whether its own transport is self-consistent.
   **The rule for adding to it: if a behaviour is promised by the Transport contract rather than by
@@ -368,6 +370,20 @@ instead of in a working file that gets deleted.
 
 ## Running the things the script doesn't
 
+### Manual udp runs (dev build only, since 2026-09-15)
+
+Plain udp (`netx/udpconn`) is compiled only under the `meshghost_devudp` build tag (ADR 0065):
+`run-gotests.bat` never compiles it, `go test ./...` never sees it, and CI only vets it (`go vet
+-tags meshghost_devudp ./...`) so a refactor cannot rot it silently. Its tests — the package's own,
+netx's conformance suite with udp in `transportsUnderTest`, relay's three-way mixed-transport room,
+`cmd/`'s udp address resolution — run only through `dev-scripts/run-gotests-udp.bat` (via `&
+$env:ComSpec /c`, like every `.bat`), which also prints the fuzz command. Run it before using udp as
+the A/B control against quic, or after touching anything in `netx` the transports share.
+
+**Not covered anywhere: udp through the real binaries.** `internal/e2e` builds release binaries
+from source, and a release has no udp; its per-transport round trip runs quic. A udp e2e would need
+a tagged build of both binaries, which nobody ships.
+
 ### Race detector
 
 **Local `-race` DOES work on this machine, as of 2026-08-18.** This section said the opposite
@@ -428,7 +444,7 @@ checks):
 | `FuzzEnvelopeUnmarshalNeverPanics` | The outermost decode fails cleanly on arbitrary bytes. |
 | `FuzzReadLoopNeverExceedsItsLineLimit` | The framing layer never delivers a payload past its line limit, however the input is shaped. |
 | `FuzzRelaySurvivesArbitraryLines` | A live relay fed arbitrary bytes still serves legitimate clients afterwards. |
-| `FuzzListenerSurvivesArbitraryDatagrams` | A `udpconn` listener fed arbitrary datagrams — malformed headers, bad tokens, wrong sequence numbers — keeps accepting real sessions. |
+| `FuzzListenerSurvivesArbitraryDatagrams` | A `udpconn` listener fed arbitrary datagrams — malformed headers, bad tokens, wrong sequence numbers — keeps accepting real sessions. **Dev build only since 2026-09-15** (`-tags meshghost_devudp`); no CI step, run by hand. |
 | `FuzzValidateEventIsStableAcrossTheWire` | An event's validity cannot change across the relay's forward, so nothing passes the gate and arrives invalid at a peer. |
 | `FuzzValidateLeaseAndEscrowNeverPanic` | The two arbitration planes' bounds checks never panic, and a resolved lease TTL always lands inside the honoured range. |
 | `FuzzNormalizeFeaturesIsIdempotent` | Normalizing twice equals normalizing once, so two clients advertising the same capabilities are never refused a shared room. |
@@ -469,9 +485,9 @@ they have steps now.
 **Two targets have shipped written-but-unwired**, a pattern rather than a slip:
 `FuzzListenerSurvivesArbitraryDatagrams` (fixed 2026-08-17) and `FuzzValidateWorldIsStableAcrossTheWire` (written with `world.v1`, wired later the same day, having
 never once run). **Adding a target is not done until `.github/workflows/ci.yml` has a step for it**,
-and this table is where the next session checks. The udp one is the most exposed of them: udp
-parses a stranger's bytes *before* address validation, room code, or protocol version, and since
-the transport defaults changed it sits on the fallback path rather than being opt-in.
+and this table is where the next session checks. The udp one is deliberately unwired since
+2026-09-15: plain udp no longer ships (ADR 0065), so the exposure it fuzzed is a dev build's, and
+the manual script below is where it runs.
 
 If CI's fuzz job fails, the reproducing input is uploaded as the `fuzz-failure-corpus` artifact:
 drop it into `testdata/fuzz/<Target>/`, where `go test ./<pkg>` replays it — commit it as a

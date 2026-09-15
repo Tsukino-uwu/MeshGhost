@@ -39,11 +39,10 @@ import (
 
 const conformanceTimeout = 5 * time.Second
 
-// transportsUnderTest is every kind netx can dial and listen on. Adding a
-// transport here subjects it to the whole suite at once, which is the point:
-// a new transport should have to earn the same guarantees rather than being
-// trusted to have them.
-var transportsUnderTest = []netx.Kind{netx.TCP, netx.UDP, netx.QUIC}
+// transportsUnderTest (conformance_kinds_test.go, and its dev-tag twin) is
+// every kind netx can dial and listen on. Adding a transport there subjects
+// it to the whole suite at once, which is the point: a new transport should
+// have to earn the same guarantees rather than being trusted to have them.
 
 // pair brings up a connected client/server couple on kind. The client sends
 // greeting first, because a QUIC stream does not exist on the wire until it

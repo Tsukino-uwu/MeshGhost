@@ -35,7 +35,6 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/netx/quicconn"
 	"github.com/Tsukino-uwu/MeshGhost/netx/srclimit"
 	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
-	"github.com/Tsukino-uwu/MeshGhost/netx/udpconn"
 )
 
 // Kind is a selectable transport. The zero value is TCP, which is both the
@@ -69,17 +68,9 @@ const (
 	Auto
 )
 
-// AutoPreference is the order Auto picks in: the first offered transport
-// wins.
-//
-// QUIC first because it is the only one that is both loss-tolerant and
-// encrypted. TCP second. **UDP last, deliberately, even though it shares
-// QUIC's loss behaviour** — it cannot be encrypted at all (Go has no DTLS),
-// so choosing it automatically would silently downgrade a user's room code
-// to plaintext on a relay that also offered quic. Someone who genuinely
-// wants udp can still name it explicitly; nothing should pick it on their
-// behalf.
-var AutoPreference = []Kind{QUIC, TCP, UDP}
+// AutoPreference, the order Auto picks in, lives in udp_release.go (QUIC,
+// TCP -- what ships) and udp_dev.go (plus UDP last, under the
+// meshghost_devudp tag). ADR 0065.
 
 // ParseKind resolves a transport name from config or a flag. It is
 // deliberately strict: an unrecognized value is an error rather than a
@@ -91,13 +82,17 @@ func ParseKind(s string) (Kind, error) {
 	case "tcp":
 		return TCP, nil
 	case "udp":
-		return UDP, nil
+		// A release refuses the name outright (udp_release.go); the dev build
+		// accepts it. Refusing rather than falling back to tcp is the same
+		// choice the default arm makes for a typo: a transport the user did
+		// not get should be an error they see.
+		return parseUDPKind()
 	case "quic":
 		return QUIC, nil
 	case "auto":
 		return Auto, nil
 	default:
-		return TCP, fmt.Errorf("netx: unknown transport %q (want tcp, udp, quic, or auto)", s)
+		return TCP, fmt.Errorf("netx: unknown transport %q (want tcp, quic, or auto)", s)
 	}
 }
 
@@ -177,7 +172,7 @@ func listenWith(k Kind, addr string, sources *srclimit.Table) (net.Listener, err
 	case TCP:
 		return net.Listen("tcp", addr)
 	case UDP:
-		return udpconn.Listen(addr)
+		return udpListen(addr)
 	case QUIC:
 		return quicconn.ListenWith(addr, quicconn.Options{Sources: sources})
 	case Auto:
@@ -193,7 +188,7 @@ func Dial(k Kind, addr string, timeout time.Duration) (net.Conn, error) {
 	case TCP:
 		return net.DialTimeout("tcp", addr, timeout)
 	case UDP:
-		return udpconn.Dial(addr, timeout)
+		return udpDial(addr, timeout)
 	case QUIC:
 		return quicconn.Dial(addr, timeout)
 	case Auto:

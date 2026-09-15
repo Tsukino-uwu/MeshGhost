@@ -14,73 +14,7 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/Tsukino-uwu/MeshGhost/netx"
 )
-
-// TestUDPRelocationKeepsTheBindInterface is the F7 regression.
-//
-// Returning FallbackUDPAddr wholesale threw away the operator's -addr along
-// with its port: a relay started with `-addr 0.0.0.0:7777 -transport
-// tcp,udp,quic` bound udp on 127.0.0.1, reachable from nowhere but the host's
-// own machine, while the startup banner told the host to forward 7780 and the
-// relay advertised udp:7780 to remote clients -- who resolve an offered port
-// against the address they dialled, and so dialled a port with nothing on it.
-// Every line of commentary on that constant justified the PORT; none of them
-// ever addressed the host.
-func TestUDPRelocationKeepsTheBindInterface(t *testing.T) {
-	both := []netx.Kind{netx.TCP, netx.UDP, netx.QUIC}
-
-	cases := []struct {
-		name string
-		addr string
-		want string
-	}{
-		{"every interface", "0.0.0.0:7777", "0.0.0.0:" + FallbackUDPPort},
-		{"one public interface", "203.0.113.9:7777", "203.0.113.9:" + FallbackUDPPort},
-		{"ipv6", "[::]:7777", "[::]:" + FallbackUDPPort},
-		{"loopback, the default", "127.0.0.1:7777", FallbackUDPAddr},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := resolveUDPAddr(both, tc.addr, sharesAddrPort)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got != tc.want {
-				t.Fatalf("udp landed on %q for -addr %q, want %q -- only the PORT moves; a udp "+
-					"listener on an interface the operator never chose is unreachable from "+
-					"outside, and the relay advertises it to remote clients anyway",
-					got, tc.addr, tc.want)
-			}
-		})
-	}
-
-	t.Run("an addr with no port keeps the old constant", func(t *testing.T) {
-		// Not a shape this binary can bind either way -- netx.ListenWithTLS gets
-		// the same string and refuses with its own message -- so this is about
-		// not inventing a second error path for input already being refused.
-		got, err := resolveUDPAddr(both, "not-an-address", sharesAddrPort)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if got != FallbackUDPAddr {
-			t.Fatalf("got %q, want %q", got, FallbackUDPAddr)
-		}
-	})
-
-	t.Run("quic still keeps the shared port", func(t *testing.T) {
-		// The 2026-08-27 rule this fix must not disturb: quic is the default
-		// transport, so quic keeps -addr's number and udp is the one that moves.
-		got, err := resolveQuicAddr(both, "0.0.0.0:7777", sharesAddrPort)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if got != "0.0.0.0:7777" {
-			t.Fatalf("quic landed on %q, want it on -addr's own port", got)
-		}
-	})
-}
 
 // TestShutdownTellsEveryConnectedClient is the F8 regression.
 //

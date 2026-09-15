@@ -427,9 +427,10 @@ of the field being additive rather than a version bump.
 user configured. That's what makes discovery work through NAT and port forwarding: a relay bound
 to `0.0.0.0` has no idea which address reaches it, but the client just connected to one. An
 explicit preference is honoured exactly and nothing else is considered — a client that asked
-for quic must never silently land on udp, which would swap an encrypted session for one that
-cannot be encrypted at all. Only `auto` ranks, over `netx.AutoPreference` (`netx.go`):
-QUIC, TCP, UDP — **udp last deliberately**, even though it shares QUIC's loss behaviour.
+for quic must never silently land on tcp. Only `auto` ranks, over `netx.AutoPreference`
+(`netx.go`): QUIC, then TCP. (Until 2026-09-15 plain udp was a third entry, deliberately last
+because it cannot be encrypted; it is now compiled only under the `meshghost_devudp` build tag and
+a release refuses the name — ADR 0065.)
 
 On the relay side, `cmd/meshghost-relay/main.go` opens one listener per selected transport,
 all feeding the same `Server`, and builds the offer list from the listeners that actually came
@@ -456,8 +457,9 @@ The three implementations:
   (`netx/tlsx`, `netx.ListenWithTLS`/`DialWithTLS`): a listener in `auto` mode tells a TLS
   ClientHello from an NDJSON line by its first byte and serves both on one port, so netcat keeps
   working either way. `SendUnreliable` is exactly `Send`.
-- **udp** (`netx/udpconn`) — one shared socket presented as a `net.Listener`,
-  demultiplexed by remote address. One datagram carries exactly one NDJSON line. *Every*
+- **udp** (`netx/udpconn`; **dev build only since 2026-09-15**, behind the `meshghost_devudp`
+  tag, kept as a comparison tool against quic — no release serves or dials it) — one shared
+  socket presented as a `net.Listener`, demultiplexed by remote address. One datagram carries exactly one NDJSON line. *Every*
   datagram — payload as much as control — is framed with a leading `0xFF` plus a type byte,
   which can neither start a JSON object nor be a legal UTF-8 lead byte, so data and control can
   never be confused and an unframed datagram is simply dropped (`udpconn.go`). Payloads were

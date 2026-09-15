@@ -227,18 +227,18 @@ which is all current ones — while still accepting those that do not. This matt
 quic is already encrypted, because **every** player makes first contact over TCP and that is where
 their `room_code` is sent. `required` refuses unencrypted players outright; `off` is plaintext.
 
-**`auto` is not "encrypt if convenient" — it does not downgrade.** Once a player's client has
-completed one TLS handshake with your relay, it escalates itself to `required` for the actual
-session: a plaintext connection to a relay that just proved it speaks TLS could only be someone
-interfering, so the fallback is withdrawn the moment it stops being needed. That fallback exists
-only for relays built before TLS was added. In practice, then, a default client on a default host
-runs an encrypted session it will not silently drop out of.
+**A player's client never downgrades.** Since 2026-09-15 a client set to `auto` (the shipped
+value) or `required` refuses any server that does not complete a TLS handshake; there is no
+plaintext fallback on their side at all. So a default client on a default host runs an encrypted
+session, and if anything between the two breaks the handshake the player gets an error naming it
+rather than a session with the room code readable. (Before that date `auto` fell back to plaintext
+with a warning, and any failed handshake — a reset, a timeout — was enough to trigger it.) The one
+way a player reaches a server you deliberately run with `tls` `off` is to set `off` on their side
+too.
 
-One exception, deliberate. A player who sets `tls_fingerprint` is forced to `required` from the
-start (since 2026-09-07):
-under `auto` a failed pin and "this relay is too old for TLS" arrive as the same error, so pinning
-without that escalation would have turned detection of an interfering relay into an automatic
-downgrade to it.
+A player who sets `tls_fingerprint` is additionally forced to `required` from the start (since
+2026-09-07), and the value has to be the whole fingerprint: a placeholder refuses to start rather
+than quietly pinning nothing (since 2026-09-15).
 
 With TLS on, your server prints a **`tls certificate fingerprint:`** line at startup. That string
 is how a player can verify they reached *your* server and not someone impersonating it: send it to

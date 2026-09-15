@@ -75,14 +75,12 @@ func TestAutoPrefersQUICAndAvoidsUDP(t *testing.T) {
 		t.Fatalf("auto picked %v over tcp; udp must never be chosen automatically while another option exists", kind)
 	}
 
-	// And tcp wins even when udp is the ONLY thing advertised. tcp ranks
-	// above udp and is always reachable — the handshake that produced these
-	// offers just used it — so reaching tcp in the preference order
-	// short-circuits and udp is never selected automatically at all.
-	//
-	// That makes AutoPreference's udp entry unreachable by construction,
-	// which is the intended outcome rather than an oversight: udp cannot be
-	// encrypted, so it stays available only to someone who names it.
+	// And tcp wins even when udp is the ONLY thing advertised. tcp is always
+	// reachable — the handshake that produced these offers just used it —
+	// so reaching tcp in the preference order short-circuits. (Since
+	// 2026-09-15 a release's AutoPreference has no udp entry at all, ADR
+	// 0065; an old relay may still OFFER udp, which is what this row keeps
+	// covering: the offer is ignored, not dialled.)
 	if kind, addr := c.chooseTransport("h:7777", offers("udp", 9999)); kind != netx.TCP || addr != "h:7777" {
 		t.Fatalf("auto got %v at %q, want tcp — udp must never be selected automatically", kind, addr)
 	}

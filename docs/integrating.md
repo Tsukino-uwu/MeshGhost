@@ -114,8 +114,9 @@ socket rather than yours. For most projects that is the whole argument.
 
 ## Which transport
 
-Three are served: **tcp**, **quic**, and a bespoke reliable **udp**. Pick one — you do not need to
-implement more than one.
+Two are served: **tcp** and **quic**. Pick one — you do not need to implement both. (A third, a
+bespoke reliable **udp**, shipped until 2026-09-15 and is now a dev-only build; see
+[below](#udp-really-dont).)
 
 **Use QUIC.** It is the one this project defaults to, and the reason is not novelty: a QUIC
 connection carries a *reliable, ordered stream* **and** *unreliable datagrams* at the same time,
@@ -130,7 +131,7 @@ Check that before anything else. QUIC is not something you implement yourself �
 the way you would take a TLS library. If your runtime does not have one you can ship, fall back to
 **tcp**: it is a few hundred lines, it always works, and the relay always serves it.
 
-**udp: don't.** See [below](#udp-really-dont).
+**udp: no shipped relay serves it any more.** See [below](#udp-really-dont).
 
 ### You do not have to handshake over TCP first
 
@@ -293,7 +294,12 @@ handshake.
 
 ## udp: really, don't
 
-The third transport is a **reliability layer this project invented**. There is no RFC and no
+**Since 2026-09-15 a shipped relay does not serve it and a shipped client refuses to be told to
+use it.** The code is still in the repository behind the `meshghost_devudp` build tag, as a
+comparison tool for the project's own transport work, and nothing below describes something you
+can connect to. It stays here so the wire format is documented for anyone reading that code.
+
+The third transport was a **reliability layer this project invented**. There is no RFC and no
 interoperable target: a cookie-based address-validation handshake, an 8-byte per-connection session
 token that every datagram must carry, big-endian per-message sequence numbers, individual acks, a
 fixed 250ms retransmit with no congestion control, and a 64-deep reorder buffer. The wire format is:
@@ -313,10 +319,10 @@ line limit the other transports allow**, and oversize is an error rather than a 
 Unframed datagrams are dropped, so you cannot skip the token.
 
 You would be reimplementing a small transport protocol to get something QUIC already does better,
-and **udp cannot be encrypted** — which is why our own client ranks it last and never picks it
-unless it is the only thing on offer. If you still want it, the authoritative specification is the
-package comment at the top of [`netx/udpconn/udpconn.go`](../netx/udpconn/udpconn.go). Read
-that, not the surrounding inline comments.
+and **udp cannot be encrypted** — which is why it was retired from releases. The authoritative
+description of the format is the package comment at the top of
+[`netx/udpconn/udpconn.go`](../netx/udpconn/udpconn.go). Read that, not the surrounding inline
+comments.
 
 ---
 
@@ -338,7 +344,7 @@ refuses from outside the owning module. Both are gone. Six packages are importab
 | `protocol` | The wire messages and their validation. No dependencies. | Always, in practice; `core` and `relay` both speak it. |
 | `relay` | The server: rooms, forwarding, limits. | You want to host the relay inside your own process rather than run the shipped binary. |
 | `transport` | NDJSON framing over any `net.Conn`. | You are supplying your own connection. |
-| `netx` | Transport selection — `tcp`, `udp`, `quic` — as `net.Listener`/`net.Conn`. | You care which transport is used, or are implementing your own. |
+| `netx` | Transport selection — `tcp`, `quic` (and `udp` under the `meshghost_devudp` build tag) — as `net.Listener`/`net.Conn`. | You care which transport is used, or are implementing your own. |
 | `bridge` | The adapter↔core message shapes. | You are writing something that talks to a core over the bridge **in Go**. |
 
 `internal/e2e` is not importable and is not meant to be. `cmd/*` are `package main` and never

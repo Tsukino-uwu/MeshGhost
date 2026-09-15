@@ -65,7 +65,6 @@
 
     "transport": "tcp,quic",
     "listen_quic": "",
-    "listen_udp": "",
     "tls": "auto",
 
     "resume_grace_seconds": 0

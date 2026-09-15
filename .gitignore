@@ -296,3 +296,4 @@ REVIEW-FINDINGS.md
 # once leaves its test NAME behind (review O3, 2026-09-11). Overwritten every run.
 gotests-last.log
 gotests-race-last.log
+gotests-udp-last.log

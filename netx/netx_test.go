@@ -23,8 +23,10 @@ func TestParseKindRejectsATypo(t *testing.T) {
 }
 
 func TestParseKindAcceptsEveryTransport(t *testing.T) {
+	// "udp" is the dev build's alone (udp_dev_test.go); a release refuses it
+	// (udp_release_test.go).
 	for in, want := range map[string]Kind{
-		"tcp": TCP, "udp": UDP, "quic": QUIC,
+		"tcp": TCP, "quic": QUIC,
 		"TCP": TCP, " quic ": QUIC,
 	} {
 		got, err := ParseKind(in)
@@ -43,11 +45,11 @@ func TestParseKindAcceptsEveryTransport(t *testing.T) {
 // readability, but duplicates must not produce two listeners racing for the
 // same port.
 func TestParseKindsPreservesOrderAndDropsDuplicates(t *testing.T) {
-	got, err := ParseKinds("quic, tcp ,udp,tcp")
+	got, err := ParseKinds("quic, tcp ,quic,tcp")
 	if err != nil {
 		t.Fatalf("ParseKinds: %v", err)
 	}
-	want := []Kind{QUIC, TCP, UDP}
+	want := []Kind{QUIC, TCP}
 	if len(got) != len(want) {
 		t.Fatalf("ParseKinds gave %v, want %v", got, want)
 	}
@@ -119,10 +121,10 @@ func TestTCPListenAndDialRoundTrip(t *testing.T) {
 }
 
 // TestTCPAndUDPShareAPortNumber pins the fact the relay's port scheme rests
-// on: TCP and UDP have independent port spaces, so serving both transports
-// costs one port number, not two. QUIC is the exception — it is carried
-// over UDP, so it collides with the plain udp transport and gets its own
-// port (cmd/meshghost-relay's DefaultQuicAddr).
+// on: TCP and UDP have independent port spaces, so serving tcp and quic
+// (which is carried over UDP) costs one port number, not two. The udp side
+// here is a quic listener, since 2026-09-15: plain udp no longer ships, and
+// quic is the transport whose udp socket actually shares the number.
 //
 // Verified here rather than asserted in a comment, because if it were ever
 // false the relay would fail to start in its shipped tcp,udp configuration
@@ -150,9 +152,9 @@ func TestTCPAndUDPShareAPortNumber(t *testing.T) {
 	var lastErr error
 
 	for i := 0; i < attempts; i++ {
-		first, second := TCP, UDP
+		first, second := TCP, QUIC
 		if i%2 == 1 {
-			first, second = UDP, TCP
+			first, second = QUIC, TCP
 		}
 		firstLn, err := Listen(first, "127.0.0.1:0")
 		if err != nil {
@@ -198,7 +200,7 @@ func TestTCPAndUDPShareAPortNumber(t *testing.T) {
 // after every package-level test still passed. Pinned here so the rule
 // cannot be quietly dropped.
 func TestParseKindsAlwaysIncludesTCP(t *testing.T) {
-	for _, in := range []string{"udp", "quic", "udp,quic", "quic,udp"} {
+	for _, in := range []string{"quic", "quic,quic"} {
 		got, err := ParseKinds(in)
 		if err != nil {
 			t.Errorf("ParseKinds(%q): %v", in, err)
@@ -209,37 +211,11 @@ func TestParseKindsAlwaysIncludesTCP(t *testing.T) {
 		}
 	}
 	// And naming it explicitly must not duplicate the listener.
-	got, err := ParseKinds("tcp,udp,tcp")
+	got, err := ParseKinds("tcp,quic,tcp")
 	if err != nil {
 		t.Fatalf("ParseKinds: %v", err)
 	}
 	if len(got) != 2 {
-		t.Fatalf("ParseKinds(\"tcp,udp,tcp\") = %v, want exactly [tcp udp]", got)
-	}
-}
-
-// TestAutoNeverPrefersUDPOverQUIC pins the ordering that keeps an automatic
-// choice from being a silent security downgrade: udp and quic behave the
-// same under packet loss, but udp cannot be encrypted at all, so nothing
-// should pick it on a user's behalf while quic is available.
-func TestAutoNeverPrefersUDPOverQUIC(t *testing.T) {
-	quicAt, udpAt := -1, -1
-	for i, k := range AutoPreference {
-		switch k {
-		case QUIC:
-			quicAt = i
-		case UDP:
-			udpAt = i
-		}
-	}
-	if quicAt < 0 || udpAt < 0 {
-		t.Fatalf("AutoPreference = %v, want it to rank both quic and udp", AutoPreference)
-	}
-	if udpAt < quicAt {
-		t.Errorf("AutoPreference ranks udp (%d) above quic (%d) — auto would silently choose an "+
-			"unencryptable transport over an encrypted one", udpAt, quicAt)
-	}
-	if AutoPreference[len(AutoPreference)-1] != UDP {
-		t.Errorf("AutoPreference = %v, want udp last", AutoPreference)
+		t.Fatalf("ParseKinds(\"tcp,quic,tcp\") = %v, want exactly [tcp quic]", got)
 	}
 }

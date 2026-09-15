@@ -855,7 +855,9 @@ func TestReleaseBinariesRoundTripAGhostOnEveryTransport(t *testing.T) {
 	}
 
 	base := newRig(t)
-	for _, kind := range []netx.Kind{netx.UDP, netx.QUIC} {
+	// quic only since 2026-09-15: these are release binaries built from
+	// source, and a release has no udp (ADR 0065).
+	for _, kind := range []netx.Kind{netx.QUIC} {
 		t.Run(kind.String(), func(t *testing.T) {
 			r := base.withFreshPorts(t)
 			quicAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t)))

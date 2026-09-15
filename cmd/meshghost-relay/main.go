@@ -61,22 +61,22 @@ type fileConfig struct {
 	// see relay.Server.ResumeGrace.
 	ResumeGraceSeconds *int `json:"resume_grace_seconds"`
 	// Transport is a comma-separated list of transports to serve at once:
-	// any of "tcp", "udp", "quic". Absent means "tcp,quic". Clients pick one of
+	// "tcp", "quic", or both. Absent means "tcp,quic". Clients pick one of
 	// them; a room can hold clients on different transports simultaneously,
 	// since the relay forwards through the transport.Transport interface and
 	// never learns which is which. See the transport ADR in
-	// agent_docs/architecture.md.
+	// agent_docs/architecture.md. "udp" is refused by name since 2026-09-15
+	// (ADR 0065); only the meshghost_devudp build accepts it.
 	Transport *string `json:"transport"`
 	// QuicAddr is where quic listens. Absent or empty is sharesAddrPort:
 	// quic reuses listen_on's port number, so hosting means forwarding one
-	// number. quic KEEPS that number even when the plain "udp" transport is
-	// served alongside it -- udp is the one that moves, since quic is a default
-	// transport and udp is opt-in. See UDPAddr and FallbackUDPAddr.
+	// number. (In the dev build quic KEEPS that number even when plain udp is
+	// served alongside it -- udp is the one that moves; udp_dev.go.)
 	QuicAddr *string `json:"listen_quic"`
-	// UDPAddr is where the plain "udp" transport listens. Absent or empty is
-	// sharesAddrPort, which means listen_on's port -- except when quic is
-	// served too, where udp moves to FallbackUDPAddr so quic can keep the
-	// shared number. Set it explicitly to place udp yourself.
+	// UDPAddr is where the plain "udp" transport listens, in the dev build.
+	// Still decoded in a release so that an old config's `"listen_udp": ""`
+	// is not reported as an unknown key; a NON-empty value refuses to start
+	// (checkUDPConfig, udp_release.go).
 	UDPAddr *string `json:"listen_udp"`
 	// TLS turns on encryption for the tcp transport: "off", "auto" (the
 	// built-in default; serves TLS and plaintext on the same port) or
@@ -167,39 +167,6 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	cfg.Override(explicit, "tls", t.tlsMode, sc.TLS)
 }
 
-// FallbackUDPAddr is where the plain udp transport goes when it cannot share
-// -addr's udp port, which happens when quic is also being served -- quic runs
-// over udp too, and the two would collide on one number.
-//
-// **udp is the one that moves, and that is the whole point.** quic is a DEFAULT
-// transport (-transport is "tcp,quic"), so a host who never thought about
-// transports is serving it; plain udp is opt-in, unencryptable, and last in
-// netx.AutoPreference. Making the default transport surrender the shared port to
-// an opt-in one had it backwards -- it broke "forward 7777" for the common case
-// to accommodate the rare one. Corrected 2026-08-27 after the user pointed out
-// that tcp and quic are supposed to share while udp takes the odd port.
-//
-// 7778 and 7779 are both skipped because packaging/release/README.txt already
-// hands those out as local bridge ports (7778 normally, 7779 for a second copy
-// on the same machine). Neither would actually collide -- the bridge is TCP and
-// this is UDP, which are separate port spaces -- but a reader comparing two
-// config files should not have to know that to tell whether something is a typo.
-//
-// **Only the PORT relocates. The bind interface is always -addr's** -- see
-// relocatedUDPAddr. Every paragraph above justifies the port and none of them
-// ever addressed the host, and until 2026-09-08 this whole string was returned
-// wholesale: a host running `-addr 0.0.0.0:7777 -transport tcp,udp,quic` bound
-// udp on loopback, unreachable from anywhere but that machine, while the startup
-// banner told them to forward 7780 and the relay advertised udp:7780 to remote
-// clients who resolved it against the address they had dialled and failed.
-const FallbackUDPPort = "7780"
-
-// FallbackUDPAddr is what the relocation lands on for the DEFAULT -addr
-// (127.0.0.1:7777), which is what the -listen-udp help text quotes. It is an
-// example of the rule, not the rule: the rule is FallbackUDPPort on -addr's own
-// host, and a relay bound to 0.0.0.0 relocates udp to 0.0.0.0:7780.
-const FallbackUDPAddr = "127.0.0.1:" + FallbackUDPPort
-
 // sharesAddrPort is the default for both -listen-quic and -listen-udp: empty
 // means "use -addr's port". quic is carried over udp and tcp/udp are separate
 // port spaces, so tcp:7777 and quic:7777/udp coexist happily.
@@ -260,47 +227,6 @@ func resolveQuicAddr(kinds []netx.Kind, addr, quicAddr string) (string, error) {
 	return addr, nil
 }
 
-// resolveUDPAddr decides where the plain udp transport listens.
-//
-// It is the mirror of resolveQuicAddr and carries the actual conflict rule: quic
-// keeps -addr's port because it is a default transport, and udp -- opt-in,
-// unencryptable, last in netx.AutoPreference -- moves aside when both are served.
-//
-// Relocating udp silently is safe in a way relocating quic never was: nothing
-// picks udp automatically, so the only way to be on it is to have asked for it by
-// name, and the startup log prints the port it landed on. A host who did not ask
-// for udp is unaffected, and one who did is reading the log they asked for.
-func resolveUDPAddr(kinds []netx.Kind, addr, udpAddr string) (string, error) {
-	if !servesKind(kinds, netx.UDP) {
-		// Not serving udp: -listen-udp is irrelevant and passed through untouched,
-		// the same way -listen-quic is when quic is off.
-		return udpAddr, nil
-	}
-	if udpAddr != sharesAddrPort {
-		// Explicitly placed by the operator. Believed without further checking:
-		// naming a port is the act of taking responsibility for forwarding it.
-		return udpAddr, nil
-	}
-	if servesKind(kinds, netx.QUIC) {
-		return relocatedUDPAddr(addr), nil
-	}
-	return addr, nil
-}
-
-// relocatedUDPAddr moves udp off -addr's port and nowhere else: same bind
-// interface, FallbackUDPPort instead of the port. This is the shape
-// resolveQuicAddr next door has always had -- it returns addr, so it inherits
-// whatever interface the operator chose -- and the shape resolveUDPAddr lacked
-// until 2026-09-08, when it returned the whole of FallbackUDPAddr and threw the
-// operator's bind interface away with the port. A host who typed
-// `-addr 0.0.0.0:7777` got a udp listener nobody outside the machine could
-// reach, plus a startup banner telling them to forward a port that would never
-// carry anything.
-//
-// An -addr with no port at all (or otherwise unsplittable) keeps the old
-// constant. It is not a shape this binary can bind anyway -- netx.ListenWithTLS
-// gets the same string and fails -- so this is about not inventing a second
-// error path for input that is already about to be refused with its own message.
 // roomCodeFlagHelp is -room-code's help text, at package level so a test can
 // assert what it tells the host (the same reason resolveQuicAddr was lifted out
 // of main on 2026-08-25).
@@ -326,14 +252,6 @@ const roomCodeFlagHelp = "shared secret clients must send to join a room -- " +
 	"pre-existing default); see agent_docs/architecture.md's room-code ADR for " +
 	"what this does and doesn't defend against (no TLS: the code crosses the " +
 	"wire in plaintext)"
-
-func relocatedUDPAddr(addr string) string {
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		return FallbackUDPAddr
-	}
-	return net.JoinHostPort(host, FallbackUDPPort)
-}
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:7777", "address to listen on (tcp, and quic unless -listen-quic says otherwise; plain udp moves to -listen-udp's port when quic is also served)")
@@ -387,19 +305,16 @@ func main() {
 			"real numbers), and YOUR machine (the host) carries the worst of it, since traffic "+
 			"fans out with the square of room size")
 	transportNames := flag.String("transport", "tcp,quic",
-		"which transports to serve, comma-separated: any of tcp, udp, quic. Serving several at "+
-			"once is fine and clients may mix freely within one room -- tcp is readable with "+
-			"netcat for debugging, udp survives a lossy connection better but CANNOT be "+
-			"encrypted (Go has no DTLS), and quic is encrypted and spoofing-resistant by "+
-			"default. The default serves tcp and quic so a default client (-transport auto) "+
-			"gets an encrypted session without anyone configuring anything -- but note quic "+
-			"needs -listen-quic's port forwarded too, not just -addr's")
-	udpAddr := flag.String("listen-udp", sharesAddrPort,
-		"where the plain udp transport listens. Empty (the default) means -addr's port -- except "+
-			"when quic is served too, where udp moves to port "+FallbackUDPPort+" on -addr's own "+
-			"interface (so a relay on 0.0.0.0:7777 serves udp on 0.0.0.0:"+FallbackUDPPort+") and "+
-			"quic keeps the shared number. quic is a default transport and plain udp is opt-in, so "+
-			"udp is the one that takes the odd port. Ignored unless udp is in -transport")
+		"which transports to serve, comma-separated: tcp, quic, or both. Serving both is "+
+			"fine and clients may mix freely within one room -- tcp is readable with netcat for "+
+			"debugging, and quic is loss-tolerant, encrypted and spoofing-resistant by default. "+
+			"The default serves both so a default client (-transport auto) gets an encrypted "+
+			"session without anyone configuring anything -- but note quic needs -listen-quic's "+
+			"port forwarded too, not just -addr's. (udp, the plain unencrypted transport, "+
+			"stopped being an option on 2026-09-15 and is refused by name)")
+	// -listen-udp exists only in the dev build (udp_dev.go); a release
+	// registers no such flag and udpAddr stays "" (udp_release.go). ADR 0065.
+	udpAddr := udpListenFlag()
 	quicAddr := flag.String("listen-quic", sharesAddrPort,
 		"address to serve quic on. Empty (the default) means share -addr's port -- quic runs "+
 			"over udp and tcp/udp are separate port spaces, so tcp:7777 and quic:7777/udp "+
@@ -471,16 +386,22 @@ func main() {
 		log.Fatalf("meshghost-relay: %v", err)
 	}
 
+	// A release refuses a config that still places plain udp (udp_release.go);
+	// netx.ParseKinds above already refused it in -transport.
+	if err := checkUDPConfig(*udpAddr); err != nil {
+		log.Fatalf("%v", err)
+	}
+
 	// Resolve where quic listens, now that the transport list is known.
 	//
 	// Sharing -addr's port is the default because it keeps hosting to one
-	// forwarded port number; the only thing that can take that udp port away
-	// is the plain udp transport. When both are served QUIC KEEPS the shared
-	// port and plain udp is what relocates, to FallbackUDPAddr -- that way the
-	// port an operator forwarded is the one quic still advertises. Moving quic
-	// instead would surface much later as "quic clients can't connect" with
-	// nothing pointing here.
-	resolvedUDP, err := resolveUDPAddr(kinds, *addr, *udpAddr)
+	// forwarded port number. In the dev build the only thing that can take
+	// that udp port away is the plain udp transport: when both are served
+	// QUIC KEEPS the shared port and plain udp is what relocates (udp_dev.go's
+	// resolveUDPAddr) -- that way the port an operator forwarded is the one
+	// quic still advertises. Moving quic instead would surface much later as
+	// "quic clients can't connect" with nothing pointing here.
+	resolvedUDP, err := resolveUDPListen(kinds, *addr, *udpAddr)
 	if err != nil {
 		log.Fatalf("meshghost-relay: %v", err)
 	}

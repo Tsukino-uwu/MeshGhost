@@ -1,3 +1,5 @@
+//go:build meshghost_devudp
+
 // Package udpconn presents a single UDP socket as an ordinary net.Listener
 // handing out ordinary net.Conns, one per remote address.
 //

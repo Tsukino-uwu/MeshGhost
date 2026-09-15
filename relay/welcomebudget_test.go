@@ -1,7 +1,6 @@
 package relay
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/Tsukino-uwu/MeshGhost/netx"
@@ -38,85 +37,6 @@ import (
 // Found by the transports cell of the third adversarial review, as the other
 // half of P1d-3.
 
-// TestAWelcomeOverUDPFitsInOneDatagram is the end-to-end assertion: on the
-// shipped default transport, a player joining a room whose Welcome cannot fit
-// in a datagram still gets in, and still learns about everybody.
-//
-// The room is not the interesting party here -- the JOINER is. It asserts on
-// what the last client receives, because that is the only place the defect was
-// ever visible.
-func TestAWelcomeOverUDPFitsInOneDatagram(t *testing.T) {
-	// Enough that the Welcome for the last joiner cannot fit one datagram, and
-	// few enough that it comfortably fits protocol.MaxPayloadBytes -- so a
-	// failure here can only be about the transport's budget, never the
-	// protocol's. The size is asserted below rather than assumed.
-	const members = 12
-
-	// Above DefaultMaxClients (8), which is the only reason this needs saying:
-	// the SHIPPED default already crosses the udp budget at 8 members whose
-	// names escape (measured below), so the cap is not what protects anyone
-	// here -- it just gets in this fixture's way.
-	s := NewServer()
-	s.MaxClients = members + 4
-	addr := startServerOn(t, s, netx.UDP)
-
-	ids := make([]string, 0, members)
-	for i := 0; i < members; i++ {
-		c := dialTestClientOn(t, netx.UDP, addr, "emerald", "room1", maximalEscapedName())
-		defer c.conn.Close()
-		w := c.expectWelcome(timeout)
-		if w.PlayerID == "" {
-			t.Fatalf("member %d got a welcome with no player_id", i)
-		}
-		ids = append(ids, w.PlayerID)
-	}
-
-	// The last one in is the one the room is largest for. Join it separately so
-	// its Welcome and its overflow Joins can be read without the earlier
-	// clients' join announcements in the way.
-	last := dialTestClientOn(t, netx.UDP, addr, "emerald", "room1", maximalEscapedName())
-	defer last.conn.Close()
-
-	w := last.expectWelcome(timeout)
-
-	// The Welcome that actually crossed the wire must fit the datagram the wire
-	// carries -- measured against sendBudget for the same connection kind the
-	// relay wrote it on.
-	budget := sendBudget(last.conn)
-	if budget >= protocol.MaxPayloadBytes {
-		t.Fatalf("this client reports a send budget of %d, which is not a udp one; the fixture "+
-			"is no longer testing what it says it tests", budget)
-	}
-	if got := welcomeLineBytes(w, budget); got > budget {
-		t.Fatalf("the Welcome the relay sent is %d bytes against a udp budget of %d -- "+
-			"on the real wire this message is refused and the joiner never sees it", got, budget)
-	}
-
-	// AND NOBODY MAY BE LOST TO THE TRIM. Whatever the Welcome could not carry
-	// arrives as ordinary Joins, before anything else this client is sent.
-	known := map[string]bool{}
-	for _, id := range w.Roster {
-		known[id] = true
-	}
-	for len(known) < len(ids) {
-		env := last.next(timeout)
-		if env.Type != protocol.TypeJoin {
-			t.Fatalf("after a trimmed Welcome the joiner got %q; it knows %d of %d members and the "+
-				"rest were dropped rather than handed over as joins", env.Type, len(known), len(ids))
-		}
-		var j protocol.Join
-		if err := json.Unmarshal(env.Payload, &j); err != nil {
-			t.Fatalf("unmarshal join: %v", err)
-		}
-		known[j.PlayerID] = true
-	}
-	for _, id := range ids {
-		if !known[id] {
-			t.Fatalf("member %s reached the joiner neither in the Welcome roster nor as a Join", id)
-		}
-	}
-}
-
 // TestSendBudgetReportsTheWireLimitNotTheProtocolLimit pins the plumbing the
 // test above depends on, across all three transports at once.
 //
@@ -132,14 +52,20 @@ func TestSendBudgetReportsTheWireLimitNotTheProtocolLimit(t *testing.T) {
 	// asking structurally. 1200 - 2 control - 8 token - 8 seq - 1 newline.
 	const wantUDP = 1200 - 2 - 8 - 8 - 1
 
-	for _, tc := range []struct {
+	want := map[netx.Kind]int{
+		netx.TCP:  protocol.MaxPayloadBytes,
+		netx.UDP:  wantUDP,
+		netx.QUIC: protocol.MaxPayloadBytes,
+	}
+	type row struct {
 		kind netx.Kind
 		want int
-	}{
-		{netx.TCP, protocol.MaxPayloadBytes},
-		{netx.UDP, wantUDP},
-		{netx.QUIC, protocol.MaxPayloadBytes},
-	} {
+	}
+	var rows []row
+	for _, k := range transportKindsUnderTest {
+		rows = append(rows, row{k, want[k]})
+	}
+	for _, tc := range rows {
 		t.Run(tc.kind.String(), func(t *testing.T) {
 			addr := startServerOn(t, NewServer(), tc.kind)
 			c := dialTestClientOn(t, tc.kind, addr, "emerald", "room1", "alice")

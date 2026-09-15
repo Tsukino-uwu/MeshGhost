@@ -62,56 +62,6 @@ func dialTestClientOn(t *testing.T, kind netx.Kind, addr, gameID, room, name str
 	return tc
 }
 
-// TestRelayOverUDP is the step's observable outcome: an unmodified relay,
-// serving a udpconn listener, carries a real session — hello, welcome, the
-// join announcement, and a forwarded state — between two clients that
-// never touched TCP.
-//
-// The point being demonstrated is as much about relay as about
-// UDP: this test passes with zero relay changes, because Serve takes a
-// net.Listener and Room.Forward sends through the transport.Transport
-// interface.
-func TestRelayOverUDP(t *testing.T) {
-	addr := startServerOn(t, NewServer(), netx.UDP)
-
-	c1 := dialTestClientOn(t, netx.UDP, addr, "emerald", "room1", "alice")
-	defer c1.conn.Close()
-	w1 := c1.expectWelcome(timeout)
-	if w1.PlayerID == "" {
-		t.Fatal("welcome carried empty player_id over udp")
-	}
-
-	c2 := dialTestClientOn(t, netx.UDP, addr, "emerald", "room1", "bob")
-	defer c2.conn.Close()
-	w2 := c2.expectWelcome(timeout)
-	if len(w2.Roster) != 1 || w2.Roster[0] != w1.PlayerID {
-		t.Fatalf("second client's roster = %v, want [%s]", w2.Roster, w1.PlayerID)
-	}
-
-	// c1 sees the join for c2 — a reliable message, so it must arrive.
-	joinEnv := c1.next(timeout)
-	if joinEnv.Type != protocol.TypeJoin {
-		t.Fatalf("c1 got %q, want %q", joinEnv.Type, protocol.TypeJoin)
-	}
-
-	c1.sendState(protocol.State{
-		PlayerID: w1.PlayerID, Seq: 1, Timestamp: 1000,
-		AreaID: "emerald-0001", Position: []float64{1, 2}, Anim: "walking",
-	})
-
-	stateEnv := c2.next(timeout)
-	if stateEnv.Type != protocol.TypeState {
-		t.Fatalf("c2 got %q, want %q", stateEnv.Type, protocol.TypeState)
-	}
-	var st protocol.State
-	if err := json.Unmarshal(stateEnv.Payload, &st); err != nil {
-		t.Fatalf("unmarshal state: %v", err)
-	}
-	if st.PlayerID != w1.PlayerID || st.AreaID != "emerald-0001" || st.Anim != "walking" {
-		t.Fatalf("forwarded state = %+v, want player_id=%s area_id=emerald-0001", st, w1.PlayerID)
-	}
-}
-
 // TestRelayOverQUIC is TestRelayOverUDP for the encrypted transport. Same
 // unmodified relay, a third listener type.
 func TestRelayOverQUIC(t *testing.T) {
@@ -157,13 +107,13 @@ func TestRelayOverQUIC(t *testing.T) {
 func TestRelayMixesAllThreeTransportsInOneRoom(t *testing.T) {
 	s := NewServer()
 
-	addrs := map[netx.Kind]string{
-		netx.TCP:  startServerOn(t, s, netx.TCP),
-		netx.UDP:  startServerOn(t, s, netx.UDP),
-		netx.QUIC: startServerOn(t, s, netx.QUIC),
+	// transportKindsUnderTest: tcp and quic in a release build, all three
+	// under the meshghost_devudp tag (ADR 0065). The name keeps its "three".
+	order := transportKindsUnderTest
+	addrs := map[netx.Kind]string{}
+	for _, k := range order {
+		addrs[k] = startServerOn(t, s, k)
 	}
-
-	order := []netx.Kind{netx.TCP, netx.UDP, netx.QUIC}
 	names := map[netx.Kind]string{netx.TCP: "alice", netx.UDP: "bob", netx.QUIC: "carol"}
 
 	clients := map[netx.Kind]*testClient{}
@@ -352,10 +302,15 @@ func TestQueryOnlyAgainstARelayWithNoOffersIsHarmless(t *testing.T) {
 // their own client log.
 func TestJoinLogRecordsTheTransport(t *testing.T) {
 	s := NewServer()
-	for _, tc := range []struct {
+	type row struct {
 		kind netx.Kind
 		want string
-	}{{netx.TCP, "tcp"}, {netx.UDP, "udp"}, {netx.QUIC, "quic"}} {
+	}
+	var rows []row
+	for _, k := range transportKindsUnderTest {
+		rows = append(rows, row{k, k.String()})
+	}
+	for _, tc := range rows {
 		addr := startServerOn(t, s, tc.kind)
 		c := dialTestClientOn(t, tc.kind, addr, "emerald", "room-"+tc.want, "alice")
 		defer c.conn.Close()

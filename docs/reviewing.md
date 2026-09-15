@@ -46,10 +46,11 @@ you can start reading at the right line instead of the top of the file.
 
 1. `cmd/meshghost-relay/main.go` binds one listener per configured transport through
    `netx.ListenWithTLS`. Every listener is wrapped in `netx.LimitListener` (a cap on open
-   connections) and, for tcp with TLS on, `netx/tlsx` (the TLS-or-plaintext sniff). udp and quic
-   are `netx/udpconn` and `netx/quicconn`, each presenting a datagram socket as a `net.Listener`.
-   udp's admission cookie and per-connection token live in `netx/udpconn/cookies.go` and
-   `listener.go`; that is the code that decides whether a spoofed packet costs the relay anything.
+   connections, per listener and since 2026-09-15 per client address too — `netx/srclimit`) and,
+   for tcp with TLS on, `netx/tlsx` (the TLS-or-plaintext sniff). quic is `netx/quicconn`,
+   presenting a datagram socket as a `net.Listener`; `netx/udpconn` is the same idea for plain udp
+   and is compiled only under the `meshghost_devudp` build tag — a release binary contains none of
+   it (`go tool nm` on the binary finds no `udpconn` symbol).
 2. `relay.Server.Serve` accepts and starts `handleConn` (`relay/relay.go`). That function is the
    whole per-connection state machine and is worth reading end to end: it wraps the socket in
    `transport.NDJSONConn` with `protocol.MaxLineBytes` as the line cap (enforced *during* the read,
@@ -141,11 +142,8 @@ trusting CI — the targets are ordinary `go test -fuzz` functions:
 # the relay, fed arbitrary lines before and after a join
 go test -run='^$' -fuzz='^FuzzRelaySurvivesArbitraryLines$' -fuzztime=5m ./relay
 go test -run='^$' -fuzz='^FuzzRelaySurvivesArbitraryPostJoinMessages$' -fuzztime=5m ./relay
-# the UDP listener, fed arbitrary datagrams (up to 60000 bytes: far past the 1200-byte cap, because
-# until 2026-09-02 the read buffer was the cap, so ONE spoofable oversized datagram killed the
-# listener -- and the relay treats a dead listener as fatal, so it took tcp and quic down with it.
-# See readBufferBytes in netx/udpconn/udpconn.go)
-go test -run='^$' -fuzz='^FuzzListenerSurvivesArbitraryDatagrams$' -fuzztime=5m ./netx/udpconn
+# the udp listener, fed arbitrary datagrams -- dev build only since 2026-09-15, so the tag is needed
+go test -tags meshghost_devudp -run='^$' -fuzz='^FuzzListenerSurvivesArbitraryDatagrams$' -fuzztime=5m ./netx/udpconn
 # every wire decoder
 go test -run='^$' -fuzz='^FuzzEnvelopeUnmarshalNeverPanics$' -fuzztime=2m ./protocol
 go test -run='^$' -fuzz='^FuzzEnvelopeUnmarshalNeverPanics$' -fuzztime=2m ./bridge

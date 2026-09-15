@@ -1,3 +1,5 @@
+//go:build meshghost_devudp
+
 package udpconn
 
 import (
