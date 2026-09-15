@@ -358,3 +358,9 @@ absent from the games that do not read it, and PRESENT in the one that does, so 
 fails too. It skips in a clean checkout like its neighbours (the per-game files are gitignored
 staging output), and it was watched to fail before it was kept: re-adding `map_markers` to the
 staged Pseudoregalia file failed it with the line naming `$gameOnly`, and re-staging turned it green.
+
+## 2026-09-15 — pointer: this day's workflow and script changes are logged in phase10.md
+
+The fourth review's fixes touched `ci.yml`, the hooks, `preflight.ps1` and `stage-release.ps1`
+(the 2026-09-15 entry in `phase10.md`), and the TLS work the same evening added a fuzz step to
+`ci.yml` and a `tls/` refusal to `stage-release.ps1` (ADR 0066, the evening entry there).

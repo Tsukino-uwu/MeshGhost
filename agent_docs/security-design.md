@@ -26,21 +26,31 @@ this file is exempt from `licensing.md`'s gate until something from a project is
 
 ---
 
-## Relay/client — transport security (TLS) — **CONFIDENTIALITY HALF DONE 2026-08-19**
+## Relay/client — transport security (TLS) — **CONFIDENTIALITY DONE 2026-08-19, MADE UNCONDITIONAL AND TOFU ADDED 2026-09-15**
 
-**What shipped**: `off`/`auto`/`required` on both binaries, an in-memory self-signed certificate,
-one port serving both TLS and plaintext (a one-byte sniff), optional fingerprint pinning, and no
-silent downgrade. The load-bearing test puts a recording proxy between client and relay and
-asserts the room code is **absent** from the captured bytes, with a negative control in the same
-test proving the tap is watching. ADR in `architecture.md`.
+**What shipped 2026-09-15 (ADR 0066, `agent_docs/tls-planning.md`)**: no mode — every connection
+is TLS on tcp and quic, a plaintext client is closed and a plaintext relay refused; the relay's
+identity is persisted (`tls/relay.key`, `relay.crt`, `relay.fingerprint` beside its config) and
+served on both transports; the client remembers each relay's fingerprint on first connect
+(`tls/known_relays.json` beside its config, `core/knownrelays.go`) and checks every later leg
+against it, warning loudly and updating on a change. The hand-copied pin and the three-way mode
+are gone; an old config carrying them is refused with a message. The per-IP cap landed the same
+day in the fourth review (ADR 0064).
 
-**What is still open, and it is the more interesting half**: this encrypts, it does not
-authenticate. Pinning is opt-in and has to be re-copied after a relay restart. The design below
-for **channel binding** (`tls-exporter`, RFC 9266) — proving knowledge of the room code without
-putting it on the wire at all — is the eventual answer and was deliberately left out, because it
-is a protocol change with a downgrade-hole of its own. The two smaller items (open-relay default,
-per-IP cap) are also still open, and TLS makes the second one more pressing: a handshake is CPU an
-unauthenticated stranger can ask for.
+**What is still open**: the FIRST connection is unauthenticated, and a changed identity is
+warned about rather than proven or refused. The room-code PAKE (step 5 of the plan; the user chose
+`bytemare/opaque`, RFC 9807, surveyed in `licensing.md`) closes both and takes the room code off
+the wire; it is a contract revision and its own ADR when it lands. The channel-binding design
+below (point 3) is the ancestor of that step and reads as history now: the PAKE replaces the
+HMAC-over-exporter construction, because an HMAC of a short code is an offline guess for whoever
+holds the exporter value, and a PAKE is not.
+
+**What shipped 2026-08-19**: `off`/`auto`/`required` on both binaries, an in-memory self-signed
+certificate, one port serving both TLS and plaintext (a one-byte sniff), optional fingerprint
+pinning, and no silent downgrade. The load-bearing test puts a recording proxy between client and
+relay and asserts the room code is **absent** from the captured bytes, with a negative control in
+the same test proving the tap is watching (still the load-bearing test; its control is a raw socket
+now). ADR 0034 in `architecture.md`, superseded by 0066 on the points above.
 
 ### Original entry
 
@@ -165,9 +175,11 @@ fixes it by replacing the shared secret with a per-player keypair, which costs a
   closes it without anyone comparing a hex string.
 
 **So the order that actually buys security here**, cheapest and highest-value first: (1) extend
-the `tls_fingerprint` pin to the quic path, so the pin stops covering only the tcp leg; (2) the
-channel binding in point 3, which retires the room-code-on-the-wire problem on both TLS
-transports at once; (3) the per-IP cap below. mTLS sits behind all three.
+the `tls_fingerprint` pin to the quic path, so the pin stops covering only the tcp leg — **done
+2026-09-15 in a stronger form: one identity on both transports, remembered automatically (ADR
+0066)**; (2) the channel binding in point 3, which retires the room-code-on-the-wire problem on
+both TLS transports at once — **now the room-code PAKE, chosen and unbuilt**; (3) the per-IP cap
+below — **done 2026-09-15 (ADR 0064)**. mTLS sits behind all three.
 
 **When to revisit:** if MeshGhost ever grows a **long-lived public relay** — one where the host
 does not personally know every player, wants to ban one without evicting the rest, and is already
@@ -294,10 +306,11 @@ definition of safe for a cosmetic ghost layer — and unlike "no vulnerabilities
 that can be checked.
 
 **What is NOT in scope of any of the three, and needs its own decision:** relay authentication.
-Nothing proves a relay is who it says it is — the `tls_fingerprint` pin is opt-in, covers the tcp
-leg only, and must be re-copied after every relay restart. Joining a stranger's relay is a
-different threat model from hosting for strangers, and only the channel-binding work above
-addresses it. Do not let the three layers above create a false sense that this one is covered.
+Since 2026-09-15 a client remembers a relay's identity from its first connection and notices a
+change (ADR 0066); nothing yet *proves* the first connection or settles a change — that is the
+room-code PAKE, chosen and unbuilt. Joining a stranger's relay is a different threat model from
+hosting for strangers, and only that work addresses it. Do not let the three layers above create
+a false sense that this one is covered.
 
 ### How authoritative online games / MMOs handle this, and why most of it cannot transfer
 

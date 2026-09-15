@@ -73,54 +73,54 @@ while hosting is friend-to-friend; revisit if public or third-party hosting ever
 
 | Transport | Encrypted? | Authenticated? | Notes |
 | --- | --- | --- | --- |
-| **tcp** | **Optional**, TLS 1.3 — **on by default** (`auto`), in a release and from the flags alike | **No**, unless a fingerprint is pinned | Encrypted by default under `auto`, which still serves plaintext on the SAME port -- so netcat debugging survives while real sessions are protected. `off` opts out; `required` refuses plaintext outright. Always carries the handshake. |
-| **quic** (default) | **Yes**, TLS 1.3 | **No** — the certificate is self-signed and unverified | Stops a passive eavesdropper. Does **not** stop an active man-in-the-middle, who presents their own certificate and is accepted. |
+| **tcp** | **Always**, TLS 1.3 (since 2026-09-15; no mode, no plaintext fallback on either side) | **Remembered**: the client checks the server's certificate against what it saw on the first connection | A plaintext connection is closed by the server and a plaintext server is refused by the client. Always carries the handshake. |
+| **quic** (default) | **Yes**, TLS 1.3 | **Remembered**, the same entry as tcp — the server presents one certificate on both | Stops a passive eavesdropper on every connection. An active man-in-the-middle is noticed from the second connection on (a changed identity is warned about, loudly), not on the first. |
 | **udp** | **No** | No | **Not shipped since 2026-09-15** (ADR 0065): Go's standard library has no DTLS, so it could never be encrypted, and it rescued no player quic could not. A release refuses the name; the code is a dev build's comparison tool. |
 
-So the honest summary is **encrypted-by-default, authenticated-only-if-you-ask**. A room code raises
-the bar from "anyone with the address" to "anyone with the address and the code" — not to "safe
-against a network-level attacker".
+So the honest summary is **always encrypted, and the server is recognised from the second
+connection on**. A room code raises the bar from "anyone with the address" to "anyone with the
+address and the code" — not to "safe against a network-level attacker".
 
-**Authentication, since 2026-08-19, has exactly one form, it is opt-in, and it covers one leg**: the
-relay prints its TLS certificate's SHA-256 fingerprint at startup, and a player who was handed that
-string by some other route puts it in `"tls_fingerprint"`. A relay presenting anything else is then
-refused rather than trusted. Without it, TLS (on `tcp`) and quic alike give you encryption and no
-proof of who is on the other end.
+**How the server is recognised (since 2026-09-15, ADR 0066).** Every server has a persistent
+identity: a certificate it generates on its first start and keeps in a `tls\` folder beside its
+`config.json` (`relay.key`, `relay.crt`, `relay.fingerprint`), served on tcp and quic alike so one
+server has one fingerprint. Every client remembers each server's fingerprint under the address it
+configured, in `tls\known_relays.json` beside its own `config.json`, on the first connection, and
+checks every later connection — the tcp handshake, the tcp session, the quic session — against
+that entry. This is the SSH model, trust on first use: the first connection cannot be checked
+against anything, and from then on a different certificate at the same address is **noticed**.
+Nobody copies a string, edits a file or deletes one; the two files are written and read by the two
+programs.
 
-**A client with `tls` on never falls back to plaintext** (since 2026-09-15). `auto` and `required`
-differ only on the relay side; on the client both refuse a relay that does not complete a TLS
-handshake, on the discovery leg and the session leg alike, on every reconnect. Until that date
-`auto` fell back to plaintext once with a warning, so a client could still reach a relay built
-before TLS existed — and the fourth adversarial review showed what that allowance cost: *any*
-failed handshake took the fallback (a reset, a dropped ClientHello, the 3 s discovery timeout),
-the plaintext redial carried the room code, and a middlebox that resets TLS on a non-443 port did
-it by accident. The allowance could not be kept for old relays either, because a plaintext relay
-never answers a ClientHello with bytes — it drops the line it cannot parse and closes at its hello
-timeout, which is exactly what an attacker blackholing the handshake looks like. Every release
-since 2026-08-19 speaks TLS, so the fallback went (`netx.DialWithTLS` carries the reasoning); the
-one way to reach a relay deliberately run with `tls` `off` is to set `off` on the client too.
+**What happens when the identity changes** — the host reinstalled, moved the server to a fresh
+folder, deleted `tls\`, or someone is impersonating it — is, for now, a **warning, not a
+refusal**: the client logs both fingerprints in a block that says the host should compare the one
+their server prints at startup, updates its entry, and connects, still encrypted. SSH refuses
+instead, and then a human deletes a line from a file; the user's requirement is that nobody ever
+does that. What will settle a change instead is the room code, used as a proof that never crosses
+the wire (a PAKE bound to the TLS connection — the next piece of this work, chosen and not yet
+built; [agent_docs/tls-planning.md](../agent_docs/tls-planning.md) step 5): with a code set, a
+changed identity will be *proven* by the code or *refused*. Until then a host who reinstalls costs
+each returning player one loud line, and a host who wants to be sure can read their fingerprint
+line to a player over chat and have the player compare it with the warning.
 
-**Setting a pin forces `tls` to `required` for that session** (since 2026-09-07), and **a pin must
-be a whole fingerprint** (since 2026-09-15): 64 hex digits, with or without colons. A placeholder
-such as `<paste here>` used to normalize to nothing and mean "no pin" while the log said the relay
-was pinned — an unauthenticated session under a line saying it was authenticated; now it refuses to
-start.
+**There is no mode and no plaintext fallback, on either side.** A server closes a connection that
+does not begin with a TLS handshake (one throttled log line says so); a client sends nothing —
+not a hello, not a room code — to a server that does not complete one, on the discovery leg and
+the session leg alike, on every reconnect. Until 2026-09-15 there was a three-way `tls` setting:
+`auto` on the client fell back to plaintext once, with a warning, so a client could still reach a
+relay built before TLS existed, and the fourth adversarial review showed what that cost — *any*
+failed handshake took the fallback (a reset, a dropped ClientHello, the 3 s discovery timeout), the
+plaintext redial carried the room code, and a middlebox that resets TLS on a non-443 port did it by
+accident. Nor could the allowance be kept for old relays, because a plaintext relay never answers a
+ClientHello with bytes, which is exactly what an attacker blackholing the handshake looks like.
+Every release since 2026-08-19 speaks TLS, so the fallback went, and the same day the mode and the
+hand-copied `tls_fingerprint` pin went with it. A `config.json` still saying `"tls": "off"` or
+`"auto"`, or carrying a pin, refuses to start and says what replaced it, rather than quietly
+meaning something else.
 
-**The pin authenticates the tcp leg only.** `netx.DialWithTLS` returns a plain dial for anything
-that is not tcp, so the fingerprint is never consulted on the quic path; `netx/quicconn`'s client
-always sets `InsecureSkipVerify`, and `quicconn.Listen` builds its own certificate — so a relay
-serving tcp+TLS and quic is presenting *two different* certificates, and the fingerprint it prints
-at startup is the tcp one. The leg the pin does cover is the leg that carries the room code, which
-is exactly why it is the one worth closing. But the consequence is worth stating plainly: with a
-fingerprint pinned, **`tcp` is stronger than `quic`, not equal to it** — the quic session stays
-encrypted-but-unverified either way.
-
-Two more caveats worth saying out loud: it only helps if someone actually compares the string, and
-the certificate is regenerated on every relay restart, so the pin has to be re-copied after the host
-restarts theirs. There is no CA anywhere in this design and none is planned. The other route to
-authentication — TLS channel binding (`tls-exporter`, RFC 9266), which would remove the room code
-from the wire entirely rather than encrypting it — is designed and unbuilt
-([agent_docs/security-design.md](../agent_docs/security-design.md), point 3).
+There is no CA anywhere in this design and none is planned: `connect_to` is a bare IP, and there is
+no name a certificate could be checked against.
 
 **What plain `udp` does have**, since it is otherwise the weakest of the three: an HMAC cookie so an
 unauthenticated stranger cannot make the listener allocate memory for a spoofed address, a
@@ -139,17 +139,15 @@ claims, not just game memory.
 **Bottom line up front, current as of 2026-09-11.** MeshGhost supports room-code auth and a peer
 game-version check, and the relay/core have been hardened against several concrete malicious-peer
 attack shapes (the 2026-08-14 pass, see "What changed" below). It is safer to use with people you
-don't personally know than it was — but the wire is not *authenticated* unless someone pins a
-fingerprint, and a pin covers the tcp leg only. `quic`, the default session path since 2026-08-16,
-is always TLS 1.3; `tcp` gained optional TLS on 2026-08-19; `udp` has no encryption at all and
-cannot have any, since Go's standard library has no DTLS. Certificates are self-signed and
-unverified by default, so encryption stops a passive eavesdropper and not an active
-man-in-the-middle. **On `tcp`, `"tls"` defaults to `auto` everywhere since 2026-08-19: the
-compiled-in flag default is `auto`** (`cmd/meshghost/main.go`, `cmd/meshghost-relay/main.go`), which
-is what a dev session or a `go run` pair uses, **and the shipped `packaging/release/config.json`
-sets `"tls": "auto"` on both client and server** too, so a release pair encrypts the tcp leg. Either
-way, all of this raises the bar from "anyone with the address" to "anyone with the address and the
-code," not to "safe against a
+don't personally know than it was. **Every connection is encrypted, on every transport, with no
+setting** (since 2026-09-15): `quic`, the default session path since 2026-08-16, was always TLS
+1.3; `tcp` gained optional TLS on 2026-08-19 and unconditional TLS on 2026-09-15; plain `udp`,
+which could never be encrypted, stopped shipping the same day. Certificates are self-signed — there
+is no CA for a bare IP — and **a client remembers each server's certificate from its first
+connection and checks every later one against it**, so a passive eavesdropper is stopped always and
+an active man-in-the-middle is noticed from the second connection on (see "What is and is not
+secure" above for what a changed identity does today). All of this raises the bar from "anyone
+with the address" to "anyone with the address and the code," not to "safe against a
 network-level attacker" — and room-code auth is enforced entirely by the relay, so it provides zero
 protection if the relay itself is an outdated build, regardless of what any client sends or believes
 it configured (see "A new risk this creates" below). Full record of the 2026-08-14 pass: ADR 0013, indexed in
@@ -173,10 +171,9 @@ checked again independently.
 **That is why TLS over tcp matters even for a session that ends up on quic, and it is stronger
 than "belt and braces": with `tls` off, an eavesdropper reads the room code from the plaintext
 discovery query and can then join over quic perfectly normally. Quic's encryption cannot protect
-a secret that already leaked on the other leg.** The tcp leg is also the one a pinned fingerprint
-authenticates. **That leg is plaintext unless `"tls"` is turned on**;
-`udp` cannot be encrypted at all, and `quic` always is. See "known gaps" below for what each of
-those does and does not mean.
+a secret that already leaked on the other leg.** Since 2026-09-15 that leg is always TLS, the
+server's one certificate is checked on it exactly as on the quic leg, and plain `udp` no longer
+ships. See "known gaps" below for what remains.
 
 **The tcp handshake grants no session identity.** It is query-only: nothing joins, no `player_id`
 is assigned, and the connection that follows authenticates itself independently. So the udp leg
@@ -373,8 +370,9 @@ relay never issued, after which every datagram it sent was dropped and the sessi
 worked. This is the same connect window the cookie and token above are described as protecting;
 they do protect it now (`netx/udpconn`).
 
-**The relay could silently stop accepting TCP for the life of the process.** `tls=auto` is the
-shipped default, so the TLS-or-plaintext sniffing listener is always in the path. Its accept loop
+**The relay could silently stop accepting TCP for the life of the process.** The sniffing listener
+is always in the tcp path (then because `tls=auto` was the shipped default; since 2026-09-15
+unconditionally). Its accept loop
 returned on the *first* `Accept` error of any kind; `Serve` then retried, as the 2026-09-02
 descriptor-exhaustion fix above has it do, and the retry blocked forever on a channel nothing would
 send to. So for six days the EMFILE hardening recorded above was defeated by the wrapper sitting in
@@ -407,10 +405,11 @@ The core→relay direction is now a bounded queue with its own writer goroutine
 
 **Three smaller ones, each visible to a player rather than an attacker:**
 
-- **`config.json` is re-read while the client runs** (2026-09-09), and `tls`, `tls_fingerprint` and
-  `room_code` are among the values that take effect without a relaunch — so the TLS mode and the
-  pin are no longer fixed at process start. A change to any of them makes the client leave the relay
-  and rejoin. The **relay** does not re-read its config; it restarts.
+- **`config.json` is re-read while the client runs** (2026-09-09), and `room_code` was among the
+  values that took effect without a relaunch, alongside the then-existing `tls` and
+  `tls_fingerprint` (both keys gone since 2026-09-15). A change made the client leave the relay
+  and rejoin. The **relay** does not re-read its config; it restarts. (Superseded 2026-09-12: see
+  the third review's section — where you connect is no longer live.)
 - **A key that is not a setting says so** (2026-09-11). A misspelled key used to parse, be ignored,
   and leave the setting at its default in silence — the same class of mistake as a wrongly-typed
   value, and on record as having cost a tester their room code. The client and relay now name such
@@ -535,10 +534,19 @@ and a dead connection's queue is dropped after its first failed write.
 **A player's client never quietly downgrades to plaintext.** With the shipped `tls` setting a
 client that failed a TLS handshake for any reason — a reset, a timeout, something on the path
 breaking it — reconnected in plaintext with the room code readable, and on a tcp-only server the
-whole session then ran in the clear. Now a client with `tls` on refuses any server that does not
-complete the handshake; the only way to talk to a server you deliberately run with `tls` `off` is
-to set `off` on the client too. A pinned fingerprint must now be the whole fingerprint: a
-placeholder used to pin nothing while the log said it was pinned.
+whole session then ran in the clear. Now a client refuses any server that does not complete the
+handshake, full stop.
+
+**Encryption is no longer a setting, and your server has an identity now** (same day, ADR 0066).
+The `tls` and `tls_fingerprint` keys are gone: every connection is TLS on both transports, a
+plaintext client is closed and a plaintext server refused. Your server generates a certificate on
+its first start and keeps it in `tls\` beside its `config.json`, so it is the same server after a
+restart; it prints the fingerprint at startup and names the folder. Every player's client remembers
+that fingerprint on its first connection and warns, loudly, if it ever changes — the SSH model, with
+nothing for anyone to copy. Keep `tls\relay.key` private (whoever has it can pose as your server to
+everyone who has connected before); copy the `tls\` folder into a new install to stay the same
+server; delete it to become a new one, at the cost of one warning per returning player. A
+`config.json` still carrying `"tls": "off"` or `"auto"`, or a pin, refuses to start and says why.
 
 **Plain udp is gone from releases.** It could never be encrypted, it rescued no player quic could
 not (quic runs over udp, so whatever blocks one blocks both, and tcp is the fallback anyway), and it
@@ -557,9 +565,9 @@ only when asked for with `-qlog`, not whenever an environment variable happens t
 in the wrong case is no longer applied and simultaneously reported as ignored, a `max_clients` of
 `0` is printed as the 8 it enforces, and a trailing space in `room_code` no longer refuses everyone.
 
-**On a server strangers can reach, then:** set a `room_code` of eight characters or more; leave
-`tls` at `auto` (or set `required`, which refuses old clients outright) and give players the
-fingerprint line out of band if you want them to be sure it is you; bind `0.0.0.0` and firewall
+**On a server strangers can reach, then:** set a `room_code` of eight characters or more; keep the
+`tls\` folder with the install and `relay.key` private, and read your fingerprint line to a player
+over chat if they ever see the "identity changed" warning and you did not reinstall; bind `0.0.0.0` and firewall
 both IPv4 and IPv6, or bind one explicit address; keep `transport` at `tcp,quic` and forward that
 one port number for both tcp and udp; run it from its own folder or give `-config` an absolute
 path; and read the startup lines — every one of the settings above prints what it decided.
@@ -617,9 +625,9 @@ counts. The relay reaches it through an interface it hands the connection to, so
 never reads the address itself.
 
 **The one exception, added 2026-08-19 with TLS over tcp:** `netx/tlsx`'s listener names the peer
-address in two log lines — a plaintext connection refused under `"tls": "required"`, and a failed
-TLS handshake. Both are refusals, both go only to the host's own `meshghost-server.log`, and
-neither can happen at all while `tls` is `off` — but `auto` is the default, so they can. It is a deliberate
+address in two log lines — a plaintext connection refused (every connection is TLS since
+2026-09-15), and a failed TLS handshake. Both are refusals, both go only to the host's own
+`meshghost-server.log`, and both are throttled to one line a second. It is a deliberate
 narrowing of the property above rather than an oversight: "your friend cannot connect and the log
 does not say who was turned away" is the support case this exists for. Nothing logs the address of
 a connection that *succeeds*, so a normal session still leaves no IP anywhere. The relay is still the one party
@@ -684,24 +692,18 @@ ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
   `MaxWorldBlobBytes`, ~52KiB per room, freed with the room) and opt-in per room, so it is not a
   resource gap; what it is, is a new place a client could smuggle something into, and it is not
   inspected because by hard rule it cannot be. Same posture as `extras`, with a longer lifetime.
-- **`tcp` is plaintext only if you turn `tls` off** — on both ends, since 2026-09-15: a client with
-  `tls` on refuses a plaintext relay. On `tcp` that is a setting rather than a limit, since
-  2026-08-19: `"tls": "auto"` or `"required"` encrypts it, and `auto` is the default to keep the
-  "greppable with netcat" debuggability property on the relay side (see "Why TCP is the mandatory
-  handshake leg" below); the shipped release config sets `auto`. So only with `tls` off on the
-  client does a room code cross in the clear, and then anyone positioned between a client and the
-  relay can read it. That is the honest ceiling of what room-code auth buys in that configuration —
-  "anyone with the address and the code," not "safe against a network-level attacker." With `tls`
-  on, `tcp` reaches quic's level below — encrypted, unauthenticated by default — and with a
-  fingerprint pinned it goes one step *past* quic, because the pin covers the tcp leg and nothing
-  else (see above). Plain `udp`, which could never be encrypted, stopped shipping the same day (ADR
-  0065).
-  **`quic` is the exception, since 2026-08-16**: its handshake *is* TLS 1.3, so the session is
-  encrypted and the source address cannot be forged. What it still does not give is proof of *who*
-  the relay is — the certificate is self-signed and unverified, because `connect_to` is a bare IP
-  with no CA and no hostname to check, and the `"tls_fingerprint"` pin does not reach this path at
-  all. Closing that (by binding the room code to the TLS session)
-  is scoped and unscheduled in
+- **The first connection to a server is unauthenticated, and a changed identity is warned about,
+  not refused** (ADR 0066, 2026-09-15). `tcp` and `quic` are both TLS 1.3 always, and both are
+  checked against the one certificate the client remembers for that address — so an eavesdropper
+  is stopped on every connection, and an impostor is noticed from the second connection on. What
+  is still open is the first connection (nothing to compare against yet), and what a *change*
+  means: today the client logs both fingerprints, updates its memory and connects, because
+  refusing would need a human to delete a line from a file. Plain `udp`, which could never be
+  encrypted, stopped shipping the same day (ADR 0065).
+  Closing the rest (by binding the room code to the TLS session, so a changed identity is proven
+  by the code or refused, and the code never crosses the wire) is the chosen next piece of this
+  work and not yet built — [agent_docs/tls-planning.md](../agent_docs/tls-planning.md) step 5; the
+  design is in
   [agent_docs/security-design.md](../agent_docs/security-design.md), point 3, and carried as a
   known gap in [agent_docs/risks.md](../agent_docs/risks.md); the keying material it needs is
   confirmed reachable from a quic-go connection (`TestHandshakeIsTLS13`).
@@ -753,7 +755,7 @@ ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
   smaller ones. None is reachable in a cosmetic room; each is a contract decision for when a plane
   ships. They are in [agent_docs/risks.md](../agent_docs/risks.md), with the numbers.
 
-### Why `auto` and not `off` — a policy decision, 2026-08-19
+### Why `auto` and not `off` — a policy decision, 2026-08-19, superseded 2026-09-15
 
 The flags used to default to `off` so that a client could not suddenly demand encryption from a
 relay that predated it. That reasoning was retired outright: **assume everyone is on the
@@ -761,10 +763,12 @@ latest release.** A default whose whole purpose is protecting stale versions pro
 the cost of keeping it was real -- every fresh install ran unencrypted unless somebody found the
 setting.
 
-`auto` is the right shape for that stance because it never breaks a session: it uses TLS where the
-other end speaks it, says so in the log where it does not, and on the relay side serves TLS and
-plaintext on the same port. Debugging with netcat still works. The only setting that can refuse a
-connection is `required`, and that stays opt-in.
+`auto` was then the right shape because it never broke a session: TLS where the other end spoke
+it, plaintext on the same port on the relay side, netcat still usable. **Superseded 2026-09-15 (ADR
+0066)**: the same stance, taken to its end, means there is no setting at all — every release since
+2026-08-19 speaks TLS, so `auto` protected nobody either, and the fourth review showed its fallback
+was a downgrade any failed handshake could trigger. Netcat lost; `docs/reviewing.md` says what to
+use instead.
 
 ## A constraint to protect going forward
 
@@ -799,8 +803,9 @@ registry paths, MAC-derived identifiers), which conflicts directly with the cons
 `tcp,quic`, so a default pair runs quic and drops to tcp only when quic cannot be established (the
 two transport ADRs in [agent_docs/architecture.md](../agent_docs/architecture.md)). What tcp still
 is, is the **mandatory handshake leg and the universal fallback**: the only transport readable with
-`netcat` or a packet capture while debugging — which it still is by default, and still is against a
-relay running `"tls": "auto"` — the one that **did** gain optional TLS, on 2026-08-19, and the only
+`netcat` or a packet capture while debugging — which it no longer is against a shipped relay, every
+connection being TLS since 2026-09-15 (a dev build honours `SSLKEYLOGFILE` for Wireshark) — the one
+that **did** gain optional TLS, on 2026-08-19, then unconditional TLS on 2026-09-15, and the only
 choice that changes nothing for an existing user. The reasoning below is why it holds those roles
 rather than why it was once the default. Two things that reasoning did not anticipate: `udp` cannot
 be encrypted at all in Go (no DTLS in the standard library), and QUIC gets the loss behaviour and

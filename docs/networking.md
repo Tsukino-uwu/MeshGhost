@@ -452,11 +452,12 @@ whole no-locking argument rests on. Doing the demultiplexing *below* that layer 
 
 The three implementations:
 
-- **tcp** — `net.Listen`/`net.DialTimeout`, plain NDJSON over a stream. Readable with netcat,
-  which is the default and the reason it is. Optionally wrapped in TLS 1.3 since 2026-08-19
-  (`netx/tlsx`, `netx.ListenWithTLS`/`DialWithTLS`): a listener in `auto` mode tells a TLS
-  ClientHello from an NDJSON line by its first byte and serves both on one port, so netcat keeps
-  working either way. `SendUnreliable` is exactly `Send`.
+- **tcp** — `net.Listen`/`net.DialTimeout`, NDJSON over a stream, always wrapped in TLS 1.3
+  (`netx/tlsx`, `netx.ListenWithTLS`/`DialWithTLS`; optional from 2026-08-19, unconditional since
+  2026-09-15, ADR 0066). The listener reads the first byte of each connection so a client that
+  speaks plaintext — a build from before TLS, or netcat — is refused with a log line that says why
+  rather than a handshake error; netcat can no longer drive a relay. `SendUnreliable` is exactly
+  `Send`.
 - **udp** (`netx/udpconn`; **dev build only since 2026-09-15**, behind the `meshghost_devudp`
   tag, kept as a comparison tool against quic — no release serves or dials it) — one shared
   socket presented as a `net.Listener`, demultiplexed by remote address. One datagram carries exactly one NDJSON line. *Every*
@@ -488,13 +489,13 @@ The three implementations:
   plane rides datagrams. The stream is line-buffered before anything is handed upward
   (`streamLoop`, `quicconn.go`) — merging naively would splice a datagram into the middle
   of a half-delivered line and produce something no parser can recover. The handshake *is* TLS
-  1.3, so the session is encrypted with no configuration; the certificate is self-signed and
-  in-memory and the client sets `InsecureSkipVerify` (`quicconn.go`) because `connect_to` is
-  a bare IP with no CA and no hostname to check. That is encryption against someone watching the
-  network, not proof of who is on the other end — and the `"tls_fingerprint"` pin does not change
-  it here: `netx.DialWithTLS` wraps only tcp, and `quicconn.Listen` builds its own certificate via
-  `tlsx.ServerConfig`, so a relay serving tcp+TLS and quic presents two different certificates and
-  the fingerprint it prints is the tcp one. See `docs/security.md`.
+  1.3, so the session is encrypted with no configuration. Since 2026-09-15 the relay hands this
+  listener the SAME certificate its tcp listener serves (`quicconn.Options.TLS`, from
+  `tlsx.LoadOrCreateIdentity`) and the client dials through the same verifier (`quicconn.DialWith`
+  with a `tlsx.Verifier`; the bare `Dial` refuses), so one relay has one fingerprint and the
+  client's known-servers entry covers both legs. The certificate is self-signed because
+  `connect_to` is a bare IP with no CA and no hostname to check; what checks it is the client's
+  memory of the first connection (`core/knownrelays.go`). See `docs/security.md`.
 
 The seam between "reliable" and "lossy" is a **type assertion**, not a field:
 `NDJSONConn.SendUnreliable` (`transport.go`) checks whether its `net.Conn` implements

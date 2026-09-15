@@ -191,8 +191,11 @@
   **TLS-over-`tcp` was built 2026-08-19** (`netx/tlsx`; `tls: off`/`auto`/`required` on both ends,
   the binaries defaulting to `off` and `packaging/release/config.json` to `auto`), so both default
   transports now encrypt and `netx/tls_test.go` asserts the room code is absent from the bytes on
-  the wire. Unchanged: the certificate is still unverified (encrypted, not authenticated), and
-  `udp` remains plaintext with no fix available.
+  the wire. **2026-09-15 (ADR 0066)**: TLS is unconditional on tcp and quic, the relay's
+  identity is persisted and served on both, and a client remembers it from the first connection
+  and warns on a change — so the certificate is checked, from the second connection on. Still
+  open: the first connection, and a change is warned about rather than proven (the room-code
+  PAKE, chosen, unbuilt). `udp` no longer ships (ADR 0065).
 - **`udp` cannot be encrypted, ever, and this is not fixable** (added 2026-08-16 with selectable
   transports). Go's standard library has no DTLS, so a client choosing `transport: "udp"` sends
   its `room_code` in the clear with no option available to change that. **The real mitigation
@@ -776,7 +779,8 @@ convenience with a cheap substitute (a relaunch) rather than a capability.
 
 Live still: names, colours, smoothing, ghost collision, the chaser and replay sections, hotkeys,
 `max_receive_hz_per_player`, `offline`. Relaunch-only now: `connect_to`, `room_name`, `room_code`,
-alongside `tls_fingerprint`, which already was -- and which those three decide the meaning of.
+alongside `tls_fingerprint`, which already was (and is gone since 2026-09-15, ADR 0066: the
+server is remembered automatically) -- and which those three decide the meaning of.
 
 **The half that was nearly missed, kept as the lesson:** holding the keys back at the point of use is
 only half a fix. `configWatcher.reload` replaces "what is live" with what it just read, so the

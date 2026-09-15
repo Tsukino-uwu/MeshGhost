@@ -66,11 +66,10 @@ the reasoning.
 phrase and every player must put that same word in their own `config.json` before they get in.
 Tell them the same way you tell them the address.
 
-This is a gate, not encryption on its own: someone already watching your network traffic could
-read the code in transit. (With the shipped `tls: auto` on both ends, that first contact *is*
-encrypted, so in practice on current versions it is protected — see [security.md](security.md) for
-what is actually promised.) It stops a stranger who only has your address; it is not a password
-system.
+This is a gate, not a password system: it stops a stranger who only has your address. The code
+itself crosses the network encrypted — every connection is, since 2026-09-15, with nothing to set
+— so someone watching your traffic does not read it; see [security.md](security.md) for what is
+actually promised and what is not.
 
 **Everyone must be on a current build for this to work.** An old `meshghost.exe` or
 `meshghost-server.exe` silently ignores `room_code` and stays wide open with no warning. If in
@@ -220,31 +219,39 @@ ports it actually bound. Compare that against your router.
 A player set to a transport you have not forwarded just sees a timeout with nothing explaining it.
 If one person cannot connect and everyone else can, check this first.
 
-## Encryption and proving it is really you
+## Encryption, and how players recognise your server
 
-**`tls`** ships at `auto`, which encrypts TCP connections for every player whose client asks —
-which is all current ones — while still accepting those that do not. This matters even though
-quic is already encrypted, because **every** player makes first contact over TCP and that is where
-their `room_code` is sent. `required` refuses unencrypted players outright; `off` is plaintext.
+**Every connection is encrypted, and there is nothing to set** (since 2026-09-15). This matters even
+though quic was always encrypted, because **every** player makes first contact over TCP and that is
+where their `room_code` is sent. A client from before that date, or anything else that does not
+speak TLS, is closed by your server with one line in your log; a player's client refuses any server
+that does not complete a TLS handshake, so if something between the two breaks it the player gets
+an error naming it rather than a session with the room code readable. There is no plaintext
+fallback on either side and no way to configure one. (Until that date `tls` was a three-way setting
+and `auto`, the shipped value, fell back to plaintext on any failed handshake; both the setting and
+the hand-copied `tls_fingerprint` pin are gone. A `config.json` still carrying either refuses to
+start and says what replaced it.)
 
-**A player's client never downgrades.** Since 2026-09-15 a client set to `auto` (the shipped
-value) or `required` refuses any server that does not complete a TLS handshake; there is no
-plaintext fallback on their side at all. So a default client on a default host runs an encrypted
-session, and if anything between the two breaks the handshake the player gets an error naming it
-rather than a session with the room code readable. (Before that date `auto` fell back to plaintext
-with a warning, and any failed handshake — a reset, a timeout — was enough to trigger it.) The one
-way a player reaches a server you deliberately run with `tls` `off` is to set `off` on their side
-too.
+**Your server has an identity.** On its first start it generates a certificate and keeps it in a
+`tls\` folder beside its `config.json` (beside the executable if there is no config):
 
-A player who sets `tls_fingerprint` is additionally forced to `required` from the start (since
-2026-09-07), and the value has to be the whole fingerprint: a placeholder refuses to start rather
-than quietly pinning nothing (since 2026-09-15).
+- `relay.key` — the private key. **Keep it private**: whoever has it can pose as your server to
+  every player who has connected before. It is never in a release zip, and never should be in
+  anything you re-share.
+- `relay.crt` — the certificate, and `relay.fingerprint` — its fingerprint, for you to read.
 
-With TLS on, your server prints a **`tls certificate fingerprint:`** line at startup. That string
-is how a player can verify they reached *your* server and not someone impersonating it: send it to
-them some other way — chat, not through the server — and they put it in `tls_fingerprint`. It
-changes every restart, so it is a per-session thing, and nobody has to do it. Without it the
-traffic is still encrypted, just not *proven* to be yours.
+The startup log prints the **`tls certificate fingerprint:`** line and names the folder. **Copy the
+`tls\` folder into a new install to stay the same server**; delete it and you become a new one.
+
+**Players recognise you automatically.** On their first connection a player's client remembers your
+fingerprint (in `tls\known_relays.json` beside their own `config.json`, keyed by the address they
+typed) and checks it on every later connection. Nobody copies anything. If your identity ever
+changes — you reinstalled, deleted `tls\`, or someone is impersonating your address — their client
+logs a loud warning naming both fingerprints, remembers the new one, and connects. If you did
+reinstall, tell them; if you did not, read them your fingerprint line over chat (not through the
+server) and have them compare it with the "presented" line in the warning. Proving a change by the
+room code itself, so that this is never a judgement call, is the next piece of this work and is
+not built yet ([security.md](security.md) says exactly what is and is not promised today).
 
 ## Seeing what your server is actually doing
 

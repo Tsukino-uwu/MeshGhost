@@ -2378,3 +2378,49 @@ re-run since). The Go PAKE survey for `tls-planning.md` is in `licensing.md` (`0
 user's call: **TOFU first, OPAQUE afterwards, one at a time**. Step 1 of TOFU was started and
 reverted unbuilt so the tree stays green; the settled design and the full file map are in
 `HANDOFF.md` at the root (untracked), for the next session. Nothing pushed.
+
+## 2026-09-15 (evening) — TLS always on, the relay's identity persisted, trust on first use (ADR 0066)
+
+**What was done.** `agent_docs/tls-planning.md` steps 1–4 and 6–9, from the design `HANDOFF.md` had
+settled (that file is deleted now; the tracked plan carries its status). `netx/tlsx` lost `Mode`,
+`ParseMode` and the pin and gained `Verifier`, `TrustAnyCertificate` (tests and dev tools only,
+greppable), `Fingerprint`, `ClientConfig`, `LoadOrCreateIdentity` (`identity.go`: key + cert +
+fingerprint beside the config, atomic writes, half-or-corrupt fatal) and a dev-tag-only
+`SSLKEYLOGFILE` hook. `quicconn` takes the shared identity (`Options.TLS`) and dials only through
+`DialWith(verify)`. `netx.TLSOptions` is `{Server, Verify, …}`; `ListenWithTLS` always wraps,
+`DialWithTLS` always verifies, `Dial(QUIC)` refuses. `core` lost `TLS`/`TLSFingerprint` and gained
+`KnownRelays` (`knownrelays.go`; nil means an in-memory store, so every existing test runs
+unchanged and nothing trusts blindly). Both mains lost `-tls`/`-tls-fingerprint`; the config keys
+are still decoded and judged (`checkLegacyTLSKey(s)`). The shipped config lost both keys;
+`.gitignore` and `stage-release.ps1` keep `tls/` out of the repo and the zip. Docs: ADR 0066,
+`security-design.md`, `docs/security.md`, `config.md`, `hosting.md`, `networking.md`,
+`reviewing.md` (netcat is gone; `openssl s_client -alpn meshghost` is the hand tool).
+
+**What the user decided** (this morning, in `HANDOFF.md` and the previous entry): TOFU first, OPAQUE
+afterwards, one at a time. So a changed identity is warned about and remembered, not proven or
+refused; the room-code PAKE (step 5, `bytemare/opaque`) is the open next piece and a contract
+revision of its own. The user also asked whether TOFU and the PAKE need tests or fuzzing: TOFU is
+our code and got both (the store's tests and `FuzzKnownRelaysFileNeverPanics`); the PAKE's
+cryptography is the library's to test, and what we will test is the integration — right code
+connects, wrong code refused, the code never on the wire — plus a fuzz target on whatever bytes it
+adds to the handshake.
+
+**Tests rewritten rather than deleted**: every test that assumed a mode or a pin (`tlsx`, `netx`,
+`core/transport_test.go`, the two mains, e2e) now asserts the unconditional behaviour, and every
+raw relay in `core`'s tests serves TLS through one `serveTLS` helper (`core/tlstest_test.go`).
+`core/tlspin_test.go` and `netx/tlsx/pin_internal_test.go` are gone with the pin. The e2e suite's
+own quic probe was the last bare `netx.Dial(QUIC)` in the tree.
+
+**What happened.** The race script's first run this morning (asked for by the handoff) collided
+with the in-flight edits and reported only "cannot build the relay"; it was re-run over the
+finished tree (below). The e2e suite failed three quic tests on the first run — the suite's probe,
+not the binaries — and passed once the probe verified. The live block in `verified.md` ran clean
+on the first attempt, nine checks, nothing left running.
+
+**Gates.** `run-gotests.bat` green over the finished tree (every package; one rerun after the
+relay tests' own quic probe was made to verify); `run-gotests-udp.bat` green (10 packages);
+`-count=10` on the new `tlsx`, `core` and `netx` tests; `run-netsim.bat`'s worst case round-trips
+(the `verified.md` entry has the counts); the tree preflight down to the three pre-existing
+items (stale `status.md` lines from earlier sessions, and a phase-freshness check that reads
+commit history). The commits: `7a6ae9e4` (the Go side) and the records commit after it.
+`run-gotests-race.bat` over the final tree: green, 19 packages, `core` 401 s (under the 600 s CI limit), no race. Nothing pushed.

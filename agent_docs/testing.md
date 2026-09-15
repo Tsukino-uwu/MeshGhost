@@ -211,13 +211,17 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
 - **`netx`, `netx/udpconn`, `netx/quicconn`, `netx/tlsx`** — the transport
   implementations behind the `net.Listener`/`net.Conn` seam. `udpconn` carries the most, since it
   is the only one that hand-rolls reliability and ordering: sequence numbers, acks, the retry
-  loop, the reorder window, and the per-connection token. `tlsx` (TLS over tcp, 2026-08-19) is
-  tested for its own behaviour — the first-byte sniff, refusing plaintext under `required`,
-  fingerprint pinning — while `netx/tls_test.go` asserts the thing that actually matters, with a
-  recording proxy between client and relay: **the room code is not present in the bytes on the
-  wire**. That test has a deliberate negative control in the same function (with `tls` off the
-  room code *is* captured), so it fails both when the feature breaks and when the test stops
-  watching the right traffic.
+  loop, the reorder window, and the per-connection token. `tlsx` (TLS over tcp, 2026-08-19;
+  always on with a persisted identity since 2026-09-15) is tested for its own behaviour — the
+  first-byte sniff refusing plaintext, the verifier seeing the leaf only, a nil verifier being an
+  error, the identity created then reused and half-or-corrupt being fatal — while
+  `netx/tls_test.go` asserts the thing that actually matters, with a recording proxy between
+  client and relay: **the room code is not present in the bytes on the wire**. That test has a
+  deliberate negative control in the same function (over a raw socket the room code *is*
+  captured), so it fails both when the feature breaks and when the test stops watching the right
+  traffic. The client's memory of relays (`core/knownrelays_test.go`) is driven through the
+  verifier with certificate DER and read back through a fresh store, plus a fuzz target on the
+  file.
 - **`bridge`** — has `bridge_test.go` since 2026-08-25 (eight tests plus two fuzz targets;
   before that it had none at all). It is also covered where it is used: `core`'s
   `dialFakeAdapter` speaks real bridge NDJSON, and `internal/e2e` drives a real adapter
@@ -456,6 +460,7 @@ checks):
 | `FuzzDepthBoundsAgreeAndNeverPanic` | The two `MaxJSONDepth` checkers — a raw-byte scan and a walk of the decoded value — agree on every input, so no shape rides in through the field only the scanner sees. Found a real off-by-one on 2026-09-05 (a scalar leaf counted as a level). |
 | `FuzzParseReplayNeverPanics` (**core**) | A replay file is a stranger's bytes; the loader refuses or accepts without panicking, and anything accepted passes the same validation a relay packet does, sample by sample (ADR 0047). |
 | `FuzzHostileRelayLines` (**core**) | Arbitrary bytes through the core's whole relay dispatch, as a STREAM of lines so the engine can build sequences. The invariants are a player's: the roster never passes `MaxRosterSize`, no relay-announced id takes a seat or a buffer without passing `acceptableRelayPeerID` (so a relay cannot mint `chaser:1` into this core's own namespace), the core never adopts an unshaped id as its own, and the clock offset stays inside ±1h. Every relay target before this one fuzzed the OTHER direction — a server reading a client (X2-4, 2026-09-12). |
+| `FuzzKnownRelaysFileNeverPanics` (core) | Arbitrary bytes as the client's `tls/known_relays.json` (ADR 0066): the loader returns an error or a store, never panics, and what it loads round-trips through its own writer. A file this process writes and a hand may edit; 11 seeds including a valid file, wrong versions, an empty address and a non-fingerprint. Wired the day it was written (2026-09-15). |
 | `FuzzHostileBridgeLines` (core) | Arbitrary bytes into the real `ServeBridge` over a pipe listener. Liveness, not a verdict: a bridge line comes from a Lua script a user edits, so malformed is the ordinary case and refusing it is correct — what the core may never do is panic, wedge, or stop accepting the next adapter. `FuzzEverything` drives this socket too, but only with legal frames (X2-4, 2026-09-12). |
 | `FuzzEverything` (core) | One whole client's configuration, event order, timing and values fuzzed at once — the replay-era features on top of the adapter and relay paths — against invariants a player would state. No relay socket, so it can run in CI where the schedule fuzzers cannot. |
 | `FuzzParseNeverPanicsAndOnlyAdmitsDocumentedChords` (**internal/hotkey**) | A chord string from config.json never panics the parser, and anything accepted is a documented modifier set plus one documented key that prints back to itself. |

@@ -581,7 +581,9 @@ one (tell hosts to update); TEVI's `game_version` doesn't yet reflect a real Ste
 encrypted, so a room code on that transport no longer crosses the wire in the clear. **TLS over
 `tcp` landed 2026-08-19** (`netx/tlsx`, `tls: off`/`auto`/`required` on both ends — the binaries
 default to `off`, the shipped `packaging/release/config.json` to `auto`), so both default
-transports encrypt; `udp` can never have it at all. **The shipped defaults then changed
+transports encrypt; `udp` can never have it at all. **Made unconditional 2026-09-15 (ADR 0066)**:
+no mode, a persisted relay identity, and clients that remember it; `udp` stopped shipping the same
+day (ADR 0065). **The shipped defaults then changed
 2026-08-16**: `config.json` now ships `client.transport: "auto"` (prefers quic) and
 `server.transport: "tcp,quic"`, so quic is the normal path and tcp the fallback. Encrypted is
 still not authenticated — the certificate is unverified.

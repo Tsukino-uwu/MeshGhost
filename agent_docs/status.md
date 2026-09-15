@@ -15,8 +15,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 - 2026-09-13 — **Pseudoregalia: a costume the watcher owns but never WORE is unresolvable, and the retry is unbounded** (1,798 warnings/20 min). `pseudoregalia/UNVERIFIED.md`.
 - 2026-09-13 — **Pseudoregalia: the outfit echo was the costume mod's save file shared by two games on ONE PC — not MeshGhost; the materials fix is restored.** `pseudoregalia/UNVERIFIED.md`, `running-the-rig.md`.
 - 2026-09-15 — **Review pass 4 (the Crystal dev's "can I run this on a server"): 29 findings; A, B, D and E fixed or closed, C recorded in `risks.md`; nothing pushed.** `REVIEW-FINDINGS.md`, `phases/phase10.md`, `docs/security.md`'s 2026-09-15 section.
-- 2026-09-15 — **NEXT SESSION STARTS FROM `HANDOFF.md` (root, untracked): TLS always on, TOFU first, OPAQUE later — design settled, file map written, nothing coded.** First: `run-gotests-race.bat` once (not re-run since `cbb30dd1`).
-- 2026-09-15 — **`tls-planning.md` is the scheduled next piece of work** (forced TLS, persisted relay identity, room-code PAKE); its prerequisite, no shipped udp, landed (ADR 0065). `agent_docs/tls-planning.md`.
+- 2026-09-15 — **TLS always on + trust on first use LANDED (ADR 0066), nothing pushed. OPEN: the room-code PAKE** (`tls-planning.md` step 5); unwatched in a real game.
 - 2026-09-15 — **The relay's config.json is LIVE for room_code/only_game/max_clients** (Go side green through the shipped stack; never watched with a real client editing it). `cmd/meshghost-relay/reload.go`.
 - 2026-09-15 — **Review pass 3's remainder** (P1b-3..6, P1d-5..10, X2-8..14; P2f-3's dead-path question on Emerald) is still open; pass 4 closed P1b's "two timers" sibling in `hostile_test.go`'s comment only. `REVIEW-FINDINGS.md`.
 - 2026-09-12 — **A stock relay could not welcome the 6th player into a room of escaped names, on the default transport.** Fixed (`relay.sendBudget`); the measurement is in `verified.md`.

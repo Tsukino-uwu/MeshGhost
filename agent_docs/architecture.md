@@ -72,9 +72,11 @@ relay      — room membership, forwarding, limits. Imports protocol, transport,
 netx       — transport selection (tcp|udp|quic) as net.Listener/net.Conn. Added
                        2026-08-16. No deps on our own packages, same leaf discipline as
                        transport; subpackages netx/udpconn and netx/quicconn hold the
-                       datagram implementations, and netx/tlsx holds TLS over tcp — the
-                       self-signed certificate, the first-byte sniffing listener and the
-                       optional fingerprint pin (added 2026-08-19). Deliberately NOT a second Transport
+                       datagram implementations, and netx/tlsx holds the one certificate story
+                       for every transport — the relay's persisted identity, the first-byte
+                       sniffing listener that refuses plaintext, and the Verifier a client
+                       checks it with (added 2026-08-19 as optional TLS with a pin; always on
+                       and remembered since 2026-09-15, ADR 0066). Deliberately NOT a second Transport
                        implementation — see the transport ADR for why the seam sits at
                        net.Conn.
 
@@ -226,6 +228,7 @@ or if a number is duplicated — an unindexed ADR is one nobody will find.
 - [2026-09-13 — A renamed config key keeps working, and says so](adr/0063-2026-09-13-a-renamed-config-key-keeps-working-and-says-so.md)
 - [2026-09-15 — Per-source state lives in `netx`, in memory, and is never logged](adr/0064-2026-09-15-per-source-state-lives-in-netx-and-is-never-logged.md)
 - [2026-09-15 — Plain `udp` is dormant: refused by releases, kept behind a build tag](adr/0065-2026-09-15-plain-udp-is-dormant-behind-a-build-tag.md)
+- [2026-09-15 — TLS is always on, the relay's identity is persisted, and clients remember it (trust on first use)](adr/0066-2026-09-15-tls-always-on-relay-identity-persisted-trust-on-first-use.md)
 
 ## Prior art
 

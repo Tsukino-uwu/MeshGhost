@@ -140,6 +140,8 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-12 — three numbers from the third review's backlog, each measured rather than reasoned
 - 2026-09-12 (later) — the Welcome a stock relay cannot send, measured at six players
 - 2026-09-12 (last) — a fuzz target at 0.0% on the code its own seeds were written for
+- 2026-09-15 — the fourth review's Go-side facts, each with its instrument
+- 2026-09-15 (later) — TLS always on and trust on first use: the Go-side facts, each with its instrument
 
 ## Split per game — 2026-08-25
 
@@ -2095,3 +2097,63 @@ game. The tests named are the instruments and run in `run-gotests.bat`.
   1.2 s (`TestShutdownHalfClosesClientsInParallel`; 1.20 s serial with the goroutine removed).
 - **Fuzz census, counted**: 30 targets in the tree, 29 in the release build, 27 wired in CI; the
   two unwired are core's opt-in schedule fuzzers; `ci.yml`'s header said 25/eight.
+
+## 2026-09-15 (later) — TLS always on and trust on first use: the Go-side facts, each with its instrument
+
+All confirmed by tools in this repo on this date (ADR 0066); none is adapter-side, so nothing here
+waits on a game. The tests are the instruments and run in `run-gotests.bat`; the live block ran
+the rebuilt root binaries, hidden, in a scratch folder, and every process was gone afterwards.
+
+- **A plaintext client is closed at the first byte, on the shipped stack, with no Reject** —
+  `TestShippedStackRefusesAPlaintextClient` and the plaintext row of
+  `TestShippedStackRejectsAWrongRoomCode` (a plaintext hello with the RIGHT code gets nothing
+  back); `TestAPlaintextClientIsRefused` in `tlsx`. Seen live: a hand-written `{"type":"hello"}`
+  got "forcibly closed" and the relay logged `refused a plaintext connection from 127.0.0.1:…
+  -- every connection is TLS since 2026-09-15`.
+- **A client sends nothing to a plaintext relay, whether it answers or stays silent**
+  (`TestAClientRefusesAPlaintextRelay`, both shapes; e2e `TestTheClientRefusesAPlaintextRelay`
+  against the real client binary and a raw listener: no render reached the adapter in 3 s).
+- **The room code is absent from the wire** — `TestTheRoomCodeIsNotReadableOnTheWireWithTLS`, its
+  control now a raw socket to a raw listener, which DOES capture it.
+- **One relay, one fingerprint on tcp and quic** (`TestOneIdentityOnTCPAndQUIC`: both legs present
+  the identity's fingerprint); **a refusing verifier refuses both, a nil one is an error on both**
+  (`TestTheVerifierDecidesOnEveryTransport`); **the bare quic dial refuses** (`TestBareDialRefusesQUIC`).
+- **The verifier sees the leaf only** (`TestTheVerifierIsHandedOnlyTheLeafCertificate`: the relay's
+  own certificate at index 1 behind an attacker's leaf is refused).
+- **An identity is created on the first start and reused on the next; deleting both files gives a
+  new one; one file missing or either corrupt is fatal; a wrong fingerprint file is rewritten;
+  the key is 0600 on POSIX; no `.tmp` is left** (`identity_test.go`, 8 tests). Seen live: first
+  start wrote `relay.key`, `relay.crt`, `relay.fingerprint` and logged the fingerprint and the
+  folder; a restart printed the same fingerprint; with `relay.key` deleted and `relay.crt` kept
+  the relay exited with "the relay's key file cannot be read … move BOTH files out".
+- **The client records on the first connection, matches silently on the second, warns loudly and
+  updates on a change, keeps one entry across room-code changes, survives 40 concurrent first
+  connections without a corrupt file, refuses a corrupt file rather than overwriting it, matches
+  a hand-edited colon-and-capitals entry, and still connects when the file cannot be written**
+  (`knownrelays_test.go`, 10 tests plus `FuzzKnownRelaysFileNeverPanics`, 11 seeds). Seen live:
+  "trusting server 127.0.0.1:7791, fingerprint … (first connection; remembered in …)", the
+  session on quic; the file byte-identical after the relay's code changed twice; after the relay's
+  `tls/` was deleted, the four-line WARNING block naming both fingerprints, then "using quic"
+  and connected, and the entry holding the new fingerprint.
+- **Both legs verify against the one entry keyed by the configured address**
+  (`TestBothLegsVerifyAgainstOneKnownRelaysEntry`; `TestACoreWithoutAStoreNeverDialsUnverified`
+  for the in-memory fallback every existing core test now runs on).
+- **The legacy keys are judged by what they asked for** (`TestTheObsoleteTLSKeyIsJudgedByWhatItAskedFor`,
+  `TestTheObsoleteTLSKeysAreJudgedByWhatTheyAskedFor`): seen live, a relay `config.json` with
+  `"tls": "off"` exited with `"tls": "off" in config.json is no longer a choice…`, and a client
+  with `"tls_fingerprint": "abcd"` exited with `…pins are gone: since 2026-09-15 a server's
+  identity is remembered automatically…`.
+- **The release binaries round-trip a ghost with no encryption flag, persist `tls/` beside the
+  relay and write `known_relays.json` beside the client** (e2e
+  `TestReleaseBinariesRoundTripAGhostOverTLS`); **the per-transport round trip and the quic
+  upgrade still pass** once the suite's own quic probe dialed through `DialWithTLS`.
+- **The shipped `config.json` carries neither key** (`shippedconfig_test.go`), and
+  `stage-release.ps1` refuses a `packaging/release/tls/` folder.
+- **The worst-case netsim rig still round-trips** (`run-netsim.bat`'s no-arg profile: 100 ms
+  ±50 ms, 5 % loss, 3 % reorder, a 1 s partition every 45 s; the rebuilt root binaries, hidden):
+  the fake peer trusted the relay on first contact through the proxy, went to quic at
+  `127.0.0.2:7777`, received 135 renders in 70 s and logged no disconnect across the partition
+  (netsim: 14,381 udp datagrams forwarded, 713 dropped, 438 reordered, 32 partition-drops). The
+  first attempt failed with the relay refusing two plaintext connections: the root
+  `meshghost-fakeadapter.exe` was a stale build whose core still dialed plaintext -- the
+  "rebuild every root `meshghost*.exe`" rule, again, and this time the tool, not the client.

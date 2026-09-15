@@ -2,7 +2,7 @@
 
 The release zip ships one full `config.json` at its root and a client-only copy in each game's
 folder under `games\`, cut from the root one at release time so they never disagree. **The per-game
-copy is a SUBSET**: the advanced keys (`transport`, `tls`, `tls_fingerprint`, `offline`,
+copy is a SUBSET**: the advanced keys (`transport`, `offline`,
 `local_interp`, `keepalive`, `min_send`, `max_receive_hz_per_player`, `local_game_bridge`, `stats`,
 `game`, `game_version`, `features`) are left out of it deliberately. Any of them still works if you
 add it by hand — an absent key just takes its default — so a page here telling you to set one is
@@ -29,14 +29,14 @@ to it: smoothing (`interp`, `local_interp`, `extrapolate`, `curve`, `predict`), 
 to the next recording or replay; `save_last`, `seek` and `split_times` at once) and the `hotkeys`
 apply without a relaunch; a change to `player_name`, `player_name_color`, `max_receive_hz_per_player` or
 `offline` makes the client leave the relay and rejoin with the new values (your ghosts blink out and
-back for the others); `connect_to`, `room_name`, `room_code`, `transport`, `tls`, `show_console` and the
+back for the others); `connect_to`, `room_name`, `room_code`, `transport`, `show_console` and the
 other launch-time keys are named in the log as needing a relaunch.
 
 **Where you connect is deliberately not live-editable (2026-09-12).** `connect_to`, `room_name` and
 `room_code` used to rejoin on a save like the others, and no longer do: a live re-read means
 anything else running on your PC that can write this file could move you into somebody else's room
 while you were playing, with nothing on screen saying so. Editing them is still reported in the log
--- it just waits for a relaunch, the same as `tls_fingerprint` already did. A key you remove falls back to
+-- it just waits for a relaunch. A key you remove falls back to
 its default. The keys a game's mod reads itself (`ghost_range*`, `replay.indicator*`,
 `input_display`) were already re-read by the mod on its own poll. Before this, only those mod-read
 keys changed on a save and everything else waited for the next launch -- a tester's report.
@@ -47,8 +47,6 @@ keys changed on a save and everything else waited for the next launch -- a teste
 | --- | --- | --- |
 | `connect_to` | `127.0.0.1:7777` | The host's address and **tcp** port. Only the tcp port is ever needed: the handshake is tcp and asks the server what else it serves. |
 | `transport` | `auto` | What the session moves to *after* connecting: `tcp` stays, `quic` upgrades if the server offers it, `auto` takes the best on offer. Asking for one the server lacks degrades to tcp, never to a timeout. **Running the Windows client under Wine or Proton?** `auto` handles it: Wine cannot create UDP sockets at all, so quic is impossible there, and the client checks once at startup and goes straight to tcp with one line in the log rather than dialling something that cannot work. A client running natively on Linux is unaffected and still gets quic, even from the same `config.json`. (`udp`, the plain unencrypted transport, stopped being a shipped option on 2026-09-15; a file that still says it refuses to start and says why.) |
-| `tls` | `auto` | Encryption of the tcp legs, including the handshake that carries the room code: `off`, `auto` or `required`. **`auto` and `required` both refuse a server that does not complete a TLS handshake** — there is no plaintext fallback (since 2026-09-15; before that `auto` fell back with a warning, and any failed handshake was enough to trigger it). Set `off` only if the host deliberately runs the server with `tls` off. |
-| `tls_fingerprint` | empty | Optional pin of the server's certificate: the SHA-256 the server prints at startup, given to you by the host, with or without colons. Empty means encrypted but not authenticated. Anything else must be that whole 64-digit value: a placeholder such as `<paste here>` refuses to start rather than quietly meaning "no pin" (since 2026-09-15). Setting it forces `tls` to `required` for that session (since 2026-09-07, logged when it happens). The server regenerates its certificate on every restart, so a pin has to be re-copied. |
 | `room_name` | empty | A label, not a password: everyone who wants to see each other uses the same one. Shipped blank, and blank means the room called `default`, so leaving it alone still puts you somewhere real with everyone else who left it alone. (Renamed from `room` on 2026-09-13; a file that still says `room` keeps working and the log says so once.) |
 | `room_code` | empty | The optional actual secret. If the host set one, you need it. |
 | `player_name` | `nickname` | Your nametag, drawn above your ghost for other players. Empty means no tag at all -- and so does the shipped word `nickname`, which is a placeholder showing what the field wants rather than a name: any capitalisation of that one word means "not set yet", so a player who never edits this file gets no tag. Anything else is used as typed, `Nickname!` included. (Renamed from `name` on 2026-09-13; the old spelling keeps working.) Sanitized (control and direction-override characters removed) and capped at 24 characters; not an identity, two players may share one. |
@@ -67,6 +65,14 @@ keys changed on a save and everything else waited for the next launch -- a teste
 | `input_display` | `{"player": false, "ghost": false, "background": true, "rows": 10, "size": 22, "unit": "cs", "count_side": "left", "fps_note": false, "player_side": "left", "ghost_side": "right"}` | An on-screen input history, fighting-game style: each row is what was held and for how many frames, newest on top (2026-09-08; Pseudoregalia only so far, and **since 2026-09-13 the block ships only in Pseudoregalia's own `config.json`** — adding it to another game's file does nothing). `player` shows your own, on `player_side`, whether or not a recording is running; `ghost` shows a replay ghost's from the input track recorded beside its clip (`replay.inputs`), on `ghost_side`, and takes the player's side when the player's is off (an `always` key used to gate the player's panel on a running recording; removed 2026-09-09, a config still carrying it is fine -- the key is ignored); `background` (on) draws the translucent panel behind the rows; the display is its own thing -- `replay.indicator` does not gate it (it did until 2026-09-09); `rows` and `size` are how many rows and the text size; `unit` is what a row's count measures -- `cs` (hundredths of a second, comparable between players at different framerates), `ms`, or `frames` (engine frames, the only unit that can show a single-frame press) -- or several at once in the order given, e.g. `"cs,frames"`, one count each; with `frames` shown the panel carries a header with the measured framerate, so a frame count has its scale (`fps_note`, off by default, turns that header on); `count_side` puts the count before (`left`) or after (`right`) the inputs. Both ship off; a mod without the display ignores the whole section. |
 | `hotkeys` | `{"record_toggle": "shift+4", "save_last": "shift+5", "replay_last": "shift+2", "replay_restart": "shift+F2", "replay_rewind": "shift+1", "replay_fast_forward": "shift+3"}` | System-wide keys the client registers itself, so they work with the game focused. `ctrl`, `shift`, `alt` plus one key (F1–F24 except F12, letters, digits, space, home, end, pageup/pagedown, insert, delete); an empty value unbinds. Windows only; a chord another program already owns is skipped and the log says so. **A bound chord is taken system-wide while MeshGhost runs** — measured 2026-09-13: with `shift+1`…`shift+5` bound, none of them reached a focused text box, and every one of them fired in the client instead. The client is told only which of its six actions fired, never what else you type; the cost is the other direction, that those chords stop doing their usual job everywhere until MeshGhost exits — on a Nordic layout the shipped set takes `!`, `"`, `#`, `¤` and `%`. Rebind any you want back. |
 
+**`tls` and `tls_fingerprint` are gone (2026-09-15).** Every connection is encrypted, on tcp and
+quic alike, with nothing to switch, and the server's identity is remembered automatically: on the
+first connection the client writes the server's certificate fingerprint to `tls\known_relays.json`
+beside this file, keyed by `connect_to`, and checks it on every later connection, warning in its log
+if it ever changes. A file still carrying `"tls": "off"` or `"auto"`, or a non-empty
+`tls_fingerprint`, refuses to start and says so, because a security setting is never silently
+ignored; `"tls": "required"` runs with a note to delete it. Delete the keys.
+
 Also in the `client` section, shipped at values you should not need to change: `game` (empty; announced by the mod, not set by you), `game_version` (empty), `min_send` (`0s`), `keepalive` (`250ms`; how often an unchanged state is re-sent, `0` sends every frame), `extrapolate` (`0s`; a prediction window, `0` holds the newest sample), `curve` (`linear`; or `catmull-rom`), `predict` (`damped`; how a ghost is carried past its newest sample when `extrapolate` is on — `linear` continues the last velocity, `accelerated` fits the curve of a jump from three samples but amplifies jitter, `damped` is linear prediction scaled back on any axis whose velocity is changing, the middle ground), `stats` (`0s`; log a one-line summary every so often, e.g. `10s`), `features` (`[]`; capabilities beyond the cosmetic ghost, every member of a room must list the same set), and `show_console` (`false`; open a window for a client a mod started silently).
 
 ## `server` — read by `meshghost-server.exe`
@@ -76,7 +82,6 @@ Also in the `client` section, shipped at values you should not need to change: `
 | `listen_on` | `0.0.0.0:7777` | The tcp address and port to serve. This is the port to forward, both tcp and udp (quic rides on udp). `0.0.0.0` binds every IPv4 address; `[::]` binds every address of both families — the startup line says which the server ended up with. |
 | `listen_quic` | empty | Where quic listens. Empty reuses `listen_on`'s port number, so hosting means forwarding one number. |
 | `transport` | `tcp,quic` | Which transports to serve at once, any of `tcp`, `quic`. Clients on different transports share a room. (`udp`, the plain unencrypted transport, stopped being a shipped option on 2026-09-15: a `transport` naming it refuses to start, and so does a non-empty `listen_udp`; an empty `listen_udp` left over from an older file is ignored.) |
-| `tls` | `auto` | Encryption for tcp: `off`, `auto` (TLS and plaintext on the same port) or `required` (refuse plaintext). quic is always encrypted. |
 | `room_code` | empty | If set, every client must present it. |
 | `only_game` | empty | Restrict the server to one game id (`emerald`, `crystal`, `tevi`, `pseudoregalia`). Empty hosts any game. |
 | `ghost_collision` | `disabled` | The room-wide policy the server advertises: `enabled` or `disabled`. Advisory; a client may still turn its own off. |
@@ -84,6 +89,14 @@ Also in the `client` section, shipped at values you should not need to change: `
 | `send_hz` | `15` | How many times a second the server forwards each player's state to the room. |
 
 | `resume_grace_seconds` | `0` | How long a dropped client's identity is held for a reconnect before the room is told it left. `0` (or absent) means the built-in 20 seconds. Only used by rooms that negotiated session resumption; a cosmetic room never holds anything. |
+
+**The server's `tls` key is gone too (2026-09-15).** Every connection is TLS. The server keeps its
+certificate in `tls\` beside this file — `relay.key` (private: whoever has it can pose as your
+server), `relay.crt`, `relay.fingerprint` — created on first start and reused after, so players
+recognise the same server across restarts; the startup log prints the fingerprint and the folder.
+Copy `tls\` into a new install to stay the same server; delete it to become a new one (every
+returning player then sees one warning). A file still carrying `"tls": "off"` or `"auto"` refuses to
+start; `"required"` runs with a note. [hosting.md](hosting.md) has the reasoning.
 
 ## Where to read more
 

@@ -41,6 +41,9 @@ full note.
   step is why MSYS2's GCC stood recorded as unusable from 2026-08-16. If no candidate passes the
   probe it says what to install (an MSYS2 mingw64 GCC, any mingw-w64 GCC, or a WSL distro), exits 1,
   and is explicit that this is a real gap rather than a pass.
+- `run-gotests-udp.bat` — the dev-tagged build (`meshghost_devudp`, ADR 0065): the plain-udp
+  transport's own tests and the packages that carry a udp row, which CI compiles but never runs.
+  Run it after touching `netx/udpconn` or anything under the tag.
 - `run-gotests-stress.bat` — a different axis, not a race substitute: `-count=10 -shuffle=on
   -cpu=1,4` over the concurrency packages. Repeats, randomised order, and two different GOMAXPROCS
   values, each of which changes interleavings. ~3-4 minutes. `internal/e2e` is excluded on purpose

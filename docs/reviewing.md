@@ -175,10 +175,10 @@ sha256sum meshghost-server.exe         # compare with the digest GitHub shows be
 A matching digest means the asset is exactly this source; a mismatch means either a different Go
 version (check the first command) or a file that is not what the tag builds.
 
-**Drive a relay by hand.** The tcp transport is newline-delimited JSON and, unless the host set
-`"tls": "required"`, plaintext on the same port, so `nc host 7777` and typing is a valid attack.
-The protocol is in `agent_docs/contract.md`; the reject reasons you will get back are in
-`protocol/protocol.go`.
+**Drive a relay by hand.** The tcp transport is newline-delimited JSON inside TLS (every
+connection, since 2026-09-15; a plaintext `nc` is closed at the first byte), so the hand tool is
+`openssl s_client -connect host:7777 -alpn meshghost -quiet` and typing. The protocol is in
+`agent_docs/contract.md`; the reject reasons you will get back are in `protocol/protocol.go`.
 
 ## Reading the tests
 

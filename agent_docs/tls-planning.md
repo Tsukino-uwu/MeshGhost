@@ -1,5 +1,15 @@
 # Plan (scheduled, 2026-09-15): TLS always on, relay identity persisted, nothing manual for anyone
 
+**Status 2026-09-15 (later the same day): steps 1–4 and 6–9 LANDED as ADR 0066** — TLS always on,
+the identity persisted, the client's known-relays store, the binaries and the shipped config, the
+dev-only key log, the docs. **Step 5 (the room-code PAKE) is OPEN**: the user's call was TOFU first,
+then OPAQUE (`bytemare/opaque`, RFC 9807 — the survey is a row in `licensing.md`) as a separate
+piece so each is tested on its own. Until it lands, a changed relay identity is warned about and
+remembered, not proven or refused (the accepted trade-off below). Two deviations from the text
+below, both recorded in the ADR: the certificate is persisted as well as the key (a re-signed
+certificate has a new serial and so a new fingerprint), and a corrupt `known_relays.json` refuses
+the connection rather than being overwritten.
+
 Written 2026-09-14 and parked; **scheduled 2026-09-15 as the next piece of work after the fourth
 adversarial review's fixes** (user decision, that day). Its prerequisite has landed: plain udp is
 dormant behind the `meshghost_devudp` build tag (ADR 0065, 2026-09-15), so forced TLS has no
