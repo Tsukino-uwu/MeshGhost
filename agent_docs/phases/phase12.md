@@ -374,3 +374,10 @@ target, fuzz time and `-count=3` unchanged; `ci-fuzz.sh`'s message names the per
 The run on that push: green in 5m17s wall against 17m24s the run before. The read that led there
 (the core package at Go's ten-minute limit, the ring fix) is the "after prediction" entry in
 `phase10.md`. Not touched: `release.yml`, whose two serial jobs are the next cut.
+
+## 2026-09-15 (last) — the release's Windows tests run beside the unix job
+
+`release.yml`: a `windows-tests` job (vet, `-count=2`, same as before) runs in parallel with
+`unix-binaries`; `build-and-package` needs both and no longer tests itself. What blocks a release
+is unchanged -- a red on either side and the packaging job never starts, so no tag and no
+release. Expected: about 7 minutes in place of 11. Unproven until the next release is cut.

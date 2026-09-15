@@ -183,8 +183,43 @@ jobs:
           path: MeshGhost-*.tar.gz
           if-no-files-found: error
 
+  # The Windows suite, beside the unix job rather than after it (2026-09-15). The packaging
+  # job below used to run it first, so a release was unix (4 min) THEN windows tests plus
+  # packaging (6-7 min), in sequence. The tests never needed the tarballs; only the packaging
+  # does. Running them here in parallel cuts a release to the slower of the two plus the
+  # packaging, and changes nothing about what blocks a release: build-and-package needs both
+  # jobs, and a job with `needs` never starts when one of them is red -- no tag, no release.
+  #
+  # A release used to go straight from "checkout" to "build and zip"
+  # without running a single test, so the one artifact real users
+  # download was the only Go build in this repo that nothing verified.
+  # These are the same checks ci.yml runs on every push -- repeated here
+  # because a release can be cut from any commit, including one that
+  # never had a green CI run, and because the packaging steps are slow
+  # and irreversible-ish (they create a tag and a public release).
+  #
+  # No -race here: on Windows it needs a working cgo toolchain, and the
+  # race detector is covered on Linux by ci.yml's race job. -count=2
+  # because parts of this suite have failed intermittently rather than
+  # reliably (see CLAUDE.md).
+  windows-tests:
+    needs: validate-release-notes
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -count=2 ./...
+
   build-and-package:
-    needs: unix-binaries
+    needs: [unix-binaries, windows-tests]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -204,24 +239,6 @@ jobs:
             Write-Host "::error::version input must not contain whitespace (got '$env:VERSION') -- it becomes a git tag name and a filename."
             exit 1
           }
-
-      # A release used to go straight from "checkout" to "build and zip"
-      # without running a single test, so the one artifact real users
-      # download was the only Go build in this repo that nothing verified.
-      # These are the same checks ci.yml runs on every push -- repeated here
-      # because a release can be cut from any commit, including one that
-      # never had a green CI run, and because the packaging steps below are
-      # slow and irreversible-ish (they create a tag and a public release).
-      #
-      # No -race here: on Windows it needs a working cgo toolchain, and the
-      # race detector is covered on Linux by ci.yml's test job. -count=2
-      # because parts of this suite have failed intermittently rather than
-      # reliably (see CLAUDE.md).
-      - name: Vet
-        run: go vet ./...
-
-      - name: Test
-        run: go test -count=2 ./...
 
       # -ldflags="-s -w" drops the symbol table and DWARF debug info. It does NOT touch the
       # runtime tables Go builds stack traces from, so a panic in a shipped binary still prints
