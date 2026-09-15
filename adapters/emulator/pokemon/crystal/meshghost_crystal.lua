@@ -8481,6 +8481,26 @@ ENGINE.xmap.build(here) end
 	-- that does not send one -- an older client, or one whose adapter predates the field.
 	local peerGait = state.extras and tonumber(state.extras.gait) or 1
 	local peerProg = state.extras and tonumber(state.extras.prog) or nil
+	-- BOTH FLOORED AND BOUNDED HERE, since 2026-09-16 -- the last two peer numerics in this
+	-- function that were not (SYNCED.md said "not checked yet" for each). `prog` is a pixel count
+	-- 0-16 and reaches `//`, `%`, string.sub and a table index below: a NaN prog is a "table
+	-- index is NaN" raise at facingFrames.progSeen, and a fractional one reaches string.sub as a
+	-- non-integer. `gait` is a group number 0-3 (the GAIT_PX/GAIT_TICKS keys); anything else falls
+	-- back to a normal walk, exactly as an absent field does.
+	if peerProg then
+		if peerProg ~= peerProg or peerProg == math.huge or peerProg == -math.huge then
+			peerProg = nil
+		else
+			peerProg = math.floor(peerProg)
+			if peerProg < 0 then peerProg = 0 elseif peerProg > 16 then peerProg = 16 end
+		end
+	end
+	if peerGait ~= peerGait or peerGait == math.huge or peerGait == -math.huge then
+		peerGait = 1
+	else
+		peerGait = math.floor(peerGait)
+		if peerGait < 0 or peerGait > 3 then peerGait = 1 end
+	end
 	local peerPal = state.extras and tonumber(state.extras.pal) or nil -- nil from an older peer
 	local peerClo = state.extras and tonumber(state.extras.clo) or nil -- the same, see paletteColors
 	-- FLOORED FOR EXACTLY THE REASON `face` BELOW IS, and they were not until 2026-09-12.

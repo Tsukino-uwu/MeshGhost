@@ -76,8 +76,8 @@
 | --- | --- | --- | --- |
 | `act` | whole number | the player object's action (`getLocalState`) | written to the ghost only if it is one of: stand, step, bump, spin, spin-flicker, fishing, sky-fall |
 | `face` | whole number | the player object's facing frame (`getLocalState`) | must be a real number, then kept to 0–255 |
-| `prog` | whole number, 0 to 16 | the step's remaining duration, turned into progress (`getLocalState`) | not checked yet |
-| `gait` | whole number, 0 to 3 | the player object's step speed, held while standing (`getLocalState`) | not checked yet |
+| `prog` | whole number, 0 to 16 | the step's remaining duration, turned into progress (`getLocalState`) | must be a real number, then rounded down and kept to 0–16 |
+| `gait` | whole number, 0 to 3 | the player object's step speed, held while standing (`getLocalState`) | must be a real whole number from 0 to 3; anything else walks at normal speed |
 | `yoff` | whole number | the player object's sprite Y offset (`getLocalState`) | above 127 reads as negative, then kept to −96–96 |
 | `jump` | true, or absent | the player object's step type is a hop (`getLocalState`) | anything present means hopping |
 | `entry` | whole number | how the map was set up on entry (`getLocalState`) | only compared with the Fly value |

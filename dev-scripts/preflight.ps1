@@ -2286,10 +2286,10 @@ $syncedSets = @(
        Key = '(?:extrasMap\["|\{\s*")([a-z_]+)"'; Unchecked = 20 }
     @{ Doc = 'adapters/emulator/pokemon/crystal/SYNCED.md'; Src = 'adapters/emulator/pokemon/crystal/meshghost_crystal.lua'
        Start = '^\s*extras = \{'; End = 'arth = artH'
-       Key = '(?<![=~<>])\b([a-z]+)\s*=(?!=)'; Unchecked = 2 }
+       Key = '(?<![=~<>])\b([a-z]+)\s*=(?!=)'; Unchecked = 0 }
     @{ Doc = 'adapters/emulator/pokemon/emerald/SYNCED.md'; Src = 'adapters/emulator/pokemon/emerald/meshghost_emerald.lua'
        Start = '^local function encodeLocalState\('; End = '^local ENCODED_NO_SEND'
-       Key = '"([a-z_]+)":%[sd]'; Unchecked = 1 }
+       Key = '"([a-z_]+)":%[sd]'; Unchecked = 0 }
 )
 $syncedBase = @('type', 'payload', 'state', 'area_id', 'position', 'orientation', 'anim', 'extras')
 $syncedProblems = @(); $syncedKeysSeen = 0

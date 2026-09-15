@@ -21,7 +21,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 - 2026-09-15 — **Emerald open**: the painted ghost's BIKES are fixed but unjudged (four causes, none watched); `noclip` does not reach water. `emerald/UNVERIFIED.md`.
 - 2026-09-15 — **Crystal is ACTIVE (phase 9)**: the `\uXXXX` fix, ghost solidity, a two-client AP session from the zip; the first-step ghost start is measured, not judged. `crystal/UNVERIFIED.md`.
 - 2026-09-15 — **Prediction groundwork LANDED (`d53291a5`, ADR 0069; `correction` ships `0s`); SCREEN VERDICT OPEN** on netsim no-arg; A2 waits on the stats-line sizing numbers. `prediction-planning.md`.
-- 2026-09-16 — **CI sharded and green (`c96d0a1d`; `core` under `-race` 252 s on its own runner, was 528 s); the release's Windows tests now run beside the unix job, unproven until the next release.** `phases/phase12.md` (last two entries).
+- 2026-09-16 — **CI sharded and green (`core` under `-race`: 252 s, was 528 s); the release's Windows tests now run beside the unix job, unproven until the next release.** `phases/phase12.md`.
 - 2026-09-15 — **Chaser contact: the Go half LANDED (`e546d38c`, ADR 0068, ships `off`); the adapter half is NOT started.** Next: Part A of `chaser-planning.md`; `pseudoregalia/UNVERIFIED.md` has the entry.
 - 2026-09-15 — **netsim: ADR 0046's 450 ms has never been judged on the correlated-loss model** (`-loss-burst`, opt-in since 2026-09-11). `phases/phase10.md`.
 - 2026-09-15 — **preflight chores**: 39 of 47 sections have no negative test (`negative-test-preflight.ps1` lists them); the disarmed-probe WARN prints 21 entries every run — ratchet it.

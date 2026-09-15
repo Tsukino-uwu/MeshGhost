@@ -2736,7 +2736,16 @@ local function handleBridgeLine(line)
         if type(payload) == "table" and type(payload.state) == "table" and type(payload.player_id) == "string" then
             local st = payload.state
             local pos = st.position
-            if type(pos) == "table" and pos[1] and pos[2] then
+            -- BOTH COORDINATES MUST BE FINITE NUMBERS (2026-09-16; SYNCED.md said "that they
+            -- are numbers is not checked yet"). They go straight into r.x/r.y and from there
+            -- into the tile arithmetic and the delay ring: a string raises on the first `-`,
+            -- and a NaN or 1e999 (both decoders produce one) walks through every comparison
+            -- as a ghost that is nowhere. Refused here means the update is dropped whole, the
+            -- same as a missing coordinate.
+            local function finite(n)
+                return type(n) == "number" and n == n and n ~= math.huge and n ~= -math.huge
+            end
+            if type(pos) == "table" and finite(pos[1]) and finite(pos[2]) then
                 local r = remotes[payload.player_id]
                 if not r then
                     r = { animTimer = 0, animStepIndex = 0 }

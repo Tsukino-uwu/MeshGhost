@@ -51,7 +51,7 @@
 | Field | Type | Read from | Checked on arrival |
 | --- | --- | --- | --- |
 | `area_id` | text | the map group and number in save block 1 (`getLocalState`) | compared with your map and the maps connected to it |
-| `position` | list of 2 numbers | the tile in save block 1, ramped over the step (`runFrame`) | both must be present; that they are numbers is not checked yet |
+| `position` | list of 2 numbers | the tile in save block 1, ramped over the step (`runFrame`) | both must be present and real numbers, or the whole update is dropped |
 | `orientation` | text | the player object's facing (`getLocalState`) | looked up in the four directions; anything else is ignored or read as south |
 | `anim` | text | the player avatar's running state and dash flag (`getLocalState`) | looked up in the three names; anything else adds no speed |
 
