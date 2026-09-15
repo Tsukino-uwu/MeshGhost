@@ -37,13 +37,15 @@ against it, warning loudly and updating on a change. The hand-copied pin and the
 are gone; an old config carrying them is refused with a message. The per-IP cap landed the same
 day in the fourth review (ADR 0064).
 
-**What is still open**: the FIRST connection is unauthenticated, and a changed identity is
-warned about rather than proven or refused. The room-code PAKE (step 5 of the plan; the user chose
-`bytemare/opaque`, RFC 9807, surveyed in `licensing.md`) closes both and takes the room code off
-the wire; it is a contract revision and its own ADR when it lands. The channel-binding design
-below (point 3) is the ancestor of that step and reads as history now: the PAKE replaces the
-HMAC-over-exporter construction, because an HMAC of a short code is an offline guess for whoever
-holds the exporter value, and a PAKE is not.
+**And the same evening, the room-code PAKE (ADR 0067)**: with a code set, the client and the relay
+run OPAQUE (`bytemare/opaque`, RFC 9807) instead of sending the code, bound to the relay's
+certificate fingerprint as the server identity. That authenticates the first connection, settles a
+changed identity without a human (the real host knows the code; an impostor does not), and takes
+the code off the wire for good; the floor moved to protocol 3 with it. What is still open is only
+the code-less case: nothing can prove anything there, and a code-less relay is open to anyone by
+definition. The channel-binding design below (point 3) is the ancestor of the PAKE and reads as
+history now: the HMAC-over-exporter construction gave whoever held the exporter value an offline
+guess at a short code, and a PAKE does not.
 
 **What shipped 2026-08-19**: `off`/`auto`/`required` on both binaries, an in-memory self-signed
 certificate, one port serving both TLS and plaintext (a one-byte sniff), optional fingerprint
@@ -307,9 +309,9 @@ that can be checked.
 
 **What is NOT in scope of any of the three, and needs its own decision:** relay authentication.
 Since 2026-09-15 a client remembers a relay's identity from its first connection and notices a
-change (ADR 0066); nothing yet *proves* the first connection or settles a change — that is the
-room-code PAKE, chosen and unbuilt. Joining a stranger's relay is a different threat model from
-hosting for strangers, and only that work addresses it. Do not let the three layers above create
+change (ADR 0066), and with a room code set the code proves the relay on every connection, first
+included (ADR 0067). Without a code nothing proves anything. Joining a stranger's relay is a
+different threat model from hosting for strangers, and only a code addresses it. Do not let the three layers above create
 a false sense that this one is covered.
 
 ### How authoritative online games / MMOs handle this, and why most of it cannot transfer

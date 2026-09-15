@@ -263,8 +263,9 @@ signal joins/leaves — `despawn_remote(id)` had nothing to trigger it without a
 
 | Message | Direction | Carries |
 |---|---|---|
-| `hello` | client → relay | protocol version, `game_id`, room name, display name and `name_color` (the nametag's colour, `#RRGGBB` or empty; sanitized like the name and never a reason to refuse), `room_code`, `game_version`, `features`, `resume_token`, `max_receive_hz_per_player`, `query_only`, `own_area_only` |
+| `hello` | client → relay | protocol version, `game_id`, room name, display name and `name_color` (the nametag's colour, `#RRGGBB` or empty; sanitized like the name and never a reason to refuse), `pake_ke1` (the first message of the room-code proof, ADR 0067; there is no `room_code` field since 2026-09-15), `game_version`, `features`, `resume_token`, `max_receive_hz_per_player`, `query_only`, `own_area_only` |
 | `welcome` | relay → client | assigned `player_id`, current room roster, the `nametags` of players already present (sanitized label + colour, keyed by `player_id` — explicitly not an identity), room send rate (`send_hz`), the room's `ghost_collision` policy (ADR 0035; advisory, forwarded to the adapter as `session_policy`), the room's agreed `features`, the relay's clock (`server_time_ms`), and — for a `resume.v1` room — a single-use `resume_token` and a `resumed` flag |
+| `pake` | both ways | one step of the room-code proof (ADR 0067): the relay's `ke2` answering a hello's `pake_ke1`, then the client's `ke3`; base64, each at most `MaxPakeFieldLen` (1536) bytes. Only ever between a hello and its `welcome` or `transports`; anywhere else it is ignored. A relay with a code refuses a hello that offers no proof exactly as it refused a wrong code. |
 | `transports` | relay → client | the transports this relay actually serves, as `kind` + `port` pairs (never a host). The reply to a `hello` carrying `query_only: true` — sent *instead of* `welcome`, with no room joined and no `player_id` assigned, and the relay closes immediately after. See Transport below |
 | `reject` | relay → client | a `code` from the frozen set, a human `reason`, and `retryable` — the last line written before the relay closes a connection, either refusing a `hello` at handshake or, since the send/receive rate-control feature (see the ADR in `architecture.md`), closing an already-joined connection for exceeding the per-client message cap. **The close is graceful, not immediate** — see "Closing a connection" below, which exists because a plain close would have discarded this message |
 | `join` | relay → client | a peer's `player_id`, an optional `nametag`, plus an optional initial `state`. The state is populated **only** for a recipient that negotiated `snapshot.v1` — **the RECIPIENT's own capability, not the room's** (`relay/states.go:182-187`), so a room may freely mix members that want a seed and members that do not. Such a client is sent one `join` per existing member carrying that member's most recent sample; otherwise still absent, as it was from 2026-08-11 to 2026-08-17. |
@@ -448,17 +449,19 @@ both opaque to the core and relay (never parsed, compared only where noted below
   premise -- desync is expected and fine). **So do not add a game build id here later thinking it
   was merely never implemented.** What `game_version` is for is catching two peers on different
   revisions of the same ADAPTER, which is a protocol question rather than a world one.
-- `room_code` is a shared secret the relay compares (`crypto/subtle.ConstantTimeCompare`)
-  against its own configured code before accepting a join. An empty configured code (the
-  default) means auth is off — the original friend-hosted posture. **Crosses the wire in
-  plaintext unless the session is encrypted** — `quic` always is, and `tcp` is when the `tls`
-  setting is on (`auto` is both binaries' built-in default AND what the shipped
-  `packaging/release/config.json` sets on both sides — see the TLS-over-tcp ADR in
-  `architecture.md`; this line said the binaries default to `off` until 2026-09-06, which the
-  Transport section below never did). Encrypted or
-  not, the code itself is still what is sent, so this raises the bar from "anyone with the
-  address" to "anyone with the address and the code," not to "safe against a network-level
-  attacker." See `docs/security.md`.
+- The room code is **proven, never sent** (since 2026-09-15, ADR 0067; until then `hello`
+  carried it as `room_code` and the relay compared it in constant time). A client with a code
+  puts the first message of an OPAQUE login (RFC 9807) in `hello.pake_ke1`; the relay, which
+  registered one record for its configured code at startup, answers a `pake` message with
+  `ke2`; the client answers `ke3`; the relay then continues to the `welcome` (or `transports`).
+  The login names the relay's certificate fingerprint as the server identity, so it fails on the
+  client against any other certificate, and it fails on the relay for a wrong code -- each
+  refused with `invalid_room_code`, and each charged to the source's budget (a proof started
+  and abandoned is charged when the connection ends). An empty configured code (the default)
+  means auth is off — the original friend-hosted posture — and a relay with none ignores an
+  offered proof. This raises the bar from "anyone with the address" to "anyone with the address
+  and the code," and, unlike sending the code inside TLS, gives whoever sits between client and
+  relay neither the code nor an offline guess at it. See `docs/security.md`.
 
 Both are refused with `reject` (see the message table above) before any `state` is exchanged,
 the same "reject at handshake" shape the protocol-version check already used — researched
@@ -739,12 +742,12 @@ ends and the next begins.
     about an opt-in one. A message that only fits on tcp is a message that silently does not arrive
     for every peer on quic -- and since the state plane is lossy by contract, nothing downstream
     reports it as an error.
-  - **`udp` cannot be encrypted.** Go's standard library has no DTLS, so `room_code` crosses
-    that transport in the clear with no fix available. `quic` is always encrypted — its
-    handshake is TLS 1.3 — and `tcp` optionally so, via the `tls` setting on both ends
-    (`off`/`auto`/`required`; `auto` is both the binaries' default and what a release ships).
-    That setting also covers the tcp discovery
-    handshake every client makes, which is where `room_code` goes even on a quic session.
+  - **`udp` cannot be encrypted.** Go's standard library has no DTLS, which is one reason it no
+    longer ships (ADR 0065). `quic` is always encrypted — its handshake is TLS 1.3 — and `tcp`
+    always is too since 2026-09-15 (ADR 0066; until then optionally, via a `tls` setting). TLS
+    covers the tcp discovery
+    handshake every client makes, which is where the room-code proof runs even on a quic
+    session (and since ADR 0067 the code itself is never on either).
   - **Ports:** `tcp` and `udp` share `listen_on` (independent port spaces), and `quic` shares
     that port number too by default (`listen_quic: ""`). Because quic is itself carried over
     UDP, it collides with plain `udp` — and **it is `udp` that gives way, not `quic`**: when both
@@ -815,11 +818,14 @@ ends and the next begins.
     `agent_docs/verified.md`'s "Core-relay heartbeat, found live and fixed" entry and the ADR
     in `architecture.md`.
 - **Versioning:** `hello` carries `protocol_version`, and acceptance is a **FLOOR, not equality**:
-  `protocol.MinProtocolVersion` is 2, `AcceptsPeerVersion(v)` is `v >= MinProtocolVersion`, and both
+  `protocol.MinProtocolVersion` is 3, `AcceptsPeerVersion(v)` is `v >= MinProtocolVersion`, and both
   ends use it. A peer announcing a version ABOVE this build's is accepted — additive changes are
   the only kind this protocol makes, so a newer peer's extra fields are ignored rather than fatal.
-  Below the floor is refused outright rather than guessed at. (`protocol.Version` is 2, the version
-  this build SENDS; the two are separate numbers on purpose.)
+  Below the floor is refused outright rather than guessed at. (`protocol.Version` is 3, the version
+  this build SENDS; the two are separate numbers on purpose.) Both moved from 2 to 3 on
+  2026-09-15 with the room-code proof (ADR 0067), the user's call: a v2 peer sends the code
+  itself, and the guarantee that the code never crosses the wire needs every accepted peer to
+  prove it instead.
 - **Bounded reads and timeouts** (added 2026-08-14, relay-safety hardening — ADR in
   `architecture.md`): `transport.NDJSONConn` enforces `MaxLineBytes` *during* the read
   itself (a `bufio.Scanner` max-token-size, not a length check after the line is already fully
@@ -1148,8 +1154,9 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
   marks is one smeared glyph, 24 four-byte runes is 96 bytes on a 4096-byte line. Truncated, never
   refused: a long name is not a reason to lose a connection.
 - Max length of `area_id` / `anim`: **256 bytes** each (`MaxAreaIDLen` / `MaxAnimLen`).
-- Max length of every `hello` string field (`game_id`, `room`, `display_name`, `room_code`,
-  `game_version`, `name_color`): **128 bytes** (`MaxHelloFieldLen`), checked at the relay before
+- Max length of every `hello` string field (`game_id`, `room`, `display_name`,
+  `game_version`, `name_color`): **128 bytes** (`MaxHelloFieldLen`), and of `pake_ke1` and the
+  `pake` message's `ke2`/`ke3`: **1536 bytes** (`MaxPakeFieldLen`), checked at the relay before
   any of them are used to create or look up a room. `name_color` joined the list 2026-09-08: it
   was added to `Hello` after the check was written and never bounded, and was safe only by
   accident, because `SanitizeNameColor` later refuses anything that is not exactly 4 or 7 bytes.

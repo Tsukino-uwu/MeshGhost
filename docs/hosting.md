@@ -71,7 +71,9 @@ itself crosses the network encrypted — every connection is, since 2026-09-15, 
 — so someone watching your traffic does not read it; see [security.md](security.md) for what is
 actually promised and what is not.
 
-**Everyone must be on a current build for this to work.** An old `meshghost.exe` or
+**The code itself never crosses the network** (since 2026-09-15): the two programs prove they both
+know it instead of one sending it, so nobody watching the traffic, and nobody standing in for your
+server, learns it. **Everyone must be on a current build for this to work.** An old `meshghost.exe` or
 `meshghost-server.exe` silently ignores `room_code` and stays wide open with no warning. If in
 doubt, have everyone re-download.
 
@@ -250,9 +252,15 @@ typed) and checks it on every later connection. Nobody copies anything. If your 
 changes — you reinstalled, deleted `private\`, or someone is impersonating your address — their client
 logs a loud warning naming both fingerprints, remembers the new one, and connects. If you did
 reinstall, tell them; if you did not, read them your fingerprint line over chat (not through the
-server) and have them compare it with the "presented" line in the warning. Proving a change by the
-room code itself, so that this is never a judgement call, is the next piece of this work and is
-not built yet ([security.md](security.md) says exactly what is and is not promised today).
+server) and have them compare it with the "presented" line in the warning.
+
+**With a `room_code` set, none of that is a judgement call.** The code is never sent; the player's
+client and your server prove to each other that both know it, on every connection, and the proof is
+tied to your server's certificate. After a reinstall your server still knows the code, so returning
+players connect without a word; a server at your address that does not know the code is refused,
+whatever certificate it shows. A player with the wrong code is refused as before. This is one more
+reason to set a code on any server strangers can reach ([security.md](security.md) says exactly
+what is and is not promised).
 
 ## Seeing what your server is actually doing
 

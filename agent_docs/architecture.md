@@ -175,7 +175,7 @@ or if a number is duplicated — an unindexed ADR is one nobody will find.
 - [2026-08-12 — The adapter declares `game_id` over the bridge, not the user in `config.json`](adr/0010-2026-08-12-the-adapter-declares-game-id-over-the-bridge-not.md)
 - [2026-08-13 — A bridge disconnect closes the relay connection, and a relay drop clears identity](adr/0011-2026-08-13-a-bridge-disconnect-closes-the-relay-connection.md)
 - [2026-08-13 — `Core.remoteStatesAt` filters remotes by `area_id`, unless our own area is unknown](adr/0012-2026-08-13-core-remotestatesat-filters-remotes-by-area-id.md)
-- [2026-08-14 — Add room-code auth and a peer game-version check to `hello`](adr/0013-2026-08-14-add-room-code-auth-and-a-peer-game-version-check.md)
+- [2026-08-14 — Add room-code auth and a peer game-version check to `hello`](adr/0013-2026-08-14-add-room-code-auth-and-a-peer-game-version-check.md) — the room-code half **REVISED by 0067** (proven, not sent)
 - [2026-08-14 — Relay lifecycle logging, and permanent vs transient rejects](adr/0014-2026-08-14-relay-lifecycle-logging-and-permanent-vs.md) — **its retryable/permanent set superseded by 0017**
 - [2026-08-14 — Two review passes across the Go layer and all three adapters](adr/0015-2026-08-14-two-review-passes-across-the-go-layer-and-all.md)
 - [2026-08-14 — `Core` auto-retries a dropped relay connection](adr/0016-2026-08-14-core-auto-retries-a-dropped-relay-connection.md)
@@ -229,6 +229,7 @@ or if a number is duplicated — an unindexed ADR is one nobody will find.
 - [2026-09-15 — Per-source state lives in `netx`, in memory, and is never logged](adr/0064-2026-09-15-per-source-state-lives-in-netx-and-is-never-logged.md)
 - [2026-09-15 — Plain `udp` is dormant: refused by releases, kept behind a build tag](adr/0065-2026-09-15-plain-udp-is-dormant-behind-a-build-tag.md)
 - [2026-09-15 — TLS is always on, the relay's identity is persisted, and clients remember it (trust on first use)](adr/0066-2026-09-15-tls-always-on-relay-identity-persisted-trust-on-first-use.md)
+- [2026-09-15 — The room code is proven, not sent: OPAQUE bound to the relay's identity, and the floor moves to protocol 3](adr/0067-2026-09-15-the-room-code-is-proven-not-sent-opaque-bound-to-the-relay-identity.md) — a contract revision
 
 ## Prior art
 

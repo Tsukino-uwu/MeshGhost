@@ -92,17 +92,27 @@ against anything, and from then on a different certificate at the same address i
 Nobody copies a string, edits a file or deletes one; the two files are written and read by the two
 programs.
 
-**What happens when the identity changes** — the host reinstalled, moved the server to a fresh
-folder, deleted `private\`, or someone is impersonating it — is, for now, a **warning, not a
-refusal**: the client logs both fingerprints in a block that says the host should compare the one
-their server prints at startup, updates its entry, and connects, still encrypted. SSH refuses
-instead, and then a human deletes a line from a file; the user's requirement is that nobody ever
-does that. What will settle a change instead is the room code, used as a proof that never crosses
-the wire (a PAKE bound to the TLS connection — the next piece of this work, chosen and not yet
-built; [agent_docs/tls-planning.md](../agent_docs/tls-planning.md) step 5): with a code set, a
-changed identity will be *proven* by the code or *refused*. Until then a host who reinstalls costs
-each returning player one loud line, and a host who wants to be sure can read their fingerprint
-line to a player over chat and have the player compare it with the warning.
+**The room code proves the server, on every connection, and never crosses the wire** (since the
+same day, ADR 0067). A client with a code runs a password-authenticated key exchange with the
+server (OPAQUE, RFC 9807) instead of sending the code: the server learns that the client knows the
+code, the client learns that the server knows it, and whoever sits between them learns neither the
+code nor anything to guess at offline — each online guess is one attempt against the per-address
+budget. The exchange is **bound to the server's certificate**: the server registers under its own
+fingerprint and the client names the fingerprint of the certificate it actually verified, so a
+login through anyone presenting a different certificate fails on the client's side before it sends
+a third message. So with a code set the first connection *is* authenticated, and a changed identity
+is settled without a human: the real host after a reinstall still knows the code and the login
+succeeds silently; an impostor does not and is refused. A wrong code is the same `invalid room
+code` refusal as before, decided on the player's side.
+
+**What happens when the identity changes and there is no code** — the host reinstalled, moved the
+server to a fresh folder, deleted `private\`, or someone is impersonating it — is a **warning, not
+a refusal**: the client logs both fingerprints in a block that says the host should compare the one
+their server prints at startup, updates its entry, and connects, still encrypted. There is nothing
+to prove with, and a server with no code is open to anyone with the address anyway, so an impostor
+gains nothing by impersonating it that joining would not give. SSH refuses instead, and then a human
+deletes a line from a file; the user's requirement is that nobody ever does that, and the room code
+is the tool for a host who wants the lock.
 
 **There is no mode and no plaintext fallback, on either side.** A server closes a connection that
 does not begin with a TLS handshake (one throttled log line says so); a client sends nothing —
@@ -120,7 +130,9 @@ hand-copied `tls_fingerprint` pin went with it. A `config.json` still saying `"t
 meaning something else.
 
 There is no CA anywhere in this design and none is planned: `connect_to` is a bare IP, and there is
-no name a certificate could be checked against.
+no name a certificate could be checked against. **Protocol 3.** The proof changed the wire, so a
+client or server from before 2026-09-15 is refused with the usual "update" message: the guarantee
+that the code never crosses the wire holds only if no accepted peer can send it.
 
 **What plain `udp` does have**, since it is otherwise the weakest of the three: an HMAC cookie so an
 unauthenticated stranger cannot make the listener allocate memory for a spoofed address, a
@@ -692,18 +704,15 @@ ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
   `MaxWorldBlobBytes`, ~52KiB per room, freed with the room) and opt-in per room, so it is not a
   resource gap; what it is, is a new place a client could smuggle something into, and it is not
   inspected because by hard rule it cannot be. Same posture as `extras`, with a longer lifetime.
-- **The first connection to a server is unauthenticated, and a changed identity is warned about,
-  not refused** (ADR 0066, 2026-09-15). `tcp` and `quic` are both TLS 1.3 always, and both are
-  checked against the one certificate the client remembers for that address — so an eavesdropper
-  is stopped on every connection, and an impostor is noticed from the second connection on. What
-  is still open is the first connection (nothing to compare against yet), and what a *change*
-  means: today the client logs both fingerprints, updates its memory and connects, because
-  refusing would need a human to delete a line from a file. Plain `udp`, which could never be
-  encrypted, stopped shipping the same day (ADR 0065).
-  Closing the rest (by binding the room code to the TLS session, so a changed identity is proven
-  by the code or refused, and the code never crosses the wire) is the chosen next piece of this
-  work and not yet built — [agent_docs/tls-planning.md](../agent_docs/tls-planning.md) step 5; the
-  design is in
+- **Without a room code, the first connection to a server is unauthenticated, and a changed
+  identity is warned about, not refused** (ADR 0066, 2026-09-15). `tcp` and `quic` are both TLS
+  1.3 always, and both are checked against the one certificate the client remembers for that
+  address — so an eavesdropper is stopped on every connection, and an impostor is noticed from the
+  second connection on. A code closes both (ADR 0067, the same day): the login proves the server
+  on every connection, first included, and settles a change without a human. Without a code
+  nothing can prove anything, and a code-less server is open to anyone anyway. Plain `udp`, which
+  could never be encrypted, stopped shipping the same day (ADR 0065). The earlier design for
+  binding the code to the session, superseded by the PAKE, is in
   [agent_docs/security-design.md](../agent_docs/security-design.md), point 3, and carried as a
   known gap in [agent_docs/risks.md](../agent_docs/risks.md); the keying material it needs is
   confirmed reachable from a quic-go connection (`TestHandshakeIsTLS13`).

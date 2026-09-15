@@ -2450,3 +2450,33 @@ change. Written up as a new §2 subsection, "There is no host: authority is per 
 handoff that nothing makes atomic (`kill-credit.md` #20); the 64-entity custody ceiling is per
 room, shared by every loaded zone. A coupling refused in writing: the core never derives an
 authority key from `area_id`. No code, no contract change, nothing pushed.
+
+## 2026-09-15 (evening, later) — the room code is proven, not sent (ADR 0067, a contract revision)
+
+**What the user decided.** Asked whether the TOFU warning was a security flaw given a hidden
+console, the answer was that it is closer to a log entry than a lock; the options were laid out
+(accept and say so, refuse on change, surface the warning in-game) with the PAKE as the real fix.
+The user: *"Lets keep going then i guess"*, *"until we finish everything"*. On the wire floor,
+asked as a question with the recommendation first: raise it to protocol 3.
+
+**What was done.** New package `pake` over `bytemare/opaque` v0.18.0 (RFC 9807; MIT, with its
+five small modules recorded in `licensing.md`): one record per room code registered by the relay
+in-process, the login bound to the relay's certificate fingerprint as the OPAQUE server identity
+(the ADR says why the fingerprint and not the exporter). `protocol`: `Version` and
+`MinProtocolVersion` 3, `hello.room_code` gone, `hello.pake_ke1` and a `pake` message in.
+`relay`: the constant-time compare became park-hello / answer KE2 / judge KE3 / admit, with the
+join continuation lifted into one `admit` closure so both entry points share one body; an
+abandoned proof is charged to the source. `core/roomproof.go`: the client half, on both legs; a
+wrong code is a local, permanent, named refusal. `internal/paketest` gives the hand-driven test
+clients (relay, core, cmd) the proof in twenty shared lines. `cmd/meshghost-relay` binds the proof
+to the served fingerprint. Docs: ADR 0067, `contract.md` (hello row, room-code section, transport
+notes, versioning, limits), `docs/security.md`, `hosting.md`, `config.md`,
+`security-design.md`, `tls-planning.md` (all steps landed), `risks.md`, the fuzz roster and
+`ci.yml`.
+
+**What happened.** The first core run failed the right-code tests: the core names the TLS
+fingerprint and the test relays had registered under the unbound identity -- the binding working
+against its own harness. The test helper now binds the proof to the test identity as the binary
+does. The e2e suite passed first time under the new wire; the live block and the netsim rig too.
+
+**Gates.** `run-gotests.bat` green (after two fixes it found: the wire-freeze gate learning `pake_ke1` and the `Pake` message, and the log-flood test sending an unusable proof so fifty refusals land in one throttle window whatever the load); `run-gotests-race.bat` green, 20 packages, `core` 394 s, no race; `run-gotests-udp.bat` green; the tree preflight down to the two pre-existing `status.md` items. Commits: `a9eda0c5` (the code) and the records commit after it. Nothing pushed.

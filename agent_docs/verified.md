@@ -142,6 +142,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-12 (last) — a fuzz target at 0.0% on the code its own seeds were written for
 - 2026-09-15 — the fourth review's Go-side facts, each with its instrument
 - 2026-09-15 (later) — TLS always on and trust on first use: the Go-side facts, each with its instrument
+- 2026-09-15 (evening) — the room code is proven, not sent: the Go-side facts, each with its instrument
 
 ## Split per game — 2026-08-25
 
@@ -2158,3 +2159,36 @@ the rebuilt root binaries, hidden, in a scratch folder, and every process was go
   first attempt failed with the relay refusing two plaintext connections: the root
   `meshghost-fakeadapter.exe` was a stale build whose core still dialed plaintext -- the
   "rebuild every root `meshghost*.exe`" rule, again, and this time the tool, not the client.
+
+## 2026-09-15 (evening) — the room code is proven, not sent: the Go-side facts, each with its instrument
+
+All confirmed by tools in this repo on this date (ADR 0067); none is adapter-side. The tests are
+the instruments and run in `run-gotests.bat`; the live block ran the rebuilt root binaries,
+hidden, in a scratch folder, and every process was gone afterwards.
+
+- **The right code succeeds on both sides; the wrong code fails on the client before KE3 and on
+  the relay at KE3; a different server identity fails the client; a KE3 from another session, or
+  a second Finish, is refused; the three messages are under 1 KiB** (`pake/pake_test.go`, 6
+  tests; `FuzzMessagesNeverPanic` 21 s, 115,748 execs, clean).
+- **The relay refuses a hello that offers no proof and charges it; charges a proof started and
+  abandoned; ignores a hello sent during a parked proof** (`relay/roomproof_test.go`), and every
+  relay room-code test -- the guard, the log flood, the reject latch, the query-only gate --
+  passes proving the code instead of sending it.
+- **The core joins with the right code; a wrong code is a permanent local refusal naming the room
+  code; the discovery leg proves too; a code-less relay welcomes a coded client with the note**
+  (`core/roomproof_test.go`).
+- **The shipped stack, guard included, through the proof** (`cmd/meshghost-relay`: the wrong-code
+  reject, six guesses then rate limited, the live reload of the code re-registering the record).
+- **The release binaries round-trip a ghost with a room code on both ends** (e2e, all tests green,
+  90 s).
+- **Seen live**: a client with the wrong code logged `room code did not match what the server
+  knows -- or the server is not the one this client verified` and never connected; the right code
+  connected over quic; a client with no code against the coded relay was refused `invalid room
+  code`; **the relay's log never contained either code's text**; the earlier nine checks (identity
+  files, restart, first trust, code changes, new identity, half identity, plaintext, legacy keys)
+  all still held.
+- **The worst-case netsim rig round-trips with a code proven through the proxy**: 132 renders in
+  70 s on quic at `127.0.0.2:7777`, no disconnect across the partition (13,977 udp datagrams
+  forwarded, 703 dropped, 440 reordered, 38 partition-drops).
+- **Protocol 3 on both sides**: `TestRelayRejectReasonsMatchTheConstantsTheCoreClassifies`
+  still drives a `MinProtocolVersion - 1` hello into the version refusal.

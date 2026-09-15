@@ -1,11 +1,13 @@
 # Plan (scheduled, 2026-09-15): TLS always on, relay identity persisted, nothing manual for anyone
 
-**Status 2026-09-15 (later the same day): steps 1–4 and 6–9 LANDED as ADR 0066** — TLS always on,
-the identity persisted, the client's known-relays store, the binaries and the shipped config, the
-dev-only key log, the docs. **Step 5 (the room-code PAKE) is OPEN**: the user's call was TOFU first,
-then OPAQUE (`bytemare/opaque`, RFC 9807 — the survey is a row in `licensing.md`) as a separate
-piece so each is tested on its own. Until it lands, a changed relay identity is warned about and
-remembered, not proven or refused (the accepted trade-off below). Two deviations from the text
+**Status 2026-09-15: ALL LANDED.** Steps 1–4 and 6–9 as ADR 0066 (TLS always on, the identity
+persisted, the client's known-relays store, the binaries and the shipped config, the dev-only key
+log, the docs), and step 5 the same evening as ADR 0067 (OPAQUE via `bytemare/opaque`, RFC 9807,
+bound to the relay's certificate fingerprint rather than the exporter -- the ADR says why; the
+floor moved to protocol 3, the user's call). The user's sequencing -- TOFU first, then OPAQUE,
+each tested on its own -- was followed. Deviations from the text below are recorded in the two
+ADRs, this one included: the binding is the fingerprint, not `tls-exporter`; the wire is `pake_ke1`
+in the hello plus a `pake` message each way, not an HMAC in the hello. Two deviations from the text
 below, both recorded in the ADR: the certificate is persisted as well as the key (a re-signed
 certificate has a new serial and so a new fingerprint), and a corrupt `known_relays.json` refuses
 the connection rather than being overwritten. And the names: the plan says `tls/`, `relay.key`

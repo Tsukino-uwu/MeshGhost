@@ -193,9 +193,10 @@
   transports now encrypt and `netx/tls_test.go` asserts the room code is absent from the bytes on
   the wire. **2026-09-15 (ADR 0066)**: TLS is unconditional on tcp and quic, the relay's
   identity is persisted and served on both, and a client remembers it from the first connection
-  and warns on a change — so the certificate is checked, from the second connection on. Still
-  open: the first connection, and a change is warned about rather than proven (the room-code
-  PAKE, chosen, unbuilt). `udp` no longer ships (ADR 0065).
+  and warns on a change — so the certificate is checked, from the second connection on. **The
+  same evening (ADR 0067)**: with a room code set the code proves the relay on every connection
+  (OPAQUE, bound to the fingerprint) and is never on the wire; the floor is protocol 3. Still
+  open only without a code, where nothing can prove anything. `udp` no longer ships (ADR 0065).
 - **`udp` cannot be encrypted, ever, and this is not fixable** (added 2026-08-16 with selectable
   transports). Go's standard library has no DTLS, so a client choosing `transport: "udp"` sends
   its `room_code` in the clear with no option available to change that. **The real mitigation
