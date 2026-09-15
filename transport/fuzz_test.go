@@ -38,7 +38,7 @@ func FuzzReadLoopNeverExceedsItsLineLimit(f *testing.F) {
 	// buffer length; a read loop holding more than the limit before refusing
 	// is exactly the blind spot the delivered-payload check alone leaves.
 	var peak atomic.Int64
-	bufferProbe = func(n int) {
+	probe := func(n int) {
 		for {
 			cur := peak.Load()
 			if int64(n) <= cur || peak.CompareAndSwap(cur, int64(n)) {
@@ -46,7 +46,8 @@ func FuzzReadLoopNeverExceedsItsLineLimit(f *testing.F) {
 			}
 		}
 	}
-	f.Cleanup(func() { bufferProbe = nil })
+	bufferProbe.Store(&probe)
+	f.Cleanup(func() { bufferProbe.Store(nil) })
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		client, server := net.Pipe()
