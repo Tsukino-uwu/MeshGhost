@@ -263,7 +263,7 @@ const roomCodeFlagHelp = "shared secret clients must send to join a room -- " +
 	"wire in plaintext)"
 
 func main() {
-	addr := flag.String("addr", "127.0.0.1:7777", "address to listen on (tcp, and quic unless -listen-quic says otherwise; plain udp moves to -listen-udp's port when quic is also served)")
+	addr := flag.String("addr", "127.0.0.1:7777", "address to listen on (tcp, and quic unless -listen-quic says otherwise)")
 	loopback := flag.Bool("loopback", false, "dev-only Phase 3 flag: echo each client's own "+
 		"state back to it under a synthetic <id>-ghost player_id, so a single client exercises "+
 		"a real core->relay->core round trip. Never enable this outside dev/testing.")
@@ -327,9 +327,8 @@ func main() {
 	quicAddr := flag.String("listen-quic", sharesAddrPort,
 		"address to serve quic on. Empty (the default) means share -addr's port -- quic runs "+
 			"over udp and tcp/udp are separate port spaces, so tcp:7777 and quic:7777/udp "+
-			"coexist and a host forwards ONE port number for both. quic KEEPS that port even "+
-			"when the plain udp transport is served alongside it: udp is the opt-in one, so udp "+
-			"moves to -listen-udp's port instead. Ignored unless quic is in -transport")
+			"coexist and a host forwards ONE port number for both. Ignored unless quic is in "+
+			"-transport")
 	tlsMode := flag.String("tls", tlsx.Auto.String(),
 		"encrypt the tcp transport: auto (the default), off, or required. \"auto\" serves TLS "+
 			"and plaintext on the SAME port -- a TLS ClientHello and an NDJSON line are told "+
@@ -470,7 +469,7 @@ func main() {
 				"encrypt it.")
 		}
 	default:
-		log.Printf("meshghost-relay: tls %s on the tcp transport (quic is always encrypted; plain udp never is)", tlsChoice)
+		log.Printf("meshghost-relay: tls %s on the tcp transport (quic is always encrypted)", tlsChoice)
 		log.Printf("meshghost-relay: tls certificate fingerprint: %s", fingerprint)
 		log.Printf("meshghost-relay: this certificate is self-signed and regenerated every " +
 			"restart. Encryption alone stops someone READING the traffic, not someone " +
