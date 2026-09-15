@@ -152,10 +152,10 @@ type fileConfig struct {
 	// as the session, which is why it matters even when "transport" is
 	// quic -- that handshake is always tcp and it carries the room code.
 	//
-	// "auto" falls back to plaintext, with a warning in the log, if the
-	// relay cannot handshake; "required" refuses to send anything at all
-	// to a relay that is not encrypted. See the TLS-over-tcp ADR in
-	// agent_docs/architecture.md.
+	// Neither "auto" nor "required" ever sends a byte to a relay that
+	// cannot handshake (since 2026-09-15; before that "auto" fell back to
+	// plaintext with a warning). The two differ only on the relay side.
+	// See the TLS-over-tcp ADR in agent_docs/architecture.md.
 	TLS *string `json:"tls"`
 	// TLSFingerprint optionally pins the relay's certificate: the
 	// SHA-256 the relay prints in its own log at startup, given to you by
@@ -824,9 +824,9 @@ func main() {
 		"encrypt the connection to the relay: auto (the default), off, or required. This covers "+
 			"the tcp handshake every client makes -- the one that carries your room code -- so it "+
 			"is worth setting even when -transport is quic, which only encrypts what comes after. "+
-			"auto (the default): use TLS when the relay speaks it, and warn loudly in the log if "+
-			"it does not -- so a plain relay still works, it just says so. "+
-			"required: refuse to send anything to a relay that is not encrypted. The relay's "+
+			"auto (the default) and required both refuse to send anything to a relay that does "+
+			"not complete a TLS handshake -- there is no plaintext fallback; set off only if the "+
+			"host deliberately runs the server with tls off. The relay's "+
 			"certificate is self-signed, so this stops someone READING your traffic; to also stop "+
 			"someone impersonating the relay, ask the host for the fingerprint their relay prints "+
 			"at startup and put it in -tls-fingerprint")

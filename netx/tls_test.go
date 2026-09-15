@@ -214,16 +214,20 @@ func TestRequiredRefusesAPlaintextRelay(t *testing.T) {
 	}
 }
 
-// TestAutoReachesBothKindsOfRelay: the compatibility requirement. A client
-// with tls on must still connect to a relay built before the feature
-// existed, and must use TLS with one that has it.
+// TestAutoReachesBothKindsOfRelay: a client with tls on uses TLS with a
+// relay that serves it, whether that relay also serves plaintext or not.
+//
+// Until 2026-09-15 this table had a third row, "old plaintext relay", and
+// it was the compatibility requirement: auto had to reach a relay built
+// before TLS existed. That guarantee is withdrawn (fourth adversarial
+// review, A1; user decision) -- see TestAutoNeverFallsBackToPlaintext for
+// what replaced it.
 func TestAutoReachesBothKindsOfRelay(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		relay      tlsx.Mode
 		wantSecure bool
 	}{
-		{"old plaintext relay", tlsx.Off, false},
 		{"relay serving both", tlsx.Auto, true},
 		{"relay requiring tls", tlsx.Required, true},
 	} {
@@ -330,5 +334,60 @@ func TestListenWithTLSOffIsUntouched(t *testing.T) {
 	defer ln.Close()
 	if _, ok := ln.(*net.TCPListener); !ok {
 		t.Fatalf("got %T, want the bare net.TCPListener", ln)
+	}
+}
+
+// TestAutoNeverFallsBackToPlaintext is finding A1 of the fourth adversarial
+// review. Under auto, ANY failed handshake used to redial in plaintext with
+// the room code on it -- and a plaintext relay never answers a ClientHello
+// with bytes (it drops the unparseable line and closes at its hello
+// timeout), so silence from an old relay and silence from an on-path party
+// blackholing the handshake were the same event. Both are now refused, and
+// the error tells the user the one way to reach a server deliberately run
+// without TLS.
+func TestAutoNeverFallsBackToPlaintext(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		relay func(t *testing.T) string
+	}{
+		{"a plaintext relay that reads the line and hangs up", func(t *testing.T) string {
+			addr, _ := relayish(t, tlsx.Off)
+			return addr
+		}},
+		{"a relay that says nothing at all", func(t *testing.T) string {
+			ln, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatalf("listen: %v", err)
+			}
+			t.Cleanup(func() { ln.Close() })
+			go func() {
+				for {
+					c, err := ln.Accept()
+					if err != nil {
+						return
+					}
+					t.Cleanup(func() { c.Close() })
+				}
+			}()
+			return ln.Addr().String()
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			addr := tc.relay(t)
+			var warned []string
+			conn, err := netx.DialWithTLS(netx.TCP, addr, 500*time.Millisecond,
+				netx.TLSOptions{Mode: tlsx.Auto, Logf: func(f string, a ...any) { warned = append(warned, f) }})
+			if err == nil {
+				conn.Close()
+				t.Fatalf("auto connected (encrypted=%v); a failed handshake must be a refusal, never a plaintext session",
+					tlsx.IsTLS(conn))
+			}
+			if !strings.Contains(err.Error(), "\"tls\" to \"off\"") {
+				t.Fatalf("the error does not name the one way out: %v", err)
+			}
+			if len(warned) != 0 {
+				t.Fatalf("a downgrade warning was logged (%q); there is no downgrade to warn about", warned)
+			}
+		})
 	}
 }

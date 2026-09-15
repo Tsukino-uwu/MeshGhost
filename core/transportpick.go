@@ -55,31 +55,22 @@ func (c *Core) resolveTransport(addr, gameID, room, displayName, roomCode, gameV
 	if err != nil {
 		return netx.TCP, addr, opts, err
 	}
-	// No downgrade after a successful TLS leg. The discovery connection
-	// just proved this relay speaks TLS, so a plaintext session connection
-	// to the same relay could only be someone interfering — which is
-	// precisely the fallback tlsx.Auto otherwise allows for the benefit of
-	// relays built before this feature existed. Once TLS is known to work,
-	// that allowance has no reason to apply and is withdrawn.
 	kind, dialAddr := c.chooseTransport(addr, offers)
-	if secure && opts.Mode == tlsx.Auto {
-		if kind == netx.UDP {
-			// EXCEPT ON A TRANSPORT THAT CANNOT CARRY TLS AT ALL. udp has no DTLS in Go, so
-			// escalating here would not secure the session -- it would refuse to make one, and
-			// silently kill a supported transport for anybody whose relay speaks TLS. Found by
-			// internal/e2e's transport matrix the moment `auto` became the default (2026-08-19):
-			// every udp round trip stopped, because discovery succeeded over TLS every time.
-			//
-			// Saying so is the whole obligation here. `auto` means "encrypt where that is
-			// possible, and never quietly do less than you could" -- on udp it is not possible,
-			// and the log has to be the thing that says it rather than the connection just
-			// working and looking encrypted.
-			log.Printf("core: this relay speaks TLS, but -transport udp cannot be encrypted " +
-				"(Go has no DTLS) -- this session is PLAINTEXT. Use quic for the same loss " +
-				"behaviour with encryption, or tcp.")
-		} else {
-			opts.Mode = tlsx.Required
-		}
+	// Until 2026-09-15 this is where auto escalated itself to required after
+	// an encrypted discovery leg, so the session leg could not downgrade. It
+	// no longer needs to: netx.DialWithTLS under auto never falls back to
+	// plaintext on any leg (fourth adversarial review, A1), so the mode the
+	// user configured is already the mode both legs get.
+	if secure && opts.Mode != tlsx.Off && kind == netx.UDP {
+		// ON A TRANSPORT THAT CANNOT CARRY TLS AT ALL, say so. udp has no DTLS in Go, so a
+		// session there is plaintext whatever tls says. Found by internal/e2e's transport
+		// matrix the moment `auto` became the default (2026-08-19). `auto` means "encrypt
+		// where that is possible, and never quietly do less than you could" -- on udp it is
+		// not possible, and the log has to be the thing that says it rather than the
+		// connection just working and looking encrypted.
+		log.Printf("core: this relay speaks TLS, but -transport udp cannot be encrypted " +
+			"(Go has no DTLS) -- this session is PLAINTEXT. Use quic for the same loss " +
+			"behaviour with encryption, or tcp.")
 	}
 	return kind, dialAddr, opts, nil
 }
@@ -89,21 +80,16 @@ func (c *Core) resolveTransport(addr, gameID, room, displayName, roomCode, gameV
 // what was asked for.
 func (c *Core) tlsOptions() netx.TLSOptions {
 	mode := c.TLS
-	// A PIN IMPLIES REQUIRED. Under tlsx.Auto a failed pin and "this relay is
-	// too old to speak TLS" are the same event -- tlsx.Client returns an error
-	// either way -- and Auto's whole job is to fall back to plaintext on that
-	// error. So setting a fingerprint under Auto turned MITM DETECTION INTO AN
-	// AUTOMATIC DOWNGRADE: an attacker who refuses the handshake, or presents
-	// any certificate at all, gets a plaintext session, and the room code
-	// crosses the discovery leg in the clear. docs/security.md's "a relay
-	// presenting anything else is then refused rather than trusted" was false
-	// for exactly the configuration that bothered to set a pin.
-	//
-	// Escalating here rather than at the flag covers embedders too, and keeps
-	// the discovery leg and the session leg agreeing -- which is what this
-	// function exists for. cmd/meshghost refuses a pin with -transport udp up
-	// front so the user gets that error at startup instead of a dial failure.
-	// Found by the 2026-09-07 review; the user's call to force it (D2).
+	// A PIN IMPLIES REQUIRED. When Auto still fell back to plaintext (until
+	// 2026-09-15) a failed pin and "this relay is too old to speak TLS" were
+	// the same event, so a pin under Auto turned MITM DETECTION INTO AN
+	// AUTOMATIC DOWNGRADE (found by the 2026-09-07 review; the user's call to
+	// force it, D2). Auto no longer falls back, so this escalation is belt
+	// and braces -- kept because it also makes the intent legible in the log
+	// and to embedders, and keeps the discovery leg and the session leg
+	// agreeing, which is what this function exists for. cmd/meshghost refuses
+	// a pin with -transport udp up front so the user gets that error at
+	// startup instead of a dial failure.
 	if mode == tlsx.Auto && c.TLSFingerprint != "" {
 		mode = tlsx.Required
 	}

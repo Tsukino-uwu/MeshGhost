@@ -288,12 +288,23 @@ func ListenWithTLS(k Kind, addr string, opts TLSOptions) (net.Listener, error) {
 
 // DialWithTLS is Dial plus TLS on the tcp transport.
 //
-// The fallback rule is the whole security-relevant part, so it is stated
-// plainly: under tlsx.Required there is no fallback at all — a relay that
-// cannot handshake gets no bytes, not even a hello. Under tlsx.Auto a
-// failed handshake falls back to plaintext once, with a warning naming the
-// downgrade, which is what lets a TLS-configured client still reach a relay
-// built before this feature existed. Nothing downgrades quietly.
+// The rule is the whole security-relevant part, so it is stated plainly:
+// a client with tls on (auto or required) NEVER falls back to plaintext. A
+// relay that cannot complete a handshake gets no bytes, not even a hello.
+// Only tlsx.Off dials plaintext, and only because the user set it.
+//
+// Until 2026-09-15 auto fell back once, with a warning, so a client could
+// still reach a relay built before TLS existed. The fourth adversarial
+// review (A1) showed what that allowance cost: ANY failed handshake took
+// the fallback -- a dropped ClientHello, a reset, the 3 s discovery timeout
+// -- and the plaintext redial carried the room code, so an on-path party
+// only had to break one handshake to read it. And nothing could tell an
+// old relay from that party, because a plaintext relay never answers a
+// ClientHello with bytes: it drops the line it cannot parse and closes at
+// its hello timeout, which is exactly what an attacker blackholing the
+// handshake looks like. Every release since 2026-08-19 speaks TLS, so the
+// allowance was withdrawn (user decision, 2026-09-15); tls-planning removes
+// Off next.
 func DialWithTLS(k Kind, addr string, timeout time.Duration, opts TLSOptions) (net.Conn, error) {
 	if opts.Mode == tlsx.Off {
 		return Dial(k, addr, timeout)
@@ -318,8 +329,9 @@ func DialWithTLS(k Kind, addr string, timeout time.Duration, opts TLSOptions) (n
 	if opts.Mode == tlsx.Required {
 		return nil, fmt.Errorf("netx: tls is required but the relay at %s did not complete a TLS handshake: %w", addr, err)
 	}
-	opts.logf("netx: WARNING: the relay at %s does not speak TLS (%v) — falling back to an "+
-		"UNENCRYPTED tcp session, so the room code crosses the network in the clear. Set tls to "+
-		"\"required\" to refuse this instead.", addr, err)
-	return Dial(TCP, addr, timeout)
+	return nil, fmt.Errorf("netx: the relay at %s did not complete a TLS handshake (%w). This client "+
+		"refuses an unencrypted session, because the room code would cross the network readable. "+
+		"If the host deliberately runs the server with tls off, set \"tls\" to \"off\" on this side "+
+		"too; otherwise the server is older than 2026-08-19, or something between you and it is "+
+		"interfering.", addr, err)
 }

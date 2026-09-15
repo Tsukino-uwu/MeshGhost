@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/netx"
-	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
@@ -109,10 +108,6 @@ func (c *Core) ConnectRelay(gameID string) error {
 			}
 		}
 		return fmt.Errorf("core: dial relay: %w", err)
-	}
-	if kind == netx.TCP && c.TLS != tlsx.Off && !tlsx.IsTLS(netConn) {
-		log.Printf("core: WARNING: this session is UNENCRYPTED tcp — the relay at %s does not "+
-			"speak TLS, so the room code and everything else cross the network in the clear", dialAddr)
 	}
 	conn := transport.FromConnWithLimits(netConn, protocol.MaxLineBytes, 0, 0)
 	c.mu.Lock()

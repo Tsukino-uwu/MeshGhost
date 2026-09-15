@@ -209,40 +209,42 @@ func discoveryRelay(t *testing.T, mode tlsx.Mode, offers []protocol.TransportOff
 	return ln.Addr().String()
 }
 
-// TestATLSDiscoveryLegForbidsAPlaintextSession is the anti-downgrade rule.
-//
-// The discovery leg has just proven this relay speaks TLS. So a plaintext
-// session connection to the same relay could only be interference — which
-// is exactly what tlsx.Auto's fallback would otherwise permit, since that
-// fallback exists for relays built before the feature. Once TLS is known to
-// work here, the allowance is withdrawn for this connection attempt.
+// TestATLSDiscoveryLegForbidsAPlaintextSession is the anti-downgrade rule,
+// asserted on behaviour rather than on a mode: the options resolveTransport
+// hands the session leg, after an encrypted discovery leg, refuse a
+// plaintext listener. Until 2026-09-15 this passed by escalating auto to
+// required per attempt; now auto itself never falls back (netx.DialWithTLS,
+// fourth review A1), so nothing escalates and the guarantee still holds --
+// on every reconnect, not only within one attempt.
 func TestATLSDiscoveryLegForbidsAPlaintextSession(t *testing.T) {
-	addr := discoveryRelay(t, tlsx.Auto, offers("quic", 7780))
+	addr := discoveryRelay(t, tlsx.Auto, offers("tcp", 7780))
 
 	c := &Core{Transport: netx.Auto, TLS: tlsx.Auto}
 	_, _, opts, err := c.resolveTransport(addr, "g", "r", "n", "", "")
 	if err != nil {
 		t.Fatalf("resolveTransport: %v", err)
 	}
-	if opts.Mode != tlsx.Required {
-		t.Fatalf("tls mode after an encrypted discovery leg is %v, want required — a session "+
-			"connection is now allowed to downgrade to plaintext", opts.Mode)
+	opts.Logf = func(string, ...any) {}
+	plain := discoveryRelay(t, tlsx.Off, nil)
+	if conn, err := netx.DialWithTLS(netx.TCP, plain, 500*time.Millisecond, opts); err == nil {
+		conn.Close()
+		t.Fatal("the session leg reached a plaintext relay with the options the discovery leg produced")
 	}
 }
 
-// TestAPlaintextDiscoveryLegKeepsAutoAsAuto: the flip side. A relay that
-// could not handshake must leave auto as auto, or a client would refuse the
-// session connection to a relay it just successfully talked to.
-func TestAPlaintextDiscoveryLegKeepsAutoAsAuto(t *testing.T) {
+// TestAutoRefusesAPlaintextDiscoveryRelay: the discovery leg carries the room
+// code, so it is the leg that must never go plaintext. A relay that cannot
+// handshake is an error from resolveTransport, not a plaintext query.
+// (Until 2026-09-15 the opposite was asserted here, under the name
+// TestAPlaintextDiscoveryLegKeepsAutoAsAuto: that auto stayed auto after a
+// plaintext leg. That leg no longer happens.)
+func TestAutoRefusesAPlaintextDiscoveryRelay(t *testing.T) {
 	addr := discoveryRelay(t, tlsx.Off, offers("quic", 7780))
 
 	c := &Core{Transport: netx.Auto, TLS: tlsx.Auto}
-	_, _, opts, err := c.resolveTransport(addr, "g", "r", "n", "", "")
-	if err != nil {
-		t.Fatalf("resolveTransport: %v", err)
-	}
-	if opts.Mode != tlsx.Auto {
-		t.Fatalf("tls mode is %v after a plaintext discovery leg, want auto", opts.Mode)
+	_, _, _, err := c.resolveTransport(addr, "g", "r", "n", "secret", "")
+	if err == nil {
+		t.Fatal("an auto client queried a plaintext relay -- the room code just crossed in the clear")
 	}
 }
 

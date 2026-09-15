@@ -531,10 +531,9 @@ type Core struct {
 	// still hands the room code to anyone watching the network. See the
 	// TLS-over-tcp ADR in agent_docs/architecture.md.
 	//
-	// tlsx.Required refuses to talk to a relay that cannot handshake.
-	// tlsx.Auto falls back to plaintext with a warning, and never after a
-	// TLS leg to that same relay has already succeeded — see
-	// resolveTransport.
+	// tlsx.Auto and tlsx.Required both refuse to talk to a relay that
+	// cannot handshake; only tlsx.Off dials plaintext. Auto's plaintext
+	// fallback was withdrawn 2026-09-15 (netx.DialWithTLS says why).
 	TLS tlsx.Mode
 	// TLSFingerprint optionally pins the relay's self-signed certificate:
 	// the SHA-256 the relay prints in its own log, compared out of band by

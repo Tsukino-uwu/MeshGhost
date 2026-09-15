@@ -82,11 +82,11 @@ const (
 	// -tls flag to Auto, and the release config ships "auto" too.
 	Off Mode = iota
 
-	// Auto encrypts when the other end can. On a listener it serves TLS
-	// and plaintext on one port. On a client it speaks TLS and falls back
-	// to plaintext only if the handshake fails outright — loudly, never
-	// silently, and never after a TLS connection to the same relay has
-	// already succeeded in this attempt (see core's resolveTransport).
+	// Auto: on a listener, serve TLS and plaintext on one port (netcat and
+	// a packet capture keep working). On a client, since 2026-09-15, the
+	// same as Required: speak TLS and refuse a relay that cannot -- the
+	// plaintext fallback it used to have was a downgrade any failed
+	// handshake could trigger (netx.DialWithTLS says why it went).
 	Auto
 
 	// Required refuses plaintext. A listener closes a connection that does
