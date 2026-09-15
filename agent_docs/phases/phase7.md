@@ -3778,3 +3778,8 @@ with no adapter apply beside it. The value was the costume mod's `currentOutfit`
 `UI_Overhaul File 7.sav`, in the per-user save folder both local games share. Not MeshGhost, not
 reachable across two machines. The lesson filed in `running-the-rig.md`. The revert of `d133352b`
 was undone so the source matches v1.2.9 again; that fix's own purpose is still unwatched.
+
+## 2026-09-15 — Chaser contact's Go half landed; the adapter half is parked at Part A
+
+`e546d38c` (ADR 0068, logged in `phase10.md`) added the parked `probe_hitlist` under `probes/`, its `PROBES.md`
+entry and one `UNVERIFIED.md` line; nothing adapter-side ran. Next: Part A of `chaser-planning.md`.
