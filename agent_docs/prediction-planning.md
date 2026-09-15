@@ -4,6 +4,19 @@ Written 2026-09-14 so the reasoning survives. **Status 2026-09-15: A1 measured a
 (ADR 0069, ships off; screen verdict open); A2 undecided; A4 and Track B untouched.** The numbers
 and the session record: `phases/phase10.md`, entry of 2026-09-15.
 
+**Next, in order (2026-09-15):**
+1. **The screen verdict on A3 (the user).** `run-netsim.bat` no-arg, two real peers, the second
+   held still; both clients at `interp 450ms`, `extrapolate 100ms`, `predict damped`,
+   `correction 100ms`. First "identical to 450 linear?", then jump, land, spam left/right, a wall.
+   Floor-sink inside a gap is EXPECTED (Track B) and is not a verdict on A3. Off stays shipped
+   until this is judged.
+2. **A2.0, the sizing numbers (Go side).** Add p95/p99 transit and a dry-gap histogram to the
+   client stats line (`core/stats.go`, the meters in `core/interp.go`). With those, `interp` and
+   `extrapolate` are arithmetic on the worst-case rig (user's question, 2026-09-15: "can we use
+   math instead of testing visually?" — yes for the delay and the window, no for the feel of
+   `predict`/`correction`, which get one screen check on the configuration the numbers passed).
+3. **A2 proper**, sized from A2.0's numbers; A4 only if A3 shimmers on screen.
+
 **The baseline every step must match on screen: linear interp at 450ms, prediction off. It looks
 perfect (user, 2026-09-14).** This plan is worth doing for two reasons. It could lower the delay
 for cosmetic ghosts. It also gets ready for a future adapter with more player interaction, where
@@ -92,7 +105,9 @@ never dry, so a good link could render ~350ms earlier. The correlated-loss link 
 different network) is dry on ~6%.
 
 **A2. Adaptive per-peer delay (option 1).** This reopens a parked item in `plans.md`, which logs
-per-peer adaptive interp as "not something to work on for now".
+per-peer adaptive interp as "not something to work on for now". **Prerequisite A2.0 (above): the
+stats line carries only average and max transit, and a delay sized on an average is undersized
+by construction.**
 - Per peer, delay = (high percentile of transit) + one send interval + margin, clamped to
   `[interp_min, interp]`. **The ABSOLUTE transit, not the jitter range** (corrected 2026-09-15 by
   the A1 reading): samples carry the sender's timestamp on the synced clock and the render time is
