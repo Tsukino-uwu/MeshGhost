@@ -625,9 +625,33 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
+	lns := make([]*trackingListener, 0, len(listeners))
+	for _, bl := range listeners {
+		lns = append(lns, bl.ln)
+	}
+	serveFailed, n := awaitShutdown(serveErr, stop, lns, shutdownDrain)
+	if serveFailed != nil {
+		log.Fatalf("meshghost-relay: serve: %v -- closed %d listener(s) and %d client connection(s) first",
+			serveFailed, len(lns), n)
+	}
+	log.Printf("meshghost-relay: closed %d listener(s) and %d client connection(s) -- goodbye",
+		len(lns), n)
+}
+
+// awaitShutdown blocks until a listener dies or a signal arrives, then takes
+// every listener and client down the same way in both cases, and reports which
+// it was: the error a listener died with (nil for a signal) and how many client
+// connections were told to go.
+//
+// Both cases, not one. Until 2026-09-15 a listener's non-temporary Accept error
+// was log.Fatalf with nothing else: every player sat on a dead relay until
+// their own idle timeout, exactly the failure the Ctrl+C path had been fixed
+// for a week earlier (fourth adversarial review, B3). A relay that dies should
+// say goodbye the same way a relay that is stopped does.
+func awaitShutdown(serveErr <-chan error, stop <-chan os.Signal, lns []*trackingListener, drain time.Duration) (error, int) {
 	select {
 	case err := <-serveErr:
-		log.Fatalf("meshghost-relay: serve: %v", err)
+		return err, shutdown(lns, drain)
 	case sig := <-stop:
 		// A SECOND Ctrl+C must kill immediately. Restoring the default handler
 		// before doing any work is what makes that true: a host whose shutdown
@@ -636,13 +660,7 @@ func main() {
 		// reads -- is a relay that appears to ignore Ctrl+C entirely.
 		signal.Reset(os.Interrupt, syscall.SIGTERM)
 		log.Printf("meshghost-relay: %v -- shutting down", sig)
-		lns := make([]*trackingListener, 0, len(listeners))
-		for _, bl := range listeners {
-			lns = append(lns, bl.ln)
-		}
-		n := shutdown(lns, shutdownDrain)
-		log.Printf("meshghost-relay: closed %d listener(s) and %d client connection(s) -- goodbye",
-			len(lns), n)
+		return nil, shutdown(lns, drain)
 	}
 }
 
@@ -911,16 +929,35 @@ func (t *trackingListener) closeClients() int {
 	}
 	t.conns = map[net.Conn]struct{}{}
 	t.mu.Unlock()
+	// IN PARALLEL, UNDER ONE DEADLINE. A half-close writes -- a TLS
+	// close_notify, a quic stream FIN -- and a member whose socket has stalled
+	// holds that write for the whole write timeout. Serially, one such member
+	// held the goodbye for everyone behind it, up to 10 s each (fourth
+	// adversarial review, B6). Now every connection gets the same deadline at
+	// once, and a connection that cannot half-close in time is closed hard.
+	deadline := time.Now().Add(closeClientsDeadline)
+	var wg sync.WaitGroup
 	for _, c := range open {
-		if cw, ok := c.(interface{ CloseWrite() error }); ok {
-			if err := cw.CloseWrite(); err == nil {
-				continue
+		wg.Add(1)
+		go func(c net.Conn) {
+			defer wg.Done()
+			_ = c.SetDeadline(deadline)
+			if cw, ok := c.(interface{ CloseWrite() error }); ok {
+				if err := cw.CloseWrite(); err == nil {
+					return
+				}
 			}
-		}
-		_ = c.Close()
+			_ = c.Close()
+		}(c)
 	}
+	wg.Wait()
 	return len(open)
 }
+
+// closeClientsDeadline bounds one client's half-close during shutdown. The
+// same second shutdownDrain then waits for the goodbye to leave: a member
+// that cannot take a FIN in a second is not going to read a goodbye either.
+const closeClientsDeadline = time.Second
 
 // unreliableWriter is the datagram plane as transport discovers it: by type
 // assertion on the net.Conn. Declared here for the same reason netx declares

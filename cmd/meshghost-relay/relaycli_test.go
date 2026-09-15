@@ -11,6 +11,7 @@ package main
 import (
 	"errors"
 	"net"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -212,4 +213,95 @@ func TestTheTrackingWrapperHidesNothing(t *testing.T) {
 			t.Fatal("a plain connection answered the WriteUnreliable assertion")
 		}
 	})
+}
+
+// TestAServeErrorTellsEveryClientBeforeExit is finding B3 of the fourth
+// adversarial review: a listener dying used to be log.Fatalf and nothing else,
+// so the players sat on a dead relay until their own idle timeout -- the exact
+// failure the Ctrl+C path above had already been fixed for.
+func TestAServeErrorTellsEveryClientBeforeExit(t *testing.T) {
+	raw, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	ln := trackConns(raw)
+	go func() {
+		for {
+			if _, err := ln.Accept(); err != nil {
+				return
+			}
+		}
+	}()
+	client, err := net.Dial("tcp", raw.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer client.Close()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		ln.mu.Lock()
+		n := len(ln.conns)
+		ln.mu.Unlock()
+		if n == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the accepted connection was never tracked")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	serveErr := make(chan error, 1)
+	serveErr <- errors.New("tcp: accept: the listener died")
+	stop := make(chan os.Signal, 1)
+	failed, n := awaitShutdown(serveErr, stop, []*trackingListener{ln}, 0)
+	if failed == nil {
+		t.Fatal("a listener error was not reported back")
+	}
+	if n != 1 {
+		t.Fatalf("shutdown spoke to %d connection(s) on the fatal path, want 1", n)
+	}
+	_ = client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := client.Read(make([]byte, 1)); err == nil {
+		t.Fatal("the client read a byte; it should have seen the connection end")
+	} else if ne, ok := err.(net.Error); ok && ne.Timeout() {
+		t.Fatal("the client saw NOTHING after the listener died: the fatal path skipped the goodbye")
+	}
+}
+
+// slowCloser is a net.Conn whose half-close takes a while, the way a member
+// with a stalled socket holds a TLS close_notify or a quic FIN.
+type slowCloser struct {
+	net.Conn
+	hold time.Duration
+}
+
+func (s *slowCloser) CloseWrite() error { time.Sleep(s.hold); return nil }
+
+// TestShutdownHalfClosesClientsInParallel is finding B6: closeClients used to
+// walk the connections serially, so one stalled member held everyone else's
+// goodbye for its whole write timeout.
+func TestShutdownHalfClosesClientsInParallel(t *testing.T) {
+	raw, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer raw.Close()
+	ln := trackConns(raw)
+	const members, hold = 4, 300 * time.Millisecond
+	for i := 0; i < members; i++ {
+		a, b := net.Pipe()
+		defer a.Close()
+		defer b.Close()
+		ln.mu.Lock()
+		ln.conns[&slowCloser{Conn: b, hold: hold}] = struct{}{}
+		ln.mu.Unlock()
+	}
+	started := time.Now()
+	if n := ln.closeClients(); n != members {
+		t.Fatalf("closeClients spoke to %d, want %d", n, members)
+	}
+	if took := time.Since(started); took >= time.Duration(members)*hold {
+		t.Fatalf("closing %d members took %s: serial (%s each), not parallel", members, took, hold)
+	}
 }
