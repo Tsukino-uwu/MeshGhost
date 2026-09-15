@@ -304,6 +304,23 @@ learns about `1.2.0`.
 with the relay still learning nothing about what any capability means. Only the *room-scoped* half
 is agreed this way; per-client capabilities stay per-client.
 
+### Per room, never per user — and a personal override only ever lowers (2026-09-15)
+
+The user asked whether "sync more or less" could be a per-client config toggle. It cannot, and the
+reason is the hazard above: "shared" only means something if every member shares it, so a client
+that syncs enemies beside one that does not suppresses its spawns and waits for a stream the other
+never sends. Nothing errors and the two worlds silently diverge. **How much is shared is a property
+of the room**, settled the way the feature set already is — the first joiner's choice becomes the
+room's, a later joiner whose config wants something else is refused with a reason.
+
+What a per-user setting may legitimately do is the one-way rule ADR 0035 already established for
+ghost collision: a room can turn a thing off for everyone, and a client can opt further out for
+itself, but a client can never force more onto others. And "more or less" is not one slider: the
+depth ladder gives the level, and inside a level the choice is per entity class (`kill-credit.md`'s
+liveness, credit and difficulty; `game-shapes.md`'s own inventories, shared enemies, leased
+doors). The practical form is a **named preset the adapter defines** — "ghosts", "shared world" —
+that expands into a feature set plus per-class policies. The relay sees only the opaque strings.
+
 ---
 
 ## 4. What the dumb-relay models do NOT buy
@@ -421,12 +438,84 @@ as of 2026-09-07 there is no file-writing call anywhere in `relay/` or `cmd/mesh
 a test, so the property is enforced by absence, which is the strongest form there is. **The moment
 storage exists, absence stops guaranteeing it and it becomes something a test must pin.**
 
+**Superseded 2026-09-15 by ADR 0066: an unconfigured relay now writes more than its log.** TLS is
+always on and the relay's identity is persisted — `private/server.key`, `server.crt`,
+`server.fingerprint` and a `README.txt`, written through `netx/tlsx.WriteFileAtomic` beside the
+relay's config. So "enforced by absence" no longer holds and the disk-free relay this section
+called a feature worth keeping is already gone. What survives is the narrower claim, and it is the
+one that matters: **the relay writes only about itself, never a byte a client sent it.** That is
+now the line, and the shape below is what crossing it would look like.
+
 **And the honest half: opt-in makes the DEFAULT cost zero, not the TOTAL cost.** The code, its tests,
 its corruption handling and its security surface exist in the tree whether or not anyone enables it.
 A dead-drop is untrusted, client-keyed data written to a host's disk, so bounded total bytes, a TTL,
 and never deriving a filename from a client-supplied string are requirements rather than polish —
 see [security-design.md](security-design.md). "Opt-in" answers *who pays at runtime*; it does not
 answer *whether the project wants to carry it*, and that second question is the one §11 reserves.
+
+#### The shape, agreed 2026-09-15 — a design on record, nothing built
+
+Fleshed out with the user across one conversation (the Rain World zone question, then Carrion as a
+"share everything" case, then the lobby, then the `private/` precedent). Recorded so the next
+session starts from these decisions rather than re-deriving them. **The user's bar is unchanged:
+built with the first shared-world adapter, not before**, and Carrion is still an unopened candidate
+(`candidate-games.md`).
+
+**1. A lobby is a wait, not a role.** Whoever arrives first already creates the room and fixes its
+feature set, version and policies, by arrival — that is the only "host" the authority side needs,
+and it is deliberately not a simulation role (§2, "There is no host"). What a shared world adds is a
+*wait*: a client's game must not load a world until the room has told it whether it is **seeding**
+or **adopting**. That is claim → wait → act applied to the whole world instead of one item. Three
+pieces, none a new relay subsystem:
+
+- the room as it exists (join or create, sticky features, refuse mismatches);
+- **the world origin as a leased key** — the first claimant seeds custody from its own save, and
+  everyone after adopts from custody; the relay stores bytes it cannot read, exactly as `Join.State`
+  does today, and never learns that a save was involved;
+- **holding the game before world load**, adapter-side and per game: the adapter keeps the game at
+  the main menu, or whatever state precedes loading a world, until the core says seed or adopt.
+  This is the only genuinely new capability, and it is entirely about what a given game allows.
+
+**2. Whose save is the world: the first one in, every session — unless custody persists.** With no
+persistence the room dies when its last member leaves, and the next session's first arrival seeds
+again from *their* save. That is fine as long as everyone plays together, because each client's
+game wrote its own save from the same shared state, so the saves agree; it forks the moment
+someone plays alone in between. Every host-saved co-op game has exactly this property, and the two
+honest answers are theirs: accept it, or store the world on the relay. **Nothing here writes a
+save: the game writes its own, through its own mechanism, from the state the adapter fed it.**
+`CLAUDE.md`'s rule is untouched, and a shared-world preset still needs its per-game ADR to say so
+explicitly, because "the game did it" is the exact sentence that rule exists to be suspicious of.
+
+**3. Persisting custody is the dead-drop, and the split is world yes, authority never.**
+
+- **World custody may persist**, as the bounded dead-drop this section already priced: an opaque
+  blob per key, a size cap on the total, a TTL, and a file name never derived from a client string.
+  Corruption handling is cheap *because the relay cannot read the blobs*: no schema, so no migration
+  ever; a bad file is a hash mismatch and the answer is discard and start fresh, which is what a
+  dropped room does today. Backup is the host copying a folder.
+- **Leases never touch disk.** A lease means "this connected client is simulating this key right
+  now"; across a restart every holder is gone, so a persisted lease is wrong or immediately
+  released. Same for identities and exchanges — the refusal above stands for durable relay state.
+- **Both opt-ins stand**: off unless the relay host turns it on, negotiated per room via
+  `features`, refused at join on a relay without it (the three-step list above, unchanged).
+- **A new binding, found here:** a world keyed by game and room *name* on a shared relay would
+  hand one group's world to the next group that picks the same name. The stored world has to be
+  bound to the room code as well — which is one more reason the code should leave the wire as a
+  PAKE (ADR 0066's plan step 5) before any of this is built, so the binding is to something proven.
+
+**4. What persistence does not simplify, so nobody expects it to.** The hold before world load is
+still per-game work; persistence only makes "adopt" the usual answer. Suppressing the game's own
+authority for every entity type in a zone someone else owns is still the deepest per-game work on
+the list. And the custody ceiling — 64 entities per room, derived from the reorder window, not from
+storage — is untouched: a world the size of a save probably wants **one origin blob** rather than
+sixty-four small ones, and that sizing question is open (`kill-credit.md` #19).
+
+**5. One shipped behaviour flips under a shared-world preset.** A downed relay no longer refuses
+the game (ADR 0050), which is right for ghosts. A shared session cannot start offline, so that
+preset must refuse instead — one more thing settled at join, never in a config file.
+
+As everywhere in this file: a shape on record is not permission. Building any of it is a contract
+revision with its own ADR, and the memory-write gate in `plans.md` applies.
 
 ---
 

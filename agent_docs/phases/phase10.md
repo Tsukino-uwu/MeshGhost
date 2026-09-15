@@ -2480,3 +2480,18 @@ against its own harness. The test helper now binds the proof to the test identit
 does. The e2e suite passed first time under the new wire; the live block and the netsim rig too.
 
 **Gates.** `run-gotests.bat` green (after two fixes it found: the wire-freeze gate learning `pake_ke1` and the `Pake` message, and the log-flood test sending an unusable proof so fifty refusals land in one throttle window whatever the load); `run-gotests-race.bat` green, 20 packages, `core` 394 s, no race; `run-gotests-udp.bat` green; the tree preflight down to the two pre-existing `status.md` items. Commits: `a9eda0c5` (the code) and the records commit after it. Nothing pushed.
+
+## 2026-09-15 (later) — The shared-world shape: per room never per user, a lobby is a wait, custody may persist and leases never do
+
+**Three more user questions in the same conversation, answered in `beyond-cosmetic.md`, nothing
+built.** Could "sync more or less" be a per-client toggle (Carrion as the share-everything case)?
+No: sharing is a room property, settled by arrival like the feature set, and a personal override
+only ever lowers (ADR 0035's one-way rule); a §3 subsection records it. Would a lobby help or
+confuse authority? Confuse, for authority (arrival already decides); help, for the save, because a
+shared world needs the game held before world load until the room says seed or adopt — "a lobby is
+a wait, not a role". Should the relay accept temp world/authority files now that `private/` exists
+(ADR 0066)? World custody may persist as the opt-in dead-drop; leases never touch disk. The §5
+invariant ("writes nothing but its log") is marked superseded by ADR 0066 with the narrower line
+that survives: the relay writes only about itself, never a byte a client sent. The shape is §5's
+new "The shape, agreed 2026-09-15" subsection, five numbered points, with the user's bar restated:
+built with the first shared-world adapter, not before. Nothing pushed.
