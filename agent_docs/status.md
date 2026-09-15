@@ -15,7 +15,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 - 2026-09-15 — **CI: `core` under `-race` is near its 600 s package limit** (528 s in run 34997994110). Next red is likely; `run-gotests-race.bat` passes locally.
 - 2026-09-15 — **TLS always on, TOFU and the room-code PAKE are LANDED (ADRs 0066, 0067; protocol 3).** UNWATCHED in a real game: a coded join; the "identity changed" warning after `private/` is deleted.
 - 2026-09-15 — **Both `config.json` files are LIVE** (relay: room_code/only_game/max_clients; client: smoothing, chaser, replay, hotkeys); never watched with a real client editing one. `phases/phase10.md`.
-- 2026-09-15 — **Review pass 3's remainder lost its detail** (the cell reports were never tracked): P1b's timer sum FIXED today, P2f-3 already fixed in the Lua; the rest needs a re-run. `REVIEW-FINDINGS.md`.
+- 2026-09-15 — **Review pass 3's remainder lost its detail** (the cell reports were never tracked): P1b's timer sum FIXED today, P2f-3 already fixed in the Lua; the rest needs a re-run. `phases/phase10.md`.
 - 2026-09-15 — **PARKED, the user's call: measure whether quic's congestion controller paces datagrams late after a loss** (the 2026-09-02 bike glide). Instrument, matrix and decision rule in `ideas.md`.
 - 2026-09-15 — **Adapter work from 2026-09-11/12 is UNWATCHED in all four games** (peer-input hardening, `ghost_collision` in the Pokémon pair, autostart opt-in, replay/chaser ghosts). Each `UNVERIFIED.md`.
 - 2026-09-15 — **TEVI open**: bullet BIRTH rows missing under sustained fire; self-moving bullets fly straight on a ghost; pool indices ordinal across builds; game-root move unwatched. `tevi/UNVERIFIED.md`.

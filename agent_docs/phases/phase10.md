@@ -2634,3 +2634,14 @@ exporter; neither is a PAKE, because OPAQUE earns its round trip only for a shor
 secret. The player's trust in a relay chains from the router's answer (address plus fingerprint),
 and in a cluster the router becomes the OPAQUE server that issues the ticket. Design only, nothing
 scheduled; the user's call that the extra work is assumed worth it at the scale that needs a router.
+
+**Addendum, the pass-3 working file is deleted.** `REVIEW-FINDINGS.md` (local-only, gitignored
+since `3d34e694`) held two things nowhere else: the "structurally blocked" list, now a section at
+the end of `risks.md`; and the pass-3 remainder as ONE line — `P1b-3..6`, `P1d-5..10`, `X2-8..14`
+"the lower-ranked remainder, each with its bounding negative in the cell reports", plus `P2f-5`,
+`P2e-3`, `P2e-4`, `P2c-1`'s siblings "small, each with its numbers in the reports". The cell reports
+were that session's agent output and were never written down, so per-ID detail does not exist
+anywhere; the three it called notable are settled (the timer sum fixed above; the quic 64 KiB
+reason closed with P1d-1 on 2026-09-12; the udp black hole moot under ADR 0065). A future pass
+that wants them re-runs the pre-auth, transports and adapter-growth cells. Everything else in the
+file was already in the phase entries, `docs/security.md`, `verified.md` and each `UNVERIFIED.md`.

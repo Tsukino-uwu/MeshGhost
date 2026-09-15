@@ -801,3 +801,26 @@ sends (IP, display name, room, game, position/animation), and nothing reads the 
 path from a save file to the wire. Closing it means end-to-end payload encryption keyed off the room
 code. **Revisit if public or third-party hosting becomes normal**, which is the assumption doing the
 work here. Full reasoning in `docs/security.md`, "You trust whoever hosts".
+
+## Structurally blocked for any review pass — do not attempt (carried out of the pass-3 working file, 2026-09-15)
+
+The third adversarial review (2026-09-12) closed with a list of finding shapes that are not fixable
+inside this project's rules, so a reviewer who raises one is asked for a different fix, not a
+better argument. Kept here because the working file that held it was local-only and is deleted:
+
+- **Anything requiring the Go side to know what a game value MEANS.** `internal/gameblind` pins
+  it: `core`, `relay` and `cmd` never branch on the contents of `area_id`, `anim`, `extras` or a
+  position (root `CLAUDE.md`, ADR 08-20). A bound on a value's *size* is fine; a bound on its
+  *meaning* is the adapter's.
+- **Re-hardening the CONTENTS of `area_id` and `anim`.** Both are bounded to 256 bytes and
+  UTF-8-validated (`ValidOpaqueString`) and compared by equality only; there is nothing more the
+  core may do with them.
+- **Adapter-declared constraints enforced on receive** (an adapter telling the core "my `extras`
+  never exceed N keys of these shapes"). It is the right long-term answer to `extras` as a UGC
+  channel, and it is a protocol change with its own ADR, never a review fix.
+- **Any bound that cannot be sized from a real observed game value.** A limit invented from
+  reasoning is a bandage that either blocks a legitimate player or blocks nothing; the number
+  comes from a measurement in an adapter's `VERIFIED.md`/`UNVERIFIED.md` first.
+
+The pass-3 remainder that never got detail — `P1b-3..6`, `P1d-5..9`, `X2-8..14`, `P2f-5`,
+`P2e-3/4`, `P2c-1`'s siblings — is recorded in `phases/phase10.md` (2026-09-15, night).
