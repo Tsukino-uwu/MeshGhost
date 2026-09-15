@@ -67,7 +67,7 @@ keys changed on a save and everything else waited for the next launch -- a teste
 
 **`tls` and `tls_fingerprint` are gone (2026-09-15).** Every connection is encrypted, on tcp and
 quic alike, with nothing to switch, and the server's identity is remembered automatically: on the
-first connection the client writes the server's certificate fingerprint to `tls\known_relays.json`
+first connection the client writes the server's certificate fingerprint to `known_servers.json`
 beside this file, keyed by `connect_to`, and checks it on every later connection, warning in its log
 if it ever changes. A file still carrying `"tls": "off"` or `"auto"`, or a non-empty
 `tls_fingerprint`, refuses to start and says so, because a security setting is never silently
@@ -91,10 +91,10 @@ Also in the `client` section, shipped at values you should not need to change: `
 | `resume_grace_seconds` | `0` | How long a dropped client's identity is held for a reconnect before the room is told it left. `0` (or absent) means the built-in 20 seconds. Only used by rooms that negotiated session resumption; a cosmetic room never holds anything. |
 
 **The server's `tls` key is gone too (2026-09-15).** Every connection is TLS. The server keeps its
-certificate in `tls\` beside this file — `relay.key` (private: whoever has it can pose as your
-server), `relay.crt`, `relay.fingerprint` — created on first start and reused after, so players
+certificate in `private\` beside this file — `server.key` (private: whoever has it can pose as your
+server), `server.crt`, `server.fingerprint` — created on first start and reused after, so players
 recognise the same server across restarts; the startup log prints the fingerprint and the folder.
-Copy `tls\` into a new install to stay the same server; delete it to become a new one (every
+Copy `private\` into a new install to stay the same server; delete it to become a new one (every
 returning player then sees one warning). A file still carrying `"tls": "off"` or `"auto"` refuses to
 start; `"required"` runs with a note. [hosting.md](hosting.md) has the reasoning.
 

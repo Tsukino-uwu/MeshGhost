@@ -28,9 +28,10 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 )
 
-// KnownRelaysFileName is the store's file, in the tls/ folder beside the
-// client's config.json.
-const KnownRelaysFileName = "known_relays.json"
+// KnownRelaysFileName is the store's file, beside the client's config.json.
+// Not in the relay's private/ folder: this file is a memory, not a secret,
+// and a client has nothing to keep private (it holds no certificate).
+const KnownRelaysFileName = "known_servers.json"
 
 // knownRelaysFileVersion is written into every file and checked on read; a
 // later shape bumps it and reads the older one explicitly.
@@ -86,10 +87,10 @@ func NewKnownRelays(path string) *KnownRelays {
 	return &KnownRelays{path: path}
 }
 
-// NewKnownRelaysInDir is NewKnownRelays for the conventional place: the
-// tls/ folder inside dir (the client's config folder).
+// NewKnownRelaysInDir is NewKnownRelays for the conventional place: beside
+// the config.json in dir.
 func NewKnownRelaysInDir(dir string) *KnownRelays {
-	return NewKnownRelays(filepath.Join(dir, tlsx.IdentityDirName, KnownRelaysFileName))
+	return NewKnownRelays(filepath.Join(dir, KnownRelaysFileName))
 }
 
 // Path is where the store persists, or "" for memory only.

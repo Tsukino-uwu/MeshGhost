@@ -194,6 +194,23 @@ func TestTheKeyIsPrivate(t *testing.T) {
 	}
 }
 
+// TestTheFolderExplainsItself: the README is written with the identity and
+// names the key as the file never to share -- the folder's name is the hint,
+// the README is the explanation.
+func TestTheFolderExplainsItself(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), tlsx.IdentityDirName)
+	load(t, dir)
+	got, err := os.ReadFile(filepath.Join(dir, tlsx.ReadmeFileName))
+	if err != nil {
+		t.Fatalf("no README beside the key: %v", err)
+	}
+	for _, want := range []string{"DO NOT SHARE", tlsx.KeyFileName, "delete this folder"} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("the README does not say %q", want)
+		}
+	}
+}
+
 // TestNoTemporaryFileIsLeftBehind: the atomic write cleans up after itself,
 // so a tls/ folder never accumulates .tmp files a host would wonder about.
 func TestNoTemporaryFileIsLeftBehind(t *testing.T) {
@@ -209,7 +226,7 @@ func TestNoTemporaryFileIsLeftBehind(t *testing.T) {
 			t.Fatalf("temporary file %s left in the identity folder", e.Name())
 		}
 	}
-	if len(entries) != 3 {
-		t.Fatalf("%d entries in the identity folder, want exactly the three files", len(entries))
+	if len(entries) != 4 {
+		t.Fatalf("%d entries in the identity folder, want exactly the three files and the README", len(entries))
 	}
 }

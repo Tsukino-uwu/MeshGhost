@@ -376,7 +376,7 @@ func TestTheObsoleteTLSKeysAreJudgedByWhatTheyAskedFor(t *testing.T) {
 			t.Errorf("tls=%q pin=%q: the error does not say since when: %v", tc.mode, tc.pin, err)
 		}
 	}
-	if _, err := checkLegacyTLSKeys("", "AB:CD"); err == nil || !strings.Contains(err.Error(), "known_relays.json") {
+	if _, err := checkLegacyTLSKeys("", "AB:CD"); err == nil || !strings.Contains(err.Error(), "known_servers.json") {
 		t.Errorf("a pin's refusal does not say what replaced it: %v", err)
 	}
 }

@@ -363,4 +363,4 @@ staged Pseudoregalia file failed it with the line naming `$gameOnly`, and re-sta
 
 The fourth review's fixes touched `ci.yml`, the hooks, `preflight.ps1` and `stage-release.ps1`
 (the 2026-09-15 entry in `phase10.md`), and the TLS work the same evening added a fuzz step to
-`ci.yml` and a `tls/` refusal to `stage-release.ps1` (ADR 0066, the evening entry there).
+`ci.yml` and a `private/` refusal to `stage-release.ps1` (ADR 0066, the evening entry there).

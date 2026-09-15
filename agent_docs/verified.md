@@ -2122,9 +2122,10 @@ the rebuilt root binaries, hidden, in a scratch folder, and every process was go
   own certificate at index 1 behind an attacker's leaf is refused).
 - **An identity is created on the first start and reused on the next; deleting both files gives a
   new one; one file missing or either corrupt is fatal; a wrong fingerprint file is rewritten;
-  the key is 0600 on POSIX; no `.tmp` is left** (`identity_test.go`, 8 tests). Seen live: first
-  start wrote `relay.key`, `relay.crt`, `relay.fingerprint` and logged the fingerprint and the
-  folder; a restart printed the same fingerprint; with `relay.key` deleted and `relay.crt` kept
+  the key is 0600 on POSIX; a README naming the key as the file never to share is written with
+  it; no `.tmp` is left** (`identity_test.go`, 9 tests). Seen live (re-run after the folder was
+  renamed `private/` at the user's request, same evening): first start wrote `server.key`,
+  `server.crt`, `server.fingerprint` and `README.txt` and logged the fingerprint and the folder; a restart printed the same fingerprint; with `server.key` deleted and `server.crt` kept
   the relay exited with "the relay's key file cannot be read … move BOTH files out".
 - **The client records on the first connection, matches silently on the second, warns loudly and
   updates on a change, keeps one entry across room-code changes, survives 40 concurrent first
@@ -2133,7 +2134,7 @@ the rebuilt root binaries, hidden, in a scratch folder, and every process was go
   (`knownrelays_test.go`, 10 tests plus `FuzzKnownRelaysFileNeverPanics`, 11 seeds). Seen live:
   "trusting server 127.0.0.1:7791, fingerprint … (first connection; remembered in …)", the
   session on quic; the file byte-identical after the relay's code changed twice; after the relay's
-  `tls/` was deleted, the four-line WARNING block naming both fingerprints, then "using quic"
+  `private/` was deleted, the four-line WARNING block naming both fingerprints, then "using quic"
   and connected, and the entry holding the new fingerprint.
 - **Both legs verify against the one entry keyed by the configured address**
   (`TestBothLegsVerifyAgainstOneKnownRelaysEntry`; `TestACoreWithoutAStoreNeverDialsUnverified`
@@ -2143,12 +2144,12 @@ the rebuilt root binaries, hidden, in a scratch folder, and every process was go
   `"tls": "off"` exited with `"tls": "off" in config.json is no longer a choice…`, and a client
   with `"tls_fingerprint": "abcd"` exited with `…pins are gone: since 2026-09-15 a server's
   identity is remembered automatically…`.
-- **The release binaries round-trip a ghost with no encryption flag, persist `tls/` beside the
-  relay and write `known_relays.json` beside the client** (e2e
+- **The release binaries round-trip a ghost with no encryption flag, persist `private/` beside the
+  relay and write `known_servers.json` beside the client** (e2e
   `TestReleaseBinariesRoundTripAGhostOverTLS`); **the per-transport round trip and the quic
   upgrade still pass** once the suite's own quic probe dialed through `DialWithTLS`.
 - **The shipped `config.json` carries neither key** (`shippedconfig_test.go`), and
-  `stage-release.ps1` refuses a `packaging/release/tls/` folder.
+  `stage-release.ps1` refuses a `packaging/release/private/` folder.
 - **The worst-case netsim rig still round-trips** (`run-netsim.bat`'s no-arg profile: 100 ms
   ±50 ms, 5 % loss, 3 % reorder, a 1 s partition every 45 s; the rebuilt root binaries, hidden):
   the fake peer trusted the relay on first contact through the proxy, went to quic at

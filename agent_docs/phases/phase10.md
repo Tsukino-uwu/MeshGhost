@@ -2392,7 +2392,7 @@ fingerprint beside the config, atomic writes, half-or-corrupt fatal) and a dev-t
 `KnownRelays` (`knownrelays.go`; nil means an in-memory store, so every existing test runs
 unchanged and nothing trusts blindly). Both mains lost `-tls`/`-tls-fingerprint`; the config keys
 are still decoded and judged (`checkLegacyTLSKey(s)`). The shipped config lost both keys;
-`.gitignore` and `stage-release.ps1` keep `tls/` out of the repo and the zip. Docs: ADR 0066,
+`.gitignore` and `stage-release.ps1` keep `private/` out of the repo and the zip. Docs: ADR 0066,
 `security-design.md`, `docs/security.md`, `config.md`, `hosting.md`, `networking.md`,
 `reviewing.md` (netcat is gone; `openssl s_client -alpn meshghost` is the hand tool).
 
@@ -2424,3 +2424,11 @@ relay tests' own quic probe was made to verify); `run-gotests-udp.bat` green (10
 items (stale `status.md` lines from earlier sessions, and a phase-freshness check that reads
 commit history). The commits: `7a6ae9e4` (the Go side) and the records commit after it.
 `run-gotests-race.bat` over the final tree: green, 19 packages, `core` 401 s (under the 600 s CI limit), no race. Nothing pushed.
+
+**Addendum, same evening: the folder is `private/`, not `tls/`.** The user asked whether the
+name should say what sharing it does; yes. The relay's identity now lives in `private/`
+(`server.key`, `server.crt`, `server.fingerprint`, and a `README.txt` written with them that says
+DO NOT SHARE and what each file is); the client's memory is `known_servers.json` beside its
+`config.json` with no folder, because it is not a secret and filing it under `private/` would
+teach the wrong lesson. `.gitignore` and `stage-release.ps1` cover both names. The live scratch
+run was repeated under the new names, nine checks clean, the README present.

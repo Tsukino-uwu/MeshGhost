@@ -1001,7 +1001,8 @@ func TestReleaseBinariesRoundTripAGhostOverTLS(t *testing.T) {
 	// has to be in the log the host actually reads -- and the identity it
 	// names has to be on disk, beside the binary here since there is no
 	// config, or nothing survives a restart. The client's side of the same
-	// memory is its known-servers file beside ITS config.
+	// memory is its known-servers file beside ITS config (here, the same
+	// folder: both binaries run from r.dir).
 	logBytes, err := os.ReadFile(filepath.Join(r.dir, "meshghost-server.log"))
 	if err != nil {
 		t.Fatalf("read relay log: %v", err)
@@ -1009,13 +1010,13 @@ func TestReleaseBinariesRoundTripAGhostOverTLS(t *testing.T) {
 	if !strings.Contains(string(logBytes), "tls certificate fingerprint:") {
 		t.Fatalf("the relay never printed its certificate fingerprint. Log was:\n%s", logBytes)
 	}
-	for _, name := range []string{"relay.key", "relay.crt", "relay.fingerprint"} {
-		if _, err := os.Stat(filepath.Join(r.dir, "tls", name)); err != nil {
-			t.Errorf("the relay did not persist tls/%s beside itself: %v", name, err)
+	for _, name := range []string{"server.key", "server.crt", "server.fingerprint", "README.txt"} {
+		if _, err := os.Stat(filepath.Join(r.dir, "private", name)); err != nil {
+			t.Errorf("the relay did not persist private/%s beside itself: %v", name, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(r.dir, "tls", "known_relays.json")); err != nil {
-		t.Errorf("the client did not write tls/known_relays.json beside its config: %v", err)
+	if _, err := os.Stat(filepath.Join(r.dir, "known_servers.json")); err != nil {
+		t.Errorf("the client did not write known_servers.json beside its config: %v", err)
 	}
 }
 

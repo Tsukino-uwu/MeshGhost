@@ -150,7 +150,7 @@ type fileConfig struct {
 	Transport *string `json:"transport"`
 	// TLS and TLSFingerprint are OBSOLETE (2026-09-15, ADR 0066): every
 	// connection is TLS with nothing to switch, and the relay's identity is
-	// remembered automatically in tls/known_relays.json rather than pinned
+	// remembered automatically in known_servers.json rather than pinned
 	// by hand. Both are still decoded so an old config's keys are not
 	// reported as unknown, and then judged by checkLegacyTLSKeys: a value
 	// that asked for plaintext, or a pin, refuses to start -- a security
@@ -604,7 +604,7 @@ func checkLegacyTLSKeys(tlsMode, pin string) (notes []string, err error) {
 	if strings.TrimSpace(pin) != "" {
 		return nil, errors.New("\"tls_fingerprint\" in config.json is set, and pins are gone: since " +
 			"2026-09-15 a server's identity is remembered automatically on the first connection, " +
-			"in tls/known_relays.json beside this config, and a change is warned about. Delete " +
+			"in known_servers.json beside this config, and a change is warned about. Delete " +
 			"\"tls_fingerprint\" from config.json to start")
 	}
 	return notes, nil
@@ -1080,7 +1080,7 @@ func main() {
 
 	c := core.New()
 	c.Transport = transportKind
-	// Which relay is which, remembered across launches in tls/ beside the
+	// Which relay is which, remembered across launches beside the
 	// config (trust on first use; core/knownrelays.go, ADR 0066).
 	c.KnownRelays = core.NewKnownRelaysInDir(filepath.Dir(configShown))
 	c.InterpolationDelay = *interp

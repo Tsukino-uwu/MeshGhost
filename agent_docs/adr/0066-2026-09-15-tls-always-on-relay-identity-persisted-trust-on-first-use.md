@@ -5,11 +5,11 @@
 - **Decision:** every shipped connection between a client and a relay is TLS 1.3, on tcp and quic
   alike, with no mode and no plaintext fallback on either side. A relay refuses a connection that
   does not begin with a TLS handshake (one throttled log line says why); a client sends nothing to
-  a relay it cannot handshake with. The relay's certificate is **persisted**, in a `tls/` folder
-  beside its `config.json` (beside the executable when there is no config): `relay.key` (PKCS#8
-  PEM, 0600 where the OS has modes), `relay.crt`, and `relay.fingerprint` for a human to read.
+  a relay it cannot handshake with. The relay's certificate is **persisted**, in a `private/` folder
+  beside its `config.json` (beside the executable when there is no config): `server.key` (PKCS#8
+  PEM, 0600 where the OS has modes), `server.crt`, and `server.fingerprint` for a human to read.
   The same certificate is served on tcp and quic, so one relay has one fingerprint. A client
-  **remembers** each relay's fingerprint under the address it configured, in `tls/known_relays.json`
+  **remembers** each relay's fingerprint under the address it configured, in `known_servers.json`
   beside its own `config.json`, on the first connection, and checks every later connection on
   every leg against that entry. A changed identity is **warned about loudly and remembered**, not
   refused. The `tls` and `tls_fingerprint` config keys and the `-tls`/`-tls-fingerprint` flags are
@@ -47,12 +47,18 @@
   looking persisted. Half an identity (one file of the two), or a file that does not parse, is
   **fatal** at startup, never a silent regeneration: that would hide a broken install behind a
   "new identity" warning on every client. Deleting both files is the documented way to a new one.
-- **What a host sees.** One line with the fingerprint and one naming the folder ("copy `tls/` into
-  a new install to keep this identity; keep `relay.key` private"). `tls/` is gitignored and
-  `stage-release.ps1` refuses a release folder that contains one: `relay.key` in a zip would make
+- **Why the folder is called `private/`, with a README inside, and why the client's file is not in
+  it** (the user's call, later the same day; the first cut said `tls/`). A host shares install
+  folders, and a folder named after a protocol says nothing at the moment they are dragging it into
+  a zip; `private/` says what sharing it does, and `README.txt` beside the key says it in
+  sentences. The client's `known_servers.json` sits beside its `config.json` with no folder: it is
+  a memory, not a secret, and filing it under `private/` would teach the wrong lesson.
+- **What a host sees.** One line with the fingerprint and one naming the folder ("copy `private/` into
+  a new install to keep this identity; keep `server.key` private"). `private/` is gitignored and
+  `stage-release.ps1` refuses a release folder that contains one: `server.key` in a zip would make
   every install of that zip the same relay to every client that had connected to any of them.
 - **What a player sees.** Nothing, unless a relay's identity changes: "trusting server X,
-  fingerprint Y (first connection)" once per relay, then silence. A corrupt `known_relays.json` is
+  fingerprint Y (first connection)" once per relay, then silence. A corrupt `known_servers.json` is
   a connection error naming the file, never overwritten. A read-only install still plays and is
   told once that nothing is remembered. A hand-edited entry with colons or capitals still matches.
   The keys `tls`/`tls_fingerprint` in an old `config.json` are judged at startup as above; the
@@ -60,7 +66,7 @@
 - **Costs accepted.** A first connection is unauthenticated (there is nothing to compare yet); a
   relay from before this date presents two certificates (tcp and quic), so a client of one sees a
   changed-identity warning on every connect until the relay updates; a re-shared install folder
-  leaks `relay.key` (documented in `docs/hosting.md`); netcat can no longer drive a relay, and
+  leaks `server.key` (documented in `docs/hosting.md`); netcat can no longer drive a relay, and
   `docs/reviewing.md` says so. The dev build (`meshghost_devudp`) honours `SSLKEYLOGFILE` so a
   Wireshark capture is still readable on the developer's own machine; a release never does.
 - **Supersedes** the TLS section of ADR 0034 (2026-08-18: three-way mode, in-memory certificate
@@ -77,5 +83,5 @@
   verify against one entry, `FuzzKnownRelaysFileNeverPanics`. `cmd`: the legacy keys are judged
   by what they asked for; the shipped stack refuses a plaintext hello with no Reject; the shipped
   config carries neither key. `internal/e2e`: the release binaries round-trip a ghost with no flag
-  about encryption, the relay persists `tls/` and the client writes `known_relays.json`; the client
+  about encryption, the relay persists `private/` and the client writes `known_servers.json`; the client
   refuses a raw plaintext listener. `agent_docs/verified.md` (2026-09-15, TOFU) has the runs.

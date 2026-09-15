@@ -233,20 +233,21 @@ the hand-copied `tls_fingerprint` pin are gone. A `config.json` still carrying e
 start and says what replaced it.)
 
 **Your server has an identity.** On its first start it generates a certificate and keeps it in a
-`tls\` folder beside its `config.json` (beside the executable if there is no config):
+`private\` folder beside its `config.json` (beside the executable if there is no config):
 
-- `relay.key` — the private key. **Keep it private**: whoever has it can pose as your server to
+- `server.key` — the private key. **Keep it private**: whoever has it can pose as your server to
   every player who has connected before. It is never in a release zip, and never should be in
   anything you re-share.
-- `relay.crt` — the certificate, and `relay.fingerprint` — its fingerprint, for you to read.
+- `server.crt` — the certificate, and `server.fingerprint` — its fingerprint, for you to read.
 
-The startup log prints the **`tls certificate fingerprint:`** line and names the folder. **Copy the
-`tls\` folder into a new install to stay the same server**; delete it and you become a new one.
+There is a `README.txt` in the folder saying the same. The startup log prints the **`tls
+certificate fingerprint:`** line and names the folder. **Copy the
+`private\` folder into a new install to stay the same server**; delete it and you become a new one.
 
 **Players recognise you automatically.** On their first connection a player's client remembers your
-fingerprint (in `tls\known_relays.json` beside their own `config.json`, keyed by the address they
+fingerprint (in `known_servers.json` beside their own `config.json`, keyed by the address they
 typed) and checks it on every later connection. Nobody copies anything. If your identity ever
-changes — you reinstalled, deleted `tls\`, or someone is impersonating your address — their client
+changes — you reinstalled, deleted `private\`, or someone is impersonating your address — their client
 logs a loud warning naming both fingerprints, remembers the new one, and connects. If you did
 reinstall, tell them; if you did not, read them your fingerprint line over chat (not through the
 server) and have them compare it with the "presented" line in the warning. Proving a change by the

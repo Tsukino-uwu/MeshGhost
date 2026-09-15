@@ -8,7 +8,10 @@ piece so each is tested on its own. Until it lands, a changed relay identity is 
 remembered, not proven or refused (the accepted trade-off below). Two deviations from the text
 below, both recorded in the ADR: the certificate is persisted as well as the key (a re-signed
 certificate has a new serial and so a new fingerprint), and a corrupt `known_relays.json` refuses
-the connection rather than being overwritten.
+the connection rather than being overwritten. And the names: the plan says `tls/`, `relay.key`
+and `tls/known_relays.json`; what shipped is `private/` (with a README) holding `server.key`,
+`server.crt` and `server.fingerprint`, and the client's `known_servers.json` beside its config with
+no folder -- the user's call, so the folder name says what sharing it does.
 
 Written 2026-09-14 and parked; **scheduled 2026-09-15 as the next piece of work after the fourth
 adversarial review's fixes** (user decision, that day). Its prerequisite has landed: plain udp is

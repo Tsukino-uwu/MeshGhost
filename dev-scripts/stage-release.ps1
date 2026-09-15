@@ -321,13 +321,16 @@ if (Test-Path adapters\emulator\pokemon\crystal\ap_try.flag) {
     throw 'ap_try.flag must never be packaged'
 }
 
-# A relay or client run from packaging\release\ (a local dry run followed by a live test) writes
-# its TLS identity and its known-servers file into tls\ beside its config (ADR 0066). relay.key
-# is a PRIVATE KEY: shipped in a zip, every install would BE the same relay to every client that
-# had connected to any of them. .gitignore keeps the folder out of a commit; this keeps it out of
-# a release even when it is sitting there.
-if (Test-Path packaging\release\tls) {
-    throw 'packaging\release\tls\ exists (a relay or client was run from the release folder); delete it -- relay.key is a private key and must never be packaged'
+# A relay run from packaging\release\ (a local dry run followed by a live test) writes its identity
+# into private\ beside its config, and a client its known_servers.json (ADR 0066). server.key is a
+# PRIVATE KEY: shipped in a zip, every install would BE the same relay to every client that had
+# connected to any of them. .gitignore keeps both out of a commit; this keeps them out of a release
+# even when they are sitting there.
+if (Test-Path packaging\release\private) {
+    throw 'packaging\release\private\ exists (a relay was run from the release folder); delete it -- server.key is a private key and must never be packaged'
+}
+if (Test-Path packaging\release\known_servers.json) {
+    throw 'packaging\release\known_servers.json exists (a client was run from the release folder); delete it -- a release ships nobody''s remembered servers'
 }
 
 # docs\ -- the player guides, copied from the repo's docs/ rather than written twice. README.txt

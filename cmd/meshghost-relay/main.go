@@ -393,7 +393,7 @@ func main() {
 		log.Printf("meshghost-relay: %s", note)
 	}
 
-	// This relay's identity: one key pair and certificate, persisted in tls/
+	// This relay's identity: one key pair and certificate, persisted in private/
 	// beside the config so a client that connected once recognizes the same
 	// relay after a restart (tlsx.LoadOrCreateIdentity; ADR 0066). A folder
 	// that holds a broken identity is fatal here, before any listener opens.
@@ -460,7 +460,8 @@ func main() {
 	log.Printf("meshghost-relay: tls certificate fingerprint: %s", fingerprint)
 	log.Printf("meshghost-relay: this server's identity is kept in %s -- players' clients remember "+
 		"the fingerprint above and warn if it changes. Copy that folder into a new install to keep "+
-		"this identity; keep %s private, since whoever has it can pose as this server.",
+		"this identity; NEVER share it, since whoever has %s can pose as this server (the README "+
+		"inside says the same).",
 		identityDir, tlsx.KeyFileName)
 	if servesKind(kinds, netx.UDP) {
 		log.Printf("meshghost-relay: WARNING: the plain udp transport is being served and " +
@@ -1053,7 +1054,7 @@ func (l locatedConfig) logPath(name string) string {
 }
 
 // identityDir is where the relay's identity lives (tlsx.LoadOrCreateIdentity):
-// the tls/ folder beside the config, for the same reason the log is there --
+// the private/ folder beside the config, for the same reason the log is there --
 // and so that "uninstall" is still "delete the folder", and moving the install
 // moves the identity with it (the user's call, agent_docs/tls-planning.md).
 func (l locatedConfig) identityDir() string {

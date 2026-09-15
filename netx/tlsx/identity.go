@@ -23,20 +23,27 @@ import (
 // The files LoadOrCreateIdentity keeps in its folder. All three are written
 // together; the fingerprint is derived from the certificate and is there for
 // a human to read or copy, never for the loader to trust.
+//
+// The folder is called "private" rather than "tls" on purpose (the user's
+// call, 2026-09-15): a host shares install folders, and the name has to say
+// what sharing this one does at the moment they are dragging it into a zip.
+// A README.txt inside says the same in sentences.
 const (
 	// IdentityDirName is the folder's name, beside the relay's config.json.
-	IdentityDirName = "tls"
+	IdentityDirName = "private"
+	// ReadmeFileName explains the folder to whoever opens it.
+	ReadmeFileName = "README.txt"
 	// KeyFileName holds the private key: PKCS#8, PEM, mode 0600 where the
 	// OS supports modes. Keep it private: whoever has it IS this relay to
 	// every client that has connected before.
-	KeyFileName = "relay.key"
+	KeyFileName = "server.key"
 	// CertFileName holds the certificate, PEM. Persisted because a
 	// certificate re-signed from the same key has a new serial and so a new
 	// fingerprint -- the key alone does not pin the identity.
-	CertFileName = "relay.crt"
+	CertFileName = "server.crt"
 	// FingerprintFileName holds the fingerprint as one line of hex, so an
 	// operator can read it without a tool.
-	FingerprintFileName = "relay.fingerprint"
+	FingerprintFileName = "server.fingerprint"
 )
 
 // LoadOrCreateIdentity returns the listener's TLS configuration for the
@@ -131,8 +138,34 @@ func writeIdentity(dir string, cert tls.Certificate, fp string) error {
 	if err := WriteFileAtomic(filepath.Join(dir, CertFileName), certPEM, 0o644); err != nil {
 		return err
 	}
-	return WriteFileAtomic(filepath.Join(dir, FingerprintFileName), []byte(fp+"\n"), 0o644)
+	if err := WriteFileAtomic(filepath.Join(dir, FingerprintFileName), []byte(fp+"\n"), 0o644); err != nil {
+		return err
+	}
+	return WriteFileAtomic(filepath.Join(dir, ReadmeFileName), []byte(readmeText), 0o644)
 }
+
+// readmeText is written beside the key on first start. Plain words, for the
+// person about to zip the folder.
+const readmeText = `This folder is your server's identity. DO NOT SHARE IT.
+
+` + KeyFileName + `          the private key. Whoever has this file can pose as your server
+                    to every player who has ever connected to it. Never send it to
+                    anyone, and never include this folder in a zip you share.
+` + CertFileName + `          the certificate players see (not secret on its own).
+` + FingerprintFileName + `  the fingerprint players remember you by, for you to read.
+
+All three were created the first time the server started and are reused on every
+start after that, so players recognise the same server across restarts.
+
+To move your server to a new folder and stay the same server: copy this whole
+folder next to the new config.json before starting it.
+
+To become a NEW server: delete this folder. It is recreated on the next start,
+and every player who connected before will see one warning that your identity
+changed.
+
+MeshGhost writes this file; you never need to edit anything here.
+`
 
 // WriteFileAtomic writes data to path through a temporary file in the same
 // directory and a rename, so a reader never sees a partial file. The mode is

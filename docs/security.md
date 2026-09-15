@@ -82,10 +82,10 @@ connection on**. A room code raises the bar from "anyone with the address" to "a
 address and the code" — not to "safe against a network-level attacker".
 
 **How the server is recognised (since 2026-09-15, ADR 0066).** Every server has a persistent
-identity: a certificate it generates on its first start and keeps in a `tls\` folder beside its
-`config.json` (`relay.key`, `relay.crt`, `relay.fingerprint`), served on tcp and quic alike so one
+identity: a certificate it generates on its first start and keeps in a `private\` folder beside its
+`config.json` (`server.key`, `server.crt`, `server.fingerprint`), served on tcp and quic alike so one
 server has one fingerprint. Every client remembers each server's fingerprint under the address it
-configured, in `tls\known_relays.json` beside its own `config.json`, on the first connection, and
+configured, in `known_servers.json` beside its own `config.json`, on the first connection, and
 checks every later connection — the tcp handshake, the tcp session, the quic session — against
 that entry. This is the SSH model, trust on first use: the first connection cannot be checked
 against anything, and from then on a different certificate at the same address is **noticed**.
@@ -93,7 +93,7 @@ Nobody copies a string, edits a file or deletes one; the two files are written a
 programs.
 
 **What happens when the identity changes** — the host reinstalled, moved the server to a fresh
-folder, deleted `tls\`, or someone is impersonating it — is, for now, a **warning, not a
+folder, deleted `private\`, or someone is impersonating it — is, for now, a **warning, not a
 refusal**: the client logs both fingerprints in a block that says the host should compare the one
 their server prints at startup, updates its entry, and connects, still encrypted. SSH refuses
 instead, and then a human deletes a line from a file; the user's requirement is that nobody ever
@@ -540,11 +540,11 @@ handshake, full stop.
 **Encryption is no longer a setting, and your server has an identity now** (same day, ADR 0066).
 The `tls` and `tls_fingerprint` keys are gone: every connection is TLS on both transports, a
 plaintext client is closed and a plaintext server refused. Your server generates a certificate on
-its first start and keeps it in `tls\` beside its `config.json`, so it is the same server after a
+its first start and keeps it in `private\` beside its `config.json`, so it is the same server after a
 restart; it prints the fingerprint at startup and names the folder. Every player's client remembers
 that fingerprint on its first connection and warns, loudly, if it ever changes — the SSH model, with
-nothing for anyone to copy. Keep `tls\relay.key` private (whoever has it can pose as your server to
-everyone who has connected before); copy the `tls\` folder into a new install to stay the same
+nothing for anyone to copy. Keep `private\server.key` private (whoever has it can pose as your server to
+everyone who has connected before); copy the `private\` folder into a new install to stay the same
 server; delete it to become a new one, at the cost of one warning per returning player. A
 `config.json` still carrying `"tls": "off"` or `"auto"`, or a pin, refuses to start and says why.
 
@@ -566,7 +566,7 @@ in the wrong case is no longer applied and simultaneously reported as ignored, a
 `0` is printed as the 8 it enforces, and a trailing space in `room_code` no longer refuses everyone.
 
 **On a server strangers can reach, then:** set a `room_code` of eight characters or more; keep the
-`tls\` folder with the install and `relay.key` private, and read your fingerprint line to a player
+`private\` folder with the install and `server.key` private, and read your fingerprint line to a player
 over chat if they ever see the "identity changed" warning and you did not reinstall; bind `0.0.0.0` and firewall
 both IPv4 and IPv6, or bind one explicit address; keep `transport` at `tcp,quic` and forward that
 one port number for both tcp and udp; run it from its own folder or give `-config` an absolute

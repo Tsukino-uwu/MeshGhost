@@ -243,7 +243,7 @@ jobs:
         run: bash dev-scripts/ci-fuzz.sh ./core FuzzHostileRelayLines 45s
       - name: Fuzz core - arbitrary bytes into the bridge socket
         run: bash dev-scripts/ci-fuzz.sh ./core FuzzHostileBridgeLines 45s
-      # The client's known-servers file (tls/known_relays.json, ADR 0066) is bytes
+      # The client's known-servers file (known_servers.json, ADR 0066) is bytes
       # off a disk a hand may have edited: the loader must error or load, never panic.
       - name: Fuzz core - the known-servers file
         run: bash dev-scripts/ci-fuzz.sh ./core FuzzKnownRelaysFileNeverPanics 30s

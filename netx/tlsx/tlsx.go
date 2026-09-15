@@ -179,7 +179,7 @@ func ServerConfig(alpn string) (*tls.Config, string, error) {
 
 // Fingerprint is the SHA-256 of a certificate's DER bytes, lower-case hex
 // with no separators: the string a relay prints at startup, the string a
-// client remembers in tls/known_relays.json, and the only thing that
+// client remembers in known_servers.json, and the only thing that
 // identifies a relay.
 func Fingerprint(der []byte) string {
 	sum := sha256.Sum256(der)

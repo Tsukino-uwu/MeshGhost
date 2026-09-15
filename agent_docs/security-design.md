@@ -30,9 +30,9 @@ this file is exempt from `licensing.md`'s gate until something from a project is
 
 **What shipped 2026-09-15 (ADR 0066, `agent_docs/tls-planning.md`)**: no mode — every connection
 is TLS on tcp and quic, a plaintext client is closed and a plaintext relay refused; the relay's
-identity is persisted (`tls/relay.key`, `relay.crt`, `relay.fingerprint` beside its config) and
+identity is persisted (`private/server.key`, `server.crt`, `server.fingerprint` beside its config) and
 served on both transports; the client remembers each relay's fingerprint on first connect
-(`tls/known_relays.json` beside its config, `core/knownrelays.go`) and checks every later leg
+(`known_servers.json` beside its config, `core/knownrelays.go`) and checks every later leg
 against it, warning loudly and updating on a change. The hand-copied pin and the three-way mode
 are gone; an old config carrying them is refused with a message. The per-IP cap landed the same
 day in the fourth review (ADR 0064).
