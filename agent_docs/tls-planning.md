@@ -97,6 +97,16 @@ to something new freely without touching anyone's trust file.
    - **Before any code: find a Go PAKE implementation (e.g. CPace or SPAKE2), read its license
      first (`agent_docs/licensing.md`), cite its docs — nothing from memory.** If none is clear,
      bring that back to the user rather than improvising one.
+   - **Surveyed 2026-09-15 (the row in `licensing.md` has the citations): none is clean, and the
+     choice was put to the user.** CPace is still an Internet-Draft (draft-21) and its one live Go
+     implementation calls itself a proof of concept; Filippo's is a 2021 experiment; croc's is a
+     textbook variant, not the RFC; CIRCL has no PAKE. The one standardized, maintained, permissive
+     candidate is `bytemare/opaque` (RFC 9807, MIT, maintained by an RFC author) — an *asymmetric*
+     PAKE, which fits by registering ONE record per room from the code at relay startup and having
+     every client log in against it; its cost is a dependency tree of small single-maintainer
+     modules. The alternative that needs no PAKE: steps 1–4 and 6–9 alone (TOFU), where a changed
+     relay key with a room code set is warned about loudly rather than proven — which gives up
+     "nothing manual" only in the reinstall case, and only for a player who reads the warning.
    - It changes the wire: a contract revision (new ADR superseding ADR 0013's room-code handling).
      Whether the wire floor moves is the user's call — floors are never raised automatically.
 6. **cmd**: relay drops `-tls`, loads the identity from `tls/` beside the config file
