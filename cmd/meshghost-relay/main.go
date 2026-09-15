@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -349,23 +350,29 @@ func main() {
 			"({\"listen_on\": \"...\", \"listen_quic\": \"...\", \"room_code\": \"...\", "+
 			"\"only_game\": \"...\", \"transport\": \"...\", "+
 			"\"max_clients\": ..., \"send_hz\": ..., \"resume_grace_seconds\": ...}) -- a friendlier alternative to flags for "+
-			"non-developer use; "+
-			"silently ignored if it doesn't exist; a flag passed explicitly on the command line "+
-			"overrides the same field from this file")
+			"non-developer use. A relative path is tried in the working directory first and then "+
+			"beside this executable; the startup log says which was read, or that neither exists. "+
+			"A flag passed explicitly on the command line overrides the same field from this file")
 	flag.Parse()
+	explicit := cfg.ExplicitFlags()
+
+	// Where the config is, decided before the log opens, because the log goes
+	// beside it. See resolveConfigPath: a relay started from a directory other
+	// than its own used to read no file, say nothing, and come up on loopback.
+	located := resolveConfigPath(*configPath, explicit["config"], executableDir)
 
 	// Tee'd with stderr, unlike the client: a relay is normally watched in the
 	// window it was launched from, so its log file is a second copy rather than
 	// the only one. cfg.OpenLogFile returns just the file (nil on failure) and
 	// leaves that composition here, because the two binaries genuinely differ.
 	logOut := io.Writer(os.Stderr)
-	if f := cfg.OpenLogFile("meshghost-server.log", "meshghost-relay"); f != nil {
+	if f := cfg.OpenLogFile(located.logPath("meshghost-server.log"), "meshghost-relay"); f != nil {
 		logOut = io.MultiWriter(os.Stderr, f)
 	}
 	log.SetOutput(logOut)
+	log.Print(located.note)
 
-	explicit := cfg.ExplicitFlags()
-	applyFileConfig(*configPath, explicit, configTargets{
+	applyFileConfig(located.path, explicit, configTargets{
 		addr:           addr,
 		roomCode:       roomCode,
 		onlyGame:       onlyGame,
@@ -1012,6 +1019,89 @@ type trackedLossyConn struct {
 }
 
 func (c *trackedLossyConn) WriteUnreliable(p []byte) (int, error) { return c.uw.WriteUnreliable(p) }
+
+// locatedConfig is what resolveConfigPath decided: the path applyFileConfig
+// reads, whether a file is there, and the one startup line that says so.
+type locatedConfig struct {
+	path  string
+	found bool
+	note  string
+}
+
+// logPath is where the relay's log goes: beside the config it read, or beside
+// the executable when there was none. Never the bare working directory -- a
+// service manager's working directory is wherever it happens to be, and a log
+// written there is a log nobody finds.
+func (l locatedConfig) logPath(name string) string {
+	if l.found {
+		return filepath.Join(filepath.Dir(l.path), name)
+	}
+	if dir, err := executableDir(); err == nil {
+		return filepath.Join(dir, name)
+	}
+	return name
+}
+
+// executableDir is the directory this binary runs from. A variable so a test
+// can point it at a temporary directory.
+var executableDir = func() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(exe), nil
+}
+
+// resolveConfigPath decides which config.json the relay reads.
+//
+// An explicit -config is believed as given. Otherwise the flag's default is a
+// relative name, and it is tried in the WORKING DIRECTORY first -- what every
+// dev-script and every double-click-in-the-package-folder launch relies on --
+// and then BESIDE THE EXECUTABLE. That second look is for a relay run as a
+// service: systemd's default working directory is /, Windows' service host's is
+// system32, and until 2026-09-15 such a relay read no file, said nothing about
+// it, and came up on 127.0.0.1:7777 with no room code (fourth adversarial
+// review, B2). Whatever is decided, the note names it -- including the two
+// places that were looked at when neither had a file -- so a host who edited
+// a config.json somewhere else learns that it is not the one being read.
+func resolveConfigPath(flagValue string, explicit bool, exeDir func() (string, error)) locatedConfig {
+	abs := func(p string) string {
+		if a, err := filepath.Abs(p); err == nil {
+			return a
+		}
+		return p
+	}
+	exists := func(p string) bool {
+		fi, err := os.Stat(p)
+		return err == nil && !fi.IsDir()
+	}
+	if explicit {
+		if exists(flagValue) {
+			return locatedConfig{path: flagValue, found: true,
+				note: fmt.Sprintf("meshghost-relay: config read from %s", abs(flagValue))}
+		}
+		return locatedConfig{path: flagValue, found: false,
+			note: fmt.Sprintf("meshghost-relay: no config file at %s (given by -config) -- using flags and "+
+				"built-in defaults", abs(flagValue))}
+	}
+	if exists(flagValue) {
+		return locatedConfig{path: flagValue, found: true,
+			note: fmt.Sprintf("meshghost-relay: config read from %s", abs(flagValue))}
+	}
+	if dir, err := exeDir(); err == nil && !filepath.IsAbs(flagValue) {
+		beside := filepath.Join(dir, filepath.Base(flagValue))
+		if exists(beside) {
+			return locatedConfig{path: beside, found: true,
+				note: fmt.Sprintf("meshghost-relay: config read from %s (beside the executable; there is none at %s "+
+					"in the working directory)", beside, abs(flagValue))}
+		}
+		return locatedConfig{path: flagValue, found: false,
+			note: fmt.Sprintf("meshghost-relay: no config file at %s or %s -- using flags and built-in defaults. "+
+				"If you edited a config.json somewhere else, that is not the one being read", abs(flagValue), beside)}
+	}
+	return locatedConfig{path: flagValue, found: false,
+		note: fmt.Sprintf("meshghost-relay: no config file at %s -- using flags and built-in defaults", abs(flagValue))}
+}
 
 // serverSection is the raw bytes of the config file's "server" object, or nil
 // if there isn't one -- the unknown-key warning has to look at what was WRITTEN

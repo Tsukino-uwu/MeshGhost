@@ -349,3 +349,80 @@ func TestListeningLineNamesTheAddressFamily(t *testing.T) {
 	}
 	t.Logf("this OS reports a 0.0.0.0 bind as %s: %s", ln.Addr(), line)
 }
+
+// TestConfigIsFoundInTheWorkingDirectoryFirstThenBesideTheExecutable is
+// finding B2: a relay run as a service has a working directory that is not
+// its own folder, and until 2026-09-15 it read no file and said nothing.
+func TestConfigIsFoundInTheWorkingDirectoryFirstThenBesideTheExecutable(t *testing.T) {
+	exeDir := t.TempDir()
+	exe := func() (string, error) { return exeDir, nil }
+	// logPath reads the package-level lookup when no config was found; point
+	// it at the same directory for this test's life.
+	prevExe := executableDir
+	executableDir = exe
+	t.Cleanup(func() { executableDir = prevExe })
+	cwd := t.TempDir()
+	// A relative flag value is resolved against the process working directory,
+	// which a test cannot change portably -- so the "working directory" file is
+	// named by an absolute path the way os.Stat would see it from cwd.
+	inCwd := filepath.Join(cwd, "config.json")
+
+	t.Run("neither exists: both places named, nothing read", func(t *testing.T) {
+		got := resolveConfigPath(inCwd, false, exe)
+		if got.found {
+			t.Fatalf("found = true with no file anywhere: %+v", got)
+		}
+		if !strings.Contains(got.note, "no config file at") || !strings.Contains(got.note, inCwd) {
+			t.Fatalf("the note does not say where it looked: %q", got.note)
+		}
+		// An absolute flag value is not re-based beside the executable.
+		if strings.Contains(got.note, exeDir) {
+			t.Fatalf("an absolute -config default was re-based beside the executable: %q", got.note)
+		}
+		if lp := got.logPath("meshghost-server.log"); filepath.Dir(lp) != exeDir {
+			t.Fatalf("with no config the log went to %s, want beside the executable %s", lp, exeDir)
+		}
+	})
+
+	t.Run("beside the executable when the working directory has none", func(t *testing.T) {
+		beside := filepath.Join(exeDir, "config.json")
+		if err := os.WriteFile(beside, []byte(`{"server":{}}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		defer os.Remove(beside)
+		got := resolveConfigPath("config.json", false, exe)
+		if !got.found || got.path != beside {
+			t.Fatalf("got %+v, want the file beside the executable", got)
+		}
+		if !strings.Contains(got.note, "beside the executable") {
+			t.Fatalf("the note does not say the file came from beside the executable: %q", got.note)
+		}
+		if lp := got.logPath("meshghost-server.log"); filepath.Dir(lp) != exeDir {
+			t.Fatalf("the log went to %s, want beside the config in %s", lp, exeDir)
+		}
+	})
+
+	t.Run("the working directory wins when both exist", func(t *testing.T) {
+		if err := os.WriteFile(inCwd, []byte(`{"server":{}}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		beside := filepath.Join(exeDir, "config.json")
+		if err := os.WriteFile(beside, []byte(`{"server":{}}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got := resolveConfigPath(inCwd, false, exe)
+		if !got.found || got.path != inCwd {
+			t.Fatalf("got %+v, want the working-directory file", got)
+		}
+		if lp := got.logPath("meshghost-server.log"); filepath.Dir(lp) != cwd {
+			t.Fatalf("the log went to %s, want beside the config in %s", lp, cwd)
+		}
+	})
+
+	t.Run("an explicit -config is believed and named", func(t *testing.T) {
+		got := resolveConfigPath(filepath.Join(cwd, "missing.json"), true, exe)
+		if got.found || !strings.Contains(got.note, "given by -config") {
+			t.Fatalf("got %+v", got)
+		}
+	})
+}
