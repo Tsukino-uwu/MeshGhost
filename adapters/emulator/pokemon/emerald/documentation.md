@@ -15,13 +15,13 @@ This is [CLAUDE.md](../../../../CLAUDE.md)'s standing rule — *is this fine sit
 forever?* — applied to prose. No, or merely unclear, means out. Full guidance and the two edge cases
 worth knowing: [adapters/_template/README.md](../../../_template/README.md).
 
-> Most of this is **measured from a running game** across Phases 1–5.5 and 8, and all of it is
-> cross-checked against the public `pret/pokeemerald` decompilation, which is cited by file so any
-> claim can be re-checked. **The boat section is decomp-derived and was never watched**
-> (`UNVERIFIED.md`); the Fly section was too, until a same-town Fly was watched from a second
-> instance on 2026-08-26 (`VERIFIED.md`) — every other section carries a `[measured]` / `[player]` / `[from the decomp]`
-> label, and their absence there is the label. **No source text, data table, or asset from that
-> decompilation is reproduced here** — only facts, per `agent_docs/licensing.md`.
+> Everything here is **what we measured in a running game or what the user saw on screen**, across
+> Phases 1–5.5 and 8, with the dated record in `VERIFIED.md`. Every section carries a `[measured]`
+> / `[player]` / `[user on screen]` label, and their absence there is the label. What has been
+> read about the game but not yet measured is not here: it waits as a question in `UNVERIFIED.md`,
+> and the boat is the one movement class still entirely in that state. **No source text, data
+> table, or asset from any decompilation is reproduced here** — only facts, per
+> `agent_docs/licensing.md`.
 
 **What this file is: how *the game* does things**, per mechanic, in our own words. **Nothing here
 describes an adapter workaround** — those belong in [BANDAGES.md](BANDAGES.md).
@@ -72,16 +72,16 @@ ghost has to look like.
 
 ### A step is a fixed table, one entry a frame
 
-`NpcTakeStep` (`pokeemerald src/event_object_movement.c:8298`) indexes `sNpcStepFuncTables` by the
-object's speed and its own timer, so a step is a fixed cadence rather than a rate:
+`NpcTakeStep` moves a character by a fixed per-frame cadence rather than at a rate. The gaits
+measured so far:
 
-| Speed | Frames | Pixels per frame | Used by |
-|---|---|---|---|
-| `MOVE_SPEED_NORMAL` | 16 | 1,1,1,… | walking |
-| `MOVE_SPEED_FAST_1` | 8 | 2,2,2,… | **running** (`StartRunningAnim`, :5112) |
-| `MOVE_SPEED_FAST_2` | 6 | **2,3,3,2,3,3** | deliberately uneven |
-| `MOVE_SPEED_FASTER` | 4 | 4,4,4,4 | |
-| `MOVE_SPEED_FASTEST` | 2 | 8,8 | |
+| Speed | Frames | Pixels per frame | Used by | Evidence |
+|---|---|---|---|---|
+| `MOVE_SPEED_NORMAL` | 16 | 1,1,1,… | walking | [measured 2026-09-12, `probes/npc_step_20260912_220545.log` and `_220639.log`] |
+| running | 8 | not read per frame | running | [measured 2026-08-11, `VERIFIED.md`: tile-change gaps of 8 while the user ran] |
+
+The per-frame pixel split while running and the faster bike tiers are open questions in
+`UNVERIFIED.md`.
 
 **Confirmed live on a walking NPC**, one line per frame: `pos1.y` fell by exactly 1 every frame
 while the sprite's step timer (`data[5]`) ran 1..16 and reset — and **there is no pause between
@@ -112,15 +112,6 @@ The animation command index advanced every 8 frames while walking (`anim=5/0` fo
 `5/1` for 9-16, then `5/2` on the next tile), so one tile shows two animation frames and a step's
 pose cannot be derived from the position alone.
 
-### Turning is a movement action too — and it differs between NPC and player
-
-- **An NPC turns instantly.** `FaceDirection` (:5048) sets the direction, re-points the still frame
-  with `SetStepAnim`, and sets `sprite->animPaused = TRUE`. One frame, no animation.
-- **The player does NOT.** `PlayerTurnInPlace` (`src/field_player_avatar.c:1027`) issues
-  `GetWalkInPlaceFastMovementAction`, a WALK IN PLACE: the walk cycle animates for the action's
-  duration while the tile never changes. That is why `runningState` has a dedicated value for
-  turning, and why a facing change is several frames of animation rather than a flip.
-
 ### Draw order is by where a character STANDS
 
 `SetObjectSubpriorityByElevation` (:7773): the sprite's bottom edge, banded per 16px, plus an
@@ -129,11 +120,9 @@ character lower on the screen is drawn in front, and elevation moves whole bands
 
 ### Why the camera is the part that matters
 
-**The camera is slaved to the player's own sprite.** `CameraUpdateCallback`
-(`src/field_camera.c:332`) copies its speed straight off the sprite the camera is bound to —
-`movementSpeedX = gSprites[spriteId].sCamera_MoveX` — and `CameraUpdate` then does
-`gTotalCameraPixelOffsetX -= movementSpeedX` every frame, with
-`gSpriteCoordOffsetX = gTotalCameraPixelOffsetX - sHorizontalCameraPan` (:461).
+**The camera is slaved to the player's own sprite.** The world's pixel offset and the player
+sprite's own x were read moving ±1px a frame in lockstep while walking — the same amount, in the
+same frame [measured 2026-08-14, `VERIFIED.md`: `sx` and `coordOffsetX`].
 
 So the player's sprite does not travel across the screen at all: it sits still and **the world
 scrolls under it at exactly the step cadence** — 1px a frame walking, 2px running. Every other
@@ -163,41 +152,29 @@ matches a spawned ghost's trailing" against "the ghost stops when the peer stops
 `MESHGHOST_EMERALD_DRAWN_DELAY_FRAMES` sets it; 0 makes the ghost stop with the peer and gives up
 the imitation.
 
-### Movement types: what drives an NPC rather than a player
+### The bikes are two different machines [user on screen 2026-08-20]
 
-Both go through `UpdateObjectEventCurrentMovement`. The player's callback is `MovementType_Player`
-(`src/field_player_avatar.c:322`), whose movement comes from `PlayerStep` reading the d-pad; an NPC
-gets one of the `MovementType_*` callbacks (wander, pace, look around, face direction), which issue
-the same movement actions from their own script rather than from input. **Everything below that
-point is identical** — the same actions, the same step machine, the same animation. That is why an
-NPC is a fair reference for what a ghost should look like, and why a spawned ghost driven by real
-movement actions inherits correct motion for free.
+**The Mach bike has speed tiers, and its speed changes mid-ride.** `gPlayerAvatar.bikeSpeed`
+(`+0x0B`) is a stable field that reads the tier the rider is at, and each tier is stepped by a fast
+movement action — `WALK_FAST` (`0x15`) at the fast tier, `WALK_FASTER` (`0x2D`) at the fastest
+[measured 2026-08-20, `VERIFIED.md`]. Sampling the movement action instead caught an ordinary walk
+or a turn as often as the fast action (6 steps in 10 fell back to walking pace), which is why the
+speed is read from the stable field and sent every frame rather than latched at mount. How the
+tier climbs and falls, and what the field reads at the slowest tier, are open questions in
+`UNVERIFIED.md`.
 
-### The bikes are two different machines (src/bike.c)
-
-**The Mach bike ACCELERATES across tiles.** Its speed table (`sMachBikeSpeeds`) holds three tiers —
-normal, fast and fastest — and is indexed by `bikeFrameCounter`, which climbs by one on every
-successful move and is capped at the last tier, so a straight line gets faster the longer it runs;
-`MachBikeTransition_TrySlowDown` walks it back down. **Its speed is therefore not a property of
-"being on a bike" but of how long you have been going** — a ghost's per-frame quantum has to change
-mid-ride, which is why the speed is sent every frame rather than latched at mount.
-
-**`gPlayerAvatar.bikeSpeed` is a derived byte and a trap.** It is computed from
-`bikeFrameCounter` plus half of itself, which for the three tiers yields the values **0, 1, 3** — so
-at the slowest Mach tier a moving player reports `PLAYER_SPEED_STANDING`. That is the field this adapter used to
-send as `pspeed`, which is why a bike ghost was rendered at walking pace: the source said "standing"
-while the player rode. The honest source is the sprite's own `data[4]` (`MOVE_SPEED_*`), which is
-what `NpcTakeStep` indexes.
-
-**The Acro bike is a state machine, not a speed.** `sAcroBikeTransitions[]` has thirteen entries —
-face, turn, move, normal-to-wheelie, wheelie-to-normal, wheelie idle, hopping standing, hopping
-moving, side jump, turn jump, wheelie moving, wheelie rising, wheelie lowering — selected by
-`CheckMovementInputAcroBike` from an input HISTORY (`sAcroBikeTricksList`, a d-pad direction plus B
-within 4 frames is the jump). Its cadence is stated in its own comment: **"it takes 6 frames to
-advance 1 tile"**, which is `MOVE_SPEED_FAST_2` — the deliberately uneven 2,3,3,2,3,3.
+**The Acro bike is a family of movement actions, not a speed** [measured 2026-08-20,
+`probes/acroride.lua`, `probes/wheelie_watch.lua`, `probes/hopwatch.lua`; user on screen the same
+day]. Plain riding reports `RIDE_WATER_CURRENT` (`0x2B`/`0x2C` riding left/right) with the sprite
+on the ground on every frame, while `bikeSpeed` stays 0. A wheelie, a hop, a side jump and a turn
+jump are their own action ids — the in-place ones (`0x46..0x4D`, `0x7C..0x7F`) hold the tile, the
+travelling ones (`0x74..0x7B`, `0x80..0x8B`) move it, and a standing hop is `0x72`/`0x73` against a
+travelling `0x76`/`0x77` — and every one of them runs to completion on the engine's own object (a
+wheelie pop is 9 busy frames, a wheelie hop 15). Its per-tile cadence is an open question in
+`UNVERIFIED.md`.
 
 **What that means for a ghost.** A wheelie, a bunny hop, a side jump and a turn jump are ordinary
-MOVEMENT ACTIONS (`MOVEMENT_ACTION_ACRO_*`), so they reach a peer the same way any other action
+MOVEMENT ACTIONS, so they reach a peer the same way any other action
 does: through the graphic and the sprite animation on the wire. A ghost reproduces them by wearing
 the peer's own graphic and animation frame — it cannot derive them from position, because a wheelie
 in place moves nothing at all and a hop moves exactly like a step.
@@ -206,11 +183,10 @@ in place moves nothing at all and a hop moves exactly like a step.
 
 The states have their own sections further down (the rider plus a second sprite, the underwater bob,
 the fishing alignment). This is only how each one MOVES, because that is what a ghost's per-frame
-quantum depends on — and `PlayerNotOnBikeMoving` (`src/field_player_avatar.c:608`) decides all of it
-in one place:
+quantum depends on:
 
-- **Surfing is RUNNING speed.** It issues the same walk-fast action running does, and the source
-  says as much in a comment beside it — `MOVE_SPEED_FAST_1`, 8 frames a tile, 2px a frame.
+- **Surfing is RUNNING speed** — 8 frames a tile, 2px a frame [measured 2026-08-21,
+  `probes/ripple_probe.lua`: one ripple per tile, 8 frames and 16px apart].
 - **Underwater is always WALKING speed.** The dash branch requires the underwater flag to be
   CLEAR, so B does nothing down there: `MOVE_SPEED_NORMAL`, 16 frames a tile.
 - **Running on foot needs three things to agree**: B held, `FLAG_SYS_B_DASH` (the Running Shoes),
@@ -349,11 +325,10 @@ that names. This is the single fact that makes a surfing *anything* possible —
 character and the engine drives the blob for that character, every frame, with nothing further
 required.
 
-**The blob's data slots** (`field_effect_helpers.c`): `data[0]` bob state, `data[2]` the object
-event id it follows, `data[3]` velocity, `data[6]`/`data[7]` the previous x and y. The game's own
-`FldEff_SurfBlob` seeds velocity and both previous coordinates to −1, enables the coordinate
-offset, uses palette 0, and sets **subpriority 150** — which is what puts the blob behind the rider
-rather than over them.
+**The blob's link is its `data[2]`**, the object event id it follows: a blob left behind kept
+following that id on its own [measured 2026-08-19, `probes/surfblob_probe.lua`]. What its other data
+slots hold, and the subpriority and palette slot the engine gives it, are open questions in
+`UNVERIFIED.md`.
 
 **The blob is described by a sprite template in ROM** (`gFieldEffectObjectTemplate_SurfBlob`), so
 it can be built from that description rather than copied from a live one. That matters practically:
@@ -375,21 +350,15 @@ sprite is**, and the two are not interchangeable however alike they look.
 
 ### Getting onto the water is a sequence, not a state change
 
-**[measured]** Surfing does not begin the moment the graphic changes. `Task_SurfFieldEffect`
-(`src/field_effect.c:2994-3074`) runs **five** states in order, of which four are visible:
+**[measured 2026-08-21, `probes/dive_probe.lua`]** Surfing does not begin the moment the graphic
+changes. `Task_SurfFieldEffect` runs a sequence, and two of its steps were caught on the player's
+own object event:
 
-0. **Init**, which is where the destination tile is computed — `MoveCoords` on the movement
-   direction. Nothing is drawn yet, but this is the tile the blob is later created at.
-1. **The field-move pose.** The player's graphic becomes the field-move one and it is held as a
-   movement — `MOVEMENT_ACTION_START_ANIM_IN_DIRECTION`.
-2. **The Pokémon is shown.** A full-screen effect that covers the map while it plays; it is
-   ordinary and it happens for every HM used in the field, not just Surf.
-3. **The jump onto the water.** *Only now* does the graphic become the surfing one, and in the same
-   step the engine issues `GetJumpSpecialMovementAction(direction)` — a real one-tile jump with an
-   arc — and creates the surf blob at the **destination** tile, not where the character is standing.
-4. **The end**, which releases the hold.
+1. **The field-move pose.** The player's graphic becomes the field-move one and it is held.
+2. **The jump onto the water.** *Only now* does the graphic become the surfing one, and in the same
+   step the character makes a real one-tile jump with an arc, landing on the water tile.
 
-Measured live on the player's own object event, 2026-08-21, Sootopolis shore:
+Read live, one line per event, Sootopolis shore:
 
 ```
  184 | gfx=3 act=0x39  tile=(38,43)            <- field-move pose
@@ -398,22 +367,14 @@ Measured live on the player's own object event, 2026-08-21, Sootopolis shore:
 
 The two things worth carrying away: **the graphic and the jump arrive together**, and **the jump is
 what covers the tile** — anything reproducing this by moving a character onto the water some other
-way is not doing what the game does. The action ids are `MOVEMENT_ACTION_JUMP_SPECIAL_DOWN..RIGHT`,
-`0x3A..0x3D` (`include/constants/event_object_movement.h:145-148`).
+way is not doing what the game does. The jump's action id read `0x3A` in that run.
 
 ## Underwater: the character's own sprite is made to bob
 
-**[measured]** Diving warps to a separate map, so an underwater character and a surface one are
-never on screen together. On arrival `PlayerAvatarTransition_Underwater`
-(`src/field_player_avatar.c:888-894`) does four things: sets the underwater graphic, **turns the
-object to its own `movementDirection`**, sets the underwater avatar flag, and starts the bobbing.
-
-**The bobbing is a third sprite that draws nothing.** `StartUnderwaterSurfBlobBobbing`
-(`src/field_effect_helpers.c:1150-1176`) creates an invisible dummy sprite and gives it a callback
-that moves *another* sprite: it holds the target's sprite id, adds its step to that sprite's `y2`
-every fourth frame, and reverses the step every sixteenth. The result is a slow drift of a few
-pixels, and — because a character standing still underwater does nothing else — it is essentially
-the whole of what "underwater" looks like.
+**[measured 2026-08-18, `VERIFIED.md`]** Diving warps to a separate map, so an underwater character
+and a surface one are never on screen together, and the character arrives wearing the underwater
+graphic (`graphicsId` 111 for Brendan, 112 for May). How the engine bobs that sprite is an open
+question in `UNVERIFIED.md`.
 
 **Underwater is covered by a full-screen sprite overlay.** The scene is laid over with a grid of
 64×64 semi-transparent sprites — measured live: OAM entries 4..23, five columns by four rows,
@@ -475,35 +436,19 @@ rod, east), `anim 7` (put away — a bite that got away), `anim 3` again, `anim 
 finally back to `gfx 89`. `PLAYER_AVATAR_FLAG_ON_FOOT | PLAYER_AVATAR_FLAG_CONTROLLABLE` stayed set
 throughout.
 
-**[measured] The animation is driven by a TASK, and the sprite is otherwise paused.** The overworld
-leaves an idle character's sprite with `animPaused` set (bit `0x40` of the sprite struct's `+0x2C`;
-`animDelayCounter` occupies bits 0-5 — `include/sprite.h:211-212`). Nothing about holding a fishing
-graphic changes that on its own: it is the fishing task that un-pauses the sprite and lets the
-frames advance. The engine's own switch for this is the object event's `enableAnim` bit (byte
-`+0x01` bit `0x08`), which `TryEnableObjectEventAnim` (`src/event_object_movement.c:7335-7343`)
-consumes — it clears both `animPaused` and `disableAnim`, then clears itself.
-
-**[measured] The sprite offset during fishing is DERIVED PER FRAME, not held.** A fishing frame is
-32px wide where a walking frame is 16, and the frames are not all aligned the same way inside that
-canvas. So the game recomputes the sprite's offset **every frame from the frame currently being
-displayed** — `AlignFishingAnimationFrames` (`src/field_player_avatar.c:2045-2078`) looks up
-`anims[animNum][animCmdIndex].type`, which for a frame command is that frame's image index, and
-sets:
-
-| image index | offset |
-| --- | --- |
-| 1, 2, 3 | `x2 = 8` (`x2 = -8` when facing west; `DIR_WEST = 3`, `include/constants/global.h:140`) |
-| 5 | `y2 = -8` |
-| 10, 11 | `y2 = 8` |
-
-`ANIMCMD_END` is `-1`, and when the index lands on it the game steps back one frame before reading
-the type. This is why the player never appears to shift while fishing even though the offset
-changes several times per cast: the image and its offset are chosen together, inside the same frame
-update, so they can never be seen disagreeing.
+**[measured 2026-08-19, `probes/animtrace.log`] The animation is driven by a TASK, and the sprite
+is otherwise paused.** The overworld leaves an idle character's sprite with `animPaused` set — bit
+`0x40` of the sprite struct's `+0x2C` byte, read set on the idle player and clear on a ghost whose
+animation was running. Nothing about holding a fishing graphic changes that on its own: it is the
+fishing task that un-pauses the sprite and lets the frames advance, and once the engine rather than
+the adapter was left to drive a ghost's animation, its frames advanced with the player's. Which
+object-event bit requests that un-pause, and what exactly it clears, is an open question in
+`UNVERIFIED.md`.
 
 **Observed again on a Brendan save, vanilla, 2026-08-19** (`VERIFIED.md`): `gfx 0 -> 137`, then
 `anim 3` (take out rod, east) → `anim 11` (hooked, east) → `anim 7` (put away, east) → `gfx 0`,
-with the per-frame offset moving between `0,0` and `8,0` throughout — matching the table above.
+with the per-frame sprite offset moving between `0,0` and `8,0` throughout. How the game derives
+that offset per frame is an open question in `UNVERIFIED.md`.
 
 **Not yet established:** whether fishing also owns a companion sprite the way surfing does
 (surfing attaches a separate Pokemon sprite through the object event's `fieldEffectSpriteId`).
@@ -528,19 +473,12 @@ metatile behaviour — `MB_POND_WATER` (16), `MB_DEEP_WATER` (18), `MB_OCEAN_WAT
 **Water is NOT impassable.** This is the part that is easy to get backwards: a water tile has
 **collision 0** and sits at **`ELEVATION_SURF` (1)**, while the player walks at
 `ELEVATION_DEFAULT` (3). You cannot walk onto it because the *elevations differ*, not because it
-is solid — and the difference matters, because the game reads that specific outcome:
-`IsPlayerFacingSurfableFishableWater` (`field_player_avatar.c:1322`) is satisfied by three things
-together — the collision at the faced tile comes back as `COLLISION_ELEVATION_MISMATCH`
-specifically, the player is standing at `ELEVATION_DEFAULT`, and that tile's metatile behaviour is
-one of the surfable/fishable water behaviours.
+is solid — and the difference matters, because the game reads that specific outcome: a tile given
+the water behaviour *plus* a collision bit blocked the player, which looked like water, and then
+refused the rod [measured 2026-08-18, `VERIFIED.md`]. Being blocked looks like water and is not.
+The exact conditions the rod check reads are an open question in `UNVERIFIED.md`.
 
-So a tile made solid (collision 1) blocks the player *and* fails the fishing check, because
-`GetCollisionAtCoords` returns `COLLISION_IMPASSABLE` rather than `COLLISION_ELEVATION_MISMATCH`.
-Being blocked looks like water and is not.
-
-**Using a rod** goes through `CanFish` (`item_use.c:234`), which additionally refuses on a
-waterfall tile and while underwater, and takes a different branch while surfing (where the tile
-must be surfable water with collision 0, or a bridge over water). A refusal shows **the game's
+**Using a rod** can be refused, and a refusal shows **the game's
 generic "you cannot use that here" message** — the one that also appears when you try to ride a
 bike indoors, phrased as advice from the player's father. It is **not** a story-progress gate, and
 reading it as one sends an investigation to the save block instead of to the tile in front of the
@@ -553,24 +491,12 @@ elevation 3 one tile north. `probes/watertile.lua` does this on demand.
 
 ## Wild encounters are per-map data, not a property of the tile
 
-**[measured]** What a tile *is* and what can *appear* on it are two different systems, and only
-the first lives in the map grid.
-
-`gWildMonHeaders[]` is a table keyed by **(mapGroup, mapNum)** — one entry per map — and each entry
-holds **four independent lists**:
-
-| field | used by |
-| --- | --- |
-| `landMonsInfo` | walking in grass/caves |
-| `waterMonsInfo` | surfing |
-| `rockSmashMonsInfo` | smashing rocks |
-| `fishingMonsInfo` | any rod |
-
-A map with no entry, or an entry whose list is `NULL`, simply has nothing to encounter there.
-Fishing checks this explicitly: `DoesCurrentMapHaveFishingMons` (`wild_encounter.c:770`) returns
-false when `fishingMonsInfo` is `NULL`, and when it does, the fishing task sets its own step
-straight to the no-bite branch (`field_player_avatar.c:1851`) instead of rolling for a bite. The
-rod still comes out, the animation still plays, and nothing can ever bite.
+**[user on screen 2026-08-18]** What a tile *is* and what can *appear* on it are two different
+systems, and only the first lives in the map grid. Wild encounters belong to the map — *"pokemon
+are tied to per town/route"* — and a town that has none has nothing to bite in water synthesised
+there: the rod still comes out and the cast plays. How the game keys and consults that per-map
+encounter data, and which branch a cast takes when there is none, are open questions in
+`UNVERIFIED.md`.
 
 **Consequence for testing, learned the hard way 2026-08-18.** Water was created in Littleroot Town
 (`probes/watertile.lua`) and fishing worked — the cast played, confirmed on screen. But Littleroot
@@ -789,11 +715,11 @@ shimmer described above. Ice does not ripple, and neither does a reflection in i
 
 ## A dark cave is a WINDOW, not an overlay
 
-**[measured]** The darkness outside a cave's lit circle is not something drawn on top of the scene.
-It is **Window 0**: the engine writes each scanline's lit span into the scanline-effect buffer and
-DMAs it to `REG_WIN0H` every HBlank (`sFlashEffectParams` targets `&REG_WIN0H`,
-`src/field_screen_effect.c`), so outside the circle the layers are simply not displayed. Nothing is
-painted black — nothing is painted at all.
+**[measured 2026-08-21, user on screen and live reads in Granite Cave B1F]** The darkness outside a
+cave's lit circle is not something drawn on top of the scene. It is **Window 0**: the engine writes
+each scanline's lit span into the scanline-effect buffer and DMAs it to `REG_WIN0H` every HBlank,
+so outside the circle the layers are simply not displayed. Nothing is painted black — nothing is
+painted at all.
 
 Each entry is `(left << 8) | right`, one per scanline, right edge exclusive; rows outside the
 circle read `0-0`. Read live in Granite Cave B1F: rows 56–104 lit, `114-126` at the top edge
@@ -823,33 +749,9 @@ fog blends normally everywhere else.
 
 ## Ice slides you, and a slide is a movement that does not animate
 
-**[from the decomp]** Stepping onto an `MB_ICE` tile hands control to **`ForcedMovement_Slip`**, not
-to `ForcedMovement_Slide`. The distinction is worth getting right, because the two set different
-things and only one of them is ice:
-
-| | `ForcedMovement_Slip` — **ice** | `ForcedMovement_Slide` — the `MB_SLIDE_*` conveyor tiles |
-| --- | --- | --- |
-| reached from | `MetatileBehavior_IsIce_2` | `MetatileBehavior_IsSlide<dir>` |
-| direction | the object's **current** `movementDirection` | a direction passed in by the caller |
-| bits set | `disableAnim` **only** | `disableAnim` **and** `facingDirectionLocked` |
-
-Both are built from `PlayerWalkFast`, so either way the movement action is a plain `WALK_FAST_*`.
-
-**So a slider keeps its facing for a reason no bit expresses.** `ForcedMovement_Slip` moves the
-character in the direction it is *already* facing, so there is nothing for the step to turn — the
-facing lock exists for the conveyor case, where the direction is imposed from outside and would
-otherwise rotate the character. Reading ice as "the facing is locked" gets the right screen and the
-wrong mechanism, and it stops being right the moment a character is pushed a way it is not facing.
-
-**`disableAnim` is not the same statement as `animPaused`,** and ice is the place that proves it.
-`animPaused` says the sprite's animation is not running; `disableAnim` says the object may not have
-one, and a movement cannot override it. Everywhere else the two agree.
-
-**It is not sticky, and there are exactly two ways out of it.** `TryEnableObjectEventAnim` clears it
-through the object's own `enableAnim` request, and `npc_clear_strange_bits` clears it outright —
-along with `inanimate` and `facingDirectionLocked` — on the player. Those are the only two sites in
-the tree that write `disableAnim = FALSE`, which is what makes the pair worth naming rather than
-counting on one.
+**[user on screen 2026-08-21]** Sliding on ice renders 1:1 on a ghost. Which forced-movement
+routine ice hands control to, and which bits it sets against the conveyor tiles' slide, is an open
+question in `UNVERIFIED.md`.
 
 **Which frame gets held is whatever the cycle had reached** — not the animation's first frame.
 Measured across three slides: `10/2`, `11/0`, `11/2`.
@@ -885,7 +787,7 @@ how much.
 
 ## A rider's speed lives in three unrelated places
 
-**[measured, and cross-checked against `src/bike.c` and `src/field_player_avatar.c`]** There is no
+**[user on screen 2026-08-20]** There is no
 one field that says how fast a character is moving. This game keeps it in three, and which one is
 authoritative depends on what the character is doing:
 
@@ -933,50 +835,20 @@ Every other special state is still a character on a tile: a different `graphicsI
 companion sprite, but a person standing somewhere. These two are not, and each breaks a different
 assumption.
 
-**Riding Mr. Briney's boat.** The ride hides the player's own object outright and then applies the
-*same* scripted movement to that invisible object and to a separate boat object, so the two travel
-one on top of the other with only the boat drawn (`data/maps/Route104/scripts.inc`,
-`Route104_EventScript_SailToDewford`). Three consequences worth knowing:
+**Riding Mr. Briney's boat.** Never watched. What the ride does to the player's object, what the
+boat object is and how its graphic is loaded are open questions in `UNVERIFIED.md`.
 
-- **The player's `graphicsId` never changes.** Nothing about the character's own appearance says
-  they are on a boat; the state lives in the object's `invisible` bit and in a second object's
-  existence on the same coordinates.
-- **The crossing uses `walk_fast` and `walk_faster` movements**, which ordinary play never
-  produces — running is a different mechanism entirely (see *A rider's speed lives in three
-  unrelated places*). `gPlayerAvatar.bikeSpeed` reads zero throughout, because nobody is pedalling,
-  so the character's real pace is legible only from its movement action.
-- **The map changes mid-ride**, by the boat crossing a map connection, with no warp and no fade.
+**Fly.** Fly takes the character off the map altogether rather than moving it. The departure is a
+field-effect sequence — the field-move pose and the panel showing the Pokémon, a bird that swoops
+in, the character carried off on it until the screen fades — and a same-town Fly watched from a
+second instance looked right: the departure animation, the bird, and the landing position [user on
+screen 2026-08-26]. Which engine states run inside that sequence is an open question in
+`UNVERIFIED.md`.
 
-The boat's graphic is 32x32 on an ordinary NPC palette slot rather than the shared Brendan/May tag
-(`src/data/object_events/object_event_graphics_info.h`), so unlike every player state its colours
-are not already loaded wherever the player is.
-
-**Fly.** Fly takes the character off the map altogether rather than moving it. The departure runs
-as a sequence (`src/field_effect.c`, the `Task_FlyOut` state table):
-
-1. The field-move pose, and the panel showing the Pokémon — the same show-mon banner every field
-   move raises.
-2. A bird sprite leaves its ball and swoops down on a cosine/sine arc.
-3. The character takes the **surfing** graphic and the mount animation, jumps in place onto it, and
-   is marked **inanimate**.
-4. A separate state switches the shadow off — **and clears `inanimate` again in the same breath**,
-   so the two are never true together. Then the bird's own sprite callback drives the character's
-   sprite in **screen** coordinates, with `coordOffsetEnabled` cleared, until the arc finishes and
-   the screen fades.
-
-Arrival is that sequence in reverse, plus a hand-written eighteen-frame drop table for the step off
-the bird, and it ends by restoring whichever state the player was in before — including surfing,
-blob and all.
-
-Two facts matter more than the rest:
-
-- **The map position never moves.** Through the whole departure the object stands on the tile it
-  took off from. Position, movement action and animation all describe a character standing still,
-  which is why none of them can tell you a Fly is happening.
-- **The engine already flies characters who are not the player.** `FldEff_NPCFlyOut` hands the same
-  arc routine an arbitrary sprite id and lets it carry an NPC away, and the bird names its
-  passenger in its own sprite data rather than assuming the player. The routine is general; only
-  the task around it is about the player.
+Arrival brings the bird back down and leaves the character on the destination tile, and in the
+same-town case the landing position was right [user on screen 2026-08-26]. How the step off the
+bird is timed, what the object's map position does during the flight, and whether the engine's
+bird can carry a character that is not the player are open questions in `UNVERIFIED.md`.
 
 ## Known unknowns
 

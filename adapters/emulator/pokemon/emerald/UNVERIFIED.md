@@ -1137,3 +1137,168 @@ there — the ladder's last steps were driven through a temporary root `config.j
 Unmeasured, and it decides how a delayed ghost can line up with the scrolling world. To measure: a
 per-frame trace stamping the frame counter at the camera offset change and at the player sprite's
 animation step, over a few frames of walking, read in the order they land.
+
+## [OPEN] the unmeasured gaits of the step table: running's per-frame split, and the three faster tiers (2026-09-16)
+
+Moved out of `documentation.md` by the 2026-09-16 audit, where it sat as a five-row table. Ours:
+the walking row, `probes/npc_step_20260912_220545.log` and `_220639.log` (2026-09-12), 16 frames of
+1px with speed=0 on every sampled line; and running's 8 frames a tile from tile-change gaps
+(`VERIFIED.md`, 2026-08-11). Never measured: that running is 2px on every one of its 8 frames, and
+that the three faster tiers step 6 frames of 2,3,3,2,3,3 (the Acro bike's cadence, per its source
+comment), 4 frames of 4px and 2 frames of 8px. To settle: the NPC step probe pointed at the
+player's own object while running, on the Mach bike at each tier, and on the Acro bike, one line
+per frame with `data[4]` and the per-frame `pos1` delta.
+
+## [OPEN] does a player turn in place as a walk-in-place, while an NPC turns in one frame? (2026-09-16)
+
+Moved out of `documentation.md` by the 2026-09-16 audit. The nearest record (`VERIFIED.md`,
+2026-08-14) measures `runningState` only. Never measured: whether an NPC's facing change is a single
+frame with `animPaused` set, and whether the player's is several frames of the walk cycle on the
+same tile. To settle: a per-frame trace of `animNum`/`animCmdIndex`/`animPaused` and the tile across
+a facing change, once on the player and once on a wandering NPC.
+
+## [OPEN] do the player and an NPC share one step machine below their movement-type callbacks? (2026-09-16)
+
+Moved out of `documentation.md` by the 2026-09-16 audit, where it was written as fact with no
+evidence: that the player's callback and the NPC movement types issue the same movement actions and
+everything below — the actions, the step machine, the animation — is identical. To settle: the same
+per-frame trace (`movementActionId`, `data[4]`, `data[5]`, `pos1`, `animCmdIndex`) run on the player
+and on an NPC walking one tile each, compared line for line.
+
+## [OPEN] where the game decides a rider's gait: one routine on foot, and the two bike machines' internals (2026-09-16)
+
+Moved out of `documentation.md` by the 2026-09-16 audit. What IS ours: the two bikes are different
+machines and a rider's speed lives in three places (user on screen 2026-08-20); `bikeSpeed` is a
+stable field whose fast and fastest tiers step as `WALK_FAST 0x15` and `WALK_FASTER 0x2D`, and it
+stays 0 on the Acro bike (`VERIFIED.md`, 2026-08-20); the Acro action families and their busy
+frames (`probes/wheelie_watch.lua`, `probes/acroride.lua`, `probes/hopwatch.lua`, 2026-08-20);
+surfing crosses a tile in 8 frames (`probes/ripple_probe.lua`, 2026-08-21). Never measured:
+
+- **On foot**: that one routine (`PlayerNotOnBikeMoving`) chooses surf, underwater and running
+  speed in one place, that underwater is always the 16-frame walking cadence, and that B does
+  nothing underwater. To settle: the step probe on the player underwater with B held and released,
+  reading `data[4]` and the per-frame delta.
+- **The Mach bike**: that it accelerates across tiles through a frame counter that climbs by one
+  per successful move, is capped at the top tier and walks back down when slowed; that `bikeSpeed`
+  is derived from that counter and reads 0, 1, 3 across the three tiers — so a rider at the slowest
+  tier reports "standing" while moving. To settle: a per-frame trace of `bikeSpeed`, the sprite's
+  `data[4]` and the tile from a standing start along a long straight, then through a slow-down.
+- **The Acro bike**: that its transitions are a thirteen-entry table chosen from an input history
+  (a direction plus B within 4 frames is the jump), and that it crosses a tile in 6 frames. To
+  settle: `probes/acroride.lua` extended with the per-frame `pos1` delta and the tile-change gap,
+  plus the pad history logged against each transition taken.
+
+## [OPEN] the surf-start sequence: the states not caught, where the blob is created, the action-id range (2026-09-16)
+
+Moved out of `documentation.md` by the 2026-09-16 audit. What IS ours (`probes/dive_probe.lua`,
+2026-08-21, `VERIFIED.md`): frame 184 field-move pose `act=0x39`, frame 292 surfing graphic plus a
+mid-arc jump `act=0x3A` one tile on. Never measured: an init state that computes the destination
+tile, a full-screen show-mon state between the pose and the jump, an end state that releases the
+hold, that the surf blob is created at the destination tile rather than under the character, and
+that the jump's action ids run `0x3A..0x3D` for the four facings. To settle: the same probe with the
+task's state byte and the blob's creation frame and tile logged, surfing off a shore in each facing.
+
+## [OPEN] what the underwater transition does, and how the bob is driven (2026-09-16)
+
+Moved out of `documentation.md` by the 2026-09-16 audit. What IS ours: the underwater graphics ids
+(`VERIFIED.md`, 2026-08-18). Never measured on the engine itself: that arrival sets the graphic,
+turns the object to its own `movementDirection`, sets an underwater avatar flag and starts a bob;
+and that the bob is an invisible dummy sprite holding another sprite's index, adding a step to that
+sprite's `y2` every fourth frame and reversing it every sixteenth. The only bobber measured is OUR
+copy of that design misbehaving (`VERIFIED.md`, 2026-08-21). To settle: a per-frame trace of the
+player's `y2` and the sprite table for a callback-only sprite after a dive, standing still.
+
+## [OPEN] the animation-control bit layout: `animDelayCounter`, `enableAnim`, and what un-pausing clears (2026-09-16)
+
+Moved out of `documentation.md` by the 2026-09-16 audit. What IS ours (`probes/animtrace.log`,
+2026-08-19): bit `0x40` of the sprite's `+0x2C` was set on the idle player and clear on the ghost,
+and leaving the engine to drive the ghost's animation made its frames advance. Never measured: that
+bits 0-5 of that byte are `animDelayCounter`, that the object event's `enableAnim` is byte `+0x01`
+bit `0x08`, and that consuming it clears both `animPaused` and `disableAnim` then itself. The row in
+`VERIFIED.md` (2026-08-19) carrying the layout is decomp-cited, not measured. Also never measured
+(moved from the ice section by the same audit): that `disableAnim` has exactly two ways out — that
+request, and a player-only clear (`npc_clear_strange_bits`) that also drops `inanimate` and
+`facingDirectionLocked`. To settle: write the `+0x01` bit on a paused ghost and read `+0x2C` and
+the object's `+0x01` back the next frame; and trace the player's `+0x01` bits per frame from an ice
+slide through the stop and the next input, to see what clears `disableAnim` and what else changes
+with it.
+
+## [OPEN] how the fishing sprite offset is derived per frame (2026-09-16)
+
+Moved out of `documentation.md` by the 2026-09-16 audit. What IS ours (`VERIFIED.md`, 2026-08-19):
+the per-frame offset moved between `0,0` and `8,0` through a whole cast facing east. Never measured:
+that the offset is recomputed every frame from the displayed frame's image index, `x2=8` for images
+1/2/3 (`-8` facing west), `y2=-8` for image 5, `y2=8` for images 10/11, with the end command stepped
+back one frame. To settle: a per-frame trace of `animCmdIndex`, the resolved image index, `x2` and
+`y2` through a cast facing east and one facing west.
+
+## [OPEN] which forced movement ice uses, and which bits it sets against the conveyor slide (2026-09-16)
+
+Moved out of `documentation.md` by the 2026-09-16 audit, where it was self-labelled from the decomp.
+What IS ours: ice sliding renders 1:1 on a ghost (user on screen 2026-08-21), and the held frame is
+whatever the cycle had reached. Never measured: that ice hands control to a slip routine distinct
+from the conveyor tiles' slide, that the slip moves in the object's current direction while the slide
+takes a direction from its caller, and that the slip sets `disableAnim` only while the slide also
+sets `facingDirectionLocked`. To settle: read the object's `+0x01` bits and `movementDirection` per
+frame on an ice tile and on a conveyor tile, and compare.
+
+## [OPEN] Mr. Briney's boat: what the ride does to the objects, and the boat's graphic (2026-09-16)
+
+Moved out of `documentation.md` by the 2026-09-16 audit; the same ride is already queued as BUILT
+and UNWATCHED in the 2026-08-26 entry above ("the boat and Fly are BUILT and UNWATCHED"), and this
+question is the engine half of it. Never observed: that the player's object is hidden and the same
+scripted `walk_fast`/`walk_faster` movements are applied to it and to a separate boat object on the
+same coordinates, that the player's `graphicsId` never changes, that `bikeSpeed` reads zero
+throughout, that the map changes by a connection with no warp, and that the boat's graphic is 32x32
+on an ordinary NPC palette slot. To settle: the object-event and sprite tables logged per frame
+through a Route 104 to Dewford crossing, and the boat's OAM shape and palette slot read on screen.
+
+## [OPEN] the engine states inside a Fly departure (2026-09-16)
+
+Moved out of `documentation.md` by the 2026-09-16 audit. What IS ours (user on screen 2026-08-26):
+a same-town Fly watched from a second instance looked right — the departure animation, the bird,
+the landing position. Never measured: the state sequence behind it — a bird leaving its ball on a
+cosine/sine arc, the character taking the surfing graphic and mount animation and being marked
+`inanimate`, a later state clearing the shadow and `inanimate` together, the bird's callback driving
+the character's sprite in screen coordinates with `coordOffsetEnabled` cleared. Also never measured,
+from the arrival and the two "facts" that followed it: that the arrival is the departure in reverse
+finished by an eighteen-frame drop table for the step off the bird, restoring the state the player
+left in (surfing, blob and all); that the object's map position never moves through the departure,
+so nothing on the wire can show a Fly; and that the engine's bird can carry a character that is not
+the player (`FldEff_NPCFlyOut`), which the adapter's fly is BUILT on and the 2026-08-26 entry above
+already lists as unwatched. To settle: a per-frame trace of the player's `graphicsId`, `inanimate`,
+`coordOffsetEnabled`, tile and sprite position through a departure and an arrival, and the arrival
+watched side by side with a peer's ghost.
+
+## [OPEN] the surf blob's other data slots, its subpriority and its palette slot (2026-09-16)
+
+Moved out of `documentation.md` by the 2026-09-16 audit. What IS ours: the blob follows the object
+event id in its own `data[2]` (`probes/surfblob_probe.lua`, 2026-08-19), and our copy hardcoding
+palette slot 0 drew in a Pokemon's colours at a surf start (user on screen, 2026-08-21). Never
+measured on the engine's own blob: that `data[0]` is the bob state, `data[3]` a velocity and
+`data[6]`/`data[7]` the previous x and y, seeded to -1 with the coordinate offset enabled; that it
+uses palette slot 0; and that its subpriority is 150, which is what puts it behind the rider. To
+settle: dump the engine's own blob sprite (data slots, subpriority, OAM palette) on the frame it is
+created and a few frames after, while the player surfs.
+
+## [OPEN] what the rod check and the surf/fish tile check actually read (2026-09-16)
+
+Moved out of `documentation.md` by the 2026-09-16 audit. What IS ours (`VERIFIED.md`, 2026-08-18):
+water is collision 0 at elevation 1 against the player's 3; a tile with the water behaviour plus a
+collision bit blocked the player and refused the rod; the refusal text is the generic "not usable
+here" message, the same as a bike indoors (user). Never measured: that the tile check requires the
+specific elevation-mismatch collision result plus the player at the default elevation plus a
+surfable/fishable behaviour; and that the rod's own check also refuses on a waterfall tile and
+underwater, and while surfing takes a branch that wants surfable water with collision 0 or a bridge
+over water. To settle: a probe that synthesises each case in turn (solid water, waterfall,
+underwater, surfing beside a bridge) and records whether the rod comes out.
+
+## [OPEN] how a map's encounter data is keyed and consulted, and where a cast goes when there is none (2026-09-16)
+
+Moved out of `documentation.md` by the 2026-09-16 audit. What IS ours (user on screen, 2026-08-18):
+fishing on water synthesised in Littleroot Town plays the cast, and the user's own diagnosis that
+the town has no wild encounters so nothing can bite. Never measured: that encounters are one table
+keyed by map group and number with four independent lists (land, water, rock smash, fishing), that
+a missing or empty fishing list is what the fishing task checks, and that it then jumps straight to
+its no-bite step. To settle: a long series of casts on the synthesised Littleroot tile logging the
+fishing task's step per frame, against the same on a real route with fishing encounters.

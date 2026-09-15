@@ -1206,3 +1206,17 @@ existing check watches was not the shape the violation took.
 ## 2026-09-13 — SYNCED.md, and a decomp-derived code block cut from documentation.md
 
 Emerald has a `SYNCED.md` (18 extras; one `not checked yet`: `position` is tested only for presence). CI's gates run then failed on the fence gate, which had been warning on a clean tree since a decomp-written code block landed in `documentation.md`'s camera section. The user chose to cut it rather than allow-list it -- it was read, not measured -- and to keep nothing of it anywhere, a working note in the page and a restatement in `UNVERIFIED.md` included; what is left in the queue is a plain question to measure. The rest of that section belongs to the queued audit. Source-citation ratchet 20 -> 19.
+
+## 2026-09-16 — the "measured or observed only" audit of documentation.md, Emerald half
+
+The 19 source-file citation lines and the one `[from the decomp]` label were each read against
+`VERIFIED.md`, `UNVERIFIED.md` and this file: 3 measured outright, 4 partly, 12 with no record of ours.
+Every claim now in `documentation.md` carries a dated `[measured …]` / `[user on screen …]` label
+naming our record; file paths, bulk tables read off the source (the five-gait step table, the fishing
+offset table, the encounter-list table, the Acro transition list, the Fly drop table) and the
+decomp-only mechanism prose (turn-in-place, movement types, the underwater bob, the Slip-vs-Slide
+routine pair, Briney's boat) are gone from it. Each moved to `UNVERIFIED.md` as an `[OPEN]` question
+naming what is ours and what would settle it -- 14 entries dated today. One correction on the way:
+running at 8 frames a tile IS measured (`VERIFIED.md`, 2026-08-11). Preflight's citation ratchet for
+this file is 0. Also today: Emerald's `position` guard (`2f3495df`) -- both coordinates must be
+finite numbers or the update is dropped; unwatched in a game.

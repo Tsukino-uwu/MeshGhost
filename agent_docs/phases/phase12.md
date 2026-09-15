@@ -381,3 +381,13 @@ The run on that push: green in 5m17s wall against 17m24s the run before. The rea
 `unix-binaries`; `build-and-package` needs both and no longer tests itself. What blocks a release
 is unchanged -- a red on either side and the packaging job never starts, so no tag and no
 release. Expected: about 7 minutes in place of 11. Unproven until the next release is cut.
+
+## 2026-09-16 — an Adapters workflow, so the SYNCED gate fires on a code-only push
+
+`846f5a32`: `.github/workflows/adapters.yml` runs `preflight.ps1 -TreeOnly` on any push under
+`adapters/**`. Until then the SYNCED.md section (keys in the send code held to the page, the
+"not checked yet" ratchet) ran in CI only through `docs.yml`, which fires on `**.md` -- so the one
+push it exists for, a key added in C++/C#/Lua with no row, never ran it. Widening `docs.yml` was
+refused by preflight's own rule that an adapter gate names only `adapters/**` and its own file,
+hence a separate workflow. Same day, `96ed6168`: all 29 "not checked yet" cells guarded (6 / 20 /
+2 / 1, ratchets to 0), both DLLs rebuilt and deployed to every install; unwatched in a game.
