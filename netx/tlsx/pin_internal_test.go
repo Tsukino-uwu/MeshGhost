@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"math/big"
+	"strings"
 	"testing"
 	"time"
 )
@@ -48,7 +49,11 @@ func TestPinIsSatisfiedOnlyByTheLeafCertificate(t *testing.T) {
 	attacker := newDER(t, "attacker")
 	pin := fingerprint(relay)
 
-	verify := clientConfig("", pin).VerifyPeerCertificate
+	cfg, err := clientConfig("", pin)
+	if err != nil {
+		t.Fatalf("clientConfig with a real fingerprint: %v", err)
+	}
+	verify := cfg.VerifyPeerCertificate
 	if verify == nil {
 		t.Fatal("a non-empty pin must install VerifyPeerCertificate")
 	}
@@ -72,7 +77,48 @@ func TestPinIsSatisfiedOnlyByTheLeafCertificate(t *testing.T) {
 // An empty pin means encryption without authentication, which is the package
 // doc's documented default -- no verifier is installed at all.
 func TestNoPinInstallsNoVerifier(t *testing.T) {
-	if clientConfig("", "").VerifyPeerCertificate != nil {
+	cfg, err := clientConfig("", "")
+	if err != nil {
+		t.Fatalf("an empty pin is no pin, not an error: %v", err)
+	}
+	if cfg.VerifyPeerCertificate != nil {
 		t.Fatal("an empty pin must not install a verifier")
 	}
+}
+
+// TestAPinThatIsNotAFingerprintIsAnErrorNotAnAbsence is finding A2 of the
+// fourth adversarial review: a placeholder used to normalize to "" and mean
+// "no pin" while the log said the relay was pinned.
+func TestAPinThatIsNotAFingerprintIsAnErrorNotAnAbsence(t *testing.T) {
+	real := fingerprint(newDER(t, "relay"))
+	for _, ok := range []string{
+		real,
+		strings.ToUpper(real),
+		"  " + real + "\n",
+		withColons(real),
+	} {
+		got, err := NormalizeFingerprint(ok)
+		if err != nil || got != real {
+			t.Fatalf("NormalizeFingerprint(%q) = %q, %v; want the pin", ok, got, err)
+		}
+	}
+	for _, bad := range []string{"<paste here>", "TODO", "zz", "abc", real[:63], real + "0", ":::"} {
+		if got, err := NormalizeFingerprint(bad); err == nil {
+			t.Fatalf("NormalizeFingerprint(%q) = %q with no error; a pin that is not a fingerprint must refuse", bad, got)
+		}
+		if _, err := clientConfig("", bad); err == nil {
+			t.Fatalf("clientConfig accepted the pin %q", bad)
+		}
+	}
+}
+
+func withColons(hex string) string {
+	var b strings.Builder
+	for i := 0; i < len(hex); i += 2 {
+		if i > 0 {
+			b.WriteByte(':')
+		}
+		b.WriteString(hex[i : i+2])
+	}
+	return b.String()
 }

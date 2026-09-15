@@ -186,7 +186,7 @@ func fingerprint(der []byte) string {
 // all, is the pin — an exact fingerprint match, compared out of band by a
 // human. Passing an empty pin means encryption without authentication,
 // which is what the package doc spells out.
-func clientConfig(alpn, pin string) *tls.Config {
+func clientConfig(alpn, pin string) (*tls.Config, error) {
 	cfg := &tls.Config{
 		InsecureSkipVerify: true,
 		MinVersion:         tls.VersionTLS13,
@@ -194,7 +194,10 @@ func clientConfig(alpn, pin string) *tls.Config {
 	if alpn != "" {
 		cfg.NextProtos = []string{alpn}
 	}
-	pin = normalizeFingerprint(pin)
+	pin, err := NormalizeFingerprint(pin)
+	if err != nil {
+		return nil, err
+	}
 	if pin != "" {
 		// ONLY rawCerts[0]. InsecureSkipVerify is set above, so Go does no chain
 		// building and no verification: rawCerts is whatever DER blobs the peer
@@ -218,14 +221,30 @@ func clientConfig(alpn, pin string) *tls.Config {
 				got, pin)
 		}
 	}
-	return cfg
+	return cfg, nil
 }
 
-// normalizeFingerprint accepts the shapes a human might paste: with or
+// FingerprintHexLen is the length of a normalized fingerprint: SHA-256 as
+// hex.
+const FingerprintHexLen = 64
+
+// NormalizeFingerprint accepts the shapes a human might paste: with or
 // without colons, spaces or upper case. A fingerprint is a string a person
 // copies by hand, so being picky about separators would produce a confusing
 // "does not match" for two identical certificates.
-func normalizeFingerprint(s string) string {
+//
+// But it is picky about LENGTH. Until 2026-09-15 it silently dropped every
+// non-hex rune and returned whatever was left, so a placeholder such as
+// "<paste here>" or "TODO" normalized to the empty string -- which meant
+// "no pin": the client escalated to required on the raw string, logged that
+// the relay was pinned, and accepted any certificate at all (fourth
+// adversarial review, A2). An empty input still means no pin; anything else
+// must come out as exactly FingerprintHexLen hex digits or it is an error,
+// and a wrong pin is a startup error rather than a quiet absence.
+func NormalizeFingerprint(s string) (string, error) {
+	if strings.TrimSpace(s) == "" {
+		return "", nil
+	}
 	var b strings.Builder
 	for _, r := range strings.ToLower(strings.TrimSpace(s)) {
 		switch {
@@ -233,7 +252,13 @@ func normalizeFingerprint(s string) string {
 			b.WriteRune(r)
 		}
 	}
-	return b.String()
+	if b.Len() != FingerprintHexLen {
+		return "", fmt.Errorf("tlsx: tls_fingerprint %q is not a certificate fingerprint: it has %d "+
+			"hex digits, and a SHA-256 fingerprint has %d (the relay prints it at startup as "+
+			"\"tls certificate fingerprint: ...\"; paste that whole value, with or without colons)",
+			s, b.Len(), FingerprintHexLen)
+	}
+	return b.String(), nil
 }
 
 // Client wraps an already-dialed connection in TLS and completes the
@@ -244,7 +269,14 @@ func Client(conn net.Conn, alpn, pin string, timeout time.Duration) (net.Conn, e
 	if timeout <= 0 {
 		timeout = defaultHandshakeTimeout
 	}
-	tc := tls.Client(conn, clientConfig(alpn, pin))
+	cfg, err := clientConfig(alpn, pin)
+	if err != nil {
+		// Before a byte is sent: a pin that is not a fingerprint is a
+		// configuration error, never "encrypt without checking".
+		_ = conn.Close()
+		return nil, err
+	}
+	tc := tls.Client(conn, cfg)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	if err := tc.HandshakeContext(ctx); err != nil {

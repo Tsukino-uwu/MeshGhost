@@ -1050,6 +1050,16 @@ func main() {
 	if err != nil {
 		log.Fatalf("meshghost: %v", err)
 	}
+	// A pin that is not a fingerprint is a startup error, here, before any
+	// line below says "pinned". Until 2026-09-15 "<paste here>" normalized
+	// to nothing and the session ran unauthenticated under a log line
+	// saying it was pinned (fourth adversarial review, A2). Stored back
+	// normalized so every later use sees one shape.
+	if pin, err := tlsx.NormalizeFingerprint(*tlsPin); err != nil {
+		log.Fatalf("meshghost: %v", err)
+	} else {
+		*tlsPin = pin
+	}
 	if tlsChoice == tlsx.Required && transportKind == netx.UDP {
 		log.Fatalf("meshghost: -transport udp cannot be encrypted (Go has no DTLS) and -tls is "+
 			"%q. Choose quic (encrypted, same loss behaviour) or tcp, or set -tls off if you "+
