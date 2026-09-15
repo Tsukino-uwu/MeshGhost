@@ -179,7 +179,10 @@ func TestChaserSeamsOnALiveGapAndIsOffByDefault(t *testing.T) {
 
 // TestChaserPolicyIsPushedOnlyWhenContactIsOn: session_policy carries
 // chaser_contact only when the config asks for it (and no shipped adapter
-// honours it yet -- that is per game, ADR-gated).
+// honours it yet -- that is per game, ADR-gated). Since 2026-09-15 (ADR 0068)
+// the value is the MODE's own word, "hurt" or "kill"; it is absent when off
+// and absent again when the chaser is disabled with contact still set,
+// because there is no ghost for it to apply to.
 func TestChaserPolicyIsPushedOnlyWhenContactIsOn(t *testing.T) {
 	c, _, fa := startLocalPeerCore(t)
 	c.mu.Lock()
@@ -195,18 +198,60 @@ func TestChaserPolicyIsPushedOnlyWhenContactIsOn(t *testing.T) {
 	case <-time.After(testTimeout):
 		t.Fatal("no session_policy")
 	}
-	c.mu.Lock()
-	c.ChaserEnabled = true
-	c.ChaserContact = true
-	c.mu.Unlock()
-	c.pushSessionPolicy()
-	select {
-	case p := <-fa.policies:
-		if p.ChaserContact != "enabled" {
-			t.Fatalf("chaser_contact = %q, want enabled", p.ChaserContact)
+	set := func(enabled bool, mode ChaserContact) {
+		c.mu.Lock()
+		c.ChaserEnabled = enabled
+		c.ChaserContact = mode
+		c.sentGhostCollision = ""
+		c.mu.Unlock()
+		c.pushSessionPolicy()
+	}
+	expect := func(want, why string) {
+		t.Helper()
+		select {
+		case p := <-fa.policies:
+			if p.ChaserContact != want {
+				t.Fatalf("chaser_contact = %q, want %q (%s)", p.ChaserContact, want, why)
+			}
+		case <-time.After(testTimeout):
+			t.Fatalf("no session_policy (%s)", why)
 		}
-	case <-time.After(testTimeout):
-		t.Fatal("no session_policy after turning contact on")
+	}
+	set(true, ChaserContactHurt)
+	expect("hurt", "after turning contact to hurt")
+	set(true, ChaserContactKill)
+	expect("kill", "after turning contact to kill")
+	set(false, ChaserContactKill)
+	expect("", "chaser disabled: no ghost for contact to apply to")
+	set(true, ChaserContactOff)
+	expect("", "contact off with the chaser on")
+}
+
+// TestParseChaserContactReadsTheLegacyBool: a config written while
+// chaser.contact was a bool (2026-09-03 to 2026-09-15) keeps its meaning --
+// true was the one effect it ever promised, so it is "hurt" -- and anything
+// that is not a mode is an error rather than a silent default.
+func TestParseChaserContactReadsTheLegacyBool(t *testing.T) {
+	for in, want := range map[string]ChaserContact{
+		"": ChaserContactOff, "off": ChaserContactOff, "false": ChaserContactOff,
+		"hurt": ChaserContactHurt, "true": ChaserContactHurt,
+		"kill": ChaserContactKill,
+	} {
+		got, err := ParseChaserContact(in)
+		if err != nil || got != want {
+			t.Errorf("ParseChaserContact(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"maybe", "enabled", "HURT", "1"} {
+		if got, err := ParseChaserContact(bad); err == nil {
+			t.Errorf("ParseChaserContact(%q) = %q with no error; want an error", bad, got)
+		}
+	}
+	if ChaserContactOff.Active() || ChaserContact("").Active() {
+		t.Error("off is not an active mode")
+	}
+	if !ChaserContactHurt.Active() || !ChaserContactKill.Active() {
+		t.Error("hurt and kill are the active modes")
 	}
 }
 

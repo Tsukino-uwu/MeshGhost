@@ -670,3 +670,19 @@ player and every driven pawn, with the light sample from the tick before and rea
 to `wallrun-<HHMMSS>.log`; plus `respawnTransform` on both pawns every 2 s (the pit reset's target:
 zero on a clone). Diff two entries with `probe_pawndiff/wallrun_diff.py <log> [ENTRY|+250ms|BEFORE]`: latest GHOST ENTRY
 against latest PLAYER ENTRY, keys that differ.
+
+## `probe_hitlist/` — whose already-hit list records a victim, and where the health moves (written 2026-09-15, NOT YET RUN)
+
+The instrument for the three ghost-attack leaks the user still sees with `GHOST_PREHIT_PLAYER` on
+(Sunsetter and Strikebreak hurt the player and other ghosts; ghost attacks move levers) and the
+first question of the chaser contact plan (`agent_docs/chaser-planning.md`, Part A step 1 and Part
+B step 1). `main.lua`, hot-loaded over the scratch slot, READ-ONLY: every 250 ms for 180 s, on the
+player's pawn and every other pawn of its class, `hitActorsArray` in full (address and name per
+element), `LastHitBy` as an address, the pawn's `BP_HpHitable` ref and — only when it is the pawn's
+OWN component — its `CurrentHp`/`maxHP`, and the game instance's `CurrentHp`. One line per pawn per
+sample to `hitlist-<HHMMSS>.log`, unfiltered; `UE4SS.log` gets a `CHANGE` line only when an array
+or a health value moved, with before and after. It says what it cannot see: an attack recorded on a
+SPAWNED actor shows as "no array changed and the health moved anyway", and that outcome is itself
+the answer to Part A's hypothesis — the next instrument is then `probe_leakcount`'s census at the
+moment of the hit. The lever is the user's eyes. Written from `probe_pawndiff`'s pawn discovery and
+`probe_dump`'s array walk; it has not been loaded yet, so its first run is also its self-check.

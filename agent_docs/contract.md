@@ -92,7 +92,7 @@ would go stale.
 | Field | Meaning |
 |---|---|
 | `ghost_collision` | `"enabled"` or `"disabled"`, never empty |
-| `chaser_contact` | `"enabled"` or `"disabled"` — the same shape, for the chaser pack (see below) |
+| `chaser_contact` | `"hurt"` or `"kill"`, or absent — what touching a chaser does (see below) |
 
 `"enabled"` means **the adapter's own defaults stand**, including any place it already makes a
 ghost passable. It is not an instruction to make a ghost solid — the core has no idea what
@@ -134,11 +134,15 @@ same way nothing enforces `send_hz`. An adapter that ignores the message is unaf
 existence; an adapter that *cannot* honour `"disabled"` should say so in its own log once rather
 than appearing to comply. See the 2026-08-19 ADR in `architecture.md`.
 
-**`session_policy.chaser_contact` (added 2026-09-03, ADR 0047)** is `"enabled"` only when the
-player turned the chaser's contact hook on, and absent otherwise. It is the ONE effect a cosmetic
-ghost may ever have — an overlap that hurts on touch, never solidity — and an adapter honours it
-only under its own per-game ADR and the user's on-screen confirmation. No shipped adapter does;
-every other cosmetic rule (never solid, blocking, damageable, targetable) holds whatever it says.
+**`session_policy.chaser_contact` (added 2026-09-03, ADR 0047; a mode since 2026-09-15, ADR 0068)**
+is `"hurt"` or `"kill"` when the player turned the chaser's contact hook on, and absent otherwise —
+absent too when the chaser itself is disabled. `"hurt"` is exactly what an enemy's touch does in
+that game; `"kill"` is a guaranteed death. It is the ONE effect a cosmetic ghost may ever have — an
+overlap that hurts on touch, never solidity — and an adapter honours it only under its own per-game
+ADR and the user's on-screen confirmation, by triggering the game's own damage or death path and
+never by writing health. It applies to `chaser:<n>` ids only, never to a replay or a real peer. No
+shipped adapter does; every other cosmetic rule (never solid, blocking, damageable, targetable)
+holds whatever it says. Before 2026-09-15 the value was `"enabled"`; no adapter ever read it.
 
 **`replay_control` (adapter -> core, added 2026-09-03, ADR 0047)** is optional: one action name
 (`record_start`, `record_stop`, `record_toggle`, `save_last`, `replay_last`, `restart`, `rewind`,

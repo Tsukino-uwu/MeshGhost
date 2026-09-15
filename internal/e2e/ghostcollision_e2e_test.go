@@ -28,6 +28,11 @@ func awaitPolicy(t *testing.T, bridgeAddr string) string {
 		}
 		var sp bridge.SessionPolicy
 		if json.Unmarshal(env.Payload, &sp) == nil {
+			// Every client here runs with the shipped chaser defaults, so the
+			// contact hook must be ABSENT -- not "off", not "enabled" (ADR 0068).
+			if sp.ChaserContact != "" {
+				t.Errorf("session_policy carried chaser_contact=%q with contact never asked for", sp.ChaserContact)
+			}
 			select {
 			case got <- sp.GhostCollision:
 			default:

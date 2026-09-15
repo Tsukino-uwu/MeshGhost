@@ -443,13 +443,18 @@ type SessionPolicy struct {
 	// once, rather than silently appearing to comply. Nothing checks, and
 	// nothing can: this is advisory the whole way down.
 	GhostCollision string `json:"ghost_collision"`
-	// ChaserContact is "enabled" when the player turned the chaser's contact
-	// hook on (ADR 0047), absent otherwise. It is the ONE effect a cosmetic
-	// ghost may ever have -- an overlap that hurts on touch, never solidity --
-	// and an adapter honours it only under its own per-game ADR and the
-	// user's on-screen confirmation. No shipped adapter does yet; every
-	// other rule about cosmetic ghosts (never solid, blocking, damageable,
-	// targetable) holds whatever this says.
+	// ChaserContact is "hurt" or "kill" when the player turned the chaser's
+	// contact hook on (ADR 0047; a mode since 2026-09-15, ADR 0068), absent
+	// otherwise. "hurt" is exactly what an enemy's touch does in this game;
+	// "kill" is a guaranteed death. It is the ONE effect a cosmetic ghost may
+	// ever have -- an overlap that hurts on touch, never solidity -- and an
+	// adapter honours it only under its own per-game ADR and the user's
+	// on-screen confirmation, by triggering the game's own damage or death
+	// path and never by writing health. It applies to chaser ghosts only
+	// (ids `chaser:<n>`), never to a replay or a real peer. No shipped
+	// adapter does yet; every other rule about cosmetic ghosts (never solid,
+	// blocking, damageable, targetable) holds whatever this says. An adapter
+	// built before the mode existed saw "enabled" here; none ever read it.
 	ChaserContact string `json:"chaser_contact,omitempty"`
 }
 

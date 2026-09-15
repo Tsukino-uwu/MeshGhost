@@ -45,7 +45,7 @@ type ChaserSettings struct {
 	Spacing    time.Duration
 	Name       string
 	Color      string
-	Contact    bool
+	Contact    ChaserContact
 	SpawnDelay time.Duration
 }
 

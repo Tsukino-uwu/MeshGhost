@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Tsukino-uwu/MeshGhost/core"
 )
 
 // FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane: config.json is a file a
@@ -22,6 +24,11 @@ func FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane(f *testing.F) {
 	f.Add(`{"client":{"replay":{"record_on_launch":true,"save_last":"45s","seek":"abc"},"chaser":{"count":99,"delay":"-3s"},"hotkeys":{"record_toggle":"win+F12"}}}`)
 	f.Add(`{"client":{"replay":"not an object","chaser":[1,2],"hotkeys":null}}`)
 	f.Add(`{"client":{"chaser":{"count":-1,"delay":"1e9h","spawn_delay":"NaN"},"interp":"-1ms"}}`)
+	// chaser.contact: the legacy bool, a mode, a non-mode, a number (ADR 0068).
+	f.Add(`{"client":{"chaser":{"contact":true}}}`)
+	f.Add(`{"client":{"chaser":{"contact":"kill"}}}`)
+	f.Add(`{"client":{"chaser":{"contact":"maybe"}}}`)
+	f.Add(`{"client":{"chaser":{"contact":1}}}`)
 	f.Add(`{"client":{}}`)
 	f.Add(`{}`)
 	f.Add(`null`)
@@ -38,7 +45,8 @@ func FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane(f *testing.F) {
 		var relayAddr, bridgeAddr, gameID, room, name, gameVersion, roomCode, transport string
 		var interp, minSend time.Duration
 		var maxReceiveHz int
-		var showConsole, recordOnLaunch, splitTimes, chaserOn, contact bool
+		var showConsole, recordOnLaunch, splitTimes, chaserOn bool
+		contact := "off"
 		saveLast, replayStart, replaySeek := 30*time.Second, time.Duration(0), 5*time.Second
 		count, delay, spacing, spawn := 1, 3*time.Second, 2*time.Second, time.Duration(0)
 		cname, color := "Chaser", "#7A2A2A"
@@ -54,6 +62,12 @@ func FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane(f *testing.F) {
 		})
 		if !filepath.IsAbs(shown) {
 			t.Fatalf("applyFileConfig returned a relative path %q", shown)
+		}
+		// chaser.contact lands only as a MODE (ADR 0068): whatever the file
+		// says -- a bool, a word, a number, nothing -- the target holds a word
+		// ParseChaserContact accepts, so main() can never exit on a file value.
+		if _, err := core.ParseChaserContact(contact); err != nil {
+			t.Fatalf("chaser.contact landed as %q from %q: %v", contact, body, err)
 		}
 		// A duration the file could not express as a duration must be the
 		// default, never zero-by-accident: OverrideDuration keeps the target on

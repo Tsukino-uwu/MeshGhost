@@ -14,8 +14,9 @@ package core
 //
 // COSMETIC, ALWAYS: a chaser renders with cosmetic=true like every local
 // peer. The only effect it may ever have is the contact hook,
-// session_policy.chaser_contact, which an adapter honours only under its own
-// per-game ADR and the user's on-screen confirmation -- none exists yet.
+// session_policy.chaser_contact (ChaserContact below), which an adapter
+// honours only under its own per-game ADR and the user's on-screen
+// confirmation -- none exists yet.
 //
 // A live gap longer than replayGapSeamMs (a menu, a loading screen, nil
 // frames) is a seam for every chaser, so the pack reappears where the player
@@ -29,6 +30,45 @@ import (
 
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
+
+// ChaserContact is what touching a chaser does to the player, and the value
+// session_policy.chaser_contact carries to the adapter (ADR 0068). A MODE
+// rather than a bool since 2026-09-15: "hurt" is exactly what an enemy's
+// touch does in that game, "kill" is a guaranteed death, and "off" -- the
+// shipped default -- is the cosmetic ghost every other rule describes. The
+// core knows nothing about what a hurt or a death IS; it only carries the
+// word. An adapter triggers the game's own damage or death path and never
+// writes health itself.
+type ChaserContact string
+
+const (
+	ChaserContactOff  ChaserContact = "off"
+	ChaserContactHurt ChaserContact = "hurt"
+	ChaserContactKill ChaserContact = "kill"
+)
+
+// ParseChaserContact reads the config value. The legacy bool -- the field
+// shipped as `"contact": false` from 2026-09-03 to 2026-09-15 -- still reads:
+// "true" is hurt (the one effect it ever promised) and "false" is off, so no
+// config written before the mode existed changes meaning. Empty is off.
+func ParseChaserContact(s string) (ChaserContact, error) {
+	switch s {
+	case "", "off", "false":
+		return ChaserContactOff, nil
+	case "hurt", "true":
+		return ChaserContactHurt, nil
+	case "kill":
+		return ChaserContactKill, nil
+	}
+	return ChaserContactOff, fmt.Errorf("chaser.contact %q is not a mode -- use \"off\", \"hurt\" or \"kill\"", s)
+}
+
+// Active says whether the mode is one the adapter is told about: anything
+// but off. The zero value ("") is off, so a Core that never set the field
+// pushes no policy for it.
+func (m ChaserContact) Active() bool {
+	return m == ChaserContactHurt || m == ChaserContactKill
+}
 
 const (
 	// No cap on the chaser COUNT since 2026-09-06 (the user's call: "allow

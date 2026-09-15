@@ -35,6 +35,25 @@ Decisions made with the user:
 - Chasers also freeze during NPC dialogue and note reading, the same way they do for the pause menu
   and item pickups.
 
+## Corrections after checking the code (2026-09-15, later the same day)
+
+Three premises below were stale when written; the parts that rest on them start from these facts:
+
+- **`player_frozen` IS sent** by the C++ mod (`Plugin.cpp`, from `PauserPlayerState`, since
+  2026-09-05) for the pause menu and the item-pickup popup. The `UNVERIFIED.md` "blocker" entry of
+  2026-09-04 predates that. Part E's "first confirm the adapter sends it" is answered; what stays
+  open is the I6 watch item (pause about ten seconds with a chaser running, unpause, it resumes
+  where it left off).
+- **`render_remote.cosmetic` IS emitted** by the core on every chaser and replay frame. The adapter
+  parses neither it nor `session_policy` at all; Part E's step 1 is a new handler, not a fix.
+- **No grace window exists** in the core, and none is needed there: a seam is a `despawn_remote` and
+  a fresh spawn the adapter already sees, and a player respawn is the adapter's own fact. The window
+  is adapter-side (ADR 0068).
+
+**Part D is DONE on the Go side** (2026-09-15, ADR 0068): the mode, the flag, the file reader with
+the legacy bool, hot reload, the policy push, the shipped configs, the contract, the tests. Parts A,
+B, C and E remain and each begins with a probe in a running game.
+
 ## Part A: make every ghost attack inert (bug fix, first)
 
 1. **Measure each leak.** Use a Lua probe through the MeshGhostScratch slot with hot reload

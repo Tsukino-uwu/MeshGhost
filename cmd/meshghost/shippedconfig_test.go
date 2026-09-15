@@ -70,7 +70,7 @@ type shippedConfig struct {
 			Spacing    string `json:"spacing"`
 			Name       string `json:"name"`
 			Color      string `json:"color"`
-			Contact    bool   `json:"contact"`
+			Contact    string `json:"contact"`
 			SpawnDelay string `json:"spawn_delay"`
 		} `json:"chaser"`
 		Hotkeys map[string]string `json:"hotkeys"`
@@ -227,8 +227,11 @@ func TestShippedConfigNeverRecordsOrChasesBySurprise(t *testing.T) {
 	if cfg.Client.Replay.SplitTimes {
 		t.Error("shipped replay.split_times must be false: a nametag that changes several times a second is opted into")
 	}
-	if cfg.Client.Chaser.Enabled || cfg.Client.Chaser.Contact {
-		t.Errorf("shipped chaser must be off with contact off, got enabled=%v contact=%v",
+	// Contact is the STRING "off" (ADR 0068): a shipped `false` would still
+	// read as off, but the file is what a player copies from, so it shows the
+	// word they would change.
+	if cfg.Client.Chaser.Enabled || cfg.Client.Chaser.Contact != "off" {
+		t.Errorf("shipped chaser must be off with contact \"off\", got enabled=%v contact=%q",
 			cfg.Client.Chaser.Enabled, cfg.Client.Chaser.Contact)
 	}
 	if cfg.Client.Replay.SaveLast != "30s" || cfg.Client.Replay.Seek != "5s" || cfg.Client.Replay.StartDelay != "0s" {

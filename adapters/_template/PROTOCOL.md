@@ -246,9 +246,11 @@ four. **They are not optional, and they are not new: both ship today.**
   picture whatever this policy says: never solid, blocking, damageable or targetable.** The flag
   is on every frame of such a ghost and absent for a real peer; its ids look like `replay:<file>`
   and `chaser:<n>`. An adapter with no collision at all has nothing to do; one that makes ghosts
-  solid checks the flag before it does. `session_policy` may also carry `"chaser_contact":"enabled"`:
-  the one effect a chaser may have (an overlap that hurts on touch), which you honour ONLY under a
-  per-game ADR of this adapter's own and the user's on-screen confirmation — absent both, ignore it.
+  solid checks the flag before it does. `session_policy` may also carry `"chaser_contact":"hurt"`
+  or `"kill"` (ADR 0068; absent when off): the one effect a chaser may have — an overlap that does
+  exactly what an enemy's touch does, or a guaranteed death — which you honour ONLY under a
+  per-game ADR of this adapter's own and the user's on-screen confirmation, by triggering the
+  game's own damage or death path, never by writing health — absent both, ignore it.
 - **`remote_name`** carries a peer's chosen nametag, sent when it becomes known: on join, and again
   for every already-present peer when an adapter attaches to a room that is already populated.
   **It is NEVER re-sent after a `despawn_remote`, and `despawn_remote` fires on a mere AREA

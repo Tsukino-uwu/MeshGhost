@@ -495,7 +495,7 @@ func TestChaserBlockIsReadFromConfig(t *testing.T) {
 	var interp, minSend time.Duration
 	var maxReceiveHz int
 	var showConsole bool
-	enabled, contact := false, false
+	enabled, contact := false, "off"
 	count := 1
 	delay, spacing := 3*time.Second, 2*time.Second
 	var spawn time.Duration
@@ -510,8 +510,8 @@ func TestChaserBlockIsReadFromConfig(t *testing.T) {
 	if !enabled || count != 4 || delay != 2*time.Second || cname != "Me" || spawn != 4*time.Second {
 		t.Fatalf("chaser block: enabled=%v count=%d delay=%v name=%q", enabled, count, delay, cname)
 	}
-	if spacing != 2*time.Second || color != "#7A2A2A" || contact {
-		t.Fatalf("absent chaser keys changed: spacing=%v color=%q contact=%v", spacing, color, contact)
+	if spacing != 2*time.Second || color != "#7A2A2A" || contact != "off" {
+		t.Fatalf("absent chaser keys changed: spacing=%v color=%q contact=%q", spacing, color, contact)
 	}
 }
 

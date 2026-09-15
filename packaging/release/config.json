@@ -33,7 +33,7 @@
     },
     "chaser": {
       "enabled": false, "count": 1, "delay": "3s", "spacing": "2s",
-      "name": "", "color": "", "contact": false, "spawn_delay": "0s"
+      "name": "", "color": "", "contact": "off", "spawn_delay": "0s"
     },
     "input_display": {
       "player": false, "ghost": false, "background": true,

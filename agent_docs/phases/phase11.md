@@ -1012,3 +1012,33 @@ nested extras holds 21,896 bytes), the clip count is bounded by the roster, `spe
 wrap the playback wait negative into a hot spin, `attachTrack` reserves only what a clip may keep,
 an input track's header is validated like the wire's, and a zip's track is not attached for an
 adapter that never asked. Commit `6ce852fc`.
+
+## 2026-09-15 — chaser contact becomes a mode: `off`, `hurt` or `kill` (ADR 0068), the Go half of the contact plan
+
+The user asked whether the chaser contact plan (`agent_docs/chaser-planning.md`, written earlier the
+same day) could have its groundwork laid and whether it needed more planning. Checking it against the
+code found three stale premises — `player_frozen` IS sent by the Pseudoregalia mod since 2026-09-05,
+`render_remote.cosmetic` IS emitted on every chaser frame, and no grace window exists in the core (a
+seam is a despawn plus a fresh spawn the adapter already sees) — so the answer was: no further
+planning; the Go side is fully specified and the adapter parts each begin with a probe.
+
+- **The Go side, built and tested:** `core.ChaserContact` (`off`/`hurt`/`kill`, `ParseChaserContact`,
+  `Active`), the `-chaser-contact` flag as a string, the file reader accepting the legacy bool (`true`
+  is `hurt`, `false` is `off`) or a word and warning on anything else, hot reload refusing a non-mode
+  and keeping the old value, `session_policy.chaser_contact` carrying the word and absent when off or
+  when the chaser is disabled, the five shipped `config.json` files at `"contact": "off"`, and the
+  contract, the template `PROTOCOL.md`/`README.md`, `config.txt` and `bridge.go` rewritten to match.
+  Tests: the policy push through all four states, the parser with the legacy values and four
+  non-modes, the config fuzz seeds (bool, word, non-word, number) with the invariant that the target
+  only ever holds a parseable mode, the reload report line, the shipped-config pin, and the e2e
+  chaser test now started with `-chaser-contact kill` asserting the real binary pushes `"kill"`, with
+  every client in the ghost-collision e2e asserting the field is absent by default.
+- **The user's call on root `CLAUDE.md`'s "nothing that ships writes game state":** leave the rule
+  as it is; the ADR explains that contact triggers the game's own damage path exactly as an enemy
+  does and writes nothing. The rule may be reworded later if something else ever needs the carve-out.
+- **Parked for the live session:** `adapters/pseudoregalia/probes/probe_hitlist/`, the read-only
+  instrument for whose already-hit list records a Sunsetter, Strikebreak or lever victim and where
+  the health moves; `UNVERIFIED.md` carries the three leaks, the three corrected premises and a
+  tester's `BP_HpHitable` lead as things to measure. Nothing adapter-side is built or claimed.
+- **Worked alongside a second session** editing the correction knob (`core/correction.go`) in the same
+  client files; this commit carries the chaser hunks only.

@@ -771,9 +771,11 @@ func (c *Core) pushSessionPolicy() {
 
 	c.mu.Lock()
 	effective := protocol.ResolveGhostCollision(c.relayGhostCollision, c.GhostCollision)
+	// The mode's own word ("hurt" or "kill", ADR 0068); absent when off or
+	// when there is no pack for it to apply to.
 	contact := ""
-	if c.ChaserEnabled && c.ChaserContact {
-		contact = "enabled"
+	if c.ChaserEnabled && c.ChaserContact.Active() {
+		contact = string(c.ChaserContact)
 	}
 	// The de-dupe key covers both fields: a change in either is a new push.
 	key := effective + "|" + contact

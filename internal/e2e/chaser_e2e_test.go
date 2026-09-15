@@ -16,7 +16,10 @@ import (
 
 // TestChaserFollowsThroughTheRealBinary: -chaser on the shipped client makes
 // a cosmetic "chaser:1" ghost render to the adapter, named from the flag,
-// with nothing but the adapter's own frames feeding it.
+// with nothing but the adapter's own frames feeding it. It also runs with
+// -chaser-contact kill, so the session_policy the real binary pushes must
+// carry the mode's own word (ADR 0068); the default case -- no field at all
+// -- is asserted by every client in ghostcollision_e2e_test.go.
 func TestChaserFollowsThroughTheRealBinary(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and launches real binaries; skipped under -short")
@@ -39,19 +42,26 @@ func TestChaserFollowsThroughTheRealBinary(t *testing.T) {
 	startClient(t, r.dir, r.clientBin, r.relayAddr, bridgeAddr, "-transport", "tcp",
 		"-interp", "450ms",
 		"-chaser", "-chaser-count", "2", "-chaser-delay", "200ms", "-chaser-spacing", "100ms",
-		"-chaser-spawn-delay", "100ms", "-chaser-name", "Shadow")
+		"-chaser-spawn-delay", "100ms", "-chaser-name", "Shadow", "-chaser-contact", "kill")
 	// A MOVING player: a chaser never spawns on one who stands still (the
 	// spawn window, core/chaser.go), and the shared driver sends one fixed
 	// position every frame, which is exactly a standing player.
-	renders, playerX, stop := startMovingAdapter(t, bridgeAddr, "e2egame")
+	renders, policies, playerX, stop := startMovingAdapter(t, bridgeAddr, "e2egame")
 	defer stop()
 
 	seen := map[string]bool{}
 	lagMs := -1.0
 	lags := 0
+	contact := ""
 	deadline := time.Now().Add(testTimeout)
-	for time.Now().Before(deadline) && (len(seen) < 2 || lags < 5) {
+	for time.Now().Before(deadline) && (len(seen) < 2 || lags < 5 || contact == "") {
 		select {
+		case sp := <-policies:
+			contact = sp.ChaserContact
+			if contact != "kill" {
+				t.Fatalf("session_policy.chaser_contact = %q, want \"kill\" -- the flag's own word, "+
+					"not a bool spelling (ADR 0068): %+v", contact, sp)
+			}
 		case rr := <-renders:
 			if strings.HasPrefix(rr.PlayerID, "chaser:") {
 				if !rr.Cosmetic {
@@ -80,6 +90,9 @@ func TestChaserFollowsThroughTheRealBinary(t *testing.T) {
 	if len(seen) < 2 {
 		t.Fatalf("saw chasers %v, want chaser:1 and chaser:2", seen)
 	}
+	if contact == "" {
+		t.Fatal("the real binary never pushed a session_policy carrying chaser_contact, with -chaser-contact kill set")
+	}
 	if lags < 5 {
 		t.Fatalf("only measured chaser:1 against the player %d time(s); need a settled buffer", lags)
 	}
@@ -95,10 +108,12 @@ func TestChaserFollowsThroughTheRealBinary(t *testing.T) {
 // frame. Kept beside the one test that needs it rather than folded into the
 // shared driver, whose fixed position every other test relies on.
 // It also reports the last x it sent, so a test can measure how far behind a
-// ghost is drawn in the player's own units.
-func startMovingAdapter(t *testing.T, bridgeAddr, gameID string) (<-chan bridge.RenderRemote, func() float64, func()) {
+// ghost is drawn in the player's own units, and hands over every
+// session_policy it is pushed.
+func startMovingAdapter(t *testing.T, bridgeAddr, gameID string) (<-chan bridge.RenderRemote, <-chan bridge.SessionPolicy, func() float64, func()) {
 	t.Helper()
 	renders := make(chan bridge.RenderRemote, 64)
+	policies := make(chan bridge.SessionPolicy, 8)
 	stop := make(chan struct{})
 	var stopOnce sync.Once
 	var xMu sync.Mutex
@@ -133,6 +148,14 @@ func startMovingAdapter(t *testing.T, bridgeAddr, gameID string) (<-chan bridge.
 					default:
 					}
 				}
+			case bridge.TypeSessionPolicy:
+				var sp bridge.SessionPolicy
+				if json.Unmarshal(env.Payload, &sp) == nil {
+					select {
+					case policies <- sp:
+					default:
+					}
+				}
 			}
 		})
 		if !sendBridge(conn, bridge.TypeHello, bridge.Hello{GameID: gameID}) {
@@ -163,5 +186,5 @@ func startMovingAdapter(t *testing.T, bridgeAddr, gameID string) (<-chan bridge.
 		defer xMu.Unlock()
 		return lastX
 	}
-	return renders, playerX, func() { stopOnce.Do(func() { close(stop) }) }
+	return renders, policies, playerX, func() { stopOnce.Do(func() { close(stop) }) }
 }

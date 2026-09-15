@@ -230,6 +230,7 @@ or if a number is duplicated — an unindexed ADR is one nobody will find.
 - [2026-09-15 — Plain `udp` is dormant: refused by releases, kept behind a build tag](adr/0065-2026-09-15-plain-udp-is-dormant-behind-a-build-tag.md)
 - [2026-09-15 — TLS is always on, the relay's identity is persisted, and clients remember it (trust on first use)](adr/0066-2026-09-15-tls-always-on-relay-identity-persisted-trust-on-first-use.md)
 - [2026-09-15 — The room code is proven, not sent: OPAQUE bound to the relay's identity, and the floor moves to protocol 3](adr/0067-2026-09-15-the-room-code-is-proven-not-sent-opaque-bound-to-the-relay-identity.md) — a contract revision
+- [2026-09-15 — Chaser contact is a mode: `off`, `hurt` or `kill`, and the game does the hurting](adr/0068-2026-09-15-chaser-contact-is-a-mode-hurt-or-kill.md) — a contract revision; no adapter honours it yet
 
 ## Prior art
 

@@ -922,15 +922,16 @@ type Core struct {
 	replays        map[string]*replayPlayer
 	replaysPending uint32
 	// The chaser pack (core/chaser.go): the player's own past following them.
-	// ChaserContact is the adapter-facing hook (session_policy.chaser_contact);
-	// no shipped adapter honours it and each needs its own ADR first.
+	// ChaserContact is the adapter-facing hook (session_policy.chaser_contact),
+	// off/hurt/kill since 2026-09-15 (ADR 0068); no shipped adapter honours it
+	// and each needs its own ADR first.
 	ChaserEnabled bool
 	ChaserCount   int
 	ChaserDelay   time.Duration
 	ChaserSpacing time.Duration
 	ChaserName    string
 	ChaserColor   string
-	ChaserContact bool
+	ChaserContact ChaserContact
 	// ChaserSpawnDelay: a chaser appears only once the player has been MOVING
 	// for this long (counted from the first position change, and again after
 	// a gap), so it can never spawn on top of a standing player. Zero means

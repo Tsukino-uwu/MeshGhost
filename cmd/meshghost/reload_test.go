@@ -24,7 +24,7 @@ func TestApplyLiveNamesEveryChangedKeyAndAppliesTheLiveGroups(t *testing.T) {
 		hkRecord: "ctrl+shift+F9", hkSaveLast: "ctrl+shift+F10", hkReplayLast: "ctrl+shift+F11",
 		hkRestart: "ctrl+shift+F5", hkRewind: "ctrl+shift+F6", hkFastForward: "ctrl+shift+F7",
 		chaserOn: false, chaserCount: 1, chaserDelay: time.Second, chaserSpacing: 100 * time.Millisecond,
-		chaserName: "Why?", chaserColor: "", chaserContact: false, chaserSpawn: time.Second,
+		chaserName: "Why?", chaserColor: "", chaserContact: "off", chaserSpawn: time.Second,
 	}
 	next := liveValues{
 		relayAddr: "192.0.2.1:7777", bridgeAddr: "127.0.0.1:7790", gameID: "b", room: "r2", name: "n2", nameColor: "#222222",
@@ -36,7 +36,7 @@ func TestApplyLiveNamesEveryChangedKeyAndAppliesTheLiveGroups(t *testing.T) {
 		hkRecord: "ctrl+shift+F1", hkSaveLast: "ctrl+shift+F2", hkReplayLast: "ctrl+shift+F3",
 		hkRestart: "ctrl+shift+F4", hkRewind: "ctrl+shift+F8", hkFastForward: "ctrl+shift+F12",
 		chaserOn: true, chaserCount: 2, chaserDelay: 2 * time.Second, chaserSpacing: 200 * time.Millisecond,
-		chaserName: "past", chaserColor: "#444444", chaserContact: true, chaserSpawn: 2 * time.Second,
+		chaserName: "past", chaserColor: "#444444", chaserContact: "kill", chaserSpawn: 2 * time.Second,
 	}
 	c := core.New()
 	t.Cleanup(c.StopChasers)
@@ -47,7 +47,7 @@ func TestApplyLiveNamesEveryChangedKeyAndAppliesTheLiveGroups(t *testing.T) {
 		"interp 450ms -> 300ms", "local_interp", "extrapolate", "curve linear -> catmull-rom", "predict linear -> damped",
 		"ghost_collision enabled -> disabled",
 		"chaser.enabled false -> true", "chaser.count 1 -> 2", "chaser.delay", "chaser.spacing", "chaser.name Why? -> past",
-		"chaser.color", "chaser.contact false -> true", "chaser.spawn_delay", "chaser pack restarted: 2 ghost(s)",
+		"chaser.color", "chaser.contact off -> kill", "chaser.spawn_delay", "chaser pack restarted: 2 ghost(s)",
 		"replay.record_on_launch false -> true", "replay.save_last 30s -> 1m0s", "replay.start_delay", "replay.seek 5s -> 10s",
 		"replay.split_times", "replay.gzip", "replay.delta true -> false", "replay.inputs", "replay.name", "replay.color",
 		"connect_to 127.0.0.1:7777 -> 192.0.2.1:7777", "room_name r1 -> r2", "room_code", "player_name n1 -> n2", "player_name_color",

@@ -371,7 +371,11 @@ func FuzzEverything(f *testing.F) {
 		c.ChaserDelay = cfg.chaserDelay
 		c.ChaserSpacing = cfg.chaserSpacing
 		c.ChaserSpawnDelay = cfg.spawn
-		c.ChaserContact = cfg.contact
+		// The fuzzer's one contact bit picks hurt; the policy push is the same
+		// code path for kill, and the mode itself is covered by its own test.
+		if cfg.contact {
+			c.ChaserContact = ChaserContactHurt
+		}
 		c.ChaserName = "F"
 		c.MinSendInterval = cfg.minSend
 		c.Extrapolate = cfg.extrapolate

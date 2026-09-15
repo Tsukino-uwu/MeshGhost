@@ -247,11 +247,54 @@ type chaserFileConfig struct {
 	Spacing *string `json:"spacing"`
 	Name    *string `json:"name"`
 	Color   *string `json:"color"`
-	Contact *bool   `json:"contact"`
+	// Contact: "off", "hurt" or "kill" (ADR 0068). A bool -- what the key
+	// shipped as before 2026-09-15 -- still reads, see chaserContactJSON.
+	Contact *chaserContactJSON `json:"contact"`
 	// SpawnDelay: a chaser appears only once you have been moving for this
 	// long, so none spawns on top of you while you stand at the start.
 	// Absent or "0s" means the chaser's own delay.
 	SpawnDelay *string `json:"spawn_delay"`
+}
+
+// chaserContactJSON reads chaser.contact as either a JSON string ("off",
+// "hurt", "kill") or the bool the key was until 2026-09-15 (true is "hurt",
+// the one effect it ever promised; false is "off"). It only carries the text:
+// core.ParseChaserContact judges it, so a value that is neither is warned
+// about and skipped at the override site, like a bad duration, rather than
+// failing the whole file.
+type chaserContactJSON string
+
+func (m *chaserContactJSON) UnmarshalJSON(b []byte) error {
+	var asBool bool
+	if err := json.Unmarshal(b, &asBool); err == nil {
+		if asBool {
+			*m = chaserContactJSON(core.ChaserContactHurt)
+		} else {
+			*m = chaserContactJSON(core.ChaserContactOff)
+		}
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return fmt.Errorf("chaser.contact must be \"off\", \"hurt\" or \"kill\", got %s", string(b))
+	}
+	*m = chaserContactJSON(s)
+	return nil
+}
+
+// overrideChaserContact is cfg.Override for chaser.contact: the file's word
+// lands on the flag only when it names a mode, and a word that does not is
+// warned about and skipped so the settings around it still apply.
+func overrideChaserContact(explicit map[string]bool, target *string, value *chaserContactJSON, path string) {
+	if value == nil || explicit["chaser-contact"] {
+		return
+	}
+	mode, err := core.ParseChaserContact(string(*value))
+	if err != nil {
+		log.Printf("meshghost: warning: config file %s: %v -- the previous value stays", path, err)
+		return
+	}
+	*target = string(mode)
 }
 
 type hotkeyFileConfig struct {
@@ -347,11 +390,12 @@ type configTargets struct {
 }
 
 type chaserTargets struct {
-	enabled, contact *bool
-	count            *int
-	delay, spacing   *time.Duration
-	spawnDelay       *time.Duration
-	name, color      *string
+	enabled        *bool
+	count          *int
+	delay, spacing *time.Duration
+	spawnDelay     *time.Duration
+	// contact is the mode's word ("off", "hurt", "kill"), parsed at use.
+	name, color, contact *string
 }
 
 // hotkeyTargets is where the six chords land; nil entries are skipped so a
@@ -478,7 +522,7 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) str
 		cfg.OverrideDuration(explicit, "chaser-spacing", t.chaser.spacing, ch.Spacing, shown, "meshghost", "chaser.spacing")
 		cfg.Override(explicit, "chaser-name", t.chaser.name, ch.Name)
 		cfg.Override(explicit, "chaser-color", t.chaser.color, ch.Color)
-		cfg.Override(explicit, "chaser-contact", t.chaser.contact, ch.Contact)
+		overrideChaserContact(explicit, t.chaser.contact, ch.Contact, shown)
 		if t.chaser.spawnDelay != nil {
 			cfg.OverrideDuration(explicit, "chaser-spawn-delay", t.chaser.spawnDelay, ch.SpawnDelay, shown, "meshghost", "chaser.spawn_delay")
 		}
@@ -895,7 +939,10 @@ func main() {
 	chaserName := flag.String("chaser-name", "", "a nametag for the chasers, numbered when there are several. Empty (the default) draws no tag at all, which is usually what you want for a ghost of yourself (config: chaser.name)")
 	chaserColor := flag.String("chaser-color", "", "colour for that tag, as a hex code like \"#7A2A2A\". Ignored without a name, exactly like player_name_color (config: chaser.color)")
 	chaserSpawn := flag.Duration("chaser-spawn-delay", 0, "a chaser appears only once you have been moving for this long; 0 means the chaser's own delay (config: chaser.spawn_delay)")
-	chaserContact := flag.Bool("chaser-contact", false, "tell the adapter a chaser may hurt on touch (config: chaser.contact); no shipped adapter honours this yet")
+	chaserContact := flag.String("chaser-contact", string(core.ChaserContactOff),
+		"what touching a chaser does to you: \"off\", \"hurt\" (exactly what an enemy's touch does in "+
+			"that game) or \"kill\" (a guaranteed death). Told to the game's mod, which triggers the game's "+
+			"own damage; no shipped mod honours it yet (config: chaser.contact)")
 	hkRecord := flag.String("hotkey-record", "shift+4", "system-wide chord: start/stop recording (config: hotkeys.record_toggle); empty unbinds")
 	hkSaveLast := flag.String("hotkey-save-last", "shift+5", "system-wide chord: save the last replay.save_last seconds (config: hotkeys.save_last)")
 	hkReplayLast := flag.String("hotkey-replay-last", "shift+2", "system-wide chord: play the newest recording now (config: hotkeys.replay_last)")
@@ -1165,10 +1212,18 @@ func main() {
 	c.ReplayName = *replayName
 	c.ReplayColor = *replayColor
 	c.ChaserEnabled, c.ChaserCount, c.ChaserDelay, c.ChaserSpacing = *chaserOn, *chaserCount, *chaserDelay, *chaserSpacing
-	c.ChaserName, c.ChaserColor, c.ChaserContact = *chaserName, *chaserColor, *chaserContact
+	c.ChaserName, c.ChaserColor = *chaserName, *chaserColor
 	c.ChaserSpawnDelay = *chaserSpawn
+	contact, err := core.ParseChaserContact(*chaserContact)
+	if err != nil {
+		log.Fatalf("meshghost: -chaser-contact: %v", err)
+	}
+	c.ChaserContact = contact
 	if *chaserOn {
 		log.Printf("meshghost: chaser ON -- %d ghost(s) of your own past, %s behind and then every %s", *chaserCount, *chaserDelay, *chaserSpacing)
+		if contact.Active() {
+			log.Printf("meshghost: chaser contact %s -- told to the game's mod, which decides whether it honours it", contact)
+		}
 	}
 	hkStop := make(chan struct{})
 	startHotkeys(c, []hotkeyBinding{

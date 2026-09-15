@@ -49,10 +49,10 @@ type liveValues struct {
 	replayName, replayColor                              string
 	hkRecord, hkSaveLast, hkReplayLast                   string
 	hkRestart, hkRewind, hkFastForward                   string
-	chaserOn, chaserContact                              bool
+	chaserOn                                             bool
 	chaserCount                                          int
 	chaserDelay, chaserSpacing, chaserSpawn              time.Duration
-	chaserName, chaserColor                              string
+	chaserName, chaserColor, chaserContact               string
 }
 
 // targets points a configTargets at this copy, so applyFileConfig fills it.
@@ -213,9 +213,18 @@ func applyLive(prev, next *liveValues, c *core.Core, rebind func([]hotkeyBinding
 	chaser = changed("chaser.contact", prev.chaserContact, next.chaserContact, "applied") || chaser
 	chaser = changed("chaser.spawn_delay", prev.chaserSpawn, next.chaserSpawn, "applied") || chaser
 	if chaser {
+		// The file's word reached here through overrideChaserContact, which
+		// already refused anything that is not a mode; the parse is the one
+		// place the type is made, and cannot fail on what it let through.
+		contact, err := core.ParseChaserContact(next.chaserContact)
+		if err != nil {
+			lines = append(lines, fmt.Sprintf("chaser.contact NOT applied -- %v; the previous value stays", err))
+			contact, _ = core.ParseChaserContact(prev.chaserContact)
+			next.chaserContact = prev.chaserContact
+		}
 		n := c.SetChaserSettings(core.ChaserSettings{
 			Enabled: next.chaserOn, Count: next.chaserCount, Delay: next.chaserDelay, Spacing: next.chaserSpacing,
-			Name: next.chaserName, Color: next.chaserColor, Contact: next.chaserContact, SpawnDelay: next.chaserSpawn,
+			Name: next.chaserName, Color: next.chaserColor, Contact: contact, SpawnDelay: next.chaserSpawn,
 		})
 		lines = append(lines, fmt.Sprintf("chaser pack restarted: %d ghost(s) of your own past", n))
 	}

@@ -26,7 +26,7 @@ func TestAnOfflineSessionIsToldItsPolicy(t *testing.T) {
 	c.Offline = true
 	c.GhostCollision = "disabled"
 	c.ChaserEnabled = true
-	c.ChaserContact = true
+	c.ChaserContact = ChaserContactHurt
 
 	lines := make(chan []byte, 8)
 	nd := &policyTransport{lines: lines}
@@ -63,8 +63,8 @@ func TestAnOfflineSessionIsToldItsPolicy(t *testing.T) {
 		t.Fatalf("ghost_collision = %q, want the player's own setting (%q) -- there is no room "+
 			"to have overridden it", got.GhostCollision, "disabled")
 	}
-	if got.ChaserContact != "enabled" {
-		t.Fatalf("chaser_contact = %q, want enabled", got.ChaserContact)
+	if got.ChaserContact != "hurt" {
+		t.Fatalf("chaser_contact = %q, want hurt", got.ChaserContact)
 	}
 }
 
