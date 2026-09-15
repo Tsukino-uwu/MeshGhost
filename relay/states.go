@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Tsukino-uwu/MeshGhost/internal/throttle"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
@@ -152,6 +153,10 @@ func (r *Room) forwardState(senderID string, payload []byte) (protocol.State, bo
 // areas inside a fifth of a second: TEVI and Pseudoregalia load between rooms,
 // and a Pokemon warp runs an animation.
 const arrivalSeedInterval = 200 * time.Millisecond
+
+// seedOversizedLine throttles the oversized-seed line process-wide; a Room
+// has no handle on its Server, and the count is all the line needs.
+var seedOversizedLine throttle.Line
 
 func (r *Room) seedArrivalInto(arrival, area string) {
 	r.mu.Lock()
@@ -290,8 +295,12 @@ func (r *Room) stateSnapshotLocked(to string) []outgoing {
 		// here; this just measures it against the number that decides.
 		// See sendBudget (P1d-3).
 		if n := len(protocol.AppendEnvelope(nil, o.env.Type, o.env.Payload)); n > seedBudget {
-			log.Printf("relay: room %q: %s's seed for %s is %d bytes as a join, over the %d that connection can take -- "+
-				"not seeding it (they appear on that peer's next state)", r.Name, id, to, n, seedBudget)
+			// One line a second: this fires once per oversized seed per
+			// joiner, and a member controls how large its seed is (C6).
+			if count, ok := seedOversizedLine.Allow(); ok {
+				log.Printf("relay: room %q: %s's seed for %s is %d bytes as a join, over the %d that connection can take -- "+
+					"not seeding it (they appear on that peer's next state) (%d so far)", r.Name, id, to, n, seedBudget, count)
+			}
 			continue
 		}
 		outs = append(outs, o)

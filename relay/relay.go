@@ -31,6 +31,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Tsukino-uwu/MeshGhost/internal/throttle"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
@@ -389,6 +390,9 @@ type Client struct {
 	// a lifecycle line, so the overflow in forwardLine can drop the same CLASS the
 	// outbox drops rather than whatever happened to arrive last.
 	pendingUnreliable []bool
+	// pendingDropLogged latches the "dropping further ones" line to once
+	// per client; guarded by the room's mu like pending itself.
+	pendingDropLogged bool
 
 	// gateMu guards lastStateTo, which maps a *sender's* player_id to the
 	// last time a State from that sender was forwarded *to this client*.
@@ -576,9 +580,16 @@ func (r *Room) forwardLine(payload []byte, to []string, unreliable bool) {
 				default:
 					// 64 lifecycle lines behind one unwritten Welcome is a
 					// connection genuinely failing, which is the case the
-					// original comment described. The bound stays.
-					log.Printf("relay: %s has not been welcomed after %d queued lifecycle messages -- "+
-						"dropping further ones until its Welcome completes", id, maxPendingBeforeWelcome)
+					// original comment described. The bound stays. Logged
+					// ONCE per client: this sits inside the fan-out loop, so
+					// per drop it was one line per message the room produced
+					// for as long as the Welcome stayed unwritten (fourth
+					// review, C5).
+					if !c.pendingDropLogged {
+						c.pendingDropLogged = true
+						log.Printf("relay: %s has not been welcomed after %d queued lifecycle messages -- "+
+							"dropping further ones until its Welcome completes", id, maxPendingBeforeWelcome)
+					}
 					continue
 				}
 			}
@@ -1069,6 +1080,18 @@ type Server struct {
 	// suspendedSession and agent_docs/beyond-cosmetic.md §5).
 	suspended map[string]*suspendedSession
 
+	// The log lines a STRANGER can cause, one throttle each: at most one a
+	// second, carrying a count. Until 2026-09-15 each printed once per
+	// event, and the log is 1 MiB with one rotated copy, so ~1,900 refused
+	// hellos rolled the startup banner and every join off the end of it
+	// (fourth adversarial review, A4). Their siblings in netx already had
+	// the rule; internal/throttle is that rule, shared.
+	refusedHelloLine throttle.Line
+	helloTimeoutLine throttle.Line
+	connErrorLine    throttle.Line
+	rateLimitLine    throttle.Line
+	oversizedLine    throttle.Line
+
 	// ResumeGrace overrides protocol.DefaultResumeGrace — how long a dropped
 	// identity is held before the room is told it left. Zero means "use the
 	// default", the same zero-means-default convention as HelloTimeout and
@@ -1351,12 +1374,16 @@ func rejectFor(reason string) protocol.Reject {
 	return protocol.Reject{Reason: reason, Code: code, Retryable: retryable}
 }
 
-func rejectAndClose(conn *transport.NDJSONConn, hello protocol.Hello, reason string) {
+func (s *Server) rejectAndClose(conn *transport.NDJSONConn, hello protocol.Hello, reason string) {
 	// Sanitized before logging, for the same reason the join line is: a refused
 	// hello is still attacker-controlled, and refusing it does not make its
-	// display_name safe to write into the host's log unaltered.
-	log.Printf("relay: refused hello (%s): game_id=%q room=%q display_name=%q",
-		reason, hello.GameID, hello.Room, protocol.SanitizeDisplayName(hello.DisplayName))
+	// display_name safe to write into the host's log unaltered. And throttled:
+	// one line per rejection is one line per CONNECTION, which a stranger
+	// cycling connections turns into a log flood -- see refusedHelloLine.
+	if n, ok := s.refusedHelloLine.Allow(); ok {
+		log.Printf("relay: refused hello (%s): game_id=%q room=%q display_name=%q (%d refused so far)",
+			reason, hello.GameID, hello.Room, protocol.SanitizeDisplayName(hello.DisplayName), n)
+	}
 	sendEnvelope(conn, protocol.TypeReject, rejectFor(reason))
 	// Graceful, not Close: the Reject is the last line written and a reset
 	// would throw it away. See handshakeCloseDrain.
@@ -1628,7 +1655,7 @@ func (s *Server) handleConn(conn net.Conn) {
 	// seventh refusal reason means calling this, not rejectAndClose.
 	rejectHandshake := func(hello protocol.Hello, reason string) {
 		handshakeRejected = true
-		rejectAndClose(nd, hello, reason)
+		s.rejectAndClose(nd, hello, reason)
 	}
 
 	// Resolved once, here, rather than per message: the enforced cap must
@@ -1656,13 +1683,19 @@ func (s *Server) handleConn(conn net.Conn) {
 		stillWaiting := room == nil
 		mu.Unlock()
 		if stillWaiting {
-			log.Printf("relay: connection did not complete hello within %s, closing", helloTimeout)
+			if n, ok := s.helloTimeoutLine.Allow(); ok {
+				log.Printf("relay: connection did not complete hello within %s, closing (%d so far)", helloTimeout, n)
+			}
 			_ = nd.Close()
 		}
 	})
 
 	nd.OnError(func(err error) {
-		log.Printf("relay: connection error: %v", err)
+		// A reset is one line per connection too, and a stranger owns how
+		// many connections there are.
+		if n, ok := s.connErrorLine.Allow(); ok {
+			log.Printf("relay: connection error: %v (%d so far)", err, n)
+		}
 	})
 
 	nd.OnDisconnect(func(err error) {
@@ -1743,7 +1776,9 @@ func (s *Server) handleConn(conn net.Conn) {
 			// reconnecting client re-reads this room's advertised send_hz
 			// from the new Welcome and may well fit under the cap the second
 			// time. See the ADR in agent_docs/architecture.md.
-			log.Printf("relay: client exceeded %d messages/second, rejecting and closing connection", msgLimit)
+			if n, ok := s.rateLimitLine.Allow(); ok {
+				log.Printf("relay: client exceeded %d messages/second, rejecting and closing connection (%d so far)", msgLimit, n)
+			}
 			sendEnvelope(nd, protocol.TypeReject, rejectFor(protocol.ReasonRateLimited))
 			// Graceful, not Close(): the flood that tripped this is still mostly
 			// unread on our side, and a plain close would answer it with a TCP
@@ -1785,7 +1820,9 @@ func (s *Server) handleConn(conn net.Conn) {
 			// unbounded attacker-controlled bytes into the relay's own log
 			// on every attempt. Found in a review pass.
 			if !protocol.ValidateHelloFields(hello) {
-				log.Printf("relay: refused hello (%s): a field exceeded %d bytes", protocol.ReasonHelloFieldTooLong, protocol.MaxHelloFieldLen)
+				if n, ok := s.oversizedLine.Allow(); ok {
+					log.Printf("relay: refused hello (%s): a field exceeded %d bytes (%d so far)", protocol.ReasonHelloFieldTooLong, protocol.MaxHelloFieldLen, n)
+				}
 				sendEnvelope(nd, protocol.TypeReject, rejectFor(protocol.ReasonHelloFieldTooLong))
 				// Latched like every other refusal (see handshakeRejected), but
 				// NOT via rejectHandshake: this is the one path where the hello's

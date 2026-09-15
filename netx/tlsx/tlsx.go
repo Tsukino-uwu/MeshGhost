@@ -53,8 +53,9 @@ import (
 	"net"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
+
+	"github.com/Tsukino-uwu/MeshGhost/internal/throttle"
 )
 
 // defaultHandshakeTimeout bounds one accepted connection's sniff plus TLS
@@ -361,10 +362,11 @@ type sniffListener struct {
 	// is misconfigured and a failed handshake may be an attack or a version
 	// mismatch, and an operator reading one line an hour needs to know which
 	// they have.
-	refusedPlain atomic.Int64
-	lastPlainLog atomic.Int64 // unix nanos
-	failedShake  atomic.Int64
-	lastShakeLog atomic.Int64 // unix nanos
+	// The two stranger-caused lines, throttled to one a second with a
+	// count. internal/throttle is this listener's own CAS rule, lifted out
+	// on 2026-09-15 so the relay's lines could have it too.
+	plainLine throttle.Line
+	shakeLine throttle.Line
 }
 
 // throttled reports whether this line may be written now, given the unix-nano
@@ -373,18 +375,9 @@ type sniffListener struct {
 // this listener handshakes on a goroutine per connection, so unlike
 // limitListener's Accept loop there is no single writer. Same shape as
 // netx.limitListener.noteRefusal otherwise.
-func throttled(last *atomic.Int64) bool {
-	now := time.Now().UnixNano()
-	prev := last.Load()
-	if now-prev < int64(time.Second) {
-		return true
-	}
-	return !last.CompareAndSwap(prev, now)
-}
-
 func (l *sniffListener) notePlaintextRefusal(addr net.Addr) {
-	n := l.refusedPlain.Add(1)
-	if throttled(&l.lastPlainLog) {
+	n, ok := l.plainLine.Allow()
+	if !ok {
 		return
 	}
 	l.logf("meshghost: refused a plaintext connection from %s -- this relay is configured "+
@@ -392,8 +385,8 @@ func (l *sniffListener) notePlaintextRefusal(addr net.Addr) {
 }
 
 func (l *sniffListener) noteHandshakeFailure(addr net.Addr, err error) {
-	n := l.failedShake.Add(1)
-	if throttled(&l.lastShakeLog) {
+	n, ok := l.shakeLine.Allow()
+	if !ok {
 		return
 	}
 	l.logf("meshghost: tls handshake with %s failed: %v (%d failed so far)", addr, err, n)

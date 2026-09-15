@@ -159,15 +159,34 @@ func (o *outbox) run() {
 			err = conn.Send(m.line)
 		}
 		if err != nil {
-			log.Printf("relay: send to %s failed: %v", o.id, err)
+			// The FIRST failed send ends this writer. A connection that
+			// refused one write refuses the rest, and until 2026-09-15 the
+			// loop kept trying every queued line and logging each failure:
+			// a member that stopped reading cost ~256 lines per cycle of
+			// its queue, on a log that holds 1 MiB (fourth review, A4/C4).
+			// Nothing owed is lost -- see close for why the queue no longer
+			// carries anything that must survive a dead socket.
+			o.mu.Lock()
+			dropped := len(o.queue)
+			o.queue = nil
+			o.closed = true
+			o.mu.Unlock()
+			log.Printf("relay: send to %s failed: %v -- dropping its %d queued message(s) and closing its writer",
+				o.id, err, dropped)
+			return
 		}
 	}
 }
 
-// close stops the writer once the queue has drained. Draining rather than
-// discarding matters for the last message a leaving client is owed -- a Reject
-// explaining why it is being disconnected is written through this same queue,
-// and dropping it would turn an explained refusal into a bare hangup.
+// close stops the writer once the queue has drained.
+//
+// Draining rather than discarding used to be justified by the Reject a
+// leaving client is owed; that Reject is written inline (relay.go's
+// rate-limit path and rejectAndClose call sendEnvelope directly), not
+// through this queue, so what draining protects today is the ordinary
+// tail of a session: the last lifecycle lines a member that is being
+// removed cleanly was already going to get. A socket that has failed a
+// write is a different case and run handles it by discarding.
 func (o *outbox) close() {
 	o.mu.Lock()
 	if o.closed {
