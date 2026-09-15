@@ -1,0 +1,49 @@
+name: Adapters
+
+# The tree-level gates, run for a push that touches an ADAPTER and nothing else.
+#
+# Until 2026-09-16 the SYNCED.md section of dev-scripts/preflight.ps1 -- which reads every extras
+# key out of the SEND CODE (Plugin.cpp, BridgeClient.cs, the two Lua adapters) and holds it to that
+# adapter's page, refusing an empty check cell and a rising count of "not checked yet" -- ran in CI
+# only through docs.yml, and docs.yml fires on '**.md'. So the one push that gate exists for, a
+# code-only push adding a key with no row and no guard, was exactly the push that never ran it.
+# The same held for every other tree gate that reads adapter CODE (FLAGS.md completeness, the
+# bridge constants, the FindAllOf ratchet, the stale-safe annotations, the ghost-drop sweep).
+#
+# A separate workflow rather than a wider docs.yml because an adapter gate may filter only on
+# adapters/** and its own file (preflight's "Every adapter has its own path-filtered workflow"
+# section), and docs.yml must keep firing on prose. It runs the whole -TreeOnly pass rather than
+# one section: preflight has no per-section switch, the pass takes under a minute on the Windows
+# runner, and a check that exists is a check that runs.
+#
+# windows-latest and fetch-depth: 0 for the reasons docs.yml gives.
+
+on:
+  push:
+    paths:
+      - 'adapters/**'
+      - '.github/workflows/adapters.yml'
+  pull_request:
+    paths:
+      - 'adapters/**'
+      - '.github/workflows/adapters.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tree-checks:
+    name: Tree gates for an adapter change
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: preflight -TreeOnly
+        shell: pwsh
+        run: |
+          # Exit 1 = at least one FAIL; warnings never fail the run. A SKIP is a check that needs
+          # a working copy and is not a pass -- read the log, not just the tick.
+          ./dev-scripts/preflight.ps1 -TreeOnly
