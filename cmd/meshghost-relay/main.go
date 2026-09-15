@@ -5,6 +5,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -80,16 +81,12 @@ type fileConfig struct {
 	// is not reported as an unknown key; a NON-empty value refuses to start
 	// (checkUDPConfig, udp_release.go).
 	UDPAddr *string `json:"listen_udp"`
-	// TLS turns on encryption for the tcp transport: "off", "auto" (the
-	// built-in default; serves TLS and plaintext on the same port) or
-	// "required" (refuse plaintext). quic is always encrypted regardless
-	// and plain udp can never be; this key concerns tcp only. Both binaries
-	// default to "auto" and a release config ships it (packaging/release/
-	// config.json:62), which cmd/meshghost/shippedconfig_test.go pins; "off"
-	// stays available so that
-	// netcat, a packet capture and cmd/meshghost-netsim keep working
-	// while a session is being debugged. See the TLS-over-tcp ADR in
-	// agent_docs/architecture.md.
+	// TLS is the OBSOLETE switch: until 2026-09-15 it was "off", "auto" or
+	// "required", and since then every connection is TLS with nothing to
+	// switch (ADR 0066). Still decoded so an old config's key is not reported
+	// as unknown, and then judged by checkLegacyTLSKey: a value that asked for
+	// plaintext refuses to start -- a security setting is never silently
+	// ignored -- and "required" runs with a note to delete the key.
 	TLS *string `json:"tls"`
 	// QLog turns on quic-go's per-connection qlog trace, written into the
 	// directory the QLOGDIR environment variable names. Dev diagnostics;
@@ -121,7 +118,7 @@ type configTargets struct {
 	transport      *string
 	quicAddr       *string
 	udpAddr        *string
-	tlsMode        *string
+	legacyTLS      *string // the obsolete "tls" key, for checkLegacyTLSKey
 	qlog           *bool
 }
 
@@ -172,7 +169,7 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	cfg.Override(explicit, "transport", t.transport, sc.Transport)
 	cfg.Override(explicit, "listen-quic", t.quicAddr, sc.QuicAddr)
 	cfg.Override(explicit, "listen-udp", t.udpAddr, sc.UDPAddr)
-	cfg.Override(explicit, "tls", t.tlsMode, sc.TLS)
+	cfg.Override(explicit, "tls", t.legacyTLS, sc.TLS)
 	cfg.Override(explicit, "qlog", t.qlog, sc.QLog)
 }
 
@@ -329,17 +326,9 @@ func main() {
 			"over udp and tcp/udp are separate port spaces, so tcp:7777 and quic:7777/udp "+
 			"coexist and a host forwards ONE port number for both. Ignored unless quic is in "+
 			"-transport")
-	tlsMode := flag.String("tls", tlsx.Auto.String(),
-		"encrypt the tcp transport: auto (the default), off, or required. \"auto\" serves TLS "+
-			"and plaintext on the SAME port -- a TLS ClientHello and an NDJSON line are told "+
-			"apart by their first byte -- so encrypted clients are protected while netcat still "+
-			"works for debugging. \"required\" closes any connection that is not encrypted, "+
-			"which is the only MeshGhost setting a stale client cannot silently ignore. This "+
-			"matters even for quic sessions: every client handshakes over tcp first and that "+
-			"handshake carries the room code. The certificate is self-signed, generated in "+
-			"memory and never written to disk, so this stops someone READING the network, not "+
-			"someone actively impersonating this relay -- unless you hand players the "+
-			"fingerprint printed below at startup and they set \"tls_fingerprint\"")
+	// No -tls flag since 2026-09-15: every connection is TLS. The obsolete
+	// config key is still read into this so it can be judged (checkLegacyTLSKey).
+	legacyTLS := new(string)
 	qlog := flag.Bool("qlog", false,
 		"write quic-go's qlog trace for every quic connection into the directory the QLOGDIR "+
 			"environment variable names (dev diagnostics: packets, losses, congestion window). Off "+
@@ -382,7 +371,7 @@ func main() {
 		transport:      transportNames,
 		quicAddr:       quicAddr,
 		udpAddr:        udpAddr,
-		tlsMode:        tlsMode,
+		legacyTLS:      legacyTLS,
 		qlog:           qlog,
 	}
 	// The flag values BEFORE the file: what every later re-read of the file
@@ -396,11 +385,20 @@ func main() {
 			os.Getenv("QLOGDIR"))
 	}
 
-	// Fatal on an unrecognized tls mode, same reasoning as the transport
-	// list below: tlsx.Off is the zero value, so a lenient parse would hand
-	// an operator who asked for "requried" a relay that quietly accepts
-	// plaintext.
-	tlsChoice, err := tlsx.ParseMode(*tlsMode)
+	// The obsolete "tls" key: a value that asked for plaintext is a startup
+	// error, never a silently changed meaning.
+	if note, err := checkLegacyTLSKey(*legacyTLS); err != nil {
+		log.Fatalf("meshghost-relay: %v", err)
+	} else if note != "" {
+		log.Printf("meshghost-relay: %s", note)
+	}
+
+	// This relay's identity: one key pair and certificate, persisted in tls/
+	// beside the config so a client that connected once recognizes the same
+	// relay after a restart (tlsx.LoadOrCreateIdentity; ADR 0066). A folder
+	// that holds a broken identity is fatal here, before any listener opens.
+	identityDir := located.identityDir()
+	identity, fingerprint, err := tlsx.LoadOrCreateIdentity(identityDir, netx.TLSALPN)
 	if err != nil {
 		log.Fatalf("meshghost-relay: %v", err)
 	}
@@ -443,12 +441,12 @@ func main() {
 	*quicAddr = resolvedQuic
 
 	sources := newSourceTable(*maxClients)
-	listeners, fingerprint, err := buildListeners(listenerConfig{
+	listeners, err := buildListeners(listenerConfig{
 		kinds:      kinds,
 		addr:       *addr,
 		quicAddr:   *quicAddr,
 		udpAddr:    *udpAddr,
-		tls:        tlsChoice,
+		identity:   identity,
 		maxClients: *maxClients,
 		sources:    sources,
 	})
@@ -456,31 +454,18 @@ func main() {
 		log.Fatalf("meshghost-relay: %v", err)
 	}
 
-	// Say what encryption is and is not doing, in the log the host actually
-	// reads, rather than leaving it to a document. The fingerprint is the
-	// ONLY thing here that authenticates this relay, and only if a player
-	// copies it -- so it is printed with the instruction attached.
-	switch tlsChoice {
-	case tlsx.Off:
-		if *roomCode != "" {
-			log.Printf("meshghost-relay: NOTE: tls is off, so the room code crosses the network " +
-				"readable on the tcp handshake every client makes -- including clients that then " +
-				"move to quic. Set \"tls\": \"required\" in config.json (or -tls required) to " +
-				"encrypt it.")
-		}
-	default:
-		log.Printf("meshghost-relay: tls %s on the tcp transport (quic is always encrypted)", tlsChoice)
-		log.Printf("meshghost-relay: tls certificate fingerprint: %s", fingerprint)
-		log.Printf("meshghost-relay: this certificate is self-signed and regenerated every " +
-			"restart. Encryption alone stops someone READING the traffic, not someone " +
-			"impersonating this relay. To close that too, send players the fingerprint above " +
-			"by some other means (not through this relay) and have them set \"tls_fingerprint\" " +
-			"in their config.json -- they will need the new one after every restart.")
-		if servesKind(kinds, netx.UDP) {
-			log.Printf("meshghost-relay: WARNING: the plain udp transport is being served and " +
-				"CANNOT be encrypted (Go has no DTLS). A client that chooses udp is unencrypted " +
-				"no matter what tls says. Drop udp from -transport if that matters.")
-		}
+	// Say what the identity is and where it lives, in the log the host
+	// actually reads. The fingerprint is what every client remembers this
+	// relay by, so it is printed with what keeping it means attached.
+	log.Printf("meshghost-relay: tls certificate fingerprint: %s", fingerprint)
+	log.Printf("meshghost-relay: this server's identity is kept in %s -- players' clients remember "+
+		"the fingerprint above and warn if it changes. Copy that folder into a new install to keep "+
+		"this identity; keep %s private, since whoever has it can pose as this server.",
+		identityDir, tlsx.KeyFileName)
+	if servesKind(kinds, netx.UDP) {
+		log.Printf("meshghost-relay: WARNING: the plain udp transport is being served and " +
+			"CANNOT be encrypted (Go has no DTLS). A client that chooses udp is unencrypted. " +
+			"Drop udp from -transport if that matters.")
 	}
 
 	// What a client with transport "auto" is told. Built from the listeners
@@ -664,7 +649,7 @@ func main() {
 // Both cases, not one. Until 2026-09-15 a listener's non-temporary Accept error
 // was log.Fatalf with nothing else: every player sat on a dead relay until
 // their own idle timeout, exactly the failure the Ctrl+C path had been fixed
-// for a week earlier (fourth adversarial review, B3). A relay that dies should
+// on 2026-09-08 (fourth adversarial review, B3). A relay that dies should
 // say goodbye the same way a relay that is stopped does.
 func awaitShutdown(serveErr <-chan error, stop <-chan os.Signal, lns []*trackingListener, drain time.Duration) (error, int) {
 	select {
@@ -719,8 +704,11 @@ type boundListener struct {
 type listenerConfig struct {
 	kinds                   []netx.Kind
 	addr, quicAddr, udpAddr string
-	tls                     tlsx.Mode
-	maxClients              int
+	// identity is the relay's one certificate, served on tcp and quic
+	// alike: tlsx.LoadOrCreateIdentity in the shipped relay, tlsx.ServerConfig
+	// in a test. Required.
+	identity   *tls.Config
+	maxClients int
 	// sources is the per-address table (newSourceTable); nil means no
 	// per-source bound, which only a test asks for.
 	sources *srclimit.Table
@@ -750,26 +738,18 @@ func newSourceTable(maxClients int) *srclimit.Table {
 // -- and a single room can hold clients arriving over different transports,
 // because Room.Forward sends through the transport.Transport interface.
 //
-// Returns the TLS fingerprint alongside, empty when tls is off. On error,
-// every listener already opened is closed again.
-func buildListeners(c listenerConfig) ([]boundListener, string, error) {
-	// One certificate for the whole process, generated once. Per-connection
-	// generation would be a free CPU lever for an unauthenticated stranger,
-	// and a per-listener one would print two different fingerprints for one
-	// relay.
-	var tlsOpts netx.TLSOptions
-	var fingerprint string
-	if c.tls != tlsx.Off {
-		cfg, fp, err := tlsx.ServerConfig(netx.TLSALPN)
-		if err != nil {
-			return nil, "", fmt.Errorf("tls: %w", err)
-		}
-		tlsOpts = netx.TLSOptions{Mode: c.tls, Server: cfg}
-		fingerprint = fp
+// On error, every listener already opened is closed again.
+func buildListeners(c listenerConfig) ([]boundListener, error) {
+	if c.identity == nil {
+		return nil, errors.New("no relay identity to serve")
 	}
+	// One certificate for the whole process, on every listener: a
+	// per-listener one would give one relay two fingerprints, and a client
+	// that moved from tcp to quic would warn about its own relay.
+	tlsOpts := netx.TLSOptions{Server: c.identity}
 
-	// Whatever the TLS mode, every listener gets the open-connection bound
-	// (relay.MaxOpenConnsFor); the log line it prints is rate-limited.
+	// Every listener gets the open-connection bound (relay.MaxOpenConnsFor);
+	// the log line it prints is rate-limited.
 	tlsOpts.MaxOpenConns = relay.MaxOpenConnsFor(c.maxClients)
 	// And the per-address half of it, through one table every listener
 	// shares, so one address is one source whichever transport it arrives
@@ -791,7 +771,7 @@ func buildListeners(c listenerConfig) ([]boundListener, string, error) {
 			for _, bl := range listeners {
 				_ = bl.ln.Close()
 			}
-			return nil, "", fmt.Errorf("listen %s on %s: %w", k, bind, err)
+			return nil, fmt.Errorf("listen %s on %s: %w", k, bind, err)
 		}
 		// Wrapped so Ctrl+C can reach the connections this listener handed
 		// out: closing a listener does NOT close them (quic-go's Listener.Close
@@ -799,12 +779,37 @@ func buildListeners(c listenerConfig) ([]boundListener, string, error) {
 		// client whose relay simply vanishes waits out its own idle timeout.
 		listeners = append(listeners, boundListener{kind: k, ln: trackConns(ln)})
 		label := k.String()
-		if k == netx.TCP && c.tls != tlsx.Off {
-			label = fmt.Sprintf("%s, tls %s", k, c.tls)
+		if k == netx.TCP {
+			label = "tcp, tls"
 		}
 		log.Print(listeningLine(ln.Addr(), label))
 	}
-	return listeners, fingerprint, nil
+	return listeners, nil
+}
+
+// checkLegacyTLSKey judges the obsolete "tls" config key. Empty (absent) is
+// nothing. A value that asked for plaintext -- off, auto, or their aliases --
+// is an ERROR: the setting meant something about encryption, and a relay that
+// silently ran with a different meaning would be exactly the "security
+// setting a stale binary ignores" agent_docs/risks.md warns about. A value
+// that asked for what is now always true runs, with one line saying to delete
+// the key. Unknown words are an error as they always were.
+func checkLegacyTLSKey(v string) (note string, err error) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "":
+		return "", nil
+	case "required", "on", "true", "yes":
+		return "NOTE: the \"tls\" key in config.json is obsolete -- every connection is TLS since " +
+			"2026-09-15 and there is nothing to switch. Delete the key.", nil
+	case "off", "false", "no", "auto":
+		return "", fmt.Errorf("\"tls\": %q in config.json is no longer a choice: every connection is "+
+			"TLS since 2026-09-15 and a plaintext mode does not exist. Delete \"tls\" from config.json "+
+			"to start (there is no fingerprint to hand out any more either -- clients remember this "+
+			"server's identity on their own)", v)
+	default:
+		return "", fmt.Errorf("\"tls\": %q in config.json is not a value this key ever had, and the key is "+
+			"obsolete -- every connection is TLS since 2026-09-15. Delete it", v)
+	}
 }
 
 // listeningLine is the "listening on" line, and it names the ADDRESS FAMILY
@@ -1044,13 +1049,27 @@ type locatedConfig struct {
 // service manager's working directory is wherever it happens to be, and a log
 // written there is a log nobody finds.
 func (l locatedConfig) logPath(name string) string {
+	return filepath.Join(l.dir(), name)
+}
+
+// identityDir is where the relay's identity lives (tlsx.LoadOrCreateIdentity):
+// the tls/ folder beside the config, for the same reason the log is there --
+// and so that "uninstall" is still "delete the folder", and moving the install
+// moves the identity with it (the user's call, agent_docs/tls-planning.md).
+func (l locatedConfig) identityDir() string {
+	return filepath.Join(l.dir(), tlsx.IdentityDirName)
+}
+
+// dir is the folder the relay's files go beside: the config's when one was
+// read, the executable's otherwise, the working directory as a last resort.
+func (l locatedConfig) dir() string {
 	if l.found {
-		return filepath.Join(filepath.Dir(l.path), name)
+		return filepath.Dir(l.path)
 	}
 	if dir, err := executableDir(); err == nil {
-		return filepath.Join(dir, name)
+		return dir
 	}
-	return name
+	return "."
 }
 
 // executableDir is the directory this binary runs from. A variable so a test

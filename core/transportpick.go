@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/netx"
-	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
@@ -46,54 +45,46 @@ import (
 // the configured address, letting the real connect attempt surface the real
 // problem.
 func (c *Core) resolveTransport(addr, gameID, room, displayName, roomCode, gameVersion string) (netx.Kind, string, netx.TLSOptions, error) {
-	opts := c.tlsOptions()
+	opts := c.tlsOptions(addr)
 	if c.Transport == netx.TCP {
 		return netx.TCP, addr, opts, nil
 	}
 
-	offers, secure, err := c.queryTransports(addr, gameID, room, displayName, roomCode, gameVersion)
+	offers, err := c.queryTransports(addr, gameID, room, displayName, roomCode, gameVersion, opts)
 	if err != nil {
 		return netx.TCP, addr, opts, err
 	}
 	kind, dialAddr := c.chooseTransport(addr, offers)
-	// Until 2026-09-15 this is where auto escalated itself to required after
-	// an encrypted discovery leg, so the session leg could not downgrade. It
-	// no longer needs to: netx.DialWithTLS under auto never falls back to
-	// plaintext on any leg (fourth adversarial review, A1), so the mode the
-	// user configured is already the mode both legs get.
-	if secure && opts.Mode != tlsx.Off && kind == netx.UDP {
-		// ON A TRANSPORT THAT CANNOT CARRY TLS AT ALL, say so. udp has no DTLS in Go, so a
-		// session there is plaintext whatever tls says. Found by internal/e2e's transport
-		// matrix the moment `auto` became the default (2026-08-19). `auto` means "encrypt
-		// where that is possible, and never quietly do less than you could" -- on udp it is
-		// not possible, and the log has to be the thing that says it rather than the
-		// connection just working and looking encrypted.
-		log.Printf("core: this relay speaks TLS, but -transport udp cannot be encrypted " +
-			"(Go has no DTLS) -- this session is PLAINTEXT. Use quic for the same loss " +
-			"behaviour with encryption, or tcp.")
+	if kind == netx.UDP {
+		// ON A TRANSPORT THAT CANNOT CARRY TLS AT ALL, say so. udp has no DTLS
+		// in Go, so a session there is plaintext -- the one such session left,
+		// and only in the meshghost_devudp build (ADR 0065). Found by
+		// internal/e2e's transport matrix the moment `auto` became the default
+		// (2026-08-19).
+		log.Printf("core: -transport udp cannot be encrypted (Go has no DTLS) -- this session " +
+			"is PLAINTEXT. Use quic for the same loss behaviour with encryption, or tcp.")
 	}
 	return kind, dialAddr, opts, nil
 }
 
-// tlsOptions is this Core's TLS configuration as netx wants it. Kept in one
-// place so the discovery leg and the session leg can never disagree about
-// what was asked for.
-func (c *Core) tlsOptions() netx.TLSOptions {
-	mode := c.TLS
-	// A PIN IMPLIES REQUIRED. When Auto still fell back to plaintext (until
-	// 2026-09-15) a failed pin and "this relay is too old to speak TLS" were
-	// the same event, so a pin under Auto turned MITM DETECTION INTO AN
-	// AUTOMATIC DOWNGRADE (found by the 2026-09-07 review; the user's call to
-	// force it, D2). Auto no longer falls back, so this escalation is belt
-	// and braces -- kept because it also makes the intent legible in the log
-	// and to embedders, and keeps the discovery leg and the session leg
-	// agreeing, which is what this function exists for. cmd/meshghost refuses
-	// a pin with -transport udp up front so the user gets that error at
-	// startup instead of a dial failure.
-	if mode == tlsx.Auto && c.TLSFingerprint != "" {
-		mode = tlsx.Required
+// tlsOptions is this Core's TLS configuration for every leg to the relay
+// configured as addr. Kept in one place so the discovery leg and the session
+// leg can never disagree: both verify against the same known-relays entry,
+// keyed by the CONFIGURED address, whatever port the session leg dials.
+func (c *Core) tlsOptions(addr string) netx.TLSOptions {
+	return netx.TLSOptions{Verify: c.knownRelays().Verifier(addr)}
+}
+
+// knownRelays is Core.KnownRelays, or the in-memory store a Core without one
+// gets on first use (see the field's doc). Under c.mu so two legs racing to
+// the first connect share one store rather than each trusting on its own.
+func (c *Core) knownRelays() *KnownRelays {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.KnownRelays == nil {
+		c.KnownRelays = NewKnownRelays("")
 	}
-	return netx.TLSOptions{Mode: mode, Fingerprint: c.TLSFingerprint}
+	return c.KnownRelays
 }
 
 // queryTransports performs the tcp handshake leg: connect, ask what the
@@ -107,15 +98,11 @@ func (c *Core) tlsOptions() netx.TLSOptions {
 //
 // An error is returned only for an unreachable relay. Anything else yields
 // a nil list, meaning "nothing to upgrade to".
-func (c *Core) queryTransports(addr, gameID, room, displayName, roomCode, gameVersion string) ([]protocol.TransportOffer, bool, error) {
-	netConn, err := netx.DialWithTLS(netx.TCP, addr, discoverTransportTimeout, c.tlsOptions())
+func (c *Core) queryTransports(addr, gameID, room, displayName, roomCode, gameVersion string, opts netx.TLSOptions) ([]protocol.TransportOffer, error) {
+	netConn, err := netx.DialWithTLS(netx.TCP, addr, discoverTransportTimeout, opts)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	// Whether THIS leg ended up encrypted, which is what the caller uses to
-	// refuse a downgrade on the session leg. The room code rides this
-	// connection, so it is also the answer to "was the room code protected".
-	secure := tlsx.IsTLS(netConn)
 	conn := transport.FromConnWithLimits(netConn, protocol.MaxLineBytes, 0, 0)
 	defer conn.Close()
 
@@ -141,14 +128,14 @@ func (c *Core) queryTransports(addr, gameID, room, displayName, roomCode, gameVe
 		QueryOnly:       true,
 	})
 	if err != nil {
-		return nil, secure, nil
+		return nil, nil
 	}
 	env, err := json.Marshal(protocol.Envelope{Type: protocol.TypeHello, Payload: hello})
 	if err != nil {
-		return nil, secure, nil
+		return nil, nil
 	}
 	if err := conn.Send(env); err != nil {
-		return nil, secure, nil
+		return nil, nil
 	}
 
 	select {
@@ -157,9 +144,9 @@ func (c *Core) queryTransports(addr, gameID, room, displayName, roomCode, gameVe
 		case protocol.TypeTransports:
 			var t protocol.Transports
 			if err := json.Unmarshal(reply.Payload, &t); err != nil {
-				return nil, secure, nil
+				return nil, nil
 			}
-			return t.Offers, secure, nil
+			return t.Offers, nil
 		case protocol.TypeWelcome:
 			// An older relay: it does not know query_only, so it treated
 			// this as a real hello and joined us. Nothing to upgrade to, so
@@ -168,15 +155,15 @@ func (c *Core) queryTransports(addr, gameID, room, displayName, roomCode, gameVe
 			// join/leave against pre-2026-08-16 relays only, and the price
 			// of the field being additive rather than a version bump.
 			log.Printf("core: relay at %s does not support transport discovery (older build) — using tcp", addr)
-			return nil, secure, nil
+			return nil, nil
 		default:
 			// A reject (wrong room code, wrong version, ...). Let the real
 			// connect attempt surface it, with its reason, rather than
 			// duplicating that logic here.
-			return nil, secure, nil
+			return nil, nil
 		}
 	case <-time.After(discoverTransportTimeout): // wall-clock: waiting on a real dial
-		return nil, secure, nil
+		return nil, nil
 	}
 }
 

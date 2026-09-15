@@ -162,10 +162,7 @@ func TestASoloSessionUpgradesWhenARelayAppears(t *testing.T) {
 	// The host starts the server.
 	s := relay.NewServer()
 	s.SendHz = protocol.MaxSendHz
-	relayLn, err := net.Listen("tcp", addr)
-	if err != nil {
-		t.Fatalf("bind the relay on the reserved port: %v", err)
-	}
+	relayLn := listenTLSOn(t, addr)
 	defer relayLn.Close()
 	go s.Serve(relayLn)
 
@@ -243,10 +240,7 @@ func TestASessionFlapsBetweenSoloAndJoinedAndTheRecordingSurvivesIt(t *testing.T
 	startRelayOn := func() net.Listener {
 		s := relay.NewServer()
 		s.SendHz = protocol.MaxSendHz
-		ln, err := net.Listen("tcp", addr)
-		if err != nil {
-			t.Fatalf("bind the relay: %v", err)
-		}
+		ln := listenTLSOn(t, addr)
 		go s.Serve(ln)
 		return ln
 	}

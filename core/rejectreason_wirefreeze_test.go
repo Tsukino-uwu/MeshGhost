@@ -2,7 +2,6 @@ package core
 
 import (
 	"encoding/json"
-	"net"
 	"testing"
 	"time"
 
@@ -181,21 +180,14 @@ type rejectClient struct {
 
 func startRejectRelay(t *testing.T, s *relay.Server) string {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	t.Cleanup(func() { ln.Close() })
+	ln := listenTLS(t)
 	go s.Serve(ln)
 	return ln.Addr().String()
 }
 
 func dialRelayHello(t *testing.T, addr string, hello protocol.Hello) *rejectClient {
 	t.Helper()
-	conn, err := transport.Dial(addr)
-	if err != nil {
-		t.Fatalf("dial relay: %v", err)
-	}
+	conn := transport.FromConn(dialRelayTLS(t, addr))
 	rc := &rejectClient{conn: conn, envs: make(chan protocol.Envelope, 8)}
 	conn.OnReceive(func(payload []byte) {
 		var env protocol.Envelope

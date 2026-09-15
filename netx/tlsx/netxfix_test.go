@@ -16,8 +16,7 @@ import (
 // 2026-09-02 for descriptor exhaustion) parked on a channel nothing would ever
 // send to again. The relay logged one "retrying" line and then accepted no tcp
 // for the life of the process while existing rooms kept working, so nothing
-// about it looked broken. tls=auto is the shipped default, so this wrapper is
-// in that path for every relay.
+// about it looked broken. This wrapper is in the tcp path of every relay.
 
 // tempAcceptError is what the kernel hands back as EMFILE/ENFILE: a net.Error
 // that says "not right now", which is the whole reason relay.Serve retries.
@@ -53,7 +52,6 @@ func sniffing(t *testing.T, inner net.Listener) net.Listener {
 		t.Fatalf("ServerConfig: %v", err)
 	}
 	ln, err := tlsx.NewListener(inner, tlsx.ListenConfig{
-		Mode: tlsx.Auto,
 		TLS:  cfg,
 		Logf: func(string, ...any) {},
 	})
@@ -93,9 +91,14 @@ func TestATemporaryAcceptErrorDoesNotStopTheListener(t *testing.T) {
 		t.Fatalf("dial: %v", err)
 	}
 	defer client.Close()
-	if _, err := client.Write([]byte("{\"type\":\"hello\"}\n")); err != nil {
-		t.Fatalf("write: %v", err)
-	}
+	// A TLS handshake in the background: the listener hands the connection up
+	// only once it completes (a plaintext line is refused since 2026-09-15).
+	go func() {
+		secure, err := tlsx.Client(client, testALPN, tlsx.TrustAnyCertificate, testTimeout)
+		if err == nil {
+			_, _ = secure.Write([]byte("{\"type\":\"hello\"}\n"))
+		}
+	}()
 
 	select {
 	case r := <-done:

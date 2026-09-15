@@ -286,6 +286,14 @@ adapters/**/config.json
 # Session working checklist, local only (committed once by mistake 2026-09-08, untracked 2026-09-09)
 REVIEW-FINDINGS.md
 
+# The TLS identity a relay writes beside its config (tls/relay.key is a PRIVATE KEY: whoever has
+# it is that relay to every client that connected before) and the known-servers file a client
+# writes beside its own. Both are per-install runtime state, created on first run (ADR 0066,
+# 2026-09-15). A local dry run of a relay or client from the repo root or from packaging/release/
+# would otherwise leave a private key untracked inside a tracked directory, one `git add -A` from
+# being published; stage-release.ps1 refuses to stage a packaging/release/tls/ folder too.
+tls/
+
 # packaging/release/docs/ is the repo's own docs/*.md, restaged as .txt on every run by
 # dev-scripts/stage-release.ps1 (and by release.yml, which calls it). Never hand-edited and never
 # committed: docs/ is the single copy, and a committed second one is exactly the drift the staging

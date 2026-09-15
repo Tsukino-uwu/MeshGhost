@@ -13,7 +13,6 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/internal/cfg"
 
 	"github.com/Tsukino-uwu/MeshGhost/core"
-	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 	"github.com/Tsukino-uwu/MeshGhost/relay"
 )
@@ -36,19 +35,20 @@ import (
 //     decaying into a discrepancy nobody can date.
 type shippedConfig struct {
 	Client struct {
-		ConnectTo             string `json:"connect_to"`
-		Transport             string `json:"transport"`
-		TLS                   string `json:"tls"`
-		Room                  string `json:"room_name"`
-		Name                  string `json:"player_name"`
-		NameColor             string `json:"player_name_color"`
-		LocalGameBridge       string `json:"local_game_bridge"`
-		Interp                string `json:"interp"`
-		LocalInterp           string `json:"local_interp"`
-		Predict               string `json:"predict"`
-		GhostCollision        string `json:"ghost_collision"`
-		Offline               bool   `json:"offline"`
-		MaxReceiveHzPerPlayer int    `json:"max_receive_hz_per_player"`
+		ConnectTo             string  `json:"connect_to"`
+		Transport             string  `json:"transport"`
+		TLS                   *string `json:"tls"`
+		TLSFingerprint        *string `json:"tls_fingerprint"`
+		Room                  string  `json:"room_name"`
+		Name                  string  `json:"player_name"`
+		NameColor             string  `json:"player_name_color"`
+		LocalGameBridge       string  `json:"local_game_bridge"`
+		Interp                string  `json:"interp"`
+		LocalInterp           string  `json:"local_interp"`
+		Predict               string  `json:"predict"`
+		GhostCollision        string  `json:"ghost_collision"`
+		Offline               bool    `json:"offline"`
+		MaxReceiveHzPerPlayer int     `json:"max_receive_hz_per_player"`
 		Replay                struct {
 			RecordOnLaunch bool   `json:"record_on_launch"`
 			SaveLast       string `json:"save_last"`
@@ -76,12 +76,12 @@ type shippedConfig struct {
 		Hotkeys map[string]string `json:"hotkeys"`
 	} `json:"client"`
 	Server struct {
-		ListenOn       string `json:"listen_on"`
-		Transport      string `json:"transport"`
-		TLS            string `json:"tls"`
-		MaxClients     int    `json:"max_clients"`
-		SendHz         int    `json:"send_hz"`
-		GhostCollision string `json:"ghost_collision"`
+		ListenOn       string  `json:"listen_on"`
+		Transport      string  `json:"transport"`
+		TLS            *string `json:"tls"`
+		MaxClients     int     `json:"max_clients"`
+		SendHz         int     `json:"send_hz"`
+		GhostCollision string  `json:"ghost_collision"`
 	} `json:"server"`
 }
 
@@ -149,18 +149,15 @@ func TestShippedConfigTracksCodeDefaults(t *testing.T) {
 		t.Errorf("shipped max_receive_hz_per_player is %d but core.DefaultMaxReceiveHz is %d",
 			cfg.Client.MaxReceiveHzPerPlayer, core.DefaultMaxReceiveHz)
 	}
-	// tls used to be a deliberate divergence -- the flag defaulted to off so a client could not
-	// suddenly demand encryption from an older relay. That reasoning was retired on 2026-08-19:
-	// the project's stance is that everyone is on the latest release, so a default that exists to
-	// protect stale versions is protecting nobody while leaving fresh installs unencrypted by
-	// default. Both flags now default to auto, and the shipped config must agree.
-	if cfg.Client.TLS != tlsx.Auto.String() {
-		t.Errorf("shipped client tls is %q but the flag default is %q",
-			cfg.Client.TLS, tlsx.Auto.String())
+	// tls and tls_fingerprint are gone since 2026-09-15 (ADR 0066): every connection is TLS
+	// and the relay's identity is remembered automatically. A shipped config that still carried
+	// "tls" would, at best, print an obsolete-key note on every launch and, at "auto", refuse to
+	// start -- so the keys must be absent from both sections.
+	if cfg.Client.TLS != nil || cfg.Client.TLSFingerprint != nil {
+		t.Errorf("the shipped client section still carries tls/tls_fingerprint; both keys are obsolete")
 	}
-	if cfg.Server.TLS != tlsx.Auto.String() {
-		t.Errorf("shipped server tls is %q but the flag default is %q",
-			cfg.Server.TLS, tlsx.Auto.String())
+	if cfg.Server.TLS != nil {
+		t.Errorf("the shipped server section still carries tls; the key is obsolete")
 	}
 }
 

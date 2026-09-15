@@ -18,7 +18,7 @@ func TestApplyLiveNamesEveryChangedKeyAndAppliesTheLiveGroups(t *testing.T) {
 		relayAddr: "127.0.0.1:7777", bridgeAddr: "127.0.0.1:7778", gameID: "a", room: "r1", name: "n1", nameColor: "#111111",
 		interp: 450 * time.Millisecond, localInterp: 100 * time.Millisecond, minSend: 50 * time.Millisecond, keepalive: time.Second,
 		extrapolate: 0, curve: "linear", predict: "linear", stats: 0, roomCode: "", gameVersion: "v1", maxReceiveHz: 30,
-		ghostCollision: "enabled", transport: "tcp", tlsMode: "auto", tlsPin: "", showConsole: false, offline: false, features: "",
+		ghostCollision: "enabled", transport: "tcp", legacyTLS: "", legacyPin: "", showConsole: false, offline: false, features: "",
 		recordOnLaunch: false, saveLast: 30 * time.Second, replayStart: 0, replaySeek: 5 * time.Second,
 		splitTimes: false, replayGzip: false, replayDelta: true, replayInputs: false, replayName: "", replayColor: "",
 		hkRecord: "ctrl+shift+F9", hkSaveLast: "ctrl+shift+F10", hkReplayLast: "ctrl+shift+F11",
@@ -30,7 +30,7 @@ func TestApplyLiveNamesEveryChangedKeyAndAppliesTheLiveGroups(t *testing.T) {
 		relayAddr: "10.0.0.1:7777", bridgeAddr: "127.0.0.1:7790", gameID: "b", room: "r2", name: "n2", nameColor: "#222222",
 		interp: 300 * time.Millisecond, localInterp: 120 * time.Millisecond, minSend: 66 * time.Millisecond, keepalive: 2 * time.Second,
 		extrapolate: 50 * time.Millisecond, curve: "catmull-rom", predict: "damped", stats: time.Second, roomCode: "code", gameVersion: "v2", maxReceiveHz: 20,
-		ghostCollision: "disabled", transport: "quic", tlsMode: "off", tlsPin: "ab", showConsole: true, offline: true, features: "x",
+		ghostCollision: "disabled", transport: "quic", legacyTLS: "off", legacyPin: "ab", showConsole: true, offline: true, features: "x",
 		recordOnLaunch: true, saveLast: 60 * time.Second, replayStart: time.Second, replaySeek: 10 * time.Second,
 		splitTimes: true, replayGzip: true, replayDelta: false, replayInputs: true, replayName: "rn", replayColor: "#333333",
 		hkRecord: "ctrl+shift+F1", hkSaveLast: "ctrl+shift+F2", hkReplayLast: "ctrl+shift+F3",
@@ -53,7 +53,7 @@ func TestApplyLiveNamesEveryChangedKeyAndAppliesTheLiveGroups(t *testing.T) {
 		"connect_to 127.0.0.1:7777 -> 10.0.0.1:7777", "room_name r1 -> r2", "room_code", "player_name n1 -> n2", "player_name_color",
 		"max_receive_hz_per_player 30 -> 20", "offline false -> true",
 		"hotkeys.record_toggle", "hotkeys.save_last", "hotkeys.replay_last", "hotkeys.replay_restart", "hotkeys.replay_rewind", "hotkeys.replay_fast_forward",
-		"bridge", "game a -> b", "game_version", "min_send", "keepalive", "stats", "transport tcp -> quic", "tls auto -> off",
+		"bridge", "game a -> b", "game_version", "min_send", "keepalive", "stats", "transport tcp -> quic", "tls  -> off",
 		"tls_fingerprint", "show_console", "features",
 	} {
 		if !strings.Contains(report, key) {

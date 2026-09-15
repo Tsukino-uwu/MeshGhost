@@ -30,7 +30,6 @@ import (
 	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/netx"
-	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
@@ -520,26 +519,18 @@ type Core struct {
 	// without an explicit override, because the bridge is unauthenticated.) See the transport ADR in
 	// agent_docs/architecture.md.
 	Transport netx.Kind
-	// TLS turns on encryption for this Core's tcp legs — both the
-	// discovery handshake and, when the session itself stays on tcp, the
-	// session. The zero value (tlsx.Off) is plaintext, the behaviour every
-	// pre-2026-08-19 Core had, so an unset Core is on the identical code
-	// path.
+	// KnownRelays is this Core's memory of which relay is which: every leg
+	// to a relay -- tcp discovery, tcp session, quic session -- is TLS, and
+	// the relay's certificate is checked against what this store remembers
+	// for the configured address (trust on first use; knownrelays.go).
 	//
-	// This matters even for a quic session: the discovery leg is always
-	// tcp and always carries the room code, so a quic client with TLS off
-	// still hands the room code to anyone watching the network. See the
-	// TLS-over-tcp ADR in agent_docs/architecture.md.
-	//
-	// tlsx.Auto and tlsx.Required both refuse to talk to a relay that
-	// cannot handshake; only tlsx.Off dials plaintext. Auto's plaintext
-	// fallback was withdrawn 2026-09-15 (netx.DialWithTLS says why).
-	TLS tlsx.Mode
-	// TLSFingerprint optionally pins the relay's self-signed certificate:
-	// the SHA-256 the relay prints in its own log, compared out of band by
-	// a human. Empty means encryption without authentication, which is
-	// exactly what quic already gives (docs/security.md).
-	TLSFingerprint string
+	// Nil means an in-memory store, allocated on first use: the first
+	// connection of the process trusts and remembers, every later one is
+	// checked against it, nothing is written to disk. That keeps every Core
+	// built without one -- every existing test -- working unchanged while
+	// leaving no path that trusts blindly. cmd/meshghost sets a file-backed
+	// one so the memory survives a relaunch. ADR 0066.
+	KnownRelays *KnownRelays
 	// MaxReceiveHz is sent as Hello.MaxReceiveHz — the highest rate, per
 	// peer, at which this client asks the relay to forward other players'
 	// state to it. Zero (DefaultMaxReceiveHz) means uncapped. A request, not

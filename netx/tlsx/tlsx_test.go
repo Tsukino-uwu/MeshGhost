@@ -18,23 +18,30 @@ const testALPN = "meshghost"
 
 const testTimeout = 5 * time.Second
 
-// serve brings up a sniffing listener in mode, plus an echo-ish accept loop
-// that reads one line per connection and reports it on the returned
-// channel. Returns the address to dial and the fingerprint of the
-// certificate it is using.
-func serve(t *testing.T, mode tlsx.Mode) (addr, fingerprint string, lines chan string) {
+// serve brings up a sniffing listener plus an echo-ish accept loop that
+// reads one line per connection and reports it on the returned channel.
+// Returns the address to dial and the fingerprint of the certificate it is
+// using.
+func serve(t *testing.T) (addr, fingerprint string, lines chan string) {
 	t.Helper()
 
 	cfg, fp, err := tlsx.ServerConfig(testALPN)
 	if err != nil {
 		t.Fatalf("ServerConfig: %v", err)
 	}
+	addr, lines = serveWith(t, cfg)
+	return addr, fp, lines
+}
+
+// serveWith is serve for a caller that built the config itself (the
+// identity tests).
+func serveWith(t *testing.T, cfg *tls.Config) (addr string, lines chan string) {
+	t.Helper()
 	raw, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
 	ln, err := tlsx.NewListener(raw, tlsx.ListenConfig{
-		Mode:             mode,
 		TLS:              cfg,
 		HandshakeTimeout: testTimeout,
 		Logf:             func(string, ...any) {},
@@ -72,109 +79,44 @@ func serve(t *testing.T, mode tlsx.Mode) (addr, fingerprint string, lines chan s
 			}(c)
 		}
 	}()
-	return ln.Addr().String(), fp, lines
+	return ln.Addr().String(), lines
 }
 
-func TestParseModeRejectsATypo(t *testing.T) {
-	if _, err := tlsx.ParseMode("requried"); err == nil {
-		t.Fatal("a typo'd tls mode parsed cleanly; it would silently mean off, which is the whole trap")
+// dialTLS is a client handshake that accepts any certificate: what a test
+// that is not about verification uses.
+func dialTLS(t *testing.T, addr string) net.Conn {
+	t.Helper()
+	c, err := net.DialTimeout("tcp", addr, testTimeout)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
 	}
-}
-
-func TestParseModeAcceptsEveryMode(t *testing.T) {
-	for in, want := range map[string]tlsx.Mode{
-		"off":      tlsx.Off,
-		"OFF":      tlsx.Off,
-		" auto ":   tlsx.Auto,
-		"required": tlsx.Required,
-		"on":       tlsx.Required,
-		"true":     tlsx.Required,
-	} {
-		got, err := tlsx.ParseMode(in)
-		if err != nil || got != want {
-			t.Errorf("ParseMode(%q) = %v, %v; want %v", in, got, err, want)
-		}
+	secure, err := tlsx.Client(c, testALPN, tlsx.TrustAnyCertificate, testTimeout)
+	if err != nil {
+		t.Fatalf("handshake: %v", err)
 	}
+	return secure
 }
 
-// TestOffIsExactlyTheOldListener: mode off must not even wrap the listener,
-// so the feature costs nothing at all when it is not on — no goroutine, no
-// sniff, no extra byte of latency on the first read.
-func TestOffIsExactlyTheOldListener(t *testing.T) {
+// TestNewListenerNeedsAConfig: there is no mode that returns the listener
+// untouched any more. A caller that forgot the identity gets an error, not
+// a plaintext relay.
+func TestNewListenerNeedsAConfig(t *testing.T) {
 	raw, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
 	defer raw.Close()
-	got, err := tlsx.NewListener(raw, tlsx.ListenConfig{Mode: tlsx.Off})
-	if err != nil {
-		t.Fatalf("NewListener: %v", err)
-	}
-	if got != raw {
-		t.Fatalf("mode off returned a wrapper (%T); it must return the listener untouched", got)
+	if _, err := tlsx.NewListener(raw, tlsx.ListenConfig{}); err == nil {
+		t.Fatal("NewListener without a TLS config returned a listener; it must refuse")
 	}
 }
 
-// TestAutoServesTLSAndPlaintextOnOnePort is the property that makes the
-// feature safe to turn on: a relay with TLS enabled is still drivable by
-// hand with netcat, which is how a session gets debugged.
-func TestAutoServesTLSAndPlaintextOnOnePort(t *testing.T) {
-	addr, _, lines := serve(t, tlsx.Auto)
-
-	plain, err := net.DialTimeout("tcp", addr, testTimeout)
-	if err != nil {
-		t.Fatalf("plaintext dial: %v", err)
-	}
-	defer plain.Close()
-	if _, err := plain.Write([]byte("{\"hello\":1}\n")); err != nil {
-		t.Fatalf("plaintext write: %v", err)
-	}
-	if got := <-lines; !strings.Contains(got, "hello") {
-		t.Fatalf("plaintext line %q did not arrive intact", got)
-	}
-
-	conn, err := net.DialTimeout("tcp", addr, testTimeout)
-	if err != nil {
-		t.Fatalf("tls dial: %v", err)
-	}
-	secure, err := tlsx.Client(conn, testALPN, "", testTimeout)
-	if err != nil {
-		t.Fatalf("tls handshake: %v", err)
-	}
-	defer secure.Close()
-	if _, err := secure.Write([]byte("{\"encrypted\":1}\n")); err != nil {
-		t.Fatalf("tls write: %v", err)
-	}
-	if got := <-lines; !strings.Contains(got, "encrypted") {
-		t.Fatalf("tls line %q did not arrive intact", got)
-	}
-}
-
-// TestTheSniffedByteIsNotEaten: the first byte is consumed to decide what
-// the connection is and has to be replayed. If it were not, every plaintext
-// line would arrive missing its opening brace and every handshake would
-// fail — a corruption that only shows up on the very first byte, which is
-// easy to miss by testing with a long message.
-func TestTheSniffedByteIsNotEaten(t *testing.T) {
-	addr, _, lines := serve(t, tlsx.Auto)
-	c, err := net.DialTimeout("tcp", addr, testTimeout)
-	if err != nil {
-		t.Fatalf("dial: %v", err)
-	}
-	defer c.Close()
-	if _, err := c.Write([]byte("{}\n")); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	if got := <-lines; got != "{}\n" {
-		t.Fatalf("got %q, want the line delivered byte for byte including its first character", got)
-	}
-}
-
-// TestRequiredRefusesPlaintext is the anti-downgrade half: a relay that has
-// been told to require TLS must not hand a plaintext connection upward at
-// all, however well-formed it is.
-func TestRequiredRefusesPlaintext(t *testing.T) {
-	addr, _, lines := serve(t, tlsx.Required)
+// TestAPlaintextClientIsRefused is the anti-downgrade half: a relay must not
+// hand a plaintext connection upward at all, however well-formed it is.
+// Until 2026-09-15 this was the behaviour of tls=required only; now it is
+// the only behaviour.
+func TestAPlaintextClientIsRefused(t *testing.T) {
+	addr, _, lines := serve(t)
 
 	c, err := net.DialTimeout("tcp", addr, testTimeout)
 	if err != nil {
@@ -188,7 +130,7 @@ func TestRequiredRefusesPlaintext(t *testing.T) {
 	}
 	select {
 	case got := <-lines:
-		t.Fatalf("a plaintext line %q reached the application under tls=required", got)
+		t.Fatalf("a plaintext line %q reached the application", got)
 	case <-time.After(500 * time.Millisecond):
 	}
 
@@ -199,88 +141,85 @@ func TestRequiredRefusesPlaintext(t *testing.T) {
 	}
 }
 
-// TestRequiredStillAcceptsTLS: refusing plaintext must not refuse everything.
-func TestRequiredStillAcceptsTLS(t *testing.T) {
-	addr, _, lines := serve(t, tlsx.Required)
+// TestATLSClientIsAccepted: refusing plaintext must not refuse everything,
+// and the sniffed first byte must be replayed -- if it were eaten, the
+// ClientHello would be missing its record header and every handshake would
+// fail, so this test failing is also that test failing.
+func TestATLSClientIsAccepted(t *testing.T) {
+	addr, _, lines := serve(t)
+	secure := dialTLS(t, addr)
+	defer secure.Close()
+	if _, err := secure.Write([]byte("{}\n")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if got := <-lines; got != "{}\n" {
+		t.Fatalf("got %q, want the line delivered byte for byte", got)
+	}
+}
+
+// TestTheVerifierSeesTheRelaysLeafCertificate: what the verifier is handed
+// is the DER of the certificate the listener serves, so a fingerprint
+// computed from it equals the one ServerConfig returned.
+func TestTheVerifierSeesTheRelaysLeafCertificate(t *testing.T) {
+	addr, fp, _ := serve(t)
 	c, err := net.DialTimeout("tcp", addr, testTimeout)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	secure, err := tlsx.Client(c, testALPN, "", testTimeout)
+	var seen string
+	secure, err := tlsx.Client(c, testALPN, func(leaf []byte) error {
+		seen = tlsx.Fingerprint(leaf)
+		return nil
+	}, testTimeout)
 	if err != nil {
 		t.Fatalf("handshake: %v", err)
 	}
-	defer secure.Close()
-	if _, err := secure.Write([]byte("{\"ok\":1}\n")); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	if got := <-lines; !strings.Contains(got, "ok") {
-		t.Fatalf("got %q, want the encrypted line delivered", got)
-	}
-}
-
-// TestPinnedFingerprintAcceptsTheRelayItNames.
-func TestPinnedFingerprintAcceptsTheRelayItNames(t *testing.T) {
-	addr, fp, _ := serve(t, tlsx.Required)
-	c, err := net.DialTimeout("tcp", addr, testTimeout)
-	if err != nil {
-		t.Fatalf("dial: %v", err)
-	}
-	secure, err := tlsx.Client(c, testALPN, fp, testTimeout)
-	if err != nil {
-		t.Fatalf("handshake with the correct pin failed: %v", err)
-	}
 	secure.Close()
+	if seen != fp {
+		t.Fatalf("the verifier saw fingerprint %q, the listener serves %q", seen, fp)
+	}
 }
 
-// TestPinnedFingerprintRefusesAnyoneElse is the only thing in this design
-// that authenticates a relay. Without it, encryption stops a passive
-// listener and nothing else — an active man in the middle presents their
-// own self-signed certificate and is accepted, exactly as on quic today.
-func TestPinnedFingerprintRefusesAnyoneElse(t *testing.T) {
-	addr, fp, _ := serve(t, tlsx.Required)
-
-	// Some other relay's fingerprint: same shape, different certificate.
-	_, otherFP, err := tlsx.ServerConfig(testALPN)
-	if err != nil {
-		t.Fatalf("ServerConfig: %v", err)
-	}
-	if otherFP == fp {
-		t.Fatal("two freshly generated certificates share a fingerprint; the generator is broken")
-	}
-
+// TestAVerifierErrorRefusesTheConnection: the verifier's error is the
+// handshake's error, and nothing was sent past the handshake.
+func TestAVerifierErrorRefusesTheConnection(t *testing.T) {
+	addr, _, lines := serve(t)
 	c, err := net.DialTimeout("tcp", addr, testTimeout)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	if _, err := tlsx.Client(c, testALPN, otherFP, testTimeout); err == nil {
-		t.Fatal("a relay presenting a different certificate was accepted despite a pin")
+	refused := errors.New("not the relay I meant")
+	secure, err := tlsx.Client(c, testALPN, func([]byte) error { return refused }, testTimeout)
+	if err == nil {
+		secure.Close()
+		t.Fatal("a handshake the verifier refused completed")
+	}
+	if !errors.Is(err, refused) {
+		t.Fatalf("handshake error %v does not carry the verifier's reason", err)
+	}
+	select {
+	case got := <-lines:
+		t.Fatalf("a line %q reached the application through a refused handshake", got)
+	case <-time.After(200 * time.Millisecond):
 	}
 }
 
-// TestAPinIsForgivingAboutFormatting: a fingerprint is copied by hand out
-// of a log and pasted into a config file, so colons, spaces and upper case
-// must not turn a correct pin into a scary "different relay" error.
-func TestAPinIsForgivingAboutFormatting(t *testing.T) {
-	addr, fp, _ := serve(t, tlsx.Required)
-
-	var spaced strings.Builder
-	for i := 0; i < len(fp); i += 2 {
-		if i > 0 {
-			spaced.WriteByte(':')
-		}
-		spaced.WriteString(strings.ToUpper(fp[i : i+2]))
-	}
-
+// TestANilVerifierIsAnErrorNotAnUncheckedHandshake: forgetting the verifier
+// must not quietly become "trust anyone". The error comes before a byte is
+// sent, and the socket is closed.
+func TestANilVerifierIsAnErrorNotAnUncheckedHandshake(t *testing.T) {
+	addr, _, _ := serve(t)
 	c, err := net.DialTimeout("tcp", addr, testTimeout)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	secure, err := tlsx.Client(c, testALPN, " "+spaced.String()+" ", testTimeout)
-	if err != nil {
-		t.Fatalf("a colon-separated upper-case pin was rejected: %v", err)
+	if secure, err := tlsx.Client(c, testALPN, nil, testTimeout); err == nil {
+		secure.Close()
+		t.Fatal("Client with a nil verifier handshaked; it must refuse")
 	}
-	secure.Close()
+	if _, err := c.Write([]byte("x")); err == nil {
+		t.Fatal("the socket is still open after the nil-verifier refusal")
+	}
 }
 
 // TestALPNMismatchFails: the ALPN is what tells a MeshGhost relay apart
@@ -288,12 +227,12 @@ func TestAPinIsForgivingAboutFormatting(t *testing.T) {
 // mismatch must break the handshake rather than produce a connection that
 // fails confusingly later.
 func TestALPNMismatchFails(t *testing.T) {
-	addr, _, _ := serve(t, tlsx.Required)
+	addr, _, _ := serve(t)
 	c, err := net.DialTimeout("tcp", addr, testTimeout)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	if _, err := tlsx.Client(c, "something-else", "", testTimeout); err == nil {
+	if _, err := tlsx.Client(c, "something-else", tlsx.TrustAnyCertificate, testTimeout); err == nil {
 		t.Fatal("a handshake with the wrong ALPN succeeded")
 	}
 }
@@ -304,7 +243,7 @@ func TestALPNMismatchFails(t *testing.T) {
 // for the whole handshake timeout — a denial of service anyone can perform
 // with netcat.
 func TestOneSilentClientDoesNotStallEveryoneElse(t *testing.T) {
-	addr, _, lines := serve(t, tlsx.Auto)
+	addr, _, lines := serve(t)
 
 	silent, err := net.DialTimeout("tcp", addr, testTimeout)
 	if err != nil {
@@ -312,10 +251,7 @@ func TestOneSilentClientDoesNotStallEveryoneElse(t *testing.T) {
 	}
 	defer silent.Close()
 
-	talker, err := net.DialTimeout("tcp", addr, testTimeout)
-	if err != nil {
-		t.Fatalf("dial: %v", err)
-	}
+	talker := dialTLS(t, addr)
 	defer talker.Close()
 	if _, err := talker.Write([]byte("{\"second\":1}\n")); err != nil {
 		t.Fatalf("write: %v", err)
@@ -331,8 +267,6 @@ func TestOneSilentClientDoesNotStallEveryoneElse(t *testing.T) {
 	}
 }
 
-// TestIsTLSDistinguishesTheTwo, which is what the core's no-downgrade rule
-// is built on.
 func TestIsTLSDistinguishesTheTwo(t *testing.T) {
 	if tlsx.IsTLS(nil) {
 		t.Error("IsTLS(nil) says encrypted")
@@ -368,7 +302,7 @@ func TestClientClosesTheSocketOnAFailedHandshake(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	if _, err := tlsx.Client(c, testALPN, "", testTimeout); err == nil {
+	if _, err := tlsx.Client(c, testALPN, tlsx.TrustAnyCertificate, testTimeout); err == nil {
 		t.Fatal("handshake against a hung-up listener succeeded")
 	}
 	if _, err := c.Write([]byte("x")); err == nil {
@@ -400,7 +334,6 @@ func TestAHandshakeThatNeverFinishesIsClosedAtTheTimeout(t *testing.T) {
 	const hold = 300 * time.Millisecond
 	var logged atomic.Int32
 	ln, err := tlsx.NewListener(raw, tlsx.ListenConfig{
-		Mode:             tlsx.Auto,
 		TLS:              cfg,
 		HandshakeTimeout: hold,
 		Logf:             func(string, ...any) { logged.Add(1) },

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/netx"
-	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
@@ -154,26 +153,12 @@ func TestUnreachableRelayPropagatesItsError(t *testing.T) {
 // ---------------------------------------------------------------- TLS
 
 // discoveryRelay is a minimum relay for the discovery leg only: it accepts a
-// connection in the given TLS mode, reads one hello, answers with the given
-// transport offers, and hangs up. Enough to exercise resolveTransport,
-// which is where the no-downgrade rule lives.
-func discoveryRelay(t *testing.T, mode tlsx.Mode, offers []protocol.TransportOffer) string {
+// TLS connection with the package's test identity, reads one hello, answers
+// with the given transport offers, and hangs up. Enough to exercise
+// resolveTransport, which is where both legs get their verifier.
+func discoveryRelay(t *testing.T, offers []protocol.TransportOffer) string {
 	t.Helper()
-
-	var opts netx.TLSOptions
-	if mode != tlsx.Off {
-		cfg, _, err := tlsx.ServerConfig(netx.TLSALPN)
-		if err != nil {
-			t.Fatalf("ServerConfig: %v", err)
-		}
-		opts = netx.TLSOptions{Mode: mode, Server: cfg, Logf: func(string, ...any) {}}
-	}
-	ln, err := netx.ListenWithTLS(netx.TCP, "127.0.0.1:0", opts)
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	t.Cleanup(func() { ln.Close() })
-
+	ln := listenTLS(t)
 	go func() {
 		for {
 			c, err := ln.Accept()
@@ -207,114 +192,104 @@ func discoveryRelay(t *testing.T, mode tlsx.Mode, offers []protocol.TransportOff
 	return ln.Addr().String()
 }
 
-// TestATLSDiscoveryLegForbidsAPlaintextSession is the anti-downgrade rule,
-// asserted on behaviour rather than on a mode: the options resolveTransport
-// hands the session leg, after an encrypted discovery leg, refuse a
-// plaintext listener. Until 2026-09-15 this passed by escalating auto to
-// required per attempt; now auto itself never falls back (netx.DialWithTLS,
-// fourth review A1), so nothing escalates and the guarantee still holds --
-// on every reconnect, not only within one attempt.
-func TestATLSDiscoveryLegForbidsAPlaintextSession(t *testing.T) {
-	addr := discoveryRelay(t, tlsx.Auto, offers("tcp", 7780))
+// plaintextRelay is a relay from before 2026-08-19: it reads a line and
+// hangs up, never handshaking.
+func plaintextRelay(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
+				_, _ = bufio.NewReader(c).ReadString(byte('\n'))
+			}(c)
+		}
+	}()
+	return ln.Addr().String()
+}
 
-	c := &Core{Transport: netx.Auto, TLS: tlsx.Auto}
+// TestBothLegsVerifyAgainstOneKnownRelaysEntry: the discovery leg records
+// the relay under the CONFIGURED address, and the options handed to the
+// session leg verify against that same entry -- whatever port the session
+// leg dials. One relay, one entry, both legs.
+func TestBothLegsVerifyAgainstOneKnownRelaysEntry(t *testing.T) {
+	addr := discoveryRelay(t, offers("tcp", 7780))
+	_, fp := testIdentity()
+
+	c := &Core{Transport: netx.Auto}
 	_, _, opts, err := c.resolveTransport(addr, "g", "r", "n", "", "")
 	if err != nil {
 		t.Fatalf("resolveTransport: %v", err)
 	}
-	opts.Logf = func(string, ...any) {}
-	plain := discoveryRelay(t, tlsx.Off, nil)
-	if conn, err := netx.DialWithTLS(netx.TCP, plain, 500*time.Millisecond, opts); err == nil {
-		conn.Close()
-		t.Fatal("the session leg reached a plaintext relay with the options the discovery leg produced")
+	if got, ok := c.KnownRelays.Lookup(addr); !ok || got != fp {
+		t.Fatalf("after the discovery leg the store holds %q (present=%v) for %s; want the relay's %q", got, ok, addr, fp)
+	}
+	if opts.Verify == nil {
+		t.Fatal("the session leg was handed no verifier")
+	}
+	if err := opts.Verify(testIdentityDER()); err != nil {
+		t.Fatalf("the session leg's verifier refused the relay the discovery leg just trusted: %v", err)
 	}
 }
 
 // TestAutoRefusesAPlaintextDiscoveryRelay: the discovery leg carries the room
 // code, so it is the leg that must never go plaintext. A relay that cannot
 // handshake is an error from resolveTransport, not a plaintext query.
-// (Until 2026-09-15 the opposite was asserted here, under the name
-// TestAPlaintextDiscoveryLegKeepsAutoAsAuto: that auto stayed auto after a
-// plaintext leg. That leg no longer happens.)
 func TestAutoRefusesAPlaintextDiscoveryRelay(t *testing.T) {
-	addr := discoveryRelay(t, tlsx.Off, offers("quic", 7780))
-
-	c := &Core{Transport: netx.Auto, TLS: tlsx.Auto}
+	addr := plaintextRelay(t)
+	c := &Core{Transport: netx.Auto}
 	_, _, _, err := c.resolveTransport(addr, "g", "r", "n", "secret", "")
 	if err == nil {
 		t.Fatal("an auto client queried a plaintext relay -- the room code just crossed in the clear")
 	}
-}
-
-// TestTLSRequiredIsCarriedIntoTheSession: what the user configured has to
-// reach the dial, not just the discovery leg. Both legs come from
-// Core.tlsOptions precisely so they cannot disagree.
-func TestTLSRequiredIsCarriedIntoTheSession(t *testing.T) {
-	addr := discoveryRelay(t, tlsx.Required, offers("tcp", 7777))
-
-	c := &Core{Transport: netx.Auto, TLS: tlsx.Required}
-	kind, _, opts, err := c.resolveTransport(addr, "g", "r", "n", "", "")
-	if err != nil {
-		t.Fatalf("resolveTransport: %v", err)
-	}
-	if kind != netx.TCP {
-		t.Fatalf("kind %v, want tcp (the only thing offered)", kind)
-	}
-	if opts.Mode != tlsx.Required {
-		t.Fatalf("tls mode %v, want required", opts.Mode)
+	offers, err := c.queryTransports(addr, "g", "r", "n", "secret", "", c.tlsOptions(addr))
+	if err == nil || len(offers) > 0 {
+		t.Fatal("queryTransports completed against a plaintext relay")
 	}
 }
 
-// TestThePinReachesBothLegs: a fingerprint set by the user has to be
-// applied to the discovery connection as well as the session one, since
-// discovery is where the room code goes. Asserted the blunt way — a
-// deliberately wrong pin must make the discovery handshake itself fail.
-func TestThePinReachesBothLegs(t *testing.T) {
-	addr := discoveryRelay(t, tlsx.Required, offers("tcp", 7777))
-
-	c := &Core{Transport: netx.Auto, TLS: tlsx.Required, TLSFingerprint: "ab:cd"}
-	if _, _, _, err := c.resolveTransport(addr, "g", "r", "n", "", ""); err == nil {
-		t.Fatal("discovery succeeded against a relay whose certificate does not match the pin")
-	}
-
-	// And it is carried onward to the session dial, not consumed by
-	// discovery, which the tcp short-circuit shows without a network.
-	tcpOnly := &Core{Transport: netx.TCP, TLS: tlsx.Required, TLSFingerprint: "ab:cd"}
-	_, _, opts, err := tcpOnly.resolveTransport("127.0.0.1:1", "g", "r", "n", "", "")
-	if err != nil {
-		t.Fatalf("resolveTransport: %v", err)
-	}
-	if opts.Fingerprint != "ab:cd" {
-		t.Fatalf("fingerprint %q was not passed through to the session dial", opts.Fingerprint)
-	}
-}
-
-// TestATCPPreferenceStillGetsTheConfiguredTLSMode: the tcp short-circuit
-// skips discovery entirely, so it is the one path that could silently lose
-// the setting.
-func TestATCPPreferenceStillGetsTheConfiguredTLSMode(t *testing.T) {
-	c := &Core{Transport: netx.TCP, TLS: tlsx.Required}
+// TestATCPPreferenceStillVerifies: the tcp short-circuit skips discovery
+// entirely, so it is the one path that could hand the session a dial with
+// no verifier.
+func TestATCPPreferenceStillVerifies(t *testing.T) {
+	c := &Core{Transport: netx.TCP}
 	_, _, opts, err := c.resolveTransport("127.0.0.1:1", "g", "r", "n", "", "")
 	if err != nil {
 		t.Fatalf("resolveTransport: %v", err)
 	}
-	if opts.Mode != tlsx.Required {
-		t.Fatalf("tls mode %v on the tcp short-circuit, want required", opts.Mode)
+	if opts.Verify == nil {
+		t.Fatal("the tcp short-circuit handed the session leg no verifier")
+	}
+	if c.KnownRelays == nil || c.KnownRelays.Path() != "" {
+		t.Fatalf("a Core without a store must get an in-memory one on first use; got %v", c.KnownRelays)
 	}
 }
 
-// TestARequiredClientNeverQueriesAPlaintextRelay: discovery carries the
-// room code, so "required" has to apply to it too — not only to the session
-// connection that follows.
-func TestARequiredClientNeverQueriesAPlaintextRelay(t *testing.T) {
-	addr := discoveryRelay(t, tlsx.Off, offers("quic", 7780))
-
-	c := &Core{Transport: netx.Auto, TLS: tlsx.Required}
-	offers, secure, err := c.queryTransports(addr, "g", "r", "n", "secret", "")
-	if err == nil && len(offers) > 0 {
-		t.Fatal("a tls=required client completed discovery against a plaintext relay")
+// TestACoreWithoutAStoreNeverDialsUnverified: the in-memory fallback is a
+// real store -- the first connection records, and a second relay at the
+// same address with a different certificate is noticed (warned about, for
+// now: the warning line is the store's, asserted in knownrelays_test.go).
+func TestACoreWithoutAStoreNeverDialsUnverified(t *testing.T) {
+	relayAddr := startRelay(t)
+	c := New()
+	c.RelayAddr = relayAddr
+	c.Room = "room1"
+	c.DisplayName = "alice"
+	c.DialTimeout = testTimeout
+	if err := c.ConnectRelay("emerald"); err != nil {
+		t.Fatalf("connect: %v", err)
 	}
-	if secure {
-		t.Fatal("a failed handshake was reported as an encrypted leg")
+	_, fp := testIdentity()
+	if got, ok := c.KnownRelays.Lookup(relayAddr); !ok || got != fp {
+		t.Fatalf("after connecting, the in-memory store holds %q (present=%v); want %q", got, ok, fp)
 	}
 }

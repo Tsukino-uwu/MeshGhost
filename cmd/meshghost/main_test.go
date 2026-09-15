@@ -54,7 +54,7 @@ func applyTestConfigWithTLS(path string, explicit map[string]bool) (relayAddr, r
 		relayAddr: &relayAddr, bridgeAddr: &bridgeAddr, gameID: &gameID,
 		room: &room, name: &name, interp: &interp, minSend: &minSend,
 		roomCode: &roomCode, gameVersion: &gameVersion, maxReceiveHz: &maxReceiveHz,
-		transport: &transport, tlsMode: &tlsMode, tlsPin: &tlsPin,
+		transport: &transport, legacyTLS: &tlsMode, legacyPin: &tlsPin,
 		showConsole: &showConsole, features: &features,
 	})
 	return relayAddr, roomCode, transport, tlsMode, tlsPin
@@ -320,23 +320,25 @@ func TestWatchParentPIDIgnoresZero(t *testing.T) {
 	}
 }
 
-// TestTLSKeysAreReadFromConfig: config.json is the only surface a player
-// actually uses -- an autostarted client is spawned with no flags at all --
-// so both keys have to work from the file.
-func TestTLSKeysAreReadFromConfig(t *testing.T) {
-	path := writeConfig(t, nil, `{"client":{"tls":"required","tls_fingerprint":"AB:CD"}}`)
+// TestTheObsoleteTLSKeysAreStillReadSoTheyCanBeJudged: both keys are gone
+// from the flags, but an old config.json still carries them, and a value
+// that asked for plaintext or pinned a relay must reach checkLegacyTLSKeys
+// rather than vanish as unknown.
+func TestTheObsoleteTLSKeysAreStillReadSoTheyCanBeJudged(t *testing.T) {
+	path := writeConfig(t, nil, `{"client":{"tls":"off","tls_fingerprint":"AB:CD"}}`)
 	_, _, _, tlsMode, tlsPin := applyTestConfigWithTLS(path, map[string]bool{})
-	if tlsMode != "required" {
-		t.Errorf("tls = %q, want it read from the config file", tlsMode)
+	if tlsMode != "off" {
+		t.Errorf("tls = %q, want the obsolete value read so it can be refused", tlsMode)
 	}
 	if tlsPin != "AB:CD" {
-		t.Errorf("tls_fingerprint = %q, want it read verbatim (normalizing is tlsx's job)", tlsPin)
+		t.Errorf("tls_fingerprint = %q, want it read so it can be refused", tlsPin)
 	}
 }
 
-// TestTLSAbsentFromConfigLeavesTheFlagDefault: an existing config file must
-// behave exactly as it did before this feature existed.
-func TestTLSAbsentFromConfigLeavesTheFlagDefault(t *testing.T) {
+// TestTLSAbsentFromConfigLeavesTheTargetsAlone: an existing config file
+// without the keys leaves both targets empty, which checkLegacyTLSKeys
+// treats as nothing to say.
+func TestTLSAbsentFromConfigLeavesTheTargetsAlone(t *testing.T) {
 	path := writeConfig(t, nil, `{"client":{"connect_to":"1.2.3.4:7777"}}`)
 	_, _, _, tlsMode, tlsPin := applyTestConfigWithTLS(path, map[string]bool{})
 	if tlsMode != "" || tlsPin != "" {
@@ -344,12 +346,38 @@ func TestTLSAbsentFromConfigLeavesTheFlagDefault(t *testing.T) {
 	}
 }
 
-// TestAnExplicitTLSFlagBeatsTheConfigFile, matching every other setting.
-func TestAnExplicitTLSFlagBeatsTheConfigFile(t *testing.T) {
-	path := writeConfig(t, nil, `{"client":{"tls":"off"}}`)
-	_, _, _, tlsMode, _ := applyTestConfigWithTLS(path, map[string]bool{"tls": true})
-	if tlsMode != "" {
-		t.Fatalf("tls = %q, want the file ignored because the flag was passed explicitly", tlsMode)
+// TestTheObsoleteTLSKeysAreJudgedByWhatTheyAskedFor: a plaintext mode or a
+// pin refuses to start -- a security setting is never silently ignored --
+// while the harmless leftovers run with a note.
+func TestTheObsoleteTLSKeysAreJudgedByWhatTheyAskedFor(t *testing.T) {
+	for _, tc := range []struct {
+		mode, pin string
+		wantErr   bool
+		wantNotes int
+	}{
+		{"", "", false, 0},
+		{"required", "", false, 1},
+		{"on", "", false, 1},
+		{"off", "", true, 0},
+		{"auto", "", true, 0},
+		{"requried", "", true, 0},
+		{"", "AB:CD", true, 0},
+		{"", "   ", false, 0},
+		{"required", "abcd", true, 0},
+	} {
+		notes, err := checkLegacyTLSKeys(tc.mode, tc.pin)
+		if (err != nil) != tc.wantErr {
+			t.Errorf("tls=%q pin=%q: err=%v, want error=%v", tc.mode, tc.pin, err, tc.wantErr)
+		}
+		if err == nil && len(notes) != tc.wantNotes {
+			t.Errorf("tls=%q pin=%q: notes=%q, want %d", tc.mode, tc.pin, notes, tc.wantNotes)
+		}
+		if err != nil && !strings.Contains(err.Error(), "2026-09-15") {
+			t.Errorf("tls=%q pin=%q: the error does not say since when: %v", tc.mode, tc.pin, err)
+		}
+	}
+	if _, err := checkLegacyTLSKeys("", "AB:CD"); err == nil || !strings.Contains(err.Error(), "known_relays.json") {
+		t.Errorf("a pin's refusal does not say what replaced it: %v", err)
 	}
 }
 

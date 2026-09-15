@@ -30,6 +30,7 @@ import (
 
 	"github.com/Tsukino-uwu/MeshGhost/bridge"
 	"github.com/Tsukino-uwu/MeshGhost/netx"
+	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
@@ -777,7 +778,9 @@ func waitForRelayTransport(t *testing.T, kind netx.Kind, addr string) {
 	}
 	deadline := time.Now().Add(testTimeout)
 	for {
-		conn, err := netx.Dial(kind, addr, time.Second)
+		// A probe, so trust-any: the question is whether something is
+		// serving the transport, not who. The client under test verifies.
+		conn, err := netx.DialWithTLS(kind, addr, time.Second, netx.TLSOptions{Verify: tlsx.TrustAnyCertificate})
 		if err == nil {
 			conn.Close()
 			return
@@ -942,9 +945,10 @@ func TestAutoTransportUpgradesToQUIC(t *testing.T) {
 }
 
 // TestReleaseBinariesRoundTripAGhostOverTLS is the TLS feature end to end,
-// through the shipped flags rather than the packages: a real relay told
-// -tls required, a real client told the same, and a real ghost carried from
-// the adapter's bridge socket out over an encrypted tcp session and back.
+// through the shipped binaries rather than the packages: a real relay, a
+// real client, no flag about encryption on either (there is none since
+// 2026-09-15), and a real ghost carried from the adapter's bridge socket out
+// over an encrypted tcp session and back.
 //
 // tcp on purpose. quic has been encrypted since it existed, so proving
 // anything there would prove nothing about this feature; tcp is the leg
@@ -964,7 +968,6 @@ func TestReleaseBinariesRoundTripAGhostOverTLS(t *testing.T) {
 	start(t, r.dir, r.relayBin,
 		"-loopback",
 		"-transport", "tcp",
-		"-tls", "required",
 		"-room-code", "e2e-secret",
 		"-addr", r.relayAddr,
 	)
@@ -974,7 +977,6 @@ func TestReleaseBinariesRoundTripAGhostOverTLS(t *testing.T) {
 		"-relay", r.relayAddr,
 		"-bridge", r.bridgeAddr,
 		"-transport", "tcp",
-		"-tls", "required",
 		"-room-code", "e2e-secret",
 		"-game", "e2egame",
 		"-room", "e2eroom",
@@ -995,10 +997,11 @@ func TestReleaseBinariesRoundTripAGhostOverTLS(t *testing.T) {
 		t.Fatalf("no render_remote reached the adapter over tls within %s", testTimeout)
 	}
 
-	// The fingerprint is the only thing a host can hand out to make this
-	// authenticated rather than merely encrypted, so it has to be in the
-	// log they actually read — a feature that works but is undiscoverable
-	// is not shipped.
+	// The fingerprint is what every client remembers this relay by, so it
+	// has to be in the log the host actually reads -- and the identity it
+	// names has to be on disk, beside the binary here since there is no
+	// config, or nothing survives a restart. The client's side of the same
+	// memory is its known-servers file beside ITS config.
 	logBytes, err := os.ReadFile(filepath.Join(r.dir, "meshghost-server.log"))
 	if err != nil {
 		t.Fatalf("read relay log: %v", err)
@@ -1006,37 +1009,59 @@ func TestReleaseBinariesRoundTripAGhostOverTLS(t *testing.T) {
 	if !strings.Contains(string(logBytes), "tls certificate fingerprint:") {
 		t.Fatalf("the relay never printed its certificate fingerprint. Log was:\n%s", logBytes)
 	}
+	for _, name := range []string{"relay.key", "relay.crt", "relay.fingerprint"} {
+		if _, err := os.Stat(filepath.Join(r.dir, "tls", name)); err != nil {
+			t.Errorf("the relay did not persist tls/%s beside itself: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(r.dir, "tls", "known_relays.json")); err != nil {
+		t.Errorf("the client did not write tls/known_relays.json beside its config: %v", err)
+	}
 }
 
-// TestATLSRequiredClientRefusesAPlaintextRelay is the downgrade guard, run
-// against the real binaries: the relay is left at its plaintext default and
-// the client is told tls=required, so nothing must ever reach the adapter.
+// TestTheClientRefusesAPlaintextRelay is the downgrade guard, run against
+// the real client binary: the "relay" is a raw listener that speaks no TLS
+// -- a relay from before 2026-08-19, or an on-path party blackholing the
+// handshake, which look the same from here -- so nothing must ever reach the
+// adapter.
 //
 // This is the property room-code auth never had. A stale relay silently
 // disables room-code checking with no way for a client to notice
-// (agent_docs/risks.md); a required client cannot be disabled from the
-// other end, and this asserts that difference rather than describing it.
-func TestATLSRequiredClientRefusesAPlaintextRelay(t *testing.T) {
+// (agent_docs/risks.md); this client cannot be disabled from the other end,
+// and since 2026-09-15 has no setting that could be, so the plaintext relay
+// here is a listener the test owns rather than a flag the binary lost.
+func TestTheClientRefusesAPlaintextRelay(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and launches real binaries; skipped under -short")
 	}
 
 	r := newRig(t).withFreshPorts(t)
 
-	// -tls off EXPLICITLY, because this test's whole premise is a plaintext relay. It used to
-	// rely on that being the flag default, and when the default became "auto" (2026-08-19) the
-	// relay quietly started serving TLS -- so the client's "required" was satisfied and the test
-	// failed claiming a downgrade it had itself prevented. A fixture that depends on a default is
-	// a fixture that changes meaning when the default does.
-	start(t, r.dir, r.relayBin, "-loopback", "-transport", "tcp", "-addr", r.relayAddr,
-		"-tls", "off")
-	waitForListener(t, r.relayAddr)
+	plain, err := net.Listen("tcp", r.relayAddr)
+	if err != nil {
+		t.Fatalf("listen plaintext relay: %v", err)
+	}
+	t.Cleanup(func() { plain.Close() })
+	go func() {
+		for {
+			c, err := plain.Accept()
+			if err != nil {
+				return
+			}
+			// Read whatever arrives and hang up, as an old relay does with a
+			// line it cannot parse.
+			go func(c net.Conn) {
+				defer c.Close()
+				_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
+				_, _ = c.Read(make([]byte, 4096))
+			}(c)
+		}
+	}()
 
 	start(t, r.dir, r.clientBin,
 		"-relay", r.relayAddr,
 		"-bridge", r.bridgeAddr,
 		"-transport", "tcp",
-		"-tls", "required",
 		"-game", "e2egame",
 		"-room", "e2eroom",
 		"-interp", "0ms",
@@ -1049,8 +1074,8 @@ func TestATLSRequiredClientRefusesAPlaintextRelay(t *testing.T) {
 
 	select {
 	case rr := <-renders:
-		t.Fatalf("a ghost (%s) came back from a PLAINTEXT relay while the client was configured "+
-			"tls=required — the session was silently downgraded", rr.PlayerID)
+		t.Fatalf("a ghost (%s) came back from a PLAINTEXT relay -- the session was silently "+
+			"downgraded", rr.PlayerID)
 	case <-time.After(3 * time.Second):
 	}
 }

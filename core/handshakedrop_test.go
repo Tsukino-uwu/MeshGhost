@@ -195,14 +195,11 @@ func TestASessionDyingDuringOwnershipTransferStillReconnects(t *testing.T) {
 // socket" produced it every single run once the target stopped using an
 // unrealistically short dial timeout to hide it.
 func TestARelayThatHangsUpMidHandshakeIsNoticedImmediately(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	t.Cleanup(func() { ln.Close() })
-	// A relay that accepts and then hangs up without ever answering: the
-	// handshake half of a restarting relay, and the one case neither existing
-	// end of the select could see.
+	ln := listenTLS(t)
+	// A relay that accepts (the TLS handshake included -- listenTLS hands up
+	// only completed ones) and then hangs up without ever answering: the
+	// handshake half of a restarting relay, and the one case neither
+	// existing end of the select could see.
 	go func() {
 		for {
 			conn, err := ln.Accept()
@@ -220,7 +217,7 @@ func TestARelayThatHangsUpMidHandshakeIsNoticedImmediately(t *testing.T) {
 	c.DialTimeout = dialTimeout
 
 	start := time.Now()
-	err = c.ConnectRelay("fuzzgame")
+	err := c.ConnectRelay("fuzzgame")
 	took := time.Since(start)
 
 	if err == nil {
@@ -322,11 +319,7 @@ func TestASecondConnectDoesNotInheritTheFirstsIdentity(t *testing.T) {
 // The invariant, stated so it holds whichever way the select goes: this Core
 // never claims an identity it has no connection for.
 func TestAWelcomeForADeadConnectionIsNotApplied(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	t.Cleanup(func() { ln.Close() })
+	ln := listenTLS(t)
 
 	// A relay that welcomes and hangs up in the same breath, which is what
 	// makes the two events land on the connect goroutine together.

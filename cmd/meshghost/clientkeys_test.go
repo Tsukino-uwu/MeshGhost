@@ -31,7 +31,7 @@ func (id *identity) targets() configTargets {
 		interp: &id.interp, minSend: &id.minSend, roomCode: &id.roomCode,
 		gameVersion: &id.gameVersion, maxReceiveHz: &id.maxReceiveHz,
 		curve: &id.curve, predict: &id.predict, ghostCollision: &id.ghostCollision,
-		transport: &id.transport, tlsMode: &id.tlsMode, tlsPin: &id.tlsPin,
+		transport: &id.transport, legacyTLS: &id.tlsMode, legacyPin: &id.tlsPin,
 		showConsole: &id.showConsole, features: &id.features,
 		replayName: &id.replayName, replayColor: &id.replayColor,
 		chaser: &chaserTargets{name: &id.chaserName, color: &id.chaserColor},

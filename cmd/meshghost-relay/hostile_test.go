@@ -40,7 +40,6 @@ type stackOpts struct {
 	roomCode     string
 	maxClients   int
 	helloTimeout time.Duration
-	tls          tlsx.Mode // the relay's -tls; tlsx.Off is the zero value, so say Auto when you mean the default
 	// sources overrides the per-address table; nil means the one main
 	// builds for maxClients (newSourceTable), which is what ships.
 	sources *srclimit.Table
@@ -59,10 +58,14 @@ func startShippedStack(t *testing.T, opts stackOpts) (string, *relay.Server) {
 	if opts.sources == nil {
 		opts.sources = newSourceTable(opts.maxClients)
 	}
-	listeners, _, err := buildListeners(listenerConfig{
+	identity, _, err := tlsx.ServerConfig(netx.TLSALPN)
+	if err != nil {
+		t.Fatalf("ServerConfig: %v", err)
+	}
+	listeners, err := buildListeners(listenerConfig{
 		kinds:      []netx.Kind{netx.TCP},
 		addr:       "127.0.0.1:0",
-		tls:        opts.tls,
+		identity:   identity,
 		maxClients: opts.maxClients,
 		sources:    opts.sources,
 	})
@@ -229,68 +232,77 @@ func helloFor(code string) protocol.Hello {
 }
 
 // TestShippedStackRejectsAWrongRoomCode is the harness's own proof: through
-// every wrapper, over plaintext and over TLS, a wrong code gets the same
-// legible Reject a raw listener gives.
+// every wrapper, a wrong code gets the same legible Reject a raw listener
+// gives -- over TLS, which since 2026-09-15 is the only way to reach the
+// relay at all. The plaintext row is the other half of that: a plaintext
+// hello, wrong code or right, never reaches the relay and gets no Reject,
+// only a close at the sniff.
 func TestShippedStackRejectsAWrongRoomCode(t *testing.T) {
 	captureLog(t)
-	addr, _ := startShippedStack(t, stackOpts{roomCode: "right", tls: tlsx.Auto})
-	for _, tc := range []struct {
-		name string
-		dial func(*testing.T, string) net.Conn
-	}{
-		{"plaintext", dialRaw},
-		{"tls", dialTLS},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			c := tc.dial(t, addr)
-			sendHello(t, c, helloFor("wrong"))
-			rej := readReject(t, c)
-			if rej.Code != protocol.CodeInvalidRoomCode {
-				t.Fatalf("reject code %q (%q), want %q", rej.Code, rej.Reason, protocol.CodeInvalidRoomCode)
-			}
-			expectClosed(t, c, hostileDialTimeout)
-		})
-	}
+	addr, _ := startShippedStack(t, stackOpts{roomCode: "right"})
+	t.Run("tls", func(t *testing.T) {
+		c := dialTLS(t, addr)
+		sendHello(t, c, helloFor("wrong"))
+		rej := readReject(t, c)
+		if rej.Code != protocol.CodeInvalidRoomCode {
+			t.Fatalf("reject code %q (%q), want %q", rej.Code, rej.Reason, protocol.CodeInvalidRoomCode)
+		}
+		expectClosed(t, c, hostileDialTimeout)
+	})
+	t.Run("plaintext is refused before the code is even read", func(t *testing.T) {
+		c := dialRaw(t, addr)
+		// The RIGHT code, on purpose: the refusal is about the missing
+		// handshake, not the code, and a plaintext client with the right
+		// code is exactly the stale build the sniff exists to turn away.
+		env, err := json.Marshal(protocol.Envelope{Type: protocol.TypeHello})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Write(append(env, '\n')); err != nil {
+			return // closed already
+		}
+		_ = c.SetReadDeadline(time.Now().Add(hostileDialTimeout))
+		if n, err := c.Read(make([]byte, 1)); err == nil || n > 0 {
+			t.Fatalf("the relay answered a plaintext hello with %d byte(s); it must close without a word", n)
+		}
+	})
 }
 
 // TestShippedStackClosesASilentConnectionAtTheHelloTimeout: a socket that
 // never says hello is dropped when the relay's hello timer fires.
 //
-// Two shapes, because the shipped default has two timers in front of a
-// stranger. With tls off the socket reaches the relay directly and the hello
-// timer is the only one. Under auto the TLS sniff holds a byte-less socket
-// for ITS timeout first (tlsx's HandshakeTimeout, 10 s, not configurable
-// through netx.TLSOptions), and only a connection that has sent its first
-// byte is handed to the relay -- so the second case sends one byte and then
-// falls silent, which is the cheapest way a stranger reaches the relay's
-// timer. That the two timers add up is the pass-3 P1b remainder, recorded,
-// not fixed here; this test asserts the relay's half.
+// The shipped stack has two timers in front of a stranger: the TLS sniff
+// holds a byte-less socket for ITS timeout first (tlsx's HandshakeTimeout,
+// 10 s, not configurable through netx.TLSOptions), and only a connection
+// that completed a handshake is handed to the relay, where the hello timer
+// starts. Since 2026-09-15 a plaintext first byte is refused at the sniff,
+// so the cheapest way a stranger reaches the relay's timer is a completed
+// handshake followed by silence -- which is what this test does. That the
+// two timers add up is the pass-3 P1b remainder, recorded, not fixed here;
+// this test asserts the relay's half.
 func TestShippedStackClosesASilentConnectionAtTheHelloTimeout(t *testing.T) {
 	captureLog(t)
 	const hold = 300 * time.Millisecond
-	for _, tc := range []struct {
-		name  string
-		mode  tlsx.Mode
-		first []byte
-	}{
-		{"tls off, nothing sent", tlsx.Off, nil},
-		{"tls auto, one byte then silence", tlsx.Auto, []byte("{")},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			addr, _ := startShippedStack(t, stackOpts{helloTimeout: hold, tls: tc.mode})
-			c := dialRaw(t, addr)
-			started := time.Now()
-			if len(tc.first) > 0 {
-				if _, err := c.Write(tc.first); err != nil {
-					t.Fatalf("write: %v", err)
-				}
-			}
-			expectClosed(t, c, 10*hold)
-			if waited := time.Since(started); waited < hold/2 {
-				t.Fatalf("closed after %s, before the %s hello timeout could have fired", waited, hold)
-			}
-		})
+	addr, _ := startShippedStack(t, stackOpts{helloTimeout: hold})
+	c := dialTLS(t, addr)
+	started := time.Now()
+	expectClosed(t, c, 10*hold)
+	if waited := time.Since(started); waited < hold/2 {
+		t.Fatalf("closed after %s, before the %s hello timeout could have fired", waited, hold)
 	}
+}
+
+// TestShippedStackRefusesAPlaintextClient: a client from before TLS, or a
+// hand tool, is closed at the sniff and never reaches the relay -- so the
+// hello timer is not even what closes it.
+func TestShippedStackRefusesAPlaintextClient(t *testing.T) {
+	captureLog(t)
+	addr, _ := startShippedStack(t, stackOpts{helloTimeout: time.Minute})
+	c := dialRaw(t, addr)
+	if _, err := c.Write([]byte("{\"type\":\"hello\"}\n")); err != nil {
+		return // refused before the write landed
+	}
+	expectClosed(t, c, 5*time.Second)
 }
 
 // TestShippedStackCapsOpenConnectionsFromOneSource is finding A5 through the
@@ -307,7 +319,7 @@ func TestShippedStackCapsOpenConnectionsFromOneSource(t *testing.T) {
 		t.Fatalf("per-source cap %d is not below the listener cap %d; the test would prove nothing",
 			perSource, relay.MaxOpenConnsFor(seats))
 	}
-	addr, _ := startShippedStack(t, stackOpts{maxClients: seats, tls: tlsx.Auto, helloTimeout: time.Minute})
+	addr, _ := startShippedStack(t, stackOpts{maxClients: seats, helloTimeout: time.Minute})
 
 	// Hold the whole per-source allowance open and silent.
 	held := make([]net.Conn, 0, perSource)
@@ -341,9 +353,9 @@ func TestShippedStackCapsOpenConnectionsFromOneSource(t *testing.T) {
 // wrong -- is refused as rate limited before the code is compared.
 func TestShippedStackThrottlesRoomCodeGuessesFromOneSource(t *testing.T) {
 	captureLog(t)
-	addr, _ := startShippedStack(t, stackOpts{roomCode: "right-code", tls: tlsx.Auto})
+	addr, _ := startShippedStack(t, stackOpts{roomCode: "right-code"})
 	for i := 0; i < relay.RoomCodeAttemptBurst; i++ {
-		c := dialRaw(t, addr)
+		c := dialTLS(t, addr)
 		sendHello(t, c, helloFor("wrong"))
 		if rej := readReject(t, c); rej.Code != protocol.CodeInvalidRoomCode {
 			t.Fatalf("guess %d: code %q, want %q", i+1, rej.Code, protocol.CodeInvalidRoomCode)
@@ -353,7 +365,7 @@ func TestShippedStackThrottlesRoomCodeGuessesFromOneSource(t *testing.T) {
 	// The budget is spent: the right code from the same address is refused
 	// as rate limited, and so is another wrong one.
 	for _, code := range []string{"right-code", "wrong"} {
-		c := dialRaw(t, addr)
+		c := dialTLS(t, addr)
 		sendHello(t, c, helloFor(code))
 		rej := readReject(t, c)
 		if rej.Code != protocol.CodeForReason(protocol.ReasonRateLimited) {

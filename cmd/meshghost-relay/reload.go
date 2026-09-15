@@ -4,7 +4,7 @@ package main
 // max_clients. Until 2026-09-15 the relay read its file once, so changing the
 // room code -- the one thing a host does when a code leaks -- meant a restart
 // that dropped every player (fourth adversarial review, B4). The client had
-// re-read its own config for weeks (cmd/meshghost/reload.go); this is the same
+// re-read its own config since 2026-09-09 (cmd/meshghost/reload.go); this is the same
 // poll (internal/cfg.FileWatch) with the relay's own idea of what a change
 // means.
 //
@@ -30,9 +30,9 @@ type relayLive struct {
 	onlyGame   string
 	maxClients int
 
-	addr, transport, quicAddr, udpAddr, tlsMode, ghostCollision string
-	sendHz, resumeGrace                                         int
-	qlog                                                        bool
+	addr, transport, quicAddr, udpAddr, legacyTLS, ghostCollision string
+	sendHz, resumeGrace                                           int
+	qlog                                                          bool
 }
 
 // targets points a configTargets at a relayLive, so applyFileConfig fills a
@@ -41,7 +41,7 @@ func (l *relayLive) targets() configTargets {
 	return configTargets{
 		addr: &l.addr, roomCode: &l.roomCode, onlyGame: &l.onlyGame, maxClients: &l.maxClients,
 		sendHz: &l.sendHz, ghostCollision: &l.ghostCollision, resumeGrace: &l.resumeGrace,
-		transport: &l.transport, quicAddr: &l.quicAddr, udpAddr: &l.udpAddr, tlsMode: &l.tlsMode,
+		transport: &l.transport, quicAddr: &l.quicAddr, udpAddr: &l.udpAddr, legacyTLS: &l.legacyTLS,
 		qlog: &l.qlog,
 	}
 }
@@ -51,7 +51,7 @@ func snapshotRelayLive(t configTargets) relayLive {
 	return relayLive{
 		roomCode: *t.roomCode, onlyGame: *t.onlyGame, maxClients: *t.maxClients,
 		addr: *t.addr, transport: *t.transport, quicAddr: *t.quicAddr, udpAddr: *t.udpAddr,
-		tlsMode: *t.tlsMode, ghostCollision: *t.ghostCollision, sendHz: *t.sendHz,
+		legacyTLS: *t.legacyTLS, ghostCollision: *t.ghostCollision, sendHz: *t.sendHz,
 		resumeGrace: *t.resumeGrace, qlog: *t.qlog,
 	}
 }
@@ -103,8 +103,8 @@ func (w *relayConfigWatcher) reload() []string {
 	live := w.prev
 	w.prev = next
 	w.prev.addr, w.prev.transport, w.prev.quicAddr, w.prev.udpAddr = live.addr, live.transport, live.quicAddr, live.udpAddr
-	w.prev.tlsMode, w.prev.ghostCollision, w.prev.sendHz, w.prev.resumeGrace, w.prev.qlog =
-		live.tlsMode, live.ghostCollision, live.sendHz, live.resumeGrace, live.qlog
+	w.prev.legacyTLS, w.prev.ghostCollision, w.prev.sendHz, w.prev.resumeGrace, w.prev.qlog =
+		live.legacyTLS, live.ghostCollision, live.sendHz, live.resumeGrace, live.qlog
 	return lines
 }
 
@@ -142,7 +142,9 @@ func applyRelayLive(prev, next *relayLive, s *relay.Server) []string {
 	relaunch("transport", prev.transport, next.transport)
 	relaunch("listen_quic", prev.quicAddr, next.quicAddr)
 	relaunch("listen_udp", prev.udpAddr, next.udpAddr)
-	relaunch("tls", prev.tlsMode, next.tlsMode)
+	if prev.legacyTLS != next.legacyTLS {
+		lines = append(lines, "tls: this key is obsolete (every connection is TLS since 2026-09-15); delete it")
+	}
 	relaunch("ghost_collision", prev.ghostCollision, next.ghostCollision)
 	relaunch("send_hz", prev.sendHz, next.sendHz)
 	relaunch("resume_grace_seconds", prev.resumeGrace, next.resumeGrace)

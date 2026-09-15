@@ -35,15 +35,15 @@
 //
 // # Certificates
 //
-// The listener generates an in-memory, self-signed Ed25519 certificate once
-// per process and never writes it anywhere. Nothing verifies it by
-// fingerprint, so a file on disk would buy no security at all while putting
-// a private key next to the executable in a zip people re-share. The client
-// therefore sets InsecureSkipVerify: connect_to is a bare IP with no CA and
-// no hostname to check, so this gives encryption against someone watching
-// the network, not proof of who is on the other end. Binding relay identity
-// to the room code is a separate, scoped-but-unscheduled piece of work —
-// see agent_docs/ideas.md's transport-security section.
+// The shipped relay hands ListenWith the SAME certificate its tcp listener
+// serves (Options.TLS, from tlsx.LoadOrCreateIdentity), so a client sees
+// one fingerprint for one relay whichever transport it lands on; until
+// 2026-09-15 this package generated a second, unverified certificate of its
+// own. Listen without one still self-signs in memory, for tests. The client
+// side verifies through a tlsx.Verifier -- core's known-relays store, which
+// remembers a relay's fingerprint on first connect -- and DialWith refuses a
+// nil verifier rather than skipping the check. There is no CA and no
+// hostname: connect_to is a bare IP. ADR 0066.
 package quicconn
 
 import (
@@ -84,9 +84,10 @@ const (
 )
 
 // newSelfSignedTLSConfig builds the listener's TLS configuration with a
-// freshly generated in-memory certificate. Exported so a caller can reuse
-// one config across listeners; generating per connection would be a free
-// CPU lever for an unauthenticated stranger.
+// freshly generated in-memory certificate: what Listen uses when no shared
+// identity is given, which only a test does. Generating per connection
+// would be a free CPU lever for an unauthenticated stranger, so it is once
+// per listener.
 //
 // The certificate generation itself lives in netx/tlsx, shared with TLS
 // over the tcp transport so there is one self-signed-certificate story in
@@ -99,18 +100,13 @@ func newSelfSignedTLSConfig() (*tls.Config, error) {
 	return cfg, nil
 }
 
-func clientTLSConfig() *tls.Config {
-	return &tls.Config{
-		// No CA and no hostname: connect_to is a bare IP a friend sent
-		// you, so there is nothing a certificate could be checked against.
-		// This still encrypts the session against anyone merely watching
-		// the network, which is strictly more than tcp or udp offer. It
-		// does NOT prove the relay is the one you meant — see the package
-		// doc and agent_docs/ideas.md's transport-security section.
-		InsecureSkipVerify: true,
-		NextProtos:         []string{alpn},
-		MinVersion:         tls.VersionTLS13,
-	}
+// withALPN is the shared identity as this transport serves it: a clone, so
+// the tcp listener's NextProtos are untouched, carrying this package's
+// ALPN (which is the same string -- one protocol, two carriers).
+func withALPN(shared *tls.Config) *tls.Config {
+	cfg := shared.Clone()
+	cfg.NextProtos = []string{alpn}
+	return cfg
 }
 
 // qlogEnabled gates the qlog tracer below. Set once at startup by a binary's
@@ -529,6 +525,11 @@ type Listener struct {
 
 // Options configures ListenWith.
 type Options struct {
+	// TLS is the relay's identity, shared with its tcp listener so one relay
+	// has one fingerprint. Nil generates a self-signed certificate in memory
+	// (tests only; the shipped relay always passes its persisted identity).
+	TLS *tls.Config
+
 	// Sources, when set, bounds handshaked-and-waiting-for-a-stream
 	// connections per client address, on top of the listener-wide
 	// maxPending. The pending window is per listener and had no per-source
@@ -540,16 +541,21 @@ type Options struct {
 }
 
 // Listen binds addr and serves QUIC with a freshly generated self-signed
-// certificate.
+// certificate. For tests; a relay passes its identity through ListenWith.
 func Listen(addr string) (*Listener, error) {
 	return ListenWith(addr, Options{})
 }
 
 // ListenWith is Listen with Options.
 func ListenWith(addr string, o Options) (*Listener, error) {
-	tlsConf, err := newSelfSignedTLSConfig()
-	if err != nil {
-		return nil, err
+	var tlsConf *tls.Config
+	if o.TLS != nil {
+		tlsConf = withALPN(o.TLS)
+	} else {
+		var err error
+		if tlsConf, err = newSelfSignedTLSConfig(); err != nil {
+			return nil, err
+		}
 	}
 	ua, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
@@ -784,16 +790,30 @@ func dialHint(err error) string {
 		" it moves to listen_quic only when plain udp is served too)"
 }
 
-// Dial connects to a quicconn listener at addr, bounded by timeout, and
-// opens the single bidirectional stream the connection carries.
+// Dial is refused: a quic dial without a certificate verifier would accept
+// anyone, and until 2026-09-15 that is exactly what this function did. Use
+// DialWith, and say tlsx.TrustAnyCertificate out loud if that is what you
+// mean (tests, dev tools).
 func Dial(addr string, timeout time.Duration) (net.Conn, error) {
+	return nil, errors.New("quicconn: Dial verifies nothing -- use DialWith with a tlsx.Verifier")
+}
+
+// DialWith connects to a quicconn listener at addr, bounded by timeout,
+// verifies the relay's leaf certificate with verify during the handshake,
+// and opens the single bidirectional stream the connection carries. A nil
+// verifier is an error before any packet is sent.
+func DialWith(addr string, timeout time.Duration, verify tlsx.Verifier) (net.Conn, error) {
 	if timeout <= 0 {
 		timeout = 10 * time.Second
+	}
+	tlsConf, err := tlsx.ClientConfig(alpn, verify)
+	if err != nil {
+		return nil, fmt.Errorf("quicconn: %w", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	qc, err := quic.DialAddr(ctx, addr, clientTLSConfig(), quicConfig())
+	qc, err := quic.DialAddr(ctx, addr, tlsConf, quicConfig())
 	if err != nil {
 		return nil, fmt.Errorf("quicconn: dial %s: %w%s", addr, err, dialHint(err))
 	}

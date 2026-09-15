@@ -2,10 +2,12 @@ package relay
 
 import (
 	"encoding/json"
+	"net"
 	"testing"
 	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/netx"
+	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
@@ -28,7 +30,16 @@ func startServerOn(t *testing.T, s *Server, kind netx.Kind) string {
 // dialTestClientOn is dialTestClient over an arbitrary transport.
 func dialTestClientOn(t *testing.T, kind netx.Kind, addr, gameID, room, name string) *testClient {
 	t.Helper()
-	netConn, err := netx.Dial(kind, addr, 5*time.Second)
+	// quic has no unverified dial since 2026-09-15; these tests are about the
+	// relay, not identity, so they say trust-any out loud. tcp here is a raw
+	// listener (startRelayOn), so it stays on the plain dial.
+	var netConn net.Conn
+	var err error
+	if kind == netx.QUIC {
+		netConn, err = netx.DialWithTLS(kind, addr, 5*time.Second, netx.TLSOptions{Verify: tlsx.TrustAnyCertificate})
+	} else {
+		netConn, err = netx.Dial(kind, addr, 5*time.Second)
+	}
 	if err != nil {
 		t.Fatalf("dial %s: %v", kind, err)
 	}

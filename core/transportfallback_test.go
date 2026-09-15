@@ -119,11 +119,7 @@ func deadPort(t *testing.T) int {
 // first and returns before any transport is dialled -- which is what bounds this whole risk.
 func relayAdvertisingADeadQUICPort(t *testing.T) string {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	t.Cleanup(func() { ln.Close() })
+	ln := listenTLS(t)
 
 	s := relay.NewServer()
 	s.SendHz = protocol.MaxSendHz
@@ -224,11 +220,7 @@ func TestARepeatedlyFailingTransportIsGivenUpOnAndTheSessionSurvivesOnTCP(t *tes
 //
 // Without the reset this test fails at the last assertion with a condemned transport.
 func TestASuccessfulDialResetsTheConsecutiveFailureCount(t *testing.T) {
-	tcpLn, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	t.Cleanup(func() { tcpLn.Close() })
+	tcpLn := listenTLS(t)
 
 	quicPort := deadPort(t)
 	quicAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(quicPort))
@@ -262,10 +254,9 @@ func TestASuccessfulDialResetsTheConsecutiveFailureCount(t *testing.T) {
 	}
 
 	// 2. The relay's quic listener comes up. This dial succeeds, which is what ends the run.
-	quicLn, err := netx.Listen(netx.QUIC, quicAddr)
-	if err != nil {
-		t.Fatalf("listen quic: %v", err)
-	}
+	// The same identity as the tcp leg, as the real relay serves: the core's
+	// known-relays entry for this address must match on quic too.
+	quicLn := listenQUICWithTestIdentity(t, quicAddr)
 	go s.Serve(quicLn)
 	if err := c.ConnectRelay("faketest"); err != nil {
 		t.Fatalf("connecting over a served quic port failed: %v", err)

@@ -194,10 +194,11 @@ func sharedFuzzRelay(t *testing.T) string {
 		// A generous cap removes the harness from the answer. A relay's real capacity behaviour has
 		// its own tests in package relay, where it is the subject rather than the scenery.
 		s.MaxClients = 100000
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		raw, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatalf("listen: %v", err)
 		}
+		ln := serveTLS(t, raw)
 		go s.Serve(ln)
 		fuzzRelayAddr = ln.Addr().String()
 	})

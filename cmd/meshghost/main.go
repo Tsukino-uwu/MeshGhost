@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -25,7 +26,6 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/internal/hotkey"
 	"github.com/Tsukino-uwu/MeshGhost/netx"
 	"github.com/Tsukino-uwu/MeshGhost/netx/quicconn"
-	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
@@ -148,23 +148,15 @@ type fileConfig struct {
 	// packaging/release/README.txt and the transport discovery ADR in
 	// agent_docs/architecture.md.
 	Transport *string `json:"transport"`
-	// TLS encrypts this client's tcp legs: "off", "auto" (the built-in
-	// default) or "required". It applies to the discovery handshake as well
-	// as the session, which is why it matters even when "transport" is
-	// quic -- that handshake is always tcp and it carries the room code.
-	//
-	// Neither "auto" nor "required" ever sends a byte to a relay that
-	// cannot handshake (since 2026-09-15; before that "auto" fell back to
-	// plaintext with a warning). The two differ only on the relay side.
-	// See the TLS-over-tcp ADR in agent_docs/architecture.md.
-	TLS *string `json:"tls"`
-	// TLSFingerprint optionally pins the relay's certificate: the
-	// SHA-256 the relay prints in its own log at startup, given to you by
-	// the host through some other channel. Absent or empty means the
-	// session is encrypted but the relay is not authenticated -- exactly
-	// what quic already gives today (docs/security.md). The relay
-	// regenerates its certificate on every restart, so a pin has to be
-	// re-copied after the host restarts it.
+	// TLS and TLSFingerprint are OBSOLETE (2026-09-15, ADR 0066): every
+	// connection is TLS with nothing to switch, and the relay's identity is
+	// remembered automatically in tls/known_relays.json rather than pinned
+	// by hand. Both are still decoded so an old config's keys are not
+	// reported as unknown, and then judged by checkLegacyTLSKeys: a value
+	// that asked for plaintext, or a pin, refuses to start -- a security
+	// setting is never silently ignored -- and the harmless leftovers run
+	// with a note to delete them.
+	TLS            *string `json:"tls"`
 	TLSFingerprint *string `json:"tls_fingerprint"`
 	// ShowConsole opens a console window for a client that an adapter started
 	// with no window. Absent or false is the point of autostart -- MeshGhost
@@ -335,8 +327,8 @@ type configTargets struct {
 	maxReceiveHz   *int
 	ghostCollision *string
 	transport      *string
-	tlsMode        *string
-	tlsPin         *string
+	legacyTLS      *string // the obsolete "tls" key, for checkLegacyTLSKeys
+	legacyPin      *string // the obsolete "tls_fingerprint" key, likewise
 	showConsole    *bool
 	offline        *bool
 	features       *string
@@ -438,8 +430,8 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) str
 	cfg.Override(explicit, "max-receive-hz-per-player", t.maxReceiveHz, fc.MaxReceiveHzPerPlayer)
 	cfg.Override(explicit, "ghost-collision", t.ghostCollision, fc.GhostCollision)
 	cfg.Override(explicit, "transport", t.transport, fc.Transport)
-	cfg.Override(explicit, "tls", t.tlsMode, fc.TLS)
-	cfg.Override(explicit, "tls-fingerprint", t.tlsPin, fc.TLSFingerprint)
+	cfg.Override(explicit, "tls", t.legacyTLS, fc.TLS)
+	cfg.Override(explicit, "tls-fingerprint", t.legacyPin, fc.TLSFingerprint)
 	cfg.Override(explicit, "show-console", t.showConsole, fc.ShowConsole)
 	cfg.Override(explicit, "offline", t.offline, fc.Offline)
 	if fc.Features != nil && !explicit["features"] {
@@ -583,6 +575,39 @@ func loadClientConfig(path string, explicit map[string]bool, t configTargets) st
 	shown := applyFileConfig(path, explicit, t)
 	normalizeIdentity(t)
 	return shown
+}
+
+// checkLegacyTLSKeys judges the two obsolete config keys (ADR 0066). Empty
+// (absent) is nothing. "tls" that asked for plaintext -- off, auto, or their
+// aliases -- is an ERROR, because the setting meant something about
+// encryption and a client that silently ran with a different meaning would
+// be exactly the "security setting a stale binary ignores" agent_docs/risks.md
+// warns about; "required" and its aliases run with a note. A non-empty
+// "tls_fingerprint" is an error too: the player pinned a relay on purpose,
+// and quietly replacing that with remembering-on-first-use is a downgrade
+// they did not choose -- the error says what replaced it. An empty pin is a
+// leftover and runs with a note.
+func checkLegacyTLSKeys(tlsMode, pin string) (notes []string, err error) {
+	switch strings.ToLower(strings.TrimSpace(tlsMode)) {
+	case "":
+	case "required", "on", "true", "yes":
+		notes = append(notes, "NOTE: the \"tls\" key in config.json is obsolete -- every connection is "+
+			"TLS since 2026-09-15 and there is nothing to switch. Delete the key.")
+	case "off", "false", "no", "auto":
+		return nil, fmt.Errorf("\"tls\": %q in config.json is no longer a choice: every connection is "+
+			"TLS since 2026-09-15 and a plaintext mode does not exist. Delete \"tls\" from config.json "+
+			"to start", tlsMode)
+	default:
+		return nil, fmt.Errorf("\"tls\": %q in config.json is not a value this key ever had, and the key "+
+			"is obsolete -- every connection is TLS since 2026-09-15. Delete it", tlsMode)
+	}
+	if strings.TrimSpace(pin) != "" {
+		return nil, errors.New("\"tls_fingerprint\" in config.json is set, and pins are gone: since " +
+			"2026-09-15 a server's identity is remembered automatically on the first connection, " +
+			"in tls/known_relays.json beside this config, and a change is warned about. Delete " +
+			"\"tls_fingerprint\" from config.json to start")
+	}
+	return notes, nil
 }
 
 // connectRelayWithRetry keeps calling Core.ConnectRelayOnAdapterHello until
@@ -819,22 +844,12 @@ func main() {
 			"tcp (reliable, and the only one readable with netcat while debugging). quic: "+
 			"loss-tolerant, encrypted and hard to spoof. (udp, the plain unencrypted transport, "+
 			"stopped being an option on 2026-09-15 and is refused by name)")
-	tlsMode := flag.String("tls", tlsx.Auto.String(),
-		"encrypt the connection to the relay: auto (the default), off, or required. This covers "+
-			"the tcp handshake every client makes -- the one that carries your room code -- so it "+
-			"is worth setting even when -transport is quic, which only encrypts what comes after. "+
-			"auto (the default) and required both refuse to send anything to a relay that does "+
-			"not complete a TLS handshake -- there is no plaintext fallback; set off only if the "+
-			"host deliberately runs the server with tls off. The relay's "+
-			"certificate is self-signed, so this stops someone READING your traffic; to also stop "+
-			"someone impersonating the relay, ask the host for the fingerprint their relay prints "+
-			"at startup and put it in -tls-fingerprint")
-	tlsPin := flag.String("tls-fingerprint", "",
-		"the relay certificate fingerprint you were given by the host, out of band. When set, a "+
-			"relay presenting anything else is refused instead of trusted. Empty (the default) "+
-			"means an encrypted session with no proof of who is on the other end. Note the relay "+
-			"regenerates its certificate every restart, so this has to be updated when the host "+
-			"restarts theirs")
+	// No -tls or -tls-fingerprint since 2026-09-15: every connection is TLS
+	// and the relay's identity is remembered automatically. The obsolete
+	// config keys are still read into these so they can be judged
+	// (checkLegacyTLSKeys).
+	legacyTLS := new(string)
+	legacyPin := new(string)
 	qlog := flag.Bool("qlog", false,
 		"write quic-go's qlog trace for the quic connection into the directory the QLOGDIR "+
 			"environment variable names (dev diagnostics: packets, losses, congestion window). Off "+
@@ -951,8 +966,8 @@ func main() {
 		maxReceiveHz:   maxReceiveHz,
 		ghostCollision: ghostCollision,
 		transport:      transportName,
-		tlsMode:        tlsMode,
-		tlsPin:         tlsPin,
+		legacyTLS:      legacyTLS,
+		legacyPin:      legacyPin,
 		showConsole:    showConsole,
 		offline:        offline,
 		features:       features,
@@ -1046,41 +1061,15 @@ func main() {
 		log.Fatalf("meshghost: %v", err)
 	}
 
-	// Fatal on a bad value, same reasoning as -transport directly above:
-	// tlsx.Off is the zero value, so a lenient parse would hand someone who
-	// typed "requried" an unencrypted session with no complaint.
-	tlsChoice, err := tlsx.ParseMode(*tlsMode)
-	if err != nil {
-		log.Fatalf("meshghost: %v", err)
-	}
-	// A pin that is not a fingerprint is a startup error, here, before any
-	// line below says "pinned". Until 2026-09-15 "<paste here>" normalized
-	// to nothing and the session ran unauthenticated under a log line
-	// saying it was pinned (fourth adversarial review, A2). Stored back
-	// normalized so every later use sees one shape.
-	if pin, err := tlsx.NormalizeFingerprint(*tlsPin); err != nil {
+	// The obsolete "tls" and "tls_fingerprint" keys: a value that asked for
+	// plaintext, or a pin, is a startup error, never a silently changed
+	// meaning (a security setting is never quietly ignored, risks.md).
+	if notes, err := checkLegacyTLSKeys(*legacyTLS, *legacyPin); err != nil {
 		log.Fatalf("meshghost: %v", err)
 	} else {
-		*tlsPin = pin
-	}
-	if tlsChoice == tlsx.Required && transportKind == netx.UDP {
-		log.Fatalf("meshghost: -transport udp cannot be encrypted (Go has no DTLS) and -tls is "+
-			"%q. Choose quic (encrypted, same loss behaviour) or tcp, or set -tls off if you "+
-			"really want plaintext udp.", tlsChoice)
-	}
-	// A pin means tls is required (see Core.tlsOptions), so it collides with udp
-	// the same way -- and it has to say so HERE, at startup, rather than as a
-	// dial error three seconds later that names neither the pin nor the reason.
-	if tlsChoice == tlsx.Auto && *tlsPin != "" && transportKind == netx.UDP {
-		log.Fatalf("meshghost: tls_fingerprint pins the relay's certificate, which requires a TLS " +
-			"handshake, but -transport udp cannot be encrypted (Go has no DTLS) so there is no " +
-			"certificate to pin. Choose quic (encrypted, same loss behaviour) or tcp, or clear " +
-			"tls_fingerprint if you meant an unauthenticated udp session.")
-	}
-	if tlsChoice == tlsx.Auto && *tlsPin != "" {
-		log.Printf("meshghost: tls_fingerprint is set, so tls is REQUIRED for this session " +
-			"rather than \"auto\" -- a pin that fell back to plaintext when it failed to match " +
-			"would announce an interfering relay by connecting to it anyway.")
+		for _, n := range notes {
+			log.Printf("meshghost: %s", n)
+		}
 	}
 
 	if *qlog {
@@ -1091,8 +1080,9 @@ func main() {
 
 	c := core.New()
 	c.Transport = transportKind
-	c.TLS = tlsChoice
-	c.TLSFingerprint = *tlsPin
+	// Which relay is which, remembered across launches in tls/ beside the
+	// config (trust on first use; core/knownrelays.go, ADR 0066).
+	c.KnownRelays = core.NewKnownRelaysInDir(filepath.Dir(configShown))
 	c.InterpolationDelay = *interp
 	c.LocalInterpolationDelay = *localInterp
 	c.Offline = *offline

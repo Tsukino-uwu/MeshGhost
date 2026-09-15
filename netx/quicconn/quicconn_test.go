@@ -3,6 +3,7 @@ package quicconn
 import (
 	"crypto/tls"
 	"encoding/json"
+	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 	"net"
 	"strings"
@@ -38,7 +39,7 @@ func connect(t *testing.T, l *Listener, firstLine string) (client, server net.Co
 		ch <- accepted{c, err}
 	}()
 
-	client, err := Dial(l.Addr().String(), testTimeout)
+	client, err := DialWith(l.Addr().String(), testTimeout, tlsx.TrustAnyCertificate)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}

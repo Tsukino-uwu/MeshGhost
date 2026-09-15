@@ -21,8 +21,6 @@
     "max_receive_hz_per_player": 0,
 
     "transport": "auto",
-    "tls": "auto",
-    "tls_fingerprint": "",
 
     "local_game_bridge": "127.0.0.1:7778",
     "stats": "0s",
@@ -65,7 +63,6 @@
 
     "transport": "tcp,quic",
     "listen_quic": "",
-    "tls": "auto",
 
     "resume_grace_seconds": 0
   }

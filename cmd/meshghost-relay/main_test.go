@@ -41,18 +41,19 @@ func applyTestConfigFull(path string) (addr, onlyGame, transport, quicAddr strin
 	return addr, onlyGame, transport, quicAddr
 }
 
-// applyTestConfigWithTLS is applyTestConfigFull plus the tls key.
-func applyTestConfigWithTLS(path string) (addr, onlyGame, transport, quicAddr, tlsMode string) {
+// applyTestConfigWithTLS is applyTestConfigFull plus the obsolete tls key,
+// which is still read so checkLegacyTLSKey can judge it.
+func applyTestConfigWithTLS(path string) (addr, onlyGame, transport, quicAddr, legacyTLS string) {
 	var maxClients, sendHz, resumeGrace int
 	var roomCode, udpAddr, ghostCollision string
 	var qlog bool
 	applyFileConfig(path, map[string]bool{}, configTargets{
 		addr: &addr, roomCode: &roomCode, onlyGame: &onlyGame,
 		maxClients: &maxClients, sendHz: &sendHz, resumeGrace: &resumeGrace,
-		transport: &transport, quicAddr: &quicAddr, udpAddr: &udpAddr, tlsMode: &tlsMode,
+		transport: &transport, quicAddr: &quicAddr, udpAddr: &udpAddr, legacyTLS: &legacyTLS,
 		ghostCollision: &ghostCollision, qlog: &qlog,
 	})
-	return addr, onlyGame, transport, quicAddr, tlsMode
+	return addr, onlyGame, transport, quicAddr, legacyTLS
 }
 
 // TestConfigWithUTF8BOMIsStillRead is the regression test for a config file
@@ -172,48 +173,63 @@ func TestEmptyConfigFileIsSilentlyIgnored(t *testing.T) {
 	}
 }
 
-// TestTLSIsReadFromConfig: "tls" has to be settable from config.json, not
-// only from a flag -- a release ships a config file, and nobody hosting for
-// friends passes flags.
-func TestTLSIsReadFromConfig(t *testing.T) {
-	path := writeConfig(t, nil, `{"server": {"tls": "required"}}`)
-	_, _, _, _, tlsMode := applyTestConfigWithTLS(path)
-	if tlsMode != "required" {
-		t.Fatalf("tls = %q, want it read from the config file", tlsMode)
+// TestTheObsoleteTLSKeyIsStillReadSoItCanBeJudged: the key is gone from
+// the flags, but an old config.json still carries it, and a value that asked
+// for plaintext must reach checkLegacyTLSKey rather than vanish as unknown.
+func TestTheObsoleteTLSKeyIsStillReadSoItCanBeJudged(t *testing.T) {
+	path := writeConfig(t, nil, `{"server": {"tls": "off"}}`)
+	_, _, _, _, legacy := applyTestConfigWithTLS(path)
+	if legacy != "off" {
+		t.Fatalf("tls = %q, want the obsolete value read so it can be refused", legacy)
 	}
 }
 
-// TestTLSAbsentFromConfigLeavesTheFlagDefault: an existing config file with
-// no "tls" key must not have its behaviour changed by this feature
-// existing.
-func TestTLSAbsentFromConfigLeavesTheFlagDefault(t *testing.T) {
+// TestTheObsoleteTLSKeyIsJudgedByWhatItAskedFor: plaintext modes refuse to
+// start, "required" runs with a note, absent is silent, and a value the key
+// never had is an error too.
+func TestTheObsoleteTLSKeyIsJudgedByWhatItAskedFor(t *testing.T) {
+	for _, tc := range []struct {
+		value    string
+		wantErr  bool
+		wantNote bool
+	}{
+		{"", false, false},
+		{"required", false, true},
+		{"on", false, true},
+		{"TRUE", false, true},
+		{"off", true, false},
+		{"auto", true, false},
+		{"false", true, false},
+		{"no", true, false},
+		{"requried", true, false},
+	} {
+		note, err := checkLegacyTLSKey(tc.value)
+		if (err != nil) != tc.wantErr {
+			t.Errorf("tls=%q: err=%v, want error=%v", tc.value, err, tc.wantErr)
+		}
+		if (note != "") != tc.wantNote {
+			t.Errorf("tls=%q: note=%q, want note=%v", tc.value, note, tc.wantNote)
+		}
+		if err != nil && !strings.Contains(err.Error(), "2026-09-15") {
+			t.Errorf("tls=%q: the error does not say since when: %v", tc.value, err)
+		}
+	}
+}
+
+// TestTLSAbsentFromConfigLeavesTheTargetAlone: an existing config file with
+// no "tls" key leaves the legacy target untouched.
+func TestTLSAbsentFromConfigLeavesTheTargetAlone(t *testing.T) {
 	path := writeConfig(t, nil, testServerConfig)
-	tlsMode := "off"
+	tlsMode := ""
 	var addr, onlyGame, roomCode, transport, quicAddr string
 	var maxClients, sendHz, resumeGrace int
 	applyFileConfig(path, map[string]bool{}, configTargets{
 		addr: &addr, roomCode: &roomCode, onlyGame: &onlyGame,
 		maxClients: &maxClients, sendHz: &sendHz, resumeGrace: &resumeGrace,
-		transport: &transport, quicAddr: &quicAddr, tlsMode: &tlsMode,
+		transport: &transport, quicAddr: &quicAddr, legacyTLS: &tlsMode,
 	})
-	if tlsMode != "off" {
-		t.Fatalf("tls = %q, want the flag default left alone", tlsMode)
-	}
-}
-
-// TestAnExplicitTLSFlagBeatsTheConfigFile, matching every other key.
-func TestAnExplicitTLSFlagBeatsTheConfigFile(t *testing.T) {
-	path := writeConfig(t, nil, `{"server": {"tls": "off"}}`)
-	tlsMode := "required"
-	var addr, onlyGame, roomCode, transport, quicAddr string
-	var maxClients, sendHz, resumeGrace int
-	applyFileConfig(path, map[string]bool{"tls": true}, configTargets{
-		addr: &addr, roomCode: &roomCode, onlyGame: &onlyGame,
-		maxClients: &maxClients, sendHz: &sendHz, resumeGrace: &resumeGrace,
-		transport: &transport, quicAddr: &quicAddr, tlsMode: &tlsMode,
-	})
-	if tlsMode != "required" {
-		t.Fatalf("tls = %q, want the explicit flag to win over the file", tlsMode)
+	if tlsMode != "" {
+		t.Fatalf("tls = %q, want the target left alone", tlsMode)
 	}
 }
 

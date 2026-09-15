@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/netx"
+	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 )
 
 const conformanceTimeout = 5 * time.Second
@@ -67,7 +68,16 @@ func pair(t *testing.T, kind netx.Kind, greeting string) (client, server net.Con
 		ch <- accepted{c, err}
 	}()
 
-	client, err = netx.Dial(kind, ln.Addr().String(), conformanceTimeout)
+	// quic has no unverified dial since 2026-09-15 (the bare Dial refuses
+	// it); this suite is about framing, not identity, so it says trust-any
+	// out loud. tcp and dev udp stay on the plain Dial, which is what the
+	// suite is conforming.
+	if kind == netx.QUIC {
+		client, err = netx.DialWithTLS(kind, ln.Addr().String(), conformanceTimeout,
+			netx.TLSOptions{Verify: tlsx.TrustAnyCertificate})
+	} else {
+		client, err = netx.Dial(kind, ln.Addr().String(), conformanceTimeout)
+	}
 	if err != nil {
 		t.Fatalf("%s: dial: %v", kind, err)
 	}

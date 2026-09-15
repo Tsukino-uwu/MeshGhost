@@ -40,7 +40,7 @@ type liveValues struct {
 	stats                                                time.Duration
 	roomCode, gameVersion                                string
 	maxReceiveHz                                         int
-	ghostCollision, transport, tlsMode, tlsPin           string
+	ghostCollision, transport, legacyTLS, legacyPin      string
 	showConsole, offline                                 bool
 	features                                             string
 	recordOnLaunch                                       bool
@@ -63,7 +63,7 @@ func (v *liveValues) targets() configTargets {
 		minSend: &v.minSend, keepalive: &v.keepalive, extrapolate: &v.extrapolate, curve: &v.curve,
 		predict: &v.predict, stats: &v.stats, roomCode: &v.roomCode, gameVersion: &v.gameVersion,
 		maxReceiveHz: &v.maxReceiveHz, ghostCollision: &v.ghostCollision, transport: &v.transport,
-		tlsMode: &v.tlsMode, tlsPin: &v.tlsPin, showConsole: &v.showConsole, offline: &v.offline,
+		legacyTLS: &v.legacyTLS, legacyPin: &v.legacyPin, showConsole: &v.showConsole, offline: &v.offline,
 		features: &v.features, recordOnLaunch: &v.recordOnLaunch, saveLast: &v.saveLast,
 		replayStart: &v.replayStart, replaySeek: &v.replaySeek, splitTimes: &v.splitTimes,
 		replayGzip: &v.replayGzip, replayDelta: &v.replayDelta, replayInputs: &v.replayInputs,
@@ -96,7 +96,7 @@ func snapshot(t configTargets) liveValues {
 		minSend: *t.minSend, keepalive: *t.keepalive, extrapolate: *t.extrapolate, curve: *t.curve,
 		predict: *t.predict, stats: *t.stats, roomCode: *t.roomCode, gameVersion: *t.gameVersion,
 		maxReceiveHz: *t.maxReceiveHz, ghostCollision: *t.ghostCollision, transport: *t.transport,
-		tlsMode: *t.tlsMode, tlsPin: *t.tlsPin, showConsole: *t.showConsole, offline: *t.offline,
+		legacyTLS: *t.legacyTLS, legacyPin: *t.legacyPin, showConsole: *t.showConsole, offline: *t.offline,
 		features: *t.features, recordOnLaunch: *t.recordOnLaunch, saveLast: *t.saveLast,
 		replayStart: *t.replayStart, replaySeek: *t.replaySeek, splitTimes: *t.splitTimes,
 		replayGzip: *t.replayGzip, replayDelta: *t.replayDelta, replayInputs: *t.replayInputs,
@@ -249,9 +249,8 @@ func applyLive(prev, next *liveValues, c *core.Core, rebind func([]hotkeyBinding
 	// exception: a live re-read means anything on this machine that can WRITE
 	// this file can move a running session onto a relay of its choosing, in the
 	// couple of seconds before the next poll, with the player still playing and
-	// nothing on screen saying so. tls_fingerprint was already relaunch-only for
-	// the same reason, and these three are the keys that decide who the
-	// fingerprint is even being checked against.
+	// nothing on screen saying so. These three are the keys that decide which
+	// remembered server identity is even being checked against.
 	//
 	// The counter-argument -- that a process which can write your config can
 	// also kill the core and start its own -- is true and is not enough: it
@@ -315,8 +314,9 @@ func applyLive(prev, next *liveValues, c *core.Core, rebind func([]hotkeyBinding
 	changed("keepalive", prev.keepalive, next.keepalive, relaunch)
 	changed("stats", prev.stats, next.stats, relaunch)
 	changed("transport", prev.transport, next.transport, relaunch)
-	changed("tls", prev.tlsMode, next.tlsMode, relaunch)
-	changed("tls_fingerprint", prev.tlsPin, next.tlsPin, relaunch)
+	const obsolete = "this key is obsolete (every connection is TLS since 2026-09-15); delete it"
+	changed("tls", prev.legacyTLS, next.legacyTLS, obsolete)
+	changed("tls_fingerprint", prev.legacyPin, next.legacyPin, obsolete)
 	changed("show_console", prev.showConsole, next.showConsole, relaunch)
 	changed("features", prev.features, next.features, relaunch)
 	return lines

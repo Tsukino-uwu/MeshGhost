@@ -47,11 +47,7 @@ func startRelay(t *testing.T) string {
 // hardening, agent_docs/architecture.md's room-code/version ADR.
 func startRelayWith(t *testing.T, s *relay.Server) string {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	t.Cleanup(func() { ln.Close() })
+	ln := listenTLS(t)
 	go s.Serve(ln)
 	return ln.Addr().String()
 }
@@ -1812,10 +1808,7 @@ func TestConnectRelayOnAdapterHelloRetriesUntilRelayUp(t *testing.T) {
 	}
 
 	// Now actually start the relay on the same address and retry.
-	ln2, err := net.Listen("tcp", addr)
-	if err != nil {
-		t.Fatalf("listen on reserved address %s: %v", addr, err)
-	}
+	ln2 := listenTLSOn(t, addr)
 	t.Cleanup(func() { ln2.Close() })
 	go relay.NewServer().Serve(ln2)
 
@@ -1840,10 +1833,7 @@ func TestConnectRelayOnAdapterHelloRetriesUntilRelayUp(t *testing.T) {
 func TestConnectRelayOnAdapterHelloCachesPermanentReject(t *testing.T) {
 	s := relay.NewServer()
 	s.RoomCode = "letmein"
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
+	ln := listenTLS(t)
 	addr := ln.Addr().String()
 	go s.Serve(ln)
 
@@ -1854,7 +1844,7 @@ func TestConnectRelayOnAdapterHelloCachesPermanentReject(t *testing.T) {
 	c.RoomCode = "wrong-code"
 	c.DialTimeout = testTimeout
 
-	err = c.ConnectRelayOnAdapterHello("emerald", "", nil)
+	err := c.ConnectRelayOnAdapterHello("emerald", "", nil)
 	if err == nil {
 		t.Fatal("expected a rejection for the wrong room code, got nil")
 	}
@@ -1898,11 +1888,7 @@ func TestConnectRelayOnAdapterHelloCachesPermanentReject(t *testing.T) {
 func TestRejectedConnectLeavesNoRelayBehind(t *testing.T) {
 	s := relay.NewServer()
 	s.RoomCode = "letmein"
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	defer ln.Close()
+	ln := listenTLS(t)
 	go s.Serve(ln)
 
 	c := New()
@@ -1912,7 +1898,7 @@ func TestRejectedConnectLeavesNoRelayBehind(t *testing.T) {
 	c.RoomCode = "wrong-code"
 	c.DialTimeout = testTimeout
 
-	err = c.ConnectRelay("emerald")
+	err := c.ConnectRelay("emerald")
 	if err == nil {
 		t.Fatal("expected a rejection for the wrong room code, got nil")
 	}
@@ -2273,11 +2259,7 @@ func TestAdvertisedSendRateIsForgottenOnRelayDisconnect(t *testing.T) {
 // side's own actual throttling behavior is covered end-to-end by
 // relay's TestReceiveCapThrottlesOnlyTheClientThatAskedForIt.
 func TestMaxReceiveHzReachesTheRelayInHello(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	defer ln.Close()
+	ln := listenTLS(t)
 
 	gotHello := make(chan protocol.Hello, 1)
 	go func() {
@@ -2467,10 +2449,7 @@ func TestReconnectKeepsSayingItCannotReachTheRelay(t *testing.T) {
 	// Once a relay is actually there, the complaining stops and the outage
 	// clock resets — otherwise a later blip would report a duration measured
 	// from the first outage of the session.
-	ln2, err := net.Listen("tcp", addr)
-	if err != nil {
-		t.Fatalf("listen on reserved address %s: %v", addr, err)
-	}
+	ln2 := listenTLSOn(t, addr)
 	t.Cleanup(func() { ln2.Close() })
 	go relay.NewServer().Serve(ln2)
 
@@ -2673,11 +2652,7 @@ func dialThrottledFakeAdapterPipeErr(t *testing.T, l *pipeListener, drainBytes i
 // Fails without the fix: IsPermanentRejectErr is false for a plain error.
 func TestSecondGameOnOneCoreIsAPermanentRefusal(t *testing.T) {
 	s := relay.NewServer()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	defer ln.Close()
+	ln := listenTLS(t)
 	go s.Serve(ln)
 
 	c := New()
@@ -2690,7 +2665,7 @@ func TestSecondGameOnOneCoreIsAPermanentRefusal(t *testing.T) {
 		t.Fatalf("first connect as emerald: %v", err)
 	}
 
-	err = c.ConnectRelayOnAdapterHello("crystal", "", nil)
+	err := c.ConnectRelayOnAdapterHello("crystal", "", nil)
 	if err == nil {
 		t.Fatal("a second game_id on one core must be refused, got nil")
 	}

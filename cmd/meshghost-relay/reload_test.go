@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 	"github.com/Tsukino-uwu/MeshGhost/relay"
 )
@@ -40,14 +39,14 @@ func TestRelayReloadAppliesTheThreeLiveKeysWithoutDroppingAnyone(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	writeRelayConfig(t, path, `{"server":{"room_code":"first","max_clients":8}}`)
 
-	addr, srv := startShippedStack(t, stackOpts{roomCode: "first", tls: tlsx.Auto})
+	addr, srv := startShippedStack(t, stackOpts{roomCode: "first"})
 	base := relayLive{maxClients: relay.DefaultMaxClients}
 	live := base
 	live.roomCode = "first"
 	w := newRelayConfigWatcher(path, map[string]bool{}, base, live, srv)
 
 	// A member joins under the first code and stays connected throughout.
-	member := dialRaw(t, addr)
+	member := dialTLS(t, addr)
 	sendHello(t, member, helloFor("first"))
 	if env := readEnvelope(t, member); env.Type != protocol.TypeWelcome {
 		t.Fatalf("member got %q, want a welcome", env.Type)
@@ -57,25 +56,25 @@ func TestRelayReloadAppliesTheThreeLiveKeysWithoutDroppingAnyone(t *testing.T) {
 	settle(w)
 
 	// The old code is refused, the new one admitted, other games refused.
-	c := dialRaw(t, addr)
+	c := dialTLS(t, addr)
 	sendHello(t, c, helloFor("first"))
 	if rej := readReject(t, c); rej.Code != protocol.CodeInvalidRoomCode {
 		t.Fatalf("old code after the reload: %q, want %q", rej.Code, protocol.CodeInvalidRoomCode)
 	}
-	c = dialRaw(t, addr)
+	c = dialTLS(t, addr)
 	h := helloFor("second")
 	h.GameID = "game-b"
 	sendHello(t, c, h)
 	if rej := readReject(t, c); rej.Code != protocol.CodeForReason(protocol.ReasonGameNotAllowed) {
 		t.Fatalf("other game after only_game was set: %q, want %q", rej.Code, protocol.CodeForReason(protocol.ReasonGameNotAllowed))
 	}
-	c = dialRaw(t, addr)
+	c = dialTLS(t, addr)
 	sendHello(t, c, helloFor("second"))
 	if env := readEnvelope(t, c); env.Type != protocol.TypeWelcome {
 		t.Fatalf("new code after the reload got %q, want a welcome", env.Type)
 	}
 	// max_clients 2: the member and this one fill it; a third is refused.
-	third := dialRaw(t, addr)
+	third := dialTLS(t, addr)
 	sendHello(t, third, helloFor("second"))
 	if rej := readReject(t, third); rej.Code != protocol.CodeForReason(protocol.ReasonServerFull) {
 		t.Fatalf("third join under max_clients 2: %q (%q), want server full", rej.Code, rej.Reason)

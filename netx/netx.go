@@ -26,6 +26,7 @@ package netx
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -190,7 +191,10 @@ func Dial(k Kind, addr string, timeout time.Duration) (net.Conn, error) {
 	case UDP:
 		return udpDial(addr, timeout)
 	case QUIC:
-		return quicconn.Dial(addr, timeout)
+		// quic is TLS by construction, so a dial that verifies nothing is
+		// the same downgrade a plaintext tcp dial would be. Refused here
+		// rather than trusted; DialWithTLS is the one dial for it.
+		return nil, errors.New("netx: quic must be dialed through DialWithTLS, which verifies the relay's certificate")
 	case Auto:
 		return nil, fmt.Errorf("netx: %q must be resolved to a concrete transport before dialing (core does this via relay discovery)", Auto)
 	default:
@@ -204,34 +208,31 @@ func Dial(k Kind, addr string, timeout time.Duration) (net.Conn, error) {
 // is listening on the port.
 const TLSALPN = "meshghost"
 
-// TLSOptions turns TLS on for the tcp transport. It is deliberately
-// separate from Kind: TLS is not a fourth transport, it is a property of
-// one of them.
+// TLSOptions is what every shipped transport needs to be encrypted AND
+// verified: the relay's one identity on the listen side, a verifier of it on
+// the dial side. It is deliberately separate from Kind: TLS is not a fourth
+// transport, it is a property every shipped one has. There is no mode --
+// since 2026-09-15 there is nothing to switch (ADR 0066).
 //
-// The other two are unaffected and cannot be affected. quic's handshake is
-// already TLS 1.3, so it satisfies Required by construction. udp cannot be
-// encrypted at all (Go's standard library has no DTLS), so Required plus
-// udp is an error rather than a silently unencrypted session — the same
-// refusal-over-degradation choice ParseKind makes for a typo'd transport
-// name.
+// tcp is wrapped in tlsx; quic's own handshake is TLS 1.3 and is given the
+// same certificate and the same verifier. The tagged dev-only udp transport
+// cannot be encrypted (Go's standard library has no DTLS) and ignores every
+// field here; it never ships (ADR 0065).
 type TLSOptions struct {
-	// Mode is off / auto / required. The zero value is off, so a
-	// zero-valued TLSOptions is exactly the pre-TLS behaviour.
-	Mode tlsx.Mode
-
-	// Server is the listener's certificate config (tlsx.ServerConfig).
-	// Listen-side only, and required when Mode is not off — the caller
-	// builds it so it can log the fingerprint and reuse one certificate
-	// across the process.
+	// Server is the listener's identity (tlsx.LoadOrCreateIdentity, or
+	// tlsx.ServerConfig in a test). Listen-side, required for tcp and quic
+	// -- the caller builds it so it can log the fingerprint and serve one
+	// certificate on every listener.
 	Server *tls.Config
 
-	// Fingerprint is the client-side pin: the relay's certificate
-	// fingerprint, compared out of band. Empty means encryption without
-	// authentication. Dial-side only.
-	Fingerprint string
+	// Verify checks the relay's leaf certificate during the dial-side
+	// handshake, on tcp and quic alike. Required: a nil verifier is an
+	// error, never an unchecked connection. core supplies its known-relays
+	// store's verifier; a test says tlsx.TrustAnyCertificate.
+	Verify tlsx.Verifier
 
-	// Logf receives the downgrade warning and the listener's per-connection
-	// notices. Nil means the standard logger.
+	// Logf receives the listener's per-connection notices. Nil means the
+	// standard logger.
 	Logf func(format string, args ...any)
 
 	// MaxOpenConns bounds accepted-and-not-yet-closed connections per
@@ -254,23 +255,30 @@ func (o TLSOptions) logf(format string, args ...any) {
 	log.Printf(format, args...)
 }
 
-// ListenWithTLS is Listen plus TLS on the tcp transport.
-//
-// Under tlsx.Auto one port serves TLS and plaintext together, so a relay
-// with TLS on is still drivable by hand with netcat. Under tlsx.Required a
-// plaintext connection is closed without being handed to the caller.
+// ListenWithTLS is Listen with the relay's identity: tcp is wrapped so
+// every accepted connection is a completed TLS handshake (a plaintext one
+// is closed, with a throttled log line), and quic serves the same
+// certificate. This is the only listen the shipped relay makes.
 func ListenWithTLS(k Kind, addr string, opts TLSOptions) (net.Listener, error) {
-	ln, err := listenWith(k, addr, opts.Sources)
+	if opts.Server == nil && (k == TCP || k == QUIC) {
+		return nil, fmt.Errorf("netx: ListenWithTLS(%s) needs the relay's identity in TLSOptions.Server", k)
+	}
+	var ln net.Listener
+	var err error
+	if k == QUIC {
+		ln, err = quicconn.ListenWith(addr, quicconn.Options{TLS: opts.Server, Sources: opts.Sources})
+	} else {
+		ln, err = listenWith(k, addr, opts.Sources)
+	}
 	if err != nil {
 		return nil, err
 	}
 	// Before the TLS wrap, so a connection parked in its handshake counts.
 	ln = LimitListenerWith(ln, LimitOptions{Max: opts.MaxOpenConns, Sources: opts.Sources, Logf: opts.logf})
-	if k != TCP || opts.Mode == tlsx.Off {
+	if k != TCP {
 		return ln, nil
 	}
 	wrapped, err := tlsx.NewListener(ln, tlsx.ListenConfig{
-		Mode: opts.Mode,
 		TLS:  opts.Server,
 		Logf: opts.Logf,
 	})
@@ -281,52 +289,47 @@ func ListenWithTLS(k Kind, addr string, opts TLSOptions) (net.Listener, error) {
 	return wrapped, nil
 }
 
-// DialWithTLS is Dial plus TLS on the tcp transport.
+// DialWithTLS is the one dial a client makes: tcp handshaked through tlsx,
+// quic through its own TLS 1.3 handshake, both verified by opts.Verify.
 //
-// The rule is the whole security-relevant part, so it is stated plainly:
-// a client with tls on (auto or required) NEVER falls back to plaintext. A
-// relay that cannot complete a handshake gets no bytes, not even a hello.
-// Only tlsx.Off dials plaintext, and only because the user set it.
+// The rule is the whole security-relevant part, so it is stated plainly: a
+// client NEVER falls back to plaintext, and never accepts a certificate its
+// verifier did not. A relay that cannot complete a handshake gets no bytes,
+// not even a hello.
 //
-// Until 2026-09-15 auto fell back once, with a warning, so a client could
-// still reach a relay built before TLS existed. The fourth adversarial
-// review (A1) showed what that allowance cost: ANY failed handshake took
-// the fallback -- a dropped ClientHello, a reset, the 3 s discovery timeout
-// -- and the plaintext redial carried the room code, so an on-path party
-// only had to break one handshake to read it. And nothing could tell an
-// old relay from that party, because a plaintext relay never answers a
-// ClientHello with bytes: it drops the line it cannot parse and closes at
-// its hello timeout, which is exactly what an attacker blackholing the
-// handshake looks like. Every release since 2026-08-19 speaks TLS, so the
-// allowance was withdrawn (user decision, 2026-09-15); tls-planning removes
-// Off next.
+// Until 2026-09-15 there was an "auto" mode that fell back to plaintext
+// once, with a warning, so a client could still reach a relay built before
+// TLS existed. The fourth adversarial review (A1) showed what that
+// allowance cost: ANY failed handshake took the fallback -- a dropped
+// ClientHello, a reset, the 3 s discovery timeout -- and the plaintext
+// redial carried the room code, so an on-path party only had to break one
+// handshake to read it. And nothing could tell an old relay from that
+// party, because a plaintext relay never answers a ClientHello with bytes.
+// Every release since 2026-08-19 speaks TLS, so the allowance was
+// withdrawn, and the same day the mode went with it (user decision; ADR
+// 0066). The tagged dev-only udp transport is the one plaintext dial left,
+// and it never ships.
 func DialWithTLS(k Kind, addr string, timeout time.Duration, opts TLSOptions) (net.Conn, error) {
-	if opts.Mode == tlsx.Off {
-		return Dial(k, addr, timeout)
-	}
-	if k == UDP && opts.Mode == tlsx.Required {
-		return nil, fmt.Errorf("netx: transport udp cannot be encrypted (Go has no DTLS) but tls is %q — choose quic, or tcp with tls, or set tls to off", opts.Mode)
-	}
-	if k != TCP {
-		// quic is already TLS 1.3; udp under auto is unencryptable and
-		// stays as it was. Neither has anything for this layer to add.
-		return Dial(k, addr, timeout)
+	switch k {
+	case UDP:
+		return Dial(UDP, addr, timeout)
+	case QUIC:
+		return quicconn.DialWith(addr, timeout, opts.Verify)
+	case TCP:
+	default:
+		return Dial(k, addr, timeout) // Auto and unknown: the error Dial gives
 	}
 
 	conn, err := Dial(TCP, addr, timeout)
 	if err != nil {
 		return nil, err
 	}
-	secure, err := tlsx.Client(conn, TLSALPN, opts.Fingerprint, timeout)
-	if err == nil {
-		return secure, nil
+	secure, err := tlsx.Client(conn, TLSALPN, opts.Verify, timeout)
+	if err != nil {
+		return nil, fmt.Errorf("netx: the relay at %s did not complete a TLS handshake (%w). This client "+
+			"never sends an unencrypted byte, because the room code would cross the network readable; "+
+			"either the server is older than 2026-08-19, or something between you and it is "+
+			"interfering.", addr, err)
 	}
-	if opts.Mode == tlsx.Required {
-		return nil, fmt.Errorf("netx: tls is required but the relay at %s did not complete a TLS handshake: %w", addr, err)
-	}
-	return nil, fmt.Errorf("netx: the relay at %s did not complete a TLS handshake (%w). This client "+
-		"refuses an unencrypted session, because the room code would cross the network readable. "+
-		"If the host deliberately runs the server with tls off, set \"tls\" to \"off\" on this side "+
-		"too; otherwise the server is older than 2026-08-19, or something between you and it is "+
-		"interfering.", addr, err)
+	return secure, nil
 }

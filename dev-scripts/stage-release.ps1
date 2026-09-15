@@ -189,11 +189,13 @@ foreach ($f in $modFolders) {
     }
     $text = "{`n" + $root.Substring($cStart, $cEnd - $cStart) + "`n  }`n}`n"
     # A per-game file carries only what a player might touch: the basics, collision and the render
-    # group. Everything else (keepalive, rate caps, transport and tls pins, the machine-local
+    # group. Everything else (keepalive, rate caps, transport, the machine-local
     # bridge, diagnostics, the protocol-level trio) is ABSENT and takes the built-in default, which
     # equals the shipped value; the root config.json keeps the complete set for the server and the
     # hand-run client, and README.txt's ADVANCED list says a missing key can be added to a game's
-    # file. The user's call, 2026-09-03: no good reason for a player to turn tls off or pick udp.
+    # file. The user's call, 2026-09-03: no good reason for a player to pick udp. ('tls' and
+    # 'tls_fingerprint' stay in the list only so a stale root config carrying them is still
+    # stripped; both keys are obsolete since 2026-09-15, ADR 0066.)
     # 'offline' and 'local_interp' joined the list on 2026-09-03 (ADR 0049 and its sibling):
     # offline is a deliberate advanced choice the user asked to keep out of the per-game files,
     # and local_interp is a render knob for a ghost this client invented that nobody should
@@ -317,6 +319,15 @@ Copy-Item -Recurse -Force adapters\emulator\pokemon\emerald\lib packaging\releas
 # exactly two files, so the flag could never be there and a guard looking there could never fire.
 if (Test-Path adapters\emulator\pokemon\crystal\ap_try.flag) {
     throw 'ap_try.flag must never be packaged'
+}
+
+# A relay or client run from packaging\release\ (a local dry run followed by a live test) writes
+# its TLS identity and its known-servers file into tls\ beside its config (ADR 0066). relay.key
+# is a PRIVATE KEY: shipped in a zip, every install would BE the same relay to every client that
+# had connected to any of them. .gitignore keeps the folder out of a commit; this keeps it out of
+# a release even when it is sitting there.
+if (Test-Path packaging\release\tls) {
+    throw 'packaging\release\tls\ exists (a relay or client was run from the release folder); delete it -- relay.key is a private key and must never be packaged'
 }
 
 # docs\ -- the player guides, copied from the repo's docs/ rather than written twice. README.txt

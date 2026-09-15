@@ -36,11 +36,7 @@ import (
 // ever exercises one ordering. With the fix removed this fails within a
 // handful of attempts.
 func TestARejectWinsARaceAgainstTheSocketClosing(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	t.Cleanup(func() { ln.Close() })
+	ln := listenTLS(t)
 
 	payload, err := json.Marshal(protocol.Reject{
 		Reason:    "invalid room code",
@@ -70,8 +66,10 @@ func TestARejectWinsARaceAgainstTheSocketClosing(t *testing.T) {
 				if _, err := conn.Write(line); err != nil {
 					return
 				}
-				if tcp, ok := conn.(*net.TCPConn); ok {
-					_ = tcp.CloseWrite()
+				// A *tls.Conn: its CloseWrite sends close_notify, which is
+				// the end of the stream as the client's reader sees it.
+				if cw, ok := conn.(interface{ CloseWrite() error }); ok {
+					_ = cw.CloseWrite()
 				}
 				// Drain whatever the client says so the deferred Close is not
 				// what ends the client's hello write.

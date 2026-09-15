@@ -12,8 +12,8 @@ import (
 
 // The refusals ARE the attack (P1b-2, 2026-09-12).
 //
-// Both lines this listener writes about a stranger -- a plaintext connection
-// under `tls=required`, and a handshake that failed -- were one line per
+// Both lines this listener writes about a stranger -- a plaintext connection,
+// and a handshake that failed -- were one line per
 // attempt, from an unauthenticated source, on a port that exists to be reached
 // from the internet. A machine opening connections in a loop therefore turned a
 // connection flood into a disk flood, with the host's own log as the amplifier.
@@ -29,7 +29,7 @@ import (
 
 // floodListener stands up a sniffing listener whose Logf records every line, so
 // a test can flood it and count what came out.
-func floodListener(t *testing.T, mode tlsx.Mode) (addr string, lines func() int) {
+func floodListener(t *testing.T) (addr string, lines func() int) {
 	t.Helper()
 
 	cfg, _, err := tlsx.ServerConfig(testALPN)
@@ -43,7 +43,6 @@ func floodListener(t *testing.T, mode tlsx.Mode) (addr string, lines func() int)
 	var mu sync.Mutex
 	n := 0
 	ln, err := tlsx.NewListener(raw, tlsx.ListenConfig{
-		Mode:             mode,
 		TLS:              cfg,
 		HandshakeTimeout: testTimeout,
 		Logf: func(string, ...any) {
@@ -79,15 +78,14 @@ func floodListener(t *testing.T, mode tlsx.Mode) (addr string, lines func() int)
 const attempts = 40
 
 func TestPlaintextRefusalsDoNotFloodTheLog(t *testing.T) {
-	addr, lines := floodListener(t, tlsx.Required)
+	addr, lines := floodListener(t)
 
 	for i := 0; i < attempts; i++ {
 		c, err := net.DialTimeout("tcp", addr, testTimeout)
 		if err != nil {
 			t.Fatalf("dial %d: %v", i, err)
 		}
-		// A plaintext first byte, which is what the sniffer refuses under
-		// Required. 'n' is not tlsRecordHandshake (0x16).
+		// A plaintext first byte, which is what the sniffer refuses. 'n' is not tlsRecordHandshake (0x16).
 		_, _ = c.Write([]byte("n"))
 		c.Close()
 	}
@@ -100,7 +98,7 @@ func TestPlaintextRefusalsDoNotFloodTheLog(t *testing.T) {
 }
 
 func TestFailedHandshakesDoNotFloodTheLog(t *testing.T) {
-	addr, lines := floodListener(t, tlsx.Auto)
+	addr, lines := floodListener(t)
 
 	for i := 0; i < attempts; i++ {
 		// A real TLS ClientHello that cannot succeed: the ALPN does not match,
