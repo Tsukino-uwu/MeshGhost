@@ -3,11 +3,11 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/core"
+	"github.com/Tsukino-uwu/MeshGhost/internal/cfg"
 )
 
 // CONFIG.JSON RE-READ WHILE RUNNING (2026-09-09). A tester edited config.json
@@ -119,56 +119,27 @@ type configWatcher struct {
 	c        *core.Core
 	rebind   func(bindings []hotkeyBinding)
 
-	seenMod     time.Time // the file as last applied
-	seenSize    int64
-	pendingMod  time.Time // a change seen once, waiting to hold still
-	pendingSize int64
-	havePending bool
+	// fw is the poll itself -- mtime and size, applied on the second poll that
+	// shows the same new values. Lifted into internal/cfg on 2026-09-15 so the
+	// relay watches its config the same way; nothing about it changed.
+	fw *cfg.FileWatch
 }
 
 func newConfigWatcher(path string, explicit map[string]bool, base, live liveValues, c *core.Core, rebind func([]hotkeyBinding)) *configWatcher {
-	w := &configWatcher{path: path, explicit: explicit, base: base, prev: live, c: c, rebind: rebind}
-	if info, err := os.Stat(path); err == nil {
-		w.seenMod, w.seenSize = info.ModTime(), info.Size()
-	}
-	return w
+	return &configWatcher{path: path, explicit: explicit, base: base, prev: live, c: c, rebind: rebind,
+		fw: cfg.NewFileWatch(path)}
 }
 
 // run polls once a second until stop closes.
 func (w *configWatcher) run(stop <-chan struct{}) {
-	t := time.NewTicker(time.Second) // wall-clock: it paces a stat() of a file a human edits
-	defer t.Stop()
-	for {
-		select {
-		case <-stop:
-			return
-		case <-t.C:
-			w.poll()
-		}
-	}
+	w.fw.Run(stop, func() { w.reload() })
 }
 
-// poll looks at the file once. A change is applied on the SECOND poll that
-// shows the same new mtime and size -- one poll after the write stopped -- so
-// an editor's two-step save (truncate, then write) is read whole.
+// poll looks at the file once and applies a settled change (cfg.FileWatch).
 func (w *configWatcher) poll() {
-	info, err := os.Stat(w.path)
-	if err != nil {
-		w.havePending = false
-		return // a missing file changes nothing; the settings in force stay
+	if w.fw.Poll() {
+		w.reload()
 	}
-	mod, size := info.ModTime(), info.Size()
-	if mod.Equal(w.seenMod) && size == w.seenSize {
-		w.havePending = false
-		return
-	}
-	if !w.havePending || !mod.Equal(w.pendingMod) || size != w.pendingSize {
-		w.havePending, w.pendingMod, w.pendingSize = true, mod, size
-		return
-	}
-	w.havePending = false
-	w.seenMod, w.seenSize = mod, size
-	w.reload()
 }
 
 // reload re-reads the file into a fresh copy of the flag values, applies what

@@ -372,7 +372,7 @@ func main() {
 	log.SetOutput(logOut)
 	log.Print(located.note)
 
-	applyFileConfig(located.path, explicit, configTargets{
+	targets := configTargets{
 		addr:           addr,
 		roomCode:       roomCode,
 		onlyGame:       onlyGame,
@@ -385,7 +385,11 @@ func main() {
 		udpAddr:        udpAddr,
 		tlsMode:        tlsMode,
 		qlog:           qlog,
-	})
+	}
+	// The flag values BEFORE the file: what every later re-read of the file
+	// starts from (reload.go), so a key removed from the file falls back here.
+	base := snapshotRelayLive(targets)
+	applyFileConfig(located.path, explicit, targets)
 	if *qlog {
 		quicconn.SetQLog(true)
 		log.Printf("meshghost-relay: qlog tracing ON for every quic connection -- traces go to QLOGDIR=%q "+
@@ -613,6 +617,14 @@ func main() {
 	// rather than trying to limp along on the remaining transports, which
 	// would leave some clients able to connect and others not, with only a
 	// log line to explain it.
+	// config.json stays live from here for room_code, only_game and
+	// max_clients (reload.go). The snapshot is taken AFTER main trimmed the
+	// code, so the first diff sees what is actually live.
+	watchStop := make(chan struct{})
+	defer close(watchStop)
+	go newRelayConfigWatcher(located.path, explicit, base, snapshotRelayLive(targets), server).run(watchStop)
+	log.Print(describeRelayReloadable(located.path))
+
 	serveErr := make(chan error, len(listeners))
 	for _, bl := range listeners {
 		go func(bl boundListener) {

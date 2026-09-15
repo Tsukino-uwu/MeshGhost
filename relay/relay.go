@@ -1223,6 +1223,46 @@ type SourceGuard interface {
 	NoteAuthFailure(conn net.Conn)
 }
 
+// SetRoomCode, SetOnlyGame and SetMaxClients change the three settings a
+// running relay re-reads from its config (cmd/meshghost-relay's reload.go,
+// 2026-09-15; fourth adversarial review, B4 -- changing room_code used to
+// mean a restart that dropped everyone). Written under s.mu because the
+// hello path reads them from every connection's goroutine; the getters
+// roomCode and onlyGame are what that path uses. MaxClients is already read
+// under s.mu where it matters (tryReserveSlot, Snapshot), so those keep
+// reading the field directly -- the mutex is not reentrant, and a getter
+// there would deadlock. Nobody is disconnected by any of these: a lowered
+// max_clients refuses the next join, an exchanged room code the next hello.
+func (s *Server) SetRoomCode(code string) {
+	s.mu.Lock()
+	s.RoomCode = code
+	s.mu.Unlock()
+}
+
+func (s *Server) SetOnlyGame(gameID string) {
+	s.mu.Lock()
+	s.OnlyGame = gameID
+	s.mu.Unlock()
+}
+
+func (s *Server) SetMaxClients(n int) {
+	s.mu.Lock()
+	s.MaxClients = n
+	s.mu.Unlock()
+}
+
+func (s *Server) roomCode() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.RoomCode
+}
+
+func (s *Server) onlyGame() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.OnlyGame
+}
+
 // NewServer creates an empty Server with no rooms.
 func NewServer() *Server {
 	return &Server{rooms: make(map[string]*Room), HelloTimeout: DefaultHelloTimeout, MaxClients: DefaultMaxClients}
@@ -1849,7 +1889,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			// game_id checks. subtle.ConstantTimeCompare so a wrong guess
 			// can't be timed byte-by-byte; an empty configured s.RoomCode
 			// means auth is off (the pre-existing no-auth posture).
-			if s.RoomCode != "" {
+			if code := s.roomCode(); code != "" {
 				// The per-address budget, BEFORE the compare: a source that
 				// has guessed wrong too often is told "rate limited" (a
 				// retryable reason the client already backs off on) without
@@ -1861,7 +1901,7 @@ func (s *Server) handleConn(conn net.Conn) {
 					return
 				}
 				given := []byte(hello.RoomCode)
-				want := []byte(s.RoomCode)
+				want := []byte(code)
 				if len(given) != len(want) || subtle.ConstantTimeCompare(given, want) != 1 {
 					if s.SourceGuard != nil {
 						s.SourceGuard.NoteAuthFailure(conn)
@@ -1914,7 +1954,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			// handshake, before any state flows" shape as the checks above.
 			// An empty s.OnlyGame means the relay hosts any game, the
 			// pre-existing posture.
-			if s.OnlyGame != "" && hello.GameID != s.OnlyGame {
+			if only := s.onlyGame(); only != "" && hello.GameID != only {
 				rejectHandshake(hello, protocol.ReasonGameNotAllowed)
 				return
 			}

@@ -172,7 +172,7 @@ func TestConfigWatcherAppliesASaveAndFallsBackForARemovedKey(t *testing.T) {
 		t.Errorf("the file overrode a flag given on the command line: room=%q", c.Room)
 	}
 	w.poll() // nothing new: no re-apply
-	if w.havePending {
+	if w.fw.Pending() {
 		t.Error("a poll with no change left a pending state")
 	}
 }
