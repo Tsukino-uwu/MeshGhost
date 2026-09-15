@@ -184,7 +184,7 @@ func TestEveryHelloStringFieldIsBounded(t *testing.T) {
 		"game_id":      {GameID: over},
 		"room":         {Room: over},
 		"display_name": {DisplayName: over},
-		"room_code":    {RoomCode: over},
+		"pake_ke1":     {PakeKE1: strings.Repeat("A", MaxPakeFieldLen+1)},
 		"game_version": {GameVersion: over},
 		"name_color":   {NameColor: over},
 	} {
@@ -194,7 +194,7 @@ func TestEveryHelloStringFieldIsBounded(t *testing.T) {
 	}
 	at := strings.Repeat("x", MaxHelloFieldLen)
 	if !ValidateHelloFields(Hello{GameID: at, Room: at, DisplayName: at,
-		RoomCode: at, GameVersion: at, NameColor: at}) {
+		PakeKE1: strings.Repeat("A", MaxPakeFieldLen), GameVersion: at, NameColor: at}) {
 		t.Error("a hello with every string field exactly at the bound was rejected")
 	}
 }

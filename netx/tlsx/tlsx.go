@@ -289,6 +289,27 @@ func IsTLS(conn net.Conn) bool {
 	return ok
 }
 
+// PeerFingerprint is the fingerprint of the leaf certificate the peer
+// presented on conn -- a *tls.Conn, or anything exposing its TLS state the
+// way quicconn.Conn does -- or "" when conn is not TLS. It is what the
+// room-code proof binds to (package pake): the identity a client names is
+// the certificate it actually verified on this connection.
+func PeerFingerprint(conn net.Conn) string {
+	var state tls.ConnectionState
+	switch c := conn.(type) {
+	case *tls.Conn:
+		state = c.ConnectionState()
+	case interface{ TLSConnectionState() tls.ConnectionState }:
+		state = c.TLSConnectionState()
+	default:
+		return ""
+	}
+	if len(state.PeerCertificates) == 0 {
+		return ""
+	}
+	return Fingerprint(state.PeerCertificates[0].Raw)
+}
+
 // ListenConfig configures NewListener.
 type ListenConfig struct {
 	// TLS is the server certificate config, from ServerConfig or

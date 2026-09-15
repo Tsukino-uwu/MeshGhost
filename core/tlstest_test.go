@@ -8,6 +8,7 @@ import (
 
 	"github.com/Tsukino-uwu/MeshGhost/netx"
 	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
+	"github.com/Tsukino-uwu/MeshGhost/relay"
 )
 
 // Every relay a core test dials serves TLS, because every relay does since
@@ -29,6 +30,18 @@ var testIdentity = sync.OnceValues(func() (*tls.Config, string) {
 func testIdentityDER() []byte {
 	cfg, _ := testIdentity()
 	return cfg.Certificates[0].Certificate[0]
+}
+
+// bindProofToTestIdentity does what cmd/meshghost-relay does: the room-code
+// proof (ADR 0067) is registered under the fingerprint of the certificate
+// the relay serves, so a core -- which names the fingerprint it verified --
+// can prove a code to a test relay at all. Left unset, the relay registers
+// under pake.UnboundIdentity and every coded join fails on the client, which
+// is the binding working, not a test relay.
+func bindProofToTestIdentity(s *relay.Server) {
+	if s.PakeIdentity == "" {
+		_, s.PakeIdentity = testIdentity()
+	}
 }
 
 // serveTLS wraps a raw listener the way the relay's tcp listener is wrapped:

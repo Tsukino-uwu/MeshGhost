@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tsukino-uwu/MeshGhost/internal/paketest"
 	"github.com/Tsukino-uwu/MeshGhost/netx"
 	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
@@ -169,14 +170,26 @@ func TestRelayMixesAllThreeTransportsInOneRoom(t *testing.T) {
 // does and returns the relay's answer.
 func queryTransports(t *testing.T, addr string, hello protocol.Hello) (protocol.Envelope, bool) {
 	t.Helper()
+	return queryTransportsWithCode(t, addr, hello, "")
+}
+
+// queryTransportsWithCode is queryTransports proving a room code on the
+// discovery leg, as the core does (ADR 0067).
+func queryTransportsWithCode(t *testing.T, addr string, hello protocol.Hello, code string) (protocol.Envelope, bool) {
+	t.Helper()
 	conn, err := transport.Dial(addr)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
 	defer conn.Close()
 
+	prover := paketest.New(t, code, "")
+	hello.PakeKE1 = prover.KE1()
 	replies := make(chan protocol.Envelope, 4)
 	conn.OnReceive(func(payload []byte) {
+		if prover.Handle(payload, conn.Send) {
+			return
+		}
 		var env protocol.Envelope
 		if err := json.Unmarshal(payload, &env); err == nil {
 			replies <- env
@@ -260,10 +273,9 @@ func TestQueryOnlyStillRequiresTheRoomCode(t *testing.T) {
 	s.Offers = []protocol.TransportOffer{{Kind: "quic", Port: 7780}}
 	addr := startServerOn(t, s, netx.TCP)
 
-	reply, ok := queryTransports(t, addr, protocol.Hello{
+	reply, ok := queryTransportsWithCode(t, addr, protocol.Hello{
 		GameID: "emerald", Room: "room1", DisplayName: "stranger",
-		RoomCode: "wrong",
-	})
+	}, "wrong")
 	if !ok {
 		t.Fatal("no reply at all to a query with a wrong room code")
 	}
@@ -276,10 +288,9 @@ func TestQueryOnlyStillRequiresTheRoomCode(t *testing.T) {
 
 	// And the correct code still works, so the check is a real gate rather
 	// than discovery being broken outright.
-	reply, ok = queryTransports(t, addr, protocol.Hello{
+	reply, ok = queryTransportsWithCode(t, addr, protocol.Hello{
 		GameID: "emerald", Room: "room1", DisplayName: "friend",
-		RoomCode: "correct-horse",
-	})
+	}, "correct-horse")
 	if !ok || reply.Type != protocol.TypeTransports {
 		t.Fatalf("a correct room code got %q, want a transport list", reply.Type)
 	}

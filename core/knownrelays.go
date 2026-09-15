@@ -151,7 +151,7 @@ func (k *KnownRelays) verify(addr, fp string) error {
 		// replace.
 		return fmt.Errorf("core: %w", err)
 	}
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := time.Now().UTC().Format(time.RFC3339) // wall-clock: a timestamp for a human reading the file, never compared
 	known, ok := k.entries[addr]
 	switch {
 	case !ok:

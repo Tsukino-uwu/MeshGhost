@@ -59,7 +59,7 @@ func TestAWrongRoomCodeIsReportedToTheGuardAndABlockedSourceIsRefusedFirst(t *te
 	addr := startServerWith(t, s)
 
 	for i := 0; i < 2; i++ {
-		c := dialTestClientWithHello(t, addr, protocol.Hello{GameID: "g", Room: "r", RoomCode: "wrong"})
+		c := dialTestClientWithCode(t, addr, protocol.Hello{GameID: "g", Room: "r"}, "wrong")
 		if rej := c.expectReject(2 * time.Second); rej.Code != protocol.CodeInvalidRoomCode {
 			t.Fatalf("attempt %d: code %q, want %q", i, rej.Code, protocol.CodeInvalidRoomCode)
 		}
@@ -74,7 +74,7 @@ func TestAWrongRoomCodeIsReportedToTheGuardAndABlockedSourceIsRefusedFirst(t *te
 
 	// Blocked now: even the right code is refused, as rate limited, and the
 	// failure count does not move (nothing was compared).
-	c := dialTestClientWithHello(t, addr, protocol.Hello{GameID: "g", Room: "r", RoomCode: "right"})
+	c := dialTestClientWithCode(t, addr, protocol.Hello{GameID: "g", Room: "r"}, "right")
 	rej := c.expectReject(2 * time.Second)
 	if rej.Code != protocol.CodeForReason(protocol.ReasonRateLimited) {
 		t.Fatalf("blocked source got code %q (%q), want the rate-limited one", rej.Code, rej.Reason)
@@ -97,12 +97,12 @@ func TestNoGuardMeansNoBudget(t *testing.T) {
 	s.RoomCode = "right"
 	addr := startServerWith(t, s)
 	for i := 0; i < 5; i++ {
-		c := dialTestClientWithHello(t, addr, protocol.Hello{GameID: "g", Room: "r", RoomCode: "wrong"})
+		c := dialTestClientWithCode(t, addr, protocol.Hello{GameID: "g", Room: "r"}, "wrong")
 		if rej := c.expectReject(2 * time.Second); rej.Code != protocol.CodeInvalidRoomCode {
 			t.Fatalf("attempt %d: code %q, want %q", i, rej.Code, protocol.CodeInvalidRoomCode)
 		}
 		c.conn.Close()
 	}
-	c := dialTestClientWithHello(t, addr, protocol.Hello{GameID: "g", Room: "r", RoomCode: "right"})
+	c := dialTestClientWithCode(t, addr, protocol.Hello{GameID: "g", Room: "r"}, "right")
 	c.expectWelcome(2 * time.Second)
 }

@@ -109,6 +109,13 @@ func (c *Core) ConnectRelay(gameID string) error {
 		}
 		return fmt.Errorf("core: dial relay: %w", err)
 	}
+	// The room-code proof for this connection (roomproof.go): nil with no
+	// code. Prepared here so the hello can carry its first message.
+	proof, err := newRoomProof(roomCode, netConn)
+	if err != nil {
+		_ = netConn.Close()
+		return fmt.Errorf("core: room code proof: %w", err)
+	}
 	conn := transport.FromConnWithLimits(netConn, protocol.MaxLineBytes, 0, 0)
 	c.mu.Lock()
 	// THE DIAL SUCCEEDED, so this transport's consecutive-failure run is over.
@@ -200,7 +207,21 @@ func (c *Core) ConnectRelay(gameID string) error {
 			go c.reconnectWithBackoff(retry.gameID, retry.adapterGameVersion, retry.bridgeConn)
 		}
 	})
-	conn.OnReceive(func(payload []byte) { c.handleRelayMessage(conn, payload, welcome, reject) })
+	conn.OnReceive(func(payload []byte) {
+		// The proof's messages first: a KE2 is answered or refused here and
+		// never reaches the ordinary handler. A refusal is delivered as a
+		// local Reject so the handshake below fails with the same shape a
+		// relay's wrong-code refusal has, permanent and named.
+		if proof.intercept(conn, payload, func(r protocol.Reject) {
+			select {
+			case reject <- r:
+			default:
+			}
+		}) {
+			return
+		}
+		c.handleRelayMessage(conn, payload, welcome, reject)
+	})
 
 	// A resume token from a previous session on this Core, if any. Presented
 	// on every connect attempt: the relay silently ignores one it does not
@@ -226,7 +247,7 @@ func (c *Core) ConnectRelay(gameID string) error {
 		Room:            room,
 		DisplayName:     displayName,
 		NameColor:       c.nameColor(),
-		RoomCode:        roomCode,
+		PakeKE1:         proof.KE1(),
 		GameVersion:     gameVersion,
 		MaxReceiveHz:    c.maxReceiveHz(),
 		Features:        c.effectiveFeatures(),

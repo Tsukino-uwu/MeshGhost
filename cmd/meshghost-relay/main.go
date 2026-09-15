@@ -526,6 +526,10 @@ func main() {
 	server.RoomCode = strings.TrimSpace(*roomCode)
 	*roomCode = server.RoomCode
 	server.SourceGuard = sources
+	// The room-code proof binds to THIS relay's certificate (ADR 0067): a
+	// client's proof names the fingerprint it verified, so it fails against
+	// anyone presenting another certificate, whatever they relay.
+	server.PakeIdentity = fingerprint
 	// Trimmed because this is normally hand-typed into config.json and a
 	// stray space would otherwise refuse every client for no visible
 	// reason. Deliberately not lower-cased or otherwise normalized -- that

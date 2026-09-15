@@ -290,6 +290,7 @@ $domainAllow = @{
     # Where this project's code, docs and dependencies actually live.
     'github.com' = 'source links'; 'golang.org' = 'Go docs'; 'pkg.go.dev' = 'Go package docs'
     'go.dev' = 'Go docs'; 'go.uber.org' = 'dependency'; 'nuget.org' = 'NuGet'
+    'filippo.io' = 'dependency (edwards25519/nistec, via the OPAQUE library, ADR 0067)'
     'api.nuget.org' = 'NuGet'; 'bepinex.dev' = 'BepInEx'; 'nuget.bepinex.dev' = 'BepInEx feed'
     'code.claude.com' = 'tooling'; 'signpath.org' = 'code signing'; 'signpath.io' = 'code signing'
     # Reference material cited by the adapters and the docs.

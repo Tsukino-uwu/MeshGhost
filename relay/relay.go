@@ -22,7 +22,7 @@
 package relay
 
 import (
-	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/internal/throttle"
+	"github.com/Tsukino-uwu/MeshGhost/pake"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
@@ -1126,6 +1127,15 @@ type Server struct {
 	// and doesn't defend against.
 	RoomCode string
 
+	// PakeIdentity is the identity the room-code proof binds to: this relay's
+	// certificate fingerprint (cmd/meshghost-relay sets it from the identity
+	// it serves), so a client's proof names the certificate it verified and
+	// fails against a relay presenting any other. Empty means
+	// pake.UnboundIdentity: the code is still proven, the identity is not --
+	// a test or dev value, never what ships. Read at the first hello after a
+	// code is set; change it before Serve.
+	PakeIdentity string
+
 	// SourceGuard, when set, budgets wrong room codes per client address:
 	// Blocked is asked before the code is compared and NoteAuthFailure told
 	// after a failed compare. Nil (the default, and every test that does not
@@ -1133,6 +1143,14 @@ type Server struct {
 	// what a stranger with the address had until 2026-09-15 -- hundreds of
 	// guesses a second (fourth adversarial review, A3). See SourceGuard.
 	SourceGuard SourceGuard
+
+	// The cached room-code proof server (pakeServer) and the code it was
+	// built for; pakeFaultLine throttles the line for a proof that cannot
+	// be set up at all.
+	pakeMu        sync.Mutex
+	pakeSrv       *pake.Server
+	pakeCode      string
+	pakeFaultLine throttle.Line
 
 	// OnlyGame, when non-empty, restricts this relay to a single game: any
 	// Hello whose game_id differs is refused at the handshake. Empty (the
@@ -1204,6 +1222,36 @@ type Server struct {
 	// rather than a separate one — server-wide join bookkeeping is a
 	// single small critical section, not worth its own lock).
 	clientCount int
+}
+
+// pendingProof is a hello parked on the room-code proof, between the relay's
+// KE2 and the client's KE3.
+type pendingProof struct {
+	hello protocol.Hello
+	sess  *pake.Session
+}
+
+// pakeServer is the OPAQUE server for the CURRENT room code, built on first
+// use and rebuilt whenever the code (SetRoomCode) or the identity changes.
+// Registration runs Argon2id once per rebuild, which is why it is cached
+// rather than built per hello.
+func (s *Server) pakeServer() (*pake.Server, error) {
+	code := s.roomCode()
+	identity := s.PakeIdentity
+	if identity == "" {
+		identity = pake.UnboundIdentity
+	}
+	s.pakeMu.Lock()
+	defer s.pakeMu.Unlock()
+	if s.pakeSrv != nil && s.pakeCode == code && s.pakeSrv.Identity() == identity {
+		return s.pakeSrv, nil
+	}
+	srv, err := pake.NewServer(code, identity)
+	if err != nil {
+		return nil, err
+	}
+	s.pakeSrv, s.pakeCode = srv, code
+	return srv, nil
 }
 
 // SourceGuard is the relay's view of per-address policy, and it is typed on
@@ -1633,6 +1681,11 @@ func (s *Server) handleConn(conn net.Conn) {
 		client      *Client
 		resumeToken string
 
+		// pending is a hello parked between the room-code proof's KE2 and
+		// KE3 (ADR 0067). Under mu: set and cleared by OnReceive, read by
+		// OnDisconnect to charge an abandoned proof to the source's budget.
+		pending *pendingProof
+
 		// rateWindow/rateCount need no mutex of their own, unlike mu above
 		// (which helloTimer's separate AfterFunc goroutine also touches):
 		// both are only ever read or written from inside the OnReceive
@@ -1726,6 +1779,241 @@ func (s *Server) handleConn(conn net.Conn) {
 		}
 	})
 
+	// admit is everything a hello leads to once the relay is satisfied about
+	// who sent it: transport discovery, the single-game check, the room, the
+	// seat, the Welcome. One closure so it can run either straight from the
+	// hello (no room code configured) or after the room-code proof's last
+	// message (ADR 0067) -- the two entry points and one body are what keep
+	// "checked before any state flows" true on both paths.
+	admit := func(hello protocol.Hello) {
+		// Transport discovery. Placed deliberately AFTER the field-length,
+		// protocol-version and room-code checks above and BEFORE the room
+		// table is touched: a caller learns nothing here it could not have
+		// learned by simply joining, so this adds no pre-auth surface —
+		// which is the property that made an explicit query preferable to
+		// having clients join over tcp and then reconnect. No room is
+		// joined, no player_id assigned, no slot reserved, and nobody in
+		// any room is told anything. See the transport discovery ADR in
+		// agent_docs/architecture.md.
+		if hello.QueryOnly {
+			sendEnvelope(nd, protocol.TypeTransports, protocol.Transports{Offers: s.transportOffers()})
+			// LATCHED, like every other terminating hello path. It was not
+			// until 2026-09-12, and CloseGracefully deliberately keeps the
+			// read loop scanning for the drain -- so a second hello
+			// pipelined behind this one re-entered the block above and ran
+			// the WHOLE join: a room, a player_id, an outbox goroutine, a
+			// max_clients seat, a joinSnapshot under r.mu, and a Join
+			// broadcast to every real member for a socket that was already
+			// half-closed. The Welcome write then fails and sendEnvelope
+			// only logs, so nothing stops it; the member dies as a Leave a
+			// moment later. Every real player in the room sees a ghost
+			// appear and vanish.
+			//
+			// The comment above says "No room is joined, no player_id
+			// assigned, no slot reserved, and nobody in any room is told
+			// anything", which is the property this restores rather than
+			// one it had. Found by the pre-auth cell of the third
+			// adversarial review (P1b-1); rejectlatch_test.go already pins
+			// the same attack through the room-code door.
+			handshakeRejected = true
+			// The offer is the whole point of a query-only hello and is the last
+			// line written: a reset here loses it and the client falls back to
+			// guessing a transport. See handshakeCloseDrain.
+			nd.CloseGracefully(handshakeCloseDrain)
+			return
+		}
+
+		// Single-game relay (agent_docs/architecture.md's ADR): checked
+		// here, after the field-length bound (so the game_id
+		// rejectAndClose logs is <= protocol.MaxHelloFieldLen) and before the
+		// room table is touched or a slot reserved, same "reject at
+		// handshake, before any state flows" shape as the checks above.
+		// An empty s.OnlyGame means the relay hosts any game, the
+		// pre-existing posture.
+		if only := s.onlyGame(); only != "" && hello.GameID != only {
+			rejectHandshake(hello, protocol.ReasonGameNotAllowed)
+			return
+		}
+		joined, reason := s.joinOrCreateRoom(hello.GameID, hello.GameVersion, hello.Room, hello.Features)
+		if reason != "" {
+			rejectHandshake(hello, reason)
+			return
+		}
+		// Releases the hold joinOrCreateRoom took (Room.joining), whichever
+		// way this callback returns -- joined, refused for a full server, or
+		// resumed. A defer rather than a call per exit precisely because
+		// there are several exits and missing one would pin a room in the
+		// table for the life of the process.
+		defer s.finishJoin(joined)
+
+		// Session resumption, before a slot is reserved or an id
+		// assigned: a resuming client's slot was never released and its
+		// player_id already exists, so both of those steps would be
+		// wrong. A token that is unknown, expired, or for another room
+		// simply yields nil here and the client joins fresh — being away
+		// slightly too long must degrade to "you get a new identity", not
+		// to "you cannot play".
+		if protocol.HasFeature(hello.Features, protocol.FeatureResumeV1) && hello.ResumeToken != "" {
+			if sess := s.takeSession(hello.ResumeToken, hello.Room, hello.GameID); sess != nil && sess.room == joined {
+				if resumedClient, newToken, ok := s.resumeInto(nd, transportName(conn), joined, sess, hello, sendHz); ok {
+					mu.Lock()
+					room, playerID, client, resumeToken = joined, sess.playerID, resumedClient, newToken
+					mu.Unlock()
+					helloTimer.Stop()
+					return
+				}
+			}
+		}
+
+		if !s.tryReserveSlot() {
+			// Relay already at MaxClients across every room combined
+			// (agent_docs/contract.md Limits) — refuse the same way a
+			// game_id mismatch is refused, rather than letting total
+			// connections grow unbounded. dropIfEmpty cleans up if
+			// joinOrCreateRoom just created this room for this attempt.
+			rejectHandshake(hello, protocol.ReasonServerFull)
+			s.dropIfEmpty(joined)
+			return
+		}
+
+		newID := s.nextPlayerID()
+		newClient := &Client{
+			PlayerID:     newID,
+			Conn:         nd,
+			maxReceiveHz: protocol.ClampReceiveHz(hello.MaxReceiveHz),
+			ownAreaOnly:  hello.OwnAreaOnly,
+			transport:    transportName(conn),
+			// SANITIZED ONCE, HERE. Every later use -- the log line below, the
+			// Welcome roster, the Join broadcast -- reads this field, so no path
+			// exists that can hand anybody the raw string from the Hello.
+			nametag:  sanitizedNametag(hello),
+			features: protocol.NormalizeFeatures(hello.Features),
+			// Set BEFORE the add below, so there is no instant at which
+			// this client is reachable by Room.forward without the hold
+			// in place. Cleared by markWelcomedAndFlush once its Welcome
+			// has been written — see Client.holdUntilWelcome.
+			holdUntilWelcome: true,
+		}
+		// Started before the add, so this client is never reachable by a
+		// fan-out without a writer to hand the line to.
+		newClient.out = newOutbox(newID, nd)
+		rosterBeforeJoin, rosterNames := joined.tryAddAndSnapshotRoster(newClient)
+
+		// A resume token is minted only for a room that asked for
+		// resumption, so nothing is issued — and no identity is ever held
+		// past a disconnect — for the cosmetic case. A minting failure
+		// (crypto/rand unavailable, which does not happen on any
+		// supported platform) degrades to a session that simply cannot
+		// resume, rather than a refused join.
+		newToken := ""
+		if newClient.wants(protocol.FeatureResumeV1) {
+			var err error
+			if newToken, err = newResumeToken(); err != nil {
+				log.Printf("relay: could not mint a resume token for %s: %v — this session will not be resumable", newID, err)
+				newToken = ""
+			}
+		}
+
+		// Registered now, while the connection is healthy — not on
+		// disconnect. See suspendedSession: registering late is what made a
+		// resume only work when the relay had already noticed the drop.
+		s.registerSession(joined, newID, newToken, "")
+
+		mu.Lock()
+		room, playerID, client, resumeToken = joined, newID, newClient, newToken
+		mu.Unlock()
+		helloTimer.Stop()
+
+		// Join/leave are lifecycle events, not per-frame state, so one
+		// line per occurrence can't spam — previously the relay's own
+		// log recorded nothing at all for a connect/join, only its own
+		// startup line, leaving a host with no way to tell "nobody's
+		// connecting" from "someone's connecting and I can't see it."
+		// newClient.displayName, NOT hello.DisplayName: the raw value can contain
+		// newlines, and this is a log line. A player could otherwise write their
+		// own entries into the host's log -- a hole that existed here before any
+		// nametag did.
+		log.Printf("relay: %s (%q) joined room %q as game %q over %s",
+			newID, nametagName(newClient.nametag), hello.Room, hello.GameID, transportName(conn))
+
+		// **The Welcome is BOUNDED, and the rest of the room arrives as ordinary Joins
+		// (2026-09-01).** A Welcome carrying the whole roster grows O(members), and at
+		// ~100+ named members it crossed protocol.MaxLineBytes (4096) -- the receiving
+		// core's scanner then killed the connection with "token too long", which took
+		// every client of a 150-peer room down AT JOIN and made room size a wire-format
+		// ceiling. That is exactly the shape agent_docs/scaling.md prohibits. A Join
+		// teaches a client one member (id + nametag) and every core already handles it
+		// identically to a roster entry, so overflow members are handed over that way:
+		// written on the same conn, after the Welcome and before markWelcomedAndFlush
+		// releases the fan-out hold, so ordering is exactly as if they had joined a
+		// moment later. Old clients need nothing. **How many members fit is
+		// measured, not guessed** -- see boundWelcomeRoster for the 2026-09-08
+		// reopening of this same incident at 21 members.
+		welcome, overflowRoster := boundWelcomeRoster(protocol.Welcome{
+			PlayerID: newID,
+			SendHz:   sendHz,
+			// This relay's own version, so the floor runs BOTH ways: it is what lets
+			// a client refuse a relay older than the client's own minimum. Absent
+			// means a relay from before 2026-09-08, which is below any floor this
+			// build could declare and so needs no special case.
+			ProtocolVersion: protocol.Version,
+			GhostCollision:  s.resolveGhostCollision(),
+			// The room's agreed set PLUS whatever client-scoped
+			// capabilities this particular client asked for and got — so
+			// what a client reads back is what is actually in force for
+			// it, not a room-wide answer to a per-client question.
+			Features:     effectiveFeatures(joined, newClient),
+			ResumeToken:  newToken,
+			ServerTimeMs: time.Now().UnixMilli(),
+		}, rosterBeforeJoin, rosterNames, sendBudget(nd))
+		sendEnvelope(nd, protocol.TypeWelcome, welcome)
+
+		// The members the bounded Welcome could not carry -- see its comment above.
+		for _, id := range overflowRoster {
+			j := protocol.Join{PlayerID: id}
+			if tag, ok := rosterNames[id]; ok {
+				t := tag
+				j.Nametag = &t
+			}
+			sendEnvelope(nd, protocol.TypeJoin, j)
+		}
+
+		// Welcome is on the wire, so this client may now be written to
+		// directly — and anything the room produced while it was being
+		// added is delivered here, still ahead of the seeding below.
+		// See Client.holdUntilWelcome for the race this closes.
+		joined.markWelcomedAndFlush(newID)
+
+		// Seed the newcomer with what everyone else looks like right now,
+		// and with the room's world, so both appear immediately instead
+		// of only on their next update. Sent after Welcome — the client's
+		// roster comes from Welcome, and it drops state for any id it has
+		// not been told about (the roster-trust rule) — and only to this
+		// connection, since nobody else needs it.
+		joined.joinSnapshot(newID)
+
+		join, err := envelope(protocol.TypeJoin, protocol.Join{
+			PlayerID: newID,
+			Nametag:  newClient.nametag,
+		})
+		if err == nil {
+			// rosterBeforeJoin, NOT allExcept(newID): the recipient set must be
+			// the one captured atomically with the add above, not whoever happens
+			// to be a member by the time this line runs.
+			//
+			// Caught by CI's race job 2026-08-16 as an intermittent
+			// TestOversizedPositionDropped failure ("c2 unexpectedly received
+			// join"). allExcept re-took the lock, so a client that joined in the
+			// window between this client's add and this broadcast was included --
+			// and it had already been told about this client in its OWN welcome
+			// roster. It therefore got a duplicate, late join for a player it
+			// already knew about. The window is normally microseconds, which is
+			// why 300 local runs never reproduced it and the race detector's much
+			// slower scheduling did.
+			joined.Forward(join, rosterBeforeJoin)
+		}
+	}
+
 	nd.OnError(func(err error) {
 		// A reset is one line per connection too, and a stranger owns how
 		// many connections there are.
@@ -1738,8 +2026,17 @@ func (s *Server) handleConn(conn net.Conn) {
 		helloTimer.Stop()
 		mu.Lock()
 		r, id, c, token := room, playerID, client, resumeToken
+		abandoned := pending != nil
+		pending = nil
 		mu.Unlock()
 		if r == nil {
+			// A proof started and never finished is a failed attempt: a
+			// client that learned its code was wrong at KE2 hangs up rather
+			// than sending a KE3 it cannot make, and that must cost the same
+			// budget a wrong KE3 does, or the guard is walked around.
+			if abandoned && s.SourceGuard != nil {
+				s.SourceGuard.NoteAuthFailure(conn)
+			}
 			return
 		}
 
@@ -1837,6 +2134,35 @@ func (s *Server) handleConn(conn net.Conn) {
 		mu.Unlock()
 
 		if r == nil {
+			// A hello parked on the room-code proof: the only message it may
+			// be followed by is the proof's last step. Judged once; the
+			// session's Finish refuses a second call, and the parked hello is
+			// released either way.
+			mu.Lock()
+			pp := pending
+			mu.Unlock()
+			if pp != nil {
+				if env.Type != protocol.TypePake {
+					return
+				}
+				var pk protocol.Pake
+				if err := json.Unmarshal(env.Payload, &pk); err != nil || len(pk.KE3) > protocol.MaxPakeFieldLen {
+					return
+				}
+				mu.Lock()
+				pending = nil
+				mu.Unlock()
+				ke3, derr := base64.StdEncoding.DecodeString(pk.KE3)
+				if derr != nil || pp.sess.Finish(ke3) != nil {
+					if s.SourceGuard != nil {
+						s.SourceGuard.NoteAuthFailure(conn)
+					}
+					rejectHandshake(pp.hello, protocol.ReasonInvalidRoomCode)
+					return
+				}
+				admit(pp.hello)
+				return
+			}
 			// Only a Hello is accepted before the connection has joined a
 			// room; anything else this early is ignored.
 			if env.Type != protocol.TypeHello {
@@ -1883,259 +2209,65 @@ func (s *Server) handleConn(conn net.Conn) {
 				rejectHandshake(hello, protocol.ReasonProtocolVersionMismatch)
 				return
 			}
-			// Room-code auth (agent_docs/architecture.md's ADR): checked
-			// before touching the room table at all, same "reject at
-			// handshake, before any state flows" shape as the version and
-			// game_id checks. subtle.ConstantTimeCompare so a wrong guess
-			// can't be timed byte-by-byte; an empty configured s.RoomCode
-			// means auth is off (the pre-existing no-auth posture).
-			if code := s.roomCode(); code != "" {
-				// The per-address budget, BEFORE the compare: a source that
-				// has guessed wrong too often is told "rate limited" (a
-				// retryable reason the client already backs off on) without
-				// its next guess being evaluated at all -- so the reply says
-				// nothing about whether that guess was right. Nil guard means
-				// no budget, the pre-2026-09-15 posture.
+			// Room-code auth (ADR 0013, revised by ADR 0067): checked before
+			// touching the room table at all, same "reject at handshake,
+			// before any state flows" shape as the version and game_id
+			// checks. An empty configured s.RoomCode means auth is off (the
+			// pre-existing no-auth posture). With a code, the hello must
+			// carry the first message of the proof (package pake): the relay
+			// answers KE2 and parks the hello until KE3 arrives, which is
+			// judged below and, if good, admits the hello exactly as a right
+			// code used to. Nothing the client sends here is the code.
+			if s.roomCode() != "" {
+				// The per-address budget, BEFORE any work: a source that has
+				// failed too often is told "rate limited" (a retryable reason
+				// the client already backs off on) without its next attempt
+				// being evaluated at all -- so the reply says nothing about
+				// whether that attempt was right. Nil guard means no budget,
+				// the pre-2026-09-15 posture. A failure is counted at KE3, or
+				// when the connection ends between KE2 and KE3 (OnDisconnect),
+				// so a client that starts the proof and never finishes it
+				// spends budget too.
 				if s.SourceGuard != nil && s.SourceGuard.Blocked(conn) {
 					rejectHandshake(hello, protocol.ReasonRateLimited)
 					return
 				}
-				given := []byte(hello.RoomCode)
-				want := []byte(code)
-				if len(given) != len(want) || subtle.ConstantTimeCompare(given, want) != 1 {
+				ps, err := s.pakeServer()
+				if err != nil {
+					// The relay could not register its own code -- a library
+					// fault, not the client's. Refusing everyone is the only
+					// safe answer; the line says why so a host can act.
+					if n, ok := s.pakeFaultLine.Allow(); ok {
+						log.Printf("relay: the room-code proof cannot be set up (%v) -- refusing every join until it can (%d so far)", err, n)
+					}
+					rejectHandshake(hello, protocol.ReasonInvalidRoomCode)
+					return
+				}
+				ke1, derr := base64.StdEncoding.DecodeString(hello.PakeKE1)
+				if hello.PakeKE1 == "" || derr != nil {
+					// No proof offered: a client without a code, or one from
+					// before the proof existed (already refused by version).
 					if s.SourceGuard != nil {
 						s.SourceGuard.NoteAuthFailure(conn)
 					}
 					rejectHandshake(hello, protocol.ReasonInvalidRoomCode)
 					return
 				}
-			}
-			// Transport discovery. Placed deliberately AFTER the field-length,
-			// protocol-version and room-code checks above and BEFORE the room
-			// table is touched: a caller learns nothing here it could not have
-			// learned by simply joining, so this adds no pre-auth surface —
-			// which is the property that made an explicit query preferable to
-			// having clients join over tcp and then reconnect. No room is
-			// joined, no player_id assigned, no slot reserved, and nobody in
-			// any room is told anything. See the transport discovery ADR in
-			// agent_docs/architecture.md.
-			if hello.QueryOnly {
-				sendEnvelope(nd, protocol.TypeTransports, protocol.Transports{Offers: s.transportOffers()})
-				// LATCHED, like every other terminating hello path. It was not
-				// until 2026-09-12, and CloseGracefully deliberately keeps the
-				// read loop scanning for the drain -- so a second hello
-				// pipelined behind this one re-entered the block above and ran
-				// the WHOLE join: a room, a player_id, an outbox goroutine, a
-				// max_clients seat, a joinSnapshot under r.mu, and a Join
-				// broadcast to every real member for a socket that was already
-				// half-closed. The Welcome write then fails and sendEnvelope
-				// only logs, so nothing stops it; the member dies as a Leave a
-				// moment later. Every real player in the room sees a ghost
-				// appear and vanish.
-				//
-				// The comment above says "No room is joined, no player_id
-				// assigned, no slot reserved, and nobody in any room is told
-				// anything", which is the property this restores rather than
-				// one it had. Found by the pre-auth cell of the third
-				// adversarial review (P1b-1); rejectlatch_test.go already pins
-				// the same attack through the room-code door.
-				handshakeRejected = true
-				// The offer is the whole point of a query-only hello and is the last
-				// line written: a reset here loses it and the client falls back to
-				// guessing a transport. See handshakeCloseDrain.
-				nd.CloseGracefully(handshakeCloseDrain)
-				return
-			}
-
-			// Single-game relay (agent_docs/architecture.md's ADR): checked
-			// here, after the field-length bound (so the game_id
-			// rejectAndClose logs is <= protocol.MaxHelloFieldLen) and before the
-			// room table is touched or a slot reserved, same "reject at
-			// handshake, before any state flows" shape as the checks above.
-			// An empty s.OnlyGame means the relay hosts any game, the
-			// pre-existing posture.
-			if only := s.onlyGame(); only != "" && hello.GameID != only {
-				rejectHandshake(hello, protocol.ReasonGameNotAllowed)
-				return
-			}
-			joined, reason := s.joinOrCreateRoom(hello.GameID, hello.GameVersion, hello.Room, hello.Features)
-			if reason != "" {
-				rejectHandshake(hello, reason)
-				return
-			}
-			// Releases the hold joinOrCreateRoom took (Room.joining), whichever
-			// way this callback returns -- joined, refused for a full server, or
-			// resumed. A defer rather than a call per exit precisely because
-			// there are several exits and missing one would pin a room in the
-			// table for the life of the process.
-			defer s.finishJoin(joined)
-
-			// Session resumption, before a slot is reserved or an id
-			// assigned: a resuming client's slot was never released and its
-			// player_id already exists, so both of those steps would be
-			// wrong. A token that is unknown, expired, or for another room
-			// simply yields nil here and the client joins fresh — being away
-			// slightly too long must degrade to "you get a new identity", not
-			// to "you cannot play".
-			if protocol.HasFeature(hello.Features, protocol.FeatureResumeV1) && hello.ResumeToken != "" {
-				if sess := s.takeSession(hello.ResumeToken, hello.Room, hello.GameID); sess != nil && sess.room == joined {
-					if resumedClient, newToken, ok := s.resumeInto(nd, transportName(conn), joined, sess, hello, sendHz); ok {
-						mu.Lock()
-						room, playerID, client, resumeToken = joined, sess.playerID, resumedClient, newToken
-						mu.Unlock()
-						helloTimer.Stop()
-						return
+				ke2, sess, err := ps.Respond(ke1)
+				if err != nil {
+					if s.SourceGuard != nil {
+						s.SourceGuard.NoteAuthFailure(conn)
 					}
+					rejectHandshake(hello, protocol.ReasonInvalidRoomCode)
+					return
 				}
-			}
-
-			if !s.tryReserveSlot() {
-				// Relay already at MaxClients across every room combined
-				// (agent_docs/contract.md Limits) — refuse the same way a
-				// game_id mismatch is refused, rather than letting total
-				// connections grow unbounded. dropIfEmpty cleans up if
-				// joinOrCreateRoom just created this room for this attempt.
-				rejectHandshake(hello, protocol.ReasonServerFull)
-				s.dropIfEmpty(joined)
+				sendEnvelope(nd, protocol.TypePake, protocol.Pake{KE2: base64.StdEncoding.EncodeToString(ke2)})
+				mu.Lock()
+				pending = &pendingProof{hello: hello, sess: sess}
+				mu.Unlock()
 				return
 			}
-
-			newID := s.nextPlayerID()
-			newClient := &Client{
-				PlayerID:     newID,
-				Conn:         nd,
-				maxReceiveHz: protocol.ClampReceiveHz(hello.MaxReceiveHz),
-				ownAreaOnly:  hello.OwnAreaOnly,
-				transport:    transportName(conn),
-				// SANITIZED ONCE, HERE. Every later use -- the log line below, the
-				// Welcome roster, the Join broadcast -- reads this field, so no path
-				// exists that can hand anybody the raw string from the Hello.
-				nametag:  sanitizedNametag(hello),
-				features: protocol.NormalizeFeatures(hello.Features),
-				// Set BEFORE the add below, so there is no instant at which
-				// this client is reachable by Room.forward without the hold
-				// in place. Cleared by markWelcomedAndFlush once its Welcome
-				// has been written — see Client.holdUntilWelcome.
-				holdUntilWelcome: true,
-			}
-			// Started before the add, so this client is never reachable by a
-			// fan-out without a writer to hand the line to.
-			newClient.out = newOutbox(newID, nd)
-			rosterBeforeJoin, rosterNames := joined.tryAddAndSnapshotRoster(newClient)
-
-			// A resume token is minted only for a room that asked for
-			// resumption, so nothing is issued — and no identity is ever held
-			// past a disconnect — for the cosmetic case. A minting failure
-			// (crypto/rand unavailable, which does not happen on any
-			// supported platform) degrades to a session that simply cannot
-			// resume, rather than a refused join.
-			newToken := ""
-			if newClient.wants(protocol.FeatureResumeV1) {
-				var err error
-				if newToken, err = newResumeToken(); err != nil {
-					log.Printf("relay: could not mint a resume token for %s: %v — this session will not be resumable", newID, err)
-					newToken = ""
-				}
-			}
-
-			// Registered now, while the connection is healthy — not on
-			// disconnect. See suspendedSession: registering late is what made a
-			// resume only work when the relay had already noticed the drop.
-			s.registerSession(joined, newID, newToken, "")
-
-			mu.Lock()
-			room, playerID, client, resumeToken = joined, newID, newClient, newToken
-			mu.Unlock()
-			helloTimer.Stop()
-
-			// Join/leave are lifecycle events, not per-frame state, so one
-			// line per occurrence can't spam — previously the relay's own
-			// log recorded nothing at all for a connect/join, only its own
-			// startup line, leaving a host with no way to tell "nobody's
-			// connecting" from "someone's connecting and I can't see it."
-			// newClient.displayName, NOT hello.DisplayName: the raw value can contain
-			// newlines, and this is a log line. A player could otherwise write their
-			// own entries into the host's log -- a hole that existed here before any
-			// nametag did.
-			log.Printf("relay: %s (%q) joined room %q as game %q over %s",
-				newID, nametagName(newClient.nametag), hello.Room, hello.GameID, transportName(conn))
-
-			// **The Welcome is BOUNDED, and the rest of the room arrives as ordinary Joins
-			// (2026-09-01).** A Welcome carrying the whole roster grows O(members), and at
-			// ~100+ named members it crossed protocol.MaxLineBytes (4096) -- the receiving
-			// core's scanner then killed the connection with "token too long", which took
-			// every client of a 150-peer room down AT JOIN and made room size a wire-format
-			// ceiling. That is exactly the shape agent_docs/scaling.md prohibits. A Join
-			// teaches a client one member (id + nametag) and every core already handles it
-			// identically to a roster entry, so overflow members are handed over that way:
-			// written on the same conn, after the Welcome and before markWelcomedAndFlush
-			// releases the fan-out hold, so ordering is exactly as if they had joined a
-			// moment later. Old clients need nothing. **How many members fit is
-			// measured, not guessed** -- see boundWelcomeRoster for the 2026-09-08
-			// reopening of this same incident at 21 members.
-			welcome, overflowRoster := boundWelcomeRoster(protocol.Welcome{
-				PlayerID: newID,
-				SendHz:   sendHz,
-				// This relay's own version, so the floor runs BOTH ways: it is what lets
-				// a client refuse a relay older than the client's own minimum. Absent
-				// means a relay from before 2026-09-08, which is below any floor this
-				// build could declare and so needs no special case.
-				ProtocolVersion: protocol.Version,
-				GhostCollision:  s.resolveGhostCollision(),
-				// The room's agreed set PLUS whatever client-scoped
-				// capabilities this particular client asked for and got — so
-				// what a client reads back is what is actually in force for
-				// it, not a room-wide answer to a per-client question.
-				Features:     effectiveFeatures(joined, newClient),
-				ResumeToken:  newToken,
-				ServerTimeMs: time.Now().UnixMilli(),
-			}, rosterBeforeJoin, rosterNames, sendBudget(nd))
-			sendEnvelope(nd, protocol.TypeWelcome, welcome)
-
-			// The members the bounded Welcome could not carry -- see its comment above.
-			for _, id := range overflowRoster {
-				j := protocol.Join{PlayerID: id}
-				if tag, ok := rosterNames[id]; ok {
-					t := tag
-					j.Nametag = &t
-				}
-				sendEnvelope(nd, protocol.TypeJoin, j)
-			}
-
-			// Welcome is on the wire, so this client may now be written to
-			// directly — and anything the room produced while it was being
-			// added is delivered here, still ahead of the seeding below.
-			// See Client.holdUntilWelcome for the race this closes.
-			joined.markWelcomedAndFlush(newID)
-
-			// Seed the newcomer with what everyone else looks like right now,
-			// and with the room's world, so both appear immediately instead
-			// of only on their next update. Sent after Welcome — the client's
-			// roster comes from Welcome, and it drops state for any id it has
-			// not been told about (the roster-trust rule) — and only to this
-			// connection, since nobody else needs it.
-			joined.joinSnapshot(newID)
-
-			join, err := envelope(protocol.TypeJoin, protocol.Join{
-				PlayerID: newID,
-				Nametag:  newClient.nametag,
-			})
-			if err == nil {
-				// rosterBeforeJoin, NOT allExcept(newID): the recipient set must be
-				// the one captured atomically with the add above, not whoever happens
-				// to be a member by the time this line runs.
-				//
-				// Caught by CI's race job 2026-08-16 as an intermittent
-				// TestOversizedPositionDropped failure ("c2 unexpectedly received
-				// join"). allExcept re-took the lock, so a client that joined in the
-				// window between this client's add and this broadcast was included --
-				// and it had already been told about this client in its OWN welcome
-				// roster. It therefore got a duplicate, late join for a player it
-				// already knew about. The window is normally microseconds, which is
-				// why 300 local runs never reproduced it and the race detector's much
-				// slower scheduling did.
-				joined.Forward(join, rosterBeforeJoin)
-			}
+			admit(hello)
 			return
 		}
 

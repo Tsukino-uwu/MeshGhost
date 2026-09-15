@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tsukino-uwu/MeshGhost/internal/paketest"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 	"github.com/Tsukino-uwu/MeshGhost/relay"
 	"github.com/Tsukino-uwu/MeshGhost/transport"
@@ -39,8 +40,10 @@ type rejectCase struct {
 	// prior is a hello that must be accepted first, when the refusal depends on state a member
 	// already in the room established: a taken slot, or the room's sticky game_version.
 	prior *protocol.Hello
-	// hello is the one that must be refused.
+	// hello is the one that must be refused; code, if set, is proven with it
+	// (ADR 0067), which is how a wrong code reaches the relay now.
 	hello protocol.Hello
+	code  string
 	// wantReason is compared to the wire byte for byte -- the whole point of the test.
 	wantReason string
 	// wantPermanent is what core's own classifier must say about the string that came back, not
@@ -61,7 +64,8 @@ func TestRelayRejectReasonsMatchTheConstantsTheCoreClassifies(t *testing.T) {
 		{
 			name:          "a wrong room code",
 			setup:         func(s *relay.Server) { s.RoomCode = "the-right-one" },
-			hello:         protocol.Hello{GameID: "emerald", Room: "r", RoomCode: "not-it"},
+			hello:         protocol.Hello{GameID: "emerald", Room: "r"},
+			code:          "not-it",
 			wantReason:    protocol.ReasonInvalidRoomCode,
 			wantPermanent: true,
 			why:           "the code came from config; retrying re-sends the same wrong one forever",
@@ -96,12 +100,12 @@ func TestRelayRejectReasonsMatchTheConstantsTheCoreClassifies(t *testing.T) {
 			addr := startRejectRelay(t, s)
 
 			if tc.prior != nil {
-				held := dialRelayHello(t, addr, *tc.prior)
+				held := dialRelayHello(t, addr, *tc.prior, "")
 				defer held.conn.Close()
 				held.expectWelcome(t)
 			}
 
-			refused := dialRelayHello(t, addr, tc.hello)
+			refused := dialRelayHello(t, addr, tc.hello, tc.code)
 			defer refused.conn.Close()
 			reject := refused.expectReject(t)
 			got := reject.Reason
@@ -185,11 +189,16 @@ func startRejectRelay(t *testing.T, s *relay.Server) string {
 	return ln.Addr().String()
 }
 
-func dialRelayHello(t *testing.T, addr string, hello protocol.Hello) *rejectClient {
+func dialRelayHello(t *testing.T, addr string, hello protocol.Hello, code string) *rejectClient {
 	t.Helper()
 	conn := transport.FromConn(dialRelayTLS(t, addr))
+	prover := paketest.New(t, code, "")
+	hello.PakeKE1 = prover.KE1()
 	rc := &rejectClient{conn: conn, envs: make(chan protocol.Envelope, 8)}
 	conn.OnReceive(func(payload []byte) {
+		if prover.Handle(payload, conn.Send) {
+			return
+		}
 		var env protocol.Envelope
 		if err := json.Unmarshal(payload, &env); err != nil {
 			return

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tsukino-uwu/MeshGhost/internal/paketest"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
@@ -33,17 +34,32 @@ func dialTestClient(t *testing.T, addr, gameID, room, name string) *testClient {
 }
 
 // dialTestClientWithHello is dialTestClient's more general form, for tests
-// that need to set fields dialTestClient doesn't expose (RoomCode,
-// GameVersion) — added alongside relay-safety hardening,
+// that need to set fields dialTestClient doesn't expose (GameVersion, the
+// features) — added alongside relay-safety hardening,
 // agent_docs/architecture.md's room-code/version ADR.
 func dialTestClientWithHello(t *testing.T, addr string, hello protocol.Hello) *testClient {
+	t.Helper()
+	return dialTestClientWithCode(t, addr, hello, "")
+}
+
+// dialTestClientWithCode is dialTestClientWithHello with a room code to
+// prove (ADR 0067): the hello carries KE1 and the relay's KE2 is answered
+// from the receive loop, against pake.UnboundIdentity since these servers
+// set no PakeIdentity. A wrong code sends an unusable KE3 so the relay's own
+// refusal is what the test reads (internal/paketest says why).
+func dialTestClientWithCode(t *testing.T, addr string, hello protocol.Hello, code string) *testClient {
 	t.Helper()
 	conn, err := transport.Dial(addr)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
+	prover := paketest.New(t, code, "")
+	hello.PakeKE1 = prover.KE1()
 	tc := &testClient{t: t, conn: conn, envs: make(chan protocol.Envelope, 16)}
 	conn.OnReceive(func(payload []byte) {
+		if prover.Handle(payload, conn.Send) {
+			return
+		}
 		var env protocol.Envelope
 		if err := json.Unmarshal(payload, &env); err != nil {
 			t.Errorf("client received malformed envelope: %v", err)
@@ -978,17 +994,17 @@ func TestRoomForwardDoesNotBlockOtherOperationsOnStalledSend(t *testing.T) {
 	}
 }
 
-// TestRoomCodeAcceptsCorrectCode confirms a Hello carrying the relay's
-// configured RoomCode is accepted normally — room-code auth added alongside
+// TestRoomCodeAcceptsCorrectCode confirms a Hello that proves the relay's
+// configured RoomCode (ADR 0067) is accepted normally — room-code auth added alongside
 // relay-safety hardening, agent_docs/architecture.md's ADR.
 func TestRoomCodeAcceptsCorrectCode(t *testing.T) {
 	s := NewServer()
 	s.RoomCode = "letmein"
 	addr := startServerWith(t, s)
 
-	c1 := dialTestClientWithHello(t, addr, protocol.Hello{
-		GameID: "emerald", Room: "room1", DisplayName: "alice", RoomCode: "letmein",
-	})
+	c1 := dialTestClientWithCode(t, addr, protocol.Hello{
+		GameID: "emerald", Room: "room1", DisplayName: "alice",
+	}, "letmein")
 	defer c1.conn.Close()
 
 	w := c1.expectWelcome(timeout)
@@ -997,8 +1013,8 @@ func TestRoomCodeAcceptsCorrectCode(t *testing.T) {
 	}
 }
 
-// TestRoomCodeRejectsWrongCode confirms a Hello carrying the wrong RoomCode
-// is refused with a legible Reject, not a bare hangup — see the ADR in
+// TestRoomCodeRejectsWrongCode confirms a Hello whose proof is of the wrong
+// code is refused with a legible Reject, not a bare hangup — see the ADR in
 // agent_docs/architecture.md on why a rejection needs to be distinguishable
 // from "the relay is just slow."
 func TestRoomCodeRejectsWrongCode(t *testing.T) {
@@ -1006,9 +1022,9 @@ func TestRoomCodeRejectsWrongCode(t *testing.T) {
 	s.RoomCode = "letmein"
 	addr := startServerWith(t, s)
 
-	c1 := dialTestClientWithHello(t, addr, protocol.Hello{
-		GameID: "emerald", Room: "room1", DisplayName: "alice", RoomCode: "wrong",
-	})
+	c1 := dialTestClientWithCode(t, addr, protocol.Hello{
+		GameID: "emerald", Room: "room1", DisplayName: "alice",
+	}, "wrong")
 	defer c1.conn.Close()
 
 	env := c1.next(timeout)
@@ -1026,15 +1042,15 @@ func TestRoomCodeRejectsWrongCode(t *testing.T) {
 
 // TestEmptyConfiguredRoomCodeAcceptsAnyHello confirms the back-compat
 // default: a relay with no RoomCode configured accepts a join regardless of
-// what (if anything) the client's Hello.RoomCode contains — auth stays off
+// what (if anything) the client offers to prove — auth stays off
 // unless the relay operator opts in, matching the pre-existing friend-hosted
 // posture. agent_docs/architecture.md's ADR.
 func TestEmptyConfiguredRoomCodeAcceptsAnyHello(t *testing.T) {
 	addr := startServer(t) // NewServer(), RoomCode left empty
 
-	c1 := dialTestClientWithHello(t, addr, protocol.Hello{
-		GameID: "emerald", Room: "room1", DisplayName: "alice", RoomCode: "whatever-i-feel-like",
-	})
+	c1 := dialTestClientWithCode(t, addr, protocol.Hello{
+		GameID: "emerald", Room: "room1", DisplayName: "alice",
+	}, "whatever-i-feel-like")
 	defer c1.conn.Close()
 
 	w := c1.expectWelcome(timeout)

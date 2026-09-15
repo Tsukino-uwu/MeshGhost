@@ -26,7 +26,13 @@ import "encoding/json"
 // a forced simultaneous upgrade. The user's call, 2026-09-08: "just break
 // anything old/before this change, so we can properly start to have a min
 // version or above going forward".
-const Version = 2
+//
+// 3 since 2026-09-15 (ADR 0067): the room code left the wire. A hello carries
+// a PAKE message instead of the code, and the relay answers it before a
+// Welcome; a v2 peer sends the code itself, which a v3 relay must not accept
+// and a v3 client never sends. The floor moved with it, the user's call the
+// same day.
+const Version = 3
 
 // MinProtocolVersion is the OLDEST peer this build will talk to, on either side
 // of the connection: a relay accepts a client at or above it, and a core accepts
@@ -52,7 +58,11 @@ const Version = 2
 // added. Nothing in this repo should bump it on its own reasoning; an adapter's
 // own floor (bridge.Hello.MinProtocolVersion, ADR 0059) is the knob for "this
 // mod needs a newer relay", and it can only tighten.
-const MinProtocolVersion = 2
+//
+// Raised to 3 on 2026-09-15 with the room-code PAKE (ADR 0067), the user's
+// call: the guarantee that the code never crosses the wire holds only if no
+// accepted peer can send it, so a v2 peer is refused on both sides.
+const MinProtocolVersion = 3
 
 // State is the packet schema's snapshot payload — the "state" message body,
 // and the payload type of the adapter bridge's LocalState/RenderRemote
@@ -152,6 +162,12 @@ const (
 	// hangup. Added alongside room-code auth — see the ADR in
 	// agent_docs/architecture.md.
 	TypeReject MessageType = "reject"
+
+	// TypePake carries one step of the room-code proof, in either direction:
+	// the relay's KE2 answering a hello's PakeKE1, then the client's KE3
+	// (package pake; ADR 0067). Only ever exchanged between a hello and its
+	// Welcome or Transports; anywhere else it is ignored.
+	TypePake MessageType = "pake"
 	// TypeTransports is the relay's reply to a Hello with QueryOnly set:
 	// which transports this relay serves, and on which ports. The relay
 	// closes the connection immediately after sending it — no room is
@@ -188,20 +204,16 @@ type Hello struct {
 	// the default and leaves the choice to whatever renders it. Ignored entirely
 	// when DisplayName is empty, because there is then no tag to colour.
 	NameColor string `json:"name_color,omitempty"`
-	// RoomCode is a shared secret the relay compares (constant-time)
-	// against its own configured code before allowing a join. An empty
-	// configured code on the relay means auth is off — the pre-existing,
-	// still-supported posture for a friend-hosted session where a bare
-	// address is enough. Whether it crosses the wire readable depends on the
-	// transport and the tls setting: quic is always encrypted, tcp is when
-	// tls is on ("auto" by default on both binaries and in a release config --
-	// see netx/tlsx and the TLS-over-tcp ADR), and udp never can be.
-	// Encrypted or not, the code itself is what is
-	// sent -- so this raises the bar from "anyone with the address" to
-	// "anyone with the address and the code," not to "safe against a
-	// network-level attacker." See docs/security.md and the ADRs in
-	// agent_docs/architecture.md.
-	RoomCode string `json:"room_code,omitempty"`
+	// PakeKE1 is the first message of the room-code proof (package pake,
+	// OPAQUE RFC 9807), base64. Since 2026-09-15 (ADR 0067) the code itself
+	// never crosses the wire: a client that has a code sends this, the relay
+	// answers with a Pake message carrying KE2, the client replies with KE3,
+	// and only then does the relay go on to the Welcome (or the Transports
+	// answer for a QueryOnly hello). A relay with a code configured refuses a
+	// hello without it as it used to refuse a wrong code; a relay with no code
+	// ignores it. Until this date the field here was room_code, the code
+	// as-is inside TLS -- readable by whoever terminated that TLS.
+	PakeKE1 string `json:"pake_ke1,omitempty"`
 	// GameVersion is the adapter-reported game/DLC version, opaque to the
 	// relay and core (same discipline as GameID/AreaID/Anim — compared only
 	// by equality, never parsed). Empty means "unknown" and is not checked,
@@ -444,6 +456,17 @@ const (
 	CodeServerFull              = "server_full"
 	CodeRateLimited             = "rate_limited"
 )
+
+// Pake is the payload of a TypePake envelope: exactly one of the two, base64.
+type Pake struct {
+	KE2 string `json:"ke2,omitempty"`
+	KE3 string `json:"ke3,omitempty"`
+}
+
+// MaxPakeFieldLen bounds a base64 PAKE message on the wire (Hello.PakeKE1,
+// Pake.KE2, Pake.KE3): pake.MaxMessageLen bytes encoded, with room to spare.
+// Checked with the other hello fields before anything is decoded.
+const MaxPakeFieldLen = 1536
 
 // RetryableForCode answers whether reconnecting could plausibly succeed for a
 // known code, and reports whether it recognised it at all.

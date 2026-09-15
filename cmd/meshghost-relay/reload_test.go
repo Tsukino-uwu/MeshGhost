@@ -47,7 +47,7 @@ func TestRelayReloadAppliesTheThreeLiveKeysWithoutDroppingAnyone(t *testing.T) {
 
 	// A member joins under the first code and stays connected throughout.
 	member := dialTLS(t, addr)
-	sendHello(t, member, helloFor("first"))
+	sendHelloWithCode(t, member, helloFor(), "first", srv.PakeIdentity)
 	if env := readEnvelope(t, member); env.Type != protocol.TypeWelcome {
 		t.Fatalf("member got %q, want a welcome", env.Type)
 	}
@@ -57,25 +57,25 @@ func TestRelayReloadAppliesTheThreeLiveKeysWithoutDroppingAnyone(t *testing.T) {
 
 	// The old code is refused, the new one admitted, other games refused.
 	c := dialTLS(t, addr)
-	sendHello(t, c, helloFor("first"))
+	sendHelloWithCode(t, c, helloFor(), "first", srv.PakeIdentity)
 	if rej := readReject(t, c); rej.Code != protocol.CodeInvalidRoomCode {
 		t.Fatalf("old code after the reload: %q, want %q", rej.Code, protocol.CodeInvalidRoomCode)
 	}
 	c = dialTLS(t, addr)
-	h := helloFor("second")
+	h := helloFor()
 	h.GameID = "game-b"
-	sendHello(t, c, h)
+	sendHelloWithCode(t, c, h, "second", srv.PakeIdentity)
 	if rej := readReject(t, c); rej.Code != protocol.CodeForReason(protocol.ReasonGameNotAllowed) {
 		t.Fatalf("other game after only_game was set: %q, want %q", rej.Code, protocol.CodeForReason(protocol.ReasonGameNotAllowed))
 	}
 	c = dialTLS(t, addr)
-	sendHello(t, c, helloFor("second"))
+	sendHelloWithCode(t, c, helloFor(), "second", srv.PakeIdentity)
 	if env := readEnvelope(t, c); env.Type != protocol.TypeWelcome {
 		t.Fatalf("new code after the reload got %q, want a welcome", env.Type)
 	}
 	// max_clients 2: the member and this one fill it; a third is refused.
 	third := dialTLS(t, addr)
-	sendHello(t, third, helloFor("second"))
+	sendHelloWithCode(t, third, helloFor(), "second", srv.PakeIdentity)
 	if rej := readReject(t, third); rej.Code != protocol.CodeForReason(protocol.ReasonServerFull) {
 		t.Fatalf("third join under max_clients 2: %q (%q), want server full", rej.Code, rej.Reason)
 	}

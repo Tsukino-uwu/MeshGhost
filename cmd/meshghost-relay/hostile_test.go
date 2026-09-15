@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tsukino-uwu/MeshGhost/internal/paketest"
 	"github.com/Tsukino-uwu/MeshGhost/netx"
 	"github.com/Tsukino-uwu/MeshGhost/netx/srclimit"
 	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
@@ -58,7 +59,7 @@ func startShippedStack(t *testing.T, opts stackOpts) (string, *relay.Server) {
 	if opts.sources == nil {
 		opts.sources = newSourceTable(opts.maxClients)
 	}
-	identity, _, err := tlsx.ServerConfig(netx.TLSALPN)
+	identity, fingerprint, err := tlsx.ServerConfig(netx.TLSALPN)
 	if err != nil {
 		t.Fatalf("ServerConfig: %v", err)
 	}
@@ -81,6 +82,7 @@ func startShippedStack(t *testing.T, opts stackOpts) (string, *relay.Server) {
 	srv := relay.NewServer()
 	srv.RoomCode = opts.roomCode
 	srv.SourceGuard = opts.sources // as main wires it: one table for the listeners and the relay
+	srv.PakeIdentity = fingerprint // as main wires it: the proof binds to the served certificate
 	srv.MaxClients = opts.maxClients
 	if opts.helloTimeout > 0 {
 		srv.HelloTimeout = opts.helloTimeout
@@ -221,13 +223,50 @@ func expectClosed(t *testing.T, c net.Conn, within time.Duration) {
 	}
 }
 
-// helloFor is a well-formed hello for room r with the given code.
-func helloFor(code string) protocol.Hello {
+// helloFor is a well-formed hello for room r. The code is proven, not
+// carried (ADR 0067): sendHelloWithCode runs the proof.
+func helloFor() protocol.Hello {
 	return protocol.Hello{
 		GameID:      "game-a",
 		Room:        "room-1",
 		DisplayName: "stranger",
-		RoomCode:    code,
+	}
+}
+
+// withKE1 is helloFor plus the proof's first message, for a test that expects
+// the relay to refuse BEFORE answering it (a blocked source).
+func withKE1(t *testing.T, hello protocol.Hello, code, identity string) protocol.Hello {
+	t.Helper()
+	hello.PakeKE1 = paketest.New(t, code, identity).KE1()
+	return hello
+}
+
+// sendHelloWithCode sends hello proving code against the stack's identity
+// and answers the relay's KE2 from the same socket, so the next line the
+// test reads is the relay's verdict -- a Welcome, a Reject, or whatever the
+// test is about. A wrong code sends an unusable KE3 (internal/paketest).
+func sendHelloWithCode(t *testing.T, c net.Conn, hello protocol.Hello, code, identity string) {
+	t.Helper()
+	prover := paketest.New(t, code, identity)
+	hello.PakeKE1 = prover.KE1()
+	sendHello(t, c, hello)
+	if prover == nil {
+		return
+	}
+	_ = c.SetReadDeadline(time.Now().Add(hostileDialTimeout))
+	br := bufio.NewReader(c)
+	line, err := br.ReadBytes('\n')
+	if err != nil {
+		t.Fatalf("reading the relay's answer to the proof: %v", err)
+	}
+	if !prover.Handle(line, func(out []byte) error { _, err := c.Write(append(out, '\n')); return err }) {
+		// Not a KE2: the relay refused (or welcomed) without the proof. Put
+		// the line back for the caller by failing loudly instead -- every
+		// caller here expects the proof to run when a code is configured.
+		t.Fatalf("the relay answered %q instead of the proof's KE2", string(line))
+	}
+	if n := br.Buffered(); n > 0 {
+		t.Fatalf("%d byte(s) arrived behind the KE2 before the KE3 was sent", n)
 	}
 }
 
@@ -239,10 +278,10 @@ func helloFor(code string) protocol.Hello {
 // only a close at the sniff.
 func TestShippedStackRejectsAWrongRoomCode(t *testing.T) {
 	captureLog(t)
-	addr, _ := startShippedStack(t, stackOpts{roomCode: "right"})
+	addr, srv := startShippedStack(t, stackOpts{roomCode: "right"})
 	t.Run("tls", func(t *testing.T) {
 		c := dialTLS(t, addr)
-		sendHello(t, c, helloFor("wrong"))
+		sendHelloWithCode(t, c, helloFor(), "wrong", srv.PakeIdentity)
 		rej := readReject(t, c)
 		if rej.Code != protocol.CodeInvalidRoomCode {
 			t.Fatalf("reject code %q (%q), want %q", rej.Code, rej.Reason, protocol.CodeInvalidRoomCode)
@@ -353,10 +392,10 @@ func TestShippedStackCapsOpenConnectionsFromOneSource(t *testing.T) {
 // wrong -- is refused as rate limited before the code is compared.
 func TestShippedStackThrottlesRoomCodeGuessesFromOneSource(t *testing.T) {
 	captureLog(t)
-	addr, _ := startShippedStack(t, stackOpts{roomCode: "right-code"})
+	addr, srv := startShippedStack(t, stackOpts{roomCode: "right-code"})
 	for i := 0; i < relay.RoomCodeAttemptBurst; i++ {
 		c := dialTLS(t, addr)
-		sendHello(t, c, helloFor("wrong"))
+		sendHelloWithCode(t, c, helloFor(), "wrong", srv.PakeIdentity)
 		if rej := readReject(t, c); rej.Code != protocol.CodeInvalidRoomCode {
 			t.Fatalf("guess %d: code %q, want %q", i+1, rej.Code, protocol.CodeInvalidRoomCode)
 		}
@@ -366,7 +405,8 @@ func TestShippedStackThrottlesRoomCodeGuessesFromOneSource(t *testing.T) {
 	// as rate limited, and so is another wrong one.
 	for _, code := range []string{"right-code", "wrong"} {
 		c := dialTLS(t, addr)
-		sendHello(t, c, helloFor(code))
+		// Blocked before the proof: the hello with KE1 gets the Reject at once.
+		sendHello(t, c, withKE1(t, helloFor(), code, srv.PakeIdentity))
 		rej := readReject(t, c)
 		if rej.Code != protocol.CodeForReason(protocol.ReasonRateLimited) {
 			t.Fatalf("after the burst, %q got code %q (%q), want rate limited", code, rej.Code, rej.Reason)

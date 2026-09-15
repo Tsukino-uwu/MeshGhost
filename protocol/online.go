@@ -474,11 +474,16 @@ func ValidateHelloFields(h Hello) bool {
 	// the value was discarded downstream rather than bounded on arrival, and
 	// the relay logged and compared an attacker-sized string in between.
 	for _, s := range []string{
-		h.GameID, h.Room, h.DisplayName, h.RoomCode, h.GameVersion, h.NameColor,
+		h.GameID, h.Room, h.DisplayName, h.GameVersion, h.NameColor,
 	} {
 		if len(s) > MaxHelloFieldLen {
 			return false
 		}
+	}
+	// The PAKE message has its own, larger bound: it is a fixed-size
+	// cryptographic message, not a name.
+	if len(h.PakeKE1) > MaxPakeFieldLen {
+		return false
 	}
 	if len(h.ResumeToken) > MaxResumeTokenLen {
 		return false

@@ -48,6 +48,7 @@ func startRelay(t *testing.T) string {
 func startRelayWith(t *testing.T, s *relay.Server) string {
 	t.Helper()
 	ln := listenTLS(t)
+	bindProofToTestIdentity(s)
 	go s.Serve(ln)
 	return ln.Addr().String()
 }

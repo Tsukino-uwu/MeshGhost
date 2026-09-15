@@ -55,7 +55,10 @@ func TestRefusedHellosLogAtMostOnceASecond(t *testing.T) {
 	addr := startServerWith(t, s)
 	const attempts = 50
 	for i := 0; i < attempts; i++ {
-		c := dialTestClientWithHello(t, addr, protocol.Hello{GameID: "g", Room: "r", RoomCode: "wrong"})
+		// A proof that is not one, which is what a flooder sends: refused at
+		// once, no key exchange on either side, so fifty of them land inside
+		// one throttle window whatever the machine is doing.
+		c := dialTestClientWithHello(t, addr, protocol.Hello{GameID: "g", Room: "r", PakeKE1: "bm90IGEga2Ux"})
 		c.expectReject(2 * time.Second)
 		c.conn.Close()
 	}

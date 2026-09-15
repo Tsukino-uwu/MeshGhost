@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tsukino-uwu/MeshGhost/internal/paketest"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
@@ -34,9 +35,9 @@ func TestASecondHelloAfterARejectIsIgnored(t *testing.T) {
 	addr := startServerWith(t, s)
 
 	// A real member, so a phantom join would have somebody to be announced to.
-	witness := dialTestClientWithHello(t, addr, protocol.Hello{
-		GameID: "emerald", Room: "room1", DisplayName: "witness", RoomCode: "letmein",
-	})
+	witness := dialTestClientWithCode(t, addr, protocol.Hello{
+		GameID: "emerald", Room: "room1", DisplayName: "witness",
+	}, "letmein")
 	defer witness.conn.Close()
 	awaitWelcome(t, witness)
 
@@ -73,10 +74,13 @@ func TestASecondHelloAfterARejectIsIgnored(t *testing.T) {
 		_ = conn.Send(env)
 	}
 
-	// Refused: wrong room code.
-	send(protocol.Hello{GameID: "emerald", Room: "room1", DisplayName: "intruder", RoomCode: "wrong"})
-	// ...and immediately the correct one, into the drain window.
-	send(protocol.Hello{GameID: "emerald", Room: "room1", DisplayName: "intruder", RoomCode: "letmein"})
+	// Refused at once: a proof that is not a proof (the relay rejects a KE1
+	// it cannot parse without waiting for anything).
+	send(protocol.Hello{GameID: "emerald", Room: "room1", DisplayName: "intruder", PakeKE1: "bm90IGEga2Ux"})
+	// ...and immediately a hello with a real KE1, into the drain window. The
+	// relay must not even answer it with a KE2.
+	send(protocol.Hello{GameID: "emerald", Room: "room1", DisplayName: "intruder",
+		PakeKE1: paketest.New(t, "letmein", "").KE1()})
 
 	// Exactly one Reject, and never a Welcome.
 	var rejects int
@@ -88,10 +92,10 @@ collect:
 			switch env.Type {
 			case protocol.TypeReject:
 				rejects++
-			case protocol.TypeWelcome:
-				t.Fatal("the relay welcomed a second hello sent on an already-rejected " +
-					"connection: a refusal must be terminal for that connection, or a refused " +
-					"peer can join over a half-closed socket")
+			case protocol.TypeWelcome, protocol.TypePake:
+				t.Fatalf("the relay answered (%q) a second hello sent on an already-rejected "+
+					"connection: a refusal must be terminal for that connection, or a refused "+
+					"peer can join over a half-closed socket", env.Type)
 			}
 		case <-deadline:
 			break collect

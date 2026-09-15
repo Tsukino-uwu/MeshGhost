@@ -305,7 +305,12 @@ var frozenProtocolFields = map[string][]string{
 	//
 	// The colour is a bare "#RRGGBB" for the same reason area_id is an opaque string: the core
 	// can validate its SHAPE without knowing what any game does with it.
-	"Hello":   {"display_name", "features", "game_id", "game_version", "max_receive_hz_per_player", "name_color", "own_area_only", "protocol_version", "query_only", "resume_token", "room", "room_code"},
+	//
+	// pake_ke1 and the Pake message (2026-09-15, ADR 0067) replaced room_code: the room-code
+	// proof's three messages, opaque bytes the core and relay hand to package pake and never
+	// read. No game is named anywhere in them; the same bytes serve every game.
+	"Hello":   {"display_name", "features", "game_id", "game_version", "max_receive_hz_per_player", "name_color", "own_area_only", "pake_ke1", "protocol_version", "query_only", "resume_token", "room"},
+	"Pake":    {"ke2", "ke3"},
 	"Welcome": {"features", "ghost_collision", "nametags", "player_id", "protocol_version", "resume_token", "resumed", "roster", "send_hz", "server_time_ms"},
 	"Reject":  {"code", "reason", "retryable"},
 	"Join":    {"nametag", "player_id", "state"},
@@ -458,7 +463,7 @@ func TestWireFieldsAreFrozen(t *testing.T) {
 		"Leave":   protocol.Leave{}, "Event": protocol.Event{}, "Ping": protocol.Ping{},
 		"Pong": protocol.Pong{}, "Prefs": protocol.Prefs{},
 		"TransportOffer": protocol.TransportOffer{},
-		"Transports":     protocol.Transports{}, "Lease": protocol.Lease{},
+		"Transports":     protocol.Transports{}, "Lease": protocol.Lease{}, "Pake": protocol.Pake{},
 		"LeaseState": protocol.LeaseState{}, "Escrow": protocol.Escrow{},
 		"EscrowState": protocol.EscrowState{}, "World": protocol.World{},
 		"WorldEntry": protocol.WorldEntry{}, "WorldState": protocol.WorldState{},
@@ -615,7 +620,7 @@ func TestTheThreeStayApart(t *testing.T) {
 // Relay-protocol vocabulary. An adapter that contains any of these is speaking past its own
 // bridge, which is `CLAUDE.md`'s "adapters never speak the relay protocol" -- the third leg of the
 // split, and the only one that lives outside Go.
-var relayOnlyVocabulary = []string{"resume_token", "room_code", "protocol_version"}
+var relayOnlyVocabulary = []string{"resume_token", "room_code", "pake_ke1", "protocol_version"}
 
 // containsIdentifier is strings.Contains with a WORD BOUNDARY, and the boundary is the whole point
 // (2026-09-11).

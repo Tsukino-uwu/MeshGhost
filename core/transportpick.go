@@ -103,11 +103,23 @@ func (c *Core) queryTransports(addr, gameID, room, displayName, roomCode, gameVe
 	if err != nil {
 		return nil, err
 	}
+	// The discovery leg proves the room code too (it always carried it):
+	// a relay with a code answers the query only after KE3.
+	proof, err := newRoomProof(roomCode, netConn)
+	if err != nil {
+		_ = netConn.Close()
+		return nil, nil
+	}
 	conn := transport.FromConnWithLimits(netConn, protocol.MaxLineBytes, 0, 0)
 	defer conn.Close()
 
 	replies := make(chan protocol.Envelope, 1)
 	conn.OnReceive(func(payload []byte) {
+		// A refused proof on this leg closes it; the real connect attempt
+		// then surfaces the reason, as any other refusal here does.
+		if proof.intercept(conn, payload, func(protocol.Reject) {}) {
+			return
+		}
 		var env protocol.Envelope
 		if err := json.Unmarshal(payload, &env); err != nil {
 			return
@@ -123,7 +135,7 @@ func (c *Core) queryTransports(addr, gameID, room, displayName, roomCode, gameVe
 		GameID:          gameID,
 		Room:            room,
 		DisplayName:     displayName,
-		RoomCode:        roomCode,
+		PakeKE1:         proof.KE1(),
 		GameVersion:     gameVersion,
 		QueryOnly:       true,
 	})
