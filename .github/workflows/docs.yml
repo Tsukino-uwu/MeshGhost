@@ -28,15 +28,25 @@ name: Docs
 # running it anywhere else would be checking a different script than the one people run locally.
 # fetch-depth: 0 because the _template back-port check compares COMMIT dates, not file mtimes.
 
+#
+# '**_test.go' and ci.yml are here for the fuzz census (preflight's "every Fuzz target has a CI
+# step"): the push that adds a target or deletes a step touches exactly those files, and until
+# 2026-09-16 neither triggered this workflow, so the census only ran when the same push happened
+# to touch prose (pass 5 of the adversarial review, X2-3).
+
 on:
   push:
     paths:
       - '**.md'
+      - '**_test.go'
+      - '.github/workflows/ci.yml'
       - 'dev-scripts/preflight.ps1'
       - '.github/workflows/docs.yml'
   pull_request:
     paths:
       - '**.md'
+      - '**_test.go'
+      - '.github/workflows/ci.yml'
       - 'dev-scripts/preflight.ps1'
       - '.github/workflows/docs.yml'
   workflow_dispatch:

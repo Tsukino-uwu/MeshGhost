@@ -48,6 +48,7 @@ import (
 // Seeded with the shapes most likely to break the parsing: truncated control
 // headers, a control byte with no type, cookies of every wrong length, and a
 // datagram claiming to be reliable with no room for its sequence number.
+// fuzz-census: no-ci-step -- plain udp compiles only under meshghost_devudp and no release carries it (ADR 0065)
 func FuzzListenerSurvivesArbitraryDatagrams(f *testing.F) {
 	f.Add([]byte{})
 	f.Add([]byte{ctrlPrefix})

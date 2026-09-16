@@ -164,6 +164,26 @@ if (-not $SkipCI) {
     $red = @($runs | Where-Object { $_.conclusion -ne "success" })
     if ($red.Count -gt 0) { Refuse "CI is red on HEAD -- read it (gh run view <id> --log-failed), fix, run this again" }
     Write-Host "every workflow on HEAD is green"
+
+    # HEAD's runs are only the workflows HEAD's own push triggered, and every workflow but hygiene
+    # is path-filtered: a .go commit whose race or fuzz run went red, then a .md-only commit on
+    # top, left only docs and hygiene on HEAD, and this check said green (pass 5 of the
+    # adversarial review, 2026-09-16, X2-4). So also refuse when the NEWEST COMPLETED run of any
+    # workflow on master is red, whichever commit it ran for. The release workflow itself is
+    # excluded (it is what this script is about to dispatch), and so are cancelled and skipped
+    # runs, which say nothing about the code.
+    $json = & gh run list --branch master -L 200 --json workflowName,status,conclusion,headSha,createdAt | Out-String
+    $all = @()
+    if ($json.Trim() -ne "") { $all = @($json | ConvertFrom-Json | ForEach-Object { $_ }) }
+    $newestRed = @($all | Where-Object { $_.status -eq "completed" -and $_.workflowName -ne "Release" -and
+            $_.conclusion -notin @("cancelled", "skipped") } |
+        Sort-Object createdAt -Descending | Group-Object workflowName |
+        ForEach-Object { $_.Group[0] } | Where-Object { $_.conclusion -ne "success" })
+    if ($newestRed.Count -gt 0) {
+        $newestRed | ForEach-Object { Write-Host "$($_.conclusion)`t$($_.workflowName)`t$($_.headSha.Substring(0,8))" }
+        Refuse "a workflow's newest run on master is red, though HEAD's own runs are green -- read it, fix, run this again"
+    }
+    Write-Host "every workflow's newest run on master is green"
 }
 
 Step "Dispatching release.yml for $Version"

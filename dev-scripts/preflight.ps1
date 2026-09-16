@@ -2449,10 +2449,18 @@ Section "Fuzz census: every target has a CI step and a roster row"
 #
 # Deliberately NOT checked here: whether a target is any good. That is a reading job, and the same
 # review found targets with a step, a row, and no reach into the code they name.
+#
+# Keyed by PACKAGE and name, never by bare name, and matched against a real step line
+# ("./<package> <Target> <time>"), never a substring of the whole file (pass 5 of the adversarial
+# review, 2026-09-16, X2-2): two packages both declare FuzzEnvelopeUnmarshalNeverPanics, so a
+# bare-name table kept one and deleting the other's step still passed; and a target whose name
+# merely appeared in a ci.yml COMMENT passed with no step at all.
 $fuzzTargets = @{}
 foreach ($f in @(Get-ChildItem -Recurse -File -Filter '*_test.go' | Where-Object { $_.FullName -notmatch '\\(\.git|node_modules)\\' })) {
+    $rel = (Resolve-Path -Relative $f.FullName) -replace '^\.[\\/]', '' -replace '\\', '/'
+    $pkgDir = './' + ($rel -replace '/[^/]+$', '')
     foreach ($m in [regex]::Matches((Get-Content -LiteralPath $f.FullName -Raw), '(?m)^func\s+(Fuzz\w+)\s*\(')) {
-        $fuzzTargets[$m.Groups[1].Value] = (Resolve-Path -Relative $f.FullName) -replace '^\.[\\/]', '' -replace '\\', '/'
+        $fuzzTargets["$pkgDir $($m.Groups[1].Value)"] = $rel
     }
 }
 if ($fuzzTargets.Count -eq 0) {
@@ -2475,11 +2483,13 @@ if ($fuzzTargets.Count -eq 0) {
     # opt-out still needs a ROSTER row: not running is a fact a reviewer must be able to find.
     $noStep = @()
     $noRow  = @()
-    foreach ($name in ($fuzzTargets.Keys | Sort-Object)) {
-        $src = Get-Content -LiteralPath $fuzzTargets[$name] -Raw
+    foreach ($key in ($fuzzTargets.Keys | Sort-Object)) {
+        $pkgDir, $name = $key -split ' ', 2
+        $src = Get-Content -LiteralPath $fuzzTargets[$key] -Raw
         $optOut = $src -match ('(?m)^//\s*fuzz-census:\s*no-ci-step\b.*\r?\n(?:.*\r?\n)??func\s+' + [regex]::Escape($name) + '\s*\(')
-        if (-not $optOut -and $ciText -notmatch [regex]::Escape($name)) { $noStep += "$name ($($fuzzTargets[$name]))" }
-        if ($rosterText -notmatch [regex]::Escape($name)) { $noRow += "$name ($($fuzzTargets[$name]))" }
+        $stepLine = '(?m)^[ \t]*' + [regex]::Escape($pkgDir) + '[ \t]+' + [regex]::Escape($name) + '[ \t]+\d+[smh]\b'
+        if (-not $optOut -and $ciText -notmatch $stepLine) { $noStep += "$name ($($fuzzTargets[$key]))" }
+        if ($rosterText -notmatch [regex]::Escape($name)) { $noRow += "$name ($($fuzzTargets[$key]))" }
     }
     if ($noStep.Count -gt 0) {
         Report-Fail ("{0} fuzz target(s) have no step in ci.yml -- they never run:`n          {1}" -f $noStep.Count, ($noStep -join "`n          "))

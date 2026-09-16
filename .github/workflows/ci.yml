@@ -162,7 +162,10 @@ jobs:
           - name: relay and end to end
             packages: ./relay ./internal/e2e
           - name: everything else
-            packages: $(go list ./... | grep -v -E '/(core|relay|internal/e2e)$')
+            # Anchored on the WHOLE import path (-x): a suffix match would also drop a
+            # future netx/relay or similar from this shard, and it is in neither of the
+            # other two (pass 5 of the adversarial review, 2026-09-16, X2-13).
+            packages: $(go list ./... | grep -v -x -E "$(go list -m)/(core|relay|internal/e2e)")
     steps:
       - uses: actions/checkout@v7
 
