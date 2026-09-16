@@ -31,6 +31,24 @@ Claude Code --MCP (stdio)--> autoplay core --JSON lines (127.0.0.1)--> driver in
 | `wait` | Let 1-3600 frames pass with NO input, then report what changed. Never hold a button to wait |
 | `screenshot` | The game frame, saved to `dev-scripts/shots/<game>/autoplay_<name>.png` and returned as an image |
 | `events` | Events the driver reported since a sequence number |
+| `snapshot` | Save the whole game state to `autoplay/states/<game>/<label>.State` — a named file, never a numbered slot, so no slot of anyone's is ever touched |
+| `restore` | Load a named snapshot. **Marks the segment REACHED** |
+| `cheat` | A kind the driver announced as `cheat:<kind>`, with its arguments. **Marks the segment REACHED** |
+| `segment` | Close the current run segment and start a labelled one; returns the closed one as walked or reached |
+
+## The run log
+
+Every session writes `autoplay/runs/<time>.ndjson`: each tool call, and each segment labelled
+**walked** or **reached**. A segment starts walked and becomes reached the moment a cheat or a restore
+succeeds in it, with what did it — the play-game skill's "walked to X" versus "reached X", kept by
+code rather than by memory. A failed or refused cheat changes nothing.
+
+## Cheats so far
+
+- **Emerald `warp`** `{map: "G.N", x, y}`: the game's own map load (the writes `cmd_drive.lua`
+  measured). Refused outside vanilla's overworld callback. It answers once the game has left the
+  overworld and come back on the target map (`done`, and the frames it took) — **the screen is still
+  fading in at that moment**, so wait before judging a picture; the fade's length is not measured.
 
 ## Drivers so far
 

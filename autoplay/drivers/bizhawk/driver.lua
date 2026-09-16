@@ -113,11 +113,20 @@ local function has(capability)
 	return false
 end
 
+-- The answer to a press or a wait: how long, and what moved between before and after.
+local function heldFor(frames)
+	return function(after, _, _, before)
+		return { frames = frames, before = before, after = after, changed = changed(before, after) }
+	end
+end
+
 -- Start carrying out one request. Returns true when it answered at once.
 local function begin(req)
 	local verb, p = req.type, req.payload or {}
-	if not has(verb) then
-		fail(req.id, "this driver does not support " .. tostring(verb))
+	local capability = verb
+	if verb == "cheat" then capability = "cheat:" .. tostring(p.kind) end
+	if not has(capability) then
+		fail(req.id, "this driver does not support " .. tostring(capability))
 		return true
 	end
 	if verb == "observe" then
@@ -158,7 +167,7 @@ local function begin(req)
 			end
 			pad[b] = true
 		end
-		hold = { id = req.id, pad = pad, left = frames, frames = frames, before = game.observe() }
+		hold = { id = req.id, pad = pad, left = frames, before = game.observe(), finish = heldFor(frames) }
 		log(string.format("press %s for %d frames", table.concat(p.buttons, "+"), frames))
 		return false
 	elseif verb == "wait" then
@@ -169,7 +178,55 @@ local function begin(req)
 			fail(req.id, "wait needs 1 to 3600 frames")
 			return true
 		end
-		hold = { id = req.id, pad = nil, left = frames, frames = frames, before = game.observe() }
+		hold = { id = req.id, pad = nil, left = frames, before = game.observe(), finish = heldFor(frames) }
+		return false
+	elseif verb == "snapshot" or verb == "restore" then
+		-- The core names the file: a named state under its gitignored states folder, never a numbered
+		-- slot, so nothing here can touch slot 1 or any rig's slot. BizHawk's savestate.save/load take a
+		-- path (tasvideos.org/Bizhawk/LuaFunctions); the core checks the file itself afterwards.
+		local path = p.path
+		if type(path) ~= "string" or not path:match("%.State$") then
+			fail(req.id, verb .. " needs a path ending in .State")
+			return true
+		end
+		if verb == "snapshot" then
+			local ok, err = pcall(function() savestate.save(path) end)
+			if not ok then
+				fail(req.id, "savestate.save failed: " .. tostring(err))
+				return true
+			end
+			log("snapshot " .. path)
+			reply(req.id, { path = path, frame = emu.framecount() })
+			return true
+		end
+		local ok, loaded = pcall(function() return savestate.load(path) end)
+		if not ok or loaded == false then
+			fail(req.id, "savestate.load failed: " .. tostring(loaded))
+			return true
+		end
+		log("restore " .. path)
+		-- Answer one frame later, from the loaded state.
+		hold = { id = req.id, left = 1, before = nil, finish = function(after) return { path = path, after = after } end }
+		return false
+	elseif verb == "cheat" then
+		local run = game.cheats and game.cheats[p.kind]
+		if not run then
+			fail(req.id, "no cheat " .. tostring(p.kind) .. " in this game module")
+			return true
+		end
+		local before = game.observe()
+		local plan, err = run(type(p.args) == "table" and p.args or {})
+		if not plan then
+			fail(req.id, tostring(err))
+			return true
+		end
+		log("cheat " .. tostring(p.kind))
+		hold = {
+			id = req.id, left = 0, before = before, untilFn = plan.untilFn, limit = plan.limit or 1, count = 0,
+			finish = function(after, done, count)
+				return { kind = p.kind, done = done, frames = count, before = before, after = after, changed = changed(before, after) }
+			end,
+		}
 		return false
 	end
 	fail(req.id, "unhandled request " .. tostring(verb))
@@ -274,10 +331,19 @@ MESHGHOST_DEV_TICK = function()
 		if hold.left > 0 then
 			if hold.pad then joypad.set(hold.pad) end
 			hold.left = hold.left - 1
+		elseif hold.untilFn then
+			-- A leg that ends on the game's own state, with a frame limit so it cannot run forever.
+			local after = game.observe()
+			hold.count = hold.count + 1
+			local done = hold.untilFn(after)
+			if done or hold.count >= hold.limit then
+				reply(hold.id, hold.finish(after, done, hold.count, hold.before))
+				hold = nil
+			end
 		else
 			-- The last set applies to the frame after it, so the answer is read one frame later.
 			local after = game.observe()
-			reply(hold.id, { frames = hold.frames, before = hold.before, after = after, changed = changed(hold.before, after) })
+			reply(hold.id, hold.finish(after, true, 0, hold.before))
 			hold = nil
 		end
 	elseif #queue > 0 then

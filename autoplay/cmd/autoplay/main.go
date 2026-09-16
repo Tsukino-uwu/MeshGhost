@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 
 	"github.com/Tsukino-uwu/MeshGhost/autoplay/driver"
+	"github.com/Tsukino-uwu/MeshGhost/autoplay/runlog"
 	"github.com/Tsukino-uwu/MeshGhost/autoplay/server"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -29,6 +30,8 @@ const version = "0.1.0"
 func main() {
 	listen := flag.String("listen", DefaultListen, "loopback address the game driver connects to")
 	logPath := flag.String("log", "", "append log lines to this file instead of stderr")
+	runsDir := flag.String("runs", "runs", "folder for this session's run log (gitignored)")
+	statesDir := flag.String("states", "states", "folder for named snapshots (gitignored)")
 	flag.Parse()
 
 	var out io.Writer = os.Stderr
@@ -62,9 +65,18 @@ func main() {
 		}
 	}()
 
-	if err := server.New(hub, version).Run(ctx, &mcp.StdioTransport{}); err != nil && ctx.Err() == nil {
+	runs, err := runlog.Open(*runsDir)
+	if err != nil {
+		logger.Printf("run log: %v", err)
+		os.Exit(1)
+	}
+	logger.Printf("run log %s", runs.Path())
+
+	srv := server.New(hub, version, server.Options{Log: runs, StatesDir: *statesDir})
+	if err := srv.Run(ctx, &mcp.StdioTransport{}); err != nil && ctx.Err() == nil {
 		logger.Printf("mcp: %v", err)
 	}
 	hub.Close()
+	runs.Close()
 	logger.Printf("stopped")
 }

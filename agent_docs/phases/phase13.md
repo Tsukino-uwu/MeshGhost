@@ -164,3 +164,30 @@ because of what went wrong on the way, each the play-game skill's rule proving i
 The screen also showed a second player beside the real one: the save keeping a ghost spawned in an
 earlier dev session. The user: it goes away on leaving the area, and Emerald ships drawn ghosts now,
 so it is not an issue.
+
+## 2026-09-16 (later still) — Phase 1 step 3: snapshots, a warp, and a run log that labels walked or reached
+
+**Snapshots are named files, never slots.** Before the first one, the vanilla Emerald state folder held
+ten slot files, 0 to 9 — every slot already had a state in it, of the user's or a rig's. So `snapshot`
+and `restore` use BizHawk's path form of `savestate.save`/`load` (its Lua function reference names the
+path argument) into `autoplay/states/<game>/<label>.State`, which is gitignored. The core names the
+file, the driver only saves or loads, and the core checks the file exists — and was rewritten, when
+one was there — before answering. Slot 1, or any slot, is never touched.
+
+**The run log** (`autoplay/runlog`, a file per session under `autoplay/runs/`) records every tool call
+and labels each segment walked or reached; a segment becomes reached when a cheat or a restore
+succeeds in it, never on a failure or a refusal. `cheat` checks the kind against the driver's
+announced `cheat:<kind>`; Emerald has `warp`, the writes `cmd_drive.lua` measured.
+
+**Live, one run:** segment "walk one tile" — a 16-frame Left press moved `x` 10 to 9, closed
+**walked**; "back by restore" — `restore` put `x` back to 10, closed **reached** by `restore`;
+"warp two tiles right" — `cheat warp 0.10 12,16` landed on `x` 12 and answered `done` after 10 frames,
+closed **reached** by `cheat:warp`. The run log file holds the same five segments. The snapshot was a
+33,720-byte file. **The screenshot taken the moment the warp answered was black**: `done` fires when
+gMain.callback2 is back on the overworld, while the screen is still fading in; a picture taken later
+showed the player on the new tile, and the save's duplicate player gone, as a warp clears it. How
+long the fade lasts is not measured, so the README says to wait, not for how long.
+
+Go side: `go test -race -count=10 ./...` clean with the new tests (a cheat marks the segment reached,
+a refused kind does not, a snapshot the driver did not write is an error, a restore of a missing
+label is refused, a path in a label is refused).

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/autoplay/driver"
+	"github.com/Tsukino-uwu/MeshGhost/autoplay/runlog"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -19,6 +20,8 @@ import (
 type harness struct {
 	hub     *driver.Hub
 	session *mcp.ClientSession
+	log     *runlog.Log
+	states  string
 }
 
 func newHarness(t *testing.T) *harness {
@@ -31,8 +34,15 @@ func newHarness(t *testing.T) *harness {
 	t.Cleanup(cancel)
 	go hub.Serve(ctx)
 
+	runs, err := runlog.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("run log: %v", err)
+	}
+	t.Cleanup(func() { runs.Close() })
+	states := t.TempDir()
+
 	serverT, clientT := mcp.NewInMemoryTransports()
-	if _, err := New(hub, "test").Connect(ctx, serverT, nil); err != nil {
+	if _, err := New(hub, "test", Options{Log: runs, StatesDir: states}).Connect(ctx, serverT, nil); err != nil {
 		t.Fatalf("server connect: %v", err)
 	}
 	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "test"}, nil)
@@ -41,7 +51,7 @@ func newHarness(t *testing.T) *harness {
 		t.Fatalf("client connect: %v", err)
 	}
 	t.Cleanup(func() { session.Close() })
-	return &harness{hub: hub, session: session}
+	return &harness{hub: hub, session: session, log: runs, states: states}
 }
 
 // call invokes a tool and returns its text content and whether it was an error.
@@ -290,6 +300,89 @@ func TestEventsToolReturnsAnObjectPayload(t *testing.T) {
 	text, isErr := h.call(t, "events", map[string]any{"since": 0})
 	if isErr || !strings.Contains(text, `"kind":"mode_changed"`) || !strings.Contains(text, `"newest":1`) {
 		t.Fatalf("events = %s (error %v)", text, isErr)
+	}
+}
+
+func TestACheatMarksTheSegmentReachedAndPlayDoesNot(t *testing.T) {
+	h := newHarness(t)
+	h.startDriver(t, []string{"press", "cheat:warp"}, func(verb string, payload json.RawMessage) (string, any) {
+		return "result", map[string]any{"verb": verb}
+	})
+
+	h.call(t, "press", map[string]any{"buttons": []string{"Left"}, "frames": 16})
+	text, isErr := h.call(t, "segment", map[string]any{"label": "warp to the town"})
+	if isErr || !strings.Contains(text, `"claim":"walked"`) {
+		t.Fatalf("after play only, segment = %s (error %v)", text, isErr)
+	}
+
+	if text, isErr := h.call(t, "cheat", map[string]any{"kind": "warp", "args": map[string]any{"map": "0.10"}}); isErr {
+		t.Fatalf("cheat = %s", text)
+	}
+	text, isErr = h.call(t, "segment", map[string]any{"label": "next"})
+	var out SegmentOut
+	if isErr || json.Unmarshal([]byte(text), &out) != nil {
+		t.Fatalf("after a cheat, segment = %s (error %v)", text, isErr)
+	}
+	c := out.Closed
+	if c.N != 2 || c.Label != "warp to the town" || c.Claim != "reached" || len(c.Because) != 1 || c.Because[0] != "cheat:warp" || c.Ended == nil {
+		t.Fatalf("closed segment = %+v", c)
+	}
+	if out.Current.Claim != "walked" || out.Current.Ended != nil || strings.Contains(text, `"ended":"0001`) {
+		t.Fatalf("the new segment = %+v in %s", out.Current, text)
+	}
+}
+
+func TestACheatKindTheDriverDidNotAnnounceIsRefused(t *testing.T) {
+	h := newHarness(t)
+	h.startDriver(t, []string{"cheat:warp"}, func(string, json.RawMessage) (string, any) { return "result", map[string]any{} })
+	text, isErr := h.call(t, "cheat", map[string]any{"kind": "noclip"})
+	if !isErr || !strings.Contains(text, `does not support "cheat:noclip"`) {
+		t.Fatalf("cheat noclip = %s (error %v)", text, isErr)
+	}
+	if got := h.log.Current().Claim; got != "walked" {
+		t.Fatalf("a refused cheat marked the segment %q", got)
+	}
+}
+
+func TestSnapshotNeedsTheFileAndRestoreNeedsItToExist(t *testing.T) {
+	h := newHarness(t)
+	writes := true
+	h.startDriver(t, []string{"snapshot", "restore"}, func(verb string, payload json.RawMessage) (string, any) {
+		var p struct {
+			Path string `json:"path"`
+		}
+		json.Unmarshal(payload, &p)
+		if verb == "snapshot" && writes {
+			os.WriteFile(filepath.FromSlash(p.Path), []byte("state"), 0o644)
+		}
+		return "result", map[string]any{"path": p.Path}
+	})
+
+	if text, isErr := h.call(t, "restore", map[string]any{"label": "never_saved"}); !isErr || !strings.Contains(text, "no snapshot named") {
+		t.Fatalf("restore of a missing label = %s (error %v)", text, isErr)
+	}
+	if text, isErr := h.call(t, "snapshot", map[string]any{"label": "../escape"}); !isErr {
+		t.Fatalf("a label with a path in it was accepted: %s", text)
+	}
+
+	text, isErr := h.call(t, "snapshot", map[string]any{"label": "before_door"})
+	if isErr || !strings.Contains(text, `"bytes":5`) {
+		t.Fatalf("snapshot = %s (error %v)", text, isErr)
+	}
+	if _, err := os.Stat(filepath.Join(h.states, "fakegame", "before_door.State")); err != nil {
+		t.Fatalf("the snapshot is not under the states folder: %v", err)
+	}
+
+	writes = false
+	if text, isErr := h.call(t, "snapshot", map[string]any{"label": "not_written"}); !isErr || !strings.Contains(text, "no snapshot file exists") {
+		t.Fatalf("a driver that answered without writing = %s (error %v)", text, isErr)
+	}
+
+	if text, isErr := h.call(t, "restore", map[string]any{"label": "before_door"}); isErr {
+		t.Fatalf("restore = %s", text)
+	}
+	if got := h.log.Current(); got.Claim != "reached" || got.Because[0] != "restore" {
+		t.Fatalf("after a restore the segment is %+v", got)
 	}
 }
 

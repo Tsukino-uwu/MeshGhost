@@ -12,10 +12,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/autoplay/driver"
+	"github.com/Tsukino-uwu/MeshGhost/autoplay/runlog"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -25,54 +27,106 @@ const CallTimeout = 10 * time.Second
 // MaxPressFrames bounds one press: a long hold is a leg, and legs end on the game's state.
 const MaxPressFrames = 600
 
+// Options are what the server needs besides the hub. A zero Options is valid: no run log, and
+// snapshots under "states".
+type Options struct {
+	Log       *runlog.Log
+	StatesDir string
+}
+
 // New builds the MCP server over a hub.
-func New(hub *driver.Hub, version string) *mcp.Server {
+func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "autoplay", Version: version}, nil)
-	t := &tools{hub: hub}
+	if opts.StatesDir == "" {
+		opts.StatesDir = "states"
+	}
+	t := &tools{hub: hub, log: opts.Log, statesDir: opts.StatesDir}
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "status",
 		Description: "Whether a game driver is connected, and what it says about itself: host, game, " +
 			"variant, build, the capabilities it supports and the savestate slots it protects. " +
 			"Call this first in a session.",
-	}, t.status)
+	}, logged(t, "status", nil, t.status))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "observe",
 		Description: "A snapshot of the game as the driver reads it from memory (position, map, " +
 			"whatever the driver supports). Every name in it comes from the driver.",
-	}, t.observe)
+	}, logged(t, "observe", nil, t.observe))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "press",
 		Description: "Hold buttons for a number of frames, then release. The raw escape hatch: " +
 			"prefer a tool that ends on the game's own state when the driver has one. " +
 			"Returns what the driver saw change.",
-	}, t.press)
+	}, logged(t, "press", nil, t.press))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "wait",
 		Description: "Let frames pass with no input at all, then return what changed. Use this to " +
 			"wait -- never hold a button to wait, since every button does something somewhere.",
-	}, t.wait)
+	}, logged(t, "wait", nil, t.wait))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "screenshot",
 		Description: "A picture of the game frame, saved under dev-scripts/shots/<game>/ and returned " +
 			"as an image. The navigation sense: what is around, what a thing is, which entry is " +
 			"highlighted. Never proof of anything visual.",
-	}, t.screenshot)
+	}, logged(t, "screenshot", nil, t.screenshot))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "events",
 		Description: "Events the driver reported since a sequence number (0 for everything buffered).",
-	}, t.events)
+	}, logged(t, "events", nil, t.events))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "snapshot",
+		Description: "Save the game's whole state to a named file under the core's states folder " +
+			"(gitignored, never committed). Never a numbered slot: slots belong to people.",
+	}, logged(t, "snapshot", nil, t.snapshot))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "restore",
+		Description: "Load a named snapshot. Marks the current segment REACHED: what follows no " +
+			"longer shows that a player can get here.",
+	}, logged(t, "restore", func(RestoreIn) string { return "restore" }, t.restore))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "cheat",
+		Description: "Change the game by other means than play: a kind the driver announced as " +
+			"cheat:<kind> (status lists them), with that kind's arguments. Marks the current " +
+			"segment REACHED. Make the situation with a cheat, then let the game run the thing " +
+			"being tested through ordinary input.",
+	}, logged(t, "cheat", func(in CheatIn) string { return "cheat:" + in.Kind }, t.cheat))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "segment",
+		Description: "Close the current run segment and start a new one with a label. Returns the " +
+			"closed segment, labelled walked or reached by what happened in it.",
+	}, logged(t, "segment", nil, t.segment))
 
 	return s
 }
 
 type tools struct {
-	hub *driver.Hub
+	hub       *driver.Hub
+	log       *runlog.Log
+	statesDir string
+}
+
+// logged wraps a handler so every call lands in the run log. reachedBy, when given, names what a
+// SUCCESSFUL call did to the world by other means than play.
+func logged[In, Out any](t *tools, name string, reachedBy func(In) string, h mcp.ToolHandlerFor[In, Out]) mcp.ToolHandlerFor[In, Out] {
+	return func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, Out, error) {
+		res, out, err := h(ctx, req, in)
+		by := ""
+		if reachedBy != nil {
+			by = reachedBy(in)
+		}
+		t.log.Call(name, in, err, by)
+		return res, out, err
+	}
 }
 
 // StatusOut is the status tool's answer.
@@ -203,6 +257,118 @@ func (t *tools) events(ctx context.Context, _ *mcp.CallToolRequest, in EventsIn)
 		out.Events = append(out.Events, EventOut{Seq: e.Seq, At: e.At, Payload: payload})
 	}
 	return nil, out, nil
+}
+
+var labelPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+var kindPattern = regexp.MustCompile(`^[a-z_]{1,32}$`)
+
+// SnapshotIn is the snapshot tool's input.
+type SnapshotIn struct {
+	Label string `json:"label" jsonschema:"a name for the state: letters, digits, _ or -, up to 64"`
+}
+
+// RestoreIn is the restore tool's input.
+type RestoreIn struct {
+	Label string `json:"label" jsonschema:"the name a snapshot was saved under"`
+}
+
+// statePath is where a label's snapshot lives for the connected game, as an absolute path the
+// driver can use whatever its working directory is.
+func (t *tools) statePath(label string) (string, driver.Hello, error) {
+	hello, ok := t.hub.Current()
+	if !ok {
+		return "", hello, driver.ErrNoDriver
+	}
+	if !labelPattern.MatchString(label) {
+		return "", hello, fmt.Errorf("a label is letters, digits, _ or -, up to 64: got %q", label)
+	}
+	if !labelPattern.MatchString(hello.Game) {
+		return "", hello, fmt.Errorf("the driver's game name %q cannot be a folder name", hello.Game)
+	}
+	dir, err := filepath.Abs(filepath.Join(t.statesDir, hello.Game))
+	if err != nil {
+		return "", hello, err
+	}
+	return filepath.Join(dir, label+".State"), hello, nil
+}
+
+func (t *tools) snapshot(ctx context.Context, _ *mcp.CallToolRequest, in SnapshotIn) (*mcp.CallToolResult, any, error) {
+	path, _, err := t.statePath(in.Label)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, nil, err
+	}
+	before, _ := os.Stat(path)
+	raw, err := t.forward(ctx, "snapshot", "snapshot", map[string]string{"path": filepath.ToSlash(path)}, CallTimeout)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Never trust the answer alone: the file must exist, and be new if one was there before.
+	after, statErr := os.Stat(path)
+	if statErr != nil {
+		return nil, nil, fmt.Errorf("the driver answered but no snapshot file exists at %s: %w", path, statErr)
+	}
+	if before != nil && !after.ModTime().After(before.ModTime()) {
+		return nil, nil, fmt.Errorf("the driver answered but %s was not rewritten", path)
+	}
+	return nil, map[string]any{"label": in.Label, "path": path, "bytes": after.Size(), "driver": raw}, nil
+}
+
+func (t *tools) restore(ctx context.Context, _ *mcp.CallToolRequest, in RestoreIn) (*mcp.CallToolResult, any, error) {
+	path, _, err := t.statePath(in.Label)
+	if err != nil {
+		return nil, nil, err
+	}
+	if _, err := os.Stat(path); err != nil {
+		return nil, nil, fmt.Errorf("no snapshot named %q: %w", in.Label, err)
+	}
+	raw, err := t.forward(ctx, "restore", "restore", map[string]string{"path": filepath.ToSlash(path)}, CallTimeout)
+	return nil, raw, err
+}
+
+// CheatIn is the cheat tool's input.
+type CheatIn struct {
+	Kind string         `json:"kind" jsonschema:"a cheat the driver announced as cheat:<kind>, e.g. warp"`
+	Args map[string]any `json:"args,omitempty" jsonschema:"that kind's arguments, as the driver documents them"`
+}
+
+// CheatTimeout allows for a cheat that ends on the game's state, such as a map load.
+const CheatTimeout = CallTimeout + 30*time.Second
+
+func (t *tools) cheat(ctx context.Context, _ *mcp.CallToolRequest, in CheatIn) (*mcp.CallToolResult, any, error) {
+	if !kindPattern.MatchString(in.Kind) {
+		return nil, nil, fmt.Errorf("a cheat kind is lowercase letters and _: got %q", in.Kind)
+	}
+	if in.Args == nil {
+		in.Args = map[string]any{}
+	}
+	raw, err := t.forward(ctx, "cheat:"+in.Kind, "cheat", in, CheatTimeout)
+	return nil, raw, err
+}
+
+// SegmentIn is the segment tool's input.
+type SegmentIn struct {
+	Label string `json:"label" jsonschema:"what the next stretch of the run sets out to do"`
+}
+
+// SegmentOut is the segment tool's answer.
+type SegmentOut struct {
+	Closed  runlog.Segment `json:"closed"`
+	Current runlog.Segment `json:"current"`
+	LogFile string         `json:"log_file"`
+}
+
+func (t *tools) segment(ctx context.Context, _ *mcp.CallToolRequest, in SegmentIn) (*mcp.CallToolResult, SegmentOut, error) {
+	if t.log == nil {
+		return nil, SegmentOut{}, fmt.Errorf("this core was started without a run log")
+	}
+	if in.Label == "" || len(in.Label) > 200 {
+		return nil, SegmentOut{}, fmt.Errorf("a segment label is 1 to 200 characters")
+	}
+	closed := t.log.Begin(in.Label)
+	return nil, SegmentOut{Closed: closed, Current: t.log.Current(), LogFile: t.log.Path()}, nil
 }
 
 // forward checks the capability, then asks the driver.
