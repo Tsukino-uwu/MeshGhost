@@ -119,14 +119,16 @@ is why the rule files are capped and the records are not.
 
 - **Pokémon Emerald** (GBA, BizHawk, Lua) — `adapters/emulator/pokemon/emerald/`. A Lua script
   reads fixed memory addresses, with the `pokeemerald` decompilation as the map of where to
-  look and our own probes as the proof. On a vanilla ROM it spawns a real in-game object for a
-  peer, so the game animates and occludes it; above the game's own cap it writes hardware
-  sprites, and above that it paints. That ladder, spawned → OAM → drawn, has shipped since
-  2026-09-02. Runs on vanilla, Archipelago and two speedchoice builds. Log: [phases/phase8.md](phases/phase8.md).
+  look and our own probes as the proof. Since 2026-09-11 the shipped tier is drawn only, the
+  same call as Crystal: every peer is painted over the emulator's output, reading the peer's own
+  sprite from the cartridge, which is what lets a vanilla player see an Archipelago player of the
+  other gender. Spawning a real in-game object and writing hardware sprites both remain as dev
+  opt-ins (the spawn cap defaults to zero, the OAM tier to off). Runs on vanilla, Archipelago and
+  two speedchoice builds. Log: [phases/phase8.md](phases/phase8.md).
 - **Pokémon Crystal** (GBC, BizHawk, Lua) — `adapters/emulator/pokemon/crystal/`. Same host,
-  different answer: since 2026-09-02 the shipped tier is drawn only, painted over the emulator's
-  output in step with the game's camera, after the spawned object was seen snapping at a map
-  seam. Spawned and hardware tiers remain as dev opt-ins. One address table per ROM build,
+  same answer, reached first: since 2026-09-02 the shipped tier is drawn only, painted over the
+  emulator's output in step with the game's camera, after the spawned object was seen snapping
+  at a map seam. Spawned and hardware tiers remain as dev opt-ins. One address table per ROM build,
   chosen at startup from the header. Log: [phases/phase9.md](phases/phase9.md).
 - **TEVI** (Unity, Mono, C#) — `adapters/tevi/`. A BepInEx plugin. The game's own
   `Assembly-CSharp.dll` is managed code, so its class and field names were read with ILSpy and
