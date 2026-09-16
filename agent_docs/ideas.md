@@ -1386,9 +1386,9 @@ deliberate decision rather than momentum. Specifically:
 says who it is would be a genuinely new thing for this project, needs no new plane, persists
 nothing, and would tell us how the interaction feels before anything is committed to the rest.
 
-**Left switchable in the meantime**: `walk_test.lua` has `KEEP_TEMPLATE_SCRIPT`, default off. On,
-the ghost speaks whichever NPC it was copied from — wrong, but a working demonstration that the
-door exists.
+**Was switchable**: `walk_test.lua` had `KEEP_TEMPLATE_SCRIPT` (on, the ghost spoke whichever NPC it
+was copied from -- a working demonstration that the door exists). The probe was deleted 2026-09-16
+(the audit); it is in git history.
 
 ## Links
 
@@ -1987,9 +1987,8 @@ regression. **Four are left: `internal/cfg` shipped, and this heading said "Five
   game-specific on purpose: BizHawk runs every script in one process, so a shared name leaks one
   adapter's folder into the next one loaded.
 - **Probe boilerplate: a near-identical block across the Crystal probes**, including the ROM
-  guard. **Twelve** probes carry the `PM_CRYSTAL` header check — the ten `spawn_test`,
-  `spawn_test2`-`7`, `struct_diff_probe`, `walk_test` and `grant_test_kit`, plus `grant_items` and
-  `set_level`. Recorded as eight, then nine, then ten, then twelve: **count it, do not quote it** —
+  guard. **Seventeen** probes carry the `PM_CRYSTAL` header check (counted 2026-09-16, after four
+  were deleted). Recorded as eight, then nine, then ten, then twelve: **count it, do not quote it** —
   `grep -lc PM_CRYSTAL adapters/emulator/pokemon/crystal/probes/*.lua | wc -l`. Divergence between
   the copies is the risk, not the line count.
 - ~~**`cmd/meshghost` and `cmd/meshghost-relay` duplicate ~120 lines of config/log plumbing**~~ —

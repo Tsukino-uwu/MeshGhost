@@ -63,19 +63,9 @@ local F_LAST_MAP_X, F_LAST_MAP_Y = 0x12, 0x13
 local F_INIT_X, F_INIT_Y = 0x14, 0x15
 local F_SPRITE_X, F_SPRITE_Y = 0x17, 0x18
 
--- Names from pokecrystal's constants/map_object_constants.asm, so the diff reads as fields
--- rather than as offsets.
-local FIELD = {
-	[0x00] = "SPRITE", [0x01] = "MAP_OBJECT_INDEX", [0x02] = "SPRITE_TILE",
-	[0x03] = "MOVEMENT_TYPE", [0x04] = "FLAGS1", [0x05] = "FLAGS2", [0x06] = "PALETTE",
-	[0x07] = "WALKING", [0x08] = "DIRECTION", [0x09] = "STEP_TYPE", [0x0A] = "STEP_DURATION",
-	[0x0B] = "ACTION", [0x0C] = "STEP_FRAME", [0x0D] = "FACING", [0x0E] = "TILE_COLLISION",
-	[0x0F] = "LAST_TILE", [0x10] = "MAP_X", [0x11] = "MAP_Y", [0x12] = "LAST_MAP_X",
-	[0x13] = "LAST_MAP_Y", [0x14] = "INIT_X", [0x15] = "INIT_Y", [0x16] = "RADIUS",
-	[0x17] = "SPRITE_X", [0x18] = "SPRITE_Y", [0x19] = "SPRITE_X_OFFSET",
-	[0x1A] = "SPRITE_Y_OFFSET", [0x1B] = "MOVEMENT_INDEX", [0x1C] = "STEP_INDEX",
-	[0x1D] = "OBJECT_1D", [0x1E] = "OBJECT_1E", [0x1F] = "JUMP_HEIGHT", [0x20] = "RANGE",
-}
+-- The diff names offsets only. A field-name table copied from the decompilation's constants was
+-- removed 2026-09-16 (the audit, the user's call).
+local FIELD = {}
 
 -- Offsets expected to differ simply because the two objects are different characters standing in
 -- different places. Called out so the diff highlights what is actually interesting.

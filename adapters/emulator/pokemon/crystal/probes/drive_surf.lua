@@ -12,7 +12,7 @@ local DOMAIN = "WRAM"
 local function flat(cpu) return cpu < 0xD000 and cpu - 0xC000 or 0x1000 + (cpu - 0xD000) end
 local function u8(a) return memory.read_u8(a, DOMAIN) end
 local F_MAP_X, F_MAP_Y, F_WALKING = 0x10, 0x11, 0x07
-local PLAYER_SURF = 4 -- constants/wram_constants.asm: PLAYER_NORMAL 0, PLAYER_BIKE 1, PLAYER_SKATE 2, PLAYER_SURF 4, PLAYER_SURF_PIKA 8
+local PLAYER_SURF = 4 -- wPlayerState while surfing; unmeasured by this probe
 local t = {}
 for i = 0, 9 do t[#t + 1] = string.char(memory.read_u8(0x134 + i, "ROM") or 0) end
 local title, ver = table.concat(t), memory.read_u8(0x14C, "ROM") or 0

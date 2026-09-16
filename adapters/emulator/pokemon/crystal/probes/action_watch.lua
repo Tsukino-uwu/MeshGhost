@@ -53,25 +53,8 @@ local OBJECT_LENGTH = 0x28
 -- Player is struct 0 by construction (phase9.md).
 local PLAYER = OBJECT_STRUCTS
 
--- constants/map_object_constants.asm, the ObjectActionPairPointers indexes.
-local ACTION_NAMES = {
-	[0] = "00", [1] = "STAND", [2] = "STEP", [3] = "BUMP", [4] = "SPIN",
-	[5] = "SPIN_FLICKER", [6] = "FISHING", [7] = "SHADOW", [8] = "EMOTE",
-	[9] = "BIG_DOLL_SYM", [10] = "BOUNCE", [11] = "WEIRD_TREE", [12] = "BIG_DOLL_ASYM",
-	[13] = "BIG_DOLL", [14] = "BOULDER_DUST", [15] = "GRASS_SHAKE", [16] = "SKYFALL",
-}
-
--- constants/map_object_constants.asm, the Facings indexes. Only the ones a player can reach are
--- named; anything else prints as a number, which is itself the finding.
-local FACING_NAMES = {
-	[0] = "STEP_DOWN_0", [1] = "STEP_DOWN_1", [2] = "STEP_DOWN_2", [3] = "STEP_DOWN_3",
-	[4] = "STEP_UP_0", [5] = "STEP_UP_1", [6] = "STEP_UP_2", [7] = "STEP_UP_3",
-	[8] = "STEP_LEFT_0", [9] = "STEP_LEFT_1", [10] = "STEP_LEFT_2", [11] = "STEP_LEFT_3",
-	[12] = "STEP_RIGHT_0", [13] = "STEP_RIGHT_1", [14] = "STEP_RIGHT_2", [15] = "STEP_RIGHT_3",
-	[16] = "FISH_DOWN", [17] = "FISH_UP", [18] = "FISH_LEFT", [19] = "FISH_RIGHT",
-	[20] = "EMOTE", [21] = "SHADOW",
-	[255] = "STANDING",
-}
+-- Action and facing values print as raw numbers. The name tables that decoded them were copied
+-- from the decompilation's constants and were removed 2026-09-16 (the audit, the user's call).
 
 local F_SPRITE, F_WALKING, F_DIRECTION = 0x00, 0x07, 0x08
 local F_STEP_TYPE, F_ACTION, F_STEP_FRAME, F_FACING = 0x09, 0x0B, 0x0C, 0x0D
@@ -129,11 +112,11 @@ local function u8(addr)
 end
 
 local function actionName(v)
-	return ACTION_NAMES[v] or ("?" .. tostring(v))
+	return tostring(v)
 end
 
 local function facingName(v)
-	return FACING_NAMES[v] or ("?" .. tostring(v))
+	return string.format("0x%02X", v)
 end
 
 open_log()
@@ -194,12 +177,9 @@ local function tick()
 			changes[#changes + 1] = string.format("wPlayerState %s->%s",
 				tostring(prev.state), tostring(now.state))
 		end
-		if now.facing ~= prev.facing and FACING_NAMES[now.facing] == nil then
-			-- An unnamed facing is a finding: it means the player reached a frame index this
-			-- probe's table does not cover, which is worth a line even mid-step.
-			changes[#changes + 1] = string.format("FACING %s->%s",
-				facingName(prev.facing), facingName(now.facing))
-		end
+		-- The facing used to be logged only when it left a copied name table ("an unnamed facing
+		-- is a finding"); with the table gone there is no such line to draw, and every stride
+		-- changes it, so the facing is logged only on an action change, above.
 		if #changes > 0 then
 			log(string.format("  f=%-7d %s", frames, table.concat(changes, "  ")))
 		end

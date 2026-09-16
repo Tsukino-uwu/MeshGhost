@@ -43,22 +43,11 @@ local OBJ = 0xD4D6
 local F = { tile = 0x02, walking = 0x07, dir = 0x08, steptype = 0x09, act = 0x0B,
 	stepframe = 0x0C, face = 0x0D, mx = 0x10, my = 0x11, yoff = 0x1A }
 
--- Names for the log only. Values from constants/map_object_constants.asm; anything not listed is
--- printed as a number rather than guessed at.
-local ACT_NAMES = { [0] = "00", [1] = "STAND", [2] = "STEP", [3] = "BUMP", [4] = "SPIN",
-	[5] = "SPIN_FLICKER", [6] = "FISHING", [8] = "EMOTE", [16] = "SKYFALL" }
-
+-- Action and facing values print as raw numbers. The name tables that used to decode them were
+-- copied from the decompilation's constants and were removed 2026-09-16 (the audit, the user's
+-- call); a value's meaning is what a run of this probe shows, not what a table says.
 local function faceName(v)
-	if v == 0xFF then return "STANDING(not drawn)" end
-	if v < 0x10 then
-		return string.format("STEP_%s_%d", ({ [0] = "DOWN", "UP", "LEFT", "RIGHT" })[v // 4], v & 3)
-	end
-	if v <= 0x13 then
-		return "FISH_" .. ({ [0] = "DOWN", "UP", "LEFT", "RIGHT" })[v - 0x10]
-	end
-	if v == 0x14 then return "EMOTE" end
-	if v == 0x15 then return "SHADOW" end
-	return string.format("0x%02X (scenery)", v)
+	return string.format("0x%02X", v)
 end
 
 -- How many of the 40 OAM entries are live, and what the player's own art offset is. The offset is
@@ -179,7 +168,7 @@ MESHGHOST_DEV_TICK = function()
 	local act = u8(OBJ + F.act)
 	local face = u8(OBJ + F.face)
 	local sf = u8(OBJ + F.stepframe)
-	local name = ACT_NAMES[act] or tostring(act)
+	local name = tostring(act)
 	totals[name] = (totals[name] or 0) + 1
 
 	-- ORDINARY WALKING IS NOT THE SUBJECT and would drown everything else: actions 0/1/2 are what

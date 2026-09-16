@@ -57,23 +57,14 @@ local function tryDetectAvatarAddrOffset()
     end
 end
 
--- PlayerAvatar.flags bit names as the hypothesis under test (include/global.fieldmap.h:288-295).
-local FLAG_NAMES = {
-    { bit = 0x01, name = "ON_FOOT" },
-    { bit = 0x02, name = "MACH_BIKE" },
-    { bit = 0x04, name = "ACRO_BIKE" },
-    { bit = 0x08, name = "SURFING" },
-    { bit = 0x10, name = "UNDERWATER" },
-    { bit = 0x20, name = "CONTROLLABLE" },
-    { bit = 0x40, name = "FORCED_MOVE" },
-    { bit = 0x80, name = "DASH" },
-}
+-- The avatar flags print as set bit numbers. A bit-name table copied from the decompilation was
+-- removed 2026-09-16 (the audit, the user's call); which bit means what is what a run shows.
 
 local function decodeFlags(flags)
     local parts = {}
-    for _, f in ipairs(FLAG_NAMES) do
-        if (flags & f.bit) ~= 0 then
-            parts[#parts + 1] = f.name
+    for i = 0, 7 do
+        if (flags & (1 << i)) ~= 0 then
+            parts[#parts + 1] = string.format("bit%d", i)
         end
     end
     if #parts == 0 then return "(none)" end

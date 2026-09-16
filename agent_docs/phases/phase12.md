@@ -568,3 +568,12 @@ save applied the defaults live, a relay's room code included, and every relay sa
 listen_quic as changed (`6f3eeb67`). The same run passed room codes (matching, wrong with a retry a
 minute later, one-sided both ways), TOFU after `private/` was deleted, and live edits of max_clients,
 only_game, room_code, chaser, interp, replay.seek, hotkeys and the name.
+
+**Then the probe code, the user's call ("probly delete it for now ... if we need something again we
+will recheck/measure at that point"):** deleted `set_level.lua`, `spawn_test6.lua`, `spawn_test7.lua`
+and `walk_test.lua` (their code transcribed source formulas; what they showed stays in
+`crystal/VERIFIED.md`, and `PROBES.md` says what each was). The copied name tables went from
+`action_probe`, `action_watch`, `whirlpool_drive`, `struct_diff_probe` and Emerald's
+`surf_bike_probe`, which now print raw numbers or bit indices; two code-line citations were stripped.
+Probe floors 78 and 85. What remains is the borrowed VALUES in the shipped adapters, each already an
+UNVERIFIED question.

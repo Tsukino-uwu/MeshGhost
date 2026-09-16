@@ -945,8 +945,8 @@ $luaCiteAsm = '\b(engine|home|data|constants|ram|gfx|maps)/[A-Za-z0-9_/]+\.(asm|
 $luaCiteRatchet = @(
     @{ path = 'adapters/emulator/pokemon/emerald/meshghost_emerald.lua'; pattern = $luaCiteC;   floor = 0 },
     @{ path = 'adapters/emulator/pokemon/crystal/meshghost_crystal.lua'; pattern = $luaCiteAsm; floor = 0 },
-    @{ path = 'adapters/emulator/pokemon/emerald/probes';                pattern = $luaCiteC;   floor = 80 },
-    @{ path = 'adapters/emulator/pokemon/crystal/probes';                pattern = $luaCiteAsm; floor = 105 }
+    @{ path = 'adapters/emulator/pokemon/emerald/probes';                pattern = $luaCiteC;   floor = 78 },
+    @{ path = 'adapters/emulator/pokemon/crystal/probes';                pattern = $luaCiteAsm; floor = 85 }
 )
 $luaCiteProblems = @()
 foreach ($r in $luaCiteRatchet) {

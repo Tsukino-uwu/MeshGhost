@@ -117,7 +117,7 @@ local V = {
 }
 
 local OBJECTEVENT_SIZE = 0x24
-local MAP_GROUPS_COUNT = 34   -- include/constants/map_groups.h, as cited in the adapter
+local MAP_GROUPS_COUNT = 34   -- the adapter's bound; unmeasured (emerald/UNVERIFIED.md, the audit)
 local MAP_OFFSET = 7          -- ObjectEvent.currentCoords carry it; SaveBlock1.pos does not
 local PLAYERAVATAR_FROM_OBJECTS = 0x240 -- vanilla RELATION, verified below, never assumed
 

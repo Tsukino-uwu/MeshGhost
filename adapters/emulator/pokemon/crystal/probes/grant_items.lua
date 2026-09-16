@@ -100,7 +100,7 @@ local KEY_ITEM_POCKET_BITS = 0x80
 --     "permanent" means, and the "wore off" prompt should never appear.
 --   * The repel is expected to block only wild Pokemon BENEATH your lead's level (where to look:
 --     `CheckRepelEffect`, engine/overworld/wildmons.asm:349). If so, on a low-level lead this
---     probe will look like it is doing nothing; pair it with probes/set_level.lua.
+--     probe will look like it is doing nothing; raise the lead's level first.
 --
 -- Topped up only when it drops below the threshold rather than written every frame -- one byte
 -- either way, but there is no reason to write over the engine's own decrement 60 times a second.
@@ -255,7 +255,7 @@ local function holdRepel()
 		-- READ BACK, never the value just written -- CLAUDE.md's rule, and it costs one read here.
 		log(string.format("  PERMANENT REPEL: topping wRepelEffect up to %d whenever it drops "
 			.. "below %d (read back: %s). Remember it only suppresses wild Pokemon BELOW your "
-			.. "lead's level -- probes/set_level.lua if they are still appearing.",
+			.. "lead's level -- raise the lead's level if they are still appearing.",
 			REPEL_TOPUP, REPEL_FLOOR, tostring(u8(W_REPEL_EFFECT))))
 	end
 end

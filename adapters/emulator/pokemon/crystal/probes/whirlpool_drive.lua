@@ -59,25 +59,11 @@ local F = { tile = 0x02, flags1 = 0x04, flags2 = 0x05, pal = 0x06, walking = 0x0
 	sx = 0x17, sy = 0x18, yoff = 0x1A }
 local W_MAPGROUP, W_MAPNUM, W_YCOORD, W_XCOORD = 0xDCB5, 0xDCB6, 0xDCB7, 0xDCB8
 
--- Names for the log only. Values from constants/map_object_constants.asm; anything not listed
--- prints as a number rather than being guessed at -- an unknown action is a RESULT here, since
--- the whole question is which one this is.
-local ACT_NAMES = { [0] = "00", [1] = "STAND", [2] = "STEP", [3] = "BUMP", [4] = "SPIN",
-	[5] = "SPIN_FLICKER", [6] = "FISHING", [7] = "SHADOW", [8] = "EMOTE", [9] = "BIG_DOLL_SYM",
-	[10] = "BOUNCE", [11] = "WEIRD_TREE", [12] = "BIG_DOLL_ASYM", [13] = "BIG_DOLL",
-	[14] = "BOULDER_DUST", [15] = "GRASS_SHAKE", [16] = "SKYFALL" }
-
+-- Action and facing values print as raw numbers -- an unknown one is a RESULT here, since the
+-- whole question is which one this is. The name tables that used to decode them were copied from
+-- the decompilation's constants and were removed 2026-09-16 (the audit, the user's call).
 local function faceName(v)
-	if v == 0xFF then return "STANDING(not drawn)" end
-	if v < 0x10 then
-		return string.format("STEP_%s_%d", ({ [0] = "DOWN", "UP", "LEFT", "RIGHT" })[v // 4], v & 3)
-	end
-	if v <= 0x13 then
-		return "FISH_" .. ({ [0] = "DOWN", "UP", "LEFT", "RIGHT" })[v - 0x10]
-	end
-	if v == 0x14 then return "EMOTE" end
-	if v == 0x15 then return "SHADOW" end
-	return string.format("0x%02X(scenery)", v)
+	return string.format("0x%02X", v)
 end
 
 -- The player's own art offset, and how many of the 40 hardware entries are live. The offset is
@@ -139,7 +125,7 @@ local function census(frame)
 			-- which of the three fields was holding it there. A pose alone cannot answer a
 			-- question about movement.
 			parts[#parts + 1] = string.format("[%d spr=%02X act=%s face=%02X %d,%d walk=%d stype=%d dur=%d]",
-				i, spr, ACT_NAMES[act] or tostring(act), face, u8(b + F.mx), u8(b + F.my),
+				i, spr, tostring(act), face, u8(b + F.mx), u8(b + F.my),
 				u8(b + 0x07), u8(b + 0x09), u8(b + 0x0A))
 		end
 	end
@@ -214,8 +200,7 @@ MESHGHOST_DEV_TICK = function()
 					for _, a in ipairs({ 4, 5 }) do
 						if not sawAct[a] then
 							f:write(string.format(
-								"\n  NOT SEEN: action %d (%s) never appeared on the player.\n",
-								a, ACT_NAMES[a]))
+								"\n  NOT SEEN: action %d never appeared on the player.\n", a))
 						end
 					end
 					f:flush()
@@ -265,7 +250,7 @@ MESHGHOST_DEV_TICK = function()
 	local act = u8(OBJ + F.act)
 	local face = u8(OBJ + F.face)
 	local sf = u8(OBJ + F.stepframe)
-	local name = ACT_NAMES[act] or tostring(act)
+	local name = tostring(act)
 	totals[name] = (totals[name] or 0) + 1
 	faceTotals[face] = (faceTotals[face] or 0) + 1
 	sawAct[act] = true

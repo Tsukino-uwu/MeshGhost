@@ -14,7 +14,7 @@ has been read, its conclusion belongs in `VERIFIED.md`.
 live, with no emulator relaunch. See `agent_docs/environment.md`. Older probes here predate the
 loader and run their own frame loop, so they still work opened directly in the Lua Console.
 
-## Twenty of these WRITE, and eighteen hold the controller. Read this before running one.
+## Sixteen of these WRITE (twenty until four were deleted 2026-09-16), and eighteen hold the controller. Read this before running one.
 
 Called out here rather than only in their own headers, because a folder index that hides a
 memory-writing tool is the worst kind of gap — nobody reads a header they did not know existed.
@@ -22,7 +22,7 @@ memory-writing tool is the worst kind of gap — nobody reads a header they did 
 from the index — five of them writers** (and it undercounted twice more since).
 
 **Object RAM only, never a save** — a reset or a map load rebuilds what they touched:
-`spawn_test.lua` through `spawn_test7.lua`, `struct_diff_probe.lua`, `walk_test.lua`,
+`spawn_test.lua` through `spawn_test5.lua`, `struct_diff_probe.lua`,
 `orphan_sweep.lua`, `set_colour.lua` (the player object's palette byte, and palette RAM).
 
 **Hardware sprite entries:** `oam_probe.lua` writes shadow OAM 36..39 and the `OAM` domain, only
@@ -34,14 +34,13 @@ probe and never for an adapter: `goto_map.lua` warps the player (six writes, exa
 game's own `warp` command does; **it savestates first, always** — to slot 8, this project's undo
 convention, unless `MESHGHOST_GOTO_UNDO_SLOT` says otherwise), `grant_test_kit.lua` writes
 badges/HMs into the party, `grant_items.lua` writes the bag, `grant_flash.lua` sets the Flash
-status flag, `set_level.lua` writes a party Pokémon's level, experience and stats,
-`ap_bag_grant.lua` and `ap_force_state.lua` write bag/state on an Archipelago build,
+status flag, `ap_bag_grant.lua` and `ap_force_state.lua` write bag/state on an Archipelago build,
 and `noclip.lua` redirects `wTilesetCollisionAddress` to a filtered table it writes into the unused
 tail of `wOverworldMapBlocks`, and sets `EMOTE_OBJECT` on nearby NPCs (2026-09-13).
 **None writes the `.sav`** — but an in-game save afterwards makes their changes
 permanent, so savestate first and reload after. `noclip_off.lua` restores the collision pointer.
 
-**The three grant probes are kept SEPARATE on purpose** — badges/moves, bag, and levels — so that
+**The grant probes are kept SEPARATE on purpose** — badges/moves, bag, Flash — so that
 what each one changed stays obvious when something later looks wrong.
 
 **Eighteen hold the controller**, and the count keeps growing because a savestate-driven rig is
@@ -82,9 +81,13 @@ Each one exists because the previous one failed in a specific way; `phase9.md` h
 | `spawn_test3.lua` | Place it on the row the engine actually scans. **`*** ADOPTED ***`** — the engine assigned a real struct id. |
 | `spawn_test4.lua` | Both halves written and cross-linked, beside the player. |
 | `spawn_test5.lua` | Built from an NPC instead of from the player (the player's movement type means "driven by input"). |
-| `spawn_test6.lua` | NPC template *plus* computed screen coordinates — copying them drew the ghost off-screen. |
-| `spawn_test7.lua` | NPC behaviour wearing the player's face: the combination that shipped. |
-| `walk_test.lua` | Making a spawned ghost walk using the game's own step mechanism. |
+
+**Deleted 2026-09-16** (the audit, the user's call: their code transcribed a decompilation formula):
+`spawn_test6.lua` (NPC template plus computed screen coordinates), `spawn_test7.lua` (NPC behaviour
+wearing the player's face, the combination that shipped) and `walk_test.lua` (a spawned ghost walking
+by the game's own step mechanism); `set_level.lua` (a party Pokémon's level, experience and stats)
+goes with them for the same reason. What they showed stays in `VERIFIED.md`; the scripts are in git
+history, and anything needed again is re-measured rather than restored.
 
 ## Movement, pose and cadence
 
@@ -145,7 +148,6 @@ the user nothing, which is the point.
 | `noclip_off.lua` | **Writes.** Turns noclip off and proves it, restoring the pointer if an unclean unload left it redirected. |
 | `grant_test_kit.lua` | **Writes.** Grants the badges, HMs and field moves a test session needs to reach water, ledges, dark caves and the sky without playing through the game. |
 | `grant_items.lua` | **Writes the bag, and holds one byte every frame.** Super Rod (the drawn tier's fishing class cannot be watched without one), Master Balls, Max Repels, Rare Candies — all idempotent one-shot writes. **Permanent repel** is the exception and the only per-frame part: `wRepelEffect` is a STEP COUNTER the engine decrements, so "permanent" means topping it up, the same shape as Emerald's `testkit.lua`. It suppresses wild Pokémon **below your lead's level, not all of them** (`CheckRepelEffect`), so pair it with `set_level.lua` when encounters keep coming. The key-item pocket has no quantity byte where the other two do — cited from `ram/wram.asm`, because assuming otherwise corrupts the bag. |
-| `set_level.lua` | **Writes a party Pokémon.** Level, experience AND the six stats, because writing the level byte alone leaves stale stats and stale EXP that the next battle uses to drop the level back. Base stats are read from the CARTRIDGE at run time, not from a table; the entry stride is re-verified against the dex numbers every run. |
 | `compare_layout.lua` | Config only: the loopback ghost rendered TWICE from one state — spawned 3 tiles right, painted 2 tiles left — with the hardware tier explicitly OFF. Every switch is set explicitly, including the ones being turned off — the loader replaces files, never globals. |
 
 ## The drawn tier
