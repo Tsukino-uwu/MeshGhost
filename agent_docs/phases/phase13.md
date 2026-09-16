@@ -698,6 +698,8 @@ and a lot of other things. lot of text as well"*; later, *"keep going ur doing g
 us to stop or take a break"*. The other chat started Crystal V1.0 and committed its first step alongside.
 
 **Left open:** a battle message after STRING SHOT waits in a state `battle` does not count as waiting (a
-3-second nudge each time); the naming keyboard, clock and starter bag have no reader.
+3-second nudge each time); the naming keyboard, clock and starter bag have no reader; the plan's Phase 1 list
+also named `exec` and a noclip cheat, neither built.
 
-**Next:** Phase 2 of the plan -- `goto` across maps (warps and edges), `talk`, and the staged block classifier.
+**Next:** the scenario runner, which the Phase 0 checkpoint moved to straight after Phase 1 (the plan's Phase 4:
+a scenario that replays a measurement with no model, 3 of 3, and fails when its expectation is broken).
