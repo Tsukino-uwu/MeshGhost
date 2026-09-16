@@ -70,7 +70,7 @@ full note.
   names it. Since 2026-09-16 every section that runs under `-TreeOnly` has a fixture, except the
   two that read git history the fixture cannot rewrite (61 fixtures; the run takes about half an
   hour, `-Only <regex>` runs a subset, `-Shard i -Shards n` runs one round-robin slice, which is
-  how `.github/workflows/preflight-harness.yml` runs it in six parallel jobs on every push that
+  how `.github/workflows/gates.yml` runs it in six parallel jobs on every push that
   touches either script). Every plant reads the file back, because a plant that
   quietly did nothing looks exactly like a gate that is blind; a fixture may also commit in the
   scratch worktree, which is reset hard to the real `HEAD` between fixtures. Exit 0 = every gate

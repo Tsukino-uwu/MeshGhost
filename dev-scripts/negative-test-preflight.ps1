@@ -3,7 +3,7 @@ param(
     # Run only the fixtures whose name matches this regex. No argument runs all of them.
     [string]$Only,
     # Run slice $Shard (1-based) of $Shards equal slices of the fixture list -- every fixture runs
-    # a full preflight, so the run is as long as the list, and .github/workflows/preflight-harness.yml
+    # a full preflight, so the run is as long as the list, and .github/workflows/gates.yml
     # splits it across parallel jobs the way ci.yml splits the race tests. Fixtures are dealt
     # round-robin by position, so a slice is stable until the list changes.
     [int]$Shard = 0,
