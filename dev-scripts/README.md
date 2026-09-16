@@ -69,7 +69,9 @@ full note.
   its floor, a commit the phase log never claimed — and asserts the section aimed at each one
   names it. Since 2026-09-16 every section that runs under `-TreeOnly` has a fixture, except the
   two that read git history the fixture cannot rewrite (61 fixtures; the run takes about half an
-  hour, `-Only <regex>` runs a subset). Every plant reads the file back, because a plant that
+  hour, `-Only <regex>` runs a subset, `-Shard i -Shards n` runs one round-robin slice, which is
+  how `.github/workflows/preflight-harness.yml` runs it in six parallel jobs on every push that
+  touches either script). Every plant reads the file back, because a plant that
   quietly did nothing looks exactly like a gate that is blind; a fixture may also commit in the
   scratch worktree, which is reset hard to the real `HEAD` between fixtures. Exit 0 = every gate
   saw its violation. Why it exists: on 2026-09-11 the leak check's new IP scan reported PASS on a

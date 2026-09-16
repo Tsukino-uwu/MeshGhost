@@ -1,0 +1,54 @@
+name: Preflight harness
+
+# Re-proves that preflight's gates can FAIL, on every change to the script that owns them.
+#
+# dev-scripts/negative-test-preflight.ps1 plants one real violation per fixture in a scratch
+# worktree, runs preflight, and asserts the section aimed at it names the violation. Each fixture
+# runs a full preflight, so the list is as slow as it is long (61 fixtures at roughly half a
+# minute each on 2026-09-16), and it is sharded across parallel jobs the way ci.yml shards the
+# race tests -- the harness deals fixtures round-robin by position, so every shard carries a slice
+# of the whole list and the sum of the shards is one full run. Six shards of ten-odd fixtures each,
+# a few minutes per job; raise the count when the list grows, in BOTH places below.
+#
+# Filtered to the two scripts and this file, so it fires only when a gate or a fixture changes,
+# which is rare -- and on that rare day it is the run nobody can forget. It plants and checks; it
+# says nothing about the tree itself, which docs.yml's preflight -TreeOnly covers.
+#
+# windows-latest and fetch-depth 0 for the same reasons docs.yml gives: the script under test is
+# PowerShell and the phase-log gates inside the scratch worktree read commit history, so a shallow
+# clone would make the baseline run report a clean tree as failing.
+
+on:
+  push:
+    paths:
+      - 'dev-scripts/preflight.ps1'
+      - 'dev-scripts/negative-test-preflight.ps1'
+      - '.github/workflows/preflight-harness.yml'
+  pull_request:
+    paths:
+      - 'dev-scripts/preflight.ps1'
+      - 'dev-scripts/negative-test-preflight.ps1'
+      - '.github/workflows/preflight-harness.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  negative-test:
+    name: "Negative test, shard ${{ matrix.shard }} of 6"
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: "negative-test-preflight.ps1 -Shard ${{ matrix.shard }} -Shards 6"
+        shell: pwsh
+        run: |
+          # Exit 1 = a gate did not see the violation planted for it. The log names the section.
+          ./dev-scripts/negative-test-preflight.ps1 -Shard ${{ matrix.shard }} -Shards 6

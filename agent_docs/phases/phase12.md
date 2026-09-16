@@ -415,3 +415,15 @@ BOM-less file as CP1252, and one of the em-dash's three bytes is a curly double 
 the string; every non-ASCII byte in that file is now a parse error waiting, so it stays ASCII
 (`dev-scripts/README.md` says so). The full run was 59 of 61 with the floor at 22; after the fix the two blind-walk
 fixtures re-run with `-Only`.
+
+## 2026-09-16 (last) — the harness runs in CI, sharded six ways
+
+The user's call: an action is less friction than remembering a half-hour local run, and cannot
+be forgotten. `.github/workflows/preflight-harness.yml` fires on a push or pull request touching
+`preflight.ps1`, the harness or itself, on `windows-latest` with full history (the phase-log gates
+inside the scratch worktree read commit dates), and runs the harness as a six-job matrix. The
+harness grew `-Shard i -Shards n`: fixtures dealt round-robin by position, each job its slice plus
+the baseline, so six jobs of ten-odd fixtures replace one run of 61 -- a few minutes each. The
+coverage tally reads the full list, so a shard never reports the fixtures it did not run as gaps.
+Checked locally: a 30-way slice ran two fixtures end to end with the tally intact, and an
+out-of-range shard is refused. The workflow is unproven until the push that carries it.

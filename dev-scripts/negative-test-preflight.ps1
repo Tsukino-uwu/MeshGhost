@@ -2,6 +2,12 @@
 param(
     # Run only the fixtures whose name matches this regex. No argument runs all of them.
     [string]$Only,
+    # Run slice $Shard (1-based) of $Shards equal slices of the fixture list -- every fixture runs
+    # a full preflight, so the run is as long as the list, and .github/workflows/preflight-harness.yml
+    # splits it across parallel jobs the way ci.yml splits the race tests. Fixtures are dealt
+    # round-robin by position, so a slice is stable until the list changes.
+    [int]$Shard = 0,
+    [int]$Shards = 0,
     # Leave the scratch worktree in place afterwards, to look at what a fixture actually planted.
     [switch]$KeepWorktree,
     # Outside the clone on purpose: a worktree INSIDE it would be walked by preflight's own
@@ -516,8 +522,17 @@ $fixtures = @(
         Plant = { param($wt) Plant-TextLine $wt '.github/workflows/tevi.yml' '      - ''docs/**''' } }
 )
 
+# The full list is kept for the coverage tally: a shard or an -Only subset must not report the
+# fixtures it did not run as gaps.
+$allFixtures = $fixtures
 if ($Only) { $fixtures = @($fixtures | Where-Object { $_.Name -match $Only }) }
-if ($fixtures.Count -eq 0) { Write-Host "no fixtures match -Only '$Only'" -ForegroundColor Red; exit 1 }
+if ($Shards -gt 0 -or $Shard -gt 0) {
+    if ($Shards -lt 1 -or $Shard -lt 1 -or $Shard -gt $Shards) { Write-Host "-Shard must be 1..-Shards (got $Shard of $Shards)" -ForegroundColor Red; exit 1 }
+    $sliced = @()
+    for ($i = 0; $i -lt $fixtures.Count; $i++) { if (($i % $Shards) -eq ($Shard - 1)) { $sliced += $fixtures[$i] } }
+    $fixtures = $sliced
+}
+if ($fixtures.Count -eq 0) { Write-Host "no fixtures match -Only '$Only' / shard $Shard of $Shards" -ForegroundColor Red; exit 1 }
 
 # ---------------------------------------------------------------------------
 # Running preflight in the worktree, and reading its report back.
@@ -663,7 +678,7 @@ try {
     if (-not $Only) {
         Write-Host ""
         Write-Host "== Coverage =="
-        $covered = @($fixtures | ForEach-Object { $_.Section } | Sort-Object -Unique)
+        $covered = @($allFixtures | ForEach-Object { $_.Section } | Sort-Object -Unique)
         # A section that only SKIPs under -TreeOnly cannot be fixtured by this harness at all, so
         # it is counted apart rather than listed as a gap forever.
         $live = @($baseReport.Keys | Where-Object { @($baseReport[$_] | Where-Object { $_ -ne 'SKIP' }).Count -gt 0 })
