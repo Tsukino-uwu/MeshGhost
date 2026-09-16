@@ -504,7 +504,7 @@ Section "Invented durations"
 #      on arrival (this repo began 2026-08-11). Restricted to month/year/decade for the same reason:
 #      "hours of" is nearly always a real figure ("336 hours of samples", "six hours of play") or an
 #      honest account of a session, and both tracked month/year hits were false.
-$durations = & git grep -inIE -e 'for (a |an |the last |the past )?(hour|day|week|month|year|decade)s?\b' -e '(hour|day|week|month|year|decade)s? (ago|later|earlier|old|behind)\b' -e '\b(that|this) (week|month|year|decade)s?\b' -e 'long-?standing' -e 'long time' -e '\bdecades\b' -e 'over the years' -- . ':!CLAUDE.md' ':!dev-scripts/preflight.ps1' ':!agent_docs/verified.md' ':!adapters/**/VERIFIED.md'
+$durations = & git grep -inIE -e 'for (a |an |the last |the past )?(hour|day|week|month|year|decade)s?\b' -e '(hour|day|week|month|year|decade)s? (ago|later|earlier|old|behind)\b' -e '\b(that|this) (week|month|year|decade)s?\b' -e 'long-?standing' -e 'long time' -e '\bdecades\b' -e 'over the years' -- . ':!CLAUDE.md' ':!dev-scripts/preflight.ps1' ':!dev-scripts/negative-test-preflight.ps1' ':!agent_docs/verified.md' ':!adapters/**/VERIFIED.md'
 Report-GrepGate $LASTEXITCODE $durations `
     "vague duration in a tracked file -- cite a date, or a measured figure with a number:" `
     "no vague durations in tracked files"
@@ -527,7 +527,7 @@ Report-GrepGate $LASTEXITCODE $durations `
 # testing" are rhetoric -- eight such lines existed and all eight were reworded, losing nothing.
 # So: fire only when NO number precedes the unit. A digit, a "~n", or a written number one..twelve
 # all count as measured.
-$unitOf = @(& git grep -inIE '\b(hour|day|week|month|year|decade)s of\b' -- . ':!CLAUDE.md' ':!dev-scripts/preflight.ps1' ':!agent_docs/verified.md' ':!adapters/**/VERIFIED.md')
+$unitOf = @(& git grep -inIE '\b(hour|day|week|month|year|decade)s of\b' -- . ':!CLAUDE.md' ':!dev-scripts/preflight.ps1' ':!dev-scripts/negative-test-preflight.ps1' ':!agent_docs/verified.md' ':!adapters/**/VERIFIED.md')
 $unitOfCode = $LASTEXITCODE
 # A LOOKBEHIND, so each OCCURRENCE is judged, not the line. The first version of this filter
 # exempted any line holding one numbered mention, so "after hours of measurement, and 6 hours
@@ -748,7 +748,11 @@ $probeScripts = @(Get-ChildItem -Path 'adapters' -Recurse -Filter '*.lua' -Error
 # **Armed is the line, not merely present.** UE4SS loads a probe folder because it carries an
 # enabled.txt, so a disarmed probe cannot reach a running game whatever it contains -- and a
 # finished probe that keeps its enabled.txt is a probe that logs through somebody else's test.
-# An armed offender FAILS; a disarmed one is named as a warning so nobody arms it by accident.
+# An armed offender FAILS; a disarmed one is a RATCHET (2026-09-16): the withdrawn probes that
+# still carry a walk were 23 entries of WARN printed on every run, which is the "warning everyone
+# scrolls past" shape. Now the count is recorded, and only a CHANGE is reported -- a new disarmed
+# walk lists every entry so the new one can be found, a cut lowers the floor.
+$ratchetDisarmedWalks = 23
 $offenders = @()
 $disarmed = @()
 foreach ($script in $probeScripts) {
@@ -768,8 +772,12 @@ if ($offenders.Count -gt 0) {
 } else {
     Report-Pass "no armed probe walks reflection blindly ($($probeScripts.Count) script(s) checked)"
 }
-if ($disarmed.Count -gt 0) {
-    Report-Warn ("disarmed probe(s) carry a blind reflection walk -- do not arm one without cutting it: " + ($disarmed -join '; '))
+if ($disarmed.Count -gt $ratchetDisarmedWalks) {
+    Report-Fail ("disarmed blind reflection walks grew to $($disarmed.Count) (recorded $ratchetDisarmedWalks) -- a probe gained a ForEach* walk; cut it, and never arm it as is: " + ($disarmed -join '; '))
+} elseif ($disarmed.Count -lt $ratchetDisarmedWalks) {
+    Report-Fail "disarmed blind reflection walks dropped to $($disarmed.Count) (recorded $ratchetDisarmedWalks) -- a walk was cut; lower `$ratchetDisarmedWalks in this file so the floor holds"
+} else {
+    Report-Pass "$($disarmed.Count) disarmed probe script(s) still carry a blind reflection walk, at the recorded floor -- arming one is the FAIL above"
 }
 
 # ---------------------------------------------------------------------------
@@ -887,7 +895,7 @@ $exprHits = @()
 foreach ($f in $exprFiles) {
     if (-not (Test-Path $f)) { continue }
     $norm = ($f -replace '\\', '/')
-    if ($norm -eq 'dev-scripts/preflight.ps1') { continue }   # this section names the patterns itself
+    if ($norm -eq 'dev-scripts/preflight.ps1' -or $norm -eq 'dev-scripts/negative-test-preflight.ps1') { continue }   # one names the patterns, the other plants them
     $n = @(Select-String -Path $f -Pattern $exprDecl, $exprPtr -AllMatches).Count
     $allowed = if ($exprAllow.ContainsKey($norm)) { $exprAllow[$norm] } else { 0 }
     if ($n -gt $allowed) { $exprHits += "${norm}: $n line(s), $allowed accepted as prose" }

@@ -64,17 +64,21 @@ full note.
 
 - `negative-test-preflight.ps1` — proves the gates above can still FAIL. It creates a detached git
   worktree at `HEAD` under `%TEMP%` (never your working copy), copies your working copy's
-  `preflight.ps1` into it, then plants one real violation at a time — a home path, a clone path, a
-  public IP, an RFC1918 one, a hostname, a username inside a tracked binary, a stray root file, a
-  "do not commit" header, an uncited repo, a mangled-escape control byte, a probe left in the
-  scratch slot, a fence in a `documentation.md` — and asserts the section aimed at each one names
-  it. Every plant reads the file back, because a plant that quietly did nothing looks exactly like
-  a gate that is blind. Exit 0 = every gate saw its violation. Why it exists: on 2026-09-11 the
-  leak check's new IP scan reported PASS on a tree with a planted public address, through three
-  bugs that were all invisible against a clean tree — **a gate never seen to fail is
-  indistinguishable from one that cannot**. `-Only <regex>` runs a subset, `-KeepWorktree` leaves
-  the planted tree to look at. It ends with a coverage list: the preflight sections that have no
-  fixture yet, so the gap is visible rather than assumed.
+  `preflight.ps1` into it, then plants one real violation at a time — a leaked path or address, a
+  broken link, an unindexed entry, an unregistered flag, a drifted constant, a ratchet moved off
+  its floor, a commit the phase log never claimed — and asserts the section aimed at each one
+  names it. Since 2026-09-16 every section that runs under `-TreeOnly` has a fixture, except the
+  two that read git history the fixture cannot rewrite (61 fixtures; the run takes about half an
+  hour, `-Only <regex>` runs a subset). Every plant reads the file back, because a plant that
+  quietly did nothing looks exactly like a gate that is blind; a fixture may also commit in the
+  scratch worktree, which is reset hard to the real `HEAD` between fixtures. Exit 0 = every gate
+  saw its violation. Why it exists: on 2026-09-11 the leak check's new IP scan reported PASS on a
+  tree with a planted public address, through three bugs that were all invisible against a clean
+  tree — **a gate never seen to fail is indistinguishable from one that cannot**. `-KeepWorktree`
+  leaves the planted tree to look at. It ends with a coverage list: the sections that have no
+  fixture yet, so the gap is visible rather than assumed. **The script is read by PowerShell 5.1
+  as CP1252 (no BOM), so it must stay ASCII: an em-dash's bytes include a curly quote that closes
+  a string.**
 
   Its runtime counterparts, for a session already running: add `-stats=10s` to any `meshghost.exe`
   launch for a one-line client summary (link rtt, clock offset, peers known versus rendered, bytes

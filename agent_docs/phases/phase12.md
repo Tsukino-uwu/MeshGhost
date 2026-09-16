@@ -391,3 +391,27 @@ push it exists for, a key added in C++/C#/Lua with no row, never ran it. Widenin
 refused by preflight's own rule that an adapter gate names only `adapters/**` and its own file,
 hence a separate workflow. Same day, `96ed6168`: all 29 "not checked yet" cells guarded (6 / 20 /
 2 / 1, ratchets to 0), both DLLs rebuilt and deployed to every install; unwatched in a game.
+
+## 2026-09-16 (later) — every tree-only preflight gate has a negative test; the disarmed-probe warning is a ratchet
+
+The status item: 39 of 47 sections had no fixture in `negative-test-preflight.ps1`, and the
+blind-reflection section printed its 23 disarmed entries as a WARN on every run. Now 61 fixtures
+cover every section that runs under `-TreeOnly` except two that read git history a plant cannot
+rewrite (`CRLF-pinned batch files`, which skips its byte check there, and `_template back-port
+freshness`, which already WARNs on a clean tree); the harness counts its coverage against the
+live sections only, naming the ones that need a working copy apart. Three plant helpers were
+added for the gates a trailing line cannot reach: a regex replace (first-match readers such as the
+bridge port constants, the RemoteGhost struct, the drop site), a tracked-file removal (the adapter
+file set) and a commit in the scratch worktree (phase-log freshness), with the reset between
+fixtures now a hard reset to the real `HEAD`. The disarmed-walk count is `$ratchetDisarmedWalks`
+(23): a rise FAILs and lists every entry, a drop FAILs until the number is lowered, and a clean run
+prints one PASS line.
+
+Two things the run caught on the way. The recorded floor was first written as 22 from a hand count
+of the warning's entries; the harness's baseline reported the section already FAILing on a clean
+tree, which is how the miscount surfaced -- the ratchet had never been run before the fixture was.
+And two fixture strings holding an em-dash broke the script's parse: PowerShell 5.1 reads the
+BOM-less file as CP1252, and one of the em-dash's three bytes is a curly double quote, which closed
+the string; every non-ASCII byte in that file is now a parse error waiting, so it stays ASCII
+(`dev-scripts/README.md` says so). The full run was 59 of 61 with the floor at 22; after the fix the two blind-walk
+fixtures re-run with `-Only`.

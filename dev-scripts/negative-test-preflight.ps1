@@ -107,6 +107,38 @@ function Plant-Bytes($wt, $relPath, [byte[]]$bytes) {
     if (-not $text.Contains($planted)) { throw "byte plant did not land in $relPath" }
 }
 
+# For a gate that reads the FIRST match, or a specific place in a file: appending a line would
+# never reach it. Replaces every match of $pattern; a fixture that needs one occurrence anchors
+# the pattern. $replacement is a .NET regex replacement, so $1 refers to a group.
+function Plant-Replace($wt, $relPath, $pattern, $replacement) {
+    $full = Join-Path $wt $relPath
+    if (-not (Test-Path -LiteralPath $full)) { throw "fixture target is missing: $relPath" }
+    $existing = [System.IO.File]::ReadAllText($full)
+    $n = [regex]::Matches($existing, $pattern).Count
+    if ($n -eq 0) { throw "nothing in $relPath matches '$pattern' -- the fixture is aimed at nothing" }
+    $after = [regex]::Replace($existing, $pattern, $replacement)
+    if ($after -eq $existing) { throw "replacement in $relPath changed nothing" }
+    [System.IO.File]::WriteAllText($full, $after, $utf8NoBom)
+    if ([System.IO.File]::ReadAllText($full) -ne $after) { throw "replacement did not land in $relPath" }
+}
+
+function Plant-Remove($wt, $relPath) {
+    & git -C $wt rm --quiet -- $relPath | Out-Null
+    if (Test-Path -LiteralPath (Join-Path $wt $relPath)) { throw "removal did not land: $relPath is still there" }
+    if (@(& git -C $wt ls-files -- $relPath).Count -gt 0) { throw "git still tracks $relPath after the removal" }
+}
+
+# A COMMIT in the scratch worktree, for the gates that read `git log` and cannot see a plant on
+# disk. It moves the worktree's detached HEAD only; Reset-Worktree puts it back on the real HEAD.
+# An identity is passed inline so the fixture does not depend on the machine's git config.
+function Plant-Commit($wt, $relPath, $line, $message) {
+    Plant-TextLine $wt $relPath $line
+    & git -C $wt add -- $relPath | Out-Null
+    & git -C $wt -c user.name=harness -c user.email=harness@example.com commit --quiet -m $message | Out-Null
+    $touched = @(& git -C $wt show --name-only --format= HEAD)
+    if ($touched -notcontains $relPath) { throw "the planted commit does not touch $relPath" }
+}
+
 # A tracked Lua probe script is the quietest place in the tree to plant a leak: the markdown gates
 # (caps, one-line entries, link integrity, licensing, indexes) cannot see it, a `--` line cannot
 # change what Lua parses to, and the blind-reflection check skips comments by design. So a fixture
@@ -221,7 +253,267 @@ $fixtures = @(
         Section = 'No reproduced expression in documentation.md'
         Expect = 'WARN'
         Why = 'a fenced block in a documentation.md -- the shape all three reproduced-expression violations shared'
-        Plant = { param($wt) Plant-TextLine $wt 'adapters/_template/documentation.md' "``````text`nplanted by the negative-test harness`n``````" } }
+        Plant = { param($wt) Plant-TextLine $wt 'adapters/_template/documentation.md' "``````text`nplanted by the negative-test harness`n``````" } },
+
+    # ---- the 2026-09-16 sweep: every gate that runs under -TreeOnly gets at least one fixture ----
+
+    @{  Name = 'duration-vague'
+        Section = 'Invented durations'
+        Expect = 'FAIL'
+        Why = 'a duration with no number or date behind it'
+        Plant = { param($wt) Plant-TextLine $wt $luaTarget '-- planted by the negative-test harness: this sat broken for weeks' } },
+
+    @{  Name = 'duration-unnumbered-span'
+        Section = 'Invented durations'
+        Expect = 'FAIL'
+        Why = "an '<units> of' span with no number in front of it -- the second grep in that section"
+        Plant = { param($wt) Plant-TextLine $wt $luaTarget '-- planted by the negative-test harness: years of work went into this' } },
+
+    @{  Name = 'line-cap-outside-budget'
+        Section = 'Reading budgets'
+        Expect = 'FAIL'
+        Why = 'a line-cap header on a file that is not an instruction file'
+        Plant = { param($wt) Plant-FirstLine $wt 'docs/config.md' '<!-- line-cap: 500 -->' } },
+
+    @{  Name = 'line-cap-exceeded'
+        Section = 'Reading budgets'
+        Expect = 'FAIL'
+        Why = 'a budgeted file one line over its own declared cap'
+        Plant = { param($wt)
+            $p = '.claude/skills/write-a-probe/SKILL.md'
+            $lines = @(Get-Content -LiteralPath (Join-Path $wt $p))
+            $decl = $lines | Select-String -Pattern '<!--\s*line-cap:\s*(\d+)' | Select-Object -First 1
+            $need = [int]$decl.Matches[0].Groups[1].Value - $lines.Count + 1
+            Plant-TextLine $wt $p ((1..$need | ForEach-Object { "planted by the negative-test harness, line $_" }) -join "`n") } },
+
+    @{  Name = 'entry-runs-past-one-line'
+        Section = 'One-line entries'
+        Expect = 'FAIL'
+        Why = 'a queue entry whose detail wraps onto a second, indented line'
+        Plant = { param($wt) Plant-TextLine $wt 'agent_docs/status.md' "- 2026-09-16 -- planted by the negative-test harness`n  with its detail carried onto a second line" } },
+
+    @{  Name = 'blind-walk-armed'
+        Section = 'Probe scripts: blind reflection walks'
+        Expect = 'FAIL'
+        Why = 'an enabled.txt on a withdrawn probe whose scripts still walk reflection'
+        Plant = { param($wt) Plant-NewFile $wt 'adapters/pseudoregalia/probes/probe_pawndiff/enabled.txt' "planted by the negative-test harness`n" } },
+
+    @{  Name = 'blind-walk-disarmed-grows'
+        Section = 'Probe scripts: blind reflection walks'
+        Expect = 'FAIL'
+        Why = 'one more disarmed probe carrying a walk than the ratchet records'
+        Plant = { param($wt) Plant-TextLine $wt $luaTarget 'local planted = obj:ForEachProperty(function() end)' } },
+
+    @{  Name = 'reproduced-declaration'
+        Section = 'No reproduced expression ANYWHERE, not just documentation.md'
+        Expect = 'FAIL'
+        Why = 'a C declaration copied into a tracked text file'
+        Plant = { param($wt) Plant-TextLine $wt $luaTarget '-- planted by the negative-test harness: u16 gPlantedCounter = 0;' } },
+
+    @{  Name = 'decomp-label-returns'
+        Section = 'Measured or observed only: no NEW source-derived claims (ratchet)'
+        Expect = 'FAIL'
+        Why = 'the retired [from the decomp] label used once more than its floor of zero'
+        Plant = { param($wt) Plant-TextLine $wt $luaTarget '-- planted by the negative-test harness [from the decomp]' } },
+
+    @{  Name = 'decomp-citation-grows'
+        Section = 'Measured or observed only: no NEW source-derived claims (ratchet)'
+        Expect = 'FAIL'
+        Why = 'a source-file citation in a documentation.md above its recorded floor'
+        Plant = { param($wt) Plant-TextLine $wt 'adapters/emulator/pokemon/crystal/documentation.md' 'Planted by the negative-test harness: the routine is in engine/planted.asm.' } },
+
+    @{  Name = 'script-dir-no-separator'
+        Section = 'SCRIPT_DIR concatenations carry a separator (Crystal)'
+        Expect = 'FAIL'
+        Why = 'a SCRIPT_DIR concatenation that builds a path with no separator'
+        Plant = { param($wt) Plant-TextLine $wt 'adapters/emulator/pokemon/crystal/meshghost_crystal.lua' 'local planted = SCRIPT_DIR .. "planted.txt"' } },
+
+    @{  Name = 'raw-bool-read'
+        Section = 'Reflected bools use the property mask (Pseudoregalia)'
+        Expect = 'FAIL'
+        Why = 'a reflected bool read raw, with no bitfield-safe: reason'
+        Plant = { param($wt) Plant-TextLine $wt 'adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp' 'auto planted = GetValuePtrByPropertyNameInChain<bool>(obj, STR("Planted"));' } },
+
+    @{  Name = 'bare-wall-clock'
+        Section = 'The core''s clock is injectable, and stays that way'
+        Expect = 'FAIL'
+        Why = 'a bare time.Now() in core with no wall-clock: reason'
+        Plant = { param($wt) Plant-TextLine $wt 'core/core.go' 'var plantedByTheHarness = time.Now()' } },
+
+    @{  Name = 'bare-interpreter'
+        Section = 'No bare interpreter on PATH in dev-scripts'
+        Expect = 'FAIL'
+        Why = 'a dev-script calling cmd off PATH'
+        Plant = { param($wt) Plant-TextLine $wt 'dev-scripts/stage-release.ps1' 'cmd /c echo planted by the negative-test harness' } },
+
+    @{  Name = 'missing-anchor'
+        Section = 'Markdown link integrity'
+        Expect = 'FAIL'
+        Why = 'an #anchor naming a heading the file does not have'
+        Plant = { param($wt) Plant-TextLine $wt 'docs/config.md' 'Planted by the negative-test harness: [gone](#no-such-heading-planted).' } },
+
+    @{  Name = 'link-escapes-repo'
+        Section = 'Markdown link integrity'
+        Expect = 'FAIL'
+        Why = 'a relative link that climbs out of the repo -- depth-dependent on GitHub'
+        Plant = { param($wt) Plant-TextLine $wt 'docs/config.md' 'Planted by the negative-test harness: [out](../../outside.md).' } },
+
+    @{  Name = 'restated-rule-unlinked'
+        Section = 'Canonical source for multiply-stated rules'
+        Expect = 'FAIL'
+        Why = 'a registered rule restated with no link to its home'
+        Plant = { param($wt) Plant-TextLine $wt 'docs/config.md' 'Planted by the negative-test harness: a flag flip is not a revert.' } },
+
+    @{  Name = 'pitfall-heading-unindexed'
+        Section = 'pitfalls index coverage'
+        Expect = 'FAIL'
+        Why = 'a pitfalls heading with no line in INDEX.md'
+        Plant = { param($wt) Plant-TextLine $wt 'agent_docs/pitfalls/method.md' '## Planted by the negative-test harness' } },
+
+    @{  Name = 'pitfall-index-untagged'
+        Section = 'pitfalls index coverage'
+        Expect = 'FAIL'
+        Why = 'an index line with no outcome tag'
+        Plant = { param($wt) Plant-TextLine $wt 'agent_docs/pitfalls/INDEX.md' '- Planted by the negative-test harness, with no outcome tag' } },
+
+    @{  Name = 'verified-entry-unindexed'
+        Section = 'VERIFIED index coverage'
+        Expect = 'FAIL'
+        Why = 'a VERIFIED.md entry missing from its own index'
+        Plant = { param($wt) Plant-TextLine $wt 'adapters/tevi/VERIFIED.md' '## Planted by the negative-test harness' } },
+
+    @{  Name = 'adapter-file-missing'
+        Section = 'Adapter file set'
+        Expect = 'FAIL'
+        Why = 'a mandated adapter file removed'
+        Plant = { param($wt) Plant-Remove $wt 'adapters/tevi/BANDAGES.md' } },
+
+    @{  Name = 'probe-folder-unindexed'
+        Section = 'Adapter file set'
+        Expect = 'FAIL'
+        Why = 'an adapter with probe folders and no PROBES.md to index them'
+        Plant = { param($wt) Plant-Remove $wt 'adapters/pseudoregalia/PROBES.md' } },
+
+    @{  Name = 'stale-adapter-count'
+        Section = 'Adapter/game counts in living docs'
+        Expect = 'FAIL'
+        Why = 'a living doc counting the games with a number that is no longer true'
+        Plant = { param($wt) Plant-TextLine $wt 'docs/config.md' 'Planted by the negative-test harness: all three games do this.' } },
+
+    @{  Name = 'status-undated'
+        Section = 'status.md is current'
+        Expect = 'FAIL'
+        Why = 'a status item carrying no date'
+        Plant = { param($wt) Plant-TextLine $wt 'agent_docs/status.md' '- planted by the negative-test harness, carrying no date' } },
+
+    @{  Name = 'status-stale'
+        Section = 'status.md is current'
+        Expect = 'FAIL'
+        Why = 'a status item dated past the two-day window'
+        Plant = { param($wt) Plant-TextLine $wt 'agent_docs/status.md' '- 2026-01-01 -- planted by the negative-test harness, never re-dated' } },
+
+    @{  Name = 'unverified-no-state'
+        Section = 'UNVERIFIED entries carry a state'
+        Expect = 'FAIL'
+        Why = 'a queue entry with no [READY]/[OPEN]/[DONE] state'
+        Plant = { param($wt) Plant-TextLine $wt 'adapters/tevi/UNVERIFIED.md' '## Planted by the negative-test harness' } },
+
+    @{  Name = 'phase-log-behind'
+        Section = 'Phase log freshness'
+        Expect = 'FAIL'
+        Why = 'three commits to an adapter after its phase log was last touched'
+        Plant = { param($wt)
+            foreach ($i in 1..3) { Plant-Commit $wt 'adapters/tevi/README.md' "Planted by the negative-test harness, commit $i." "harness: planted commit $i" } } },
+
+    @{  Name = 'phase-day-unclaimed'
+        Section = 'Phase log coverage'
+        Expect = 'FAIL'
+        Why = "a phase log whose dated headings no longer claim the days its tree changed"
+        Plant = { param($wt) Plant-Replace $wt 'agent_docs/phases/phase12.md' '(?m)^(#{2,3} )2026-' '${1}2025-' } },
+
+    @{  Name = 'flag-unregistered'
+        Section = 'FLAGS.md completeness'
+        Expect = 'FAIL'
+        Why = 'a compile-time flag in code that the register does not name'
+        Plant = { param($wt) Plant-TextLine $wt 'adapters/emulator/pokemon/crystal/meshghost_crystal.lua' 'local PLANTED_HARNESS_FLAG = true' } },
+
+    @{  Name = 'fuzz-target-uncensused'
+        Section = 'Fuzz census: every target has a CI step and a roster row'
+        Expect = 'FAIL'
+        Why = 'a fuzz target with no CI step and no roster row'
+        Plant = { param($wt) Plant-NewFile $wt 'bridge/planted_harness_test.go' "package bridge`n`nimport `"testing`"`n`nfunc FuzzPlantedByTheHarness(f *testing.F) { f.Fuzz(func(t *testing.T, b []byte) {}) }`n" } },
+
+    @{  Name = 'adr-unindexed'
+        Section = 'ADR index coverage'
+        Expect = 'FAIL'
+        Why = 'an ADR file not linked from architecture.md'
+        Plant = { param($wt) Plant-NewFile $wt 'agent_docs/adr/9999-planted-by-the-negative-test-harness.md' "# 9999 planted by the negative-test harness`n" } },
+
+    @{  Name = 'bridge-port-drift'
+        Section = 'Bridge constants agree across the four adapters'
+        Expect = 'FAIL'
+        Why = 'one adapter on a different bridge base port'
+        Plant = { param($wt) Plant-Replace $wt 'adapters/emulator/pokemon/emerald/meshghost_emerald.lua' '(?m)^local BRIDGE_BASE_PORT = 7778$' 'local BRIDGE_BASE_PORT = 7779' } },
+
+    @{  Name = 'phase-file-unindexed'
+        Section = 'Phase index coverage'
+        Expect = 'FAIL'
+        Why = 'a phase file not linked from the phase index'
+        Plant = { param($wt) Plant-NewFile $wt 'agent_docs/phases/phase99.md' "# Phase 99 -- planted by the negative-test harness`n" } },
+
+    @{  Name = 'bridge-message-undocumented'
+        Section = 'Bridge message coverage in the adapter template'
+        Expect = 'FAIL'
+        Why = 'a bridge message type the adapter template never names'
+        Plant = { param($wt) Plant-TextLine $wt 'bridge/bridge.go' 'const plantedByTheHarness MessageType = "planted_message"' } },
+
+    @{  Name = 'dev-script-undocumented'
+        Section = 'dev-scripts README coverage'
+        Expect = 'FAIL'
+        Why = 'a dev-script the README does not mention'
+        Plant = { param($wt) Plant-NewFile $wt 'dev-scripts/planted-by-the-harness.ps1' "# planted by the negative-test harness`n" } },
+
+    @{  Name = 'remoteghost-field-unreleased'
+        Section = 'RemoteGhost pointer fields are cleared at release (Pseudoregalia)'
+        Expect = 'FAIL'
+        Why = 'a new pointer field on RemoteGhost that neither release path clears'
+        Plant = { param($wt) Plant-Replace $wt 'adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.hpp' '(struct RemoteGhost\s*\r?\n\s*\{\r?\n)' ('${1}        RC::Unreal::UObject* planted_by_the_harness{nullptr};' + "`n") } },
+
+    @{  Name = 'findallof-grows'
+        Section = 'FindAllOf ratchet (Pseudoregalia)'
+        Expect = 'FAIL'
+        Why = 'one FindAllOf call site more than the ratchet records'
+        Plant = { param($wt) Plant-TextLine $wt 'adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp' '// planted by the negative-test harness: UObjectGlobals::FindAllOf(STR("Planted"), out);' } },
+
+    @{  Name = 'raw-cache-unannotated'
+        Section = 'Raw-pointer caches must say why they cannot dangle (Pseudoregalia)'
+        Expect = 'FAIL'
+        Why = 'a file-scope raw UObject* cache with no stale-safe: reason above it'
+        Plant = { param($wt) Plant-TextLine $wt 'adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp' 'static UObject* g_planted_by_the_harness = nullptr;' } },
+
+    @{  Name = 'ghost-drop-keeps-handle'
+        Section = 'Dropping a ghost must drop every component attached to it (Pseudoregalia)'
+        Expect = 'FAIL'
+        Why = 'a ghost dropped with nothing attached to it cleared in the same breath'
+        Plant = { param($wt) Plant-Replace $wt 'adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp' '(?m)^(\s*it->second\.ghost = nullptr;)' ('${1}' + "`n" + '        planted.ghost = nullptr;') } },
+
+    @{  Name = 'hard-coded-count'
+        Section = 'No hard-coded adapter or game counts in living docs'
+        Expect = 'FAIL'
+        Why = 'a living doc counting the mods'
+        Plant = { param($wt) Plant-TextLine $wt 'docs/config.md' 'Planted by the negative-test harness: our four mods share it.' } },
+
+    @{  Name = 'action-version-split'
+        Section = 'GitHub Action versions agree across workflows'
+        Expect = 'FAIL'
+        Why = 'one workflow pinning an action to an older major than the rest'
+        Plant = { param($wt) Plant-TextLine $wt '.github/workflows/docs.yml' '# planted by the negative-test harness: uses: actions/checkout@v1' } },
+
+    @{  Name = 'adapter-gate-too-broad'
+        Section = 'Every adapter has its own path-filtered workflow'
+        Expect = 'FAIL'
+        Why = 'an adapter gate filtering on a path outside its own tree'
+        Plant = { param($wt) Plant-TextLine $wt '.github/workflows/tevi.yml' '      - ''docs/**''' } }
 )
 
 if ($Only) { $fixtures = @($fixtures | Where-Object { $_.Name -match $Only }) }
@@ -259,9 +551,11 @@ function Read-Report($lines) {
 }
 
 function Reset-Worktree($wt) {
-    & git -C $wt reset --quiet HEAD -- . 2>&1 | Out-Null
-    & git -C $wt checkout --quiet --force -- . 2>&1 | Out-Null
+    # --hard to the REAL HEAD, not the worktree's: a fixture may have committed, and a reset to
+    # the worktree's own HEAD would keep that commit for every fixture after it.
+    & git -C $wt reset --quiet --hard $script:headSha 2>&1 | Out-Null
     & git -C $wt clean --quiet -fdx 2>&1 | Out-Null
+    if ((& git -C $wt rev-parse HEAD) -ne $script:headSha) { throw "the scratch worktree did not come back to $script:headSha" }
     # The reset just restored the COMMITTED preflight. The point of this harness is the script in
     # the working copy -- the one about to be committed -- so it goes back in after every reset.
     Copy-Item -LiteralPath (Join-Path $root "dev-scripts\preflight.ps1") `
@@ -276,8 +570,10 @@ if (Test-Path -LiteralPath $wt) {
 }
 New-Item -ItemType Directory -Force -Path $ScratchRoot | Out-Null
 
+$script:headSha = (& git rev-parse HEAD).Trim()
+
 Write-Host "Negative-testing preflight's gates."
-Write-Host "  tree under test:  a detached worktree at HEAD ($(& git rev-parse --short HEAD)), under $ScratchRoot"
+Write-Host "  tree under test:  a detached worktree at HEAD ($($script:headSha.Substring(0, 8))), under $ScratchRoot"
 Write-Host "  script under test: your working copy's dev-scripts\preflight.ps1"
 Write-Host "  fixtures:         $($fixtures.Count)"
 
@@ -368,10 +664,15 @@ try {
         Write-Host ""
         Write-Host "== Coverage =="
         $covered = @($fixtures | ForEach-Object { $_.Section } | Sort-Object -Unique)
-        $uncovered = @($baseReport.Keys | Where-Object { $covered -notcontains $_ })
-        Report-Info "$($covered.Count) of $($baseReport.Count) -TreeOnly section(s) have a fixture here."
-        Report-Info "No fixture yet (a gate whose ability to fail is assumed, not shown):"
-        foreach ($s in $uncovered) { Report-Info "  - $s" }
+        # A section that only SKIPs under -TreeOnly cannot be fixtured by this harness at all, so
+        # it is counted apart rather than listed as a gap forever.
+        $live = @($baseReport.Keys | Where-Object { @($baseReport[$_] | Where-Object { $_ -ne 'SKIP' }).Count -gt 0 })
+        $uncovered = @($live | Where-Object { $covered -notcontains $_ })
+        Report-Info "$($covered.Count) of $($live.Count) section(s) that run under -TreeOnly have a fixture here ($($baseReport.Count - $live.Count) more need a working copy)."
+        if ($uncovered.Count -gt 0) {
+            Report-Info "No fixture yet (a gate whose ability to fail is assumed, not shown):"
+            foreach ($s in $uncovered) { Report-Info "  - $s" }
+        }
     }
 }
 finally {
