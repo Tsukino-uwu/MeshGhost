@@ -494,6 +494,7 @@ internal static class BridgeFuzz
         int nonFinite = 0;
         int reached = 0;
         int dropped = 0;
+        int refused = 0;
         foreach (string raw in raws)
         {
             string line =
@@ -527,6 +528,16 @@ internal static class BridgeFuzz
                              "that ghost's Animator", raw, key);
                         continue;
                     }
+                }
+
+                if (finite && key == "anim_t" && !v.HasValue && (expected < 0f || expected > 1f))
+                {
+                    // A refusal, not a missing key: anim_t is a normalised phase and the decoder
+                    // drops a finite value outside 0..1 (BridgeClient.cs UnitOrNull, 2026-09-16).
+                    // The first cut CLAMPED, and the rewrite check below caught it in CI. In-range
+                    // values still have to arrive, which is what keeps the 2026-09-08 check alive.
+                    refused++;
+                    continue;
                 }
 
                 if (finite && !v.HasValue)
@@ -563,7 +574,8 @@ internal static class BridgeFuzz
         }
 
         Console.WriteLine("  TEVI: " + raws.Length + " extreme numeric form(s) fed; " + reached +
-                          " value(s) reached a callback, " + dropped + " line(s) dropped; " + nonFinite +
+                          " value(s) reached a callback, " + dropped + " line(s) dropped, " + refused +
+                          " anim_t value(s) refused as outside 0..1; " + nonFinite +
                           " reached a callback non-finite (want 0)");
     }
 

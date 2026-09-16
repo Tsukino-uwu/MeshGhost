@@ -70,7 +70,7 @@
 
 | Key | Type | Read from | Checked on arrival |
 | --- | --- | --- | --- |
-| `anim_t` | number, 0 to 1 | the animator's `normalizedTime`, wrapped (`Update`) | must be a real number, then kept to 0–1 |
+| `anim_t` | number, 0 to 1 | the animator's `normalizedTime`, wrapped (`Update`) | must be a real number within 0–1, else ignored (the ghost keeps its phase; a clamp was refused by the fuzz test, 2026-09-16) |
 | `pause` | number, seconds | `GameSystem.GetTempPause()` (`Update`) | must be a real number; only "above 0" is used |
 
 </details>

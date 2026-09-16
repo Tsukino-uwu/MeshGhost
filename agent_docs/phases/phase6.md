@@ -833,3 +833,15 @@ Only this adapter's `UNVERIFIED.md` header changed, with the other three and the
 ## 2026-09-16 — pointer: the 20 SYNCED.md guards, and the DLL rebuilt
 
 `96ed6168`, logged in `phase12.md` (2026-09-16): every "not checked yet" cell in `tevi/SYNCED.md` is guarded, the DLL rebuilt and deployed to both installs; unwatched in a game.
+
+## 2026-09-16 (later) — CI refused the anim_t clamp; the guard now ignores an out-of-range phase
+
+The push carrying last night's 20 SYNCED.md guards ran the TEVI fuzz job for the first time, and
+its standing rule from the 2026-09-08 review -- an extreme value passes through unaltered or is
+refused, never quietly rewritten -- failed nine cases: `anim_t` values such as -1, 255 and
+2147483647 arrived as 0 or 1, because `UnitOrNull` clamped. The user's call: refuse the value.
+`UnitOrNull` now returns absent for a finite value outside 0..1, so the ghost keeps the phase it
+has for that update; `BridgeFuzz.cs` counts such an absence as a refusal for `anim_t` only, so an
+in-range value that goes missing is still the 2026-09-08 defect. Local run: 9 refused, 17 reached,
+exit 0. DLL rebuilt, hash recorded, deployed to both installs (same hash all three). SYNCED.md's
+row says "ignored", not "kept to 0–1". Unwatched in a game, like the rest of the guards.

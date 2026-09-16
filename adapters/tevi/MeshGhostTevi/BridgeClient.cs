@@ -589,14 +589,17 @@ namespace MeshGhostTevi
             return v.HasValue && !float.IsNaN(v.Value) && !float.IsInfinity(v.Value) ? v : null;
         }
 
-        // A normalised animation phase: finite, then kept to 0..1 (2026-09-16; SYNCED.md said
-        // the range was not checked). The sender wraps its own value before sending, so anything
-        // outside is a peer's invention, and the drift correction on the other side assumes both
-        // phases live on the same unit circle.
+        // A normalised animation phase: finite AND within 0..1, else absent (2026-09-16; SYNCED.md
+        // said the range was not checked). The sender wraps its own value before sending, so
+        // anything outside is a peer's invention, and the drift correction on the other side
+        // assumes both phases live on the same unit circle. REFUSED, not clamped: the first cut
+        // clamped, and the fuzz test's standing rule (2026-09-08) caught it in CI the same day --
+        // a clamp is a phase the peer never sent, and absent means the ghost keeps the phase it
+        // has for that update.
         private static float? UnitOrNull(float? v)
         {
             float? f = FiniteOrNull(v);
-            return f.HasValue ? (float?)Math.Min(1f, Math.Max(0f, f.Value)) : null;
+            return f.HasValue && f.Value >= 0f && f.Value <= 1f ? f : null;
         }
 
         // The position is the ONE peer float that never got the FiniteOrNull treatment the
