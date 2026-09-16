@@ -541,7 +541,7 @@ area); 5 hotkeys; 6 save-last-N; 7 the chaser pack; 8 split times; 9 config, pac
 **Out of scope here:** the chaser's contact damage — per game, its own ADR, the user's on-screen
 confirmation, Pseudoregalia first.
 
-### Phase 13 — Autoplay: a dev-only harness that plays games (proposed 2026-09-16, waiting at the Phase 0 checkpoint)
+### Phase 13 — Autoplay: a dev-only harness that plays games (proposed 2026-09-16; Phase 0's checkpoint answered the same day)
 
 **Proposed, not decided; nothing is built.** A dev-only program in a top-level `autoplay/` folder with
 its own `go.mod`, so no build, test or release of MeshGhost includes it, and it never ships. A Claude

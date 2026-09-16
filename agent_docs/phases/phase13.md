@@ -90,3 +90,22 @@ contributions not yet relicensed, Apache-2.0 for the rest — read from its own 
 - **Questions put to the user**: may the loop start and close emulators on its own; how PC games get
   a snapshot, if at all; JSON scenarios (no dependency) or YAML; the reorder; adopting the MCP Go SDK
   once `licensing.md` has its row.
+
+## 2026-09-16 (later) — the checkpoint answered
+
+- **Starting and closing games.** The user: *"yes its fine to start/close emulators and games on its
+  own. but similar to scaffolding it should be something i have asked for or something needed for
+  current testing/work. can be assumed to be fine if an agent is started for testing a game"*. So the
+  harness and its agents launch and close emulators and games themselves when the work was asked for
+  or the current test needs it, and closing what they started stays part of the job.
+- **Snapshots on a PC game**: in-game save slots the user rarely uses, the way BizHawk keeps slot 1
+  for the user (the user's suggestion, *"i think that might be fine"*). Before relying on it, measure
+  per game where its saves live, how many slots it has, and which slot an autosave writes; back up the
+  save folder before a session either way. Nothing about any game's save layout is measured yet.
+- **Scenario and knowledge files are JSON.** The user left it to what is easiest to work with: Go reads it
+  with the standard library, so no dependency or licence row; everything else here (the bridge,
+  `config.json`, recordings) is already JSON; and it has one way to write a value. YAML's advantage,
+  comments, is covered by a `note` field.
+- **The order changes**: the scenario runner comes straight after Phase 1 (*"If you think that makes
+  more sense go for it"*).
+- **MCP** was asked about rather than answered — what it is for — so the Go SDK is not adopted yet.
