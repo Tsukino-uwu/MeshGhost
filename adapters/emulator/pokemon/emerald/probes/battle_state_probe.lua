@@ -13,8 +13,8 @@
 --   ST    on any change of: gMain.callback2, gBattleTypeFlags, gBattlersCount, gBattlerPartyIndexes,
 --         gBattlerPositions, gActionSelectionCursor, gMoveSelectionCursor, gBattleOutcome,
 --         gBattleCommunication, gBattleControllerExecFlags, gBattlerControllerFuncs, gActiveBattler,
---         gChosenActionByBattler, gMultiUsePlayerCursor, gAbsentBattlerFlags -- all raw hex -- and
---         the pad
+--         gChosenActionByBattler, gMultiUsePlayerCursor, gAbsentBattlerFlags, gBattlescriptCurrInstr and
+--         all 0x28 bytes of gBattleScripting -- all raw hex -- and the pad
 --   MON n on any change of that battler's 0x58 bytes named gBattleMons: raw hex, and +0x30 decoded
 --         as a name (letters and digits only)
 --   STR   on any change of the first 0x80 bytes named gDisplayedStringBattle: decoded up to FF, and raw
@@ -29,6 +29,8 @@ local FIELDS = {
 	{ "outcome", 0x0202433a, 1 }, { "comm", 0x02024332, 8 }, { "execflags", 0x02024068, 4 },
 	{ "ctrlfuncs", 0x03005d60, 16 }, { "active", 0x02024064, 1 }, { "chosen", 0x0202421c, 4 },
 	{ "multicur", 0x03005d74, 1 }, { "absent", 0x02024210, 1 },
+	-- Added 2026-09-16 (later): the level-up box waited for A with nothing above changing.
+	{ "instr", 0x02024214, 4 }, { "scripting", 0x02024474, 0x28 },
 }
 local BATTLE_MONS, BATTLE_MON_SIZE = 0x02024084, 0x58
 local STRING_BATTLE = 0x02022e2c

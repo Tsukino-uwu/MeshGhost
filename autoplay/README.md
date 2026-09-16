@@ -30,9 +30,9 @@ Claude Code --MCP (stdio)--> autoplay core --JSON lines (127.0.0.1)--> driver in
 | `press` | Hold buttons for 1-600 frames, then report what changed — the escape hatch, not the default |
 | `wait` | Let 1-3600 frames pass with NO input, then report what changed. Never hold a button to wait |
 | `select` | Choose an entry in the open menu by its text (`item`) or 0-based `index`: the driver presses toward it until the game's own cursor is on it, then holds confirm until the menu responds (`confirm: false` stops on it). On a grid menu (a battle's) it reaches the column first. Every leg ends on the game's state, never a frame count |
-| `walk` | Move 1-32 tiles `up`, `down`, `left` or `right`, holding the direction the whole way the way a player does, each tile counted when the game starts its step; `run: true` runs where the save can (`ran` says whether it did). On a bike it rides, still stopping on the tile: the Acro Bike stops where released, and on the Mach Bike it lets go early by the tiles the bike will coast (`overshot` if it ever carries past). Stops early and says why: `blocked` (with what is on the refused tile), `map_changed` (a door or an edge), `dialogue_open` (a trainer who spotted you, too), `menu_open`, `left_overworld`; `moved` counts the steps begun. Walk for precision, run for speed that still stops on its tile, a bike for distance (the play-game skill's `references/navigation.md`) |
-| `goto` | To a tile `x`,`y` on this map by a planned route: straight legs over the map's own grid (collision, elevation, characters and warps closed, ledges closed, tall grass avoided where there is another way unless `cross_grass`), turning at speed, replanning when a step is refused. Rides what the player is on, stopping exactly on the tile (`run` on foot). Stops early for the same reasons `walk` does, or `unreachable` with the reason. It does not know a trainer's line of sight yet |
-| `battle` | Plays the battle on screen to its end in one call, a trainer's words before and after included: `policy` `strongest` (FIGHT, then the usable move with most power times accuracy) or `run`. Returns a `log` of every message and choice and ends `ended` (with money and the party), `needs_choice`, or `stuck` with what it was waiting on |
+| `walk` | Move 1-32 tiles `up`, `down`, `left` or `right`, holding the direction the whole way the way a player does, each tile counted when the game starts its step; `run: true` runs where the save can (`ran` says whether it did). On a bike it rides, still stopping on the tile: the Acro Bike stops where released, and on the Mach Bike it lets go early by the tiles the bike will coast (`overshot` if it ever carries past). Stops early and says why: `blocked` (with what is on the refused tile), `map_changed` (a door or an edge), `spotted` (a trainer has begun coming for you: its `local_id` and how many tiles away, from the frame the step into its line begins; hand it to `battle`), `dialogue_open`, `menu_open`, `left_overworld`; `moved` counts the steps begun. Walk for precision, run for speed that still stops on its tile, a bike for distance (the play-game skill's `references/navigation.md`) |
+| `goto` | To a tile `x`,`y` on this map by a planned route: straight legs over the map's own grid (collision, elevation, characters and warps closed, ledges closed, tall grass avoided where there is another way unless `cross_grass`), turning at speed, replanning when a step is refused. Tiles an unbeaten trainer looks at cost far more than grass, so a route crosses a trainer's line only where there is no other way, and `route_in_sight` names each one it had to. Rides what the player is on, stopping exactly on the tile (`run` on foot). Stops early for the same reasons `walk` does, `spotted` included, or `unreachable` with the reason |
+| `battle` | Plays the battle on screen to its end in one call, a trainer's words before and after included: `policy` `strongest` (FIGHT, then the usable move with most power times accuracy) or `run`. Called straight after `spotted`, it waits while the trainer walks over; it turns both pages of the level-up box. Returns a `log` of every message and choice and ends `ended` (with money and the party), `needs_choice`, or `stuck` with what it was waiting on |
 | `advance_text` | Presses through the message on screen box by box; stops `closed`, `menu_open` (with the menu, for `select`), `battle_started`, or `stuck`. Returns a `log` of the boxes |
 | `screenshot` | The game frame, saved to `dev-scripts/shots/<game>/autoplay_<name>.png` and returned as an image |
 | `events` | Events the driver reported since a sequence number |
@@ -64,8 +64,12 @@ Everything past `frame`, `mode` and `location` is the game module's. Emerald, on
 - **`local_map`** — `rows` of characters, 15 wide by 11 tall with you at the centre, and a `legend`
   for the symbols present: `@` you, `N` a character, `W` a warp, `#` collision set, `.` clear at your
   elevation, a hex digit for clear at another elevation, a letter per behaviour byte (listed in the
-  legend by number), `:` beyond this map's own edge. Only in the overworld.
-- **`nearby`** — the other characters: slot, local id, graphic, map `x`/`y`, and `dx`/`dy` from you.
+  legend by number), `!` a tile an unbeaten trainer looks at (stepping or standing there starts its
+  battle), `:` beyond this map's own edge. Only in the overworld.
+- **`nearby`** — the other characters: slot, local id, graphic, map `x`/`y`, `dx`/`dy` from you, `facing`
+  (`down`, `up` or `right`; any other value as `facing_raw`) and `movement_type_raw`. A trainer carries
+  `trainer`: `range` in tiles, `sees` (every way it turns; all four where its turning is not measured),
+  `beaten` and its `flag`.
 - **`warps`** — every warp on the map: `x`, `y` and the map it leads `to`.
 - **What the save has**, in an `observe` you call only (a press's, select's or walk's `before` and
   `after` leave it out):
@@ -118,7 +122,8 @@ code rather than by memory. A failed or refused cheat changes nothing.
 - **BizHawk** (`drivers/bizhawk/driver.lua`), loaded through `dev-scripts/bizhawk-dev-loader.lua`: put
   the driver's absolute path in the instance's control file, and set `AUTOPLAY_GAME` (and
   `AUTOPLAY_PORT` when it is not 7870) in the environment the emulator starts with. It logs to
-  `autoplay/runs/driver_bizhawk.log`. Game modules: `games/emerald.lua` (vanilla: position and
+  `autoplay/runs/driver_bizhawk.log`, or `driver_bizhawk_<game>_<port>.log` on another port, so a second
+  instance never shares a log. Game modules: `games/emerald.lua` (vanilla: position and
   warp from `emerald/probes/cmd_drive.lua`'s measurements, text and menus from
   `text_probe.lua`'s and `charset_probe.lua`'s, the map and `walk` from `map_probe.lua`'s and
   `step_probe.lua`'s, the party, bag, badges and their cheats from `party_bag_probe.lua`'s and
@@ -145,7 +150,7 @@ code rather than by memory. A failed or refused cheat changes nothing.
   core logs to `autoplay/runs/core.log` (gitignored); stdout belongs to MCP.
 - **Without an agent**: `go run ./cmd/mcpcall -calls '<JSON list of {name, arguments}>'` (from
   `autoplay/`) starts the core over stdio the way Claude Code does, waits for a driver, and prints
-  each tool's answer.
+  each tool's answer. A second instance passes its own `-listen 127.0.0.1:<port>` and `-log runs/<name>.log`.
 - **CI**: `.github/workflows/autoplay.yml` — build, vet, race tests, `govulncheck`, inside this module.
 
 ## What stays out of the repo

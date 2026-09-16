@@ -82,22 +82,25 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 		Description: "Move the player a number of tiles in one direction, holding it the whole way, each " +
 			"tile counted on the game's own state rather than a frame count. Stops early and says why: " +
 			"blocked (with what is on the refused tile), map_changed (a warp or a map edge), " +
-			"dialogue_open, menu_open, left_overworld. Returns the tiles moved and what changed. " +
+			"spotted (a trainer has begun coming: answer with battle), dialogue_open, menu_open, " +
+			"left_overworld. Returns the tiles moved and what changed. " +
 			"run: true runs where the save can; walk for precision, run for speed.",
 	}, logged(t, "walk", nil, t.walk))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "goto",
 		Description: "Move the player to a tile on this map by a planned route: straight legs, turning at " +
-			"speed, replanning around what refuses a step. Rides whatever the player is on (on foot, " +
-			"run: true to run). Stops early and says why, as walk does, or unreachable (with the reason). " +
-			"Returns where it ended, the tiles moved, turns and replans.",
+			"speed, replanning around what refuses a step, and crossing an unbeaten trainer's line only " +
+			"where there is no other way (route_in_sight names them). Rides whatever the player is on " +
+			"(on foot, run: true to run). Stops early and says why, as walk does, or unreachable (with " +
+			"the reason). Returns where it ended, the tiles moved, turns and replans.",
 	}, logged(t, "goto", nil, t.gotoTile))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "battle",
 		Description: "Play the battle on screen to its end in one call, a trainer's words before and after " +
-			"included. policy strongest (default) fights with the usable move of most power times accuracy; " +
+			"included, so call it straight after a spotted. policy strongest (default) fights with the " +
+			"usable move of most power times accuracy; " +
 			"run runs. Returns a log of every message and choice, and ends ended, needs_choice (a menu it " +
 			"will not answer) or stuck (with what it was waiting on) -- within seconds of nothing changing.",
 	}, logged(t, "battle", nil, t.battle))

@@ -36,7 +36,14 @@ if not ROOT then
 	error("autoplay driver: expected to live at <repo>/autoplay/drivers/bizhawk, found " .. DIR)
 end
 
-local logf = io.open(ROOT .. "/autoplay/runs/driver_bizhawk.log", "a")
+local gameName = AUTOPLAY_GAME or os.getenv("AUTOPLAY_GAME")
+local port = tonumber(AUTOPLAY_PORT or os.getenv("AUTOPLAY_PORT") or "") or 7870
+
+-- One log per instance: two emulators writing one file cannot be told apart. The first instance, a game on
+-- the default port, keeps the plain name.
+local logName = port == 7870 and "driver_bizhawk.log"
+	or string.format("driver_bizhawk_%s_%d.log", tostring(gameName):gsub("[^%w_]", "_"), port)
+local logf = io.open(ROOT .. "/autoplay/runs/" .. logName, "a")
 local function log(msg)
 	local line = string.format("[%s f%d] %s", os.date("%H:%M:%S"), emu.framecount(), msg)
 	if logf then
@@ -59,8 +66,6 @@ if not openSocket then
 end
 local socket = openSocket()
 
-local gameName = AUTOPLAY_GAME or os.getenv("AUTOPLAY_GAME")
-local port = tonumber(AUTOPLAY_PORT or os.getenv("AUTOPLAY_PORT") or "") or 7870
 local game = nil
 if gameName and gameName:match("^[%w_]+$") then
 	game = dofile(DIR .. "/games/" .. gameName .. ".lua")

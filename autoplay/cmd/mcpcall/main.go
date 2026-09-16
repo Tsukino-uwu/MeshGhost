@@ -4,7 +4,8 @@
 //
 //	go run ./cmd/mcpcall -calls '[{"name":"status"},{"name":"press","arguments":{"buttons":["Down"],"frames":16}}]'
 //
-// Run from autoplay/. The core it starts logs to runs/core.log.
+// Run from autoplay/. The core it starts logs to runs/core.log, or -log: a second instance on its own
+// -listen port names its own, so two games never write one log.
 package main
 
 import (
@@ -30,6 +31,7 @@ func main() {
 	callsJSON := flag.String("calls", `[{"name":"status"}]`, "a JSON array of {name, arguments}")
 	wait := flag.Duration("wait", 30*time.Second, "how long a game tool waits for a driver to connect")
 	coreCmd := flag.String("core", "go run ./cmd/autoplay", "the command that starts the core, run from autoplay/")
+	logPath := flag.String("log", "runs/core.log", "the core's log file; a second instance names its own")
 	flag.Parse()
 
 	var calls []call
@@ -39,7 +41,7 @@ func main() {
 	}
 
 	ctx := context.Background()
-	argv := append(strings.Fields(*coreCmd), "-listen", *listen, "-log", "runs/core.log")
+	argv := append(strings.Fields(*coreCmd), "-listen", *listen, "-log", *logPath)
 	core := exec.Command(argv[0], argv[1:]...)
 	core.Stderr = os.Stderr
 

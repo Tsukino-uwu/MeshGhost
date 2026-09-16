@@ -95,6 +95,9 @@ end
 -- BAG 56 px right of FIGHT, FC 06 01 sat in "TYPE/NORMAL", FC 01 0B and FC 02 02 around the battle's
 -- "MUDKIP♂" (battle_state_probe.lua against captures, 2026-09-16). Other FC codes go out byte by byte.
 local EXT, EXT_ONE_ARG = 0xFC, { [0x01] = true, [0x02] = true, [0x06] = true, [0x13] = true }
+-- And these took none: a trainer's defeat words ended FC 09 FF, and "grew to LV. 9!" FC 0A FB, with the next
+-- box's text straight after (battle_state_probe.lua, 2026-09-16). Whether they draw anything is not measured.
+local EXT_NO_ARG = { [0x09] = true, [0x0A] = true }
 
 local function decode(bytes, from, to)
 	local out = {}
@@ -106,6 +109,9 @@ local function decode(bytes, from, to)
 		elseif b == EXT and i + 2 <= to and EXT_ONE_ARG[bytes[i + 1]] then
 			out[#out + 1] = string.format("{FC %02X %02X}", bytes[i + 1], bytes[i + 2])
 			i = i + 2
+		elseif b == EXT and i + 1 <= to and EXT_NO_ARG[bytes[i + 1]] then
+			out[#out + 1] = string.format("{FC %02X}", bytes[i + 1])
+			i = i + 1
 		else
 			out[#out + 1] = CHARS[b] or string.format("{%02X}", b)
 		end
@@ -279,9 +285,10 @@ local function readDialogue()
 		state = "finished"
 	elseif stateRaw == 0 then
 		state = "printing"
-	elseif stateRaw == 2 or stateRaw == 3 then
+	elseif stateRaw == 1 or stateRaw == 2 or stateRaw == 3 then
 		-- 3: at an FA, both lines drawn and the red arrow up, before the text scrolls (a trainer's
-		-- challenge, 2026-09-16).
+		-- challenge, 2026-09-16). 1: at an FC 09 ending a trainer's defeat words in a battle, where it stayed
+		-- until an A press moved it on (three battles, 2026-09-16).
 		state = "waiting_for_button"
 	else
 		state = string.format("printer_state_%d", stateRaw)
@@ -380,19 +387,127 @@ local function readWarps()
 	return out
 end
 
+-- Story flags: one bit per id in SaveBlock1 +0x1270, bit (id & 7) of byte id >> 3, up to FLAG_MAX where the
+-- build's layout ends that byte array (measured on the badge flags, see `badges`).
+local FLAGS_AT, FLAG_MAX = 0x1270, 0x95F
+local function flagGet(sb1, id)
+	return (r8(sb1 + FLAGS_AT + (id >> 3)) >> (id & 7)) & 1 == 1
+end
+
+-- TRAINERS (2026-09-16, vanilla, route 0.17's four trainers, read with `observe` and walked into with
+-- `walk`; that adapter's MEASURED.md, "A trainer's sight"). The map's character templates are the
+-- header's second pointer's first count and list, 24 bytes an entry: id +0, x and y +4/+6 (find_objects.py),
+-- and on all four trainers +0x09 equal to the live character's +0x06, +0x0C to its +0x07 and +0x0E to its
+-- +0x1D.
+--   * +0x07 reading 1 is a trainer. The script its template's +0x10 points at began 5C on all four, and
+--     the flag 0x500 plus that script's u16 at +2 read clear until the trainer was beaten and set after
+--     (RICK and TIANA, read before and after each battle); a beaten one did not come for the player
+--     standing three tiles into its line (CALVIN).
+--   * +0x1D is how far it sees: RICK (2) came for the player 2 tiles away and not 3, TIANA (3) at 3 and not
+--     4, CALVIN (3) at 3 before he was beaten.
+--   * +0x18's low nibble is the way it faces: 1 down (CALVIN, drawn so, came from below), 2 up (RICK, came
+--     from above), 4 right (TIANA, came from the right). 3 is not measured.
+--   * A trainer that turns came for a player STANDING in its line once it turned that way (TIANA: the
+--     player arrived while she faced down, and she came when she faced right), so its sight is every way it
+--     turns. Sampled 16 times 30 frames apart: +0x06 7 read up only (RICK), 8 down only (CALVIN and the
+--     trainer at 19,4) and 0x12 down and right (TIANA). Any other value is taken to turn every way.
+-- Not measured: whether a wall or a character between them blocks a trainer's view (taken as not), a
+-- +0x07 other than 1 (taken to see every way, never beaten), and what a template's +0x14 does.
+local FACING = { [1] = "down", [2] = "up", [4] = "right" }
+local TURNS = { [7] = { "up" }, [8] = { "down" }, [0x12] = { "down", "right" } }
+local EVERY_WAY = { "up", "down", "left", "right" }
+local SIGHT_STEP = { up = { 0, -1 }, down = { 0, 1 }, left = { -1, 0 }, right = { 1, 0 } }
+
+local function readTemplates()
+	local out, events = {}, r32(GMAPHEADER + 4)
+	if not inRom(events) then return out end
+	local n, list = r8(events), r32(events + 4)
+	if not inRom(list) then return out end
+	for i = 0, math.min(n, 64) - 1 do
+		local e = memory.read_bytes_as_array(list + i * 24, 24, BUS)
+		out[#out + 1] = { local_id = e[1], x = e[5] | (e[6] << 8), y = e[7] | (e[8] << 8), movement = e[10],
+			trainer_type = e[13] | (e[14] << 8), range = e[15] | (e[16] << 8),
+			script = e[17] | (e[18] << 8) | (e[19] << 16) | (e[20] << 24) }
+	end
+	return out
+end
+
+-- What a trainer is: `beaten` (nil when its flag cannot be read), `range`, and `sees`, the ways it looks.
+local function trainerOf(sb1, trainerType, range, movement, script)
+	local t = { range = range, sees = (trainerType == 1 and TURNS[movement]) or EVERY_WAY }
+	if trainerType ~= 1 then t.trainer_type_raw = trainerType end
+	if trainerType == 1 and inRom(script) and r8(script) == 0x5C then
+		t.flag = 0x500 + r16(script + 2)
+		if t.flag <= FLAG_MAX then t.beaten = flagGet(sb1, t.flag) end
+	end
+	return t
+end
+
 -- The other characters: object slots whose first byte has bit 0 set; +0x05 the graphic, +0x08 the
 -- local id, +0x10/+0x12 where it stands. On map 0.10 two slots' ids, graphics and first positions
--- matched the map's own list, and the positions matched where the capture drew them.
+-- matched the map's own list, and the positions matched where the capture drew them. A trainer on this map
+-- carries `trainer`; +0x06 and a facing not measured go out raw.
 local function readObjects()
 	local out, me = {}, playerSlot()
+	local sb1 = r32(SB1PTR)
+	local mapNum, mapGroup = r8(sb1 + 5), r8(sb1 + 4)
+	local templates
 	for s = 0, 15 do
-		local b = memory.read_bytes_as_array(GOBJECTEVENTS + s * OBJ_SIZE, 0x14, BUS)
+		local b = memory.read_bytes_as_array(GOBJECTEVENTS + s * OBJ_SIZE, OBJ_SIZE, BUS)
 		if (b[1] & 1) == 1 and s ~= me then
-			out[#out + 1] = { slot = s, local_id = b[9], graphics_id = b[6],
-				x = (b[17] | (b[18] << 8)) - MAP_OFFSET, y = (b[19] | (b[20] << 8)) - MAP_OFFSET }
+			local facing = b[25] & 0x0F
+			local o = { slot = s, local_id = b[9], graphics_id = b[6],
+				x = (b[17] | (b[18] << 8)) - MAP_OFFSET, y = (b[19] | (b[20] << 8)) - MAP_OFFSET,
+				facing = FACING[facing], facing_raw = not FACING[facing] and facing or nil, movement_type_raw = b[7] }
+			if b[8] ~= 0 and b[10] == mapNum and b[11] == mapGroup then
+				templates = templates or readTemplates()
+				local script = 0
+				for _, t in ipairs(templates) do
+					if t.local_id == b[9] then script = t.script end
+				end
+				o.trainer = trainerOf(sb1, b[8], b[30], b[7], script)
+			end
+			out[#out + 1] = o
 		end
 	end
 	return out
+end
+
+-- Every unbeaten trainer on this map, where it stands and the ways it looks: the live character where one
+-- is loaded, its template where none is yet (a trainer out of view is not in the object slots).
+local function unbeatenTrainers(objects)
+	local sb1, live, out = r32(SB1PTR), {}, {}
+	for _, o in ipairs(objects) do
+		if o.trainer then live[o.local_id] = o end
+	end
+	for _, t in ipairs(readTemplates()) do
+		if t.trainer_type ~= 0 then
+			local o = live[t.local_id]
+			local info = o and o.trainer or trainerOf(sb1, t.trainer_type, t.range, t.movement, t.script)
+			if not info.beaten then
+				out[#out + 1] = { local_id = t.local_id, x = o and o.x or t.x, y = o and o.y or t.y, range = info.range,
+					sees = info.sees, loaded = o ~= nil }
+			end
+		end
+	end
+	return out
+end
+
+-- The tiles unbeaten trainers can see, keyed y * width + x, each naming the first trainer found.
+local function sightTiles(trainers, mapW, mapH)
+	local seen = {}
+	for _, t in ipairs(trainers) do
+		for _, way in ipairs(t.sees) do
+			local step = SIGHT_STEP[way]
+			for k = 1, math.min(t.range, 15) do
+				local x, y = t.x + step[1] * k, t.y + step[2] * k
+				if x >= 0 and y >= 0 and x < mapW and y < mapH then
+					seen[y * mapW + x] = seen[y * mapW + x] or t
+				end
+			end
+		end
+	end
+	return seen
 end
 
 -- Rows of characters centred on the player, and a legend for the symbols that appear.
@@ -406,6 +521,7 @@ local function readLocalMap(warps, objects)
 	local layout = r32(GMAPHEADER)
 	local mapW, mapH = width, height
 	if inRom(layout) then mapW, mapH = r32(layout), r32(layout + 4) end
+	local seen = sightTiles(unbeatenTrainers(objects), mapW, mapH)
 	local marks = {}
 	for _, w in ipairs(warps) do marks[(w.x + MAP_OFFSET) * 65536 + w.y + MAP_OFFSET] = "W" end
 	for _, o in ipairs(objects) do marks[(o.x + MAP_OFFSET) * 65536 + o.y + MAP_OFFSET] = "N" end
@@ -432,6 +548,8 @@ local function readLocalMap(warps, objects)
 					local beh = behaviourOf(v & 0x3FF)
 					if (v & 0x0C00) ~= 0 then
 						ch = "#"
+					elseif seen[(y - MAP_OFFSET) * mapW + x - MAP_OFFSET] then
+						ch = "!"
 					elseif beh > 0 then
 						ch = letters[beh]
 						if not ch then
@@ -454,6 +572,7 @@ local function readLocalMap(warps, objects)
 	local fixed = {
 		{ "@", "you" }, { "N", "a character (nearby lists them)" }, { "W", "a warp (warps says where to)" },
 		{ "#", "collision set: a step into it was refused" }, { ".", "clear, at your elevation" },
+		{ "!", "not collision, but an unbeaten trainer looks this way: stepping or standing there starts its battle" },
 		{ ":", "beyond this map's edge: a connected map's edge, or filler (not measured which)" },
 		{ " ", "outside the grid" },
 	}
@@ -494,7 +613,6 @@ local POCKETS = {
 	{ name = "berries", at = 0x790, slots = 46 },
 	{ name = "key_items", at = 0x5D8, slots = 30 },
 }
-local FLAGS_AT, FLAG_MAX = 0x1270, 0x95F
 -- Flag 0x867 + i is the trainer card's badge i + 1, left to right: three cards drawn with a different
 -- binary pattern of the eight cleared named every position, and setting one back redrew it.
 local BADGE_FLAG0 = 0x867
@@ -635,10 +753,6 @@ local function readBag(sb1, key)
 	return bag
 end
 
-local function flagGet(sb1, id)
-	return (r8(sb1 + FLAGS_AT + (id >> 3)) >> (id & 7)) & 1 == 1
-end
-
 -- What the save has: the party, the bag, money and badges. Nil until the save blocks are in place.
 local function readSave()
 	local sb1, sb2 = r32(SB1PTR), r32(SB2PTR)
@@ -665,6 +779,13 @@ local ACTION_CURSOR, MOVE_CURSOR, BATTLE_OUTCOME = 0x020244ac, 0x020244b0, 0x020
 -- One routine per battler; battler 0's was the routine named HandleInputChooseAction (+1) for as long as
 -- the action menu waited, and the one named HandleInputChooseMove (+1) for the move menu.
 local CONTROLLER_FUNCS, CHOOSE_ACTION, CHOOSE_MOVE = 0x03005d60, 0x08057588, 0x08057bfc
+-- The routine the build names gBattlescriptCurrInstr moves on as the battle's script does, and the byte
+-- 0x1E into the one it names gBattleScripting read 6 while the level-up box's first page waited for a
+-- button, 8 while its second did, and 10 once it closed -- each A press moving it on, then the script
+-- pointer moving (battle_state_probe.lua, a level-up to 9, 2026-09-16). Nothing else logged changed while
+-- the box waited.
+local BATTLESCRIPT_INSTR, LEVEL_UP_BOX_STATE = 0x02024214, 0x02024474 + 0x1E
+local LEVEL_UP_BOX_WAITING = { [6] = "page 1", [8] = "page 2" }
 -- The action menu as drawn, in cursor order: 0 FIGHT and 1 BAG on the top row, 2 POKéMON and 3 RUN below.
 local BATTLE_ACTIONS = { "FIGHT", "BAG", "POKéMON", "RUN" }
 
@@ -1084,6 +1205,40 @@ local function describeTile(x, y)
 	return out
 end
 
+-- A TRAINER COMING FOR THE PLAYER (trainer_approach_probe.lua, 2026-09-17, walking into RICK's line and a
+-- goto routed into TIANA's): the byte the build names gNoOfApproachingTrainers went from 0 to 1 on the frame
+-- after the step into the line began -- 16 frames before the player arrived -- and stayed 1 through the
+-- approach; gSpecialVar_LastTalked read the trainer's local id (3, then 4) and the second byte of
+-- gApproachingTrainers how many tiles away it stood (2 both times). Held input then does nothing, which
+-- `walk` and `goto` used to report as `no_response`. What these read once a battle is over is not measured,
+-- so a reading left over from before the program counts only once it has changed.
+local NUM_APPROACHING, APPROACHING, LAST_TALKED = 0x030060a8, 0x03006090, 0x020375f2
+-- The byte the build names sGlobalScriptContextStatus read 2 with no script running (before the step into
+-- the line, after a warp, and 25 frames after the overworld came back from the battle), 0 on the frame the
+-- trainer's approach began, and 0 or 1 from then through its words, the battle and its words after
+-- (trainer_approach_probe.lua, 2026-09-17, three approaches and one whole battle). Other scripts -- a
+-- character spoken to, a sign -- are not measured.
+local SCRIPT_CONTEXT_STATUS, SCRIPT_CONTEXT_OFF = 0x03000e38, 2
+
+local function approachWatch()
+	local startN, start = r8(NUM_APPROACHING), memory.read_bytes_as_array(APPROACHING, 8, BUS)
+	return function()
+		if r8(NUM_APPROACHING) == 0 then
+			startN = 0
+			return nil
+		end
+		local now = memory.read_bytes_as_array(APPROACHING, 8, BUS)
+		if startN ~= 0 then
+			local same = true
+			for i = 1, 8 do
+				if now[i] ~= start[i] then same = false end
+			end
+			if same then return nil end
+		end
+		return { local_id = r16(LAST_TALKED), tiles_away = now[2] }
+	end
+end
+
 -- walk {direction, tiles, run}: the direction is held from the first tile to the last, the way a player
 -- walks, and every tile is counted on the game's own state (step_probe.lua, 2026-09-16, a held direction
 -- across six tiles into a wall, walking and running):
@@ -1119,6 +1274,7 @@ function game.programs.walk(p)
 
 	local run = p.run == true
 	local mach = (r8(GPLAYERAVATAR) & MACH_BIKE_FLAG) ~= 0
+	local spotted = approachWatch()
 	-- B only on foot: on the Acro Bike it is the wheelie button.
 	local hold = { [d.button] = true, B = (run and (r8(GPLAYERAVATAR) & ON_FOOT_FLAG) ~= 0) or nil }
 	local phase, frames, idle, moved, startMap, lastX, lastY, towardWarp = "rest", 0, 0, 0, nil, 0, 0, false
@@ -1146,6 +1302,8 @@ function game.programs.walk(p)
 		startMap = startMap or map
 		if map ~= startMap then return finish("map_changed", { map = map }) end
 		if not inOverworld() then return finish("left_overworld") end
+		local trainer = spotted()
+		if trainer then return finish("spotted", { trainer = trainer }) end
 		if #hookNames > 0 then
 			if dialogue and windowOnScreen(dialogue.window) then return finish("dialogue_open") end
 			if menuWindow and windowOnScreen(menuWindow) then return finish("menu_open") end
@@ -1233,12 +1391,15 @@ end
 --   * the cost is a tile a step plus TURN_COST a turn, so the route takes straight legs where it can, and
 --     GRASS_COST more for a tile of behaviour 0x02 (every wild encounter so far began on one: route 0.16
 --     four times, route 0.17 once) unless `cross_grass` is true, as with a Repel running;
+--   * SIGHT_COST more for a tile an unbeaten trainer looks at (TRAINERS, above: every way it turns, as far
+--     as it sees), and a trainer not loaded yet closes its template's tile, so a route enters a trainer's
+--     line only where there is no other way; `route_in_sight` names each one the last plan had to cross;
 --   * on the Mach Bike the last leg lets go by `walk`'s coast rule, and a last leg of 3 tiles or fewer is
 --     reached by stopping at its corner first, since after a turn at speed the first tile reads 3 and
 --     coasts three;
 --   * a bump ends the ride at rest, marks the refused tile closed, and plans again (at most REPLANS times).
 -- It stops for the same reasons `walk` does, and a warp or an edge that changes the map ends it too.
-local TURN_COST, GRASS_COST, REPLANS = 2, 8, 8
+local TURN_COST, GRASS_COST, SIGHT_COST, REPLANS = 2, 8, 100, 8
 
 local function planRoute(fromX, fromY, toX, toY, closed, crossGrass)
 	local layout = r32(GMAPHEADER)
@@ -1251,8 +1412,13 @@ local function planRoute(fromX, fromY, toX, toY, closed, crossGrass)
 	end
 	local grid = memory.read_bytes_as_array(gp, gw * gh * 2, BUS)
 	local elevation = r8(playerObject() + 0x0B) & 0x0F
-	local blocked = {}
-	for _, o in ipairs(readObjects()) do blocked[o.y * mapW + o.x] = "character" end
+	local blocked, objects = {}, readObjects()
+	for _, o in ipairs(objects) do blocked[o.y * mapW + o.x] = "character" end
+	local trainers = unbeatenTrainers(objects)
+	for _, t in ipairs(trainers) do
+		if not t.loaded then blocked[t.y * mapW + t.x] = blocked[t.y * mapW + t.x] or "trainer" end
+	end
+	local seen = sightTiles(trainers, mapW, mapH)
 	for _, w in ipairs(readWarps()) do
 		if not (w.x == toX and w.y == toY) then blocked[w.y * mapW + w.x] = blocked[w.y * mapW + w.x] or "warp" end
 	end
@@ -1265,7 +1431,7 @@ local function planRoute(fromX, fromY, toX, toY, closed, crossGrass)
 		if (v & 0x0C00) ~= 0 or (v >> 12) ~= elevation then return nil end
 		local behaviour = behaviourOf(v & 0x3FF)
 		if behaviour == 0x3B then return nil end
-		return (behaviour == 0x02 and not crossGrass) and GRASS_COST or 0
+		return ((behaviour == 0x02 and not crossGrass) and GRASS_COST or 0) + (seen[y * mapW + x] and SIGHT_COST or 0)
 	end
 	if not open(toX, toY) then
 		return nil, string.format("(%d,%d) is not an open tile at elevation %d", toX, toY, elevation)
@@ -1338,9 +1504,14 @@ local function planRoute(fromX, fromY, toX, toY, closed, crossGrass)
 		table.insert(steps, 1, order[key % 4 + 1])
 		key = prev[key]
 	end
-	local legs, x, y = {}, fromX, fromY
+	local legs, x, y, inSight, named = {}, fromX, fromY, {}, {}
 	for _, d in ipairs(steps) do
 		x, y = x + d.dx, y + d.dy
+		local t = seen[y * mapW + x]
+		if t and not named[t] then
+			named[t] = true
+			inSight[#inSight + 1] = { trainer_local_id = t.local_id, trainer_at = { x = t.x, y = t.y }, first_tile = { x = x, y = y } }
+		end
 		local leg = legs[#legs]
 		if leg and leg.d == d then
 			leg.len, leg.endX, leg.endY = leg.len + 1, x, y
@@ -1348,7 +1519,7 @@ local function planRoute(fromX, fromY, toX, toY, closed, crossGrass)
 			legs[#legs + 1] = { d = d, len = 1, endX = x, endY = y }
 		end
 	end
-	return legs
+	return legs, inSight
 end
 
 game.programs["goto"] = function(p)
@@ -1359,7 +1530,8 @@ game.programs["goto"] = function(p)
 	local run, crossGrass = p.run == true, p.cross_grass == true
 	local phase, frames, idle, moved, replans = "rest", 0, 0, 0, 0
 	local startMap, lastX, lastY, legs, li, mach, onFoot = nil, 0, 0, nil, 1, false, true
-	local closed, towardWarp, legsTaken = {}, false, 0
+	local closed, towardWarp, legsTaken, inSight = {}, false, 0, {}
+	local spotted = approachWatch()
 	local function here()
 		local sb1 = r32(SB1PTR)
 		return string.format("%d.%d", r8(sb1 + 4), r8(sb1 + 5)), r16(sb1), r16(sb1 + 2)
@@ -1367,7 +1539,7 @@ game.programs["goto"] = function(p)
 	local function finish(outcome, extra)
 		local _, x, y = here()
 		local r = { target = { x = toX, y = toY }, at = { x = x, y = y }, outcome = outcome, moved = moved,
-			turns = legsTaken, replans = replans }
+			turns = legsTaken, replans = replans, route_in_sight = #inSight > 0 and inSight or nil }
 		for k, v in pairs(extra or {}) do r[k] = v end
 		return nil, true, r
 	end
@@ -1381,6 +1553,8 @@ game.programs["goto"] = function(p)
 		startMap = startMap or map
 		if map ~= startMap then return finish("map_changed", { map = map }) end
 		if not inOverworld() then return finish("left_overworld") end
+		local trainer = spotted()
+		if trainer then return finish("spotted", { trainer = trainer }) end
 		if #hookNames > 0 then
 			if dialogue and windowOnScreen(dialogue.window) then return finish("dialogue_open") end
 			if menuWindow and windowOnScreen(menuWindow) then return finish("menu_open") end
@@ -1396,6 +1570,7 @@ game.programs["goto"] = function(p)
 			mach, onFoot = (flags & MACH_BIKE_FLAG) ~= 0, (flags & ON_FOOT_FLAG) ~= 0
 			local planned, why = planRoute(x, y, toX, toY, closed, crossGrass)
 			if not planned then return finish(replans > 0 and "blocked" or "unreachable", { reason = why }) end
+			inSight = why
 			legs, li, phase, frames, idle, lastX, lastY = planned, 1, "hold", 0, 0, x, y
 			towardWarp = false
 			for _, w in ipairs(readWarps()) do
@@ -1501,6 +1676,10 @@ local function progressSignature()
 		d and r32(STEXTPRINTERS + d.window * PRINTER_SIZE) or "-", r8(ACTION_CURSOR), r8(MOVE_CURSOR) }
 	if inBattle() then
 		for i = 0, math.min(r8(BATTLERS_COUNT), 4) - 1 do parts[#parts + 1] = r16(BATTLE_MONS + i * BATTLE_MON_SIZE + 0x28) end
+		-- The battle's script moving on, and the level-up box's own state, are progress too: an A that
+		-- turned the box's page changed nothing else.
+		parts[#parts + 1] = r32(BATTLESCRIPT_INSTR)
+		parts[#parts + 1] = r8(LEVEL_UP_BOX_STATE)
 	end
 	return table.concat(parts, "|"), d
 end
@@ -1566,10 +1745,14 @@ local function textMachine(choose, stopWhen)
 			held = held + 1
 			if held > PRESS_FRAMES then
 				-- Unanswered (a message that waits out a jingle ignores A): let go, look again later, and
-				-- call it stuck only after NUDGES of these with nothing changing.
+				-- call it stuck only after NUDGES of these AND NUDGE_FRAMES with nothing changing -- an
+				-- answered press can take longer than PRESS_FRAMES to show (the level-up box's last A: the
+				-- next message printed 156 frames later).
 				local what = pressing.what
 				pressing, held, nudges, settle = nil, 0, nudges + 1, NUDGE_FRAMES // 2
-				if nudges > NUDGES then return finish("stuck", { waiting_on = what, signature = sig }) end
+				if nudges > NUDGES and still >= NUDGE_FRAMES then
+					return finish("stuck", { waiting_on = what, signature = sig })
+				end
 				return nil, false
 			end
 			return pressing.pad, false
@@ -1597,6 +1780,16 @@ local function textMachine(choose, stopWhen)
 			note({ chose = label, from = asking })
 			pressing = { what = "confirm " .. label, pad = { A = true },
 				done = function() return battleAsking() ~= asking end }
+			return pressing.pad, false
+		end
+
+		-- The level-up box waiting on one of its pages.
+		local page = battle and LEVEL_UP_BOX_WAITING[r8(LEVEL_UP_BOX_STATE)] or nil
+		if page then
+			local at = r8(LEVEL_UP_BOX_STATE)
+			note({ level_up_box = page })
+			pressing = { what = "the level-up box, " .. page, pad = { A = true },
+				done = function() return r8(LEVEL_UP_BOX_STATE) ~= at end }
 			return pressing.pad, false
 		end
 
@@ -1655,8 +1848,8 @@ game.programs.battle = function(p)
 			outside = 0
 			return nil
 		end
-		local open = st.dialogue ~= nil
-		if open then
+		-- A script still running (a trainer walking over before its words, its words after) is not the end.
+		if st.dialogue ~= nil or r8(SCRIPT_CONTEXT_STATUS) ~= SCRIPT_CONTEXT_OFF then
 			outside = 0
 			return nil
 		end

@@ -558,3 +558,46 @@ with `--mcp-config autoplay/.mcp.json`). Prefer the one-call programs (`goto`, `
 
 **Next:** a trainer's line of sight in `goto`; the bag's list menu (a Repel, items in battle); then Phase
 1's acceptance from a new game to the first trainer battle.
+
+## 2026-09-17 — Phase 1 step 12: a trainer's sight in `goto`, `spotted`, and the level-up box
+
+**Built.** `nearby` names a trainer: `range`, `sees` (every way it turns), `beaten` and its flag, and a
+character's `facing`. `local_map` marks with `!` every tile an unbeaten trainer looks at, loaded or not
+(a trainer out of view is read from the map's templates). `goto` costs those tiles far above grass, so a
+route enters a line only where there is no other way, and `route_in_sight` names each one it had to.
+`walk` and `goto` stop with `spotted` (the trainer's local id and distance) on the frame the step into a
+line begins, instead of holding into a frozen player until `no_response`. `battle` waits while a trainer
+walks over and turns both pages of the level-up box. Measurements: `emerald/MEASURED.md`, "A trainer's
+sight and defeat flag, a trainer coming for the player, and the level-up box" (2026-09-17).
+
+**How it was measured.** A snapshot on route 0.17 with two trainers unbeaten, restored before every
+trial. RICK (range 2, facing up): three tiles above him nothing; two tiles above, he came. TIANA (range 3,
+turning between down and right): four tiles right nothing, three tiles right she came -- but only once
+she turned that way, with the player already standing there, which is why `sees` is every way a trainer
+turns and not the way it faces when the route is planned. The defeat flag read clear before each battle
+and set after. The new `probes/trainer_approach_probe.lua` found the byte that says a trainer is coming,
+and the script context status that says a script is still running; `battle_state_probe.lua` gained the
+battle script pointer and the struct that holds the level-up box's state.
+
+**What went wrong on the way:**
+- **`battle` quit at the level-up box**, `stuck` after two A presses that both worked: the box's state
+  was in nothing the program watched, and it judged a press unanswered after 30 frames when the next
+  message took 156. Both fixed: the box's state and the battle script pointer are progress, and `stuck`
+  now also needs 180 frames of no change.
+- **`goto` walked into TIANA's line and answered `no_response`**, as a route did on 2026-09-16: a trainer's
+  approach freezes the player, and held input looked ignored. Now `spotted`.
+- **`battle` called straight after `spotted` answered `no_battle`** after 90 frames, while RICK was still
+  walking over. It now waits while the script context status says a script runs.
+- **A trainer's defeat words sat in printer state 1** until a nudge; state 1 at FC 09 is now a message
+  waiting for a button, and FC 09 and FC 0A decode as commands instead of letters.
+
+**The user, while it ran:** asked how far along autoplay is, whether Crystal could be worked on at the same
+time, and how similar games would share what autoplay learns; then whether an agent or a second chat
+should take Crystal. A second chat, since Crystal will need launches approved and questions answered that
+an agent cannot put to the user: *"okay i posted that into the other chat"*. For two instances, the driver
+now logs to `driver_bizhawk_<game>_<port>.log` off the default port and `mcpcall` takes `-log`; the Crystal
+chat runs on port 7871 with its own loader target. The route planner and text machine stay in `emerald.lua`
+until Crystal needs them, so the two chats do not refactor them at once.
+
+**Next for Phase 1:** the bag's list menu (a Repel, items in battle); then the acceptance run from a new
+game to the first trainer battle.

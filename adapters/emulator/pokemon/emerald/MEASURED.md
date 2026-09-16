@@ -55,6 +55,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - A direction held across tiles, walking and running (2026-09-16)
 - The two bikes: getting on, speed, and stopping on a tile (2026-09-16)
 - Turning at speed, routes, a Pokémon Center, and battles as one call (2026-09-16)
+- A trainer's sight and defeat flag, a trainer coming for the player, and the level-up box (2026-09-17)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -425,6 +426,60 @@ with the pad). Object x values below are map x + 7.
 - **Not seen**: a route across a map edge, a trainer's facing read from memory, a Repel, a battle lost,
   a battle that asks for a switch or a new move.
 
+### A trainer's sight and defeat flag, a trainer coming for the player, and the level-up box (2026-09-17)
+
+**Vanilla ROM, the same save**, route 0.17, restored each time from one named snapshot taken with RICK
+(25,15) and TIANA (8,7) unbeaten, on the night of 2026-09-16 into 2026-09-17. Read with autoplay's
+`observe` (the live character's bytes, its template on the map and the first bytes of that template's
+script) and moved with `walk` and `goto`, beside `probes/battle_state_probe.lua` (now also logging the
+battle script pointer and all 0x28 bytes of the struct the build names gBattleScripting) and the new
+`probes/trainer_approach_probe.lua` (read-only: the approach globals, the script context status, the
+player's coordinates and the pad, on every change). Captures in `dev-scripts/shots/emerald/autoplay_sight_*`
+(gitignored). Addresses from the build hashed identical to the ROM; meanings as below.
+
+- **Template and live character agree.** All four trainers' templates read +0x0C 1 and +0x0E 3, 2, 3, 3;
+  the live characters read +0x07 1 and +0x1D the same numbers, and +0x06 the template's +0x09 (8, 7, 0x12,
+  8). Each template's +0x10 pointed at a script beginning 5C.
+- **The defeat flag.** Flag 0x500 + the script's u16 at +2 read set for the two trainers beaten on
+  2026-09-16 (0x63E, 0x64D) and clear for RICK (0x767) and TIANA (0x75B); after each of their battles was
+  won, theirs read set. CALVIN (beaten, range 3, facing down) did not come for the player standing at
+  (33,17), three tiles below him.
+- **Range, in tiles.** RICK (+0x1D 2, facing up): at (25,12), three above him, nothing in 120 frames; the
+  step to (25,13), two above, brought him. TIANA (+0x1D 3): at (12,7), four to her right, nothing in 330
+  frames, most of them facing right; at (11,7), three to her right, she came.
+- **Facing, +0x18's low nibble.** 1 read on CALVIN, drawn facing down, who came from below on 2026-09-16;
+  2 on RICK, who came for a player above him; 4 on TIANA when she came for a player to her right. 3 did not
+  appear on a trainer.
+- **Turning.** Sampled 16 times 30 frames apart: TIANA (+0x06 0x12) read 4 and 1 in turns, the trainer at
+  (19,4) (+0x06 8) read 1 throughout, and a character with +0x06 1 read 4, 2 and 3. **A turning trainer
+  comes for a player who is standing still**: the step into (11,7) ended with TIANA reading 1 and nothing
+  happened; about 30 frames later she read 4, walked to (10,7) and spoke.
+- **A trainer coming.** The byte the build names gNoOfApproachingTrainers read 0 before, and 1 from the
+  frame after the step into the line began, 16 frames before the player arrived, through the approach
+  (RICK four times, TIANA once; a probe loaded during TIANA's earlier approach read the same). The byte
+  the build names gSpecialVar_LastTalked read the trainer's local id (3, 4) and the second byte of
+  gApproachingTrainers its distance (2 both). A warp during RICK's approach set both back to 0 as
+  the map loaded; what they read after a battle was not seen.
+- **The script context status** (the byte the build names sGlobalScriptContextStatus) read 2 before the
+  step, after a warp, and from 25 frames after the overworld returned from RICK's battle; 0 on the
+  approach's first frame and 0 or 1 from then through his words, the battle and his words after.
+- **The level-up box.** gBattleScripting +0x1E read 10 before "MUDKIP grew to LV. 9!", then 0, 3, 4, 5, and
+  6 while the box's first page waited; an A press made it 7 and then 8 while the second page waited;
+  another made it 9 and then 10, and the battle script pointer moved on the next frame. Nothing else the
+  probe logs changed while the box waited. The next message printed 156 frames after that last A. Logged
+  once; `battle`, built on it, then went through the box in three more battles.
+- **Text.** A trainer's defeat words ended FC 09 FF, with the printer's +0x1C reading 1 until an A press
+  moved on (three battles); "grew to LV. 9!" ended FC 0A FB. Neither takes an argument.
+- **The tools built on it** (same night): `walk` down into RICK's line answered `spotted` (local id 3, two
+  tiles) after 3 frames, and `battle` called straight after played from his approach to "A got ₽64 for
+  winning!" with no nudge; a `goto` to (10,9), reachable only through TIANA's line, planned through (8,9),
+  named her in `route_in_sight` and answered `spotted`; a `goto` from (12,5) to (6,9) went around her line
+  through the grass at x=7 (a wild WURMPLE there, run from) and she did not come in 300 frames after.
+- **Not seen**: a wall or a character between a trainer and the player, facing 3 on a trainer, movement
+  values other than 7, 8 and 0x12 on a trainer, a trainer value other than 1, a double battle from two
+  trainers, the script context status for anything but a trainer, and whether FC 09 or FC 0A draws
+  anything.
+
 ## Not measured yet
 
 ### The rest of the text printer (from 2026-09-16)
@@ -468,6 +523,6 @@ battle, each paired with captures.
 - A double battle: the positions, both controllers, and which cursor belongs to which battler.
 - The BAG and POKéMON menus inside a battle, a switch, a catch, a faint, a whiteout, a run that fails,
   and what gBattleOutcome reads for each.
-- The FC codes seen but not measured: FC 0A (before FB at the end of a level-up message) and the one
-  that begins "Got away safely!".
+- The FC codes seen but not measured: whether FC 09 and FC 0A draw anything (neither takes an argument:
+  "A trainer's sight and defeat flag", 2026-09-17), and the one that begins "Got away safely!".
 - What move bytes +0, +5, +6 and +8 mean (the decomp names effect, secondary chance, target and flags).
