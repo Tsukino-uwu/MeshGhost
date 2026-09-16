@@ -313,16 +313,20 @@ local function boxOpen(t)
 end
 
 -- Kept once a frame by game.watch(): when the box's lines last changed, and when the ▼ was last drawn.
-local track = { lines = nil, changedAt = -1, arrowAt = -1 }
-local function trackText(t)
-	local f = emu.framecount()
+local track = { lines = nil, changedAt = -1, arrowAt = -1, seenAt = -1 }
+local function boxBytes(t)
 	local b = {}
 	for r = BOX_TOP + 1, BOX_BOTTOM - 1 do
 		for c = 1, 18 do b[#b + 1] = string.char(cell(t, c, r)) end
 	end
-	local lines = table.concat(b)
+	return table.concat(b)
+end
+local function trackText(t)
+	local f = emu.framecount()
+	local lines = boxBytes(t)
 	if lines ~= track.lines then track.lines, track.changedAt = lines, f end
 	if cell(t, ARROW_COL, BOX_BOTTOM) == ARROW then track.arrowAt = f end
+	track.seenAt = f
 end
 
 local function readDialogue(t, low)
@@ -333,10 +337,14 @@ local function readDialogue(t, low)
 		if s ~= "" then lines[#lines + 1] = s end
 	end
 	local f, state = emu.framecount(), nil
+	-- A battle's box is cleared over 2 frames, row 14 on the first and row 16 on the next: "attack missed!" read
+	-- "            d!" for one frame, 11 frames after its ▼ went (autoplay_text_probe.lua, 2026-09-17). So a box whose rows
+	-- changed since the frame the watcher last saw is still changing, whatever the ▼ did before.
+	local changing = track.seenAt == f - 1 and boxBytes(t) ~= track.lines
 	if cell(t, ARROW_COL, BOX_BOTTOM) == ARROW
-		or (track.arrowAt >= track.changedAt and f - track.arrowAt >= 0 and f - track.arrowAt <= BLINK_GAP) then
+		or (not changing and track.arrowAt >= track.changedAt and f - track.arrowAt >= 0 and f - track.arrowAt <= BLINK_GAP) then
 		state = "waiting_for_button"
-	elseif (u8(W_TEXTBOX_FLAGS) & TEXTBOX_PRINTING) ~= 0 or #lines == 0 then
+	elseif (u8(W_TEXTBOX_FLAGS) & TEXTBOX_PRINTING) ~= 0 or #lines == 0 or changing then
 		-- An empty frame was drawn 4 frames before the save question began printing.
 		state = "printing"
 	else
@@ -423,6 +431,151 @@ local function readTextAndMenu(t, low)
 	return d, m, menuRows
 end
 
+-- Which battle menu waits, from the menu block (autoplay_text_probe.lua, a wild PIDGEY): the action grid's first row is
+-- 14 and column 9, 2 columns; the move list's first row 13, column 5, 1 column.
+local function battleAskingFor(m)
+	if not m then return nil end
+	local b = memory.read_bytes_as_array(W_2DMENU, 4, "WRAM")
+	if b[1] == 14 and b[2] == 9 and b[4] == 2 then return "action" end
+	if b[1] == 13 and b[2] == 5 and b[4] == 1 then return "move" end
+	return nil
+end
+
+-- THE BATTLERS AND THEIR MOVES (2026-09-17, vanilla V1.0, a wild PIDGEY L3 against CYNDAQUIL L5 on Route 29;
+-- MEASURED.md, "The battlers, their moves, and what a move's power and accuracy do").
+--   * autoplay_battle_probe.lua, read against the battle screen: the player's battler at C62C and the opponent's at D206,
+--     0x20 bytes each -- +0x00 the species (155, 16; the name table's entries spelled CYNDAQUIL and PIDGEY, as drawn),
+--     +0x02-+0x05 the moves (33 and 43, the move menu's TACKLE and LEER; PIDGEY's 33, "Enemy PIDGEY used TACKLE!"),
+--     +0x08-+0x0B their PP (35 and 30, drawn 35/35 and 30/30; 34 after a TACKLE, drawn 34/35), +0x0D the level (5 and
+--     3, drawn :L5 and :L3), +0x10 and +0x12 the HP and max HP, high byte first (19 and 19 drawn 19/19, then 16 drawn
+--     16/19; PIDGEY's 15 then 10, its bar 48 pixels then 32). The nicknames at C621 and C616, 0x50-ended.
+--   * The move table at 10:5AFB, 7 bytes an entry from id 1, whose entry the game copied whole into the player's move
+--     struct for the move under the cursor: +0x03 the type (0 for both, drawn TYPE/ NORMAL through the pointer at
+--     14:497B + 2 * type), +0x05 the PP the menu drew as the maximum (35, 30). Move names: the id'th 0x50-ended string
+--     from 72:5F29. Species names: 10 bytes at 14:7384 + (id - 1) * 10.
+--   * autoplay_move_write_probe.lua, one TACKLE replayed frame for frame from one snapshot with one byte of the move
+--     struct changed: +0x02 at 35 did 5 damage, at 0 none, at 70 8, at 140 took all 15 HP -- the POWER; +0x04 at 0 gave
+--     "CYNDAQUIL's attack missed!", at 242 (the table's) and 255 it hit -- the ACCURACY, on a scale not measured, so it
+--     goes out as `accuracy_raw` and scores only by comparison.
+-- A PP byte of 0x40 or more (raised PP) is not measured and goes out as pp_raw.
+local W_BATTLE_MON, W_ENEMY_MON, BATTLER_SIZE = flat(0xC62C), flat(0xD206), 0x20
+local W_BATTLE_MON_NICK, W_ENEMY_MON_NICK, NICK_LEN = flat(0xC621), flat(0xC616), 11
+local MOVES_BANK, MOVES_PTR, MOVE_SIZE = 0x10, 0x5AFB, 7
+local MOVE_NAMES_BANK, MOVE_NAMES_PTR = 0x72, 0x5F29
+local NAMES_BANK, SPECIES_NAMES_PTR, SPECIES_NAME_LEN, TYPE_NAMES_PTR = 0x14, 0x7384, 10, 0x497B
+local STRING_END = 0x50
+
+local function spell(b, from, to)
+	local out = {}
+	for i = from, to do
+		if b[i] == STRING_END then break end
+		out[#out + 1] = CHARS[b[i]] or string.format("{%02X}", b[i])
+	end
+	return table.concat(out)
+end
+
+local romNames = { moves = {}, species = {}, types = {}, moveData = {} }
+local function moveName(id)
+	local cached = romNames.moves[id]
+	if cached then return cached end
+	if not romNames.moveBlock then
+		romNames.moveBlock = memory.read_bytes_as_array(MOVE_NAMES_BANK * 0x4000 + (MOVE_NAMES_PTR - 0x4000), 0x2000, "ROM")
+	end
+	local b, i, n = romNames.moveBlock, 1, 1
+	while n < id and i <= #b do
+		if b[i] == STRING_END then n = n + 1 end
+		i = i + 1
+	end
+	local name = spell(b, i, math.min(i + 12, #b))
+	romNames.moves[id] = name
+	return name
+end
+
+local function typeName(t)
+	if romNames.types[t] ~= nil then return romNames.types[t] or nil end
+	local ptr = rom8(NAMES_BANK, TYPE_NAMES_PTR + t * 2) | (rom8(NAMES_BANK, TYPE_NAMES_PTR + t * 2 + 1) << 8)
+	local name = nil
+	if t < 0x20 and ptr >= 0x4000 and ptr <= 0x7FF0 then
+		local b = memory.read_bytes_as_array(NAMES_BANK * 0x4000 + (ptr - 0x4000), 10, "ROM")
+		name = spell(b, 1, #b)
+	end
+	romNames.types[t] = name or false
+	return name
+end
+
+local function speciesName(id)
+	if romNames.species[id] then return romNames.species[id] end
+	local b = memory.read_bytes_as_array(NAMES_BANK * 0x4000 + (SPECIES_NAMES_PTR - 0x4000) + (id - 1) * SPECIES_NAME_LEN,
+		SPECIES_NAME_LEN, "ROM")
+	romNames.species[id] = spell(b, 1, #b)
+	return romNames.species[id]
+end
+
+-- A move's entry: its type, power, accuracy byte and the PP drawn as its maximum.
+local function moveData(id)
+	local m = romNames.moveData[id]
+	if m then return m end
+	local e = memory.read_bytes_as_array(MOVES_BANK * 0x4000 + (MOVES_PTR - 0x4000) + (id - 1) * MOVE_SIZE, MOVE_SIZE, "ROM")
+	m = { name = moveName(id), type = typeName(e[4]) or nil, type_id = e[4], power = e[3], accuracy_raw = e[5], base_pp = e[6] }
+	romNames.moveData[id] = m
+	return m
+end
+
+local function readBattler(base, nickAt, side)
+	local b = memory.read_bytes_as_array(base, BATTLER_SIZE, "WRAM")
+	if b[1] == 0 then return nil end
+	local nick = memory.read_bytes_as_array(nickAt, NICK_LEN, "WRAM")
+	local out = { side = side, species = speciesName(b[1]), species_id = b[1], nickname = spell(nick, 1, #nick),
+		level = b[14], hp = (b[17] << 8) | b[18], max_hp = (b[19] << 8) | b[20], moves = {} }
+	for k = 0, 3 do
+		local id, pp = b[3 + k], b[9 + k]
+		if id ~= 0 then
+			local m = moveData(id)
+			out.moves[#out.moves + 1] = { name = m.name, id = id, pp = pp < 0x40 and pp or nil, pp_raw = pp >= 0x40 and pp or nil,
+				base_pp = m.base_pp, type = m.type, power = m.power, accuracy_raw = m.accuracy_raw }
+		end
+	end
+	return out
+end
+
+-- The player's usable move (measured PP above 0) with the most power times accuracy byte, as its move-menu index.
+local function strongestMoveSlot()
+	local b = memory.read_bytes_as_array(W_BATTLE_MON, BATTLER_SIZE, "WRAM")
+	local best, bestScore
+	for k = 0, 3 do
+		local id, pp = b[3 + k], b[9 + k]
+		if id ~= 0 and pp > 0 and pp < 0x40 then
+			local m = moveData(id)
+			local score = m.power * m.accuracy_raw
+			if best == nil or score > bestScore then best, bestScore = k, score end
+		end
+	end
+	return best, best and moveName(b[3 + best])
+end
+
+-- AFTER A BATTLE (autoplay_battle_probe.lua, 2026-09-17, the same PIDGEY battle; MEASURED.md, "The battlers..."):
+--   * wBattleResult (D0EE) read 0 after the PIDGEY fainted and 2 after "Got away safely!", both back in the overworld.
+--   * wMoney (D84E), 3 bytes high first, read 3000 as the trainer card drew MONEY ₽3000.
+--   * The party (wPartyCount DCD7, the first Pokémon's 0x30 bytes from DCDF, its nickname at DE41): +0x00 the species,
+--     +0x1F the level, +0x22 and +0x24 the HP and max HP, high byte first -- the POKéMON screen drew CYNDAQUIL :L5
+--     10/19 as they read 155, 5, 10 and 19; the HP followed the battle's. Only the first slot is measured (the save has
+--     one Pokémon), so the report names that one and the count.
+local W_BATTLE_RESULT, W_MONEY, W_PARTY_COUNT, W_PARTY_MON1, W_PARTY_NICK1 = flat(0xD0EE), flat(0xD84E), flat(0xDCD7),
+	flat(0xDCDF), flat(0xDE41)
+
+local function battleEndedReport()
+	local money = memory.read_bytes_as_array(W_MONEY, 3, "WRAM")
+	local report = { outcome_raw = u8(W_BATTLE_RESULT), money = (money[1] << 16) | (money[2] << 8) | money[3],
+		party_count = u8(W_PARTY_COUNT) }
+	if report.party_count >= 1 then
+		local p = memory.read_bytes_as_array(W_PARTY_MON1, 0x30, "WRAM")
+		local nick = memory.read_bytes_as_array(W_PARTY_NICK1, NICK_LEN, "WRAM")
+		report.party = { { slot = 1, species = speciesName(p[1]), nickname = spell(nick, 1, #nick), level = p[0x20],
+			hp = (p[0x23] << 8) | p[0x24], max_hp = (p[0x25] << 8) | p[0x26] } }
+	end
+	return report
+end
+
 local game = {
 	game = "crystal",
 	variant = isVanilla and "vanilla" or "unverified",
@@ -449,7 +602,7 @@ end
 
 -- After a snapshot is loaded: what was tracked belongs to the frames that were replaced.
 function game.restored()
-	track = { lines = nil, changedAt = -1, arrowAt = -1 }
+	track = { lines = nil, changedAt = -1, arrowAt = -1, seenAt = -1 }
 end
 
 function game.observe()
@@ -472,10 +625,17 @@ function game.observe()
 			if #s == 0 then s = nil end
 		end
 	end
+	local battle
+	if isVanilla and u8(W_BATTLEMODE) ~= 0 then
+		battle = { asking = battleAskingFor(m), battlers = {} }
+		battle.battlers[#battle.battlers + 1] = readBattler(W_BATTLE_MON, W_BATTLE_MON_NICK, "player")
+		battle.battlers[#battle.battlers + 1] = readBattler(W_ENEMY_MON, W_ENEMY_MON_NICK, "opponent")
+	end
 	return {
 		frame = emu.framecount(),
 		dialogue = d,
 		menu = m,
+		battle = battle,
 		screen_text = s,
 		local_map = localMap,
 		nearby = (nearby and #nearby > 0) and nearby or nil,
@@ -678,7 +838,7 @@ end
 --   * hJoyDown is the game's own copy of the buttons: the START menu looked every few frames and missed a 2-frame
 --     release, so presses wait for it to read 0, and a tap holds A until its bit 0 is set (hJoyDown read 1 for
 --     each A a message box took, 2026-09-17).
--- Crystal's battlers, move data and level-up screens are not measured, so `battle` runs only with policy "run".
+--   * The strongest move is the battlers' reading above (power times the accuracy byte, measured PP above 0).
 local function textAndMenuNow()
 	local t = readTilemap()
 	local _, low = readFont()
@@ -701,11 +861,9 @@ local textHooks = {
 	inBattle = function() return u8(W_BATTLEMODE) ~= 0 end,
 	battleMenu = function()
 		local _, _, m = textAndMenuNow()
-		if not m then return nil end
-		local b = memory.read_bytes_as_array(W_2DMENU, 4, "WRAM")
-		if b[1] == 14 and b[2] == 9 and b[4] == 2 then return "action", m end
-		if b[1] == 13 and b[2] == 5 and b[4] == 1 then return "move", m end
-		return nil
+		local asking = battleAskingFor(m)
+		if not asking then return nil end
+		return asking, m
 	end,
 	scriptRunning = function() return u8(W_SCRIPT_RUNNING) == SCRIPT_TOOK_OVER end,
 	inOverworld = inOverworld,
@@ -716,9 +874,16 @@ local textHooks = {
 	actionIndex = { fight = 0, run = 3 },
 	inputReleased = function() return game.inputReleased() end,
 	tapSeen = function() return (memory.read_u8(0xFFA8, "System Bus") & 0x01) ~= 0 end,
+	strongestMove = function()
+		local slot, name = strongestMoveSlot()
+		if slot == nil then return nil, "no move has measured PP left" end
+		return slot, name
+	end,
+	endedReport = battleEndedReport,
 }
 
--- battle {policy = "run"}: RUN from the action menu, then through the text to the overworld.
+-- battle {policy = "strongest" | "run"}: FIGHT and the strongest usable move each turn, or RUN; then through the text
+-- to the overworld.
 game.programs.battle = function(p)
 	if not isVanilla then return nil, "battle is measured on the vanilla V1.0 ROM only" end
 	return lib.text.battle(textHooks, p)

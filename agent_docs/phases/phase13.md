@@ -842,3 +842,29 @@ its target. Not built: a `speed` setting, checks on a MeshGhost adapter's own lo
 
 **Next on Emerald:** the battle message after STRING SHOT that waits without counting as waiting; readers for the
 naming keyboard, the clock and the starter bag; `exec` and noclip.
+
+## 2026-09-17 (the Crystal chat, next session) — Crystal: the battlers in memory, and `battle strongest`
+
+**The user:** *"Just keep going until i tell you to stop, i will be afk for a bit"*.
+
+**Built on `crystal.lua`.** `observe` has `battle` while `mode` is `battle`: `asking` and both `battlers` (species, nickname,
+level, HP, and each move's name, PP, the maximum PP drawn, type, power and `accuracy_raw`). `battle` takes `strongest`
+(the hooks `strongestMove`, power times the accuracy byte over moves with PP, and `endedReport`: `outcome_raw`, `money`,
+`party_count`, the first party slot). Measurements: `crystal/MEASURED.md`, "The battlers, their moves, and what a move's
+power and accuracy bytes do". Two probes: `autoplay_battle_probe.lua` (read-only) and `autoplay_move_write_probe.lua`
+(writes one byte of the move struct while armed). `text.lua` is unchanged: Emerald's path is as it was.
+
+**How it was measured.** The battler blocks, the move and name tables in ROM and the party slot were read against the
+battle screen (19/19, 34/35, :L5, TYPE/ NORMAL, the HP bars' green pixels counted), the POKéMON screen (10/19) and the
+trainer card (₽3000, the ID). Crystal never draws a move's power or accuracy, so those two were measured by what they
+do: one TACKLE replayed frame for frame from one snapshot, the struct's byte held at 0, 70 and 140 (no damage, 8, a
+faint) and the other at 0 and 255 (a miss, a hit). Two control runs matched frame for frame first, which is what makes
+a one-byte difference readable.
+
+**What went wrong on the way:** `battle`'s log listed "            d!" and "used TACKLE!" as boxes. The text probe showed
+the game clearing a battle's box over 2 frames, and the machine logging the frame between; the first fix (a box whose
+rows changed since the last frame is `printing`) left "d!" in, because that clear came 11 frames after a ▼ and the ▼'s
+blink memory answered `waiting_for_button` first. A changing box now skips that rule; the town sign still reads in 221
+frames and the battle in 2168, as before.
+
+**Snapshots** (gitignored `autoplay/states/crystal/`): `route29_after_win` (CYNDAQUIL 10/19 after the PIDGEY fainted).

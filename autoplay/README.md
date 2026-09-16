@@ -120,13 +120,18 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
 - **`warps`** — `x`, `y`, the map it leads `to` and `to_warp`, the destination's warp number from 1.
 - **`extras.script_running_raw`** — 255 while a script has the controls: a message, a menu, a scene, a
   wild encounter, or a picture waiting for a button with no box on screen.
-- Not yet: `movement`, `battle` (the battlers), trainer sight, and what the save has. The events are
+- **`battle`** — while `mode` is `battle`: `asking` (`action`, `move`, or absent) and `battlers`, each with `side`
+  (`player`, `opponent`), `species` (and `species_id`), `nickname`, `level`, `hp`, `max_hp` and `moves` (`name`, `id`,
+  `pp`, `base_pp` -- the maximum drawn --, `type`, `power`, and `accuracy_raw`, a byte whose scale is not measured:
+  held at 0 the move missed, and the table's 242 both hit and missed). The player's battler is absent until its Pokémon is sent out. One wild battle measured.
+- Not yet: `movement`, trainer sight, and what the save has (`battle`'s `ended` alone reads money and the first
+  party slot). The events are
   `map_changed`, `mode_changed`, `dialogue_changed`, `menu_changed` and `battle_mode_raw_changed`.
 - Its tools: `walk` (on foot only; `run` walks and says `ran: false`, since Crystal has no running
   shoes; a door or a map edge answers once the player stands on the new map; `blocked` names a
   character in the way; `script_started` when a step starts a scene or an encounter), `select`,
-  `advance_text`, and `battle` with `policy: "run"` only (its battlers and move data are not measured, so
-  `strongest` is refused). No `goto` or cheats yet.
+  `advance_text`, and `battle` (`strongest` scores power times the accuracy byte; `ended` adds `outcome_raw`, 0 after a
+  win and 2 after running, `money`, `party_count` and the first Pokémon's `party` entry). No `goto` or cheats yet.
 
 ## The run log
 

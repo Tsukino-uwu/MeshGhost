@@ -55,6 +55,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - Which font is loaded, and a picture drawn with the letters' tiles (2026-09-17)
 - A wild battle: when it is one, its two menus and its font (2026-09-17)
 - advance_text and battle through the shared machine (2026-09-17)
+- The battlers, their moves, and what a move's power and accuracy bytes do (2026-09-17)
 - Not measured yet: The rest of autoplay's Crystal reading (from 2026-09-17)
 
 ## Measured
@@ -284,14 +285,74 @@ message box had a frame tile (0x79-0x7E) in columns 1-18** of rows 13-16, while 
 column at 8 before its ▶ -- read as a message until that became a condition. **Not seen:** a trainer's words before
 and after a battle, a level-up, a battle won.
 
+### The battlers, their moves, and what a move's power and accuracy bytes do (2026-09-17)
+
+**Vanilla V1.0, Route 29, the wild PIDGEY (L3) against CYNDAQUIL (L5)**, from the snapshots `battle_pidgey_appeared` and
+`battle_menu` (the move menu). `probes/autoplay_battle_probe.lua` (read-only; logs `logs/autoplay_battle_7871_20260917_013116`,
+`_013317`, `_013711`, `_014010`) read against `observe`'s `screen_text` and captures `autoplay_bprobe_move_menu`, `_leer`,
+`_menu_turn2`, `autoplay_party_after_win`, `autoplay_trainer_card` (gitignored); `probes/autoplay_move_write_probe.lua`
+(writes, `logs/autoplay_move_write_7871_20260917_013317.log`) for power and accuracy. Used by `crystal.lua`'s `battle`
+field, `strongestMove` and `endedReport`.
+
+- **The battlers.** 0x20 bytes at 00:C62C (the player's) and 01:D206 (the opponent's). +0x00 the species: 155 and 16,
+  whose entries in the name table (10 bytes at 14:7384 + (id - 1) * 10) spelled CYNDAQUIL and PIDGEY as the screen drew
+  them. +0x02-+0x05 the moves: 33, 43, 0, 0 as the move menu listed TACKLE, LEER, -, -; PIDGEY's 33, 0, 0, 0, and
+  "Enemy PIDGEY used TACKLE!". +0x08-+0x0B their PP: 35 and 30 as the move box drew 35/35 and 30/30; 34 once TACKLE was
+  used, drawn 34/35, then 33, 32, 31 a use; PIDGEY's 35 went to 34, 33, 32 a TACKLE. +0x0D the level: 5 and 3, drawn :L5
+  and :L3. +0x10/+0x11 the HP and +0x12/+0x13 the max HP, high byte first: 19 and 19 drawn 19/19, then 16 drawn 16/19;
+  PIDGEY's 15 of 15, then 10 while its bar went from 48 green pixels to 32 (the captures, counted). The nicknames at
+  00:C621 and 00:C616, 0x50-ended, spelled CYNDAQUIL and PIDGEY. Before "Go! CYNDAQUIL!" the player's block read all 0,
+  and it filled on the frame the Pokémon came out; once wBattleMode went to 0 the player's block was overwritten with
+  other data within 41 frames, so it is read only while wBattleMode is not 0.
+- **The move data.** The table at 10:5AFB, 7 bytes an entry from id 1: TACKLE's `21 00 23 00 F2 23 00`, LEER's
+  `2B 13 00 00 FF 1E 00`. The player's move struct (00:C60F) held the entry of the move under the move menu's ▶ (TACKLE's,
+  then LEER's with the ▶ moved) and was loaded again on the turn; the opponent's (00:C608) held its TACKLE's on its
+  turn. +0x03 the type: 0 for both, and the pointer at 14:497B + 2 * 0 led to "NORMAL", drawn TYPE/ NORMAL. +0x05 the PP
+  drawn as the maximum (35, 30), on a Pokémon whose PP were never raised. Move names: the id'th 0x50-ended string from
+  72:5F29 spelled TACKLE (33) and LEER (43), as the menu drew them.
+- **Power and accuracy, by what they did.** Crystal draws neither, so one TACKLE was replayed from `battle_menu` with one
+  byte of the player's move struct held at a value every frame (the probe's log shows each write read back, and the
+  struct reloaded 7 frames after the restore and rewritten on that frame, 30 frames before the damage was computed). Two
+  runs with nothing written matched frame for frame (wCurDamage, 01:D256, 6 then 5; PIDGEY 15 to 10), so each row
+  differs from them only by the byte:
+
+  | Byte | Value | wCurDamage | PIDGEY's HP | Text |
+  | --- | --- | --- | --- | --- |
+  | +0x02 | 35 (the table's) | 6, then 5 | 15 → 10 | CYNDAQUIL used TACKLE! |
+  | +0x02 | 0 | not set | 15 | CYNDAQUIL used TACKLE! |
+  | +0x02 | 70 | 10, then 8 | 15 → 7 | CYNDAQUIL used TACKLE! |
+  | +0x02 | 140 | 19, then 16, then 15 | 15 → 0 | Enemy PIDGEY fainted! |
+  | +0x04 | 0 | 6, then 5 | 15 | CYNDAQUIL's attack missed! (wAttackMissed, 00:C667, 1) |
+  | +0x04 | 255 | 6, then 5 | 15 → 10 | CYNDAQUIL used TACKLE! |
+
+  So +0x02 is the power and +0x04 the accuracy. With 0 held, the byte read 1 on the frame the miss was decided: the game
+  had changed it. The scale of +0x04 is not measured (242 missed once, on the first turn from
+  `battle_pidgey_appeared`), so autoplay reports it as `accuracy_raw` and only compares it.
+- **After the battle.** wBattleResult (01:D0EE) read 0 after "Enemy PIDGEY fainted!" and 2 after "Got away safely!", in
+  the overworld. wMoney (01:D84E), 3 bytes high first, read 3000 as the trainer card drew MONEY ₽3000. The party's first
+  Pokémon (0x30 bytes from 01:DCDF, wPartyCount 01:DCD7 reading 1, its nickname at 01:DE41): +0x00 155, +0x1F the level
+  5, +0x22/+0x23 the HP and +0x24/+0x25 the max HP (10 and 19) as the POKéMON screen drew CYNDAQUIL :L5 10/19; its HP
+  followed the battle's on the same frames. Also read: +0x06/+0x07 34555 as the card drew the ID No., and +0x08-+0x0A
+  135 then 158 as "CYNDAQUIL gained 23 EXP. Points!" printed.
+- **A battle's message box is cleared over 2 frames**: row 14 on one and row 16 on the next (`autoplay_text_probe.lua`,
+  `logs/autoplay_text_7871_20260917_014010.log`, f52753 and f53728), and `battle`'s log listed the frame between as
+  boxes ("            d!", "used TACKLE!"). A box whose rows changed since the frame before now reads `printing`.
+- **Live through `battle` with policy `strongest`** from `battle_pidgey_appeared`: FIGHT and TACKLE four turns (LEER
+  scores 0), one miss, "Enemy PIDGEY fainted!", "CYNDAQUIL gained 23 EXP. Points!", `ended` in 2168 frames with
+  `outcome_raw` 0, money 3000 and CYNDAQUIL 10/19; RUN from the same snapshot, `outcome_raw` 2.
+- **Not seen:** any move but TACKLE and LEER (so one power and one type in the table read against anything), a type
+  other than NORMAL drawn, raised PP, a status, a level-up, the player's Pokémon fainting, a trainer battle, the party
+  past its first slot, the scale of the accuracy byte, what +0x01 of a move entry (0x13 for LEER) does.
+
 ## Not measured yet
 
 ### The rest of autoplay's Crystal reading (from 2026-09-17)
 
 - A trainer battle: whether wBattleMode reads 2 on this build, and what a trainer's sight and approach
   read (Route 30's youngster is the nearest).
-- The battlers in memory: species, level, HP, moves and PP for both sides, read against the battle
-  screen's numbers (19/19, TACKLE 35/35) — so `battle` can pick a move by more than its name.
+- The rest of a battle (measured 2026-09-17 for one wild battle, above): a level-up and its stats box, the player's
+  Pokémon fainting and the whiteout, a status, a second Pokémon in the party (is the next slot 0x30 on?), a move of
+  another type drawn against the type table.
 - A scrolling list (the PACK with items in it, the Pokémon menu) and the PC: what CFA1-CFAC and the tile
   buffer hold.
 - `walk` on a bike and surfing (wPlayerState other than 0) and off a ledge; collision 0x9D.

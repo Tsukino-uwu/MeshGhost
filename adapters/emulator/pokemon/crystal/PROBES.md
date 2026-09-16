@@ -14,7 +14,7 @@ has been read, its conclusion belongs in `VERIFIED.md`.
 live, with no emulator relaunch. See `agent_docs/environment.md`. Older probes here predate the
 loader and run their own frame loop, so they still work opened directly in the Lua Console.
 
-## Eighteen of these WRITE (twenty until four were deleted 2026-09-16; `cmd_drive` added the same day, `autoplay_charset_probe` 2026-09-17), and nineteen hold the controller. Read this before running one.
+## Nineteen of these WRITE (twenty until four were deleted 2026-09-16; `cmd_drive` added the same day, `autoplay_charset_probe` and `autoplay_move_write_probe` 2026-09-17), and nineteen hold the controller. Read this before running one.
 
 Called out here rather than only in their own headers, because a folder index that hides a
 memory-writing tool is the worst kind of gap — nobody reads a header they did not know existed.
@@ -41,6 +41,8 @@ writes whatever its command file says -- map blocks into `wOverworldMapBlocks`, 
 (2026-09-16).
 **The screen's tile buffer only:** `autoplay_charset_probe.lua` writes bytes into the text rows of a
 message box that is already open, so the game draws them; closing the box puts the map back (2026-09-17).
+**One byte of a battle's move struct:** `autoplay_move_write_probe.lua`, only while armed by its command file and only
+while a battle runs with the chosen move in the struct; a restore puts it back (2026-09-17).
 **None writes the `.sav`** — but an in-game save afterwards makes their changes
 permanent, so savestate first and reload after. `noclip_off.lua` restores the collision pointer.
 
@@ -231,6 +233,8 @@ Loaded beside `autoplay/drivers/bizhawk/driver.lua` on an autoplay instance, and
 | `autoplay_map_probe.lua` | Read-only. On each tile, map or object change (at most every 8 frames): 11 by 15 tiles of block id and collision around the player, every object record, every map-object record, and the coord, bg and object event lists raw. Settled the collision formula on three maps, the characters and the signs; read it beside a capture with a tile grid drawn over it. |
 | `autoplay_font_probe.lua` | Read-only. On change, FNV-1a checksums of the VRAM tiles text ids use (0x80-0xB9, 0x60-0x7F, 0xBA-0xFF) and LCDC. Restore each screen whose text read right and each that misread: the values say which font set is loaded, which is how a Pokémon's picture and the battle's HP-bar tiles were told apart from letters. |
 | `autoplay_charset_probe.lua` | **Writes the tile buffer.** With a message box open and waiting (refuses otherwise), writes 0x60-0xFF into its text rows 72 at a time and captures each page, so every byte is named from what the game draws. Presses nothing; closing the box restores the map. Take it off the target when it logs `done`. |
+| `autoplay_battle_probe.lua` | Read-only. Each frame, on change: the battle's state bytes (mode, result, current moves, damage, turns, trainer class), both battlers' 0x20 bytes and nicknames, both move structs, the party's first slot, money and the opponent's party; once per id met, that move's table entry and name, that species' name and that type's name, raw and spelled. Settled the battlers, the move data, the result byte, money and the party slot against the battle screen, the POKéMON screen and the trainer card. |
+| `autoplay_move_write_probe.lua` | **Writes one byte of `wPlayerMoveStruct`.** Armed by `autoplay_move_write.cmd` beside it (`write <offset> <value> <move id>`, or `off`), it keeps that byte at the value every frame while a battle runs with that move in the struct, and logs each write with a fresh read-back and the damage, miss flag and opponent's HP. Replay one turn from one snapshot per value: that is how power and accuracy were measured. Take it off the target and write `off` when done. |
 
 ## Not a probe
 
