@@ -434,3 +434,44 @@ opened.
 
 **Next for Phase 1:** a trainer battle (what its type flags read, the trainer's text), then the
 acceptance run from a new game.
+
+## 2026-09-16 (same session, later still) — Phase 1 step 9: walked to the first trainer battle; held movement and running
+
+**The user, as this began:** the two finished play-game plan files were removed from
+`agent_docs/plans/` (*"guess remove these 2 then ? and keep the 3rd one we still need for now"*);
+`autoplay-plan.md` stays. Then *"there are some trainer fights if you go up to the town, and then to the
+left"*.
+
+**Walked there, not warped.** From route 0.16 up across the edge into the town and left across the next
+edge onto route 0.17, each crossing a `map_changed`. `probes/find_objects.py` listed 0.17's character
+templates with a nonzero trainer field; the one at (33,14), drawn facing down, ignored the player three
+tiles to its right and walked up to them when they stepped into its column three tiles below, and
+`walk` answered `dialogue_open`. The battle — YOUNGSTER CALVIN's POOCHYENA — was driven by the scratch
+loop through `select` only, choosing each turn the usable move with the most power times accuracy
+(TACKLE over MUD-SLAP, from this step's move data), and won: `money` 3300 to 3380. Measurements:
+`emerald/MEASURED.md`, same date. **This is Phase 1's acceptance battle reached from a save in progress,
+not from a new game.**
+
+**Running, and holding the direction, from the user watching.** *"remember that you can also run by
+holding B if you have the running shoes"*, then of the first `run`: *"looks really weird when you
+run,stop,run,stop but i guess its to keep track of where you currently are ? can't you read where all
+the objects/terrain/npc's are ? and know how to navigate around things"*, and on the reply's wording:
+*"a player would mix walking/running/bikes during normal gameplay ... walk for full precision/before
+unlocking run, running to go a bit faster but still precice, bike for long distances but might hit
+walls~ ... this applies to other games as well"*; on bikes, *"the acro bike is a bit slower, but think
+its still faster than running"* and *"the mach bike has acceleration and different speeds, and is hard
+to control properly even for a player while at full speeds"*. So: `walk` gained `run` (the core's
+input, with its test), and now holds the direction from the first tile to the last — `step_probe.lua`
+showed a held chain arrives for one frame between tiles and a bump reads distinctly — and the choice
+of movement went into the play-game skill's `references/navigation.md` and `playing-rationale.md`.
+The per-tile stop had never been needed for position: the coordinates change the frame a step begins.
+
+**What went wrong on the way:**
+- **The scratch battle loop quit before the battle**: it treated `overworld` as the end, and a trainer's
+  challenge plays in the overworld.
+- **Its A presses on a "finished" message chose FIGHT** when the action menu came up under them; it went
+  on to choose a move, so no harm, but a message press must not land on a menu.
+- **Printer state 3** (the arrow before a scroll) was unmeasured and read raw; one capture named it.
+
+**Next for Phase 1:** the bikes, measured as their own movement (the Acro Bike's speed, the Mach Bike's
+acceleration and whether a held chain still stops on its tile); then a new game to the first trainer.

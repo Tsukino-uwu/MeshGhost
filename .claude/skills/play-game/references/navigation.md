@@ -29,6 +29,16 @@ require returning to a place already visited.
 tile.** Step perpendicular along the obstacle until it clears, then resume; or walk the edge looking
 for the gap. Pressing the same direction harder is the most common way a driven run stalls.
 
+## Choosing how to move — mix them, like a player
+
+A player does not run non-stop; each way of moving has its place, in any game:
+
+- **Walk** for precision: lining up with a tile, a door, a character's sight, or before running exists.
+- **Run** to go faster where you still need to stop on the right tile.
+- **A bike (or any faster mount)** for long distances, accepting that it can overshoot or hit a wall.
+- **Hold the direction across tiles** rather than stopping on every one: a stop-start run looks wrong
+  and is not how anyone plays. Stop when there is a reason to look.
+
 ## Failures that look identical from the driver's seat
 
 *"I pressed a direction and did not move"* is the same signal for all of these, and each has a

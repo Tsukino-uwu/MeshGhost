@@ -79,10 +79,11 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "walk",
-		Description: "Walk the player a number of tiles in one direction, one tile at a time, each tile " +
-			"ending on the game's own state rather than a frame count. Stops early and says why: " +
+		Description: "Move the player a number of tiles in one direction, holding it the whole way, each " +
+			"tile counted on the game's own state rather than a frame count. Stops early and says why: " +
 			"blocked (with what is on the refused tile), map_changed (a warp or a map edge), " +
-			"dialogue_open, menu_open, left_overworld. Returns the tiles actually moved and what changed.",
+			"dialogue_open, menu_open, left_overworld. Returns the tiles moved and what changed. " +
+			"run: true runs where the save can; walk for precision, run for speed.",
 	}, logged(t, "walk", nil, t.walk))
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -243,6 +244,7 @@ const MaxWalkTiles = 32
 type WalkIn struct {
 	Direction string `json:"direction" jsonschema:"up, down, left or right"`
 	Tiles     int    `json:"tiles" jsonschema:"how many tiles, 1 to 32"`
+	Run       bool   `json:"run,omitempty" jsonschema:"hold the run button too; the answer's ran says whether the game ran"`
 }
 
 func (t *tools) walk(ctx context.Context, _ *mcp.CallToolRequest, in WalkIn) (*mcp.CallToolResult, any, error) {

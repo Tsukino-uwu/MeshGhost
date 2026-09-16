@@ -149,6 +149,13 @@ as crystal/emerald. feel free to cross share info about how to progress in the g
 has worked out how to get from New Bark to Cherrygrove is holding an answer the other instance's agent
 needs.
 
+**Mix walking, running and a bike, and hold the direction** (user, 2026-09-16, watching autoplay's
+first `walk` with `run`, which stopped on every tile): *"looks really weird when you run,stop,run,stop"*,
+then *"walk for full precision/before unlocking run, running to go a bit faster but still precice, bike
+for long distances but might hit walls~ is kinda how a player would use them. this applies to other
+games as well, a player might not always run non stop. you mix movement options depending on what works
+best"* — and that walking only is fine where it is easier.
+
 **Perfect information is not cheating** was written before the cheats reversal, when its point was
 that understanding the world is fine even where changing it was not. The second half no longer
 applies; the first stands.

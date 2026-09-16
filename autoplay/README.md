@@ -30,7 +30,7 @@ Claude Code --MCP (stdio)--> autoplay core --JSON lines (127.0.0.1)--> driver in
 | `press` | Hold buttons for 1-600 frames, then report what changed — the escape hatch, not the default |
 | `wait` | Let 1-3600 frames pass with NO input, then report what changed. Never hold a button to wait |
 | `select` | Choose an entry in the open menu by its text (`item`) or 0-based `index`: the driver presses toward it until the game's own cursor is on it, then holds confirm until the menu responds (`confirm: false` stops on it). On a grid menu (a battle's) it reaches the column first. Every leg ends on the game's state, never a frame count |
-| `walk` | Walk 1-32 tiles `up`, `down`, `left` or `right`, one tile at a time, each ending when the game says the step is done. Stops early and says why: `blocked` (with what is on the refused tile), `map_changed` (a door or an edge), `dialogue_open`, `menu_open`, `left_overworld`; reports the tiles actually moved |
+| `walk` | Move 1-32 tiles `up`, `down`, `left` or `right`, holding the direction the whole way the way a player does, each tile counted when the game starts its step; `run: true` runs where the save can (`ran` says whether it did). Stops early and says why: `blocked` (with what is on the refused tile), `map_changed` (a door or an edge), `dialogue_open` (a trainer who spotted you, too), `menu_open`, `left_overworld`; `moved` counts the steps begun. Walk for precision, run for speed that still stops on its tile, a bike for distance (the play-game skill's `references/navigation.md`) |
 | `screenshot` | The game frame, saved to `dev-scripts/shots/<game>/autoplay_<name>.png` and returned as an image |
 | `events` | Events the driver reported since a sequence number |
 | `snapshot` | Save the whole game state to `autoplay/states/<game>/<label>.State` — a named file, never a numbered slot, so no slot of anyone's is ever touched |
@@ -54,10 +54,10 @@ Everything past `frame`, `mode` and `location` is the game module's. Emerald, on
 - **`screen_text`** — any other window's printed text, per window, top to bottom. Left out in a
   battle, where a menu's window still reads as shown after it is gone.
 - **`battle`** — while `mode` is `battle`: `asking` (`action`, `move`, or absent while the battle
-  plays out), and per battler `side` (`player` or `opponent`), `species`, `nickname`, `level`, `hp`,
+  plays out), `kind` (`wild` or `trainer`), and per battler `side` (`player` or `opponent`), `species`,
+  `nickname`, `level`, `hp`,
   `max_hp` and `moves` (`name`, `pp`, `type`, `power`, `accuracy`); `type_flags_raw` and
-  `outcome_raw` (1 after a won wild battle; nothing else measured). A wild single battle only is
-  measured.
+  `outcome_raw` (1 after a win, 4 after running away). Single battles only are measured.
 - **`local_map`** — `rows` of characters, 15 wide by 11 tall with you at the centre, and a `legend`
   for the symbols present: `@` you, `N` a character, `W` a warp, `#` collision set, `.` clear at your
   elevation, a hex digit for clear at another elevation, a letter per behaviour byte (listed in the

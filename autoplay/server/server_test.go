@@ -283,8 +283,16 @@ func TestWalkValidatesAndForwards(t *testing.T) {
 	if isErr || !strings.Contains(text, `"outcome":"done"`) {
 		t.Fatalf("walk = %s (error %v)", text, isErr)
 	}
-	if in := <-got; in.Direction != "left" || in.Tiles != 3 {
+	if in := <-got; in.Direction != "left" || in.Tiles != 3 || in.Run {
 		t.Fatalf("the driver received %+v", in)
+	}
+
+	// run reaches the driver; without it the field is left out, so a driver that predates it walks.
+	if text, isErr := h.call(t, "walk", map[string]any{"direction": "up", "tiles": 2, "run": true}); isErr {
+		t.Fatalf("walk with run = %s", text)
+	}
+	if in := <-got; !in.Run || in.Direction != "up" || in.Tiles != 2 {
+		t.Fatalf("the driver received %+v, want run", in)
 	}
 }
 

@@ -51,6 +51,8 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - What the driver and its hooks cost (2026-09-16)
 - A wild battle: who is in it, what it asks, its cursors and its text (2026-09-16)
 - A move's type, power, accuracy, PP and effect text (2026-09-16)
+- Crossing a map edge, a trainer's sight, and a trainer battle (2026-09-16)
+- A direction held across tiles, walking and running (2026-09-16)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -316,6 +318,54 @@ summary's BATTLE MOVES page with each move selected (`autoplay_mv_det_1`..`3`). 
 - +0 read 0, 18 and 73, +5 0, 0 and 100, +6 0, 8 and 0, and +8 51, 22 and 18; nothing drawn showed them.
 - **Not seen**: any other move, a move whose PP was raised, what the other bytes mean.
 
+### Crossing a map edge, a trainer's sight, and a trainer battle (2026-09-16)
+
+**Vanilla ROM, the same save.** Walked with autoplay's `walk` from route 0.16 through the town 0.10 to
+route 0.17, with `probes/battle_state_probe.lua` loaded for the battle, read against captures
+(`dev-scripts/shots/emerald/autoplay_tr_*`, gitignored). The trainer was found with
+`probes/find_objects.py`, which lists a map's character templates from the ROM.
+
+- **Map edges.** Walking up from 0.16 (9,4), the step after (9,0) arrived on 0.10 at (9,19) with
+  `map_changed`; running left from 0.10 (7,10), the step after (0,10) arrived on 0.17 at (49,10). The
+  same row or column carried over both times.
+- **A trainer's template.** On 0.17, four of the nine character templates have a nonzero u16 at +0x0C
+  (1 each) and +0x0E reading 2 or 3. The one at (33,14), +0x0E 3, was drawn facing down. Standing three
+  tiles to its right (36,14) did nothing; stepping into (33,17), three tiles below it, from the side
+  opened its challenge with the trainer walked to (33,16) and `walk` answering `dialogue_open`. A
+  template's other trainers were not tried.
+- **The printer's +0x1C read 3** on that challenge while both lines were drawn with the red arrow, before
+  an FA scrolled the text (`autoplay_tr_state3`).
+- **The battle.** "YOUNGSTER CALVIN would like to battle!", "YOUNGSTER CALVIN sent out POOCHYENA!", and
+  the opponent's messages began "Foe POOCHYENA". The byte named gBattleTypeFlags read 0x0C through it,
+  against 0x04 in the four wild battles; callback2 went 0x08036761 (the routine named CB2_InitBattle, +1)
+  and 0x08036FAD before BattleMainCB2's. The opponent's moves read TACKLE and HOWL. After "Player
+  defeated YOUNGSTER CALVIN!" and "A got ₽80 for winning!", `money` read 3380 against 3300 before; the
+  trainer then spoke again in the overworld.
+- **The outcome byte** read 4 when this probe loaded, after the earlier battle escaped with RUN and
+  before any other, 0 through the trainer battle and 1 after the win.
+- **Not seen**: a trainer with more than one Pokémon, a double battle, a trainer seen from any other side,
+  a lost trainer battle, what +0x0C's value 1 and +0x0E mean beyond this one trainer.
+
+### A direction held across tiles, walking and running (2026-09-16)
+
+**Vanilla ROM, route 0.17, row 17** (six clear tiles, then a wall at x=40). From `probes/step_probe.lua`
+(read-only, logging the player object's bytes and the avatar block on every change, with the pad): Right
+held for 150 frames from x=33, walking, then B+Left held for 70 frames, running.
+
+- **Walking**, after a 7-frame turn: each tile began the frame the coordinate changed (avatar +2 reading 2,
+  +3 reading 2 and then 1), and 16 frames later the object's byte 0 top bit came back and the previous
+  coordinate caught up -- for one frame; the next tile's coordinate changed on the frame after. Six in a
+  row, with no frame at rest between them.
+- **Into the wall** straight after a tile: the coordinate stayed, the previous one already equalled it,
+  +2 read 2, +0x1C went 0x0B to 0x1C, +3 went 2 then 0, and byte 0's top bit was clear for 30 frames;
+  still held, it bumped again.
+- **Running**: the same pattern at 8 frames a tile, avatar byte 0 reading 0x81 and +0x1C 0x37.
+- **Released mid-step**, the step finished and the avatar's +2 and +3 read 0 two frames after it did.
+- **`walk` built on that** (same session): right 6 done in 107 frames; right 5 answered `blocked` after 2
+  with (40,17) reported as collision 1; running left 8 done in 75 frames. The step log shows no frame at
+  rest while the direction was held in any of the three.
+- **Not seen**: a door, a ledge, a character in the way, or a map edge in the middle of a held chain.
+
 ## Not measured yet
 
 ### The rest of the text printer (from 2026-09-16)
@@ -328,8 +378,8 @@ battle, each paired with captures.
 
 ### The rest of the map and the walk (from 2026-09-16)
 
-- What the grid's border holds outdoors, next to a connected map, and whether a step onto it crosses
-  over: walk off an edge of 0.10 that has a connection, with `map_probe.lua` loaded.
+- What the grid's border holds outdoors, next to a connected map (a step across the edge is measured:
+  "Crossing a map edge"): dump it with `map_probe.lua` standing at an edge of 0.10.
 - Whether a clear tile at another elevation accepts a step (the local map shows its elevation digit):
   a bridge, stairs, the Center's elevation-0 tile beside the stairs.
 - A character in the way: does `walk` read the refusal the same way, and name the character.

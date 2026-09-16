@@ -45,8 +45,9 @@ local ADDTEXTPRINTER, FILLWINDOWPIXELBUFFER, REMOVEWINDOW, CLEARWINDOWTILEMAP, M
 -- no RemoveWindow for the START menu's window 1 -- which the party menu then reused (2026-09-16).
 local INITWINDOWS = 0x080031c0
 -- 0x24 bytes per window id. +0x1B is 1 while a message is on its way (printing or waiting on its
--- arrow) and 0 once its end is reached; +0x1C is 0 while printing and 2 while the red arrow waits for
--- a button. Other +0x1C values are not measured and go out raw.
+-- arrow) and 0 once its end is reached; +0x1C is 0 while printing, 2 while the red arrow waits for a
+-- button, and 3 while it waits before an FA scrolls the text. Other +0x1C values are not measured and
+-- go out raw.
 local STEXTPRINTERS, PRINTER_SIZE = 0x020201b0, 0x24
 -- 12 bytes per window id: +0 the background (FF once removed), +1 left, +2 top, +3 width, +4 height,
 -- in tiles -- matched against the drawn BG0 cells for the START menu and the message box.
@@ -278,7 +279,9 @@ local function readDialogue()
 		state = "finished"
 	elseif stateRaw == 0 then
 		state = "printing"
-	elseif stateRaw == 2 then
+	elseif stateRaw == 2 or stateRaw == 3 then
+		-- 3: at an FA, both lines drawn and the red arrow up, before the text scrolls (a trainer's
+		-- challenge, 2026-09-16).
 		state = "waiting_for_button"
 	else
 		state = string.format("printer_state_%d", stateRaw)
@@ -710,8 +713,10 @@ local function readBattle()
 			nickname = decode(b, 49, last), level = b[43], hp = u16of(b, 41), max_hp = u16of(b, 45),
 			moves = #moves > 0 and moves or nil }
 	end
-	return { asking = battleAsking(), battlers = battlers, type_flags_raw = r32(BATTLE_TYPE_FLAGS),
-		outcome_raw = r8(BATTLE_OUTCOME) }
+	-- The type flags read 0x04 in four wild battles and 0x0C against a trainer (one battle).
+	local flags = r32(BATTLE_TYPE_FLAGS)
+	return { asking = battleAsking(), kind = (flags & 0x08) ~= 0 and "trainer" or "wild", battlers = battlers,
+		type_flags_raw = flags, outcome_raw = r8(BATTLE_OUTCOME) }
 end
 
 -- The menu battler 0 is choosing from, as `select` reads a menu: `columns` 2, cursor order row by row.
@@ -1038,15 +1043,25 @@ local function describeTile(x, y)
 	return out
 end
 
--- walk {direction, tiles}: one tile at a time, each ending on the game's own state. From rest, hold the
--- direction until the player's coordinates change (the step has begun: they jump to the next tile the
--- frame the press lands) or the avatar's +2 reads 2 with them unchanged (the step was refused: a wall
--- read that way from its first frame); release, and wait for rest. A press facing another way turns
--- first (+2 reads 1 for 7 frames), and a door opens before the step (+2 at 1 and +3 at 2 for 13 more), so
--- only frames where +2 reads 0 count towards giving up -- unless the tile ahead is in the warp list: a
--- door facing the player opened with all of these bytes at rest for 20 frames, then the step began on
--- its own, so a press toward a warp waits up to DOOR_LIMIT for the step or the map change. It stops early
--- when the map changes, the game leaves the overworld, or a message box or menu is on screen.
+-- walk {direction, tiles, run}: the direction is held from the first tile to the last, the way a player
+-- walks, and every tile is counted on the game's own state (step_probe.lua, 2026-09-16, a held direction
+-- across six tiles into a wall, walking and running):
+--   * a step BEGINS the frame the player's coordinates change; the previous coordinate catches up and
+--     the object's byte 0 top bit comes back at its end, for one frame, and with the direction still
+--     held the next step begins on the frame after;
+--   * a step that cannot be taken is a bump: the coordinates stay, the previous coordinate already equals
+--     them, the avatar's +2 reads 2 and byte 0's top bit is clear -- from rest (the first measurement)
+--     and straight after a step alike;
+--   * releasing while a step is under way lets it finish, and "at rest" (atRest) follows 2 frames later.
+-- So the direction is released when the last tile's step begins, and the answer waits for rest. From
+-- rest, a press facing another way turns first (+2 reads 1 for 7 frames), and a door opens before the
+-- step (+2 at 1 and +3 at 2 for 13 more), so only frames where +2 reads 0 count towards giving up --
+-- unless the tile ahead is in the warp list: a door facing the player opened with all of these bytes at
+-- rest for 20 frames, then the step began on its own, so a press toward a warp waits up to DOOR_LIMIT.
+-- It stops early when the map changes, the game leaves the overworld, or a message box or menu is on
+-- screen; `moved` counts the steps begun. `run`: B is held too (step_probe.lua: the avatar's first byte
+-- read 0x81 instead of 0x01, a tile took 8 frames instead of 16); `ran` says whether 0x80 was seen,
+-- which it is not without the running shoes, when B does nothing.
 function game.programs.walk(p)
 	local d = DIRECTIONS[type(p.direction) == "string" and p.direction:lower() or ""]
 	local tiles = math.tointeger(p.tiles)
@@ -1054,13 +1069,23 @@ function game.programs.walk(p)
 	if not tiles or tiles < 1 or tiles > 32 then return nil, "walk needs tiles, 1 to 32" end
 	if not isVanilla then return nil, "walk is measured on the vanilla ROM only" end
 
-	local phase, frames, idle, moved, startMap, fromX, fromY, towardWarp = "rest", 0, 0, 0, nil, 0, 0, false
+	local run = p.run == true
+	local hold = { [d.button] = true, B = run or nil }
+	local phase, frames, idle, moved, startMap, lastX, lastY, towardWarp = "rest", 0, 0, 0, nil, 0, 0, false
+	local ran = false
 	local function here()
 		local sb1 = r32(SB1PTR)
 		return string.format("%d.%d", r8(sb1 + 4), r8(sb1 + 5)), r16(sb1), r16(sb1 + 2)
 	end
+	local function warpAhead(x, y)
+		for _, w in ipairs(readWarps()) do
+			if w.x == x + d.dx and w.y == y + d.dy then return true end
+		end
+		return false
+	end
 	local function finish(outcome, extra)
-		local r = { direction = p.direction:lower(), requested = tiles, moved = moved, outcome = outcome }
+		local r = { direction = p.direction:lower(), requested = tiles, moved = moved, outcome = outcome,
+			ran = run and ran or nil }
 		for k, v in pairs(extra or {}) do r[k] = v end
 		return nil, true, r
 	end
@@ -1075,55 +1100,53 @@ function game.programs.walk(p)
 			if dialogue and windowOnScreen(dialogue.window) then return finish("dialogue_open") end
 			if menuWindow and windowOnScreen(menuWindow) then return finish("menu_open") end
 		end
+		if (r8(GPLAYERAVATAR) & 0x80) ~= 0 then ran = true end
 
 		if phase == "rest" then
 			if not atRest() then
 				if frames > REST_LIMIT then return finish("not_at_rest") end
 				return nil, false
 			end
-			if moved >= tiles then return finish("done") end
-			phase, frames, idle, fromX, fromY = "press", 0, 0, x, y
-			towardWarp = false
-			for _, w in ipairs(readWarps()) do
-				if w.x == x + d.dx and w.y == y + d.dy then towardWarp = true end
-			end
+			phase, frames, idle, lastX, lastY, towardWarp = "hold", 0, 0, x, y, warpAhead(x, y)
 		end
 
-		if phase == "press" then
-			if x ~= fromX or y ~= fromY then
-				phase, frames = "moving", 0
-				return nil, false
-			end
-			local state = r8(GPLAYERAVATAR + 2)
-			if state == 2 then
-				phase, frames = "refused", 0
-				return nil, false
-			end
-			if state == 0 then idle = idle + 1 end
-			if towardWarp then
-				if frames > DOOR_LIMIT then return finish("no_response") end
-			elseif idle > IDLE_LIMIT or frames > PRESS_LIMIT then
-				return finish("no_response")
-			end
-			return { [d.button] = true }, false
-		end
-
-		if phase == "moving" then
-			if atRest() then
-				moved = moved + math.abs(x - fromX) + math.abs(y - fromY)
-				phase, frames = "rest", 0
-			elseif frames > STEP_LIMIT then
-				return finish("not_at_rest")
-			end
+		if phase == "arriving" then
+			if atRest() then return finish("done") end
+			if frames > STEP_LIMIT then return finish("not_at_rest") end
 			return nil, false
 		end
 
-		-- refused: let the bump finish, then say what is on the tile.
-		if atRest() then
-			return finish("blocked", { blocked_by = describeTile(fromX + d.dx, fromY + d.dy) })
+		if phase == "refused" then
+			if atRest() then return finish("blocked", { blocked_by = describeTile(x + d.dx, y + d.dy) }) end
+			if frames > REST_LIMIT then return finish("not_at_rest") end
+			return nil, false
 		end
-		if frames > REST_LIMIT then return finish("not_at_rest") end
-		return nil, false
+
+		-- hold: a new step, a bump, or waiting for either.
+		if x ~= lastX or y ~= lastY then
+			moved = moved + math.abs(x - lastX) + math.abs(y - lastY)
+			lastX, lastY, frames, idle = x, y, 0, 0
+			if moved >= tiles then
+				phase = "arriving"
+				return nil, false
+			end
+			towardWarp = warpAhead(x, y)
+			return hold, false
+		end
+		local b = memory.read_bytes_as_array(playerObject(), 0x18, BUS)
+		local caughtUp = b[17] == b[21] and b[18] == b[22] and b[19] == b[23] and b[20] == b[24]
+		local state = r8(GPLAYERAVATAR + 2)
+		if state == 2 and caughtUp and (b[1] & 0x80) == 0 then
+			phase, frames = "refused", 0
+			return nil, false
+		end
+		if state == 0 then idle = idle + 1 end
+		if towardWarp then
+			if frames > DOOR_LIMIT then return finish("no_response") end
+		elseif idle > IDLE_LIMIT or frames > PRESS_LIMIT then
+			return finish("no_response")
+		end
+		return hold, false
 	end
 end
 
