@@ -56,6 +56,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - The two bikes: getting on, speed, and stopping on a tile (2026-09-16)
 - Turning at speed, routes, a Pokémon Center, and battles as one call (2026-09-16)
 - A trainer's sight and defeat flag, a trainer coming for the player, and the level-up box (2026-09-17)
+- The bag's item list, its item menu, and a Repel used through them (2026-09-17)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -480,12 +481,48 @@ player's coordinates and the pad, on every change). Captures in `dev-scripts/sho
   trainers, the script context status for anything but a trainer, and whether FC 09 or FC 0A draws
   anything.
 
+### The bag's item list, its item menu, and a Repel used through them (2026-09-17)
+
+**Vanilla ROM, the same save**, route 0.17, the bag opened from the START menu. From the new
+`probes/list_menu_probe.lua` (read-only: callback2, the 0x1C bytes the build names gBagPosition, the first
+12 bytes of sMenu, gMultiuseListMenuTemplate, every active task's routine, and each list-menu task's data
+and entries, on every change, with the pad), read against captures (`dev-scripts/shots/emerald/autoplay_bag_*`,
+gitignored). REPEL, POTION and nine more kinds were put in the ITEMS pocket with `give_item`; everything
+after that went through the game's own menus.
+
+- **The bag screen.** callback2 read 0x081AAB9D and 0x081AAD8D on the way in (the routines the build
+  names CB2_BagMenuFromStartMenu and CB2_Bag, +1), then 0x081AAD5D (CB2_BagMenuRun, +1) while the bag
+  waited. It opened on the pocket last used: KEY ITEMS, drawn so.
+- **gBagPosition.** Byte 5 read 4 on KEY ITEMS and 0 once Right had wrapped to ITEMS, drawn so. The u16 at
+  8 + 2 × the pocket followed the list's row (0 to 1 on KEY ITEMS, 0 to 6 on ITEMS), and the u16 at 0x12 +
+  2 × the pocket its scroll.
+- **The list.** While the list waited, one task ran the routine named ListMenuDummyTask; another list's
+  task went and a new one came when the pocket changed. Its data's first word pointed at 8-byte entries
+  (a name pointer, then an id: 0, 1, 2 ... and -2 for CLOSE BAG); +0x0C read the count (4 on KEY ITEMS,
+  13 on ITEMS with twelve kinds), +0x0E how many are shown at once (4, then 8), +0x10 the window (0), +0x18
+  the scroll and +0x1A the row. Eleven Downs through ITEMS read rows 1, 2, 3, 4, then scroll 1 to 5 at row
+  4, then rows 5 and 6; the capture drew AWAKENING at the top and the cursor on MAX REPEL, entry 11 = scroll
+  + row. The names were the item names as drawn; the quantities ("× 5") are drawn separately.
+- **The item menu.** A on REPEL drew USE, GIVE, TOSS, CANCEL in two columns, and sMenu read left 0, top 1,
+  cursor 0, last 3, window 6, width 0x38, height 0x10, 2 columns and 2 rows. Menu_MoveCursor was not
+  called; the routine named ChangeMenuGridCursorPosition runs from a grid's setup. The printed pieces fell
+  one per cell by x over the width and y over the height, and the cursor moved row by row: `select`
+  reached CANCEL (3) and USE (0) in two steps each.
+- **A leftover.** Back on the START menu after the item menu, sMenu still read 2 columns: a list menu's
+  setup does not clear them, so a grid is told apart by which cursor routine last ran.
+- **USE on a Repel.** After USE the list stayed on screen with "REPEL is selected." for more than 20 frames;
+  then "A used the REPEL." printed in window 6, ending FC 09, and `advance_text` closed it with one A. The
+  REPEL count read 5 before and 4 after. Whether wild encounters then stopped is not measured.
+- **Not seen**: the bag in a battle, the party menu an item asks for (POTION's USE), TOSS and GIVE, a
+  pocket other than ITEMS and KEY ITEMS, a list that is not the bag's (a shop, the PC), and the Repel's
+  step count.
+
 ## Not measured yet
 
 ### The rest of the text printer (from 2026-09-16)
 
 A box that scrolls rather than clears (FA), pauses, and the FC/FD/F8/F9 commands with their
-parameters; list menus (the bag, the PC, shops), the battle menus and battle text; any font but the
+parameters; list menus other than the bag's (the PC, shops), the battle menus and battle text; any font but the
 message font's line advance; any text speed but this save's, and any instant-text build; any patched
 build. To settle: `probes/text_probe.lua` through a conversation that scrolls, a shop, the bag and one
 battle, each paired with captures.

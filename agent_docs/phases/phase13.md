@@ -601,3 +601,26 @@ until Crystal needs them, so the two chats do not refactor them at once.
 
 **Next for Phase 1:** the bag's list menu (a Repel, items in battle); then the acceptance run from a new
 game to the first trainer battle.
+
+## 2026-09-17 (later) — Phase 1 step 13: the bag's list, its item menu, and a Repel used through them
+
+**Built.** `menu` now reads a scrolling list menu (every entry, scrolled off or not, with `list: true` and
+in the bag the open `pocket`) and a grid menu such as the bag's USE/GIVE/TOSS/CANCEL (with `columns`), so
+`select` works in both: it scrolled eleven rows to CLOSE BAG and reached USE across the grid. A Repel went
+from the START menu to BAG, REPEL, USE and "A used the REPEL." with `select` and `advance_text` only; the
+bag's count read 5 before and 4 after. Measurements: `emerald/MEASURED.md`, "The bag's item list, its item
+menu, and a Repel used through them" (2026-09-17).
+
+**How it was measured.** The decomp said the bag's list goes through the game's generic list menu, whose
+state sits in a task's data; the new `probes/list_menu_probe.lua` logged every active task's routine, that
+task's data and entries, the bag's position struct and the plain menu struct on every change, against
+captures of the bag opened, a Down, a pocket switch and a list scrolled past the eight rows it shows. The
+item menu's cursor moves through a grid routine the existing menu hook never saw, so two more hooks went in
+(execute hooks cost the same however many there are).
+
+**What went wrong on the way:** the START menu, opened again after the item menu, read as a two-column grid
+with blank entries: a list menu's setup leaves the last grid's column count in the menu struct. A grid is now
+told apart by which cursor routine last ran.
+
+**Next for Phase 1:** the acceptance run, from a new game to the first trainer battle. The bag inside a
+battle and the party menu an item asks for are not measured yet.

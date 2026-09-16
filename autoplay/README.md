@@ -50,10 +50,13 @@ Everything past `frame`, `mode` and `location` is the game module's. Emerald, on
   `box_index` of `boxes`, and `state`: `printing`, `waiting_for_button` (the red arrow), or
   `finished` (its last box is up and waits for a button, with no arrow). Absent when no message box
   is on screen.
-- **`menu`** — a list menu that is open (the START menu, a YES/NO): `items` in order and `cursor`,
-  0-based. In a battle, the action menu (`battle_action`: FIGHT, BAG, POKéMON, RUN) or the move menu
-  (`battle_move`: the four slots, `-` for an empty one), with `columns: 2` — a grid numbered row by
-  row. List menus with their own cursor (the bag, the PC, shops) are not read yet.
+- **`menu`** — the menu waiting for input: `items` in order and `cursor`, 0-based. The START menu and a
+  YES/NO; a grid such as the bag's USE/GIVE/TOSS/CANCEL with `columns` (numbered row by row); a scrolling
+  list such as the bag's items with `list: true`, every entry whether shown or scrolled off, and in the
+  bag the open `pocket` (the `bag` field's names; Left and Right change it). In a battle, the action menu
+  (`battle_action`: FIGHT, BAG, POKéMON, RUN) or the move menu (`battle_move`: the four slots, `-` for an
+  empty one), with `columns: 2`. The bag inside a battle, the party menu and other lists (the PC, shops)
+  are not measured yet.
 - **`screen_text`** — any other window's printed text, per window, top to bottom. Left out in a
   battle, where a menu's window still reads as shown after it is gone.
 - **`battle`** — while `mode` is `battle`: `asking` (`action`, `move`, or absent while the battle
@@ -125,7 +128,7 @@ code rather than by memory. A failed or refused cheat changes nothing.
   `autoplay/runs/driver_bizhawk.log`, or `driver_bizhawk_<game>_<port>.log` on another port, so a second
   instance never shares a log. Game modules: `games/emerald.lua` (vanilla: position and
   warp from `emerald/probes/cmd_drive.lua`'s measurements, text and menus from
-  `text_probe.lua`'s and `charset_probe.lua`'s, the map and `walk` from `map_probe.lua`'s and
+  `text_probe.lua`'s, `charset_probe.lua`'s and `list_menu_probe.lua`'s, the map and `walk` from `map_probe.lua`'s and
   `step_probe.lua`'s, the party, bag, badges and their cheats from `party_bag_probe.lua`'s and
   `substruct_order_probe.lua`'s). **While a press, a select or a walk runs it holds the controller** — take it
   off the target when done.

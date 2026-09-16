@@ -44,6 +44,10 @@ local ADDTEXTPRINTER, FILLWINDOWPIXELBUFFER, REMOVEWINDOW, CLEARWINDOWTILEMAP, M
 -- START menu gave way to the party menu and again on the way back, after FreeAllWindowBuffers and with
 -- no RemoveWindow for the START menu's window 1 -- which the party menu then reused (2026-09-16).
 local INITWINDOWS = 0x080031c0
+-- The routines named ChangeMenuGridCursorPosition and ChangeGridMenuCursorPosition: a grid menu's setup calls
+-- the first (the bag's USE/GIVE/TOSS/CANCEL left the START menu's Menu_MoveCursor hook silent, and the
+-- struct below read 2 columns and 2 rows, list_menu_probe.lua, 2026-09-17).
+local CHANGE_MENU_GRID_CURSOR, CHANGE_GRID_MENU_CURSOR = 0x08199134, 0x081991f8
 -- 0x24 bytes per window id. +0x1B is 1 while a message is on its way (printing or waiting on its
 -- arrow) and 0 once its end is reached; +0x1C is 0 while printing, 2 while the red arrow waits for a
 -- button, and 3 while it waits before an FA scrolls the text. Other +0x1C values are not measured and
@@ -139,6 +143,9 @@ end
 local shown = {}
 local dialogue = nil -- { window, bytes, start }: the last string printed letter by letter
 local menuWindow = nil
+-- Whether the last menu set up was a grid: the struct's column count is left over from the last grid when a
+-- list menu is set up after one (the START menu read 2 columns after the bag's item menu, 2026-09-17).
+local menuGrid = false
 
 local function printerActive(w)
 	return r8(STEXTPRINTERS + w * PRINTER_SIZE + 0x1B) == 1
@@ -184,7 +191,10 @@ function hooks.clearWindowTilemap()
 	if dialogue and dialogue.window == w then dialogue = nil end
 end
 function hooks.menuMoveCursor()
-	menuWindow = r8(SMENU + 5)
+	menuWindow, menuGrid = r8(SMENU + 5), false
+end
+function hooks.menuGridCursor()
+	menuWindow, menuGrid = r8(SMENU + 5), true
 end
 -- A new screen's windows: nothing printed or opened before belongs to any window id now.
 function hooks.initWindows()
@@ -198,6 +208,8 @@ local HOOKS = {
 	{ at = REMOVEWINDOW, fn = hooks.removeWindow },
 	{ at = CLEARWINDOWTILEMAP, fn = hooks.clearWindowTilemap },
 	{ at = MENU_MOVECURSOR, fn = hooks.menuMoveCursor },
+	{ at = CHANGE_MENU_GRID_CURSOR, fn = hooks.menuGridCursor },
+	{ at = CHANGE_GRID_MENU_CURSOR, fn = hooks.menuGridCursor },
 }
 local hookNames, hookErrors = {}, 0
 
@@ -305,9 +317,25 @@ end
 local function readMenu()
 	if not menuWindow or not windowOnScreen(menuWindow) then return nil end
 	local m = memory.read_bytes_as_array(SMENU, 12, BUS)
-	local top, cursor, last, w, height = m[2], m[3], m[5], m[6], m[9]
+	local top, cursor, last, w, width, height, columns = m[2], m[3], m[5], m[6], m[8], m[9], m[10]
 	if w ~= menuWindow then return nil end
 	if cursor > 127 then cursor = cursor - 256 end
+	if menuGrid and columns >= 1 and width > 0 and height > 0 then
+		-- A grid: +7 a column's width and +9 the columns, entries numbered row by row (the bag's item menu read
+		-- 0x38 wide, 2 by 2, list_menu_probe.lua, 2026-09-17). Each printed piece goes to the cell nearest it.
+		local segs, items = {}, {}
+		for _, e in ipairs(shown[w] or {}) do linesOf(e, segs) end
+		for i = 0, last do
+			local text = {}
+			for _, sg in ipairs(segs) do
+				if (sg.x + width // 2) // width == i % columns and (sg.y - top + height // 2) // height == i // columns then
+					text[#text + 1] = sg.text
+				end
+			end
+			items[#items + 1] = table.concat(text, " ")
+		end
+		return { window = w, cursor = cursor, items = items, columns = columns }
+	end
 	local lines = windowLines(w)
 	local items = {}
 	for i = 0, last do
@@ -753,6 +781,44 @@ local function readBag(sb1, key)
 	return bag
 end
 
+-- LIST MENUS (list_menu_probe.lua against captures of the bag, 2026-09-17, vanilla): while the bag's item list
+-- waited, one of the 16 tasks at the build's gTasks (40 bytes each: the routine's address +0, nonzero +4
+-- while active, data from +8) ran the routine named ListMenuDummyTask. Its data's first word pointed at the
+-- entries, 8 bytes each (a name pointer, then an id: -2 for CLOSE BAG), +0x0C held how many (4 on KEY
+-- ITEMS; 13 once ITEMS held twelve kinds, 8 of them shown), +0x10 the window, +0x18 how far the list had
+-- scrolled and +0x1A the row the cursor was on: eleven Downs through thirteen entries read rows 1-4, then
+-- scroll 1-5 at row 4, then rows 5 and 6, and the capture drew AWAKENING on top with the cursor on MAX
+-- REPEL, entry 11. The names read as the list drew them; the quantities are printed separately. While the
+-- bag was open callback2 read the routine named CB2_BagMenuRun (+1), and the byte 5 into the build's
+-- gBagPosition the pocket in the bag's order (4 on KEY ITEMS; Right from there wrapped to 0, ITEMS).
+local GTASKS, TASK_SIZE, NUM_TASKS, LIST_MENU_TASK = 0x03005e00, 40, 16, 0x081ae458
+local BAG_POSITION, CB2_BAG_MENU_RUN = 0x0203ce58, 0x081aad5c
+
+local function readListMenu()
+	for i = NUM_TASKS - 1, 0, -1 do
+		local at = GTASKS + i * TASK_SIZE
+		if r8(at + 4) ~= 0 and (r32(at) & 0xFFFFFFFE) == LIST_MENU_TASK then
+			local d = memory.read_bytes_as_array(at + 8, 32, BUS)
+			local entries, total = u32of(d, 1), u16of(d, 13)
+			if (inEwram(entries) or inRom(entries)) and total >= 1 and total <= 255 then
+				local items = {}
+				for k = 0, total - 1 do
+					local name = readString(r32(entries + k * 8))
+					items[#items + 1] = decode(name, 1, #name)
+				end
+				local m = { window = d[17], items = items, cursor = u16of(d, 25) + u16of(d, 27), list = true }
+				local cb2 = r32(GMAIN_CB2) & 0xFFFFFFFE
+				if cb2 == CB2_BAG_MENU_RUN then
+					local pocket = POCKETS[r8(BAG_POSITION + 5) + 1]
+					m.pocket = pocket and pocket.name
+				end
+				return m
+			end
+		end
+	end
+	return nil
+end
+
 -- What the save has: the party, the bag, money and badges. Nil until the save blocks are in place.
 local function readSave()
 	local sb1, sb2 = r32(SB1PTR), r32(SB2PTR)
@@ -922,9 +988,14 @@ function game.observe(asked)
 	local battle = isVanilla and inBattle() and readBattle() or nil
 	if #hookNames > 0 then
 		d, m = readDialogue(), readMenu()
+	end
+	-- A list menu under a menu opened from it (the bag's item menu) is not the one waiting.
+	local list = (isVanilla and not battle and not m) and readListMenu() or nil
+	m = m or list
+	if #hookNames > 0 then
 		-- In a battle the windows' own bytes do not say which are showing (the action and move menus
 		-- stayed listed while a message played), so screen_text is left out; `battle` and `menu` say
-		-- what is being asked.
+		-- what is being asked. A list's own window is left out too: its rows are reprinted as it scrolls.
 		if not battle then
 			s = readScreenText(d and d.window, m and m.window)
 			if #s == 0 then s = nil end
@@ -1159,8 +1230,8 @@ end
 -- The menu alone, for a program that looks every frame (select).
 function game.menu()
 	if isVanilla and inBattle() then return battleMenu() end
-	if #hookNames > 0 then return readMenu() end
-	return nil
+	local m = (#hookNames > 0) and readMenu() or nil
+	return m or (isVanilla and readListMenu()) or nil
 end
 
 -- PROGRAMS: run once a frame by the driver, each returning (pad or nil, finished, result, error).
