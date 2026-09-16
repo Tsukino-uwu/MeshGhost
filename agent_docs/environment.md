@@ -54,7 +54,10 @@ so this file stays the dated record of versions and traps, and that one is the s
   per-user install location (`%LOCALAPPDATA%\Programs\Python\Python312\python.exe`). Invoke as
   `python`, not `python3` — only `python` is on `PATH` (both in a normal shell and in the
   agent's Bash tool, which runs Git Bash and has its own `PATH`).
-- .NET SDK: **confirmed installed**, `10.0.302` (`dotnet --version`, 2026-08-12), at
+- .NET SDK: **`10.0.401`** (`dotnet --version`, 2026-09-16), the newest 10.0 SDK — what `tevi.yml`'s
+  `dotnet-version: '10.0.x'` installs; updated that day from `10.0.302` (installed 2026-08-12, still
+  present beside it) with Microsoft's installer, its SHA-512 compared against the 10.0 release list,
+  and `dotnet run --project adapters/tevi/MeshGhostTevi.Tests` passed on it. At
   `C:\Program Files\dotnet\sdk`. Used for the TEVI adapter (Phase 6) — a `netstandard2.0` class
   library targeting BepInEx 5.4, which the modern SDK builds fine via `dotnet build`.
 - CMake: **confirmed installed**, `4.0.2` (`cmake --version`, re-read 2026-09-10 — this said

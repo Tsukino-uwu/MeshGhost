@@ -191,3 +191,22 @@ long the fade lasts is not measured, so the README says to wait, not for how lon
 Go side: `go test -race -count=10 ./...` clean with the new tests (a cheat marks the segment reached,
 a refused kind does not, a snapshot the driver did not write is an error, a restore of a missing
 label is refused, a path in a label is refused).
+
+## 2026-09-16 (end of the session) — where Phase 1 stands, and what comes next
+
+The .NET SDK went to 10.0.401 to match `tevi.yml` (the user's local-matches-CI rule); the TEVI test
+project passes on it. The emulator the session started was closed and checked gone, with the
+autoplay loader target left at `none`. Nothing is pushed: once it is, read `gh run list -L 5` for the
+new `autoplay.yml`.
+
+**Phase 1, still to build** (the acceptance: from a new game to the first trainer battle with no
+user input, every segment labelled): an ASCII map around the player; dialogue and menu state; party,
+bag and badges; cheats for items and flags; `select`, and a move that ends on the game's own state.
+**Text is the next piece**, and on method the user was explicit: *"we measure/build our own things,
+but we can use decomps as info or a map still to know what to do. we just shouldn't keep anything
+decomp wise in the repo as "our fact"."* So Emerald's character encoding is learned from the game —
+text drawn on screen against the bytes behind it — with the decomp as the map of where to look.
+
+**To pick up in a new chat:** start an instance with `autoplay/drivers/bizhawk/driver.lua` as the dev
+loader's target and `AUTOPLAY_GAME=emerald` (the README's "Drivers so far"), then drive it with
+`go run ./cmd/mcpcall` from `autoplay/`, or give a session `--mcp-config autoplay/.mcp.json`.
