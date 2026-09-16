@@ -7,13 +7,13 @@
 -- below. The header used to end "Never writes memory" -- true until the spawn path landed
 -- 2026-08-18, and left standing afterwards; it was the most misleading line in the file.
 --
--- HOW TO READ A DECOMPILATION CITATION IN THIS FILE (a pokeemerald source file and line beside
--- a comment), since 2026-09-16: it says where the decompilation places the mechanism the code
+-- HOW TO READ A DECOMPILATION POINTER IN THIS FILE (a pokeemerald symbol or file name beside a
+-- comment), since 2026-09-16: it says where the decompilation places the mechanism the code
 -- next to it imitates. It is a pointer, never the evidence. A claim that names a probe, a trace,
--- a log or the user on screen, with a date, is measured; a claim that names only the source is
--- the source's reading and is unverified on the game (CLAUDE.md, *measured or observed only*;
--- the questions those readings raise are in UNVERIFIED.md). Preflight ratchets the count of such
--- citations, so a new one is a new borrowed claim: measure it, or say the source is all it has.
+-- a log or the user on screen, with a date, is measured; a claim marked unmeasured is the
+-- source's reading only (CLAUDE.md, *measured or observed only*; each such question is in
+-- UNVERIFIED.md, from the per-site audit of 2026-09-16). That audit removed every source path and
+-- line from these comments, and preflight holds the count of path citations at zero.
 --
 -- This is the real, actively-maintained Emerald adapter -- what actually ships (see
 -- packaging/README.md and .github/workflows/release.yml, which stage this file as
@@ -52,26 +52,13 @@
 --
 -- Facing direction and walk/run animation frame indices + durations (in real game frames, at
 -- the same ~60fps this script's own emu.frameadvance() loop runs at, so tracking them with a
--- local frame counter matches the real game's own animation speed exactly): from
--- src/data/object_events/object_event_anims.h's sAnim_FaceSouth/FaceNorth/FaceWest/FaceEast
--- (idle) and sAnim_GoSouth/GoNorth/GoWest/GoEast (walk, 4-step cycle {3,0,4,0}-shaped per
--- direction, uniform 8 frames/pose). Running is a GENUINELY SEPARATE pic table
--- (gObjectEventPic_BrendanRunning/_MayRunning, not a faster walk cycle) -- found live
--- 2026-08-11 after an earlier version of this script wrongly reused the ANIM_STD_GO_FAST_*
--- tier (which turned out to be unrelated to on-foot Running Shoes dashing -- all four GO_FAST/
--- FASTER/FASTEST tiers share the walk table's frame indices, only duration changes, so that
--- was a red herring): the real running pose comes from sAnim_RunSouth/RunNorth/RunWest/RunEast,
--- which reference combined pic-table indices 9-17 in sPicTable_BrendanNormal
--- (object_event_pic_tables.h) -- i.e. gObjectEventPic_BrendanNormal's frames 0-8 for walking,
--- gObjectEventPic_BrendanRunning's frames 0-8 (combined index minus 9) for running, sharing one
--- ObjectEventGraphicsInfo/palette. The running frame SEQUENCE per direction is the same
--- relative shape as walking ({3,0,4,0} etc., just from the other pic table), but NOT the same
--- durations -- sAnim_RunSouth is ANIMCMD_FRAME(12,5),(9,3),(13,5),(9,3), i.e. 5,3,5,3 frames
--- per pose, a real asymmetric cadence, not a flat quarter of the walk speed. East reuses West's
--- frames with hFlip=true (sAnim_FaceEast/GoEast/RunEast's ANIMCMD_FRAME(..., .hFlip = TRUE)) --
--- there is no separate mirrored bitmap in ROM, so drawing mirrors the frame's x-coordinate
--- instead. sAnimTable_BrendanMayNormal confirms these frame tables (both walk and run) are
--- shared between Brendan and May -- only the pixel/palette source differs, per gender.
+-- local frame counter matches the real game's own animation speed exactly). The frame indices and
+-- per-pose durations this script uses (walk, run, and east as west mirrored) were first taken from
+-- the decompilation's animation tables (sAnim_Go*/sAnim_Run*, object_event_anims.h -- a pointer);
+-- the per-pose numbers themselves are not measured on the game, and that is an open question in
+-- UNVERIFIED.md. What WAS observed: running is a separate pic table (gObjectEventPic_BrendanRunning/
+-- _MayRunning), not a faster walk cycle -- found live 2026-08-11, after an earlier version of this
+-- script had wrongly reused the ANIM_STD_GO_FAST_* tier for running.
 --
 -- Ghost placement, changed from phase4_multiplayer.lua: that script's GHOST_Y_CORRECTION
 -- existed because the 16x16 placeholder box was one tile shorter than a real 16x32 overworld
@@ -84,8 +71,9 @@
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 -- gSaveBlock2Ptr = 0x03005D90 (pointer, right next to gSaveBlock1Ptr at 0x03005D8C --
 -- pokeemerald.sym, same make-compare-verified build as every other address in this project).
--- playerGender is struct SaveBlock2 offset +0x08 (include/global.h L511, "u8 playerGender").
--- MALE=0, FEMALE=1 (include/constants/global.h). Read once at script start, not every frame --
+-- This script reads playerGender at +0x08 and takes 0 as male, 1 as female; the decompilation
+-- places both in global.h (a pointer), and neither is measured on the game.
+-- Read once at script start, not every frame --
 -- gender doesn't change mid-session, unlike everything else this script reads from memory.
 local GSAVEBLOCK2PTR_ADDR = 0x03005d90
 local GPLAYERAVATAR_ADDR = 0x02037590
@@ -256,13 +244,10 @@ local GOBJECTEVENTPAL_BRENDAN_ADDR = 0x084987f8
 -- 0x084A3078 (size 0x900, same 9-frame layout as Brendan's) and 0x084A4278 (size 0x20).
 local GOBJECTEVENTPIC_MAYNORMAL_ADDR = 0x084a3078
 local GOBJECTEVENTPAL_MAY_ADDR = 0x084a4278
--- Real, separate running-pose pic tables -- confirmed via object_event_anims.h's
--- sAnim_RunSouth/RunNorth/RunWest/RunEast, which reference combined pic-table indices 9-17
--- (i.e. this table's own local frames 0-8), distinct from the plain walk cycle (indices 0-8,
--- gObjectEventPic_*Normal). Same palette as each gender's Normal table -- the running frames
--- are a separate SpriteFrameImage entry in the SAME sPicTable_BrendanNormal array
--- (object_event_pic_tables.h), sharing one ObjectEventGraphicsInfo (and therefore one
--- paletteTag) with the walk frames, not a second palette.
+-- Real, separate running-pose pic tables (found live 2026-08-11, see the header), drawn with the
+-- same palette as each gender's Normal table. That they share one graphics entry and palette tag
+-- with the walk frames is the decompilation's reading (sPicTable_BrendanNormal, a pointer), not
+-- measured.
 local GOBJECTEVENTPIC_BRENDANRUNNING_ADDR = 0x08497ef8
 local GOBJECTEVENTPIC_MAYRUNNING_ADDR = 0x084a3978
 
@@ -288,23 +273,19 @@ local FRAME_WIDTH_PX = FRAME_WIDTH_TILES * 8
 local FRAME_HEIGHT_PX = FRAME_HEIGHT_TILES * 8
 local FRAMES_PER_PIC_TABLE = 9
 
--- Direction -> {idle frame index, {4-step frame sequence}, hFlip}. Confirmed from
--- object_event_anims.h: sAnim_RunSouth/etc's combined-table indices (12,9,13,9 for south),
--- minus the running table's +9 offset, are {3,0,4,0} -- the SAME relative sequence as walking
--- (sAnim_GoSouth), just read from the running pic table instead of the walk one. So one
--- direction/frame-sequence table serves both -- only which pic table (walk vs run) and the
--- per-pose hold durations differ. South/North/West are drawn as-is; East reuses West's frames
--- mirrored.
+-- Direction -> {idle frame index, {4-step frame sequence}, hFlip}. One table serves walking and
+-- running; only the pic table and the per-pose hold durations differ. South/North/West are drawn
+-- as-is; East reuses West's frames mirrored. The sequences follow the decompilation's animation
+-- tables (sAnim_Go*/sAnim_Run*, a pointer) and are not measured frame by frame on the game.
 local DIRECTION_ANIM = {
     south = { idle = 0, steps = { 3, 0, 4, 0 }, hFlip = false },
     north = { idle = 1, steps = { 5, 1, 6, 1 }, hFlip = false },
     west  = { idle = 2, steps = { 7, 2, 8, 2 }, hFlip = false },
     east  = { idle = 2, steps = { 7, 2, 8, 2 }, hFlip = true },
 }
--- Per-pose hold durations (frames), indexed the same as DIRECTION_ANIM's steps array. Walking
--- (sAnim_GoSouth/etc) holds each of the 4 poses for a uniform 8 frames. Running (sAnim_RunSouth
--- /etc) does NOT hold uniformly -- ANIMCMD_FRAME(12,5),(9,3),(13,5),(9,3) -- 5,3,5,3, a real,
--- asymmetric cadence, not a flat quarter of the walk speed.
+-- Per-pose hold durations (frames), indexed the same as DIRECTION_ANIM's steps array: uniform for
+-- walking, uneven for running. The values follow the decompilation's animation tables (a pointer)
+-- and are not measured on the game.
 local WALK_POSE_DURATIONS = { 8, 8, 8, 8 }
 local RUN_POSE_DURATIONS = { 5, 3, 5, 3 }
 
@@ -433,9 +414,9 @@ end
 -- mapGroup as 0xFF (255), nowhere close to a real Emerald map group, while the real entry reads
 -- 0 (Littleroot Town, already independently confirmed). A uniform repeating byte pattern can
 -- satisfy one narrow bit-level check by coincidence; it's much less likely to also produce a
--- plausible, unrelated field at a different offset. Bound is MAP_GROUPS_COUNT (34, valid values
--- 0-33) from pret/pokeemerald's include/constants/map_groups.h, the same make-compare-verified
--- build cited everywhere else in this project -- not an arbitrary round number.
+-- plausible, unrelated field at a different offset. Bound is 34 (valid 0-33), the count the
+-- decompilation gives as MAP_GROUPS_COUNT (map_groups.h, a pointer) -- not measured on the game;
+-- the real entry it was built against read 0 (Littleroot Town, above).
 local MAP_GROUPS_COUNT = 34
 local function playerObjEventExistsAt(gObjectEventsBase)
     for i = 0, 15 do
@@ -789,13 +770,13 @@ end
 
 -- gender is sent in extras -- agent_docs/contract.md's packet schema already has extras as a
 -- free-form, core/relay-opaque dict for exactly this kind of adapter-specific data; no
--- core/relay change needed. "male"/"female" matches pokeemerald's own MALE/FEMALE naming
--- (include/constants/global.h) for direct traceability, same pattern orientation's
--- "south"/"north"/"west"/"east" already follows against DIR_* naming.
--- The player's CURRENT graphic, which is the whole of their special state. sPlayerAvatarGfxIds
--- (field_player_avatar.c:246) gives every state its own graphicsId per gender -- normal, both
--- bikes, surfing, underwater, field move, fishing, watering -- so a peer's appearance is this one
--- byte and needs no anim classifier or per-mode timing. Sent in `extras`, which contract.md
+-- core/relay change needed. "male"/"female" follows the MALE/FEMALE names, the same way
+-- orientation's "south"/"north"/"west"/"east" follows DIR_* naming.
+-- The player's CURRENT graphic, which is the whole of their special state: the adapter treats
+-- the graphicsId byte as naming the state (bike, surfing, fishing, ...) per gender, so a peer's
+-- appearance is this one byte and needs no anim classifier or per-mode timing. That every state
+-- has its own id is the decompilation's reading (sPlayerAvatarGfxIds, a pointer), not measured
+-- across all states on the game. Sent in `extras`, which contract.md
 -- defines as opaque free-form data the core never inspects.
 -- DO NOT PUBLISH A STATE THE GAME HAS NOT FINISHED SETTING UP.
 --
@@ -908,9 +889,9 @@ end
 -- `noanim` is `spaused`'s missing partner, and the pair is not redundant. `spaused` says the
 -- sprite's animation is not running; `disableAnim` says the OBJECT is forbidden one, and that
 -- outranks a movement. Everywhere else in the game those agree, so one bit was enough -- ice is
--- where they come apart. ForcedMovement_Slide sets disableAnim and then walks the character fast
--- (src/field_player_avatar.c:526-533), which is a character CROSSING TILES with its legs held
--- still. Without this bit a ghost is told "moving", the engine gives it the walk cycle its action
+-- where they come apart. On ice the character CROSSES TILES with its legs held still (the
+-- decompilation's ForcedMovement_Slide, field_player_avatar.c, is where to look; the measurement
+-- below is what makes it a fact). Without this bit a ghost is told "moving", the engine gives it the walk cycle its action
 -- carries, and it strides across the ice while the player glides: measured in Shoal Cave,
 -- 2026-08-21 -- the player held anim 10/0 with disableAnim set for the whole slide while the
 -- ghost's own copy cycled 10/2, 10/3 under the same action id on the same tile.
@@ -1519,8 +1500,8 @@ local function getLocalState()
     -- disagree ("-1:5" against "255:5"), the connection lookup misses, and cross-map ghosts
     -- silently stop working at a seam with no error anywhere.
     --
-    -- The decomp's struct has both as `u8` (`include/global.h`), and `read_s8` was simply the
-    -- wrong reader: there is no Emerald map id this can make negative on purpose. Latent today --
+    -- Read unsigned to agree with `xmapScan`. The decompilation declares both unsigned (global.h,
+    -- a pointer); no id of 128 or more has been observed, so that is unmeasured. Latent today --
     -- no group or number that high has been seen in play -- which is exactly why it would have
     -- been found the hard way, at a seam, by a player.
     local mapGroup = memory.read_u8(base + 0x04)
@@ -1844,17 +1825,17 @@ local function glideRemote(r, targetX, targetY)
     -- until it is -- the one place here that is not frame-exact.
     -- `pspeed` IS NOT `MOVE_SPEED_*`, AND ASSUMING IT WAS COST AN ITERATION (2026-09-12).
     --
-    -- It is `gPlayerAvatar.bikeSpeed`, a PLAYER_SPEED_* constant (pokeemerald include/bike.h:18):
-    -- STANDING 0, NORMAL 1, FAST 2, FASTER 3, FASTEST 4 -- one MORE than the MOVE_SPEED_* enum the
-    -- step table is indexed by, where 0 is already walking. Indexed as MOVE_SPEED it made a running
+    -- It is `gPlayerAvatar.bikeSpeed`, which this adapter treats as PLAYER_SPEED_* with 0 meaning
+    -- standing -- one MORE than the step table's index, where 0 is already walking. The value-to-
+    -- speed mapping is the decompilation's (bike.h, a pointer) and unmeasured; what is measured is
+    -- the on-foot 0 below. Indexed as MOVE_SPEED it made a running
     -- peer (`pspeed` 0 on foot) move at 1px a frame against a target advancing 2px, so the model
     -- lost a pixel every frame until it was a full tile behind and the catch-up rule lurched it
     -- forward. Measured in probes/movetrace.log: `d(tgt)=-0.1250 d(model)=-0.0625` for five frames
     -- running, `dist` climbing 0.75 -> 1.06.
     --
-    -- AND ON FOOT THE FIELD READS 0 ANYWAY. `GetPlayerSpeed` (src/bike.c:1022) computes FAST for a
-    -- dash, but the adapter sends the raw `bikeSpeed` byte, which the engine maintains for BIKES;
-    -- a running player on foot still reports STANDING. So the gait comes from `anim`, which this
+    -- AND ON FOOT THE FIELD READS 0 ANYWAY: the adapter sends the raw `bikeSpeed` byte, and a
+    -- running player on foot reports 0 (the movetrace.log run above). So the gait comes from `anim`, which this
     -- adapter already derives from runningState and the dash flag, and `pspeed` covers the vehicles
     -- `anim` cannot describe. The larger of the two wins: a mach bike reads FASTEST while its anim
     -- is still "walking", and a dash reads "running" while pspeed is 0.
@@ -2062,10 +2043,9 @@ local function glideRemote(r, targetX, targetY)
     -- still converging from the approach. The target is a discrete value off the wire; it either
     -- changed this frame or it did not, with no residue to threshold.
     if targetX == r.lastTX and targetY == r.lastTY then
-        -- HALF pace, because walking into a wall is not walking: the game plays the walk-in-place
-        -- SLOW animation on a collision (field_player_avatar.c:1011, already cited above where the
-        -- bump action is chosen). At full walking pace the user's verdict was that the drawn ghost
-        -- did it *"a bit too fast"*.
+        -- HALF pace, because walking into a wall is not walking: at full walking pace the user's
+        -- verdict was that the drawn ghost did it *"a bit too fast"*. (That the game uses a SLOW
+        -- walk-in-place there is the decompilation's reading -- see BUMP_ACTION -- not measured.)
         if r.anim == "running" then r.gDist = r.gDist + 0.0625
         elseif r.anim == "walking" then r.gDist = r.gDist + 0.03125 end
     end
@@ -2273,8 +2253,8 @@ local remotes = {}
 -- 02037318 carries the connections pointer at +0x0C -> {count s32, list ptr}, entries 12 bytes
 -- {direction u8, offset s32 +4, mapGroup u8 +8, mapNum u8 +9}, directions 1/2/3/4 =
 -- south/north/west/east. Verified on both sides of a real seam, including a double west
--- connection whose offset=20 is the field doing its job. Field names from pokeemerald
--- include/global.h; the layout is the probe's measurement, not trust.
+-- connection whose offset=20 is the field doing its job. Field names point at the decompilation's
+-- (global.h); the layout is the probe's measurement, not trust.
 --
 -- gMapGroups (group:num -> ROM header, for a NEIGHBOR's dimensions) is SELF-LOCATED, never
 -- hardcoded: find the ROM original of the live header copy by its own first 16 bytes, then the
@@ -2479,8 +2459,8 @@ genderFrames.xmapTranslate = function(r, localKey)
     local c = xm.conns and xm.connsFor == localKey and xm.conns[r.srcAreaId] or nil
     if not c then r.areaId = r.srcAreaId return end
     local lx, ly
-    -- The engine's own stitch arithmetic (pokeemerald src/fieldmap.c's connection handling);
-    -- the offset shifts along the seam. Signs verified live with a test peer before shipping.
+    -- Stitch arithmetic: the offset shifts along the seam (the decompilation's connection handling
+    -- in fieldmap.c is where to look). Signs verified live with a test peer before shipping.
     if c.dir == 2 then lx, ly = r.sx + c.off, r.sy - c.h          -- north: neighbor above
     elseif c.dir == 1 then lx, ly = r.sx + c.off, r.sy + xm.ourH  -- south
     elseif c.dir == 3 then lx, ly = r.sx - c.w, r.sy + c.off      -- west
@@ -3179,16 +3159,17 @@ end
 --
 -- A GLOBAL, deliberately: this chunk is at 198 of Lua's 200 locals, and a shared helper is a
 -- better use of the remaining budget than a name. Assigned before anything calls it.
--- vFlipHeight: draw the frame upside down within a box that tall, for a REFLECTION. The engine
--- makes one by copying the sprite with ST_OAM_VFLIP (SetUpReflection, pokeemerald
--- src/field_effect_helpers.c:47-68); this tier has no OAM to set a flip bit on, so the row index
--- is mirrored instead. nil for everything that is not a reflection, which is everything else.
+-- vFlipHeight: draw the frame upside down within a box that tall, for a REFLECTION. The engine's
+-- reflection is the sprite flipped vertically (measured by framebuffer diff, see the mirror note
+-- in the body); this tier has no OAM, so the row index is mirrored instead. nil for everything
+-- that is not a reflection, which is everything else.
 -- xScale: squeeze or stretch the frame horizontally about its own centre, for a rippling
 -- reflection. 1.0 (or nil) for everything else.
 --
 -- keepSpans: draw ONLY inside these x ranges, keyed by absolute screen y -- the opposite of
--- panelRows, which excludes. A reflection needs it because the engine keeps one off the land with
--- OAM priority 3 (SetUpReflection, pokeemerald src/field_effect_helpers.c:53) and a painted tier
+-- panelRows, which excludes. A reflection needs it because the engine's reflection is covered by
+-- the land (by OAM priority, per the decompilation's SetUpReflection -- a pointer, the priority
+-- value not measured) and a painted tier
 -- has no priority at all: it draws on top of the finished frame, so a reflection that reaches past
 -- the shore lands on the grass. Reported on screen 2026-08-19: *"the drawn ghosts reflection,
 -- draws outside of water as well"*. nil means "no restriction", which is every other caller.
@@ -3255,7 +3236,8 @@ function drawRunList(runs, frameWidth, hFlip, screenX, screenY, panelRows, dim, 
         -- vFlipHeight mirrors the row index for a REFLECTION, and the mirror is `h - y`, not
         -- `h - 1 - y`. That is not an off-by-one, it is the hardware's own arithmetic: the engine
         -- does not use the OAM flip bit for a reflection, it makes it an AFFINE sprite through
-        -- matrix 0 (SetUpReflection, src/field_effect_helpers.c:66-68), and a GBA affine transform
+        -- matrix 0 (the matrix measured by surfblob_probe.lua, 2026-08-19; SetUpReflection is
+        -- the pointer), and a GBA affine transform
         -- is centred on h/2 -- 16 for a 32-row sprite, not 15.5. So the hardware samples
         -- texture = 32 - screen, one row lower than a flip bit's 31 - screen.
         --
@@ -3465,20 +3447,23 @@ local TILE_SIZE_4BPP = 32
 local MOVEMENTTYPE_NONE_CB = 0x0808f3e0 + 1 -- +1 selects Thumb
 local MOVEMENT_TYPE_NONE = 0x00
 
--- Direction ids and the movement actions indexed by them (constants/event_object_movement.h).
+-- Direction ids (the down/left/up/right values avatar_scan_probe matched, 2026-08-14) and the
+-- movement action ids indexed by them. The action ids below are the decompilation's numbering
+-- (event_object_movement.h, a pointer); only those a note says were measured are measured.
 local DIR_ID = { south = 1, north = 2, west = 3, east = 4 }
 -- TURNING uses walk-in-place-FAST, not a face action, because that is what the player does.
--- `PlayerTurnInPlace` (field_player_avatar.c:1027) calls GetWalkInPlaceFastMovementAction, and
--- MOVEMENT_ACTION_FACE_* is a static pose with no leg movement -- which is exactly how a ghost
+-- (`PlayerTurnInPlace` is the decompilation's pointer.) MOVEMENT_ACTION_FACE_* is a static pose
+-- with no leg movement -- which is exactly how a ghost
 -- using it looked: it snapped to the new direction without animating. Found by the user watching,
 -- 2026-08-18; nothing in the log distinguishes the two.
 local FACE_ACTION = { [1] = 0x21, [2] = 0x22, [3] = 0x23, [4] = 0x24 }
 -- The static poses, kept for the one case that wants no animation: placing a ghost at spawn,
 -- where there is no previous direction to have turned from.
 local FACE_STILL_ACTION = { [1] = 0x00, [2] = 0x01, [3] = 0x02, [4] = 0x03 }
--- BUMPING into a wall. The player does not simply stand there: PlayerNotOnBikeCollide
--- (field_player_avatar.c:1011) plays a collision sound and a walk-in-place SLOW animation, which
--- is the little shuffle you see holding a direction against a wall. A peer doing that reports
+-- BUMPING into a wall. The player does not simply stand there: holding a direction against a
+-- wall plays a little shuffle, which the ghost reproduces with walk-in-place SLOW. That the game's
+-- own shuffle is that action is the decompilation's reading (PlayerNotOnBikeCollide, a pointer),
+-- not measured; the user judged the pace on screen (see the half-pace note). A peer doing that reports
 -- "walking" with a position that never changes, so the ghost can reproduce it.
 local BUMP_ACTION = { [1] = 0x19, [2] = 0x1a, [3] = 0x1b, [4] = 0x1c }
 -- How long a peer must be "walking but not moving" before it counts as a bump. Without this, the
@@ -3494,10 +3479,9 @@ local WALK_ACTION = { [1] = 0x08, [2] = 0x09, [3] = 0x0a, [4] = 0x0b }
 local RUN_ACTION = { [1] = 0x35, [2] = 0x36, [3] = 0x37, [4] = 0x38 }
 
 -- LEDGES. A ledge hop is not two steps, it is one JUMP that covers two tiles with an arc, and the
--- engine has an action for exactly that: MOVEMENT_ACTION_JUMP_2_DOWN/UP/LEFT/RIGHT = 0xC..0xF
--- (pokeemerald include/constants/event_object_movement.h:99-102), indexed here the same way every
--- other action table is -- the decomp's DOWN/UP/LEFT/RIGHT order matches DIR_ID's south/north/
--- west/east, which WALK_NORMAL_* at 0x8..0xB already confirms.
+-- adapter uses 0xC..0xF for it (MOVEMENT_ACTION_JUMP_2_*), indexed like every other action
+-- table here. The ids and their direction order are the decompilation's numbering (a pointer),
+-- not measured on a hopping player.
 --
 -- Without this a peer hopping a ledge moved two tiles in one update, which fell through to the
 -- "more than a tile out" branch and TELEPORTED the ghost across -- no arc, no hop. The user, with
@@ -3589,7 +3573,8 @@ local function setTileAllocated(n, on)
     w8(a, v)
 end
 
--- AllocSpriteTiles (sprite.c:702), imitated. Returns nil when OBJ VRAM has no run this long,
+-- First-fit search of the tile bitmap for a free run, after the decompilation's AllocSpriteTiles
+-- (a pointer; the bitmap's meaning is unmeasured). Returns nil when OBJ VRAM has no run this long,
 -- which is a real outcome on a busy map rather than a theoretical one.
 local function allocSpriteTiles(tileCount)
     local i = r16(GRESERVEDSPRITETILECOUNT_ADDR)
@@ -3611,9 +3596,8 @@ local function allocSpriteTiles(tileCount)
     end
 end
 
--- struct ObjectEventGraphicsInfo (include/global.fieldmap.h): tileTag 0x00, paletteTag 0x02,
--- reflectionPaletteTag 0x04, size 0x06, width 0x08, height 0x0A, paletteSlot/flags 0x0C,
--- tracks 0x0D, oam 0x10, subspriteTables 0x14, anims 0x18, images 0x1C, affineAnims 0x20.
+-- graphicsInfo(), below, reads a graphic's ROM entry at the offsets it names; that layout follows
+-- the decompilation's ObjectEventGraphicsInfo (a pointer) and is not measured field by field.
 -- ROM is 0x08000000-0x09FFFFFF on the GBA (the two 16 MB waitstate mirrors of the cartridge).
 -- Used below to sanity-check a pointer before anything is read through it or written into a
 -- live sprite: everything in this table, and everything it points at, is ROM data.
@@ -3720,11 +3704,12 @@ end
 --
 -- Three ROM reads turn a peer's animation state into a picture, all of them from that struct:
 --   * anims[animNum]                 -- the animation table for the state (fishing, biking, ...)
---   * [animCmdIndex]                 -- the command currently playing, 4 bytes, imageValue in the
---                                       low 16 bits and hFlip at bit 22 (pokeemerald
---                                       include/sprite.h:48-57, union AnimCmd:74-80)
---   * images[imageValue]             -- struct SpriteFrameImage {const u8 *data; u16 size;}, so
---                                       8 bytes per entry and the pixels are the first pointer
+--   * [animCmdIndex]                 -- the command currently playing: this code reads 4 bytes,
+--                                       the image index from the low 16 bits and hFlip from bit 22
+--   * images[imageValue]             -- this code steps 8 bytes per entry and takes the pixels
+--                                       from the first pointer
+-- Those bit and entry layouts follow the decompilation's sprite.h (a pointer) and are not measured
+-- field by field.
 --
 -- The peer sends animNum and animCmdIndex; both ends are on the same graphic, so both resolve to
 -- the same frame. SIZE comes from the graphic too (a bike is wider than a walker), which is why
@@ -3878,13 +3863,10 @@ genderFrames.oamMatricesAddr = 0x02021bc0
 -- UpdateSurfBlobFieldEffect animates and follows it every frame. A DRAWN peer has no sprite and
 -- no object event, so the frame it would be showing has to be resolved here instead.
 --
--- Which is one lookup, because the blob's animation table is as simple as a table gets: four
--- animations, one frame each, one per facing (pokeemerald src/data/field_effects/
--- field_effect_objects.h:179-209 -- sSurfBlobAnim_FaceSouth/North/West/East, holding images
--- 0, 1, 2 and 2-with-hFlip). So animNum is the facing minus one, in DIR_* order
--- (DIR_SOUTH 1, DIR_NORTH 2, DIR_WEST 3, DIR_EAST 4 -- include/constants/global.h), and east is
--- west mirrored. CONFIRMED LIVE as well as read: probes/surfblob_probe.lua watched the game's own
--- blob report anim 0 / image 0 while the player faced south, 2026-08-19.
+-- Which is one lookup: this code takes animNum as the facing minus one and draws east as west
+-- mirrored. Measured for south only: probes/surfblob_probe.lua watched the game's own blob report
+-- anim 0 / image 0 while the player faced south, 2026-08-19. The other three facings follow the
+-- decompilation's sSurfBlobAnim_* (a pointer) and are unmeasured.
 --
 -- The images pointer is read from the template in ROM rather than written down, so it stays
 -- correct on a build where the data moved; the palette slot is read off the game's own blob
@@ -3921,23 +3903,20 @@ end
 
 -- A REFLECTION IN THE WATER, likewise.
 --
--- The engine makes one by COPYING the sprite (SetUpReflection, pokeemerald
--- src/field_effect_helpers.c:47-68): same tiles, same shape, vertically flipped, priority 3 and
--- subpriority 152 so it sits behind everything, and -- the part that makes it read as a
--- reflection rather than an upside-down character -- a DIFFERENT palette, gReflectionEffectPaletteMap
--- (src/event_object_movement.c:182). Its vertical offset is the graphic's own height minus two
--- (GetReflectionVerticalOffset, :70-73), and its y2 is the main sprite's negated (:145).
---
--- So the drawn tier needs the same frame decoded a second time in the mapped palette, and drawn
--- flipped at +height-2. No approximation is involved anywhere in that, which matters: an
+-- This tier draws the same frame decoded a second time through the palette map
+-- (gReflectionEffectPaletteMap), flipped, at +height-2. The flip and the row it lands on were
+-- measured (framebuffer diff, 2026-08-21, in drawRunList). That the engine's reflection is a copy
+-- of the sprite with that palette map, height-2 offset and negated y2 is the decompilation's
+-- reading (SetUpReflection, a pointer) and otherwise unmeasured. It uses the game's own art, which
+-- matters: an
 -- invented reflection is exactly the kind of lookalike that never converges (pitfalls.md,
 -- "Approximating the game's own art never converges").
 -- THE RIPPLE, WHICH IS THE HALF OF A REFLECTION THAT IS NOT A FLIP.
 --
 -- A moving reflection is not drawn as a plain vertical flip: SetUpReflection sets
 -- ST_OAM_AFFINE_NORMAL on it and points it at OAM matrix 0, or matrix 1 when the character itself
--- is horizontally flipped (pokeemerald src/field_effect_helpers.c:66-68 and :158-166). Nothing in
--- the overworld source writes those two matrices, so what they DO was measured rather than read --
+-- is horizontally flipped (the decompilation's reading, field_effect_helpers.c -- a pointer). What
+-- the two matrices DO was measured rather than read --
 -- probes/surfblob_probe.lua, 2026-08-19, watching them while the player surfed:
 --
 --   oamMatrix[0] = 256,0,0,-256 -> 260,... -> 252,... -> 256,...   one step per frame
@@ -3959,10 +3938,10 @@ end
 -- Without it a peer on Shoal Cave's ice shimmered like a peer on a pond.
 -- THE FLASH CIRCLE, WHICH IS THE ONE PIECE OF OCCLUSION THIS TIER CAN ACTUALLY HAVE.
 --
--- A dark cave is not a drawn overlay. It is WINDOW 0: the engine writes the lit span for every
--- scanline into the scanline-effect buffer and DMAs it to REG_WIN0H each HBlank
--- (`sFlashEffectParams` targets `&REG_WIN0H`, src/field_screen_effect.c), so outside the circle
--- the layers simply are not displayed. The spawned and OAM copies are real sprites and the window
+-- A dark cave is not a drawn overlay. It is WINDOW 0: a lit span per scanline in the
+-- scanline-effect buffer, sent to REG_WIN0H (the buffer measured below; `sFlashEffectParams` in
+-- field_screen_effect.c is the pointer), so outside the circle the layers are not displayed.
+-- The spawned and OAM copies are real sprites and the window
 -- clips them for free; this tier paints after the PPU has finished, where windows no longer exist,
 -- so the user saw the painted ghost shining through the dark -- *"drawn ghost is not hidden in
 -- darkness/caves"*.
@@ -3979,8 +3958,9 @@ end
 -- anywhere", so trusting it unconditionally would erase this tier on every ordinary map. The
 -- effect is therefore confirmed at its source: gScanlineEffect's dmaDest must be REG_WIN0H and its
 -- state non-zero. Another scanline effect on another register leaves this alone.
---   gScanlineEffect 02039B28 { dmaDest 0x08, srcBuffer 0x14, state 0x15 } (pokeemerald.map and
---   include/scanline_effect.h), gScanlineEffectRegBuffers 02038C28, u16[2][0x3C0].
+--   gScanlineEffect 02039B28 (pokeemerald.map), gScanlineEffectRegBuffers 02038C28. This code
+--   reads dmaDest at +0x08, srcBuffer at +0x14 and state at +0x15; those offsets follow the
+--   decompilation's scanline_effect.h (a pointer) and are not separately measured.
 --
 -- VANILLA ONLY, like the hardware tier and the fishing hook: those are our own build's addresses
 -- and a patched ROM moves them. There the clip declines rather than reading someone else's memory,
@@ -4031,12 +4011,10 @@ end
 --
 -- The first version of this clipped to reflective water tiles and was wrong in the way the user
 -- named exactly: *"its supposed to go under the edge but still draw, but not get drawn on top of
--- the grass"*. A reflection is not clipped to the pond; it is a sprite at OAM priority 3
--- (SetUpReflection, pokeemerald src/field_effect_helpers.c:53) and the map covers it or does not.
---
--- Which the map decides per metatile, through its LAYER TYPE (field_camera.c's DrawMetatile,
--- :255-300 -- and the game's own comment on the NORMAL case says it outright, "which covers object
--- event sprites"):
+-- the grass"*. This code treats a reflection as a sprite at OAM priority 3 that the map covers or
+-- does not, decided per metatile by its LAYER TYPE. The priority value and the layer-type-to-BG
+-- mapping below are the decompilation's reading (SetUpReflection, DrawMetatile -- pointers), not
+-- measured on the game; the user's reports above are the symptoms it answers.
 --
 --   NORMAL  (0)  ground -> BG2, top -> BG1.  BG2 is ABOVE a priority-3 sprite, so grass, sand and
 --                ordinary ground HIDE a reflection completely. This is the case that was painting
@@ -4050,7 +4028,9 @@ end
 -- Water tiles are COVERED/SPLIT (that is what lets a surfing character be drawn over them at all),
 -- so this keeps every case the water test got right and fixes the shore.
 --
---   attributes: behaviour = bits 0-7, layer type = bits 12-15 (include/global.fieldmap.h:39-47)
+--   attributes: this code reads behaviour from bits 0-7 and layer type from bits 12-15 (layout per
+--   the decompilation's global.fieldmap.h, a pointer; the grass tile's NORMAL was read this way,
+--   2026-08-20, see the tall-grass note).
 -- WHICH PIXELS OF A METATILE COVER A SPRITE -- a 16-row bitmask, decoded once per metatile.
 --
 -- Tile-granular was not enough, and the shore is where it shows: clipping whole 16px cells kept
@@ -4060,10 +4040,9 @@ end
 -- asks the same question per pixel.
 --
 -- Which layers cover a priority-3 reflection is decided by the metatile's LAYER TYPE, because
--- that is what chooses the BG each layer is drawn on (DrawMetatile, pokeemerald
--- src/field_camera.c:255-300) and the overworld gives BG1 priority 1, BG2 priority 2 and BG3
--- priority 3 (sOverworldBgTemplates, src/overworld.c:266-303 -- and read back live from BG1CNT/
--- BG2CNT/BG3CNT to be sure). A sprite at priority 3 loses to BG1 and BG2 and WINS against BG3,
+-- this code takes that to choose the BG each layer is drawn on (the decompilation's DrawMetatile,
+-- a pointer; unmeasured), and the overworld's BG1/BG2/BG3 priorities 1/2/3 were read back live
+-- from BG1CNT/BG2CNT/BG3CNT. A sprite at priority 3 loses to BG1 and BG2 and WINS against BG3,
 -- since OBJ takes ties.
 --
 --   NORMAL  (0)  ground -> BG2, top -> BG1.  BOTH cover. Grass hides a reflection completely.
@@ -4071,8 +4050,9 @@ end
 --   SPLIT   (2)  ground -> BG3, top -> BG1.  Only the top layer covers.
 --
 -- A metatile is 8 tilemap entries: four for the bottom layer then four for the top, each 2x2 in
--- reading order, and each carrying a tile index plus the two flip bits (struct Tileset.metatiles
--- at +0x0C, include/global.fieldmap.h:64-73; NUM_TILES_PER_METATILE 8, NUM_TILES_IN_PRIMARY 512).
+-- reading order, and each carrying a tile index plus the two flip bits -- as this code reads it,
+-- with the metatiles pointer at +0x0C and secondary ids from 512. Those numbers follow the
+-- decompilation's global.fieldmap.h (a pointer) and are not separately measured.
 -- The pixels come from VRAM rather than the tileset's own `tiles` pointer, because that data is
 -- usually COMPRESSED in ROM while VRAM always holds it decompressed and ready -- confirmed
 -- readable first, with probes/bgread_probe.lua, since this project has a recorded case of a VRAM
@@ -4084,15 +4064,15 @@ genderFrames.coverLayout = nil
 
 -- `who` is "sprite" for an ordinary character or "reflection" for one, and the answer genuinely
 -- differs, because the two are drawn at different OAM priorities and a BG only covers a sprite it
--- outranks. sElevationToPriority (src/event_object_movement.c:7729) puts a character on ordinary
--- ground at priority 2; SetUpReflection pins a reflection at 3. Against BG1/BG2/BG3 at priorities
--- 1/2/3 (sOverworldBgTemplates), with OBJ winning ties:
+-- outranks. This code takes a character on ordinary ground at priority 2 and a reflection at 3
+-- (the decompilation's sElevationToPriority and SetUpReflection -- pointers; unmeasured). Against
+-- BG1/BG2/BG3 at priorities 1/2/3 (read back live, above), with OBJ winning ties:
 --
 --                     BG1 (prio 1)   BG2 (prio 2)   BG3 (prio 3)
 --   character (2)     covers         ties, OBJ wins  no
 --   reflection (3)    covers         covers          ties, OBJ wins
 --
--- Crossed with where DrawMetatile puts each layer (src/field_camera.c:255-300):
+-- Crossed with where this code takes each layer to be drawn (DrawMetatile, a pointer):
 --
 --   NORMAL   ground->BG2, top->BG1 : character hidden by the TOP layer only;
 --                                    reflection hidden by BOTH (this is grass, and it hides one).
@@ -4204,10 +4184,10 @@ end
 -- at gMapHeader: not zero, not a pointer, and the adapter correctly declined to clip rather than
 -- clipping everything away -- but declining means a ghost paints over a roof.
 --
--- **BOTH ARE PINNED BY ONE EXACT RELATION THE ENGINE STATES ITSELF**, so neither needs a per-build
--- constant and neither is a guess: `gBackupMapLayout.width` is the layout's own width plus
--- MAP_OFFSET_W and its height plus MAP_OFFSET_H (`InitBackupMapLayoutData`,
--- `include/fieldmap.h:18-20`). The grid is found first, by the player standing inside it; the
+-- **BOTH ARE PINNED BY ONE RELATION**, so neither needs a per-build constant: this code requires
+-- the grid's width to be the layout's width plus 15 and its height the layout's plus 14. That
+-- relation and those margins (MAP_OFFSET_W/H) are the decompilation's reading
+-- (`InitBackupMapLayoutData`, a pointer), not measured here. The grid is found first, by the player standing inside it; the
 -- header is then whatever word points at a ROM layout whose dimensions satisfy BOTH equations
 -- against that grid. Twenty bits of agreement, not a shape that might coincide.
 genderFrames.MAP_OFFSET_W, genderFrames.MAP_OFFSET_H = 15, 14
@@ -4360,24 +4340,17 @@ genderFrames.metatileAt = function(x, y)
     return r16(map + (x + width * y) * 2) & 0x03ff
 end
 
--- Whether a peer HAS a reflection at all is the separate question, and the engine answers it from
--- the metatile behaviour below the character -- ObjectEventGetNearbyReflectionType
--- (src/event_object_movement.c:7625-7650) scans downward from currentCoords.y + 1 --
--- against MetatileBehavior_IsReflective (src/metatile_behavior.c:199-210), a short fixed list.
--- Note what is NOT on it: MB_OCEAN_WATER. The sea does not reflect in this game, so a peer surfing
--- at sea correctly gets nothing, and drawing one there was our invention.
---   MB_POND_WATER 16, MB_SOOTOPOLIS_DEEP_WATER 20, MB_PUDDLE 22,
---   MB_UNUSED_SOOTOPOLIS_DEEP_WATER_2 26, MB_ICE 32, MB_REFLECTION_UNDER_BRIDGE 43
---   (include/constants/metatile_behaviors.h, enum from 0 -- cross-checked against the two values
---   this repo already had measured, MB_POND_WATER 16 and MB_OCEAN_WATER 21.)
+-- Whether a peer HAS a reflection at all is the separate question. This code answers it from the
+-- metatile behaviour below the character, against the set of behaviour ids in the table below.
+-- Measured: 16 (pond water) and 21 (ocean water, NOT in the set -- a peer surfing at sea gets no
+-- reflection). The other ids in the set, and the downward scan itself, are the decompilation's
+-- reading (ObjectEventGetNearbyReflectionType, MetatileBehavior_IsReflective -- pointers) and are
+-- unmeasured on the game.
 --
--- AND THERE ARE TWO KINDS OF REFLECTION, not one. GetReflectionTypeByMetatileBehavior
--- (src/event_object_movement.c) asks MetatileBehavior_IsIce FIRST and only then IsReflective, so
--- MB_ICE is REFL_TYPE_ICE and everything else on the list is REFL_TYPE_WATER. The difference is
--- the whole shimmer: GroundEffect_IceReflection calls SetUpReflection with stillReflection TRUE,
--- which skips ST_OAM_AFFINE_NORMAL and leaves the reflection a plain vertical flip, while the
--- water one is drawn through OAM matrix 0/1 and breathes (src/field_effect_helpers.c:47-68,
--- :151-166). Ice does not ripple, so its reflection does not either.
+-- TWO KINDS OF REFLECTION: this code marks 32 (ice) as "ice" and the rest as "water". An ice
+-- reflection must hold still -- the user on screen in Shoal Cave (see the hardware tier's ice
+-- note). That ice is decided before water, and by a still-reflection flag, is the
+-- decompilation's reading (GetReflectionTypeByMetatileBehavior, a pointer), not measured.
 --
 -- The values are the kind rather than `true` so both self-drawn tiers can ask which one they are
 -- drawing; every existing caller only tested truthiness and is unaffected.
@@ -4389,9 +4362,10 @@ genderFrames.reflectiveBehaviour = {
 
 -- THE ENGINE'S SCAN, and it is wider than one tile in both senses.
 --
--- ObjectEventGetNearbyReflectionType (src/event_object_movement.c:7625-7650) walks a region
--- (info->width + 8) >> 4 tiles across and (info->height + 8) >> 4 down, starting one row BELOW the
--- character, and it does so around the PREVIOUS coordinates as well as the current ones.
+-- This code scans a region about the graphic's size in tiles, starting one row BELOW the
+-- character, around the PREVIOUS coordinates as well as the current ones. The region's exact
+-- extent is the decompilation's reading (ObjectEventGetNearbyReflectionType, a pointer) and is
+-- unmeasured; the previous-coordinates half answers what the user saw on screen, below.
 --
 -- Both parts matter, and the second is what a first reading loses. Because previousCoords is
 -- included, a character stepping off the water keeps its reflection for the whole of that step --
@@ -4493,7 +4467,8 @@ end
 -- do it: measured 2026-08-20, the grass metatile's TOP layer is completely EMPTY
 -- (`BOTTOM 2012 2013 2022 2023  TOP 0000 0000 0000 0000`, layer type NORMAL), so no BG layer is
 -- covering anything. The engine spawns a field-effect SPRITE per object standing in grass and
--- draws it above them (FldEff_TallGrass, src/field_effect_helpers.c:291-309). A spawned ghost gets
+-- draws it above them (FldEff_TallGrass is where the decompilation places it; the subpriority
+-- order was measured, below). A spawned ghost gets
 -- one for free, being a real object event; a painted one gets nothing, and the user saw exactly
 -- that -- *"its not hidden in tall grass ... player & spawned work as intended"*.
 --
@@ -4511,16 +4486,15 @@ genderFrames.grassTemplate = { [2] = 0x0850caa0, [3] = 0x0850cf94 }
 
 -- WHICH FRAME OF THE RUSTLE, decoded from the template's own animation rather than assumed.
 --
--- Grass does not sit still when something walks into it: the tall-grass animation is frames
--- 1,2,3,4,0 at ten game-frames each and then it settles (sAnim_TallGrass,
--- src/data/field_effects/field_effect_objects.h:79-87). A painted ghost drawing frame 0 forever
--- stands in grass that never moves -- *"the grass is supposed to shake/move when you walk trought
--- it"*.
+-- Grass does not sit still when something walks into it: it rustles and then settles. A painted
+-- ghost drawing frame 0 forever stands in grass that never moves -- *"the grass is supposed to
+-- shake/move when you walk trought it"*.
 --
--- The commands are read at runtime instead of the numbers being copied here, so long grass gets
--- its own timing rather than tall grass's: union AnimCmd packs imageValue in the low 16 bits and
--- duration in the next 6 (include/sprite.h), and the list ends with a command whose low half is
--- 0xFFFF. Elapsed frames are walked through the durations; past the end it holds the last frame,
+-- The commands are read at runtime from the template (sAnim_TallGrass is the pointer), so long
+-- grass gets its own timing rather than tall grass's. This code takes the image index from a
+-- command's low 16 bits and its duration from the next 6, and stops at a low half of 0xFFFF --
+-- a layout that follows the decompilation's sprite.h (a pointer) and is not measured field by
+-- field. Elapsed frames are walked through the durations; past the end it holds the last frame,
 -- which is what "settled" is.
 -- One pass of grass for a peer: the tiles its FEET overlap in the given row range, each with its
 -- own rustle clock. Called twice per peer -- once for the row above, BEFORE the character is drawn,
@@ -4583,10 +4557,11 @@ end
 
 -- LANDING DUST, painted, for both tiers.
 --
--- The engine spawns it at the character's own tile the moment a jump lands
--- (GroundEffect_JumpLandingDust -> FLDEFF_DUST, src/event_object_movement.c:7995-8002) from
--- gFieldEffectObjectTemplate_GroundImpactDust (0850CCA0, pokeemerald.map): a 16x8 sprite whose
--- animation is frames 0,1,2 at eight game-frames each, so 24 frames and gone.
+-- The engine spawns a dust sprite when a jump lands (seen under a ghost by shadowdust_probe.lua,
+-- 2026-08-21). This code draws it from gFieldEffectObjectTemplate_GroundImpactDust (0850CCA0,
+-- pokeemerald.map) as a 16x8 frame, for as long as the template's own animation commands run
+-- (read at runtime, dustFrameAt). Its placement on the character's own tile is the
+-- decompilation's reading (GroundEffect_JumpLandingDust, a pointer), not measured.
 --
 -- Painted for BOTH tiers, for different reasons. The drawn tier has no engine to spawn it at all.
 -- The spawned tier does get the engine's own dust -- but our painted SHADOW covers it, because an
@@ -4606,7 +4581,8 @@ genderFrames.dustRuns = function(frame)
     -- landing -- and once the trail below started calling this once per live puff per frame, that
     -- scan became the per-frame cost of the whole feature. `IndexOfSpritePaletteTag` is the
     -- engine's own answer and it is a 16-entry table: sSpritePaletteTags 03000CF0 (pokeemerald.sym)
-    -- against the dust template's FLDEFF_PAL_TAG_GENERAL_0 (0x1004, constants/field_effects.h:112).
+    -- against the tag 0x1004, which this code takes as the dust's palette tag
+    -- (FLDEFF_PAL_TAG_GENERAL_0 in the decompilation -- a pointer; not read off the template).
     local pal = hwPaletteSlotForTag(0x1004)
     if not pal then return nil end
     -- 16x8, from the template's own OAM shape (gObjectEventBaseOam_16x8).
@@ -4720,13 +4696,9 @@ end
 -- the whole time. The spawned tier is unaffected because the ENGINE emits its dust per step
 -- rather than per action, which is exactly why the defect showed on two tiers and not three.
 --
--- So the bounce is counted instead, on the engine's own number rather than one tuned by eye.
--- `DoJumpSpriteMovement` (event_object_movement.c:8462-8492) ends a jump at `distanceToTime`:
--- 16 frames for JUMP_DISTANCE_IN_PLACE and JUMP_DISTANCE_NORMAL, 32 for JUMP_DISTANCE_FAR. The
--- acro actions pick those distances at :6854-7024 --
---   0x70..0x73 ACRO_WHEELIE_HOP_FACE_*  IN_PLACE  ) 16
---   0x74..0x77 ACRO_WHEELIE_HOP_*       NORMAL    )
---   0x78..0x7B ACRO_WHEELIE_JUMP_*      FAR         32
+-- So the bounce is counted instead: 16 frames for 0x70..0x77 (wheelie hops) and 32 for 0x78..0x7B
+-- (wheelie jumps). Those periods are the decompilation's reading (`DoJumpSpriteMovement`, a
+-- pointer), not measured on a bouncing player.
 -- A ledge hop returns nil and keeps the edge rule: it is a ONE-SHOT action whose id leaves the
 -- jump range when it finishes, so it has an edge and does not need counting -- and counting it
 -- would puff halfway through a two-tile hop.
@@ -5193,9 +5165,11 @@ genderFrames.runsForPeerGfx = function(gfx, animNum, animIdx)
     return runs, info, hFlip, imageIndex
 end
 
--- GetMapCoordsFromSpritePos (event_object_movement.c:4793) plus TrySetupObjectEventSprite's own
--- +8 / +16+centerToCorner adjustment. Computed, never copied: copying a template's screen
--- position is what drew Crystal's first ghost off the bottom of the screen.
+-- Map tile to sprite screen position: camera-relative tile, plus 8 in x and 16 plus the
+-- centre-to-corner vector in y. The formula follows the decompilation (GetMapCoordsFromSpritePos,
+-- TrySetupObjectEventSprite -- pointers); not measured term by term. Computed, never copied:
+-- copying a template's screen position is what drew Crystal's first ghost off the bottom of the
+-- screen.
 local function spriteScreenPos(mapX, mapY, centerToCornerVecY)
     local sb1 = session.saveBlockPtr(GSAVEBLOCK1PTR_ADDR)
     local camX, camY = 0, 0
@@ -5263,13 +5237,10 @@ end
 
 -- LOCALID_PLAYER (255), deliberately, and it is the fix for a real bug found live 2026-08-18:
 -- talking to a ghost ran a garbage script and dumped the user into the slot-machine minigame.
--- An A-press resolves a script by looking the object's localId up in the MAP'S TEMPLATE TABLE
--- (GetObjectEventScriptPointerByObjectEventId -> GetObjectEventTemplateByLocalIdAndMap). A
--- synthesised ghost has no template, the lookup returns NULL, and the game runs whatever is at
--- that address -- the decomp even marks that NULL deref as a known bug.
--- GetInteractedObjectEventScript (field_control_avatar.c:292) returns NULL outright for any
--- object whose localId is LOCALID_PLAYER, so borrowing that id makes the ghost non-interactable
--- using the engine's own check rather than a guard of ours.
+-- A ghost wears the player's localId so that an A-press finds no script for it. Why the garbage
+-- script ran (a template lookup that misses for a synthesised object) and why the player's id is
+-- skipped are the decompilation's reading (GetObjectEventTemplateByLocalIdAndMap,
+-- GetInteractedObjectEventScript -- pointers), not measured on the game.
 local GHOST_LOCAL_ID = 255
 
 -- ghosts[playerId] = { objId, sprId, localId, tileStart, tileCount, mapX, mapY }
@@ -5348,9 +5319,9 @@ end
 -- Deliberately NOT an imitation of RemoveObjectEventInternal, which calls DestroySprite and frees
 -- tiles via the sprite's own images->size. We free exactly the range we allocated: simpler, and it
 -- cannot free somebody else's VRAM.
--- IDENTITY FIRST, always. A map load runs ResetSpriteData (overworld.c:2134), which calls
--- FreeSpriteTileRanges and ResetAllSprites, and RemoveAllObjectEventsExceptPlayer clears the
--- object array -- then the NEW map's NPCs are given those same slots and those same tiles. So
+-- IDENTITY FIRST, always. This code assumes a map load clears the sprites, tiles and non-player
+-- objects and hands the same slots and tiles to the NEW map's NPCs -- the decompilation's reading
+-- (ResetSpriteData, RemoveAllObjectEventsExceptPlayer -- pointers), not measured slot by slot. So
 -- destroying "our" ghost without checking it is still ours would deactivate a real NPC and free
 -- the tiles of somebody else's sprite. Both are silent: the NPC just vanishes, and the VRAM
 -- corruption shows up later somewhere unrelated.
@@ -5574,8 +5545,8 @@ local function wantedGfx(remote)
     -- Everywhere else, falling back to the local player's graphic is merely incomplete: the ghost
     -- is drawn as a walker instead of a cyclist, which is wrong but is still a character standing
     -- where the peer is. A fly is not that. The engine puts the character into the FIELD-MOVE POSE
-    -- and then the SURFING graphic to sit on the bird (FlyOutFieldEffect_FieldMovePose and
-    -- _JumpOnBird, src/field_effect.c) -- so a ghost wearing the local player's walking graphic
+    -- and then the SURFING graphic to sit on the bird (the decompilation's reading of
+    -- FlyOutFieldEffect_*, a pointer; not measured) -- so a ghost wearing the local player's walking graphic
     -- does not merely look plain, it flies away in a pose that does not exist in the game.
     --
     -- Safe here for the reason the gate is unsafe in general: spawnGhost and
@@ -5755,8 +5726,8 @@ tiering.applyShowMonWindow = function(rows)
     -- v=0..160) -- a reset, not a claim. Clipping to that blanked the painted ghost for exactly
     -- one frame, three frames before it jumps onto the blob, which is the user's *"vanishes just
     -- slightly, barely noticable"*. From RestoreBg onward there is no banner to hide behind, so
-    -- there is no panel: sState is data[0] (field_effect.c:2552, sFieldMoveShowMonOutdoors's
-    -- function table -- 5 is RestoreBg, 6 is End).
+    -- there is no panel: this code reads the task's state from data[0] and treats 5 and up as
+    -- restore/end (state 6 measured above; 5 as RestoreBg is the decompilation's naming, a pointer).
     if r16(showMon + 0x08) >= 5 then
         tiering.showMonWasLive = nil
         tiering.panelScannedAt = nil
@@ -6099,7 +6070,7 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
     -- renders cleanly but at the wrong width, because the special-state graphics are 32 wide where
     -- the normal one is 16. Shape and size are the only fields that describe the new graphic's
     -- dimensions, so they are the only ones taken.
-    --   attr0 bits 14-15 = shape, attr1 bits 14-15 = size (struct OamData, include/sprite.h)
+    --   attr0 bits 14-15 = shape, attr1 bits 14-15 = size (the GBA's OAM attribute format).
     local attr2 = r16(dst + 0x04)
     w16(dst + 0x04, (attr2 & 0xfc00) | (tileStart & 0x03ff))
     if info.oam ~= 0 then
@@ -6113,16 +6084,16 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
     w32(dst + 0x08, info.anims)
     w32(dst + 0x0c, info.images)
     w32(dst + 0x10, info.affineAnims)
-    -- Subsprite tables, wired the way SetSubspriteTables does (sprite.c:1655): a graphic with
-    -- tables gets SUBSPRITES_ON and table 0; one without gets subsprites off, or it would be
-    -- drawn through the previous graphic's layout.
+    -- Subsprite tables: a graphic with tables gets subsprites on; one without gets subsprites off,
+    -- or it would be drawn through the previous graphic's layout. Modelled on the decompilation's
+    -- SetSubspriteTables (a pointer); the flag's meaning is not separately measured.
     w32(dst + 0x18, info.subspriteTables)
     -- PRESERVE THE SUBSPRITE TABLE NUMBER -- forcing 0 was one visible frame of scramble.
     --
     -- A 32-wide graphic is drawn through a subsprite table, and WHICH table is chosen by the
-    -- ENGINE, per frame, from the object's elevation: sElevationToSubspriteTableNum
-    -- (event_object_movement.c:7733-7745) -- ordinary ground is table 1, and table 0 in
-    -- sOamTables_* is EMPTY. Writing 0 here left the PPU drawing the new 16-tile frame with no
+    -- ENGINE, per frame, from the object's elevation (sElevationToSubspriteTableNum is the pointer;
+    -- that ordinary ground is table 1 and table 0 is empty is the decompilation's reading, not
+    -- measured). Writing 0 here left the PPU drawing the new 16-tile frame with no
     -- layout map for exactly one frame, until UpdateObjectEventElevationAndPriority chose the
     -- real table again -- one frame of scrambled pieces at every graphic change, which is both
     -- the user's *"grey/flash ish glitched sprite"* at the start of surfing (screenshot
@@ -6198,9 +6169,11 @@ end
 --   gFieldEffectObjectTemplate_SurfBlob  0850CBC4  (SpriteTemplate: tileTag 0x00, paletteTag
 --     0x02, oam 0x04, anims 0x08, images 0x0C, affineAnims 0x10, callback 0x14)
 --   UpdateSurfBlobFieldEffect            08155658  (+1 for Thumb)
--- Its data slots (field_effect_helpers.c:990): data[0] bob state, data[2] object event id,
--- data[3] velocity, data[6]/data[7] previous x/y. FldEff_SurfBlob seeds velocity and prev to -1,
--- sets coordOffsetEnabled, palette 0 and subpriority 150 -- all reproduced below.
+-- What this code writes into the blob: bob state in data[0] (its low nibble measured changing on
+-- the player's own blob at a dismount, see the dismount note), the ghost's object id in data[2],
+-- velocity and previous x/y seeded to -1, coordOffsetEnabled, palette 0 and subpriority 150. The
+-- slot meanings other than data[0], and the seed values, follow the decompilation's FldEff_SurfBlob
+-- (a pointer) and are not measured.
 surfBlob.updateCb = 0x08155658 + 1
 surfBlob.bobMode = 1
 surfBlob.subPriority = 150
@@ -6262,9 +6235,9 @@ spawnSurfBlob = function(g, mapX, mapY)
     w32(d + 0x10, affinePtr)
     w32(d + 0x1c, surfBlob.updateCb)
 
-    -- Position. NOT the rider's formula: FldEff_SurfBlob uses SetSpritePosToOffsetMapCoords,
-    -- which is SetSpritePosToMapCoords (event_object_movement.c:4801) plus (8,8). That helper
-    -- subtracts BOTH gTotalCameraPixelOffset and gFieldCamera, where the rider's
+    -- Position. NOT the rider's formula: this subtracts BOTH gTotalCameraPixelOffset and
+    -- gFieldCamera and adds (8,8), after the decompilation's SetSpritePosToOffsetMapCoords (a
+    -- pointer; the formula is not measured term by term), where the rider's
     -- GetMapCoordsFromSpritePos subtracts only the former -- using the wrong one put the blob a
     -- tile below the ghost. The camera terms cancel while the camera is at rest, which is the
     -- only moment a ghost is placed anyway, but they are written out so the two stay
@@ -6315,12 +6288,13 @@ end
 -- routine, not its sprite: built here and driven from Lua, it is a real hardware sprite with real
 -- depth. The same reasoning that made the surf blob work.
 --
--- From FldEff_Shadow (src/field_effect_helpers.c:233-247) and UpdateShadowFieldEffect (:249-274):
---   * template chosen by the graphic's shadowSize (bits 4-5 of graphicsInfo +0x0C):
+-- What this code does (modelled on the decompilation's FldEff_Shadow / UpdateShadowFieldEffect --
+-- pointers; the choices below are not measured one by one on the game):
+--   * template chosen by the graphic's shadow size (bits 4-5 of graphicsInfo +0x0C):
 --     ShadowSmall 0850C9FC, Medium 0850CA14, Large 0850CA2C, ExtraLarge 0850CA44 (pokeemerald.map)
 --   * subpriority 148, coordOffsetEnabled
---   * y offset = (height >> 1) - gShadowVerticalOffsets[shadowSize], offsets {4,4,4,16}
---   * each frame: priority follows the character's, x = character's x, y = character's y + offset
+--   * a per-size vertical drop (genderFrames.shadowDrop)
+--   * each frame: priority follows the character's, x = character's x, y = character's y + drop
 --     -- pos1 only, so the shadow stays on the ground while the character arcs on pos2.
 -- Fields and globals rather than locals: this chunk is at Lua's hard 200-local ceiling, where one
 -- more name is a parse failure and the adapter does not load at all.
@@ -6330,12 +6304,11 @@ genderFrames.shadowTemplates =
 -- WHY THE FIRST ATTEMPT RESET THE GAME, and it was not the tile allocation this file suspected.
 --
 -- A sprite's callback was left at 0, on the reasoning that the engine's own would re-find the
--- object by localId and follow the player. `AnimateSprites` (sprite.c:308-322) calls
--- `sprite->callback(sprite)` for EVERY sprite with inUse set, with no null check -- the engine
--- never needs one, because `sDummySprite` (sprite.c:165) seeds `SpriteCallbackDummy` and
--- `CreateSpriteAt` (:556) always copies the template's. So a zero there is a call to 0x00000000,
--- which on a GBA is the BIOS reset vector: the game restarts, exactly as the user described it
+-- object by localId and follow the player. Observed: the game restarted, as the user described it
 -- (*"everytime i jump with the bike, the game restarts now"*), on the first frame after a hop.
+-- The explanation -- every in-use sprite's callback is called with no
+-- null check, so 0 jumps to the BIOS reset vector -- is the decompilation's reading
+-- (`AnimateSprites`, a pointer), not traced on the game.
 --
 -- The fix is the engine's own do-nothing callback rather than a guard of ours.
 --   SpriteCallbackDummy  08007428  (pokeemerald.map:6220 and .sym; the two bytes there are
@@ -6345,8 +6318,8 @@ genderFrames.shadowTemplates =
 -- `bx lr` is not there the shadow sprite is simply not built and the painted fallback stays.
 genderFrames.spriteCallbackDummy = 0x08007428 + 1 -- +1 selects Thumb
 
--- centerToCornerVec by OAM shape/size, sCenterToCornerVecTable (sprite.c:137-157) verbatim as
--- values, indexed shape*4 + size. The hardware draws an OBJ from its top-left and every sprite the
+-- centerToCornerVec by OAM shape/size, indexed shape*4 + size: minus half the OBJ's width and
+-- height for each GBA shape/size. The hardware draws an OBJ from its top-left and every sprite the
 -- engine makes carries this, so that its POSITION means its centre; a sprite built by hand and
 -- never given it lands half a frame down-right, which is the bug the surf blob already had.
 -- The first version of the shadow guessed -16 or -8 from the frame's byte count, which is wrong
@@ -6488,13 +6461,10 @@ end
 
 -- UNDERWATER: THE SAME IDEA AS THE BLOB, AND A COMPLETELY DIFFERENT MECHANISM.
 --
--- Surfing puts a second sprite UNDER the rider. Diving does not: the character's own sprite is
--- made to bob, by a THIRD sprite that draws nothing at all. `PlayerAvatarTransition_Underwater`
--- (src/field_player_avatar.c:888-894) sets the underwater graphic and then calls
--- `StartUnderwaterSurfBlobBobbing(objEvent->spriteId)`, which creates an invisible dummy sprite
--- whose callback nudges the NAMED sprite's y2 up and down (src/field_effect_helpers.c:1150-1176):
--- +1 every fourth frame, the direction reversing every sixteenth. The result is a slow four-pixel
--- drift, and it is the whole of what "underwater" looks like when a character is standing still.
+-- Surfing puts a second sprite UNDER the rider. For diving, this code instead creates an invisible
+-- sprite on the engine's underwater bobbing callback, pointed at the character's own sprite, so the
+-- character bobs in place. That the player's own dive works this way is the decompilation's
+-- reading (`StartUnderwaterSurfBlobBobbing`, a pointer); the bob's step and period are not measured.
 --
 -- So a ghost gets one of those dummies pointed at ITSELF, and the engine bobs it for us -- the same
 -- let-the-game-do-the-work move as handing the surf blob to UpdateSurfBlobFieldEffect, and for the
@@ -6565,33 +6535,29 @@ end
 -- object and puts something else on screen in its place -- so a ghost that keeps drawing a
 -- character is drawing a person the game has taken off the board.
 --
---   * BRINEY'S BOAT hides the player (`hideobjectat LOCALID_PLAYER`) and then applies the SAME
---     movement script to the invisible player object and to the boat's object, so the two travel
---     one on top of the other with only the boat drawn
---     (data/maps/Route104/scripts.inc, Route104_EventScript_SailToDewford). The player's own
---     graphicsId never changes, so `gfx` cannot describe it: the vehicle is a different object
---     and has to be named separately.
---   * FLY takes the player's sprite away from the map entirely. The bird's callback drives it in
---     SCREEN coordinates with coordOffsetEnabled cleared (SpriteCB_FlyBirdSwoopDown,
---     src/field_effect.c), while the map position underneath never moves -- so position, action
---     and animation all report a character standing still on a tile through the whole departure.
+--   * BRINEY'S BOAT: this code expects the player hidden with the boat object moving on the same
+--     tile, and names the vehicle separately because the player's graphicsId does not change.
+--     That reading of the ride comes from the decompilation's map script
+--     (Route104_EventScript_SailToDewford, a pointer) and is not measured on the game.
+--   * FLY: this code expects the bird's callback to carry the player's sprite in SCREEN
+--     coordinates while the map position stays put, so position, action and animation cannot
+--     describe the departure. Also the decompilation's reading (SpriteCB_FlyBirdSwoopDown, a
+--     pointer), not measured.
 --
 -- Both are read from the engine's own statements rather than inferred: the object's `invisible`
 -- bit, the boat object's presence on the player's tile, and the fly task's own bird sprite.
 ----------------------------------------------------------------------------
--- OBJ_EVENT_GFX_MR_BRINEYS_BOAT (include/constants/event_objects.h:95). Its graphics info is
--- 32x32 on paletteTag OBJ_EVENT_PAL_TAG_NPC_3 / PALSLOT_NPC_3
--- (src/data/object_events/object_event_graphics_info.h) -- an ordinary NPC palette slot, which is
--- the whole of why the receive side cannot simply hand it to a ghost. See flyRide.boatPalette.
+-- 88 as the boat's graphicsId (OBJ_EVENT_GFX_MR_BRINEYS_BOAT in the decompilation -- a pointer,
+-- not measured). Its graphic is taken to use an ordinary NPC palette slot rather than the
+-- player's, which is why the receive side cannot simply hand it to a ghost. See flyRide.boatPalette.
 flyRide.BOAT_GFX = 88
 
 -- gTasks: the same table and stride tiering.applyShowMonWindow already scans for the field-move
 -- banner -- 16 entries of 0x28 at 0x03005E00, func at +0x00 (a Thumb pointer, so odd), isActive
 -- at +0x04, data[] at +0x08.
 flyRide.TASKS_ADDR, flyRide.TASK_SIZE = 0x03005e00, 0x28
--- Task_FlyOut / Task_FlyIn, +1 for Thumb (pokeemerald.map). Their data slots are named in
--- src/field_effect.c immediately above FldEff_UseFly: data[0] tState, data[1] tMonId and then
--- tBirdSpriteId re-using the same slot, data[2] tTimer, data[15] tAvatarFlags.
+-- Task_FlyOut / Task_FlyIn, +1 for Thumb (pokeemerald.map). Which data[] slot holds what (state,
+-- bird sprite id, timer) follows the decompilation's field_effect.c (a pointer); not measured.
 flyRide.TASK_FLY_OUT, flyRide.TASK_FLY_IN = 0x080b91d5, 0x080b97d5
 -- EVERY ROM ADDRESS IN THIS SECTION IS SHIFTED ON A PATCHED ROM, and none of them would fail
 -- loudly if it were not. `genderFrames.romOffset` is the offset loadGenderFrames detected -- 0 on
@@ -6604,18 +6570,19 @@ flyRide.rom = function(a) return a + (genderFrames.romOffset or 0) end
 -- rather than by the task's state number is deliberate: the same task id runs several callbacks
 -- across a fly, and the swoop is the only one that carries a character.
 flyRide.BIRD_SWOOP_CB = 0x080b963d
--- MAX_SPRITES (include/sprite.h:5), which StartFlyBirdSwoopDown writes into the bird's
--- sPlayerSpriteId (data[6]) to mean "carrying nobody". SetFlyBirdPlayerSpriteId replaces it with a
--- real sprite id when the character is picked up -- so that one slot is the engine's own answer to
--- "is this bird carrying somebody", and no state arithmetic of ours can get it wrong.
+-- 64 in the bird's data[6] is read as "carrying nobody", and any other value as the carried
+-- sprite's id -- so that one slot answers "is this bird carrying somebody" without state arithmetic
+-- of ours. The sentinel and the slot are the decompilation's reading (MAX_SPRITES,
+-- StartFlyBirdSwoopDown -- pointers), not measured.
 flyRide.NO_RIDER = 64
 
 -- WHAT THE SENDER PUBLISHES. Results land on the table rather than in locals or a returned tuple:
 -- this chunk is at Lua's 200-local ceiling, where one more top-level name is a parse failure and
 -- the adapter does not load at all.
 --
---   flyRide.invis -- the object's own `invisible` bit (+0x01 bit 0x20,
---                    include/global.fieldmap.h:209). "The engine is not drawing this character."
+--   flyRide.invis -- the object's own `invisible` bit (+0x01 bit 0x20; the bit's position follows
+--                    the decompilation's global.fieldmap.h, unmeasured). "The engine is not drawing
+--                    this character."
 --   flyRide.boat  -- the graphicsId of the vehicle the player is riding, or nil.
 --   flyRide.fly   -- nil, 1 (in the fly cutscene, still on the ground) or 2 (carried by the bird).
 --   flyRide.flyk  -- the bird's arc parameter, so a receiver's bird can start in phase rather
@@ -6672,21 +6639,18 @@ end
 ----------------------------------------------------------------------------
 -- THE DOOR A GHOST OPENS.
 --
--- A door in this game is not a sprite and not a character: it is a TASK that redraws two
--- metatiles. `FieldAnimateDoorOpen(x, y)` looks the door tile's metatile up in
--- sDoorAnimGraphicsTable and creates `Task_AnimateDoor`, which walks a four-frame table copying
--- tiles into OBJ VRAM (CopyDoorTilesToVram) and writing the BG tilemap (DrawDoorMetatileAt), then
--- destroys itself. **It never touches the map grid, the save, or any object** -- src/field_door.c
--- reaches only VRAM and the tilemap, which is the whole reason this is a thing an adapter may do
--- at all. One task slot, reclaimed by the engine's own DestroyTask.
+-- This code opens a door for a ghost by creating the engine's own door TASK (`Task_AnimateDoor`)
+-- for the door tile, one task slot, which the engine retires itself. That the task only redraws
+-- the door's tiles and tilemap -- **never the map grid, the save, or any object** -- is the
+-- decompilation's reading (field_door.c, a pointer) and is NOT measured on the game; it is the
+-- premise that makes this an adapter-permitted write, so it is a question for UNVERIFIED.md.
 --
--- WHAT THE ENGINE DOES, AND THEREFORE WHAT A GHOST HAS TO REPRODUCE (src/field_screen_effect.c):
+-- The sequence reproduced, as the decompilation describes the player's own (Task_DoDoorWarp,
+-- Task_ExitDoor -- pointers; unmeasured):
 --
---   ENTERING (Task_DoDoorWarp) -- the player stands at (x,y) and the door is the tile ABOVE, at
---     (x, y-1): FieldAnimateDoorOpen, walk up into it, FieldAnimateDoorClose, fade, warp.
---   LEAVING (Task_ExitDoor) -- the player is standing ON the door at (x,y): FieldSetDoorOpened
---     draws it open with NO animation and no task at all, then walk down, then
---     FieldAnimateDoorClose.
+--   ENTERING -- the door is the tile ABOVE the player: open, walk up, close.
+--   LEAVING  -- the player stands ON the door: it is shown open with no animation, then the
+--     player walks down, then it closes.
 --
 -- That asymmetry is why there are three kinds on the wire rather than two. A close played against
 -- a door nobody opened animates a closed door shutting, which is a defect a ghost would show
@@ -6721,10 +6685,9 @@ end
 --                                                   with romOffset. See isDoorTask.
 --   sDoorOpenAnimFrames     08496F8C  sDoorCloseAnimFrames  08496FA0
 --   sBigDoorOpenAnimFrames  08496FB4  sDoorAnimGraphicsTable 08497174, 0x288 bytes
--- struct DoorGraphics is 12 bytes: metatileNum u16 +0x00, sound u8 +0x02, size u8 +0x03,
--- tiles ptr +0x04, palettes ptr +0x08 (src/field_door.c). Its data slots are named directly
--- above Task_AnimateDoor there: tFramesHi/Lo data[0]/[1], tGfxHi/Lo data[2]/[3], tFrameId
--- data[4], tCounter data[5], tX data[6], tY data[7].
+-- The graphics table is walked in 12-byte entries, and the task's data[] slots are written by the
+-- code below. Both layouts follow the decompilation's field_door.c (a pointer) and are
+-- not measured field by field.
 ----------------------------------------------------------------------------
 genderFrames.door = {
     TASK_ANIMATE = 0x0808a655,
@@ -7398,20 +7361,17 @@ end
 -- affineAnims 0x10, callback 0x14. Its frames are 32x32, so sixteen tiles, like the blob's.
 flyRide.BIRD_TEMPLATE = 0x0850d4a8
 flyRide.BIRD_TILES = 16
--- CreateFlyBirdSprite's own choices (src/field_effect.c): palette 0, OAM priority 1, subpriority
--- 1. Palette 0 is the engine HARDCODING a slot rather than resolving the template's tag -- the
--- template's tag is TAG_NONE, so there is nothing to resolve and no honest alternative to copying
--- what the game does.
+-- Palette 0, OAM priority 1, subpriority 1 for the bird. These are the decompilation's reading of
+-- the engine's own bird (CreateFlyBirdSprite, a pointer) and are not measured on a live bird.
 flyRide.BIRD_PALETTE, flyRide.BIRD_SUBPRIORITY = 0, 1
 
 -- Hide or show a ghost -- THROUGH THE OBJECT, and then the sprite.
 --
--- The object's `invisible` (+0x01 bit 0x20, include/global.fieldmap.h:209) is the durable one and
--- the one the peer is actually reporting: the engine's own per-frame visibility step copies it
--- down onto the sprite, so a sprite bit set on its own is a write the engine is entitled to undo
--- the next frame. Setting the object's is `hideobjectat` doing exactly what it does to the player.
+-- The object's `invisible` (+0x01 bit 0x20) is treated as the durable one and the one the peer is
+-- actually reporting. That the engine copies it down onto the sprite each frame, and that
+-- `hideobjectat` sets the same bit, is the decompilation's reading (a pointer), not measured.
 --
--- The sprite's bit (0x04 of the flags at +0x3E, include/sprite.h -- the same bit despawnSurfBlob
+-- The sprite's bit (0x04 of the flags at +0x3E, also per the decompilation -- the same bit despawnSurfBlob
 -- sets when it retires one) is set alongside it so the change lands on THIS frame rather than the
 -- next, which is the difference between a clean cut and one visible frame of a character standing
 -- on water.
@@ -7449,11 +7409,10 @@ end
 
 -- THE BIRD IS THE ENGINE'S, AND SO IS THE FLIGHT.
 --
--- SpriteCB_FlyBirdSwoopDown walks a cosine/sine arc and, whenever its sPlayerSpriteId (data[6])
--- names a sprite, writes that sprite's screen position every frame -- clearing coordOffsetEnabled
--- so it leaves the map behind (src/field_effect.c). The game already points that routine at
--- characters who are not the player: FldEff_NPCFlyOut hands it an arbitrary sprite id and lets it
--- carry an NPC away. A ghost is exactly that case, so nothing here reimplements the flight. It
+-- This code points the engine's own bird callback (SpriteCB_FlyBirdSwoopDown) at the ghost's
+-- sprite through data[6], so the flight is the engine's rather than a reimplementation. That the
+-- callback carries whichever sprite data[6] names, off the map's clock, and that the game already
+-- uses it for NPCs (FldEff_NPCFlyOut) is the decompilation's reading -- pointers, not measured. It
 -- builds the sprite the template describes, points it at the engine's routine, and names the
 -- ghost as its passenger.
 --
@@ -7545,8 +7504,8 @@ end
 
 -- THE VEHICLE IS A SPRITE OF ITS OWN, and the ghost inside it is simply hidden.
 --
--- That is what the ride actually is: `hideobjectat LOCALID_PLAYER` and a boat object moving on the
--- same coordinates (data/maps/Route104/scripts.inc). Reproducing it as a separate sprite rather
+-- That is how the decompilation's ride script reads (a hidden player and a boat object on the same
+-- coordinates -- see flyRide's header; unmeasured). Reproducing it as a separate sprite rather
 -- than by dressing the ghost in the boat's graphic is the difference between copying the game and
 -- imitating it -- and it also avoids handing the ghost a graphic from a palette family its own
 -- machinery has no way to give back afterwards.
@@ -7887,8 +7846,9 @@ flyRide.apply = function(g, remote, playerId)
 end
 
 
--- ObjectEventSetHeldMovement (event_object_movement.c:4870): three object fields plus the sprite's
--- action-function index. The engine plays out the whole tile -- animation, slide, coordinates.
+-- Request a movement action: three object fields plus the sprite's action-function index, after
+-- the decompilation's ObjectEventSetHeldMovement (a pointer; which fields, unmeasured). The engine
+-- then plays out the whole tile -- animation, slide, coordinates.
 local function requestAction(g, action)
     local a = objAddr(g.objId)
     w8(a + 0x1c, action)
@@ -7905,9 +7865,8 @@ local function requestAction(g, action)
     --
     -- Done here, at the one place every step goes through, rather than in the mirror -- the mirror
     -- deliberately does not run while a peer is moving, so it is the wrong place to undo something
-    -- that matters only then. `enableAnim` is the game's own switch (TryEnableObjectEventAnim,
-    -- src/event_object_movement.c:7335-7343): it clears animPaused and disableAnim, then clears
-    -- itself.
+    -- that matters only then. This sets `enableAnim`, which the decompilation reads as clearing
+    -- animPaused and disableAnim and then itself (TryEnableObjectEventAnim, a pointer; unmeasured).
     --
     -- ...UNLESS THE PEER IS FORBIDDEN ONE. A slide is a movement that does not animate, and this
     -- rescue is what stopped a ghost reproducing it: the peer holds disableAnim for the whole of
@@ -7933,16 +7892,16 @@ end
 --
 -- Asking for a step also turns the ghost, which is right nearly always and wrong exactly where the
 -- engine has taken the facing away from the movement. A muddy slope is that case:
--- ForcedMovement_MuddySlope sets `facingDirectionLocked` and pushes the rider SOUTH while they go
--- on facing NORTH (src/field_player_avatar.c:567-581) -- you watch yourself slide back down still
--- looking up the hill. Measured over 527 frames of it, 2026-08-20: the ghost's facing was south on
+-- the rider is pushed SOUTH while still facing NORTH -- you watch yourself slide back down still
+-- looking up the hill (ForcedMovement_MuddySlope is the pointer). Measured over 527 frames of
+-- it, 2026-08-20: the ghost's facing was south on
 -- 181 of them while the player's never left north.
 --
 -- The peer already sends its facing, and its step direction is known here, so a disagreement
 -- between the two IS the locked case -- no new wire field needed. The ghost is then given the
 -- peer's facing and the engine's own lock bit, so the step cannot turn it back
--- (facingDirectionLocked, bit 0x02 of byte +0x01 -- include/global.fieldmap.h:204-211, the same
--- byte whose 0x08 is the enableAnim this file already uses).
+-- (facingDirectionLocked, which this code writes as bit 0x02 of byte +0x01 -- the bit position
+-- follows the decompilation's global.fieldmap.h and is unmeasured).
 -- GLOBAL, like drawRunList and swapGhostGraphicInPlace: this chunk is at Lua's hard 200-local
 -- ceiling, and one more local here is a parse failure rather than a slow script.
 function lockGhostFacing(g, remote, stepDir)
@@ -7957,7 +7916,7 @@ function lockGhostFacing(g, remote, stepDir)
     end
 end
 
--- ObjectEventClearHeldMovement (event_object_movement.c:4895). The engine sets
+-- Clear a finished held movement (ObjectEventClearHeldMovement is the pointer). The engine sets
 -- heldMovementFinished when a step completes but leaves heldMovementActive SET -- clearing is the
 -- caller's job. Found live 2026-08-18: a ghost took exactly one step and then froze forever,
 -- reading held=1/1 in the log, because "active" was being treated as "still moving".
@@ -8278,12 +8237,12 @@ function applyHeldPose(g, remote)
     -- with the wrong pose, gets fixed after moving around"*: moving hands the animation back, the
     -- engine advances it properly, and the tiles come good on their own.
     --
-    -- Bits 0x04 (animBeginning) and 0x10 (animEnded) at +0x3F, the exact pair StartSpriteAnim
-    -- sets (pokeemerald src/sprite.c:1346-1351) -- cleared here rather than set.
+    -- Bits 0x04 and 0x10 at +0x3F cleared here rather than set: the pair the decompilation names
+    -- animBeginning/animEnded (StartSpriteAnim, a pointer; the bit meanings are unmeasured).
     w8(d + 0x3f, r8(d + 0x3f) & ~0x14)
-    -- THE OAM BIT ONLY, NEVER `sprite->hFlip`: SetSpriteOamFlipBits is `hFlip ^ sprite->hFlip`, so
-    -- the struct field is a BASE the animation command's own flip is XORed against. Setting both
-    -- reads correct only while the sprite stays paused and inverts the moment it advances.
+    -- THE OAM BIT ONLY, NEVER the sprite struct's own hFlip: this code treats that field as a BASE
+    -- the animation command's flip is combined with (the decompilation's SetSpriteOamFlipBits, a
+    -- pointer; unmeasured), so setting both would read correct only while the sprite stays paused.
     local hgi = graphicsInfo(g.gfx)
     if hgi and hgi.anims ~= 0 then
         local hap = r32(hgi.anims + remote.sanim * 4)
@@ -8323,11 +8282,10 @@ function oamEntryFor(ghostTile, playerTile)
 end
 
 -- THE FISHING OFFSET IS COMPUTED, NOT COPIED. The fishing sprite's frames are not all aligned the
--- same inside their 32-wide canvas, so the game re-derives the sprite offset from the frame being
--- DISPLAYED, every frame: AlignFishingAnimationFrames (pokeemerald src/field_player_avatar.c:
--- 2045-2078) reads anims[animNum][animCmdIndex].type -- for a frame command that is its image
--- index -- and sets x2=8 for images 1/2/3 (-8 facing west, DIR_WEST=3 per
--- include/constants/global.h:140), y2=-8 for image 5, y2=8 for images 10/11.
+-- same inside their 32-wide canvas, so the offset follows the frame being DISPLAYED: this code
+-- derives it from the ghost's own current animation command (fishingFrameShift, below). The
+-- per-image values it uses follow the decompilation (AlignFishingAnimationFrames, a pointer);
+-- only the 8px x shift at a cast end is measured (the trace below), the rest are unmeasured.
 --
 -- Copying the player's offset over the wire was therefore wrong by construction: the ghost's
 -- animation lags the player's, so it kept receiving the offset for a frame it was not yet
@@ -8365,7 +8323,8 @@ function alignFishingGhost(g)
     w16(d + 0x26, y2 & 0xffff)
 end
 
--- The two graphics the rule belongs to (pokeemerald include/constants/event_objects.h:144-145).
+-- The two graphics the rule belongs to (the fishing graphics' ids per the decompilation, a
+-- pointer; not measured).
 function isFishingGfx(gfx) return gfx == 137 or gfx == 138 end
 
 -- EVERY action that leaves the ground, which is more than a ledge hop.
@@ -8373,14 +8332,13 @@ function isFishingGfx(gfx) return gfx == 137 or gfx == 138 end
 -- whose whole point is hopping -- got none of it (user, 2026-08-20: *"no shadow still"*).
 --   0x0C..0x0F JUMP_2_*  ·  0x42..0x45 JUMP_*  ·  0x46..0x4D JUMP_IN_PLACE_*
 --   0x70..0x73 ACRO_WHEELIE_HOP_FACE_*  ·  0x74..0x7B ACRO_WHEELIE_HOP/JUMP_*
--- (include/constants/event_object_movement.h)
+-- (ids and names per the decompilation's numbering, a pointer; unmeasured unless noted)
 --
--- 0x42..0x45 JUMP_* IS THE ACRO BIKE'S SIDE HOP, and the range used to start at 0x46 -- four ids
--- too high, so the one Acro move that is neither a wheelie nor a ledge got no shadow and no dust
--- on ANY tier (user, 2026-08-21: *"none of the ghosts have a shadow or dust, when doing the side
--- hop"*). It does not look like a wheelie action and it is not one: `AcroBikeTransition_SideJump`
--- (src/bike.c:639-664) calls `GetJumpMovementAction`, i.e. the plain JUMP_* family, which is why
--- reading the ACRO_* block alone could never have found it.
+-- 0x42..0x45 IS TAKEN AS THE ACRO BIKE'S SIDE HOP, and the range used to start at 0x46 -- so the
+-- one Acro move that is neither a wheelie nor a ledge got no shadow and no dust on ANY tier (user,
+-- 2026-08-21: *"none of the ghosts have a shadow or dust, when doing the side hop"*). That the side
+-- hop uses the plain JUMP_* ids is the decompilation's reading (`AcroBikeTransition_SideJump`, a
+-- pointer), not a measured action id.
 --
 -- 0x70..0x73 was missed on the first pass, and the omission had a precise symptom: those are the
 -- hops that leave the ground WITHOUT changing tile, so the ghost hopped -- the arc is on its sprite
@@ -8720,15 +8678,15 @@ local function syncGhost(playerId, remote)
     --
     -- Adopting a peer's graphicsId gives a ghost the rod; the game's fishing TASK is what makes it
     -- fish, and a ghost has no task. So the animation number travels with the state and is applied
-    -- here, imitating StartSpriteAnim (pokeemerald src/sprite.c:1346-1351: set animNum, set
-    -- animBeginning, clear animEnded -- bits 0x04 and 0x10 of the flags byte at +0x3F per
-    -- include/sprite.h:227-232). Written only on a CHANGE, so it costs a comparison per frame.
+    -- here: animNum is written and the flags at +0x3F touched (see animRestart), after the
+    -- decompilation's StartSpriteAnim (a pointer; the flag bits are unmeasured). Written only on a
+    -- CHANGE, so it costs a comparison per frame.
     --
     -- Only while the peer is idle, deliberately: a walking ghost's animation belongs to the engine
     -- step we asked for, and two things writing animNum would fight. Fishing, surfing on the spot
     -- and standing poses are exactly the cases the engine is not already animating.
-    -- ONLY FOR GRAPHICS THE ENGINE IS NOT ALREADY DRIVING. The walking graphic (BRENDAN_NORMAL 0,
-    -- MAY_NORMAL 89 -- pokeemerald include/constants/event_objects.h:7,96) is animated by the
+    -- ONLY FOR GRAPHICS THE ENGINE IS NOT ALREADY DRIVING. The walking graphic (ids 0 and 89 in
+    -- this code, BRENDAN_NORMAL/MAY_NORMAL per the decompilation -- a pointer) is animated by the
     -- movement actions we request: steps, turns, bumps. Writing animNum over the top of those left
     -- the ghost stuck in whatever pose the collision landed on -- the user, after this shipped:
     -- *"the spawned ghost's facing animations are wrong now, its stuck in the wrong pose after
@@ -8793,8 +8751,9 @@ local function syncGhost(playerId, remote)
         -- one field is the exact shape that left a ghost *"stuck in the wrong pose after turning
         -- directions"* during the fishing work.
         --
-        -- gPlayerAvatar.bikeSpeed answers it directly: PLAYER_SPEED_STANDING is 0, anything above
-        -- is movement the engine is already driving on our side (include/bike.h:16-25). Peers that
+        -- gPlayerAvatar.bikeSpeed answers it: this code takes 0 as standing and anything above as
+        -- movement the engine is already driving (the decompilation's PLAYER_SPEED_*, a pointer;
+        -- unmeasured for bikes). Peers that
         -- do not send it (an older adapter) keep the previous behaviour.
         --
         -- THE BIKE ESCAPE HOLDS ONLY WHILE THE PEER IS ACTUALLY RIDING, 2026-08-20. It was written
@@ -8975,11 +8934,11 @@ local function syncGhost(playerId, remote)
             -- for the rest, while the player's own frame index cycled 0, 1, 3 throughout.
             --
             -- Done through the game's own switch rather than by clearing the paused bit ourselves.
-            -- `enableAnim` (include/global.fieldmap.h:1, byte +0x01 bit 0x08) is what the engine
-            -- reads in TryEnableObjectEventAnim (src/event_object_movement.c:7335-7343): it clears
-            -- animPaused AND disableAnim, then clears itself. So one write per animation start
-            -- hands the whole thing back to the engine, which is what makes the frames advance at
-            -- the game's own rate instead of one we would have had to invent.
+            -- This sets `enableAnim` (byte +0x01 bit 0x08), which the decompilation reads as
+            -- clearing animPaused AND disableAnim and then itself (TryEnableObjectEventAnim, a
+            -- pointer; the bit and that behaviour are unmeasured). One write per animation start is
+            -- meant to hand the whole thing back to the engine, so the frames advance at the game's
+            -- own rate instead of one we would have had to invent.
             -- Gated on the same swap cooldown as animRestart: enableAnim clears animPaused, and
             -- an un-paused ghost inside the tear window puts the engine's mid-frame frame copies
             -- right back. animSetFor stays nil while blocked, so the whole start re-runs -- with
@@ -9169,12 +9128,11 @@ local function syncGhost(playerId, remote)
         if g.jsDismount then
             w8(bd + 0x2e, (r8(bd + 0x2e) & 0xf0) | 2) -- BOB_JUST_MON: park in the water
         else
-            -- A MOUNT'S BLOB IS INERT UNTIL THE RIDER LANDS ON IT. The game's own mount creates
-            -- the blob at the destination and never sets a bob state during the jump --
-            -- FldEff_SurfBlob leaves data[0] at BOB_NONE, and in that state UpdateBobbingEffect
-            -- does nothing at all, so the blob waits in the water while the rider arcs onto it;
-            -- surfBlob.bobMode only arrives with the avatar transition at the end
-            -- (field_effect.c:3042-3056, field_effect_helpers.c:1107-1135). Ours went straight
+            -- A MOUNT'S BLOB IS INERT UNTIL THE RIDER LANDS ON IT. This code leaves the blob's bob
+            -- state at none during the jump, so it waits in the water while the rider arcs onto
+            -- it, and sets surfBlob.bobMode only after. That the game's own mount does the same is
+            -- the decompilation's reading (FldEff_SurfBlob, UpdateBobbingEffect -- pointers), not
+            -- measured on a mount. Ours went straight
             -- to PLAYER_AND_MON, whose position sync dragged the blob along the rider's arc --
             -- the user: *"the drawn ghost jumps with the blob onto the water, instead of jumping
             -- from the grass onto the blob in the water"* (and the spawned did the same, less
@@ -9325,8 +9283,8 @@ local function syncGhost(playerId, remote)
     -- user, riding one: *"the spawned ghost is turning, while im jumping around on it"*, and
     -- *"not supposed to turn facing direction that way"*.
     --
-    -- So the peer's own movementActionId is performed verbatim for all of them
-    -- (include/constants/event_object_movement.h):
+    -- So the peer's own movementActionId is performed verbatim for all of them (id ranges and
+    -- names per the decompilation's numbering, a pointer; unmeasured unless noted):
     --   0x0C..0x0F  JUMP_2_*                 ledge hops
     --   0x46..0x4D  JUMP_IN_PLACE_*          the bunny hop, including the two-way variants
     --   0x64..0x83  ACRO_*                   wheelie face/pop/end/hop/jump/in-place/move
@@ -9374,9 +9332,9 @@ local function syncGhost(playerId, remote)
     -- finally stopped. The user, 2026-08-21: *"while jumping and then moving, the spawned ghost is
     -- changing the direction a bit slow"*.
     --
-    -- The engine releases it on the input tick AFTER the jump, not when the player next stands
-    -- still (`AcroBikeHandleInputSidewaysJump`, src/bike.c:518-523) -- so the peer's action leaving
-    -- the side-hop range is the matching moment here. Only OUR lock is cleared: `lockGhostFacing`
+    -- This code releases it when the peer's action leaves the side-hop range. That the engine
+    -- releases the player's on the input tick after the jump is the decompilation's reading
+    -- (`AcroBikeHandleInputSidewaysJump`, a pointer), not measured. Only OUR lock is cleared: `lockGhostFacing`
     -- uses the same bit for the move-one-way-face-another case and manages its own lifecycle per
     -- step, and this runs before that so it can re-assert it in the same frame if it still applies.
     if g.sideHopLock and not (remote.act and remote.act >= 0x42 and remote.act <= 0x45) then
@@ -9418,10 +9376,10 @@ local function syncGhost(playerId, remote)
     -- hop is: it covers a tile in one arc that no ordinary step reproduces, and it is the whole
     -- difference between a peer who STARTS SURFING and one who slides onto the sea.
     --
-    -- The game's own sequence (src/field_effect.c:3018-3056): field-move pose, show the Pokemon,
-    -- and only then set the surfing graphic AND issue
-    -- ObjectEventSetHeldMovement(GetJumpSpecialMovementAction(dir)) while creating the surf blob
-    -- at the DESTINATION tile. Measured live 2026-08-21 on the player's own object event: gfx 0 ->
+    -- The game's own sequence: field-move pose, then the surfing graphic with a JUMP_SPECIAL action
+    -- (the decompilation's surf field effect in field_effect.c is the pointer; the blob appearing at
+    -- the destination tile is its reading, unmeasured). Measured live 2026-08-21 on the player's
+    -- own object event: gfx 0 ->
     -- 3 with act=0x39 (START_ANIM_IN_DIRECTION, the pose), then gfx=2 with act=0x3A and pos2 y=-4,
     -- the arc itself. The ghost read act=0x00/0xFF throughout, because 0x3A fell through every
     -- list here -- so it popped from standing on land to surfing and then glided down a tile. The
@@ -9551,20 +9509,18 @@ local function syncGhost(playerId, remote)
             g.needsSettle = nil
             -- A SIDE HOP TRAVELS WITHOUT TURNING, and the lock is how the engine says so.
             --
-            -- `InitJump` opens with SetObjectEventDirection(objectEvent, direction)
-            -- (event_object_movement.c:5436), so performing JUMP_LEFT turns the character to face
-            -- left -- which is right for a ledge hop and wrong for this, the one move whose whole
-            -- character is hopping sideways while still looking where you were. The engine's own
-            -- answer is to set facingDirectionLocked FIRST: `AcroBikeTransition_SideJump`
-            -- (src/bike.c:662-664) locks, then issues the jump, and SetObjectEventDirection
-            -- (:2361-2371) then writes movementDirection while leaving facingDirection alone.
+            -- Performing a sideways jump turned the ghost to face the jump, which is right for a
+            -- ledge hop and wrong for this, the one move whose whole character is hopping sideways
+            -- while still looking where you were. So this code sets facingDirectionLocked FIRST
+            -- and then issues the jump. That the game's side hop does the same, and that the lock
+            -- is what keeps the facing, is the decompilation's reading (InitJump,
+            -- `AcroBikeTransition_SideJump` -- pointers), not measured.
             -- Issuing the action without the lock gave the ghost the turn the player never makes
             -- -- the user, 2026-08-21: *"its supposed to keep looking forward during the side hop,
             -- not turn to face towards where the side hop goes"*.
             --
-            -- Released by the standing-on-target branch below, which is the same moment
-            -- `AcroBikeHandleInputSidewaysJump` (:518-523) clears it for the player and re-asserts
-            -- the facing it preserved.
+            -- Released by the standing-on-target branch below, meant to match when the game
+            -- releases the player's (`AcroBikeHandleInputSidewaysJump` is the pointer; unmeasured).
             -- objAddr directly: the function's own `a` is declared further down, and reaching
             -- for it here would read a nil GLOBAL -- the forward-reference trap this file has
             -- already been bitten by three times.
@@ -9575,10 +9531,9 @@ local function syncGhost(playerId, remote)
             end
             -- A DISMOUNT PARKS THE BLOB BEFORE THE JUMP, exactly as the game does it.
             --
-            -- Task_StopSurfingInit (field_player_avatar.c:1662-1674) sets the blob to
-            -- BOB_JUST_MON and only then issues the jump; in that state UpdateBobbingEffect
-            -- (field_effect_helpers.c:1107-1135) keeps the blob bobbing IN PLACE and stops
-            -- copying the rider's position -- which is the whole of "the blob stays in the
+            -- The blob's bob state changes on the dismount frame and the blob stays parked (filmed
+            -- below); Task_StopSurfingInit and UpdateBobbingEffect are the decompilation's pointers
+            -- for it. That is the whole of "the blob stays in the
             -- water while you jump ashore". We never sent that state, so a ghost's blob rode
             -- ashore under it: the user, with slot 2 re-aimed at this exact transition, *"the
             -- blob follows them onto land... the blob is supposed to stay in the water"*.
@@ -9687,15 +9642,15 @@ local function syncGhost(playerId, remote)
         -- way while facing another, and clears it on the next step where the two agree. The Acro
         -- Bike's SIDE HOP is that case by definition -- it travels sideways without turning -- so
         -- it reliably leaves the lock set, and a peer who then just turns on the spot issues no
-        -- step at all: nothing reaches the release, `SetObjectEventDirection` (:2361-2371) refuses
-        -- to write facingDirection while the bit is set, and the ghost is frozen facing the way it
+        -- step at all: nothing reaches the release, the facing is not rewritten while the bit is set
+        -- (`SetObjectEventDirection` is the pointer), and the ghost is frozen facing the way it
         -- hopped. The user, 2026-08-21: *"after doing a side hop, the spawned ghost facing
         -- direction gets stuck until you move a tile"* -- moving a tile being the one thing that
         -- reached the release.
         --
         -- Standing on the target tile means there is no movement left for the lock to protect, so
-        -- this is the honest place to drop it. The engine does the same for the player: the lock
-        -- bike.c sets for the hop is released when the hop resolves, not held until they walk.
+        -- this is the honest place to drop it. (That the engine releases the player's lock when the
+        -- hop resolves is the decompilation's reading, not measured.)
         if (r8(a + 0x01) & 0x02) ~= 0 then w8(a + 0x01, r8(a + 0x01) & ~0x02) end
         -- A RIDER DOES NOT WALK IN PLACE. `FACE_ACTION` is walk-in-place-fast on purpose, because
         -- that is how a walking player turns -- but a rider turns as part of moving, and standing
@@ -9814,16 +9769,15 @@ local function syncGhost(playerId, remote)
     -- PLAYER_SPEED_* -> the game's own action for that speed, shared by the step below and the
     -- catch-up path further down so both move at the peer's pace.
     --   FAST -> WALK_FAST 0x15, FASTER/FASTEST -> WALK_FASTER 0x2D
-    --   (include/constants/event_object_movement.h:108,132; sMachBikeSpeedCallbacks is
-    --   PlayerWalkNormal/Fast/Faster against speeds NORMAL/FAST/FASTEST, src/bike.c:75-111.)
+    --   (the speed-to-action pairing is the decompilation's reading of the Mach Bike,
+    --   sMachBikeSpeedCallbacks -- a pointer; the 0x15 and 0x2D actions are seen at speed, 2026-08-19.)
     local base = nil
     if remote.pspeed == 2 then base = 0x15
     elseif remote.pspeed == 3 or remote.pspeed == 4 then base = 0x2d end
     -- FORCED MOVEMENT: bikeSpeed is ZERO while the game is pushing you, so the field above cannot
-    -- describe it and the peer's own action must. On a muddy slope below top speed,
-    -- ForcedMovement_MuddySlope (src/field_player_avatar.c:567-581) calls
-    -- Bike_UpdateBikeCounterSpeed(0) and then pushes the rider south with PlayerWalkFast -- so
-    -- bikeSpeed reads 0 while the character is visibly moving fast. Measured over 527 frames of
+    -- describe it and the peer's own action must. On a muddy slope below top speed the rider is
+    -- pushed south fast while the speed field says standing (ForcedMovement_MuddySlope is the
+    -- pointer). Measured over 527 frames of
     -- slide-back, 2026-08-20: the peer reported action 21 (WALK_FAST south) on 416 of them while
     -- the ghost used WALK_NORMAL throughout, sliding at half the peer's pace.
     --
@@ -9835,9 +9789,9 @@ local function syncGhost(playerId, remote)
         if remote.act >= 0x2d and remote.act <= 0x30 then base = 0x2d
         elseif remote.act >= 0x15 and remote.act <= 0x18 then base = 0x15
         -- THE ACRO BIKE RIDES ON "RIDE WATER CURRENT", which is not a joke and not a walk:
-        -- AcroBikeTransition_Moving calls PlayerRideWaterCurrent for ordinary movement
-        -- (pokeemerald src/bike.c:546-570), so a peer riding one reports 0x29..0x2C
-        -- (include/constants/event_object_movement.h:128-131).
+        -- this code maps 0x29..0x2C to a speed because the decompilation has the Acro Bike's
+        -- ordinary movement use the ride-water-current actions (AcroBikeTransition_Moving, a
+        -- pointer); the ids a riding peer reports are not measured.
         --
         -- Nothing else in this file recognised that family, so the speed lookup found nothing and
         -- the ghost WALKED after a peer riding a bike: measured `pspeed0` and `walk/run` on every
@@ -9858,10 +9812,9 @@ local function syncGhost(playerId, remote)
         else stepDir = DIR_ID.north end
         -- HOW FAST, TAKEN FROM THE PEER'S OWN ACTION rather than guessed from a pose.
         --
-        -- A walk/run pair cannot describe a bike. The Mach Bike accelerates through THREE speeds --
-        -- sMachBikeSpeedCallbacks is PlayerWalkNormal, PlayerWalkFast, PlayerWalkFaster
-        -- (pokeemerald src/bike.c:75-80) -- and its top speed is the fastest movement in the game,
-        -- faster than running. A ghost stepping at walk pace after a peer at that speed falls a
+        -- A walk/run pair cannot describe a bike. (That the Mach Bike steps through three speeds,
+        -- the top one faster than running, is the decompilation's reading -- sMachBikeSpeedCallbacks,
+        -- a pointer; unmeasured.) A ghost stepping at walk pace after a faster peer falls a
         -- tile behind per step, until the distance trips the "more than a tile out" branch and it
         -- is PLACED. That is what *"the ghosts are teleporting around after me"* is made of: not a
         -- position bug, a speed one.
@@ -9870,9 +9823,9 @@ local function syncGhost(playerId, remote)
         -- ledge hop needed it -- the engine's own statement of what it is doing. The DIRECTION
         -- stays ours (we know it from the tile delta, and the peer's action may be a turn or NONE
         -- mid-step); only the speed class is adopted, and the ghost then performs the game's own
-        -- action for that speed. Bases from include/constants/event_object_movement.h:95,108,132:
-        -- WALK_NORMAL 0x08, WALK_FAST 0x15, WALK_FASTER 0x2D, each DOWN/UP/LEFT/RIGHT consecutive
-        -- in DIR_ID order -- the same layout every other action table here relies on.
+        -- action for that speed. Bases used: WALK_NORMAL 0x08, WALK_FAST 0x15, WALK_FASTER 0x2D,
+        -- each four consecutive ids in DIR_ID order (the decompilation's numbering, a pointer;
+        -- 0x15 south measured on a muddy slope, 2026-08-20).
         local running = (remote.anim == "running")
         -- A GHOST THAT OWES A TILE ON A BIKE MUST RIDE IT, NOT WALK IT.
         --
@@ -10086,8 +10039,9 @@ end
 -- Draw one shadow at a character's un-arced position. `sx`,`sy` are that character's sprite
 -- position in SCREEN space; the sprite box's top-left is x-8, y-4 (the shadow sprite's own c2c),
 -- and the shadow sits 12px below the character's y -- all measured, see BANDAGES.md.
--- gShadowVerticalOffsets (src/field_effect_helpers.c:220) -- indexed by the graphic's shadowSize,
--- which is bits 4-5 of graphicsInfo +0x0C.
+-- shadowDrop: a per-size drop indexed by the graphic's shadow size (bits 4-5 of graphicsInfo
+-- +0x0C). The per-size values follow the decompilation (gShadowVerticalOffsets, a pointer) and
+-- are unmeasured.
 -- A FIELD, not a local: this chunk is at Lua's hard 200-local ceiling and one more is a parse
 -- failure, which is how the adapter silently fails to load.
 genderFrames.shadowDrop = { [0] = 4, [1] = 4, [2] = 4, [3] = 16 }
@@ -10137,8 +10091,8 @@ local function drawGhostShadows()
             -- and nobody had checked. It is now measured (`probes/shadowdust_probe.lua`,
             -- 2026-08-21): a dust sprite on the engine's own UpdateJumpImpactEffect callback,
             -- 32px to the side, i.e. under the GHOST rather than the player. Unlike the shadow,
-            -- FldEff_JumpLandingDust takes coordinates (event_object_movement.c:7994-8001) instead
-            -- of binding by localId, so wearing LOCALID_PLAYER never mattered to it.
+            -- the dust is placed by coordinates rather than bound by localId (FldEff_JumpLandingDust
+            -- is the pointer), so wearing LOCALID_PLAYER never mattered to it.
             --
             -- noteLanding is still CALLED either way: it is what latches the landing frame, and
             -- the painted tier below reads the same record.
@@ -10182,36 +10136,26 @@ end
 -- no flag in this engine to switch collision off, it is purely positional"*. That was wrong, and
 -- it cost two rounds of positional hacks that each broke the ghost's movement.
 --
--- DoesObjectCollideWithObjectAt (pokeemerald src/event_object_movement.c:4724-4742) only reports a
--- collision when the two objects' ELEVATIONS are compatible, and AreElevationsCompatible (:7789)
--- is three lines:
+-- WHAT THIS CODE DOES: every frame, it gives the ghost a non-zero currentElevation that differs
+-- from the player's current one. The premise -- that two objects collide only when their
+-- elevations are compatible, and that two non-zero, different elevations are not -- is the
+-- decompilation's reading (DoesObjectCollideWithObjectAt, AreElevationsCompatible -- pointers), not
+-- measured on the game.
 --
---     if (a == ELEVATION_TRANSITION || b == ELEVATION_TRANSITION) return TRUE;  // 0 collides
---     if (a != b) return FALSE;                                                 // different: no
---     return TRUE;
+-- WHY IT LOOKED LIKE ELEVATION DID NOT WORK. The earlier attempt set 0, 1 and 15 once and found all
+-- three still blocked. The explanation this code acts on is that the engine rewrites
+-- currentElevation from the map tile whenever an object moves (ObjectEventUpdateElevation, a
+-- pointer; unmeasured), so a value set once did not survive a step -- hence the per-frame write.
+-- The player's elevation is assumed to be 3 on land and 1 while surfing (the decompilation's
+-- ELEVATION_DEFAULT/ELEVATION_SURF; unmeasured).
 --
--- So two NON-ZERO, DIFFERENT elevations do not collide at all. That is the mechanism, and it is
--- the game's own: it is how a bridge and the water under it hold two characters on one tile.
+-- ONLY currentElevation, taken as the LOW nibble of +0x0B. The HIGH nibble is left alone, because
+-- the decompilation reads it as previousElevation, the one draw order uses
+-- (SetObjectSubpriorityByElevation, a pointer; unmeasured) -- so collision changes and rendering
+-- is meant not to.
 --
--- WHY IT LOOKED LIKE ELEVATION DID NOT WORK. The earlier attempt set 0, 1 and 15 and found all
--- three still blocked, and concluded elevation was not the mechanism. The missing piece is
--- ObjectEventUpdateElevation (:7759-7771): the engine REWRITES currentElevation from the map tile
--- whenever an object moves. Set once, it was reset within a step to whatever the ghost was
--- standing on -- which is the same terrain the player is on, hence equal, hence colliding. The
--- value was never wrong; it just did not survive.
---
--- So it is re-applied every frame, and chosen against the player's CURRENT elevation rather than
--- fixed, so it can never accidentally match: the player is 3 on land and 1 while surfing
--- (ELEVATION_DEFAULT/ELEVATION_SURF, include/global.fieldmap.h:16-19).
---
--- ONLY currentElevation, which is the LOW nibble of +0x0B. The HIGH nibble is previousElevation,
--- and that is what SetObjectSubpriorityByElevation draws with (:7776) -- leaving it alone means
--- the ghost keeps its exact draw order behind and in front of scenery. Collision changes;
--- rendering does not.
---
--- A transition frame still collides (the player's own elevation reads 0 while stepping between
--- levels, and the rule above says 0 collides with everything). That is the engine's behaviour for
--- every character, so a ghost sharing it is correct rather than a limit.
+-- A transition frame (elevation 0) is expected to still collide, as it would for any character --
+-- also the decompilation's reading, not measured.
 local function freeGhostCollision()
     if tiering.devNoCollision == nil then
         tiering.devNoCollision = (MESHGHOST_EMERALD_NO_COLLISION
@@ -10257,8 +10201,8 @@ local function freeGhostCollision()
             --
             -- hasShadow STAYS SET on a ghost (byte +0x02 bit 6), and this is the fix for the green
             -- flicker near a hopping ghost (user, 2026-08-21: *"a 'green' spot ... same shape as
-            -- the shadows"*). A ghost's jump runs DoShadowFieldEffect
-            -- (event_object_movement.c:8768-8775), which spawns FLDEFF_SHADOW bound by localId --
+            -- the shadows"*). A ghost's jump runs DoShadowFieldEffect (the pointer), which spawns
+            -- a shadow effect bound by localId --
             -- and a ghost wears LOCALID_PLAYER, so the effect re-finds the PLAYER, sees its
             -- hasShadow clear, and FieldEffectStops itself within a frame or two. In that frame it
             -- is a real 16x8 sprite at an uninitialised position whose VRAM copy has not landed
@@ -10267,7 +10211,7 @@ local function freeGhostCollision()
             -- dy=-768 (shadowdust_probe, 2026-08-21). DoShadowFieldEffect's own gate is the
             -- object's hasShadow flag, so holding it set means the engine never spawns the doomed
             -- effect at all -- the engine's own switch, not a hook. Re-applied per frame because
-            -- the jump-landing ground effects clear it (:5535 and friends); our real shadow sprite
+            -- the jump-landing ground effects clear it (the decompilation's reading; unmeasured); our real shadow sprite
             -- is what actually appears under the ghost.
             w8(a + 0x02, r8(a + 0x02) | 0x40)
         end
@@ -10684,10 +10628,11 @@ end
 -- own answer is `IndexOfSpritePaletteTag`, a scan of `sSpritePaletteTags` for the template's tag,
 -- and that array is readable:
 --   sSpritePaletteTags 03000CF0, 16 x u16   (pokeemerald.sym; a static, so no .map entry)
---   FLDEFF_PAL_TAG_GENERAL_0 0x1004         (include/constants/field_effects.h:112) -- the dust's
--- The shadow templates ask for TAG_NONE, so `CreateSpriteAt` (sprite.c:584) leaves paletteNum at
--- whatever the OAM template carries, which is 0 -- and copying the template's first two halfwords
--- reproduces that without knowing it.
+--   0x1004, taken as the dust's tag (FLDEFF_PAL_TAG_GENERAL_0 in the decompilation; a pointer,
+--   not read off the template)
+-- For the shadows, this code copies the template's first two halfwords, which carries whatever
+-- palette the OAM template holds. That the engine does the same for a TAG_NONE template is the
+-- decompilation's reading (`CreateSpriteAt`, a pointer), not measured.
 -- WHAT PRIORITY OUR ENTRIES NEED TO BE SEEN AT ALL.
 --
 -- This tier holds OAM entries 64+, and among sprites of the SAME priority the lower entry number
@@ -10852,7 +10797,7 @@ end
 --
 --   THE RIPPLE IS THE HARDWARE'S, not ours. SetUpReflection does not use the flip bits: it makes
 --   the reflection an AFFINE sprite through OAM matrix 0, or matrix 1 when the character is
---   mirrored (src/field_effect_helpers.c:66-68). Those matrices hold d = -256 (the vertical flip)
+--   mirrored (SetUpReflection is the pointer). Those matrices hold d = -256 (the vertical flip)
 --   and an `a` breathing between 252 and 260, which is the sideways shimmer. The engine keeps
 --   them updated every frame, so pointing our entry at the same matrix is not an imitation of the
 --   ripple -- it IS the ripple, with no phase of our own to drift.
@@ -10864,7 +10809,8 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
     -- THE BLOB -- surfing only, because a blob IS surfing.
     if peerIsSurfing(remote) then
         -- PARKED DURING A JUMP, like the game's own. On a dismount the engine sets the blob to
-        -- BOB_JUST_MON and it stops following the rider (field_effect_helpers.c:1124-1133) --
+        -- BOB_JUST_MON and it stops following the rider (filmed on the player's own blob, see
+        -- the dismount note; UpdateBobbingEffect is the pointer) --
         -- the rider arcs ashore, the blob stays in the water. This tier rebuilt the blob at the
         -- body's position every frame, so it rode the arc onto the grass (*"the blob follows
         -- them onto land"*). While the peer's action is a JUMP_SPECIAL, the blob is drawn at the
@@ -11043,8 +10989,7 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
     -- gOamMatrices entry: a +0, b +2, c +4, d +6. d is the vertical flip the engine keeps there.
     --
     -- ON ICE THE ENGINE TAKES THE PLAIN-FLIP PATH ITSELF, so the matrix is not ours to borrow:
-    -- SetUpReflection only sets ST_OAM_AFFINE_NORMAL when stillReflection is FALSE, and
-    -- GroundEffect_IceReflection passes TRUE (src/field_effect_helpers.c:47-68). Pointing an ice
+    -- (SetUpReflection's still-reflection path is where the decompilation places it). Pointing an ice
     -- reflection at matrix 0 gave it the water shimmer, which the user saw straight away in
     -- Shoal Cave: *"the OAM & DRAWN ghost reflections are wobbling/moving. they are supposed to
     -- stay static while on ice"*. Same else-branch the stale-matrix guard already falls back to.
@@ -11650,23 +11595,15 @@ end
 -- 2026-09-12: *"drawn ghosts can draw on top of the player itself"*, and asked for the game's own
 -- sorting rather than a blanket "never cover the player", so the two tiers agree.
 --
--- THE ENGINE'S RULE, read from the decompilation rather than guessed at
--- (pokeemerald `src/event_object_movement.c:7773`, `SetObjectSubpriorityByElevation`).
+-- WHAT THIS CODE DOES: the character standing lower on the screen is drawn in front, compared in
+-- 16px bands of its bottom edge (sortBand, below); both halves of the comparison go through the
+-- same banding. That this matches the engine's sort is the decompilation's reading
+-- (`SetObjectSubpriorityByElevation`, a pointer) and is NOT measured on the game -- a question for
+-- UNVERIFIED.md.
 --
--- WHAT IT COMPUTES, in our own words -- the source itself is not reproduced here, because facts
--- may be recorded with a citation and expression may not (CLAUDE.md, agent_docs/licensing.md):
--- it takes the sprite's BOTTOM edge in screen space (its y less its centre-to-corner vector, plus
--- the global sprite coordinate offset), adds 8, keeps the low byte, and divides by 16 to get a
--- band; the band is subtracted from 16, doubled, and added to a per-elevation base from
--- `sElevationToSubpriority` plus the caller's own subpriority. Lower subpriority draws in FRONT.
---
--- The consequence is all this code needs: the character standing lower on the screen is in front,
--- decided in 16px bands, with elevation shifting whole bands at once. Both halves of our comparison
--- go through the same banding, so every constant cancels and only the band matters.
---
--- ELEVATION IS NOT IN IT YET, and that is a real limitation rather than an oversight:
--- `sElevationToSubpriority` offsets whole bands (115 against 83) and the peer's elevation is not on
--- the wire. On one elevation -- every ordinary route and town -- this is exact; across a bridge or
+-- ELEVATION IS NOT IN IT YET, and that is a real limitation rather than an oversight: the
+-- decompilation has elevation shift whole bands (`sElevationToSubpriority`, a pointer; unmeasured)
+-- and the peer's elevation is not on the wire. On one elevation -- every ordinary route and town -- this is exact; across a bridge or
 -- a ledge band it can sort the wrong way. Noted in UNVERIFIED.md rather than guessed at.
 -- ON `genderFrames`, NOT A NEW FILE-SCOPE LOCAL: this chunk sits at Lua's 200-local ceiling, and
 -- crossing it is a hard parse failure at load ("too many local variables"), not a warning.
@@ -11924,8 +11861,8 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
     -- to ours is what "the same lighting" means. It costs 32 reads a frame and nothing per peer.
     --
     -- A RATIO IS THE WRONG SHAPE, and that is a fix rather than a refinement (2026-08-21).
-    -- The engine's fades are `BlendPalette`: every colour moves a fraction of the way toward one
-    -- target colour, c -> c + (target - c) * coeff/16 (pokeemerald src/palette.c). A scalar
+    -- The engine's fades move every colour part of the way toward one target colour (`BlendPalette`
+    -- is the pointer; the fade to white is measured below). A scalar
     -- brightness ratio can only ever express the case where that target is BLACK -- and a cave
     -- mouth fades to WHITE. Measured across a real cave entry with probes/cavewarp_probe.lua: the
     -- OBJ palette's channel sum climbs 747 -> 1488 (sixteen colours, all channels at 31: pure
@@ -11936,9 +11873,9 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
     -- long."* The spawned and hardware tiers were unaffected because both are drawn by the PPU
     -- from that same live palette.
     --
-    -- So fit the BLEND instead of a ratio: live = a*rom + b over all 48 channel values, which is
-    -- exactly the line BlendPalette produces (a = 1 - coeff/16, b = target * coeff/16) and which
-    -- covers fading to black, to white, a cave's tint, weather and night with one expression.
+    -- So fit the BLEND instead of a ratio: live = a*rom + b over all 48 channel values, a line that
+    -- covers fading to black and to white with one expression (tints, weather and night are
+    -- expected to fit it too; not measured).
     -- `dim` keeps its meaning as the multiplier; `genderFrames.tintAdd` carries the additive term
     -- (that table, not `tiering`, because drawRunList is defined above `local tiering` and would
     -- otherwise resolve it to a nil global -- the trap this file already carries a note about).
@@ -12417,7 +12354,8 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                 -- A HOP OR A JUMP IS EXEMPT, and that is the reason the narrower condition was
                 -- tried first: those have their own animation that distance cannot stand in for,
                 -- and substituting over them is what made a hopping peer look like it dismounted.
-                -- The families are the peer's own action ids (constants/event_object_movement.h):
+                -- The families are the peer's own action ids (per the decompilation's numbering, a
+                -- pointer; unmeasured):
                 -- 0x46..0x4D jump in place, 0x70..0x7B wheelie hop and jump.
                 local drawAnim, drawIdx = remote.sanim, remote.sidx
                 if remote.gMoved and remote.lastMoveAnim
@@ -12507,8 +12445,9 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                             -- A surf blob set to surfBlob.bobMode moves its RIDER's pos2 as
                             -- well as its own -- measured equal on the same frame, `blob.pos2=0,-3
                             -- | rider.pos2=0,-3` (probes/surfblob_probe.lua) -- and the engine
-                            -- gives the reflection the NEGATED value (`y2 = -mainSprite->y2`,
-                            -- pokeemerald src/field_effect_helpers.c:145). So the gap between a
+                            -- is taken to give the reflection the NEGATED value (the
+                            -- decompilation's reading, field_effect_helpers.c -- a pointer;
+                            -- unmeasured on a reflection). So the gap between a
                             -- character and its reflection is not the vertical offset alone, it is
                             -- that offset MINUS TWICE the bob: they separate as the rider rises
                             -- and close as it falls.
@@ -13361,7 +13300,7 @@ function detectStateLoad()
             local d = sprAddr(sid)
             local cb = r32(d + 0x1c)
             -- A blob follows an OBJECT id in data[2]; the underwater bobber follows a SPRITE id
-            -- in data[0] (field_effect_helpers.c's two #define blocks).
+            -- in data[0] (slot meanings per the decompilation, a pointer; unmeasured).
             -- Blobs only: we no longer create underwater bobbers as sprites, but the PLAYER's
             -- own is still the engine's and must never be touched.
             local foreign = (cb == surfBlob.updateCb and r16(d + 0x32) ~= playerObj)
@@ -13746,7 +13685,8 @@ local function runFrame()
                 sendLine(encodeLocalState(state.areaId, smoothX, smoothY, state.orientation,
                     state.anim, localGender or "male", genderFrames.sendGfx,
                     genderFrames.sendAnim, genderFrames.sendIdx,
-                    -- movementActionId (pokeemerald include/global.fieldmap.h:246, +0x1C): what
+                    -- movementActionId (+0x1C; its values were read on the player's own object
+                    -- event, 2026-08-21, see the JUMP_SPECIAL note): what
                     -- the engine is currently making this character DO. A ledge hop is a jump
                     -- action, and no amount of watching positions can recover that -- see the
                     -- remote side for why.
@@ -13767,9 +13707,9 @@ local function runFrame()
                     -- tells a ghost to hold a frame rather than play the loop.
                     ((r8(sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)) + 0x2c) & 0x40)
                         ~= 0) and 1 or 0,
-                    -- gPlayerAvatar.bikeSpeed (+0x0B, include/global.fieldmap.h:355): the game's
-                    -- OWN statement of how fast this character is moving, as a PLAYER_SPEED_*
-                    -- (include/bike.h:16-25 -- STANDING 0, NORMAL 1, FAST 2, FASTER 3, FASTEST 4).
+                    -- gPlayerAvatar.bikeSpeed (+0x0B): taken as the game's OWN statement of how
+                    -- fast this character is moving, as a PLAYER_SPEED_* (offset and value
+                    -- meanings per the decompilation, a pointer; only 0 on foot is measured).
                     --
                     -- A stable field, which is the point. The first attempt read the speed out of
                     -- movementActionId, and that is a TRANSIENT: sampled at 20Hz it caught
@@ -13777,8 +13717,8 @@ local function runFrame()
                     -- back to walking pace behind a peer at bike speed (measured 2026-08-19,
                     -- `spd=` counters: walk/run=6 against 2D=3 and 15=1).
                     r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x0b),
-                    -- disableAnim (bit 0x04 of the object event's +0x01, include/global.fieldmap.h
-                    -- :203-211): "this character may not animate", which a movement cannot
+                    -- disableAnim (bit 0x04 of the object event's +0x01; held set through an ice
+                    -- slide, measured 2026-08-21): "this character may not animate", which a movement cannot
                     -- override. See encodeLocalState for why spaused alone was not enough.
                     ((r8(GOBJECTEVENTS_ADDR + avatarAddrOffset
                         + r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05) * OBJECTEVENT_SIZE
@@ -14120,8 +14060,8 @@ end
 -- normal loop below, unchanged. Without this, testing an adapter edit costs a full emulator
 -- relaunch each time, which is the cost the loader exists to remove.
 -- ATOMIC FISHING ALIGNMENT. The game recomputes the fishing sprite's offset from the frame being
--- displayed, INSIDE the frame update, so image and offset can never disagree on screen
--- (AlignFishingAnimationFrames, pokeemerald src/field_player_avatar.c:2045-2078). A Lua script's
+-- displayed, INSIDE the frame update, so image and offset do not disagree on screen for the
+-- player (AlignFishingAnimationFrames is the pointer; the ghost's 8px flick is measured). A Lua script's
 -- own writes land between frames, which is measurably too early or too late -- the engine steps
 -- the animation before it builds OAM, so a between-frames offset is one frame out of phase with
 -- the image, and the ghost flicks 8px sideways at every alignment change while the player and the

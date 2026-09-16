@@ -46,8 +46,8 @@ local W_MAPGROUP, W_MAPNUMBER = flat(0xDCB5), flat(0xDCB6)
 local W_YCOORD, W_XCOORD = flat(0xDCB7), flat(0xDCB8)
 local W_BGX, W_BGY = flat(0xD14C), flat(0xD14D)
 local CONN = flat(0xD1A8)
--- EAST 0x01, WEST 0x02, SOUTH 0x04, NORTH 0x08 -- constants/map_data_constants.asm's shift_const
--- order. The struct order in WRAM is north, south, west, east.
+-- Direction bits looked up in constants/map_data_constants.asm; struct addresses from the .sym
+-- (north, south, west, east), and connections_probe.lua checks both against real crossings.
 local DIRS = {
 	{ name = "north", bit = 0x08, at = CONN + 1 },
 	{ name = "south", bit = 0x04, at = CONN + 13 },

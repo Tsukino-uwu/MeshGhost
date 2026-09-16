@@ -71,7 +71,7 @@ local GSPRITECOORDOFFSETY_ADDR = 0x02021bbe
 -- tracking" behavior.
 --
 -- gMain = 0x030022C0 (pokeemerald.map/.sym, size 0x43C matches struct Main). callback2 field
--- is at +0x004 (include/main.h L11), so its address is 0x030022C4 -- a u32 GBA function
+-- is at +0x004 (looked up in include/main.h), so its address is 0x030022C4 -- a u32 GBA function
 -- pointer for the game's current top-level state-machine callback, re-read every frame like
 -- every other field in this script (never cached).
 -- CB2_Overworld = 0x08085E5C (pokeemerald.map/.sym), the callback for ordinary field play

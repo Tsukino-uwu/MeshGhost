@@ -11,33 +11,20 @@
 --
 -- Address/formula sources, all from the same make-compare-verified pokeemerald build used in
 -- Phase 1 (see agent_docs/verified.md for the build verification entry):
---   gSaveBlock1Ptr = 0x03005d8c        (include/global.h L1081; reused from Phase 1 for the
---                                        nil/no-save-loaded gate)
+--   gSaveBlock1Ptr = 0x03005d8c        (reused from Phase 1 for the nil/no-save-loaded gate)
 --   gPlayerAvatar   = 0x02037590        (confirmed Phase 1, pokeemerald.map/.sym)
---     +0x04 spriteId  u8                (include/global.fieldmap.h L348)
---   gSprites         = 0x02020630, entry size 0x44 (pokeemerald.sym: `02020630 g 00001144
---                                        gSprites`; 0x1144 / (MAX_SPRITES+1=65) = 0x44,
---                                        matching struct Sprite's field layout below)
---   struct Sprite (include/sprite.h L194-242):
---     +0x20 x   s16
---     +0x22 y   s16
---     +0x24 x2  s16
---     +0x26 y2  s16
---     +0x28 centerToCornerVecX  s8
---     +0x29 centerToCornerVecY  s8
+--   gSprites         = 0x02020630, entry size 0x44 (pokeemerald.sym gives the array size
+--                                        0x1144; 0x1144 / 65 = 0x44)
 --   gSpriteCoordOffsetX = 0x02021bbc  s16  (pokeemerald.sym)
 --   gSpriteCoordOffsetY = 0x02021bbe  s16  (pokeemerald.sym)
+--   Field offsets (gPlayerAvatar.spriteId, the struct Sprite position fields) were looked up in
+--   include/global.fieldmap.h and include/sprite.h; the code below holds the values.
 --
---   Screen-position formula (NOT re-derived independently -- copied in spirit, not in code,
---   from how the game computes it for offscreen-culling its own object event sprites):
---     screenX = sprite.x + sprite.x2 + sprite.centerToCornerVecX + gSpriteCoordOffsetX
---     screenY = sprite.y + sprite.y2 + sprite.centerToCornerVecY + gSpriteCoordOffsetY
---   Source: src/event_object_movement.c L7361-7363 (UpdateObjectEventOffscreen), which then
---   compares the result against DISPLAY_WIDTH/DISPLAY_HEIGHT (240x160) confirming this is a
---   top-left-origin screen-pixel value, not a map or camera-relative value. Assumes the
---   player's own sprite always has coordOffsetEnabled set (true for all field object sprites
---   per the same function) -- NOT YET CONFIRMED ON SCREEN, only read from source; the on-screen
---   test below is what confirms or refutes that assumption.
+--   Screen position: a HYPOTHESIS, not re-derived independently -- sprite position plus its
+--   sub-offset, center-to-corner vector and the global sprite coord offset, as a top-left-origin
+--   screen pixel (where to look: UpdateObjectEventOffscreen, src/event_object_movement.c
+--   L7361-7363). It also assumes the player's sprite has coordOffsetEnabled set -- NOT YET
+--   CONFIRMED ON SCREEN; the on-screen test below is what confirms or refutes it.
 --
 -- gui.drawImage signature/behavior source: TASEmulators/BizHawk
 -- Assets/Lua/_docs_luacats/gui.d.lua -- "function gui.drawImage(path, x, y, width, height,

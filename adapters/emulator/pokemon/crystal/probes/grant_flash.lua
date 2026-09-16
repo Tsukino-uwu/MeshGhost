@@ -7,11 +7,11 @@
 --
 -- WHAT IT WRITES. One bit: `STATUSFLAGS_FLASH_F` (bit 2) of `wStatusFlags` (`01:d84c`, from our
 -- own hash-verified `pokecrystal` build's symbol file, cross-checked against
--- `constants/ram_constants.asm:235`). That is the same bit `BlindingFlash`
--- (`engine/events/field_moves.asm`) sets when the player actually uses Flash.
+-- `constants/ram_constants.asm:235`). Where to look for the game's own use of it: `BlindingFlash`
+-- (`engine/events/field_moves.asm`); that it is the bit real Flash sets is the hypothesis here.
 --
--- IT DOES NOT RELOAD THE PALETTES. `BlindingFlash` sets the bit and then fades and rebuilds the
--- map palettes; this only sets the bit, so the lighting changes on the next map load. Walk in
+-- IT DOES NOT RELOAD THE PALETTES. It only sets the bit, so the expectation is that the lighting
+-- changes on the next map load rather than on the current screen. Walk in
 -- (or out and back) rather than expecting the current screen to brighten -- an important
 -- difference, because "nothing happened" here would otherwise read as the write failing.
 --

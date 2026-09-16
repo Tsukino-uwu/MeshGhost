@@ -7,11 +7,8 @@
 -- gSaveBlock1Ptr = 0x03005d8c, confirmed independently in both pokeemerald.map and
 -- pokeemerald.sym from that build.
 --
--- SaveBlock1 layout (include/global.h L984-991, L174-178, L581-587):
---   +0x00 pos.x        s16
---   +0x02 pos.y        s16
---   +0x04 location.mapGroup  s8
---   +0x05 location.mapNum    s8
+-- SaveBlock1 position and map-location offsets: looked up in include/global.h (struct
+-- SaveBlock1); the code below holds the values, and this probe's on-screen test checks them.
 --
 -- gSaveBlock1Ptr is a pointer (the save block can relocate), so it is re-read every frame
 -- rather than cached.
@@ -19,20 +16,17 @@
 -- gPlayerAvatar = 0x02037590, confirmed the same way (pokeemerald.map + pokeemerald.sym,
 -- same build; sym size 0x24 matches the struct's fields summed by hand). Unlike
 -- gSaveBlock1Ptr, this is a plain global struct, not a pointer.
--- PlayerAvatar layout (include/global.fieldmap.h L342-362, flag bits L288-295):
---   +0x00 flags          u8   (bit 7 = PLAYER_AVATAR_FLAG_DASH, i.e. running-shoes dash)
---   +0x02 runningState   u8   (0 = not moving, 1 = turning, 2 = moving)
---   +0x05 objectEventId  u8   (index into gObjectEvents for the player's own entry)
+-- PlayerAvatar fields read here (flags with its dash bit, runningState, objectEventId): offsets
+-- and meanings looked up in struct PlayerAvatar, include/global.fieldmap.h -- hypotheses this
+-- probe's on-screen test checks.
 --
 -- gObjectEvents = 0x02037350, confirmed the same way (pokeemerald.map + pokeemerald.sym,
--- same build; sym size 0x240 = 16 * 0x24, matching OBJECT_EVENTS_COUNT (16, constants/
--- global.h L46) * sizeof(struct ObjectEvent). Player's entry is
+-- same build; sym size 0x240 = 16 * 0x24). Player's entry is taken as
 -- gObjectEvents[gPlayerAvatar.objectEventId], each entry 0x24 bytes.
--- ObjectEvent layout (include/global.fieldmap.h L194-256):
---   +0x18 facingDirection  u16:4 (low 4 bits) -- NOT YET CONFIRMED ON SCREEN. Bitfield packing
---   order is a compiler convention, not guaranteed, so this needs the same known-direction
---   test as everything else before it's trusted. Values per constants/global.h L137-141:
---   DIR_SOUTH=1 (down), DIR_NORTH=2 (up), DIR_WEST=3 (left), DIR_EAST=4 (right).
+-- facingDirection (where to look: struct ObjectEvent, include/global.fieldmap.h; DIR_* in
+--   constants/global.h) -- offset, low-4-bit packing and the 1-4 = down/up/left/right values are
+--   NOT YET CONFIRMED ON SCREEN. Bitfield packing order is a compiler convention, not guaranteed,
+--   so this needs the same known-direction test as everything else before it's trusted.
 
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 local GPLAYERAVATAR_ADDR = 0x02037590

@@ -6,10 +6,9 @@
 -- (agent_docs/playing.md).
 --
 -- THE RUN-UP IS THE POINT. Held from a standing start one tile below the mud, the bike never
--- accelerates at all: ForcedMovement_MuddySlope (src/field_player_avatar.c:567-581) resets the
--- speed counter and pushes the rider back south the moment they are on the slope below
--- PLAYER_SPEED_FASTEST, so it gains a tile and loses it, once a second, forever -- measured, and
--- the reason `speed=0 peak=0` appeared in every line of the hold-Up log.
+-- accelerates at all: it gains a tile and loses it, once a second, forever -- measured, and the
+-- reason `speed=0 peak=0` appeared in every line of the hold-Up log. Where the decomp points for
+-- why (unmeasured): ForcedMovement_MuddySlope, src/field_player_avatar.c:567-581.
 --
 -- So the ride does what a player does (user, 2026-08-20): back off 3 tiles, then hold Up all the
 -- way, arriving at the mud already at top speed. Repeating, so the climb can be watched more than
@@ -18,7 +17,8 @@
 -- Both phases are counted in TILES and the climb ends when the mud does, not at a guessed number --
 -- the slope's length is a property of the slope. Each phase logs the speed it actually reached and
 -- how many frames it spent on mud, so "held the key" and "climbed the slope" stay separate claims
--- (MB_MUDDY_SLOPE = 208, include/constants/metatile_behaviors.h).
+-- (MB_MUDDY_SLOPE taken as 208 from include/constants/metatile_behaviors.h -- the value this
+-- log's on-slope reading tests).
 local GPLAYERAVATAR_ADDR = 0x02037590
 local GOBJECTEVENTS_ADDR = 0x02037350
 local GMAIN_CALLBACK2_ADDR = 0x030022c4

@@ -55,9 +55,8 @@ local NUM_MAP_OBJECTS = 16
 local M_OBJECT_STRUCT_ID, M_SPRITE, M_Y_COORD, M_X_COORD = 0x00, 0x01, 0x02, 0x03
 local F_SPRITE, F_MAP_OBJECT_INDEX = 0x00, 0x01
 local F_FLAGS1, F_FLAGS2 = 0x04, 0x05
--- OBJECT_FLAGS1 bits (constants/map_object_constants.asm):
---   0 INVISIBLE  1 WONT_DELETE  2 FIXED_FACING  3 SLIDING
---   4 NOCLIP_TILES  5 MOVE_ANYWHERE  6 NOCLIP_OBJS  7 EMOTE_OBJECT
+-- OBJECT_FLAGS1 bit names looked up in constants/map_object_constants.asm; only the two used
+-- below are defined here.
 local FLAG1_INVISIBLE, FLAG1_WONT_DELETE = 0x01, 0x02
 local F_MAP_X, F_MAP_Y = 0x10, 0x11
 local F_LAST_MAP_X, F_LAST_MAP_Y = 0x12, 0x13

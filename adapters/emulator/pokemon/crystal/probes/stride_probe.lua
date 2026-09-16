@@ -15,9 +15,9 @@
 --     the side view is also what says left from right. If sideways walking therefore has exactly
 --     ONE image, a cache slot for a second stride can never fill, and "only one frame per facing"
 --     is the game being described correctly rather than a bug.
---   * WHAT SELECTS the stride. `OBJECT_FACING` (0x0d) is a flat index into
---     `data/sprites/facings.asm` -- `STEP_DOWN_0..3` are four entries of one list, so one byte
---     says both direction and stride (`documentation.md`). The engine picks it from its own step
+--   * WHAT SELECTS the stride. The hypothesis (`documentation.md`; where to look:
+--     `data/sprites/facings.asm`) is that `OBJECT_FACING` (0x0d) is one flat index, so one byte
+--     says both direction and stride. The engine picks it from its own step
 --     machinery. If that pick is a function of step PROGRESS, the drawn tier can derive the stride
 --     instead of running a timer -- and progress is ALREADY on the wire as `extras.prog`, which
 --     this adapter added for positioning and which then paid a second time by fixing the painted

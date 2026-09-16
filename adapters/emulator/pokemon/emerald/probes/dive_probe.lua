@@ -1,10 +1,10 @@
 -- MeshGhost — Pokémon Emerald: what DIVING does to a character (PROBE, never shipped)
 --
 -- WHY
--- Underwater is not a variant of surfing. Surfing spawns a companion sprite under the rider;
--- diving warps to a separate map, swaps the player's graphic, and starts a BOBBING driver — a
--- dummy invisible sprite whose callback nudges the rider's own `y2` up and down
--- (`StartUnderwaterSurfBlobBobbing`, src/field_effect_helpers.c:1150). None of the surf-blob work
+-- Underwater is expected not to be a variant of surfing. The decomp suggests diving warps to a
+-- separate map, swaps the player's graphic, and starts a bobbing driver (where to look:
+-- `StartUnderwaterSurfBlobBobbing`, src/field_effect_helpers.c:1150) -- what this probe checks.
+-- None of the surf-blob work
 -- covers any of that, and nothing about an underwater peer has ever been seen on screen
 -- (`agent_docs/unverified.md`, 2026-08-21).
 --
@@ -22,13 +22,14 @@
 --     "the peer became a diver" and "our copy did not" are on the same timeline.
 --
 -- ADDRESSES, from our own make-compare-verified pokeemerald build, same as surfblob_probe.lua:
---   gPlayerAvatar   02037590  { flags 0x00, spriteId 0x04, objectEventId 0x05 }
---                             (struct PlayerAvatar, include/global.fieldmap.h:342)
+--   gPlayerAvatar   02037590  flags 0x00, spriteId 0x04, objectEventId 0x05
+--                             (field names: struct PlayerAvatar, include/global.fieldmap.h)
 --   gObjectEvents   02037350  stride 0x24; graphicsId 0x05, localId 0x08, spriteId 0x04,
 --                             fieldEffectSpriteId 0x1A
 --   gSprites        02020630  stride 0x44; callback 0x1C, pos1 0x20, pos2 0x24, data[0] 0x2E
 --   gSaveBlock1Ptr  03005D8C  { mapGroup 0x04, mapNum 0x05 }
---   PLAYER_AVATAR_FLAG_UNDERWATER = 1 << 4   (include/global.fieldmap.h:292)
+--   PLAYER_AVATAR_FLAG_UNDERWATER taken as 1 << 4 (include/global.fieldmap.h:292) -- this probe's
+--                             CHANGE lines while diving are what test it
 --   OBJ_EVENT_GFX_BRENDAN_UNDERWATER 111 / _MAY_UNDERWATER 112  (agent_docs/verified.md 2026-08-18)
 --
 -- COST. One read set per frame; a write only on a change, plus a bounded per-frame window while
@@ -116,9 +117,9 @@ local function tick()
     local fldSpr = r8(o + 0x1a)
     local sprId = r8(o + 0x04)
 
-    -- movementActionId (ObjectEvent +0x1C) is in the key too: the surf START is a HELD MOVEMENT
-    -- (GetJumpSpecialMovementAction, src/field_effect.c:3050), and a transition read only through
-    -- graphicsId cannot see it happen at all.
+    -- movementActionId (ObjectEvent +0x1C) is in the key too: the surf START looks like a HELD
+    -- MOVEMENT in the decomp (where to look: GetJumpSpecialMovementAction, src/field_effect.c:3050),
+    -- and a transition read only through graphicsId could not see that happen at all.
     local act = r8(o + 0x1c)
     local key = string.format("%d|%02X|%d.%d|%d|%02X", gfx, flags, mapG, mapN, fldSpr, act)
     if key ~= last.player then
@@ -327,9 +328,9 @@ local function tick()
         end
     end
 
-    -- THE BANNER'S WINDOW. The show-mon banner is revealed by hardware window 0 (WIN0H/WIN0V,
-    -- animated per frame -- field_effect.c:2617-2668), so the 1:1 clip for the painted tier is
-    -- that rectangle, not the tilemap. WIN0H/V are WRITE-ONLY on hardware; whether this
+    -- THE BANNER'S WINDOW. The decomp points at hardware window 0 (WIN0H/WIN0V, animated per
+    -- frame; where to look: field_effect.c:2617-2668) as what reveals the show-mon banner, so the
+    -- 1:1 clip for the painted tier would be that rectangle, not the tilemap -- unmeasured. WIN0H/V are WRITE-ONLY on hardware; whether this
     -- emulator serves reads anyway is exactly what this measures. DISPCNT and WININ are
     -- readable regardless.
     do

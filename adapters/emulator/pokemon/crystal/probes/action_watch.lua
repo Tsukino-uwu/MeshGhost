@@ -5,9 +5,9 @@
 -- WHY THIS EXISTS
 -- phase9.md's animation enumeration says every animation a player can be seen doing -- fishing,
 -- bumping a wall, spinning on a spin tile, the "!" emote, the Fly landing -- is selected by ONE
--- byte, `OBJECT_ACTION` (offset 0x0b), because the engine indexes ObjectActionPairPointers with
--- it (engine/overworld/map_object_action.asm) and derives `OBJECT_FACING` from the result. That
--- is read from the decomp, and reading is not watching.
+-- byte, `OBJECT_ACTION` (offset 0x0b), with `OBJECT_FACING` derived from it (where to look:
+-- ObjectActionPairPointers, engine/overworld/map_object_action.asm). That is a hypothesis read
+-- from the decomp, and reading is not watching.
 --
 -- What has NOT been established is the thing the whole design rests on: **does the PLAYER's own
 -- object actually carry those action values while the player does those things?** Fishing might

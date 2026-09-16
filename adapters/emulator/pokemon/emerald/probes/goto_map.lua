@@ -15,12 +15,10 @@
 --      looks like every other door in the game rather than a hard cut.
 --
 -- THE PLAYER'S POSITION IS OURS TO SET, and believing otherwise trapped the user twice on
--- 2026-08-21. CB2_LoadMap does NOT warp: it is FieldClearVBlankHBlankCallbacks, ScriptContext_Init,
--- UnlockPlayerFieldControls, then CB2_DoChangeMap -> CB2_LoadMap2 -> DoMapLoadLoop
--- (src/overworld.c). `WarpIntoMap` -- the function that calls ApplyCurrentWarp, LoadCurrentMapData
--- and SetPlayerCoordsFromWarp -- is never on that path; every caller of it is elsewhere
--- (field_screen_effect.c, field_effect.c, ...). So SetPlayerCoordsFromWarp never runs, warpId is
--- never consulted, and the player keeps the coordinates they had on the map they left.
+-- 2026-08-21: after a CB2_LoadMap trip the player keeps the coordinates they had on the map they
+-- left, and warpId does not place them (observed that day, below). Where the decomp points for
+-- why (unmeasured): `WarpIntoMap` / `SetPlayerCoordsFromWarp` do not appear on CB2_LoadMap's path
+-- in src/overworld.c.
 --
 -- That is invisible when the destination is BIGGER than the old coordinates, which is why this
 -- probe looked correct across many warps to Mauville (40x20). Warping out of Route 126 at
@@ -33,15 +31,16 @@
 -- data/maps/<Map>/map.json is a tile the game itself puts the player on. Without them this warns
 -- and keeps the old coordinates, which is only safe for a big destination.
 --
--- THE AVATAR STATE LOOKS AFTER ITSELF, and that is the one thing not to hand-fix: the map load
--- re-derives it from the tile landed on (GetAdjustedInitialTransitionFlags, src/overworld.c), so
--- a SURFING player warped onto a floor tile arrives on foot, with no blob to clean up.
+-- THE AVATAR STATE IS EXPECTED TO LOOK AFTER ITSELF, and is the one thing not to hand-fix: the
+-- decomp suggests the map load re-derives it from the tile landed on (where to look:
+-- GetAdjustedInitialTransitionFlags, src/overworld.c), so a SURFING player warped onto a floor
+-- tile should arrive on foot with no blob to clean up -- a hypothesis until a warp shows it.
 --
 -- ADDRESSES. gFieldCallback 03005DAC, CB2_LoadMap 08085FCC and FieldCB_DefaultWarpExit 080AF398
 -- are named in pokeemerald.map; gMain.callback2 030022C4 is copied from the adapter.
--- sWarpDestination is a STATIC and so has no symbol, but it is derived rather than guessed: the
--- map file puts gLastUsedWarp at 020322DC, and overworld.c:193-194 declares sWarpDestination
--- immediately after it, one 8-byte struct WarpData later -> 020322E4.
+-- sWarpDestination is a STATIC and so has no symbol; its address is DERIVED, not measured: the
+-- map file puts gLastUsedWarp at 020322DC, and the declaration order at overworld.c:193-194 points
+-- one 8-byte struct WarpData later -> 020322E4. A warp landing where asked is what tests it.
 --   MAP_MAUVILLE_CITY = (2 | (0 << 8)) -- mapNum 2, mapGroup 0 (constants/map_groups.h:13)
 --
 -- Thumb entry points need the low bit set, which is why each callback is written +1.
@@ -59,7 +58,7 @@ local SWARPDESTINATION_ADDR = 0x020322e4
 -- Destination, as globals so a one-line script listed BEFORE this one in the loader's control
 -- file can change it without editing this file -- the same pattern MESHGHOST_FORCE_GHOST_GFX uses,
 -- and the reason it works mid-session is that the loader loads its targets in order.
--- Map ids are (mapNum | (mapGroup << 8)) in include/constants/map_groups.h, so the two are
+-- Map ids are (mapNum | (mapGroup << 8)) per include/constants/map_groups.h, so the two are
 -- written separately here. Defaults to Mauville City (mapNum 2, group 0).
 local MAUVILLE_GROUP = MESHGHOST_WARP_GROUP or 0
 local MAUVILLE_NUM = MESHGHOST_WARP_NUM or 2

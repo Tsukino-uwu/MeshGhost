@@ -84,12 +84,11 @@ local function tick()
 	if want then
 		local at = W_OBPALS + (PAL & 7) * 8 + 4
 		w8(at, want & 0xFF); w8(at + 1, want >> 8)
-		-- TWO BLOCKS. wOBPals1 is the working set (what the adapter reads and sends), and
-		-- `ForceUpdateCGBPals` (home/palettes.asm) copies the HARDWARE from wBGPals2/wOBPals2, 128
-		-- bytes past it. Writing only the first left every local player in the pink slot's own
-		-- salmon while the ghosts were already right (the user, 2026-09-10: "it kept being salmon
-		-- even after a hard/full reset"). The game's own ApplyPals copies 1 -> 2 on a map load,
-		-- so both are held.
+		-- TWO BLOCKS. wOBPals1 is the working set (what the adapter reads and sends); the second
+		-- block, 128 bytes past it, is where the decomp points for what reaches the hardware
+		-- (`ForceUpdateCGBPals`, home/palettes.asm). Writing only the first left every local
+		-- player in the pink slot's own salmon while the ghosts were already right (the user,
+		-- 2026-09-10: "it kept being salmon even after a hard/full reset"), so both are held.
 		w8(at + 0x80, want & 0xFF); w8(at + 0x81, want >> 8)
 		-- hCGBPalUpdate ($FFE5): the game copies wOBPals to the hardware only when this is set,
 		-- so without it the LOCAL player keeps the old colour on screen while the wire already

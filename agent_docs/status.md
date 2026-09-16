@@ -10,13 +10,10 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 
 ## Open now
 
-- 2026-09-15 — **TLS always on, TOFU and the room-code PAKE are LANDED (ADRs 0066, 0067; protocol 3).** UNWATCHED in a real game: a coded join; the "identity changed" warning after `private/` is deleted.
-- 2026-09-15 — **Both `config.json` files are LIVE** (relay: room_code/only_game/max_clients; client: smoothing, chaser, replay, hotkeys); never watched with a real client editing one. `phases/phase10.md`.
-- 2026-09-16 — **Adapter work from 2026-09-11 to 09-16 is UNWATCHED in all four games** (peer-input hardening, 29 SYNCED.md guards, autostart opt-in, replay/chaser ghosts, pass 5's fixes). Each `UNVERIFIED.md`.
 - 2026-09-16 — **Prediction: A3 LANDED (ADR 0069, ships off), SCREEN VERDICT OPEN; A2.0 MEASURED** (worst-case transit p99 310–320ms; the dry tail is the 1 s blackouts); A2 undecided. `prediction-planning.md`.
 - 2026-09-15 — **Chaser contact: the Go half LANDED (`e546d38c`, ADR 0068, ships `off`); the adapter half is NOT started.** Next: Part A of `chaser-planning.md`; `pseudoregalia/UNVERIFIED.md` has the entry.
 - 2026-09-15 — **netsim: ADR 0046's 450 ms has never been judged on the correlated-loss model** (`-loss-burst`, opt-in since 2026-09-11). `phases/phase10.md`.
-- 2026-09-16 — **Audit second sweep DONE: four `documentation.md` stripped to mechanics; Lua decomp citations are pointers under a preflight ratchet; per-site rewrite is the user's call.** `phases/phase12.md`.
+- 2026-09-16 — **Lua audit per-site DONE; open: borrowed VALUES in adapter code and source formulas/tables transcribed into probe code.** `phases/phase12.md`.
 
 **Trimmed 2026-09-15**: records of finished work were dropped and items already queued in an
 adapter's `UNVERIFIED.md` folded into one line per game; every pointer was checked against its

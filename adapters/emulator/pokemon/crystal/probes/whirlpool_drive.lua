@@ -10,14 +10,13 @@
 --
 -- WHAT IT ANSWERS
 --   * which action byte a whirlpool spin actually is -- SPIN, SPIN_FLICKER, BUMP, or something
---     this adapter has no branch for at all. NOT ASSUMED: the decomp's whirlpool path
---     (`TryWhirlpoolOW`, `engine/events/overworld.asm`) is a text box and a block swap with no
---     character animation in it, so whatever spins the player is somewhere else and the byte is
---     the thing that names it;
+--     this adapter has no branch for at all. NOT ASSUMED: no character animation was found on
+--     the decomp's whirlpool path (where to look: `TryWhirlpoolOW`, `engine/events/overworld.asm`),
+--     so whatever spins the player may be somewhere else and the byte is the thing that names it;
 --   * how long each facing holds, in video frames, and how many engine ticks that is -- the
 --     cadence a 1:1 ghost has to match, which no still frame can show;
---   * whether any frame draws nothing (SPIN_FLICKER sets OBJECT_FACING to STANDING = 0xFF and the
---     engine skips the object), which is what the Dig/Teleport flicker is made of;
+--   * whether any frame draws nothing (the hypothesis for SPIN_FLICKER: a facing of 0xFF that
+--     the engine skips), which is what the Dig/Teleport flicker is expected to be made of;
 --   * whether the spin is on the character at all, or is a separate object the way the "!" emote
 --     and the Fly cutscene both turned out to be -- so EVERY occupied object slot is logged, not
 --     just the player's.

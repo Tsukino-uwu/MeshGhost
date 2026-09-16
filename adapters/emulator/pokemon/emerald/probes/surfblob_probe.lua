@@ -56,12 +56,11 @@ local function objAddr(id) return GOBJECTEVENTS_ADDR + AVATAR_OFFSET + id * OBJE
 
 local DIRS = { [1] = "south", [2] = "north", [3] = "west", [4] = "east" }
 
--- THE REFLECTION'S AFFINE MATRICES. A moving reflection is not a plain vertical flip: the engine
--- sets ST_OAM_AFFINE_NORMAL on it and points it at matrix 0, or matrix 1 when the character is
--- horizontally flipped (SetUpReflection / UpdateObjectReflectionSprite, pokeemerald
--- src/field_effect_helpers.c:47-68 and :124-172). Nothing in the overworld source writes those
--- two matrices, so what makes a reflection ripple is a question for measurement rather than
--- reading -- hence this. gOamMatrices 02021BC0 (pokeemerald.map), 32 entries of four s16: a, b,
+-- THE REFLECTION'S AFFINE MATRICES. A moving reflection is expected not to be a plain vertical
+-- flip: the decomp suggests it is drawn affine through matrix 0, or 1 when horizontally flipped
+-- (where to look: SetUpReflection / UpdateObjectReflectionSprite,
+-- src/field_effect_helpers.c:47-68 and :124-172), with no overworld writer of those matrices
+-- found -- so what makes a reflection ripple is a question for measurement -- hence this. gOamMatrices 02021BC0 (pokeemerald.map), 32 entries of four s16: a, b,
 -- c, d. For a purely horizontal squeeze only `a` moves, and the drawn width is width * 256 / a.
 local GOAMMATRICES = 0x02021bc0
 local lastMatrix = nil

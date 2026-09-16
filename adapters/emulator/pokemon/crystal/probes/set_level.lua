@@ -20,28 +20,20 @@
 --
 -- WHERE THE NUMBERS COME FROM -- every one traceable, none from memory:
 --   * `pokecrystal.sym`: `01:dcd7 wPartyCount`, `01:dcdf wPartyMon1`, `14:5424 BaseData`.
---   * Party struct offsets: `constants/pokemon_data_constants.asm` party_struct members --
---     MON_SPECIES 0, MON_EXP 8 (3 bytes), MON_STAT_EXP 11 (5 x 2), MON_DVS 21 (2),
---     MON_LEVEL 31, MON_HP 34, MON_MAXHP 36, MON_STATS 38, struct length 48.
---   * Base data offsets: same file -- BASE_HP 1, ATK 2, DEF 3, SPD 4, SAT 5, SDF 6,
---     BASE_GROWTH_RATE **22**. Count the `rs` directives; do not eyeball it. The first version of
---     this file said 27, read a growth rate of 204, and REFUSED to write -- which is the guard
---     below doing its job. Verified against `data/pokemon/base_stats/cyndaquil.asm`, where the
---     bytes count out as dex(0) stats(1-6) types(7-8) catch(9) exp(10) items(11-12) gender(13)
---     unknown(14) hatch(15) unknown(16) picsize(17) two dw NULL(18-21) growth(22).
+--   * Party struct and base data offsets: looked up in `constants/pokemon_data_constants.asm`
+--     (values at their definitions below). BASE_GROWTH_RATE is the one that went wrong: the
+--     first version of this file said 27, read a growth rate of 204, and REFUSED to write --
+--     which is the guard below doing its job; it still refuses on any rate that reads invalid.
 --   * **Base-data entry stride: 32 bytes, VERIFIED AGAINST THE ROM rather than derived** --
 --     BASE_DATA_SIZE is macro-computed from NUM_TMS/NUM_HMS and cannot simply be read. The check
 --     is self-evident and this file re-runs it: the first byte of each entry is the dex number, so
 --     the correct stride makes consecutive entries read 1, 2, 3, ... It refuses to write if that
 --     does not hold, rather than trusting a constant that was true once.
---   * Stat formula: `engine/pokemon/move_mon.asm`, CalcMonStatC --
---     stat = ((base + DV) * 2 + floor(sqrt(statexp)) / 4) * level / 100, then + 5, and for HP
---     + level + 10 instead (STAT_MIN_NORMAL 5, STAT_MIN_HP 10, capped at MAX_STAT_VALUE 999 --
---     `constants/battle_constants.asm`).
---   * HP DV is not stored: `DV_HP = (DV_ATK & 1) << 3 | (DV_DEF & 1) << 2 | (DV_SPD & 1) << 1 |
---     (DV_SPC & 1)`, quoted from the same routine.
---   * EXP formula: `engine/pokemon/experience.asm`, CalcExpAtLevel -- (a/b)*n^3 + c*n^2 + d*n - e,
---     with the per-rate coefficients from `data/growth_rates.asm`.
+--   * Stat and HP computation: where to look is `engine/pokemon/move_mon.asm` (CalcMonStatC) and
+--     `constants/battle_constants.asm`; this probe's version is below, and the stats it writes
+--     are read back from memory and logged, not yet checked against the game's own screen.
+--   * EXP: where to look is `engine/pokemon/experience.asm` (CalcExpAtLevel) and
+--     `data/growth_rates.asm`.
 --
 -- VANILLA V1.0 ONLY.
 --
@@ -80,7 +72,7 @@ local BASE_HP, BASE_GROWTH_RATE = 1, 22
 -- constants/battle_constants.asm
 local STAT_MIN_NORMAL, STAT_MIN_HP, MAX_STAT_VALUE = 5, 10, 999
 
--- data/growth_rates.asm -- {a, b, c, d, e} for (a/b)*n^3 + c*n^2 + d*n - e
+-- data/growth_rates.asm
 local GROWTH_RATES = {
 	[0] = { 1, 1, 0, 0, 0 },     -- Medium Fast
 	[1] = { 3, 4, 10, 0, 30 },   -- Slightly Fast
@@ -147,8 +139,7 @@ local function isqrt(n)
 	return r
 end
 
--- engine/pokemon/experience.asm, CalcExpAtLevel. The asm cubes the level, multiplies by a and
--- divides by b with integer division, then adds the quadratic and linear terms.
+-- Where to look: engine/pokemon/experience.asm, CalcExpAtLevel.
 local function expAtLevel(rate, n)
 	local g = GROWTH_RATES[rate]
 	if not g then return nil end
@@ -159,7 +150,7 @@ local function expAtLevel(rate, n)
 	return math.floor(v)
 end
 
--- engine/pokemon/move_mon.asm, CalcMonStatC.
+-- Where to look: engine/pokemon/move_mon.asm, CalcMonStatC.
 local function calcStat(base, dv, statexp, level, isHP)
 	local v = (base + dv) * 2 + math.floor(isqrt(statexp) / 4)
 	v = math.floor(v * level / 100)

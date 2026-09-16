@@ -32,7 +32,8 @@
 --
 -- WHERE THE NUMBERS COME FROM
 -- Every address is from our own hash-verified pokecrystal build's pokecrystal.sym, and every
--- layout fact from constants/pokemon_data_constants.asm and constants/item_constants.asm. The
+-- layout value is looked up in constants/pokemon_data_constants.asm and
+-- constants/item_constants.asm, then checked against the .sym where it can be. The
 -- arithmetic that is not a bare symbol is shown at its definition below so it can be checked.
 -- VANILLA V1.0 ONLY -- it refuses on anything else rather than writing a patched build's RAM at
 -- vanilla's addresses.
@@ -62,10 +63,9 @@ local PARTYMON_STRUCT_LENGTH = 0x30
 local MON_MOVES = 0x02
 local MON_PP = 0x17
 
--- constants/item_constants.asm. wTMsHMs is one count byte per TM then per HM, and the HMs start
--- after the TMs. NUM_TMS is not a literal in the source (it is computed by a macro), so it is
--- derived from the symbol table instead: wNumItems - wTMsHMs = 0xD892 - 0xD859 = 0x39 = 57 bytes
--- for NUM_TMS + NUM_HMS, and NUM_HMS is 7 (the add_hm list) -- so NUM_TMS is 50.
+-- constants/item_constants.asm. wTMsHMs is taken as one count byte per TM then per HM. The span
+-- is derived from the symbol table: wNumItems - wTMsHMs = 0xD892 - 0xD859 = 0x39 = 57 bytes for
+-- NUM_TMS + NUM_HMS, with NUM_HMS looked up there as 7 -- so NUM_TMS is 50.
 local NUM_TMS = 50
 local NUM_HMS = 7
 
@@ -81,8 +81,8 @@ local LOADOUT = {
 	{ "WHIRLPOOL", "CUT", "FLASH" },
 }
 
--- The PP byte is current PP in the low 6 bits and PP-Up count in the top 2
--- (constants/pokemon_data_constants.asm). 15 is at or above the field moves' real maximum, and a
+-- The PP byte is read as current PP in the low 6 bits and PP-Up count in the top 2 (where to
+-- look: constants/pokemon_data_constants.asm). 15 is at or above the field moves' real maximum, and a
 -- field move that cannot be used because it is out of PP is a confusing way to fail a test.
 local PP_VALUE = 15
 

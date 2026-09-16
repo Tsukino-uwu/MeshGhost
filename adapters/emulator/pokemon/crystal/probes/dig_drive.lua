@@ -10,13 +10,10 @@
 -- for one before grinding live cycles. Note slot 9 previously held the cross-town Fly state; the
 -- user overwrote it deliberately.
 --
--- WHY ESCAPE ROPE ANSWERS THE DIG QUESTION TOO. They are not two features. `EscapeRopeFunction`
--- and `DigFunction` differ by one byte written to `wEscapeRopeOrDigType` and then fall into the
--- SAME `EscapeRopeOrDig` routine, which queues the same `.UsedDigOrEscapeRopeScript` -- same
--- `applymovement PLAYER, .DigOut`, same `newloadmap MAPSETUP_DOOR`, same
--- `applymovement PLAYER, .DigReturn` (`engine/events/overworld.asm`). The only difference either
--- way is which text box is shown and, for Escape Rope, a `SpecialKabutoChamber` call. So one
--- measurement covers both, and this probe is named for the animation rather than the item.
+-- WHY ESCAPE ROPE IS EXPECTED TO ANSWER THE DIG QUESTION TOO. The decompilation points both items
+-- at one shared routine (look at `EscapeRopeOrDig` in `engine/events/overworld.asm`), so the
+-- hypothesis is that they play the same animation. This probe measures the Escape Rope; that Dig
+-- matches it is a prediction until a Dig run says so, and the probe is named for the animation.
 --
 -- WHAT IT DOES, on a fixed countdown (endurance, not timing -- there is no window to hit):
 --   1. waits 2s, loads MESHGHOST_DIG_SLOT (default 9),
@@ -98,20 +95,15 @@ MESHGHOST_DEV_TICK = function()
 	end
 end
 
--- WHAT THE SOURCE SAYS THIS SHOULD PRODUCE, so the log is read against a prediction rather than
--- interpreted after the fact. From `engine/events/overworld.asm` and
--- `engine/overworld/map_objects.asm`:
+-- THE PREDICTION, written before the run so the log is read against it rather than interpreted
+-- after the fact. Where to look: `.DigOut` / `.DigReturn` in `engine/events/overworld.asm` and
+-- `StepFunction_DigTo` in `engine/overworld/map_objects.asm`. Hypotheses this run tests:
 --
---   DEPARTURE  `applymovement PLAYER, .DigOut` = `step_dig 32`, then `hide_object`.
---              `Movement_step_dig` writes OBJECT_ACTION_SPIN (4) and STEP_TYPE_SLEEP (3) with a
---              duration of 32 -- so the player SPINS IN PLACE for 32 engine ticks and is then
---              hidden. **No flicker on the way out, and no vertical movement at all.**
---   ARRIVAL    `newloadmap MAPSETUP_DOOR` ($F5, not a Dig-specific value -- indistinguishable on
---              the wire from an ordinary door), then `show_object` and `return_dig 32`.
---              `Movement_return_dig` writes STEP_TYPE_RETURN_DIG (0x12), whose handler
---              `StepFunction_DigTo` alternates OBJECT_ACTION between SPIN (4) and SPIN_FLICKER (5)
---              on bit 0 of OBJECT_STEP_DURATION. **That alternation is the flicker, and it is on
---              the ARRIVAL only** -- SPIN_FLICKER has never appeared in any capture this project
+--   DEPARTURE  the player's action byte holds SPIN (4) in place, then the object is hidden --
+--              no flicker and no vertical movement on the way out.
+--   ARRIVAL    the map load is an ordinary door entry (so nothing on the wire marks it as Dig),
+--              then the action byte alternates SPIN (4) / SPIN_FLICKER (5) -- the flicker, on
+--              the arrival only. SPIN_FLICKER has never appeared in any capture this project
 --              has taken, so this is the run that either produces action 5 or refutes it.
 --
 -- THE REASON TO MEASURE RATHER THAN BELIEVE THE ABOVE: Fly reads exactly as convincingly in the

@@ -50,6 +50,35 @@ being work. An entry still here has not been confirmed.
 
 ---
 
+## [OPEN] 2026-09-16 — to measure: what the adapter's comments took from the decompilation alone (the per-site audit)
+
+The per-site audit of `meshghost_crystal.lua` (the user's call, 2026-09-16) dropped every source
+file path from its comments and marked each mechanism the decompilation alone supplies as unmeasured.
+Each is a question here, with the measurement that would make it ours. Line numbers are as of that
+audit. **Three are VALUES in code, not only prose**: `facingFrames.ROD`'s dx/dy/flip, the shadow
+object's MOVEMENT_TYPE `$1b` / FLAGS1 `$8e` / PALETTE 5 writes (~7914), and `emote.SHADOW_DY` 12 --
+borrowed numbers until measured.
+
+- 284, 3621 — which VRAM tiles the fishing sheet replaces besides `$fc`: during a cast, dump VRAM bank 1 at `$02/$06/$0a/$fc`.
+- 300 — `$fc` holds the jump-shadow tile when nobody fishes: read it on the overworld, no rod out.
+- 308, 2508, 3479 — the entry layouts our readers take for emotes, overworld sprites and mon icons: for known ids, check the decoded tiles match VRAM when loaded.
+- 331 — every full-screen UI clears the sprite-updates byte: log it opening party, bag, Pokégear, PC and the START menu.
+- 611, 7340, 7922 — the shadow's Y offset (14 up, 12 left/right), its mirrored two-half draw and engine-managed lifetime: `ledge_drive` hops in three directions, logging the shadow object.
+- 1476, 1489 — step vectors indexed by the walking byte's low nibble: write 12-15 on a ghost (Archipelago) and log the stride.
+- 1735 — a hop carries a walk's action and gait bytes with step type 9 on both tiles: trace a hop per frame.
+- 2075 — a moving object's previous tile blocks the player: step into a tile a ghost just left, mid-step.
+- 2541, 2548 — screenshake also sets EMOTE_OBJECT; emote/shadow actions are rewritten every tick: read flags1 during a shake; overwrite an emote's action and watch the next tick.
+- 3372-3404 — the facing byte is the pose index, 0x10-0x13 fishing, never 0x14+ on the player, 0xFF draws nothing, one stride per 8 frames at any gait: trace OBJECT_FACING while fishing, Dig/Teleport, walking, biking.
+- 3459 — rod sprite offsets and flip per direction: cast each way, read the rod's OAM entry.
+- 3472, 10460 — the landing sprite, and when `hMapEntryMethod` is set/cleared: log `$ff9f` per frame across Fly, door, warp, Dig, Escape Rope.
+- 3732, 3739, 3800 — a text box over a hardware sprite, OAM fill order and the +16/+8 offsets: OAM tier on, text box over a ghost, dump the shadow OAM per frame. **May conflict** with `VERIFIED.md` 2026-09-09 (a ghost hides only where the box's tiles set BG priority).
+- 4035, 9553 — FIXED_FACING stops direction writes; the engine never writes SLIDING: set it on a ghost and turn; watch flags1 while walking and gliding.
+- 4075-4109 — map object type/sight-range nibbles and what a type-3 object does when faced: face a type-3 ghost; walk a sight-0 type-2 ghost in front of the player.
+- 5280 — the surf sprite has the walker's 12-tile shape: compare size byte and VRAM layout while surfing.
+- 7213, 7829, 7846 — action 3 is the bump, the set of actions a player holds, action 8 swaps a body for the emote box: census the player's action across bump, spin, fish, Fly, Dig; write 8 on a ghost.
+- 7914 — the shadow's movement/flags1/palette/step/facing at spawn: read the live shadow during a hop.
+- 10550 — 102 overworld sprite entries on both builds: find where the entries stop being sprite-shaped.
+
 ## [READY] a two-client Archipelago session installed from the release zip (moved from `status.md` 2026-09-16)
 
 Every Archipelago session so far ran from the dev tree (`agent_docs/phases/phase9.md`). **What to

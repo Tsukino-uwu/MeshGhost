@@ -11,18 +11,13 @@
 -- map load, so the whole table is sitting at a fixed address -- IF this build has not moved it.
 -- That "if" is the first thing the probe checks and the reason it does not simply trust the label.
 --
--- STRUCTURE, from the decompilation (pokecrystal `macros/ram.asm`'s `map_connection_struct`,
--- addresses from our own hash-verified build's `pokecrystal.sym`):
+-- WHERE TO LOOK: pokecrystal's `map_connection_struct` (`macros/ram.asm`) and the direction
+-- bits in `constants/map_data_constants.asm`. Addresses from our own hash-verified build's
+-- `pokecrystal.sym`: wMapConnections $D1A8 (the bitmask the code below reads), then
+-- wNorthMapConnection $D1A9, South $D1B5, West $D1C1, East $D1CD.
 --
---   wMapConnections        $D1A8   a bitmask: EAST 0x01, WEST 0x02, SOUTH 0x04, NORTH 0x08
---                                  (`constants/map_data_constants.asm`, shift_const order)
---   wNorthMapConnection    $D1A9   12 bytes, then South $D1B5, West $D1C1, East $D1CD
---     +0 ConnectedMapGroup   +1 ConnectedMapNumber   +2 StripPointer(2)  +4 StripLocation(2)
---     +6 StripLength         +7 ConnectedMapWidth    +8 StripYOffset     +9 StripXOffset
---     +10 Window(2)
---
--- The field names are the decomp's. What each one MEANS for seam arithmetic is NOT assumed from
--- the name -- that is the whole point of the seam report below.
+-- What each byte of a struct MEANS for seam arithmetic is NOT assumed from a name -- that is the
+-- whole point of the seam report below.
 --
 -- HOW IT ANSWERS THE FIRST QUESTION, and how it checks itself. Every frame it reads the bitmask
 -- and all four structs. When the map changes it prints a SEAM REPORT: the map we left, the map we

@@ -25,8 +25,8 @@
 --   gObjectEvents  0x02037350, size 0x240 = OBJECT_EVENTS_COUNT(16) * sizeof(ObjectEvent)(0x24)
 --   gSprites       0x02020630, MAX_SPRITES(64) * sizeof(struct Sprite)(0x44)
 --   gPlayerAvatar  0x02037590, size 0x24
--- Field offsets are the /*0xNN*/ comments in include/global.fieldmap.h (struct ObjectEvent) and
--- include/sprite.h (struct Sprite). No offset here is recalled or inferred.
+-- Field offsets were looked up in include/global.fieldmap.h (struct ObjectEvent) and
+-- include/sprite.h (struct Sprite), never recalled; this probe's readings are what test them.
 --
 -- HOW TO RUN
 --   1. Open BizHawk, load the Emerald ROM (vanilla or Archipelago-patched -- the probe reports

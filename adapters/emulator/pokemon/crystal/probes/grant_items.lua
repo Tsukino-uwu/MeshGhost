@@ -34,15 +34,12 @@
 -- WHERE THE NUMBERS COME FROM -- every one traceable, none from memory:
 --   * Pocket addresses: our own hash-verified pokecrystal build's `pokecrystal.sym` --
 --     `01:d892 wNumItems`, `01:d8bc wNumKeyItems`, `01:d8d7 wNumBalls`.
---   * Pocket LAYOUT: `ram/wram.asm` -- `wItems:: ds MAX_ITEMS * 2 + 1` and
---     `wBalls:: ds MAX_BALLS * 2 + 1` are (id, quantity) pairs plus a terminator, while
---     `wKeyItems:: ds MAX_KEY_ITEMS + 1` is bare ids plus a terminator. **The key-item pocket
---     having no quantity byte is the one difference that would corrupt the bag if assumed away**,
---     which is why it is cited rather than remembered.
---   * Capacities: `constants/item_data_constants.asm` -- MAX_ITEMS 20, MAX_BALLS 12,
---     MAX_KEY_ITEMS 25.
---   * Item ids: `constants/item_constants.asm` -- MASTER_BALL 01, RARE_CANDY 20, MAX_REPEL 2b,
---     SUPER_ROD 3d.
+--   * Pocket LAYOUT, looked up at the pocket labels in `ram/wram.asm`: items and balls as
+--     (id, quantity) pairs plus a terminator, key items as bare ids plus a terminator. **The
+--     key-item pocket having no quantity byte is the one difference that would corrupt the bag if
+--     assumed away**; the read-back below is what checks it.
+--   * Capacities: looked up in `constants/item_data_constants.asm` (values at their definitions).
+--   * Item ids: looked up in `constants/item_constants.asm` (values at their definitions).
 --
 -- VANILLA V1.0 ONLY -- it refuses on anything else rather than writing a patched build's RAM at
 -- vanilla's addresses.
@@ -72,24 +69,22 @@ local MAX_ITEMS, MAX_BALLS, MAX_KEY_ITEMS = 20, 12, 25
 
 -- constants/item_constants.asm
 local MASTER_BALL, RARE_CANDY, MAX_REPEL, SUPER_ROD = 0x01, 0x20, 0x2B, 0x3D
--- ESCAPE_ROPE 0x13, from constants/item_constants.asm in our own hash-verified build. An
--- ORDINARY item, not a key item, so it lives in the paired pocket with a quantity -- getting
+-- ESCAPE_ROPE, looked up in constants/item_constants.asm in our own hash-verified build. Treated
+-- as an ORDINARY item, not a key item, so it goes in the paired pocket with a quantity -- getting
 -- that wrong writes an id where a count belongs and corrupts the bag (the header's own note).
 local ESCAPE_ROPE = 0x13
--- BICYCLE is 07 and is a KEY_ITEM (`data/items/attributes.asm`, the entry commented `; BICYCLE`),
--- so it goes in the key-item pocket -- which has no quantity byte -- and not beside the balls.
+-- BICYCLE, pocket looked up in `data/items/attributes.asm`: treated as a KEY_ITEM, so it goes in
+-- the key-item pocket -- which has no quantity byte -- and not beside the balls.
 local BICYCLE = 0x07
 
 -- REGISTERING IT TO SELECT, because owning the bike and being able to GET ON it are two different
--- things and only the second one is testable. `SelectMenu` (engine/overworld/select_menu.asm)
--- reads two bytes:
---   * wWhichRegisteredItem (01:d95b) -- pocket in bits 7-6 (REGISTERED_POCKET %11000000, then
---     `rlca rlca` into a jump-table index, so KEY_ITEM_POCKET = 2 sits as %10 = 0x80), and the
---     1-based slot number in bits 5-0. **Zero here means "nothing registered" and is checked
---     first**, which is why the byte cannot simply be left alone.
---   * wRegisteredItem (01:d95c) -- the item id, which .CheckKeyItem then looks up in wKeyItems
---     with IsInArray. The key-item branch never reads the slot number, but it is written
---     correctly anyway rather than relying on a branch that could change.
+-- things and only the second one is testable. Where to look: `SelectMenu`
+-- (engine/overworld/select_menu.asm), which reads two bytes. The probe's reading of them, tested
+-- by pressing Select after the write:
+--   * wWhichRegisteredItem (01:d95b) -- the pocket in the top two bits (key items as 0x80) and
+--     the 1-based slot number below them; zero taken as "nothing registered".
+--   * wRegisteredItem (01:d95c) -- the item id. The slot number is written too rather than
+--     relying on it being ignored.
 --
 -- ONLY WHEN NOTHING IS REGISTERED. Overwriting a registration is a change to how the player's own
 -- controller behaves, and a probe that silently rebinds Select is worse than one that says it did
@@ -97,18 +92,15 @@ local BICYCLE = 0x07
 local W_WHICH_REGISTERED, W_REGISTERED_ITEM = flat(0xD95B), flat(0xD95C)
 local KEY_ITEM_POCKET_BITS = 0x80
 
--- WHAT PERMANENT REPEL ACTUALLY DOES, read off the decompilation rather than assumed, because the
--- assumption ("no wild battles") is wrong in a way that wastes a whole test session:
+-- WHAT PERMANENT REPEL IS EXPECTED TO DO -- hypotheses from where the decompilation points,
+-- written down because the naive assumption ("no wild battles") could waste a test session:
 --
---   * `wRepelEffect` (01:dca1) is a STEP COUNTER, not a flag. `DoRepelStep`
---     (engine/overworld/events.asm:937) decrements it once per step and, on reaching zero, runs
---     RepelWoreOffScript. Keeping it topped up is therefore what "permanent" means -- and it also
---     means the "wore off" prompt can never fire, since that fires exactly at zero.
---   * `CheckRepelEffect` (engine/overworld/wildmons.asm:349) then compares the WILD level against
---     the level of the first party Pokemon that is not fainted, and lets the encounter through
---     when the wild one is GREATER OR EQUAL. So a repel suppresses what is BENEATH your lead, not
---     everything. On a low-level lead this probe will look like it is doing nothing; pair it with
---     probes/set_level.lua and the encounters stop.
+--   * `wRepelEffect` (01:dca1) is expected to be a STEP COUNTER, not a flag (where to look:
+--     `DoRepelStep`, engine/overworld/events.asm:937). Keeping it topped up is then what
+--     "permanent" means, and the "wore off" prompt should never appear.
+--   * The repel is expected to block only wild Pokemon BENEATH your lead's level (where to look:
+--     `CheckRepelEffect`, engine/overworld/wildmons.asm:349). If so, on a low-level lead this
+--     probe will look like it is doing nothing; pair it with probes/set_level.lua.
 --
 -- Topped up only when it drops below the threshold rather than written every frame -- one byte
 -- either way, but there is no reason to write over the engine's own decrement 60 times a second.

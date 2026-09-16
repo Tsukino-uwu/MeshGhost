@@ -10,8 +10,8 @@
 --   * LAG -- the ghost starts each step N frames after the player and stays N frames behind. The
 --     px error would then be roughly constant DURING a step and zero between steps.
 --   * SPEED -- the two use different step vectors. The error would grow across a step and snap
---     back at the end. (StepVectors, engine/overworld/map_objects.asm: the low nibble of
---     OBJECT_WALKING picks slow/normal/fast, 1/2/4 px per frame. Both should be `normal`.)
+--     back at the end. (Where to look: StepVectors, engine/overworld/map_objects.asm; the
+--     hypothesis is that OBJECT_WALKING selects the step speed, and both should read the same.)
 --   * PHASE -- position matches but the stride does not, because OBJECT_STEP_FRAME is counting
 --     from a different place. That looks wrong while measuring perfect.
 --   * ACCUMULATION -- the error does not return to zero between steps, so it grows over a walk.

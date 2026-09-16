@@ -15,9 +15,9 @@
 --
 -- HOW IT DECIDES, AND WHY IT IS NOT A GUESS
 -- A wrong domain returns a plausible number rather than an error -- the exact hazard CLAUDE.md
--- warns about. So this does not trust a single read. It uses the fingerprint from the decomp:
--- wMapGroup / wMapNumber / wYCoord / wXCoord are four CONSECUTIVE bytes (01:dcb5..01:dcb8,
--- declared consecutively in pokecrystal's ram/wram.asm). A candidate is only reported as a match
+-- warns about. So this does not trust a single read. The fingerprint it tests, suggested by the
+-- decomp's WRAM order (ram/wram.asm) and the .sym: wMapGroup / wMapNumber / wYCoord / wXCoord as
+-- four CONSECUTIVE bytes (01:dcb5..01:dcb8). A candidate is only reported as a match
 -- if all four look sane AND the two coordinate bytes actually change when you walk.
 --
 -- HOW TO RUN

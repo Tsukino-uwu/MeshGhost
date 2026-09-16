@@ -23,11 +23,12 @@
 --      empty, and an empty pocket is `00 FF` -- which is also what zeroed RAM looks like, so it
 --      carries no signature at all. Exactly ONE non-empty pocket survived that was not adjacent to
 --      the already-measured coordinate block: flat 0x1989, a PAIRED pocket, count 1, entry id 02.
---   2. The user reported their bag held **one Ultra Ball and nothing else**. `ULTRA_BALL` is item
---      02 (`constants/item_constants.asm`) and balls live in their own pocket -- so 0x1989 is
---      `wNumBalls`, identified by CONTENTS against the screen rather than by shape.
---   3. `ram/wram.asm` puts the key-item pocket immediately before the ball pocket, and the only
---      clean empty pocket in that gap is flat 0x1960. That is the address below.
+--   2. The user reported their bag held **one Ultra Ball and nothing else**. Taking `ULTRA_BALL`
+--      as id 02 (looked up in `constants/item_constants.asm`) and balls as their own pocket,
+--      0x1989 is `wNumBalls`, identified by CONTENTS against the screen rather than by shape.
+--   3. The hypothesis, from the WRAM order in `ram/wram.asm`, is that the key-item pocket sits
+--      immediately before the ball pocket; the only clean empty pocket in that gap is flat 0x1960.
+--      That is the address below.
 --
 -- STEP 3 IS THE WEAK LINK AND THIS SCRIPT SAYS SO. Steps 1 and 2 are measured against the screen;
 -- step 3 is the best remaining candidate in a region full of zeroes, and it has never been
@@ -45,10 +46,9 @@ local DOMAIN = "WRAM"
 local W_NUM_KEY_ITEMS = 0x1960
 local W_NUM_BALLS = 0x1989 -- the anchor, confirmed by contents (one Ultra Ball)
 -- THE ITEM IDS ARE RENUMBERED ON THIS BUILD, and that was measured the hard way: writing 0x07 --
--- vanilla's BICYCLE -- produced a MOON STONE, which is vanilla's 0x08. Vanilla's list runs
--- 05 POKE_BALL, 06 TERU_SAMA, 07 BICYCLE, 08 MOON_STONE (constants/item_constants.asm), and
--- ULTRA_BALL is still 02 here, so exactly one entry was dropped between 02 and 08 -- almost
--- certainly TERU_SAMA, the unused placeholder. That puts BICYCLE at 06.
+-- vanilla's BICYCLE -- produced a MOON STONE, which is vanilla's 0x08 (both ids looked up in
+-- constants/item_constants.asm). ULTRA_BALL is still 02 here, so the guess was that one entry
+-- below 08 was dropped, which puts BICYCLE at 06.
 --
 -- CONFIRMED ON SCREEN 2026-08-26: writing 06 here produced a BICYCLE in the key items pocket, and
 -- the user rode it. So on this build BICYCLE is 06 and MOON_STONE is 07 -- both vanilla's value

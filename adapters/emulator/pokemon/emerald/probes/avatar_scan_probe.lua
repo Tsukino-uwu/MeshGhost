@@ -14,10 +14,10 @@
 -- place (agent_docs/pitfalls.md's "memory probing methodology"), automated into a full-EWRAM
 -- scan instead of checking one hand-picked address.
 --
--- METHOD (v2 -- rewritten after v1's continuous background scan failed): struct ObjectEvent's
--- facingDirection field (pokeemerald: include/global.fieldmap.h, "+0x18 facingDirection u16:4
--- (low 4 bits)") only ever holds DIR_SOUTH=1 (down), DIR_NORTH=2 (up), DIR_WEST=3 (left), or
--- DIR_EAST=4 (right) (constants/global.h). v1 tried a continuous background scan keeping any
+-- METHOD (v2 -- rewritten after v1's continuous background scan failed): the hypothesis under test
+-- is that facingDirection (where to look: struct ObjectEvent, include/global.fieldmap.h; DIR_* in
+-- constants/global.h) holds only 1 (down), 2 (up), 3 (left) or 4 (right). v1 tried a continuous
+-- background scan keeping any
 -- byte that never left the 1-4 range, then a stability-duration filter on top of that -- both
 -- failed for the same underlying reason: EWRAM is mostly quiescent during any idle stretch, so
 -- huge numbers of unrelated bytes look "stable" or "always in range" simultaneously, and

@@ -12,16 +12,14 @@
 -- measured first.
 --
 -- THE SIGNATURE, and it is a strong one because it is three pockets in a row
--- `ram/wram.asm` lays the bag out as three consecutive pockets, each a count byte followed by its
--- entries and a terminator:
---
---   wNumItems    db          wItems     ds MAX_ITEMS * 2 + 1    (id, quantity) pairs
---   wNumKeyItems db          wKeyItems  ds MAX_KEY_ITEMS + 1    bare ids, NO quantity byte
---   wNumBalls    db          wBalls     ds MAX_BALLS * 2 + 1    (id, quantity) pairs
+-- The hypothesis, from where to look in the decomp (the pocket labels in `ram/wram.asm`): the bag
+-- is three consecutive pockets -- items, key items, balls -- each a count byte, its entries and a
+-- terminator, with items and balls as (id, quantity) pairs and key items as bare ids.
 --
 -- **The key-item pocket having no quantity byte is the one difference that would corrupt the bag
--- if assumed away**, which is why it is cited rather than remembered. Vanilla's capacities are 20
--- items, 25 key items and 12 balls (`constants/item_data_constants.asm`).
+-- if assumed away**, which is why the probe tests for it rather than trusting a reading. Vanilla's
+-- capacities (MAX_ITEMS, MAX_KEY_ITEMS, MAX_BALLS) are looked up in
+-- `constants/item_data_constants.asm`.
 --
 -- THE STRIDES ARE SEARCHED, NOT ASSUMED, and that is deliberate. A patch is free to change the
 -- capacities, which moves every pocket after the first -- so this probe finds an item pocket, then

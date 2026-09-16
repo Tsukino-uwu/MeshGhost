@@ -539,3 +539,32 @@ Left open, with the reason, in `risks.md` ("Pass 5, left open"): X2-9 (the leak 
 and lowercase path forms), X2-10 (the relay fuzzers never reach the room-code branch or a room's
 map growth), X2-11 (a Pseudoregalia peer-string parser outside the fuzzed header), X2-12
 (Crystal's ROM-index harness covers one of three call sites).
+
+## 2026-09-16 (after) — the audit's Lua tier, site by site
+
+The user took the stricter option. Four agents, one per scope, each allowed to change comment lines
+only; each ran a diff check (every changed Lua line a comment) and `luac -p`, and I re-ran both over
+the whole diff. Every site was classed as measured (pointer kept), source-only (reworded as unmeasured,
+question filed) or forbidden (copied text, tables, layouts, reworded explanations: removed).
+- `meshghost_emerald.lua`: 130 path citations to 0 (29 measured, 83 source-only, 18 forbidden).
+- `meshghost_crystal.lua`: 46 to 0 (8, 25, 13).
+- Emerald probes 97 to 80, Crystal probes 107 to 105: a probe citing where to look is the rule's own
+  use; about 65 blocks of copied source text, struct layouts and constant tables went.
+The source-only mechanisms are OPEN entries at the top of `emerald/UNVERIFIED.md` and
+`crystal/UNVERIFIED.md`, each with the measurement that makes it ours (Emerald's first is a safety
+premise: the door task touching nothing but VRAM and the tilemap). Preflight's floors are lowered.
+
+**Left open, beyond a comment edit:** numbers copied into code (Emerald's `genderFrames.ctcVec`,
+`reflectiveBehaviour`, `shadowDrop`, the pose-duration tables, `fishingFrameShift`; Crystal's
+`facingFrames.ROD`, the shadow object's spawn bytes, `emote.SHADOW_DY`) -- each labelled unmeasured
+and listed; and SOURCE TRANSCRIBED INTO PROBE CODE: Crystal's `set_level.lua` growth-rate table and
+stat/EXP formulas, the screen-coordinate formula in `spawn_test6/7.lua` and `walk_test.lua`, the
+constant name tables in `action_probe`, `action_watch`, `whirlpool_drive`, `struct_diff_probe`, and
+Emerald's `surf_bike_probe` flag names.
+
+Found by an agent's adapter check the same day, and fixed: TEVI's bullet ordinal guard threw on every
+peer bullet (`6a538a0b`). Found by running the real relay and client binaries: a malformed config.json
+save applied the defaults live, a relay's room code included, and every relay save reported
+listen_quic as changed (`6f3eeb67`). The same run passed room codes (matching, wrong with a retry a
+minute later, one-sided both ways), TOFU after `private/` was deleted, and live edits of max_clients,
+only_game, room_code, chaser, interp, replay.seek, hotkeys and the name.

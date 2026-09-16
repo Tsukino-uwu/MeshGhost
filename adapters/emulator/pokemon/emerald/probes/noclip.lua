@@ -4,12 +4,11 @@
 -- there -- collision edits explicitly. Warping lands you at a map's warp tile; getting from there
 -- to the water, the ledge or the corner a test actually needs is the slow part.
 --
--- HOW, and it is one field rather than a patched function. Every block of the live map grid is a
--- 16-bit word: metatile id in bits 0-9, COLLISION in bits 10-11, elevation in bits 12-15
--- (include/global.fieldmap.h:6-12). `MapGridGetCollisionAt` (fieldmap.c:327) returns those two
--- bits and is the first thing both collision paths ask -- `GetCollisionAtCoords` and its
--- movement-script twin (event_object_movement.c:4663, 4680). Zero those bits and the tile is
--- walkable, because as far as the game is concerned it always was.
+-- HOW, and it is one field rather than a patched function. Each block of the live map grid is
+-- taken to be a 16-bit word with metatile id, collision and elevation bits (where to look: the
+-- MAPGRID_* masks, include/global.fieldmap.h:6-12; the collision paths start at
+-- `MapGridGetCollisionAt`, fieldmap.c:327, and event_object_movement.c:4663, 4680). The
+-- hypothesis this tool runs on: zero the collision bits and the tile is walkable.
 --
 -- ONLY A WINDOW AROUND THE PLAYER, re-applied every frame. The whole grid would be thousands of
 -- reads a frame in Lua, and a probe that costs frame rate is a probe that changes what it is
@@ -18,12 +17,11 @@
 -- rather than done once because the engine streams fresh blocks in from ROM as the camera scrolls.
 --
 -- AND NPCs, WHICH ARE A SECOND CHECK ENTIRELY (2026-09-12, the user: *"i want it to affect npc's as
--- well, i keep walking into one"*). Map collision and object collision are separate paths:
--- `DoesObjectCollideWithObjectAt` (event_object_movement.c:4724) walks gObjectEvents and blocks on
--- a match only `if (AreElevationsCompatible(...))`. That function (:7789) returns TRUE when either
--- side is ELEVATION_TRANSITION (0) or when the two are EQUAL -- so two different NON-ZERO
--- elevations pass straight through each other. This is the engine's own mechanism for characters
--- that should not block, not a patched check.
+-- well, i keep walking into one"*). The decomp suggests object collision is a separate path that
+-- is skipped between objects at different non-zero elevations (where to look:
+-- `DoesObjectCollideWithObjectAt`, event_object_movement.c:4724, and `AreElevationsCompatible`,
+-- :7789). That is the hypothesis this tool runs on -- the engine's own mechanism, not a patched
+-- check -- and walking through an NPC with it loaded is what tests it.
 --
 -- So every non-player object is put on an elevation the player is not on, and put back on unload.
 -- The value is chosen from the ODD elevations, which all share `sElevationToSubpriority`'s 115

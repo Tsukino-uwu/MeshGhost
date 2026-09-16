@@ -8,17 +8,12 @@
 -- which is precisely what a ghost has to look like -- so the NPC is the reference, and this is the
 -- instrument that reads it.
 --
--- WHAT THE DECOMP ALREADY SAYS, so this confirms rather than discovers (CLAUDE.md: read the
--- decompilation first; measurement CONFIRMS what the source says). `NpcTakeStep`
--- (pokeemerald src/event_object_movement.c:8298) walks a fixed table per speed, one entry a frame:
+-- WHERE THE DECOMP POINTS, as a map, never evidence (CLAUDE.md: read the decompilation first; our
+-- measurement makes it a fact). Per-frame step distances per movement speed are expected to come
+-- from a fixed per-speed table (where to look: `NpcTakeStep`, src/event_object_movement.c:8298) --
+-- the frame counts and pixel steps are what this probe measures, not something to copy here.
 --
---     MOVE_SPEED_NORMAL   16 frames x 1px      walking
---     MOVE_SPEED_FAST_1    8 frames x 2px      running (StartRunningAnim, :5112)
---     MOVE_SPEED_FAST_2    6 frames, 2,3,3,2,3,3   -- deliberately UNEVEN
---     MOVE_SPEED_FASTER    4 frames x 4px
---     MOVE_SPEED_FASTEST   2 frames x 8px
---
--- So the questions this probe answers on a live NPC are the ones the table cannot: WHEN the tile
+-- So the questions this probe answers on a live NPC are the ones the source cannot: WHEN the tile
 -- coordinate flips relative to the pixels (they hand over on different frames, which is the whole
 -- of this adapter's paint history), and what the sprite's own step counters read while it happens.
 --

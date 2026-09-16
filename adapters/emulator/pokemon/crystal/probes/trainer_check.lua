@@ -9,9 +9,10 @@
 -- sprite on the screen at the bottom/left."*
 --
 -- WHY THESE FIELDS. Sprite 245 (seen on the trainers' map objects with NO adapter loaded) is
--- SPRITE_OLIVINE_RIVAL -- the first VARIABLE sprite: ids >= SPRITE_VARS are resolved at map load
--- through `wVariableSprites` (`01:d82e`, pokecrystal.sym from our hash-verified build;
--- `engine/overworld/overworld.asm` reads it, the `variablesprite` script command writes it). So
+-- SPRITE_OLIVINE_RIVAL -- by the decomp's naming the first VARIABLE sprite, which the hypothesis
+-- says is resolved at map load through `wVariableSprites` (`01:d82e`, pokecrystal.sym from our
+-- hash-verified build; where to look: `engine/overworld/overworld.asm` and the `variablesprite`
+-- script command). So
 -- "a trainer wearing the rival" can be any of THREE different faults, and each shows in a
 -- different table:
 --   1. `wVariableSprites` holds a wrong/stale id      -> the variable-sprite dump

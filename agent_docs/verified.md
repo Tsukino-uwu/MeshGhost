@@ -143,6 +143,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-15 — the fourth review's Go-side facts, each with its instrument
 - 2026-09-15 (later) — TLS always on and trust on first use: the Go-side facts, each with its instrument
 - 2026-09-15 (evening) — the room code is proven, not sent: the Go-side facts, each with its instrument
+- 2026-09-16 — room codes, TOFU and live config.json edits on the real binaries: the Go-side facts
 
 ## Split per game — 2026-08-25
 
@@ -2192,3 +2193,28 @@ hidden, in a scratch folder, and every process was gone afterwards.
   forwarded, 703 dropped, 440 reordered, 38 partition-drops).
 - **Protocol 3 on both sides**: `TestRelayRejectReasonsMatchTheConstantsTheCoreClassifies`
   still drives a `MinProtocolVersion - 1` hello into the version refusal.
+
+## 2026-09-16 — room codes, TOFU and live config.json edits on the real binaries: the Go-side facts
+
+Release-shaped binaries built from `77fd6caf`, two relays and four clients on loopback, each client
+fed by a scripted bridge adapter (hello plus `local_state` at 20 Hz); logs kept in the session's scratch.
+- **A matching code joins both ways**: both clients rendered the other within the second of joining.
+- **A wrong code is refused and retried about a minute later** (`the room code did not match what the
+  server knows`, `invalid_room_code` to the adapter, the next real dial ~67 s on), and a client never
+  restarted joined by itself once the relay's code matched again.
+- **A code on one side only refuses both ways** (ADR 0070): a coded client against a code-less relay
+  (`this client has a room code set, and the server asked for none`), and a code-less client against a
+  coded relay (`refused hello (invalid room code)`).
+- **TOFU after the relay's `private/` is deleted**: each client logged `WARNING: the server at ... has a
+  DIFFERENT identity than the one remembered` once, with both fingerprints, went ahead encrypted, and
+  rewrote `known_servers.json`; a later restart on the same identity rejoined with no warning.
+- **Live relay edits apply without dropping anyone**: `max_clients` 8→2 refused the next join as full,
+  `only_game` refused another game, a changed `room_code` refused the old code while connected
+  members kept rendering.
+- **Live client edits apply**: `chaser.enabled` put `chaser:1` on the bridge, `interp`,
+  `replay.seek` and a hotkey rebinding applied, `player_name` rejoined, `room_code` was reported as
+  needing a relaunch.
+- **Two defects the run found, fixed the same day with a test each** (`6f3eeb67`): a save with broken
+  JSON applied the defaults live (the relay's room code turned off; the client rebound default hotkeys
+  and left the room), and every relay save reported `listen_quic` as changed.
+- **Not yet covered**: the same through a real game's adapter rather than a scripted one.

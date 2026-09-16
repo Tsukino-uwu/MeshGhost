@@ -12,15 +12,9 @@
 -- WHAT IT IS ALLOWED TO ASSUME
 -- Nothing about where gSprites is. It is handed only what is already measured on this build:
 -- gPlayerAvatar/gObjectEvents (detected here the same way the adapter detects them) and the
--- struct layout, which is build-independent:
---   struct Sprite (pokeemerald include/sprite.h) is 0x44 bytes, gSprites holds MAX_SPRITES=64
---   of them; within one entry, x = +0x20 (s16), y = +0x22 (s16), data[0] = +0x2E (s16),
---   and the bitfield byte at +0x3E carries inUse in bit 0.
---   struct ObjectEvent (include/global.fieldmap.h) is 0x24 bytes; active = bit 0 of +0x00,
---   isPlayer = bit 0 of +0x02, localId = +0x08, mapGroup = +0x0A, spriteId = +0x04,
---   currentCoords.x/y = +0x10/+0x12 (s16).
--- Every one of those offsets is already used by meshghost_emerald.lua's shipped spawn path and
--- cited there; this probe adds none of its own.
+-- struct field offsets, which are build-independent: the struct Sprite (include/sprite.h) and
+-- struct ObjectEvent (include/global.fieldmap.h) offsets used below are the ones
+-- meshghost_emerald.lua's shipped spawn path already uses; this probe adds none of its own.
 --
 -- METHOD -- two independent stages, and the second is the one that decides.
 --

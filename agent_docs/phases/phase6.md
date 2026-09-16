@@ -851,3 +851,17 @@ row says "ignored", not "kept to 0–1". Unwatched in a game, like the rest of t
 Logged in `phase12.md` (2026-09-16, later still): the template's rule section, the file's history
 paragraph and the pause-menu passage's process notes are out; 239 → 202 lines. The mechanics are
 unchanged, and nothing in TEVI's file was borrowed from another project.
+
+## 2026-09-16 (last) — a peer's bullets were not spawning at all; fixed from a code reading
+
+An agent reading the week's adapter changes without a game found it: `96ed6168`'s ordinal guard called
+`Enum.IsDefined` with an `int`, while `Bullet.BulletType` is Int16 and `Bullet.SpriteType` is Byte in
+`lib/Assembly-CSharp.dll` (read by reflection). `IsDefined` throws on a width mismatch (reproduced), so
+every peer bullet threw inside `SpawnGhostBullet` and was swallowed as `projectiles mirroring failed`.
+The check moved to `BridgeClient.DefinedOrdinalOrMinusOne`, where the harness can reach it; its Int16
+and Byte stand-ins fail with the old call and pass now (`6a538a0b`). DLL rebuilt, deployed to both
+installs, hashes matched; unwatched (`tevi/UNVERIFIED.md`, top). Lesson: the harness compiles only
+`BridgeClient.cs`, so a guard written in `Plugin.cs` is untested however simple it looks.
+
+Also the user's call the same day: the projectile WIP items moved out of `status.md` into
+`tevi/UNVERIFIED.md`'s projectile entry.

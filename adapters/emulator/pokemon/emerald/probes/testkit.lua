@@ -21,15 +21,11 @@
 -- RAM writes, these land in SaveBlock1, so **saving the game afterwards makes them permanent**.
 -- Use a save file you do not mind changing.
 --
--- ADDRESSES, all from pokeemerald (include/global.h's /*0xNNN*/ offsets, include/constants):
---   gSaveBlock1Ptr  0x03005D8C   gSaveBlock2Ptr  0x03005D90
---   SaveBlock2 +0xAC   encryptionKey (u32)
---   SaveBlock1 +0x560  bagPocket_Items[30]     -- struct ItemSlot { u16 itemId; u16 quantity; }
---   SaveBlock1 +0x5D8  bagPocket_KeyItems[30]
---   SaveBlock1 +0x1270 flags[]                 -- FLAG_BADGE01_GET = SYSTEM_FLAGS + 7 = 0x867
---   Item ids: ITEM_MACH_BIKE 259, ITEM_ACRO_BIKE 272, ITEM_SUPER_ROD 264
--- **A bag quantity is XOR-encrypted with SaveBlock2's encryptionKey** (item.c's
--- SetBagItemQuantity) -- writing a plain 1 there gives an item with a nonsense count.
+-- ADDRESSES: gSaveBlock1Ptr 0x03005D8C and gSaveBlock2Ptr 0x03005D90 from our build's map; the
+-- save-block offsets, flag and item ids in the code below were looked up in pokeemerald
+-- (include/global.h, include/constants) and count as measured only once the read-back shows them.
+-- **A bag quantity is expected to be XOR-encrypted with SaveBlock2's encryptionKey** (where to
+-- look: item.c's SetBagItemQuantity) -- the read-back is what tests it.
 --
 -- HOW TO RUN
 --   Edit WANTED below, then point dev-scripts/bizhawk-dev-loader.target at this file. It counts
@@ -53,9 +49,9 @@ local WANTED = {
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 local GSAVEBLOCK2PTR_ADDR = 0x03005d90
 local SB2_ENCRYPTIONKEY = 0xac
--- Pocket offsets into SaveBlock1 (include/global.h:1006-1010) and their sizes
--- (include/constants/global.h). Each pocket is its own ItemSlot array; an item put in the wrong
--- one simply does not appear.
+-- Pocket offsets into SaveBlock1 (looked up in include/global.h:1006-1010) and their sizes
+-- (include/constants/global.h). Each pocket is taken to be its own ItemSlot array; an item put in
+-- the wrong one would not appear.
 local SB1_BAG_ITEMS = 0x560
 local SB1_BAG_KEYITEMS = 0x5d8
 local SB1_BAG_POKEBALLS = 0x650
@@ -67,9 +63,9 @@ local SB1_FLAGS = 0x1270
 local BAG_KEYITEMS_COUNT = 30
 local ITEM_SLOT_SIZE = 4
 
--- Vars live in their own SaveBlock1 array (include/global.h:1021), indexed from VARS_START.
--- VAR_REPEL_STEP_COUNT is the counter the Repel ITEM sets: the repel effect is active for as long
--- as it is non-zero, and the game decrements it one per step. So "permanent repel" is not a flag
+-- Vars live in their own SaveBlock1 array (where to look: include/global.h:1021), indexed from
+-- VARS_START. The hypothesis this kit runs on: VAR_REPEL_STEP_COUNT is the counter the Repel ITEM
+-- sets, the repel effect lasts while it is non-zero, and the game decrements it one per step. So "permanent repel" is not a flag
 -- to set once -- it is this counter kept topped up, which is why this one is maintained every
 -- frame while everything else here is applied once. Keeping it high also avoids the "use another
 -- Repel?" prompt entirely, since that fires exactly when it hits zero.

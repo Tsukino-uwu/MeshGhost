@@ -7,19 +7,18 @@
 -- IT SAVES TO SLOT 8 FIRST, ALWAYS. Slot 8 is this project's convention for "the undo for a warp"
 -- -- load it to get back exactly where you were. A savestate is not an in-game save.
 --
--- HOW IT WORKS: exactly what the GAME'S OWN `warp` script command does, in the same order.
--- `Script_warp` (engine/overworld/scripting.asm:2060) is six writes and nothing else:
+-- HOW IT WORKS: it imitates the GAME'S OWN `warp` script command (where to look: `Script_warp`,
+-- engine/overworld/scripting.asm:2060, and `LoadMapStatus`, home/map.asm:921). The probe writes:
 --
 --   wMapGroup, wMapNumber        -- the destination map, written DIRECTLY (not via wNext*)
 --   wXCoord, wYCoord             -- where to stand on it
---   wDefaultSpawnpoint = -1      -- SPAWN_N_A, "no respawn point implied by this warp"
---   hMapEntryMethod = $f1        -- MAPSETUP_WARP: WHICH setup script the map machine runs
---   wMapStatus = MAPSTATUS_ENTER -- LoadMapStatus (home/map.asm:921) is just this store
+--   wDefaultSpawnpoint = -1      -- SPAWN_N_A
+--   hMapEntryMethod = $f1        -- MAPSETUP_WARP
+--   wMapStatus = MAPSTATUS_ENTER
 --
 -- THE ONE THAT MATTERS, and the one whose absence broke the first version of this file on
--- 2026-08-21: **hMapEntryMethod**. `EnterMapWarp` is a map SETUP SCRIPT (entry 19 of
--- MapSetupCommands), not something the status byte runs by itself -- so setting only wMapStatus
--- made the game re-enter the map it was already on and consume no destination at all. The user saw
+-- 2026-08-21: **hMapEntryMethod**. Setting only wMapStatus made the game re-enter the map it was
+-- already on and consume no destination at all -- measured by the read-back. The user saw
 -- it as *"it just glitched my current map"*. The read-back below is why that was caught rather
 -- than believed.
 --
@@ -56,31 +55,28 @@ local DESTINATIONS = {
 	-- game... a big route, and fills up things due to having a lot of npc's"*. Recorded as the
 	-- reason it is in this list -- it is the crowd benchmark, not a scenic stop. Treat the claim as
 	-- a hint to verify with a measurement, not as a fact about the game.
-	-- 10,20 was a BAD choice and cost the user a trainer battle on arrival, 2026-08-21: the Pokefan
-	-- at 10,22 faces UP with a sight range of 4, so 10,20 is two tiles inside its line. Route 39's
-	-- trainers, from maps/Route39.asm's own object_events -- position, facing, range:
-	--     10,22 up 4  |  11,19 right 4  |  13,29 left 5  |  13,7 spin 1
-	-- 8,26 sits outside every one of those lines: wrong column for the two northern ones, seven
-	-- tiles north of the sailor's row, nowhere near the spinner.
+	-- 10,20 was a BAD choice and cost the user a trainer battle on arrival, 2026-08-21: it is
+	-- inside a trainer's line of sight. 8,26 was picked clear of every trainer's position, facing
+	-- and range as listed in maps/Route39.asm's object_events (where to look, not a measurement).
 	route39 = { group = 1, number = 13, x = 8, y = 26, label = "Route 39 (crowd benchmark)" },
 	-- ICE. The reason this entry exists is the one movement class this adapter has never tested:
-	-- an ice tile forces `STEP_ICE` (`engine/overworld/player_movement.asm`), which slides a
-	-- character across tiles it did not ask to cross. `_template/README.md` has the general
+	-- an ice tile is expected to slide a character across tiles it did not ask to cross (where to
+	-- look: `STEP_ICE` in `engine/overworld/player_movement.asm`). `_template/README.md` has the general
 	-- warning as "a movement that does not animate is still a movement" -- Emerald's ice slides a
 	-- character with its legs still, and a ghost driven from position alone walks where the player
 	-- glides.
-	-- 6,19 rather than the warp tile itself: `maps/IcePath1F.asm`'s Route 44 warp is at 4,19, and
-	-- landing ON a warp tile is how you get bounced straight back out. The other three warps on
-	-- this floor (36,27 to Blackthorn, 37,5 and 37,13 down to B1F) are all far from here.
+	-- 6,19 rather than a warp tile: the tile was picked two clear of the Route 44 warp listed in
+	-- `maps/IcePath1F.asm` (and far from that floor's other warps), because landing ON a warp tile
+	-- is how you get bounced straight back out.
 	icepath = { group = 3, number = 61, x = 6, y = 19, label = "Ice Path 1F (ice tiles)" },
 	icepathb1 = { group = 3, number = 62, x = 6, y = 19, label = "Ice Path B1F (the slide puzzle)" },
 	-- OUTSIDE the Ice Path, two tiles clear of its entrance.
-	-- `maps/BlackthornCity.asm:323` puts the Ice Path door at 36,9; 34,11 is clear of it, so
+	-- 34,11 was picked clear of the Ice Path door listed at `maps/BlackthornCity.asm:323`, so
 	-- arriving does not immediately warp back in.
 	--
 	-- A CORRECTION KEPT ON PURPOSE. The grey screen that prompted this entry was blamed on Ice
-	-- Path being a dark cave with no FLASH -- `data/maps/maps.asm` does give it CAVE +
-	-- PALETTE_NITE, and `warp_check.lua` did report "BG row 0 = ALL ONE TILE" with the player
+	-- Path being a dark cave with no FLASH -- its entry in `data/maps/maps.asm` looked like it
+	-- supported that, and `warp_check.lua` did report "BG row 0 = ALL ONE TILE" with the player
 	-- drawn, which fits that story exactly. It was wrong. The grey map was 5:61, an unrelated
 	-- map reached with the off-by-two group id above; warping to the REAL Ice Path (3:61) renders
 	-- it fully lit with `wStatusFlags` = 10, i.e. the FLASH bit CLEAR. Ice Path is not dark, and
@@ -90,14 +86,13 @@ local DESTINATIONS = {
 	-- The control (New Bark = group 24) would have caught it before any of it was written.
 	blackthorn = { group = 5, number = 10, x = 34, y = 11,
 		label = "Blackthorn City (outside the Ice Path door)" },
-	-- THE FIRST GYM TOWN, on the user's request 2026-08-26. Group 10 / map 5 from
-	-- `constants/map_constants.asm` (`newgroup VIOLET ; 10`, `map_const VIOLET_CITY ... ; 5`), and
-	-- BOTH controls above reproduce on that same reading -- NEW_BARK is annotated 24 and ROUTE_40
+	-- THE FIRST GYM TOWN, on the user's request 2026-08-26. Group 10 / map 5 as annotated in
+	-- `constants/map_constants.asm`, and BOTH controls above reproduce on that same reading -- NEW_BARK is annotated 24 and ROUTE_40
 	-- is 22:1 -- so the annotated indexes are being trusted here rather than a re-derived count,
 	-- which is the mistake that put Ice Path at 5:61.
-	-- 31,26 is one tile SOUTH of the Pokecenter door (`maps/VioletCity.asm` warps it at 31,25):
-	-- outside the building rather than on the warp tile, and clear of every object_event on the
-	-- map -- the nearest, the wandering Lass, starts at 28,28.
+	-- 31,26 was picked one tile below the Pokecenter door as listed in `maps/VioletCity.asm`:
+	-- outside the building rather than on the warp tile, and clear of the object_events listed
+	-- there.
 	violet = { group = 10, number = 5, x = 31, y = 26,
 		label = "Violet City (outside the Pokecenter)" },
 }

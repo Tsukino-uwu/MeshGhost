@@ -57,7 +57,7 @@ local function tryDetectAvatarAddrOffset()
     end
 end
 
--- pokeemerald include/global.fieldmap.h:288-295 -- real cited bit layout of PlayerAvatar.flags.
+-- PlayerAvatar.flags bit names as the hypothesis under test (include/global.fieldmap.h:288-295).
 local FLAG_NAMES = {
     { bit = 0x01, name = "ON_FOOT" },
     { bit = 0x02, name = "MACH_BIKE" },

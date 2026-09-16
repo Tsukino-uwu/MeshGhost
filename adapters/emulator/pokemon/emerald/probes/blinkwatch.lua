@@ -29,8 +29,8 @@ local function tick()
         local a = GOBJECTEVENTS_ADDR + i * OBJECTEVENT_SIZE
         if (memory.read_u8(a) % 2) == 1 and memory.read_u8(a + 0x08) == 255 then
             local d = GSPRITES_ADDR + memory.read_u8(a + 0x04) * SPRITE_SIZE
-            -- sprite +0x3E: bit 0 inUse, bit 2 invisible (pokeemerald include/gba/types.h side of
-            -- struct Sprite; the adapter already flips these exact bits in despawnGhost).
+            -- sprite +0x3E: bit 0 inUse, bit 2 invisible (names from struct Sprite, include/sprite.h;
+            -- the adapter flips these same bits in despawnGhost).
             local inv = (memory.read_u8(d + 0x3e) >> 2) % 2
             parts[#parts + 1] = string.format("slot%d inv=%d sx=%d sy=%d", i, inv,
                 memory.read_s16_le(d + 0x20) + memory.read_s16_le(d + 0x24),

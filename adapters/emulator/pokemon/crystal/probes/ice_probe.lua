@@ -6,10 +6,10 @@
 -- because its ice slide is a fast walk PLUS two bits -- animation disabled and facing locked
 -- (`_template/README.md`, "a movement that does not animate is still a movement").
 --
--- CRYSTAL HAS THE SAME BIT NATIVELY, and this probe exists to confirm the player actually wears
--- it rather than to assume it. `SetFacingStepAction` (engine/overworld/map_object_action.asm:46)
--- tests `SLIDING_F` FIRST and jumps to `SetFacingCurrent` when set, so `OBJECT_STEP_FRAME` is
--- never advanced and the walk cycle never runs. `meshghost_crystal.lua` already knows the bit --
+-- CRYSTAL MAY HAVE THE SAME BIT NATIVELY, and this probe exists to confirm the player actually
+-- wears it rather than to assume it. Where to look: `SetFacingStepAction`
+-- (engine/overworld/map_object_action.asm:46) and `SLIDING_F`; the hypothesis is that the bit
+-- stops the walk cycle from advancing. `meshghost_crystal.lua` already knows the bit --
 -- it CLEARS it at spawn, because a donor NPC template carries it and a permanently-sliding ghost
 -- never animates at all.
 --

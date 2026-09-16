@@ -15,8 +15,9 @@
 -- you back, forever if it likes. The cap ends the leg and the log says how far it actually got.
 --
 -- It reports the metatile behaviour under the player each leg, so "the test ran" and "the test ran
--- ON THE SLOPE" stay different claims -- MB_MUDDY_SLOPE is 208 (include/constants/metatile_behaviors.h,
--- enum from 0; cross-checked against MB_POND_WATER 16, which this repo measured independently).
+-- ON THE SLOPE" stay different claims -- MB_MUDDY_SLOPE taken as 208 (where to look:
+-- include/constants/metatile_behaviors.h; MB_POND_WATER 16 from the same place was measured by this
+-- repo independently, 208 is what this log's on-slope reading tests).
 --
 -- Addresses copied from meshghost_emerald.lua, never from memory.
 

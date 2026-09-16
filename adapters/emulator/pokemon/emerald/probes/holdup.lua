@@ -8,7 +8,7 @@
 -- No turns, no legs, no tile counting -- the user is on the tile in front of the slope and wants it
 -- held. The only logic is the safety gate and a once-a-second line saying whether the climb is
 -- actually happening: the y coordinate, the speed reached, and the behaviour underfoot
--- (MB_MUDDY_SLOPE = 208, include/constants/metatile_behaviors.h). "Held the key" and "climbed the
+-- (MB_MUDDY_SLOPE taken as 208, include/constants/metatile_behaviors.h). "Held the key" and "climbed the
 -- slope" are different claims and the log keeps them apart.
 local GPLAYERAVATAR_ADDR = 0x02037590
 local GOBJECTEVENTS_ADDR = 0x02037350

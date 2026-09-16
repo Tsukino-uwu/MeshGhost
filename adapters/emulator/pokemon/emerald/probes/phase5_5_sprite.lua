@@ -31,26 +31,14 @@
 --
 -- Facing direction and walk/run animation frame indices + durations (in real game frames, at
 -- the same ~60fps this script's own emu.frameadvance() loop runs at, so tracking them with a
--- local frame counter matches the real game's own animation speed exactly): from
--- src/data/object_events/object_event_anims.h's sAnim_FaceSouth/FaceNorth/FaceWest/FaceEast
--- (idle) and sAnim_GoSouth/GoNorth/GoWest/GoEast (walk, 4-step cycle {3,0,4,0}-shaped per
--- direction, uniform 8 frames/pose). Running is a GENUINELY SEPARATE pic table
--- (gObjectEventPic_BrendanRunning/_MayRunning, not a faster walk cycle) -- found live
--- 2026-08-11 after an earlier version of this script wrongly reused the ANIM_STD_GO_FAST_*
--- tier (which turned out to be unrelated to on-foot Running Shoes dashing -- all four GO_FAST/
--- FASTER/FASTEST tiers share the walk table's frame indices, only duration changes, so that
--- was a red herring): the real running pose comes from sAnim_RunSouth/RunNorth/RunWest/RunEast,
--- which reference combined pic-table indices 9-17 in sPicTable_BrendanNormal
--- (object_event_pic_tables.h) -- i.e. gObjectEventPic_BrendanNormal's frames 0-8 for walking,
--- gObjectEventPic_BrendanRunning's frames 0-8 (combined index minus 9) for running, sharing one
--- ObjectEventGraphicsInfo/palette. The running frame SEQUENCE per direction is the same
--- relative shape as walking ({3,0,4,0} etc., just from the other pic table), but NOT the same
--- durations -- sAnim_RunSouth is ANIMCMD_FRAME(12,5),(9,3),(13,5),(9,3), i.e. 5,3,5,3 frames
--- per pose, a real asymmetric cadence, not a flat quarter of the walk speed. East reuses West's
--- frames with hFlip=true (sAnim_FaceEast/GoEast/RunEast's ANIMCMD_FRAME(..., .hFlip = TRUE)) --
--- there is no separate mirrored bitmap in ROM, so drawing mirrors the frame's x-coordinate
--- instead. sAnimTable_BrendanMayNormal confirms these frame tables (both walk and run) are
--- shared between Brendan and May -- only the pixel/palette source differs, per gender.
+-- local frame counter matches the real game's own animation speed exactly): the frame indices
+-- and per-pose durations in the tables below are hypotheses for this script's on-screen test
+-- (where to look: the sAnim_Face*/Go*/Run* entries in object_event_anims.h and
+-- sPicTable_BrendanNormal). Running is a SEPARATE pic table rather than a faster walk cycle --
+-- found live 2026-08-11 after an earlier version of this script wrongly reused the
+-- ANIM_STD_GO_FAST_* tier, a red herring. Taken from the same place and unconfirmed here: running
+-- has its own per-pose cadence, east is west's frames mirrored (so drawing mirrors the frame's
+-- x-coordinate), and Brendan and May share the frame tables with only pixels/palette differing.
 --
 -- Ghost placement, changed from phase4_multiplayer.lua: that script's GHOST_Y_CORRECTION
 -- existed because the 16x16 placeholder box was one tile shorter than a real 16x32 overworld
@@ -63,8 +51,9 @@
 local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
 -- gSaveBlock2Ptr = 0x03005D90 (pointer, right next to gSaveBlock1Ptr at 0x03005D8C --
 -- pokeemerald.sym, same make-compare-verified build as every other address in this project).
--- playerGender is struct SaveBlock2 offset +0x08 (include/global.h L511, "u8 playerGender").
--- MALE=0, FEMALE=1 (include/constants/global.h). Read once at script start, not every frame --
+-- playerGender is taken as SaveBlock2 +0x08, 0 = male, 1 = female (where to look: struct
+-- SaveBlock2, include/global.h; MALE/FEMALE, include/constants/global.h). Read once at script
+-- start, not every frame --
 -- gender doesn't change mid-session, unlike everything else this script reads from memory.
 local GSAVEBLOCK2PTR_ADDR = 0x03005d90
 local GPLAYERAVATAR_ADDR = 0x02037590

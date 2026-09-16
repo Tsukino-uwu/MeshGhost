@@ -6,14 +6,9 @@
 -- instead, which is exactly the distinction wanted -- but the structs must be MEASURED before the
 -- adapter trusts them (CLAUDE.md: no addresses from memory).
 --
--- STRUCTS UNDER TEST (pokeemerald include/global.h, include/fieldmap.h -- field NAMES cited, the
--- layout is what this probe verifies):
---   MapHeader: mapLayout +0x00, events +0x04, mapScripts +0x08, connections +0x0C
---   MapConnections: count s32 +0x00, list ptr +0x04
---   MapConnection: direction u8 +0x00, offset s32 +0x04, mapGroup u8 +0x08, mapNum u8 +0x09,
---     stride 12 (alignment)
---   MapLayout: width s32 +0x00, height s32 +0x04
---   directions: 1 south, 2 north, 3 west, 4 east (5 dive, 6 emerge)
+-- STRUCTS UNDER TEST (where to look: MapHeader, MapConnections, MapConnection and MapLayout in
+-- include/global.h and include/fieldmap.h). The offsets the code reads below are the hypothesis;
+-- the layout is what this probe verifies.
 --
 -- SELF-LOCATING gMapGroups, because neighbor dimensions need the neighbor's header and only that
 -- table maps group:num -> header. gMapHeader (02037318) is a COPY of the current map's ROM header,

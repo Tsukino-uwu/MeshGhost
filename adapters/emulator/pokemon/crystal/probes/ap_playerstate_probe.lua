@@ -22,9 +22,9 @@
 -- stand on foot, get on the bike, get off again. The address is the byte that changed on the way
 -- in and changed BACK on the way out -- and almost nothing else in WRAM does that on cue.
 --
--- Vanilla's values are 0 on foot, 1 bike, 2 skate, 4 surf, 8 surfing Pikachu
--- (`constants/wram_constants.asm`), which is a bit-per-state layout, so the byte is small and its
--- values are powers of two. Reported, but NOT required: this build is free to number them
+-- Where to look for vanilla's values: the PLAYER_* state names in `constants/wram_constants.asm`;
+-- the hypothesis is a small byte whose values are powers of two. Reported, but NOT required:
+-- this build is free to number them
 -- differently, and demanding vanilla's values is exactly the assumption that turned a bicycle into
 -- a Moon Stone earlier today. Every byte that reverses is listed; the shortlist is a convenience.
 --

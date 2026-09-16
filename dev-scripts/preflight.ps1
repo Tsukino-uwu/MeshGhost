@@ -937,14 +937,16 @@ Section "Decompilation citations in adapter Lua: a ratchet"
 # is a pointer to where the source places the mechanism the code imitates -- both adapters' headers
 # say so -- and never the evidence; a NEW one is a new borrowed claim. Ratchets like
 # documentation.md's below: a count that grows fails, a count that shrinks asks for the floor to be
-# lowered. Rewriting the existing ones site by site is the stricter option, the user's call.
+# lowered. The per-site audit ran the same day (the user's call): the two shipped adapters went to
+# zero -- every source-only mechanism is a question in that adapter's UNVERIFIED.md -- and the probes
+# kept their "where to look" pointers with copied source text, tables and layouts removed.
 $luaCiteC = '\b(src|include|data|constants)/[A-Za-z0-9_/]+\.(c|h|inc)\b|\.(c|h):[0-9]'
 $luaCiteAsm = '\b(engine|home|data|constants|ram|gfx|maps)/[A-Za-z0-9_/]+\.(asm|inc)\b|\.asm:[0-9]'
 $luaCiteRatchet = @(
-    @{ path = 'adapters/emulator/pokemon/emerald/meshghost_emerald.lua'; pattern = $luaCiteC;   floor = 130 },
-    @{ path = 'adapters/emulator/pokemon/crystal/meshghost_crystal.lua'; pattern = $luaCiteAsm; floor = 46 },
-    @{ path = 'adapters/emulator/pokemon/emerald/probes';                pattern = $luaCiteC;   floor = 97 },
-    @{ path = 'adapters/emulator/pokemon/crystal/probes';                pattern = $luaCiteAsm; floor = 107 }
+    @{ path = 'adapters/emulator/pokemon/emerald/meshghost_emerald.lua'; pattern = $luaCiteC;   floor = 0 },
+    @{ path = 'adapters/emulator/pokemon/crystal/meshghost_crystal.lua'; pattern = $luaCiteAsm; floor = 0 },
+    @{ path = 'adapters/emulator/pokemon/emerald/probes';                pattern = $luaCiteC;   floor = 80 },
+    @{ path = 'adapters/emulator/pokemon/crystal/probes';                pattern = $luaCiteAsm; floor = 105 }
 )
 $luaCiteProblems = @()
 foreach ($r in $luaCiteRatchet) {

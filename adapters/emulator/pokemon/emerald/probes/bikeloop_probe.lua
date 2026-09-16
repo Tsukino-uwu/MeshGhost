@@ -13,8 +13,8 @@
 --
 -- ROUTE (user, 2026-08-20): 3 tiles up, 3 left, 3 down, 3 right, looping, from wherever it starts.
 -- Short sides on purpose: they keep the ride inside a safe town patch with no tall grass and no
--- trainer sightlines. Note the cost -- a Mach Bike accelerates over distance (PlayerWalkNormal ->
--- Fast -> Faster, pokeemerald src/bike.c:75-80), so three tiles may never reach top speed. The
+-- trainer sightlines. Note the cost -- a Mach Bike likely accelerates over distance (unmeasured;
+-- where to look: src/bike.c:75-80), so three tiles may never reach top speed. The
 -- animation cases show at any speed; the top-speed catch-up case may not reproduce here, and the
 -- log reports the speeds actually reached rather than assuming a held key produced them.
 --

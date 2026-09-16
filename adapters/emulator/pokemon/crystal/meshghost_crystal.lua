@@ -3,13 +3,13 @@
 -- *** WRITES GAME RAM. *** Object RAM only, never a save, cosmetic only, vanilla Crystal V1.0
 -- only. See agent_docs/architecture.md's 2026-08-17 ADR, and the ROM guard below.
 --
--- HOW TO READ A DECOMPILATION CITATION IN THIS FILE (a pokecrystal source file beside a comment),
+-- HOW TO READ A DECOMPILATION POINTER IN THIS FILE (a pokecrystal symbol name beside a comment),
 -- since 2026-09-16: it says where the decompilation places the mechanism the code next to it
 -- imitates. It is a pointer, never the evidence. A claim that names a probe, a trace, a log or the
--- user on screen, with a date, is measured; a claim that names only the source is the source's
--- reading and is unverified on the game (CLAUDE.md, *measured or observed only*; the questions
--- those readings raise are in UNVERIFIED.md). Preflight ratchets the count of such citations, so
--- a new one is a new borrowed claim: measure it, or say the source is all it has.
+-- user on screen, with a date, is measured; a claim marked unmeasured is the source's reading only
+-- (CLAUDE.md, *measured or observed only*; each such question is in UNVERIFIED.md, from the
+-- per-site audit of 2026-09-16). That audit removed every source path from these comments, and
+-- preflight holds the count of path citations at zero.
 --
 -- WHAT MAKES THIS DIFFERENT FROM EMERALD'S ADAPTER
 -- Emerald draws its ghost over the emulator with gui.* and a hand-rolled sprite decode. This one
@@ -281,35 +281,34 @@ local ADDRESSES = {
 		-- the one pair bypassing this table; see the Archipelago entry below for what that cost.
 		H_SCX = 0xFFCF,
 		H_SCY = 0xFFD0,
-		-- THE FISHING SHEET, and it is NOT FishingRodGFX. `Script_FishCastRod` does
-		-- `loademote EMOTE_ROD` and then `callasm LoadFishingGFX` -- and the second overwrites
-		-- what the first loaded. `engine/events/fishing_gfx.asm` copies four 2-tile blocks out of
-		-- `chris_fish.2bpp` / `kris_fish.2bpp` into VRAM BANK 1: sprite tiles $02, $06 and $0a
-		-- (the BOTTOM half of the standing down/up/left views) and $fc (the rod). So a fishing
-		-- character is its own top half plus this sheet's bottom half, and the rod is this
-		-- sheet's tiles 6-7 -- FishingRodGFX is on screen for a few frames at most and never
-		-- during the pose. Measured on screen 2026-08-25: VRAM bank 1 $fc held a vertical line
-		-- where FishingRodGFX tile 0 is a diagonal, which is what the user saw as a rod that
-		-- looked *"sideways/weird"*. See UNVERIFIED.md.
+		-- THE FISHING SHEET, and it is NOT FishingRodGFX. Measured 2026-08-25: during the pose,
+		-- VRAM bank 1 $fc held a vertical line where FishingRodGFX tile 0 is a diagonal -- what
+		-- the user saw as a rod that looked *"sideways/weird"*. What OUR code does: draws a
+		-- fishing character as its own top half plus this sheet's bottom half, with the rod from
+		-- this sheet's tiles 6-7; the fishing pose was confirmed on screen 2026-08-26
+		-- (VERIFIED.md). Which VRAM tiles the sheet replaces besides $fc is where the
+		-- decompilation's `LoadFishingGFX` places it -- not measured on the game (UNVERIFIED.md).
 		--
 		-- FishingGFX, 2e:44f2 -> 0x2e * 0x4000 + (0x44f2 - 0x4000); KrisFishingGFX at 2e:4582.
-		-- Nine tiles each, of which the engine uses the first eight. Which one a PEER gets is its
+		-- Nine tiles each, of which our code reads the first eight. Which one a PEER gets is its
 		-- own sprite id (SPRITE_CHRIS 1, SPRITE_KRIS $60) and never the local player's gender.
 		-- PER HASH-VERIFIED BUILD ONLY -- gated on classifyRom() saying "known" below, because unlike the
 		-- sprite table this one has no cheap signature and an unknown build would paint whatever
 		-- is there.
 		FISHING_GFX_ROM = 0xB84F2,
 		FISHING_GFX_ROM_KRIS = 0xB8582,
-		-- `JumpShadowGFX`, 41:4550 -> 0x41 * 0x4000 + (0x4550 - 0x4000). ONE tile, and the
-		-- neighbour of `FishingRodGFX` at 41:4560 -- which is not a coincidence:
-		-- `data/sprites/emotes.asm` loads BOTH to the same vtile $fc on demand, so VRAM $fc holds
-		-- the jump shadow normally and the fishing rod while somebody is fishing. That is exactly
-		-- why this is read from the cartridge rather than from VRAM: a peer hopping a ledge while
-		-- THIS machine's player has a rod out would otherwise cast a fishing rod for a shadow.
+		-- `JumpShadowGFX`, 41:4550 -> 0x41 * 0x4000 + (0x4550 - 0x4000). ONE tile, read from
+		-- the cartridge rather than from VRAM $fc, because $fc is not the shadow's alone: measured
+		-- 2026-08-25, it holds fishing art while somebody is fishing. That the jump shadow is
+		-- loaded to the same $fc otherwise is where the decompilation's emote table places it,
+		-- not measured on the game. Reading ROM means a peer hopping a ledge while THIS machine's
+		-- player has a rod out cannot cast a fishing rod for a shadow.
 		-- Per hash-verified build only, gated on classifyRom() below, same as the fishing sheet.
 		SHADOW_GFX_ROM = 0x104550,
-		-- Emotes, 05:444d -> 0x5 * 0x4000 + (0x444d - 0x4000). Twelve six-byte entries --
-		-- `dw graphics, db length, db bank, dw vtile` (`data/sprites/emotes.asm`) -- so this
+		-- Emotes, 05:444d -> 0x5 * 0x4000 + (0x444d - 0x4000). Our code reads it as six-byte
+		-- entries (facingFrames.emoteRom has which bytes it takes); the entry layout is the
+		-- decompilation's, not measured field by field on the game, though the emotes it yields
+		-- were confirmed on screen 2026-08-26 (the "!", VERIFIED.md). This
 		-- table is how a receiver turns "emote number N" back into pixels. The "!" over a
 		-- character's head is one of these, and it is a SEPARATE map object, not a pose.
 		EMOTES_ROM = 0x1444D,
@@ -328,8 +327,9 @@ local ADDRESSES = {
 		-- to "may a character be shown at all right now" -- the user's own framing, 2026-08-26,
 		-- after ghosts painted over the party menu and the fly map screen on an adapter reload:
 		-- *"no check if they can't spawn/show there? just a check that they should be hidden"* --
-		-- the deny-list problem in one sentence. `DisableSpriteUpdates` (home/sprite_updates.asm)
-		-- sets this FALSE and is what every full-screen UI calls; polarity measured live from the
+		-- the deny-list problem in one sentence. The decompilation places the clearing write in
+		-- `DisableSpriteUpdates`; that every full-screen UI clears it is NOT measured beyond the
+		-- readings below (UNVERIFIED.md). Polarity measured live from the
 		-- prepared fly savestate: 0 on the fly map screen, 1 on the overworld AND 1 through the
 		-- landing animation, which is why the painted descent still draws.
 		W_SPRITEUPDATESON = flat(0xC2CE),
@@ -608,11 +608,9 @@ local emote = {
 	-- "!", which is why the emote scan used to mistake one for the other.
 	F_STEP_INDEX = 0x1C, -- OBJECT_STEP_INDEX, the anon-jumptable index (which phase runs next)
 	F_JUMP_HEIGHT = 0x1F, -- OBJECT_JUMP_HEIGHT, what UpdateJumpPosition accumulates
-	-- `FacingShadow` (data/sprites/facings.asm): two sprites, both ABSOLUTE_TILE_ID $fc, at
-	-- (y 0, x 0) and (y 0, x 8) with the second X-flipped -- a 16x8 smudge.
-	-- `MovementFunction_Shadow` puts it at OBJECT_SPRITE_Y_OFFSET = 1 * TILE_WIDTH + 6 = 14 for a
-	-- character facing DOWN or UP and 1 * TILE_WIDTH + 4 = 12 facing LEFT or RIGHT, with an X
-	-- offset of 0. Confirmed live 2026-08-26: the shadow object under a downward hop read y=+14.
+	-- The painted shadow's Y offset below the character's tile, by facing. Confirmed live
+	-- 2026-08-26: the shadow object under a downward hop read y=+14. Up at 14 and left/right at
+	-- 12 follow the decompilation's `MovementFunction_Shadow` and are NOT measured on the game.
 	SHADOW_DY = { [0] = 14, [1] = 14, [2] = 12, [3] = 12 },
 }
 local STANDING = 255
@@ -1132,10 +1130,10 @@ end
 
 -- ONE GAIT GROUP OF `StepVectors`, or nil if these sixteen bytes are not one.
 --
--- The table is four `db x, y, duration, speed` rows per gait, in this file's own down/up/left/
--- right order (`engine/overworld/map_objects.asm`), and every gait crosses the same 16px tile --
--- so a group for stride `s` is 0,s / 0,-s / -s,0 / s,0, all four carrying the same duration, and
--- `s * duration` is 16. That last identity is what makes the shape rare rather than merely
+-- What this accepts: four 4-byte rows in this file's own down/up/left/right order, a group for
+-- stride `s` being 0,s / 0,-s / -s,0 / s,0, each row carrying `s` again and the same duration,
+-- with `s * duration` 16 (one tile). That signature matched exactly one run of bytes on each of
+-- four cartridges, measured 2026-08-26 (ENGINE.gaitGroups). The identity is what makes the shape rare rather than merely
 -- plausible: it rejects any run of bytes that happens to look like four little vectors.
 --
 -- Reads the ROM directly rather than through u8(), which pcalls every byte -- this runs over a
@@ -1275,8 +1273,10 @@ ENGINE.xmap = {
 	-- line is written once per crossing instead of sixty times a second. Cleared with the rest
 	-- of the per-map bookkeeping is NOT wanted: re-announcing on every map change is noise.
 	said = {},
-	-- EAST 0x01, WEST 0x02, SOUTH 0x04, NORTH 0x08 -- constants/map_data_constants.asm's
-	-- shift_const order. The struct order in WRAM is north, south, west, east.
+	-- The connection bit OUR code tests per direction, and the order and offsets it reads the
+	-- four connection records in (addresses from our hash-verified build's .sym). Confirmed by
+	-- the result: a peer on a connected map rendered at the right tile in all four directions,
+	-- on screen 2026-08-27 (VERIFIED.md).
 	DIRS = {
 		{ name = "north", bit = 0x08, at = 1 },
 		{ name = "south", bit = 0x04, at = 13 },
@@ -1473,8 +1473,8 @@ assert(table.concat(DIR_NAMES.letter, "", 0, 3) == "dulr",
 
 -- THE ENGINE'S THREE GAITS, from its own table rather than from this file's assumptions.
 --
--- `GetStepVector` (engine/overworld/map_objects.asm) indexes `StepVectors` with
--- `OBJECT_WALKING & $0F`, and the table is three groups of four directions:
+-- OUR code treats OBJECT_WALKING as an index into `StepVectors` (the decompilation's
+-- `GetStepVector` is where it places that read), in three groups of four directions:
 --   0-3  slow    1px per tick, 16 ticks
 --   4-7  normal  2px per tick,  8 ticks
 --   8-11 fast    4px per tick,  4 ticks
@@ -1486,11 +1486,10 @@ assert(table.concat(DIR_NAMES.letter, "", 0, 3) == "dulr",
 -- OBJECT_WALKING held 08 and 09 -- group 2, fast -- with OBJECT_STEP_DURATION counting 3, 2, 1.
 -- Walking holds 4-7. So the byte carries the gait and nothing else has to be inferred.
 --
--- GROUP 3 IS NOT VANILLA'S, AND IT IS STILL THE ENGINE'S. `GetStepVector` masks the walking byte
--- with $0F, which is sixteen entries' worth of index for a table vanilla fills only twelve of --
--- so the room for a fourth gait is something vanilla left, not something a patch invents, and a
--- patched build can fill it without touching a single line of the routine that reads it. One
--- does: measured 2026-08-26 by scanning four cartridges for the table's own byte signature (see
+-- GROUP 3 IS NOT VANILLA'S. Our code masks the walking byte with $0F, as the decompilation's
+-- `GetStepVector` does (not measured on the game): sixteen entries' worth of index for a table
+-- vanilla fills only twelve of, so a patched build could fill a fourth group without changing
+-- the routine that reads it. One does: measured 2026-08-26 by scanning four cartridges for the table's own byte signature (see
 -- ENGINE.gaitGroups below), three vanilla-derived builds carry three groups and the Archipelago
 -- patch carries four, the fourth being 8 pixels a tick for 2 ticks -- a tile in two frames.
 --
@@ -1733,10 +1732,10 @@ local function getLocalState()
 		-- say so; every other value is sent as-is and currently ignored. Opaque engine
 		-- vocabulary, exactly like `act`.
 		-- `jump` is TRUE WHILE THIS PLAYER IS HOPPING A LEDGE, and it is the one thing about a hop
-		-- that is not already on the wire. `JumpStep` (engine/overworld/movement.asm) writes
-		-- OBJECT_ACTION_STEP and the ordinary walking gait, so `act` says "walking" and `gait` says
-		-- "walking" -- the ONLY field that distinguishes a hop from a step is OBJECT_STEP_TYPE,
-		-- which is STEP_TYPE_PLAYER_JUMP (9) for the player's own object across both tiles.
+		-- that is not already on the wire. OUR sender sets it from OBJECT_STEP_TYPE == 9 on the
+		-- player's own object, on the reading (the decompilation's `JumpStep`, NOT measured on the
+		-- game) that a hop otherwise carries the same action and gait bytes as a walking step and
+		-- that 9 holds across both tiles. Ledge hops were confirmed on screen 2026-08-26.
 		--
 		-- Sent as a bool rather than the raw step type on purpose. The receiver does not want the
 		-- peer's step type -- it must never write 9 onto a ghost, because that is the PLAYER's jump
@@ -2073,11 +2072,10 @@ local function shouldBlock(id, x, y, act)
 		activity[id] = a
 	end
 	if a.x ~= x or a.y ~= y then
-		-- REMEMBER THE TILE IT IS STEPPING OUT OF, because the engine blocks on both. The player's
-		-- own step tests its destination with `IsNPCAtCoord`, which compares each object's current
-		-- coords AND its `LAST_MAP_X`/`LAST_MAP_Y` (`engine/overworld/npc_movement.asm`), so a
-		-- character part-way through a step is a two-tile obstacle. The shove rule below only ever
-		-- compared the current one, which is why shoving a MOVING ghost never released it.
+		-- REMEMBER THE TILE IT IS STEPPING OUT OF, so the shove rule below treats a ghost part-way
+		-- through a step as a two-tile obstacle. That the engine blocks on the previous tile too is
+		-- the decompilation's reading of `IsNPCAtCoord` (LAST_MAP_X/Y), NOT measured on the game
+		-- (UNVERIFIED.md); comparing only the current tile is what never released a MOVING ghost.
 		a.lastX, a.lastY = a.x, a.y
 		a.x, a.y, a.movedAt = x, y, policyFrames
 	end
@@ -2506,11 +2504,10 @@ end
 -- and it is a thing only the drawn tier can do (a spawned ghost needs tiles the hardware can
 -- reach, i.e. in VRAM).
 --
--- The table is `OverworldSprites` at 05:4736, from our own hash-verified pokecrystal build, and
--- its shape is stated by the game's own struct (constants/sprite_data_constants.asm):
---   0-1 address, 2 size in BYTES (192 = 12 tiles), 3 bank, 4 type, 5 palette
--- six bytes per entry, indexed by SPRITE_* - 1 (the table's own comment: "entries correspond to
--- SPRITE_* constants", which start at 1).
+-- The table is `OverworldSprites` at 05:4736, from our own hash-verified pokecrystal build's
+-- .sym. OUR code reads it as six bytes per entry indexed by sprite id - 1 (the reader below says
+-- which bytes it takes); that entry layout is the decompilation's and is not measured field by
+-- field on the game (UNVERIFIED.md).
 -- Assigned from the selected address table, and NIL on any build where nobody has measured it.
 local OVERWORLD_SPRITES_ROM, EMOTES_ROM
 local SPRITEDATA_STRIDE = 6
@@ -2540,20 +2537,18 @@ function ENGINE.playerEmote()
 	for i = 1, NUM_OBJECT_STRUCTS - 1 do
 		local b = OBJECT_STRUCTS + i * OBJECT_LENGTH
 		-- EMOTE_OBJECT IS NOT "THIS IS AN EMOTE" -- it is "this is an attached decoration object",
-		-- and THREE of them set it. `data/sprites/map_objects.asm` gives SPRITEMOVEDATA_SHADOW,
-		-- _EMOTE and _SCREENSHAKE all the same flags1 byte
-		-- (`WONT_DELETE | FIXED_FACING | SLIDING | EMOTE_OBJECT`), so the flag plus "on the
-		-- player's tile" matched the JUMP SHADOW as readily as the "!". The user, watching a ledge
+		-- and the jump shadow wears it too, so the flag plus "on the player's tile" matched the
+		-- JUMP SHADOW as readily as the "!". (That the screenshake object wears it as well is the
+		-- decompilation's movement data, not measured on the game.) The user, watching a ledge
 		-- hop on the compare rig 2026-08-26: *"the drawn ghost is doing a '!' emote while jumping,
 		-- its not supposed to do that"* -- `SpawnShadow` puts a shadow object on the hopping
 		-- character's own tile for the length of the hop, this scan called it an emote, and the
 		-- tile match below then named whichever emote happened to be resident.
 		--
-		-- THE ACTION BYTE IS THE DISCRIMINATOR, and it is maintained rather than merely initial:
-		-- `MovementFunction_Emote` writes OBJECT_ACTION_EMOTE (8) and `MovementFunction_Shadow`
-		-- writes OBJECT_ACTION_SHADOW (7) every time each runs
-		-- (`engine/overworld/map_objects.asm`), so this is a live field and not a value that could
-		-- have been overwritten since spawn. Screenshake's object holds OBJECT_ACTION_00.
+		-- THE ACTION BYTE IS THE DISCRIMINATOR: our scan also requires action 8 (the emote), which
+		-- stopped the hop "!" -- confirmed on screen 2026-08-26 (VERIFIED.md, ledge hops). That the
+		-- emote and shadow movement functions rewrite 8 and 7 every tick, rather than once at spawn,
+		-- is the decompilation's reading and is NOT measured on the game (UNVERIFIED.md).
 		--
 		-- Note this is the SAME fact that made `OBJECT_ACTION_EMOTE` wrong to write onto a ghost's
 		-- body (see ACTIONS.peer): the emote is a separate object, not a pose. It was read there
@@ -3374,25 +3369,23 @@ end
 -- standing on one tile. Bump was fixed as a special case on 2026-08-23; spin, the turn in place,
 -- fishing, the Dig/Teleport flicker and the Fly landing were left, and they are the same gap.
 --
--- ONE RULE INSTEAD OF FIVE, and it is the engine's own. `OBJECT_FACING` is not a direction: it is
--- literally the index into `Facings` (`data/sprites/facings.asm`), the table the engine looks up
--- to decide which tiles to emit for a character this frame. So a peer's facing byte -- already on
--- the wire as `extras.face` -- states the pose outright, and the whole job here is to read it the
--- way `_UpdateSprites` does rather than to reconstruct it from where the peer is standing.
+-- ONE RULE INSTEAD OF FIVE. OUR code reads a peer's `OBJECT_FACING` byte -- already on the wire
+-- as `extras.face` -- as the pose itself, rather than reconstructing the pose from where the peer
+-- is standing. The decompilation places that byte as the index `_UpdateSprites` looks up in
+-- `Facings` (a pointer, not our measurement).
 --
--- What the table says, all of it from the decomp (`constants/map_object_constants.asm` for the
--- values, `data/sprites/facings.asm` for the art, `engine/overworld/map_object_action.asm` for
--- which action produces which facing) -- `documentation.md` has the full enumeration:
+-- The ranges the code below relies on, and what of each is ours:
 --
---   0x00-0x0F  FACING_STEP_<DIR>_<0..3>: direction = byte // 4, stride = byte & 3. Strides 0 and 2
---              are the STANDING view, 1 and 3 the two STEPPING ones -- which is the same
---              "stepping on odd strides" the bump fix measured, stated by the table.
---   0x10-0x13  FACING_FISH_DOWN/UP/LEFT/RIGHT: the character's own STANDING view for that
---              direction, plus one extra sprite for the rod (see facingFrames.ROD).
---   0x14       FACING_EMOTE. NOT REACHABLE FOR A PLAYER -- the "!" is a SEPARATE map object
---              (SpawnEmote, flagged EMOTE_OBJECT_F), so the player's own action byte never
---              becomes OBJECT_ACTION_EMOTE. phase9.md's 2026-08-19 enumeration had this wrong.
---   0xFF       STANDING (-1): the engine skips the object entirely, drawing nothing.
+--   0x00-0x0F  direction = byte // 4, stride = byte & 3, odd strides the STEPPING view. Measured:
+--              the bump fix (2026-08-23) found stepping on odd strides, and the turn trace
+--              (2026-09-13) read 04, 0D, 0E, 0C through a turn, confirmed on screen that day.
+--   0x10-0x13  fishing, one per direction, the standing view plus a rod (facingFrames.ROD).
+--              Fishing was confirmed on screen 2026-08-26; the byte values are not separately
+--              measured (UNVERIFIED.md).
+--   0x14+      scenery; our code shows a peer standing. That a player object never holds one
+--              is the decompilation's reading, not measured.
+--   0xFF       drawn as nothing. Dig / Escape Rope, which goes through it, was confirmed on
+--              screen 2026-08-26; the byte itself is not separately measured (UNVERIFIED.md).
 --
 -- So `act` only decides WHETHER to trust the facing byte over the position-derived pose. While a
 -- peer is walking normally (actions 0/1/2) the position-derived pose is strictly better, because
@@ -3406,11 +3399,10 @@ function facingFrames.pose(act, face, facing, moving, stride)
 		-- ORDINARY WALKING READS THE FACE BYTE TOO (2026-08-25). This branch used to fall through
 		-- to the position-derived pose on the reasoning that prog is "phase-locked to the peer's
 		-- own sub-tile progress" -- and the partition it fed was measured EXACT at the walk
-		-- (2026-08-22). Both true, and still wrong at any other gait: the engine's walk cycle is
-		-- NOT a function of step progress. `SetFacingStepAction` advances OBJECT_STEP_FRAME once
-		-- per action tick and takes the stride from bits 2-3 -- a FIXED clock, one stride per 8
-		-- video frames, the same speed walking or biking -- and `data/sprites/facings.asm` says
-		-- strides 0/2 are the STANDING view, 1 the stepping view, 3 the stepping view mirrored.
+		-- (2026-08-22). Both true, and still wrong at any other gait: the walk cycle is NOT a
+		-- function of step progress. On the bike prog lapped the cycle (the user's report below);
+		-- that the cycle runs on a fixed clock, the same walking or biking, is where the
+		-- decompilation's `SetFacingStepAction` places it and is NOT measured as a rate on the game.
 		-- At the walk (16 frames a tile) the fixed clock and prog happen to align, which is why
 		-- the prog partition measured exact and nobody noticed the assumption. On the bike (8
 		-- frames a tile) prog laps the clock and the drawn ghost pedalled at double speed -- the
@@ -3463,11 +3455,11 @@ function facingFrames.pose(act, face, facing, moving, stride)
 end
 
 -- THE FISHING ROD, which is the one part of a fishing pose that is not the character's own art.
--- FacingFishDown/Up/Left/Right each add a fifth sprite with ABSOLUTE_TILE_ID set, meaning the
--- tile id is used as-is rather than added to the character's tile base: $fc for the vertical rod
--- and $fd for the horizontal one, which are FishingRodGFX tiles 0 and 1. Positions and the flip
--- are the engine's own, read off `data/sprites/facings.asm` (the rows are `db y, x, attr, tile`).
--- Keyed by this adapter's dir index; `t` is the tile within FishingRodGFX.
+-- OUR painted tier draws it as one extra tile beside the character, per direction, from the
+-- fishing sheet (FISHING_GFX_ROM). The offsets and the flip below were taken from the
+-- decompilation's fishing facings, not measured on the game; the fishing pose they draw was
+-- confirmed on screen 2026-08-26 (VERIFIED.md). Keyed by this adapter's dir index; `t` is the
+-- tile within the fishing sheet.
 facingFrames.ROD = {
 	[0] = { dx = 0, dy = 16, t = 6 }, -- down: below the character
 	[1] = { dx = 0, dy = -8, t = 6 }, -- up: above it
@@ -3477,14 +3469,14 @@ facingFrames.ROD = {
 
 -- THE FLYING POKEMON'S ICON, and the descent the engine flies it in on.
 --
--- `FlyToAnim` does not animate the player's map object at all -- it hides every character and runs
--- a cutscene sprite whose graphics are the icon of the mon in `wCurPartyMon`
--- (`FlyFunction_InitGFX`, `engine/events/field_moves.asm`). So a peer's landing is only 1:1 if the
--- ghost becomes that Pokemon for the descent, which is what these two functions are for.
+-- OUR code draws a peer's Fly landing as the icon of the peer's current party mon descending, not
+-- as the character; the Fly landing with the Pokemon was confirmed on screen 2026-08-26
+-- (VERIFIED.md). That the game's own landing is a cutscene sprite built from that icon is where
+-- the decompilation's `FlyFunction_InitGFX` places it, not measured on the game.
 --
--- SPECIES -> GRAPHICS is two hops, both in bank 0x23: `MonMenuIcons[species - 1]` gives an ICON
--- index (several species share one), and `IconPointers[icon]` gives the address of its eight
--- tiles. Memoised per species -- neither table can change.
+-- SPECIES -> GRAPHICS is two lookups, both in bank 0x23: `MonMenuIcons[species - 1]` gives an ICON
+-- index, and `IconPointers[icon]` gives the address of its eight tiles (addresses from our
+-- build's .sym; the layout the decompilation's, not measured field by field). Memoised per species.
 -- peerRomIndex is the gate every peer number that becomes a ROM OFFSET and a MEMO KEY goes
 -- through. It returns an integer inside [lo, hi], or nil.
 --
@@ -3626,8 +3618,9 @@ end
 
 -- The bottom half of a standing view is what the fishing sheet replaces, and this is the whole
 -- mapping: sprite tile offsets 2,3 (down), 6,7 (up) and 10,11 (left, and right x-flipped) become
--- fishing tiles 0..5 in that order. `engine/events/fishing_gfx.asm` loads them as three 2-tile
--- blocks at $02, $06 and $0a. Returns nil for a tile the sheet does not replace.
+-- fishing tiles 0..5 in that order -- the decompilation's `LoadFishingGFX` placement, not measured
+-- on the game beyond the fishing pose confirmed on screen 2026-08-26. Returns nil for a tile the
+-- sheet does not replace.
 function facingFrames.fishTile(offset)
 	if offset > 11 or (offset % 4) < 2 then
 		return nil
@@ -3729,29 +3722,27 @@ end
 -- palettes including day/night and fades, correct ordering against the game's own cast, and no
 -- per-pixel Lua at all -- four bytes an entry instead of decoding and blitting tiles.
 --
--- WHAT IT HONESTLY IS NOT, measured from the decomp before a line was written, because the case
--- for this tier was overstated when it was first proposed and the correction matters:
+-- WHAT IT HONESTLY IS NOT, reasoned before a line was written (the capacity figures are measured,
+-- the occlusion point is not), because the case for this tier was overstated when first proposed:
 --
 --   * IT ADDS ALMOST NO CAPACITY. It draws from the same 40 entries the engine already fills:
 --     34-36 of 40 outdoors, 40 of 40 indoors (crowd-limits.md). That is zero to one extra
 --     character, and in a clump the per-scanline limit bites first. The case for it is quality.
---   * IT DOES NOT GET OCCLUSION FREE. A Crystal text box is background tiles with the BG-to-OAM
---     priority bit CLEAR (TextboxPalette, home/text.asm:100), and the hardware window is parked
---     off-screen during normal play -- so a hardware sprite draws IN FRONT of a text box. This tier
---     therefore reuses the drawn tier's clipping rather than claiming to inherit any.
+--   * IT DOES NOT GET OCCLUSION FREE, so this tier reuses the drawn tier's clipping rather than
+--     claiming to inherit any. Whether a hardware sprite draws in front of a text box is NOT
+--     measured: the decompilation's `TextboxPalette` suggests the priority bit is clear, and
+--     UNVERIFIED.md queues it for the screen to settle.
 --   * IT INHERITS THE SPAWNED TIER'S RESIDENCY LIMIT. An OAM entry names a VRAM tile, so a peer
 --     wearing a sprite this map never loaded cannot go here. Only the drawn tier reads the
 --     cartridge, which is why it stays the bottom rung rather than this one.
 --
--- HOW THE BUFFER WORKS (engine/overworld/map_objects.asm:2730, _UpdateSprites):
---   * `hUsedSpriteIndex` (00:ffbd) is a BYTE offset, reset to 0 every frame, and InitSprites
---     appends each visible character at 4 entries of 4 bytes;
---   * `.fill` then writes OAM_YCOORD_HIDDEN (160) into the Y byte of every remaining entry;
---   * the buffer reaches the hardware at VBlank.
--- So the free tail starts at `hUsedSpriteIndex` and our entries must be written AFTER the fill and
--- before the DMA. Whether the adapter's once-a-frame tick lands in that window is the one thing
--- that could not be settled from the source, so `verify()` below reads the hardware OAM back and
--- says plainly if nothing arrived, instead of drawing nothing and looking innocent.
+-- HOW OUR CODE USES THE BUFFER: it writes entries into `wShadowOAM` counting down from the top,
+-- no lower than `hUsedSpriteIndex` ($ffbd) read as a byte offset, on the assumption -- the
+-- decompilation's `_UpdateSprites`, NOT measured on the game -- that the engine fills from the
+-- bottom each frame to that offset, hides the unused tail, and copies the buffer to the
+-- hardware at VBlank. Measured 2026-08-21 (UNVERIFIED.md): an entry written at the adapter's frame
+-- boundary DID reach the hardware, entry 39 read back from the `OAM` domain. `verify()` below keeps
+-- reading it back and says plainly if nothing arrived, instead of drawing nothing and looking innocent.
 local OAM_TIER = (MESHGHOST_CRYSTAL_OAM_OVERFLOW or os.getenv("MESHGHOST_CRYSTAL_OAM_OVERFLOW")) == "1"
 
 local oam = {
@@ -3806,8 +3797,8 @@ function oam.place(sx, sy, tileBase, palIndex, facing, walking, prog, stride)
 
 	for i, part in ipairs(frame) do
 		local at = oam.SHADOW + (oam.next - (i - 1)) * 4
-		-- OAM_Y_OFS / OAM_X_OFS are 16 and 8 (constants/hardware.inc:980) -- an OAM coordinate is
-		-- the screen position plus those, which is how the hardware addresses off-screen edges.
+		-- An OAM coordinate is the screen position plus 16 (Y) and 8 (X), the Game Boy's sprite
+		-- origin; not measured for this tier on the game (UNVERIFIED.md, its position item).
 		w8(at, (sy + part.dy + 16) & 0xFF)
 		w8(at + 1, (sx + part.dx + 8) & 0xFF)
 		w8(at + 2, (tileBase + part.offset) & 0xFF)
@@ -4036,15 +4027,14 @@ local function spawnGhost(id, x, y, peerSprite)
 	--
 	-- The whole template struct is copied from a live NPC, FLAGS1 included, so a ghost inherits
 	-- whatever that character happened to be. Measured on Route 39, 2026-08-21: flags1 read 0x2E --
-	-- WONT_DELETE plus **FIXED_FACING and SLIDING** -- because the templates available there are
-	-- SPRITEMOVEDATA_STILL objects (the fruit tree, the Tauros), and STILL carries exactly those two
-	-- (data/sprites/map_objects.asm).
+	-- WONT_DELETE plus **FIXED_FACING and SLIDING** -- the templates available there being still
+	-- objects (the fruit tree, the Tauros).
 	--
-	-- SLIDING is why a ghost walked without ever animating: SetFacingStepAction tests it FIRST and
-	-- jumps to SetFacingCurrent, so OBJECT_STEP_FRAME is never advanced and the walk cycle never
-	-- runs. posediff_probe.lua caught the ghost at frame=0 through whole steps while the player's
-	-- ran 7, 8, 9. FIXED_FACING is the same class: InitStep skips writing OBJECT_DIRECTION with it
-	-- set, so the ghost cannot turn.
+	-- SLIDING is why a ghost walked without ever animating: posediff_probe.lua caught the ghost at
+	-- frame=0 through whole steps while the player's ran 7, 8, 9 (the decompilation's
+	-- `SetFacingStepAction` is where the bit is tested). FIXED_FACING is cleared on the same
+	-- reasoning -- the decompilation's `InitStep` skips the direction write with it set -- which is
+	-- NOT separately measured on the game.
 	--
 	-- This is why the fault looked intermittent -- it depended entirely on which NPC the map
 	-- offered. A ghost's flags must describe a GHOST, not its donor. Found only because the user
@@ -4082,21 +4072,17 @@ local function spawnGhost(id, x, y, peerSprite)
 	-- User, 2026-08-23: a spawned ghost raised the trainer `!` and the game hung; it recurred on a
 	-- second route. The donor on the first one read
 	--   05 2E 17 0F 09 00 FF FF 82 04 82 5B FF FF 00 00
-	-- and bytes 8 and 9 are the whole story: byte 8's low nibble is MAPOBJECT_TYPE (its high nibble
-	-- is the palette, one byte shared) and it held 2 = OBJECTTYPE_TRAINER, while byte 9 is
-	-- MAPOBJECT_SIGHT_RANGE and held 4. The ghost was a trainer with a four-tile sightline, and it
-	-- WALKS -- so it eventually spotted the player from somewhere no trainer stands, raised the `!`
-	-- and ran a battle script for a trainer that is not on that tile. Field layout:
-	-- pokecrystal `constants/map_object_constants.asm:82-99`; type values `constants/
-	-- script_constants.asm:137-145` (`const_def`, so SCRIPT=0, ITEMBALL=1, TRAINER=2).
+	-- and our reading of bytes 8 and 9 is the whole story: byte 8's low nibble held 2 and byte 9
+	-- held 4, which by the decompilation's names (MAPOBJECT_TYPE beside the palette nibble, then
+	-- MAPOBJECT_SIGHT_RANGE; type 2 a trainer) is a trainer with a four-tile sightline -- matching
+	-- the `!` and the hang the user saw. That byte layout and those values are the decompilation's
+	-- naming; the observation that fits them is ours (UNVERIFIED.md).
 	--
-	-- OBJECTTYPE_3 is the right thing for a ghost to BE. `engine/overworld/events.asm`'s
-	-- ObjectEventTypeArray dispatches a faced object on this nibble, and types 3-6 are dummy
-	-- entries whose handlers are `xor a / ret` -- face one and nothing happens. Type 0 (SCRIPT) and
-	-- type 1 (ITEMBALL) both DEREFERENCE MAPOBJECT_SCRIPT_POINTER, so leaving a ghost as either
-	-- while blanking the pointer would trade a trainer hang for a jump through a null pointer. A
-	-- ghost is not a script, not an item and not a trainer; it is a character you can walk up to
-	-- and face, and nothing more.
+	-- OUR code writes type 3 and blanks the sight range and script pointer. That facing a type-3
+	-- object does nothing, and that types 0 and 1 would follow the blanked pointer, is where the
+	-- decompilation's `ObjectEventTypeArray` places it and is NOT measured on the game -- though
+	-- zeroing a script pointer at type 0 froze the game on 2026-08-18 (VERIFIED.md). A ghost is
+	-- meant to be a character you can walk up to and face, and nothing more.
 	--
 	-- Only the ghost's own map object is touched. The donor is read and never written, so no NPC
 	-- on the map changes -- which is what separates this from cloning the PLAYER instead, tried
@@ -4119,9 +4105,9 @@ local function spawnGhost(id, x, y, peerSprite)
 	-- look like themselves rather than like whoever is sitting at this machine.
 	local own = applyPeerSprite(ghosts[id], peerSprite)
 
-	-- READ THE TYPE BACK OUT OF THE GAME, do not report the value just written. `_CheckTrainerBattle`
-	-- (pokecrystal `home/trainers.asm:13`) scans MAP OBJECTS and rejects on this nibble first, so
-	-- this byte is the entire difference between a ghost and a trainer -- and the donor it was
+	-- READ THE TYPE BACK OUT OF THE GAME, do not report the value just written. This byte is the
+	-- difference between a ghost and a trainer (the decompilation's `_CheckTrainerBattle` is where
+	-- the trainer scan tests it; not measured on the game) -- and the donor it was
 	-- cloned from is worth having on the same line, because a `2` here would name the NPC to blame.
 	local gotType = (u8(moBase + 0x08) or 0) & 0x0F
 	log(string.format("MeshGhost: spawned %s at %d,%d (map object %d <-> struct %d, type %d, "
@@ -4340,10 +4326,9 @@ function meshghostSampleCamera()
 		--   * offset said 24 where the screen moved 22 (x4): large, and rejected as
 		--     "implausible" below, so 22px of REAL scroll was absorbed and never
 		--     painted -- a visible jump at the moment it happens.
-		-- Negated, not re-signed downstream: `ScrollScreen` ADDS the step vector to
-		-- hSC where `_HandlePlayerStep` SUBTRACTS it from the offset
-		-- (`player_step.asm:29-47`), so `dOff == -dHSC` and negating the source
-		-- leaves every sign convention, the plausibility test and `K` untouched.
+		-- Negated, not re-signed downstream: the two registers run inverted (the audit
+		-- below compares them frame by frame), so negating the source leaves every
+		-- sign convention, the plausibility test and `K` untouched.
 		-- FROM THE PER-BUILD TABLE, not an inline literal, since 2026-08-26. `UNVERIFIED.md` had
 		-- flagged this pair on 2026-08-23 as the one address in the adapter bypassing that table,
 		-- and named the consequence exactly: the Archipelago build's values were ASSUMED, HRAM
@@ -4359,24 +4344,14 @@ function meshghostSampleCamera()
 		ENGINE.camCheck(hcx, hcy)
 		local scx = hcx and ((256 - hcx) % 256) or (u8(W_BGMAPOFFSETX) or 0)
 		local scy = hcy and ((256 - hcy) % 256) or (u8(W_BGMAPOFFSETY) or 0)
-		-- WAS THIS REGISTER EVER THE CAMERA? Read from `pret/pokecrystal`, not
-		-- guessed (2026-08-23):
-		--   * `wPlayerBGMapOffsetX/Y` ($d14c/$d14d) is commented in `ram/wram.asm`
-		--     as "used in FollowNotExact; unit is pixels". `ApplyBGMapAnchorToObjects`
-		--     (`engine/overworld/map_objects.asm:2768`), called from `_UpdateSprites`
-		--     EVERY FRAME, reads it, adds it to every object's sprite X/Y, and then
-		--     ZEROES IT (`:2800`). It is a per-frame delta the engine consumes and
-		--     resets -- NOT an absolute scroll position.
-		--   * The screen is actually scrolled by `hSCX`/`hSCY` ($ffcf/$ffd0, from
-		--     `pokecrystal.sym`), updated by `ScrollScreen`
-		--     (`engine/overworld/player_step.asm:37`) from the same
-		--     `wPlayerStepVector`, but ADDING where the offset above SUBTRACTS
-		--     (`:29-34`) -- which is where the "both registers run inverted" reading
-		--     came from.
-		-- So this block's claim that it integrates "the register the screen is
-		-- actually scrolled by -- it cannot disagree with what the player sees" is
-		-- FALSE as written. This measures the size of that lie before anything is
-		-- changed: if the two mirror each other, every frame has dOff == -dH.
+		-- WAS THIS REGISTER EVER THE CAMERA? The decompilation was where to look
+		-- (2026-08-23): it names `wPlayerBGMapOffsetX/Y` ($d14c/$d14d) a per-frame
+		-- delta the engine consumes (`ApplyBGMapAnchorToObjects`), and `hSCX`/`hSCY`
+		-- ($ffcf/$ffd0, from our build's `pokecrystal.sym`) the scroll registers
+		-- (`ScrollScreen`). That is its reading, not our evidence. The evidence is the
+		-- audit below, run 2026-08-23: 30 of 340 frames disagreed with the real scroll,
+		-- in the shapes listed above. If the two mirror each other, every frame has
+		-- dOff == -dH.
 		if facingFrames.stats() then
 			local hx, hy = hcx, hcy
 			-- The OLD source, read explicitly. Using `scx`/`scy` here would compare
@@ -5301,9 +5276,10 @@ function drawOverflow()
 		--     probe on the player's own OBJECT_SPRITE byte, which held 1 on land and 83 while
 		--     surfing across 5,490 frames with four clean transitions and no flicker; and
 		--   * the arrangement cache cannot be the source of surf ART, because a learned frame
-		--     stores an OFFSET within whatever sprite it was captured from, and SurfSpriteGFX is
-		--     a 12-tile WALKING_SPRITE exactly like ChrisSpriteGFX (`data/sprites/sprites.asm`)
-		--     -- so a blob-learned offset applied to the walking base still draws walking tiles.
+		--     stores an OFFSET within whatever sprite it was captured from, so a blob-learned
+		--     offset applied to the walking base still draws walking tiles -- IF the surf sprite
+		--     has the walking sprite's 12-tile shape, which is the decompilation's sprite table
+		--     and is not measured on the game.
 		-- What neither of those can rule out is THIS line: `o.sprite` arriving right and the
 		-- source coming out wrong anyway, via a wUsedSprites entry that has moved. So the trace
 		-- names the peer's sprite, which branch was taken, and the tile base or ROM offset it
@@ -7234,8 +7210,8 @@ function drawOverflow()
 						--
 						-- 3 as a literal, and the stride masked to two bits, for the reason the rest
 						-- of this file gives: it sits at Lua's 200-local ceiling and a name here
-						-- would cost one. OBJECT_ACTION_BUMP is 3 in
-						-- `constants/map_object_constants.asm`; `documentation.md` lists the set.
+						-- would cost one. 3 is the bump action by the decompilation's
+						-- numbering; not measured on the game as the byte a bump writes.
 						-- A BUMP ALTERNATES STANDING AND STEPPING; it does not cycle stride images.
 						--
 						-- First attempt passed `walking = true` for the whole bump, which makes
@@ -7361,10 +7337,10 @@ function drawOverflow()
 						-- so the engine draws it behind. The painted tier has no priority bits, so
 						-- draw order IS priority here.
 						--
-						-- Two sprites from ONE tile: `FacingShadow` (data/sprites/facings.asm) is
-						-- `db 0, 0, ABSOLUTE_TILE_ID, $fc` and `db 0, 8, ABSOLUTE_TILE_ID |
-						-- OAM_XFLIP, $fc` -- the same tile twice, the right half mirrored, making
-						-- a 16x8 smudge. Read from the cartridge rather than VRAM $fc: see
+						-- Two draws from ONE tile, the right half mirrored, making a 16x8
+						-- smudge -- the arrangement the decompilation gives the shadow, not
+						-- measured on the game; shadows on both tiers were confirmed on screen
+						-- 2026-08-26. Read from the cartridge rather than VRAM $fc: see
 						-- SHADOW_GFX_ROM for the reason (a local player fishing overwrites it).
 						if o.jump and facingFrames.shadowRom then
 							local sc = paletteColors(emote.PAL) -- PAL_OW_EMOTE, the shadow's own
@@ -7850,12 +7826,10 @@ local ORIENTATION_TO_DIR = { down = 0, up = 1, left = 2, right = 3 }
 
 local DELTA_TO_DIR = { ["0,1"] = 0, ["0,-1"] = 1, ["-1,0"] = 2, ["1,0"] = 3 }
 
--- The OBJECT_ACTION values a PLAYER's object can legitimately hold. The engine's own table
--- (ObjectActionPairPointers, engine/overworld/map_object_action.asm) has 17 entries, but most of
--- them are scenery -- the Copycat dolls, the Sudowoodo tree, boulder dust, shaking grass, a
--- shadow -- which the player object is never set to. A peer offering one of those is either a
--- different build or a client we should not trust, so it is ignored rather than written: inbound
--- state is peer-controlled and this one ends in a memory write.
+-- The OBJECT_ACTION values OUR code accepts from a peer. Anything else is ignored rather than
+-- written: inbound state is peer-controlled and this one ends in a memory write. The list is the
+-- decompilation's naming (`ObjectActionPairPointers` is where to look) narrowed to what a player's
+-- object should hold -- a reading, not a census measured on the game (UNVERIFIED.md).
 -- The OBJECT_ACTION values a PLAYER's object can legitimately hold.
 ACTIONS.peer = {
 	[1] = true, -- OBJECT_ACTION_STAND
@@ -7867,13 +7841,10 @@ ACTIONS.peer = {
 	[16] = true, -- OBJECT_ACTION_SKYFALL      (the Fly landing)
 }
 -- OBJECT_ACTION_EMOTE (8) IS DELIBERATELY ABSENT, and used to be here. The "!" over a character's
--- head is not a pose that character adopts: `SpawnEmote` (engine/overworld/map_objects.asm)
--- creates a SEPARATE map object flagged EMOTE_OBJECT_F, so a player's own action byte never
--- becomes 8 and a peer sending it is not a peer who is emoting. Writing it would have been
--- actively wrong rather than merely useless -- FacingEmote replaces all four of the character's
--- parts with the emote box's absolute tiles, so the ghost's BODY would vanish and be replaced by
--- a box drawn on its own tile instead of above it (the -2 tile Y offset is set by
--- MovementFunction_Emote, which our write does not go through). phase9.md's 2026-08-19
+-- head is not a pose that character adopts: it is a SEPARATE map object, which is what our emote
+-- scan (ENGINE.playerEmote) finds, and the "!" was confirmed on screen 2026-08-26. So a peer
+-- sending 8 is not a peer who is emoting. That writing 8 onto a body would replace the body with
+-- the emote box is the decompilation's reading, not measured on the game. phase9.md's 2026-08-19
 -- enumeration listed the emote alongside spin as one action byte; that row was wrong.
 
 -- Give the ghost the peer's action byte and let Crystal animate it.
@@ -7899,12 +7870,12 @@ local function applyPeerAction(g, act)
 
 	-- AND STOP THE ENGINE OVERWRITING IT. Writing the action alone made this function one of TWO
 	-- WRITERS on the same field, which `adapters/CLAUDE.md` already names as its own bug class:
-	-- an idle ghost is pinned to SPRITEMOVEDATA_STANDING_* by setGhostStanding, and the engine's
-	-- `MovementFunction_Standing` (engine/overworld/map_objects.asm) then does exactly two things
-	-- that undo us -- it writes OBJECT_ACTION back to OBJECT_ACTION_STAND, and sets
-	-- STEP_TYPE_RESTORE, whose `.Reset` calls RestoreDefaultMovement and GetInitialFacing and so
-	-- resets OBJECT_DIRECTION too. Our write and the engine's then race every tick, which is why
-	-- a spinning peer's ghost span only when it happened to win.
+	-- an idle ghost is pinned to SPRITEMOVEDATA_STANDING_* by setGhostStanding, and the
+	-- engine's standing movement then undoes us: measured below, the ghost read step type 5 on
+	-- every spin frame, a value this adapter never writes. (The decompilation's
+	-- `MovementFunction_Standing` is where it places that write, and the action and direction
+	-- resets beside it; those two are not measured separately.) Our write and the engine's then
+	-- race every tick, which is why a spinning peer's ghost span only when it happened to win.
 	--
 	-- MEASURED, not reasoned (2026-08-26, whirlpool_drive + the adapter's own STEP_LAG):
 	--   open water, no spin -- apply spread 0 wide, 0 frames blocked mid-step
@@ -7936,26 +7907,20 @@ end
 -- otherwise sail over the ledge casting nothing. **The shadow is not decoration; it is the half of
 -- a hop that tells you the character is off the ground.**
 --
--- BUILT FROM `CopyTempObjectToObjectStruct` (engine/overworld/player_object.asm), field for field,
--- rather than from the template it is fed -- that routine is what actually decides what a temp
--- object holds, and the template is only three of its bytes. Every value below is cited:
---   * SPRITE / MAP_OBJECT_INDEX = $ff. `CopyTempObjectData` loads -1 into both. Confirmed live
---     2026-08-26: the shadow under the player's own hop read `s=255 m=FF`.
---   * MOVEMENT_TYPE = $1b, SPRITEMOVEDATA_SHADOW. Derived from `constants/map_object_constants.asm`
---     and CHECKED AGAINST A CONTROL: the same derivation gives STANDING_DOWN..RIGHT = $06..$09,
---     which is exactly what `SPRITEMOVEDATA_STANDING_BY_DIR` in this file has always held.
---   * FLAGS1 = $8e = WONT_DELETE|FIXED_FACING|SLIDING|EMOTE_OBJECT, FLAGS2 = $01 = LOW_PRIORITY,
---     both from `data/sprites/map_objects.asm`'s SPRITEMOVEDATA_SHADOW block via
---     `CopySpriteMovementData`. The live shadow read `f2=01`, which confirms the bit order.
---   * PALETTE = 5, PAL_OW_EMOTE, from the same block.
---   * STEP_TYPE = 0 (STEP_TYPE_RESET) and FACING = STANDING: the two the copy routine writes last,
---     and the reset is what hands the object to `MovementFunction_Shadow` on the next tick.
+-- OUR code writes the shadow object's fields directly; the values, and which of them are ours:
+--   * SPRITE / MAP_OBJECT_INDEX = $ff. Measured 2026-08-26: the shadow under the player's own
+--     hop read `s=255 m=FF`.
+--   * FLAGS2 = $01. Measured the same day: the live shadow read `f2=01`.
+--   * MOVEMENT_TYPE = $1b, FLAGS1 = $8e, PALETTE = 5, STEP_TYPE = 0 and FACING = STANDING are the
+--     decompilation's values (`CopyTempObjectToObjectStruct` is where to look), NOT measured on a
+--     live shadow (UNVERIFIED.md). The movement number was checked only against a control: the
+--     same count gives the standing values this file already used.
+-- Shadows on the spawned tier were confirmed on screen 2026-08-26 (VERIFIED.md, ledge hops).
 --
 -- AND THEN THE ENGINE DOES THE REST, which is the point of building a real object instead of
--- painting one. `MovementFunction_Shadow` sets the action, parks the sprite at the right offset
--- for the parent's direction, takes its LIFETIME from the parent's own step duration, switches to
--- STEP_TYPE_TRACKING_OBJECT so it follows the hop, and deletes itself at the end. None of that is
--- reimplemented here and none of it can drift from the game.
+-- painting one: our code sets no offset, lifetime, tracking or deletion for it. Measured 2026-08-26:
+-- the shadow under a downward hop sat at y=+14. How the engine's shadow movement manages the rest
+-- is the decompilation's reading (`MovementFunction_Shadow`), not measured on the game.
 --
 -- OBJECT_RANGE IS AN OBJECT-STRUCT INDEX, NOT A MAP-OBJECT ONE. `InitMovementField1dField1e` reads
 -- it and calls `GetObjectStruct`, which indexes `wObjectStructs` -- so the CONSUMER settles it.
@@ -9582,10 +9547,11 @@ ENGINE.xmap.build(here) end
 	-- a per-tick race with the engine's own step function, which is the two-writers bug
 	-- `adapters/CLAUDE.md` names and which this file already hit once today with SPIN.
 	--
-	-- SO USE THE ENGINE'S OWN SUPPRESSION INSTEAD. `SetFacingStepAction`
-	-- (`engine/overworld/map_object_action.asm:46`) tests `SLIDING_F` FIRST and jumps to
-	-- `SetFacingCurrent`, never touching `OBJECT_STEP_FRAME` -- the walk cycle simply does not
-	-- run. It is a bit the engine READS and never writes, so there is nothing to race. This file
+	-- SO USE THE ENGINE'S OWN SUPPRESSION INSTEAD: set SLIDING on the ghost. Measured 2026-08-21,
+	-- a ghost wearing it held its step frame at 0 through whole steps (posediff_probe.lua; the
+	-- decompilation's `SetFacingStepAction` is where the bit is tested), and the glide it produces
+	-- was confirmed on screen 2026-08-26 (VERIFIED.md). That the engine never writes the bit is
+	-- the decompilation's reading, not measured on the game. This file
 	-- already clears it at spawn (a donor template carries it and a permanently-sliding ghost
 	-- never animates at all); this maintains it per frame instead.
 	--
@@ -9662,10 +9628,10 @@ ENGINE.xmap.build(here) end
 		-- handoff, and the user, with the drawn twin alongside: *"the spawned one is lagging
 		-- after the drawn ghost a bit"*.
 		--
-		-- The engine itself makes the chain safe: `GetStepVector` re-reads OBJECT_WALKING every
-		-- tick, and `StepFunction_NPCWalk` ends a step purely on OBJECT_STEP_DURATION reaching
-		-- zero (engine/overworld/map_objects.asm:1550) -- the same mechanism as its own
-		-- STEP_TYPE_CONTINUE_WALK. So on the step's LAST tick, when the peer is already exactly
+		-- OUR code tops the step's duration back up instead of starting a new step, on the reading
+		-- (the decompilation's `StepFunction_NPCWalk`) that a step ends only when
+		-- OBJECT_STEP_DURATION reaches zero. Measured in effect, not in the routine: chained steps
+		-- came back to zero re-anchor corrections (below). So on the step's LAST tick, when the peer is already exactly
 		-- one tile further IN THE SAME DIRECTION at the SAME GAIT, the duration is topped back up
 		-- and the map coords moved on -- and the engine never sees a boundary. Nothing else needs
 		-- writing: direction, facing (whose low bits are the walk-cycle subframe, which a rewrite
@@ -10490,11 +10456,11 @@ facingFrames.fishChris = (romClass == "known") and A.FISHING_GFX_ROM or nil
 facingFrames.fishKris = (romClass == "known") and A.FISHING_GFX_ROM_KRIS or nil
 facingFrames.shadowRom = (romClass == "known") and A.SHADOW_GFX_ROM or nil
 -- HOW THE PLAYER LAST ENTERED A MAP. `hMapEntryMethod` ($ff9f -- HRAM, unbanked, read via the
--- System Bus, NOT the WRAM domain the address table above serves) is stamped with a MAPSETUP_*
--- value at every map load and zeroed in the same routine that hands the overworld back
--- (`engine/overworld/events.asm`; the address from our own build's pokecrystal.sym, the values
--- from `constants/map_setup_constants.asm`). $FC is MAPSETUP_FLY, which is what lets a peer's
--- ghost drop out of the sky when its player arrives by Fly. Gated on ROM identity like the
+-- System Bus, NOT the WRAM domain the address table above serves; the address from our own
+-- build's pokecrystal.sym). OUR code treats $FC there as "arrived by Fly", which is what lets a
+-- peer's ghost drop out of the sky; the Fly landing was confirmed on screen 2026-08-26
+-- (VERIFIED.md). When the byte is set and cleared, and the other values' meanings, are the
+-- decompilation's reading, not measured on the game (UNVERIFIED.md). Gated on ROM identity like the
 -- fishing graphics: HRAM is as rearrangeable by a patch as WRAM, and this one is unmeasured on
 -- any other build. nil means peers on that build simply appear, which is what they did before.
 ENGINE.entryAddr = (romClass == "known") and 0xFF9F or nil
@@ -10581,10 +10547,10 @@ end
 -- letting a vanilla and an Archipelago player share a room is the entire point of this work.
 if OVERWORLD_SPRITES_ROM then
 	local h = 2166136261
-	-- NUM_OVERWORLD_SPRITES, 102 -- `constants/sprite_constants.asm` counts the overworld list
-	-- and stops before the special ids above it. The Archipelago seed keeps that length too, so
-	-- this window covers both tables exactly; a build that shortened it would simply be hashing a
-	-- few bytes of whatever follows, which changes nothing about a comparison for equality.
+	-- 102 entries: the overworld sprite count by the decompilation's naming (NUM_OVERWORLD_SPRITES),
+	-- not measured on the game, nor is the Archipelago seed's length. Nothing depends on it being
+	-- exact: a build whose table is shorter just hashes a few bytes of whatever follows, which
+	-- changes nothing about a comparison for equality.
 	for i = 0, 102 * SPRITEDATA_STRIDE - 1 do
 		h = ((h ~ (memory.read_u8(OVERWORLD_SPRITES_ROM + i, ROM_DOMAIN) or 0)) * 16777619)
 			& 0xFFFFFFFF

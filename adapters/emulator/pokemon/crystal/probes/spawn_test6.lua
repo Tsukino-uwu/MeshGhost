@@ -300,14 +300,10 @@ local function tick()
 		-- sprite_y 176, below a 144-pixel screen, because we copied the template NPC's screen
 		-- coordinates instead of computing our own.
 		--
-		-- Adoption does not inherit them either. CopyTempObjectToObjectStruct computes them from
-		-- the map position (engine/overworld/player_object.asm, .InitYCoord / .InitXCoord):
-		--
-		--     OBJECT_SPRITE_Y = ((map_y - wYCoord) & $0F) * 16 - wPlayerBGMapOffsetY
-		--     OBJECT_SPRITE_X = ((map_x - wXCoord) & $0F) * 16 - wPlayerBGMapOffsetX
-		--
-		-- ANDing to the low nibble is what makes it a position within the visible window rather
-		-- than an absolute map coordinate, and the BG map offset is the sub-tile scroll.
+		-- Adoption does not inherit them either. Where to look for how the engine derives them from
+		-- the map position: CopyTempObjectToObjectStruct (engine/overworld/player_object.asm,
+		-- .InitYCoord / .InitXCoord). The hypothesis tested here: a position within the visible
+		-- window plus the sub-tile scroll, computed below and judged by where the object is drawn.
 		local bg_x = u8(W_BGMAPOFFSETX) or 0
 		local bg_y = u8(W_BGMAPOFFSETY) or 0
 		-- Relative to the WINDOW origin, not the player -- that is what the engine's formula uses.

@@ -29,35 +29,22 @@
 -- phase1_probe.lua, battle_probe.lua). All addresses below were read from that checkout on
 -- 2026-08-14, not typed from memory.
 --
--- OBJ VRAM region (include/gba/defines.h):
---   VRAM = 0x06000000, OBJ_VRAM0 = VRAM + 0x10000 = 0x06010000, OBJ_VRAM0_SIZE = 0x8000 (32KB).
---   OBJ_VRAM1 = VRAM + 0x14000 = 0x06014000 -- in BG modes 3-5 (bitmap modes) the frame buffer
---   extends up to here, so OBJ tile 0 effectively starts at OBJ_VRAM1 instead of OBJ_VRAM0 and
---   tile indices 0-511 are unusable in that state. This probe watches for that live via
---   REG_DISPCNT rather than assuming a mode (see below).
---   TOTAL_OBJ_TILE_COUNT = 1024 (include/gba/defines.h), TILE_SIZE_4BPP = 32 bytes/tile
---   (defines.h: TILE_SIZE(bpp) = bpp*8*8/8 -> TILE_SIZE(4) = 32). 1024 * 32 = 0x8000, matches
---   OBJ_VRAM0_SIZE exactly.
+-- OBJ VRAM, OBJ palette and OAM regions: the constants in the code below (0x06010000 OBJ VRAM,
+--   1024 tiles of 32 bytes = 0x8000, 0x06014000 as the bitmap-mode boundary, 0x05000200 OBJ
+--   palette, 0x07000000 OAM of 128 x 8 bytes) were looked up in include/gba/defines.h. In BG
+--   modes 3-5 the OBJ tile base is taken to move to 0x06014000; this probe watches the mode live
+--   via REG_DISPCNT rather than assuming one (see below).
 --
--- OBJ palette (include/gba/defines.h): PLTT = 0x05000000, BG_PLTT_SIZE = 0x200,
---   OBJ_PLTT = PLTT + BG_PLTT_SIZE = 0x05000200, OBJ_PLTT_SIZE = 0x200 (16 palettes * 32
---   bytes/palette).
+-- OAM: each entry's first 2 bytes are attr0, low byte the Y screen coordinate. The hypothesis
+--   this probe uses: unused OAM buffer slots are parked with Y = 160, off the visible screen
+--   (where to look: gDummyOamData and AddSpritesToOamBuffer, src/sprite.c), so "attr0 & 0xFF >=
+--   160" in the LIVE OAM buffer marks an unused slot -- this game's convention, not a general
+--   GBA-hardware assumption, and unmeasured here.
 --
--- OAM (include/gba/defines.h): OAM = 0x07000000, OAM_SIZE = 0x400 (128 entries * 8 bytes).
---   Each entry's first 2 bytes are attr0; the low byte is the Y screen coordinate. pokeemerald
---   fills every OAM buffer slot beyond the sprites actually in use with `gDummyOamData`
---   (src/sprite.c:171, AddSpritesToOamBuffer:495-499, "gMain.oamBuffer[oamIndex] =
---   gDummyOamData"), and gDummyOamData's `.y` field is DISPLAY_HEIGHT (src/sprite.c:103,167,
---   DISPLAY_HEIGHT = 160, include/gba/defines.h:72) -- i.e. moved off the visible 160-row
---   screen. So "attr0 & 0xFF >= 160" in the LIVE OAM buffer is pokeemerald's own convention for
---   an unused hardware sprite slot, sourced directly from this build, not a general GBA-hardware
---   assumption.
---
--- Sprite-tile allocator (src/sprite.c):
---   gReservedSpriteTileCount: a u16 in EWRAM, initialised to 0, at line 287.
---   Runtime address 0x02021b3a (pokeemerald.map, ewram_data section of src/sprite.o).
---   sSpriteTileAllocBitmap: a file-static 128-byte array in EWRAM, zeroed, at line
---   288, declared immediately after gReservedSpriteTileCount). It has NO entry of its own in
+-- Sprite-tile allocator (where to look: src/sprite.c):
+--   gReservedSpriteTileCount: runtime address 0x02021b3a (pokeemerald.map), a u16.
+--   sSpriteTileAllocBitmap: a file-static 128-byte array declared right after it in the source
+--   (the declaration order is the hint, not the evidence). It has NO entry of its own in
 --   pokeemerald.map (static arrays are sometimes omitted from the symbol list even when other
 --   statics in the same file, e.g. gOamLimit, are present) -- its address is DERIVED, the same
 --   cross-check style phase1_probe.lua already uses for gObjectEvents: the next symbol after it
@@ -65,16 +52,13 @@
 --   from gReservedSpriteTileCount's end (0x02021b3a + sizeof(u16) = 0x02021b3c), the gap is
 --   0x02021bbc - 0x02021b3c = 0x80 = 128 bytes -- exactly sizeof(sSpriteTileAllocBitmap). So:
 --     sSpriteTileAllocBitmap runtime address = 0x02021b3c.
---   Bit ordering (src/sprite.c:19-27, SPRITE_TILE_IS_ALLOCATED / ALLOC_SPRITE_TILE / FREE_
---   SPRITE_TILE macros, confirmed against the AllocSpriteTiles/SpriteTileAllocBitmapOp bodies
---   at src/sprite.c:702-779): tile n's bit is bitmap[n / 8], bit (n % 8) (LSB first within each
---   byte). 1 = allocated, 0 = free. Tiles below gReservedSpriteTileCount are reserved and never
---   handed out by AllocSpriteTiles (src/sprite.c:717) but their bitmap bits are NOT necessarily
---   set -- this probe treats "allocated" strictly as bitmap-bit-set, and reports the reserved
---   count separately, rather than conflating the two.
+--   Bit ordering, the hypothesis this probe reads with (where to look: the SPRITE_TILE_* macros
+--   and AllocSpriteTiles, src/sprite.c): tile n's bit is bitmap[n / 8], bit (n % 8), 1 =
+--   allocated. Tiles below gReservedSpriteTileCount are expected never to be handed out, with no
+--   guarantee their bits are set -- so this probe treats "allocated" strictly as bitmap-bit-set,
+--   and reports the reserved count separately, rather than conflating the two.
 --
---   gReservedSpritePaletteCount: a u8 in COMMON data, initialised to 0
---   (src/sprite.c:278). Runtime address 0x0300301c (pokeemerald.map, common_data section).
+--   gReservedSpritePaletteCount: runtime address 0x0300301c (pokeemerald.map), a u8.
 --
 -- Overworld/battle context (same idiom as meshghost_emerald.lua:79-85 and battle_probe.lua,
 -- both already-verified addresses): gMain.callback2 @ 0x030022c4, CB2_Overworld @ 0x08085e5c
@@ -84,9 +68,8 @@
 -- callback2 value alongside each tile's first observed change (see below), so a later reader
 -- can look that address up in pokeemerald.map and name the actual culprit.
 --
--- REG_DISPCNT: `#define REG_ADDR_DISPCNT (REG_BASE + REG_OFFSET_DISPCNT)`, REG_BASE =
--- 0x04000000, REG_OFFSET_DISPCNT = 0x0 (include/gba/io_reg.h) -> 0x04000000. Low 3 bits are the
--- BG mode (0-5); modes 3-5 are the bitmap modes discussed above.
+-- REG_DISPCNT: 0x04000000 (looked up in include/gba/io_reg.h). Low 3 bits are taken as the BG
+-- mode (0-5); modes 3-5 are the bitmap modes discussed above.
 -- ==========================================================================================
 
 local OBJ_VRAM0_ADDR = 0x06010000

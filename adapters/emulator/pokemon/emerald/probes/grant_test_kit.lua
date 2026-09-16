@@ -14,28 +14,15 @@
 -- somebody can actually do those things. Requested 2026-08-19: every HM and badge, Master Balls,
 -- the Super Rod, the Go-Goggles, and Repel kept running.
 --
--- EVERY ADDRESS AND ID BELOW IS CITED. Nothing here is from memory (`CLAUDE.md`'s hard rule), and
--- pokeemerald is a facts-only source that may never be copied from (`agent_docs/licensing.md`):
--- these are struct offsets and constant values read from it, with independent Lua written around
--- them.
---
---   SaveBlock1 layout           include/global.h -- the /*0xNNN*/ offset comments on struct
---                               SaveBlock1: bagPocket_Items 0x560, bagPocket_KeyItems 0x5D8,
---                               bagPocket_PokeBalls 0x650, bagPocket_TMHM 0x690, flags 0x1270,
---                               vars 0x139C
---   struct ItemSlot             include/global.h:590 -- { u16 itemId; u16 quantity; }
---   quantity is ENCRYPTED       src/item.c:26-34 -- Get/SetBagItemQuantity XOR the stored value
---                               with gSaveBlock2Ptr->encryptionKey. PC items are not encrypted;
---                               bag pockets are. Miss this and every count reads as garbage.
---   encryptionKey               include/global.h:532 -- SaveBlock2 + 0xAC
---   badge flags                 include/constants/flags.h:1348,1359-1366 -- SYSTEM_FLAGS = 0x860,
---                               FLAG_BADGE01_GET = SYSTEM_FLAGS + 0x7 .. BADGE08 = + 0xE
---   item ids                    include/constants/items.h -- MASTER_BALL 1, MACH_BIKE 259,
---                               SUPER_ROD 264, ACRO_BIKE 272, GO_GOGGLES 279, HM01..HM08 339..346
---   pockets                     src/data/items.h -- Master Ball POCKET_POKE_BALLS, Super Rod (and
---                               the bikes/goggles) POCKET_KEY_ITEMS, HM01 POCKET_TM_HM
---   repel counter               include/constants/vars.h:4,51 -- VARS_START 0x4000,
---                               VAR_REPEL_STEP_COUNT 0x4021, so vars[0x21]
+-- EVERY ADDRESS AND ID BELOW HAS A PLACE IT WAS LOOKED UP. Nothing here is from memory
+-- (`CLAUDE.md`'s hard rule), and pokeemerald is where to look, never evidence
+-- (`agent_docs/licensing.md`). Where each value in the code points: SaveBlock1/SaveBlock2 and
+-- ItemSlot offsets -- include/global.h; bag quantities being stored encrypted with the save's
+-- encryptionKey -- src/item.c:26-34 (the kit's own read-back is what tests it); badge flags --
+-- include/constants/flags.h; item ids -- include/constants/items.h; which pocket each item goes in
+-- -- src/data/items.h; the repel counter var -- include/constants/vars.h. The values themselves
+-- sit in the code below; each counts as measured only where the kit's read-back or the screen
+-- shows it.
 --
 -- The two save-block POINTERS are the adapter's own, already measured and in use:
 -- gSaveBlock1Ptr 0x03005d8c, gSaveBlock2Ptr 0x03005d90.
@@ -74,7 +61,8 @@ local log = console.log
 local function sb1() return memory.read_u32_le(SAVEBLOCK1PTR) end
 local function sb2() return memory.read_u32_le(SAVEBLOCK2PTR) end
 
--- The bag stores quantity XOR the save's encryption key (src/item.c:31-34). Only the low 16 bits
+-- Hypothesis from src/item.c:31-34: the bag stores quantity XOR the save's encryption key.
+-- Only the low 16 bits
 -- of the key matter for a u16 field.
 local function encKey16()
     local base = sb2()

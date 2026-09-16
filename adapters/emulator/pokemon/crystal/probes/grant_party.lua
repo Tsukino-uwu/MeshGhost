@@ -23,10 +23,9 @@
 --     layout intact. So wPartyCount = 0x1CDE and wPartyMon1 = 0x1CE6 (vanilla+7, the same delta
 --     as the coordinate block -- corroboration after the fact). The nickname/OT blocks are NOT
 --     measured there, so on AP this script only teaches moves; it never creates a Pokemon.
--- Struct offsets from pokecrystal's constants/pokemon_data_constants.asm: MON_MOVES 2, MON_PP $17,
--- MON_LEVEL $1f, PARTYMON_STRUCT_LENGTH $30; move ids from constants/move_constants.asm
--- (CUT $0f FLY $13 SURF $39 STRENGTH $46 WATERFALL $7f FLASH $94 WHIRLPOOL $fa); names are 11
--- bytes in the game's charset (A = $80, terminator $50).
+-- Struct offsets looked up in pokecrystal's constants/pokemon_data_constants.asm and move ids in
+-- constants/move_constants.asm (values at their definitions below); names are 11 bytes in the
+-- game's charset (A = $80, terminator $50).
 -- The Cyndaquil template is the AP window's own level-5 starter struct read back from that dump,
 -- with the held item cleared and the moves replaced. Everything written is read back and logged.
 -- Dev-loader contract; acts once in the overworld. TAKE IT OFF THE TARGET AFTERWARDS.

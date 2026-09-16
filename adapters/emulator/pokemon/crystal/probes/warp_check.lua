@@ -30,8 +30,8 @@ local W_MAPSTATUS, W_BATTLEMODE = 0xD432, 0xD22D
 local OBJ = 0xD4D6
 local F = { sprite = 0x00, tile = 0x02, mx = 0x10, my = 0x11, sx = 0x17, sy = 0x18 }
 -- wStatusFlags carries the FLASH bit; a cave without it is drawn dark, which is one of the two
--- things a "grey screen" can be. $d84c is wStatusFlags in this build's map (ram/wram.asm order:
--- it sits with the other save-block flags); printed raw and NOT interpreted as fact.
+-- things a "grey screen" can be. $d84c is wStatusFlags in this build's .sym (where to look for
+-- its neighbours: ram/wram.asm); printed raw and NOT interpreted as fact.
 local W_STATUSFLAGS = 0xD84C
 
 local n, done = 0, false

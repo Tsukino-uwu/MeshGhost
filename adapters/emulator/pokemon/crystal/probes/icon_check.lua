@@ -7,9 +7,9 @@
 -- reaching the wire, the ROM lookup landing somewhere wrong, or the paint not being reached -- and
 -- this settles the middle one on its own, with no game session to spend.
 --
--- The lookup under test is two hops, both in bank 0x23 (`engine/gfx/mon_icons.asm`):
---   `MonMenuIcons[species - 1]` -> an ICON index (several species share one)
---   `IconPointers[icon]`        -> the address of that icon's eight tiles
+-- The lookup under test is two hops, both in bank 0x23 (where to look: `engine/gfx/mon_icons.asm`),
+-- as this probe hypothesises them: species -> an ICON index via `MonMenuIcons` (several species
+-- may share one), then icon -> the address of its tiles via `IconPointers`.
 -- Addresses from our own hash-verified build's pokecrystal.sym: MonMenuIcons 23:6ac4,
 -- IconPointers 23:6bbf, Icons 23:6c0d (used only for its BANK).
 --

@@ -134,12 +134,12 @@ MESHGHOST_DEV_TICK = function()
 	--   v1 changed only the metatile id, so the tile had water behaviour but stayed walkable.
 	--   v2 then set the COLLISION bit, which made it solid -- and a "walk into it" test was
 	--      blocked, which looked like success and was not. Real water is not impassable; it is a
-	--      different ELEVATION. `IsPlayerFacingSurfableFishableWater` (field_player_avatar.c:1322)
-	--      requires GetCollisionAtCoords to return COLLISION_ELEVATION_MISMATCH, which an
-	--      impassable tile never produces -- so the "fix" that made the symptom look right was
-	--      precisely what stopped fishing from working.
-	-- Water is elevation 1 (ELEVATION_SURF) against the player's 3 (ELEVATION_DEFAULT), and that
-	-- mismatch is what the game reads as "you are standing next to water".
+	--      different ELEVATION -- the decomp's hint (where to look:
+	--      `IsPlayerFacingSurfableFishableWater`, field_player_avatar.c:1322) is that fishing wants an
+	--      elevation mismatch, not a solid tile -- so the "fix" that made the symptom look right
+	--      appears to be what stopped fishing from working.
+	-- The hypothesis this tool runs on: water at elevation 1 (ELEVATION_SURF) against the player's 3
+	-- (ELEVATION_DEFAULT) is what the game reads as "standing next to water".
 	local kept = u16(addr) & ~(MAPGRID_METATILE_ID_MASK | MAPGRID_COLLISION_MASK | MAPGRID_ELEVATION_MASK)
 	memory.write_u16_le(addr, kept | (waterId & MAPGRID_METATILE_ID_MASK) | (ELEVATION_SURF << 12))
 	log(string.format("tile in front (%d,%d, facing %d) -> metatile %d (%s); was 0x%04X",

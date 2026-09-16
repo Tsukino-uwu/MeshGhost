@@ -15,8 +15,8 @@
 -- so a character crosses the same grass tiles over and over and the transition between two of them
 -- can be watched as often as needed.
 -- Short sides on purpose: they keep the ride inside a safe town patch with no tall grass and no
--- trainer sightlines. Note the cost -- a Mach Bike accelerates over distance (PlayerWalkNormal ->
--- Fast -> Faster, pokeemerald src/bike.c:75-80), so three tiles may never reach top speed. The
+-- trainer sightlines. Note the cost -- a Mach Bike likely accelerates over distance (unmeasured;
+-- where to look: src/bike.c:75-80), so three tiles may never reach top speed. The
 -- animation cases show at any speed; the top-speed catch-up case may not reproduce here, and the
 -- log reports the speeds actually reached rather than assuming a held key produced them.
 --

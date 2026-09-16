@@ -71,29 +71,21 @@ MESHGHOST_DEV_TICK = function()
 	end
 end
 
--- WHAT THE SOURCE SAYS THIS SHOULD PRODUCE, so the log is read against a prediction rather than
--- interpreted afterwards. `.TryJump` (engine/overworld/player_movement.asm) matches the tile's
--- collision high nybble against HI_NYBBLE_LEDGES and the facing against `.ledge_table`, plays
--- SFX_JUMP_OVER_LEDGE, and issues `STEP_LEDGE` -- which `.DoStep` turns into the `jump_step`
--- movement, i.e. `JumpStep` in engine/overworld/movement.asm. That routine writes:
+-- THE PREDICTION, written before the run so the log is read against it rather than interpreted
+-- afterwards. Where to look: `.TryJump` (engine/overworld/player_movement.asm) and `JumpStep`
+-- (engine/overworld/movement.asm). Hypotheses this run tests: during a hop the player's action
+-- byte reads the ordinary walking action (2), the walking byte the ordinary gait, and only the
+-- step-type byte differs from a walk; the engine also spawns a separate shadow object.
 --
---   OBJECT_ACTION      = OBJECT_ACTION_STEP (2)      -- the ORDINARY WALKING ACTION
---   OBJECT_WALKING     = STEP_WALK << 2 | dir        -- the ORDINARY WALKING GAIT (group 1, 2px)
---   OBJECT_JUMP_HEIGHT = 0
---   OBJECT_STEP_TYPE   = STEP_TYPE_PLAYER_JUMP (9)
---   and calls SpawnShadow
+-- **IF THAT HOLDS, NOTHING THE ADAPTER PUTS ON THE WIRE SAYS "JUMP".** `act` would be 2, which is
+-- a walk; `gait` the normal group, which is a walk. The step type is not sent. So a receiver
+-- could not know a peer hopped -- it could only observe the consequences, which are these two:
 --
--- **NOTHING THE ADAPTER PUTS ON THE WIRE SAYS "JUMP".** `act` is 2, which is a walk; `gait` is the
--- normal group, which is a walk. The only field that distinguishes a hop from a step is
--- OBJECT_STEP_TYPE, and that is not sent. So a receiver cannot currently know a peer hopped -- it
--- can only observe the consequences, which are these two:
---
---   THE ARC, which SHOULD already work. `StepFunction_PlayerJump` runs `UpdateJumpPosition` twice,
---   once per tile, and that writes OBJECT_SPRITE_Y_OFFSET from a fixed sixteen-entry table:
---       -4, -6, -8, -10, -11, -12, -12, -12, -11, -10, -9, -8, -6, -4, 0, 0
+--   THE ARC, which SHOULD already work. The hop is expected to raise and lower
+--   OBJECT_SPRITE_Y_OFFSET (where to look: `StepFunction_PlayerJump`).
 --   `yoff` has been on the wire since 2026-08-26 and BOTH tiers apply it, so the up-and-down may
 --   have come along for free. Watch P's `yoff` and the ghost's `y=` in the trace: if the player's
---   dips to -12 and the ghost's stays 0, the byte is being sent and dropped somewhere.
+--   dips below 0 and the ghost's stays 0, the byte is being sent and dropped somewhere.
 --
 --   THE TWO TILES, which is the suspect. A hop crosses TWO tiles as one continuous motion, at
 --   ordinary walking speed per tile (8 ticks, 2px). The ghost crosses tiles through `stepGhost`,
@@ -101,6 +93,6 @@ end
 --   `CanObjectMoveInDirection` is the thing most likely to refuse the step and strand the spawned
 --   ghost on the near side while the painted copy sails over. That is a prediction, not a result.
 --
--- AND THE SHADOW, which a ghost cannot have today: `SpawnShadow` creates a SEPARATE map object,
+-- AND THE SHADOW, which a ghost cannot have today: expected to be a SEPARATE map object,
 -- exactly the shape that made `OBJECT_ACTION_EMOTE` wrong to write onto a ghost's own body. Noted
 -- so it is recognised as a known gap rather than reported as a fault.

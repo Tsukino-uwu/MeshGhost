@@ -9,19 +9,20 @@
 -- AP game, never one whose multiworld matters.
 --
 -- HOW THE ADDRESSES WERE MEASURED, 2026-09-09 -- from the cartridge, never derived from vanilla:
---   * the pack menu headers (`engine/items/pack.asm` in pokecrystal: `db 5, 8 ; rows, columns`,
---     `db SCROLLINGMENU_ITEMS_QUANTITY`, `dbw 0, <pocket count address>`) were scanned for across
+--   * the pack menu headers (where to look: the pocket menu headers in pokecrystal's
+--     `engine/items/pack.asm`, which end in a pocket count address) were scanned for across
 --     the whole ROM. On vanilla V1.0 and Speedchoice the scan returns exactly the `.sym`'s three
 --     pockets (D892 / D8BC / D8D7), which is what makes it trustworthy; on both AP ROMs it returns
 --     D866 / D960 / D989 -- and D960 and D989 are the two addresses ap_bag_grant.lua had already
 --     confirmed ON SCREEN (a bike appeared; one Ultra Ball counted), so the third is the items
 --     pocket, and the key-item pocket is 39 deep (D960..D989, less count and terminator).
---   * the engine-flag table (`data/events/engine_flags.asm`: `dwb address, bit`) has a signature
---     nothing else in the ROM has -- eight entries on one address with bits 1,2,4..128, then eight
---     on address+1 -- and its first hit is the badge pair on vanilla (D857/D858, the `.sym`) and
---     on Speedchoice. On both AP ROMs the first hit is D82B/D82C.
---   * wTMsHMs sits between the badges and the items pocket on every build (`ram/wram.asm`):
---     D82D..D865 on AP is 57 bytes, exactly NUM_TMS 50 + NUM_HMS 7, the same as vanilla -- the
+--   * the engine-flag table (where to look: `data/events/engine_flags.asm`, address plus bit per
+--     entry) was scanned for by the signature measured on vanilla -- eight entries on one address
+--     with bits 1,2,4..128, then eight on address+1 -- and its first hit is the badge pair on
+--     vanilla (D857/D858, the `.sym`) and on Speedchoice. On both AP ROMs the first hit is D82B/D82C.
+--   * wTMsHMs was expected between the badges and the items pocket (the WRAM order in
+--     `ram/wram.asm`, confirmed on vanilla by the `.sym`): D82D..D865 on AP is 57 bytes, the
+--     same span as vanilla's NUM_TMS + NUM_HMS -- the
 --     apworld's own `tmhm` table lists 50 TMs and 7 HMs (its extra entries are move tutors).
 --   * item ids from the apworld's `data.json` `items` table (MIT, `agent_docs/licensing.md`):
 --     BICYCLE 6 -- confirmed on screen 2026-08-26 -- and SUPER_ROD 56 ($38). The HM ITEM ids

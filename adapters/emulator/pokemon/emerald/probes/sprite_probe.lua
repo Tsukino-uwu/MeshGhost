@@ -10,12 +10,12 @@
 -- pokeemerald.sym (not from memory):
 --   gObjectEventPic_BrendanNormal = 0x084975F8, size 0x900 (9 walking frames x 256 bytes/frame)
 --   gObjectEventPal_Brendan       = 0x084987F8, size 0x20 (16 colors x 2 bytes, BGR555)
--- Frame size: src/data/object_events/object_event_pic_tables.h's sPicTable_BrendanNormal uses
--- overworld_frame(gObjectEventPic_BrendanNormal, 2, 4, frame) -- a 2x4 tile grid (16x32px).
--- Confirmed uncompressed (not LZ77): src/data/object_events/object_event_graphics.h declares
--- both as INCGFX_U32(..., ".4bpp"/.gbapal", ...) -- the ".lz" suffix (used elsewhere in this
--- same decomp for compressed graphics) is absent here, so this is a plain byte array in ROM,
--- no decompression needed, just a direct memory read + 4bpp/BGR555 decode.
+-- Frame size, the hypothesis this probe draws with: a 2x4 tile grid (16x32px) per frame (where to
+-- look: sPicTable_BrendanNormal, src/data/object_events/object_event_pic_tables.h).
+-- Uncompressed (not LZ77), also a hypothesis: the graphics declarations in
+-- src/data/object_events/object_event_graphics.h carry no compressed-graphics suffix, so this is
+-- read as a plain byte array in ROM with a direct 4bpp/BGR555 decode -- the drawn result is what
+-- tests it.
 --
 -- 4bpp tile format (standard GBA format, not project-specific -- same format every GBA game
 -- uses, documented independently of any single decomp): each 8x8 tile is 32 bytes, 4 bytes per

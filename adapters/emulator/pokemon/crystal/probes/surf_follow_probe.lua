@@ -7,10 +7,9 @@
 -- water only, that comes and goes.
 --
 -- THE SUSPECT, from `pret/pokecrystal` and NOT yet measured -- which is the whole point of this
--- probe. `CanObjectMoveInDirection` (`engine/overworld/npc_movement.asm`) branches on the
--- SWIMMING bit of OBJECT_PALETTE: an object WITHOUT it calls `WillObjectBumpIntoWater` and is
--- refused every step onto water, and an object WITH it calls `WillObjectBumpIntoLand` and is
--- refused every step onto land. `meshghost_crystal.lua` writes OBJECT_PALETTE exactly once, at
+-- probe. Where to look: `CanObjectMoveInDirection` (`engine/overworld/npc_movement.asm`). The
+-- hypothesis is that the SWIMMING bit of OBJECT_PALETTE decides whether an object may step onto
+-- water (bit set) or onto land (bit clear). `meshghost_crystal.lua` writes OBJECT_PALETTE exactly once, at
 -- spawn, copying the LOCAL PLAYER's byte -- so a ghost spawned on land and then asked to follow a
 -- peer into water would never have the bit, and one spawned while the player was already surfing
 -- would. That predicts a fault that depends on WHERE THE GHOST WAS SPAWNED rather than on where
@@ -37,8 +36,8 @@
 -- the local player echoed, so a probe steering the player steers the ghost (`PROBES.md`).
 --
 -- Addresses are vanilla V1.0, from meshghost_crystal.lua's own table. Field offsets from the
--- decomp's struct listing (constants/map_object_constants.asm); SWIMMING is bit 5 of
--- OBJECT_PALETTE and NOCLIP_TILES/MOVE_ANYWHERE bits 4/5 of OBJECT_FLAGS1, all read there.
+-- decomp's struct listing (constants/map_object_constants.asm), as are the bit positions used
+-- below for SWIMMING, NOCLIP_TILES and MOVE_ANYWHERE -- looked up there, not yet measured.
 --
 -- Switches (Lua globals):
 --   MESHGHOST_SURF_SLOT    savestate slot to load (default 10)

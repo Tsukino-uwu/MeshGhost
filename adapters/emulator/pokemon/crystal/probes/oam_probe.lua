@@ -11,9 +11,9 @@
 -- where the engine wants those entries the write is DECLINED and counted, because a run that
 -- cannot find a free tail is itself the answer to the capacity question.
 --
--- It restores what it touched by writing y = OAM_YCOORD_HIDDEN (160), which is the engine's own
--- value for "this entry is not in use" (constants/gfx_constants.asm:36, and the fill loop at
--- engine/overworld/map_objects.asm:2746). It never touches an object struct, a map object, a
+-- It restores what it touched by writing y = OAM_YCOORD_HIDDEN (160), taken to be the engine's
+-- "entry not in use" value (where to look: constants/gfx_constants.asm:36 and the fill loop at
+-- engine/overworld/map_objects.asm:2746; phase 2 below watches it). It never touches an object struct, a map object, a
 -- save, or the ROM. A reset or a map load rebuilds everything it could possibly have disturbed.
 --
 -- Worst case if something goes wrong: up to four stray 8x8 sprites, two tiles to the right of
@@ -28,19 +28,16 @@
 -- engine's per-frame path never touches (architecture.md, "Extra hardware sprites come from OAM
 -- injection above gOamLimit"). The question here is whether Crystal has the same seam.
 --
--- Read from the decomp first, so this probe only has to settle what reading cannot:
+-- Where the decomp points, as hypotheses this probe's phases check:
 --
---   * The overworld REBUILDS the whole buffer every frame. _UpdateSprites (map_objects.asm:2730)
---     zeroes hUsedSpriteIndex, calls InitSprites (:2812) which appends four entries per visible
---     character in priority order, then `.fill` (:2746) writes y=160 into every remaining entry
---     up to the end of the buffer. So an appended entry's Y IS STOMPED EVERY FRAME. There is no
---     Crystal equivalent of Emerald's gOamLimit: the fill runs to entry 39.
---     (The one exception is a mobile-adapter flag, LAST_12_SPRITE_OAM_STRUCTS_RESERVED_F, which
---     stops the fill at entry 27 -- but it does NOT stop InitSprites from allocating past 27, so
---     it reserves nothing against a crowd. constants/ram_constants.asm:107.)
---   * The rebuild happens in HandleMapBackground (engine/overworld/events.asm:209), and the
---     buffer reaches the hardware in VBlank via hTransferShadowOAM (home/vblank.asm:112,
---     engine/gfx/load_push_oam.asm), unless hOAMUpdate (00:ffd8) is non-zero.
+--   * The overworld is expected to REBUILD the whole buffer every frame and clear every unused
+--     entry up to the end, so an appended entry would be stomped every frame and there would be
+--     no Crystal equivalent of Emerald's gOamLimit. Where to look: _UpdateSprites and its `.fill`
+--     (engine/overworld/map_objects.asm:2730, :2746), InitSprites (:2812), and the reservation
+--     flag at constants/ram_constants.asm:107.
+--   * The rebuild is expected in HandleMapBackground (engine/overworld/events.asm:209), reaching
+--     the hardware in VBlank (home/vblank.asm:112, engine/gfx/load_push_oam.asm), gated by
+--     hOAMUpdate (00:ffd8).
 --
 -- What NONE of that can tell you is the only thing that decides whether the tier is buildable:
 -- WHERE IN THAT SEQUENCE DOES A LUA FRAME BOUNDARY LAND? If our write happens after `.fill` and
@@ -60,13 +57,12 @@
 --   4. The same, writing straight into hardware OAM instead of the shadow buffer.
 --   5. What happens to an entry while a TEXT BOX is open, and while the START menu is open. This
 --      is the one the whole idea rests on: documentation.md says the game's UI covers characters
---      by itself, but the confirmation behind that line was the START MENU, whose mechanism is
---      ClearSprites (home/clear_sprites.asm:1) wiping the buffer -- not hardware priority. A text
---      box is background tiles at palette 7 with NO priority attribute (home/text.asm:100,
---      TextboxPalette), and an overworld character's OAM attribute carries the priority bit only
---      when it is under tiles or in grass (map_objects.asm:2894). So the expectation from reading
---      is that a hardware sprite is NOT hidden by a text box -- and that expectation needs a
---      human's eyes, which is why this phase asks a question rather than answering one.
+--      by itself, but the confirmation behind that line was the START MENU, which may hide them by
+--      clearing the buffer rather than by hardware priority (where to look: home/clear_sprites.asm:1).
+--      Where to look for the text box: home/text.asm:100 (TextboxPalette) and the OAM priority
+--      bit at map_objects.asm:2894. The hypothesis is that a hardware sprite is NOT hidden by a
+--      text box -- and that needs a human's eyes, which is why this phase asks a question rather
+--      than answering one.
 --
 -- HOW TO RUN
 --   Vanilla V1.0 only. The addresses below are this ROM's; an Archipelago build moves them and
@@ -101,8 +97,8 @@ local OBJ_SIZE = 4
 local OAM_SIZE = OAM_COUNT * OBJ_SIZE
 local OAM_YCOORD_HIDDEN = 160     -- constants/gfx_constants.asm:36
 local MAPSTATUS_HANDLE = 2
--- constants/ram_constants.asm:106 -- the name is the decomp's and it reads backwards: the bit
--- being SET means sprite updates are ENABLED (home/sprite_updates.asm:11).
+-- constants/ram_constants.asm:106 names this bit; read here as "SET means sprite updates are
+-- ENABLED" (where to look: home/sprite_updates.asm:11) -- a reading, not a measurement.
 local SPRITE_UPDATES_ENABLED_BIT = 0x01
 local TEXT_STATE_BIT = 0x40       -- TEXT_STATE_F, bit 6 of wStateFlags
 
@@ -201,8 +197,8 @@ local function census(buf)
 			parked = parked + 1
 		else
 			live = live + 1
-			-- Hardware Y is screen line + 16, and Crystal's overworld sprites are 8x8 (every
-			-- Facings entry is four 8x8 quarters -- data/sprites/facings.asm:43).
+			-- Hardware Y is screen line + 16, and each entry is counted as 8 lines tall (where to
+			-- look for the overworld sprite size: data/sprites/facings.asm:43).
 			local top = y - 16
 			for line = top, top + 7 do
 				if line >= 0 and line < 144 then
@@ -419,8 +415,8 @@ local function tick()
 		end
 
 	elseif p.name == "tailwatch" then
-		-- Nobody writes here. If the Y of entry 36 sits at 160 forever, the tail clear from
-		-- map_objects.asm:2746 is doing exactly what the source says.
+		-- Nobody writes here. If the Y of entry 36 sits at 160 forever, the tail clear predicted
+		-- from map_objects.asm:2746 is confirmed by this reading.
 		local y = shadow[TEST_FIRST_ENTRY * OBJ_SIZE]
 		if y ~= prevTailY then
 			log(string.format("  f=%-7d entry %d Y %s -> %s (used=%s)",

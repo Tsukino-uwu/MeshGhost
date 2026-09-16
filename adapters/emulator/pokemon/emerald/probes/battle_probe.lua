@@ -7,13 +7,13 @@
 -- same build cited by every other address in this project (see agent_docs/verified.md).
 --
 -- gMain = 0x030022C0 (pokeemerald.map/.sym, size 0x43C matches struct Main's full layout).
--- callback2 field is at +0x004 (include/main.h L11: "/*0x004*/ MainCallback callback2;"),
--- so its address is 0x030022C4. It is a u32 GBA function pointer, re-read fresh every frame
+-- callback2 field is at +0x004 (where to look: struct Main, include/main.h; this probe's live
+-- read is what tests it), so its address is 0x030022C4. It is a u32 GBA function pointer, re-read fresh every frame
 -- (never cached), since it changes constantly as the game's top-level state machine runs.
 --
 -- CB2_Overworld = 0x08085E5C (pokeemerald.map/.sym), the callback set for ordinary field
--- play (src/overworld.c L1484). CB2_InitBattle is set by every battle-start path found in the
--- src tree, e.g. src/battle_setup.c L369, L940, src/battle_main.c L1955 -- not looked up here
+-- play (src/overworld.c L1484). The decomp's battle-start paths appear to set CB2_InitBattle
+-- (e.g. src/battle_setup.c L369, L940, src/battle_main.c L1955) -- unmeasured, not looked up here
 -- since this probe only needs to show callback2 LEAVING CB2_Overworld, not the specific
 -- battle callback it moves to.
 --
