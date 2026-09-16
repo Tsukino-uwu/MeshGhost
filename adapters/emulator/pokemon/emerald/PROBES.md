@@ -31,6 +31,7 @@ nobody reads a header they did not know existed.
 | `noclip.lua` | the **live map grid**, clearing collision so you can walk through anything | No, and it restores the tiles it changed when dropped. Drop it before judging anything. |
 | `goto_map.lua` | the warp/map fields, plus `MESHGHOST_WARP_X/_Y` for the destination coordinates | No — live RAM. **Slot 8 is its undo.** Warp freely on an instance you are driving for a test; never move the user's character while they are playing (`agent_docs/playing.md`, the mindset). |
 | `spawn_test.lua` | object RAM — one object event plus a sprite | No. Live RAM only, cleared by the engine. |
+| `cmd_drive.lua` | whatever its command file says: warps, the **live map grid** (`mtset`), **`SaveBlock1`** Key Items and the registered item (`givekey`/`register`), single bytes (`poke*`) | The grid and warp: no. **`givekey`/`register`: YES, if you save the game afterwards.** |
 | `wheelie_ghost.lua` | a ghost's movement action, to drive one wheelie deliberately | No — live RAM. |
 | `oaminject_probe.lua` | shadow-OAM entries above `gOamLimit` | No — live RAM, rewritten by the engine's own transfer every frame. |
 | `use_acro.lua` / `use_mach.lua` / `acroride.lua` | the registered-SELECT-item field, so the bike can be got onto by the game's own field effect | No — live RAM, and the game's own code does the rest. |
@@ -60,6 +61,8 @@ never in an adapter.
 | `noclip.lua` | **Writes the live grid, reversibly.** Walk through anything. Warping lands you on a warp tile; getting from there to the water, the ledge or the corner a test needs is the slow part. |
 | `testkit.lua` / `grant_test_kit.lua` | **Write `SaveBlock1`, and it persists if you save.** A Mach Bike, an Acro Bike, a Super Rod and badge flags in one second. Bag quantities are XOR-encrypted with `SaveBlock2`'s `encryptionKey`, which is why a plain write yields an item with a nonsense count — the header explains the whole structure. |
 | `watertile.lua` | **Writes the live map grid**, reversibly. Finds a metatile in the tilesets this map already has loaded whose behaviour is water and writes it into the tile you are facing, so the game treats it as water because as far as it is concerned it is. The "combine the tools" script: read the decomp to learn what makes a tile water, write memory to make one, checkpoint with a savestate, drive input to use it. |
+| `cmd_drive.lua` | **Writes and holds the controller** (vanilla). A command file beside it, re-read live: `warp G.N X,Y` (the game's own map load; onto water arrives surfing), `mtset` a metatile into the grid (write it off screen and walk to it -- the game draws it as it scrolls in), `mtscan`/`grid` to find and read tiles, `givekey`/`register` an item to Select, `rec on/off` for `borrowed_values_probe.lua`. Built 2026-09-16; its header says what is measured. The state-building half of `agent_docs/playing.md`'s mindset. |
+| `find_behaviour.py` | Offline, read-only: scans every map grid in YOUR ROM (with a byte-identical build's `.sym`) for a metatile behaviour and lists maps and the walkable tiles directly above one, as `warp` lines. How the 2026-09-16 run found real puddle, ice, bridge and Sootopolis tiles, and that behaviour 26 is on no tile at all. |
 | `loadslot9.lua` | Loads the user's checkpoint savestate — how a scripted ride that drifted or got blocked is undone. A savestate is not an in-game save, so it costs nothing. |
 | `use_acro.lua` / `use_mach.lua` | Register the bike to SELECT and press it, so the item's own field effect sets every avatar flag rather than us writing `PLAYER_AVATAR_FLAG_*` by hand. |
 | `dismount.lua` | Gets off whatever you are riding, and **confirms it happened**. Written because `use_acro` pressed SELECT once and assumed; three times in one session it silently did not, and the run carried on reading a state nobody was ever in. |
@@ -101,6 +104,12 @@ tiles, and each was written for a specific defect the user reported while watchi
 **This is the method that worked for every peer state.** Read what the engine does for the player,
 then make the ghost match it — never reason about what the code ought to do and ask the user to
 look (`phase8.md`'s retrospective).
+
+`borrowed_values_probe.lua` (read-only, 2026-09-16) is its unfiltered form: while `MESHGHOST_BV_REC` is
+set it logs the player's object event, all 64 sprite slots raw and a checksum of the player's VRAM
+tiles every frame. It measured `DIRECTION_ANIM`, the pose durations, `fishingFrameShift`,
+`reflectiveBehaviour`, `shadowDrop` and `ctcVec` against the engine (`UNVERIFIED.md`, the per-site
+audit entry). Heavy while recording; idle otherwise.
 
 | Probe | What it answers |
 | --- | --- |

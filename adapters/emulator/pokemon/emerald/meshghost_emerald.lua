@@ -275,8 +275,10 @@ local FRAMES_PER_PIC_TABLE = 9
 
 -- Direction -> {idle frame index, {4-step frame sequence}, hFlip}. One table serves walking and
 -- running; only the pic table and the per-pose hold durations differ. South/North/West are drawn
--- as-is; East reuses West's frames mirrored. The sequences follow the decompilation's animation
--- tables (sAnim_Go*/sAnim_Run*, a pointer) and are not measured frame by frame on the game.
+-- as-is; East reuses West's frames mirrored. MEASURED 2026-09-16 (probes/borrowed_values_probe.lua,
+-- the player walking and running a square): the player sprite's animation commands and the VRAM
+-- image they drew showed exactly these sequences, idles and East's hardware flip, walking and
+-- running (running's images are the same indices nine higher, the second pic table).
 local DIRECTION_ANIM = {
     south = { idle = 0, steps = { 3, 0, 4, 0 }, hFlip = false },
     north = { idle = 1, steps = { 5, 1, 6, 1 }, hFlip = false },
@@ -284,8 +286,9 @@ local DIRECTION_ANIM = {
     east  = { idle = 2, steps = { 7, 2, 8, 2 }, hFlip = true },
 }
 -- Per-pose hold durations (frames), indexed the same as DIRECTION_ANIM's steps array: uniform for
--- walking, uneven for running. The values follow the decompilation's animation tables (a pointer)
--- and are not measured on the game.
+-- walking, uneven for running. MEASURED 2026-09-16 (same run): each drawn walking pose held 8
+-- frames and running poses 5, 3, 5, 3, in all four directions; the drawn image changes one frame
+-- after the animation command index does.
 local WALK_POSE_DURATIONS = { 8, 8, 8, 8 }
 local RUN_POSE_DURATIONS = { 5, 3, 5, 3 }
 
@@ -4343,14 +4346,18 @@ end
 -- Whether a peer HAS a reflection at all is the separate question. This code answers it from the
 -- metatile behaviour below the character, against the set of behaviour ids in the table below.
 -- Measured: 16 (pond water) and 21 (ocean water, NOT in the set -- a peer surfing at sea gets no
--- reflection). The other ids in the set, and the downward scan itself, are the decompilation's
--- reading (ObjectEventGetNearbyReflectionType, MetatileBehavior_IsReflective -- pointers) and are
--- unmeasured on the game.
+-- reflection). MEASURED 2026-09-16 (probes/borrowed_values_probe.lua, the player warped above a
+-- tile of each): 20, 22 and 43 give the engine's reflection sprite (priority 3, the player's image
+-- table, 30px below), and so does 32; no reflection sprite on plain ground. 26 is on no map tile in
+-- the ROM (every layout's grid scanned), so no peer can stand by one. The extent of the downward
+-- scan itself is still the decompilation's reading (ObjectEventGetNearbyReflectionType, a
+-- pointer) and unmeasured.
 --
 -- TWO KINDS OF REFLECTION: this code marks 32 (ice) as "ice" and the rest as "water". An ice
 -- reflection must hold still -- the user on screen in Shoal Cave (see the hardware tier's ice
--- note). That ice is decided before water, and by a still-reflection flag, is the
--- decompilation's reading (GetReflectionTypeByMetatileBehavior, a pointer), not measured.
+-- note). MEASURED 2026-09-16: over 32 the engine's reflection sprite has affine off and the
+-- vertical-flip bit set, over 16/20/22/43 affine on -- the still and the moving kind. Whether ice
+-- is decided BEFORE water when both are in the scan is unmeasured.
 --
 -- The values are the kind rather than `true` so both self-drawn tiers can ask which one they are
 -- drawing; every existing caller only tested truthiness and is unaffected.
@@ -6289,7 +6296,12 @@ end
 -- depth. The same reasoning that made the surf blob work.
 --
 -- What this code does (modelled on the decompilation's FldEff_Shadow / UpdateShadowFieldEffect --
--- pointers; the choices below are not measured one by one on the game):
+-- pointers). MEASURED 2026-09-16 (probes/borrowed_values_probe.lua) on the engine's own shadow
+-- under a walking ledge hop and an Acro Bike hop: template 0850CA14, subpriority 148, the player's
+-- x, 12px below the player's pos1 y with pos2 zero, priority the player's. Every graphic id the
+-- decompilation names as the player's (0-3, 63, 89-93, 111-112, 137-138, 191-194 -- of which 0, 2,
+-- 63 and 137 were seen on the player that day) carries shadow size 1 in the ROM's graphics table,
+-- so the other templates are never chosen for a peer:
 --   * template chosen by the graphic's shadow size (bits 4-5 of graphicsInfo +0x0C):
 --     ShadowSmall 0850C9FC, Medium 0850CA14, Large 0850CA2C, ExtraLarge 0850CA44 (pokeemerald.map)
 --   * subpriority 148, coordOffsetEnabled
@@ -6322,6 +6334,9 @@ genderFrames.spriteCallbackDummy = 0x08007428 + 1 -- +1 selects Thumb
 -- height for each GBA shape/size. The hardware draws an OBJ from its top-left and every sprite the
 -- engine makes carries this, so that its POSITION means its centre; a sprite built by hand and
 -- never given it lands half a frame down-right, which is the bug the surf blob already had.
+-- MEASURED 2026-09-16 (probes/borrowed_values_probe.lua, every in-use engine sprite across walking,
+-- hops, surfing and fishing): entries 0, 1, 2, 4 and 10 read exactly these; the rest unmeasured.
+-- The shadow this is used for is always entry 4 for a player graphic (see the shadow header).
 -- The first version of the shadow guessed -16 or -8 from the frame's byte count, which is wrong
 -- for three of the four shadow sizes -- the 16x8 medium one every bike uses included.
 genderFrames.ctcVec = {
@@ -8284,8 +8299,10 @@ end
 -- THE FISHING OFFSET IS COMPUTED, NOT COPIED. The fishing sprite's frames are not all aligned the
 -- same inside their 32-wide canvas, so the offset follows the frame being DISPLAYED: this code
 -- derives it from the ghost's own current animation command (fishingFrameShift, below). The
--- per-image values it uses follow the decompilation (AlignFishingAnimationFrames, a pointer);
--- only the 8px x shift at a cast end is measured (the trace below), the rest are unmeasured.
+-- per-image values it uses follow the decompilation (AlignFishingAnimationFrames, a pointer), and
+-- are MEASURED 2026-09-16 (probes/borrowed_values_probe.lua, the player casting in all four
+-- directions): the player sprite's pos2 was (-8,0) facing left and (8,0) facing right for images
+-- 1-3, (0,-8) for 5, (0,8) for 10 and 11, and zero for 0, 4, 6-9, on every frame of each cast.
 --
 -- Copying the player's offset over the wire was therefore wrong by construction: the ghost's
 -- animation lags the player's, so it kept receiving the offset for a frame it was not yet
@@ -8324,7 +8341,8 @@ function alignFishingGhost(g)
 end
 
 -- The two graphics the rule belongs to (the fishing graphics' ids per the decompilation, a
--- pointer; not measured).
+-- pointer). 137 MEASURED 2026-09-16: Brendan's object event held it for the length of each cast;
+-- May's 138 is unmeasured.
 function isFishingGfx(gfx) return gfx == 137 or gfx == 138 end
 
 -- EVERY action that leaves the ground, which is more than a ledge hop.
@@ -10040,8 +10058,9 @@ end
 -- position in SCREEN space; the sprite box's top-left is x-8, y-4 (the shadow sprite's own c2c),
 -- and the shadow sits 12px below the character's y -- all measured, see BANDAGES.md.
 -- shadowDrop: a per-size drop indexed by the graphic's shadow size (bits 4-5 of graphicsInfo
--- +0x0C). The per-size values follow the decompilation (gShadowVerticalOffsets, a pointer) and
--- are unmeasured.
+-- +0x0C). The per-size values follow the decompilation (gShadowVerticalOffsets, a pointer). Size
+-- 1's 4 is MEASURED 2026-09-16 (12 = half the 32px height less 4, walking and Acro Bike hops);
+-- 0, 2 and 3 are unmeasured and never selected for a player graphic (the shadow header above).
 -- A FIELD, not a local: this chunk is at Lua's hard 200-local ceiling and one more is a parse
 -- failure, which is how the adapter silently fails to load.
 genderFrames.shadowDrop = { [0] = 4, [1] = 4, [2] = 4, [3] = 16 }

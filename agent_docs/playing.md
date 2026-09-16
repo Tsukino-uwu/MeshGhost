@@ -177,6 +177,22 @@ making something happen works; say what was measured and when.
 - **What did not work, and should not have**: poking the standing-tile collision byte, and an execute
   hook on the jump check. Neither hopped, and neither would have been the game's own hop.
 
+### Emerald (vanilla, 2026-09-16) — `emerald/probes/cmd_drive.lua`, `emerald/probes/find_behaviour.py`
+
+- **Teleport first, walk never.** `warp G.N X,Y` is the game's own map load and lands exactly; onto a
+  water tile it arrives SURFING. A warp also reloads the map grid, so it undoes tile writes — warp,
+  then write. Walking around a building to reach a door cost several tries that one warp did not.
+- **Need a particular kind of tile? Find a real one**: `find_behaviour.py ROM SYM BEHAVIOUR` scans every
+  map grid in the ROM and prints `warp` lines, including walkable tiles directly above one. It found
+  puddles, ice, a bridge and Sootopolis's deep water, and showed one behaviour exists nowhere.
+- **Or make one**: `mtscan BEH` lists the loaded tilesets' metatiles with that behaviour, `mtset` writes
+  one into the grid. Write it OFF screen (8 rows away) and walk to it: the game draws it as it scrolls in.
+  A written ledge hopped like a real one.
+- **Items without a menu**: `givekey ID` then `register ID`, then Select — mounted the Acro Bike and cast
+  the Super Rod. Turn toward water with a ~4-frame tap; B clears the fishing text.
+- **Check the ground truth first**: continuing a save made in a dev session that spawned a ghost brings
+  the ghost back as a real object (`emerald/UNVERIFIED.md`); `objdump` shows it, a warp clears it.
+
 ## Driving input
 
 **Menus are cursor-then-confirm, and A does not mean "do the obvious thing"** (user, 2026-08-19).

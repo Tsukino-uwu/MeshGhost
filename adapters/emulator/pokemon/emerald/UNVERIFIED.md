@@ -79,18 +79,25 @@ after Continue.
 The per-site audit of `meshghost_emerald.lua` (the user's call, 2026-09-16) dropped every source file
 path and line from its comments, removed copied tables and layouts, and marked each mechanism the
 decompilation alone supplies as unmeasured. Each is a question here. Line numbers are as of the audit,
-before it. **Borrowed VALUES still in code**, labelled unmeasured in their comments: `genderFrames.ctcVec`,
-`genderFrames.reflectiveBehaviour` (20/22/26/32/43), `genderFrames.shadowDrop` {4,4,4,16},
-`DIRECTION_ANIM`, `WALK_POSE_DURATIONS`/`RUN_POSE_DURATIONS`, and the branches in `fishingFrameShift`.
+before it. **The borrowed VALUES in code were MEASURED 2026-09-16 on vanilla and match**
+(`probes/borrowed_values_probe.lua`, the state built with `probes/cmd_drive.lua` per `playing.md`: a
+ledge metatile written into the map, warps onto real puddle/ice/bridge/Sootopolis/sea tiles found by a
+scan of every map grid in the ROM, the Acro Bike and Super Rod registered to Select):
+`DIRECTION_ANIM` and both duration tables (walk and run, four directions, from the drawn VRAM image);
+`fishingFrameShift` (all four casts, every image); `reflectiveBehaviour` 20, 22, 32 (the still kind:
+affine off, vertical flip) and 43 (the moving kind; at the spot tried, the bridge's BG covers it);
+`shadowDrop` size 1 = 4 and the shadow's template, subpriority and placement; `ctcVec` entries 0, 1, 2,
+4, 10. **Left open, and why:** `reflectiveBehaviour` 26 is on no map tile in the ROM; `shadowDrop` 0/2/3
+and `ctcVec`'s other entries are never selected for a graphic the decompilation names as the player's
+(each reads shadow size 1 in the ROM table). Nothing here changes what a player sees, so nothing waits
+on the user.
 
 - **SAFETY PREMISE, first** (6679/6683) — the door task touches only VRAM and the tilemap, never the map grid, a save or objects: snapshot the map grid, `gObjectEvents` and SaveBlock1 around a ghost's door animation and diff them.
-- 56, 247-297 — walk/run frame sequences and per-pose durations: log the player's animNum/animCmdIndex and frame counter per pose, each direction.
 - 87 — gender byte at SaveBlock2+0x08, 0 male / 1 female: read it on a Brendan and a May save.
 - 437, 1522 — `MAP_GROUPS_COUNT` 34 and unsigned map ids: the highest group and number seen across the regions.
 - 796, 6582, 8368, 8731 — graphicsId per state (bike, surf, fish 137/138, walker 0/89, boat 88): log it entering each state, both genders, and on Briney's boat.
 - 1847, 1855, 8797, 9818, 9863, 13770 — `bikeSpeed` at gPlayerAvatar+0x0B and the Mach Bike speed stages: log it and `movementActionId` while accelerating, and on the Acro Bike.
 - 2066, 3480 — the wall bump is walk-in-place slow (0x19-0x1C): read `movementActionId` holding into a wall.
-- 3191, 4035, 4087 — reflection at OAM priority 3, the character at 2: dump attr2 of the player and its reflection on a pond.
 - 3468, 3498, 8376, 9329, 9817, 9839, 9873, 12420 — movement action ids for hops, bunny hops, wheelies, currents and fast walking: log `movementActionId` through each.
 - 3592 — the sprite-tile allocation bitmap is first-fit: dump it before and after the engine spawns an NPC.
 - 3725, 4522 — anim command packing and 8-byte image entries: hexdump one known table and match it to frames on screen.
@@ -99,7 +106,7 @@ before it. **Borrowed VALUES still in code**, labelled unmeasured in their comme
 - 3983 — `gScanlineEffect` offsets +0x08/+0x14/+0x15: dump the struct inside and outside a Flash cave.
 - 4053, 4064, 4075, 4095 — metatile attribute bits, the metatiles pointer, secondary ids from 512, and layer type to BG: decode known roof/water tiles and read the BG tilemaps there.
 - 4210 — the backup grid is the layout +15 wide / +14 high: read it against the header on two maps.
-- 4365-4392 — which behaviours reflect, ice before water, the scan region: stand on each and watch for the engine's reflection sprite.
+- 4365-4392 — ice decided before water when both are in the scan, and the scan region's extent (which behaviours reflect was measured 2026-09-16, above): stand where ice and water are both below.
 - 4587, 4609, 10687 — landing dust on the character's tile, palette tag 0x1004: probe the dust sprite's position and read the template's tag.
 - 4724 — wheelie bounce periods of 16 and 32 frames: count frames between pos2 y repeats.
 - 5196, 6266 — sprite screen-position formulas: compare the computed position with a live NPC's and blob's.
@@ -108,12 +115,10 @@ before it. **Borrowed VALUES still in code**, labelled unmeasured in their comme
 - 5578, 6576, 6593, 6607, 7401 — Fly: the pose then the surfing graphic on the bird, the bird's carried sprite, task data, the 64 sentinel, the bird's palette/priority: dump them through a Fly.
 - 6102, 6116, 6124, 6348 — OAM shape/size bits (GBA hardware docs), subsprite tables, centre-to-corner by size: read them off live sprites of several sizes.
 - 6201, 9177 — the blob's data slots, subpriority 150 and bob state at mount: dump the player's blob across a mount.
-- 6318, 10089 — the shadow template per size, subpriority 148, drop {4,4,4,16}: dump the engine's shadow in a ledge hop, small and medium graphics.
 - 6493, 6495 — the underwater bob: log the player's pos2 y while diving and find the bobber sprite.
 - 6571, 7549 — Briney's ride hides the player under the boat: log the invisible bit and both positions during the ride.
 - 6618, 7409, 7414, 7890, 7909, 7944, 7960, 8282, 8723, 8725, 8978, 13728 — object and sprite flag bits and held-movement fields: trace the bytes through `hideobjectat`, a muddy slope, an ice slide, a scripted movement and an animation start.
 - 6725 — the door graphics table layout and task data: hexdump them during the player's own door.
-- 8327, 8330, 14124 — fishing frame alignment: log the image index and pos2 across a cast in each facing.
 - 8382, 9378, 9555, 9559 — a side hop sets the facing lock first and releases it next input tick: trace facing, lock bit and action per frame.
 - 10185, 10205 — collision gated by elevation, player 3 on land / 1 surfing: read +0x0B on land and surf and trace a walk-through.
 - 11654 — the painted sort matches the engine's subpriority banding: compare a ghost with real NPCs at several screen rows.

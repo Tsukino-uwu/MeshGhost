@@ -600,3 +600,10 @@ states on the spot rather than trusting savestate slots -- so it lives in `playi
 lesson: a bite's "!" took the first four OAM slots (`checklists/before-trusting-a-reading.md`).
 
 Emerald's six borrowed values are next; they need an Emerald instance.
+
+## 2026-09-16 (later still) — Emerald's six borrowed values, measured; the audit's value tier is closed
+
+All six match the engine (`phase8.md`'s entry of the same date has the detail). With Crystal's three,
+every borrowed value the Lua tier audit left in shipped code is measured, bar what the game itself makes
+unreachable (Crystal's up-hop shadow, Emerald's behaviour 26 and the non-player shadow sizes). The user
+spent the session turning "cheat to reach it" into a standing mindset, now the opening of `playing.md`.

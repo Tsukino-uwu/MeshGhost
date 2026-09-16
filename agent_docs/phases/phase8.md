@@ -1255,3 +1255,24 @@ names from `surf_bike_probe` (`81407c30`) are the "audit's Lua tier" entries in 
 source-only mechanisms they marked are the OPEN entry at the top of `emerald/UNVERIFIED.md`. The six
 borrowed values in Emerald's code are the next measurement, after Crystal's (same file, "Crystal's
 borrowed values, measured on the game").
+
+## 2026-09-16 (last, later) — Emerald's six borrowed values measured on the game, and a saved ghost
+
+Vanilla Emerald, adapter unloaded, the new read-only `probes/borrowed_values_probe.lua` recording the
+player's object, every sprite slot and the player's VRAM tiles. All six values match the engine:
+`DIRECTION_ANIM` and both duration tables (a walking and a running square), `fishingFrameShift` (a cast
+each way from a sandbar on map 0.20), `reflectiveBehaviour` (warps above real puddle, ice, bridge and
+Sootopolis tiles, found by scanning every map grid in the ROM), `shadowDrop` size 1 and the shadow's
+template/subpriority/placement (a written ledge metatile and an Acro Bike hop), and `ctcVec` entries 0, 1,
+2, 4, 10. Unreachable, not unmeasured by choice: behaviour 26 is on no tile, and every graphic the decomp
+names as the player's reads shadow size 1. Records: `emerald/UNVERIFIED.md` (the per-site audit entry)
+and the code comments; no value changed.
+
+Found on the way: continuing the ROM's in-game save put a second Brendan on screen with nothing loaded.
+It was a spawned-tier ghost stored in SaveBlock1's object-event copy; a warp cleared it. The user pointed
+out the shipped adapter has been drawn-only since 2026-09-11, so it is a dev-tier note, not a status item
+(`emerald/UNVERIFIED.md`, top). Walking to a door took several tries before a warp did it at once; the
+user: *"why not just move the player onto the door/entry itself? ... or just teleport yourself"*.
+
+Tools: `probes/cmd_drive.lua` (warp, tile writes, items to Select, recorder flag) and
+`probes/find_behaviour.py`; the method is in `agent_docs/playing.md` ("Building a state", Emerald).
