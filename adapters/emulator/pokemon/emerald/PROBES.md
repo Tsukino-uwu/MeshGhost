@@ -29,7 +29,7 @@ nobody reads a header they did not know existed.
 | `grant_test_kit.lua` | **`SaveBlock1`**, same class as `testkit.lua` — the granter kept as a standalone one-shot. | **YES, if you save afterwards.** |
 | `watertile.lua` | the **live map grid**, turning the tile in front of you into water | No. The map is rebuilt from ROM on the next map load, and it restores the original tile on unload. |
 | `noclip.lua` | the **live map grid**, clearing collision so you can walk through anything | No, and it restores the tiles it changed when dropped. Drop it before judging anything. |
-| `goto_map.lua` | the warp/map fields, plus `MESHGHOST_WARP_X/_Y` for the destination coordinates | No — live RAM. **Slot 8 is its undo**, and `CLAUDE.md` says to ask before warping the user's character. |
+| `goto_map.lua` | the warp/map fields, plus `MESHGHOST_WARP_X/_Y` for the destination coordinates | No — live RAM. **Slot 8 is its undo.** Warp freely on an instance you are driving for a test; never move the user's character while they are playing (`agent_docs/playing.md`, the mindset). |
 | `spawn_test.lua` | object RAM — one object event plus a sprite | No. Live RAM only, cleared by the engine. |
 | `wheelie_ghost.lua` | a ghost's movement action, to drive one wheelie deliberately | No — live RAM. |
 | `oaminject_probe.lua` | shadow-OAM entries above `gOamLimit` | No — live RAM, rewritten by the engine's own transfer every frame. |

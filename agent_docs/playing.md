@@ -46,7 +46,12 @@ whether a wild battle or a trainer happens at all and how it ends, whether an NP
 event runs. The user: *"you are able to do anything and everything in a game. a wild pokemon battle or
 a trainer can't stop you either as you decide what happens in the game. you have complete freedom of
 what happens inside of a game"*, and *"you can never be or get stuck as you can just control what
-happens in the game"*. So a test scenario is never something to find, wait for or ask for. It is
+happens in the game"*. In practice (same day): *"use items without opening menus, teleport around to
+different locations, spawn items/enemies/tiles next to you, just create whatever you need for a good
+testing situation yourself ... a npc or a text box is only a block if you don't know how to get around
+it but when you control the code you decide what happens or not"*. On an instance the agent is driving
+for its own test, a warp is a tool like any other; the user's own position, while THEY are playing, is
+still theirs. So a test scenario is never something to find, wait for or ask for. It is
 something to MAKE, on the spot: *"just cheat/make things happen if you want to do something. be
 creative."* Nor is it bounded by what a player can do: *"you are able to freely change to code to make
 things happen the way you want so you can test anything you want to do or remove anything that is
