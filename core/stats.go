@@ -147,6 +147,12 @@ type Stats struct {
 	DryRenders    uint64
 	DryAvgMs      float64
 	DryMaxMs      int64
+	// DryP50Ms/P95/P99 are percentiles of how far past the newest sample the
+	// dry renders ran, to the 10ms bucket edge: the window extrapolate would
+	// have to cover to fill that share of the gaps (prediction-planning.md, A2.0).
+	DryP50Ms int64
+	DryP95Ms int64
+	DryP99Ms int64
 
 	// Sample transit (see transitMeter): samples timed, mean and worst arrival
 	// delay, and how many took longer than slowTransitMs.
@@ -154,6 +160,12 @@ type Stats struct {
 	TransitAvgMs   float64
 	TransitMaxMs   int64
 	TransitSlow    uint64
+	// TransitP50Ms/P95/P99 are percentiles of the same arrival delay, to the
+	// 10ms bucket edge. A delay sized to cover a link has to cover its high
+	// percentile, which the mean hides and the max overstates.
+	TransitP50Ms int64
+	TransitP95Ms int64
+	TransitP99Ms int64
 
 	// PeersKnown is roster size (everyone the relay says is in the room);
 	// PeersRendered is how many are currently being drawn. The gap between
@@ -228,12 +240,18 @@ func (c *Core) Stats() Stats {
 	if c.dry.dry > 0 {
 		s.DryAvgMs = float64(c.dry.totalMs) / float64(c.dry.dry)
 	}
+	s.DryP50Ms = c.dry.hist.percentile(50, c.dry.maxMs)
+	s.DryP95Ms = c.dry.hist.percentile(95, c.dry.maxMs)
+	s.DryP99Ms = c.dry.hist.percentile(99, c.dry.maxMs)
 	s.TransitSamples = c.transit.count
 	s.TransitMaxMs = c.transit.maxMs
 	s.TransitSlow = c.transit.slow
 	if c.transit.count > 0 {
 		s.TransitAvgMs = float64(c.transit.totalMs) / float64(c.transit.count)
 	}
+	s.TransitP50Ms = c.transit.hist.percentile(50, c.transit.maxMs)
+	s.TransitP95Ms = c.transit.hist.percentile(95, c.transit.maxMs)
+	s.TransitP99Ms = c.transit.hist.percentile(99, c.transit.maxMs)
 	s.PeersKnown = len(c.roster)
 	s.RelayRTTMs = c.clock.bestRTTMs
 	s.ClockOffsetMs = c.clock.offsetMs
@@ -271,12 +289,12 @@ func (s Stats) String() string {
 		out += fmt.Sprintf(" | %d stale ghost position(s) superseded before the game read them (it is behind, not broken)", s.RendersSuperseded)
 	}
 	if s.MovingRenders > 0 {
-		out += fmt.Sprintf(" | buffer dry on %d of %d moving renders (avg %.0fms, max %dms past the newest sample)",
-			s.DryRenders, s.MovingRenders, s.DryAvgMs, s.DryMaxMs)
+		out += fmt.Sprintf(" | buffer dry on %d of %d moving renders (avg %.0fms, p50 %dms, p95 %dms, p99 %dms, max %dms past the newest sample)",
+			s.DryRenders, s.MovingRenders, s.DryAvgMs, s.DryP50Ms, s.DryP95Ms, s.DryP99Ms, s.DryMaxMs)
 	}
 	if s.TransitSamples > 0 {
-		out += fmt.Sprintf(" | transit: %d samples, avg %.0fms, max %dms, %d over %dms",
-			s.TransitSamples, s.TransitAvgMs, s.TransitMaxMs, s.TransitSlow, slowTransitMs)
+		out += fmt.Sprintf(" | transit: %d samples, avg %.0fms, p50 %dms, p95 %dms, p99 %dms, max %dms, %d over %dms",
+			s.TransitSamples, s.TransitAvgMs, s.TransitP50Ms, s.TransitP95Ms, s.TransitP99Ms, s.TransitMaxMs, s.TransitSlow, slowTransitMs)
 	}
 	if s.StatesSuppressed > 0 {
 		out += fmt.Sprintf(" | %d frames suppressed as unchanged (%.0f%% of what would have been sent, %d brackets)",

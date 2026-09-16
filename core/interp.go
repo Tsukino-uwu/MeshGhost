@@ -861,11 +861,66 @@ type transitMeter struct {
 	totalMs uint64
 	maxMs   int64
 	slow    uint64
+	hist    msHistogram
 }
 
 const slowTransitMs = 200
 
+// msHistogram buckets millisecond readings so the stats line can print high
+// percentiles, not just the mean and the max. A2's per-peer delay has to cover
+// the high percentile of transit, and a delay sized on an average is undersized
+// by construction (prediction-planning.md, A2.0). Fixed size, allocated with
+// the meter, one increment per reading: no per-sample memory.
+type msHistogram struct {
+	buckets [msHistBuckets]uint64 // [i] holds readings in [i*width, (i+1)*width); the last holds everything above
+	count   uint64
+}
+
+const (
+	msHistWidthMs = 10
+	msHistBuckets = 301 // 0..3000ms in 10ms steps, then one overflow bucket
+)
+
+func (h *msHistogram) add(ms int64) {
+	i := 0
+	if ms > 0 {
+		i = int(ms / msHistWidthMs)
+		if i >= msHistBuckets {
+			i = msHistBuckets - 1
+		}
+	}
+	h.buckets[i]++
+	h.count++
+}
+
+// percentile returns the upper edge of the bucket holding the p-th percentile
+// reading (p in 0..100), so a size read off it covers that share, and never
+// more than maxMs: a link whose worst sample took 2ms does not read "p50
+// 10ms" (seen on the first rig run, 2026-09-16). A reading in the overflow
+// bucket returns maxMs, the only honest edge that bucket has.
+func (h *msHistogram) percentile(p float64, maxMs int64) int64 {
+	if h.count == 0 {
+		return 0
+	}
+	rank := uint64(math.Ceil(p / 100 * float64(h.count)))
+	if rank < 1 {
+		rank = 1
+	}
+	var seen uint64
+	for i, n := range h.buckets {
+		seen += n
+		if seen >= rank {
+			if i == msHistBuckets-1 {
+				return maxMs
+			}
+			return min(int64(i+1)*msHistWidthMs, maxMs)
+		}
+	}
+	return maxMs
+}
+
 func (m *transitMeter) record(ms int64) {
+	m.hist.add(ms)
 	m.count++
 	if ms > 0 {
 		m.totalMs += uint64(ms)
@@ -883,6 +938,7 @@ type dryMeter struct {
 	dry     uint64
 	totalMs uint64
 	maxMs   int64
+	hist    msHistogram // how far past the newest sample, dry renders only
 }
 
 // dryBy reports how far (ms) renderTime sits past the newest sample when the
@@ -921,6 +977,7 @@ func (m *dryMeter) record(past int64, moving bool) {
 		return
 	}
 	m.dry++
+	m.hist.add(past)
 	m.totalMs += uint64(past)
 	if past > m.maxMs {
 		m.maxMs = past
