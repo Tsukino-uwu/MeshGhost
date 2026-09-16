@@ -54,6 +54,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - Crossing a map edge, a trainer's sight, and a trainer battle (2026-09-16)
 - A direction held across tiles, walking and running (2026-09-16)
 - The two bikes: getting on, speed, and stopping on a tile (2026-09-16)
+- Turning at speed, routes, a Pokémon Center, and battles as one call (2026-09-16)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -395,6 +396,34 @@ with the pad). Object x values below are map x + 7.
   of coast).
 - **Not seen**: turning or riding up and down on either bike, a Mach Bike released at speed 2, the Acro
   Bike's tricks, a slope, a ledge or a warp on a bike, a patched ROM.
+
+### Turning at speed, routes, a Pokémon Center, and battles as one call (2026-09-16)
+
+**Vanilla ROM, the same save**, routes 0.16 and 0.17, the town 0.10 and its Pokémon Center 2.2. From
+`probes/bike_probe.lua` for the ride bytes, autoplay's own answers and `observe`, and captures
+(`dev-scripts/shots/emerald/autoplay_tr2_state`, `autoplay_heal_state`, gitignored).
+
+- **A Mach Bike turn at speed.** Riding left at +0x0B 3, the direction let go for two frames (+0x0B read
+  2 on the next tile) and Down held before that tile's end: on arrival the next step went down, +0x1C
+  0x2D, +0x0B 3 again. The step after ran into a character standing below: +0x1C 0x1D and +0x0A and
+  +0x0B both 0.
+- **`goto` on the Mach Bike**, (33,15) to (40,12): right 7 at speed, let go early to stop on (40,15)
+  (the last leg was 3), up 3 with a release after the second tile; every step logged, no bump action.
+  To (20,14) from the east: a step refused at (26,15) (+0x1C 0x1F), a replan, and a route through tall
+  grass that met a wild WURMPLE at (20,16); with grass costed, (20,16) to (20,14) went around it.
+- **A trainer's sight stops a route**: a route up column 19 stopped at (19,7) with `no_response` while the
+  trainer from (19,4) walked over, and the next call found "Did you just become a TRAINER?" open.
+- **The Pokémon Center.** Walking up into its door on the Mach Bike arrived in 2.2 with `movement`
+  `on_foot`. At (7,4), A toward the nurse (7,2) across the counter began her text; "Okay, I'll take your
+  POKéMON for a few seconds." did not change for more than 30 frames of A while the machine played, and
+  afterwards the party read 26/26.
+- **`battle` as one call.** A trainer battle already at its end: `ended` after 421 frames, money 3380
+  to 3428 with "A got ₽48 for winning!". A wild ZIGZAGOON from its first message: `ended` after 2439
+  frames and 41 seconds on the wall clock, the log naming every message and choice ("MUDKIP's attack
+  missed!", "A critical hit!", TACKLE three times) and MUDKIP back in the overworld at 15/26.
+- **`advance_text`** stopped at the nurse's YES/NO with its items after three boxes, in 501 frames.
+- **Not seen**: a route across a map edge, a trainer's facing read from memory, a Repel, a battle lost,
+  a battle that asks for a switch or a new move.
 
 ## Not measured yet
 

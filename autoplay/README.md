@@ -31,6 +31,9 @@ Claude Code --MCP (stdio)--> autoplay core --JSON lines (127.0.0.1)--> driver in
 | `wait` | Let 1-3600 frames pass with NO input, then report what changed. Never hold a button to wait |
 | `select` | Choose an entry in the open menu by its text (`item`) or 0-based `index`: the driver presses toward it until the game's own cursor is on it, then holds confirm until the menu responds (`confirm: false` stops on it). On a grid menu (a battle's) it reaches the column first. Every leg ends on the game's state, never a frame count |
 | `walk` | Move 1-32 tiles `up`, `down`, `left` or `right`, holding the direction the whole way the way a player does, each tile counted when the game starts its step; `run: true` runs where the save can (`ran` says whether it did). On a bike it rides, still stopping on the tile: the Acro Bike stops where released, and on the Mach Bike it lets go early by the tiles the bike will coast (`overshot` if it ever carries past). Stops early and says why: `blocked` (with what is on the refused tile), `map_changed` (a door or an edge), `dialogue_open` (a trainer who spotted you, too), `menu_open`, `left_overworld`; `moved` counts the steps begun. Walk for precision, run for speed that still stops on its tile, a bike for distance (the play-game skill's `references/navigation.md`) |
+| `goto` | To a tile `x`,`y` on this map by a planned route: straight legs over the map's own grid (collision, elevation, characters and warps closed, ledges closed, tall grass avoided where there is another way unless `cross_grass`), turning at speed, replanning when a step is refused. Rides what the player is on, stopping exactly on the tile (`run` on foot). Stops early for the same reasons `walk` does, or `unreachable` with the reason. It does not know a trainer's line of sight yet |
+| `battle` | Plays the battle on screen to its end in one call, a trainer's words before and after included: `policy` `strongest` (FIGHT, then the usable move with most power times accuracy) or `run`. Returns a `log` of every message and choice and ends `ended` (with money and the party), `needs_choice`, or `stuck` with what it was waiting on |
+| `advance_text` | Presses through the message on screen box by box; stops `closed`, `menu_open` (with the menu, for `select`), `battle_started`, or `stuck`. Returns a `log` of the boxes |
 | `screenshot` | The game frame, saved to `dev-scripts/shots/<game>/autoplay_<name>.png` and returned as an image |
 | `events` | Events the driver reported since a sequence number |
 | `snapshot` | Save the whole game state to `autoplay/states/<game>/<label>.State` — a named file, never a numbered slot, so no slot of anyone's is ever touched |
@@ -121,6 +124,11 @@ code rather than by memory. A failed or refused cheat changes nothing.
   `step_probe.lua`'s, the party, bag, badges and their cheats from `party_bag_probe.lua`'s and
   `substruct_order_probe.lua`'s). **While a press, a select or a walk runs it holds the controller** — take it
   off the target when done.
+- **Programs stop when nothing changes.** `walk`, `goto`, `select`, `battle` and `advance_text` run in the
+  driver a frame at a time and end on the game's state; `battle` and `advance_text` press A once after
+  3 seconds with no change, retry a press the game ignored, and answer `stuck` after 3 of those, so a
+  call never sits for minutes. The driver only knows text it saw printed: after reloading it, a message
+  already on screen reads as none until the next one.
 - **Text costs top speed.** Reading text needs execute hooks, and any execute hook halves the
   emulator's unthrottled speed, however many there are (one instance, a core connected: 818
   frames/s without, 410-416 with; `emerald/MEASURED.md`, 2026-09-16). `AUTOPLAY_TEXT=0` in the

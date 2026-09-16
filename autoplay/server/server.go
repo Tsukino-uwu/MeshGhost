@@ -87,6 +87,29 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 	}, logged(t, "walk", nil, t.walk))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name: "goto",
+		Description: "Move the player to a tile on this map by a planned route: straight legs, turning at " +
+			"speed, replanning around what refuses a step. Rides whatever the player is on (on foot, " +
+			"run: true to run). Stops early and says why, as walk does, or unreachable (with the reason). " +
+			"Returns where it ended, the tiles moved, turns and replans.",
+	}, logged(t, "goto", nil, t.gotoTile))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "battle",
+		Description: "Play the battle on screen to its end in one call, a trainer's words before and after " +
+			"included. policy strongest (default) fights with the usable move of most power times accuracy; " +
+			"run runs. Returns a log of every message and choice, and ends ended, needs_choice (a menu it " +
+			"will not answer) or stuck (with what it was waiting on) -- within seconds of nothing changing.",
+	}, logged(t, "battle", nil, t.battle))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "advance_text",
+		Description: "Press through the message on screen, box by box. Stops when it closes, when a menu " +
+			"opens (answer it with select), when a battle begins (use battle), or stuck. Returns a log of " +
+			"every box.",
+	}, logged(t, "advance_text", nil, t.advanceText))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name: "screenshot",
 		Description: "A picture of the game frame, saved under dev-scripts/shots/<game>/ and returned " +
 			"as an image. The navigation sense: what is around, what a thing is, which entry is " +
@@ -259,6 +282,51 @@ func (t *tools) walk(ctx context.Context, _ *mcp.CallToolRequest, in WalkIn) (*m
 	// A tile takes well under a second; allow for a slow host and a warp at the end.
 	timeout := CallTimeout + time.Duration(in.Tiles)*2*time.Second
 	raw, err := t.forward(ctx, "walk", "walk", in, timeout)
+	return nil, raw, err
+}
+
+// MaxGotoCoordinate bounds a goto target; the driver checks it against the map itself.
+const MaxGotoCoordinate = 1023
+
+// GotoTimeout allows a long route on foot: the driver bounds the ride itself in frames.
+const GotoTimeout = CallTimeout + 3*time.Minute
+
+// GotoIn is the goto tool's input.
+type GotoIn struct {
+	X          int  `json:"x" jsonschema:"the target tile's x on this map"`
+	Y          int  `json:"y" jsonschema:"the target tile's y on this map"`
+	Run        bool `json:"run,omitempty" jsonschema:"run where on foot"`
+	CrossGrass bool `json:"cross_grass,omitempty" jsonschema:"route through tall grass freely, as with a Repel running; by default the route avoids it where it can"`
+}
+
+func (t *tools) gotoTile(ctx context.Context, _ *mcp.CallToolRequest, in GotoIn) (*mcp.CallToolResult, any, error) {
+	if in.X < 0 || in.Y < 0 || in.X > MaxGotoCoordinate || in.Y > MaxGotoCoordinate {
+		return nil, nil, fmt.Errorf("x and y must be 0 to %d, got %d,%d", MaxGotoCoordinate, in.X, in.Y)
+	}
+	raw, err := t.forward(ctx, "goto", "goto", in, GotoTimeout)
+	return nil, raw, err
+}
+
+// BattleTimeout allows a long battle: the driver ends a stuck one within seconds on its own.
+const BattleTimeout = CallTimeout + 10*time.Minute
+
+// BattleIn is the battle tool's input.
+type BattleIn struct {
+	Policy string `json:"policy,omitempty" jsonschema:"strongest (default) or run"`
+}
+
+func (t *tools) battle(ctx context.Context, _ *mcp.CallToolRequest, in BattleIn) (*mcp.CallToolResult, any, error) {
+	switch in.Policy {
+	case "", "strongest", "run":
+	default:
+		return nil, nil, fmt.Errorf(`policy must be "strongest" or "run", got %q`, in.Policy)
+	}
+	raw, err := t.forward(ctx, "battle", "battle", in, BattleTimeout)
+	return nil, raw, err
+}
+
+func (t *tools) advanceText(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+	raw, err := t.forward(ctx, "advance_text", "advance_text", struct{}{}, CallTimeout+3*time.Minute)
 	return nil, raw, err
 }
 

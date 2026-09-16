@@ -296,6 +296,70 @@ func TestWalkValidatesAndForwards(t *testing.T) {
 	}
 }
 
+func TestGotoValidatesAndForwards(t *testing.T) {
+	h := newHarness(t)
+	got := make(chan GotoIn, 1)
+	h.startDriver(t, []string{"goto"}, func(verb string, payload json.RawMessage) (string, any) {
+		var in GotoIn
+		json.Unmarshal(payload, &in)
+		got <- in
+		return "result", map[string]any{"outcome": "done"}
+	})
+
+	for _, bad := range []map[string]any{
+		{"x": -1, "y": 3},
+		{"x": 3, "y": MaxGotoCoordinate + 1},
+	} {
+		if text, isErr := h.call(t, "goto", bad); !isErr {
+			t.Errorf("goto %v = %s, want a refusal", bad, text)
+		}
+	}
+
+	text, isErr := h.call(t, "goto", map[string]any{"x": 12, "y": 0, "run": true, "cross_grass": true})
+	if isErr || !strings.Contains(text, `"outcome":"done"`) {
+		t.Fatalf("goto = %s (error %v)", text, isErr)
+	}
+	if in := <-got; in.X != 12 || in.Y != 0 || !in.Run || !in.CrossGrass {
+		t.Fatalf("the driver received %+v", in)
+	}
+}
+
+func TestGotoIsRefusedWithoutTheCapability(t *testing.T) {
+	h := newHarness(t)
+	h.startDriver(t, []string{"walk"}, func(string, json.RawMessage) (string, any) { return "result", map[string]any{} })
+	text, isErr := h.call(t, "goto", map[string]any{"x": 1, "y": 1})
+	if !isErr || !strings.Contains(text, `does not support "goto"`) {
+		t.Fatalf("goto = %s (error %v)", text, isErr)
+	}
+}
+
+func TestBattleValidatesAndForwards(t *testing.T) {
+	h := newHarness(t)
+	got := make(chan BattleIn, 1)
+	h.startDriver(t, []string{"battle", "advance_text"}, func(verb string, payload json.RawMessage) (string, any) {
+		var in BattleIn
+		json.Unmarshal(payload, &in)
+		got <- in
+		return "result", map[string]any{"outcome": "ended", "verb": verb}
+	})
+
+	if text, isErr := h.call(t, "battle", map[string]any{"policy": "flee"}); !isErr {
+		t.Errorf("battle with policy flee = %s, want a refusal", text)
+	}
+	text, isErr := h.call(t, "battle", map[string]any{"policy": "run"})
+	if isErr || !strings.Contains(text, `"outcome":"ended"`) {
+		t.Fatalf("battle = %s (error %v)", text, isErr)
+	}
+	if in := <-got; in.Policy != "run" {
+		t.Fatalf("the driver received %+v", in)
+	}
+	text, isErr = h.call(t, "advance_text", map[string]any{})
+	if isErr || !strings.Contains(text, `"verb":"advance_text"`) {
+		t.Fatalf("advance_text = %s (error %v)", text, isErr)
+	}
+	<-got
+}
+
 func TestWalkIsRefusedWithoutTheCapability(t *testing.T) {
 	h := newHarness(t)
 	h.startDriver(t, []string{"press"}, func(string, json.RawMessage) (string, any) { return "result", map[string]any{} })

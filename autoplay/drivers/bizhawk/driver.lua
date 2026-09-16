@@ -350,13 +350,14 @@ local function begin(req)
 	end
 	local make = game.programs and game.programs[verb]
 	if make then
-		local program, err = make(p)
+		-- A program may name its own frame limit (a long route outlasts a menu).
+		local program, err, limit = make(p)
 		if not program then
 			fail(req.id, tostring(err))
 			return true
 		end
 		log(verb)
-		hold = { id = req.id, program = program, before = game.observe(), count = 0 }
+		hold = { id = req.id, program = program, before = game.observe(), count = 0, limit = limit }
 		return false
 	end
 	fail(req.id, "unhandled request " .. tostring(verb))
@@ -465,8 +466,8 @@ MESHGHOST_DEV_TICK = function()
 			-- One frame of a program: it looks at what it needs, then either finishes or sets this frame's input.
 			hold.count = hold.count + 1
 			local pad, finished, result, err = hold.program()
-			if not finished and hold.count > PROGRAM_FRAME_LIMIT then
-				finished, err = true, string.format("still running after %d frames", PROGRAM_FRAME_LIMIT)
+			if not finished and hold.count > (hold.limit or PROGRAM_FRAME_LIMIT) then
+				finished, err = true, string.format("still running after %d frames", hold.limit or PROGRAM_FRAME_LIMIT)
 			end
 			if finished then
 				if err then

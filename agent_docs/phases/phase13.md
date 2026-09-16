@@ -503,3 +503,41 @@ from the wrong byte of the hex dump until the bytes were indexed one by one.
 the bike's turning measured and a planner over `local_map`'s collision grid (the plan's `goto`, Phase 2).
 
 **Next:** measure turning on the Mach Bike; then a `goto` that plans legs over the grid and rides them.
+
+## 2026-09-16 (same session, later still) — Phase 1 step 11: `goto`, and battles and text as one call that stops when stuck
+
+**Built.** `goto {x, y}` plans a route over the map's own grid (collision, elevation, characters, warps,
+ledges closed; tall grass costed unless `cross_grass`) as straight legs, rides them turning at speed —
+on the Mach Bike letting go early only for the last stop — and replans when a step is refused.
+`battle {policy}` plays a battle to its end in one call and `advance_text` presses through a
+conversation; both keep a `log`, press only when a measured state asks, nudge after 3 seconds of no
+change, retry a press the game ignored, and answer `stuck` with what they were waiting on after three.
+The driver lets a program name its own frame limit. Measurements: `emerald/MEASURED.md`, same date.
+
+**The user, while it was built:** on routes, *"the optimal endgoal would be if you could use mach bike at
+full speed to navigate everywhere without hitting any obstacles at all"*; *"you can use repel's to avoid
+wild pokemon battles if you have any"*, *"if you have repel, its fine to cross grass/water. assuming the
+pokemon in your first slot ... is higher level than the wild pokemons you won't get any encounters"*,
+and *"some paths might require you to go across grass, with no way around"* — so grass is a cost, not a
+wall. When a hand-made turn ran into a trainer: *"you hit the npc"*. Then, of the scratch battle loop,
+*"seems like you get stuck at loops"*, then agreeing with the fix *"so i don't sit around waiting for several minutes for you to do something"*.
+
+**Why the loop was slow and stuck.** Every step was a fresh `mcpcall` (a core start and a driver
+reconnect, about a second), then fixed 60-90 frame waits, and it ran out a 120-step budget in silence
+on a state it did not handle: RUN searched for on the move menu ~118 times, and a trainer's `finished`
+box it had stopped pressing. The programs replaced it: the nurse's three boxes to her YES/NO in 10
+seconds, a whole wild battle in 41 (the battle's own length at 60 frames a second).
+
+**What went wrong on the way:**
+- **The hand-made turn hit the NPC**: two `press` calls left the direction released for two frames, the
+  bike coasted a tile further, and the turn landed in the defeated trainer's column. `goto` plans around
+  characters and switches direction on the tile, with no gap.
+- **A route crossed tall grass** into a wild WURMPLE, and another walked up a trainer's line of sight:
+  grass now costs extra; sight lines are not known yet.
+- **`advance_text` gave up on the nurse too soon**: her "for a few seconds" ignores A through its jingle;
+  an ignored press is now retried. It also called a conversation closed after half a second (now 1.5).
+- **A box still printing looked like no change**: the printer's pointer is now part of the signature.
+- **Reloading the driver forgets text already on screen**, since text is learned as it prints.
+
+**Next:** a trainer's line of sight for `goto`; a Repel from the bag (list menus); then Phase 1's
+acceptance from a new game.

@@ -741,7 +741,7 @@ local game = {
 	-- "vanilla" only when the ROM's hash is the one every address here was measured on.
 	variant = isVanilla and "vanilla" or "unverified",
 	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "cheat:warp", "cheat:set_flag",
-		"cheat:give_item", "cheat:register_item", "select", "walk" },
+		"cheat:give_item", "cheat:register_item", "select", "walk", "goto", "battle", "advance_text" },
 	-- The START menu and a YES/NO: Down moved the cursor one entry per press and A chose it; in a battle
 	-- menu Left and Right moved between its two columns (2026-09-16).
 	menuButtons = { prev = "Up", next = "Down", left = "Left", right = "Right", confirm = "A" },
@@ -1119,7 +1119,8 @@ function game.programs.walk(p)
 
 	local run = p.run == true
 	local mach = (r8(GPLAYERAVATAR) & MACH_BIKE_FLAG) ~= 0
-	local hold = { [d.button] = true, B = run or nil }
+	-- B only on foot: on the Acro Bike it is the wheelie button.
+	local hold = { [d.button] = true, B = (run and (r8(GPLAYERAVATAR) & ON_FOOT_FLAG) ~= 0) or nil }
 	local phase, frames, idle, moved, startMap, lastX, lastY, towardWarp = "rest", 0, 0, 0, nil, 0, 0, false
 	local ran = false
 	local function here()
@@ -1218,6 +1219,484 @@ function game.programs.walk(p)
 		end
 		return hold, false
 	end
+end
+
+-- goto {x, y, run}: to a tile on this map by a planned route of straight legs, holding each leg's
+-- direction and switching to the next as the step into the corner begins -- a held direction turns on
+-- arrival, and the Mach Bike kept its speed through a turn (bike_probe.lua, 2026-09-16: the first tile
+-- after the corner read +0x0B 3). Everything the ride does rests on `walk`'s measurements; what is new is
+-- the plan, made over the whole map grid (gBackupMapLayout, measured for `local_map`):
+--   * a tile is open when it is inside the map, its collision bits are clear, its elevation is the
+--     player's, it is not a ledge (behaviour 0x3B, which hopped two tiles going down), no character stands
+--     on it, and it is not a warp unless it is the target. Other elevations and behaviours are not
+--     measured as walkable or not, so the plan stays on the player's elevation and learns the rest;
+--   * the cost is a tile a step plus TURN_COST a turn, so the route takes straight legs where it can, and
+--     GRASS_COST more for a tile of behaviour 0x02 (every wild encounter so far began on one: route 0.16
+--     four times, route 0.17 once) unless `cross_grass` is true, as with a Repel running;
+--   * on the Mach Bike the last leg lets go by `walk`'s coast rule, and a last leg of 3 tiles or fewer is
+--     reached by stopping at its corner first, since after a turn at speed the first tile reads 3 and
+--     coasts three;
+--   * a bump ends the ride at rest, marks the refused tile closed, and plans again (at most REPLANS times).
+-- It stops for the same reasons `walk` does, and a warp or an edge that changes the map ends it too.
+local TURN_COST, GRASS_COST, REPLANS = 2, 8, 8
+
+local function planRoute(fromX, fromY, toX, toY, closed, crossGrass)
+	local layout = r32(GMAPHEADER)
+	if not inRom(layout) then return nil, "no map layout" end
+	local mapW, mapH = r32(layout), r32(layout + 4)
+	local gw, gh, gp = r32(GBACKUPMAPLAYOUT), r32(GBACKUPMAPLAYOUT + 4), r32(GBACKUPMAPLAYOUT + 8)
+	if mapW < 1 or mapH < 1 or mapW > 512 or mapH > 512 or gw * gh > 262144 then return nil, "map size out of range" end
+	if toX < 0 or toY < 0 or toX >= mapW or toY >= mapH then
+		return nil, string.format("(%d,%d) is outside this map's %d by %d", toX, toY, mapW, mapH)
+	end
+	local grid = memory.read_bytes_as_array(gp, gw * gh * 2, BUS)
+	local elevation = r8(playerObject() + 0x0B) & 0x0F
+	local blocked = {}
+	for _, o in ipairs(readObjects()) do blocked[o.y * mapW + o.x] = "character" end
+	for _, w in ipairs(readWarps()) do
+		if not (w.x == toX and w.y == toY) then blocked[w.y * mapW + w.x] = blocked[w.y * mapW + w.x] or "warp" end
+	end
+	for k, why in pairs(closed) do blocked[k] = why end
+	-- nil when a tile is closed; otherwise the extra cost of stepping onto it.
+	local function open(x, y)
+		if x < 0 or y < 0 or x >= mapW or y >= mapH or blocked[y * mapW + x] then return nil end
+		local i = ((x + MAP_OFFSET) + gw * (y + MAP_OFFSET)) * 2 + 1
+		local v = grid[i] | (grid[i + 1] << 8)
+		if (v & 0x0C00) ~= 0 or (v >> 12) ~= elevation then return nil end
+		local behaviour = behaviourOf(v & 0x3FF)
+		if behaviour == 0x3B then return nil end
+		return (behaviour == 0x02 and not crossGrass) and GRASS_COST or 0
+	end
+	if not open(toX, toY) then
+		return nil, string.format("(%d,%d) is not an open tile at elevation %d", toX, toY, elevation)
+	end
+	-- Dijkstra over (tile, facing) with a binary heap.
+	local order = { DIRECTIONS.up, DIRECTIONS.down, DIRECTIONS.left, DIRECTIONS.right }
+	local dist, prev, heap = {}, {}, {}
+	local function push(cost, key)
+		heap[#heap + 1] = { cost, key }
+		local i = #heap
+		while i > 1 do
+			local parent = i // 2
+			if heap[parent][1] <= heap[i][1] then break end
+			heap[parent], heap[i] = heap[i], heap[parent]
+			i = parent
+		end
+	end
+	local function pop()
+		local top = heap[1]
+		local last = table.remove(heap)
+		if #heap > 0 then
+			heap[1] = last
+			local i = 1
+			while true do
+				local l, r, m = i * 2, i * 2 + 1, i
+				if l <= #heap and heap[l][1] < heap[m][1] then m = l end
+				if r <= #heap and heap[r][1] < heap[m][1] then m = r end
+				if m == i then break end
+				heap[m], heap[i] = heap[i], heap[m]
+				i = m
+			end
+		end
+		return top
+	end
+	for di = 1, 4 do
+		local key = (fromY * mapW + fromX) * 4 + di - 1
+		dist[key] = 0
+		push(0, key)
+	end
+	local goal
+	while #heap > 0 do
+		local item = pop()
+		local cost, key = item[1], item[2]
+		if cost == dist[key] then
+			local tile, di = key // 4, key % 4 + 1
+			local x, y = tile % mapW, tile // mapW
+			if x == toX and y == toY then
+				goal = key
+				break
+			end
+			for ni = 1, 4 do
+				local d = order[ni]
+				local nx, ny = x + d.dx, y + d.dy
+				local extra = open(nx, ny)
+				if extra then
+					local nkey = (ny * mapW + nx) * 4 + ni - 1
+					local ncost = cost + 1 + extra + ((ni ~= di and cost > 0) and TURN_COST or 0)
+					if dist[nkey] == nil or ncost < dist[nkey] then
+						dist[nkey], prev[nkey] = ncost, key
+						push(ncost, nkey)
+					end
+				end
+			end
+		end
+	end
+	if not goal then return nil, string.format("no open route from (%d,%d) to (%d,%d) at elevation %d", fromX, fromY, toX, toY, elevation) end
+	-- Walk back to the start, then fold the steps into legs.
+	local steps, key = {}, goal
+	while prev[key] do
+		table.insert(steps, 1, order[key % 4 + 1])
+		key = prev[key]
+	end
+	local legs, x, y = {}, fromX, fromY
+	for _, d in ipairs(steps) do
+		x, y = x + d.dx, y + d.dy
+		local leg = legs[#legs]
+		if leg and leg.d == d then
+			leg.len, leg.endX, leg.endY = leg.len + 1, x, y
+		else
+			legs[#legs + 1] = { d = d, len = 1, endX = x, endY = y }
+		end
+	end
+	return legs
+end
+
+game.programs["goto"] = function(p)
+	local toX, toY = math.tointeger(p.x), math.tointeger(p.y)
+	if not toX or not toY then return nil, "goto needs x and y, a tile on this map" end
+	if not isVanilla then return nil, "goto is measured on the vanilla ROM only" end
+	if not inOverworld() then return nil, "goto needs the overworld" end
+	local run, crossGrass = p.run == true, p.cross_grass == true
+	local phase, frames, idle, moved, replans = "rest", 0, 0, 0, 0
+	local startMap, lastX, lastY, legs, li, mach, onFoot = nil, 0, 0, nil, 1, false, true
+	local closed, towardWarp, legsTaken = {}, false, 0
+	local function here()
+		local sb1 = r32(SB1PTR)
+		return string.format("%d.%d", r8(sb1 + 4), r8(sb1 + 5)), r16(sb1), r16(sb1 + 2)
+	end
+	local function finish(outcome, extra)
+		local _, x, y = here()
+		local r = { target = { x = toX, y = toY }, at = { x = x, y = y }, outcome = outcome, moved = moved,
+			turns = legsTaken, replans = replans }
+		for k, v in pairs(extra or {}) do r[k] = v end
+		return nil, true, r
+	end
+	local function hold()
+		return { [legs[li].d.button] = true, B = (run and onFoot) or nil }
+	end
+
+	return function()
+		frames = frames + 1
+		local map, x, y = here()
+		startMap = startMap or map
+		if map ~= startMap then return finish("map_changed", { map = map }) end
+		if not inOverworld() then return finish("left_overworld") end
+		if #hookNames > 0 then
+			if dialogue and windowOnScreen(dialogue.window) then return finish("dialogue_open") end
+			if menuWindow and windowOnScreen(menuWindow) then return finish("menu_open") end
+		end
+
+		if phase == "rest" then
+			if not atRest() then
+				if frames > REST_LIMIT then return finish("not_at_rest") end
+				return nil, false
+			end
+			if x == toX and y == toY then return finish("done") end
+			local flags = r8(GPLAYERAVATAR)
+			mach, onFoot = (flags & MACH_BIKE_FLAG) ~= 0, (flags & ON_FOOT_FLAG) ~= 0
+			local planned, why = planRoute(x, y, toX, toY, closed, crossGrass)
+			if not planned then return finish(replans > 0 and "blocked" or "unreachable", { reason = why }) end
+			legs, li, phase, frames, idle, lastX, lastY = planned, 1, "hold", 0, 0, x, y
+			towardWarp = false
+			for _, w in ipairs(readWarps()) do
+				towardWarp = towardWarp or (w.x == x + legs[1].d.dx and w.y == y + legs[1].d.dy)
+			end
+		end
+
+		if phase == "coasting" then
+			if x ~= lastX or y ~= lastY then
+				moved = moved + math.abs(x - lastX) + math.abs(y - lastY)
+				lastX, lastY, frames = x, y, 0
+			end
+			if atRest() then
+				phase, frames = "rest", 0
+				return nil, false
+			end
+			if frames > STEP_LIMIT then return finish("not_at_rest") end
+			return nil, false
+		end
+
+		if phase == "refused" then
+			if atRest() then
+				local d = legs[li].d
+				local layout = r32(GMAPHEADER)
+				local mapW = inRom(layout) and r32(layout) or 0
+				closed[(y + d.dy) * mapW + (x + d.dx)] = "refused"
+				replans = replans + 1
+				if replans > REPLANS then
+					return finish("blocked", { blocked_by = describeTile(x + d.dx, y + d.dy) })
+				end
+				phase, frames = "rest", 0
+			elseif frames > REST_LIMIT then
+				return finish("not_at_rest")
+			end
+			return nil, false
+		end
+
+		-- hold: follow the legs.
+		if x ~= lastX or y ~= lastY then
+			moved = moved + math.abs(x - lastX) + math.abs(y - lastY)
+			lastX, lastY, frames, idle = x, y, 0, 0
+			if x == toX and y == toY then
+				phase = "coasting"
+				return nil, false
+			end
+			local turned = false
+			if x == legs[li].endX and y == legs[li].endY and li < #legs then
+				li, legsTaken, turned = li + 1, legsTaken + 1, true
+			end
+			local leg = legs[li]
+			-- Not on a corner tile: letting go there would coast along the leg just finished.
+			if mach and not turned then
+				local dist = math.abs(leg.endX - x) + math.abs(leg.endY - y)
+				local last = li == #legs
+				local stopAtCorner = li == #legs - 1 and legs[#legs].len <= 3
+				if last or stopAtCorner then
+					local speed = r8(GPLAYERAVATAR + 0x0B)
+					local nextSpeed = speed == 0 and 1 or 3
+					if speed >= dist or nextSpeed + 1 > dist then
+						phase = "coasting"
+						return nil, false
+					end
+				end
+			end
+			towardWarp = false
+			for _, w in ipairs(readWarps()) do
+				towardWarp = towardWarp or (w.x == x + leg.d.dx and w.y == y + leg.d.dy)
+			end
+			return hold(), false
+		end
+		local b = memory.read_bytes_as_array(playerObject(), 0x18, BUS)
+		local caughtUp = b[17] == b[21] and b[18] == b[22] and b[19] == b[23] and b[20] == b[24]
+		local state = r8(GPLAYERAVATAR + 2)
+		if state == 2 and caughtUp and (b[1] & 0x80) == 0 then
+			phase, frames = "refused", 0
+			return nil, false
+		end
+		if state == 0 then idle = idle + 1 end
+		if towardWarp then
+			if frames > DOOR_LIMIT then return finish("no_response") end
+		elseif idle > IDLE_LIMIT or frames > PRESS_LIMIT then
+			return finish("no_response")
+		end
+		return hold(), false
+	end, nil, 7200
+end
+
+-- TEXT AND BATTLES AS ONE CALL (2026-09-16). A loop driven from outside took several round trips a
+-- step, waited fixed times and ran out its budget in silence when it met a state it did not handle (the
+-- user: "so i don't sit around waiting for several minutes"). These run in the driver a frame at a time,
+-- press only when a measured state asks for it, keep a `log` of every message and choice, and stop
+-- within seconds once nothing changes: after NUDGE_FRAMES with no change they press A once (a message
+-- in a printer state not yet measured, like the 1 a trainer's last words read), a press that changes
+-- nothing is let go and tried again later (the nurse's "for a few seconds" ignored A through its jingle),
+-- and after NUDGES of either without a change they finish `stuck` with what they last saw.
+local NUDGE_FRAMES, NUDGES, QUIET_FRAMES, PRESS_FRAMES, LOG_MAX = 180, 3, 90, 30, 200
+
+-- The state a text or battle program watches for progress, as one string.
+local function progressSignature()
+	local d = (#hookNames > 0) and readDialogue() or nil
+	-- The printer's pointer moves with every character (the text entry), so a box still printing is progress.
+	local parts = { r32(GMAIN_CB2), battleAsking() or "-", d and d.state or "-", d and d.box or "-",
+		d and r32(STEXTPRINTERS + d.window * PRINTER_SIZE) or "-", r8(ACTION_CURSOR), r8(MOVE_CURSOR) }
+	if inBattle() then
+		for i = 0, math.min(r8(BATTLERS_COUNT), 4) - 1 do parts[#parts + 1] = r16(BATTLE_MONS + i * BATTLE_MON_SIZE + 0x28) end
+	end
+	return table.concat(parts, "|"), d
+end
+
+-- The usable move (PP left) with the most power times accuracy, as a 0-3 slot; the first with PP if
+-- none does damage.
+local function strongestMoveSlot()
+	local b = memory.read_bytes_as_array(BATTLE_MONS, BATTLE_MON_SIZE, BUS)
+	local best, bestScore
+	for k = 0, 3 do
+		local id, pp = u16of(b, 13 + k * 2), b[37 + k]
+		if id ~= 0 and pp > 0 then
+			local info = moveInfo(id)
+			local score = (info.power or 0) * (info.accuracy or 0)
+			if best == nil or score > bestScore then best, bestScore = k, score end
+		end
+	end
+	return best
+end
+
+-- A text-and-choices machine shared by both programs. `choose(asking)` returns the target cursor for a
+-- battle menu, or nil to stop there; `stopWhen(state)` returns an outcome to finish with, or nil.
+local function textMachine(choose, stopWhen)
+	local log, lastBox, signature, still, nudges = {}, nil, nil, 0, 0
+	local pressing, held, settle, battleSeen, quiet, frames = nil, 0, 0, false, 0, 0
+	local function note(entry)
+		if #log < LOG_MAX then log[#log + 1] = entry end
+	end
+	local function finish(outcome, extra)
+		local r = { outcome = outcome, log = log, frames = frames }
+		for k, v in pairs(extra or {}) do r[k] = v end
+		return nil, true, r
+	end
+	return function()
+		frames = frames + 1
+		local sig, d = progressSignature()
+		if sig ~= signature then
+			signature, still, nudges = sig, 0, 0
+		else
+			still = still + 1
+		end
+		if d and d.box ~= "" and d.box ~= lastBox then
+			lastBox = d.box
+			note({ text = d.box })
+		end
+		local battle = inBattle()
+		battleSeen = battleSeen or battle
+
+		local stop, extra = stopWhen({ battle = battle, battleSeen = battleSeen, dialogue = d })
+		if stop then return finish(stop, extra) end
+
+		if settle > 0 then
+			settle = settle - 1
+			return nil, false
+		end
+
+		-- A press under way: hold it until the thing it was for changes.
+		if pressing then
+			if pressing.done() then
+				pressing, held, settle = nil, 0, 2
+				return nil, false
+			end
+			held = held + 1
+			if held > PRESS_FRAMES then
+				-- Unanswered (a message that waits out a jingle ignores A): let go, look again later, and
+				-- call it stuck only after NUDGES of these with nothing changing.
+				local what = pressing.what
+				pressing, held, nudges, settle = nil, 0, nudges + 1, NUDGE_FRAMES // 2
+				if nudges > NUDGES then return finish("stuck", { waiting_on = what, signature = sig }) end
+				return nil, false
+			end
+			return pressing.pad, false
+		end
+
+		-- A battle menu waiting: move its cursor to the choice, then confirm.
+		local asking = battle and battleAsking() or nil
+		if asking then
+			local target, label = choose(asking)
+			if target == nil then return finish("needs_choice", { asking = asking, reason = label }) end
+			local cursorAt = asking == "action" and ACTION_CURSOR or MOVE_CURSOR
+			local cursor = r8(cursorAt)
+			if cursor ~= target then
+				local dir
+				if target % 2 ~= cursor % 2 then
+					dir = (target % 2 > cursor % 2) and "Right" or "Left"
+				else
+					dir = (target > cursor) and "Down" or "Up"
+				end
+				local from = cursor
+				pressing = { what = asking .. " cursor " .. dir, pad = { [dir] = true },
+					done = function() return r8(cursorAt) ~= from or battleAsking() ~= asking end }
+				return pressing.pad, false
+			end
+			note({ chose = label, from = asking })
+			pressing = { what = "confirm " .. label, pad = { A = true },
+				done = function() return battleAsking() ~= asking end }
+			return pressing.pad, false
+		end
+
+		-- A message waiting for a button. In a battle only the arrow counts: a battle message window reads
+		-- "finished" while animations play.
+		if d then
+			local waiting = d.state == "waiting_for_button" or (not battle and d.state == "finished")
+			if waiting then
+				local box, state = d.box, d.state
+				pressing = { what = "a message: " .. box, pad = { A = true },
+					done = function()
+						local now = readDialogue()
+						return not now or now.box ~= box or now.state ~= state
+					end }
+				return pressing.pad, false
+			end
+		end
+
+		-- Nothing asked for: let the game run, nudging if it stays still.
+		if still >= NUDGE_FRAMES then
+			if nudges >= NUDGES then
+				return finish("stuck", { waiting_on = "no change after " .. nudges .. " A presses", signature = sig,
+					dialogue = d })
+			end
+			nudges, still = nudges + 1, 0
+			note({ nudged = sig })
+			local before = sig
+			pressing = { what = "a nudge", pad = { A = true }, done = function() return progressSignature() ~= before end }
+			return pressing.pad, false
+		end
+		return nil, false
+	end
+end
+
+-- battle {policy = "strongest" | "run"}: plays a battle to its end, a trainer's words before and after
+-- included. "strongest" chooses FIGHT and the usable move with the most power times accuracy (move data,
+-- measured against the summary); "run" chooses RUN and, on the move menu, backs out with B.
+game.programs.battle = function(p)
+	if not isVanilla then return nil, "battle is measured on the vanilla ROM only" end
+	if #hookNames == 0 then return nil, "battle reads messages through the text hooks, which are off (AUTOPLAY_TEXT=0)" end
+	local policy = p.policy or "strongest"
+	if policy ~= "strongest" and policy ~= "run" then return nil, 'battle policy is "strongest" or "run"' end
+	local outside = 0
+	local machine = textMachine(function(asking)
+		if asking == "action" then
+			if policy == "run" then return 3, "RUN" end
+			return 0, "FIGHT"
+		end
+		if policy == "run" then return nil, "on the move menu with policy run" end
+		local slot = strongestMoveSlot()
+		if slot == nil then return nil, "no move has PP left" end
+		local id = r16(BATTLE_MONS + 0x0C + slot * 2)
+		return slot, nameAt(MOVE_NAMES, MOVE_LEN, MOVE_COUNT, id) or ("move " .. id)
+	end, function(st)
+		if st.battle then
+			outside = 0
+			return nil
+		end
+		local open = st.dialogue ~= nil
+		if open then
+			outside = 0
+			return nil
+		end
+		outside = outside + 1
+		if outside >= QUIET_FRAMES and inOverworld() then
+			if st.battleSeen then
+				local save = readSave()
+				return "ended", { outcome_raw = r8(BATTLE_OUTCOME), money = save and save.money,
+					party = save and save.party and (function()
+						local out = {}
+						for _, m in ipairs(save.party) do out[#out + 1] = { species = m.species, level = m.level, hp = m.hp, max_hp = m.max_hp } end
+						return out
+					end)() }
+			end
+			return "no_battle"
+		end
+		return nil
+	end)
+	return machine, nil, 36000
+end
+
+-- advance_text: presses through the message on screen, box by box, and stops when it closes and stays
+-- closed, when a menu opens (answer it with select), or when a battle begins (hand it to battle).
+game.programs.advance_text = function(p)
+	if not isVanilla then return nil, "advance_text is measured on the vanilla ROM only" end
+	if #hookNames == 0 then return nil, "advance_text reads messages through the text hooks, which are off (AUTOPLAY_TEXT=0)" end
+	local closed = 0
+	local machine = textMachine(function() return nil, "a battle began" end, function(st)
+		if st.battle then return "battle_started" end
+		local m = readMenu()
+		if m then return "menu_open", { menu = m } end
+		if st.dialogue then
+			closed = 0
+			return nil
+		end
+		closed = closed + 1
+		if closed >= QUIET_FRAMES then return "closed" end
+		return nil
+	end)
+	return machine, nil, 7200
 end
 
 -- What `changed` compares between two observations: the fields a press is expected to move.
