@@ -23,7 +23,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 - 2026-09-16 — **CI sharded and green (`core` under `-race`: 252 s, was 528 s); the release's Windows tests now run beside the unix job, unproven until the next release.** `phases/phase12.md`.
 - 2026-09-15 — **Chaser contact: the Go half LANDED (`e546d38c`, ADR 0068, ships `off`); the adapter half is NOT started.** Next: Part A of `chaser-planning.md`; `pseudoregalia/UNVERIFIED.md` has the entry.
 - 2026-09-15 — **netsim: ADR 0046's 450 ms has never been judged on the correlated-loss model** (`-loss-burst`, opt-in since 2026-09-11). `phases/phase10.md`.
-- 2026-09-15 — **`Plugin.cpp` comments are stale** (`session_policy` "zero of four"; the deleted `PLAYER_FIELDS.md`): fix at the next rebuild, since editing marks the committed DLL stale.
+- 2026-09-16 — **`Plugin.cpp` still names the deleted `PLAYER_FIELDS.md` in 12 comments** ("zero of four" is gone): fix at the next rebuild, since editing marks the committed DLL stale.
 - 2026-09-16 — **Audit second sweep DONE: four `documentation.md` stripped to mechanics; Lua decomp citations are pointers under a preflight ratchet; per-site rewrite is the user's call.** `phases/phase12.md`.
 - 2026-09-15 — **Nothing is running**; loader targets `none`. **TEVI is HOT-RELOAD: `-Off` before a real confirmation.** `running-the-rig.md`.
 
