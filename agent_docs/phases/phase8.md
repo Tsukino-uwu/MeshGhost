@@ -1247,3 +1247,11 @@ Pointer: the bridge's "no newline" bound went from 4,096 to 16 KiB (a `render_re
 4,096), and a departed peer's per-peer render tables are now forgotten on despawn. Unwatched; the
 entries, and on Emerald the ghost-door abuse kept as a work in progress (the user, 2026-09-16),
 are in this adapter's `UNVERIFIED.md`. The review itself: `phase10.md`, the same date.
+
+## 2026-09-16 (last) — pointer: the audit's Lua tier and probe deletions are logged in phase12.md
+
+The per-site audit of `meshghost_emerald.lua`'s comments (`de7cd737`) and the removal of copied flag
+names from `surf_bike_probe` (`81407c30`) are the "audit's Lua tier" entries in `phase12.md`; the
+source-only mechanisms they marked are the OPEN entry at the top of `emerald/UNVERIFIED.md`. The six
+borrowed values in Emerald's code are the next measurement, after Crystal's (same file, "Crystal's
+borrowed values, measured on the game").

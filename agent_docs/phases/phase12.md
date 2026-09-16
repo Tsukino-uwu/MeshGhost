@@ -577,3 +577,26 @@ and `walk_test.lua` (their code transcribed source formulas; what they showed st
 `surf_bike_probe`, which now print raw numbers or bit indices; two code-line citations were stripped.
 Probe floors 78 and 85. What remains is the borrowed VALUES in the shipped adapters, each already an
 UNVERIFIED question.
+
+## 2026-09-16 (later) — Crystal's borrowed values, measured on the game
+
+The user picked the borrowed values as the next item. Crystal first: vanilla V1.0 launched with the dev
+loader, the game continued from its own save, and `crystal/probes/borrowed_values_probe.lua` (new,
+read-only) logged every object struct and all OAM through each hop and cast. All three values match
+what the engine builds for the player: `facingFrames.ROD` in all four directions, the shadow's spawn
+bytes on the frame it appeared, and `emote.SHADOW_DY` down 14 / left 12 / right 12. The up entry
+stays open (no hop-up ledge block in the tileset used). Records: `crystal/UNVERIFIED.md` (the per-site
+audit entry) and the three code comments; no code value changed.
+
+How the states were reached is the half worth keeping. Two attempts to force a hop -- poking the
+standing-tile collision byte, then an execute hook on the jump check -- did nothing, and the user
+stopped them: *"make a ledge, don't force a jump without a ledge. let the game handle it the intended
+way"*. Writing the tileset's own ledge and water blocks into the map buffer, redrawing through the
+START menu and walking onto them worked first time once the neighbour-collision cache was understood
+(a block written beside the player is invisible to the next step). The user then set the rule in
+several messages -- cheat to create the thing, use it as the game intends, never be stuck, and build
+states on the spot rather than trusting savestate slots -- so it lives in `playing.md` with a new
+"Building a state" section, and the scratch driver became `crystal/probes/cmd_drive.lua`. One reading
+lesson: a bite's "!" took the first four OAM slots (`checklists/before-trusting-a-reading.md`).
+
+Emerald's six borrowed values are next; they need an Emerald instance.

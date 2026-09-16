@@ -1545,3 +1545,13 @@ Pointer: the bridge's "no newline" bound went from 4,096 to 16 KiB (a `render_re
 4,096), and a departed peer's per-peer render tables are now forgotten on despawn. Unwatched; the
 entries, and on Emerald the ghost-door abuse kept as a work in progress (the user, 2026-09-16),
 are in this adapter's `UNVERIFIED.md`. The review itself: `phase10.md`, the same date.
+
+## 2026-09-16 (last) — the audit's Lua tier, and Crystal's three borrowed values measured on the game
+
+Pointer, because the work is logged in `phase12.md`: the per-site comment audit (`de7cd737`), the four
+probes whose code transcribed source formulas deleted (`81407c30`), and then the three numbers the
+audit left in code, measured on vanilla V1.0 with `probes/borrowed_values_probe.lua` -- `facingFrames.ROD`,
+the shadow's spawn bytes and `emote.SHADOW_DY` all match the engine (up-hop aside). The states were
+built by writing the tileset's own ledge and water blocks into the map with the new
+`probes/cmd_drive.lua`, the method now in `agent_docs/playing.md` ("Building a state"). Detail:
+`crystal/UNVERIFIED.md`, the per-site audit entry.

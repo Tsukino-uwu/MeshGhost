@@ -14,7 +14,7 @@ has been read, its conclusion belongs in `VERIFIED.md`.
 live, with no emulator relaunch. See `agent_docs/environment.md`. Older probes here predate the
 loader and run their own frame loop, so they still work opened directly in the Lua Console.
 
-## Sixteen of these WRITE (twenty until four were deleted 2026-09-16), and eighteen hold the controller. Read this before running one.
+## Seventeen of these WRITE (twenty until four were deleted 2026-09-16; `cmd_drive` added the same day), and nineteen hold the controller. Read this before running one.
 
 Called out here rather than only in their own headers, because a folder index that hides a
 memory-writing tool is the worst kind of gap — nobody reads a header they did not know existed.
@@ -36,15 +36,17 @@ convention, unless `MESHGHOST_GOTO_UNDO_SLOT` says otherwise), `grant_test_kit.l
 badges/HMs into the party, `grant_items.lua` writes the bag, `grant_flash.lua` sets the Flash
 status flag, `ap_bag_grant.lua` and `ap_force_state.lua` write bag/state on an Archipelago build,
 and `noclip.lua` redirects `wTilesetCollisionAddress` to a filtered table it writes into the unused
-tail of `wOverworldMapBlocks`, and sets `EMOTE_OBJECT` on nearby NPCs (2026-09-13).
+tail of `wOverworldMapBlocks`, and sets `EMOTE_OBJECT` on nearby NPCs (2026-09-13); `cmd_drive.lua`
+writes whatever its command file says -- map blocks into `wOverworldMapBlocks`, single WRAM bytes
+(2026-09-16).
 **None writes the `.sav`** — but an in-game save afterwards makes their changes
 permanent, so savestate first and reload after. `noclip_off.lua` restores the collision pointer.
 
 **The grant probes are kept SEPARATE on purpose** — badges/moves, bag, Flash — so that
 what each one changed stays obvious when something later looks wrong.
 
-**Eighteen hold the controller**, and the count keeps growing because a savestate-driven rig is
-now the normal way to reach an expensive state: `action_probe`, `bump_probe`, `dig_drive`,
+**Nineteen hold the controller**, and the count keeps growing because a driven rig is now the
+normal way to reach an expensive state: `action_probe`, `bump_probe`, `cmd_drive`, `dig_drive`,
 `door_loop`, `fish_drive`, `fly_drive`, `ice_probe`, `idle_cycle_drive`, `ledge_drive`,
 `menu_clip_check`, `menu_state_table`, `seam_drive`, `seam_shuttle`, `square_drive`,
 `surf_follow_probe`, `trainer_check`, `turn_drive`, `whirlpool_drive` — plus anything loaded alongside them.
@@ -212,6 +214,8 @@ wrong. Results and what is still unmeasured: `phase9.md` and `VERIFIED.md`.
 | `drive_surf.lua` | **Input-driving**, one-shot, any build: walks Right until blocked, presses A at the water and keeps confirming until wPlayerState reads PLAYER_SURF (on AP, until the tile moves), paddles a 2-tile square and screenshots. Surfed V1.1 from New Bark's east shore across the seam into Route 27 and back on 2026-09-09. Its first version pressed B too early and declined its own prompt -- the header says so. |
 | `fly_menu_drive.lua` | **Input-driving**, one-shot, any build: Fly through the menus from the overworld with no prepared state -- START, POKeMON, the lead, Down to FLY, the map, go -- a screenshot after every press beside the logs. Flew V1.1 to New Bark's own fly point on 2026-09-09. `fly_drive.lua` remains the savestate-based one. |
 | `set_colour.lua` | Two modes, any build. Default, WIRE ONLY: hands `MESHGHOST_COLOUR_RGB` to the adapter's `MESHGHOST_CRYSTAL_DEV_CLOTHING` override and writes nothing -- the ghosts elsewhere wear it, the local player does not. `MESHGHOST_COLOUR_FAKE_PATCH=1`: **writes object RAM and palette RAM**, held per frame, doing what a custom-trainer-colour patch does (the player object onto slot `MESHGHOST_COLOUR_PAL`, that slot's clothing colour rewritten in BOTH palette blocks, the hardware flag set), which colours the local player too; refuses until the red slot's clothing colour reads as the game keeps it, its own check of the palette-RAM address. Both modes CONFIRMED ON SCREEN 2026-09-10 (`VERIFIED.md`). |
+| `cmd_drive.lua` | **Writes the game and holds the controller.** Vanilla V1.0 only. Runs a command file beside it (`cmd_drive.cmd`, re-read live): hold/wait/shot/status, `poke`, `block BX,BY ID` into the map buffer, `redraw` (START then B), `tilecheck` (tile to block to collision, beside the engine's own byte), `collscan`/`collfind` (which blocks of the loaded tileset are ledges or water). The state-building half of `agent_docs/playing.md`'s "cheat to create, then use it as the game intends": built 2026-09-16 to hop real ledge blocks and cast at real water blocks for `borrowed_values_probe`. Its header says what is measured. |
+| `borrowed_values_probe.lua` | Read-only. Whenever the player fishes or a new object appears (a hop's shadow), logs every object struct and all 40 OAM entries per frame, 8 frames before to 60 after, unfiltered. Measured 2026-09-16 that `facingFrames.ROD`, the shadow's spawn bytes and `emote.SHADOW_DY` (down/left/right) match the engine's own (`UNVERIFIED.md`, the per-site audit entry). Reads every frame while loaded, so it is not for judging pacing. |
 | `xtrace_on.lua` | Sets `MESHGHOST_CRYSTAL_XTRACE` before the adapter loads, arming the adapter's own bounded per-frame tier trace (150 frames after each map change, with per-frame draw counters and the reason any frame went unpainted). The dev loader shares one Lua environment, which is why a global set here reaches the adapter. |
 
 ## Not a probe

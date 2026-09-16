@@ -609,8 +609,10 @@ local emote = {
 	F_STEP_INDEX = 0x1C, -- OBJECT_STEP_INDEX, the anon-jumptable index (which phase runs next)
 	F_JUMP_HEIGHT = 0x1F, -- OBJECT_JUMP_HEIGHT, what UpdateJumpPosition accumulates
 	-- The painted shadow's Y offset below the character's tile, by facing. Confirmed live
-	-- 2026-08-26: the shadow object under a downward hop read y=+14. Up at 14 and left/right at
-	-- 12 follow the decompilation's `MovementFunction_Shadow` and are NOT measured on the game.
+	-- 2026-08-26: the shadow object under a downward hop read y=+14. Measured 2026-09-16
+	-- (probes/borrowed_values_probe.lua, the player hopping ledge blocks written into the map):
+	-- the engine's shadow reads OBJECT_SPRITE_Y_OFFSET $0e down and $0c left and right, from its
+	-- first tick. Up at 14 is unmeasured: that tileset has no block carrying a hop-up collision.
 	SHADOW_DY = { [0] = 14, [1] = 14, [2] = 12, [3] = 12 },
 }
 local STANDING = 255
@@ -3456,9 +3458,12 @@ end
 
 -- THE FISHING ROD, which is the one part of a fishing pose that is not the character's own art.
 -- OUR painted tier draws it as one extra tile beside the character, per direction, from the
--- fishing sheet (FISHING_GFX_ROM). The offsets and the flip below were taken from the
--- decompilation's fishing facings, not measured on the game; the fishing pose they draw was
--- confirmed on screen 2026-08-26 (VERIFIED.md). Keyed by this adapter's dir index; `t` is the
+-- fishing sheet (FISHING_GFX_ROM). The offsets and the flip below are MEASURED 2026-09-16
+-- (probes/borrowed_values_probe.lua, the player casting at water blocks written into the map):
+-- the engine draws the rod as one extra OAM entry, VRAM tile $fc down/up and $fd left/right, at
+-- these dx/dy from the character's top-left entry, X-flipped only facing left, in every frame of
+-- each cast (the 1px bob moves both together). `t` is unmeasured by that probe. The fishing pose
+-- was confirmed on screen 2026-08-26 (VERIFIED.md). Keyed by this adapter's dir index; `t` is the
 -- tile within the fishing sheet.
 facingFrames.ROD = {
 	[0] = { dx = 0, dy = 16, t = 6 }, -- down: below the character
@@ -7911,10 +7916,12 @@ end
 --   * SPRITE / MAP_OBJECT_INDEX = $ff. Measured 2026-08-26: the shadow under the player's own
 --     hop read `s=255 m=FF`.
 --   * FLAGS2 = $01. Measured the same day: the live shadow read `f2=01`.
---   * MOVEMENT_TYPE = $1b, FLAGS1 = $8e, PALETTE = 5, STEP_TYPE = 0 and FACING = STANDING are the
---     decompilation's values (`CopyTempObjectToObjectStruct` is where to look), NOT measured on a
---     live shadow (UNVERIFIED.md). The movement number was checked only against a control: the
---     same count gives the standing values this file already used.
+--   * MOVEMENT_TYPE = $1b, FLAGS1 = $8e, PALETTE = 5, STEP_TYPE = 0 and FACING = STANDING ($ff).
+--     Measured 2026-09-16 (probes/borrowed_values_probe.lua): on the frame the engine's own
+--     shadow appeared under a left and a right hop, before its first tick, it read exactly these,
+--     with SPRITE_TILE 0, RANGE 0 (the player's struct) and map, last and init coordinates all the
+--     hopper's first-tile destination -- which is what this function copies, since `stepGhost`
+--     writes the destination before calling it.
 -- Shadows on the spawned tier were confirmed on screen 2026-08-26 (VERIFIED.md, ledge hops).
 --
 -- AND THEN THE ENGINE DOES THE REST, which is the point of building a real object instead of

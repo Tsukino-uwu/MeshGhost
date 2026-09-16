@@ -38,6 +38,35 @@ the collision check entirely. **A ledge, a wall, a locked door and a missing HM 
 memory**, and an agent grinding directional inputs at one of them is choosing the hard version of
 a solved problem.
 
+### The mindset: you decide what happens in the game (user, 2026-09-16)
+
+**Nothing inside a game can stop you, strand you or make you wait.** With memory writes you choose
+what exists and what happens: the tiles around the player, the items in hand without opening a bag,
+whether a wild battle or a trainer happens at all and how it ends, whether an NPC speaks or a scripted
+event runs. The user: *"you are able to do anything and everything in a game. a wild pokemon battle or
+a trainer can't stop you either as you decide what happens in the game. you have complete freedom of
+what happens inside of a game"*, and *"you can never be or get stuck as you can just control what
+happens in the game"*. So a test scenario is never something to find, wait for or ask for. It is
+something to MAKE, on the spot: *"just cheat/make things happen if you want to do something. be
+creative."* And make it fresh rather than loading a named savestate slot, which the user rewrites
+often: *"its a better habit to get into just reproducing everything on your own this way."*
+
+**The one limit is on the thing being tested, not on getting there.** Create the situation any way at
+all, then let the game run the mechanism you are measuring, through ordinary input: *"you are free to
+cheat to do things, or make things appear. but then you have to interact with them the way the game
+intends you to if you actually want to check how they work."* Getting there is unbounded (*"you are
+not limited to reaching things with a menu, or any collission related things in game"*); forcing the
+OUTCOME is the mistake. That day an agent poked the standing-tile collision byte and hooked the jump
+check to make a hop happen; neither worked, and neither would have been the game's own hop. The
+answer was *"make a ledge, don't force a jump without a ledge. let the game handle it the intended
+way to see how it does it"*: write the tileset's own ledge block into the map, then walk off it. The
+same shape for everything: a water block beside the player, then face it and cast.
+
+**Why it matters: the division of labour.** *"if you learn how to do all of this properly i only have
+to confirm things visually, instead of setting up perfect testing scenarios for you."* Building the
+scenario is the agent's job; the user's is the look. Recipes that worked go in "Building a state",
+below.
+
 **The order to try things in, cheapest first:** walk it; if that fails twice, look at a screenshot
 (it is usually an NPC or an open text box, not geometry); if it really is geometry, write past it
 and move on. Do not spend a third attempt on inputs.
@@ -109,6 +138,30 @@ what it is: raising the speed is the user removing the excuse that progress is s
 and on a busy machine 400% buys little more than 200%. Measure what you actually got (frames
 against the wall clock) rather than assuming the multiplier, and put the speed back to 100 when
 finished so the next reader of that instance is not confused by a fast-running game.
+
+## Building a state — what has worked, per game
+
+Kept here so the next session reaches for it instead of re-deriving it. Add to it whenever a way of
+making something happen works; say what was measured and when.
+
+### Crystal (vanilla V1.0, 2026-09-16) — `crystal/probes/cmd_drive.lua`
+
+- **The map is a buffer of block ids from the LOADED tileset.** Write one with `block BX,BY ID`; which
+  ids are ledges or water differs per tileset, so ask `collscan` (ledges) and `collfind 29` (water)
+  first. In tileset 6 (a town): `$56` hop down, `$4c` hop left, `$4d` hop right, `$35` water.
+- **The player's tile is `wXCoord`/`wYCoord`**, not the object struct's map coordinates, which read 4
+  more on both axes; block = tile // 2. `tilecheck` prints the lookup beside the engine's own byte.
+- **Close the START menu to redraw** (`redraw`): the screen is rebuilt from the blocks.
+- **The next step does not see a block written beside the player**: the neighbour collisions are
+  cached and refreshed after a step. Write first, then walk onto the block or next to it.
+- **A hop**: stand on the ledge block's hop row or column and press toward the face; the engine hops two
+  tiles and spawns its own shadow.
+- **An item without a menu**: add it to the key items (count 01:d8bc, list 01:d8bd, `$ff` after the
+  last), register it (01:d95b = `$80` + list position + 1, 01:d95c = the item), then press Select —
+  facing a water block that casts the Super Rod (`$3d`). A fishing text clears with A twice; a bite's
+  "!" can appear and a battle can follow.
+- **What did not work, and should not have**: poking the standing-tile collision byte, and an execute
+  hook on the jump check. Neither hopped, and neither would have been the game's own hop.
 
 ## Driving input
 
