@@ -53,6 +53,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - A move's type, power, accuracy, PP and effect text (2026-09-16)
 - Crossing a map edge, a trainer's sight, and a trainer battle (2026-09-16)
 - A direction held across tiles, walking and running (2026-09-16)
+- The two bikes: getting on, speed, and stopping on a tile (2026-09-16)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -365,6 +366,35 @@ held for 150 frames from x=33, walking, then B+Left held for 70 frames, running.
   with (40,17) reported as collision 1; running left 8 done in 75 frames. The step log shows no frame at
   rest while the direction was held in any of the three.
 - **Not seen**: a door, a ledge, a character in the way, or a map edge in the middle of a held chain.
+
+### The two bikes: getting on, speed, and stopping on a tile (2026-09-16)
+
+**Vanilla ROM, route 0.17, row 17** (clear from x=26 to 39, a wall at 40). Each bike registered to SELECT
+with autoplay's `register_item` (the write `cmd_drive.lua`'s `register` measured) and mounted with a
+press of Select; rides logged by `probes/step_probe.lua` and `probes/bike_probe.lua` (read-only: the
+player object's coordinates, top bit and +0x1C, and the avatar block's first 16 bytes, on every change,
+with the pad). Object x values below are map x + 7.
+
+- **Getting on.** Select with the Mach Bike registered: the avatar's first byte read 2 (1 on foot). With
+  the Acro Bike registered while on the Mach Bike, one Select read 1 and the next 4.
+- **The Mach Bike speeds up.** Held from rest (after the same 7-frame turn as on foot): the first tile
+  took 16 frames (+0x1C 0x0B riding right, 0x0A left), the second 8 (0x18, 0x17), then 4 each (0x30,
+  0x2F). The avatar's +0x0B read 0, 1, then 3 on each of the next six held tiles; +0x0A read 1, 2, 2.
+- **Released, it coasts.** With +0x0B at 3 on the last held tile (twice, `bike_probe.lua`), three more
+  tiles followed with no input (+0x0B 2, 1, 0 at their starts, at 4, 8 and 16 frames), then rest; the
+  same three from top speed in `step_probe.lua`, which does not log +0x0B; released on an 8-frame second
+  tile (`step_probe.lua`), one more at 16 frames. As many tiles as +0x0B reads, in every case logged.
+- **Into a wall** it bumped (+0x1C 0x20, +2 reading 2 with the coordinate unchanged) again every 16
+  frames while held.
+- **The Acro Bike** did not speed up: after six frames with +0x1C 0x03 and +0x0A counting 1 to 6, a
+  one-frame turn, then every tile 6 frames (+0x1C 0x2B riding left). Released, it stopped on the tile it
+  was on.
+- **`walk` on each** (same session, from `observe`'s x before and after): Acro right 5 and left 3 exact,
+  in 40 and 28 frames; Mach right 1, right 2, right 4, left 6 and right 11 all exact, the 11 in 87 frames
+  stopping on x=39 beside the wall with no 0x20 in the log (released after tile 8 at speed 3, three tiles
+  of coast).
+- **Not seen**: turning or riding up and down on either bike, a Mach Bike released at speed 2, the Acro
+  Bike's tricks, a slope, a ledge or a warp on a bike, a patched ROM.
 
 ## Not measured yet
 

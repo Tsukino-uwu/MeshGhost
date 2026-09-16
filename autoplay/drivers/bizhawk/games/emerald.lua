@@ -741,7 +741,7 @@ local game = {
 	-- "vanilla" only when the ROM's hash is the one every address here was measured on.
 	variant = isVanilla and "vanilla" or "unverified",
 	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "cheat:warp", "cheat:set_flag",
-		"cheat:give_item", "select", "walk" },
+		"cheat:give_item", "cheat:register_item", "select", "walk" },
 	-- The START menu and a YES/NO: Down moved the cursor one entry per press and A chose it; in a battle
 	-- menu Left and Right moved between its two columns (2026-09-16).
 	menuButtons = { prev = "Up", next = "Down", left = "Left", right = "Right", confirm = "A" },
@@ -836,6 +836,10 @@ function game.observe(asked)
 		warps = warps,
 		frame = emu.framecount(),
 		mode = (overworld and "overworld") or (battle and "battle") or "not_overworld",
+		-- The avatar's first byte: 0x04 read on the Acro Bike, 0x02 on the Mach Bike, 0x01 on foot and 0x81
+		-- running (step_probe.lua and bike_probe.lua, 2026-09-16); anything else stays in extras.
+		movement = overworld and (((r8(GPLAYERAVATAR) & 0x04) ~= 0 and "acro_bike") or ((r8(GPLAYERAVATAR) & 0x02) ~= 0
+			and "mach_bike") or ((r8(GPLAYERAVATAR) & 0x01) ~= 0 and "on_foot")) or nil,
 		location = {
 			map = string.format("%d.%d", r8(sb1 + 4), r8(sb1 + 5)),
 			x = r16(sb1),
@@ -997,6 +1001,40 @@ function game.cheats.give_item(args)
 	}
 end
 
+-- register_item {item = name or id}: the item SELECT uses, SaveBlock1 +0x496, a plain u16 (cmd_drive.lua's
+-- `register`, 2026-09-16: with the Acro Bike's id written there, SELECT mounted it through the game's own
+-- field effect, and with the Super Rod's it cast). Refused unless the bag holds the item, and outside the
+-- overworld. Getting on a bike is then a press of Select.
+function game.cheats.register_item(args)
+	local id = math.tointeger(args.item)
+	if not id and type(args.item) == "string" then id = itemIdByName(args.item) end
+	if not id or id < 1 or id >= ITEM_COUNT then
+		return nil, "register_item needs item, a name as the bag shows it or an id 1 to " .. (ITEM_COUNT - 1)
+	end
+	if not isVanilla then return nil, "register_item is measured on the vanilla ROM only" end
+	if not inOverworld() then
+		return nil, string.format("register_item refused: gMain.callback2 is %08X, not vanilla's overworld", r32(GMAIN_CB2))
+	end
+	local sb1 = r32(SB1PTR)
+	local held = false
+	for _, list in pairs(readBag(sb1, r32(r32(SB2PTR) + 0xAC))) do
+		for _, e in ipairs(list) do
+			if e.id == id then held = true end
+		end
+	end
+	if not held then return nil, string.format("the bag holds no %s", tostring(itemName(id))) end
+	local was = r16(sb1 + 0x496)
+	w16(sb1 + 0x496, id)
+	return {
+		limit = 1,
+		untilFn = function() return true end,
+		report = function()
+			local now = r16(r32(SB1PTR) + 0x496)
+			return { item = itemName(now), id = now, was = itemName(was) or was }
+		end,
+	}
+end
+
 -- The menu alone, for a program that looks every frame (select).
 function game.menu()
 	if isVanilla and inBattle() then return battleMenu() end
@@ -1012,6 +1050,9 @@ local DIRECTIONS = {
 	left = { button = "Left", dx = -1, dy = 0 }, right = { button = "Right", dx = 1, dy = 0 },
 }
 local REST_LIMIT, IDLE_LIMIT, PRESS_LIMIT, DOOR_LIMIT, STEP_LIMIT = 120, 20, 90, 150, 180
+-- The avatar's first byte: 0x01 on foot (0x81 running), 0x02 on the Mach Bike, 0x04 on the Acro Bike
+-- (step_probe.lua and bike_probe.lua, 2026-09-16).
+local ON_FOOT_FLAG, MACH_BIKE_FLAG, ACRO_BIKE_FLAG = 0x01, 0x02, 0x04
 
 -- At rest, from step_probe.lua (2026-09-16): after a walked tile, a wall bump and a turn alike, the
 -- player object's byte 0 has its top bit back, its previous coordinates equal its current ones, and
@@ -1062,6 +1103,13 @@ end
 -- screen; `moved` counts the steps begun. `run`: B is held too (step_probe.lua: the avatar's first byte
 -- read 0x81 instead of 0x01, a tile took 8 frames instead of 16); `ran` says whether 0x80 was seen,
 -- which it is not without the running shoes, when B does nothing.
+-- ON A BIKE (bike_probe.lua, 2026-09-16, the avatar's first byte reading 0x02 on the Mach Bike and 0x04 on
+-- the Acro Bike): the Acro Bike rode 6 frames a tile and stopped on the tile it was on when released, so it
+-- walks like the player on foot. The Mach Bike's +0x0B read 0 on the first held tile (16 frames), 1 on the
+-- second (8) and 3 from the third (4), and once released it carried on one tile per unit of that value,
+-- counting down (3: three more tiles, 1: one more). So on the Mach Bike the direction is let go as soon as
+-- holding one more tile would carry past the target, the ride coasts, and any tiles still short are walked
+-- from rest the same way.
 function game.programs.walk(p)
 	local d = DIRECTIONS[type(p.direction) == "string" and p.direction:lower() or ""]
 	local tiles = math.tointeger(p.tiles)
@@ -1070,6 +1118,7 @@ function game.programs.walk(p)
 	if not isVanilla then return nil, "walk is measured on the vanilla ROM only" end
 
 	local run = p.run == true
+	local mach = (r8(GPLAYERAVATAR) & MACH_BIKE_FLAG) ~= 0
 	local hold = { [d.button] = true, B = run or nil }
 	local phase, frames, idle, moved, startMap, lastX, lastY, towardWarp = "rest", 0, 0, 0, nil, 0, 0, false
 	local ran = false
@@ -1110,8 +1159,19 @@ function game.programs.walk(p)
 			phase, frames, idle, lastX, lastY, towardWarp = "hold", 0, 0, x, y, warpAhead(x, y)
 		end
 
-		if phase == "arriving" then
-			if atRest() then return finish("done") end
+		if phase == "arriving" or phase == "coasting" then
+			-- No input: the last step finishes, and on the Mach Bike the ride carries on by itself.
+			if x ~= lastX or y ~= lastY then
+				moved = moved + math.abs(x - lastX) + math.abs(y - lastY)
+				lastX, lastY, frames = x, y, 0
+			end
+			if atRest() then
+				if moved < tiles then
+					phase, frames = "rest", 0
+					return nil, false
+				end
+				return finish("done", moved > tiles and { overshot = moved - tiles } or nil)
+			end
 			if frames > STEP_LIMIT then return finish("not_at_rest") end
 			return nil, false
 		end
@@ -1129,6 +1189,16 @@ function game.programs.walk(p)
 			if moved >= tiles then
 				phase = "arriving"
 				return nil, false
+			end
+			if mach then
+				-- The step just begun carries on for `speed` more tiles once released; holding one more
+				-- raises it from 0 to 1, or from 1 to 3 (bike_probe.lua).
+				local speed = r8(GPLAYERAVATAR + 0x0B)
+				local nextSpeed = speed == 0 and 1 or 3
+				if moved + speed >= tiles or moved + 1 + nextSpeed > tiles then
+					phase = "coasting"
+					return nil, false
+				end
 			end
 			towardWarp = warpAhead(x, y)
 			return hold, false

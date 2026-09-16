@@ -35,7 +35,8 @@ A player does not run non-stop; each way of moving has its place, in any game:
 
 - **Walk** for precision: lining up with a tile, a door, a character's sight, or before running exists.
 - **Run** to go faster where you still need to stop on the right tile.
-- **A bike (or any faster mount)** for long distances, accepting that it can overshoot or hit a wall.
+- **A bike (or any faster mount)** for long distances, accepting that it can overshoot or hit a wall —
+  unless the driver reads the speed and lets go early (autoplay's Emerald `walk` does, on the Mach Bike).
 - **Hold the direction across tiles** rather than stopping on every one: a stop-start run looks wrong
   and is not how anyone plays. Stop when there is a reason to look.
 

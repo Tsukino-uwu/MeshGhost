@@ -475,3 +475,31 @@ The per-tile stop had never been needed for position: the coordinates change the
 
 **Next for Phase 1:** the bikes, measured as their own movement (the Acro Bike's speed, the Mach Bike's
 acceleration and whether a held chain still stops on its tile); then a new game to the first trainer.
+
+## 2026-09-16 (same session, later still) — Phase 1 step 10: both bikes, and a Mach Bike that still stops on its tile
+
+**The user, on the bikes:** *"the acro bike is a bit slower, but think its still faster than running"*,
+*"the mach bike has acceleration and different speeds, and is hard to control properly even for a player
+while at full speeds"*, *"faster movement is prefered, as long as it don't decrease precision"*, and the
+aim: *"the optimal endgoal would be if you could use mach bike at full speed to navigate everywhere
+without hitting any obstacles at all, that would be better than how a player normally does it"*.
+
+**Built.** A `register_item` cheat (the SELECT item; the write `cmd_drive.lua` measured), `movement` in
+`observe` (on foot, Mach Bike, Acro Bike), and `walk` on either bike: the Acro Bike stops where released,
+so it rides like walking; on the Mach Bike `walk` lets go as soon as holding one more tile would coast
+past the target, and walks any shortfall. Measurements: `emerald/MEASURED.md`, same date.
+
+**How it was measured.** `probes/bike_probe.lua` logged the avatar block's first 16 bytes beside every
+step. Per tile: walking 16 frames, running 8, the Acro Bike 6, the Mach Bike 16, 8, then 4. The Mach
+Bike's +0x0B read 0, 1, 3 while held and counted down once released, one tile per unit — the rule `walk`
+releases by. Live: Acro right 5 and left 3, Mach 1, 2, 4, 6 and 11 tiles, every one on its tile; the 11
+in 87 frames stopping beside a wall with no bump in the log.
+
+**What went wrong on the way:** the first Mach Bike release, done by hand with `press`, carried a tile past
+where it was let go — the reason for the measurement, not a fault — and a first reading of +0x0B came
+from the wrong byte of the hex dump until the bytes were indexed one by one.
+
+**Toward the user's aim.** Straight legs at full speed without a bump now work; a route that turns needs
+the bike's turning measured and a planner over `local_map`'s collision grid (the plan's `goto`, Phase 2).
+
+**Next:** measure turning on the Mach Bike; then a `goto` that plans legs over the grid and rides them.

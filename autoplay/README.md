@@ -30,7 +30,7 @@ Claude Code --MCP (stdio)--> autoplay core --JSON lines (127.0.0.1)--> driver in
 | `press` | Hold buttons for 1-600 frames, then report what changed — the escape hatch, not the default |
 | `wait` | Let 1-3600 frames pass with NO input, then report what changed. Never hold a button to wait |
 | `select` | Choose an entry in the open menu by its text (`item`) or 0-based `index`: the driver presses toward it until the game's own cursor is on it, then holds confirm until the menu responds (`confirm: false` stops on it). On a grid menu (a battle's) it reaches the column first. Every leg ends on the game's state, never a frame count |
-| `walk` | Move 1-32 tiles `up`, `down`, `left` or `right`, holding the direction the whole way the way a player does, each tile counted when the game starts its step; `run: true` runs where the save can (`ran` says whether it did). Stops early and says why: `blocked` (with what is on the refused tile), `map_changed` (a door or an edge), `dialogue_open` (a trainer who spotted you, too), `menu_open`, `left_overworld`; `moved` counts the steps begun. Walk for precision, run for speed that still stops on its tile, a bike for distance (the play-game skill's `references/navigation.md`) |
+| `walk` | Move 1-32 tiles `up`, `down`, `left` or `right`, holding the direction the whole way the way a player does, each tile counted when the game starts its step; `run: true` runs where the save can (`ran` says whether it did). On a bike it rides, still stopping on the tile: the Acro Bike stops where released, and on the Mach Bike it lets go early by the tiles the bike will coast (`overshot` if it ever carries past). Stops early and says why: `blocked` (with what is on the refused tile), `map_changed` (a door or an edge), `dialogue_open` (a trainer who spotted you, too), `menu_open`, `left_overworld`; `moved` counts the steps begun. Walk for precision, run for speed that still stops on its tile, a bike for distance (the play-game skill's `references/navigation.md`) |
 | `screenshot` | The game frame, saved to `dev-scripts/shots/<game>/autoplay_<name>.png` and returned as an image |
 | `events` | Events the driver reported since a sequence number |
 | `snapshot` | Save the whole game state to `autoplay/states/<game>/<label>.State` — a named file, never a numbered slot, so no slot of anyone's is ever touched |
@@ -79,6 +79,7 @@ Everything past `frame`, `mode` and `location` is the game module's. Emerald, on
 - A byte whose character is not measured, or that draws nothing, reads as `{XX}`; a measured
   formatting command in text reads as `{FC 13 38}`.
 - **`mode`** — `overworld`, `battle`, or `not_overworld` for anything else.
+- **`movement`** — in the overworld, `on_foot`, `mach_bike` or `acro_bike`.
 
 The driver reports each of `map`, `mode`, `dialogue` and `menu` changing as an event:
 `map_changed`, `mode_changed`, `dialogue_changed` and `menu_changed` (open or closed), and
@@ -104,6 +105,9 @@ code rather than by memory. A failed or refused cheat changes nothing.
 - **Emerald `set_flag`** `{flag, value}`: one story flag on or off (`value` defaults to true), ids 1-2399;
   `report` reads it back. Only the badge flags are measured: badge N is flag 2150 + N (0x866 + N).
   Refused outside the overworld.
+- **Emerald `register_item`** `{item}`: the item SELECT uses (by name or id; the bag must hold it). A bike
+  registered, `press` Select gets on or off it; with the other bike registered, one press gets off and the
+  next gets on. Refused outside the overworld.
 - Cheats write the save's data in memory: **an in-game save afterwards keeps them.**
 
 ## Drivers so far

@@ -1283,3 +1283,11 @@ Tools: `probes/cmd_drive.lua` (warp, tile writes, items to Select, recorder flag
 added Emerald probes for autoplay (`text_probe`, `charset_probe`, `map_probe`, `step_probe`) and
 `emerald/MEASURED.md`; step 6 adds `party_bag_probe` and `substruct_order_probe`. All of it is logged
 in `phase13.md` (Phase 1, steps 4-6); none of it touches `meshghost_emerald.lua`.
+
+## 2026-09-16 (later still) — pointer: more autoplay probes and measurements, logged in phase13.md
+
+`70a7759b`, `3d23a29d`, `7935064d` and the bike step after them added Emerald probes for autoplay
+(`window_life_probe`, `hookcost_probe`, `battle_state_probe`, `move_data_probe`, `find_objects.py`,
+`bike_probe`) and their `emerald/MEASURED.md` entries: a new screen's windows, the driver's real cost,
+wild and trainer battles, move data, map edges, held movement and both bikes. All of it is in
+`phase13.md` (Phase 1, steps 7-10); none of it touches `meshghost_emerald.lua`.
