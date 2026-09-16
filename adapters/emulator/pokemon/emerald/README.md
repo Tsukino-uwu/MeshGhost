@@ -4,8 +4,9 @@
 2026-08-21**, in their words: *"i consider the game to be fully synced up animation and effect wise
 now"* — a playable-state milestone, not the end of the work. Every way this game moves a character
 and every field effect it hangs off one is mirrored, on all three rendering tiers. First game
-targeted, shipped, and live-tested with real two-player sessions; the ladder **spawned → OAM →
-drawn** has been the shipped default since 2026-09-02 (step 39).
+targeted, shipped, and live-tested with real two-player sessions; **drawn only** has been the
+shipped tier since 2026-09-11 (step 42), the ladder **spawned → OAM → drawn** having shipped from
+2026-09-02 until then (step 39) and staying available as dev opt-ins.
 
 **What is open, as of 2026-09-06:** Fly is built and partly confirmed but **not complete** — the
 user, 2026-08-26: *"good nuff for now"*, and *"not properly working fully yet"*; four compensations
@@ -43,8 +44,10 @@ the project is [status.md](../../../../agent_docs/status.md); the running log is
   the engine's own object cap a peer gets **real GBA hardware sprite entries** in the shadow-OAM
   window the engine never touches, so the PPU draws it with background priority and the live
   palette (step 27). Past that it is **painted** with `gui.*` pixels — steps 1–9's original path,
-  which survives as the overflow tier. Both overflow rungs ship ON since 2026-09-02 (the user's
-  call, step 39; they were off until then); the ladder, its exceptions
+  which survives as the overflow tier. **Since 2026-09-11 only the painted rung ships** (the user's
+  call, step 42): the spawn cap defaults to zero and the hardware rung to off, and both flags still
+  turn them back on for dev work. From 2026-09-02 until then the whole ladder shipped with both
+  overflow rungs on (step 39; they were off before that); the ladder, its exceptions
   and every switch are in [FLAGS.md](FLAGS.md), and what each rung compensates for is in
   [BANDAGES.md](BANDAGES.md). **The hardware rung has two of those exceptions**: it stands down
   under a screen-covering semi-transparent sheet (weather fog, underwater), and it is **vanilla
@@ -342,6 +345,19 @@ order:
     own introspection reported nothing filtered against a room where most of the bytes crossed
     areas. Every earlier check had gone through `dev-scripts` (2026-08-28,
     [VERIFIED.md](VERIFIED.md)).
+42. Made drawn the only shipped tier, on the user's call (2026-09-11): *"lets make drawn the default
+    and only tier for emerald now (keeping spawned & OAM dev), same as we did for crystal. drawn
+    with good performance allows us to do more custom things/bypass hardware limitations."* The
+    spawn cap defaults to zero and the hardware rung to off; both flags still raise them. It was
+    only affordable because the painted tier had gone from 67ms to 21ms of Lua a frame at 64 peers
+    that morning, and it fixed the cross-gender ghost for free: every engine tier borrows the
+    palette slot loaded for the local player, so a peer of the other gender came out as a copy of
+    you, while the painted tier reads the peer's own graphic from the cartridge. Confirmed on screen
+    the same day, with all four Emerald builds seeing each other. It immediately exposed that
+    Archipelago relocates `gMapHeader`, which the spawned tier had never consulted; an unreadable
+    map now means "do not clip" rather than "hide everything". Detail:
+    [phase8.md](../../../../agent_docs/phases/phase8.md), the 2026-09-11 entries; the reasoning is
+    also beside the cap's default in `meshghost_emerald.lua`.
 
 **The hardware tier**, most of it spent discovering that the comparison harness, not
 either renderer, was what kept producing wrong answers.

@@ -457,3 +457,10 @@ That README and `FLAGS.md` are now an item in `status.md`.
 `docs/reviewing.md` gained one sentence pointing a reviewer at `orientation.md`'s first three
 sections as the map, with the rest named as internal practice to skip — the user's call after
 weighing whether a maintainer-voice file belongs in a reviewer's guide.
+
+**Same day, later.** The user read "recorded in `status.md` so it does not get lost" and asked
+whether it had not simply been fixed -- it had only been offered. Fixed now: the README header and
+ladder bullet say drawn only since 2026-09-11 with the spawned and hardware rungs as dev opt-ins,
+step 42 tells the drawn-only call in the user's words with the cross-gender ghost it fixed and the
+`gMapHeader` relocation it exposed, and the three `FLAGS.md` rows carry the defaults the Lua actually
+has (spawn cap zero, hardware off and enabled only by `"1"`, drawn on). The `status.md` item is gone.

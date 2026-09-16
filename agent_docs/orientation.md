@@ -93,14 +93,14 @@ Go deeper: [architecture.md](architecture.md), "Package boundaries", for who may
 | I want to know… | Read |
 | --- | --- |
 | The rules I work under | [../CLAUDE.md](../CLAUDE.md), plus `adapters/CLAUDE.md` and each host's own |
-| What is open right now | [status.md](status.md) — two lines per item, each dated |
+| What is open right now | [status.md](status.md) — two lines per item, each dated ([claude-md-cap.md](claude-md-cap.md) is why) |
 | What is proven, and by whom | [verified.md](verified.md) for the Go side; each game's `VERIFIED.md` |
 | What is built but nobody has watched | each game's `UNVERIFIED.md`; [unverified.md](unverified.md) indexes them |
 | What we intend, and what we will not do | [plans.md](plans.md), [ideas.md](ideas.md) |
 | Why a decision was made | `adr/`, one dated file per decision, indexed in [architecture.md](architecture.md) |
 | What went wrong before, and the check that stops it | [checklists/](checklists/) — one page per moment; [pitfalls/INDEX.md](pitfalls/INDEX.md) |
 | What happened, session by session | [phases/](phases/README.md) — one running log per game and per component |
-| How a game's adapter got built | that adapter's `README.md`, one numbered step per capability |
+| How a game's adapter got built | that adapter's `README.md`, one numbered step per capability (the rule is in [../CLAUDE.md](../CLAUDE.md)) |
 | How the game itself works | that adapter's `documentation.md` |
 | What a game sends and how it is checked on arrival | that adapter's `SYNCED.md` |
 | The machine and its tools | [dependencies.md](dependencies.md) to install; [environment.md](environment.md) for versions and traps |

@@ -27,7 +27,6 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 - 2026-09-15 — **`Plugin.cpp` comments are stale** (`session_policy` "zero of four"; the deleted `PLAYER_FIELDS.md`): fix at the next rebuild, since editing marks the committed DLL stale.
 - 2026-09-16 — **The audit's second sweep is open**: routine-name prose the citation grep cannot see, in every `documentation.md`, then code comments and `pitfalls/`. `phases/phase9.md` (2026-09-16).
 - 2026-09-15 — **Nothing is running**; loader targets `none`. **TEVI is HOT-RELOAD: `-Off` before a real confirmation.** `running-the-rig.md`.
-- 2026-09-16 — **Emerald's README header, its ladder bullet and three `FLAGS.md` rows still say spawned → OAM → drawn ships**; drawn-only since 2026-09-11 (`phases/phase8.md`). Fix in place, add step 40, re-date the rows.
 
 **Trimmed 2026-09-15**: records of finished work were dropped and items already queued in an
 adapter's `UNVERIFIED.md` folded into one line per game; every pointer was checked against its
