@@ -15,6 +15,8 @@ of the documentation, written for people *using* MeshGhost, is [`../docs/`](../d
 
 ## Read before you…
 
+- …come back after a long break: [orientation.md](orientation.md) — the whole project in plain words: what it is, how a ghost travels, where everything lives, which file answers what, how an adapter is made and probed, how a day and a release go. Links everywhere, restates nothing.
+- …set up a new machine: [dependencies.md](dependencies.md) — what to install on a fresh Windows 11 with only VS Code and a clone, in tiers by what each unlocks; versions, paths and traps stay in `environment.md`.
 - …start a new game's adapter: [access-models.md](access-models.md) — what you will be able to READ about a game predicts the adapter's difficulty better than its engine. Then `/new-adapter`.
 - …do anything on the list of moments: [checklists/](checklists/) — **one page per moment** (a probe, a reading, a fix, a scripted edit, mirroring state, Unreal, Lua, a network change); one line per lesson, linking to the record.
 - …touch `core`, `relay`, `transport`, `bridge` or a test: [testing.md](testing.md) — the one local command, the `-race` recipe, what CI adds, how to run a fuzz campaign, the traps.

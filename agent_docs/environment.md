@@ -14,6 +14,9 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
 the savestate slots each rig uses: [running-the-rig.md](running-the-rig.md)** — split out 2026-09-02 so
 this file is the machine and the toolchain, and that one is how a live test is run.
 
+**What to install on a fresh machine, by tier: [dependencies.md](dependencies.md)** — added 2026-09-16
+so this file stays the dated record of versions and traps, and that one is the short list.
+
 ## Host
 
 - OS: Windows 11 Pro (dev machine). Cross-platform build targets: Windows, Linux, macOS.

@@ -1093,3 +1093,23 @@ was true then.
 these keys; the grep confirming it (all of `adapters/**`, minus vendored `build/_deps`) was run
 before it was written down, and the result is in the ADR so nobody has to run it again. The only
 hits were two prose comments in Pseudoregalia's `Plugin.cpp`.
+
+## Two entry points for the returning maintainer (2026-09-16) — `orientation.md` and `dependencies.md`
+
+The user's ask, in two halves. `orientation.md`: *"if i have been away from the project for a long
+time... explains how things work/where things are... covering the whole project so i always have
+someplace to orientate myself and can never get lost/forget/confused"*, and, after the first draft
+of the plan, that it must also carry *"this is how an adapter is made"* and *"this is how to
+mod/probe a game"* — the method, not only the map. `dependencies.md`: *"assume i have just installed
+vscode on a fresh win11 and only have the claude extension installed, what things would i need to
+install to actually work on that computer?"* — a list of installs by what each unlocks, not an
+inventory of every program the repo touches.
+
+**What each deliberately leaves out.** `orientation.md` restates no rule and no record: every
+section ends in links, and its header says the linked file wins on a disagreement, so it cannot
+become a second home for anything. `dependencies.md` carries no version number and no install
+path — those are dated facts and stay in `environment.md`, which gained a one-line pointer back —
+and it excludes Go module and NuGet dependencies (fetched by the build), CI's own tools (the
+runner's), SignPath (an external service) and anything personal: the first draft listed a screen
+recorder, and the user's correction, *"its a personal program not a repo program"*, became the
+file's last rule. Both files are indexed at the top of `README.md`'s "Read before you…" list.
