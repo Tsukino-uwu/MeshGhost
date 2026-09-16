@@ -543,7 +543,8 @@ confirmation, Pseudoregalia first.
 
 ### Phase 13 — Autoplay: a dev-only harness that plays games (proposed 2026-09-16; Phase 0's checkpoint answered the same day)
 
-**Proposed, not decided; nothing is built.** A dev-only program in a top-level `autoplay/` folder with
+**Phase 1 is being built (2026-09-16): an MCP core and a BizHawk driver for vanilla Emerald**
+(`status.md` has what is done). A dev-only program in a top-level `autoplay/` folder with
 its own `go.mod`, so no build, test or release of MeshGhost includes it, and it never ships. A Claude
 Code agent drives a game through it: the model issues high-level commands, a thin per-host driver
 carries them out at full speed, and an exploration that worked becomes a scenario the runner replays
@@ -552,7 +553,7 @@ The user's rulings so far (2026-09-16): savestates never enter the repo — a sc
 with cheats; where a host cannot capture its own frame, a window capture is fine, and every capture
 is gitignored; its MCP config lives inside `autoplay/`. Today's instructions for playing are the
 `play-game` skill, which becomes the harness's manual as each rule turns into a tool. The checked
-plan, the proposal and the open questions: `phases/phase13.md`.
+plan, the checkpoint's answers and each step built: `phases/phase13.md`.
 
 ### Room codes / relay safety
 

@@ -222,7 +222,8 @@ local function begin(req)
 		return true
 	end
 	if verb == "observe" then
-		reply(req.id, game.observe())
+		-- true: the agent asked, so the module may add what it leaves out of a press's before and after.
+		reply(req.id, game.observe(true))
 		return true
 	elseif verb == "screenshot" then
 		-- The game frame only (client.screenshot), never the window, into the game's own shots
@@ -328,7 +329,9 @@ local function begin(req)
 		hold = {
 			id = req.id, left = 0, before = before, untilFn = plan.untilFn, limit = plan.limit or 1, count = 0,
 			finish = function(after, done, count)
-				return { kind = p.kind, done = done, frames = count, before = before, after = after, changed = changed(before, after) }
+				-- plan.report, when the module has one, reads the cheat's effect back from the game.
+				return { kind = p.kind, done = done, frames = count, before = before, after = after, changed = changed(before, after),
+					report = plan.report and plan.report() or nil }
 			end,
 		}
 		return false

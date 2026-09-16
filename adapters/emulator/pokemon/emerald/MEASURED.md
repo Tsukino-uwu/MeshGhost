@@ -46,8 +46,10 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 
 - Text printing, menus and the character encoding (2026-09-16)
 - The map around the player, and one walked step (2026-09-16)
+- The party, the bag, money, badges and flags (2026-09-16)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
+- Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
 
 ## Measured
 
@@ -134,6 +136,63 @@ movement bytes and the avatar block on every frame they change), against capture
 - **`walk` against the same map** (2026-09-16): up 3 done in 66 frames; left 2 refused at once with
   the tile (8,16) reported as collision 1; both doors reported `map_changed`.
 
+### The party, the bag, money, badges and flags (2026-09-16)
+
+**Vanilla ROM, the save the text and map entries used** (one level-6 MUDKIP, `testkit.lua`'s bag,
+eight badges). From `probes/party_bag_probe.lua` (read-only: the party, pockets, money and flag bytes,
+dumped on change), `probes/substruct_order_probe.lua` (writes the party in live RAM, restored on
+unload), and autoplay's `set_flag` and `give_item` cheats; each read against captures of what the game
+drew (`dev-scripts/shots/emerald/autoplay_pb_*`, `autoplay_so_*`, `autoplay_badge_*`, `autoplay_gi_*`,
+gitignored). Used by `autoplay/drivers/bizhawk/games/emerald.lua` for `party`, `bag`, `money`,
+`badges` and both cheats.
+
+- **A party slot is 0x64 bytes** at the address the build names gPlayerParty; the byte named
+  gPlayerPartyCount read 1. +0x08 is the 10-byte name in the game's encoding (MUDKIP); +0x54 the level
+  (6); +0x56 and +0x58 HP and max HP (17, 22); +0x5A to +0x62 attack, defense, speed, sp. atk and sp.
+  def as u16s (14, 11, 10, 12, 12, the SKILLS page); +0x04's low half the ID No. (0x5C51 = 23633, on
+  the INFO page and the trainer card); +0x50 read 0 with no status drawn. SaveBlock1's copy at +0x238
+  equalled the live slot; they were not seen to differ, since no battle or save came between.
+- **The 48 bytes at +0x20** are four 12-byte blocks: XOR each u32 with +0x00 ^ +0x04 and the 24 u16
+  halves sum to +0x1C (0x0E8E both). On this MUDKIP (personality mod 24 = 6), block 1 held species 283,
+  whose 11-byte species-table entry reads MUDKIP, held item 0 (NONE) and EXP 221 as a u32 at +4; block 0
+  held u16 moves 33, 45, 189 and 0, which the 13-byte move-name table reads as TACKLE, GROWL, MUD-SLAP,
+  with PP 32, 40, 10 as bytes at +8 (the BATTLE MOVES page); block 3 +2's low 7 bits read 5 ("met at
+  Lv5").
+- **Which block is which, for every personality.** The routine the build names GetSubstruct was entered
+  with the slot in R0, the personality in R1 and a kind 0-3 in R2, and returned a pointer to a block
+  (hooked at its entry and its return address). With the party rewritten as six copies re-keyed to
+  residues 0-23 over four rounds, and the summary paged through all six each round, it answered all
+  96 residue/kind pairs with no conflict: **residue r places the kinds in the r-th lexicographic
+  ordering of 0,1,2,3** (0: 0,1,2,3; 1: 0,1,3,2; 6: 1,0,2,3; 23: 3,2,1,0). At residue 6 that is the
+  MUDKIP's own layout, which names the kinds: 0 species, item and EXP; 1 moves and PP; 3 the met
+  level. Kind 2 is block 2 on that layout, and nothing drawn was read from it. The routine ran when a
+  screen loaded a Pokémon (the party menu opening, each Down on the summary), not while one was shown.
+- **The bag**, SaveBlock1 pockets of 4-byte slots, the id then the quantity XOR the low half of
+  SaveBlock2 +0xAC: +0x560 ITEMS (RARE CANDY x99), +0x650 POKé BALLS (MASTER BALL x5, POKé BALL x5),
+  +0x690 TMs & HMs (items 339-346, whose table names read HM01-HM08 and which the pocket draws as HM1
+  CUT to HM8 DIVE), +0x5D8 KEY ITEMS (MACH BIKE, ACRO BIKE, SUPER ROD), +0x790 BERRIES (empty) -- each as
+  the bag drew it. +0x498 held id 13 (POTION in the table) with its quantity word reading 0x0001 raw
+  (22939 if XORed like the pockets); the PC's storage was not opened.
+- **The item table**, 44 bytes an entry: the name in the first 14 bytes, +0x0E the id again, +0x1A the
+  pocket in the bag's order -- 1 for the ITEMS entries, 2 the balls, 3 the HMs, 5 the key items, and
+  4 for ORAN BERRY, which `give_item` put under BERRIES. +0x10 read 4800 for RARE CANDY and 200 for
+  POKé BALL; no shop was opened.
+- **Money** is SaveBlock1 +0x490 XOR the whole SaveBlock2 +0xAC word: 3300, the trainer card's ₽3300.
+  +0x494 XOR the low half read 0; nothing drawn showed it.
+- **Flags** are SaveBlock1 +0x1270, one bit per id: bit id & 7 of byte id >> 3. Ids 0x867-0x86E were
+  set, eight badges were drawn and the main menu read BADGES 8. Three trainer cards, each after
+  clearing the ids whose index (id - 0x867) had bit 0, bit 1 or bit 2 set, left exactly those positions
+  empty, so **0x867 + i is badge i + 1 from the left**; setting 0x86E back redrew the eighth. Also set,
+  and not identified: 0x860, 0x861, 0x86F, 0x870.
+- **Before CONTINUE the save pointers and the key read otherwise**: SaveBlock1 0x02025A2C, SaveBlock2
+  0x02024A80, key 0x34CCD638 at the title; 0x02025A10, 0x02024A64 and 0x7FCF599A in the overworld, the
+  values every decode above used.
+- **The cheats against the screen**, same session: `give_item` added ORAN BERRY x3 (a new BERRIES
+  stack), POTION x2 (a new ITEMS stack) and POKé BALL 5 to 8, each drawn so; it refused RARE CANDY past
+  99, a name the table lacks, and any item while the trainer card was open.
+- **Not seen by any of it**: an egg, a status condition, a second real Pokémon, a battle's effect on
+  the slot, what kind 2 holds, the PC's storage, a stack past 99, any flag but the badges, a patched ROM.
+
 ## Not measured yet
 
 ### The rest of the text printer (from 2026-09-16)
@@ -155,3 +214,17 @@ battle, each paired with captures.
   `left_overworld`, `dialogue_open`).
 - Other values of +0x1C, what byte 1's 0xA0 means, and the +0x1E/+0x1F bytes that read 0x69 on the
   door; the warp entry's +4 and +5.
+
+### The rest of the party, the bag and the flags (from 2026-09-16)
+
+- An egg and a bad egg: what the slot's +0x13 byte (0x02 on the MUDKIP) and the party menu show. To
+  settle: a daycare egg with `party_bag_probe.lua` loaded.
+- Status conditions in +0x50: poison, sleep and the rest. To settle: a battle that inflicts one.
+- What kind 2's block holds, and kind 3's other fields (the decomp names EVs and contest stats, IVs,
+  ability, ribbons, the met location): read against a page that draws each.
+- When SaveBlock1's party copy stops matching the live one: after a battle, then after an in-game save.
+- Whether +0x498 is the PC's item storage, with its quantity stored plainly: open a PC's ITEM STORAGE.
+- A stack past 99, and the pocket slot counts (30, 16, 64, 46, 30 from the build's layout): give past
+  them and open the bag.
+- What flags 0x860, 0x861, 0x86F and 0x870 are, and any flag past the badges; the ids from 0x4000 the
+  decomp routes elsewhere, which `set_flag` does not accept.

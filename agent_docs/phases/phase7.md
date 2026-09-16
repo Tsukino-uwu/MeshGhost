@@ -3802,3 +3802,11 @@ holding. TEVI's `documentation.md` was read in the same sweep and carries nothin
 Later the same day the file was stripped to the game's mechanics on the user's word — the rule
 section, file table, standing-rule section and "adding to this file" section out, 816 → 690 lines
 (`phase12.md`, 2026-09-16, later still).
+
+## 2026-09-16 (later still) — pointer: review pass 5's adapter tier, and MEASURED.md
+
+`1f4fa60b` (bridge lines up to 16 KiB, departed peers forgotten, a paused game's queue bounded) and its
+records `426bace6` are logged in `phase10.md` ("the fifth adversarial review, Go side") and
+`phase12.md`, with what stayed open in `risks.md` ("Pass 5, left open"). `c7dfeb55` added
+`pseudoregalia/MEASURED.md`, the record for code-level facts the user asked for, logged in
+`phase13.md` (step 5); its entries are still to be sorted in from `UNVERIFIED.md` (`status.md`).

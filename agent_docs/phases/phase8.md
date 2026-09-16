@@ -1276,3 +1276,10 @@ user: *"why not just move the player onto the door/entry itself? ... or just tel
 
 Tools: `probes/cmd_drive.lua` (warp, tile writes, items to Select, recorder flag) and
 `probes/find_behaviour.py`; the method is in `agent_docs/playing.md` ("Building a state", Emerald).
+
+## 2026-09-16 (later still) — pointer: autoplay's Emerald measurements are logged in phase13.md
+
+`90ca8e63` (`playing.md` becoming the `play-game` skill) is in `phase12.md`. `77fc8bd4` and `c7dfeb55`
+added Emerald probes for autoplay (`text_probe`, `charset_probe`, `map_probe`, `step_probe`) and
+`emerald/MEASURED.md`; step 6 adds `party_bag_probe` and `substruct_order_probe`. All of it is logged
+in `phase13.md` (Phase 1, steps 4-6); none of it touches `meshghost_emerald.lua`.

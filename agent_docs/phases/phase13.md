@@ -305,3 +305,59 @@ keeps an on-screen READY item. Sorting the older entries is a `status.md` task f
 user's call).
 
 **Next for Phase 1:** party, bag and badges; cheats for items and flags; list menus and battle text.
+
+## 2026-09-16 (same session, later) — Phase 1 step 6: party, bag and badges; `give_item` and `set_flag`
+
+**Built.** Emerald's `observe` gains `party` (species, nickname, level, HP, stats, EXP, held item,
+moves with PP), `bag` (per pocket, in the bag's order), `money`, `badge_count` and `badges` — only
+in an `observe` the agent asks for, since a press's `before` and `after` would carry them every time
+(a `wait` answer stayed at 847 bytes). Two cheats: `give_item {item, quantity}`, by the name the bag
+shows or an id, into the pocket the game's item table names, and `set_flag {flag, value}`; each
+answers with a `report` read back from the game, which the driver now forwards for any cheat.
+Measurements: `emerald/MEASURED.md`, same date; tools: the README.
+
+**How it was measured, the decomp as the map only.** The build's symbols said where the party and the
+name tables live and its structs where to look inside them. `probes/party_bag_probe.lua` dumped the
+party, pockets, money and the badge-range flag bytes raw, with candidate decodes beside the raw
+bytes, and the agent opened the party menu, three summary pages, all five pockets and the trainer
+card to read each against the screen: a level-6 MUDKIP at 17/22, TACKLE 32 PP, EXP 221, ID No.
+23633, RARE CANDY x99, ₽3300, eight badges.
+
+**The one table, asked of the game.** A Pokémon's four encrypted blocks change order with its
+personality, and one party shows one order. Rather than carry the decomp's switch,
+`probes/substruct_order_probe.lua` hooked the routine that picks a block, at its entry and at its
+return address, and rewrote the party as six copies re-keyed round by round to all 24 residues, with
+all four blocks holding the same valid data so any order drew a real Pokémon. Paging the summary
+answered all 96 residue/kind pairs with no conflict, and the answers follow a rule — residue r is the
+r-th lexicographic ordering — so the driver generates them. The method is in `_template/probes.md`
+("Ask the game's own routine for a table").
+
+**The cheats measured themselves on the screen.** Three trainer cards, each drawn after clearing the
+badge flags whose index had one bit set, gave every badge position a unique on/off code: flag
+0x867 + i is badge i + 1. `give_item` put ORAN BERRY x3 under BERRIES (the pocket number no item on
+this save had), POTION x2 under ITEMS and POKé BALL from 5 to 8, each drawn so; it refused a stack past
+99, an unknown name, and any item with the trainer card open.
+
+**What went wrong on the way:**
+- **My own residue arithmetic was wrong**: done by hand, the MUDKIP's personality read as residue 14,
+  which would have made the measured layout look inconsistent with an ordering rule; the probe's own
+  `% 24` said 6, and residue 6 is exactly that layout. The instrument, not the head, does arithmetic.
+- **Rounds 1-3 collected nothing at first**: the routine runs when a screen LOADS a Pokémon, not while
+  one is shown, so a round written with the summary open needed each slot paged to again.
+- **Two Bs left the summary but not the party menu** — the second landed in the summary's fade-out; a
+  screenshot showed it, and a third B closed it.
+- **The JSON encoder writes an empty table as `{}`**, so an empty pocket, a Pokémon with no moves or no
+  badges would have read as objects; each is left out instead, with `badge_count` always present.
+
+**Seen and not fixed:** pressing A on a Pokémon in the party menu, the press's `before` reported a
+`menu` on window 1 with seven empty items — the START menu's window id, reused by the party menu, and
+still counted open because the START menu was never removed through the hooked routine. A false
+`menu_open` can stop a `walk` or mislead `select`; it is the next thing to measure, with list menus.
+
+The session's snapshot `pb_base` (in the gitignored `autoplay/states/`) holds this save in the town.
+The user asked whether the three untracked files in `agent_docs/plans/` are still needed. The two
+play-game files are done: the skill and its references exist and `playing.md` is
+`playing-rationale.md` (`phase12.md`). `autoplay-plan.md` is not: its corrections are in Phase 0 above,
+but its Phases 2-8 and their acceptance checks exist nowhere else in the tree. Nothing was deleted.
+
+**Next for Phase 1:** the stale menu window; list menus (the bag, the party menu) and battle text.

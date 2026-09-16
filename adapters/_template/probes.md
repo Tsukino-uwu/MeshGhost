@@ -1097,6 +1097,25 @@ under test (the printer) runs untouched.
 - Use only line breaks and box breaks you measured in real text first, and leave every other command
   byte out of the page.
 
+## Ask the game's own routine for a table — hook its entry AND its return — 2026-09-16
+
+**A lookup the game computes is measured by feeding its routine every input, not copied from a
+source.** Emerald keeps a Pokémon's data in four encrypted blocks whose order depends on the
+personality mod 24; one party shows one ordering. `emerald/probes/substruct_order_probe.lua` hooks
+the routine's entry (the arguments in R0-R2 and the return address in LR) and, from the next frame's
+tick, an execute hook at each return address it has seen, where R0 is the answer. It then rewrites
+the party as copies re-keyed to all 24 residues and lets ordinary screens call the routine: 96 of 96
+answers, no conflicts, and a rule that regenerates them (a lexicographic ordering), so the driver
+carries the rule, not a table.
+
+- **Make every input SAFE for whatever the answer turns out to be**: all four blocks were set to the
+  same valid data, so the summary drew a real Pokémon under any ordering and nothing crashed.
+- **Find what calls the routine before counting on it**: here a screen LOADING a Pokémon did, a
+  screen merely showing one did not, so each round needed the summary paged, not a wait.
+- **Install the return hooks outside the callback** (from the tick), and match a return to its call
+  by the address, since other code can run the same instruction.
+- One real record read against the screen names the kinds; the probe only proves the positions.
+
 ## Measure what is DRAWN, not the fields that feed it — 2026-08-19
 
 **The trap.** A ghost visibly flicked 8px sideways while **every readable struct field was

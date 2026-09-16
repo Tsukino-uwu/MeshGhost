@@ -450,11 +450,156 @@ local function readLocalMap(warps, objects)
 	return { rows = rows, legend = legend }
 end
 
+-- WHAT THIS SAVE HAS (2026-09-16, vanilla: `emerald/probes/party_bag_probe.lua` read against captures of
+-- the party menu, three summary pages, all five bag pockets and the trainer card, and
+-- `substruct_order_probe.lua`; that adapter's MEASURED.md, same date).
+local SB2PTR = 0x03005d90
+local PARTY_COUNT, PARTY, MON_SIZE = 0x020244e9, 0x020244ec, 0x64
+-- Name tables in the ROM, one fixed-width entry per id: species 11 bytes, moves 13, items 44 with the
+-- name in the first 14. The counts are the build's symbol sizes over those widths.
+local SPECIES_NAMES, SPECIES_LEN, SPECIES_COUNT = 0x083185c8, 11, 412
+local MOVE_NAMES, MOVE_LEN, MOVE_COUNT = 0x0831977c, 13, 355
+local ITEMS, ITEM_SIZE, ITEM_NAME_LEN, ITEM_COUNT = 0x085839a0, 44, 14, 377
+-- SaveBlock1's pockets in the bag's own order (ITEMS, POKé BALLS, TMs & HMs, BERRIES, KEY ITEMS), 4
+-- bytes a slot: the id, then the quantity XOR the low half of SaveBlock2 +0xAC. The item table's
+-- +0x1A byte is the pocket's number in that order: every item this save held sat in the pocket its
+-- byte named, and give_item's ORAN BERRY (byte 4) was drawn under BERRIES. Slot counts are the build's
+-- layout.
+local POCKETS = {
+	{ name = "items", at = 0x560, slots = 30 },
+	{ name = "poke_balls", at = 0x650, slots = 16 },
+	{ name = "tms_hms", at = 0x690, slots = 64 },
+	{ name = "berries", at = 0x790, slots = 46 },
+	{ name = "key_items", at = 0x5D8, slots = 30 },
+}
+local FLAGS_AT, FLAG_MAX = 0x1270, 0x95F
+-- Flag 0x867 + i is the trainer card's badge i + 1, left to right: three cards drawn with a different
+-- binary pattern of the eight cleared named every position, and setting one back redrew it.
+local BADGE_FLAG0 = 0x867
+local MAX_STACK = 99
+
+local function inEwram(p) return p >= 0x02000000 and p < 0x02040000 end
+local function u32of(b, i) return b[i] | (b[i + 1] << 8) | (b[i + 2] << 16) | (b[i + 3] << 24) end
+local function u16of(b, i) return b[i] | (b[i + 1] << 8) end
+
+-- A name from the ROM: up to the first FF within `len` bytes of entry `id` (`stride` apart, when the
+-- entry is wider than its name).
+local function nameAt(tbl, len, count, id, stride)
+	if not id or id < 1 or id >= count then return nil end
+	local b = memory.read_bytes_as_array(tbl + id * (stride or len), len, BUS)
+	local last = len
+	for i = 1, len do
+		if b[i] == EOS then
+			last = i - 1
+			break
+		end
+	end
+	return decode(b, 1, last)
+end
+local function itemName(id) return nameAt(ITEMS, ITEM_NAME_LEN, ITEM_COUNT, id, ITEM_SIZE) end
+
+-- The four encrypted 12-byte blocks at +0x20, per personality mod 24: the game's routine for them,
+-- asked for every residue with every kind (substruct_order_probe.lua, 96 of 96, no conflicts), put
+-- residue r's kinds in the r-th ordering of 0-3 in lexicographic order (0 -> 0,1,2,3; 1 -> 0,1,3,2;
+-- 23 -> 3,2,1,0). Kind 0 held species, held item and EXP; kind 1 moves and PP; kind 3 the met level
+-- (all three matched the summary pages).
+local function blockOfKind(residue, kind)
+	local pool, r, fact = { 0, 1, 2, 3 }, residue, { 6, 2, 1, 1 }
+	for pos = 1, 4 do
+		local k = table.remove(pool, r // fact[pos] + 1)
+		r = r % fact[pos]
+		if k == kind then return pos - 1 end
+	end
+end
+
+local function readParty()
+	local n = r8(PARTY_COUNT)
+	if n > 6 then return nil end
+	local out = {}
+	for slot = 0, n - 1 do
+		local b = memory.read_bytes_as_array(PARTY + slot * MON_SIZE, MON_SIZE, BUS)
+		local pers, otId = u32of(b, 1), u32of(b, 5)
+		local last = 18
+		for i = 9, 18 do
+			if b[i] == EOS then
+				last = i - 1
+				break
+			end
+		end
+		local mon = { slot = slot, nickname = decode(b, 9, last), level = b[85], hp = u16of(b, 87), max_hp = u16of(b, 89),
+			status_raw = u32of(b, 81),
+			stats = { attack = u16of(b, 91), defense = u16of(b, 93), speed = u16of(b, 95), sp_attack = u16of(b, 97),
+				sp_defense = u16of(b, 99) } }
+		-- The decrypted words sum to +0x1C; when they do not, the blocks are not read.
+		local key, words, sum = pers ~ otId, {}, 0
+		for w = 0, 11 do
+			words[w] = u32of(b, 33 + w * 4) ~ key
+			sum = (sum + (words[w] & 0xFFFF) + (words[w] >> 16)) & 0xFFFF
+		end
+		if sum ~= u16of(b, 29) then
+			mon.checksum_mismatch = true
+		else
+			local g, a = blockOfKind(pers % 24, 0) * 3, blockOfKind(pers % 24, 1) * 3
+			mon.species_id = words[g] & 0xFFFF
+			mon.species = nameAt(SPECIES_NAMES, SPECIES_LEN, SPECIES_COUNT, mon.species_id)
+			local held = words[g] >> 16
+			if held ~= 0 then mon.held_item = itemName(held) or string.format("item %d", held) end
+			mon.exp = words[g + 1]
+			local moves = {}
+			for i = 0, 3 do
+				local id = (words[a + (i >> 1)] >> (16 * (i & 1))) & 0xFFFF
+				if id ~= 0 then
+					moves[#moves + 1] = { name = nameAt(MOVE_NAMES, MOVE_LEN, MOVE_COUNT, id), id = id,
+						pp = (words[a + 2] >> (8 * i)) & 0xFF }
+				end
+			end
+			if #moves > 0 then mon.moves = moves end
+		end
+		out[#out + 1] = mon
+	end
+	return out
+end
+
+local function readBag(sb1, key)
+	local bag = {}
+	for _, p in ipairs(POCKETS) do
+		local b, list = memory.read_bytes_as_array(sb1 + p.at, p.slots * 4, BUS), {}
+		for i = 0, p.slots - 1 do
+			local id = u16of(b, i * 4 + 1)
+			if id ~= 0 then
+				list[#list + 1] = { item = itemName(id) or string.format("item %d", id), id = id,
+					quantity = u16of(b, i * 4 + 3) ~ (key & 0xFFFF) }
+			end
+		end
+		-- An empty table would go out as {} (json.lua), so an empty pocket is left out.
+		if #list > 0 then bag[p.name] = list end
+	end
+	return bag
+end
+
+local function flagGet(sb1, id)
+	return (r8(sb1 + FLAGS_AT + (id >> 3)) >> (id & 7)) & 1 == 1
+end
+
+-- What the save has: the party, the bag, money and badges. Nil until the save blocks are in place.
+local function readSave()
+	local sb1, sb2 = r32(SB1PTR), r32(SB2PTR)
+	if not inEwram(sb1) or not inEwram(sb2) then return nil end
+	local key = r32(sb2 + 0xAC)
+	local badges = {}
+	for i = 0, 7 do
+		if flagGet(sb1, BADGE_FLAG0 + i) then badges[#badges + 1] = i + 1 end
+	end
+	return { party = readParty(), bag = readBag(sb1, key), money = r32(sb1 + 0x490) ~ key, badge_count = #badges,
+		badges = #badges > 0 and badges or nil }
+end
+
 local game = {
 	game = "emerald",
 	-- "vanilla" only when the ROM's hash is the one every address here was measured on.
 	variant = isVanilla and "vanilla" or "unverified",
-	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "cheat:warp", "select", "walk" },
+	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "cheat:warp", "cheat:set_flag",
+		"cheat:give_item", "select", "walk" },
 	-- The START menu and a YES/NO: Down moved the cursor one entry per press and A chose it (2026-09-16).
 	menuButtons = { prev = "Up", next = "Down", confirm = "A" },
 	protected_slots = { 1 },
@@ -497,7 +642,9 @@ function game.stop()
 	hookNames, shown, dialogue, menuWindow = {}, {}, nil, nil
 end
 
-function game.observe()
+-- `asked` is true for the agent's own observe; the before and after of a press, a select or a walk leave
+-- out what the save has, which rarely changes during one and is most of an observation's size.
+function game.observe(asked)
 	local cb2 = r32(GMAIN_CB2)
 	local sb1 = r32(SB1PTR)
 	local obj = GOBJECTEVENTS + r8(GPLAYERAVATAR + 5) * 0x24
@@ -517,7 +664,13 @@ function game.observe()
 		if #nearby == 0 then nearby = nil end
 		if #warps == 0 then warps = nil end
 	end
+	local save = (asked and isVanilla) and readSave() or nil
 	return {
+		party = save and save.party,
+		bag = save and save.bag,
+		money = save and save.money,
+		badge_count = save and save.badge_count,
+		badges = save and save.badges,
 		dialogue = d,
 		menu = m,
 		screen_text = s,
@@ -587,6 +740,102 @@ function game.cheats.warp(args)
 				return false
 			end
 			return left and o.location.map == map
+		end,
+	}
+end
+
+-- set_flag {flag, value = true}: one bit per flag id in SaveBlock1 +0x1270, bit (id & 7) of byte id >> 3
+-- (measured on the badge flags, see `badges`). Ids 1 to FLAG_MAX, where the build's layout ends that
+-- byte array; only the badge flags are measured. Refused outside the overworld, since SaveBlock1 moved
+-- during the map load after CONTINUE (party_bag_probe.lua: 0x02025A2C, then 0x02025A10). Done at once;
+-- `report` reads the bit back.
+function game.cheats.set_flag(args)
+	local id = math.tointeger(args.flag)
+	local value = args.value
+	if value == nil then value = true end
+	if not id or id < 1 or id > FLAG_MAX or type(value) ~= "boolean" then
+		return nil, string.format("set_flag needs flag, 1 to %d, and value true or false", FLAG_MAX)
+	end
+	if not isVanilla then return nil, "set_flag is measured on the vanilla ROM only" end
+	if not inOverworld() then
+		return nil, string.format("set_flag refused: gMain.callback2 is %08X, not vanilla's overworld", r32(GMAIN_CB2))
+	end
+	local sb1 = r32(SB1PTR)
+	local at, bit = sb1 + FLAGS_AT + (id >> 3), 1 << (id & 7)
+	local was = flagGet(sb1, id)
+	w8(at, value and (r8(at) | bit) or (r8(at) & ~bit & 0xFF))
+	return {
+		limit = 1,
+		untilFn = function() return true end,
+		report = function() return { flag = id, was = was, now = flagGet(r32(SB1PTR), id) } end,
+	}
+end
+
+-- The item id for a name, from the ROM's item table (case ignored).
+local itemIds = nil
+local function itemIdByName(name)
+	if not itemIds then
+		itemIds = {}
+		for id = 1, ITEM_COUNT - 1 do
+			local n = itemName(id)
+			if n and n ~= "" and not itemIds[n:lower()] then itemIds[n:lower()] = id end
+		end
+	end
+	return itemIds[name:lower()]
+end
+
+-- give_item {item = name or id, quantity = 1}: adds to the stack of that item in its pocket, or fills
+-- the pocket's first empty slot -- the pocket named by the item table's +0x1A byte. A stack is capped at
+-- MAX_STACK, the most the bag was seen to show (RARE CANDY x99); past that is refused, not measured.
+-- Refused outside the overworld (set_flag says why). `report` reads the pocket back.
+function game.cheats.give_item(args)
+	local quantity = math.tointeger(args.quantity or 1)
+	local id = math.tointeger(args.item)
+	if not id and type(args.item) == "string" then id = itemIdByName(args.item) end
+	if not id or id < 1 or id >= ITEM_COUNT then
+		return nil, "give_item needs item, a name as the bag shows it or an id 1 to " .. (ITEM_COUNT - 1)
+	end
+	if not quantity or quantity < 1 or quantity > MAX_STACK then
+		return nil, "give_item needs quantity 1 to " .. MAX_STACK
+	end
+	if not isVanilla then return nil, "give_item is measured on the vanilla ROM only" end
+	if not inOverworld() then
+		return nil, string.format("give_item refused: gMain.callback2 is %08X, not vanilla's overworld", r32(GMAIN_CB2))
+	end
+	local pocket = POCKETS[r8(ITEMS + id * ITEM_SIZE + 0x1A)]
+	if not pocket then
+		return nil, string.format("item %d (%s) has no pocket", id, tostring(itemName(id)))
+	end
+	local sb1, key16 = r32(SB1PTR), r32(r32(SB2PTR) + 0xAC) & 0xFFFF
+	local slot, have = nil, 0
+	for i = 0, pocket.slots - 1 do
+		local at = sb1 + pocket.at + i * 4
+		local sid = r16(at)
+		if sid == id then
+			slot, have = i, r16(at + 2) ~ key16
+			break
+		elseif sid == 0 and not slot then
+			slot = i
+		end
+	end
+	if not slot then return nil, pocket.name .. " is full" end
+	if have + quantity > MAX_STACK then
+		return nil, string.format("the bag has %d %s; %d more is past %d", have, itemName(id), quantity, MAX_STACK)
+	end
+	local at = sb1 + pocket.at + slot * 4
+	w16(at, id)
+	w16(at + 2, (have + quantity) ~ key16)
+	return {
+		limit = 1,
+		untilFn = function() return true end,
+		report = function()
+			local s = r32(SB1PTR)
+			local list = readBag(s, r32(r32(SB2PTR) + 0xAC))[pocket.name]
+			local now = 0
+			for _, e in ipairs(list) do
+				if e.id == id then now = e.quantity end
+			end
+			return { item = itemName(id), id = id, pocket = pocket.name, had = have, now = now }
 		end,
 	}
 end

@@ -57,6 +57,16 @@ Everything past `frame`, `mode` and `location` is the game module's. Emerald, on
   legend by number), `:` beyond this map's own edge. Only in the overworld.
 - **`nearby`** — the other characters: slot, local id, graphic, map `x`/`y`, and `dx`/`dy` from you.
 - **`warps`** — every warp on the map: `x`, `y` and the map it leads `to`.
+- **What the save has**, in an `observe` you call only (a press's, select's or walk's `before` and
+  `after` leave it out):
+  - **`party`** — per Pokémon: `slot`, `species` (and `species_id`), `nickname`, `level`, `hp`,
+    `max_hp`, `stats`, `exp`, `held_item`, `moves` (`name`, `id`, `pp`), and `status_raw` (only 0,
+    no status, is measured). `checksum_mismatch` instead of species and moves when the slot's
+    encrypted data does not add up.
+  - **`bag`** — the pockets that hold anything: `items`, `poke_balls`, `tms_hms`, `berries`,
+    `key_items`, each a list of `item`, `id`, `quantity`.
+  - **`money`**, **`badge_count`**, and **`badges`**: which of the trainer card's eight, numbered 1-8
+    from the left.
 - A byte whose character is not measured, or that draws nothing, reads as `{XX}`.
 
 The driver reports each of `map`, `mode`, `dialogue` and `menu` changing as an event:
@@ -75,6 +85,14 @@ code rather than by memory. A failed or refused cheat changes nothing.
   measured). Refused outside vanilla's overworld callback. It answers once the game has left the
   overworld and come back on the target map (`done`, and the frames it took) — **the screen is still
   fading in at that moment**, so wait before judging a picture; the fade's length is not measured.
+- **Emerald `give_item`** `{item, quantity}`: `item` is a name as the bag shows it (case ignored) or an
+  id; `quantity` 1-99, default 1. It adds to that item's stack in the pocket the game files it under,
+  or starts one, and `report` says `had` and `now`. Refused past 99 in one stack, and outside the
+  overworld.
+- **Emerald `set_flag`** `{flag, value}`: one story flag on or off (`value` defaults to true), ids 1-2399;
+  `report` reads it back. Only the badge flags are measured: badge N is flag 2150 + N (0x866 + N).
+  Refused outside the overworld.
+- Cheats write the save's data in memory: **an in-game save afterwards keeps them.**
 
 ## Drivers so far
 
@@ -84,7 +102,8 @@ code rather than by memory. A failed or refused cheat changes nothing.
   `autoplay/runs/driver_bizhawk.log`. Game modules: `games/emerald.lua` (vanilla: position and
   warp from `emerald/probes/cmd_drive.lua`'s measurements, text and menus from
   `text_probe.lua`'s and `charset_probe.lua`'s, the map and `walk` from `map_probe.lua`'s and
-  `step_probe.lua`'s). **While a press, a select or a walk runs it holds the controller** — take it
+  `step_probe.lua`'s, the party, bag, badges and their cheats from `party_bag_probe.lua`'s and
+  `substruct_order_probe.lua`'s). **While a press, a select or a walk runs it holds the controller** — take it
   off the target when done.
 - **Text costs top speed.** Reading text needs execute hooks, and any execute hook costs the
   emulator about a third of its unthrottled speed (344 frames/s without, 242-246 with, one instance,
