@@ -703,3 +703,25 @@ also named `exec` and a noclip cheat, neither built.
 
 **Next:** the scenario runner, which the Phase 0 checkpoint moved to straight after Phase 1 (the plan's Phase 4:
 a scenario that replays a measurement with no model, 3 of 3, and fails when its expectation is broken).
+
+## 2026-09-17 (end of the session) — where autoplay stands, for the next chat
+
+The user moved to a new chat as context grew. The Emerald emulator this session started (vanilla, port 7870)
+was saved as the snapshot `session_end_route103` (Route 103 after MAY's battle, MUDKIP Lv7, money 3300),
+taken off the loader (target `none`), closed and checked gone. The Crystal chat's emulator was left running.
+Nothing is pushed. This session's lessons are filed (`pitfalls/by-lesson.md`, three 2026-09-17 entries; the
+play-game skill's "tap confirm" line).
+
+**Snapshots** (gitignored `autoplay/states/emerald/`): `new_game` (Birch's first box), `acc_met_may`,
+`acc_got_mudkip`, `acc_before_may` (below MAY on Route 103, before her battle), `session_end_route103`;
+`sight_armed_0_17` (route 0.17, RICK and TIANA unbeaten, on the old save); `before_new_game` (the old save on
+0.17, before the soft reset). The acceptance run log: `autoplay/runs/2026-09-17_003014.570637.ndjson`.
+
+**To pick up:** launch vanilla Emerald with `MESHGHOST_DEV_LOADER_TARGET=bizhawk-dev-loader-autoplay.target`
+and `AUTOPLAY_GAME=emerald`, the driver's path in that control file, `restore` a snapshot, and drive with
+`mcpcall` (built once, `-core`, and `-resume` for a run that must stay one record: README "Running it").
+Prefer the one-call programs; on a screen `observe` does not read, look with `screenshot` before any press.
+
+**Next:** the scenario runner (Phase 0's checkpoint put it straight after Phase 1). Open on Emerald: the battle
+message after STRING SHOT that waits without being counted as waiting; readers for the naming keyboard, the
+clock and the starter bag; `exec` and noclip.

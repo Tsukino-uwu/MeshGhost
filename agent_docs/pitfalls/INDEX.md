@@ -359,3 +359,6 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - A subagent's inventory of the wire was wrong twice, and read like a record (2026-09-13) [CHECK: preflight "SYNCED.md matches the send code" counts keys from source]
 - Emerald autoplay: "what a hook costs" was measured against a driver that cost more (2026-09-16) [RULE: checklists/before-trusting-a-reading.md]
 - A scripted play loop stalled for minutes on states it did not handle (2026-09-16) [RULE: .claude/skills/play-game/SKILL.md]
+- Emerald autoplay: presses nobody meant as choices made choices -- a held A and a blind nudge (2026-09-17) [RULE: .claude/skills/play-game/SKILL.md]
+- Emerald autoplay: one run split across as many log files as tool calls (2026-09-17) [CHECK: autoplay runlog TestResumeCarriesOnTheOpenSegment]
+- Emerald autoplay: a fix that changed nothing, and a callback that did not exist (2026-09-17) [RECORD]

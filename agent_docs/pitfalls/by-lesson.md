@@ -7540,3 +7540,51 @@ its own length on screen.
 
 **The rule this adds:** drive with one-call programs where they exist; a loop run from outside stops
 within seconds of the game's state not changing and says what it saw.
+
+## Emerald autoplay: presses nobody meant as choices made choices -- a held A and a blind nudge (2026-09-17)
+
+**Symptom.** On a new game, "Are you a boy? Or are you a girl?" and "So it's A?" were answered with their
+first entries without a choice ever being made, and later the starter bag picked TORCHIC, a nickname was
+answered YES and "AA" was typed on the naming keyboard. Each was noticed only afterwards, from a capture.
+
+**Cause.** Two presses. `advance_text` HELD A on a finished message until the message changed, and the menu
+that the game opens as the text ends took that A. And a nudge -- A after 3 seconds of no change, added for
+unmeasured printer states -- fired on screens `observe` does not read, where A is a choice.
+
+**Fix.** A on a message is a 2-frame tap; a message with no arrow is waited on for 20 frames before the tap,
+and `advance_text` then stopped at the clock's and Birch's YES/NO menus. Nudges press only in a battle or on a
+message the driver can read; anywhere else the program answers `stuck` without pressing (`autoplay/README.md`).
+Undone in the game by hand: NO on TORCHIC, B twice on the nickname.
+
+**The rule this adds:** tap confirm, never hold it, and never press on a screen nothing reads -- look first.
+
+## Emerald autoplay: one run split across as many log files as tool calls (2026-09-17)
+
+**Symptom.** Phase 1's acceptance needed one run log labelling every segment, and each `mcpcall` invocation
+started a fresh core that opened its own file with a new walked segment "start".
+
+**Fix.** `runlog.Resume`: a core started with `-resume <file>` rebuilds the open segment -- its label, and
+its claim from the calls' `reached_by` -- and carries on; `mcpcall` passes the flag. The acceptance run was one
+file across 58 cores, its segments walked and reached as they happened.
+
+**The rule this adds:** a record that must span a run is kept by the run, not by the process that happens to
+be serving one call.
+
+## Emerald autoplay: a fix that changed nothing, and a callback that did not exist (2026-09-17)
+
+**Symptom.** `battle` answered `stuck` after MAY's battle while her script walked her away. The first fix --
+wait up to 10 seconds while a script runs -- answered `stuck` again, identically.
+
+**On the way.** The stuck signature's callback, a decimal, was converted to hex by eye as 0x0808605D, which
+names no routine; `awk` over the symbol file around it found nothing, and the arithmetic done properly gave
+0x08085E5D, the overworld's own callback.
+
+**Cause, measured.** `trainer_approach_probe.lua` on a replay: the script status went to 2 (no script) 1044
+frames after the battle, and the 10-second wait ran out 31 frames later; the stuck check then fired before the
+program's own 90-frame quiet count could answer `ended`.
+
+**Fix.** With no script running in the overworld, the stuck check leaves the ending to the quiet count; the
+replay ended `ended`.
+
+**The rule this adds:** when a fix changes nothing, measure the timeline before a second guess; and convert
+numbers with a tool, never by eye.

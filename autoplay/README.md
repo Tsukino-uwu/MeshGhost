@@ -186,7 +186,9 @@ was one file across 58 cores.
 - **Without an agent**: `go run ./cmd/mcpcall -calls '<JSON list of {name, arguments}>'` (from
   `autoplay/`) starts the core over stdio the way Claude Code does, waits for a driver, and prints
   each tool's answer. A second instance passes its own `-listen 127.0.0.1:<port>` and `-log runs/<name>.log`;
-  a run spread over many invocations passes `-resume runs/<its file>.ndjson` to each (The run log).
+  a run spread over many invocations passes `-resume runs/<its file>.ndjson` to each (The run log). For many
+  calls, build both once (`go build -o <dir>/autoplay.exe ./cmd/autoplay`, the same for `./cmd/mcpcall`) and pass
+  `-core <dir>/autoplay.exe`: `go run` compiles on every invocation.
 - **CI**: `.github/workflows/autoplay.yml` — build, vet, race tests, `govulncheck`, inside this module.
 
 ## What stays out of the repo

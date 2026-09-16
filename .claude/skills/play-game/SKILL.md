@@ -52,8 +52,8 @@ change, returning to a checkpoint.
 2. **Check what this SAVE has** — party, bag, badges — before planning around an ability.
 3. **Somewhere unfamiliar, talk to NPCs and read signs**: they usually say where to go and why not.
 4. **Act. Menus are cursor-then-confirm**: move the selection, THEN confirm. **A** activates whatever
-   is highlighted; **B** cancels, declines and also advances dialogue; **START** opens the main menu
-   and often means OK on entry screens; a long conversation is several boxes.
+   is highlighted; **B** cancels, declines and advances dialogue; **START** often means OK on entry
+   screens. **TAP** confirm, never hold it (a held A answered the menu under it), and never press blind.
 5. **Verify with a memory read** — did the coordinate, map id, cursor or menu state change? A wrong
    menu press looks exactly like being stuck: ask "what is selected", not "why is this game broken".
 
