@@ -439,3 +439,21 @@ red on `bridge-port-drift` -- the PLANT failed, not the gate: the runner checks 
 the pattern's `$` anchor does not match before a carriage return. The pattern now tolerates `\r`
 (proved against both endings; a sed attempt put a raw CR byte into the file first, which the
 byte dump caught). The other three regex fixtures anchor on nothing that ends a line.
+
+## 2026-09-16 — two entry points in `agent_docs/`, and one line in `reviewing.md`
+
+The user asked for two files: `dependencies.md`, what to install on a fresh Windows 11 with only VS
+Code and a clone, by tier of what each unlocks; and `orientation.md`, the whole project in plain
+words for the maintainer coming back after a long break. Both written, indexed at the top of
+`agent_docs/README.md`'s "Read before you…" list, and recorded in `doc-history.md` with what each
+leaves out. Two corrections from the user during the pass: a personal program (a screen recorder)
+is not a repo dependency, and `orientation.md`'s adapter ladder needed a step of its own before
+"find the player" — learn how the GAME spawns a character and does the thing, and ask it to.
+
+The Emerald paragraph shipped stale and was fixed the same day: the adapter's own README header
+still claims the spawned ladder ships, while `phases/phase8.md` records drawn-only since 2026-09-11.
+That README and `FLAGS.md` are now an item in `status.md`.
+
+`docs/reviewing.md` gained one sentence pointing a reviewer at `orientation.md`'s first three
+sections as the map, with the rest named as internal practice to skip — the user's call after
+weighing whether a maintainer-voice file belongs in a reviewer's guide.
