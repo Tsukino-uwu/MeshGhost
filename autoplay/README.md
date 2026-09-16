@@ -102,19 +102,30 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
 
 - **`location`** — `map` (group.number), `x`, `y` and `facing`. The tile changes when a step ENDS, not
   when it begins.
-- **`mode`** — `overworld` or `not_overworld` (a full-screen menu such as the PACK, a door's map load,
-  the title and main menu). A battle is not measured yet, so it is not named.
+- **`mode`** — `overworld`, `battle` (a wild one measured), or `not_overworld` (a full-screen menu such
+  as the PACK, a door's map load, the title and main menu).
 - **`dialogue`** — `box` (the lines in the message box) and `state`: `printing`, `waiting_for_button`
   (the ▼), or `finished` (the last box, no ▼). There is no `box_index`: the tile buffer shows one box.
-- **`menu`** — a one-column menu with a ▶ cursor (the START menu, a YES/NO, the main menu): `items` and
-  `cursor`, 0-based. Grids and scrolling lists (the PACK's items) are not read yet.
-- **`screen_text`** — `row` and `text` for every other row holding words.
+  Right after a `restore`, a waiting box can read `printing` until its ▼ blinks back (16 frames).
+- **`menu`** — a menu with a ▶ cursor: `items` and `cursor`, 0-based. The START menu, a YES/NO, the main
+  menu, and in a battle the action grid (`columns: 2`, FIGHT PKMN / PACK RUN) and the move list.
+  Scrolling lists (the PACK's items) are not read yet.
+- **`screen_text`** — `row` and `text` for every other row holding words, only while the font is in the
+  tiles (a Pokémon's picture reuses them; `crystal/MEASURED.md`, "Which font is loaded").
+- **`local_map`** — 15 by 11 around the player: `@` you, `N` a character, `W` a warp, `S` a sign, `#`
+  collision 0x07, `.` 0x00, `:` past this map's edge, and a letter per other collision byte with what it
+  did when measured (0x15 trees, 0x18 tall grass, 0x29 water, 0x71 a door, ledges).
+- **`nearby`** — each character: `slot`, `map_object`, `graphics_id`, `x`/`y`, `dx`/`dy`, `facing`,
+  `movement_type_raw`.
 - **`warps`** — `x`, `y`, the map it leads `to` and `to_warp`, the destination's warp number from 1.
-- Not yet: `local_map`, `nearby`, `movement`, `battle`, and what the save has. The events are
+- **`extras.script_running_raw`** — 255 while a script has the controls: a message, a menu, a scene, a
+  wild encounter, or a picture waiting for a button with no box on screen.
+- Not yet: `movement`, `battle` (the battlers), trainer sight, and what the save has. The events are
   `map_changed`, `mode_changed`, `dialogue_changed`, `menu_changed` and `battle_mode_raw_changed`.
 - Its tools: `walk` (on foot only; `run` walks and says `ran: false`, since Crystal has no running
-  shoes; a door answers once the player stands on the new map) and `select`. No `goto`, `battle`,
-  `advance_text` or cheats yet.
+  shoes; a door or a map edge answers once the player stands on the new map; `blocked` names a
+  character in the way; `script_started` when a step starts a scene or an encounter) and `select`. No
+  `goto`, `battle`, `advance_text` or cheats yet.
 
 ## The run log
 

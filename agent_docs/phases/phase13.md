@@ -725,3 +725,49 @@ Prefer the one-call programs; on a screen `observe` does not read, look with `sc
 **Next:** the scenario runner (Phase 0's checkpoint put it straight after Phase 1). Open on Emerald: the battle
 message after STRING SHOT that waits without being counted as waiting; readers for the naming keyboard, the
 clock and the starter bag; `exec` and noclip.
+
+## 2026-09-17 (the Crystal chat, later) — Crystal step 2: the map, characters, scripts, a picture, and a wild battle
+
+**The user, on being told step 1 was done:** *"Keep going, il tell you if i want us to stop or take a break"*;
+later, *"can we pause after you are done with what you are currently doing, and then continue in a new chat
+after you have written down things you have learned from this chat ? context is getting high"*.
+
+**Built on `crystal.lua`.** `local_map` and `nearby` (the collision formula `cmd_drive.lua` measured, now
+checked on three maps, and the object records); signs in the map; `walk` names a character that refuses a
+step, crosses a map edge, and stops with `script_started` the moment a script takes the controls; `mode`
+says `battle`; menus read as grids and in a battle (the action grid and the move list, `select` RUN in 2
+steps); `screen_text` and 0x60-0x7F only while the tiles hold a measured font. Measurements:
+`crystal/MEASURED.md`, four entries (the map, a script taking over, which font is loaded, a wild battle);
+two new probes (`autoplay_map_probe.lua`, `autoplay_font_probe.lua`); a new way to measure in
+`_template/probes.md` ("A tile id is a letter only while the font is in that tile").
+
+**Walked, not reached, up to the battle.** From the town: the west exit's scene with no Pokémon, into Elm's lab,
+his whole speech (about 70 boxes read by the reader, YES/NO through `select`), CYNDAQUIL taken, the aide's
+POTION, out, across the edge onto Route 29, into tall grass, a wild PIDGEY, RUN. The speech went through a
+scratch stand-in for `advance_text` (a Python loop in the chat's scratch folder, untracked: A only on a
+waiting box, stop at a menu or after 3 unchanged looks), because the real program waits on moving the text
+machine to shared Lua. No in-game save; snapshots in `autoplay/states/crystal/`: `west_exit_approach`,
+`lab_pick_one`, `lab_cyndaquil_picture`, `lab_take_cyndaquil`, `lab_has_cyndaquil`,
+`newbark_with_cyndaquil`, `route29_east`, `battle_pidgey_appeared`, `battle_menu` (the move menu),
+`route29_after_run` (CYNDAQUIL L5, one POTION, beside Route 29's grass).
+
+**What went wrong on the way:**
+- **An extra A with no box open started a conversation** with the girl the player faced. A press to advance
+  text must look first; the scratch loop does.
+- **A Pokémon's picture read as text** ("AHOV:dk"): it is drawn with the letters' tile ids. And in a battle
+  the ids 0x60-0x7F draw HP-bar pieces, so the level mark read as a kana. Checksums of the tiles in VRAM told
+  every screen apart; each font set was charset-probed on its own.
+- **`walk` sat 135 frames on a scripted tile** holding a direction the game ignored; `wScriptRunning` going
+  to 255 is the signal, and `walk` stops on it now.
+- **The battle's action grid read as a message** — it is drawn inside a frame shaped like the message box.
+  A menu whose items sit inside the box is not a message.
+- **The move menu opened no window** (`wWindowStackSize` 0), so the first reader missed it; in a battle a
+  menu counts without one.
+- **A batch ran on the wrong state**: the previous call had restored the town sign, not the battle.
+
+**To pick up (Crystal):** the instance (EmuHawk on vanilla V1.0, port 7871) was left running with its loader
+target at `none`; put `autoplay/drivers/bizhawk/driver.lua` back in
+`dev-scripts/bizhawk-dev-loader-autoplay-crystal.target` and `restore` `route29_after_run`. Next, in order:
+the battlers in memory (species, HP, moves, read against the battle screen) and a trainer battle (Route 30);
+then the PACK's scrolling list. `advance_text` and `battle` for Crystal need the user's call on moving
+`emerald.lua`'s text machine into shared Lua.

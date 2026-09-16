@@ -1101,6 +1101,21 @@ under test (the printer) runs untouched.
   again at a larger scale.
 - Use only line breaks and box breaks you measured in real text first, and leave every other command
   byte out of the page.
+- **On a tile-based screen, write the tile buffer instead** (Crystal, 2026-09-17,
+  `crystal/probes/autoplay_charset_probe.lua`): with a message box open and waiting, the game copies
+  the buffer to the screen, so bytes written into the box's rows draw at a known cell each and need no
+  marker at all.
+
+## A tile id is a letter only while the font is in that tile — checksum the tiles — 2026-09-17
+
+**Crystal's text is its tile buffer, and the same ids draw other things.** A Pokémon's picture in Elm's
+lab used the letters' ids, and text read off the buffer came out as "AHOV:dk"; in a battle, bytes that
+are punctuation in a message box draw HP-bar pieces. What an id means is what its tile holds in video
+RAM right now. `crystal/probes/autoplay_font_probe.lua` logs a checksum of the tiles each id range uses,
+on change; restore every screen whose text was read correctly, then the ones that misread, and the
+values separate cleanly (one for the letters everywhere, one per font set for the range that differs).
+The reader then names a byte only while its range's checksum is a measured one. Charset-probe each set
+separately — the battle's was a different table, not a subset.
 
 ## Ask the game's own routine for a table — hook its entry AND its return — 2026-09-16
 
