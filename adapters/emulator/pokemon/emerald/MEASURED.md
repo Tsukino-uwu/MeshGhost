@@ -47,6 +47,8 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - Text printing, menus and the character encoding (2026-09-16)
 - The map around the player, and one walked step (2026-09-16)
 - The party, the bag, money, badges and flags (2026-09-16)
+- A new screen's windows (2026-09-16)
+- What the driver and its hooks cost (2026-09-16)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -90,6 +92,8 @@ table holds the byte-to-character mapping. Moved here from `UNVERIFIED.md` the d
 - **What an execute hook costs.** One emulator, frame limiter off, standing in the Pokémon Center:
   344 frames/s with no hook, 245.6 with one, 242.0 with five, so the price is having any at all.
   Requested 400% read 238-240 either way, capped by the setting rather than the CPU.
+  **Superseded** by "What the driver and its hooks cost" (2026-09-16): the no-hook figure was the
+  driver's reconnect loop.
 
 ### The map around the player, and one walked step (2026-09-16)
 
@@ -192,6 +196,56 @@ gitignored). Used by `autoplay/drivers/bizhawk/games/emerald.lua` for `party`, `
   99, a name the table lacks, and any item while the trainer card was open.
 - **Not seen by any of it**: an egg, a status condition, a second real Pokémon, a battle's effect on
   the slot, what kind 2 holds, the PC's storage, a stack past 99, any flag but the badges, a patched ROM.
+
+### A new screen's windows (2026-09-16)
+
+**Vanilla ROM, the same save.** From `probes/window_life_probe.lua` (read-only: every call to the
+routines the build names InitWindows, AddWindow, RemoveWindow, FreeAllWindowBuffers,
+ClearWindowTilemap and Menu_MoveCursor, with byte +0 of window ids 0-11 beside each) while the agent
+opened the START menu, chose POKéMON, opened and closed the Pokémon's submenu and went back out. Used
+by `autoplay/drivers/bizhawk/games/emerald.lua`, which forgets its windows' text and menu there.
+
+- **The START menu**: AddWindow, then Menu_MoveCursor, with window 1's background byte turning 00.
+- **Choosing POKéMON**: FreeAllWindowBuffers, then gMain.callback2 changed twice, then InitWindows;
+  after InitWindows ids 0-6 read 00 00 00 00 00 00 02 before any AddWindow, and the START menu's window
+  1 never passed through RemoveWindow or ClearWindowTilemap. The party menu then drew its own text
+  with window 1 in use, which the driver had been reading as the START menu with seven empty items.
+- **The submenu** (SUMMARY, ITEM, CANCEL) was window 8, opened with AddWindow and Menu_MoveCursor and
+  closed with ClearWindowTilemap and RemoveWindow on 8 and on 9, its message window.
+- **Back out**: FreeAllWindowBuffers, InitWindows, AddWindow, Menu_MoveCursor, and the START menu was
+  drawn again on window 1.
+- **With InitWindows hooked**, the same path read no menu in the party menu, the submenu's three items
+  on window 8 (`select` CANCEL closed it) and the START menu again on the way out.
+- **Not seen**: any other screen change (the bag, a battle, a map load), and whether InitWindows ever
+  runs while a screen keeps its windows.
+
+### What the driver and its hooks cost (2026-09-16)
+
+**Replaces** the text entry's "What an execute hook costs". One emulator, vanilla, standing still in
+town (map 0.10) with no input, from `probes/hookcost_probe.lua`: the frame limiter off, a
+`client.get_approx_framerate()` reading every 120 frames, the median of the last 20 of 30 (the reading
+climbs for the first several), then the limiter back on. In frames per second:
+
+| Loaded | No core listening | A core connected |
+| --- | --- | --- |
+| nothing | 835 | -- |
+| the driver, no hooks | 350 | 818 |
+| the driver, its six hooks | 244 | 415.5 |
+| the driver, one no-op hook | -- | 410.5 |
+| the driver retrying by wall clock, no hooks | 802.5 | -- |
+| the driver retrying by wall clock, six hooks | 402.5 | -- |
+
+- **The driver's reconnect loop was the larger cost**: with no core listening, a connect attempt with
+  a 50 ms timeout every 30 frames took 835 to 350. Retrying once a second instead read 802.5.
+- **Any execute hook halves top speed**, and how many does not matter: 818 with none, 410.5 with one
+  that does nothing, 415.5 with the driver's six.
+- **The old figures** (344 with no hook, 245.6 with one, 242.0 with five) match the no-core column: that
+  run had the driver loaded and no core connected.
+- A `get_approx_framerate()` of about 60 in the first sample, and dips near 360 once a second in the
+  retry runs, are the reading's lag and the retry itself.
+- `emu.limitframerate` and `client.get_approx_framerate` are userdata in this BizHawk, not Lua
+  functions: a check for `type(...) == "function"` reports them absent.
+- **Not measured**: another place in the game, a second emulator running beside it, a battle.
 
 ## Not measured yet
 

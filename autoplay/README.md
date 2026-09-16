@@ -105,10 +105,11 @@ code rather than by memory. A failed or refused cheat changes nothing.
   `step_probe.lua`'s, the party, bag, badges and their cheats from `party_bag_probe.lua`'s and
   `substruct_order_probe.lua`'s). **While a press, a select or a walk runs it holds the controller** — take it
   off the target when done.
-- **Text costs top speed.** Reading text needs execute hooks, and any execute hook costs the
-  emulator about a third of its unthrottled speed (344 frames/s without, 242-246 with, one instance,
-  2026-09-16), however many there are. `AUTOPLAY_TEXT=0` in the emulator's environment leaves them
-  out for a run that wants full fast-forward and no text.
+- **Text costs top speed.** Reading text needs execute hooks, and any execute hook halves the
+  emulator's unthrottled speed, however many there are (one instance, a core connected: 818
+  frames/s without, 410-416 with; `emerald/MEASURED.md`, 2026-09-16). `AUTOPLAY_TEXT=0` in the
+  emulator's environment leaves them out for a run that wants full fast-forward and no text. With no
+  core running, the driver retries once a second, which costs little (802.5 with no hooks).
 
 ## Running it
 

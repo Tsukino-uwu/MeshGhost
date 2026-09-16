@@ -357,3 +357,4 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - Five of mine from the same session, and the rule the user made of the last (2026-09-13) [RULE: probe logs named per instance; check a window is free before driving it; test a wait condition once; CLAUDE.md "measured or observed only -- nothing borrowed"]
 - A licensing gate that scanned 2 Markdown files of 184, because `git` in PowerShell is MSYS2's (2026-09-13) [CHECK: `dev-scripts/preflight.ps1` lists tracked files through the plain listing filtered in PowerShell; never `git ls-files '*.md'`]
 - A subagent's inventory of the wire was wrong twice, and read like a record (2026-09-13) [CHECK: preflight "SYNCED.md matches the send code" counts keys from source]
+- Emerald autoplay: "what a hook costs" was measured against a driver that cost more (2026-09-16) [RULE: checklists/before-trusting-a-reading.md]

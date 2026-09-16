@@ -361,3 +361,36 @@ play-game files are done: the skill and its references exist and `playing.md` is
 but its Phases 2-8 and their acceptance checks exist nowhere else in the tree. Nothing was deleted.
 
 **Next for Phase 1:** the stale menu window; list menus (the bag, the party menu) and battle text.
+
+## 2026-09-16 (same session, later still) — Phase 1 step 7: a new screen's windows, and what the driver costs
+
+**The stale menu window, measured and fixed.** `probes/window_life_probe.lua` logged every call to the
+window routines while the agent went from the START menu into the party menu and back. Choosing
+POKéMON never removed the START menu's window 1: the game freed all window buffers and ran the routine
+the build names InitWindows, which rewrote the window table, and the party menu then drew into window
+1 itself. The driver now forgets its windows' text and menu at InitWindows, and after a `restore` (a
+loaded snapshot is not the memory the hooks saw). Live: no menu in the party menu, the submenu's three
+items on window 8, `select` CANCEL, and the START menu read again on the way out.
+
+**A sixth hook needed pricing, and the price on record was wrong.** `probes/hookcost_probe.lua` turns
+the frame limiter off for a settled sample. Taken with NOTHING loaded first, it read 835 frames/s,
+against the recorded "344 with no hook": that figure was the driver's reconnect loop, a 50 ms connect
+attempt every 30 frames with no core listening. With a core connected, 818 with no hooks, 415.5 with
+the six and 410.5 with one no-op hook: any hook halves top speed, and the count does not matter. The
+driver now retries by the wall clock, once a second: 802.5 with no core and no hooks, 402.5 with the
+hooks. The lesson is filed (`pitfalls/by-lesson.md`, a line on `before-trusting-a-reading.md`), and
+`_template/probes.md`'s cost section now says to take the baseline with nothing loaded. Phase 0's
+risk list had named it: "a driver confounding any cost measurement".
+
+**What went wrong on the way:**
+- **The first "connected, six hooks" run read 820, which would have meant hooks are free.** The
+  `AUTOPLAY_TEXT="0"` global that a scratch script set for the no-hook run outlived that script's
+  removal from the loader, so the driver installed none; its own log line said so, and a scratch
+  script clearing the global went first in every later run.
+- **The first existence check called `emu.limitframerate` absent**: BizHawk's functions are userdata
+  here, so `type(f) == "function"` is false for all of them.
+- **The first samples never settled**: the frame-rate reading climbs for several seconds after the
+  limiter goes off (60 to 778 over ten samples), so the median is now of the last 20 of 30.
+
+**Next for Phase 1:** list menus (the bag and the party menu's own cursors) and battle text; then the
+acceptance run, from a new game to the first trainer battle.

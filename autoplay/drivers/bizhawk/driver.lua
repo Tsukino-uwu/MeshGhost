@@ -12,8 +12,11 @@
 
 local PROTOCOL = 1
 local MAX_LINE = 64 * 1024
-local RETRY_FRAMES = 30
-local REJECT_BACKOFF_FRAMES = 600
+-- Reconnect by the wall clock, not by frames: a connect attempt to a port nobody listens on blocks for
+-- its timeout, and one every 30 frames took the emulator from 835 frames/s to 350 with no core running
+-- (hookcost_probe.lua, 2026-09-16) -- at fast-forward, 30 frames is a few hundredths of a second.
+local RETRY_SECONDS = 1
+local REJECT_BACKOFF_SECONDS = 10
 local PROGRAM_FRAME_LIMIT = 1800 -- a select across a long menu is far shorter; the core waits 40s
 
 local function scriptDir()
@@ -64,7 +67,7 @@ if gameName and gameName:match("^[%w_]+$") then
 end
 
 local sock, partial, state = nil, "", "down"
-local waitFrames = 0
+local nextTry = 0 -- os.time() at or after which to try connecting again
 local queue = {}
 local hold = nil
 local lastDiff = nil
@@ -87,7 +90,7 @@ end
 local function close(why, backoff)
 	if sock then pcall(function() sock:close() end) end
 	sock, partial, state, queue, hold = nil, "", "down", {}, nil
-	waitFrames = backoff or RETRY_FRAMES
+	nextTry = os.time() + (backoff or RETRY_SECONDS)
 	log("link down: " .. why)
 end
 
@@ -310,6 +313,8 @@ local function begin(req)
 			return true
 		end
 		log("restore " .. path)
+		-- Whatever the module built up from hooks describes the memory before the load, not after.
+		if game.restored then game.restored() end
 		-- Answer one frame later, from the loaded state.
 		hold = { id = req.id, left = 1, before = nil, finish = function(after) return { path = path, after = after } end }
 		return false
@@ -362,7 +367,7 @@ local function handle(line)
 		log("welcomed by the core on port " .. port)
 	elseif msg.type == "reject" then
 		local reason = type(msg.payload) == "table" and msg.payload.reason or "?"
-		close("rejected: " .. tostring(reason), REJECT_BACKOFF_FRAMES)
+		close("rejected: " .. tostring(reason), REJECT_BACKOFF_SECONDS)
 	elseif msg.id and state == "ready" then
 		queue[#queue + 1] = msg
 	end
@@ -374,7 +379,7 @@ local function connect()
 	s:settimeout(0.05)
 	if not s:connect("127.0.0.1", port) then
 		pcall(function() s:close() end)
-		waitFrames = RETRY_FRAMES
+		nextTry = os.time() + RETRY_SECONDS
 		return
 	end
 	s:settimeout(0)
@@ -442,11 +447,7 @@ end
 MESHGHOST_DEV_TICK = function()
 	if not game then return end
 	if not sock then
-		if waitFrames > 0 then
-			waitFrames = waitFrames - 1
-		else
-			connect()
-		end
+		if os.time() >= nextTry then connect() end
 		return
 	end
 	drain()

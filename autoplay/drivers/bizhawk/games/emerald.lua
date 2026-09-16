@@ -40,6 +40,10 @@ local isVanilla = romHash == VANILLA_SHA1
 -- +4 the window, +6/+7 x and y; R1 the speed).
 local ADDTEXTPRINTER, FILLWINDOWPIXELBUFFER, REMOVEWINDOW, CLEARWINDOWTILEMAP, MENU_MOVECURSOR =
 	0x0800467c, 0x08003c48, 0x08003574, 0x080038a4, 0x081984d8
+-- The routine named InitWindows: window_life_probe.lua saw it rewrite the whole window table when the
+-- START menu gave way to the party menu and again on the way back, after FreeAllWindowBuffers and with
+-- no RemoveWindow for the START menu's window 1 -- which the party menu then reused (2026-09-16).
+local INITWINDOWS = 0x080031c0
 -- 0x24 bytes per window id. +0x1B is 1 while a message is on its way (printing or waiting on its
 -- arrow) and 0 once its end is reached; +0x1C is 0 while printing and 2 while the red arrow waits for
 -- a button. Other +0x1C values are not measured and go out raw.
@@ -165,8 +169,13 @@ end
 function hooks.menuMoveCursor()
 	menuWindow = r8(SMENU + 5)
 end
+-- A new screen's windows: nothing printed or opened before belongs to any window id now.
+function hooks.initWindows()
+	shown, dialogue, menuWindow = {}, nil, nil
+end
 
 local HOOKS = {
+	{ at = INITWINDOWS, fn = hooks.initWindows },
 	{ at = ADDTEXTPRINTER, fn = hooks.addTextPrinter },
 	{ at = FILLWINDOWPIXELBUFFER, fn = hooks.fillWindowPixelBuffer },
 	{ at = REMOVEWINDOW, fn = hooks.removeWindow },
@@ -612,9 +621,10 @@ function game.build()
 end
 
 -- Install the text hooks, on the measured ROM only. Returns what happened, for the driver's log.
--- Any execute hook costs the emulator a fixed share of its top speed, however many there are (one
--- instance, frame limiter off, 2026-09-16: 344 frames/s with none, 245.6 with one, 242.0 with all
--- five), so AUTOPLAY_TEXT=0 leaves them out for a run that wants full fast-forward and no text.
+-- Any execute hook halves the emulator's top speed, however many there are (hookcost_probe.lua, one
+-- instance, frame limiter off, a core connected, 2026-09-16: 818 frames/s with none, 410.5 with one
+-- no-op hook, 415.5 with these six), so AUTOPLAY_TEXT=0 leaves them out for a run that wants full
+-- fast-forward and no text.
 function game.start()
 	if (AUTOPLAY_TEXT or os.getenv("AUTOPLAY_TEXT")) == "0" then
 		return "AUTOPLAY_TEXT=0: no text hooks"
@@ -640,6 +650,11 @@ end
 function game.stop()
 	for _, name in ipairs(hookNames) do pcall(event.unregisterbyname, name) end
 	hookNames, shown, dialogue, menuWindow = {}, {}, nil, nil
+end
+
+-- After a snapshot is loaded: the text seen so far belongs to the memory that was replaced.
+function game.restored()
+	shown, dialogue, menuWindow = {}, nil, nil
 end
 
 -- `asked` is true for the agent's own observe; the before and after of a press, a select or a walk leave

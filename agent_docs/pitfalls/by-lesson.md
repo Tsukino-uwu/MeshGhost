@@ -7491,3 +7491,31 @@ come from a report again.
 
 **The rule this adds:** a delegated search is where to look, never what to write -- the same rule
 `CLAUDE.md` gives a decompilation, applied to our own agents. Re-read the site, then write the row.
+
+## Emerald autoplay: "what a hook costs" was measured against a driver that cost more (2026-09-16)
+
+**Symptom.** None visible. `emerald/MEASURED.md` recorded 344 frames/s with no hook and 242-246 with
+some, and autoplay's README told agents that reading text costs about a third of top speed. A sixth
+hook was about to be priced against those numbers.
+
+**Diagnosed.** A new probe, `emerald/probes/hookcost_probe.lua`, turned the frame limiter off for a
+settled sample and took a baseline with NOTHING loaded first: 835. Then the driver with no hooks and no
+core listening, 350; with its hooks, 244; with a core connected, 818 and 415.5; and one no-op hook
+against the six, 410.5 and 415.5.
+
+**Cause.** The old "no hook" run still had the driver loaded with no core listening, and the driver
+tried to connect every 30 frames with a 50 ms timeout. At fast-forward that loop cost more than the
+hooks did, and the one-against-five comparison ran under it too.
+
+**Fix.** The driver retries by the wall clock, once a second: 802.5 with no core and no hooks. The hook
+cost is now stated against the clean numbers: any execute hook at all takes 818 to about 410, and the
+count does not matter.
+
+**On the way.** The first "connected, six hooks" run read 820, which would have meant hooks cost
+nothing. It was void: the `AUTOPLAY_TEXT="0"` global set by a scratch script outlived that script's
+removal from the loader, so the driver installed no hooks. The driver's own "no text hooks" log line
+caught it before the number was written down.
+
+**The rule this adds:** price a feature against nothing loaded as well as against the script without
+it. A "without" that still runs the rest of the script prices the feature against whatever else that
+script is doing.

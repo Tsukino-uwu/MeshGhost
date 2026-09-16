@@ -9,6 +9,7 @@ The instrument is the first suspect. When a person sees what the numbers deny, t
 - **Two renderers disagreeing name the field.** List the symptom per tier before forming a theory, and use the one that is right as the control.
 
 ## Every lesson filed here
+- **Price a feature against NOTHING loaded too, not only the script without it** -- Emerald autoplay's "344 frames/s with no hook" was the driver's reconnect loop, which cost more than the hooks (835 with nothing loaded); a "without" that still runs the rest of the script prices the feature against it ([pitfalls/by-lesson.md](../pitfalls/by-lesson.md), 2026-09-16).
 - **An OAM slot number is not an identity** -- a bite's "!" bubble took Crystal's first four entries and pushed the character down, so "the first four are the body" put the rod 16px off for exactly those frames; find a sprite by its tiles and position (2026-09-16, `crystal/probes/borrowed_values_probe.lua`).
 - **A crashed instrument and a real negative look identical** -- a SendKeys harness that threw mid-run returned an empty text box, which is exactly what "the keystroke was intercepted" looks like; the control arm (same test, effect absent) is what told them apart, and it took ten seconds ([phases/phase10.md](../phases/phase10.md), 2026-09-13).
 - **A loaded asset is not an applied one** -- `FindAllOf` returns the factory-default mapping context beside the live one; read the table the engine acts on ([pitfalls/by-lesson.md](../pitfalls/by-lesson.md), 2026-09-08).

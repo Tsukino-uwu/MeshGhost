@@ -317,6 +317,11 @@ So, when instrumenting an effect:
   setting's own cap. With `emu.limitframerate(false)` and LuaSocket's `socket.gettime()`: 344
   frames/s with no execute hook, 245.6 with one, 242.0 with five. **The price was having any hook,
   not how many**, so trimming hooks would have bought nothing. Put the limiter back when done.
+- **...and take the baseline with NOTHING loaded, not the script minus the feature.** The same day,
+  `emerald/probes/hookcost_probe.lua` found that "344 with no hook" was the autoplay driver's reconnect
+  loop running with no core listening: 835 with nothing loaded, 818 with the driver connected and no
+  hook, 410.5 with one no-op hook and 415.5 with six. The any-hook rule held; the cost was half of top
+  speed, not the third first recorded (`agent_docs/pitfalls/by-lesson.md`).
 
 ## Screenshot to your own game's folder, and actually take them — 2026-08-19
 

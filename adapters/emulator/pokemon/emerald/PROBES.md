@@ -164,12 +164,14 @@ audit entry). Heavy while recording; idle otherwise.
 | `map_probe.lua` | Read-only. The map around the player, raw, every time its map, tile, facing or elevation changes: the grid entries and each tile's behaviour byte 7 tiles either side and 5 up and down, every object slot in use, and the map header's event lists. Walked against captures, it is how the local map, the warp list and the grid's border were measured for autoplay (2026-09-16, `MEASURED.md`). |
 | `step_probe.lua` | Read-only. A step frame by frame: the player object's movement bytes and the avatar block on every frame they change, with the pad. How a walked tile, a turn, a wall bump and a door were told apart, and what "at rest" is, for autoplay's `walk` (2026-09-16, `MEASURED.md`). |
 | `party_bag_probe.lua` | Read-only. What the save has, raw, whenever any of it changes: each party slot in three parts plus its 48 encrypted bytes decrypted into four unordered blocks with candidate names beside them, every bag and PC pocket slot with its item-table entry, money, and the flag bytes holding the badges. Read against the party menu, the summary pages, the bag and the trainer card, it is how autoplay's `party`, `bag`, `money` and `badges` were measured (2026-09-16, `MEASURED.md`). |
+| `window_life_probe.lua` | Read-only. Every call to the window routines (set up, add, remove, free all, clear, a menu's cursor) with the window table's state beside it. How a new screen reusing a window id was told apart from a menu still open, for autoplay's `menu` (2026-09-16, `MEASURED.md`). |
 | `substruct_order_probe.lua` | **Writes** the party (live RAM, restored on unload). Asks the game's own routine which encrypted block it reads for each kind of data, for all 24 personality residues: hooks the routine's entry and return address while a command file re-keys the party round by round (2026-09-16, `MEASURED.md`). |
 
 ## Measuring cost
 
 | Probe | What it measures |
 | --- | --- |
+| `hookcost_probe.lua` | Presses nothing; turns the frame limiter off for its sample and back on. Top speed with whatever else is loaded, a settled median, one run per set of scripts, starting with nothing loaded. How the autoplay driver's reconnect loop and the cost of any execute hook were separated (2026-09-16, `MEASURED.md`). |
 | `fpshold.lua` | Read-only, presses nothing. Samples the frame rate while the player STANDS STILL — the right instrument for comparing rendering tiers, because a moving route leaves fixed-position synthetic peers behind and the painted tier's off-screen cull then makes them look free. |
 | `fpsride.lua` | The moving counterpart, for judging a change during real play rather than comparing tiers. |
 | `fps_probe.lua` | Whether the EMULATOR is keeping 60fps. `os.clock` inside the adapter measures the Lua process's own CPU and said 0.44ms/frame while the user still reported lag; `client.get_approx_framerate()` is the instrument for the claim "the script makes it laggy". |
