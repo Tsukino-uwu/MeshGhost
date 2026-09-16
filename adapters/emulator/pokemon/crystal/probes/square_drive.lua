@@ -1,6 +1,6 @@
 -- MeshGhost — Pokémon Crystal: walk the player in a square, forever
 --
--- DEVELOPMENT TOOL. It presses the d-pad; it writes no memory and reads none. `playing.md` allows
+-- DEVELOPMENT TOOL. It presses the d-pad; it writes no memory and reads none. `.claude/skills/play-game/SKILL.md` allows
 -- driving a running game to reach a state, and this is the cheapest version of that: a repeatable
 -- movement pattern that costs nobody's attention.
 --

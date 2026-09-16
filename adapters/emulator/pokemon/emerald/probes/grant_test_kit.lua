@@ -5,7 +5,7 @@
 -- `CLAUDE.md`: *nothing that ships writes a save or game state, ever* — and the exception, which
 -- this is: **dev-only test tooling MAY cheat, a probe and never an adapter**, because a test save
 -- is expendable (user, 2026-08-18). Cheating to reach a state is explicitly permitted as of
--- 2026-08-19, see `agent_docs/playing.md`. So: this is a probe, it is never loaded by the adapter,
+-- 2026-08-19, see `.claude/skills/play-game/SKILL.md`. So: this is a probe, it is never loaded by the adapter,
 -- it is not packaged, and it should be pointed at a save nobody minds losing.
 --
 -- WHY IT EXISTS

@@ -80,7 +80,7 @@ The per-site audit of `meshghost_emerald.lua` (the user's call, 2026-09-16) drop
 path and line from its comments, removed copied tables and layouts, and marked each mechanism the
 decompilation alone supplies as unmeasured. Each is a question here. Line numbers are as of the audit,
 before it. **The borrowed VALUES in code were MEASURED 2026-09-16 on vanilla and match**
-(`probes/borrowed_values_probe.lua`, the state built with `probes/cmd_drive.lua` per `playing.md`: a
+(`probes/borrowed_values_probe.lua`, the state built with `probes/cmd_drive.lua` per `/play-game`: a
 ledge metatile written into the map, warps onto real puddle/ice/bridge/Sootopolis/sea tiles found by a
 scan of every map grid in the ROM, the Acro Bike and Super Rod registered to Select):
 `DIRECTION_ANIM` and both duration tables (walk and run, four directions, from the drawn VRAM image);

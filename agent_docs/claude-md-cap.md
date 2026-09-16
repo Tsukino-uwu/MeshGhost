@@ -72,7 +72,7 @@ Capping one is actively harmful, in a way a line count cannot see:
 2026-08-25 to 2026-09-02, kept here in its own tense because the reversal below only makes sense
 against it.** `<!-- line-cap: N -->` for bounded content — rules, reference, a guide, an index —
 and `<!-- line-cap: none -- reason -->` for a record; `dev-scripts/preflight.ps1` failed a tracked
-`.md` that declared neither. **Today only the seven instruction files carry a header, and a header
+`.md` that declared neither. **Today only the instruction files carry a header, and a header
 on any other file is the FAIL** — "The sixth case: the reversal" further down.
 
 **Why silence had to become a failure:** the check used to look only at files that declared a cap,
@@ -143,11 +143,12 @@ failure" put a header on about ninety files to serve a check that mattered for s
 
 **The argument was always about instruction load.** A cap is a budget on what an agent carries as
 instructions, which is exactly what the fourth and fifth cases said. That is the root `CLAUDE.md`,
-the four nested ones that load on contact, and the two skills. Nothing else loads that way: a
+the four nested ones that load on contact, and the skills. Nothing else loads that way: a
 contract is read by section, a record by link, a guide once and deliberately.
 
-**So, from 2026-09-02:** numeric caps on those seven files only, declared in their headers and
-enforced as a fixed list in `dev-scripts/preflight.ps1`; a cap header on any other file is a FAIL,
+**So, from 2026-09-02:** numeric caps on those files only (seven then; each skill added since joins
+the list), declared in their headers and enforced as a fixed list in `dev-scripts/preflight.ps1`; a
+cap header on any other file is a FAIL,
 because it claims an enforcement that is not there. **The stack a session loads gets its own
 budget** (root + `adapters/CLAUDE.md` + the host file), since three individually green files summed
 to 787 lines for an emulator session. **Indexes and queues are held to one line per entry** by a

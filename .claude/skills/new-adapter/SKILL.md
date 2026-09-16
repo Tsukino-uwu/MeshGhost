@@ -99,7 +99,7 @@ Read these when you reach them, not up front:
 | starting effect/VFX work | `agent_docs/effect-investigation.md` — before it goes wrong, not after |
 | the game may not hold many ghosts | `agent_docs/crowd-limits.md` — ask it early |
 | about to compensate for something | `adapters/_template/BANDAGES.md` — is this a bandage? |
-| driving the running game yourself | `agent_docs/playing.md` |
+| driving the running game yourself | `/play-game` |
 | writing the adapter's own README | `_template/README.md`, "Writing the new adapter's own README" |
 | adding a compile-time switch | `adapters/_template/FLAGS.md` |
 | wiring the adapter's CI | `_template/README.md`, "your adapter owns exactly ONE workflow" |

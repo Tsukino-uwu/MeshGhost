@@ -1,7 +1,7 @@
 -- MeshGhost — Pokémon Crystal: walk, stand still past the idle rule, walk again. Forever.
 --
 -- DEVELOPMENT TOOL. It presses the d-pad and nothing else: no memory reads, no writes, no A or B,
--- so it cannot talk to anyone, open a menu or advance a script. `playing.md` allows driving a
+-- so it cannot talk to anyone, open a menu or advance a script. `.claude/skills/play-game/SKILL.md` allows driving a
 -- running game to reach a state; this reaches one *repeatedly*.
 --
 -- WHY THIS EXISTS

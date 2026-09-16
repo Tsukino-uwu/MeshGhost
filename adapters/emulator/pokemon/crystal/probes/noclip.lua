@@ -1,6 +1,6 @@
 -- MeshGhost — Pokémon Crystal: walk through walls, water and NPCs (DEV TOOL, WRITES, never shipped)
 --
--- `playing.md` allows driving a running game to reach a state, collision edits explicitly. Getting
+-- `.claude/skills/play-game/SKILL.md` allows driving a running game to reach a state, collision edits explicitly. Getting
 -- from a warp tile to the water, the ledge or the corner a test actually needs is the slow part.
 --
 -- WHAT THIS HEADER MAY SAY (the repo's rule since 2026-09-13): what the tool DOES is our own code;

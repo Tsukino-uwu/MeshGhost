@@ -1,7 +1,7 @@
 -- MeshGhost -- tap A a few times to clear dialogue (DEV TOOL, never shipped).
 --
 -- Advancing a text box is the sort of thing an agent should do for itself rather than hand back to
--- the user (agent_docs/playing.md, "Drive the game YOURSELF before asking"). Tapped, not held: the
+-- the user (.claude/skills/play-game/SKILL.md, "Drive it yourself before asking"). Tapped, not held: the
 -- game reads a NEW press, so a held A advances one box and then sits there -- and a held A on the
 -- overworld would talk to whatever is in front of the player.
 local n = 0

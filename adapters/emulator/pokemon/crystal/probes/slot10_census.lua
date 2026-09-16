@@ -25,7 +25,7 @@
 -- framebuffer, which contains the engine's own sprites (so a real trainer and a SPAWNED ghost
 -- both appear) and never the Lua overlay (so a DRAWN ghost never does). Taking the picture and
 -- the numbers on different schedules is how an earlier comparison came to describe two different
--- scenes (`playing.md`), so both happen here with no frameadvance between them.
+-- scenes (`.claude/skills/play-game/references/screenshots.md`), so both happen here with no frameadvance between them.
 --
 -- Addresses vanilla V1.0 from meshghost_crystal.lua's table; map-object layout and the type
 -- nibble from constants/map_object_constants.asm and constants/script_constants.asm.

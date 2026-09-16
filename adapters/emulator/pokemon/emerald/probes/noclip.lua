@@ -1,6 +1,6 @@
 -- MeshGhost -- no clip: walk through anything (DEV TOOL, never shipped)
 --
--- WHY. Reaching a state costs the user's time, and `agent_docs/playing.md` allows cheating to get
+-- WHY. Reaching a state costs the user's time, and `.claude/skills/play-game/SKILL.md` allows cheating to get
 -- there -- collision edits explicitly. Warping lands you at a map's warp tile; getting from there
 -- to the water, the ledge or the corner a test actually needs is the slow part.
 --

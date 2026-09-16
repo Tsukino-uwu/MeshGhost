@@ -57,7 +57,7 @@ file path from its comments and marked each mechanism the decompilation alone su
 Each is a question here, with the measurement that would make it ours. Line numbers are as of that
 audit. **The three VALUES in code were MEASURED 2026-09-16 and match** (`probes/borrowed_values_probe.lua`
 on vanilla V1.0, the player hopping ledge blocks and casting at water blocks written into the map, per
-`playing.md`): `facingFrames.ROD`'s dx/dy/flip in all four directions (the rod is one OAM entry, bank 1
+`/play-game`, `references/building-a-state.md`): `facingFrames.ROD`'s dx/dy/flip in all four directions (the rod is one OAM entry, bank 1
 tile `$fc` down/up and `$fd` left/right, X-flipped only left); the shadow's spawn bytes, read on the
 frame it appeared (MOVEMENT_TYPE `$1b`, FLAGS1 `$8e`, FLAGS2 `$01`, PALETTE 5, STEP_TYPE 0, FACING
 `$ff`, RANGE 0); and `emote.SHADOW_DY` down 14, left 12, right 12. Also seen: the shadow is two bank-1
@@ -860,7 +860,7 @@ is invisible" screenshots were taken of a screen that was full of ghosts.
 
 **The answer is NOT to photograph the emulator window** — that was tried and the user ruled it
 out the same day; `client.screenshot()` is the only screenshot tool here. The rule and its wording
-live in `playing.md`, "Screenshots", rather than being restated here.
+live in the `/play-game` skill, `references/screenshots.md`, rather than being restated here.
 
 **So the drawn tier is judged NUMERICALLY, and that is the better evidence anyway** — the same
 reason the collision policy and the crowd ceiling were settled with counters. One frame cannot see

@@ -3,7 +3,7 @@
 -- WHY
 -- The bike work needs a peer that moves and turns repeatably while both renderers are watched, and
 -- that is not something a person can hold steady while also looking for defects
--- (agent_docs/playing.md, "Drive the game YOURSELF before asking"). So the riding is scripted.
+-- (.claude/skills/play-game/SKILL.md, "Drive it yourself before asking"). So the riding is scripted.
 --
 -- COUNTED IN TILES, NOT FRAMES, and that is the whole design. The first version held each
 -- direction for a fixed number of frames, which covers a different DISTANCE depending on how far

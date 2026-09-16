@@ -7,7 +7,7 @@ emulator is for, running several agents on different work, reading a crash dump 
 and the rig notes and savestate slots that used to sit in `status.md`. Split out of
 [environment.md](environment.md) on 2026-09-02; that file keeps the machine and the toolchain, this
 one keeps the procedure. `CLAUDE.md`'s rule that YOU run the scaffolding and the user only opens the
-game points here. `playing.md` is the sibling for driving the game itself once it is up.
+game points here. The `play-game` skill is the sibling for driving the game itself once it is up.
 
 ## Index
 
@@ -136,6 +136,10 @@ happens to be running is incidental.
 | Its **bridge port** (and its own core) | `7783` |
 | The **off-limits list**: every other pid, port and control file | `11788, 22592, relay 7777, cores 7781/7786 — kill only by PID` |
 
+**And say that the `play-game` skill applies** (`.claude/skills/play-game/`): it loads itself on a
+matching task, but a handoff that names it cannot miss it — look first, slot 1 is the user's, build
+the state rather than find it, shots into `dev-scripts/shots/<game>/`.
+
 A pure-manager split (the main session coordinating and driving nothing) was considered and
 rejected as an extra hop with no extra hands. Never with worktree isolation: a worktree cannot
 share a live emulator session (`CLAUDE.md`).
@@ -198,11 +202,13 @@ acceptable; leaving it idle silently is not.
 
 ## Playing the game, and looking at it — moved 2026-08-19
 
-**`agent_docs/playing.md`** now holds all of it: what an agent may do to a running game, how to
-drive input, how to navigate, and how to use screenshots. It grew to a third of this file in one
-day, which is how a toolchain record turns into something nobody rereads.
+**The `play-game` skill** (`.claude/skills/play-game/`) now holds all of it: what an agent may do to
+a running game, how to drive input, build a state, navigate, and use screenshots. The dated rulings
+and the reasoning are in `agent_docs/playing-rationale.md` (it was `playing.md` until 2026-09-16). It
+grew to a third of this file in one day, which is how a toolchain record turns into something nobody
+rereads.
 
-Read it before driving any game. This file stays what it was: host, toolchain, tool and mod
+The skill loads itself before driving any game. This file stays what it was: host, toolchain, tool and mod
 versions, and what each of those is capable of.
 
 ## Running several agents on DIFFERENT work at once — 2026-08-19

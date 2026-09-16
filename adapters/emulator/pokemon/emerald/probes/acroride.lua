@@ -11,7 +11,7 @@
 -- pos2 y going negative -- that is the vertical offset the jump/hop step functions write, and it is
 -- how "it looks like it hopped" becomes a number rather than an impression.
 --
--- It drives the pad itself (agent_docs/playing.md): a person cannot hold a steady three-tile
+-- It drives the pad itself (.claude/skills/play-game/SKILL.md): a person cannot hold a steady three-tile
 -- shuttle and watch two ghosts at once, and every leg here has to be identical to the last for a
 -- difference between them to mean anything.
 --

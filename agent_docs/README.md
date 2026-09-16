@@ -26,7 +26,7 @@ of the documentation, written for people *using* MeshGhost, is [`../docs/`](../d
 - …ask how many ghosts a game can hold: [crowd-limits.md](crowd-limits.md) — per game and per map, with the measuring rig; the game-side pair to `scaling.md`.
 - …ask how more than one relay could carry a room: [multi-relay.md](multi-relay.md) — MMO sharding mapped onto rooms and the area filter, the router design, why relays never talk to each other; nothing scheduled (2026-09-15).
 - …start effect/VFX work: [effect-investigation.md](effect-investigation.md) — how to search for, mirror and confirm a game's visual effect, told through the Pseudoregalia trail.
-- …drive a running game yourself: [playing.md](playing.md) — what an agent may change, how to steer input, navigate, use screenshots.
+- …drive a running game yourself: `/play-game` (`.claude/skills/play-game/`) — what an agent may change, how to steer input, build a state, navigate, use screenshots; the user's dated rulings and the reasoning in [playing-rationale.md](playing-rationale.md).
 - …run a live test: [running-the-rig.md](running-the-rig.md) — start the scaffolding hidden, the netsim default, two games at once, several agents, crash dumps, the savestate slots (split out of `environment.md` 2026-09-02).
 - …change adapter code without restarting the game: [live-reload.md](live-reload.md) — the loop that is built before the first feature on every host, the three hosts' different answers, and the three ways a fast reload lies to you.
 - …set up or trust the machine: [environment.md](environment.md) — host, toolchain, BizHawk's Lua capabilities, the decomp workspaces, Unity/UE installs, onboarding, conventions.
@@ -57,15 +57,16 @@ of the documentation, written for people *using* MeshGhost, is [`../docs/`](../d
 - [prediction-planning.md](prediction-planning.md) — parked 2026-09-14: prediction without floor-sink or left/right snap; not scheduled, the reasoning kept.
 - [candidate-games.md](candidate-games.md) — games that might get an adapter and prior-art reads; nothing checked (moved out of `ideas.md` 2026-09-02).
 
-## Rules that load themselves, and the two skills
+## Rules that load themselves, and the skills
 
-- `CLAUDE.md` at the root, and `adapters/CLAUDE.md`, `adapters/emulator/CLAUDE.md`, `adapters/tevi/CLAUDE.md`, `adapters/pseudoregalia/CLAUDE.md` — read automatically on first contact with their folder; the only capped files, and their stack is budgeted.
-- `.claude/skills/new-adapter/` and `.claude/skills/write-a-probe/` — required reading, sequenced; maps, not copies.
+- `CLAUDE.md` at the root, and `adapters/CLAUDE.md`, `adapters/emulator/CLAUDE.md`, `adapters/tevi/CLAUDE.md`, `adapters/pseudoregalia/CLAUDE.md` — read automatically on first contact with their folder; capped with the skills, and their stack is budgeted.
+- `.claude/skills/new-adapter/`, `.claude/skills/write-a-probe/` and `.claude/skills/adversarial-review/` — required reading, sequenced; maps, not copies.
+- `.claude/skills/play-game/` — loads itself when a task drives or plays a running game; its `references/` hold the recipes, the navigation and screenshot detail, and the BizHawk tool surface.
 
 **The one-line map** (user's framing, 2026-08-19): the rules are `CLAUDE.md`; working state is
 `status.md`; what we know is `verified.md`, the checklists and `phases/`; what we intend is `plans.md`
 and `ideas.md`; the machine is `environment.md`, running it is `running-the-rig.md`, driving the game
-is `playing.md`; **who the USER is lives in agent memory, outside the repo, and never a project fact**.
+is the `play-game` skill; **who the USER is lives in agent memory, outside the repo, and never a project fact**.
 
 ## `../docs/` — written for people using MeshGhost
 

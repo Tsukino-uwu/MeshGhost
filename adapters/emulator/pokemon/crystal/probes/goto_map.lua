@@ -1,6 +1,6 @@
 -- MeshGhost — Pokémon Crystal: warp the player to a named map (DEV TOOL, WRITES)
 --
--- **THIS ONE MOVES THE PLAYER**, on request. `playing.md` allows driving a running game to reach a
+-- **THIS ONE MOVES THE PLAYER**, on request. `.claude/skills/play-game/SKILL.md` allows driving a running game to reach a
 -- state, and reaching a test location on foot costs the user's time rather than mine. It never
 -- writes the .sav.
 --
@@ -123,7 +123,7 @@ local SPAWN_N_A = 0xFF -- SPAWN_N_A is -1 (constants/map_data_constants.asm:101)
 -- (`agent_docs/status.md`). Saving over one of those costs a prepared state that took real time to
 -- make, and the default here would do it silently on every warp. The user's position is that
 -- overwriting is allowed when a slot is needed -- this exists so it is a CHOICE rather than a
--- side effect. Slots 2+ are the agent's; 1 is the user's on every instance (`playing.md`).
+-- side effect. Slots 2+ are the agent's; 1 is the user's on every instance (`CLAUDE.md`).
 local UNDO_SLOT = tonumber(MESHGHOST_GOTO_UNDO_SLOT) or 8
 
 local logfile

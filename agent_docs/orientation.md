@@ -104,7 +104,7 @@ Go deeper: [architecture.md](architecture.md), "Package boundaries", for who may
 | How the game itself works | that adapter's `documentation.md` |
 | What a game sends and how it is checked on arrival | that adapter's `SYNCED.md` |
 | The machine and its tools | [dependencies.md](dependencies.md) to install; [environment.md](environment.md) for versions and traps |
-| How a live test is run | [running-the-rig.md](running-the-rig.md); [playing.md](playing.md) to drive the game yourself |
+| How a live test is run | [running-the-rig.md](running-the-rig.md); the `/play-game` skill to drive the game yourself ([playing-rationale.md](playing-rationale.md) for why) |
 
 Two habits explain why these files look the way they do. **Indexes are one line per entry**
 (`status.md`, the `VERIFIED.md` indexes, the checklists, the `agent_docs/README.md` list), so
@@ -234,7 +234,7 @@ The instrument side of the same work.
   a manual restart.
 - **Driving the game yourself.** Savestates (slot 1 is the user's, the rest are yours), scripted
   input, screenshots and cheats reach and hold a state before anyone is asked to look.
-  [playing.md](playing.md) is what may be changed and how; [running-the-rig.md](running-the-rig.md)
+  The `/play-game` skill is what may be changed and how; [running-the-rig.md](running-the-rig.md)
   is the scaffolding around it: relay, core and netsim started hidden, two games at once,
   several agents, crash dumps.
 - **Where the answer goes.** A measurement of yours goes to that game's `UNVERIFIED.md` as

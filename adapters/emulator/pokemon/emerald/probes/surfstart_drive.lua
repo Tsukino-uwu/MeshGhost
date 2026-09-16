@@ -10,7 +10,7 @@
 -- tier (a Lua overlay painted after the frame) but it does see the spawned and hardware tiers,
 -- which are real sprites — status.md, and the reason a screenshot diff is useful at all.
 --
--- SLOT 2 IS THE AGENT'S (slot 1 is the user's, playing.md). Loading it discards nothing of
+-- SLOT 2 IS THE AGENT'S (slot 1 is the user's, CLAUDE.md). Loading it discards nothing of
 -- theirs; they saved it for exactly this.
 --
 -- WHAT IT DOES, in order: load slot 2 → tap A until the player's graphicsId leaves normal →

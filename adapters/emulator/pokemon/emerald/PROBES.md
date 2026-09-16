@@ -29,7 +29,7 @@ nobody reads a header they did not know existed.
 | `grant_test_kit.lua` | **`SaveBlock1`**, same class as `testkit.lua` — the granter kept as a standalone one-shot. | **YES, if you save afterwards.** |
 | `watertile.lua` | the **live map grid**, turning the tile in front of you into water | No. The map is rebuilt from ROM on the next map load, and it restores the original tile on unload. |
 | `noclip.lua` | the **live map grid**, clearing collision so you can walk through anything | No, and it restores the tiles it changed when dropped. Drop it before judging anything. |
-| `goto_map.lua` | the warp/map fields, plus `MESHGHOST_WARP_X/_Y` for the destination coordinates | No — live RAM. **Slot 8 is its undo.** Warp freely on an instance you are driving for a test; never move the user's character while they are playing (`agent_docs/playing.md`, the mindset). |
+| `goto_map.lua` | the warp/map fields, plus `MESHGHOST_WARP_X/_Y` for the destination coordinates | No — live RAM. **Slot 8 is its undo.** Warp freely on an instance you are driving for a test; never move the user's character while they are playing (`/play-game`, "You decide what happens inside the game"). |
 | `spawn_test.lua` | object RAM — one object event plus a sprite | No. Live RAM only, cleared by the engine. |
 | `cmd_drive.lua` | whatever its command file says: warps, the **live map grid** (`mtset`), **`SaveBlock1`** Key Items and the registered item (`givekey`/`register`), single bytes (`poke*`) | The grid and warp: no. **`givekey`/`register`: YES, if you save the game afterwards.** |
 | `wheelie_ghost.lua` | a ghost's movement action, to drive one wheelie deliberately | No — live RAM. |
@@ -52,7 +52,7 @@ build, so each one is checkable. `agent_docs/pitfalls.md`.
 ## Reaching a state without playing to it
 
 All of these exist for one reason: an hour of play per attempt is a cost paid in the *user's* time,
-every cycle. Cheating to reach a state is explicitly allowed (`agent_docs/playing.md`); cheating is
+every cycle. Cheating to reach a state is explicitly allowed (`/play-game`); cheating is
 never in an adapter.
 
 | Probe | What it does |
@@ -61,7 +61,7 @@ never in an adapter.
 | `noclip.lua` | **Writes the live grid, reversibly.** Walk through anything. Warping lands you on a warp tile; getting from there to the water, the ledge or the corner a test needs is the slow part. |
 | `testkit.lua` / `grant_test_kit.lua` | **Write `SaveBlock1`, and it persists if you save.** A Mach Bike, an Acro Bike, a Super Rod and badge flags in one second. Bag quantities are XOR-encrypted with `SaveBlock2`'s `encryptionKey`, which is why a plain write yields an item with a nonsense count — the header explains the whole structure. |
 | `watertile.lua` | **Writes the live map grid**, reversibly. Finds a metatile in the tilesets this map already has loaded whose behaviour is water and writes it into the tile you are facing, so the game treats it as water because as far as it is concerned it is. The "combine the tools" script: read the decomp to learn what makes a tile water, write memory to make one, checkpoint with a savestate, drive input to use it. |
-| `cmd_drive.lua` | **Writes and holds the controller** (vanilla). A command file beside it, re-read live: `warp G.N X,Y` (the game's own map load; onto water arrives surfing), `mtset` a metatile into the grid (write it off screen and walk to it -- the game draws it as it scrolls in), `mtscan`/`grid` to find and read tiles, `givekey`/`register` an item to Select, `rec on/off` for `borrowed_values_probe.lua`. Built 2026-09-16; its header says what is measured. The state-building half of `agent_docs/playing.md`'s mindset. |
+| `cmd_drive.lua` | **Writes and holds the controller** (vanilla). A command file beside it, re-read live: `warp G.N X,Y` (the game's own map load; onto water arrives surfing), `mtset` a metatile into the grid (write it off screen and walk to it -- the game draws it as it scrolls in), `mtscan`/`grid` to find and read tiles, `givekey`/`register` an item to Select, `rec on/off` for `borrowed_values_probe.lua`. Built 2026-09-16; its header says what is measured. The state-building half of the `/play-game` skill's mindset (`references/building-a-state.md`). |
 | `find_behaviour.py` | Offline, read-only: scans every map grid in YOUR ROM (with a byte-identical build's `.sym`) for a metatile behaviour and lists maps and the walkable tiles directly above one, as `warp` lines. How the 2026-09-16 run found real puddle, ice, bridge and Sootopolis tiles, and that behaviour 26 is on no tile at all. |
 | `loadslot9.lua` | Loads the user's checkpoint savestate — how a scripted ride that drifted or got blocked is undone. A savestate is not an in-game save, so it costs nothing. |
 | `use_acro.lua` / `use_mach.lua` | Register the bike to SELECT and press it, so the item's own field effect sets every avatar flag rather than us writing `PLAYER_AVATAR_FLAG_*` by hand. |
@@ -176,7 +176,7 @@ audit entry). Heavy while recording; idle otherwise.
 | `sweep_guard_probe.lua` | Whether `sweepOrphanGhosts()`'s "active, not the player, `localId` 255" predicate ever matches something that is not one of ours — the measurement behind gating that sweep on the overworld and on a confirmed address. |
 | `apspawn_gate_probe.lua` | Why an Archipelago build receives a peer and spawns nothing: prints all three reasons the spawn tier can decline (budget 0, `area_id` mismatch, refused cross-link) side by side once a second, because none of them logs on its own. |
 | `battle_probe.lua` | Whether `gMain.callback2` reliably distinguishes "in battle" from "in the overworld". |
-| `shot_once.lua` | One screenshot, then nothing. `client.screenshot()` writes the emulator's video output — BG layers and engine-drawn sprites, and never the Lua-overlay drawn tier (`agent_docs/playing.md`). |
+| `shot_once.lua` | One screenshot, then nothing. `client.screenshot()` writes the emulator's video output — BG layers and engine-drawn sprites, and never the Lua-overlay drawn tier (`/play-game`, `references/screenshots.md`). |
 
 ## Feasibility probes, from before the thing existed
 

@@ -155,7 +155,7 @@ MESHGHOST_DEV_TICK = function()
 	if n < 30 then return end
 
 	-- The savestate load happens ONCE, after the loader has settled, and is announced. Slot 1 is
-	-- the user's on every instance and is never touched (`playing.md`).
+	-- the user's on every instance and is never touched (`CLAUDE.md`).
 	if not loaded then
 		loaded = true
 		if not MESHGHOST_WHIRL_NOLOAD then

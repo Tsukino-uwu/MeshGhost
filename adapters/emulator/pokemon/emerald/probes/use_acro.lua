@@ -3,7 +3,7 @@
 -- WHY. The Acro Bike has states the Mach Bike does not -- a standing wheelie, a moving wheelie and
 -- the bunny hop (sAcroBikeTransitions, pokeemerald src/bike.c) -- and reaching them means being on
 -- it. Switching bikes is normally a trip to Rydel's or a dive through the bag; both are the user's
--- time spent on what a script does (agent_docs/playing.md).
+-- time spent on what a script does (.claude/skills/play-game/SKILL.md).
 --
 -- HOW, using the game's own path rather than poking the avatar's state: register the ACRO BIKE as
 -- the SELECT item and press SELECT. That runs the item's real field effect, so every flag the

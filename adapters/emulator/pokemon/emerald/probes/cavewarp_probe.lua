@@ -13,7 +13,7 @@
 --      painted copy with everything else.
 --
 -- A screenshot cannot settle this: the drawn tier is a Lua overlay painted after the frame, so
--- `client.screenshot()` never sees it (agent_docs/playing.md). So this probe logs the INPUTS to
+-- `client.screenshot()` never sees it (.claude/skills/play-game/references/screenshots.md). So this probe logs the INPUTS to
 -- both mechanisms every frame across a transition, and the answer is read off the table.
 --
 -- WHAT IT LOGS, one line per frame while armed:

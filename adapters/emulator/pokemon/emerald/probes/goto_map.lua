@@ -1,7 +1,7 @@
 -- MeshGhost -- warp the player to any map (DEV TOOL, never shipped)
 --
 -- WHY. Testing the Acro Bike means being where the Acro Bike is, and walking there costs the user
--- time for nothing (agent_docs/playing.md, "Drive the game YOURSELF before asking"). Cheating to
+-- time for nothing (.claude/skills/play-game/SKILL.md, "Drive it yourself before asking"). Cheating to
 -- reach a state is explicitly allowed; cheating is never in an adapter.
 --
 -- HOW, and it is the game's own map load rather than a coordinate poke alone. Writing the

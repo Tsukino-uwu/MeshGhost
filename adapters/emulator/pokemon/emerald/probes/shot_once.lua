@@ -1,6 +1,6 @@
 -- MeshGhost -- one screenshot, then nothing (DEV TOOL, never shipped).
 -- client.screenshot() writes the emulator's video output: BG layers and engine-drawn sprites, and
--- never the Lua-overlay drawn tier (agent_docs/playing.md, "Screenshots").
+-- never the Lua-overlay drawn tier (.claude/skills/play-game/references/screenshots.md).
 -- Resolve this script's own directory instead of hardcoding one developer's
 -- checkout. A tracked absolute path is unusable on anyone else's machine and is
 -- the class of leak .githooks/pre-commit now refuses (pitfalls.md).

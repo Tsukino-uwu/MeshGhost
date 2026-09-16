@@ -3,7 +3,7 @@
 -- WHY. The Mach Bike's whole purpose is the muddy slope: hold a direction into it at top speed and
 -- you climb, drop below that speed and the slope pushes you back down. Holding one key for minutes
 -- while watching two ghosts for defects is exactly what a script should do instead of the user
--- (agent_docs/playing.md).
+-- (.claude/skills/play-game/SKILL.md).
 --
 -- No turns, no legs, no tile counting -- the user is on the tile in front of the slope and wants it
 -- held. The only logic is the safety gate and a once-a-second line saying whether the climb is

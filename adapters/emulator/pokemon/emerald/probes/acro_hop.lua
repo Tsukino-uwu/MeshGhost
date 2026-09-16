@@ -1,7 +1,7 @@
 -- MeshGhost -- exercise the Acro Bike: hop in place, then hop while moving (DEV TOOL, never shipped)
 --
 -- On the Acro Bike B is the hop and holding B is the wheelie, so both of the cases that matter can
--- be produced without the user holding anything (agent_docs/playing.md). Fixed phases with a
+-- be produced without the user holding anything (.claude/skills/play-game/SKILL.md). Fixed phases with a
 -- countdown, nothing to time by hand.
 local GMAIN_CALLBACK2_ADDR = 0x030022c4
 local CB2_OVERWORLD_ADDR = 0x08085e5c

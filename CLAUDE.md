@@ -14,7 +14,7 @@ one.** The question is never "can I add this?" but "what comes out?", answered i
 nothing can, the rule is not important enough to be here. The rule lives here, its reasoning in
 `agent_docs/` behind a one-line pointer. Why: past ~150-200 instructions a model follows every rule
 worse, and earlier ones better than later, so this file is ordered by what a violation costs. Capped
-(each declares `<!-- line-cap: N -->`): this file, the four nested `CLAUDE.md`s, the two skills, and
+(each declares `<!-- line-cap: N -->`): this file, the four nested `CLAUDE.md`s, the skills, and
 the STACK a session loads (root + `adapters/` + host). Nothing else is; indexes and queues are held
 to one line per entry instead. The cases: `agent_docs/claude-md-cap.md`.
 
@@ -117,8 +117,8 @@ to one line per entry instead. The cases: `agent_docs/claude-md-cap.md`.
   nothing, and every cycle costs the user a game launch (2026-08-17, the slide pose).
 - **Test instructions use up/down/left/right, never compass points** (user preference; code may).
 - **Treat "access denied" as a question to research** (who gates it, how people get past), not a wall.
-- **No worktree-isolated parallel agents for testing work**: the loop is change-then-watch in a
-  running game, and a worktree cannot share that session.
+- **One agent per BizHawk instance, never a game the user is at; savestate slot 1 is the user's on
+  every instance.** No worktree-isolated agents for testing: a worktree cannot share a running game.
 - **Agent memory is for the USER, never the project.** Preferences and corrections may go there; an
   address, decision, status, risk or result goes in `agent_docs/` or the code, which the repo, the
   next session and a human all see.
@@ -180,7 +180,7 @@ to one line per entry instead. The cases: `agent_docs/claude-md-cap.md`.
   reading, a fix, a scripted edit, mirroring state, Unreal, Lua, the network); `pitfalls.md` says how
   a lesson is filed. `beyond-cosmetic.md` before anything past Tier 2; `scaling.md` before efficiency
   or scale work on the Go side; `effect-investigation.md` before effect/VFX work; `testing.md` before
-  adding a test or chasing a flake; `playing.md` before driving a running game yourself.
+  adding a test or chasing a flake; **`/play-game` before driving or playing any running game**.
 - **`adapters/CLAUDE.md` and the host `CLAUDE.md`s load themselves on first contact with their folder
   and are never restated here or in `_template/`** — a rule with two homes drifts, twice shown here.
 - **`_template/` is the gold standard and never lags**: a rule, file or trap added to a shipped adapter

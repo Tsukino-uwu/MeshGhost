@@ -578,7 +578,8 @@ $budgeted = @(
     'adapters/pseudoregalia/CLAUDE.md',
     '.claude/skills/new-adapter/SKILL.md',
     '.claude/skills/write-a-probe/SKILL.md',
-    '.claude/skills/adversarial-review/SKILL.md'
+    '.claude/skills/adversarial-review/SKILL.md',
+    '.claude/skills/play-game/SKILL.md'
 )
 $withinCap = 0
 $lineCount = @{}

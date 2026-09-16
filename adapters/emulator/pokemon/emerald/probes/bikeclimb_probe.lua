@@ -3,7 +3,7 @@
 -- WHY. The Mach Bike's whole purpose is the muddy slope: hold a direction into it at top speed and
 -- you climb, drop below that speed and the slope pushes you back down. Holding one key for minutes
 -- while watching two ghosts for defects is exactly what a script should do instead of the user
--- (agent_docs/playing.md).
+-- (.claude/skills/play-game/SKILL.md).
 --
 -- THE RUN-UP IS THE POINT. Held from a standing start one tile below the mud, the bike never
 -- accelerates at all: it gains a tile and loses it, once a second, forever -- measured, and the

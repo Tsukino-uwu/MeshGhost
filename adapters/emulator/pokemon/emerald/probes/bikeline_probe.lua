@@ -4,7 +4,7 @@
 -- the rider back down, so it is the one terrain that exercises acceleration, top speed, and being
 -- pushed backwards while still holding a direction -- all the things a ghost has to mirror. Riding
 -- it by hand while also watching two ghosts for defects is not something a person can hold steady
--- (agent_docs/playing.md, "Drive the game YOURSELF before asking").
+-- (.claude/skills/play-game/SKILL.md, "Drive it yourself before asking").
 --
 -- ROUTE (user, 2026-08-20): about 4-5 tiles up, then 4-5 back down, repeating.
 --

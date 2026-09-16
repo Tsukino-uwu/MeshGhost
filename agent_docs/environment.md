@@ -273,7 +273,8 @@ so this file stays the dated record of versions and traps, and that one is the s
   `savestate.save` / `load` / `saveslot` / `loadslot` are all present and callable in this build
   (checked at runtime, not from a doc string — `savestate.saveslots` does NOT exist). BizHawk has
   **ten slots**, and the user has given standing permission to use all of them during
-  dev/testing: *"you are allowed to use all 10 during dev/testing/local tests"*.
+  dev/testing: *"you are allowed to use all 10 during dev/testing/local tests"*. **Narrowed
+  2026-08-19: slot 1 is the user's on every instance** (`CLAUDE.md`; `playing-rationale.md`).
   `dev-scripts/bizhawk-savestate.lua` saves or loads one slot and stops.
   **Why it matters:** reaching a test state costs the user real playing time, so a checkpoint
   turns "walk back to the route / re-catch a Pokemon / replay the intro" into an instant restore,
@@ -331,7 +332,7 @@ so this file stays the dated record of versions and traps, and that one is the s
 
   **A picture is still an agent's primary SENSE while driving a game** — what is around me, what
   is that thing, which menu entry is highlighted. That half, and the game-frame-only capture rule,
-  live in `playing.md`; the evidence gate here is unaffected by it.
+  live in the `play-game` skill (`references/screenshots.md`); the evidence gate here is unaffected by it.
   **Why the limit is real and not just caution:** a still frame answers "what is on screen right
   now", never "does this look right while moving". All six real bugs in the 2026-08-18 Emerald
   session were motion or interaction defects — a ghost mirroring the player's animation, a frozen

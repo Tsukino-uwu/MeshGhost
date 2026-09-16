@@ -1,7 +1,7 @@
 -- MeshGhost — Pokémon Emerald: a command-queue driver that builds a test state on the spot
 -- (DEV TOOL, WRITES, HOLDS THE CONTROLLER, never shipped) -- 2026-09-16
 --
--- WHY THIS EXISTS. `agent_docs/playing.md`, "the mindset": anything inside the game may be made to
+-- WHY THIS EXISTS. `.claude/skills/play-game/SKILL.md`, "You decide what happens inside the game": anything inside the game may be made to
 -- happen to reach a test, and the mechanism under test is then driven the way the game intends. This
 -- is that loop for vanilla Emerald without a relaunch or a savestate: it re-reads a small command file
 -- and runs it line by line. Crystal's twin is `crystal/probes/cmd_drive.lua`.

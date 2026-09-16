@@ -29,7 +29,7 @@
 -- differs names the fault and the table it lives in.
 --
 -- READ-ONLY apart from the savestate load and the controller. Screenshot is taken in the SAME
--- tick as the dump (`playing.md`: two schedules described two different scenes once). A trainer
+-- tick as the dump (`.claude/skills/play-game/references/screenshots.md`: two schedules described two different scenes once). A trainer
 -- is an ENGINE sprite, so `client.screenshot` genuinely captures it -- this is the case
 -- screenshots are FOR, unlike the drawn tier.
 --

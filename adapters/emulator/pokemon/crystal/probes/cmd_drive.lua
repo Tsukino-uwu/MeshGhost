@@ -1,7 +1,7 @@
 -- MeshGhost — Pokémon Crystal: a command-queue driver that builds a test state on the spot
 -- (DEV TOOL, WRITES, HOLDS THE CONTROLLER, never shipped) -- 2026-09-16
 --
--- WHY THIS EXISTS. `agent_docs/playing.md`, "cheat to create the thing, then use it the way the game
+-- WHY THIS EXISTS. `.claude/skills/play-game/SKILL.md`, "cheat to create the thing, then use it the way the game
 -- intends": a ledge, water, an item are MADE with a memory write, and the measurement then comes
 -- from ordinary input -- walk off the ledge, face the water and press Select. This tool is that loop
 -- without a relaunch or a savestate: it re-reads a small command file and runs it line by line.

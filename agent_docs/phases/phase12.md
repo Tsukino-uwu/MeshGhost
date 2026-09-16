@@ -607,3 +607,22 @@ All six match the engine (`phase8.md`'s entry of the same date has the detail). 
 every borrowed value the Lua tier audit left in shipped code is measured, bar what the game itself makes
 unreachable (Crystal's up-hop shadow, Emerald's behaviour 26 and the non-player shadow sizes). The user
 spent the session turning "cheat to reach it" into a standing mindset, now the opening of `playing.md`.
+
+## 2026-09-16 (last of the day) — `playing.md` becomes the `play-game` skill
+
+The user brought a task and a draft SKILL.md written in a Claude Desktop chat from the public copy of
+`playing.md`, with the instruction that the repo wins. The instructions moved into
+`.claude/skills/play-game/` (SKILL.md at 115 of a 120 cap, registered in preflight's budgeted list)
+plus four references: `building-a-state.md`, `navigation.md`, `screenshots.md`, `bizhawk.md`.
+`playing.md` became `playing-rationale.md`, keeping the quotes, the live cases and the dated rulings.
+`CLAUDE.md` gained the slot-1 and one-agent-per-instance rules and the `/play-game` pointer at no net
+line. What the draft had wrong, because its author saw one file: no mindset or "Building a state"
+(written the same day), the queue driver unnamed (it is `cmd_drive.lua`, polled every 15 frames, not
+every frame), `bikeloop_probe.lua` without its game, a reserved-slot "table" in `running-the-rig.md`
+that is a bullet list, and the one-agent rule pointed at `environment.md`, a stale pointer inherited
+from `playing.md` itself. `environment.md`'s "all ten slots are ours" (2026-08-18) now carries the
+2026-08-19 narrowing. New ruling from the user while reviewing the autoplay plan: where a host cannot
+capture its own frame, a window capture is fine, and every capture stays gitignored. Checked:
+`claude plugin validate --strict .claude/skills` passes; preflight clean; a headless fresh session
+loaded the skill as its first call on "Get the Crystal instance to a trainer battle" and did not on
+"Fix a build error in the Tevi adapter". Phase files and `doc-history.md` keep `playing.md` as written.
