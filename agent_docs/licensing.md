@@ -83,8 +83,8 @@ as decided with the user the same day:
   a test, a file we built or hashed ourselves, or the user's confirmation on screen.
 - **A source is a map, never the evidence.** A decompilation, a wiki, a dump or another project may be
   read first — it is the fastest way to learn WHERE to measure — but what it says enters a tracked
-  file only as a question to measure (the adapter's `UNVERIFIED.md`), and becomes a fact only as our
-  own measurement. The private-source rule above already treated a private source this way; this
+  file only as a question to measure (the adapter's `MEASURED.md`, its "Not measured yet" section;
+  `UNVERIFIED.md` until 2026-09-16), and becomes a fact only as our own measurement. The private-source rule above already treated a private source this way; this
   makes every source the same.
 - **Names may point.** A short identifier from a source (a RAM label, a routine name) may sit beside
   our own measured value so the next reader can find it — short identifiers carry no copyright, and a

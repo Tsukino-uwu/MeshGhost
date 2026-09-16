@@ -7,7 +7,8 @@ they were written to chase one address shift on an Archipelago ROM and are the f
 reach for when a ROM moves something again.
 
 **Logs are not kept** — each probe writes a timestamped `.log` beside itself and `.gitignore`
-covers them. Conclusions belong in `VERIFIED.md`.
+covers them. What a probe measured belongs in `MEASURED.md`; what the user then confirms on screen,
+in `VERIFIED.md`.
 
 **How to run one**: point `dev-scripts/bizhawk-dev-loader.target` at it — the loader swaps scripts
 live, with no emulator relaunch (`agent_docs/environment.md`). Probes written before the loader
@@ -158,7 +159,9 @@ audit entry). Heavy while recording; idle otherwise.
 | `oaminject_probe.lua` | **Writes** (live RAM only: shadow-OAM entries). Parks N hardware sprites in `gMain.oamBuffer[64..119]` and lets the PPU draw them — Stage 1 of the hardware tier. `_NO_WRITE`/`_NO_SCAN`/`_QUIET` are subtraction switches kept from the run that proved the tier is free and the probe's own logging was not. |
 | `uiregion_probe.lua` | **A recorded negative.** Asked the GBA's display registers (`DISPCNT` window enables, `WIN0H`/`WIN0V`) where the UI panels are. They change every frame during ordinary walking, so they describe the display rather than the panel — the same trap that caught the Game Boy's window layer on Crystal. Kept as the reason the tilemap route was taken instead. |
 | `textbox_probe.lua` | The route that worked: asks what the game DREW rather than what the LCD is displaying, reading BG tilemaps with each background's address taken from its own `BGxCNT` screen-base bits, so no game symbol is involved. Measured 2026-08-19 that BG0 is the UI layer and empty until a panel opens — the whole detector behind the drawn tier's clipping. |
-| `text_probe.lua` | Read-only. What text the game prints and into which window: execute hooks at the text and window routines log each string's raw bytes with its window, x, y and speed, beside the text printers', windows' and menu's blocks on change and BG0's drawn rows. With screenshots of the same frames, it is how the encoding, the printer states and the menu block were measured for autoplay (2026-09-16, `UNVERIFIED.md`). `TEXT_PROBE_NO_HOOKS` leaves the hooks out. |
+| `text_probe.lua` | Read-only. What text the game prints and into which window: execute hooks at the text and window routines log each string's raw bytes with its window, x, y and speed, beside the text printers', windows' and menu's blocks on change and BG0's drawn rows. With screenshots of the same frames, it is how the encoding, the printer states and the menu block were measured for autoplay (2026-09-16, `MEASURED.md`). `TEXT_PROBE_NO_HOOKS` leaves the hooks out. |
+| `map_probe.lua` | Read-only. The map around the player, raw, every time its map, tile, facing or elevation changes: the grid entries and each tile's behaviour byte 7 tiles either side and 5 up and down, every object slot in use, and the map header's event lists. Walked against captures, it is how the local map, the warp list and the grid's border were measured for autoplay (2026-09-16, `MEASURED.md`). |
+| `step_probe.lua` | Read-only. A step frame by frame: the player object's movement bytes and the avatar block on every frame they change, with the pad. How a walked tile, a turn, a wall bump and a door were told apart, and what "at rest" is, for autoplay's `walk` (2026-09-16, `MEASURED.md`). |
 
 ## Measuring cost
 

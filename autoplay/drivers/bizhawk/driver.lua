@@ -124,8 +124,9 @@ end
 -- select: a program run one frame at a time over the module's observe().menu ({cursor, items}) and
 -- its menuButtons ({prev, next, confirm}). Every leg ends on the game's own state, never on a frame
 -- count: press toward the entry until the menu's cursor changes, release for SETTLE frames, look
--- again; then hold confirm until the menu closes or changes. Returns a function of an observation
--- that answers (pad or nil, finished, result or nil, error or nil).
+-- again; then hold confirm until the menu closes or changes. Returns a function, called once a frame,
+-- that answers (pad or nil, finished, result or nil, error or nil) -- the shape of every program,
+-- a game module's own included (game.programs).
 local SETTLE, LEG_LIMIT = 2, 30
 
 local function selectProgram(p)
@@ -134,17 +135,19 @@ local function selectProgram(p)
 	local phase, held, settle, steps, from, maxSteps = "look", 0, 0, 0, nil, 0
 
 	local function sameMenu(m)
-		if not m or m.window ~= before.menu.window or #m.items ~= #before.menu.items then return false end
+		if not m or m.window ~= before.window or #m.items ~= #before.items then return false end
 		for i, item in ipairs(m.items) do
-			if item ~= before.menu.items[i] then return false end
+			if item ~= before.items[i] then return false end
 		end
 		return true
 	end
 
-	return function(o)
-		local m = o.menu
+	return function()
+		-- game.menu() when the module has it: the menu alone, not a whole observation, every frame.
+		local m
+		if game.menu then m = game.menu() else m = game.observe().menu end
 		if phase == "look" then
-			before = o
+			before = m
 			if type(m) ~= "table" or type(m.items) ~= "table" or #m.items == 0 then
 				return nil, true, nil, "no menu is open (observe shows none)"
 			end
@@ -330,6 +333,17 @@ local function begin(req)
 		}
 		return false
 	end
+	local make = game.programs and game.programs[verb]
+	if make then
+		local program, err = make(p)
+		if not program then
+			fail(req.id, tostring(err))
+			return true
+		end
+		log(verb)
+		hold = { id = req.id, program = program, before = game.observe(), count = 0 }
+		return false
+	end
 	fail(req.id, "unhandled request " .. tostring(verb))
 	return true
 end
@@ -437,10 +451,9 @@ MESHGHOST_DEV_TICK = function()
 
 	if hold then
 		if hold.program then
-			-- One frame of a program: look, then either finish or set this frame's input.
-			local o = game.observe()
+			-- One frame of a program: it looks at what it needs, then either finishes or sets this frame's input.
 			hold.count = hold.count + 1
-			local pad, finished, result, err = hold.program(o)
+			local pad, finished, result, err = hold.program()
 			if not finished and hold.count > PROGRAM_FRAME_LIMIT then
 				finished, err = true, string.format("still running after %d frames", PROGRAM_FRAME_LIMIT)
 			end
@@ -448,6 +461,7 @@ MESHGHOST_DEV_TICK = function()
 				if err then
 					fail(hold.id, err)
 				else
+					local o = game.observe()
 					result.frames, result.before, result.after = hold.count, hold.before, o
 					result.changed = changed(hold.before, o)
 					reply(hold.id, result)

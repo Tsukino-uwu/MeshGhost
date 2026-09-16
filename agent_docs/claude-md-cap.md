@@ -224,7 +224,7 @@ MeshGhost: an online multiplayer layer for singleplayer games; cosmetic ghosts b
 
 ## Always
 - The user verifies games on screen; you verify the Go side with `dev-scripts/run-gotests.bat`.
-- Nothing vanilla-adapter-side is "verified" until the user confirms it; measurements → `UNVERIFIED.md`.
+- Nothing vanilla-adapter-side is "verified" until the user confirms it; measurements → `MEASURED.md`.
 - The bar is 1:1 on screen; never offer a rate, tick or architecture change as the answer.
 - Read a cleared decompilation first; measurement confirms, it does not discover.
 - Small runnable steps with a visible outcome; plain directions, never compass points.

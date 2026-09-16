@@ -191,7 +191,8 @@ label.** This file holds what we KNOW about how the game works — measured or w
 plus a plainly marked list of what we know we do not know yet. **Nothing is written here while we are
 unsure how it works**: a reader takes every line as how the mechanic IS. A decompilation, a wiki or
 another project is still the fastest way to learn WHERE to look, but what it says goes to the
-adapter's `UNVERIFIED.md` as a question to measure, and enters this file only as our own measurement.
+adapter's `MEASURED.md` (its last section) as a question to measure, and enters this file only as our
+own measurement.
 Rewording a source's explanation is still that source's information (`CLAUDE.md`, *Measured or
 observed only — nothing borrowed*). Short names from a source may point at our own value.
 

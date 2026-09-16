@@ -147,16 +147,19 @@ same as any two unrelated games — grouping by franchise just keeps the top lev
 | `FLAGS.md` | **Immediately, with its first row** — mandated for every adapter and checked by `preflight.ps1` alongside the five files below (a Lua adapter registers its environment variables and globals here; "no compile-time switches" is not "no switches") | [FLAGS.md](FLAGS.md) |
 | `SYNCED.md` | **With the first key the adapter sends** — every key, what it does on the other screen, and its check on arrival; preflight compares it to the send code | [SYNCED.md](SYNCED.md) |
 | `VERIFIED.md` | **Immediately, empty** — this game's dated, user-confirmed facts. Split per game 2026-08-25; `agent_docs/verified.md` keeps only Go-side and cross-game entries | [VERIFIED.md](VERIFIED.md) |
-| `UNVERIFIED.md` | **Always** — this game's queue waiting on the user. Split per game 2026-08-25; mandated for every adapter and checked by `preflight.ps1` since 2026-08-27 | [UNVERIFIED.md](UNVERIFIED.md) |
+| `UNVERIFIED.md` | **Always** — this game's queue of what the user can judge on screen and has not yet. Split per game 2026-08-25; mandated for every adapter and checked by `preflight.ps1` since 2026-08-27 | [UNVERIFIED.md](UNVERIFIED.md) |
+| `MEASURED.md` | **Immediately** — the code-level facts the agent measured (addresses, byte meanings, encodings, timings), each with its evidence and date, and a last section of what a source says that nobody has measured. Mandated 2026-09-16 | [MEASURED.md](MEASURED.md) |
 | `PROBES.md` | Once `probes/` holds more than a couple of scripts — an index of what each one answered | [probes-README.md](probes-README.md) |
 | `CLAUDE.md` | Only once this host has rules of its own that no other adapter needs | none — see "A host `CLAUDE.md` is optional, and capped" below |
 
-**`README.md`, `documentation.md`, `BANDAGES.md`, `FLAGS.md`, `SYNCED.md`, `VERIFIED.md` and
-`UNVERIFIED.md` are expected of EVERY adapter, with no exceptions** — `dev-scripts/preflight.ps1`'s
-adapter-file-set check fails on a missing one. Create all seven when the folder is created; three of
-them start empty (`BANDAGES.md`, `VERIFIED.md`, `UNVERIFIED.md` — `documentation.md` starts with the
-first mechanic, `FLAGS.md` with its first row, `SYNCED.md` with the four basics).
-(This sentence named three until 2026-09-06, while the check had mandated six since 2026-08-27.)
+**`README.md`, `documentation.md`, `BANDAGES.md`, `FLAGS.md`, `SYNCED.md`, `VERIFIED.md`,
+`UNVERIFIED.md` and `MEASURED.md` are expected of EVERY adapter, with no exceptions** —
+`dev-scripts/preflight.ps1`'s adapter-file-set check fails on a missing one. Create all eight when
+the folder is created; four of them start empty (`BANDAGES.md`, `VERIFIED.md`, `UNVERIFIED.md`,
+`MEASURED.md` — `documentation.md` starts with the first mechanic, `FLAGS.md` with its first row,
+`SYNCED.md` with the four basics).
+(This sentence named three until 2026-09-06, while the check had mandated six since 2026-08-27;
+`MEASURED.md` joined 2026-09-16.)
 
 ## Seven traps that are NOT specific to the host that found them
 

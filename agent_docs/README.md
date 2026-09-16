@@ -38,6 +38,7 @@ of the documentation, written for people *using* MeshGhost, is [`../docs/`](../d
 
 - [verified.md](verified.md) — append-only, human-gated confirmed facts for the Go side and cross-game entries, plus the index to each adapter's own `VERIFIED.md`.
 - [unverified.md](unverified.md) — the index to the four per-game queues; each `UNVERIFIED.md` opens with "This run — watch these first" and every entry is READY, OPEN or DONE.
+- Each adapter's `MEASURED.md` — the code-level facts the agent measured, with evidence and date, and what a source says that nobody has measured yet; not user-gated (since 2026-09-16, `_template/MEASURED.md`).
 - [pitfalls.md](pitfalls.md) — **how a lesson stops being paid for twice**: every lesson ends as a CHECK, a RULE or a RECORD; the filing rule. Reworked 2026-09-02.
 - `pitfalls/` — the record: `INDEX.md` (every lesson, one tagged line), `method.md`, `by-host.md`, `by-lesson.md` (chronological; new entries go at its end). Nothing is filed per game, deliberately.
 - `phases/` — **the complete running log per phase, appended every session** ([phases/README.md](phases/README.md) is the index and the rule). Read as dated records: paths are left as they were written, so files written before the 2026-08-17 module move say `internal/protocol|transport|bridge|core|relay|netx` for what is now at the repo root, and files before 2026-08-25 say `adapters/bizhawk/` for `adapters/emulator/`; `internal/README.md` became `../docs/networking.md` and `../docs/security.md`.

@@ -928,7 +928,7 @@ foreach ($f in $trackedMd) {
 }
 if ($cFenceHits.Count -gt 0) {
     Report-Fail ("fenced C block(s) in tracked markdown -- quoted source never enters the repo (CLAUDE.md, " +
-        "agent_docs/licensing.md); describe what the routine DOES, or move it to UNVERIFIED.md as a question: " +
+        "agent_docs/licensing.md); describe what the routine DOES, or move it to MEASURED.md's Not measured yet as a question: " +
         ($cFenceHits -join "; "))
 } else {
     Report-Pass "no fenced C block in $($trackedMd.Count) tracked markdown file(s)"
@@ -941,7 +941,8 @@ Section "Decompilation citations in adapter Lua: a ratchet"
 # say so -- and never the evidence; a NEW one is a new borrowed claim. Ratchets like
 # documentation.md's below: a count that grows fails, a count that shrinks asks for the floor to be
 # lowered. The per-site audit ran the same day (the user's call): the two shipped adapters went to
-# zero -- every source-only mechanism is a question in that adapter's UNVERIFIED.md -- and the probes
+# zero -- every source-only mechanism is a question in that adapter's UNVERIFIED.md (MEASURED.md's
+# "Not measured yet" since 2026-09-16) -- and the probes
 # kept their "where to look" pointers with copied source text, tables and layouts removed.
 $luaCiteC = '\b(src|include|data|constants)/[A-Za-z0-9_/]+\.(c|h|inc)\b|\.(c|h):[0-9]'
 $luaCiteAsm = '\b(engine|home|data|constants|ram|gfx|maps)/[A-Za-z0-9_/]+\.(asm|inc)\b|\.asm:[0-9]'
@@ -966,7 +967,7 @@ foreach ($r in $luaCiteRatchet) {
 if ($luaCiteProblems.Count -gt 0) {
     Report-Fail ("decompilation citations in adapter Lua moved off their recorded floor -- a new one is a " +
         "borrowed claim: measure it, or write it as the source's reading and move the question to " +
-        "UNVERIFIED.md (CLAUDE.md, agent_docs/licensing.md): " + ($luaCiteProblems -join "; "))
+        "MEASURED.md's Not measured yet (CLAUDE.md, agent_docs/licensing.md): " + ($luaCiteProblems -join "; "))
 } else {
     Report-Pass "decompilation citations in adapter Lua at their recorded floors (4 ratchets)"
 }
@@ -975,7 +976,8 @@ Section "Measured or observed only: no NEW source-derived claims (ratchet)"
 
 # CLAUDE.md "MEASURED OR OBSERVED ONLY -- NOTHING BORROWED", the user's rule of 2026-09-13
 # (agent_docs/licensing.md has the reasoning and the cases). A claim is a fact only when it names OUR
-# evidence; a decompilation is where to look, and what it says waits in UNVERIFIED.md as a question.
+# evidence; a decompilation is where to look, and what it says waits as a question in the adapter's
+# MEASURED.md, last section (UNVERIFIED.md until 2026-09-16).
 #
 # Two counts, both RATCHETS recorded the day the rule landed, because the tree written before it still
 # carries source-derived content and the audit that removes it is queued (agent_docs/status.md):
@@ -983,7 +985,7 @@ Section "Measured or observed only: no NEW source-derived claims (ratchet)"
 #     naming the label -- is not a use);
 #   * source-file CITATIONS in any adapter's documentation.md (engine/..asm, src/..c and the like),
 #     which is the shape a decomp-derived claim takes when it carries no label at all.
-# A count that GROWS is a new borrowed claim: measure it, or move it to UNVERIFIED.md as a question.
+# A count that GROWS is a new borrowed claim: measure it, or move it to MEASURED.md's Not measured yet.
 # A count that SHRINKS is the audit working: lower the recorded number so the floor holds.
 $ratchetDecompLabel = 0
 $ratchetDecompCites = @{
@@ -996,7 +998,7 @@ foreach ($f in @(& git ls-files | Where-Object { $_ -match '\.(md|lua|go|cs|cpp|
     $labelHits += @(Select-String -LiteralPath $f -Pattern '(?<!`)\[from the decomp' -AllMatches | ForEach-Object { $_.Matches }).Count
 }
 if ($labelHits -gt $ratchetDecompLabel) {
-    Report-Fail "the retired [from the decomp] label is used $labelHits time(s), recorded $ratchetDecompLabel -- a new source-derived claim: measure it and label it [measured <date>, <instrument>], or move it to that adapter's UNVERIFIED.md as a question (CLAUDE.md, agent_docs/licensing.md)"
+    Report-Fail "the retired [from the decomp] label is used $labelHits time(s), recorded $ratchetDecompLabel -- a new source-derived claim: measure it and label it [measured <date>, <instrument>], or move it to that adapter's MEASURED.md, Not measured yet, as a question (CLAUDE.md, agent_docs/licensing.md)"
 } elseif ($labelHits -lt $ratchetDecompLabel) {
     Report-Fail "the retired [from the decomp] label dropped to $labelHits (recorded $ratchetDecompLabel) -- the audit is working; lower `$ratchetDecompLabel in this file so the floor holds"
 } else {
@@ -1842,6 +1844,39 @@ if ($verifiedFiles.Count -eq 0) {
     }
 }
 
+# MEASURED.md (2026-09-16) only grows, like VERIFIED.md, and the user asked for its index from the day
+# it began: "these files have the habit of growing pretty fast". Every ### entry, measured or in
+# "Not measured yet" (listed with that prefix), needs its line under ## Index.
+$measuredFiles = @(& git ls-files -- '*MEASURED.md' | Where-Object { $_ -notlike 'adapters/_template/*' })
+$mMissing = @()
+$mChecked = 0
+foreach ($mf in $measuredFiles) {
+    if (-not (Test-Path -LiteralPath $mf)) { continue }
+    $lines = @(Get-Content -LiteralPath $mf -Encoding UTF8)
+    $idxAt = ($lines | Select-String -Pattern '^## Index$' | Select-Object -First 1).LineNumber
+    if (-not $idxAt) {
+        Report-Fail "$mf has no ## Index section -- a record that only grows needs one"
+        continue
+    }
+    $indexed = @{}
+    for ($i = $idxAt; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match '^## ') { break }
+        if ($lines[$i] -match '^- (Not measured yet: )?(.+)$') { $indexed[$Matches[2].Trim()] = $true }
+    }
+    $mChecked++
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -notmatch '^### ') { continue }
+        $title = ($lines[$i] -replace '^### ', '').Trim()
+        if (-not $indexed.ContainsKey($title)) { $mMissing += "${mf}:$($i+1): $title" }
+    }
+}
+if ($mMissing.Count -gt 0) {
+    Report-Fail "$($mMissing.Count) MEASURED.md entr(ies) missing from their file's index -- add one line each:"
+    $mMissing | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
+} elseif ($mChecked -gt 0) {
+    Report-Pass "every MEASURED.md entry across $mChecked file(s) appears in its own index"
+}
+
 # ---------------------------------------------------------------------------
 Section "Adapter file set"
 
@@ -1852,7 +1887,9 @@ Section "Adapter file set"
 #
 # An adapter is any directory holding a documentation.md (the one file every adapter must have
 # from the moment its folder exists), excluding _template itself.
-$mandated = @('README.md', 'documentation.md', 'BANDAGES.md', 'FLAGS.md', 'SYNCED.md', 'VERIFIED.md', 'UNVERIFIED.md')
+# MEASURED.md joined 2026-09-16 (the user's call): code-level facts the agent measured, apart from
+# the two records of what the user judges on screen.
+$mandated = @('README.md', 'documentation.md', 'BANDAGES.md', 'FLAGS.md', 'SYNCED.md', 'VERIFIED.md', 'UNVERIFIED.md', 'MEASURED.md')
 $adapterDirs = @(& git ls-files | Where-Object { $_ -like '*/documentation.md' } |
                  ForEach-Object { Split-Path $_ -Parent } |
                  ForEach-Object { $_ -replace '\\', '/' } |

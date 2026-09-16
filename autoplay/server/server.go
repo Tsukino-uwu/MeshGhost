@@ -78,6 +78,14 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 	}, logged(t, "select", nil, t.selectEntry))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name: "walk",
+		Description: "Walk the player a number of tiles in one direction, one tile at a time, each tile " +
+			"ending on the game's own state rather than a frame count. Stops early and says why: " +
+			"blocked (with what is on the refused tile), map_changed (a warp or a map edge), " +
+			"dialogue_open, menu_open, left_overworld. Returns the tiles actually moved and what changed.",
+	}, logged(t, "walk", nil, t.walk))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name: "screenshot",
 		Description: "A picture of the game frame, saved under dev-scripts/shots/<game>/ and returned " +
 			"as an image. The navigation sense: what is around, what a thing is, which entry is " +
@@ -225,6 +233,30 @@ func (t *tools) selectEntry(ctx context.Context, _ *mcp.CallToolRequest, in Sele
 	}
 	req := selectRequest{Item: in.Item, Index: in.Index, Confirm: in.Confirm == nil || *in.Confirm}
 	raw, err := t.forward(ctx, "select", "select", req, SelectTimeout)
+	return nil, raw, err
+}
+
+// MaxWalkTiles bounds one walk: a longer route is several, or a goto once there is one.
+const MaxWalkTiles = 32
+
+// WalkIn is the walk tool's input.
+type WalkIn struct {
+	Direction string `json:"direction" jsonschema:"up, down, left or right"`
+	Tiles     int    `json:"tiles" jsonschema:"how many tiles, 1 to 32"`
+}
+
+func (t *tools) walk(ctx context.Context, _ *mcp.CallToolRequest, in WalkIn) (*mcp.CallToolResult, any, error) {
+	switch in.Direction {
+	case "up", "down", "left", "right":
+	default:
+		return nil, nil, fmt.Errorf(`direction must be "up", "down", "left" or "right", got %q`, in.Direction)
+	}
+	if in.Tiles < 1 || in.Tiles > MaxWalkTiles {
+		return nil, nil, fmt.Errorf("tiles must be 1 to %d, got %d", MaxWalkTiles, in.Tiles)
+	}
+	// A tile takes well under a second; allow for a slow host and a warp at the end.
+	timeout := CallTimeout + time.Duration(in.Tiles)*2*time.Second
+	raw, err := t.forward(ctx, "walk", "walk", in, timeout)
 	return nil, raw, err
 }
 

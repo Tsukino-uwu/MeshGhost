@@ -256,3 +256,52 @@ one step), every result matching its capture.
 
 **Next for Phase 1:** the ASCII map around the player; party, bag and badges; cheats for items and
 flags; list menus and battle text; a move that ends on the game's own state.
+
+## 2026-09-16 (same session) — Phase 1 step 5: the local map and `walk`; and a third record, MEASURED.md
+
+**The user on the `select` result:** *"im unsure if its always in the same position ?"*, then *"meant
+more where you start, how much up/down you have to do"*. It is not fixed and `select` does not need
+it to be: it reads where the cursor is (the START menu opened on POKéMON once and on BAG another time,
+the game remembering) and presses until the game's cursor byte says it arrived.
+
+**Built.** Emerald's `observe` gains `local_map` (15 by 11 characters with a legend), `nearby` (the
+other characters) and `warps` (every warp and where it leads); the core gains `walk {direction,
+tiles}`, run in the game module as a program the driver calls once a frame, each tile ending when the
+game says the step is done. Programs became generic in the driver (`game.programs`), and `select`
+reads only the menu each frame. Measurements: `emerald/MEASURED.md`, same date.
+
+**How it was measured.** `probes/map_probe.lua` dumped the grid, behaviours, objects and the header's
+event lists on every tile change, and `probes/step_probe.lua` the player's movement bytes on every
+frame they changed, while the agent walked a tile, into a wall, a turn and a long hold. The first dump
+already agreed with an earlier walk: the header lists a warp at (6,16) to map 2.2, the door the agent
+had walked through in the text session. The local map then matched both captures tile for tile.
+
+**What went wrong on the way:**
+- **A door read as "no response" twice.** The first limit gave up after 20 frames; the door's step
+  began on frame 20. Counting only idle frames fixed the turn-first case (the avatar's +2 reads 1
+  while the door opens) and missed the facing-it case, where every byte stayed at rest for the 20
+  frames of the door opening. What says a door is coming is the warp list: a press toward a listed
+  warp now waits for the step or the map change.
+- **Rows of "behaviour 0xB5" below the Center's room** were the grid's border, not the room: the grid
+  is 15 wider and 14 taller than the map header's own size (map 0.10: 35 by 34 against 20 by 20).
+  Border cells now read `:`.
+
+**Live, through the tools:** up 3 done; left 2 refused at once, the refused tile reported as
+collision 1; out of the Center and back in, each `map_changed`. Go side: the `walk` tool's
+validation and forwarding tests, `go test ./...` clean.
+
+**The records split (the user, while this ran).** *"i have to confirm visually if something
+happens/work visually in a game. but i can't really confirm if bytes are correct or not"*, then
+*"verified/unverified should just be non code related things that i can verify like 'Jump is not
+working' or 'fly is working properly now' etc. I think a MEASURED.md makes sense for you to put all
+these code related things in"*; *"remember to also add it to _template so all adapters get it"*.
+Asked where a source's unmeasured claim goes, the user chose the bottom of MEASURED.md ("Not measured
+yet"). Asked why UNVERIFIED.md has no index when VERIFIED.md does: a queue was meant to drain, and
+they have not; each gets one in the migration, and MEASURED.md got its index from the start (*"these
+files have the habit of growing pretty fast"*). Done: `_template/MEASURED.md` and one per adapter,
+preflight's mandated set and an index check, and the rule in `CLAUDE.md`, `licensing.md`,
+`orientation.md` and the probe skill. Today's text entry moved out of `emerald/UNVERIFIED.md`, which
+keeps an on-screen READY item. Sorting the older entries is a `status.md` task for another chat (the
+user's call).
+
+**Next for Phase 1:** party, bag and badges; cheats for items and flags; list menus and battle text.

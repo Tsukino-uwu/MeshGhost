@@ -45,9 +45,10 @@ to one line per entry instead. The cases: `agent_docs/claude-md-cap.md`.
   no-arg: NA↔EU ping plus bad wifi; user, 2026-09-02).
 - **`VERIFIED.md` is append-only, and nothing adapter-side on the VANILLA game goes in it — or gets
   called "verified"/"confirmed" — until the USER confirms it on screen.** No probe log, console read
-  or screenshot of yours substitutes (2026-08-21): your measurements go to that adapter's
-  `UNVERIFIED.md`. A patched ROM (Archipelago etc.) and Go-side facts are yours to confirm — say so.
-  Each adapter keeps its own record; `agent_docs/verified.md` keeps the Go side and the index.
+  or screenshot of yours substitutes (2026-08-21). **`VERIFIED.md`/`UNVERIFIED.md` hold only what the
+  user judges on screen; the bytes, addresses and timings you MEASURE go to that adapter's
+  `MEASURED.md`**, each naming its evidence and date (user, 2026-09-16). A patched ROM (Archipelago
+  etc.) and Go-side facts are yours to confirm — say so. `agent_docs/verified.md`: Go side, index.
 - **THE BAR IS 1:1** — user, 2026-08-19: *"it looks exactly the same as the player doing it"*, *"not
   sloppy/bandage/good enough"*. Judged ON SCREEN, never by matching numbers: a state the game never
   displayed is not 1:1; "close" and "only during the transition" are OPEN. **Never offer a rate,
@@ -69,10 +70,10 @@ to one line per entry instead. The cases: `agent_docs/claude-md-cap.md`.
 - **MEASURED OR OBSERVED ONLY — NOTHING BORROWED** (user, 2026-09-13). **A claim is written as fact
   only when it names OUR evidence, dated**: a probe log or trace, a test, a file we built or hashed (a
   byte-identical build's `.sym` proves an ADDRESS, never what the byte means), or the user on screen.
-  A decomp, wiki, dump or other project is where to LOOK; what it says waits in `UNVERIFIED.md` as
-  something to measure. A short name may point at our value; source text, tables, assets, ROMs,
-  symbol files, dumps, structurally identical code, and a rewording of a source's explanation never
-  enter. How to call an API may cite its docs; what it does, only once observed. `licensing.md`.
+  A decomp, wiki, dump or other project is where to LOOK; what it says waits in that adapter's
+  `MEASURED.md`, last section, as something to measure. A short name may point at our value; source
+  text, tables, assets, ROMs, symbol files, dumps, structurally identical code, and a rewording of a
+  source's explanation never enter. How to call an API may cite its docs; what it does, only once observed. `licensing.md`.
 - The rule also filters which approaches to adopt, and clean isn't enough: **the repo must WORK for
   a user who has only it plus what they legitimately own** (`agent_docs/access-models.md`).
 - **Read a project's license before reading its source** (`agent_docs/licensing.md`); not listed

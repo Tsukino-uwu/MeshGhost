@@ -23,9 +23,11 @@ Facts about this adapter and this game, **confirmed by watching a running game**
 
 **The gate is the strict one.** Nothing adapter- or game-side on the BASE/VANILLA game goes in
 here until **the user has confirmed it on screen** — no probe log, console read or screenshot of
-yours substitutes, and neither does a clean test run. Measurements that are not yet confirmed live
-in [`UNVERIFIED.md`](UNVERIFIED.md). A patched ROM (Archipelago and similar) is the agent's to
-confirm visually; say so in the entry. The full rule is in the root `CLAUDE.md`.
+yours substitutes, and neither does a clean test run. What the user can judge on screen and has not
+yet lives in [`UNVERIFIED.md`](UNVERIFIED.md); the bytes, addresses and timings underneath, which
+nobody can watch, are the agent's to measure into [`MEASURED.md`](MEASURED.md) (since 2026-09-16).
+A patched ROM (Archipelago and similar) is the agent's to confirm visually; say so in the entry.
+The full rule is in the root `CLAUDE.md`.
 
 **Append-only.** Do not rewrite or delete an entry's original observation. Adding later
 live-confirmed detail to an existing entry is fine; superseding one is a NEW entry plus an

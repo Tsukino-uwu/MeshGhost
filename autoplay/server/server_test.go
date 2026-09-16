@@ -258,6 +258,45 @@ func TestSelectValidatesAndForwards(t *testing.T) {
 	}
 }
 
+func TestWalkValidatesAndForwards(t *testing.T) {
+	h := newHarness(t)
+	got := make(chan WalkIn, 1)
+	h.startDriver(t, []string{"walk"}, func(verb string, payload json.RawMessage) (string, any) {
+		var in WalkIn
+		json.Unmarshal(payload, &in)
+		got <- in
+		return "result", map[string]any{"moved": in.Tiles, "outcome": "done"}
+	})
+
+	for _, bad := range []map[string]any{
+		{"direction": "north", "tiles": 1},
+		{"direction": "Up", "tiles": 1},
+		{"direction": "up", "tiles": 0},
+		{"direction": "up", "tiles": MaxWalkTiles + 1},
+	} {
+		if text, isErr := h.call(t, "walk", bad); !isErr {
+			t.Errorf("walk %v = %s, want a refusal", bad, text)
+		}
+	}
+
+	text, isErr := h.call(t, "walk", map[string]any{"direction": "left", "tiles": 3})
+	if isErr || !strings.Contains(text, `"outcome":"done"`) {
+		t.Fatalf("walk = %s (error %v)", text, isErr)
+	}
+	if in := <-got; in.Direction != "left" || in.Tiles != 3 {
+		t.Fatalf("the driver received %+v", in)
+	}
+}
+
+func TestWalkIsRefusedWithoutTheCapability(t *testing.T) {
+	h := newHarness(t)
+	h.startDriver(t, []string{"press"}, func(string, json.RawMessage) (string, any) { return "result", map[string]any{} })
+	text, isErr := h.call(t, "walk", map[string]any{"direction": "up", "tiles": 1})
+	if !isErr || !strings.Contains(text, `does not support "walk"`) {
+		t.Fatalf("walk = %s (error %v)", text, isErr)
+	}
+}
+
 func TestSelectIsRefusedWithoutTheCapability(t *testing.T) {
 	h := newHarness(t)
 	h.startDriver(t, []string{"observe"}, func(string, json.RawMessage) (string, any) { return "result", map[string]any{} })

@@ -24,6 +24,12 @@ This is its waiting room: things the agent believes work, has self-tested as far
 **the user has not seen yet**. It exists so work can continue while the user is away without
 either losing track of what still needs checking or quietly drifting into calling it done.
 
+**Only what the user can judge on screen goes here** — "jumping works", "the ghost's fly looks
+right". Addresses, byte meanings, encodings and timings are code-level: the agent measures them
+into [`MEASURED.md`](MEASURED.md), and so do questions a source raises that nobody has measured, in
+its last section. The user, 2026-09-16: *"verified/unverified should just be non code related things
+that i can verify"*.
+
 **The rule it serves** (`agent_docs/testing.md`, `agent_docs/environment.md`): the agent verifies
 the Go client/server with tools; **anything about a running game needs the user to watch it**. A
 screenshot the agent took is not a substitute, and neither is a healthy log. *"nothing is

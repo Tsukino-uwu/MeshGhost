@@ -164,7 +164,7 @@ same every time.
    [licensing.md](licensing.md) lists what has been cleared and how a citation is gated.
 3. **Start from the template.** `/new-adapter` sequences the reading. Every adapter carries the
    same file set from day one: `README.md`, `documentation.md`, `BANDAGES.md`, `FLAGS.md`,
-   `SYNCED.md`, `VERIFIED.md`, `UNVERIFIED.md` and a probes index. Preflight checks the set.
+   `SYNCED.md`, `VERIFIED.md`, `UNVERIFIED.md`, `MEASURED.md` and a probes index. Preflight checks the set.
    Ask the user for the phase number and create `phases/phaseN.md` before the first file.
    [../adapters/_template/README.md](../adapters/_template/README.md), read end to end.
 4. **Build the hot-reload loop before the first feature.** Every host has one; without it every
@@ -237,8 +237,9 @@ The instrument side of the same work.
   The `/play-game` skill is what may be changed and how; [running-the-rig.md](running-the-rig.md)
   is the scaffolding around it: relay, core and netsim started hidden, two games at once,
   several agents, crash dumps.
-- **Where the answer goes.** A measurement of yours goes to that game's `UNVERIFIED.md` as
-  something for the user to watch. What the user confirms on screen goes to `VERIFIED.md`. A
+- **Where the answer goes.** A measurement of yours goes to that game's `MEASURED.md`, with its
+  evidence and date; what the user should watch on screen goes to `UNVERIFIED.md`, and what the
+  user confirms on screen to `VERIFIED.md` (the split since 2026-09-16). A
   wrong theory and how it was caught goes to `pitfalls/` and, if it earns a check, to a page in
   `checklists/`.
 

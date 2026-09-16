@@ -30,6 +30,7 @@ Claude Code --MCP (stdio)--> autoplay core --JSON lines (127.0.0.1)--> driver in
 | `press` | Hold buttons for 1-600 frames, then report what changed — the escape hatch, not the default |
 | `wait` | Let 1-3600 frames pass with NO input, then report what changed. Never hold a button to wait |
 | `select` | Choose an entry in the open menu by its text (`item`) or 0-based `index`: the driver presses toward it until the game's own cursor is on it, then holds confirm until the menu responds (`confirm: false` stops on it). Every leg ends on the game's state, never a frame count |
+| `walk` | Walk 1-32 tiles `up`, `down`, `left` or `right`, one tile at a time, each ending when the game says the step is done. Stops early and says why: `blocked` (with what is on the refused tile), `map_changed` (a door or an edge), `dialogue_open`, `menu_open`, `left_overworld`; reports the tiles actually moved |
 | `screenshot` | The game frame, saved to `dev-scripts/shots/<game>/autoplay_<name>.png` and returned as an image |
 | `events` | Events the driver reported since a sequence number |
 | `snapshot` | Save the whole game state to `autoplay/states/<game>/<label>.State` — a named file, never a numbered slot, so no slot of anyone's is ever touched |
@@ -40,7 +41,7 @@ Claude Code --MCP (stdio)--> autoplay core --JSON lines (127.0.0.1)--> driver in
 ## What observe reads
 
 Everything past `frame`, `mode` and `location` is the game module's. Emerald, on the vanilla ROM only
-(the hash it was measured on; `emerald/UNVERIFIED.md`, 2026-09-16):
+(the hash it was measured on; `emerald/MEASURED.md`, 2026-09-16):
 
 - **`dialogue`** — the message being shown: `box` (that box's text, lines split by `\n`),
   `box_index` of `boxes`, and `state`: `printing`, `waiting_for_button` (the red arrow), or
@@ -50,6 +51,12 @@ Everything past `frame`, `mode` and `location` is the game module's. Emerald, on
   0-based. List menus with their own cursor (the bag, the PC, shops) and battle menus are not read
   yet.
 - **`screen_text`** — any other window's printed text, per window, top to bottom.
+- **`local_map`** — `rows` of characters, 15 wide by 11 tall with you at the centre, and a `legend`
+  for the symbols present: `@` you, `N` a character, `W` a warp, `#` collision set, `.` clear at your
+  elevation, a hex digit for clear at another elevation, a letter per behaviour byte (listed in the
+  legend by number), `:` beyond this map's own edge. Only in the overworld.
+- **`nearby`** — the other characters: slot, local id, graphic, map `x`/`y`, and `dx`/`dy` from you.
+- **`warps`** — every warp on the map: `x`, `y` and the map it leads `to`.
 - A byte whose character is not measured, or that draws nothing, reads as `{XX}`.
 
 The driver reports each of `map`, `mode`, `dialogue` and `menu` changing as an event:
@@ -76,8 +83,9 @@ code rather than by memory. A failed or refused cheat changes nothing.
   `AUTOPLAY_PORT` when it is not 7870) in the environment the emulator starts with. It logs to
   `autoplay/runs/driver_bizhawk.log`. Game modules: `games/emerald.lua` (vanilla: position and
   warp from `emerald/probes/cmd_drive.lua`'s measurements, text and menus from
-  `text_probe.lua`'s and `charset_probe.lua`'s). **While a press or a select runs it holds the
-  controller** — take it off the target when done.
+  `text_probe.lua`'s and `charset_probe.lua`'s, the map and `walk` from `map_probe.lua`'s and
+  `step_probe.lua`'s). **While a press, a select or a walk runs it holds the controller** — take it
+  off the target when done.
 - **Text costs top speed.** Reading text needs execute hooks, and any execute hook costs the
   emulator about a third of its unthrottled speed (344 frames/s without, 242-246 with, one instance,
   2026-09-16), however many there are. `AUTOPLAY_TEXT=0` in the emulator's environment leaves them

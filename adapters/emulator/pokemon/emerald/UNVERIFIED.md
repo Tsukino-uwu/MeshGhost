@@ -1524,47 +1524,11 @@ tier, that it zeroes the bike's speed counter, raises the object's facing lock a
 south walk-fast movement. To settle: the player's `+0x01` bits and the bike counter per frame
 through one slide-back, and once at the top tier heading north.
 
-## [OPEN] text, menus and the character encoding, as autoplay reads them (2026-09-16)
+## [READY] autoplay reads Emerald's text, menus and map as they are on screen, and walks where it says (2026-09-16)
 
-**Agent-measured on the vanilla ROM, not yet confirmed by the user as a feature.** The ROM's SHA-1
-(`F3AE0881…`) equals our pokeemerald build's and what `gameinfo.getromhash()` returns, so the build's
-addresses are addresses; every meaning below is from `probes/text_probe.lua` (read-only) and
-`probes/charset_probe.lua` (writes the message buffer once), read against captures of the same frames
-(`dev-scripts/shots/emerald/autoplay_text_*` and `autoplay_cs_box01`..`13`, gitignored). Used by
-`autoplay/drivers/bizhawk/games/emerald.lua`, whose table holds the byte-to-character mapping.
-
-- **The encoding.** The game's own printer drew every byte 00-F7 in a message box, ten per line
-  between ▶ (EF) markers; a script split each line at the marker's exact pixel mask (every line 11
-  markers, and 12 on the one holding EF itself). 152 bytes draw a glyph and 96 draw nothing (7D-83
-  blank at widths 3 to 9 px). A-Z are BB-D4, a-z D5-EE, 0-9 A1-AA; 00 is the gap between words in real
-  dialogue. Read as ß: 15 (an R-like glyph with a hook). Left raw: 50 (a tall empty rectangle) and 59
-  (unidentified). The START menu, the nurse's three boxes, her YES/NO and her goodbye decode to exactly
-  what their captures show.
-- **Commands seen in real text.** FE began the second line, 16 px lower; FB ended a box: the red
-  arrow appeared, the printer waited, and A cleared the window and went on; FF ended the string: on
-  the last box the printer went idle with the box still drawn and no arrow, and the next A cleared the
-  window tilemap (FillWindowPixelBuffer and ClearWindowTilemap on window 0, no RemoveWindow).
-- **The printer block, 0x24 bytes per window id.** +0x1B reads 1 while a message is on its way and 0
-  at its end; +0x1C reads 0 while printing and 2 on the arrow; the first word is one past the last
-  byte taken (42 bytes in at the first box's arrow, whose FB is byte 41).
-- **The text routine's entry.** R0 points at a template whose first word points at the string, +4 the
-  window, +6/+7 x and y; R1 the speed: 4 for the nurse on this save, 255 for the START items, 0 for
-  the ▶ cursor. Only her text ran a printer: no window-1 printer went active in either menu.
-- **Windows, 12 bytes per id.** +0 the background (FF after RemoveWindow), +1 left, +2 top, +3 width,
-  +4 height. The START menu's (22, 1, 7 by 16) and the message box's (2, 15, 27 by 4) matched BG0's
-  drawn columns and rows with a one-tile frame round them.
-- **The menu block, 12 bytes.** +1 top (9 on START, 1 on the YES/NO) is the first item's y; +2 the
-  cursor, one entry per Down or Up press (0→1→2, 2→5, 5→0); +4 the last index (6, 1); +5 the window;
-  +8 the row height (16), the spacing between items. It keeps its values after the menu closes. Both
-  menus reached the routine named Menu_MoveCursor; the YES/NO never reached the one named InitMenu (a
-  hook there missed it).
-- **What an execute hook costs.** One emulator, frame limiter off, standing in the Pokémon Center:
-  344 frames/s with no hook, 245.6 with one, 242.0 with five, so the price is having any at all.
-  Requested 400% read 238-240 either way, capped by the setting rather than the CPU.
-
-**Never measured:** a box that scrolls rather than clears (FA), pauses and the FC/FD/F8/F9 commands
-and their parameters; list menus (bag, PC, shops), the battle menus and battle text; any font but
-the message font's line advance; any text speed but this save's; any patched build.
-
-**What the user can confirm:** in a session driven through autoplay, `observe`'s `dialogue.box` and
-`menu.items` read the words on screen, and `select` lands on the named entry.
+What to look at: a session where autoplay drives vanilla Emerald. Correct looks like: `observe`'s
+`dialogue.box` holds the words in the message box and `menu.items` the entries of the open menu;
+`select` puts the cursor on the entry it names and chooses it; `local_map` puts `#` where the player
+cannot walk, `W` on doors, `N` on the characters; and `walk` moves the player the number of tiles it
+reports. The bytes underneath are measured in [`MEASURED.md`](MEASURED.md) (text; the map and a step),
+not waiting on anyone. The agent checked each against its own captures, which does not count here.

@@ -7,7 +7,7 @@
 -- it is not, as `cmd_drive.lua`'s `warp` does.
 --
 -- TEXT AND MENUS (measured 2026-09-16 with `emerald/probes/text_probe.lua` and `charset_probe.lua` on
--- the vanilla ROM whose SHA-1 is VANILLA_SHA1; the record is that adapter's UNVERIFIED.md, same date).
+-- the vanilla ROM whose SHA-1 is VANILLA_SHA1; the record is that adapter's MEASURED.md, same date).
 -- Addresses come from a pokeemerald build hashed identical to that ROM; what each byte means is what
 -- the probes showed. Only on that ROM are the hooks installed; anywhere else `dialogue`, `menu` and
 -- `screen_text` are absent.
@@ -308,11 +308,153 @@ local function readScreenText(skipA, skipB)
 	return out
 end
 
+-- THE MAP AROUND THE PLAYER (2026-09-16, vanilla: `emerald/probes/map_probe.lua` and `step_probe.lua`
+-- read against captures and walks; that adapter's MEASURED.md, same date).
+local GBACKUPMAPLAYOUT, GMAPHEADER = 0x03005dc0, 0x02037318
+-- SaveBlock1's position plus 7 is the player object's coordinate, and the grid is addressed by it
+-- (width at +0, the entries' pointer at +8; cmd_drive.lua's `grid`): five walked positions agreed.
+local MAP_OFFSET = 7
+local VIEW_W, VIEW_H = 7, 5 -- tiles either side: 15 by 11, a little more than the screen
+local OBJ_SIZE = 0x24
+
+local function inRom(p) return p >= 0x08000000 and p < 0x0A000000 end
+local function playerSlot() return r8(GPLAYERAVATAR + 5) end
+local function playerObject() return GOBJECTEVENTS + playerSlot() * OBJ_SIZE end
+
+-- A grid entry's low 10 bits pick a metatile; its attribute word's low byte is the behaviour (ids from
+-- 512 in the second tileset: cmd_drive.lua's `mtscan`). Collision is bits 10-11 and elevation 12-15
+-- (VERIFIED.md, 2026-08-18 and 2026-08-20).
+local behaviourCache = {}
+local function behaviourOf(id)
+	local layout = r32(GMAPHEADER)
+	if behaviourCache.layout ~= layout then behaviourCache = { layout = layout } end
+	local b = behaviourCache[id]
+	if b == nil then
+		b = -1
+		if inRom(layout) then
+			local k, index = 0, id
+			if id >= 512 then k, index = 1, id - 512 end
+			local ts = r32(layout + 0x10 + k * 4)
+			local attrs = inRom(ts) and r32(ts + 0x10) or 0
+			if inRom(attrs) then b = r16(attrs + index * 2) & 0xFF end
+		end
+		behaviourCache[id] = b
+	end
+	return b
+end
+
+-- The header's second pointer holds four counts; the second count's list is 8 bytes an entry, x and y
+-- at +0/+2 and the destination's map number and group at +6/+7. The Center door we walked into from
+-- (6,17) on map 0.10 is its entry (6,16) -> 2.2, and both listed doors there sit on behaviour 0x69.
+local function readWarps()
+	local out, events = {}, r32(GMAPHEADER + 4)
+	if not inRom(events) then return out end
+	local n, list = r8(events + 1), r32(events + 8)
+	if not inRom(list) then return out end
+	for i = 0, math.min(n, 64) - 1 do
+		local e = memory.read_bytes_as_array(list + i * 8, 8, BUS)
+		out[#out + 1] = { x = e[1] | (e[2] << 8), y = e[3] | (e[4] << 8), to = string.format("%d.%d", e[8], e[7]) }
+	end
+	return out
+end
+
+-- The other characters: object slots whose first byte has bit 0 set; +0x05 the graphic, +0x08 the
+-- local id, +0x10/+0x12 where it stands. On map 0.10 two slots' ids, graphics and first positions
+-- matched the map's own list, and the positions matched where the capture drew them.
+local function readObjects()
+	local out, me = {}, playerSlot()
+	for s = 0, 15 do
+		local b = memory.read_bytes_as_array(GOBJECTEVENTS + s * OBJ_SIZE, 0x14, BUS)
+		if (b[1] & 1) == 1 and s ~= me then
+			out[#out + 1] = { slot = s, local_id = b[9], graphics_id = b[6],
+				x = (b[17] | (b[18] << 8)) - MAP_OFFSET, y = (b[19] | (b[20] << 8)) - MAP_OFFSET }
+		end
+	end
+	return out
+end
+
+-- Rows of characters centred on the player, and a legend for the symbols that appear.
+local function readLocalMap(warps, objects)
+	local obj = playerObject()
+	local px, py = r16(obj + 0x10), r16(obj + 0x12)
+	local elevation = r8(obj + 0x0B) & 0x0F
+	local width, height, grid = r32(GBACKUPMAPLAYOUT), r32(GBACKUPMAPLAYOUT + 4), r32(GBACKUPMAPLAYOUT + 8)
+	-- The map's own size is the header's first pointer's +0/+4; the grid is 15 wider and 14 taller (map
+	-- 0.10: 20 by 20 against 35 by 34), the map starting MAP_OFFSET in. The rest is border.
+	local layout = r32(GMAPHEADER)
+	local mapW, mapH = width, height
+	if inRom(layout) then mapW, mapH = r32(layout), r32(layout + 4) end
+	local marks = {}
+	for _, w in ipairs(warps) do marks[(w.x + MAP_OFFSET) * 65536 + w.y + MAP_OFFSET] = "W" end
+	for _, o in ipairs(objects) do marks[(o.x + MAP_OFFSET) * 65536 + o.y + MAP_OFFSET] = "N" end
+	marks[px * 65536 + py] = "@"
+	local letters, nextLetter, used, rows = {}, 0, {}, {}
+	for dy = -VIEW_H, VIEW_H do
+		local y, row = py + dy, {}
+		local x0, x1 = px - VIEW_W, px + VIEW_W
+		local cells
+		if y >= 0 and y < height and x1 >= 0 and x0 < width then
+			local a, b = math.max(x0, 0), math.min(x1, width - 1)
+			cells = { from = a, to = b, bytes = memory.read_bytes_as_array(grid + (a + width * y) * 2, (b - a + 1) * 2, BUS) }
+		end
+		for x = x0, x1 do
+			local ch = marks[x * 65536 + y]
+			if not ch then
+				if not cells or x < cells.from or x > cells.to then
+					ch = " "
+				elseif x < MAP_OFFSET or y < MAP_OFFSET or x >= MAP_OFFSET + mapW or y >= MAP_OFFSET + mapH then
+					ch = ":"
+				else
+					local i = (x - cells.from) * 2 + 1
+					local v = cells.bytes[i] | (cells.bytes[i + 1] << 8)
+					local beh = behaviourOf(v & 0x3FF)
+					if (v & 0x0C00) ~= 0 then
+						ch = "#"
+					elseif beh > 0 then
+						ch = letters[beh]
+						if not ch then
+							ch = string.char(0x61 + nextLetter % 26)
+							letters[beh], nextLetter = ch, nextLetter + 1
+						end
+					elseif (v >> 12) == elevation then
+						ch = "."
+					else
+						ch = string.format("%X", v >> 12)
+					end
+				end
+			end
+			used[ch] = true
+			row[#row + 1] = ch
+		end
+		rows[#rows + 1] = table.concat(row)
+	end
+	local legend = {}
+	local fixed = {
+		{ "@", "you" }, { "N", "a character (nearby lists them)" }, { "W", "a warp (warps says where to)" },
+		{ "#", "collision set: a step into it was refused" }, { ".", "clear, at your elevation" },
+		{ ":", "beyond this map's edge: a connected map's edge, or filler (not measured which)" },
+		{ " ", "outside the grid" },
+	}
+	for _, f in ipairs(fixed) do
+		if used[f[1]] then legend[#legend + 1] = f[1] .. " " .. f[2] end
+	end
+	for beh, ch in pairs(letters) do
+		legend[#legend + 1] = string.format("%s behaviour 0x%02X%s", ch, beh,
+			beh == 0x3B and " (a ledge: walked into going down, it hopped two tiles)" or "")
+	end
+	for e = 0, 15 do
+		local ch = string.format("%X", e)
+		if used[ch] then legend[#legend + 1] = ch .. " clear, at elevation " .. e .. " (yours is " .. elevation .. "; not measured whether a step onto it is allowed)" end
+	end
+	table.sort(legend)
+	return { rows = rows, legend = legend }
+end
+
 local game = {
 	game = "emerald",
 	-- "vanilla" only when the ROM's hash is the one every address here was measured on.
 	variant = isVanilla and "vanilla" or "unverified",
-	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "cheat:warp", "select" },
+	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "cheat:warp", "select", "walk" },
 	-- The START menu and a YES/NO: Down moved the cursor one entry per press and A chose it (2026-09-16).
 	menuButtons = { prev = "Up", next = "Down", confirm = "A" },
 	protected_slots = { 1 },
@@ -365,12 +507,25 @@ function game.observe()
 		s = readScreenText(d and d.window, m and m.window)
 		if #s == 0 then s = nil end
 	end
+	local overworld = cb2 == CB2_OVERWORLD or cb2 == CB2_OVERWORLD + 1
+	local localMap, nearby, warps
+	if isVanilla and overworld then
+		warps, nearby = readWarps(), readObjects()
+		localMap = readLocalMap(warps, nearby)
+		local px, py = r16(sb1), r16(sb1 + 2)
+		for _, o in ipairs(nearby) do o.dx, o.dy = o.x - px, o.y - py end
+		if #nearby == 0 then nearby = nil end
+		if #warps == 0 then warps = nil end
+	end
 	return {
 		dialogue = d,
 		menu = m,
 		screen_text = s,
+		local_map = localMap,
+		nearby = nearby,
+		warps = warps,
 		frame = emu.framecount(),
-		mode = (cb2 == CB2_OVERWORLD or cb2 == CB2_OVERWORLD + 1) and "overworld" or "not_overworld",
+		mode = overworld and "overworld" or "not_overworld",
 		location = {
 			map = string.format("%d.%d", r8(sb1 + 4), r8(sb1 + 5)),
 			x = r16(sb1),
@@ -434,6 +589,140 @@ function game.cheats.warp(args)
 			return left and o.location.map == map
 		end,
 	}
+end
+
+-- The menu alone, for a program that looks every frame (select).
+function game.menu()
+	if #hookNames > 0 then return readMenu() end
+	return nil
+end
+
+-- PROGRAMS: run once a frame by the driver, each returning (pad or nil, finished, result, error).
+game.programs = {}
+
+local DIRECTIONS = {
+	up = { button = "Up", dx = 0, dy = -1 }, down = { button = "Down", dx = 0, dy = 1 },
+	left = { button = "Left", dx = -1, dy = 0 }, right = { button = "Right", dx = 1, dy = 0 },
+}
+local REST_LIMIT, IDLE_LIMIT, PRESS_LIMIT, DOOR_LIMIT, STEP_LIMIT = 120, 20, 90, 150, 180
+
+-- At rest, from step_probe.lua (2026-09-16): after a walked tile, a wall bump and a turn alike, the
+-- player object's byte 0 has its top bit back, its previous coordinates equal its current ones, and
+-- the avatar block's +2 and +3 are both 0 -- all true together 2 frames after the step's last pixel.
+local function atRest()
+	local b = memory.read_bytes_as_array(playerObject(), 0x18, BUS)
+	local a = memory.read_bytes_as_array(GPLAYERAVATAR + 2, 2, BUS)
+	return (b[1] & 0x80) ~= 0 and b[17] == b[21] and b[18] == b[22] and b[19] == b[23] and b[20] == b[24]
+		and a[1] == 0 and a[2] == 0
+end
+
+-- What stands on a tile, in map coordinates, for a refused step.
+local function describeTile(x, y)
+	local ox, oy = x + MAP_OFFSET, y + MAP_OFFSET
+	local width, height = r32(GBACKUPMAPLAYOUT), r32(GBACKUPMAPLAYOUT + 4)
+	local out = { x = x, y = y }
+	if ox < 0 or oy < 0 or ox >= width or oy >= height then
+		out.outside_map = true
+		return out
+	end
+	local v = r16(r32(GBACKUPMAPLAYOUT + 8) + (ox + width * oy) * 2)
+	out.collision, out.elevation, out.behaviour = (v >> 10) & 3, v >> 12, behaviourOf(v & 0x3FF)
+	for _, o in ipairs(readObjects()) do
+		if o.x == x and o.y == y then out.character = { slot = o.slot, local_id = o.local_id, graphics_id = o.graphics_id } end
+	end
+	for _, w in ipairs(readWarps()) do
+		if w.x == x and w.y == y then out.warp_to = w.to end
+	end
+	return out
+end
+
+-- walk {direction, tiles}: one tile at a time, each ending on the game's own state. From rest, hold the
+-- direction until the player's coordinates change (the step has begun: they jump to the next tile the
+-- frame the press lands) or the avatar's +2 reads 2 with them unchanged (the step was refused: a wall
+-- read that way from its first frame); release, and wait for rest. A press facing another way turns
+-- first (+2 reads 1 for 7 frames), and a door opens before the step (+2 at 1 and +3 at 2 for 13 more), so
+-- only frames where +2 reads 0 count towards giving up -- unless the tile ahead is in the warp list: a
+-- door facing the player opened with all of these bytes at rest for 20 frames, then the step began on
+-- its own, so a press toward a warp waits up to DOOR_LIMIT for the step or the map change. It stops early
+-- when the map changes, the game leaves the overworld, or a message box or menu is on screen.
+function game.programs.walk(p)
+	local d = DIRECTIONS[type(p.direction) == "string" and p.direction:lower() or ""]
+	local tiles = math.tointeger(p.tiles)
+	if not d then return nil, 'walk needs direction "up", "down", "left" or "right"' end
+	if not tiles or tiles < 1 or tiles > 32 then return nil, "walk needs tiles, 1 to 32" end
+	if not isVanilla then return nil, "walk is measured on the vanilla ROM only" end
+
+	local phase, frames, idle, moved, startMap, fromX, fromY, towardWarp = "rest", 0, 0, 0, nil, 0, 0, false
+	local function here()
+		local sb1 = r32(SB1PTR)
+		return string.format("%d.%d", r8(sb1 + 4), r8(sb1 + 5)), r16(sb1), r16(sb1 + 2)
+	end
+	local function finish(outcome, extra)
+		local r = { direction = p.direction:lower(), requested = tiles, moved = moved, outcome = outcome }
+		for k, v in pairs(extra or {}) do r[k] = v end
+		return nil, true, r
+	end
+
+	return function()
+		frames = frames + 1
+		local map, x, y = here()
+		startMap = startMap or map
+		if map ~= startMap then return finish("map_changed", { map = map }) end
+		if not inOverworld() then return finish("left_overworld") end
+		if #hookNames > 0 then
+			if dialogue and windowOnScreen(dialogue.window) then return finish("dialogue_open") end
+			if menuWindow and windowOnScreen(menuWindow) then return finish("menu_open") end
+		end
+
+		if phase == "rest" then
+			if not atRest() then
+				if frames > REST_LIMIT then return finish("not_at_rest") end
+				return nil, false
+			end
+			if moved >= tiles then return finish("done") end
+			phase, frames, idle, fromX, fromY = "press", 0, 0, x, y
+			towardWarp = false
+			for _, w in ipairs(readWarps()) do
+				if w.x == x + d.dx and w.y == y + d.dy then towardWarp = true end
+			end
+		end
+
+		if phase == "press" then
+			if x ~= fromX or y ~= fromY then
+				phase, frames = "moving", 0
+				return nil, false
+			end
+			local state = r8(GPLAYERAVATAR + 2)
+			if state == 2 then
+				phase, frames = "refused", 0
+				return nil, false
+			end
+			if state == 0 then idle = idle + 1 end
+			if towardWarp then
+				if frames > DOOR_LIMIT then return finish("no_response") end
+			elseif idle > IDLE_LIMIT or frames > PRESS_LIMIT then
+				return finish("no_response")
+			end
+			return { [d.button] = true }, false
+		end
+
+		if phase == "moving" then
+			if atRest() then
+				moved = moved + math.abs(x - fromX) + math.abs(y - fromY)
+				phase, frames = "rest", 0
+			elseif frames > STEP_LIMIT then
+				return finish("not_at_rest")
+			end
+			return nil, false
+		end
+
+		-- refused: let the bump finish, then say what is on the tile.
+		if atRest() then
+			return finish("blocked", { blocked_by = describeTile(fromX + d.dx, fromY + d.dy) })
+		end
+		if frames > REST_LIMIT then return finish("not_at_rest") end
+		return nil, false
+	end
 end
 
 -- What `changed` compares between two observations: the fields a press is expected to move.
