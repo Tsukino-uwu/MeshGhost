@@ -48,7 +48,11 @@ a trainer can't stop you either as you decide what happens in the game. you have
 what happens inside of a game"*, and *"you can never be or get stuck as you can just control what
 happens in the game"*. So a test scenario is never something to find, wait for or ask for. It is
 something to MAKE, on the spot: *"just cheat/make things happen if you want to do something. be
-creative."* And make it fresh rather than loading a named savestate slot, which the user rewrites
+creative."* Nor is it bounded by what a player can do: *"you are able to freely change to code to make
+things happen the way you want so you can test anything you want to do or remove anything that is
+blocking your path"* — memory, the running game's code, whatever the emulator or mod host reaches.
+(That freedom belongs to dev tooling in a session; nothing that SHIPS writes game state or code,
+`CLAUDE.md`.) And make it fresh rather than loading a named savestate slot, which the user rewrites
 often: *"its a better habit to get into just reproducing everything on your own this way."*
 
 **The one limit is on the thing being tested, not on getting there.** Create the situation any way at
