@@ -31,8 +31,12 @@ func TestASeatWithNoStateBehindItIsGivenBack(t *testing.T) {
 		}
 	}
 
+	// The premise is asked with a RELAY id: since 2026-09-16 (PM-2) local ghosts
+	// have their own share of the bound, so a chaser is admitted even now --
+	// which closes this finding's chaser half by construction. The age-out below
+	// is still what gives the relay's own seats back.
 	c.mu.Lock()
-	full := c.admitToRosterLocked(localPeerChaserPrefix + "1")
+	full := c.admitToRosterLocked("one-more-silent")
 	c.mu.Unlock()
 	if full {
 		t.Fatal("test premise broken: the roster was not actually full")
@@ -54,7 +58,7 @@ func TestASeatWithNoStateBehindItIsGivenBack(t *testing.T) {
 
 	c.mu.Lock()
 	left := len(c.roster)
-	admitted := c.admitToRosterLocked(localPeerChaserPrefix + "1")
+	admitted := c.admitToRosterLocked("a-real-arrival")
 	c.mu.Unlock()
 
 	// Before the fix: 512 and false, for the rest of the connection.
@@ -63,8 +67,8 @@ func TestASeatWithNoStateBehindItIsGivenBack(t *testing.T) {
 			"because it walks the buffer map and they have no buffer", left)
 	}
 	if !admitted {
-		t.Error("the player's own chaser was still refused a seat -- a relay that sends nothing but " +
-			"joins disables the one feature that does not involve it at all")
+		t.Error("a real arrival was still refused a seat -- a relay that sends nothing but joins " +
+			"locks the room shut for the rest of the connection")
 	}
 }
 

@@ -77,6 +77,10 @@ func parseInputTrack(r io.Reader, name string) (*inputTrack, error) {
 // zip can spend one budget across all the tracks it holds (loadReplayAll,
 // ADR 0057) the way it does for its clips.
 func parseInputTrackLimited(r io.Reader, name string, maxEdges int) (*inputTrack, error) {
+	// Bounded by bytes READ as well as edges kept, for replay.go's reason: a
+	// blank line costs neither, so a whitespace gzip was unbounded work
+	// (pass 5 of the adversarial review, 2026-09-16, PM-3's sibling).
+	r = &scanCappedReader{r: r, left: replayMaxBytes}
 	if maxEdges > inputMaxEdges {
 		maxEdges = inputMaxEdges
 	}

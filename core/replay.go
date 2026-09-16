@@ -51,7 +51,8 @@ const (
 	// There is no cap on how many files replay/active/ may start (the 16 that
 	// stood here came out 2026-09-06, the user's call: as many as the game can
 	// handle). Each replay is a roster seat, so protocol.MaxRosterSize is the
-	// bound, refused by admitLocalPeer and logged once; an adapter with a small
+	// bound (local ghosts' own share, never a real player's seat, since
+	// 2026-09-16), refused by admitLocalPeer and logged once; an adapter with a small
 	// fixed number of render slots (the Pokemon ones) renders what it can.
 	// replayGapSeamMs: a recorded gap longer than this is a seam, not a
 	// blend. Under the 3s stale age-out so the despawn is ours and explicit
@@ -357,18 +358,22 @@ func loadReplayAll(path string, wantTracks bool) ([]loadedClip, error) {
 		// roster the room's real players share, so the ghosts a player came for
 		// never appeared. Neither budget above stops this: N clips of one sample
 		// each cost almost nothing. Found by the third adversarial review
-		// (P5a-2 + P5b-6).
+		// (P5a-2 + P5b-6). The 512 that fit still took every seat real players
+		// needed until pass 5 (PM-2, 2026-09-16) gave local ghosts their own
+		// share of the bound; this cap now stops the goroutines, not the theft.
 		if len(out) >= protocol.MaxRosterSize {
 			log.Printf("core: replay: %s holds more than %d clips -- the rest are not loaded, "+
-				"because every clip takes a roster seat and the room's real players need those too",
+				"because every clip takes one of the seats replays and chasers share",
 				name, protocol.MaxRosterSize)
 			break
 		}
 		clip, spent, err := readZipEntry(entry, inner, budget, byteBudget)
 		if err != nil {
 			// One bad entry does not condemn the archive: the others still play,
-			// and the log says which one was dropped.
+			// and the log says which one was dropped. What it read is still
+			// spent (readZipEntry says why).
 			log.Printf("core: replay skipped: %v", err)
+			byteBudget -= spent
 			continue
 		}
 		budget -= len(clip.samples)
@@ -459,7 +464,40 @@ func readZipEntry(entry *zip.File, name string, maxSamples, maxBytes int) (*repl
 		defer gz.Close()
 		r = gz
 	}
-	return parseReplayWithin(r, name, maxSamples, maxBytes)
+	// What this entry READ is charged to the archive whether or not it became a
+	// clip: an entry of whitespace errors out as "no samples", and until
+	// 2026-09-16 an entry that errored spent nothing, so one zip could repeat it
+	// as many times as it had entries (PM-3).
+	counted := &scanCappedReader{r: r, left: maxBytes}
+	clip, spent, err := parseReplayWithin(counted, name, maxSamples, maxBytes)
+	if counted.read > spent {
+		spent = counted.read
+	}
+	return clip, spent, err
+}
+
+// errReplayScanBudget is what scanCappedReader returns past its budget.
+var errReplayScanBudget = errors.New("the replay read budget is spent")
+
+// scanCappedReader reads at most left bytes from r, then fails with
+// errReplayScanBudget, and counts what it read.
+type scanCappedReader struct {
+	r    io.Reader
+	left int
+	read int
+}
+
+func (s *scanCappedReader) Read(p []byte) (int, error) {
+	if s.left <= 0 {
+		return 0, errReplayScanBudget
+	}
+	if len(p) > s.left {
+		p = p[:s.left]
+	}
+	n, err := s.r.Read(p)
+	s.left -= n
+	s.read += n
+	return n, err
 }
 
 // loadReplayZip reads the FIRST clip in a zip, for the one caller that plays
@@ -498,7 +536,16 @@ func parseReplayWithin(r io.Reader, name string, maxSamples, maxBytes int) (*rep
 		maxBytes = replayMaxBytes
 	}
 	spent := 0
-	sc := bufio.NewScanner(r)
+	// THE BYTES READ ARE BOUNDED TOO, not only the samples kept. A blank line is
+	// skipped without costing a sample or a byte of the memory budget, so a
+	// gzip of nothing but whitespace -- 2.74 MB expands to 2 GiB, a second of
+	// scanning, and ten times that nested inside a zip -- held the bridge's
+	// hello handler for as long as it took, on every game launch while the
+	// file sat in replay/active/ (pass 5 of the adversarial review,
+	// 2026-09-16, PM-3). The cap is the memory budget itself: a line costs
+	// more to hold than to read (replayMaxBytes' measurements), so an honest
+	// clip that fits the one fits the other.
+	sc := bufio.NewScanner(&scanCappedReader{r: r, left: maxBytes})
 	// The wire's own line cap, applied BEFORE decoding: a longer line is
 	// refused, never allocated for.
 	sc.Buffer(make([]byte, 0, 4096), protocol.MaxLineBytes)
@@ -598,6 +645,9 @@ func parseReplayWithin(r io.Reader, name string, maxSamples, maxBytes int) (*rep
 	if err := sc.Err(); err != nil {
 		if errors.Is(err, bufio.ErrTooLong) {
 			return nil, 0, fmt.Errorf("%s: line %d is longer than %d bytes", name, line+1, protocol.MaxLineBytes)
+		}
+		if errors.Is(err, errReplayScanBudget) {
+			return nil, 0, fmt.Errorf("%s: more than %d MB to read -- %w", name, maxBytes>>20, err)
 		}
 		return nil, 0, fmt.Errorf("%s: %w", name, err)
 	}

@@ -8,6 +8,33 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
+// TestAReplayPackCannotTakeTheSeatsOfPlayersWhoJoinLater is pass 5's PM-2: a
+// zip of 512 one-sample clips seated every replay ghost before the relay's
+// first Join, and every real player after that was refused a seat and never
+// appeared. Each kind has its own bound now, and neither can starve the other.
+func TestAReplayPackCannotTakeTheSeatsOfPlayersWhoJoinLater(t *testing.T) {
+	c := New()
+	for i := 0; i < protocol.MaxRosterSize; i++ {
+		if !c.admitLocalPeer(fmt.Sprintf("%sclip%d", localPeerReplayPrefix, i), protocol.Nametag{}) {
+			t.Fatalf("replay seat %d refused below the bound", i)
+		}
+	}
+	if c.admitLocalPeer(localPeerReplayPrefix+"one-too-many", protocol.Nametag{}) {
+		t.Fatal("a replay ghost past the bound was seated")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.admitToRosterLocked("p1") {
+		t.Fatal("a real player who joined after a full replay pack was refused a seat: the pack hides everyone who arrives later")
+	}
+	for i := 2; i <= protocol.MaxRosterSize; i++ {
+		c.admitToRosterLocked(fmt.Sprintf("p%d", i))
+	}
+	if c.admitToRosterLocked("p-past-the-bound") {
+		t.Fatal("a relay-announced id past its own bound was seated")
+	}
+}
+
 // TestRosterIsBoundedAgainstARelayThatAnnouncesWithoutEnd: the roster is the
 // one thing between a hostile or broken relay and the adapter, which spawns a
 // ghost per announced id and counts nothing. Until 2026-09-02 a relay could

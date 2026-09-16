@@ -1,7 +1,11 @@
 package core
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"log"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -133,3 +137,40 @@ func TestAFullQueueOfUndroppableLinesGivesUpOnTheConnection(t *testing.T) {
 			"nothing upstream can retry what it was told arrived")
 	}
 }
+
+// deadTransport fails every write, as a relay socket that has gone does.
+type deadTransport struct{ stalledTransport }
+
+func (d *deadTransport) Send([]byte) error           { return errDeadRelay }
+func (d *deadTransport) SendUnreliable([]byte) error { return errDeadRelay }
+func (d *deadTransport) Close() error                { return nil }
+
+var errDeadRelay = errors.New("wsasend: an existing connection was forcibly closed by the remote host")
+
+// TestADeadRelayCostsTheLogOneLineNotOnePerQueuedMessage: the core's writer
+// logged every failed send, so a relay connection that died with a full queue
+// wrote ~256 lines per disconnect to the player's log. Its twin in the relay
+// was fixed on 2026-09-15 (pass 5 of the adversarial review, 2026-09-16).
+func TestADeadRelayCostsTheLogOneLineNotOnePerQueuedMessage(t *testing.T) {
+	var logs bytes.Buffer
+	var mu sync.Mutex
+	prev := log.Writer()
+	log.SetOutput(writerFunc(func(p []byte) (int, error) { mu.Lock(); defer mu.Unlock(); return logs.Write(p) }))
+	defer log.SetOutput(prev)
+
+	w := newRelayWriter(&deadTransport{}, nil)
+	for i := 0; i < 200; i++ {
+		w.enqueue(outRelayMsg{line: []byte("{}")})
+	}
+	w.waitDrained()
+	w.close()
+	mu.Lock()
+	defer mu.Unlock()
+	if n := strings.Count(logs.String(), "send to relay failed"); n > 2 {
+		t.Fatalf("%d failure lines for one dead connection; want at most 2 (one a second)", n)
+	}
+}
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) { return f(p) }

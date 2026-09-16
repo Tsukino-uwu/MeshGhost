@@ -176,6 +176,32 @@ func (t *Table) NoteAuthFailure(conn net.Conn) {
 	e.level++
 }
 
+// NoteAuthSuccess refunds one attempt charged by NoteAuthFailure, because the
+// proof it paid for came out right. The relay charges when a proof begins
+// (relay.SourceGuard says why), so a player who types the right code pays
+// nothing. Implements relay.Server.SourceGuard.
+func (t *Table) NoteAuthSuccess(conn net.Conn) {
+	if t.opts.AuthBurst <= 0 || conn == nil {
+		return
+	}
+	key := Key(conn.RemoteAddr())
+	if key == "" {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	e := t.entries[key]
+	if e == nil {
+		return
+	}
+	t.leakLocked(e)
+	if e.level >= 1 {
+		e.level--
+	} else {
+		e.level = 0
+	}
+}
+
 // Blocked reports whether conn's address has used up its allowance of wrong
 // room codes and must be refused before the code is even compared.
 // Implements relay.Server.SourceGuard.

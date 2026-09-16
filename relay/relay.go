@@ -1268,8 +1268,16 @@ type SourceGuard interface {
 	// wrong room codes and must be refused before the code is compared --
 	// the right code included, because the budget is the address's.
 	Blocked(conn net.Conn) bool
-	// NoteAuthFailure records one wrong room code from conn's source.
+	// NoteAuthFailure records one wrong room code from conn's source. The
+	// relay charges it when a proof BEGINS (the KE2 goes out), not when it
+	// fails, so logins held open in parallel cannot each be answered against
+	// a budget none of them has spent yet (pass 5 of the adversarial review,
+	// 2026-09-16, P1b-3: sixteen held logins answered ~21 guesses where the
+	// burst is 6).
 	NoteAuthFailure(conn net.Conn)
+	// NoteAuthSuccess refunds the attempt charged when conn's proof began,
+	// because it proved the right code.
+	NoteAuthSuccess(conn net.Conn)
 }
 
 // SetRoomCode, SetOnlyGame and SetMaxClients change the three settings a
@@ -2064,17 +2072,14 @@ func (s *Server) handleConn(conn net.Conn) {
 		helloTimer.Stop()
 		mu.Lock()
 		r, id, c, token := room, playerID, client, resumeToken
-		abandoned := pending != nil
 		pending = nil
 		mu.Unlock()
 		if r == nil {
-			// A proof started and never finished is a failed attempt: a
-			// client that learned its code was wrong at KE2 hangs up rather
-			// than sending a KE3 it cannot make, and that must cost the same
-			// budget a wrong KE3 does, or the guard is walked around.
-			if abandoned && s.SourceGuard != nil {
-				s.SourceGuard.NoteAuthFailure(conn)
-			}
+			// A proof started and never finished stays charged: the attempt
+			// was paid for when its KE2 went out, and only a right KE3 refunds
+			// it. A client that learned its code was wrong at KE2 hangs up
+			// rather than sending a KE3 it cannot make, and that costs the
+			// same budget a wrong KE3 does.
 			return
 		}
 
@@ -2192,11 +2197,12 @@ func (s *Server) handleConn(conn net.Conn) {
 				mu.Unlock()
 				ke3, derr := base64.StdEncoding.DecodeString(pk.KE3)
 				if derr != nil || pp.sess.Finish(ke3) != nil {
-					if s.SourceGuard != nil {
-						s.SourceGuard.NoteAuthFailure(conn)
-					}
+					// Already charged when the KE2 went out.
 					rejectHandshake(pp.hello, protocol.ReasonInvalidRoomCode)
 					return
+				}
+				if s.SourceGuard != nil {
+					s.SourceGuard.NoteAuthSuccess(conn)
 				}
 				admit(pp.hello)
 				return
@@ -2262,10 +2268,11 @@ func (s *Server) handleConn(conn net.Conn) {
 				// the client already backs off on) without its next attempt
 				// being evaluated at all -- so the reply says nothing about
 				// whether that attempt was right. Nil guard means no budget,
-				// the pre-2026-09-15 posture. A failure is counted at KE3, or
-				// when the connection ends between KE2 and KE3 (OnDisconnect),
-				// so a client that starts the proof and never finishes it
-				// spends budget too.
+				// the pre-2026-09-15 posture. An attempt is counted when its KE2
+				// goes out and refunded by a right KE3, so a client that starts
+				// the proof and never finishes it spends budget too, and logins
+				// held open in parallel are each answered against what the
+				// others already spent (P1b-3, 2026-09-16).
 				if s.SourceGuard != nil && s.SourceGuard.Blocked(conn) {
 					rejectHandshake(hello, protocol.ReasonRateLimited)
 					return
@@ -2298,6 +2305,11 @@ func (s *Server) handleConn(conn net.Conn) {
 					}
 					rejectHandshake(hello, protocol.ReasonInvalidRoomCode)
 					return
+				}
+				// Charged NOW, before the answer, and refunded by a right KE3:
+				// see SourceGuard.NoteAuthFailure for why not at KE3.
+				if s.SourceGuard != nil {
+					s.SourceGuard.NoteAuthFailure(conn)
 				}
 				sendEnvelope(nd, protocol.TypePake, protocol.Pake{KE2: base64.StdEncoding.EncodeToString(ke2)})
 				mu.Lock()

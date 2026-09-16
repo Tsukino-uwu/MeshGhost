@@ -37,6 +37,7 @@ import (
 	"log"
 	"sync"
 
+	"github.com/Tsukino-uwu/MeshGhost/internal/throttle"
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
@@ -71,6 +72,13 @@ type relayWriter struct {
 	// connection so its ordinary reconnect path runs.
 	onStuck func()
 	stuck   bool
+
+	// failLine throttles the send-failure report. A relay connection that has
+	// died fails every queued line, and one line each was ~256 log lines per
+	// disconnect in the player's log (pass 5 of the adversarial review,
+	// 2026-09-16, the transports cell; the relay's outbox had the same fix on
+	// 2026-09-15 and this twin did not).
+	failLine throttle.Line
 }
 
 type outRelayMsg struct {
@@ -175,10 +183,12 @@ func (w *relayWriter) run() {
 		}
 		w.mu.Unlock()
 		if err != nil {
-			// One line per failure, as the synchronous path logged. A dead
-			// socket also ends the read loop, which is what actually drives
-			// the teardown; this is the report, not the mechanism.
-			log.Printf("core: send to relay failed: %v", err)
+			// At most one line a second, with a count. A dead socket also ends
+			// the read loop, which is what actually drives the teardown; this
+			// is the report, not the mechanism.
+			if n, ok := w.failLine.Allow(); ok {
+				log.Printf("core: send to relay failed: %v (%d so far)", err, n)
+			}
 		}
 	}
 }

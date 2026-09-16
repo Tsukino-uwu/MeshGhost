@@ -86,6 +86,21 @@ type scheduleActor struct {
 // spot.
 const fuzzScheduleConfigBytes = 5
 
+// fuzzSchedulePinnedConfig is the configuration every property of this target
+// was proven in before the prefix existed: MaxSendHz, a 15ms interpolation
+// delay (alphabet index 2), linear curve and prediction, a 10ms keepalive
+// (index 2), no receive cap. The seeds replay their schedules under it.
+var fuzzSchedulePinnedConfig = []byte{byte(protocol.MaxSendHz), 0x02, 0x00, 0x02, 0x00}
+
+// fuzzScheduleSeedSchedules are the seed orderings, schedule bytes only.
+var fuzzScheduleSeedSchedules = [][]byte{
+	{0x04, 0x05, 0x00, 0x01},
+	{0x04, 0x00, 0x00, 0xed, 0x00},
+	{0x04, 0x05, 0x00, 0x01, 0x06, 0x00, 0x01},
+	{0x04, 0x05, 0x00, 0x01, 0x02, 0x2c, 0x04, 0x00},
+	{0x05, 0x04, 0xf6, 0x07, 0x03, 0x05, 0x01},
+}
+
 // fuzzScheduleInterps / fuzzScheduleKeepalives are the alphabets for the two
 // timing knobs, and they are deliberately SMALL AND SHORT.
 //
@@ -434,11 +449,17 @@ func FuzzSchedule(f *testing.F) {
 	// them: both present before either sends, one joining after the other is
 	// settled, a relay blip under a running game, and a game closing and
 	// relaunching.
-	f.Add([]byte{0x04, 0x05, 0x00, 0x01})
-	f.Add([]byte{0x04, 0x00, 0x00, 0xed, 0x00})
-	f.Add([]byte{0x04, 0x05, 0x00, 0x01, 0x06, 0x00, 0x01})
-	f.Add([]byte{0x04, 0x05, 0x00, 0x01, 0x02, 0x2c, 0x04, 0x00})
-	f.Add([]byte{0x05, 0x04, 0xf6, 0x07, 0x03, 0x05, 0x01})
+	//
+	// EVERY SEED CARRIES THE CONFIGURATION PREFIX, fuzzSchedulePinnedConfig: the
+	// one configuration this target ran before 2026-09-01. The prefix was added
+	// that day and these seeds were not migrated, so two of the five (and the
+	// committed corpus entry) became too short to run at all and the other three
+	// lost their first five schedule bytes to the config -- none of the orderings
+	// this comment names ran again until pass 5 of the adversarial review found it
+	// (2026-09-16, X2-1). TestFuzzScheduleSeedsAreLongerThanTheirConfig pins it.
+	for _, schedule := range fuzzScheduleSeedSchedules {
+		f.Add(append(append([]byte{}, fuzzSchedulePinnedConfig...), schedule...))
+	}
 
 	f.Fuzz(func(t *testing.T, seed []byte) {
 		if len(seed) == 0 {

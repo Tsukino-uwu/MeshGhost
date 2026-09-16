@@ -61,7 +61,13 @@ var gameTokens = []string{"emerald", "crystal", "tevi", "pseudoregalia", "pokemo
 
 // The generic Go side, in full. `internal/e2e` is excluded on purpose: it is a test harness that
 // drives a fake adapter and names games as data, which is the allowed use.
-var libraryDirs = []string{"bridge", "core", "netx", "protocol", "relay", "transport"}
+//
+// `pake` and the four other `internal/` packages are here because core, relay and netx import
+// them, and the import check below trusts any package of this module whose PATH names no game:
+// an `if game == ...` placed in internal/throttle and called from the relay made the relay
+// game-aware with this test green (pass 5 of the adversarial review, 2026-09-16, X2-8).
+var libraryDirs = []string{"bridge", "core", "netx", "protocol", "relay", "transport",
+	"pake", "internal/cfg", "internal/hotkey", "internal/textfmt", "internal/throttle"}
 
 const cmdDir = "cmd"
 
@@ -212,6 +218,9 @@ func TestGoSideNeverBranchesOnAGame(t *testing.T) {
 var allowedThirdParty = []string{
 	"github.com/quic-go/quic-go",
 	"golang.org/x/",
+	// The room-code proof's OPAQUE implementation (ADR 0067), imported only by pake. Listed when
+	// pake joined libraryDirs (2026-09-16); before that nothing scanned the package that uses it.
+	"github.com/bytemare/opaque",
 }
 
 // TestGoSideImportsStayGeneric fails when a library package imports something that is not the

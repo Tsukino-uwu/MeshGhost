@@ -173,7 +173,8 @@ func (k *KnownRelays) verify(addr, fp string) error {
 			"now remembered. If they did not, something between you and the server may be "+
 			"impersonating it -- ask the host to compare the fingerprint their server prints at "+
 			"startup with the one presented above. The connection is going ahead, encrypted, "+
-			"because this client has no way yet to prove which it is (%s).", addr, known.Fingerprint, fp,
+			"because a certificate alone cannot prove which it is; a room code set on both ends "+
+			"can, and a server that asks for none proves nothing (%s).", addr, known.Fingerprint, fp,
 			k.whereLocked())
 		return nil
 	}

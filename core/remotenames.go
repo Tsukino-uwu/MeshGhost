@@ -31,10 +31,18 @@ import (
 // difference between "set no name" and "set a name made entirely of characters
 // we strip", and both must end with no nametag drawn.
 // admitToRosterLocked adds playerID to the roster unless doing so would take
-// it past protocol.MaxRosterSize, in which case the id is refused and stays
-// unknown -- so its state is dropped by storeRemoteState like any other
+// its KIND past protocol.MaxRosterSize, in which case the id is refused and
+// stays unknown -- so its state is dropped by storeRemoteState like any other
 // unannounced id, and the adapter never hears of it. An id already present
 // is always admitted (a repeated join is not a new seat). Caller holds c.mu.
+//
+// TWO KINDS, EACH WITH THE WHOLE BOUND: ids the relay announces, and ghosts
+// this core invents (isLocalPeerID -- replays and chasers). They shared one
+// pool until 2026-09-16, so a replay zip of 512 one-sample clips someone sent
+// a player took every seat before the relay's first Join, and nobody who
+// joined afterwards ever appeared for the rest of the session (pass 5 of the
+// adversarial review, PM-2). Neither kind can now starve the other; the maps
+// keyed by the roster are bounded at twice the constant instead of once.
 func (c *Core) admitToRosterLocked(playerID string) bool {
 	if c.roster == nil {
 		c.roster = make(map[string]int64)
@@ -43,7 +51,16 @@ func (c *Core) admitToRosterLocked(playerID string) bool {
 		return true
 	}
 	if len(c.roster) >= protocol.MaxRosterSize {
-		return false
+		local := isLocalPeerID(playerID)
+		same := 0
+		for id := range c.roster {
+			if isLocalPeerID(id) == local {
+				same++
+			}
+		}
+		if same >= protocol.MaxRosterSize {
+			return false
+		}
 	}
 	// Stamped with the admission, so remoteStatesAt can tell a seat that is
 	// merely new from one that has never carried anything. See Core.roster.

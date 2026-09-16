@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tsukino-uwu/MeshGhost/internal/paketest"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
+	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
 // fakeGuard is a SourceGuard that blocks after a set number of failures and
@@ -31,6 +33,88 @@ func (g *fakeGuard) NoteAuthFailure(net.Conn) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.failures++
+}
+
+func (g *fakeGuard) NoteAuthSuccess(net.Conn) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failures--
+}
+
+// TestLoginsHeldOpenInParallelCannotOutspendTheBudget is pass 5's P1b-3.
+// The budget was asked at hello and charged at KE3 or disconnect, so logins
+// opened side by side were each answered with a KE2 against a budget none of
+// them had spent yet -- and the KE2 is what tells the client whether its code
+// was right. The third concurrent login from a source with a budget of two
+// must be refused before its code is compared.
+func TestLoginsHeldOpenInParallelCannotOutspendTheBudget(t *testing.T) {
+	s := NewServer()
+	s.RoomCode = "right"
+	guard := &fakeGuard{blockAt: 2}
+	s.SourceGuard = guard
+	addr := startServerWith(t, s)
+
+	held := func(code string) protocol.MessageType {
+		conn, err := transport.Dial(addr)
+		if err != nil {
+			t.Fatalf("dial: %v", err)
+		}
+		t.Cleanup(func() { conn.Close() })
+		got := make(chan protocol.MessageType, 4)
+		conn.OnReceive(func(payload []byte) {
+			var env protocol.Envelope
+			if json.Unmarshal(payload, &env) == nil {
+				got <- env.Type
+			}
+		})
+		prover := paketest.New(t, code, "")
+		b, err := json.Marshal(protocol.Hello{GameID: "g", Room: "r", ProtocolVersion: protocol.Version, PakeKE1: prover.KE1()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		line, err := json.Marshal(protocol.Envelope{Type: protocol.TypeHello, Payload: b})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := conn.Send(line); err != nil {
+			t.Fatalf("send hello: %v", err)
+		}
+		select {
+		case typ := <-got:
+			return typ // and never answered: the login stays open
+		case <-time.After(2 * time.Second):
+			t.Fatal("no answer to the hello")
+			return ""
+		}
+	}
+	for i := 0; i < 2; i++ {
+		if typ := held("guess"); typ != protocol.TypePake {
+			t.Fatalf("login %d: got %q, want a KE2 while the budget lasts", i, typ)
+		}
+	}
+	if typ := held("guess"); typ != protocol.TypeReject {
+		t.Fatalf("a third login held open beside two others got %q: each was answered against a budget none had spent", typ)
+	}
+}
+
+// TestARightCodeCostsNothing: the attempt charged when a proof begins is
+// refunded when it proves the right code.
+func TestARightCodeCostsNothing(t *testing.T) {
+	s := NewServer()
+	s.RoomCode = "right"
+	guard := &fakeGuard{blockAt: 1}
+	s.SourceGuard = guard
+	addr := startServerWith(t, s)
+	for i := 0; i < 3; i++ {
+		c := dialTestClientWithCode(t, addr, protocol.Hello{GameID: "g", Room: "r"}, "right")
+		c.expectWelcome(2 * time.Second)
+		c.conn.Close()
+	}
+	guard.mu.Lock()
+	defer guard.mu.Unlock()
+	if guard.failures != 0 {
+		t.Fatalf("three right codes left %d charged attempts, want 0", guard.failures)
+	}
 }
 
 func (tc *testClient) expectReject(timeout time.Duration) protocol.Reject {

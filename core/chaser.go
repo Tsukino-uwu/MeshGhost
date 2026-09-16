@@ -74,7 +74,8 @@ const (
 	// No cap on the chaser COUNT since 2026-09-06 (the user's call: "allow
 	// people to do as much as their game can handle"). The 8 that stood here
 	// was hit by a tester the day before. What remains is the roster:
-	// protocol.MaxRosterSize seats shared with every real peer, which is what
+	// protocol.MaxRosterSize seats shared with replays but not with real peers
+	// (their own bound since 2026-09-16, admitToRosterLocked), which is what
 	// bounds startChasers below -- past it admitLocalPeer refuses anyway.
 	//
 	// maxChaserBehind caps how far behind the player any chaser may run.

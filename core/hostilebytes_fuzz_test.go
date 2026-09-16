@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -128,9 +129,15 @@ func FuzzHostileRelayLines(f *testing.F) {
 			}
 		}
 		// The id the relay gives US gets the same gate as the ones it gives our
-		// peers, which it did not until 2026-09-12 (P3a-3).
-		if c.playerID != "" && !acceptableRelayPeerID(c.playerID) {
-			t.Fatalf("this core adopted %q as its own player_id", c.playerID)
+		// peers, which it did not until 2026-09-12 (P3a-3). Asked of every
+		// Welcome handleRelayMessage let through to the connect path, which is
+		// what adopts it: this checked c.playerID until 2026-09-16, which only
+		// that connect path assigns and this harness never runs, so the
+		// invariant could not fire (pass 5 of the adversarial review, X2-5).
+		for len(welcome) > 0 {
+			if w := <-welcome; !acceptableRelayPeerID(w.PlayerID) {
+				t.Fatalf("a welcome naming this core %q reached the connect path, which adopts it as its own player_id", w.PlayerID)
+			}
 		}
 		// The clock offset is bounded, or every render time runs past every
 		// sample any peer has sent and the room edge-holds (B2).
@@ -152,9 +159,11 @@ func FuzzHostileRelayLines(f *testing.F) {
 // The property is liveness, not a verdict. A bridge line is an adapter's, and
 // an adapter is a Lua script a user edits, so a malformed one is the ordinary
 // case: the core must refuse it and keep serving. What it must never do is
-// panic, wedge, or let a connection that never introduced itself act for the
-// player -- which is the rule added earlier the same day, and the one thing
-// here with a verdict attached.
+// panic or wedge. The rule that a connection that never introduced itself
+// cannot act for the player is pinned by
+// TestTheBridgeIgnoresAConnectionThatNeverSaidHello, not here: this comment
+// claimed that verdict until 2026-09-16 and nothing below checked it (pass 5
+// of the adversarial review, X2-6).
 func FuzzHostileBridgeLines(f *testing.F) {
 	f.Add(`{"type":"hello","payload":{"game_id":"emerald"}}`)
 	f.Add(`{"type":"hello","payload":{"game_id":"emerald"}}` + "\n" +
@@ -218,6 +227,15 @@ func FuzzHostileBridgeLines(f *testing.F) {
 		}
 		if _, err := good.Write(append(hello, '\n')); err != nil {
 			t.Fatalf("the bridge refused a well-formed hello after %q: %v", stream, err)
+		}
+		// AND IT ANSWERS. A write on a pipe succeeds as soon as the transport's
+		// read goroutine takes the bytes, before anything is dispatched, so a
+		// core whose dispatch the fuzzed line wedged (a lock held, a handler
+		// blocked) passed the check above. A wedged core never answers a hello;
+		// a live one always does, with bridge_ready or a refusal.
+		_ = good.SetReadDeadline(time.Now().Add(2 * time.Second))
+		if _, err := bufio.NewReader(good).ReadString('\n'); err != nil {
+			t.Fatalf("the bridge accepted a hello after %q and never answered it: %v", stream, err)
 		}
 	})
 }

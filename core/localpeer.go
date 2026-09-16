@@ -21,7 +21,8 @@ package core
 // THE ROSTER IS PER RELAY SESSION and is wiped on every reconnect
 // (forgetRelaySessionLocked), so a local peer cannot rely on a one-time admit.
 // feedLocalPeer re-admits on every sample -- one map lookup -- and the seat it
-// takes counts against protocol.MaxRosterSize like any other peer's.
+// takes counts against protocol.MaxRosterSize -- the local ghosts' own share of
+// it since 2026-09-16, never the relay's (admitToRosterLocked).
 
 import (
 	"strings"

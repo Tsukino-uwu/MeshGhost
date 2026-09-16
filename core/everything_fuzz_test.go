@@ -42,7 +42,8 @@ import (
 //   - a render for a replay:/chaser: id carries cosmetic=true, a render for a
 //     relay id never does, and nothing with a local prefix ever reaches the
 //     relay transport (the never-on-the-wire rule, ADR 0047);
-//   - the roster never exceeds protocol.MaxRosterSize, and local ghosts never
+//   - neither kind of roster seat (relay-announced, local) exceeds
+//     protocol.MaxRosterSize, and local ghosts never
 //     exceed the files written plus the chaser count asked for (no cap of
 //     their own since 2026-09-06; the roster is the bound);
 //   - the relay clock never runs backwards, however the offset moves;
@@ -510,11 +511,22 @@ func FuzzEverything(f *testing.F) {
 				lastNow = now
 			}
 			// Roster and local-ghost caps.
+			// Two kinds, each with the whole bound since 2026-09-16 (PM-2,
+			// admitToRosterLocked): ids the relay announced, and ghosts this
+			// core invents. Neither may pass it.
 			c.mu.Lock()
-			roster, local := len(c.roster), len(c.localPeers)
+			local := len(c.localPeers)
+			relaySeats, localSeats := 0, 0
+			for id := range c.roster {
+				if isLocalPeerID(id) {
+					localSeats++
+				} else {
+					relaySeats++
+				}
+			}
 			c.mu.Unlock()
-			if roster > protocol.MaxRosterSize {
-				t.Fatalf("after %s: roster %d exceeds the cap (%s; ran %s)", step, roster, cfg, strings.Join(ran, " "))
+			if relaySeats > protocol.MaxRosterSize || localSeats > protocol.MaxRosterSize {
+				t.Fatalf("after %s: roster holds %d relay and %d local seats, cap %d each (%s; ran %s)", step, relaySeats, localSeats, protocol.MaxRosterSize, cfg, strings.Join(ran, " "))
 			}
 			if bound := files + cfg.chaserCount; local > bound && local > protocol.MaxRosterSize {
 				t.Fatalf("after %s: %d local ghosts, more than %d files + %d chasers (%s; ran %s)", step, local, files, cfg.chaserCount, cfg, strings.Join(ran, " "))
