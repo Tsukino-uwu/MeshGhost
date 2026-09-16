@@ -7,7 +7,9 @@ name: CI
 # counted 30 on 2026-09-15 -- 29 in the release build plus netx/udpconn's one, which is behind
 # the meshghost_devudp tag and deliberately has no step (ADR 0065) -- and agent_docs/testing.md
 # names the two core targets with no step here and why (both are socket-bound schedule fuzzers
-# that are opt-in on purpose; they still run on their seed corpus in the race job). COUNT BOTH
+# that are opt-in on purpose). Only FuzzSchedule replays its seed corpus in the race job:
+# FuzzNameDeliverySurvivesAnyConnectOrdering skips itself unless MESHGHOST_SCHEDULE_FUZZ is set,
+# so its seeds run nowhere in CI (this line said both until pass 5's X2-7, 2026-09-16). COUNT BOTH
 # RATHER THAN TRUSTING THIS LINE: it said eleven across four for as long as the two bridge targets
 # had existed, on 2026-09-10 it still said 26/two while the tree held 27 and three were unwired --
 # a target had shipped with an ADR and no step -- and on 2026-09-15 it said 25/eight while the
