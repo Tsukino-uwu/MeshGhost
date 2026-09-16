@@ -2737,3 +2737,82 @@ the two distributions at three fifths (23): 60/60 green saturated, the old proxy
 assertion still separates what it was written to separate. The count is logged under `-v`.
 `c861b2dc`; nothing in shipping code changed. Root binaries rebuilt with `-o` afterwards
 (preflight's root-binaries check was red from the 2026-09-15 `.go` commits).
+
+## 2026-09-16 — A2.0 measured; the fifth adversarial review, Go side
+
+**What the user asked.** *"Do what you can fix on your own, and then i will do the things that
+require a real game/me watching or testing later."* Two of `status.md`'s items were Go-side and
+workable without a game: A2.0 of `prediction-planning.md`, and the pass-3 remainder whose detail
+was lost — re-run, not reconstructed, as a fifth pass.
+
+**A2.0 (`ef9a7a4b`).** The stats line prints p50/p95/p99 of transit and of how far dry renders run
+past the newest sample: a 301-bucket histogram per meter (10ms to 3s, one overflow), percentile as
+the bucket's upper edge capped at the observed max (the first rig run printed "p50 10ms, max 2ms"
+on loopback, which is what the cap is for). Rig as 2026-09-15's A1: one relay, the worst-case
+netsim on 127.0.0.2 and the same plus `-loss-burst 250ms` on 127.0.0.3, two fake-adapter cores per
+link plus a clean loopback pair, `-interp 450ms`, `-transport auto`. Stopped at ~5 minutes rather
+than 6 (misread clock); every rig process confirmed gone.
+
+| link | transit p50 / p95 / p99 / max | dry of moving renders | dry p50 / p95 / p99 / max |
+|---|---|---|---|
+| worst-case, peer A | 210 / 280 / 320 / 570ms | 339 of 14,943 | 480 / 1,030 / 1,220 / 1,261ms |
+| worst-case, peer B | 210 / 280 / 310 / 492ms | 332 of 14,997 | 470 / 950 / 1,080 / 1,119ms |
+| + burst loss, peer A | 210 / 280 / 320 / 528ms | 845 of 14,979 | 280 / 1,020 / 1,540 / 1,666ms |
+| + burst loss, peer B | 210 / 280 / 310 / 820ms | 843 of 14,986 | 300 / 1,360 / 1,900 / 2,026ms |
+| clean loopback | ~0 / max 9ms | 0 | — |
+
+What it says: 450ms sits ~130ms past p99 transit on the worst-case link, so A2's per-peer delay has
+room on a clean link and little on this one; the dry tail is the 1 s blackouts and the burst runs,
+which no `extrapolate` short of a second covers. The screen verdict on A3 is still the user's.
+
+**The review.** Eight read-only cells, launched in this order and all returned: P1b (a stranger
+against the relay's login), P1b-client (an impostor against a client's login and TOFU store), P2e
+(Pseudoregalia, the memory-unsafe adapter), P1d (transports), PM (a member against the other
+members, plus a shared replay clip), P2c (the two Pokémon adapters), P2t (TEVI), X2 (the
+instruments). Brief, exclusion list (regenerated from `docs/security.md`'s known gaps and
+`risks.md`) and the entry-point census were written before launch; seeds were not given out. Every
+claim below was re-read at its `file:line` before being worked (T1), and each Go fix has a test
+shown FAILING with the fix reverted (T3); where a test needs identifiers the fix adds, a stub was
+used and is named.
+
+Fixed, Go side (`b6fbee0f`, then the second batch the same day):
+- **P1d-1 — the 2026-09-15 accept-time hello fix never ran on the shipped relay.** `trackedConn`
+  and `limitedConn` embed `net.Conn` as an interface and forwarded only the methods on their list,
+  which predated `AcceptedAt`: a stranger was held for two windows again. Both forward
+  `AcceptedAt` and `MaxPayloadBytes` now. `TestShippedStackCountsTheHelloTimeoutFromAccept` (the
+  shipped-stack test above it asserts a lower bound only, and passed throughout),
+  `TestLimitListenerForwardsTheOptionalMethods`. **Fourth time this wrapper class has bitten.**
+- **PM-1 — one ~1.3–4 KB state silenced a quic member's outbox for the rest of its connection.**
+  quic-go refuses a datagram over the path estimate synchronously; the relay outbox took that for
+  a dead socket, discarded the queue and stopped, while pongs kept the member looking alive.
+  quicconn sends such a line on the stream; the outbox skips a line refused before writing.
+  `TestAnUnreliableWriteTooLargeForADatagramRidesTheStream`, `TestARefusedLineDoesNotEndTheOutbox`.
+- **P1b-2 / P1d-3 (both cells found it) — the per-address budget keyed a full IPv6 /128**, so one
+  machine with a /64 rotated addresses for fresh wrong-code budgets. Keyed by /64 (IPv4-mapped as
+  IPv4). `TestOneIPv6SubscriberSharesOneBudget`.
+- **P1b-client-2 — an unproven certificate rewrote `known_servers.json`.** `VerifyPeerCertificate`
+  runs before CertificateVerify (read in Go 1.26.5's `handshake_client_tls13.go`); verification
+  moved after the handshake (`tlsx.VerifyLeaf`, called by `tlsx.Client` and `quicconn.DialWith`).
+  `TestTheVerifierSeesOnlyACertificateTheServerProvedItHolds` (shown failing against the old
+  `tlsx.go` plus a stub `VerifyLeaf`).
+- **P1b-1 — `sendEnvelope`'s failure line was unthrottled** and printed the peer's address (a
+  `*net.OpError`). Throttled, address stripped. `TestAFailedPreAdmissionSendLogsAtMostOnceASecond`.
+- **P1b-3 — the wrong-code budget was asked at hello and charged at KE3**, so logins held open in
+  parallel were all answered against an unspent budget (~21 guesses where the burst is 6). Charged
+  when the KE2 goes out, refunded by a right KE3 (`SourceGuard.NoteAuthSuccess`).
+  `TestLoginsHeldOpenInParallelCannotOutspendTheBudget`, `TestARightCodeCostsNothing`.
+- **PM-2 — a replay zip of 512 one-sample clips took every roster seat** before the relay's first
+  Join; nobody who joined later appeared. Local ghosts and relay ids each get the whole bound.
+  `TestAReplayPackCannotTakeTheSeatsOfPlayersWhoJoinLater`.
+- **PM-3 — blank lines in a replay clip or input track cost no budget**; a 2.74 MB gzip of
+  whitespace is a second of scanning on the bridge's hello goroutine, per game launch, and a zip
+  entry that errored spent nothing. Reads are capped at the memory budget and a failed entry is
+  charged what it read. `TestAWhitespaceClipCannotBeReadWithoutLimit`,
+  `TestAZipEntryThatFailsStillSpendsWhatItRead`.
+- **The core's relay writer logged every failed send** (~256 lines per disconnect), the twin the
+  relay's 2026-09-15 fix missed. Throttled. `TestADeadRelayCostsTheLogOneLineNotOnePerQueuedMessage`.
+- **P1b-client-6** — the identity-changed warning said the client "has no way yet to prove" which
+  server it is; reworded to what is true since ADR 0067.
+
+The instruments cell's findings are in `phase12.md`'s entry of the same date; the adapter findings
+in each adapter's `UNVERIFIED.md`; what was left for a decision in `risks.md` ("Pass 5, left open").

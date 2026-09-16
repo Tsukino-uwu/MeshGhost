@@ -50,6 +50,29 @@ being work. An entry still here has not been confirmed.
 
 ---
 
+## [READY] two fixes from the fifth review, UNWATCHED (2026-09-16)
+
+**What changed** (`1f4fa60b`; Lua, so the next script load picks it up):
+- **The bridge's "no newline" bound is 16 KiB, was 4,096** (PM-4): a `render_remote` can pass
+  4,096 bytes, and a peer padding its states could make this script drop and redial its bridge.
+- **A departed peer's drawn-tier rows go with it** (P2c-2): `grassTiles`, `landed`, `ripples`,
+  `puffs` and the water-reflection frame, alongside the two rows 2026-09-12 already dropped. Each
+  used to stay for the session, one set per id a peer ever had.
+
+**What to look at.** A second client walks through tall grass and into water near you, disconnects,
+and reconnects (a new id) to do the same. **Correct:** grass rustle, ripples, puffs and the water
+reflection draw on the returning ghost exactly as the first time.
+
+## [OPEN] a peer's door messages run the engine's door task in the victim's game (fifth review, 2026-09-16)
+
+**The user's call first: is a ghost opening a door meant to be seen at all?** Read in the code by
+the review's Pokémon cell, not measured: `extras.dk/dx/dy` drive `door.start`, which writes a task
+into the victim's `gTasks` (the one peer-driven RAM write in the shipped drawn tier). A peer
+alternating the key on a real door tile makes the victim's door flap, can leave one drawn open (the
+close is tracked for the last door only), and while the task runs the victim's own door animation
+is refused. The list-insert invariant it relies on is marked unconfirmed in the code itself.
+Reasoning in `../../../../agent_docs/risks.md` ("Pass 5, left open").
+
 ## [OPEN] the painted tier does not reproduce the engine's step machine (2026-09-12)
 
 The user, watching a peer run a 2x2 square at 0 interp: *"looks slightly delayed when starting to

@@ -50,6 +50,26 @@ being work. An entry still here has not been confirmed.
 
 ---
 
+## [READY] two fixes from the fifth review, UNWATCHED (2026-09-16)
+
+**What changed** (`1f4fa60b`; Lua, so the next script load picks it up):
+- **The bridge's "no newline" bound is 16 KiB, was 4,096** (PM-4): a `render_remote` can pass
+  4,096 bytes, and a peer padding its states could make this script drop and redial its bridge.
+- **A departed peer's `wireArtPeer` row and its cross-map "said" keys go with it** (P2c-3). Neither
+  changes what is drawn. `ENGINE.lastPortable` is deliberately KEPT: it is what a returning peer's
+  dropped sprite falls back to, so clearing it would change what you see -- say if it should go.
+
+**What to look at.** A peer wearing a wire-art sprite disconnects and reconnects: its art appears
+again. A peer on a neighbouring map reconnects: the "cross-map: ... translated to" line prints once
+more for it.
+
+## [OPEN] a peer can paint another player's wire-art ghost (fifth review, 2026-09-16)
+
+Read in the code by the review's Pokémon cell, not measured: assembled wire art is cached by a
+32-bit FNV hash, first writer wins, and not tied to the sender, so a peer who builds a colliding
+384-byte picture and streams it first has it drawn on the honest player's ghost; eight junk hashes
+also flush the cache. Needs a collision-resistant key tied to the sender id.
+
 ## [OPEN] 2026-09-16 — to measure: what the audit of `documentation.md` moved out (read in the decomp as a map, never seen)
 
 The 2026-09-16 audit of `documentation.md` against `VERIFIED.md` and this file, under the rule

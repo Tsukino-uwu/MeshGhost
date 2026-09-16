@@ -1,7 +1,8 @@
 # Plan (started 2026-09-15): prediction without floor-sink or left/right snap
 
-Written 2026-09-14 so the reasoning survives. **Status 2026-09-15: A1 measured and A3 built
-(ADR 0069, ships off; screen verdict open); A2 undecided; A4 and Track B untouched.** The numbers
+Written 2026-09-14 so the reasoning survives. **Status 2026-09-16: A1 measured, A2.0 built and
+measured, A3 built (ADR 0069, ships off; screen verdict open); A2 undecided; A4 and Track B
+untouched.** The numbers
 and the session record: `phases/phase10.md`, entry of 2026-09-15.
 
 **Next, in order (2026-09-15):**
@@ -10,11 +11,15 @@ and the session record: `phases/phase10.md`, entry of 2026-09-15.
    `correction 100ms`. First "identical to 450 linear?", then jump, land, spam left/right, a wall.
    Floor-sink inside a gap is EXPECTED (Track B) and is not a verdict on A3. Off stays shipped
    until this is judged.
-2. **A2.0, the sizing numbers (Go side).** Add p95/p99 transit and a dry-gap histogram to the
-   client stats line (`core/stats.go`, the meters in `core/interp.go`). With those, `interp` and
-   `extrapolate` are arithmetic on the worst-case rig (user's question, 2026-09-15: "can we use
-   math instead of testing visually?" — yes for the delay and the window, no for the feel of
-   `predict`/`correction`, which get one screen check on the configuration the numbers passed).
+2. **A2.0, the sizing numbers (Go side) — BUILT AND MEASURED 2026-09-16** (`ef9a7a4b`). The stats
+   line now prints p50/p95/p99 of transit and of how far dry renders run past the newest sample
+   (10ms buckets, capped at the max). Headless worst-case rig, ~5 minutes, two cores per link:
+   **transit p50 210 / p95 280 / p99 310–320ms** on both links (max 355–820ms); **dry p95
+   950–1,360ms, p99 1,080–1,900ms** — the dry tail is the 1 s blackouts (and the burst model's
+   runs), which no delay or window short of a second covers. So at 450ms the delay already sits
+   ~130ms past p99 transit, and `extrapolate` cannot be sized to cover the dry tail; what it can
+   cover is the sub-blackout gaps (dry p50 280–480ms). Numbers and method: `phases/phase10.md`,
+   2026-09-16.
 3. **A2 proper**, sized from A2.0's numbers; A4 only if A3 shimmers on screen.
 
 **The baseline every step must match on screen: linear interp at 450ms, prediction off. It looks

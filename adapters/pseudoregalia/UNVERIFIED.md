@@ -49,6 +49,34 @@ declined ones go back to being work. An entry still here has not been confirmed.
 
 ---
 
+## [READY] a paused game's bridge queue is bounded, from the fifth review, UNWATCHED (2026-09-16)
+
+**What changed** (`1f4fa60b`, built and staged; deployed to both installs the same day). While the
+pause menu or an item popup is open the game-thread drain does not run, and the bridge thread kept
+queueing every line the core sent -- one `render_remote` per visible peer per frame -- for as long
+as the game stayed paused, then replayed all of it in one frame on unpause (pass 5, P2e-2, read in
+the code, never measured). The queue now collapses to each player's newest state once it passes
+2,048 lines; the collapse moved into `PeerJson.hpp` (the drain uses the same function) and has a
+harness test. The same rebuild dropped the 12 stale `PLAYER_FIELDS.md` mentions from comments.
+
+**What to look at.** A second client (or a replay/chaser ghost) moving on screen; open the pause
+menu for about 30 seconds; close it. **Correct:** no hitch on unpause, and the ghost is simply
+where its player now is -- no fast-forward through where it went meanwhile.
+
+## [OPEN] what the fifth review found here that needs a measurement or a call (2026-09-16)
+
+Read in the code by the review's Pseudoregalia cell; nothing below was measured. The full list
+with its reasoning is in `../../agent_docs/risks.md` ("Pass 5, left open").
+- **P2e-1** -- a peer can make its ghost play any loaded attack montage beside the victim, so the
+  known Sunsetter/Strikebreak/lever leak is aimable. Closed by `chaser-planning.md` Part A.
+- **P2e-3** -- flipping `area_id` every sample makes the victim destroy and re-clone a player pawn
+  each time (only the 2-tick spawn spacing between). **P2e-4** -- `afterimage_n` up to 64 and the
+  five world `vfx` bursts fire per sample, with no per-ghost spawn budget. Both need a measured
+  honest rate before a bound.
+- **P2e-5** -- alternating two unresolvable asset names logs a warning on every sample (the
+  throttle only catches a repeat). **P2e-6** -- weapon and projectile positions are checked for
+  finiteness only, not size.
+
 ## This run — watch these first
 
 **The READY entries below, newest first, at most ten.** Each says what to look at and what correct looks

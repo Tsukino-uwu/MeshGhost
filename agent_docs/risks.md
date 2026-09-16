@@ -823,4 +823,69 @@ better argument. Kept here because the working file that held it was local-only 
   comes from a measurement in an adapter's `VERIFIED.md`/`UNVERIFIED.md` first.
 
 The pass-3 remainder that never got detail — `P1b-3..6`, `P1d-5..9`, `X2-8..14`, `P2f-5`,
-`P2e-3/4`, `P2c-1`'s siblings — is recorded in `phases/phase10.md` (2026-09-15, night).
+`P2e-3/4`, `P2c-1`'s siblings — is recorded in `phases/phase10.md` (2026-09-15, night), and was
+re-run as the fifth pass on 2026-09-16 (the section below, and `phases/phase10.md`).
+
+## Pass 5, left open: what the fifth review found that was not fixed the same day (2026-09-16)
+
+The fifth adversarial review re-ran the pass-3 cells whose detail was lost (pre-auth, transports,
+the adapters, the instruments) against the tree after TLS and the room-code proof landed. What it
+fixed is in `phases/phase10.md` and `phases/phase12.md` (2026-09-16). What follows was read at its
+`file:line` and is real, but is either a decision or needs a game. Each names what closes it.
+
+**Decisions (the user's):**
+- **P1b-client-1 — a client with a room code accepts a server that never asks for the proof.**
+  `core/roomproof.go` logs "this server has no room code set" and lets the Welcome through, by
+  design (`TestARelayWithNoCodeWelcomesAClientThatHasOne`); so an impostor that simply skips the
+  proof is joined as a full session, with only the log line and, if a certificate was remembered,
+  the identity warning. It does not learn the code and cannot reach the real room. ADR 0067 says
+  both "a code-less relay welcomes" and "an impostor is refused"; they cannot both hold. Closing
+  it means refusing a code-less server when a code is set (a player who kept a code for a server
+  that dropped it can no longer join until they clear it). **Closes with the user's choice and an
+  ADR revision.**
+- **P1b-client-3 — one refusal from an impostor keeps a client solo until restart**: a locally
+  failed proof is cached as a permanent refusal (`core/relaysession.go`, `permanentReject*`).
+  Retrying instead would spend the household's wrong-code budget on a code that is genuinely
+  wrong. **Closes with a choice between the two.**
+- **P1b-client-4 — an impostor gets two online guesses at the code per client launch** (discovery
+  leg and session leg). Inherent to any PAKE; the defence is a long code, which the relay already
+  warns about below eight characters. The client does not warn. **Recorded, not scheduled.**
+- **P1b-client-5 — the hello (room name, display name, resume token) reaches a server before the
+  proof.** Disclosure only; a resume token is useless at a coded relay without the proof.
+  **Closes if the proof moves ahead of the hello, a protocol change.**
+- **P1d-2 — quic handshakes in progress are counted by no relay bound.** One Retry token (validated
+  by IP only, 10 s) lets one real address start many handshakes, each a server flight with a
+  signature and connection state until its 10 s timeout, before `Accept` or the per-source table
+  see anything. Bounded by rate x 10 s, never accumulating; per-connection cost unmeasured.
+  **Next: measure memory and CPU per pending handshake on the rig before deciding a bound.**
+- **PM-4's Go half — the core does not bound the lines it writes to an adapter.** The adapters'
+  read bounds were raised to 16 KiB the same day (the actual failure); a core-side ceiling would
+  need a number sized from a real `render_remote`. **Recorded.**
+- **PM-5 — loose replay files each get the whole memory budget**, per file rather than per
+  folder; pinned as intent by `TestALooseClipIsNotBoundedByTheArchiveBudget`. **Recorded.**
+
+**Needs a game (each is in that adapter's `UNVERIFIED.md`):**
+- **P2c-1 (Emerald) — a peer's door messages make the victim's game run the engine's door task**
+  (a `gTasks` write, the only peer-driven RAM write in the shipped drawn tier): doors can be made
+  to flap, left drawn open, and the victim's own door animation refused while one runs. Whether a
+  ghost opening a door is meant to be seen at all is the user's call first (root `CLAUDE.md`:
+  never assume intent).
+- **P2e-1 (Pseudoregalia) — a peer can aim any loaded attack montage at the victim**; the known
+  Sunsetter/Strikebreak/lever leak (`chaser-planning.md` Part A) made targetable. Part A closes it.
+- **P2e-3/-4 and P2t-2..-5 — per-sample spawn costs** (a pawn clone per area flip, 64 afterimages
+  and VFX bursts per sample on Pseudoregalia; bullet instantiation past the pool, never-fading
+  trail afterimages, flash floods, overflowing bullet speeds on TEVI). Bounds must be sized from
+  real game values (the rule above), so each starts with a measurement.
+- **P2c-4 (Crystal) — the wire-art cache is keyed by a 32-bit FNV hash, first writer wins**, so a
+  peer can paint another player's ghost with its own picture. Needs a collision-resistant key tied
+  to the sender.
+- **P2t-6 (TEVI)** — an in-range `room_x` reaching `GetRoomWalkedBool` from `Update()` with no
+  catch; one read of the method decides it. **P2t-8** — ghost bullets' no-damage guarantee was
+  confirmed only for the families a real player fired.
+
+**Instruments (X2), not yet changed:** X2-9 (the leak scanners miss a user-folder path written with
+doubled backslashes, as a string literal has it, a lowercase drive letter and UTF-16 strings, and
+exempt whole workflow folders); X2-10 (neither
+relay fuzzer sets a room code, and one message per fresh room cannot see a map grow); X2-11 (the
+Pseudoregalia VFX-count parser lives in `Plugin.cpp`, outside the fuzzed header, under a comment
+crediting the fuzzer); X2-12 (Crystal's ROM-index harness exercises one of three call sites).

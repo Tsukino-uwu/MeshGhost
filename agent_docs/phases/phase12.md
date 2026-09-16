@@ -501,3 +501,41 @@ the floor to be lowered), so the set cannot grow silently. The stricter option �
 rewording, and moving each source-only mechanism into `UNVERIFIED.md` — is the user's call and
 is offered in the handoff. `pitfalls/`'s 28 are left as they are: each is a dated record of how a
 fix was found, and "the decompilation named the bug" is the method, not a claim about the game.
+
+## 2026-09-16 — the fifth review's instruments cell: what the gates could not see
+
+The X2 cell of the fifth adversarial review (the Go side is `phase10.md`'s entry of the same date)
+read the fuzzers, harnesses and gates as the target. Fixed, each checked by making it fail:
+- **X2-1 — FuzzSchedule's committed reproducer had tested nothing since 2026-09-01.** The target
+  returns on any input no longer than its 5-byte config prefix, added that day without migrating
+  anything: the 3-byte reproducer for "names before Welcome block the handshake" and two of five
+  seeds ran in 0.00s (measured against the old seeds), and the other three lost their first five
+  schedule bytes to the config. Seeds and the reproducer now carry the configuration the target
+  pinned before the prefix (100Hz, 15ms interp, linear, 10ms keepalive, no cap);
+  `TestFuzzScheduleSeedsAreLongerThanTheirConfig` fails on a short entry.
+- **X2-2 — the fuzz census was satisfied by a name anywhere in `ci.yml`**, comments included, and
+  kept targets by bare name, so `bridge` and `protocol`'s two `FuzzEnvelopeUnmarshalNeverPanics`
+  were one row. Keyed by package and matched against a real step line; shown failing with
+  bridge's step removed. udpconn's opt-out is now declared in its file.
+- **X2-3 — the census never ran on the push it exists for**: only `docs.yml` runs preflight, and
+  it did not trigger on `**_test.go` or `ci.yml`. It does now.
+- **X2-4 — `release.ps1`'s "CI is green on HEAD" saw only workflows HEAD's own push triggered**; a
+  red race run followed by a `.md`-only commit passed. It also refuses when any workflow's newest
+  completed run on master is red (dry-run against the live runs: all green).
+- **X2-5 — `FuzzHostileRelayLines`' own-player-id invariant could never fire** (`c.playerID` is
+  assigned only by the connect path the harness skips). It checks every Welcome let through;
+  shown firing with the Welcome gate disabled.
+- **X2-6 — `FuzzHostileBridgeLines` claimed a verdict it never checked, and its liveness check
+  passed on a wedged dispatch** (a pipe write succeeds before dispatch). It now waits for the
+  core's answer to a hello; the pre-hello rule is pinned by its own test, and the comment says so.
+- **X2-7 — `ci.yml`'s header said both schedule fuzzers replay their seeds in the race job**; one
+  skips itself without `MESHGHOST_SCHEDULE_FUZZ`. Corrected.
+- **X2-8 — `internal/gameblind` scanned six directories** while core, relay and netx import
+  `pake` and four `internal/` packages the import rule trusts by path. All five are scanned;
+  `github.com/bytemare/opaque` is allowed by name (ADR 0067), which the new scan required.
+- **X2-13 — the race shard's exclusion regex matched suffixes.** Anchored on the import path.
+
+Left open, with the reason, in `risks.md` ("Pass 5, left open"): X2-9 (the leak scanners' escaped
+and lowercase path forms), X2-10 (the relay fuzzers never reach the room-code branch or a room's
+map growth), X2-11 (a Pseudoregalia peer-string parser outside the fuzzed header), X2-12
+(Crystal's ROM-index harness covers one of three call sites).

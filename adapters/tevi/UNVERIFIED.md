@@ -49,6 +49,35 @@ declined ones go back to being work. An entry still here has not been confirmed.
 
 ---
 
+## [READY] two fixes from the fifth review, built, UNWATCHED (2026-09-16)
+
+**What changed** (`1f4fa60b`, built and staged; deployed to both installs the same day):
+- **The bridge's "no newline" bound is 16 KiB, was 4,096** (P2t-1). A `render_remote` is not
+  bounded by 4,096 -- the relay bounds a peer's state line at 4,095 and the core re-wraps it -- so
+  a peer padding its states could make this adapter drop and redial its bridge over and over.
+- **Re-sent bullet rows mask their flags** with `BulletFlagsDefined`, like the other two sites
+  (P2t-7); only the first row of a bullet used to.
+
+**What to look at.** An ordinary two-client session: ghosts appear, move and despawn as before,
+and the TEVI log shows no "bridge buffered ... with no newline" line. Orb shots that pass through
+walls (or do not) behave the same on the ghost as on the player.
+
+## [OPEN] what the fifth review found here that needs a measurement or a call (2026-09-16)
+
+Read in the code by the review's TEVI cell; nothing below was measured. Reasoning in
+`../../agent_docs/risks.md` ("Pass 5, left open").
+- **P2t-2** -- the ghost-bullet cap counts live dictionary entries, not instantiations: ~200
+  `Instantiate`s a second per peer and ~2,000 retired bullets resident are reachable.
+- **P2t-3** -- `trail_rate` and `trail_decay` need only be above 0, so a peer can spawn a never-
+  fading afterimage every frame from the game's shared pool, and they outlive the peer.
+- **P2t-4** -- flash and VFX impulses have no per-message or per-second cap.
+- **P2t-5** -- bullet speed and position are checked for finiteness only; `3e38` overflows to
+  Infinity in the physics step.
+- **P2t-6** -- an in-range `room_x`/`room_y` reaches `GetRoomWalkedBool` from `Update()` with no
+  catch; one read of that method's bounds decides it.
+- **P2t-8** -- the "ghost bullets never damage" confirmation covered only the orbitar families a
+  real player fired, not every `BulletType` a peer may name.
+
 ## [READY] seven robustness fixes from the 2026-09-07 review, built and deployed, UNWATCHED (2026-09-11)
 
 **None of these changes what the game looks like**, so what is owed is "does everything still

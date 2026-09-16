@@ -591,6 +591,60 @@ numbers, for when a plane ships. The test instruments were made honest as part o
 hostile-client harness now drives the exact listener stack a stranger meets, the fuzz census was
 recounted, and the udp fuzz target moved with its transport to the dev build.
 
+## What changed (2026-09-16: the fifth review, after encryption and the room-code login)
+
+**Why a fifth.** The third review lost seven of its seventeen reviewers before they finished, and
+the notes on what the rest left unfixed were never written down. This pass re-ran those positions
+against the code as it stands after encryption became mandatory and the room-code login landed:
+a stranger against the server's login, an impostor against a player's login, the transports, a
+room member against the other members, each game's mod, and the test instruments. Eight reviewers
+who had not written the code, none shown this page.
+
+**A stranger is held for one window again, not two.** The fix of 2026-09-15 that counts the
+ten-second hello timer from the moment a connection is accepted never ran on the shipped server:
+two layers that wrap every connection hid the one method it needed. A stranger dripping a TLS
+handshake could hold a slot for about twenty seconds instead of ten.
+
+**One oversized update could cut a quic player off from the room, silently.** An update between
+about 1.2 and 4 KB -- a full `extras` object does it -- is too big for one quic datagram, and the
+server took the refusal for a dead connection: everything owed to that player afterwards was
+discarded, while the connection itself stayed up and looked healthy. Such an update now goes over
+the connection's reliable stream, and a refused message never ends the queue.
+
+**The wrong-room-code budget holds against IPv6 and against parallel logins.** It was kept per
+full address, and a home IPv6 line hands one machine a whole /64 to choose from, so rotating
+addresses gave a fresh budget each time; it is per /64 now, the IPv6 shape of one household's one
+public IPv4. And an attempt is now charged when the server answers it rather than when it fails,
+so logins held open side by side can no longer each be answered before any of them has paid (about
+21 guesses were possible where the burst is 6). A right code still costs nothing.
+
+**A remembered server identity is only updated by a server that proved it.** A player's client
+recorded a server's certificate the moment it was shown, before the handshake proved the server
+holds its key, so someone on the network path could rewrite the remembered identity without being
+able to use it. It is recorded after the proof now.
+
+**A shared replay file can no longer hide the room, or freeze the game on launch.** A zip of 512
+tiny clips took every seat a client keeps for players, so nobody who joined afterwards ever
+appeared; replays and chasers have their own seats now. And a clip that is mostly blank lines cost
+nothing against its limits, so a small compressed file could keep the client busy for seconds at
+every launch; reading is bounded by the same limit as holding.
+
+**Logs.** One more line a stranger could repeat per connection (a failed reply) is at most one a
+second and no longer prints an address; a player's client no longer writes a line per queued
+message when its connection to the server drops.
+
+**The game mods** got two robustness fixes each (TEVI, Emerald, Crystal: a line limit that the
+core's own messages could exceed; Emerald, Crystal: per-player state kept after a player left;
+Pseudoregalia: a queue that grew while the game was paused). None of them has been watched in a
+game yet.
+
+**What was found and not changed**, with the reasons, is in `agent_docs/risks.md` under "Pass 5,
+left open". Two are worth knowing as a player now. **Set a long room code**: a server that is not
+the one you meant can make two guesses at it each time your client starts, as any password login
+allows. And **a client with a room code still joins a server that asks for none** -- the log says
+so in one line -- so a server pretending to be yours can take your session (never the code, and
+never your seat on the real server); whether the client should refuse instead is an open decision.
+
 ## What's already true, and why (checked against the actual code, 2026-09-11)
 
 **No peer-to-peer connection exists.** Clients never connect to each other — only to the
@@ -719,7 +773,7 @@ ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
   confirmed reachable from a quic-go connection (`TestHandshakeIsTLS13`).
 - **Room-code auth depends on the relay being current** — see "A new risk this creates" above.
   A stale relay binary silently provides none of the protection a client believes it configured.
-- **Audited adversarially four times, on 2026-09-02, 2026-09-07, 2026-09-12 and 2026-09-13** — the resource-exhaustion,
+- **Audited adversarially five times, on 2026-09-02, 2026-09-07, 2026-09-12, 2026-09-13 and 2026-09-16** — the resource-exhaustion,
   protocol-trust, transport and peer-to-adapter surfaces, and on the fourth the internet-facing
   relay specifically, by reviewers who had not written the code
   and were not shown this page (ADR 0044 covers the first; the 2026-09-15 section above the fourth). The second found, among others, the
@@ -733,7 +787,9 @@ ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
   did not, so three of the four game adapters were never looked at — including the only one written
   in a memory-unsafe language — and both of its cross-cutting sweeps are missing. What the ten found
   is fixed and listed below; what the seven would have found is unknown, and "unknown" is not
-  "clean".
+  "clean". **The fifth pass (2026-09-16) re-ran those positions** — all four game mods, the
+  transports, the login and the test instruments, every reviewer finishing — and its section above
+  says what it fixed and what it left.
 - **Room squatting under no-auth.** The first `hello` for a room name fixes its `game_version` and
   feature set; every later joiner that disagrees is refused. With `room_code` unset, a stranger who
   connects first locks that room name for everyone else. This is what the no-auth posture means;
