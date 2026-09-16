@@ -689,6 +689,11 @@ func connectRelayWithRetry(c *core.Core, gameID string) {
 		if err == nil {
 			return
 		}
+		if core.IsRoomCodeRefusalErr(err) {
+			// Tried again once a minute rather than exiting (core.RoomCodeRetryInterval).
+			time.Sleep(core.RoomCodeRetryInterval)
+			continue
+		}
 		if core.IsPermanentRejectErr(err) {
 			log.Fatalf("meshghost: %v", err)
 		}

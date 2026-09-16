@@ -836,10 +836,9 @@ fixed is in `phases/phase10.md` and `phases/phase12.md` (2026-09-16). What follo
 **Decisions (the user's):**
 - **P1b-client-1 — CLOSED 2026-09-16, the user's call (ADR 0070):** a client with a room code
   refuses a server that never asks for the proof; a code on one side only is a mismatch.
-- **P1b-client-3 — one refusal from an impostor keeps a client solo until restart**: a locally
-  failed proof is cached as a permanent refusal (`core/relaysession.go`, `permanentReject*`).
-  Retrying instead would spend the household's wrong-code budget on a code that is genuinely
-  wrong. **Closes with a choice between the two.**
+- **P1b-client-3 — CLOSED 2026-09-16, the user's call (ADR 0070):** a room-code refusal is tried
+  again once a minute instead of lasting until restart; one attempt a minute cannot spend the
+  household's budget.
 - **P1b-client-4 — an impostor gets two online guesses at the code per client launch** (discovery
   leg and session leg). Inherent to any PAKE; the defence is a long code, which the relay already
   warns about below eight characters. The client does not warn. **Recorded, not scheduled.**

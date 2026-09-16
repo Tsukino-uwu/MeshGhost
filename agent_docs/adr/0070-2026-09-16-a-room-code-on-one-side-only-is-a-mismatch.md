@@ -18,10 +18,22 @@
   proved the code, on every connection, first included.
 - **What a player sees:** a host who removes the room code from a server that had one must tell
   players to clear theirs, the same way a changed address has to be passed on. Until they do,
-  their client refuses with the reason above, and does not retry it (a permanent refusal).
+  their client refuses with the reason above, and tries again once a minute (below), so a host
+  who puts the code back is rejoined without anyone restarting.
 - **Revises** ADR 0067's "What a host and a player see" (the "joins, and logs once that its code
   went unused" sentence) and its test list ("a code-less relay welcomes with the note"). The
   contract's `room_code` section is revised in `contract.md`.
+- **And a room-code refusal is tried again once a minute** (the user, the same day, choosing it
+  over "offline until restart"). Every `invalid_room_code` refusal -- a wrong code, a server
+  that is not the real one, or now a code on one side only -- was cached for the life of the
+  process, so an impostor that intercepted one reconnect, or a host who restarted without the
+  code and put it back, kept the player solo until they restarted the client (pass 5,
+  P1b-client-3). It is still logged once and still refused to the adapter; the cache answers it
+  until `core.RoomCodeRetryInterval` (a minute) has passed, and the reconnect loops, the
+  solo-adapter loop and `meshghost -game` wait that long and try again instead of stopping. One
+  attempt a minute cannot spend a household's budget (six wrong codes, one back per second).
+  Every other permanent refusal is unchanged. `core.TestARoomCodeRefusalIsTriedAgainOnceAnInterval`,
+  shown failing against the previous `core/relaysession.go`.
 - **Tests:** `core.TestAClientWithACodeRefusesARelayWithNone` (replaces
   `TestARelayWithNoCodeWelcomesAClientThatHasOne`), shown failing against the previous
   `core/roomproof.go`. The discovery leg closes on the same refusal and the session leg reports

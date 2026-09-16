@@ -151,6 +151,29 @@ func isPermanentReject(reason, code string, retryable bool) bool {
 // Every caller asks the same question — "is this final, so should I stop
 // retrying and tell someone?" — which is why a local refusal belongs here
 // rather than in a second predicate each of them would have to remember.
+// RoomCodeRetryInterval is how often a room-code refusal is tried again.
+//
+// A room-code refusal is permanent in every other sense -- it is logged once,
+// the adapter is told, and nothing retries it at the normal reconnect pace --
+// but it alone is tried again once a minute (the user, 2026-09-16). The client
+// cannot tell a wrong code from a server that is not the real one, and the
+// second heals by itself: an impostor that intercepted one reconnect, or a host
+// who restarts the server without its code and then puts it back (a code on
+// one side only is refused, ADR 0070). Before this, either kept the player
+// solo until they restarted the client (pass 5 of the adversarial review,
+// P1b-client-3). One attempt a minute costs a household nothing: the relay
+// allows six wrong codes per address and gives one back every second.
+//
+// A var for tests.
+var RoomCodeRetryInterval = time.Minute
+
+// IsRoomCodeRefusalErr reports whether err is a room-code refusal, from the
+// relay or decided locally by the proof.
+func IsRoomCodeRefusalErr(err error) bool {
+	rej, ok := asReject(err)
+	return ok && rej.Code == protocol.CodeInvalidRoomCode
+}
+
 func IsPermanentRejectErr(err error) bool {
 	var serving *AlreadyServingError
 	if errors.As(err, &serving) {
@@ -984,9 +1007,12 @@ type Core struct {
 	// failure" rule) doesn't keep hammering the relay with an identical, hopeless
 	// connection attempt. Cleared implicitly on process restart — nothing
 	// else resets it, since nothing about a running process's own Hello
-	// values can change on their own.
+	// values can change on their own -- EXCEPT a room-code refusal, which
+	// expires after RoomCodeRetryInterval (see there).
 	permanentRejectGame   string
 	permanentRejectReason string
+	permanentRejectCode   string
+	permanentRejectAt     time.Time
 
 	// lastConnectErr is the most recently logged connect failure of any
 	// kind (a plain dial error while the relay isn't up yet, a transient

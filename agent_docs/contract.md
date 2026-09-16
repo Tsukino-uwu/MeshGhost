@@ -864,7 +864,10 @@ this build has never heard of, and that is exactly why it must not be the thing 
 — `server_full` (someone may leave) and `rate_limited` (a reconnecting client re-reads the room's
 advertised `send_hz` and may fit under the cap this time). **Everything else, including any code or
 reason this build does not recognise, is permanent**: it needs a config change, so retrying only
-spams the relay and leaves the player in a room of one with no explanation. One table serves both
+spams the relay and leaves the player in a room of one with no explanation. **One permanent code is
+still tried again, once a minute: `invalid_room_code`** (ADR 0070, 2026-09-16), because the client
+cannot tell a wrong code from a server that is not the real one, and the second heals by itself;
+it is logged once and never retried at the reconnect pace (`core.RoomCodeRetryInterval`). One table serves both
 ends (`protocol.RetryableForCode`); the client's fallback for a code-less relay is
 `core.isPermanentRejectReason`, and `core.isPermanentReject` is the two combined.
 

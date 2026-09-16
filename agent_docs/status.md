@@ -12,7 +12,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 
 - 2026-09-15 — **TLS always on, TOFU and the room-code PAKE are LANDED (ADRs 0066, 0067; protocol 3).** UNWATCHED in a real game: a coded join; the "identity changed" warning after `private/` is deleted.
 - 2026-09-15 — **Both `config.json` files are LIVE** (relay: room_code/only_game/max_clients; client: smoothing, chaser, replay, hotkeys); never watched with a real client editing one. `phases/phase10.md`.
-- 2026-09-16 — **Review pass 5 DONE: 19 Go-side fixes; a code on one side only now refuses (ADR 0070); the cached-refusal choice is open.** `risks.md`, "Pass 5, left open".
+- 2026-09-16 — **Review pass 5 DONE: 19 Go-side fixes; a code on one side only now refuses, and a room-code refusal retries each minute (ADR 0070).** `risks.md`, "Pass 5, left open".
 - 2026-09-15 — **PARKED, the user's call: measure whether quic's congestion controller paces datagrams late after a loss** (the 2026-09-02 bike glide). Instrument, matrix and decision rule in `ideas.md`.
 - 2026-09-16 — **Adapter work from 2026-09-11 to 09-16 is UNWATCHED in all four games** (peer-input hardening, 29 SYNCED.md guards, autostart opt-in, replay/chaser ghosts, pass 5's fixes). Each `UNVERIFIED.md`.
 - 2026-09-15 — **TEVI open**: bullet BIRTH rows missing under sustained fire; self-moving bullets fly straight on a ghost; pool indices ordinal across builds; game-root move unwatched. `tevi/UNVERIFIED.md`.

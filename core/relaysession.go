@@ -669,14 +669,17 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 
 	c.mu.Lock()
 	cachedGame, cachedReason := c.permanentRejectGame, c.permanentRejectReason
+	cachedCode, cachedAt := c.permanentRejectCode, c.permanentRejectAt
 	c.mu.Unlock()
-	if cachedGame == gameID && cachedReason != "" {
+	roomCodeDue := cachedCode == protocol.CodeInvalidRoomCode &&
+		time.Since(cachedAt) >= RoomCodeRetryInterval // wall-clock: paces a real retry, like the backoff sleeps
+	if cachedGame == gameID && cachedReason != "" && !roomCodeDue {
 		// Already logged once, below, the first time this was hit. A
 		// permanently-rejected combination doesn't change without a config
 		// edit and restart, so retrying the relay dial (and re-logging
 		// identically) every time the adapter reconnects to the bridge
 		// would just spam both this process's log and the relay.
-		return &RejectError{Reason: cachedReason}
+		return &RejectError{Reason: cachedReason, Code: cachedCode}
 	}
 
 	// Record what the adapter reported in its own field rather than writing
@@ -721,6 +724,11 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 		if permanent {
 			c.permanentRejectGame = gameID
 			c.permanentRejectReason = reason
+			c.permanentRejectCode = ""
+			if isReject {
+				c.permanentRejectCode = rej.Code
+			}
+			c.permanentRejectAt = now
 		}
 		c.mu.Unlock()
 
@@ -730,7 +738,10 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 			// return is already self-prefixed with it (dial/send/timeout
 			// errors, and RejectError.Error()), so this used to print
 			// "core: core: ...". Found in a review pass.
-			if permanent {
+			if permanent && IsRoomCodeRefusalErr(err) {
+				log.Printf("%v — trying again once a minute, in case the server was not the real one or its code "+
+					"changes; if your room_code is wrong, fix it and restart", err)
+			} else if permanent {
 				log.Printf("%v — not retrying automatically; fix the underlying config and restart to try again", err)
 			} else {
 				log.Printf("%v — will keep retrying", err)
@@ -752,6 +763,8 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 	c.connectFailingSince = time.Time{}
 	c.permanentRejectGame = ""
 	c.permanentRejectReason = ""
+	c.permanentRejectCode = ""
+	c.permanentRejectAt = time.Time{}
 	c.autoRetryGameID = gameID
 	c.autoRetryAdapterGameVersion = adapterGameVersion
 	c.autoRetryBridgeConn = bridgeConn
@@ -899,6 +912,12 @@ func (c *Core) reconnectWithBackoff(gameID, adapterGameVersion string, bridgeCon
 		if err == nil {
 			return
 		}
+		if IsRoomCodeRefusalErr(err) {
+			// Kept trying, slowly (RoomCodeRetryInterval says why); the loop's
+			// top still ends it when the game goes.
+			time.Sleep(RoomCodeRetryInterval) // wall-clock: paces real reconnect attempts
+			continue
+		}
 		if IsPermanentRejectErr(err) {
 			log.Printf("core: %v — giving up on automatic reconnect for game %q", err, gameID)
 			return
@@ -983,6 +1002,10 @@ func (c *Core) retryRelayForSoloAdapter(gameID, adapterGameVersion string, nd tr
 		if err == nil {
 			log.Printf("core: a relay answered -- no longer playing alone; other players in the room will appear now")
 			return
+		}
+		if IsRoomCodeRefusalErr(err) {
+			time.Sleep(RoomCodeRetryInterval) // wall-clock: paces real reconnect attempts (RoomCodeRetryInterval)
+			continue
 		}
 		if IsPermanentRejectErr(err) {
 			log.Printf("core: %v -- staying solo for this session; recording, replays and chasers still work", err)

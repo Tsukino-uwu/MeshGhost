@@ -4,6 +4,7 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/netx"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
@@ -70,6 +71,53 @@ func TestTheDiscoveryLegProvesTheCodeToo(t *testing.T) {
 	}
 	if c.PlayerID() == "" {
 		t.Fatal("no player id after a join through discovery")
+	}
+}
+
+// TestARoomCodeRefusalIsTriedAgainOnceAnInterval is pass 5's P1b-client-3:
+// a room-code refusal was cached for the life of the process, so one refusal
+// from a server that was not the real one -- or a host who fixed their code
+// a moment later -- kept the player solo until they restarted. It stays
+// cached (no redial at the adapter's retry pace) until RoomCodeRetryInterval
+// has passed, then is tried for real. Any other permanent refusal is not.
+func TestARoomCodeRefusalIsTriedAgainOnceAnInterval(t *testing.T) {
+	defer func(v time.Duration) { RoomCodeRetryInterval = v }(RoomCodeRetryInterval)
+	RoomCodeRetryInterval = 300 * time.Millisecond
+
+	s := relay.NewServer()
+	s.RoomCode = "the-old-code"
+	addr := startRelayWith(t, s)
+	c := codedCore(t, addr, "letmein")
+
+	if err := c.ConnectRelayOnAdapterHello("emerald", "", nil); err == nil || !IsRoomCodeRefusalErr(err) {
+		t.Fatalf("first attempt: %v; want a room-code refusal", err)
+	}
+	s.SetRoomCode("letmein") // the host fixes it
+	if err := c.ConnectRelayOnAdapterHello("emerald", "", nil); err == nil {
+		t.Fatal("an attempt inside the interval dialled again instead of answering from the cache")
+	} else if !IsRoomCodeRefusalErr(err) {
+		t.Fatalf("the cached refusal lost its code: %v", err)
+	}
+	time.Sleep(RoomCodeRetryInterval + 50*time.Millisecond)
+	if err := c.ConnectRelayOnAdapterHello("emerald", "", nil); err != nil {
+		t.Fatalf("after the interval the refusal was not tried again: %v", err)
+	}
+
+	// Another permanent refusal stays cached however long it has been.
+	s2 := relay.NewServer()
+	s2.SetOnlyGame("crystal")
+	c2 := New()
+	c2.RelayAddr = startRelayWith(t, s2)
+	c2.Room = "room1"
+	c2.DisplayName = "bob"
+	c2.DialTimeout = testTimeout
+	if err := c2.ConnectRelayOnAdapterHello("emerald", "", nil); err == nil || IsRoomCodeRefusalErr(err) {
+		t.Fatalf("game not allowed: %v", err)
+	}
+	s2.SetOnlyGame("")
+	time.Sleep(RoomCodeRetryInterval + 50*time.Millisecond)
+	if err := c2.ConnectRelayOnAdapterHello("emerald", "", nil); err == nil {
+		t.Fatal("a non-room-code permanent refusal was retried after the interval")
 	}
 }
 
