@@ -27,8 +27,19 @@ Claude Code --MCP (stdio)--> autoplay core --JSON lines (127.0.0.1)--> driver in
 |---|---|
 | `status` | Whether a driver is connected, and its hello: host, game, variant, build, capabilities, protected slots |
 | `observe` | The driver's snapshot of the game |
-| `press` | Hold buttons for 1-600 frames — the escape hatch, not the default |
+| `press` | Hold buttons for 1-600 frames, then report what changed — the escape hatch, not the default |
+| `wait` | Let 1-3600 frames pass with NO input, then report what changed. Never hold a button to wait |
+| `screenshot` | The game frame, saved to `dev-scripts/shots/<game>/autoplay_<name>.png` and returned as an image |
 | `events` | Events the driver reported since a sequence number |
+
+## Drivers so far
+
+- **BizHawk** (`drivers/bizhawk/driver.lua`), loaded through `dev-scripts/bizhawk-dev-loader.lua`: put
+  the driver's absolute path in the instance's control file, and set `AUTOPLAY_GAME` (and
+  `AUTOPLAY_PORT` when it is not 7870) in the environment the emulator starts with. It logs to
+  `autoplay/runs/driver_bizhawk.log`. Game modules: `games/emerald.lua` (vanilla, using only
+  addresses `emerald/probes/cmd_drive.lua` already measured). **While a press runs it holds the
+  controller** — take it off the target when done.
 
 ## Running it
 
@@ -38,6 +49,9 @@ Claude Code --MCP (stdio)--> autoplay core --JSON lines (127.0.0.1)--> driver in
 - **In Claude Code**: `autoplay/.mcp.json` starts the core with `go run`, from the repo root. A
   session launched with `--mcp-config autoplay/.mcp.json` gets the tools as `mcp__autoplay__*`. The
   core logs to `autoplay/runs/core.log` (gitignored); stdout belongs to MCP.
+- **Without an agent**: `go run ./cmd/mcpcall -calls '<JSON list of {name, arguments}>'` (from
+  `autoplay/`) starts the core over stdio the way Claude Code does, waits for a driver, and prints
+  each tool's answer.
 - **CI**: `.github/workflows/autoplay.yml` — build, vet, race tests, `govulncheck`, inside this module.
 
 ## What stays out of the repo

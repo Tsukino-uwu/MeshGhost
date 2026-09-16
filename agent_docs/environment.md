@@ -25,9 +25,17 @@ so this file stays the dated record of versions and traps, and that one is the s
   amd64/arm64 binaries in their own archives. What is still true is that **macOS has no runner and
   is never *run*** — compile-only — and Linux has been exercised live by the Linux tester
   (Pseudoregalia over Proton, 2026-08-16, `verified.md`) rather than by CI.
-- Go toolchain: **confirmed installed**, `go1.26.5 windows/amd64` (`go version`, 2026-08-11).
-  `go build ./...` and `go vet ./...` both pass clean on the current type skeleton.
-  **Re-confirmed 2026-08-17**: still `go1.26.5 windows/amd64`.
+- **Local tools match what the public repo and CI use, wherever that is possible** (the user,
+  2026-09-16: *"think its good to keep what is local and on the repo the same if possible"*). A
+  local version that differs from CI's makes a local result mean something else than the same result
+  in CI — a check that is clean on one and not the other is confusion, not information. When CI
+  installs "the newest patch" of something, update the local copy to that patch; when a pin moves
+  in the repo, move the local install with it, and re-date the line that records it here.
+- Go toolchain: **`go1.26.8 windows/amd64`** (`go version`, 2026-09-16), the newest 1.26 patch —
+  what both workflows' `setup-go` `"1.26"` installs. Updated that day from `go1.26.5` (installed
+  2026-08-11) with the official MSI, its SHA-256 compared against go.dev's release list, because
+  `govulncheck` reported four standard-library findings in 1.26.5 that CI's newer patch did not
+  have. The MeshGhost suite and the root binaries were rebuilt on it the same day.
 - Go module pins (read from `go.mod`, 2026-09-02): directive `go 1.26.0`, raised from 1.25 by
   `go get` when quic-go moved to v0.62.0 that day (it requires 1.26; the 1.22→1.25 raise was the
   same story on 2026-08-17, `agent_docs/licensing.md`). One direct dependency, `quic-go v0.62.0`;

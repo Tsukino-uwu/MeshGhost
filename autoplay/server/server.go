@@ -10,6 +10,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/autoplay/driver"
@@ -46,6 +49,19 @@ func New(hub *driver.Hub, version string) *mcp.Server {
 			"prefer a tool that ends on the game's own state when the driver has one. " +
 			"Returns what the driver saw change.",
 	}, t.press)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "wait",
+		Description: "Let frames pass with no input at all, then return what changed. Use this to " +
+			"wait -- never hold a button to wait, since every button does something somewhere.",
+	}, t.wait)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "screenshot",
+		Description: "A picture of the game frame, saved under dev-scripts/shots/<game>/ and returned " +
+			"as an image. The navigation sense: what is around, what a thing is, which entry is " +
+			"highlighted. Never proof of anything visual.",
+	}, t.screenshot)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "events",
@@ -100,23 +116,93 @@ func (t *tools) press(ctx context.Context, _ *mcp.CallToolRequest, in PressIn) (
 	return nil, raw, err
 }
 
+// MaxWaitFrames bounds one wait.
+const MaxWaitFrames = 3600
+
+// WaitIn is the wait tool's input.
+type WaitIn struct {
+	Frames int `json:"frames" jsonschema:"how many frames to let pass, 1 to 3600"`
+}
+
+func (t *tools) wait(ctx context.Context, _ *mcp.CallToolRequest, in WaitIn) (*mcp.CallToolResult, any, error) {
+	if in.Frames < 1 || in.Frames > MaxWaitFrames {
+		return nil, nil, fmt.Errorf("frames must be 1 to %d, got %d", MaxWaitFrames, in.Frames)
+	}
+	timeout := CallTimeout + time.Duration(in.Frames)*50*time.Millisecond
+	raw, err := t.forward(ctx, "wait", "wait", in, timeout)
+	return nil, raw, err
+}
+
+// MaxScreenshotBytes bounds a picture the core will read back and return.
+const MaxScreenshotBytes = 4 << 20
+
+// ScreenshotIn is the screenshot tool's input.
+type ScreenshotIn struct {
+	Name string `json:"name" jsonschema:"a short label for the file: letters, digits, _ or -"`
+}
+
+func (t *tools) screenshot(ctx context.Context, _ *mcp.CallToolRequest, in ScreenshotIn) (*mcp.CallToolResult, any, error) {
+	raw, err := t.forward(ctx, "screenshot", "screenshot", in, CallTimeout)
+	if err != nil {
+		return nil, nil, err
+	}
+	var shot struct {
+		Path string `json:"path"`
+	}
+	if json.Unmarshal(raw, &shot) != nil || shot.Path == "" {
+		return nil, nil, fmt.Errorf("the driver's screenshot answer names no file: %s", raw)
+	}
+	if !strings.EqualFold(filepath.Ext(shot.Path), ".png") {
+		return nil, nil, fmt.Errorf("the driver named %q, which is not a .png", shot.Path)
+	}
+	info, err := os.Stat(shot.Path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("the driver's screenshot: %w", err)
+	}
+	if info.Size() > MaxScreenshotBytes {
+		return nil, nil, fmt.Errorf("the screenshot is %d bytes, over the %d-byte cap", info.Size(), MaxScreenshotBytes)
+	}
+	png, err := os.ReadFile(shot.Path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("the driver's screenshot: %w", err)
+	}
+	return &mcp.CallToolResult{Content: []mcp.Content{
+		&mcp.TextContent{Text: string(raw)},
+		&mcp.ImageContent{Data: png, MIMEType: "image/png"},
+	}}, nil, nil
+}
+
 // EventsIn is the events tool's input.
 type EventsIn struct {
 	Since uint64 `json:"since" jsonschema:"return events with a sequence number above this; 0 for all buffered"`
 }
 
+// EventOut is one event as the tool returns it. The payload is decoded rather than passed as raw
+// bytes: the output schema is inferred from these types, and a json.RawMessage infers as an array
+// of bytes, which every real event -- a JSON object -- then fails validation against.
+type EventOut struct {
+	Seq     uint64    `json:"seq"`
+	At      time.Time `json:"at"`
+	Payload any       `json:"payload"`
+}
+
 // EventsOut is the events tool's answer.
 type EventsOut struct {
-	Events []driver.Event `json:"events"`
-	Newest uint64         `json:"newest"`
+	Events []EventOut `json:"events"`
+	Newest uint64     `json:"newest"`
 }
 
 func (t *tools) events(ctx context.Context, _ *mcp.CallToolRequest, in EventsIn) (*mcp.CallToolResult, EventsOut, error) {
 	evs, newest := t.hub.EventsSince(in.Since)
-	if evs == nil {
-		evs = []driver.Event{}
+	out := EventsOut{Events: []EventOut{}, Newest: newest}
+	for _, e := range evs {
+		var payload any
+		if err := json.Unmarshal(e.Payload, &payload); err != nil {
+			payload = string(e.Payload)
+		}
+		out.Events = append(out.Events, EventOut{Seq: e.Seq, At: e.At, Payload: payload})
 	}
-	return nil, EventsOut{Events: evs, Newest: newest}, nil
+	return nil, out, nil
 }
 
 // forward checks the capability, then asks the driver.

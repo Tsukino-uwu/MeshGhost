@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -62,8 +64,9 @@ func (h *harness) call(t *testing.T, name string, args any) (string, bool) {
 // a payload.
 type answerFunc func(verb string, payload json.RawMessage) (string, any)
 
-// startDriver connects a scripted driver with the given capabilities.
-func (h *harness) startDriver(t *testing.T, capabilities []string, answer answerFunc) {
+// startDriver connects a scripted driver with the given capabilities, and returns its connection so
+// a test can also send unsolicited lines (events).
+func (h *harness) startDriver(t *testing.T, capabilities []string, answer answerFunc) net.Conn {
 	t.Helper()
 	nc, err := net.Dial("tcp", h.hub.Addr().String())
 	if err != nil {
@@ -100,11 +103,12 @@ func (h *harness) startDriver(t *testing.T, capabilities []string, answer answer
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, ok := h.hub.Current(); ok {
-			return
+			return nc
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatal("the scripted driver never became current")
+	return nil
 }
 
 func writeLine(t *testing.T, nc net.Conn, v any) {
@@ -202,6 +206,90 @@ func TestPressValidatesAndForwards(t *testing.T) {
 	in := <-got
 	if in.Frames != 16 || len(in.Buttons) != 2 || in.Buttons[0] != "Up" {
 		t.Fatalf("the driver received %+v", in)
+	}
+}
+
+func TestScreenshotReturnsTheDriversPicture(t *testing.T) {
+	h := newHarness(t)
+	pic := filepath.Join(t.TempDir(), "shot.png")
+	want := []byte("\x89PNG\r\n\x1a\nnot really a png, but these exact bytes")
+	if err := os.WriteFile(pic, want, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.startDriver(t, []string{"screenshot"}, func(verb string, _ json.RawMessage) (string, any) {
+		return "result", map[string]any{"path": pic, "frame": 42}
+	})
+
+	res, err := h.session.CallTool(context.Background(), &mcp.CallToolParams{Name: "screenshot", Arguments: map[string]any{"name": "here"}})
+	if err != nil || res.IsError {
+		t.Fatalf("screenshot: %v %+v", err, res)
+	}
+	var got []byte
+	for _, c := range res.Content {
+		if img, ok := c.(*mcp.ImageContent); ok {
+			if img.MIMEType != "image/png" {
+				t.Fatalf("MIME type %q", img.MIMEType)
+			}
+			got = img.Data
+		}
+	}
+	if string(got) != string(want) {
+		t.Fatalf("image bytes = %q, want the file's", got)
+	}
+}
+
+func TestScreenshotRefusesANonPNGPath(t *testing.T) {
+	h := newHarness(t)
+	other := filepath.Join(t.TempDir(), "notes.txt")
+	os.WriteFile(other, []byte("x"), 0o644)
+	h.startDriver(t, []string{"screenshot"}, func(string, json.RawMessage) (string, any) {
+		return "result", map[string]any{"path": other}
+	})
+	text, isErr := h.call(t, "screenshot", map[string]any{"name": "here"})
+	if !isErr || !strings.Contains(text, "not a .png") {
+		t.Fatalf("screenshot = %s (error %v), want a refusal", text, isErr)
+	}
+}
+
+func TestWaitValidatesAndForwards(t *testing.T) {
+	h := newHarness(t)
+	h.startDriver(t, []string{"wait"}, func(verb string, payload json.RawMessage) (string, any) {
+		var in WaitIn
+		json.Unmarshal(payload, &in)
+		return "result", map[string]any{"verb": verb, "frames": in.Frames}
+	})
+	for _, bad := range []int{0, MaxWaitFrames + 1} {
+		if text, isErr := h.call(t, "wait", map[string]any{"frames": bad}); !isErr {
+			t.Errorf("wait %d = %s, want a refusal", bad, text)
+		}
+	}
+	text, isErr := h.call(t, "wait", map[string]any{"frames": 90})
+	if isErr || !strings.Contains(text, `"verb":"wait"`) || !strings.Contains(text, `"frames":90`) {
+		t.Fatalf("wait = %s (error %v)", text, isErr)
+	}
+}
+
+// Regression, 2026-09-16: the first events tool typed payloads as json.RawMessage, whose inferred
+// output schema is an array of bytes, so the first REAL event -- an object -- failed the SDK's
+// output validation live. The empty-list test below could never have caught it.
+func TestEventsToolReturnsAnObjectPayload(t *testing.T) {
+	h := newHarness(t)
+	nc := h.startDriver(t, nil, func(string, json.RawMessage) (string, any) { return "result", map[string]any{} })
+	writeLine(t, nc, map[string]any{"type": "event", "payload": map[string]any{"kind": "mode_changed", "to": "overworld", "frame": 13316}})
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, newest := h.hub.EventsSince(0); newest == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the event never arrived")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	text, isErr := h.call(t, "events", map[string]any{"since": 0})
+	if isErr || !strings.Contains(text, `"kind":"mode_changed"`) || !strings.Contains(text, `"newest":1`) {
+		t.Fatalf("events = %s (error %v)", text, isErr)
 	}
 }
 

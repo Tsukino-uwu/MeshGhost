@@ -132,3 +132,35 @@ growing it: tools can be added later, "more hands/fingers or an extra eye". Buil
   `.gitignore` holds `autoplay/runs/` and `autoplay/states/`.
 
 Next: the BizHawk driver, growing out of `cmd_drive.lua`, on vanilla Emerald.
+
+## 2026-09-16 (later still) — Phase 1 step 2: a live driver in vanilla Emerald, from boot to walking
+
+**Local Go now matches CI.** Asked about the 1.26.5 finding, the user: *"update it if its not what we
+use on the public repo ? just leads to confusion if local vs public repo have version mismatching"*,
+and then as a general rule, *"think its good to keep what is local and on the repo the same if
+possible"* — now the first bullet of `environment.md`'s Host section. Go went to 1.26.8 (the official
+MSI, checksum compared with go.dev's list); `run-gotests.bat` passed on it and the four root binaries
+were rebuilt; `govulncheck` on `autoplay/` then found nothing the code calls.
+
+**Built:** `autoplay/drivers/bizhawk/` — `driver.lua` (dev-loader script: LuaSocket from Emerald's
+vendored copy, connect, hello, one request at a time, events for a map or mode change), `json.lua`,
+and `games/emerald.lua` (only addresses `emerald/probes/cmd_drive.lua` already measured; facing and
+action go out raw). The core gained `wait` and `screenshot` (the picture comes back as an image), and
+`cmd/mcpcall` calls tools through a real stdio core without an agent.
+
+**The live run** (one EmuHawk on vanilla Emerald, the driver as the loader's only target, no
+MeshGhost adapter): from a cold boot, `press` and `screenshot` alone reached the overworld —
+intro, title, main menu, CONTINUE, `mode` turning `overworld` with a `mode_changed` event — and a
+16-frame Left press moved the player one tile (`x` 11 to 10, reported in `changed`). Two tools exist
+because of what went wrong on the way, each the play-game skill's rule proving itself:
+- **An A press on the title did nothing** and looked like a stuck menu; nothing explained it until a
+  picture showed the title screen — the first Start had only skipped the intro. So `screenshot`.
+- **A 60-frame B hold used as a wait backed out of the main menu** into the intro. So `wait`, which
+  presses nothing, and its description says never to hold a button to wait.
+- **`events` failed MCP's output validation on the first real event**: a `json.RawMessage` payload
+  infers as an array of bytes. Fixed by decoding the payload; the regression test fails on the old
+  type with the exact live error, and the module is race-clean at `-count=10`.
+
+The screen also showed a second player beside the real one: the save keeping a ghost spawned in an
+earlier dev session. The user: it goes away on leaving the area, and Emerald ships drawn ghosts now,
+so it is not an issue.

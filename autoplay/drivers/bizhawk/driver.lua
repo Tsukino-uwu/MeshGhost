@@ -1,0 +1,293 @@
+-- autoplay BizHawk driver (DEV TOOL, WRITES INPUT, never shipped; agent_docs/phases/phase13.md, ADR 0071)
+--
+-- The piece inside BizHawk that carries out the autoplay core's commands. Load it through the dev
+-- loader (dev-scripts/bizhawk-dev-loader.lua): add this file's absolute path to the instance's
+-- control file. It picks its game module from AUTOPLAY_GAME (a global, or the environment) -- the
+-- handoff names it -- and connects to the core on 127.0.0.1:AUTOPLAY_PORT (default 7870).
+--
+-- The link is the core's protocol 1, stated at the top of autoplay/driver/driver.go. One request
+-- is carried out at a time; a press holds the controller for its frames and answers after them.
+-- WHILE A PRESS IS RUNNING THIS SCRIPT HOLDS THE CONTROLLER. Take it off the target when done: an
+-- input-driving tool left loaded is a suspect in every later report.
+
+local PROTOCOL = 1
+local MAX_LINE = 64 * 1024
+local RETRY_FRAMES = 30
+local REJECT_BACKOFF_FRAMES = 600
+
+local function scriptDir()
+	local info = debug.getinfo(1, "S")
+	if info and info.source and info.source:sub(1, 1) == "@" then
+		return info.source:sub(2):gsub("\\", "/"):match("^(.*)/[^/]*$")
+	end
+	return nil
+end
+
+local DIR = scriptDir()
+if not DIR then
+	error("autoplay driver: cannot find its own folder; load it by absolute path through the dev loader")
+end
+local ROOT = DIR:match("^(.*)/autoplay/drivers/bizhawk$")
+if not ROOT then
+	error("autoplay driver: expected to live at <repo>/autoplay/drivers/bizhawk, found " .. DIR)
+end
+
+local logf = io.open(ROOT .. "/autoplay/runs/driver_bizhawk.log", "a")
+local function log(msg)
+	local line = string.format("[%s f%d] %s", os.date("%H:%M:%S"), emu.framecount(), msg)
+	if logf then
+		logf:write(line, "\n")
+		logf:flush() -- a handful of lines per command, never per frame
+	else
+		console.log("autoplay: " .. msg)
+	end
+end
+
+local json = dofile(DIR .. "/json.lua")
+
+-- LuaSocket, the copy the Emerald adapter vendors. lua54.dll first by full path, backslashes only:
+-- the reasons are in meshghost_emerald.lua's "LuaSocket" block.
+local LIB = (ROOT .. "/adapters/emulator/pokemon/emerald/lib/x64/"):gsub("/", "\\")
+pcall(function() package.loadlib(LIB .. "lua54.dll", "autoplay_force_preload") end)
+local openSocket, socketErr = package.loadlib(LIB .. "socket-windows-5-4.dll", "luaopen_socket_core")
+if not openSocket then
+	error("autoplay driver: could not load LuaSocket from " .. LIB .. ": " .. tostring(socketErr))
+end
+local socket = openSocket()
+
+local gameName = AUTOPLAY_GAME or os.getenv("AUTOPLAY_GAME")
+local port = tonumber(AUTOPLAY_PORT or os.getenv("AUTOPLAY_PORT") or "") or 7870
+local game = nil
+if gameName and gameName:match("^[%w_]+$") then
+	game = dofile(DIR .. "/games/" .. gameName .. ".lua")
+end
+
+local sock, partial, state = nil, "", "down"
+local waitFrames = 0
+local queue = {}
+local hold = nil
+local lastDiff = nil
+
+local function send(msg)
+	if not sock then return false end
+	local line = json.encode(msg)
+	if #line + 1 > MAX_LINE then
+		log("dropping an outgoing line of " .. #line .. " bytes")
+		return false
+	end
+	local ok, err = sock:send(line .. "\n")
+	if not ok then
+		log("send failed: " .. tostring(err))
+		return false
+	end
+	return true
+end
+
+local function close(why, backoff)
+	if sock then pcall(function() sock:close() end) end
+	sock, partial, state, queue, hold = nil, "", "down", {}, nil
+	waitFrames = backoff or RETRY_FRAMES
+	log("link down: " .. why)
+end
+
+local function reply(id, payload)
+	send({ id = id, type = "result", payload = payload })
+end
+
+local function fail(id, message)
+	send({ id = id, type = "error", payload = { message = message } })
+end
+
+local function changed(before, after)
+	local a, b, out = game.diffKeys(before), game.diffKeys(after), {}
+	for k, v in pairs(b) do
+		if a[k] ~= v then out[k] = { from = a[k], to = v } end
+	end
+	return out
+end
+
+local function has(capability)
+	for _, c in ipairs(game.capabilities) do
+		if c == capability then return true end
+	end
+	return false
+end
+
+-- Start carrying out one request. Returns true when it answered at once.
+local function begin(req)
+	local verb, p = req.type, req.payload or {}
+	if not has(verb) then
+		fail(req.id, "this driver does not support " .. tostring(verb))
+		return true
+	end
+	if verb == "observe" then
+		reply(req.id, game.observe())
+		return true
+	elseif verb == "screenshot" then
+		-- The game frame only (client.screenshot), never the window, into the game's own shots
+		-- folder (the play-game skill's references/screenshots.md). A drawn-tier ghost is not in it.
+		local name = type(p.name) == "string" and p.name or ""
+		if not name:match("^[%w_%-]+$") or #name > 64 then
+			fail(req.id, "screenshot needs a name of letters, digits, _ or -")
+			return true
+		end
+		local path = string.format("%s/dev-scripts/shots/%s/autoplay_%s.png", ROOT, game.shots, name)
+		local ok, err = pcall(function() client.screenshot(path) end)
+		local fh = ok and io.open(path, "rb")
+		if not fh then
+			fail(req.id, "client.screenshot did not write " .. path .. ": " .. tostring(err))
+			return true
+		end
+		fh:close()
+		reply(req.id, { path = path, frame = emu.framecount() })
+		return true
+	elseif verb == "press" then
+		local frames = math.tointeger(p.frames)
+		if type(p.buttons) ~= "table" or #p.buttons == 0 or not frames or frames < 1 or frames > 600 then
+			fail(req.id, "press needs buttons and 1 to 600 frames")
+			return true
+		end
+		local known, pad = joypad.get(), {}
+		for _, b in ipairs(p.buttons) do
+			if type(b) ~= "string" or known[b] == nil then
+				local names = {}
+				for name in pairs(known) do names[#names + 1] = name end
+				table.sort(names)
+				fail(req.id, "unknown button " .. tostring(b) .. "; this core has " .. table.concat(names, ", "))
+				return true
+			end
+			pad[b] = true
+		end
+		hold = { id = req.id, pad = pad, left = frames, frames = frames, before = game.observe() }
+		log(string.format("press %s for %d frames", table.concat(p.buttons, "+"), frames))
+		return false
+	elseif verb == "wait" then
+		-- Frames pass with NO input: never hold a button to wait, since every button means
+		-- something somewhere (B backs out of a menu).
+		local frames = math.tointeger(p.frames)
+		if not frames or frames < 1 or frames > 3600 then
+			fail(req.id, "wait needs 1 to 3600 frames")
+			return true
+		end
+		hold = { id = req.id, pad = nil, left = frames, frames = frames, before = game.observe() }
+		return false
+	end
+	fail(req.id, "unhandled request " .. tostring(verb))
+	return true
+end
+
+local function handle(line)
+	local ok, msg = pcall(json.decode, line)
+	if not ok or type(msg) ~= "table" then
+		log("ignoring a line that does not parse")
+		return
+	end
+	if msg.type == "welcome" then
+		state = "ready"
+		log("welcomed by the core on port " .. port)
+	elseif msg.type == "reject" then
+		local reason = type(msg.payload) == "table" and msg.payload.reason or "?"
+		close("rejected: " .. tostring(reason), REJECT_BACKOFF_FRAMES)
+	elseif msg.id and state == "ready" then
+		queue[#queue + 1] = msg
+	end
+end
+
+local function connect()
+	local s = socket.tcp()
+	if not s then return end
+	s:settimeout(0.05)
+	if not s:connect("127.0.0.1", port) then
+		pcall(function() s:close() end)
+		waitFrames = RETRY_FRAMES
+		return
+	end
+	s:settimeout(0)
+	pcall(function() s:setoption("tcp-nodelay", true) end)
+	sock, partial, state = s, "", "hello_sent"
+	send({
+		type = "hello",
+		payload = {
+			protocol = PROTOCOL,
+			host = "bizhawk",
+			game = game.game,
+			variant = game.variant,
+			build = game.build(),
+			capabilities = game.capabilities,
+			protected_slots = game.protected_slots,
+		},
+	})
+	log("connected to 127.0.0.1:" .. port .. ", hello sent")
+end
+
+local function drain()
+	while sock do
+		local line, err, part = sock:receive("*l", partial)
+		if line then
+			partial = ""
+			handle(line)
+		elseif err == "timeout" then
+			partial = part or ""
+			if #partial > MAX_LINE then close("a line over " .. MAX_LINE .. " bytes") end
+			return
+		else
+			close(tostring(err))
+			return
+		end
+	end
+end
+
+local function watchEvents()
+	local o = game.observe()
+	local d = game.diffKeys(o)
+	if lastDiff and state == "ready" then
+		if d.map ~= lastDiff.map then
+			send({ type = "event", payload = { kind = "map_changed", from = lastDiff.map, to = d.map, frame = o.frame } })
+		end
+		if d.mode ~= lastDiff.mode then
+			send({ type = "event", payload = { kind = "mode_changed", from = lastDiff.mode, to = d.mode, frame = o.frame } })
+		end
+	end
+	lastDiff = d
+end
+
+if not game then
+	log("no game module: set AUTOPLAY_GAME (e.g. emerald) before loading; doing nothing")
+else
+	log(string.format("loaded for %s, core port %d", game.game, port))
+end
+
+MESHGHOST_DEV_TICK = function()
+	if not game then return end
+	if not sock then
+		if waitFrames > 0 then
+			waitFrames = waitFrames - 1
+		else
+			connect()
+		end
+		return
+	end
+	drain()
+	if not sock then return end
+
+	if hold then
+		if hold.left > 0 then
+			if hold.pad then joypad.set(hold.pad) end
+			hold.left = hold.left - 1
+		else
+			-- The last set applies to the frame after it, so the answer is read one frame later.
+			local after = game.observe()
+			reply(hold.id, { frames = hold.frames, before = hold.before, after = after, changed = changed(hold.before, after) })
+			hold = nil
+		end
+	elseif #queue > 0 then
+		begin(table.remove(queue, 1))
+	end
+	watchEvents()
+end
+
+MESHGHOST_DEV_UNLOAD = function()
+	close("unloaded")
+	if logf then logf:close() end
+	logf = nil
+end
