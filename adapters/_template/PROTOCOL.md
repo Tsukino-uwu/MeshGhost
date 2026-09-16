@@ -561,6 +561,13 @@ The whole-line limit is the one exception to "dropped silently": exceeding it ki
 *connection*, not the message, because it trips `bufio.Scanner` at the read itself. In practice
 it is unreachable — the per-field caps above sum to well under 2KB.
 
+**That limit is on what you SEND, not on what you READ.** A line the core writes to you is not
+bounded by 4096: a peer's state may reach the relay's 4095-byte state line (`&`, `<` and `>` escape
+to six bytes each in `area_id` and `anim`), and the core re-wraps it as `render_remote` with the
+`player_id` again and re-encoded positions. Size a receive buffer's "no newline, give up" bound at
+16 KiB, as every shipped adapter does; three were at 4096 until 2026-09-16, and a peer padding its
+state could make them drop the bridge over and over (pass 5 of the adversarial review, PM-4).
+
 Each deeper plane brings its own bounds, with the same silent-drop behaviour and one extra hazard —
 see "Beyond cosmetic" below.
 

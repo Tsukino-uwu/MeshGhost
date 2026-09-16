@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace MeshGhostPseudo
@@ -944,6 +945,51 @@ namespace MeshGhostPseudo
         }
         const double out = from + delta * t;
         return std::isfinite(out) ? out : from;
+    }
+
+    // collapse_latest_render_remote keeps, in order, every line except a render_remote that a
+    // NEWER render_remote for the same player_id supersedes. The state plane is latest-wins by
+    // contract, so what is dropped was never owed; every other line (despawn, names, policy) keeps
+    // its place relative to the states that survive.
+    //
+    // Lifted out of game_thread_tick's drain (2026-09-01, the 150-peer death spiral) on
+    // 2026-09-16 so the QUEUE can use it too: the drain does not run while the pause menu or an
+    // item popup is open, and the on_update thread kept appending every line the core sent, so a
+    // paused game's queue grew for as long as it stayed paused -- faster with a peer padding its
+    // states -- and the unpause replayed all of it in one frame (pass 5 of the adversarial review,
+    // P2e-2). Here, where the fuzz harness compiles it, rather than in Plugin.cpp.
+    inline auto collapse_latest_render_remote(std::vector<std::string>& lines) -> void
+    {
+        if (lines.size() < 2)
+        {
+            return;
+        }
+        std::unordered_set<std::string> seen_ids;
+        std::vector<bool> keep(lines.size(), true);
+        for (size_t i = lines.size(); i-- > 0;)
+        {
+            if (json_string_field(lines[i], "type") != "render_remote")
+            {
+                continue;
+            }
+            if (!seen_ids.insert(json_string_field(lines[i], "player_id")).second)
+            {
+                keep[i] = false; // an older state for a player whose newer one is already kept
+            }
+        }
+        size_t out = 0;
+        for (size_t i = 0; i < lines.size(); ++i)
+        {
+            if (keep[i])
+            {
+                if (out != i)
+                {
+                    lines[out] = std::move(lines[i]);
+                }
+                ++out;
+            }
+        }
+        lines.resize(out);
     }
 
 } // namespace MeshGhostPseudo

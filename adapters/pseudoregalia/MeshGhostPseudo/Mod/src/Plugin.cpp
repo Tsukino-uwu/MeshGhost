@@ -53,6 +53,9 @@ namespace MeshGhostPseudo
     // readability, not tied to a real need. local_state itself is sent every tick per
     // PROTOCOL.md's tick loop ("send local_state every frame, state may be nil"), not throttled.
     constexpr uint64_t LOG_INTERVAL_TICKS = 120;
+    // How many queued bridge lines trigger a latest-wins collapse of the queue itself (see
+    // on_update). A frame's worth at 512 peers fits under it, so an unpaused game never reaches it.
+    constexpr size_t PENDING_LINES_COLLAPSE_AT = 2048;
 
     // Slide mesh-offset probe -- the "START HERE" step of ideas.md's plan to replace the slide
     // render-Z compensation (the +43 in slide_z_comp) with whatever the game's own crouch logic
@@ -850,7 +853,7 @@ namespace MeshGhostPseudo
     // Trail-VFX heuristic-trigger attempts, 2026-08-15 -- ABANDONED, not dead code kept for
     // reference. Five real live-test rounds tried to infer "the real game just spawned an
     // afterimage" from polled actionState/hSpeed (see verified.md's "Pseudoregalia ghost trail"
-    // entry and documentation.md (PLAYER_FIELDS.md until 2026-09-13)'s trail-VFX section for the full account): every repeat-interval
+    // entry and documentation.md's trail-VFX section for the full account): every repeat-interval
     // variant either fired once instead of repeating, mis-fired on a quick 180-degree turn-around
     // (which shares actionState 18 with a real slide), or missed Solar Wind's ultra hop entirely.
     // Replaced with a real UFunction::RegisterPostHookForInstance hook directly on the local
@@ -1119,7 +1122,7 @@ namespace MeshGhostPseudo
     // ANIM_PULSE_TRACE/GHOST_COLLISION_ENABLED: flip, rebuild, deploy, watch the log, flip back --
     // this project's established discovery-toggle workflow, not a runtime keybind.
     // Flipped back off 2026-08-15 after one real capture session (see verified.md's "Pseudoregalia
-    // ability field schema" entry and adapters/pseudoregalia/documentation.md (documentation.md (PLAYER_FIELDS.md until 2026-09-13) until 2026-09-13)) -- its job (finding
+    // ability field schema" entry and adapters/pseudoregalia/documentation.md) -- its job (finding
     // real field names) is done; ABILITY_FIELD_TRACE below is the next real step, not this.
     // Flipped ON then back off 2026-08-15 for the "trigger the pawn's own system" pass (ideas.md's
     // Pseudoregalia item 3). Job done: it produced the FX/ability entry-point list and, crucially,
@@ -1129,7 +1132,7 @@ namespace MeshGhostPseudo
     // slideTick/slideOverheadCheck.
     // **ON for the 2026-08-27 health hunt.** The user's ask, in their words: *"i just want to
     // figure out where th whole health portion thing is and decouple/remove it from the ghost all
-    // together"*. Where this game keeps health has never been established -- documentation.md (PLAYER_FIELDS.md until 2026-09-13) has
+    // together"*. Where this game keeps health has never been established -- documentation.md has
     // no entry for it, and the confirmed coupling (damage to a ghost hurting the real player,
     // respawning at 0 health) has only ever been treated with engine-level flags rather than by
     // finding the actual state. Two dumps taken either side of taking damage, then diffed, is how
@@ -1146,7 +1149,7 @@ namespace MeshGhostPseudo
     constexpr uint64_t OBJECT_REFLECTION_DUMP_INTERVAL_TICKS = 300;
 
     // Live-*value* trace for the ability field schema OBJECT_REFLECTION_DUMP found (see
-    // verified.md's "Pseudoregalia ability field schema" entry and documentation.md (PLAYER_FIELDS.md until 2026-09-13)) -- that dump
+    // verified.md's "Pseudoregalia ability field schema" entry and documentation.md) -- that dump
     // only confirmed these fields EXIST and are spelled this way; it never read a single value.
     // This traces the actual live values of the highest-priority subset (weapon-held state,
     // charge-attack, power meter, a few wall-kick/wall-ride/plunge flags) at the existing
@@ -1170,7 +1173,7 @@ namespace MeshGhostPseudo
     // and released, and the two together are what a mirror needs. Flip back off with it.
     constexpr bool ABILITY_FIELD_TRACE = false;
 
-    // Trail-VFX prototype test, 2026-08-15 (see documentation.md (PLAYER_FIELDS.md until 2026-09-13)'s trail-VFX section and
+    // Trail-VFX prototype test, 2026-08-15 (see documentation.md's trail-VFX section and
     // call_spawn_after_image's own comment): calls 'Spawn After Image' on every remote ghost at a
     // slow, easy-to-eyeball cadence (~3s), independent of any real trigger condition on the real
     // player -- deliberately decoupled, same phased approach already used for weaponEquipped?
@@ -1221,7 +1224,7 @@ namespace MeshGhostPseudo
     // call_montage_stop already proves works here) or a state-machine pose (needs a property we
     // aren't syncing); (b) how many ticks the throw state actually lasts -- if it's a handful, the
     // send cadence drops it and it needs the landed?/jumped? monotonic-counter pulse treatment
-    // (documentation.md (PLAYER_FIELDS.md until 2026-09-13)'s bucket 2 predicted exactly this for a "weapon thrown" moment); and
+    // (documentation.md's bucket 2 predicted exactly this for a "weapon thrown" moment); and
     // (c) the real name of the throw entry point, via the one-shot filtered function dump, since
     // the log that originally held it has since been overwritten by later sessions.
     // Flip back to false once the capture is done, same convention as every flag above.
@@ -1533,7 +1536,7 @@ namespace MeshGhostPseudo
     //
     // Same coordinates + different appearance means the difference is INSIDE the actor, not in the
     // transform we're syncing -- structurally the same bug as the slide floor-sinking fix
-    // (documentation.md (PLAYER_FIELDS.md until 2026-09-13)): a mesh hangs off its parent at an offset fixed at construction, and it's
+    // (documentation.md): a mesh hangs off its parent at an offset fixed at construction, and it's
     // the object's own logic -- which a teleported copy never runs, since our prop has collision
     // off and never actually lands on anything -- that adjusts it. Do NOT "fix" this by nudging
     // render Z by a guessed constant; the slide fix earned its constant from a measurement, and
@@ -6745,7 +6748,7 @@ namespace MeshGhostPseudo
             return true;
         }
 
-        // Trail-VFX prototype, 2026-08-15 (see documentation.md (PLAYER_FIELDS.md until 2026-09-13)'s trail-VFX section): 'Spawn After
+        // Trail-VFX prototype, 2026-08-15 (see documentation.md's trail-VFX section): 'Spawn After
         // Image' is the real lead OBJECT_REFLECTION_DUMP found for the yellow/blue slide/ultra-hop
         // trail -- a clean, single-float-param callable function, same shape as the calls above.
         // This is a prototype call only: confirmed to exist and take a plausible param, NOT yet
@@ -7588,7 +7591,7 @@ namespace MeshGhostPseudo
         // a repeating timer, counting an externally-set N down," which is why the count must be
         // written first: an earlier attempt that called this WITHOUT setting it produced nothing.
         // None of this function's own reflected properties are real named parameters (all internal
-        // Blueprint temporaries -- see documentation.md (PLAYER_FIELDS.md until 2026-09-13)), so it's called with a zero-filled buffer
+        // Blueprint temporaries -- see documentation.md), so it's called with a zero-filled buffer
         // sized to its own PropertiesSize, matching how a Blueprint VM stack frame is normally
         // allocated regardless of real inputs.
         auto call_spawn_num_afterimages(UObject* pawn) -> void
@@ -21716,7 +21719,7 @@ namespace MeshGhostPseudo
             }
 
             // Live-value trace for the ability field schema (see ABILITY_FIELD_TRACE's own
-            // comment and documentation.md (PLAYER_FIELDS.md until 2026-09-13)). Every pointer here is read defensively -- a name not
+            // comment and documentation.md). Every pointer here is read defensively -- a name not
             // resolving just means "not this build/this object", same posture as every other
             // GetValuePtrByPropertyNameInChain call in this file, not a new pattern.
             if constexpr (ABILITY_FIELD_TRACE)
@@ -22955,7 +22958,7 @@ namespace MeshGhostPseudo
                         //
                         // The format stays inside this adapter -- both the writer above and the
                         // reader in apply_mirrored_vfx are this file, and the wire carries the
-                        // string opaquely -- so this is not a contract change. `documentation.md (PLAYER_FIELDS.md until 2026-09-13)`
+                        // string opaquely -- so this is not a contract change. `documentation.md`
                         // documents the shape.
                         if (MIRRORED_EFFECTS[i].world_spawned)
                         {
@@ -23134,6 +23137,7 @@ namespace MeshGhostPseudo
         {
             std::lock_guard<std::mutex> lock(state_mutex);
             lines_to_process.swap(pending_incoming_lines);
+            pending_collapse_at = PENDING_LINES_COLLAPSE_AT;
             disconnect_cleanup_pending = bridge_disconnect_cleanup_pending;
             bridge_disconnect_cleanup_pending = false;
         }
@@ -23147,33 +23151,12 @@ namespace MeshGhostPseudo
         // newest line per player bounds a tick's work by the number of PEERS, not by how far
         // behind the queue got; lifecycle lines (despawn, names, policy) all still apply, in
         // order, relative to the states that survive.
-        if (lines_to_process.size() > 1)
+        // The collapse itself lives in PeerJson.hpp (collapse_latest_render_remote) since
+        // 2026-09-16, where the fuzz harness compiles it and the on_update queue uses it too.
+        collapse_latest_render_remote(lines_to_process);
+        for (const std::string& line : lines_to_process)
         {
-            std::unordered_set<std::string> state_seen;
-            std::vector<const std::string*> kept;
-            kept.reserve(lines_to_process.size());
-            for (auto it = lines_to_process.rbegin(); it != lines_to_process.rend(); ++it)
-            {
-                if (json_string_field(*it, "type") == "render_remote")
-                {
-                    if (!state_seen.insert(json_string_field(*it, "player_id")).second)
-                    {
-                        continue; // an older state for a player whose newer one is already kept
-                    }
-                }
-                kept.push_back(&*it);
-            }
-            for (auto it = kept.rbegin(); it != kept.rend(); ++it)
-            {
-                handle_bridge_line(**it, pawn_obj, controller);
-            }
-        }
-        else
-        {
-            for (const std::string& line : lines_to_process)
-            {
-                handle_bridge_line(line, pawn_obj, controller);
-            }
+            handle_bridge_line(line, pawn_obj, controller);
         }
         if (disconnect_cleanup_pending)
         {
@@ -27484,7 +27467,7 @@ namespace MeshGhostPseudo
         }
 
         // The live check of the value read, on every edge that flips the jump bit: the pawn's own
-        // Blueprint latch `jumpButtonHeld?` (a confirmed live-read bool, documentation.md (PLAYER_FIELDS.md until 2026-09-13)) moved
+        // Blueprint latch `jumpButtonHeld?` (a confirmed live-read bool, documentation.md) moved
         // in step with the jump button on 24 of 24 presses in the census. If the bytes read here
         // mean what the header says, the two agree on the same frame.
         if (button_edge && input_have_prev && ((mask ^ input_prev_mask) & 1u))
@@ -28019,6 +28002,21 @@ namespace MeshGhostPseudo
                 for (std::string& line : received_lines)
                 {
                     pending_incoming_lines.push_back(std::move(line));
+                }
+                // BOUNDED WHILE NOTHING DRAINS IT. game_thread_tick returns early with the pause
+                // menu or an item popup open, and this thread kept appending every line the core
+                // sent -- one render_remote per visible peer per frame -- for as long as the game
+                // stayed paused, then replayed all of it in one frame on unpause (pass 5 of the
+                // adversarial review, 2026-09-16, P2e-2). Collapsing to the newest state per
+                // player is exactly what the drain would do with the backlog anyway, so this
+                // changes nothing that is applied; it only stops holding what never would be.
+                // The next collapse waits for the queue to DOUBLE past what the last one left,
+                // so lines that cannot collapse (despawns, names) cost one pass per doubling, not
+                // one pass per frame.
+                if (pending_incoming_lines.size() > pending_collapse_at)
+                {
+                    collapse_latest_render_remote(pending_incoming_lines);
+                    pending_collapse_at = (std::max)(PENDING_LINES_COLLAPSE_AT, pending_incoming_lines.size() * 2);
                 }
             }
         }

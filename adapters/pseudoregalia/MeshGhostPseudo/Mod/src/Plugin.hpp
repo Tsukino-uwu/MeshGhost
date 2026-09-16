@@ -812,6 +812,7 @@ namespace MeshGhostPseudo
         // the real game thread) now run concurrently -- this guards the state both sides touch.
         std::mutex state_mutex;
         std::vector<std::string> pending_incoming_lines; // filled by on_update, drained by game_thread_tick
+        size_t pending_collapse_at = 2048; // on_update collapses the queue past this (Plugin.cpp, PENDING_LINES_COLLAPSE_AT)
         std::string cached_local_state_json;             // built by game_thread_tick, sent by on_update
         // Bridge-disconnect ghost cleanup handoff (see release_all_ghosts_parked's comment):
         // on_update notices the connected->disconnected edge and sets the pending flag;

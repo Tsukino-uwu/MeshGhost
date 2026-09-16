@@ -427,10 +427,13 @@ namespace MeshGhostTevi
         }
 
         // The longest partial line this adapter will hold before deciding the core is not
-        // speaking NDJSON any more. protocol.MaxLineBytes, in characters: every line the core
-        // sends is bounded by that on its own side, so anything longer is not a line we are
-        // waiting for.
-        private const int MaxLineChars = 4096;
+        // speaking NDJSON any more: 16 KiB, Pseudoregalia's MAX_RECV_BUFFER_BYTES. It was
+        // protocol.MaxLineBytes (4096) on the belief that every core line is bounded by it, which
+        // is false for render_remote: the relay bounds a peer's STATE line at 4095 and the core
+        // re-wraps it with the player_id again and re-encoded positions, so a peer padding its
+        // state to the relay's limit, landing in the tail of a coalesced read, made this adapter
+        // drop its bridge over and over (pass 5 of the adversarial review, 2026-09-16, P2t-1).
+        private const int MaxLineChars = 16 * 1024;
 
         private void ConnectAndReadLoop(int generation, int dialPort)
         {

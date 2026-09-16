@@ -10378,6 +10378,17 @@ local function handle(msg)
 		overflow[COMPARE.key(gone)] = nil
 		overflow[COMPARE.hwKey(gone)] = nil
 		activity[gone] = nil
+		-- Two per-peer tables nothing else ever shrank: each reconnect by a peer left a row in
+		-- both for the rest of the session (pass 5 of the adversarial review, 2026-09-16, P2c-3).
+		-- Neither changes what is drawn -- wireArtPeer is re-derived from the next state, and
+		-- `said` only gates a once-per-pair log line. ENGINE.lastPortable is the third and is
+		-- deliberately KEPT: it is what a returning peer's dropped sprite falls back to, so
+		-- dropping it here would change what a player sees (crystal/UNVERIFIED.md has it).
+		ENGINE.wireArtPeer[gone] = nil
+		local prefix = gone .. "|"
+		for k in pairs(ENGINE.xmap.said) do
+			if k:sub(1, #prefix) == prefix then ENGINE.xmap.said[k] = nil end
+		end
 	end
 end
 
@@ -10402,13 +10413,15 @@ local function receive()
 	-- without limit, and every frame concatenates onto it: O(length) work per frame, quadratic in
 	-- how long it goes on, on the thread the game runs on.
 	--
-	-- protocol.MaxLineBytes (4096) is the number, because every line the core sends is bounded by
-	-- it on the core's own side -- anything longer is not a line this adapter is waiting for. The
-	-- cap is checked BEFORE the newline scan below so a legitimate burst of many small complete
-	-- lines in one read can never trip it; only a single over-long or newline-less line can.
-	-- Same answer, and the same reasoning, as Emerald's recvPartial bound and Pseudoregalia's
-	-- MAX_RECV_BUFFER_BYTES.
-	if #rxBuffer > 4096 and not rxBuffer:find("\n", 1, true) then
+	-- 16 KiB, Pseudoregalia's MAX_RECV_BUFFER_BYTES and Emerald's recvPartial bound. It was
+	-- protocol.MaxLineBytes (4096) on the belief that every core line is bounded by it, which is
+	-- false for render_remote: the relay bounds a peer's STATE line at 4095 and the core re-wraps
+	-- it with the player_id again and re-encoded positions, so a peer padding its state to the
+	-- relay's limit made this adapter drop its bridge over and over (pass 5 of the adversarial
+	-- review, 2026-09-16, PM-4). The cap is checked BEFORE the newline scan below so a legitimate
+	-- burst of many small complete lines in one read can never trip it; only a single over-long or
+	-- newline-less line can.
+	if #rxBuffer > 16384 and not rxBuffer:find("\n", 1, true) then
 		log(string.format("MeshGhost: bridge buffered %d bytes with no newline -- reconnecting",
 			#rxBuffer))
 		rxBuffer = ""

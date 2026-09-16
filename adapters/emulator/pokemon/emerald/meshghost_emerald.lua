@@ -2981,12 +2981,14 @@ local function drainBridge()
             -- quadratic in how long the stall lasts. On the emulator thread, that is the game
             -- getting slower every frame for as long as it continues.
             --
-            -- protocol.MaxLineBytes (4096) is the number, because every line the core sends is
-            -- bounded by it on the core's own side: anything longer is not a line this adapter
-            -- is waiting for. Dropping and reconnecting is the same answer the send side gives
-            -- a partial write, and the same one Pseudoregalia's bridge gives an over-long
-            -- buffer.
-            if #recvPartial > 4096 then
+            -- 16 KiB, Pseudoregalia's MAX_RECV_BUFFER_BYTES. It was protocol.MaxLineBytes (4096)
+            -- on the belief that every core line is bounded by it, which is false for the line
+            -- this adapter reads most: the relay bounds a peer's STATE line at 4095, and the core
+            -- re-wraps it as render_remote with the player_id again and re-encoded positions, so
+            -- a peer padding its state to the relay's limit made this adapter drop its bridge
+            -- over and over (pass 5 of the adversarial review, 2026-09-16, PM-4). Dropping and
+            -- reconnecting is still the answer to a line longer than that.
+            if #recvPartial > 16384 then
                 logFile(string.format("bridge buffered %d bytes with no newline -- reconnecting",
                     #recvPartial))
                 recvPartial = ""
@@ -5389,6 +5391,15 @@ forgetPeerRenderState = function(playerId)
     if not tiering then return end
     if tiering.lastTile then tiering.lastTile[playerId] = nil end
     if tiering.hwLastTile then tiering.hwLastTile[playerId] = nil end
+    -- Their five siblings, all keyed by player id on the drawn tier that ships, and all
+    -- pruned only when that same peer is drawn again -- which a departed id never is, so each
+    -- reconnect by a peer left a row in every one for the rest of the session (pass 5 of the
+    -- adversarial review, 2026-09-16, P2c-2).
+    if tiering.grassTiles then tiering.grassTiles[playerId] = nil end
+    if tiering.landed then tiering.landed[playerId] = nil end
+    if tiering.ripples then tiering.ripples[playerId] = nil end
+    if tiering.puffs then tiering.puffs[playerId] = nil end
+    if genderFrames.wRefl then genderFrames.wRefl[playerId] = nil end
 end
 
 local function despawnGhost(playerId)

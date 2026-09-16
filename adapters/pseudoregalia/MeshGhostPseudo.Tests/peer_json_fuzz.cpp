@@ -840,6 +840,37 @@ namespace
     // rendering, and that gets blamed on the game.
     //
     // GHOST_ROTATION_SLERP is the shipped path, so this is not a theoretical branch.
+    // collapse_latest_render_remote bounds the bridge queue while the game is paused (P2e-2,
+    // 2026-09-16): only a render_remote superseded by a newer one for the SAME player may go, and
+    // every other line keeps its order.
+    auto collapse() -> void
+    {
+        auto rr = [](const char* id, int n) {
+            return std::string(R"({"type":"render_remote","payload":{"player_id":")") + id +
+                   R"(","state":{"seq":)" + std::to_string(n) + "}}}";
+        };
+        const std::string gone = R"({"type":"despawn_remote","payload":{"player_id":"p2"}})";
+        std::vector<std::string> lines = {rr("p1", 1), rr("p2", 1), gone, rr("p1", 2), rr("p2", 2), rr("p1", 3)};
+        collapse_latest_render_remote(lines);
+        const std::vector<std::string> want = {gone, rr("p2", 2), rr("p1", 3)};
+        expect_true("collapse keeps exactly the despawn and each player's newest state, in order (got " +
+                        std::to_string(lines.size()) + " lines)",
+                    lines == want);
+
+        std::vector<std::string> big;
+        for (int i = 0; i < 5000; ++i)
+        {
+            big.push_back(rr("p7", i));
+        }
+        collapse_latest_render_remote(big);
+        expect_true("5000 states for one player collapse to its newest one",
+                    big.size() == 1 && big[0] == rr("p7", 4999));
+
+        std::vector<std::string> junk = {"", "{", R"({"type":"render_remote"})", R"({"type":"render_remote"})"};
+        collapse_latest_render_remote(junk);
+        expect_true("lines with no player_id collapse as one id and never crash", junk.size() == 3);
+    }
+
     auto angle_lerp() -> void
     {
         const double huge = 1.7e308; // finite, and the sum of two of these is not
@@ -912,6 +943,7 @@ auto main() -> int
     control_fields();
     reject_rule();
     angle_lerp();
+    collapse();
     mutate(seed, 20000);
 
     std::printf("  %ld checks across the shipped peer-JSON readers (mutator seed 0x%016llx)\n",

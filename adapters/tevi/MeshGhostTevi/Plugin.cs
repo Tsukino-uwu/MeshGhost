@@ -3929,10 +3929,14 @@ namespace MeshGhostTevi
             if (string.IsNullOrEmpty(packed)) return;
             string[] parts = packed.Split('|');
             int flags;
+            // Masked with BulletFlagsDefined like the two sibling sites: this is the re-sent-row
+            // path, and it alone applied the peer's raw bits, so SYNCED.md's "only the flag bits
+            // your own game defines are kept" was false for every row after the first (pass 5 of
+            // the adversarial review, 2026-09-16, P2t-7).
             if (parts.Length > 2 && parts[2].Length > 0
                 && int.TryParse(parts[2], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out flags))
             {
-                try { BulletFlagsField.SetValue(b, System.Enum.ToObject(BulletFlagsField.FieldType, flags)); }
+                try { BulletFlagsField.SetValue(b, System.Enum.ToObject(BulletFlagsField.FieldType, BulletFlagsDefined(flags))); }
                 catch (System.Exception) { }
             }
         }
