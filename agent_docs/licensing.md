@@ -130,14 +130,16 @@ rule is restated at the top of that file and in `adapters/_template/documentatio
 - **Audit check** (the same shape as the two greps above — verifies content, not intent):
 
 ```bash
-# An adapter's documentation.md must carry a provenance line, the facts-not-expression guard,
-# and no dump-shaped content. Scoped to adapters/ deliberately: docs/networking.md is the Go
-# side's own doc, describes code we wrote, and none of this applies to it.
+# An adapter's documentation.md must carry a provenance line and no dump-shaped content; the
+# facts-not-expression guard lives in the template only (out of the adapters' copies since
+# 2026-09-16, when the user set the file's audience: the game's mechanics, nothing else). Scoped
+# to adapters/ deliberately: docs/networking.md is the Go side's own doc, describes code we
+# wrote, and none of this applies to it.
 # The '^> ' anchor is load-bearing: an unanchored phrase match was satisfied by the INSTRUCTION
 # sentence copied from the template ('Keep the provenance line...'), so the check passed on a file
 # that had no provenance line at all (adapters/pseudoregalia, found and fixed 2026-08-25).
 git ls-files 'adapters/**/documentation.md' | xargs grep -LiE '^> .*measured from a running game'
-git ls-files 'adapters/**/documentation.md' | xargs grep -LF 'Explain facts; never reproduce expression'
+grep -LF 'Explain facts; never reproduce expression' adapters/_template/documentation.md
 git ls-files 'adapters/**/documentation.md' | xargs grep -nE '[0-9A-F]{16,}|\.uasset|Assembly-CSharp'
 ```
 

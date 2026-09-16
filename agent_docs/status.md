@@ -10,7 +10,6 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 
 ## Open now
 
-- 2026-09-15 — **Flake seen once under `-race` with every package running beside it: netsim's `TestTCPDelayDoesNotClumpTheStream`** (10 ms spacing); 6/6 green standalone. `phases/phase10.md`.
 - 2026-09-15 — **TLS always on, TOFU and the room-code PAKE are LANDED (ADRs 0066, 0067; protocol 3).** UNWATCHED in a real game: a coded join; the "identity changed" warning after `private/` is deleted.
 - 2026-09-15 — **Both `config.json` files are LIVE** (relay: room_code/only_game/max_clients; client: smoothing, chaser, replay, hotkeys); never watched with a real client editing one. `phases/phase10.md`.
 - 2026-09-15 — **Review pass 3's remainder lost its detail** (the cell reports were never tracked): P1b's timer sum FIXED today, P2f-3 already fixed in the Lua; the rest needs a re-run. `phases/phase10.md`.
@@ -25,7 +24,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 - 2026-09-15 — **Chaser contact: the Go half LANDED (`e546d38c`, ADR 0068, ships `off`); the adapter half is NOT started.** Next: Part A of `chaser-planning.md`; `pseudoregalia/UNVERIFIED.md` has the entry.
 - 2026-09-15 — **netsim: ADR 0046's 450 ms has never been judged on the correlated-loss model** (`-loss-burst`, opt-in since 2026-09-11). `phases/phase10.md`.
 - 2026-09-15 — **`Plugin.cpp` comments are stale** (`session_policy` "zero of four"; the deleted `PLAYER_FIELDS.md`): fix at the next rebuild, since editing marks the committed DLL stale.
-- 2026-09-16 — **The audit's second sweep is open**: routine-name prose the citation grep cannot see, in every `documentation.md`, then code comments and `pitfalls/`. `phases/phase9.md` (2026-09-16).
+- 2026-09-16 — **Audit second sweep: all four `documentation.md` done and stripped to mechanics; Lua comments (131 Emerald, 46 Crystal), probe headers, `pitfalls/` remain.** `phases/phase12.md`.
 - 2026-09-15 — **Nothing is running**; loader targets `none`. **TEVI is HOT-RELOAD: `-Off` before a real confirmation.** `running-the-rig.md`.
 
 **Trimmed 2026-09-15**: records of finished work were dropped and items already queued in an

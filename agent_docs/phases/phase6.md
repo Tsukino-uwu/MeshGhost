@@ -845,3 +845,9 @@ has for that update; `BridgeFuzz.cs` counts such an absence as a refusal for `an
 in-range value that goes missing is still the 2026-09-08 defect. Local run: 9 refused, 17 reached,
 exit 0. DLL rebuilt, hash recorded, deployed to both installs (same hash all three). SYNCED.md's
 row says "ignored", not "kept to 0–1". Unwatched in a game, like the rest of the guards.
+
+## 2026-09-16 (later) — pointer: TEVI's `documentation.md` stripped to the game's mechanics
+
+Logged in `phase12.md` (2026-09-16, later still): the template's rule section, the file's history
+paragraph and the pause-menu passage's process notes are out; 239 → 202 lines. The mechanics are
+unchanged, and nothing in TEVI's file was borrowed from another project.

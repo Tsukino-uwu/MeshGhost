@@ -464,3 +464,24 @@ ladder bullet say drawn only since 2026-09-11 with the spawned and hardware rung
 step 42 tells the drawn-only call in the user's words with the cross-gender ghost it fixed and the
 `gMapHeader` relocation it exposed, and the three `FLAGS.md` rows carry the defaults the Lua actually
 has (spawn cap zero, hardware off and enabled only by `"1"`, drawn on). The `status.md` item is gone.
+
+## 2026-09-16 (later still) — `documentation.md` is the game only: the audience set, five files stripped
+
+Mid-audit the user asked why the Archipelago mod's three-file toggle sat in Pseudoregalia's
+`documentation.md` — *"this is not a fact about the game itself its a fact about another mod"* —
+and then set the file's audience for every adapter: *"documentation files should be a user facing
+doc about game functions/mechanics, not other fluff"*. `adapters/CLAUDE.md` already said user-facing,
+no working notes (2026-09-13); what every copy still carried was the template's own rule section
+repeated verbatim at the top ("KEEP THIS SECTION", 2026-08-18), a file table, a standing-rule
+section, the file's own history ("written 2026-08-18 after it was argued…"), an "adding to this
+file" section, adapter-design asides (Emerald's delayed-ghost and renderer sections), testing
+lessons and the user's words quoted as colour. All of it is out of the four adapters' copies: each
+now opens with the provenance line, one pointer line (`BANDAGES.md`, `VERIFIED.md`) and the first
+mechanic. Emerald 867 → 773 lines, Pseudoregalia 816 → 690, Crystal 810 → 798, TEVI 239 → 202.
+The rule moved with it: `_template/documentation.md`'s first section now says it stays in the
+template and lists what never goes in; `_template/README.md`'s "repeated verbatim… delete none of
+them" paragraph reversed; `licensing.md`'s audit grep for the guard phrase points at the template;
+`adapters/CLAUDE.md`'s `documentation.md` bullet reworded in place (285 lines, cap 300). Left alone,
+named so it is a decision: the `SYNCED.md` files carry the same "KEEP THIS SECTION" block and were
+not asked about; Emerald's `VERIFIED.md` 2026-09-13 entry still names the deleted "delayed ghost"
+heading, as a dated record. `doc-history.md` has the entry.

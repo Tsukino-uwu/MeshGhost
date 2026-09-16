@@ -1,41 +1,13 @@
 # How TEVI works
 
-## Before adding anything to this file
-
-**Explain facts; never reproduce expression.** Measured numbers, timings, field/function/type
-*names*, and behaviour described in your own sentences are all fine. Source text in any language,
-decompiler or disassembler output, asset content or extracted strings, verbatim reflection or memory
-dumps, and data tables copied wholesale are never fine — **regardless of what a licence permits**.
-
-**The test: could someone re-derive this by owning the game and watching it?** If yes, it is a fact
-and may be explained; whatever you learned it from only saved you the time, and is not the source of
-your right to know it. If the only way to have it is to copy something, it stays out.
-
-This is [CLAUDE.md](../../CLAUDE.md)'s standing rule — *is this fine sitting in a public repo
-forever?* — applied to prose. No, or merely unclear, means out. Full guidance and the two edge cases
-worth knowing: [adapters/_template/README.md](../_template/README.md).
-
 > Everything here is **measured from a running game** during Phase 6 (2026-08-12 onward), and
 > cross-checked by inspecting the game's own managed assembly locally to learn real type and member
-> *names*. **No decompiled source, asset content, or verbatim dump is reproduced here** — only
-> facts, per `agent_docs/licensing.md`. The game's assemblies are never committed.
+> *names*. No decompiled source, asset content or verbatim dump is reproduced here. Facts watched on
+> screen are marked `[player]`; facts read by instrumenting the running game are `[measured]`.
 
-**What this file is: how *the game* does things**, per mechanic, in our own words. **Nothing here
-describes an adapter workaround** — those belong in [BANDAGES.md](BANDAGES.md).
-
-**A section belongs here only once the mechanic is actually established** — what it does, and what
-it does under the cases that matter. Half-mapped mechanics go to "Known unknowns" at the bottom
-instead, where a later session can strike one through and point at the section that answered it.
-Facts watched on screen are marked `[player]`; facts read by instrumenting the running game are
-`[measured]`.
-
-Dated evidence: [`VERIFIED.md`](VERIFIED.md) ·
+How the game does what a ghost has to look like, per mechanic. Adapter workarounds are in
+[BANDAGES.md](BANDAGES.md); dated evidence in [`VERIFIED.md`](VERIFIED.md) and
 [`phases/phase6.md`](../../agent_docs/phases/phase6.md).
-
-**Written 2026-08-18**, after this adapter shipped. Previously it was argued that a game with a
-readable managed assembly did not need one; the user overturned that, and the reason generalises —
-being *able* to look something up is not the same as having looked, and a curated description of the
-mechanics an adapter depends on is a different artifact from the assembly it was learned from.
 
 ## Finding the player
 
@@ -101,25 +73,16 @@ is named here only because it is the component a reader will otherwise go lookin
 
 ## The pause overlay and the main menu are different states, and only one drops the player
 
-TEVI's Characters/pause overlay leaves the player object alive: it stays non-null while the overlay
-is up, and returning to the **main menu / title** does null it. The *behaviour* was confirmed live
-2026-08-13 and is recorded in `agent_docs/phases/phase6.md`, which is where the detail sits.
-
-**The member this is read through is `EventManager.Instance.mainCharacter`** — settled by reading
-the adapter, where `PlayerControl` appears nowhere. [measured] An earlier revision of this passage
-named `PlayerControl.instance`; whether that is a real game type that simply is not what we read is
-a question about the game rather than about us, and it sits in "Known unknowns" below. **Nothing was
-changed on the strength of it** — this is the exact file whose pause-menu reasoning produced the
-2026-08-18 false regression, and reasoning from code about what a game means is what caused it.
+TEVI's Characters/pause overlay leaves the player object alive: `EventManager.Instance.mainCharacter`
+stays non-null while the overlay is up, and returning to the **main menu / title** does null it
+[player, 2026-08-13; `agent_docs/phases/phase6.md`]. Whether `PlayerControl.instance` is a real type
+in this game is a question in "Known unknowns" below.
 
 That single difference is what lets a `player == null` check tell "the player left the session"
 apart from "the player opened a menu" — without it, a pause would be indistinguishable from
-quitting. It is the reason peer ghosts can stay on screen while you are in the pause overlay, which
-is the intended, wanted behaviour (user, 2026-08-18), and disappear when you actually quit to the
-title.
-
-**Be precise about which menu when describing this.** Bare "menu" is ambiguous in a game with both,
-and on 2026-08-18 that ambiguity alone produced a false regression report about working code.
+quitting. It is why peer ghosts stay on screen while you are in the pause overlay and disappear when
+you quit to the title [player, 2026-08-18]. The two are different states, so name which one: bare
+"menu" is ambiguous in a game with both.
 
 ## Warp devices: the animation is in `Update`, the save and the heal are in the triggers
 

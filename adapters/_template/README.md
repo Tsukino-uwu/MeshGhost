@@ -331,17 +331,16 @@ usually fine, but a table that *is* the entire content of a source file is the c
 to the line, so make it a considered call and prefer prose when in doubt. And every copy must carry
 the provenance sentence at the top — `agent_docs/licensing.md`'s audit greps for it.
 
-**The rule above is repeated verbatim at the top of every adapter's `documentation.md`, and must
-stay there.** Not a link to it — the text itself. A rule that lives one click away is read once,
-when the file is created, and then not again at the moment it matters: someone pasting something in
-long after they have forgotten it exists. `_template/documentation.md` carries it as a `## Before adding anything to this file`
-section, marked KEEP; copying that file forward is what propagates it. Every shipped adapter
-carry it (added 2026-08-18, on the user's instruction: *"so we always guarantee that we don't
-accidently add something wrong/bad anywhere"*).
+**The rule above lives here and at the top of `_template/documentation.md`, never in an adapter's
+copy.** It was repeated verbatim at the top of every adapter's `documentation.md` from 2026-08-18
+(the user: *"so we always guarantee that we don't accidently add something wrong/bad anywhere"*)
+until 2026-09-16, when the user set the file's audience: *"a user facing doc about game
+functions/mechanics, not other fluff"*. The guarantee now rests on reading this file and the
+template before the first fact, and on the licensing audit's greps.
 
-**A new adapter's `documentation.md` therefore starts with three things**, before a single fact
-about the game: that section, the provenance sentence, and the no-workarounds rule. Delete none of
-them.
+**A new adapter's `documentation.md` therefore starts with two things**, before a single fact
+about the game: the provenance sentence and a one-line pointer to `BANDAGES.md` and `VERIFIED.md`.
+Nothing that is not the game goes in after them.
 
 **What the adapter SENDS gets its own page: `SYNCED.md`, in every adapter** (the user's call,
 2026-09-13, replacing Pseudoregalia's `PLAYER_FIELDS.md`, which mixed a key list with field maps and

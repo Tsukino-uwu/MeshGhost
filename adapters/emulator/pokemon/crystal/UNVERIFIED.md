@@ -3490,3 +3490,17 @@ the one thing neither the cover nor more interp answers. **Not measured, only se
 is a receiver-side log of sample timestamp vs arrival time, quic against udp on one seed, and it is
 `ideas.md`'s next entry. Nothing to change in the shipped defaults from this.
 
+
+## [OPEN] how the player's struct is built at spawn, and which sprite ids a map loads (moved from `documentation.md` 2026-09-16)
+
+Two passages written from the decompilation with no record of ours, found by the audit's second
+sweep (routine names with no label). What IS ours: a capture at the instant of spawn shows the
+template's own sprite before the gender's (`probes/object_slot_probe.lua`, 2026-08-17);
+`wUsedSprites`' two-byte entries are read live to draw a peer and the user saw the ghost wear the
+player's sprite (`VERIFIED.md`, 2026-08-19); a mount rewrites tiles at the same VRAM base with no
+map load (2026-08-25). Never measured: that the player is spawned by copying a template map object,
+converting coordinates and choosing a palette by gender through the same generic copy routine every
+map object goes through; and that what fills `wUsedSprites` is the map's own cast indoors, a fixed
+per-region list outdoors, plus whatever the player's state needs. To settle: log `wUsedSprites` on
+entering an indoor map, an outdoor map in two regions, and on mounting the bike; and trace the
+player's struct bytes on the frames around a map load against the template map object's.

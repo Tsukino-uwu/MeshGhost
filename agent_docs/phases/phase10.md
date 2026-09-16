@@ -2725,3 +2725,15 @@ unix job instead of after it is the next cut, not made here.
 Seen in the dump, not fixed: 222 `relayWriter.run` goroutines parked for minutes, one per test that
 connected a relay and never tore its core down (there is no `Core.Close`). Cost in tests is nil;
 in a real process every drop path closes its writer. An observation, not an open item.
+
+## 2026-09-16 — the netsim clumping test's limit measured under load, and the flake closed
+
+`TestTCPDelayDoesNotClumpTheStream` (10 ms spacing) had failed once under `-race` beside the whole
+suite on 2026-09-15 and was filed as a flake. Reproduced today by saturating all 12 threads (eight
+`core` race suites plus six spin loops): the current proxy scored 0–14 of 39 tight gaps across 30
+runs, one of them over the old limit of a third (13); the pre-`e9650929` inline-sleep proxy,
+rebuilt into a second test binary from history, scored 32–35 (34 idle). The limit now sits between
+the two distributions at three fifths (23): 60/60 green saturated, the old proxy 10/10 red, so the
+assertion still separates what it was written to separate. The count is logged under `-v`.
+`c861b2dc`; nothing in shipping code changed. Root binaries rebuilt with `-o` afterwards
+(preflight's root-binaries check was red from the 2026-09-15 `.go` commits).

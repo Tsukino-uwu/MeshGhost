@@ -2845,7 +2845,8 @@ checked first, `licensing.md`; facts only, nothing copied):**
   the shown buttons configurable rather than the player's own key glyphs (widths differ).
 - **PseudoregaliaHealth (MIT)** -- the drawing mechanism for that overlay in this game: a UMG
   `UserWidget` built at runtime from reflection and added to the viewport
-  (`adapters/pseudoregalia/documentation.md`, "What a tester's MIT-licensed mod showed").
+  (`adapters/pseudoregalia/UNVERIFIED.md`, the 2026-09-08 leads entry; the confirmed indicator
+  built the same way is `VERIFIED.md`, 2026-09-08).
 
 A visualizer built from these reads the track the core writes -- or, live, the same edges the mod
 already has in hand before it sends them -- and never needs the core to know what a label means.

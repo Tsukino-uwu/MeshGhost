@@ -1,31 +1,16 @@
 # How Pokémon Crystal works
 
-## Before adding anything to this file
-
-**Explain facts; never reproduce expression.** Measured numbers, timings, field/function/type
-*names*, and behaviour described in your own sentences are all fine. Source text in any language,
-decompiler or disassembler output, asset content or extracted strings, verbatim reflection or memory
-dumps, and data tables copied wholesale are never fine — **regardless of what a licence permits**.
-
-**The test: could someone re-derive this by owning the game and watching it?** If yes, it is a fact
-and may be explained; whatever you learned it from only saved you the time, and is not the source of
-your right to know it. If the only way to have it is to copy something, it stays out.
-
-This is [CLAUDE.md](../../../../CLAUDE.md)'s standing rule — *is this fine sitting in a public repo
-forever?* — applied to prose. No, or merely unclear, means out. Full guidance and the two edge
-cases: [adapters/_template/README.md](../../../_template/README.md).
-
 > **Measured from a running game** during Phase 9 (2026-08-17 onward), mostly on vanilla V1.0.
-> **Facts are marked `[measured]` or `[seen on screen]` with a date.**
+> **Facts are marked `[measured]` or `[seen on screen]` with a date.** What the decompilation says
+> and we have not measured is not here: it waits in `UNVERIFIED.md` as a question.
 
-**What this file is: how *the game* does things**, per mechanic, readable by someone who has never
-seen our code. **Nothing here describes an adapter workaround** — those belong in
-[BANDAGES.md](BANDAGES.md). Evidence: [`VERIFIED.md`](VERIFIED.md); narrative:
+How the game does what a ghost has to look like, per mechanic. Adapter workarounds are in
+[BANDAGES.md](BANDAGES.md); dated evidence in [`VERIFIED.md`](VERIFIED.md); the narrative in
 [`phases/phase9.md`](../../../../agent_docs/phases/phase9.md).
 
 ## Overworld characters: two arrays, not one
 
-This is the single most important thing to understand, and the thing that cost three attempts.
+This is the single most important thing to understand.
 
 | | **Map objects** | **Object structs** |
 | --- | --- | --- |
@@ -56,10 +41,12 @@ Crystal has two entry points, and **both are event-driven rather than continuous
    [measured 2026-08-18, `probes/spawn_test2.lua` and `probes/spawn_test3.lua`]
 
 **There is no general "anything unassigned gets picked up" pass.** A character standing inside the
-visible area with no struct simply stays absent until one of the two events above reaches it. The
-player itself is spawned by `SpawnPlayer`: copy a template map object, convert coordinates, choose
-a palette by gender, then `CopyMapObjectToObjectStruct` — a **generic** routine, not a
-player-specific one.
+visible area with no struct simply stays absent until one of the two events above reaches it
+[measured 2026-08-18, the same two probes: an object placed beside the player was never adopted].
+The player's own struct is built from a template map object — a capture at the instant of spawn
+shows the template's sprite before the gender's [measured 2026-08-17, below]; which routine copies
+it, and whether every map object goes through the same one, is an open question in
+`UNVERIFIED.md`.
 
 ## The player's appearance
 
@@ -103,12 +90,13 @@ reader that stops at the shadow sees a value the screen may not be showing yet. 
 ### A sprite id is not a picture: what is RESIDENT is decided per map
 
 Sprite *graphics* are a separate matter, and the constraint is real rather than bookkeeping.
-`wUsedSprites` (`01:d154`) is a packed list of 32 two-byte entries (`SPRITE_GFX_LIST_CAPACITY`),
-ending at `wUsedSpritesEnd` (`01:d194`). `AddSpriteGFX` puts a sprite id in the first byte as the
-map loads; `ArrangeUsedSprites` writes the VRAM tile its graphics were actually placed at into the
-second. So the table answers **"is sprite N loaded right now, and where"**, and a zero id ends it.
-What goes in is the map's own cast indoors and a fixed per-region list outdoors, plus whatever the
-player's current state needs.
+`wUsedSprites` (`01:d154`) is a packed list of 32 two-byte entries ending at `wUsedSpritesEnd`
+(`01:d194`): a sprite id in the first byte, the VRAM tile its graphics were placed at in the second,
+a zero id ending the list. So the table answers **"is sprite N loaded right now, and where"** — the
+adapter reads it live to draw a peer, and the ghost wore the player's sprite on screen [user on
+screen 2026-08-19, `VERIFIED.md`]. Which routines fill it at map load, and what decides the set (the
+map's own cast, a regional list outdoors, the player's state), are open questions in
+`UNVERIFIED.md`.
 
 **A sprite whose tiles are not resident cannot be drawn by the object system at all** — there is
 nothing at any tile base to draw. And the mounted sprites (`SPRITE_*_BIKE`, `SPRITE_SURF`) are
@@ -230,8 +218,8 @@ bike.** [measured 2026-09-13] with `probes/player_sprite_probe.lua` on an Archip
 a running player's `OBJECT_WALKING` read `$0A` (group 2, facing left) while its `OBJECT_SPRITE` read
 `$65`, one of the two ids that build repoints to a walking-shaped sprite of its own; walking again,
 the sprite went back to `$01`. So a runner is told apart from a rider by its **sprite**, never by its
-gait. The fourth group is the mode the user has called the turbo bike since 2026-08-26
-([VERIFIED.md](VERIFIED.md)).
+gait. The fourth group is the Archipelago build's faster bike, the "turbo bike"
+([VERIFIED.md](VERIFIED.md), 2026-08-26).
 
 ### The player's movement, as measured
 

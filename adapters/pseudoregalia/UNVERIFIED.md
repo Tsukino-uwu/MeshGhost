@@ -490,8 +490,8 @@ from the baked defaults with no tuning file). These are defects in where and ove
 2. **It leaves its intended position during a move or ability that changes the player's SPEED or FOV.**
    It drifts off the corner it is pinned to while such a move is happening and returns afterwards.
 
-**Lead, 2026-09-08 (from a tester's MIT mod, `documentation.md`, "What a tester's MIT-licensed mod
-showed").** Both complaints are properties of a WORLD-space text component. A screen-space UMG widget
+**Lead, 2026-09-08 (from a tester's MIT mod; the leads entry at the end of this file, moved out of
+`documentation.md` 2026-09-16).** Both complaints are properties of a WORLD-space text component. A screen-space UMG widget
 built at runtime (`UserWidget` + `WidgetTree` + `TextBlock`, `AddToViewport`) is composited over the
 scene and pinned to the viewport, and that mod draws its readout that way in this game today. Unbuilt;
 whether the indicator should move to it is the user's call, since it changes what they see.
@@ -3235,3 +3235,39 @@ carry an infinity to a transform. Two gaps sit above the key level, read off the
 
 Plugin.cpp still names the deleted `PLAYER_FIELDS.md` in a dozen comments; fold the repoint into
 the next rebuild. Each fix is a `Mod/src` change: `build-pseudoregalia.bat`, deploy, a watched session.
+
+## [OPEN] leads read from other projects on 2026-09-08, none measured on this build (moved from `documentation.md` 2026-09-16)
+
+`documentation.md` carried two sections of facts read from MIT repos (`licensing.md` lists them: a
+tester's `PseudoregaliaHealth` mod and the `pseudoregalia-modding` organisation's READMEs). The
+2026-09-16 audit moved them here: a source is where to look, and none of these has been measured on
+a running copy. What IS ours from that day stays in `documentation.md`: the two mapping contexts and
+the applied-table read (measured 2026-09-08) and the runtime `UserWidget` indicator (`VERIFIED.md`,
+2026-09-08). The Archipelago mod's three-file toggle is a fact about another mod's install, not the
+game — it lives in `agent_docs/environment.md` (2026-09-08) and left this adapter's `documentation.md`
+on the user's question, 2026-09-16. To measure, each with what settles it:
+
+- **Health on the pawn's `BP_HPHitable` component (`CurrentHp`, `maxHP`; enemies `currentHP`)**, the
+  GameInstance `CurrentHp` being a copy. Ours says the GameInstance value is the one that moves
+  (`documentation.md`, 2026-08-27). Settled by `chaser-planning.md` Part B: dump the component's
+  functions, then read both on an enemy contact hit and see which moves first. The adapter already
+  clears `BP_HpHitable` off a ghost at spawn, so a read here is on the LOCAL player only.
+- **`MV_GameInstance_C.activeZoneStr`**, a struct whose field is Blueprint-GUID-suffixed
+  (`mapName_4_<GUID>`), values like `Zone_Tower`. Settled by reading it across two zone transitions
+  beside our `area_id`.
+- **Enemy classes derive from `BP_EnemyBase_C` or `BP_Hazemy_Base_C`; the pawn exposes `lockedOn`
+  and `LocketActorTarget` (sic) for the lock-on target, and each enemy an `activeAttackID`.** Settled
+  by a class census in a room with enemies, with and without a lock-on held.
+- **Blueprint pak mods hook by cooking OVER the game's own `BP_PlayerGoatMain` /
+  `BP_ThirdPersonGameMode`** (`hooked-player-controller`, `hooked-tpgm`), a referenced-but-missing
+  asset being a silent no-op — so a player running one is running a REPLACED player pawn Blueprint,
+  same class name. Settled only by running this adapter beside such a mod and reading the pawn's
+  class and fields; never done.
+- **`quickstart` launches straight into a named map** (`pseudoregalia.exe Zone_Caves`, `-spawn=`,
+  `-upgrades=`; needs their `init-hooks`), skipping the title screen. A lead for the test loop,
+  where every iteration costs a title screen and a load; settled by trying it on this install.
+- **`custom-options` adds an in-game options tab for other mods' widgets** (on Nexus). A possible
+  home for a settings page if `config.json` editing ever becomes the complaint; unexamined.
+- **Unreal lays UI out in a 1920x1080 space and scales it to the output** (a tester's word). Our
+  indicator is placed from `GetViewportSize` with the DPI scale removed and was judged pixel-aligned
+  at 1920x1080 (`VERIFIED.md`, 2026-09-08); no other output size has been watched.

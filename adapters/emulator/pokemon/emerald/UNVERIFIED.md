@@ -1302,3 +1302,102 @@ keyed by map group and number with four independent lists (land, water, rock sma
 a missing or empty fishing list is what the fishing task checks, and that it then jumps straight to
 its no-bite step. To settle: a long series of casts on the synthesised Littleroot tile logging the
 fishing task's step per frame, against the same on a real route with fishing encounters.
+
+## [OPEN] the engine's draw-order formula (2026-09-16)
+
+Moved out of `documentation.md` by the 2026-09-16 audit. What IS ours: lower on screen draws in
+front, and the painted tier's bottom-edge-per-16px reproduction matched the game's sorting in every
+facing on foot (user on screen 2026-09-12); the engine's own subpriorities read 148 for a jump
+shadow and 135 for landing dust (`probes/shadowdust_probe.lua`, 2026-08-21). Never measured: that
+`SetObjectSubpriorityByElevation` bands the sprite's bottom edge per 16px and adds an elevation
+offset of 115 or 83, that a character's elevation moves it a whole band, and that the dust's
+subpriority is recomputed every frame from the screen row (so the shadow/dust order depends on
+where the jump happens). To settle: log two NPCs' subpriorities and their sprite y per frame as
+one walks past the other, once on flat ground and once across a bridge; and the dust's
+subpriority per frame across jumps landed at three different screen rows.
+
+## [OPEN] the OAM layout pass, and what the engine keeps above `gOamLimit` (2026-09-16)
+
+Moved out of `documentation.md` by the 2026-09-16 audit. What IS ours (`probes/oamshadow_probe.lua`
+and `probes/oaminject_probe.lua`, 2026-08-21): `gOamLimit` 64 on 2250 overworld frames; entries
+64–127 never written, never cleared, holding nothing; an entry written at 64 reaches the hardware;
+shadow and hardware one frame apart at a frame boundary; 5 of 128 entries in use on a town map; the
+player at entry 1 in Mt Pyre Exterior and characters at 0..3 underwater. Never measured: that the
+per-frame path fills its unused entries with a dummy parked off-screen at priority 3 and stops at
+the limit; that the wireless-link status indicator lives at entry 125 and the confetti effect
+writes at `64 + i`; that the slot machine raises the limit to `0x80`; that a matrix pass rewrites
+every entry's fourth halfword (the probe saw 0 frames move it); and that a character graphic
+carries per-elevation subsprite tables whose ground-level entry is one full-size piece. To settle:
+the same probe on the slot-machine screen, during a wireless-link session and during the confetti
+effect; and a per-frame dump of a character's entries on a bridge tile at each elevation.
+
+## [OPEN] how an object names its surf blob, and which helper places each sprite (2026-09-16)
+
+Moved out of `documentation.md` by the 2026-09-16 audit. What IS ours (`probes/surfblob_probe.lua`,
+2026-08-19): the blob follows the object event id in its own `data[2]`; a blob pointed at a ghost
+was driven by the engine, the rider's `pos2` included; the engine's blob sits at OAM offset `0,+8`
+from its rider. Never measured: that the object event carries a `fieldEffectSpriteId` the engine
+follows to its blob; that the rider is placed by a helper subtracting only the camera pixel offset
+while the blob's helper also subtracts the field camera and adds (8, 8), so the two agree only
+while the camera is at rest. To settle: read the player's object-event bytes around the blob's
+creation for the blob's sprite index; and log the rider's and the blob's screen positions per
+frame across a camera pan, looking for a one-tile divergence.
+
+## [OPEN] what the game checks before it lets a player run (2026-09-16)
+
+Moved out of `documentation.md` by the 2026-09-16 audit. What IS ours: running is 8 frames a tile
+(`VERIFIED.md`, 2026-08-11). Never measured: that running needs B held, the Running Shoes flag set
+and the tile not disallowing it, all three at once. To settle: hold B on a tile that refuses running
+(a house floor) with the shoes owned, and on a route without them, reading the gait from the
+sprite's `data[4]`.
+
+## [OPEN] the side jump's facing lock, and how long a jump lasts (2026-09-16)
+
+Moved out of `documentation.md` by the 2026-09-16 audit. What IS ours: the side jump is the plain
+`JUMP_*` family `0x42..0x45` (measured 2026-08-21); a held hop is one repeating action id, a
+wheelie pop 9–10 busy frames, a wheelie hop 15 (`probes/hopwatch.lua`, `probes/wheelie_watch.lua`,
+2026-08-20). Never measured: that an ordinary jump turns the character by setting its direction,
+that the side jump raises the object's facing lock first and drops it on the input tick after the
+jump resolves, and that a jump lasts 16 frames in place or one tile and 32 for two. To settle: the
+object's `+0x01` bits and `facingDirection` per frame through a side jump, and the frame count from
+action set to `heldMovementFinished` for a side jump, a ledge hop and a two-tile jump.
+
+## [OPEN] shadow suppression, and how the shadow finds its character (2026-09-16)
+
+Moved out of `documentation.md` by the 2026-09-16 audit. What IS ours (`probes/shadowdust_probe.lua`,
+2026-08-21): the shadow appears at the jump's start at subpriority 148 on OBJ palette 0, at the
+character's sprite position plus a per-graphic drop, without the arc; the dust appears at the
+landing on slot 14 and stays on its tile. Never measured: that the shadow is stopped when the
+current or previous metatile behaviour is grass, surfable water, underwater or reflective; and
+that it re-finds its object by local id every frame while the dust is positional. To settle: jump
+into tall grass and onto a tile beside water with the probe running; and give a ghost a borrowed
+local id, jump the player, and see which sprite the shadow sits under.
+
+## [OPEN] which reflection kind ice gets, and how it is chosen (2026-09-16)
+
+Moved out of `documentation.md` by the 2026-09-16 audit. What IS ours: on ice a reflection holds
+still (user on screen 2026-08-21), and the water reflection is an affine sprite on matrix 0/1 with
+`d = -256` and `a` breathing 252–260 (measured 2026-08-21). Never measured: that the engine asks
+"is ice" before "is reflective", that the ice kind is set up with a still flag, and that the still
+flag alone is what keeps it off the affine path. To settle: dump the reflection sprite's OAM
+affine bit and matrix index on ice and on water.
+
+## [OPEN] the cracking ice: which tiles, what drives it (2026-09-16)
+
+Moved out of `documentation.md` by the 2026-09-16 audit. What IS ours: Shoal Cave's Low Tide Ice
+Room slides and never breaks (user on screen 2026-08-21). Never measured: that thin and cracked
+ice are their own behaviours, driven by a per-step callback used by Sootopolis Gym only, and that
+Shoal Cave's ice is entirely the plain behaviour. To settle: read the behaviour byte of each ice
+tile in both rooms (`probes/watertile.lua`'s readback), and step across Sootopolis Gym's floor
+logging the per-step callback pointer.
+
+## [OPEN] the muddy slope's routine (2026-09-16)
+
+Moved out of `documentation.md` by the 2026-09-16 audit; the quoted block of that routine in
+`VERIFIED.md`'s 2026-08-20 entry was cut the same day as reproduced source. What IS ours
+(`VERIFIED.md`, 2026-08-20): through 527 frames of slide-back the rider's `movementActionId` held
+`WALK_FAST` while `bikeSpeed` read 0, facing north while travelling south, confirmed on screen.
+Never measured: that the routine fires whenever the rider is not heading north at the top speed
+tier, that it zeroes the bike's speed counter, raises the object's facing lock and issues a forced
+south walk-fast movement. To settle: the player's `+0x01` bits and the bike counter per frame
+through one slide-back, and once at the top tier heading north.

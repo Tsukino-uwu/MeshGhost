@@ -2,10 +2,13 @@
 
 ## Before adding anything to this file
 
-**KEEP THIS SECTION when you copy this file.** It is repeated verbatim at the top of every
-adapter's `documentation.md` on purpose — the rule has to be visible at the moment someone is about
-to paste something in, not one link away in a file they have not opened. Rule and reasoning:
-`adapters/_template/README.md`.
+**This section stays HERE and in `adapters/_template/README.md`; an adapter's copy does not carry
+it.** `documentation.md` is USER-FACING — the game's mechanics and nothing else (the user,
+2026-09-16: *"a user facing doc about game functions/mechanics, not other fluff"*). The rules below
+bind the writer and are not the reader's business, so the adapter's file opens with the provenance
+line, one pointer line, and the first mechanic. Until 2026-09-16 every adapter's copy repeated this
+section verbatim, plus a file table, a standing-rule section, the file's own history and an
+"adding to this file" section; all of it came out that day.
 
 **Explain facts; never reproduce expression.** Measured numbers, timings, field/function/type
 *names*, and behaviour described in your own sentences are all fine. Source text in any language,
@@ -46,6 +49,13 @@ the adapter's code. (User's rule, 2026-08-16 — the same instinct as the bandag
 
 Pointers into the adapter code are fine and useful — *where we read this* — but keep them to one
 line each. No code listings: the code is one click away and stays the source of truth.
+
+**What never goes in, because the reader is a player or a modder asking how the game works**: rule
+text and writer guidance (this section), the file's own history ("written on … after it was
+argued …"), adapter-design asides ("what this means for our renderer"), testing lessons, the
+user's words quoted as colour (a `[player <date>]` label carries the evidence), and another mod's
+install layout (that is `agent_docs/environment.md`). A section the reader would skip because it is
+about us, not the game, belongs in the README, the phase file or `BANDAGES.md`.
 
 | File | Answers |
 | --- | --- |

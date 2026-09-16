@@ -1113,3 +1113,32 @@ and it excludes Go module and NuGet dependencies (fetched by the build), CI's ow
 runner's), SignPath (an external service) and anything personal: the first draft listed a screen
 recorder, and the user's correction, *"its a personal program not a repo program"*, became the
 file's last rule. Both files are indexed at the top of `README.md`'s "Read before you…" list.
+
+## `documentation.md` is the game only (2026-09-16) — the audience set, five files stripped
+
+**The trigger.** The measured-or-observed audit was moving borrowed facts out of the adapters'
+`documentation.md` files when the user asked why the Archipelago mod's install layout was in
+Pseudoregalia's at all — a fact about another mod, not the game — and then set the audience for the
+file everywhere: *"documentation files should be a user facing doc about game functions/mechanics,
+not other fluff"*.
+
+**What came out of all four copies** (Emerald, Crystal, Pseudoregalia, TEVI): the template's
+"Before adding anything to this file" rule section, repeated verbatim at the top of each since
+2026-08-18; the file table; Pseudoregalia's "Standing rule" section and "Adding to this file"
+section; each file's own history paragraph; Emerald's two adapter-design sections (the delayed
+ghost, "what this means for MeshGhost's renderers") and its ADR aside; testing lessons; the user's
+words quoted as colour where a `[player <date>]` label carries the evidence; and the Archipelago
+mod's three-file toggle (already in `environment.md`). Each file now opens with the provenance
+line, one pointer line and the first mechanic. Line counts: 867 → 773, 810 → 798, 816 → 690,
+239 → 202.
+
+**What moved with it.** `_template/documentation.md`'s first section says the rules stay in the
+template and lists what never goes in; `_template/README.md`'s paragraph requiring the verbatim
+copy is reversed and records why; `agent_docs/licensing.md`'s audit grep for the guard phrase now
+checks the template; `adapters/CLAUDE.md`'s bullet says mechanics and nothing else.
+
+**Deliberately left alone.** The `SYNCED.md` files carry the same "KEEP THIS SECTION" block; they
+are user-facing by the same rule but were not the question, so they wait for the user's word.
+`VERIFIED.md` entries that name a deleted heading are dated records and stand. The `[measured …]` /
+`[player]` / `[user on screen …]` labels stay: they are the evidence convention a reader needs, not
+working notes.

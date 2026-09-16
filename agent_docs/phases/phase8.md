@@ -1220,3 +1220,22 @@ naming what is ours and what would settle it -- 14 entries dated today. One corr
 running at 8 frames a tile IS measured (`VERIFIED.md`, 2026-08-11). Preflight's citation ratchet for
 this file is 0. Also today: Emerald's `position` guard (`2f3495df`) -- both coordinates must be
 finite numbers or the update is dropped; unwatched in a game.
+
+## 2026-09-16 (later) — the audit's second sweep, Emerald: routine-name prose
+
+The citation grep counted file paths; the claims it could not see were routine names carrying what
+the decompilation says a routine DOES. Twenty-eight edits to `documentation.md`: the draw-order
+formula, the OAM layout pass and the window above `gOamLimit`, the blob's object-side link and
+placement helper, the run conditions, the side jump's facing lock and a jump's length, shadow
+suppression and binding, the two reflection kinds, the flash-level table, the cracking ice, the
+muddy slope's routine — each now a one-line pointer to an `[OPEN]` entry in `UNVERIFIED.md` (nine
+entries dated today) naming what IS ours and what settles it; every claim that stayed carries a
+dated label naming its record. Two corrections: the header's claim that every section already
+carried a label was false and is reworded; and `VERIFIED.md`'s 2026-08-20 muddy-slope entry quoted
+the routine as a fenced C block — cut as reproduced source with a note in its place, and preflight
+now fails any ```c fence in tracked markdown (the expression check's patterns had walked past an
+`if` and two assignments). Not yet swept: the Lua's comments (131 decomp-file citations in
+`meshghost_emerald.lua`) and the probe headers. Later the same day the file was stripped to the
+game's mechanics on the user's word — the rule section, the history paragraph, the delayed-ghost
+and renderer sections, the ADR aside and the quoted colour out, 867 → 773 lines (`phase12.md`,
+2026-09-16, later still).

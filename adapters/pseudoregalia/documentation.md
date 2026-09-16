@@ -1,73 +1,15 @@
 # How Pseudoregalia works
 
-## Before adding anything to this file
+> Everything here is **measured from a running game** (2026-08-11 through 2026-09-08), using engine
+> reflection against a running instance to learn real type and member *names*. This game has **no
+> public source**, and no decompiled or disassembled material was used in producing it. What other
+> projects' code or READMEs say about the game is not here: it waits in `UNVERIFIED.md` as something
+> to measure. No asset content or verbatim dump is reproduced here.
 
-**Explain facts; never reproduce expression.** Measured numbers, timings, field/function/type
-*names*, and behaviour described in your own sentences are all fine. Source text in any language,
-decompiler or disassembler output, asset content or extracted strings, verbatim reflection or memory
-dumps, and data tables copied wholesale are never fine — **regardless of what a licence permits**.
-
-**The test: could someone re-derive this by owning the game and watching it?** If yes, it is a fact
-and may be explained; whatever you learned it from only saved you the time, and is not the source of
-your right to know it. If the only way to have it is to copy something, it stays out.
-
-This is [CLAUDE.md](../../CLAUDE.md)'s standing rule — *is this fine sitting in a public repo
-forever?* — applied to prose. No, or merely unclear, means out. Full guidance and the two edge cases
-worth knowing: [adapters/_template/README.md](../_template/README.md).
-
-> Everything here is **measured from a running game** during Phases 2, 5 and 7 and the work that
-> followed them (2026-08-11 through 2026-09-06; the range is re-dated whenever a section is added —
-> it read "through 2026-08-27" until 2026-09-06 while holding measurements from 2026-08-29, -30 and
-> 2026-09-05), using engine reflection against a running instance
-> to learn real type and member *names*. This game has **no public source**, and no decompiled or
-> disassembled material was used in producing it. **No asset content or verbatim dump is reproduced
-> here** — only facts, per `agent_docs/licensing.md` (assessed 2026-08-17, re-checked 2026-08-27).
-
-**What this file is: how *the game* does things.** Slide, crouch, wall ride, the trail — what each
-move actually does to the character, which fields carry it, and which components it moves. Written
-down so the next person can read "oh, *that's* how a slide works" instead of rediscovering it by
-watching pixels.
-
-**Hard rule: nothing here describes a MeshGhost workaround.** No compensations, no "we add 43 to
-the render Z", no re-asserting a value something else keeps changing. If a line is only true
-because of something *this adapter* does, it belongs in `BANDAGES.md`, not here. This file must
-read as a description of the game to someone who has never seen our code.
-
-Pointers to our code are fine and useful — *where we read this* — but keep them one line. No code
-listings; the code is one click away and stays the source of truth.
-
-| File | Answers |
-| --- | --- |
-| **`documentation.md`** (this) | How does the game do X? |
-| `SYNCED.md` | What we send, what the other player's game does with it, and how each value is checked |
-| `BANDAGES.md` | Where we compensate instead of reproducing the mechanism |
-| `VERIFIED.md` | Dated, user-confirmed evidence behind most claims here; agent-measured ones are in `UNVERIFIED.md` and `agent_docs/pitfalls/` |
-| `UNVERIFIED.md` | What is believed to work but nobody has watched yet |
-| `FLAGS.md` | Which compile-time switch turns each of these on |
-
-## Standing rule: everything in here must be fine on a public repo, forever
-
-This file is **facts observed from a running copy of a game the reader owns** — nothing else. That
-is what keeps it publishable, and it is a rule about content, not a disclaimer at the bottom.
-
-**Allowed**, and the whole point of the file: measured numbers, timings, field and function *names*,
-which component moves, how states relate. Facts are not copyrightable, and short identifiers carry
-no copyright of their own.
-
-**Never**, regardless of how convenient: game source, decompiled or disassembled output, asset
-content or extracted strings, and **verbatim reflection dumps** — a dump is bulk copying of the
-game's own data, which a hand-written description of the same mechanism is not. Nothing that
-describes obtaining the game or bypassing anything.
-
-**The test is the repo-wide one** (`CLAUDE.md`): not "does a licence permit this?" but *"is this
-fine sitting in a public repo forever?"* If the answer is no or unclear, it doesn't go in. If an
-entry can only be written by quoting something, it isn't an entry.
-
-**Keep the provenance line.** Every claim below is measured from a running game and says how
-confident it is; this game has no public source, and no decompiled or disassembled material was
-used anywhere in producing it. That sentence is the difference between notes from observation and
-something a reader might assume came from leaked source — assessed 2026-08-17, recorded in
-`agent_docs/licensing.md`.
+How the game does what a ghost has to look like — slide, crouch, wall ride, the trail: what each
+move does to the character, which fields carry it, which components it moves. Adapter compensations
+are in `BANDAGES.md`; what is sent, in `SYNCED.md`; dated evidence in `VERIFIED.md` (user-confirmed)
+and `UNVERIFIED.md` (agent-measured, unwatched).
 
 ---
 
@@ -238,9 +180,6 @@ The consequence is that the engine's own crouch levers (`CapsuleHalfHeight`, `bW
 the timeline above is the live state. *Confidence: high for `bCanEverCrouch` and the reimplementation;
 the levers were each measured inert on a pawn nobody was possessing, which is where the maintenance
 loop above does not run either — so "inert" is established for that case and inferred for the other.*
-
-*How MeshGhost reproduces this on a ghost is deliberately not described here — see `BANDAGES.md`
-and `VERIFIED.md`. This file is what the game does.*
 
 ## Standing and walking
 
@@ -707,39 +646,6 @@ for 9 pawns after a session of respawns); and its `BP_PlayerCam_C` camera rig ou
 reachable only through the rig's own `OwningActor` while the pawn still exists, and otherwise
 cleared only by a level reload.
 
-## What a tester's MIT-licensed mod showed (read 2026-09-08, facts only)
-
-A tester's own UE4SS Lua mod for this game (`PseudoregaliaHealth`, MIT -- `agent_docs/licensing.md`;
-infinite health plus an on-screen damage readout) was read at the user's suggestion. Nothing from it is
-copied; these are the facts it establishes, each a thing this adapter had not measured:
-
-- **A screen-space HUD element can be built at runtime from reflection alone**, with no widget asset
-  in the game's content: construct a `UserWidget` (`/Script/UMG.UserWidget`) on the game instance, give
-  it a `WidgetTree`, a `Border` as `RootWidget`, a `BorderSlot` holding a `TextBlock`, then
-  `AddToViewport(<z-order>)` and `SetPositionInViewport`. That mod draws its readout this way in
-  ordinary play, so the route is known to work on this build. **It is the lead for both open
-  recording-indicator complaints** (`UNVERIFIED.md`: drawn behind world geometry; drifting when speed
-  or FOV changes) -- a viewport widget is composited over the scene and pinned in screen space, which
-  is exactly what a world-space `TextRenderComponent` is not. Unbuilt; the look is the user's call.
-- **The player's health lives on the pawn's `BP_HPHitable` component: `CurrentHp` and `maxHP`** (that
-  capitalisation on the player; enemies read `currentHP`). The adapter clears `BP_HpHitable` off a
-  ghost at spawn ("ghost decoupled" log line), so this is the field a future split-time or
-  contact-damage feature would read on the LOCAL player, never a ghost.
-- **The current zone name is a string on the game instance**: `MV_GameInstance_C.activeZoneStr`, a
-  struct whose field is Blueprint-GUID-suffixed (`mapName_4_<GUID>`), values like `Zone_Tower`. Our
-  `area_id` is the level path instead; if a human-readable zone is ever wanted, this is where it is.
-- **Enemy classes**: everything derives from `BP_EnemyBase_C` or `BP_Hazemy_Base_C`; the pawn exposes
-  `lockedOn` and `LocketActorTarget` (sic) for the lock-on target and `activeAttackID` per enemy.
-- The mod's own reading of keys is UE4SS's `RegisterKeyBind` -- a mod hotkey, not the game's input
-  state; nothing in it bears on the input track.
-- **Three facts learnt from the same tester, 2026-09-08:** Unreal lays UI out in a 1920x1080 space
-  and scales it to the actual output (which is why the screen-space indicator computes its corner
-  from `GetViewportSize` and passes positions with the DPI scale removed); the community has no
-  input tracker of its own, people use external input displays if anything; and most community
-  mods are shared as bare `.pak` files with no repository or licence, which the licensing rule
-  already answers. The health mod's structure was reworked after the version read here, so its
-  layout is not their current practice.
-
 ## Two mapping contexts stay loaded, and only one is applied (measured 2026-09-08)
 
 `FindAllOf("InputMappingContext")` returns two live assets, `IMC_Default` and `IMC_Reference`, 35
@@ -749,36 +655,7 @@ four keys (the user's Jump on the bottom face button against the factory's left 
 against X; QuickMap on Tab against R; WallRide on LeftShift against Z). Anything that reads "the
 game's key bindings" must read the engine's applied merged table --
 `UEnhancedPlayerInput::EnhancedActionMappings` on the controller's `PlayerInput`, reflected on this
-build -- never the union of loaded contexts; the input track's second build did the latter and put
-a jump on every gamepad attack.
-
-## The community Blueprint pak-mod ecosystem (read 2026-09-08, MIT repos, facts only)
-
-The `pseudoregalia-modding` GitHub organisation ships mods as **cooked Blueprint paks** (UE 5.1
-project + `UnrealPak`), not UE4SS scripts -- a second modding mechanism beside ours, and one this
-adapter has never been run alongside. What its READMEs establish (`licensing.md` lists the five
-repos read):
-
-- **Hooks work by cooking OVER the game's own Blueprints.** `hooked-player-controller` and
-  `hooked-tpgm` ship a replacement `BP_PlayerGoatMain` / `BP_ThirdPersonGameMode` that calls dummy
-  library functions; a referenced-but-missing asset is a silent no-op in this game, which is what
-  makes the append-only hook registry possible. Consequence for us: a player running such a mod is
-  running a REPLACED player pawn Blueprint -- same class name, same fields so far as the hooks are
-  additive, but a thing to test against before assuming the pawn we read is the shipped one.
-- **`quickstart` launches straight into a named map from the command line** (`pseudoregalia.exe
-  Zone_Caves`, `-spawn=`, `-upgrades=`), skipping the title screen; needs their `init-hooks`. A
-  lead for our own test loop, where every iteration costs the user a title screen and a load.
-- **`custom-options` adds an in-game options tab for third-party mods' widgets** (on Nexus). The
-  natural home for a MeshGhost settings page if config.json editing ever becomes the complaint.
-
-## The Archipelago mod is THREE switches, and half-off will not load into the game (2026-09-08)
-
-`AP_Randomizer` is a C++ UE4SS mod (`ue4ss/Mods/AP_Randomizer/enabled.txt`, its `dlls/main.dll`) AND
-two Blueprint paks the game's own mod loader picks up whatever UE4SS does:
-`Content/Paks/AP_Randomizer_p.pak` and `Content/Paks/LogicMods/AP_Randomizer.pak` (BPModLoaderMod logs
-`Loading mod: AP_Randomizer` from the latter). Renaming only `enabled.txt` left the paks live, and
-the user could not get into the game at all: *"it either has to be enabled, or disabled fully"*. To
-disable: rename all three (`.off`); to enable: all three back. Both installs carry it.
+build -- never the union of loaded contexts.
 
 ## Known unknowns
 
@@ -805,12 +682,9 @@ Recorded so nobody re-runs a search that already came up empty:
 - **What decides `NS_BasicBurst`'s meaning.** It fires at a death *and* roughly a dozen times in
   ordinary combat as a generic hit burst, so the burst alone does not distinguish the two. Whatever
   the game keys the difference on has not been looked for.
-
-## Adding to this file
-
-One section per mechanic, in the game's own vocabulary, with the same three-line header: the
-**fields** it sets, the **components** it moves, and **where we read it**. Then say what the game
-does and how confident you are, and link the evidence in `VERIFIED.md` instead of pasting it.
-
-If you catch yourself writing "so we…", stop — that sentence belongs in `BANDAGES.md` or the
-`README.md`.
+- **Where health lives, per other people's mods**: a tester's mod reads it off the pawn's
+  `BP_HPHitable` component, where this file's own measurement (2026-08-27) found the moving value
+  on the GameInstance. Both may be true (one a copy of the other); nothing of ours has read the
+  component. That and the other leads read from MIT repos on 2026-09-08 — the zone-name string,
+  the enemy base classes, Blueprint pak mods that replace the player pawn, a quickstart launch —
+  are one `[OPEN]` entry in `UNVERIFIED.md`.

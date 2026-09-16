@@ -1,46 +1,22 @@
 # How Pokémon Emerald works
 
-## Before adding anything to this file
+> Everything here is **what we measured from a running game or what the user saw on screen**, across
+> Phases 1–5.5 and 8, with the dated record in `VERIFIED.md`. Every claim carries a `[measured …]`
+> / `[player]` / `[user on screen …]` label naming that record, or sits under a heading that does.
+> What has been read about the game but not yet measured is not here: it waits as a question in
+> `UNVERIFIED.md`. No source text, data table or asset from any decompilation is reproduced here.
 
-**Explain facts; never reproduce expression.** Measured numbers, timings, field/function/type
-*names*, and behaviour described in your own sentences are all fine. Source text in any language,
-decompiler or disassembler output, asset content or extracted strings, verbatim reflection or memory
-dumps, and data tables copied wholesale are never fine — **regardless of what a licence permits**.
-
-**The test: could someone re-derive this by owning the game and watching it?** If yes, it is a fact
-and may be explained; whatever you learned it from only saved you the time, and is not the source of
-your right to know it. If the only way to have it is to copy something, it stays out.
-
-This is [CLAUDE.md](../../../../CLAUDE.md)'s standing rule — *is this fine sitting in a public repo
-forever?* — applied to prose. No, or merely unclear, means out. Full guidance and the two edge cases
-worth knowing: [adapters/_template/README.md](../../../_template/README.md).
-
-> Everything here is **what we measured in a running game or what the user saw on screen**, across
-> Phases 1–5.5 and 8, with the dated record in `VERIFIED.md`. Every section carries a `[measured]`
-> / `[player]` / `[user on screen]` label, and their absence there is the label. What has been
-> read about the game but not yet measured is not here: it waits as a question in `UNVERIFIED.md`,
-> and the boat is the one movement class still entirely in that state. **No source text, data
-> table, or asset from any decompilation is reproduced here** — only facts, per
-> `agent_docs/licensing.md`.
-
-**What this file is: how *the game* does things**, per mechanic, in our own words. **Nothing here
-describes an adapter workaround** — those belong in [BANDAGES.md](BANDAGES.md).
-
-Dated evidence for every claim, with addresses cited to the decomp build:
+How the game does the things a ghost has to look like, per mechanic. Adapter compensations are in
+[BANDAGES.md](BANDAGES.md); dated evidence, with addresses from our own byte-identical build, in
 [`VERIFIED.md`](VERIFIED.md).
-
-**Written 2026-08-18**, after this adapter had already shipped. It was previously argued
-that a `documentation.md` was unnecessary for a game with a decompilation. That was overturned by
-the user: a curated description of *the mechanics this adapter actually depends on* is a different
-artifact from a decompilation, and "we can look it up" does not survive a session where nobody does.
 
 ## Where the player's state lives, and why one address is not enough
 
 Emerald keeps player state in two places, and an adapter needs both:
 
-- **`gSaveBlock1Ptr`** — a **pointer**, not a struct. The save block can relocate, so it must be
-  **re-read every frame** rather than cached. Player x/y, map bank/number and warp data are read
-  relative to it.
+- **`gSaveBlock1Ptr`** — a **pointer**, not a struct. The save block relocates — its value changed
+  across a door warp [measured 2026-08-11, `VERIFIED.md`] — so it must be **re-read every frame**
+  rather than cached. Player x/y, map bank/number and warp data are read relative to it.
 - **`gPlayerAvatar`** — a fixed struct holding how the player is currently *moving*: flags
   (including a dash/running bit), and `runningState`.
 - **`gObjectEvents`** — the overworld object array, holding facing and per-object state.
@@ -56,18 +32,20 @@ That produces two different notions of "where the player is":
 - The **visual** position, which slides between tiles during the step.
 
 `runningState` distinguishes them, and its values were behaviour-tested in BizHawk rather than
-assumed: **0 = not moving, 1 = turning in place, 2 = moving**. Turning in place is a real state in
+assumed [measured 2026-08-11, `VERIFIED.md`'s four `runningState` entries]: **0 = not moving,
+1 = turning in place, 2 = moving**. Turning in place is a real state in
 this game — pressing a direction while stationary turns the character without changing tiles, and
 it produces a `1` per direction change.
 
-A tile is **16 pixels**.
+A tile is **16 pixels**, and a character never moves on both axes at once — there is no diagonal
+step. **[player]**
 
 ## How a moving character actually works — the engine's step machine (2026-09-12)
 
-**This is the reference any MeshGhost renderer is judged against**, so it is written from the
-decompilation first and confirmed on a live NPC second (`probes/npc_step_probe.lua`), which is the
-order `CLAUDE.md` requires. The user's question that prompted it: *"can we look at how a moving npc
-works?"* — an NPC is the engine moving a character with its own machinery, which is exactly what a
+**This is the reference any MeshGhost renderer is judged against.** The decompilation said where to
+look; every line below is what `probes/npc_step_probe.lua` read off a live NPC
+(`probes/npc_step_20260912_220545.log` and `_220639.log`, 2026-09-12) unless it names another
+record. An NPC is the engine moving a character with its own machinery, which is exactly what a
 ghost has to look like.
 
 ### A step is a fixed table, one entry a frame
@@ -89,20 +67,21 @@ steps**. A character that walks two tiles moves 32 frames of 1px, not two bursts
 
 ### The tile coordinate is a whole tile AHEAD of the pixels
 
-`ShiftObjectEventCoords` (:2117) copies `currentCoords` into `previousCoords` and sets
-`currentCoords` to the DESTINATION at the moment the step begins. Measured: the tile flipped from
-`23,71` to `23,70` on the same frame the timer reset to 1, with the sprite still a full 16px short
-of that tile.
+The tile coordinates take the DESTINATION at the moment the step begins (the engine's
+`ShiftObjectEventCoords`, whose `previousCoords` keep the tile just left). Measured: the tile flipped
+from `23,71` to `23,70` on the same frame the timer reset to 1, with the sprite still a full 16px
+short of that tile.
 
 **So "where is this character" has two honest answers during a step**, and they disagree by a whole
 tile for the whole step. Anything that mixes them — a mask built from one and a position from the
 other, a model that takes the tile as truth mid-step — is wrong for 16 frames out of every 16.
-`previousCoords` exists precisely because the engine itself needs the answer it just left.
 
 ### Motion lives in the sprite's `pos1`, not `pos2`
 
-The step functions add to `sprite->x/y` (`pos1`). Across a whole walking NPC capture, `pos2` stayed
-`0,0` — it carries hops, bobs and per-frame alignment, never ordinary walking. A probe that watches
+Across a whole walking NPC capture, `pos1` moved and `pos2` stayed `0,0` [measured 2026-09-12].
+`pos2` is where a jump arc shows (`pos2=(0,-4)` mid-arc, `probes/dive_probe.lua`, 2026-08-21) and
+where the engine's surf blob bobs its rider (`pos2=0,-3`, `probes/surfblob_probe.lua`, 2026-08-19)
+— never ordinary walking. A probe that watches
 `pos2` for movement sees an NPC that teleports one tile at a time; that is a real reading this
 repo's own instrument produced before it was fixed.
 
@@ -114,9 +93,13 @@ pose cannot be derived from the position alone.
 
 ### Draw order is by where a character STANDS
 
-`SetObjectSubpriorityByElevation` (:7773): the sprite's bottom edge, banded per 16px, plus an
-elevation offset from `sElevationToSubpriority` (115 or 83), lower subpriority in front. So the
-character lower on the screen is drawn in front, and elevation moves whole bands at once.
+Lower on the screen draws in front: a ghost sharing the player's tile goes BEHIND the player, and
+the painted tier's reproduction of that rule — the sprite's bottom edge, banded per 16px — matched
+the game's own sorting in every facing [user on screen 2026-09-12, `VERIFIED.md`; scope: vanilla, on
+foot]. The engine's own subpriorities read 148 for a jump shadow and 135 for landing dust [measured
+2026-08-21, `probes/shadowdust_probe.lua`]. The formula the engine computes
+(`SetObjectSubpriorityByElevation`: which band, which elevation offset) is an open question in
+`UNVERIFIED.md`.
 
 ### Why the camera is the part that matters
 
@@ -129,28 +112,6 @@ scrolls under it at exactly the step cadence** — 1px a frame walking, 2px runn
 character's screen position is its map position plus `gSpriteCoordOffset`, which is why an NPC
 walking towards you moves on screen at the SUM of both cadences, and why a character standing still
 appears to move at the camera's rate.
-
-### What that means for a ghost that is DELAYED
-
-This is the part no amount of movement-model work can remove, and it is worth stating plainly
-because it looks exactly like a bug:
-
-**A ghost rendered N frames behind its peer keeps moving for N frames after that peer stops**, and
-because the camera stops the instant the player does, those N frames are spent sliding across a
-stationary screen. At walking pace `drawnDelay = 8` is 8 pixels; running it is 16 — a whole tile of
-travel after the peer has already come to rest. The user's report is precisely that shape:
-*"running and then stopping causes a small slide at the end... especially when running for a bit
-then stopping"* (2026-09-13).
-
-A SPAWNED ghost has a bounded version of the same thing for a different reason — the engine cannot
-begin or abandon a step mid-tile, so it finishes the tile it is on. The painted tier's delay was
-chosen to imitate that (`glideRemote`'s header), and the two are not the same shape: one is a fixed
-time, the other is however much of a tile remains.
-
-**So the delay is a DESIGN PARAMETER, not a defect**, and it is the one knob that trades "the ghost
-matches a spawned ghost's trailing" against "the ghost stops when the peer stops".
-`MESHGHOST_EMERALD_DRAWN_DELAY_FRAMES` sets it; 0 makes the ghost stop with the peer and gives up
-the imitation.
 
 ### The bikes are two different machines [user on screen 2026-08-20]
 
@@ -187,32 +148,17 @@ quantum depends on:
 
 - **Surfing is RUNNING speed** — 8 frames a tile, 2px a frame [measured 2026-08-21,
   `probes/ripple_probe.lua`: one ripple per tile, 8 frames and 16px apart].
-- **Underwater is always WALKING speed.** The dash branch requires the underwater flag to be
-  CLEAR, so B does nothing down there: `MOVE_SPEED_NORMAL`, 16 frames a tile.
-- **Running on foot needs three things to agree**: B held, `FLAG_SYS_B_DASH` (the Running Shoes),
-  and `IsRunningDisallowed` for the tile you are standing on. A peer can therefore be holding B and
-  still walking, which is why a ghost must never infer a gait from an input.
+- **Underwater's cadence, and whether B does anything down there, are open questions** in
+  `UNVERIFIED.md` — nothing has been measured below the surface.
+- **A peer holding B is not necessarily running.** Running is 8 frames a tile [measured 2026-08-11,
+  `VERIFIED.md`]; which conditions the game checks before it lets a player run is an open question
+  in `UNVERIFIED.md`. Either way a ghost reads the gait from the object, never from an input.
 - **Fly is not movement at all.** It is a field-effect sequence that hides the character and puts it
-  on a bird sprite; nothing steps, so no position on the wire describes it. That is why it is the
-  one state this adapter lets past the peer-graphics gate, and why it has its own handling.
+  on a bird sprite [user on screen 2026-08-26]; nothing steps, so no position describes it.
 
-**All of which the ghost gets for free, because they converge.** Surf, dive, both bikes, running and
-walking all end as ordinary movement actions stepped by `NpcTakeStep` at some `MOVE_SPEED_*` — and
-that constant is exactly what the sprite's `data[4]` reports and what this adapter now sends as
-`mspd`. **A per-state table of speeds would be a second source to keep in sync with the engine; the
-engine's own step speed is one source that is right by construction.**
-
-### What this means for MeshGhost's renderers
-
-A **spawned** ghost is a real object event, so it inherits every line above for free — cadence,
-early tile flip, animation, draw order. This is the whole argument for preferring that tier.
-
-A **painted** ghost inherits none of it. To match, it has to reproduce the step machine rather than
-approximate it: move a flat 1px per frame (2 running) while a step is in flight, decide only at tile
-boundaries, swap the pose every 8 frames, and never move on both axes at once — a character in this
-game has no diagonal. A filter that computes a speed each frame and eases toward a delayed point can
-be right on average and still land on different pixels on every frame, which is what "the ghost
-looks bad compared to the player" has meant every time it has been reported.
+**The sprite's own step speed sits in `data[4]`**, which read 0 on every sampled frame of a 16-frame
+walk [measured 2026-09-12]. That every state above ends as an ordinary movement action reporting its
+`MOVE_SPEED_*` there is an open question in `UNVERIFIED.md`.
 
 ## Which state machine is running: `gMain.callback2`
 
@@ -220,8 +166,9 @@ Emerald tracks what the game is currently doing as a **function pointer** — th
 Comparing it against the overworld callback (`CB2_Overworld`) is how you ask *"is the player in the
 overworld right now"*, rather than inferring it from whether the data looks reasonable.
 
-Measured behaviour worth knowing: during a door transition the callback briefly becomes a series of
-warp/fade/map-load handlers and then **settles back** to the field callback. So the callback is
+Measured behaviour worth knowing [2026-08-11, `probes/battle_probe.lua`, `VERIFIED.md`]: during a
+door transition, a battle or a full-screen menu the callback becomes a series of other values and
+then **settles back** to the field callback. So the callback is
 transient during transitions, not merely on or off.
 
 This matters because outside the overworld the save-block pointers can be mid-update, and reading
@@ -231,61 +178,44 @@ them then returns plausible values rather than obviously wrong ones.
 
 The overworld player graphics exist as separate sprite sets for the two player characters, with
 **separate tables for walking and for running** — running is not the walk cycle played faster, and
-treating it as such looked visibly wrong in live testing.
+treating it as such looked visibly wrong in live testing [measured 2026-08-11, `VERIFIED.md`: the
+four faster walk tiers reuse the walk frames, the run pose is its own table].
 
 Both sets live in the ROM the player already owns, which is where anything needing them reads them
 from (`agent_docs/licensing.md`'s assets rule).
 
 ## Sprites: how one frame's hardware sprite table is built
 
-The GBA draws sprites from a 128-entry hardware table (OAM). Emerald never writes that table
-directly during play. It keeps its own **shadow copy of all 128 entries inside `gMain`**, rebuilds
-that copy once per frame from its sprite list (`BuildOamBuffer`, which finalises sprite animation
-first and then lays out the entries), and transfers it to the hardware during the next vertical
-blank (`LoadOam`). So what is on screen for a frame is decided before the frame is drawn, in one
-place, from one buffer.
+The GBA draws sprites from a 128-entry hardware table (OAM). Emerald keeps a **shadow copy of all
+128 entries inside `gMain`**, rebuilds it once per frame (`BuildOamBuffer`, the hook this adapter
+owns), and the whole copy reaches the hardware at the next vertical blank: an entry written into the
+shadow at index 64 was drawn by the emulated PPU [measured 2026-08-21, `probes/oaminject_probe.lua`],
+and at a frame boundary the shadow and the hardware differ by exactly one frame of phase wherever
+sprites are moving [measured 2026-08-21, `probes/oamshadow_probe.lua`].
 
-**`gOamLimit` bounds the WRITE CURSOR, not the transfer, and the difference is the interesting part.**
-On the overworld the engine sets it to **64**: the layout pass stops adding entries there, and its
-tail loop — which fills anything it did not use with a dummy entry parked off-screen at priority 3 —
-also stops there. Entries **at or above the limit are neither written nor cleared by the per-frame
-path**. The transfer, meanwhile, is unconditional and copies **all 128**.
+**`gOamLimit` bounds what the per-frame path touches, not what is transferred.** On the overworld it
+read **64** on all 2250 frames sampled; entries 64–127 were never written, never cleared and held
+nothing; and **5 of 128 hardware entries were in use** on a town map [measured 2026-08-21,
+`probes/oamshadow_probe.lua`]. What the engine itself does with the window above the limit — which
+of its own screens or effects park entries there, and whether a matrix pass rewrites the fourth
+halfword (the probe saw 0 frames move it) — is an open question in `UNVERIFIED.md`.
 
-That gap is deliberate on the game's part, not an accident to be discovered: **Emerald parks its own
-sprites above the limit** — the wireless-link status indicator lives at entry 125, and the confetti
-effect writes straight into `oamBuffer[i + 64]` — precisely because the sprite system will not
-overwrite them there. **The one screen that wants those entries raises the limit instead**: the slot
-machine sets `gOamLimit` to `0x80`, which is the only write to it outside the sprite system, and
-which makes the layout pass address all 128. The one thing that touches all 128 every frame
-regardless is the affine-matrix pass, and it writes only each entry's **fourth halfword** (the
-affine parameter), leaving the three attribute halfwords alone.
+**A ground-level overworld character occupies ONE entry**: the player read at entry 1 in Mt Pyre
+Exterior, and the scene's characters sat at entries 0..3 underwater [measured 2026-08-21,
+`VERIFIED.md`, the fog and underwater entries]. How the engine splits a character across subsprites
+at other elevations — a head above a bridge with the feet hidden — has not been measured.
 
-Measured live on a town map, 2026-08-21: `gOamLimit` was 64 for 2250 consecutive overworld frames,
-entries 64–127 held nothing and never changed, and **5 of 128 hardware entries were in use**.
-
-**A ground-level overworld character is exactly ONE entry.** Every character graphic carries a table
-of subsprite layouts selected by the character's elevation, which is what lets a sprite be split
-into pieces at different priorities — that is how a character's head shows above a bridge while its
-feet are hidden, and how tall grass covers the legs. At ordinary ground elevation the selected
-layout is a **single full-size piece whose offset cancels against the sprite's own centre-to-corner
-vector**, so the split path is geometrically a no-op and the character occupies one entry.
-
-Two fields on that entry do the compositing work the engine gets for free:
-**priority**, which comes from the character's elevation (ordinary ground is priority 2) and is what
-makes an NPC disappear behind a roof and under a text window; and the **palette slot**, which comes
-from the graphic's own descriptor and is read live by the hardware, so a character dims with every
-fade, cave and weather effect the game applies without anything re-deriving it.
+Two fields on that entry do the compositing work the engine gets for free: **priority** (ground
+characters read priority 2 [measured 2026-08-21, the fog entry], which is what puts an NPC behind a
+roof and under a text window), and the **palette slot**, read live by the hardware, so a character
+dims with every fade, cave and weather effect the game applies — and a wrong slot draws the right
+pixels in a Pokémon's colours [measured 2026-08-21, `VERIFIED.md`: the orange-blob entry].
 
 **What this means for capacity, in the game's own terms:** the hardware sprite table is never the
 thing that runs out. 128 entries, 64 of them not even addressed by the layout pass, and a handful in
 use on a normal map — against a **16-entry object-event array** shared by the player, every NPC on
 the map, and anything else that wants to be a character. The engine's own array is the binding
 limit, and it is not a drawing limit at all.
-
-*(Why that fact settles a design question — hardware sprites without the per-scanline OAM
-multiplexing that Game Boy games used — is the 2026-08-21 ADR in
-[`agent_docs/architecture.md`](../../../../agent_docs/architecture.md). It is a decision about our
-code, so it lives there rather than here.)*
 
 ## Maps are identified by a pair
 
@@ -314,37 +244,29 @@ under the rider. Give something only the surfing graphic and it renders a rider 
 which is the half a player notices first — so this is the worked example behind
 `_template/README.md`'s rule about reproducing the whole effect, animation *and* extras.
 
-**How the two are joined.** An object event owns its field effect through its own
-`fieldEffectSpriteId` field. That is the link the engine follows, and it is per-object rather than
-global.
+**The blob follows an object event id it reads from itself, not the player.** The id sits in the
+sprite's own `data[2]`: a blob left behind kept following that id on its own, and a blob built for a
+ghost and pointed at it was driven by the engine from then on — position, animation and the rider's
+bob (`pos2=0,-3` on the rider while the blob bobs) [measured 2026-08-19, `probes/surfblob_probe.lua`;
+user on screen the same day]. This is
+the single fact that makes a surfing *anything* possible. How the OBJECT side names its blob (the
+engine's `fieldEffectSpriteId`), what the blob's other data slots hold, and the subpriority and
+palette slot the engine gives it, are open questions in `UNVERIFIED.md`.
 
-**The blob follows an object event id it reads from itself, not the player.** Its per-frame update
-routine, `UpdateSurfBlobFieldEffect`, is **not hardcoded to the player**: it reads an object event
-id out of the sprite's own `data[2]` and synchronises the blob's animation and position to whatever
-that names. This is the single fact that makes a surfing *anything* possible — point the field at a
-character and the engine drives the blob for that character, every frame, with nothing further
-required.
-
-**The blob's link is its `data[2]`**, the object event id it follows: a blob left behind kept
-following that id on its own [measured 2026-08-19, `probes/surfblob_probe.lua`]. What its other data
-slots hold, and the subpriority and palette slot the engine gives it, are open questions in
-`UNVERIFIED.md`.
-
-**The blob is described by a sprite template in ROM** (`gFieldEffectObjectTemplate_SurfBlob`), so
+**The blob is described by a sprite template in ROM** (`gFieldEffectObjectTemplate_SurfBlob`; its
+OAM shape, size and tiles read off the ROM [measured 2026-08-18, `VERIFIED.md`'s template table]), so
 it can be built from that description rather than copied from a live one. That matters practically:
 **no blob exists at all unless somebody is already surfing**, so there is nothing to copy from
 until the state you are trying to produce already exists.
 
-**Two different map-coordinate-to-screen helpers, and they are not interchangeable.** The rider is
-placed with the one behind `GetMapCoordsFromSpritePos`, which subtracts only the total camera pixel
-offset. The blob is placed by `SetSpritePosToOffsetMapCoords` — `SetSpritePosToMapCoords` plus
-(8, 8) — which subtracts **both** the total camera pixel offset **and** the field camera. The two
-terms cancel while the camera is at rest, so the difference is invisible in the easy case and puts
-the blob a tile out of place in the others. **Which helper a given sprite uses is part of what that
-sprite is**, and the two are not interchangeable however alike they look.
+**Where the blob sits relative to its rider is measured, not derived**: the engine's own blob reads
+at OAM offset `0,+8` from its rider, and a copy built without `centerToCornerVec` set drew half a
+tile down-right [measured 2026-08-19, the same probe]. Which coordinate helper the engine places
+each sprite with is an open question in `UNVERIFIED.md`.
 
 **Underwater is a different mechanism, not a variant of this one.** It bobs the player's own sprite
-(`StartUnderwaterSurfBlobBobbing`) rather than spawning a companion — see its own section below.
+rather than spawning a companion — see its own section below; how it bobs is open in
+`UNVERIFIED.md`.
 
 **Frame size.** The blob's frames are 32×32 — sixteen tiles, the same tile cost as the rider's.
 
@@ -403,13 +325,9 @@ May's to the NPC-special one, though both share the same underwater palette tag.
 because an adapter that mirrors a peer has to represent whichever stage they are in, and two of the
 outcomes look identical at the end.
 
-**Two different kinds of evidence are mixed below, and they are labelled**, because they are not
-interchangeable. **[player]** is what the game does as experienced by someone playing it — the
-user's account, 2026-08-18: *"from a players perspective that is how it looks/feels like in game.
-you start to fish, can fail/work, and then if you keep doing it a few times a battle starts (you
-catched the fish)"*. That is authoritative about the experience and says nothing about the
-implementation. **[measured]** is read from memory or from our own `pokeemerald` build. Where the
-two agree the mechanic is understood; where only `[player]` exists, the code path is still unknown.
+**Two kinds of evidence are labelled below.** **[player]** is what happens as experienced by
+someone playing it (the user's account, 2026-08-18) and says nothing about the implementation;
+**[measured]** is read from memory. Where only `[player]` exists, the code path is still unknown.
 
 The stages:
 
@@ -468,7 +386,8 @@ outcomes yet.
 
 The **metatile id** is what selects the behaviour: the id indexes the map's tileset attribute
 table (primary tileset below 512, secondary above), and the low byte of that attribute is the
-metatile behaviour — `MB_POND_WATER` (16), `MB_DEEP_WATER` (18), `MB_OCEAN_WATER` (21) and so on.
+metatile behaviour — `21` read back as `OCEAN_WATER` on the synthesised Littleroot tile [measured
+2026-08-18, `probes/watertile.lua`]; the other water behaviours have not been read off a tile.
 
 **Water is NOT impassable.** This is the part that is easy to get backwards: a water tile has
 **collision 0** and sits at **`ELEVATION_SURF` (1)**, while the player walks at
@@ -492,45 +411,34 @@ elevation 3 one tile north. `probes/watertile.lua` does this on demand.
 ## Wild encounters are per-map data, not a property of the tile
 
 **[user on screen 2026-08-18]** What a tile *is* and what can *appear* on it are two different
-systems, and only the first lives in the map grid. Wild encounters belong to the map — *"pokemon
-are tied to per town/route"* — and a town that has none has nothing to bite in water synthesised
-there: the rod still comes out and the cast plays. How the game keys and consults that per-map
+systems, and only the first lives in the map grid. Wild encounters belong to the map, and a town
+that has none has nothing to bite in water synthesised there: the rod still comes out and the cast
+plays. How the game keys and consults that per-map
 encounter data, and which branch a cast takes when there is none, are open questions in
 `UNVERIFIED.md`.
 
-**Consequence for testing, learned the hard way 2026-08-18.** Water was created in Littleroot Town
-(`probes/watertile.lua`) and fishing worked — the cast played, confirmed on screen. But Littleroot
-is a town with no wild encounters of any kind, so **no bite is possible there, ever**. The tile
-made the *action* legal; only the map's own encounter data can make the *outcome* happen. To reach
-a bite, a hook, or the battle that follows, the water has to be on a map that actually defines
-`fishingMonsInfo` — a route, not a starting town.
-
-The user's framing, which is the general form: *"we added water, we made it so we could fish, but
-we missed an important extra step on top of it that made it not do all functions it's actually
-intended to do."*
+Littleroot Town defines no wild encounters of any kind, so on water synthesised there the rod comes
+out and the cast plays but **no bite is possible, ever**: the tile makes the *action* legal, and only
+the map's own encounter data makes the *outcome* happen. A bite, a hook or the battle that follows
+needs a map that defines fishing encounters — a route, not a starting town [user on screen
+2026-08-18, `probes/watertile.lua`].
 
 ## The Acro Bike: three moves, and one action family per move
 
-**Everything the Acro Bike can do, as the player experiences it** — the user, 2026-08-20, naming
-the complete set: *"it can wheelie and go around, it can stand idle then start jumping and after
-that go around, or you can stand idle and do the sideway jump"*. **[player]**, and it is the whole
+**Everything the Acro Bike can do, as the player experiences it** [player, 2026-08-20] — the whole
 list:
 
 **There is a base state under all three: just riding.** On the bike, moving or standing, doing none
-of the moves below — the state each of them is entered from and returned to. Called out explicitly
-because it is easy to leave off a list of *capabilities* precisely for being the default; the user,
-2026-08-20, after naming the three: *"forgot to explain the base/doing nothing on the bike state"*,
-the other three being *"the unique things you can do while actually on the bike"*. A ghost that only
-reproduced the tricks would be wrong for nearly the whole ride.
+of the moves below — the state each of them is entered from and returned to, and the state a rider
+is in for nearly the whole ride.
 
 1. **Ride in a wheelie.** Hold B and move off *before* any hop starts, and the rider travels on the
    back wheel for as long as B is held.
 2. **Bunny hop.** Stand still and keep B held; after a moment the rider starts hopping on the spot.
-   *"After you start to jump, you can also move around if B is continued to be held"* — so the hop
-   is entered from a standstill and only then becomes a hopping ride.
-3. **Sideways jump.** From a standstill, not already hopping, press a direction together with B
-   (*"up+B while idle on the bike and not jumping"*) for a single jump in that direction. This is
-   the move that clears the rails.
+   Once hopping, moving with B still held carries the hop along — so the hop is entered from a
+   standstill and only then becomes a hopping ride.
+3. **Sideways jump.** From a standstill, not already hopping, press a direction together with B for
+   a single jump in that direction. This is the move that clears the rails.
 
 **Each move is a family of four movement actions, one per facing** — **[measured]**, from the
 player's own object event across a driven ride (`probes/wheelie_watch.lua`, 2026-08-20). The
@@ -564,18 +472,11 @@ Worth stating plainly because the rest of this section is one `ACRO_*` family pe
 that block alone will never find this one: the whole family lives four ids below
 `JUMP_IN_PLACE_*` (`0x46`), which is where an eye scanning for "the jump ones" tends to stop.
 
-**It travels one tile sideways WITHOUT turning, and the engine has a specific mechanism for that.**
-An ordinary jump turns the character, because starting one calls `SetObjectEventDirection` with the
-jump's direction. The side jump is set up with the object's **facing lock** raised first, so that
-call writes the movement direction and leaves the facing alone — which is why the rider keeps
-looking the way they were while sailing sideways. The lock is dropped again on the input tick after
-the jump resolves, not when the player next stands still; held any longer it would pin the facing
-through everything that followed.
-
-**A jump lasts 16 frames** for both the in-place and the one-tile distances, and 32 for the
-two-tile one. That number is what makes a *held* hop legible: a held button is ONE repeating action
-reporting one id the whole time, so individual bounces are only visible as multiples of that
-period — there is no per-bounce change in anything the object reports.
+**[player]** It travels one tile sideways without turning. How the engine keeps the facing through
+it (a facing lock raised before the jump and dropped after) and how many frames a jump lasts are
+open questions in `UNVERIFIED.md`. What IS measured: a held hop is ONE repeating action reporting
+one id the whole time, so individual bounces are not visible in anything the object reports
+[measured 2026-08-20, `probes/hopwatch.lua`].
 
 ## Shadows and landing dust: what raises them, and what does not
 
@@ -585,18 +486,16 @@ ROM `images` pointer they draw from, so it identifies them by what they ARE rath
 - **A shadow appears when a jump STARTS.** It is an ordinary sprite at **subpriority 148**, using
   **OBJ palette 0**, positioned at the character's own sprite position plus a per-graphic drop —
   and deliberately WITHOUT the jump arc, so it stays on the ground while the character rises over
-  it. It follows the character's background priority, so it passes behind a bridge with them.
-- **The shadow is also SUPPRESSED outright over certain ground**, not merely repositioned.
-  `UpdateShadowFieldEffect` stops the effect when the object's current *or previous* metatile
-  behaviour is Poké-grass, surfable water or underwater, or reflective — which is why a character
-  jumping near water or in tall grass casts none at all. Checking both tiles means it goes as the
-  jump enters such a tile, not a frame later.
+  it.
+- **Whether the shadow is suppressed over some ground** (grass, water, reflective tiles), and on
+  which of the two tiles a jump spans, is an open question in `UNVERIFIED.md`; no jump into grass
+  or beside water has been watched for it.
 - **Landing dust appears when a jump FINISHES**, on the tile landed on, with a palette resolved from
-  the field-effect palette tag (slot 14 in the runs measured). **Its subpriority is not a constant**:
-  `FldEff_Dust` creates it at 0, and `SetObjectSubpriorityByElevation` recomputes it every frame from
-  the elevation *and the sprite's screen row*. It measured **135** against the shadow's fixed 148, so
-  the dust drew in front — back to front, shadow, character, dust — but that ordering is a
-  consequence of where on screen the jump happened, not a rule that holds at every row.
+  the field-effect palette tag (slot 14 in the runs measured). It measured subpriority **135**
+  against the shadow's 148, so the dust drew in front — shadow, character, dust, back to front — in
+  the runs measured. Whether the engine recomputes the dust's subpriority per frame from the screen
+  row, so that the ordering depends on where the jump happens, is an open question in
+  `UNVERIFIED.md`.
 - **The dust belongs to the TILE, not the character.** It stays where it was born and finishes its
   animation there while the character hops on, which is what makes a run of hops leave a trail of
   puffs rather than one puff dragged along underneath.
@@ -604,10 +503,10 @@ ROM `images` pointer they draw from, so it identifies them by what they ARE rath
   character *jumped* to gets neither — there is no jump to start a shadow or to finish and raise
   dust. Obvious in hindsight and easy to miss: "it has no dust" turned out to mean
   "it never jumped", not "the dust is drawn in the wrong place".
-- **The two effects bind differently, and it matters.** The shadow is bound to its object by
-  **local id** and re-finds it every frame; the dust is positional, spawned at coordinates and left
-  to play out. Anything wearing a borrowed local id therefore inherits somebody else's shadow and
-  its own dust.
+- **The two effects behave differently, and it matters.** The shadow followed its character frame
+  by frame; the dust stayed at its coordinates and played out. Whether the shadow re-finds its
+  object by local id every frame — so that anything wearing a borrowed local id inherits somebody
+  else's shadow — is an open question in `UNVERIFIED.md`.
 
 ## What blocks a character, and where it is written down
 
@@ -706,12 +605,10 @@ below the character, not whether it is surfing. Grass, being a NORMAL metatile, 
 priority-3 sprite completely, so a character two tiles from the shore shows nothing while one a
 single tile away shows the topmost sliver of itself.
 
-**And there are TWO KINDS of reflection, not one.** `GetReflectionTypeByMetatileBehavior` asks
-`MetatileBehavior_IsIce` **first** and only then `IsReflective`, so `MB_ICE` is `REFL_TYPE_ICE`
-while every other reflective behaviour is `REFL_TYPE_WATER`. `GroundEffect_IceReflection` sets its
-reflection up with `stillReflection = TRUE`, and that flag is the only thing gating the affine
-mode — so an ice reflection is a plain vertical flip with no matrix behind it, and none of the
-shimmer described above. Ice does not ripple, and neither does a reflection in it.
+**And there are TWO KINDS of reflection, not one**: on ice the reflection holds still [user on
+screen 2026-08-21, `VERIFIED.md`, Shoal Cave's ice room]. Which routine picks the kind, and whether
+the ice one is a plain flip with no matrix behind it, is an open question in `UNVERIFIED.md`. Ice
+does not ripple, and neither does a reflection in it.
 
 ## A dark cave is a WINDOW, not an overlay
 
@@ -723,8 +620,8 @@ painted at all.
 
 Each entry is `(left << 8) | right`, one per scanline, right edge exclusive; rows outside the
 circle read `0-0`. Read live in Granite Cave B1F: rows 56–104 lit, `114-126` at the top edge
-widening to `96-144` at the middle — centre (120, 80), radius 24, which is
-`sFlashLevelToRadius[7]`, the smallest non-zero flash level.
+widening to `96-144` at the middle — centre (120, 80), radius 24. Which flash level that radius
+belongs to has not been measured.
 
 **Two consequences.** Anything the hardware draws — backgrounds and sprites alike — is clipped to
 the circle for free. And **`WIN0H` and `WIN0V` cannot be read back**: they are write-only, so a
@@ -759,13 +656,14 @@ Measured across three slides: `10/2`, `11/0`, `11/2`.
 **Ends when blocked, not after a fixed distance.** Nothing stops a slide but an obstacle, which is
 why removing collision (a noclip probe) makes the player slide to the map border.
 
-**The crack-and-fall ice is a different mechanic entirely** — `MB_THIN_ICE` and `MB_CRACKED_ICE`,
-driven by `SootopolisGymIcePerStepCallback`. It is used by **Sootopolis Gym only**; Shoal Cave's
-ice room is all `MB_ICE` and does not break.
+**The crack-and-fall ice is a different mechanic**: the ice in Shoal Cave's Low Tide Ice Room slides
+and never breaks [user on screen 2026-08-21]. Which tiles carry the cracking behaviour and what
+drives it is an open question in `UNVERIFIED.md`.
 
 ## Standing still is a HELD animation, not an idle one
 
-**[measured]** A character that has stopped does not switch to an "idle" animation. It keeps the
+**[measured 2026-08-21, the `GHOSTPOSE` trace in `VERIFIED.md`; user on screen the same day]** A
+character that has stopped does not switch to an "idle" animation. It keeps the
 animation it was last playing, stops on whatever command index it reached, and sets `animPaused` —
 e.g. facing north after a step reads `animNum 5, animCmdIndex 3` with the pause bit set, and
 command 3 of that animation is the standing picture.
@@ -806,11 +704,12 @@ authoritative depends on what the character is doing:
 
 ## The muddy slope: the one place facing and movement disagree
 
-**[measured, 527 frames of slide-back]** The Mach Bike exists to climb a muddy slope, and below top
-speed the slope pushes the rider back. `ForcedMovement_MuddySlope` does three things at once when
-the rider is not heading north at `PLAYER_SPEED_FASTEST`: it resets the bike's speed counter to
-zero, sets `facingDirectionLocked` on the player's object event so the character keeps **facing
-north**, and issues a forced movement **south** at walk-fast speed.
+**[measured 2026-08-20, 527 frames of slide-back; user on screen the same day]** The Mach Bike
+exists to climb a muddy slope, and below top speed the slope pushes the rider back. Through the
+slide the rider's `movementActionId` held `WALK_FAST` while `bikeSpeed` read **0**, and the
+character kept **facing north** while travelling **south** (`VERIFIED.md`, the muddy-slope entry).
+Which routine does that, whether it raises the object's facing lock, and what it does to the bike's
+speed counter are open questions in `UNVERIFIED.md`.
 
 So this is the only ordinary situation in the game where a character's facing and its direction of
 travel point opposite ways, and where the field that describes a rider's speed reads zero while
@@ -818,11 +717,13 @@ they are visibly moving. Any code that derives one from the other is wrong here 
 
 ## Tall grass is a SPRITE, and that makes two different kinds of occlusion
 
-**[measured]** A character standing in tall grass is hidden from the waist down — and not by the
-map. The grass metatile's **top layer is completely empty** (layer type NORMAL), so no background
-layer covers anything at all. Instead the engine spawns a **field-effect sprite** per object
-standing in grass and draws it above them, from the tall-grass and long-grass field effect
-templates (`MB_TALL_GRASS` and `MB_LONG_GRASS` respectively).
+**[measured 2026-08-20, `VERIFIED.md`'s two grass entries; user on screen the same day]** A
+character standing in tall grass is hidden from the waist down — and not by the map. The grass
+metatile's **top layer is completely empty** (layer type NORMAL, all four top tiles zero in the
+dump), so no background layer covers anything at all. Instead the engine draws a **field-effect
+sprite** over each character standing in grass: a live one was read for its palette while the
+player stood in grass, and its rustle (frames 1,2,3,4,0 at ten game-frames each) was read from the
+field-effect template in ROM, tall grass and long grass each with their own.
 
 **Two kinds of occlusion follow, and doing one says nothing about the other.** Scenery — buildings,
 roof edges, tree tops — is a metatile's top layer on a background the sprite does not outrank.
@@ -855,8 +756,13 @@ bird can carry a character that is not the player are open questions in `UNVERIF
 Open questions about **the game**, kept so a later session can strike one through and point at the
 section that answered it.
 
-- **What the boat actually does to the object arrays.** The section on it is decomp-derived and has
-  never been watched; it is the last movement class in that state.
+- **What the boat actually does to the object arrays.** Never watched; the question is in
+  `UNVERIFIED.md` (2026-09-16), and it is the last movement class with nothing of ours measured.
+- **Also open, in `UNVERIFIED.md` since 2026-09-16**: the draw-order formula, the OAM layout pass and
+  the window above `gOamLimit`, the blob's object-side link and placement helper, what the game
+  checks before letting a player run, the side jump's facing lock and the jump's frame count,
+  shadow suppression and binding, the two reflection kinds, the cracking ice, the muddy slope's
+  routine — each an `[OPEN]` entry in `UNVERIFIED.md` naming what is ours and what would settle it.
 - **Whether a cross-town Fly differs from a same-town one** in anything the arrays show. Only the
   same-town case has been watched.
 - **What Teleport does**, in the same terms as Dig and Escape Rope.

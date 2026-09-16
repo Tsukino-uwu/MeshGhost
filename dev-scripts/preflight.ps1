@@ -911,6 +911,26 @@ if ($exprFiles.Count -eq 0) {
     Report-Pass "no reproduced C declaration in $($exprFiles.Count) tracked text file(s)"
 }
 
+Section "No fenced C block in tracked markdown"
+
+# 2026-09-16: the audit found a ```c block quoting a decompiled routine in an adapter's VERIFIED.md,
+# and the expression check above walked past it -- an `if (...)` line and two assignments carry no
+# typed declaration. A C fence in this repo's markdown has one origin, because the repo writes no
+# C: it is quoted source. Our own code is fenced as cpp, csharp, go, lua or ps1 and is not matched.
+$cFenceHits = @()
+foreach ($f in $trackedMd) {
+    if (-not (Test-Path $f)) { continue }
+    $n = @(Select-String -LiteralPath $f -Pattern '^```c\s*$').Count
+    if ($n -gt 0) { $cFenceHits += "$($f -replace '\\', '/'): $n" }
+}
+if ($cFenceHits.Count -gt 0) {
+    Report-Fail ("fenced C block(s) in tracked markdown -- quoted source never enters the repo (CLAUDE.md, " +
+        "agent_docs/licensing.md); describe what the routine DOES, or move it to UNVERIFIED.md as a question: " +
+        ($cFenceHits -join "; "))
+} else {
+    Report-Pass "no fenced C block in $($trackedMd.Count) tracked markdown file(s)"
+}
+
 Section "Measured or observed only: no NEW source-derived claims (ratchet)"
 
 # CLAUDE.md "MEASURED OR OBSERVED ONLY -- NOTHING BORROWED", the user's rule of 2026-09-13

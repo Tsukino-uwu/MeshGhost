@@ -3787,3 +3787,18 @@ entry and one `UNVERIFIED.md` line; nothing adapter-side ran. Next: Part A of `c
 ## 2026-09-16 — pointer: the 6 SYNCED.md guards, and the DLL rebuilt
 
 `96ed6168`, logged in `phase12.md` (2026-09-16): `h_speed`/`v_speed` bounded and the four vec3 triples refused when non-finite, the stale `Plugin.cpp` comments refreshed, `main.dll` rebuilt and deployed to both installs; unwatched in a game.
+
+## 2026-09-16 (later) — documentation.md is the game only: two borrowed sections and one mod-layout section out
+
+The measured-or-observed audit reached this adapter: two sections of `documentation.md` were facts
+read from MIT repos on 2026-09-08 (a tester's health mod; the `pseudoregalia-modding` READMEs). A
+source is where to look, so they are one `[OPEN]` leads entry in `UNVERIFIED.md` now, each with what
+would settle it; the health-on-`BP_HPHitable` lead is the one `chaser-planning.md` Part B already
+tests. The user then asked why the Archipelago mod's three-file toggle was in the game's
+documentation at all — it is a fact about another mod's install, recorded in `environment.md` since
+2026-09-08 — and it is gone from the file. The provenance line says where borrowed leads wait, and
+the header's date range is re-dated to 2026-09-08 for the mapping-contexts section it had been
+holding. TEVI's `documentation.md` was read in the same sweep and carries nothing borrowed.
+Later the same day the file was stripped to the game's mechanics on the user's word — the rule
+section, file table, standing-rule section and "adding to this file" section out, 816 → 690 lines
+(`phase12.md`, 2026-09-16, later still).

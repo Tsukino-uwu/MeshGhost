@@ -1525,3 +1525,14 @@ object sits 16px above the character (OAM y 76→60, 2026-08-26), not "two tiles
 settles it, pointing at the 2026-08-23 collision and 2026-08-26 Fly/SPIN/shared-tile entries where
 those already ask the same thing. Both preflight ratchets are 0. Also today: `prog` and `gait`
 floored and bounded on arrival (`2f3495df`); unwatched in a game.
+
+## 2026-09-16 (later) — the audit's second sweep, Crystal: two routine-name passages
+
+Read for routine names with no label after the morning's citation pass: two passages were still
+the decompilation's — how the player's struct is spawned (`SpawnPlayer`, the generic copy routine)
+and which routines fill `wUsedSprites` and what decides its set. Both reworded to what is ours (the
+spawn-instant capture of 2026-08-17; the live read the user saw on screen 2026-08-19) with one
+`[OPEN]` entry in `UNVERIFIED.md`. The rest of the file's names sit beside measured values. Not yet
+swept: `meshghost_crystal.lua`'s comments (46 decomp-file citations). Later the same day the file
+was stripped to the game's mechanics on the user's word — the rule section and the "cost three
+attempts" aside out, 810 → 798 lines (`phase12.md`, 2026-09-16, later still).

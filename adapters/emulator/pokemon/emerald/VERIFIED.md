@@ -2314,16 +2314,11 @@ setting has shipped on the Go side with no adapter able to honour it (`architect
 The Mach Bike exists to climb a muddy slope, and below top speed the slope pushes the rider back —
 which turns out to be the only place in this game where a character's FACING and its MOVEMENT
 disagree, and where the field that describes a rider's speed reads zero while they are visibly
-moving fast. `ForcedMovement_MuddySlope` (pokeemerald src/field_player_avatar.c:567-581):
-
-```c
-if (movementDirection != DIR_NORTH || GetPlayerSpeed() < PLAYER_SPEED_FASTEST)
-{
-    Bike_UpdateBikeCounterSpeed(0);                 // speed counter reset to zero
-    playerObjEvent->facingDirectionLocked = TRUE;   // keeps FACING north
-    return DoForcedMovement(DIR_SOUTH, PlayerWalkFast);  // pushed SOUTH at WALK_FAST
-}
-```
+moving fast. `ForcedMovement_MuddySlope` (pokeemerald src/field_player_avatar.c:567-581) is where the
+decompilation says that happens. *(A quoted block of that routine sat here until the 2026-09-16
+audit cut it as reproduced source — `licensing.md`. What it was read to do — zero the bike's speed
+counter, lock the facing north, force a south walk-fast movement — is a question in `UNVERIFIED.md`
+now; the measurements below stand on their own.)*
 
 Both halves broke a ghost, and both were measured over 527 frames of slide-back before the fix and
 514 after:
