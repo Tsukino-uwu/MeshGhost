@@ -233,6 +233,7 @@ or if a number is duplicated — an unindexed ADR is one nobody will find.
 - [2026-09-15 — Chaser contact is a mode: `off`, `hurt` or `kill`, and the game does the hurting](adr/0068-2026-09-15-chaser-contact-is-a-mode-hurt-or-kill.md) — a contract revision; no adapter honours it yet
 - [2026-09-15 — A fifth render knob: a correction slides instead of jumping (`correction`, ships off)](adr/0069-2026-09-15-a-fifth-render-knob-corrections-slide-instead-of-jumping.md) — step A3 of `prediction-planning.md`; not a contract revision
 - [2026-09-16 — A room code on one side only is a mismatch: a client with a code refuses a relay that asks for none](adr/0070-2026-09-16-a-room-code-on-one-side-only-is-a-mismatch.md) — a contract revision; revises one line of 0067
+- [2026-09-16 — Autoplay is a second Go module that never ships](adr/0071-2026-09-16-autoplay-is-a-second-go-module-that-never-ships.md) — dev tooling, not a contract revision
 
 ## Prior art
 

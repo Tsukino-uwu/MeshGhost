@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "autoplay": {
+      "command": "go",
+      "args": ["-C", "autoplay", "run", "./cmd/autoplay", "-log", "runs/core.log"]
+    }
+  }
+}

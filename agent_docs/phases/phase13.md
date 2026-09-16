@@ -109,3 +109,26 @@ contributions not yet relicensed, Apache-2.0 for the rest — read from its own 
 - **The order changes**: the scenario runner comes straight after Phase 1 (*"If you think that makes
   more sense go for it"*).
 - **MCP** was asked about rather than answered — what it is for — so the Go SDK is not adopted yet.
+
+## 2026-09-16 (later still) — MCP adopted; Phase 1 step 1: the core answers, with no game yet
+
+The user, on what MCP is for: *"basically "tools" that give you proper hands & eyes for playing a game
+easier/better ? this sounds like a good approach"*, then *"Yee lets go ahead with this then"*, and on
+growing it: tools can be added later, "more hands/fingers or an extra eye". Built, Go side only:
+
+- **`licensing.md`** has the MCP Go SDK's row, written before any of its source was read.
+- **`autoplay/`** is its own module (ADR 0071): `driver/` is the loopback hub one game driver connects
+  to (a hello with capabilities and protected slots, request ids, a busy reject for a second driver,
+  an event buffer, a 64 KiB line cap); `server/` is the MCP face (`status`, `observe`, `press`,
+  `events`, each game tool refused when the driver did not announce it); `cmd/autoplay` runs both.
+- **Checked with tools**: `go test -race -count=10 ./...` clean in both packages (the mingw64 gcc
+  `run-gotests-race.bat` finds); a stdio smoke of the built binary (initialize, `tools/list`,
+  `status`); and end to end, a headless Claude Code session given `--mcp-config autoplay/.mcp.json`
+  listed the server as connected and called `status`, and the core logged its stop when the session
+  ended, leaving no process and no listener on 7870.
+- **`govulncheck`** on the module reports four standard-library findings in the local Go 1.26.5, each
+  fixed in 1.26.6, and none in the SDK's code this module calls. CI installs the newest 1.26.
+- **Also**: `.github/workflows/autoplay.yml`; preflight's root-binaries check skips `autoplay/`;
+  `.gitignore` holds `autoplay/runs/` and `autoplay/states/`.
+
+Next: the BizHawk driver, growing out of `cmd_drive.lua`, on vanilla Emerald.

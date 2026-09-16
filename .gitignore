@@ -248,6 +248,13 @@ dev-scripts/bizhawk-dev-loader*.target
 /dev-scripts/*.png
 /dev-scripts/*.log
 
+# autoplay (Phase 13, dev-only, ADR 0071): session logs and local savestate caches. A savestate
+# carries game data and never enters the repo -- a scenario builds its state with cheats instead.
+# Every capture, from any host, goes to /dev-scripts/shots/ above.
+/autoplay/runs/
+/autoplay/states/
+/autoplay/*.log
+
 # A core config dropped next to an adapter is a DEV artifact: the adapter-spawned core reads
 # its working directory, so this is how you change -interp on a running session without
 # relaunching the emulator. It must never ship -- the release config lives in packaging/.

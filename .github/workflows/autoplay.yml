@@ -1,0 +1,50 @@
+name: Autoplay
+
+# The dev-only harness in autoplay/ is its own Go module (ADR 0071), so ci.yml's `./...` never
+# reaches it: that is what keeps it out of every release build and its dependency out of the
+# shipped module graph. This workflow is the other half -- the harness still gets built, vetted,
+# race-tested and vulnerability-scanned, just on its own. gofmt already covers it, in ci.yml's
+# `git ls-files '*.go'` step. Nothing here builds anything a release uses.
+on:
+  push:
+    paths:
+      - 'autoplay/**'
+      - '.github/workflows/autoplay.yml'
+  pull_request:
+    paths:
+      - 'autoplay/**'
+      - '.github/workflows/autoplay.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build, vet, test (race)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: autoplay
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
+          cache: true
+          cache-dependency-path: autoplay/go.sum
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test (race)
+        run: go test -race -count=3 ./...
+
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...

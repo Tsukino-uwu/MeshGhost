@@ -710,6 +710,8 @@ $newestGo = Get-ChildItem -Recurse -Filter *.go |
     Where-Object {
         $_.FullName -notmatch '\\build\\_deps\\' -and
         $_.FullName -notmatch '\\RE-UE4SS\\' -and
+        # autoplay/ is its own Go module that none of these binaries contain (ADR 0071).
+        $_.FullName -notmatch '\\autoplay\\' -and
         $_.Name -notlike '*_test.go'
     } |
     Sort-Object LastWriteTime -Descending | Select-Object -First 1
