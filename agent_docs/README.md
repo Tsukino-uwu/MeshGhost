@@ -112,3 +112,4 @@ paragraph in the existing flow, or a line in `docs/config.md`, not a heading of 
 - Confirmed facts go in `verified.md` or an adapter's `VERIFIED.md`, never before the user has watched them work.
 - Before a session ends, append to the active phase file ([phases/README.md](phases/README.md)); re-date or move `status.md`'s items at the start of the next.
 - Cross-reference instead of copying; one audience per file; a rule has one home and every copy links to it.
+- Write the rule, never a forward-looking specific — "each new game gets its own phase", not "the fifth game takes 13": specifics go stale fast (the user, 2026-09-16). Dated history is fine.

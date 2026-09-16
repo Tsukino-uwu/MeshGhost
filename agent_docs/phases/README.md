@@ -25,6 +25,7 @@ never referenced from anywhere. Added 2026-08-25.
 | [phase10.md](phase10.md) | The online stack: relay, client core, protocol, transports — one component log for the whole Go side, backfilled to the repo's start. | Live — the Go side's whole log |
 | [phase11.md](phase11.md) | Replays: recording, playback ghosts, the chaser pack, system-wide hotkeys, split times — Go-side feature work (ADRs 0047, 0048). | Live — planned 2026-09-03 |
 | [phase12.md](phase12.md) | Delivery: packaging, the release pipeline, CI and the gates — one component log for what ships and what checks. | Live — created 2026-09-11 |
+| [phase13.md](phase13.md) | Autoplay: a dev-only harness that plays games for mod and adapter testing — never shipped. | Live — created 2026-09-16 |
 
 **Frozen is not "done" (the user's call, 2026-09-06).** The six early files mixed the server, the
 client and Emerald together before each stream had a log of its own; their work continues in phases
@@ -95,4 +96,10 @@ skips them.
 mixed into phases 1-5.5. ONE file for server and client together, deliberately: nearly every
 Go-side event spans both, so two files would double-write or file arbitrarily. It is the
 timeline; the detail stays in the ADRs and the topic docs it points at. **Phase 11 became the
-replay work on 2026-09-03 and Phase 12 the delivery pipeline on 2026-09-11 (feature-sized and component-sized work each get their own log); the fifth game takes 13 onward.**
+replay work on 2026-09-03, Phase 12 the delivery pipeline on 2026-09-11, and Phase 13 the autoplay
+harness on 2026-09-16.**
+
+**Which work gets a phase (the user, 2026-09-16): every new adapter ALWAYS gets its own; a feature or
+component gets one when the user says it deserves one, and asking is welcome.** Numbers are taken
+when the work starts, never reserved ahead: a sentence like "the next game takes phase N" goes stale
+the moment anything else claims N, and it did.

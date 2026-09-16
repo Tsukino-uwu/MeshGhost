@@ -13,8 +13,8 @@ detail lives in `agent_docs/contract.md`.
 
 Target games: **Pokémon Emerald** (BizHawk, first) → **TEVI** (Unity, second) →
 **Pseudoregalia** (UE5, third) → **Pokémon Crystal** (BizHawk, fourth — Phase 9, shipping since
-2026-08-18). Every adapter that ships is listed in the root `README.md`; the fifth game takes
-Phase 12. See `agent_docs/architecture.md`'s decision log for why
+2026-08-18). Every adapter that ships is listed in the root `README.md`; every new game gets its
+own phase when it starts (`phases/README.md`). See `agent_docs/architecture.md`'s decision log for why
 TEVI replaced the brief's original Ori: Will of the Wisps pick.
 
 ## Non-goals for early work
@@ -540,6 +540,19 @@ more (one entry point for remote state, enforced by a test); no tamper detection
 area); 5 hotkeys; 6 save-last-N; 7 the chaser pack; 8 split times; 9 config, packaging and docs.
 **Out of scope here:** the chaser's contact damage — per game, its own ADR, the user's on-screen
 confirmation, Pseudoregalia first.
+
+### Phase 13 — Autoplay: a dev-only harness that plays games (proposed 2026-09-16, waiting at the Phase 0 checkpoint)
+
+**Proposed, not decided; nothing is built.** A dev-only program in a top-level `autoplay/` folder with
+its own `go.mod`, so no build, test or release of MeshGhost includes it, and it never ships. A Claude
+Code agent drives a game through it: the model issues high-level commands, a thin per-host driver
+carries them out at full speed, and an exploration that worked becomes a scenario the runner replays
+after every build with no model. For any game, through whatever dev channel its host already has.
+The user's rulings so far (2026-09-16): savestates never enter the repo — a scenario builds its state
+with cheats; where a host cannot capture its own frame, a window capture is fine, and every capture
+is gitignored; its MCP config lives inside `autoplay/`. Today's instructions for playing are the
+`play-game` skill, which becomes the harness's manual as each rule turns into a tool. The checked
+plan, the proposal and the open questions: `phases/phase13.md`.
 
 ### Room codes / relay safety
 
