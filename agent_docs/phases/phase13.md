@@ -394,3 +394,43 @@ risk list had named it: "a driver confounding any cost measurement".
 
 **Next for Phase 1:** list menus (the bag and the party menu's own cursors) and battle text; then the
 acceptance run, from a new game to the first trainer battle.
+
+## 2026-09-16 (same session, later still) — Phase 1 step 8: wild battles, and what a move does
+
+**Built.** Emerald's `mode` reads `battle`; `observe` gains `battle` (what it is asking, and per
+battler its side, species, level, HP and moves); in a battle `menu` is the action or move menu as a
+two-column grid, and `select` reaches a grid entry's column first, so FIGHT, a move by name and RUN
+are one call each. Every move in `party` and `battle` now carries its type, power and accuracy, and in
+`party` its base PP and effect text. A `battle_input_changed` event says when the battle starts or
+stops waiting. Measurements: `emerald/MEASURED.md`, same date; tools: the README.
+
+**How it was measured.** A warp to a route's grass (found with `find_behaviour.py`), walks until an
+encounter, and `probes/battle_state_probe.lua` logging the battle's globals, battler records and
+message buffer on every change, read against a capture of each message, both menus and every cursor
+position: HP 17 → 15 → 13 as drawn, PP 32 → 31 → 30, the level-up's 15/24, and the controller routine
+that runs while each menu waits for input. The driver's existing text reading already showed every
+battle message. Then three more battles by the tools alone: GROWL (Right), TACKLE (Left), MUD-SLAP
+(Down) and RUN (Right, Down, "Got away safely!").
+
+**The user, while it ran:** *"different attacks do different things, you can check what
+type/power/effect they have in your "pokemon" bag"*, then *"both inside/outside of a battle, if you go
+to your pokemon bag and look at a specific pokemon"*. It came as GROWL, picked only to exercise the
+cursor, left the POOCHYENA's HP at 15/15, and a later TACKLE left it at 1/15. So
+`probes/move_data_probe.lua` dumped the move table's entries for the MUDKIP's three moves, and the
+summary's BATTLE MOVES page, each move selected, named the bytes: power, type, accuracy, PP and the
+effect text, word for word. The page was read outside a battle; the in-battle route to it was not
+opened.
+
+**What went wrong on the way:**
+- **Window text in a battle lied**: the action and move menus stayed in `screen_text` while "MUDKIP
+  used TACKLE!" played, since their windows' bytes kept reading as drawn. It is left out in a battle,
+  where `battle` and `menu` say what is asked.
+- **The game's formatting commands printed as letters** ("FIGHT{FC}Û{38}BAG"). The captures showed
+  four FC codes each taking one byte and drawing nothing (BAG exactly 0x38 px right of FIGHT, counted
+  in pixels), so those read `{FC 13 38}`; the level-up's FC 0A and the escape message's prefix stay
+  raw until measured.
+- **A first version of the type-name read was wrong before it ran**: it read index + 1, written to
+  get past the name reader's refusal of 0, which is NORMAL's index. Rewritten as its own read.
+
+**Next for Phase 1:** a trainer battle (what its type flags read, the trainer's text), then the
+acceptance run from a new game.

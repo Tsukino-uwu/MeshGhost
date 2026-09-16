@@ -49,9 +49,12 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - The party, the bag, money, badges and flags (2026-09-16)
 - A new screen's windows (2026-09-16)
 - What the driver and its hooks cost (2026-09-16)
+- A wild battle: who is in it, what it asks, its cursors and its text (2026-09-16)
+- A move's type, power, accuracy, PP and effect text (2026-09-16)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
+- Not measured yet: The rest of a battle (from 2026-09-16)
 
 ## Measured
 
@@ -247,6 +250,72 @@ climbs for the first several), then the limiter back on. In frames per second:
   functions: a check for `type(...) == "function"` reports them absent.
 - **Not measured**: another place in the game, a second emulator running beside it, a battle.
 
+### A wild battle: who is in it, what it asks, its cursors and its text (2026-09-16)
+
+**Vanilla ROM, the same save, map 0.16's grass** (warped to with autoplay's `warp`, then walked until
+an encounter). From `probes/battle_state_probe.lua` (read-only: the battle's globals, its four
+battler records and its message buffer, logged on every change with the pad) through one wild battle
+against a level-3 POOCHYENA, read against captures of every message, both menus and each cursor
+position (`dev-scripts/shots/emerald/autoplay_bt_*`, gitignored). Then three more battles driven by
+autoplay's tools alone. Used by `autoplay/drivers/bizhawk/games/emerald.lua` for `battle`, the battle
+`menu` and `mode`.
+
+- **gMain.callback2** read 0x08036FAD during the intro, then the routine the build names BattleMainCB2,
+  +1 (0x08038421), from before "Wild POOCHYENA appeared!" until after the last message; then 0x080860C9,
+  0x080860F5 and the overworld's.
+- **Battlers.** The byte named gBattlersCount read 2 and the four named gBattlerPositions 00 01 FF FF;
+  battler 0 was the MUDKIP and 1 the POOCHYENA. Each battler's 0x58 bytes: species at +0x00 (283, 286,
+  named MUDKIP and POOCHYENA by the species table); +0x02 to +0x0A attack, defense, speed, sp. atk and
+  sp. def (14, 11, 10, 12, 12, the summary's); moves at +0x0C (33, 45, 189, 0; and 33); PP at +0x24;
+  HP at +0x28, level at +0x2A, max HP at +0x2C; the name at +0x30. The MUDKIP's HP read 17, 15 and 13
+  as the box drew 17/22, 15/22 and 13/22; its TACKLE PP 32, 31, 30 as the move menu drew 32/35, 31/35
+  and 30/35; after "MUDKIP grew to LV. 7!" it read level 7 and max HP 24, drawn 15/24. The POOCHYENA's
+  level read 3 (drawn Lv3) and its HP 15, 8, 1, 0 (its bar has no numbers) before "Wild POOCHYENA
+  fainted!".
+- **What it asks.** The first word of the block named gBattlerControllerFuncs (battler 0's) read the
+  routine named HandleInputChooseAction, +1 (0x08057589), for as long as FIGHT, BAG, POKéMON and RUN
+  waited, and the one named HandleInputChooseMove, +1 (0x08057BFD), while the move menu did.
+- **Cursors.** The first byte named gActionSelectionCursor went 0 → 1 (Right, ▶ on BAG) → 3 (Down,
+  RUN) → 2 (Left, POKéMON) → 0 (Up, FIGHT). The first named gMoveSelectionCursor went 0 → 1 (Right,
+  GROWL), stayed 1 on Down toward the empty fourth slot, 0 on Left, and 2 on Down from TACKLE
+  (MUD-SLAP, the type line GROUND and PP 10/10).
+- **Text.** The buffer named gDisplayedStringBattle held each message in turn, and the driver's
+  existing message reading showed the same text on window 0. In the menus' own strings, FC 13 38 sat
+  between FIGHT and BAG, and with the cursor moved to BAG the capture's first column of FIGHT is x=136
+  and of BAG x=192, 0x38 apart, with no glyph between; FC 06 01 sat in "TYPE/NORMAL" and FC 02 02 and
+  FC 01 0B around "MUDKIP♂", none drawn. "MUDKIP grew to LV. 7!" ended FC 0A FB; "Got away safely!"
+  began with an FC the decoder did not know (not logged raw).
+- **Window text in a battle.** The action and move menus' windows kept reading as on screen through
+  "MUDKIP used TACKLE!", when neither was drawn; so window text is not read in a battle.
+- **After it.** The byte named gBattleTypeFlags read 4 throughout and the one named gBattleOutcome 0,
+  then 1 once the POOCHYENA fainted; both kept those values back in the overworld. The party slot then
+  read level 7, max HP 24, attack 15 and TACKLE at 29 PP.
+- **Driven by the tools** (same session): `select` FIGHT, then GROWL (one Right), TACKLE (one Left),
+  MUD-SLAP (one Down) and RUN (Right, then Down, then "Got away safely!"), across three more battles
+  against POOCHYENA twice and a WURMPLE, whose moves read TACKLE and STRING SHOT. Each ended back in the
+  overworld; after the MUD-SLAP battle the party's EXP read 290 (221 before the first battle).
+- **Not seen**: a trainer battle, a double battle, the BAG or POKéMON menus in a battle, a switch, a
+  catch, a faint of the player's Pokémon, a whiteout, any outcome but 1, a patched ROM.
+
+### A move's type, power, accuracy, PP and effect text (2026-09-16)
+
+**Vanilla ROM, the same save.** From `probes/move_data_probe.lua` (read-only: the 12-byte entries of
+the table the build names gBattleMoves for the MUDKIP's three moves, the 7-byte type name each points
+at, and the string behind each move's entry in gMoveDescriptionPointers), read against captures of the
+summary's BATTLE MOVES page with each move selected (`autoplay_mv_det_1`..`3`). Used by
+`autoplay/drivers/bizhawk/games/emerald.lua` for each move in `party` and `battle`.
+
+- **+1 the power**: 35 TACKLE, 0 GROWL (drawn "---"), 20 MUD-SLAP.
+- **+2 the type**, the index of a 7-byte entry in the type names: 0 read NORMAL for TACKLE and GROWL,
+  4 read GROUND for MUD-SLAP, as each row's type label.
+- **+3 the accuracy**: 95, 100, 100.
+- **+4 the PP** each move's maximum was drawn as, on a Pokémon whose PP were never raised: 35, 40, 10.
+- **The effect text** at move id - 1 in the pointer table: "Charges the foe with a full-body tackle.",
+  "Growls cutely to reduce the foe’s ATTACK.", "Hurls mud in the foe’s face to reduce its accuracy.",
+  each word for word as the DESCRIPTION box, with its line break where the box broke it.
+- +0 read 0, 18 and 73, +5 0, 0 and 100, +6 0, 8 and 0, and +8 51, 22 and 18; nothing drawn showed them.
+- **Not seen**: any other move, a move whose PP was raised, what the other bytes mean.
+
 ## Not measured yet
 
 ### The rest of the text printer (from 2026-09-16)
@@ -282,3 +351,14 @@ battle, each paired with captures.
   them and open the bag.
 - What flags 0x860, 0x861, 0x86F and 0x870 are, and any flag past the badges; the ids from 0x4000 the
   decomp routes elsewhere, which `set_flag` does not accept.
+
+### The rest of a battle (from 2026-09-16)
+
+- A trainer battle: what gBattleTypeFlags reads, whether battler 0 is still the player's, and the
+  text around a trainer's Pokémon. To settle: the first trainer battle, with `battle_state_probe.lua`.
+- A double battle: the positions, both controllers, and which cursor belongs to which battler.
+- The BAG and POKéMON menus inside a battle, a switch, a catch, a faint, a whiteout, a run that fails,
+  and what gBattleOutcome reads for each.
+- The FC codes seen but not measured: FC 0A (before FB at the end of a level-up message) and the one
+  that begins "Got away safely!".
+- What move bytes +0, +5, +6 and +8 mean (the decomp names effect, secondary chance, target and flags).

@@ -124,8 +124,8 @@ local function heldFor(frames)
 	end
 end
 
--- select: a program run one frame at a time over the module's observe().menu ({cursor, items}) and
--- its menuButtons ({prev, next, confirm}). Every leg ends on the game's own state, never on a frame
+-- select: a program run one frame at a time over the module's observe().menu ({cursor, items, and
+-- columns for a grid}) and its menuButtons ({prev, next, confirm, and left and right for a grid}). Every leg ends on the game's own state, never on a frame
 -- count: press toward the entry until the menu's cursor changes, release for SETTLE frames, look
 -- again; then hold confirm until the menu closes or changes. Returns a function, called once a frame,
 -- that answers (pad or nil, finished, result or nil, error or nil) -- the shape of every program,
@@ -190,7 +190,14 @@ local function selectProgram(p)
 						return nil, true, nil, string.format("the cursor is on %d after %d steps, not on %d", m.cursor, steps, target)
 					end
 					from, steps = m.cursor, steps + 1
-					dir = (target > m.cursor) and keys.next or keys.prev
+					-- A menu with `columns` is a grid numbered row by row: reach the column first with
+					-- the module's left/right, then the row with prev/next.
+					local cols = math.tointeger(m.columns) or 1
+					if cols > 1 and keys.left and keys.right and target % cols ~= m.cursor % cols then
+						dir = (target % cols > m.cursor % cols) and keys.right or keys.left
+					else
+						dir = (target > m.cursor) and keys.next or keys.prev
+					end
 				elseif m.cursor ~= from then
 					held, settle = 0, SETTLE
 					return nil, false

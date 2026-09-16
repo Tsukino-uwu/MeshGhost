@@ -90,15 +90,25 @@ do
 	for b, s in pairs(drawn) do CHARS[b] = s end
 end
 
+-- FC followed by one of these codes took one more byte, and none of the three was drawn: FC 13 38 put
+-- BAG 56 px right of FIGHT, FC 06 01 sat in "TYPE/NORMAL", FC 01 0B and FC 02 02 around the battle's
+-- "MUDKIP♂" (battle_state_probe.lua against captures, 2026-09-16). Other FC codes go out byte by byte.
+local EXT, EXT_ONE_ARG = 0xFC, { [0x01] = true, [0x02] = true, [0x06] = true, [0x13] = true }
+
 local function decode(bytes, from, to)
 	local out = {}
-	for i = from, to do
+	local i = from
+	while i <= to do
 		local b = bytes[i]
 		if b == NEWLINE then
 			out[#out + 1] = "\n"
+		elseif b == EXT and i + 2 <= to and EXT_ONE_ARG[bytes[i + 1]] then
+			out[#out + 1] = string.format("{FC %02X %02X}", bytes[i + 1], bytes[i + 2])
+			i = i + 2
 		else
 			out[#out + 1] = CHARS[b] or string.format("{%02X}", b)
 		end
+		i = i + 1
 	end
 	return table.concat(out)
 end
@@ -507,6 +517,40 @@ local function nameAt(tbl, len, count, id, stride)
 end
 local function itemName(id) return nameAt(ITEMS, ITEM_NAME_LEN, ITEM_COUNT, id, ITEM_SIZE) end
 
+-- A move's data, 12 bytes an entry (move_data_probe.lua against the summary's BATTLE MOVES page,
+-- 2026-09-16, for TACKLE, GROWL and MUD-SLAP): +1 the power (GROWL's 0 was drawn as "---"), +2 the type
+-- as an index into 7-byte type names (0 NORMAL, 4 GROUND), +3 the accuracy (95, 100, 100), +4 the PP
+-- each move's maximum was drawn as on a Pokémon with no PP bonus (35, 40, 10). The effect text is
+-- behind a pointer per move at (id - 1) * 4; all three read word for word as the page's DESCRIPTION.
+local BATTLE_MOVES, BATTLE_MOVE_SIZE = 0x0831c898, 12
+local TYPE_NAMES, TYPE_NAME_LEN, TYPE_COUNT = 0x0831ae38, 7, 18
+local MOVE_DESCRIPTIONS = 0x0861c524
+local moveCache = {}
+local function moveInfo(id)
+	local m = moveCache[id]
+	if m == nil and id >= 1 and id < MOVE_COUNT then
+		local e = memory.read_bytes_as_array(BATTLE_MOVES + id * BATTLE_MOVE_SIZE, BATTLE_MOVE_SIZE, BUS)
+		local desc = readString(r32(MOVE_DESCRIPTIONS + (id - 1) * 4))
+		local typeName
+		if e[3] < TYPE_COUNT then
+			-- Type 0 is a real type (NORMAL), so this reads index 0 too, unlike nameAt.
+			local t = memory.read_bytes_as_array(TYPE_NAMES + e[3] * TYPE_NAME_LEN, TYPE_NAME_LEN, BUS)
+			local last = TYPE_NAME_LEN
+			for i = 1, TYPE_NAME_LEN do
+				if t[i] == EOS then
+					last = i - 1
+					break
+				end
+			end
+			typeName = decode(t, 1, last)
+		end
+		m = { type = typeName, power = e[2], accuracy = e[4], base_pp = e[5],
+			description = #desc > 0 and decode(desc, 1, #desc) or nil }
+		moveCache[id] = m
+	end
+	return m or {}
+end
+
 -- The four encrypted 12-byte blocks at +0x20, per personality mod 24: the game's routine for them,
 -- asked for every residue with every kind (substruct_order_probe.lua, 96 of 96, no conflicts), put
 -- residue r's kinds in the r-th ordering of 0-3 in lexicographic order (0 -> 0,1,2,3; 1 -> 0,1,3,2;
@@ -558,8 +602,10 @@ local function readParty()
 			for i = 0, 3 do
 				local id = (words[a + (i >> 1)] >> (16 * (i & 1))) & 0xFFFF
 				if id ~= 0 then
+					local info = moveInfo(id)
 					moves[#moves + 1] = { name = nameAt(MOVE_NAMES, MOVE_LEN, MOVE_COUNT, id), id = id,
-						pp = (words[a + 2] >> (8 * i)) & 0xFF }
+						pp = (words[a + 2] >> (8 * i)) & 0xFF, base_pp = info.base_pp, type = info.type,
+						power = info.power, accuracy = info.accuracy, description = info.description }
 				end
 			end
 			if #moves > 0 then mon.moves = moves end
@@ -603,14 +649,97 @@ local function readSave()
 		badges = #badges > 0 and badges or nil }
 end
 
+-- BATTLES (2026-09-16, vanilla: `emerald/probes/battle_state_probe.lua` through one wild battle, read
+-- against captures of each message, both menus and every cursor position; that adapter's MEASURED.md,
+-- same date). gMain.callback2 read the routine the build names BattleMainCB2, +1, from before the first
+-- message to after the last.
+local BATTLE_MAIN_CB2 = 0x08038420
+local BATTLE_TYPE_FLAGS, BATTLERS_COUNT, BATTLER_POSITIONS = 0x02022fec, 0x0202406c, 0x02024076
+-- 0x58 bytes a battler: species +0x00, moves +0x0C, PP +0x24, HP +0x28, level +0x2A, max HP +0x2C, name
+-- +0x30 -- each matched the battle screen, a spent PP and a level-up.
+local BATTLE_MONS, BATTLE_MON_SIZE = 0x02024084, 0x58
+local ACTION_CURSOR, MOVE_CURSOR, BATTLE_OUTCOME = 0x020244ac, 0x020244b0, 0x0202433a
+-- One routine per battler; battler 0's was the routine named HandleInputChooseAction (+1) for as long as
+-- the action menu waited, and the one named HandleInputChooseMove (+1) for the move menu.
+local CONTROLLER_FUNCS, CHOOSE_ACTION, CHOOSE_MOVE = 0x03005d60, 0x08057588, 0x08057bfc
+-- The action menu as drawn, in cursor order: 0 FIGHT and 1 BAG on the top row, 2 POKéMON and 3 RUN below.
+local BATTLE_ACTIONS = { "FIGHT", "BAG", "POKéMON", "RUN" }
+
+local function inBattle()
+	local cb = r32(GMAIN_CB2)
+	return cb == BATTLE_MAIN_CB2 or cb == BATTLE_MAIN_CB2 + 1
+end
+
+-- What battler 0's controller waits for: "action", "move", or nil for anything else.
+local function battleAsking()
+	local f = r32(CONTROLLER_FUNCS) & 0xFFFFFFFE
+	if f == CHOOSE_ACTION then return "action" end
+	if f == CHOOSE_MOVE then return "move" end
+	return nil
+end
+
+local function readBattle()
+	local n = r8(BATTLERS_COUNT)
+	if n < 1 or n > 4 then return nil end
+	local positions = memory.read_bytes_as_array(BATTLER_POSITIONS, 4, BUS)
+	local battlers = {}
+	for i = 0, n - 1 do
+		local b = memory.read_bytes_as_array(BATTLE_MONS + i * BATTLE_MON_SIZE, BATTLE_MON_SIZE, BUS)
+		local moves = {}
+		for k = 0, 3 do
+			local id = u16of(b, 13 + k * 2)
+			if id ~= 0 then
+				-- Type, power and accuracy only: a battle observation rides on every press, and the effect
+				-- text is in `party`.
+				local info = moveInfo(id)
+				moves[#moves + 1] = { name = nameAt(MOVE_NAMES, MOVE_LEN, MOVE_COUNT, id), id = id, pp = b[37 + k],
+					type = info.type, power = info.power, accuracy = info.accuracy }
+			end
+		end
+		local last = 59
+		for k = 49, 59 do
+			if b[k] == EOS then
+				last = k - 1
+				break
+			end
+		end
+		-- Position 0 was the player's Pokémon and 1 the opponent's in a single battle; others unmeasured.
+		local pos = positions[i + 1]
+		battlers[#battlers + 1] = { battler = i, position = pos, side = (pos == 0 and "player") or (pos == 1 and "opponent") or nil,
+			species_id = u16of(b, 1), species = nameAt(SPECIES_NAMES, SPECIES_LEN, SPECIES_COUNT, u16of(b, 1)),
+			nickname = decode(b, 49, last), level = b[43], hp = u16of(b, 41), max_hp = u16of(b, 45),
+			moves = #moves > 0 and moves or nil }
+	end
+	return { asking = battleAsking(), battlers = battlers, type_flags_raw = r32(BATTLE_TYPE_FLAGS),
+		outcome_raw = r8(BATTLE_OUTCOME) }
+end
+
+-- The menu battler 0 is choosing from, as `select` reads a menu: `columns` 2, cursor order row by row.
+local function battleMenu()
+	local asking = battleAsking()
+	if asking == "action" then
+		return { window = "battle_action", items = BATTLE_ACTIONS, cursor = r8(ACTION_CURSOR), columns = 2 }
+	elseif asking == "move" then
+		-- The four move slots as the move menu drew them, "-" for an empty one.
+		local items = {}
+		for k = 0, 3 do
+			local id = r16(BATTLE_MONS + 0x0C + k * 2)
+			items[#items + 1] = id ~= 0 and (nameAt(MOVE_NAMES, MOVE_LEN, MOVE_COUNT, id) or string.format("move %d", id)) or "-"
+		end
+		return { window = "battle_move", items = items, cursor = r8(MOVE_CURSOR), columns = 2 }
+	end
+	return nil
+end
+
 local game = {
 	game = "emerald",
 	-- "vanilla" only when the ROM's hash is the one every address here was measured on.
 	variant = isVanilla and "vanilla" or "unverified",
 	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "cheat:warp", "cheat:set_flag",
 		"cheat:give_item", "select", "walk" },
-	-- The START menu and a YES/NO: Down moved the cursor one entry per press and A chose it (2026-09-16).
-	menuButtons = { prev = "Up", next = "Down", confirm = "A" },
+	-- The START menu and a YES/NO: Down moved the cursor one entry per press and A chose it; in a battle
+	-- menu Left and Right moved between its two columns (2026-09-16).
+	menuButtons = { prev = "Up", next = "Down", left = "Left", right = "Right", confirm = "A" },
 	protected_slots = { 1 },
 	-- The folder under dev-scripts/shots/ this game's pictures go to.
 	shots = "emerald",
@@ -664,11 +793,18 @@ function game.observe(asked)
 	local sb1 = r32(SB1PTR)
 	local obj = GOBJECTEVENTS + r8(GPLAYERAVATAR + 5) * 0x24
 	local d, m, s
+	local battle = isVanilla and inBattle() and readBattle() or nil
 	if #hookNames > 0 then
 		d, m = readDialogue(), readMenu()
-		s = readScreenText(d and d.window, m and m.window)
-		if #s == 0 then s = nil end
+		-- In a battle the windows' own bytes do not say which are showing (the action and move menus
+		-- stayed listed while a message played), so screen_text is left out; `battle` and `menu` say
+		-- what is being asked.
+		if not battle then
+			s = readScreenText(d and d.window, m and m.window)
+			if #s == 0 then s = nil end
+		end
 	end
+	if battle then m = battleMenu() end
 	local overworld = cb2 == CB2_OVERWORLD or cb2 == CB2_OVERWORLD + 1
 	local localMap, nearby, warps
 	if isVanilla and overworld then
@@ -686,6 +822,7 @@ function game.observe(asked)
 		money = save and save.money,
 		badge_count = save and save.badge_count,
 		badges = save and save.badges,
+		battle = battle,
 		dialogue = d,
 		menu = m,
 		screen_text = s,
@@ -693,7 +830,7 @@ function game.observe(asked)
 		nearby = nearby,
 		warps = warps,
 		frame = emu.framecount(),
-		mode = overworld and "overworld" or "not_overworld",
+		mode = (overworld and "overworld") or (battle and "battle") or "not_overworld",
 		location = {
 			map = string.format("%d.%d", r8(sb1 + 4), r8(sb1 + 5)),
 			x = r16(sb1),
@@ -857,6 +994,7 @@ end
 
 -- The menu alone, for a program that looks every frame (select).
 function game.menu()
+	if isVanilla and inBattle() then return battleMenu() end
 	if #hookNames > 0 then return readMenu() end
 	return nil
 end
@@ -1000,6 +1138,12 @@ function game.diffKeys(o)
 		dialogue_state = o.dialogue and o.dialogue.state or "none",
 		dialogue_box = o.dialogue and o.dialogue.box or "",
 		menu_cursor = o.menu and o.menu.cursor or "none",
+		battle_asking = o.battle and o.battle.asking or "none",
+		battle_hp = o.battle and (function()
+			local hp = {}
+			for _, b in ipairs(o.battle.battlers) do hp[#hp + 1] = b.hp .. "/" .. b.max_hp end
+			return table.concat(hp, " ")
+		end)() or "none",
 	}
 end
 
@@ -1010,9 +1154,12 @@ function game.watch()
 	local cb2 = r32(GMAIN_CB2)
 	return {
 		map = string.format("%d.%d", r8(sb1 + 4), r8(sb1 + 5)),
-		mode = (cb2 == CB2_OVERWORLD or cb2 == CB2_OVERWORLD + 1) and "overworld" or "not_overworld",
+		mode = ((cb2 == CB2_OVERWORLD or cb2 == CB2_OVERWORLD + 1) and "overworld")
+			or (isVanilla and (cb2 == BATTLE_MAIN_CB2 or cb2 == BATTLE_MAIN_CB2 + 1) and "battle") or "not_overworld",
 		dialogue = (dialogue and windowOnScreen(dialogue.window)) and "open" or "closed",
 		menu = (menuWindow and windowOnScreen(menuWindow)) and "open" or "closed",
+		-- battle_input_changed: the battle starts or stops waiting for an action or a move.
+		battle_input = isVanilla and (cb2 == BATTLE_MAIN_CB2 or cb2 == BATTLE_MAIN_CB2 + 1) and battleAsking() or "none",
 	}
 end
 

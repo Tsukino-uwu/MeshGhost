@@ -29,7 +29,7 @@ Claude Code --MCP (stdio)--> autoplay core --JSON lines (127.0.0.1)--> driver in
 | `observe` | The driver's snapshot of the game |
 | `press` | Hold buttons for 1-600 frames, then report what changed — the escape hatch, not the default |
 | `wait` | Let 1-3600 frames pass with NO input, then report what changed. Never hold a button to wait |
-| `select` | Choose an entry in the open menu by its text (`item`) or 0-based `index`: the driver presses toward it until the game's own cursor is on it, then holds confirm until the menu responds (`confirm: false` stops on it). Every leg ends on the game's state, never a frame count |
+| `select` | Choose an entry in the open menu by its text (`item`) or 0-based `index`: the driver presses toward it until the game's own cursor is on it, then holds confirm until the menu responds (`confirm: false` stops on it). On a grid menu (a battle's) it reaches the column first. Every leg ends on the game's state, never a frame count |
 | `walk` | Walk 1-32 tiles `up`, `down`, `left` or `right`, one tile at a time, each ending when the game says the step is done. Stops early and says why: `blocked` (with what is on the refused tile), `map_changed` (a door or an edge), `dialogue_open`, `menu_open`, `left_overworld`; reports the tiles actually moved |
 | `screenshot` | The game frame, saved to `dev-scripts/shots/<game>/autoplay_<name>.png` and returned as an image |
 | `events` | Events the driver reported since a sequence number |
@@ -48,9 +48,16 @@ Everything past `frame`, `mode` and `location` is the game module's. Emerald, on
   `finished` (its last box is up and waits for a button, with no arrow). Absent when no message box
   is on screen.
 - **`menu`** — a list menu that is open (the START menu, a YES/NO): `items` in order and `cursor`,
-  0-based. List menus with their own cursor (the bag, the PC, shops) and battle menus are not read
-  yet.
-- **`screen_text`** — any other window's printed text, per window, top to bottom.
+  0-based. In a battle, the action menu (`battle_action`: FIGHT, BAG, POKéMON, RUN) or the move menu
+  (`battle_move`: the four slots, `-` for an empty one), with `columns: 2` — a grid numbered row by
+  row. List menus with their own cursor (the bag, the PC, shops) are not read yet.
+- **`screen_text`** — any other window's printed text, per window, top to bottom. Left out in a
+  battle, where a menu's window still reads as shown after it is gone.
+- **`battle`** — while `mode` is `battle`: `asking` (`action`, `move`, or absent while the battle
+  plays out), and per battler `side` (`player` or `opponent`), `species`, `nickname`, `level`, `hp`,
+  `max_hp` and `moves` (`name`, `pp`, `type`, `power`, `accuracy`); `type_flags_raw` and
+  `outcome_raw` (1 after a won wild battle; nothing else measured). A wild single battle only is
+  measured.
 - **`local_map`** — `rows` of characters, 15 wide by 11 tall with you at the centre, and a `legend`
   for the symbols present: `@` you, `N` a character, `W` a warp, `#` collision set, `.` clear at your
   elevation, a hex digit for clear at another elevation, a letter per behaviour byte (listed in the
@@ -60,17 +67,22 @@ Everything past `frame`, `mode` and `location` is the game module's. Emerald, on
 - **What the save has**, in an `observe` you call only (a press's, select's or walk's `before` and
   `after` leave it out):
   - **`party`** — per Pokémon: `slot`, `species` (and `species_id`), `nickname`, `level`, `hp`,
-    `max_hp`, `stats`, `exp`, `held_item`, `moves` (`name`, `id`, `pp`), and `status_raw` (only 0,
+    `max_hp`, `stats`, `exp`, `held_item`, `moves` (`name`, `id`, `pp`, `base_pp`, `type`, `power`
+    — 0 for a move that does no damage, `accuracy`, and `description`, the effect text the summary
+    shows), and `status_raw` (only 0,
     no status, is measured). `checksum_mismatch` instead of species and moves when the slot's
     encrypted data does not add up.
   - **`bag`** — the pockets that hold anything: `items`, `poke_balls`, `tms_hms`, `berries`,
     `key_items`, each a list of `item`, `id`, `quantity`.
   - **`money`**, **`badge_count`**, and **`badges`**: which of the trainer card's eight, numbered 1-8
     from the left.
-- A byte whose character is not measured, or that draws nothing, reads as `{XX}`.
+- A byte whose character is not measured, or that draws nothing, reads as `{XX}`; a measured
+  formatting command in text reads as `{FC 13 38}`.
+- **`mode`** — `overworld`, `battle`, or `not_overworld` for anything else.
 
 The driver reports each of `map`, `mode`, `dialogue` and `menu` changing as an event:
-`map_changed`, `mode_changed`, `dialogue_changed` and `menu_changed` (open or closed).
+`map_changed`, `mode_changed`, `dialogue_changed` and `menu_changed` (open or closed), and
+`battle_input_changed` when a battle starts or stops waiting for an action or a move.
 
 ## The run log
 
