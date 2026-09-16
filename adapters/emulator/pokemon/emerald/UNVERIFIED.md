@@ -50,7 +50,12 @@ being work. An entry still here has not been confirmed.
 
 ---
 
-## [OPEN] 2026-09-16 — a spawned ghost is written into the player's IN-GAME SAVE, and comes back on Continue
+## [OPEN] 2026-09-16 — a SPAWNED ghost is written into the in-game save and comes back on Continue (dev tier only today)
+
+**Scope first (the user, the same day):** the shipped Emerald adapter has been drawn-only since
+2026-09-11 (`FLAGS.md`, `MESHGHOST_EMERALD_DRAWN_OVERFLOW`: spawn cap zero), so a shipped player's save
+never gets one. It matters for a dev session that spawns (`MESHGHOST_COMPARE_TIERS`), for saves made
+before that date, and for any future return of the spawned tier — which would have to solve it first.
 
 **Measured 2026-09-16, vanilla Emerald, no adapter or probe loaded** (the scratch driver's `objdump`
 and a byte search of SaveBlock1). Continuing from the in-game save the ROM boots with put a second
@@ -62,12 +67,12 @@ bits differed, which the game rebuilds on Continue. So a save made while a ghost
 ghost, and the game re-creates it on the next Continue. A same-map warp (a map load) cleared slots 14
 and 15.
 
-**Why this is not only cosmetic:** `CLAUDE.md` -- nothing that ships writes a save, ever. The adapter
-never writes the save itself, but the game's own save routine copies the object RAM the adapter wrote,
-so the effect is the same: the player's save file carries a phantom object. Unmeasured: what that object
-does beyond standing there (it shares the player's local id), whether Crystal's save does the same with
-its object structs, and which session's save this was. The fix is a design question for the user
-(despawn before the game saves, or keep ghosts out of the saved array), not yet decided.
+**Why it would matter if spawning shipped:** `CLAUDE.md` -- nothing that ships writes a save, ever. The
+adapter never writes the save itself, but the game's own save routine copies the object RAM a spawned
+ghost occupies, so the save file would carry a phantom object. Unmeasured: what that object does beyond
+standing there (it shares the player's local id), whether Crystal's save does the same with its object
+structs, and which session's save this was. A dev save made while spawning is worth a door or a warp
+after Continue.
 
 ## [OPEN] 2026-09-16 — to measure: what the adapter's comments took from the decompilation alone (the per-site audit)
 
