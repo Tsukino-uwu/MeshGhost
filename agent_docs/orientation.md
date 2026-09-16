@@ -169,19 +169,35 @@ same every time.
    [../adapters/_template/README.md](../adapters/_template/README.md), read end to end.
 4. **Build the hot-reload loop before the first feature.** Every host has one; without it every
    change costs a game launch. [live-reload.md](live-reload.md) has the three answers side by side.
-5. **Find the player.** Position, area, facing, animation. A probe asks the running game,
+5. **Learn how the game does it, before you do anything yourself.** This is the mindset the
+   rest of the ladder depends on: **if the game can do something, so can we, by asking the game
+   to do it.** Before looking for a single address, answer two questions about the game itself.
+   *How does the game spawn a player, or any character?* The player is spawned by some path the
+   game already ships (an object event, a prefab, a pawn class), and a ghost made by that same
+   path inherits animation, collision, layering and occlusion for nothing. *How does the game do
+   the thing you are about to mirror?* Walking, a hop, a splash, a trail, a facing change: each
+   is a mechanism with a normal trigger, and firing that trigger is the whole job. Reimplementing
+   it from outside is the last resort, and the template lists what it costs. Write what you
+   learn in the adapter's `documentation.md` as you go, in your own words and never the game's
+   text. The template's "Where does this already happen normally?", "Ask the game what it has,
+   before you guess at what it might have" and "Hard rule: find out how the GAME does it before
+   you work around it" sections are the method, with the player-capability parity rule beside
+   them: anything the player can do, a ghost must too, and "impossible" only means the
+   mechanism is not found yet.
+6. **Find the player.** Position, area, facing, animation. A probe asks the running game,
    the reading is watched on screen, and only then is it written down. Emerald's first addresses,
    confirmed by walking, are the worked example: [phases/phase1.md](phases/phase1.md).
-6. **Send it.** The adapter opens a localhost socket to the core, says `hello`, waits for
+7. **Send it.** The adapter opens a localhost socket to the core, says `hello`, waits for
    `bridge_ready`, then streams `local_state`. Nothing about the relay ever reaches the adapter.
    [contract.md](contract.md) is the adapter interface.
-7. **Show a ghost, and let the game do the work.** Ask the game to make one with a class it
-   already ships (a spawned object, a cloned character, a pawn), so animation, layering and
-   occlusion come free; paint over the frame only above what the game can hold. In local
-   testing two rendered characters never share a tile, and the loopback ghost sits to one side
-   so you can judge it against the player. The template's "Did the game make this, or did you
-   take it?" section is the decision table.
-8. **The bar is 1:1, and the user is the judge.** A ghost looks exactly like the player doing
+8. **Show a ghost, and let the game do the work.** Use what step 5 found: ask the game to make
+   one with a class it already ships (a spawned object, a cloned character, a pawn), so
+   animation, layering and occlusion come free; paint over the frame only above what the game
+   can hold, or where painting was the deliberate call. In local testing two rendered characters
+   never share a tile, and the loopback ghost sits to one side so you can judge it against the
+   player. The template's "Did the game make this, or did you take it?" section is the decision
+   table.
+9. **The bar is 1:1, and the user is the judge.** A ghost looks exactly like the player doing
    the same thing, judged on screen, never by matching numbers. "Ran without errors" is not
    evidence for an adapter, because a wrong address returns a plausible number. A confirmed
    fact goes to `VERIFIED.md` and the phase file; the README gains a numbered step when a
