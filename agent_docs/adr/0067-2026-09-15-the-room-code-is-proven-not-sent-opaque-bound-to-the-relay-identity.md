@@ -63,7 +63,8 @@
 - **What a host and a player see.** Nothing new when it works. A wrong code is the same
   `invalid room code` refusal as before, now decided on the player's side with prose naming the
   other cause ("or the server is not the one this client verified"). A client with a code
-  against a relay that has none joins, and logs once that its code went unused. A v2 peer is
+  against a relay that has none joins, and logs once that its code went unused. **REVISED by
+  ADR 0070 (2026-09-16): it refuses, as a mismatched code.** A v2 peer is
   refused with the usual "update" message.
 - **Supersedes** ADR 0013's room-code handling (the code compared in constant time on the relay)
   and the "room-code proof" design in `security-design.md` point 3; leaves ADR 0066's memory of

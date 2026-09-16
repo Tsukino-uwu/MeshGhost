@@ -73,16 +73,21 @@ func TestTheDiscoveryLegProvesTheCodeToo(t *testing.T) {
 	}
 }
 
-// TestARelayWithNoCodeWelcomesAClientThatHasOne: the relay ignores the offered
-// proof; the client joins and notes that its code was not used.
-func TestARelayWithNoCodeWelcomesAClientThatHasOne(t *testing.T) {
+// TestAClientWithACodeRefusesARelayWithNone: a code on one side only is a
+// mismatch (ADR 0070). This client joined and logged a line until 2026-09-16,
+// so an impostor took the session by never asking for the proof. The refusal
+// is permanent and names the room code, like a wrong code.
+func TestAClientWithACodeRefusesARelayWithNone(t *testing.T) {
 	addr := startRelay(t)
-	var err error
-	logged := captureLog(t, func() { err = codedCore(t, addr, "letmein").ConnectRelay("emerald") })
-	if err != nil {
-		t.Fatalf("a coded client against an uncoded relay did not join: %v", err)
+	c := codedCore(t, addr, "letmein")
+	err := c.ConnectRelay("emerald")
+	if err == nil {
+		t.Fatal("a client with a room code joined a relay that asked for none")
 	}
-	if !strings.Contains(logged, "has no room code set") {
-		t.Fatalf("the client did not note that its code went unused; log:\n%s", logged)
+	if !IsPermanentRejectErr(err) || !strings.Contains(err.Error(), "room code") {
+		t.Fatalf("refusal %v; want a permanent one naming the room code", err)
+	}
+	if c.PlayerID() != "" {
+		t.Fatalf("the refused session still adopted player id %q", c.PlayerID())
 	}
 }

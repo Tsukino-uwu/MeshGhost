@@ -63,15 +63,24 @@ being work. An entry still here has not been confirmed.
 and reconnects (a new id) to do the same. **Correct:** grass rustle, ripples, puffs and the water
 reflection draw on the returning ghost exactly as the first time.
 
-## [OPEN] a peer's door messages run the engine's door task in the victim's game (fifth review, 2026-09-16)
+## [OPEN] WIP: ghost doors need more work -- a peer can abuse the engine's door task in the watcher's game (fifth review, 2026-09-16)
 
-**The user's call first: is a ghost opening a door meant to be seen at all?** Read in the code by
-the review's Pokémon cell, not measured: `extras.dk/dx/dy` drive `door.start`, which writes a task
+**The intent is settled (the user, 2026-09-16): yes, a ghost opens doors** -- *"i want it to look as
+if another player is properly entering a house/building, so opening doors is part of making things
+look well synced/properly done."* So the feature stays and the abuse is what gets fixed. Read in the
+code by the review's Pokémon cell, not measured: `extras.dk/dx/dy` drive `door.start`, which writes a task
 into the victim's `gTasks` (the one peer-driven RAM write in the shipped drawn tier). A peer
 alternating the key on a real door tile makes the victim's door flap, can leave one drawn open (the
 close is tracked for the last door only), and while the task runs the victim's own door animation
 is refused. The list-insert invariant it relies on is marked unconfirmed in the code itself.
 Reasoning in `../../../../agent_docs/risks.md` ("Pass 5, left open").
+
+Work in progress, not scheduled (the user, 2026-09-16: *"something we have to work more on ...
+its a WIP~ thing anyway"*). **When it is picked up, in order:** (1) a Lua probe logging `gTasks` activity and the door task's frame count while a
+test peer alternates `dk`, which measures the door animation's real length and checks the insert
+invariant; (2) with that length, a per-peer minimum between door states, a close tracked for every
+door a peer opened (not only the last), and the watcher's own door animation always winning over a
+ghost's. Each bound comes from the measured animation, never a guess.
 
 ## [OPEN] the painted tier does not reproduce the engine's step machine (2026-09-12)
 

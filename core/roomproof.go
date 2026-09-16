@@ -77,11 +77,25 @@ var errProofFailed = protocol.Reject{
 	Retryable: false,
 }
 
+// errServerHasNoCode is the refusal when this client has a room code and the
+// server welcomed it without asking for one. A code on one side only is a
+// mismatch, the same as two different codes (the user, 2026-09-16: "either you
+// have a code or you don't ... both should either have no code or both have
+// the same code"). Until then the client joined and logged one line, so a
+// server pretending to be the player's could take the session simply by never
+// asking for the proof (pass 5 of the adversarial review, P1b-client-1; ADR 0070).
+var errServerHasNoCode = protocol.Reject{
+	Reason: "this client has a room code set, and the server asked for none -- either the server has " +
+		"no code (clear room_code in config.json to join it) or it is not the server this client meant",
+	Code:      protocol.CodeInvalidRoomCode,
+	Retryable: false,
+}
+
 // intercept handles one line from the relay if it is the proof's business.
 // It returns true when the line was consumed: a KE2, answered with KE3 or
-// refused. For any other line it notes, once, a relay that welcomed without
-// asking for the proof (no code configured there) and returns false so the
-// ordinary handler sees the line.
+// refused, or a welcome (or transports answer) from a relay that never asked
+// for the proof, which is refused as a mismatched code (errServerHasNoCode).
+// Any other line returns false so the ordinary handler sees it.
 func (p *roomProof) intercept(conn transport.Transport, payload []byte, refuse func(protocol.Reject)) bool {
 	if p == nil {
 		return false
@@ -136,8 +150,9 @@ func (p *roomProof) intercept(conn transport.Transport, payload []byte, refuse f
 		asked := p.answered
 		p.mu.Unlock()
 		if !asked {
-			log.Printf("core: this server has no room code set, so the one configured here was not used " +
-				"and did not prove the server; anyone with the address can join it")
+			refuse(errServerHasNoCode)
+			_ = conn.Close()
+			return true
 		}
 		return false
 	default:

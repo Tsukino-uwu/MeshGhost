@@ -56,8 +56,9 @@ being work. An entry still here has not been confirmed.
 - **The bridge's "no newline" bound is 16 KiB, was 4,096** (PM-4): a `render_remote` can pass
   4,096 bytes, and a peer padding its states could make this script drop and redial its bridge.
 - **A departed peer's `wireArtPeer` row and its cross-map "said" keys go with it** (P2c-3). Neither
-  changes what is drawn. `ENGINE.lastPortable` is deliberately KEPT: it is what a returning peer's
-  dropped sprite falls back to, so clearing it would change what you see -- say if it should go.
+  changes what is drawn. `ENGINE.lastPortable` is deliberately KEPT (the user,
+  2026-09-16: keep it if it causes no issues): it is what a returning peer's dropped sprite falls
+  back to, and it costs one small row per player id for the session.
 
 **What to look at.** A peer wearing a wire-art sprite disconnects and reconnects: its art appears
 again. A peer on a neighbouring map reconnects: the "cross-map: ... translated to" line prints once

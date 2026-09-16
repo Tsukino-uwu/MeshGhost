@@ -463,7 +463,9 @@ both opaque to the core and relay (never parsed, compared only where noted below
   refused with `invalid_room_code`, and each charged to the source's budget (a proof started
   and abandoned is charged when the connection ends). An empty configured code (the default)
   means auth is off — the original friend-hosted posture — and a relay with none ignores an
-  offered proof. This raises the bar from "anyone with the address" to "anyone with the address
+  offered proof. **A code on one side only is a mismatch** (ADR 0070, 2026-09-16): a client with a
+  code that is welcomed without being asked for the proof refuses the session with
+  `invalid_room_code`, permanently, as it would a wrong code. This raises the bar from "anyone with the address" to "anyone with the address
   and the code," and, unlike sending the code inside TLS, gives whoever sits between client and
   relay neither the code nor an offline guess at it. See `docs/security.md`.
 

@@ -834,15 +834,8 @@ fixed is in `phases/phase10.md` and `phases/phase12.md` (2026-09-16). What follo
 `file:line` and is real, but is either a decision or needs a game. Each names what closes it.
 
 **Decisions (the user's):**
-- **P1b-client-1 — a client with a room code accepts a server that never asks for the proof.**
-  `core/roomproof.go` logs "this server has no room code set" and lets the Welcome through, by
-  design (`TestARelayWithNoCodeWelcomesAClientThatHasOne`); so an impostor that simply skips the
-  proof is joined as a full session, with only the log line and, if a certificate was remembered,
-  the identity warning. It does not learn the code and cannot reach the real room. ADR 0067 says
-  both "a code-less relay welcomes" and "an impostor is refused"; they cannot both hold. Closing
-  it means refusing a code-less server when a code is set (a player who kept a code for a server
-  that dropped it can no longer join until they clear it). **Closes with the user's choice and an
-  ADR revision.**
+- **P1b-client-1 — CLOSED 2026-09-16, the user's call (ADR 0070):** a client with a room code
+  refuses a server that never asks for the proof; a code on one side only is a mismatch.
 - **P1b-client-3 — one refusal from an impostor keeps a client solo until restart**: a locally
   failed proof is cached as a permanent refusal (`core/relaysession.go`, `permanentReject*`).
   Retrying instead would spend the household's wrong-code budget on a code that is genuinely
@@ -867,9 +860,9 @@ fixed is in `phases/phase10.md` and `phases/phase12.md` (2026-09-16). What follo
 **Needs a game (each is in that adapter's `UNVERIFIED.md`):**
 - **P2c-1 (Emerald) — a peer's door messages make the victim's game run the engine's door task**
   (a `gTasks` write, the only peer-driven RAM write in the shipped drawn tier): doors can be made
-  to flap, left drawn open, and the victim's own door animation refused while one runs. Whether a
-  ghost opening a door is meant to be seen at all is the user's call first (root `CLAUDE.md`:
-  never assume intent).
+  to flap, left drawn open, and the victim's own door animation refused while one runs. **The
+  feature stays** (the user, 2026-09-16: a ghost entering a building opens its door); the abuse
+  is fixed from a measurement, plan in `emerald/UNVERIFIED.md`.
 - **P2e-1 (Pseudoregalia) — a peer can aim any loaded attack montage at the victim**; the known
   Sunsetter/Strikebreak/lever leak (`chaser-planning.md` Part A) made targetable. Part A closes it.
 - **P2e-3/-4 and P2t-2..-5 — per-sample spawn costs** (a pawn clone per area flip, 64 afterimages

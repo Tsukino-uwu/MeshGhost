@@ -641,9 +641,9 @@ game yet.
 **What was found and not changed**, with the reasons, is in `agent_docs/risks.md` under "Pass 5,
 left open". Two are worth knowing as a player now. **Set a long room code**: a server that is not
 the one you meant can make two guesses at it each time your client starts, as any password login
-allows. And **a client with a room code still joins a server that asks for none** -- the log says
-so in one line -- so a server pretending to be yours can take your session (never the code, and
-never your seat on the real server); whether the client should refuse instead is an open decision.
+allows. And **a client with a room code now refuses a server that asks for none**: a code on
+one side only counts as a wrong code (ADR 0070). Until this pass it joined with one log line, so a
+server pretending to be yours could take your session just by never asking for the code.
 
 ## What's already true, and why (checked against the actual code, 2026-09-11)
 
