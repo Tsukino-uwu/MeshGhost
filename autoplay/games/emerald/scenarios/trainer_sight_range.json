@@ -1,0 +1,55 @@
+{
+  "name": "emerald_trainer_sight_range",
+  "game": "emerald",
+  "variant": "vanilla",
+  "reproduces": "adapters/emulator/pokemon/emerald/MEASURED.md, \"A trainer's sight and defeat flag, a trainer coming for the player, and the level-up box\" (2026-09-17): RICK on route 0.17 (25,15), range 2, facing up -- three tiles above him nothing in 120 frames, and the step to two above brought him",
+  "needs": "vanilla Emerald with a save loaded and the player in the overworld, on foot",
+  "note": "The situation is made with cheats (his defeat flag cleared, a warp three tiles above him); the sight check itself is the game's own, run by an ordinary step. Nothing here writes a save.",
+  "repeat": 3,
+  "setup": [
+    {
+      "tool": "cheat",
+      "args": {"kind": "set_flag", "args": {"flag": 1895, "value": false}},
+      "note": "RICK's defeat flag, 0x767: unbeaten, whatever the save says",
+      "expect": [{"path": "report.now", "equals": false}]
+    },
+    {
+      "tool": "cheat",
+      "args": {"kind": "warp", "args": {"map": "0.17", "x": 25, "y": 12}},
+      "note": "three tiles above RICK",
+      "expect": [
+        {"path": "done", "equals": true},
+        {"path": "after.location.map", "equals": "0.17"},
+        {"path": "after.location.x", "equals": 25},
+        {"path": "after.location.y", "equals": 12}
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "tool": "wait",
+      "args": {"frames": 120},
+      "note": "three above: nothing comes",
+      "expect": [
+        {"path": "after.nearby[local_id=3].x", "equals": 25, "note": "RICK stands where the measurement had him"},
+        {"path": "after.nearby[local_id=3].y", "equals": 15},
+        {"path": "after.nearby[local_id=3].trainer.range", "equals": 2},
+        {"path": "after.nearby[local_id=3].trainer.beaten", "equals": false},
+        {"path": "after.location.y", "equals": 12},
+        {"path": "after.extras.script_context_raw", "equals": 2, "note": "no script running: no trainer has started for the player"},
+        {"path": "after.dialogue", "exists": false}
+      ]
+    },
+    {
+      "tool": "walk",
+      "args": {"direction": "down", "tiles": 1},
+      "note": "two above: RICK comes",
+      "expect": [
+        {"path": "outcome", "equals": "spotted"},
+        {"path": "moved", "equals": 1},
+        {"path": "trainer.local_id", "equals": 3},
+        {"path": "trainer.tiles_away", "equals": 2}
+      ]
+    }
+  ]
+}

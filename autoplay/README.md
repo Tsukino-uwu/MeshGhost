@@ -140,6 +140,29 @@ its label and its claim, rebuilt from the file. `mcpcall` starts a core per invo
 through it passes `-resume` every time (the `segment` tool's answer names the file); Phase 1's acceptance run
 was one file across 58 cores.
 
+## Scenarios
+
+What an agent explored once, replayed with no model: a JSON file of tool calls, each with what its answer
+must say (`scenario/`, run by `cmd/scenario`). The runner starts the core's own server in its process, the
+driver connects to it as to any core, and every step goes through the same tools, so the run log labels
+each run's `setup` and `steps` as their own segments, walked or reached.
+
+- **A step** is `{tool, args, note, expect}`: `expect` is a list of `{path, <operator>}` on the tool's
+  answer, and every one must hold. A path is keys and indices joined by dots (`after.location.x`, `log.0.text`),
+  and `key[field=value]` picks an array's first element whose field reads value
+  (`after.nearby[local_id=3].trainer.range`). Operators: `equals`, `not_equals`, `one_of`, `exists`, `min`,
+  `max`, `contains`. A step with `error` instead expects the tool to refuse, with that text in the refusal.
+- **Strict on purpose**: an unknown field, an expectation with no operator, or a tool the server lacks is
+  refused before anything runs, since a misspelled check would pass forever. `restore` and `snapshot` are
+  refused too: a scenario makes its situation with cheats.
+- **A run stops at its first failed step**, and the scenario at its first failed run unless `-all`. Exit 0
+  when every run passed, 1 when one failed, 2 when nothing ran (a file that does not load, no driver, another
+  game or variant connected).
+- **Scenarios so far**: `games/emerald/scenarios/trainer_sight_range.json` -- RICK's sight on route 0.17, from
+  `emerald/MEASURED.md` (2026-09-17): cheats clear his defeat flag and warp three tiles above him, 120 frames
+  pass with no script started, and the step to two above answers `spotted`, local id 3, two tiles away.
+- Not built yet: a `speed` setting, expectations on a MeshGhost adapter's own log, waiting on an event.
+
 ## Cheats so far
 
 - **Emerald `warp`** `{map: "G.N", x, y}`: the game's own map load (the writes `cmd_drive.lua`
@@ -205,6 +228,8 @@ was one file across 58 cores.
   a run spread over many invocations passes `-resume runs/<its file>.ndjson` to each (The run log). For many
   calls, build both once (`go build -o <dir>/autoplay.exe ./cmd/autoplay`, the same for `./cmd/mcpcall`) and pass
   `-core <dir>/autoplay.exe`: `go run` compiles on every invocation.
+- **Scenarios**: `go run ./cmd/scenario <files or folders>` (from `autoplay/`), with the driver's port free:
+  the runner listens on it itself (`-listen` for another). `-repeat N` overrides the file's count.
 - **CI**: `.github/workflows/autoplay.yml` — build, vet, race tests, `govulncheck`, inside this module.
 
 ## What stays out of the repo

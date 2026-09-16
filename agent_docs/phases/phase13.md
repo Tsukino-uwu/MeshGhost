@@ -799,3 +799,46 @@ inside, so that is now a condition of a message box.
 
 **Left open:** both emulators (Crystal 7871, Emerald 7870) are running with their loader targets at `none`; closing
 them is the user's.
+
+## 2026-09-17 (the Emerald chat, new) — the scenario runner: RICK's sight replayed 3 of 3 with no model, and failing when broken
+
+**The user, as it began:** *"Just keep going until i tell you to stop, i will be afk for a bit"*. The Emerald
+instance the Crystal chat had started was still running, so this chat attached to it (the driver back in
+`bizhawk-dev-loader-autoplay.target`) instead of launching one; its save was MAY's whiteout, at home.
+
+**Built** (Go side; README "Scenarios"). `autoplay/scenario/` reads a JSON scenario -- `setup` and `steps`, each a
+tool call with `expect` checks on its answer (a dotted path, `key[field=value]` to pick from a list, and
+`equals`, `not_equals`, `one_of`, `exists`, `min`, `max`, `contains`) -- and runs it; `cmd/scenario` runs files
+through the core's own server in its process over in-memory MCP transports, so a step is exactly an agent's tool
+call and the run log labels each run's setup and steps as separate segments. It refuses before running anything: an
+unknown field (a misspelled operator would check nothing and pass forever), a check with no operator, a tool the
+server lacks, `restore` and `snapshot` (a scenario makes its state with cheats), and a driver on another game or
+variant. The first scenario, `autoplay/games/emerald/scenarios/trainer_sight_range.json`, the layout Phase 0
+proposed for tracked game files.
+
+**Why that measurement.** The acceptance (the plan's Phase 4) asks for a real measurement replayed. RICK's range
+(`emerald/MEASURED.md`, the 2026-09-17 sight entry) is the game's own check run by an ordinary step, and cheats
+alone make its situation, so it needs no savestate: clear his defeat flag (0x767), warp to (25,12), three tiles
+above him; wait 120 frames and see RICK at (25,15) with range 2, unbeaten, no script started (status 2) and no
+message; walk down one and see `spotted`, local id 3, two tiles away. Done first by hand through `mcpcall`, which
+answered exactly that, then written down.
+
+**Checked.** Go: tests for every refusal, the paths, each operator, a pass, a broken expectation, a failed setup,
+expected and unexpected refusals, another game, a lost link, and end to end a scripted driver behind the real
+server with the run log's labels read back from its file; `go test -race -count=10 ./...` clean in the module. On
+the game (vanilla, the new game's save, which RICK's measurement was not taken on): 3 of 3, about 2.3 s a run, and 3
+of 3 again from a clean start (warped home, script status 2); the run log read setup `reached` (`cheat:set_flag`,
+`cheat:warp`) and steps `walked` for each run. **Broken on purpose**, from copies in the scratch folder: `tiles_away`
+3 failed all three runs under `-all` at steps 2 with "trainer.tiles_away: want 3, got 2", and exit 1; RICK's flag
+SET (the check on `beaten` dropped, so only the game could catch it) failed at the walk with "outcome: want
+\"spotted\", got \"done\"" -- a beaten trainer did not come, as CALVIN had not.
+
+**What went wrong on the way:** both tests of a broken expectation replaced a string that was not in the scenario
+(`"tiles_away"` sits inside `"trainer.tiles_away"`), so the "broken" copy was the passing one; the package test's
+own did-it-apply check said so, and the command's test, which had none, passed for the wrong reason until it got one.
+
+**Left as it is:** the Emerald instance is on route 0.17 at (25,13) with RICK coming (the last run), the driver on
+its target. Not built: a `speed` setting, checks on a MeshGhost adapter's own log, waiting on an event.
+
+**Next on Emerald:** the battle message after STRING SHOT that waits without counting as waiting; readers for the
+naming keyboard, the clock and the starter bag; `exec` and noclip.
