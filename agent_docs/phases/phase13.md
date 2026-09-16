@@ -541,3 +541,20 @@ seconds, a whole wild battle in 41 (the battle's own length at 60 frames a secon
 
 **Next:** a trainer's line of sight for `goto`; a Repel from the bag (list menus); then Phase 1's
 acceptance from a new game.
+
+## 2026-09-16 (end of the session) — where Phase 1 stands, for the next chat
+
+The user ended the session to continue in a new chat. The emulator this session started was closed and
+checked gone, with nothing listening on 7870 and the autoplay loader target at `none`. The game was
+saved first as the snapshot `session_end_route016` (gitignored `autoplay/states/emerald/`): route 0.16,
+MUDKIP Lv8 at 15/26, two trainers on route 0.17 beaten. `pb_base` is the earlier town state. Nothing is
+pushed.
+
+**To pick up:** launch vanilla Emerald with `MESHGHOST_DEV_LOADER_TARGET=bizhawk-dev-loader-autoplay.target`,
+`AUTOPLAY_GAME=emerald`, and the driver's path in that control file (the README's "Drivers so far");
+`restore` a snapshot, then drive with the tools (`go run ./cmd/mcpcall` from `autoplay/`, or a session
+with `--mcp-config autoplay/.mcp.json`). Prefer the one-call programs (`goto`, `battle`,
+`advance_text`) over loops driven from outside.
+
+**Next:** a trainer's line of sight in `goto`; the bag's list menu (a Repel, items in battle); then Phase
+1's acceptance from a new game to the first trainer battle.
