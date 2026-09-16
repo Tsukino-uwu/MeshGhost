@@ -106,6 +106,7 @@ internal static class BridgeFuzz
         PeerStrings();
         ForeignGamePeer();
         NonFinitePosition();
+        NarrowEnumOrdinals();
 
         Console.WriteLine("  " + checks + " line(s) fed through the shipped DrainInto");
         if (Failures.Count > 0)
@@ -124,6 +125,41 @@ internal static class BridgeFuzz
                           "string escaped being data.");
     }
 
+
+    // 11. A PEER'S BULLET ORDINALS against enums as narrow as the game's (Bullet.BulletType is Int16,
+    // Bullet.SpriteType is Byte, read from lib/Assembly-CSharp.dll 2026-09-16). The first guard called
+    // Enum.IsDefined with an int, which THROWS on a narrower enum, so every peer bullet died before it
+    // spawned and the harness never saw it: the call sat in Plugin.cs. These stand-ins have the same
+    // widths; the game's enums cannot be loaded here.
+    private enum ShortStandIn : short { Zero = 0, One = 1, Big = 300 }
+    private enum ByteStandIn : byte { Zero = 0, Top = 255 }
+
+    private static void NarrowEnumOrdinals()
+    {
+        (Type type, float value, int want)[] cases =
+        {
+            (typeof(ShortStandIn), 1f, 1), (typeof(ShortStandIn), 300f, 300), (typeof(ShortStandIn), 0f, 0),
+            (typeof(ShortStandIn), 2f, -1), (typeof(ShortStandIn), 70000f, -1), (typeof(ShortStandIn), -40000f, -1),
+            (typeof(ShortStandIn), 1.5f, -1), (typeof(ShortStandIn), float.NaN, -1), (typeof(ShortStandIn), float.PositiveInfinity, -1),
+            (typeof(ByteStandIn), 255f, 255), (typeof(ByteStandIn), 0f, 0), (typeof(ByteStandIn), 256f, -1),
+            (typeof(ByteStandIn), -1f, -1), (typeof(ByteStandIn), 7f, -1), (typeof(ByteStandIn), 511f, -1),
+        };
+        foreach (var c in cases)
+        {
+            checks++;
+            try
+            {
+                int got = BridgeClient.DefinedOrdinalOrMinusOne(c.type, c.value);
+                if (got != c.want)
+                    Fail("ordinal {0} on {1}: got {2}, want {3}", c.value, c.type.Name, got, c.want);
+            }
+            catch (Exception ex)
+            {
+                Fail("ordinal {0} on {1}: THREW {2} -- a narrow enum must be checked in its own width, or " +
+                     "every peer bullet is lost: {3}", c.value, c.type.Name, ex.GetType().Name, ex.Message);
+            }
+        }
+    }
 
     // 10. THE POSITION, which is the one peer float that never got the FiniteOrNull treatment the
     // animator floats got in the 2026-09-02 review (I23, fixed 2026-09-11).

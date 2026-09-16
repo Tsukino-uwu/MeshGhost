@@ -4255,10 +4255,11 @@ namespace MeshGhostTevi
             // The type and sprite ORDINALS must be values this build's enums define (2026-09-16;
             // SYNCED.md said "not checked yet"). An undefined ordinal is either another build's
             // numbering -- in which case the names in cell 15 win, see ApplyEnumNames -- or a
-            // peer's invention; either way the prefab's own value stays.
-            float typeF = CellF(row, 1), spriteF = CellF(row, 2);
-            int type = !float.IsNaN(typeF) && !float.IsInfinity(typeF) && System.Enum.IsDefined(typeof(Bullet.BulletType), (int)typeF) ? (int)typeF : -1;
-            int sprite = !float.IsNaN(spriteF) && !float.IsInfinity(spriteF) && System.Enum.IsDefined(typeof(Bullet.SpriteType), (int)spriteF) ? (int)spriteF : -1;
+            // peer's invention; either way the prefab's own value stays. Through the helper, never
+            // Enum.IsDefined on an int: both enums are narrower than int, and that call threw on
+            // every bullet from 96ed6168 until 2026-09-16 (BridgeClient.DefinedOrdinalOrMinusOne).
+            int type = BridgeClient.DefinedOrdinalOrMinusOne(typeof(Bullet.BulletType), CellF(row, 1));
+            int sprite = BridgeClient.DefinedOrdinalOrMinusOne(typeof(Bullet.SpriteType), CellF(row, 2));
 
             GameObject go = Instantiate(prefab.gameObject);
             go.name = $"MeshGhostRemote_{playerId}_bullet{seq}";

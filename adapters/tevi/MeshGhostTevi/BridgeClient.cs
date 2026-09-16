@@ -605,6 +605,31 @@ namespace MeshGhostTevi
             return f.HasValue && f.Value >= 0f && f.Value <= 1f ? f : null;
         }
 
+        // A peer's enum ORDINAL, as a float off the wire: the value when this build's enum defines it,
+        // else -1. Enum.IsDefined THROWS unless the value is boxed as the enum's own underlying type,
+        // and TEVI's are narrow (Bullet.BulletType is Int16, Bullet.SpriteType is Byte, read from
+        // lib/Assembly-CSharp.dll 2026-09-16): the first guard passed an int, so every peer bullet
+        // threw before it spawned. Range-checked against the underlying type first, then boxed as the
+        // enum itself, which IsDefined accepts whatever the width. Here, not in Plugin.cs, so the
+        // harness can reach it. A fraction is refused: no ordinal has one.
+        public static int DefinedOrdinalOrMinusOne(Type enumType, float value)
+        {
+            if (float.IsNaN(value) || float.IsInfinity(value) || value != Math.Floor(value)) return -1;
+            double min, max;
+            switch (Type.GetTypeCode(Enum.GetUnderlyingType(enumType)))
+            {
+                case TypeCode.Byte: min = byte.MinValue; max = byte.MaxValue; break;
+                case TypeCode.SByte: min = sbyte.MinValue; max = sbyte.MaxValue; break;
+                case TypeCode.Int16: min = short.MinValue; max = short.MaxValue; break;
+                case TypeCode.UInt16: min = ushort.MinValue; max = ushort.MaxValue; break;
+                case TypeCode.Int32: min = int.MinValue; max = int.MaxValue; break;
+                default: return -1; // no TEVI enum this is used on is wider; refuse rather than guess
+            }
+            if (value < min || value > max) return -1;
+            int ordinal = (int)value;
+            return Enum.IsDefined(enumType, Enum.ToObject(enumType, ordinal)) ? ordinal : -1;
+        }
+
         // The position is the ONE peer float that never got the FiniteOrNull treatment the
         // animator floats got in the 2026-09-02 review (found by the next one -- review I23,
         // 2026-09-11). Newtonsoft turns "NaN"/"Infinity" and out-of-range doubles into non-finite
