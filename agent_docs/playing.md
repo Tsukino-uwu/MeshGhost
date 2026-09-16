@@ -40,6 +40,11 @@ a solved problem.
 
 ### The mindset: you decide what happens in the game (user, 2026-09-16)
 
+*"you are free to do absolutely ANYTHING you want to get into a situation where we can test/measure
+things. as long as we actually test how "the game handles" something and not "i made this happen, but
+this is now how the game does it""* — and, the user's precision the same minute, *"ANYTHING(Inside the
+game itself)"*: the freedom is over the game's world, memory and code, not over anything outside it.
+
 **Nothing inside a game can stop you, strand you or make you wait.** With memory writes you choose
 what exists and what happens: the tiles around the player, the items in hand without opening a bag,
 whether a wild battle or a trainer happens at all and how it ends, whether an NPC speaks or a scripted

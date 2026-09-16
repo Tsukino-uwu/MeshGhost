@@ -50,6 +50,25 @@ being work. An entry still here has not been confirmed.
 
 ---
 
+## [OPEN] 2026-09-16 — a spawned ghost is written into the player's IN-GAME SAVE, and comes back on Continue
+
+**Measured 2026-09-16, vanilla Emerald, no adapter or probe loaded** (the scratch driver's `objdump`
+and a byte search of SaveBlock1). Continuing from the in-game save the ROM boots with put a second
+Brendan on screen, two tiles right of the player. It was object event slot 15: active, graphicsId 0,
+localId `$ff`, on the current map -- the signature of this adapter's ghosts, which take slots from 15
+downward and wear `LOCALID_PLAYER`. SaveBlock1's object-event copy (slot 0 matched at +0xA30, so slot
+15 is +0xC4C) held the same object with the same coordinates and facing; only its sprite id and flag
+bits differed, which the game rebuilds on Continue. So a save made while a ghost is spawned stores the
+ghost, and the game re-creates it on the next Continue. A same-map warp (a map load) cleared slots 14
+and 15.
+
+**Why this is not only cosmetic:** `CLAUDE.md` -- nothing that ships writes a save, ever. The adapter
+never writes the save itself, but the game's own save routine copies the object RAM the adapter wrote,
+so the effect is the same: the player's save file carries a phantom object. Unmeasured: what that object
+does beyond standing there (it shares the player's local id), whether Crystal's save does the same with
+its object structs, and which session's save this was. The fix is a design question for the user
+(despawn before the game saves, or keep ghosts out of the saved array), not yet decided.
+
 ## [OPEN] 2026-09-16 — to measure: what the adapter's comments took from the decompilation alone (the per-site audit)
 
 The per-site audit of `meshghost_emerald.lua` (the user's call, 2026-09-16) dropped every source file
