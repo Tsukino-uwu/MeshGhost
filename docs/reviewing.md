@@ -36,6 +36,11 @@ QUIC is served by `Listen` on a `quic.Transport` value (`netx/quicconn/quicconn.
 `net.ListenUDP` this pattern does catch, so grepping for the obvious name finds the type declaration
 and a comment instead of the line that starts serving.
 
+If you want the whole shape before the surfaces, [agent_docs/orientation.md](../agent_docs/orientation.md)
+is the project in plain words, written for the maintainer: its first three sections are how a ghost
+travels from one game to another and which folder holds what, and the rest is internal working
+practice you can skip.
+
 ## Where the bytes go
 
 A review of network code is mostly following attacker-controlled bytes from the socket to every
