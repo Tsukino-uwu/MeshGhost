@@ -485,3 +485,19 @@ them" paragraph reversed; `licensing.md`'s audit grep for the guard phrase point
 named so it is a decision: the `SYNCED.md` files carry the same "KEEP THIS SECTION" block and were
 not asked about; Emerald's `VERIFIED.md` 2026-09-13 entry still names the deleted "delayed ghost"
 heading, as a dated record. `doc-history.md` has the entry.
+
+## 2026-09-16 (last) — the audit's Lua tier: a convention and a ratchet, not 380 rewrites
+
+The sweep's remaining tier was the code: 130 decompilation citations in `meshghost_emerald.lua`,
+46 in `meshghost_crystal.lua`, 97 and 107 across the two `probes/` folders, and 28 in `pitfalls/`.
+Read in context, most sit beside a dated measurement (a probe, a trace, the user on screen) and
+explain why the code writes the byte it writes; a minority are the source's reading alone
+(the shadow's suppression rule, the jump's frame count, the underwater bob). Rewriting each of
+the 380 sites would spend hours on shipped comments to say what one paragraph can: **a citation
+is a pointer to where the decompilation places the mechanism the code imitates, never the
+evidence; dated is measured, source-only is unverified.** That paragraph is now at the top of
+both adapters, and preflight ratchets the four counts (a new citation fails; a shrink asks for
+the floor to be lowered), so the set cannot grow silently. The stricter option — site-by-site
+rewording, and moving each source-only mechanism into `UNVERIFIED.md` — is the user's call and
+is offered in the handoff. `pitfalls/`'s 28 are left as they are: each is a dated record of how a
+fix was found, and "the decompilation named the bug" is the method, not a claim about the game.

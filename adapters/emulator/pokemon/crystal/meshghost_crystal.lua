@@ -3,6 +3,14 @@
 -- *** WRITES GAME RAM. *** Object RAM only, never a save, cosmetic only, vanilla Crystal V1.0
 -- only. See agent_docs/architecture.md's 2026-08-17 ADR, and the ROM guard below.
 --
+-- HOW TO READ A DECOMPILATION CITATION IN THIS FILE (a pokecrystal source file beside a comment),
+-- since 2026-09-16: it says where the decompilation places the mechanism the code next to it
+-- imitates. It is a pointer, never the evidence. A claim that names a probe, a trace, a log or the
+-- user on screen, with a date, is measured; a claim that names only the source is the source's
+-- reading and is unverified on the game (CLAUDE.md, *measured or observed only*; the questions
+-- those readings raise are in UNVERIFIED.md). Preflight ratchets the count of such citations, so
+-- a new one is a new borrowed claim: measure it, or say the source is all it has.
+--
 -- WHAT MAKES THIS DIFFERENT FROM EMERALD'S ADAPTER
 -- Emerald draws its ghost over the emulator with gui.* and a hand-rolled sprite decode. This one
 -- SPAWNS A REAL IN-GAME OBJECT EVENT and lets Crystal render, animate and move it. The adapter

@@ -1535,4 +1535,6 @@ spawn-instant capture of 2026-08-17; the live read the user saw on screen 2026-0
 `[OPEN]` entry in `UNVERIFIED.md`. The rest of the file's names sit beside measured values. Not yet
 swept: `meshghost_crystal.lua`'s comments (46 decomp-file citations). Later the same day the file
 was stripped to the game's mechanics on the user's word — the rule section and the "cost three
-attempts" aside out, 810 → 798 lines (`phase12.md`, 2026-09-16, later still).
+attempts" aside out, 810 → 798 lines (`phase12.md`, 2026-09-16, later still). The Lua's 46
+citations: a convention paragraph at the top of the file and a preflight ratchet, not a rewrite
+(`phase12.md`, 2026-09-16, last).

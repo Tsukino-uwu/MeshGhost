@@ -7,6 +7,14 @@
 -- below. The header used to end "Never writes memory" -- true until the spawn path landed
 -- 2026-08-18, and left standing afterwards; it was the most misleading line in the file.
 --
+-- HOW TO READ A DECOMPILATION CITATION IN THIS FILE (a pokeemerald source file and line beside
+-- a comment), since 2026-09-16: it says where the decompilation places the mechanism the code
+-- next to it imitates. It is a pointer, never the evidence. A claim that names a probe, a trace,
+-- a log or the user on screen, with a date, is measured; a claim that names only the source is
+-- the source's reading and is unverified on the game (CLAUDE.md, *measured or observed only*;
+-- the questions those readings raise are in UNVERIFIED.md). Preflight ratchets the count of such
+-- citations, so a new one is a new borrowed claim: measure it, or say the source is all it has.
+--
 -- This is the real, actively-maintained Emerald adapter -- what actually ships (see
 -- packaging/README.md and .github/workflows/release.yml, which stage this file as
 -- games/pokemon/emerald/meshghost_emerald.lua in the release zip) and what any future fix or

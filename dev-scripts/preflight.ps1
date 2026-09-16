@@ -931,6 +931,41 @@ if ($cFenceHits.Count -gt 0) {
     Report-Pass "no fenced C block in $($trackedMd.Count) tracked markdown file(s)"
 }
 
+Section "Decompilation citations in adapter Lua: a ratchet"
+
+# 2026-09-16: the audit's second sweep reached the Lua. A decompilation citation in a code comment
+# is a pointer to where the source places the mechanism the code imitates -- both adapters' headers
+# say so -- and never the evidence; a NEW one is a new borrowed claim. Ratchets like
+# documentation.md's below: a count that grows fails, a count that shrinks asks for the floor to be
+# lowered. Rewriting the existing ones site by site is the stricter option, the user's call.
+$luaCiteC = '\b(src|include|data|constants)/[A-Za-z0-9_/]+\.(c|h|inc)\b|\.(c|h):[0-9]'
+$luaCiteAsm = '\b(engine|home|data|constants|ram|gfx|maps)/[A-Za-z0-9_/]+\.(asm|inc)\b|\.asm:[0-9]'
+$luaCiteRatchet = @(
+    @{ path = 'adapters/emulator/pokemon/emerald/meshghost_emerald.lua'; pattern = $luaCiteC;   floor = 130 },
+    @{ path = 'adapters/emulator/pokemon/crystal/meshghost_crystal.lua'; pattern = $luaCiteAsm; floor = 46 },
+    @{ path = 'adapters/emulator/pokemon/emerald/probes';                pattern = $luaCiteC;   floor = 97 },
+    @{ path = 'adapters/emulator/pokemon/crystal/probes';                pattern = $luaCiteAsm; floor = 107 }
+)
+$luaCiteProblems = @()
+foreach ($r in $luaCiteRatchet) {
+    $files = if (Test-Path $r.path -PathType Container) {
+        @(Get-ChildItem (Join-Path $r.path '*.lua') | ForEach-Object { $_.FullName })
+    } else { @($r.path) }
+    $n = 0
+    foreach ($f in $files) {
+        if (Test-Path $f) { $n += @(Select-String -LiteralPath $f -Pattern $r.pattern).Count }
+    }
+    if ($n -gt $r.floor) { $luaCiteProblems += "$($r.path): $n citation line(s), recorded $($r.floor) (grew)" }
+    elseif ($n -lt $r.floor) { $luaCiteProblems += "$($r.path): $n, recorded $($r.floor) (shrank -- lower the floor in this file)" }
+}
+if ($luaCiteProblems.Count -gt 0) {
+    Report-Fail ("decompilation citations in adapter Lua moved off their recorded floor -- a new one is a " +
+        "borrowed claim: measure it, or write it as the source's reading and move the question to " +
+        "UNVERIFIED.md (CLAUDE.md, agent_docs/licensing.md): " + ($luaCiteProblems -join "; "))
+} else {
+    Report-Pass "decompilation citations in adapter Lua at their recorded floors (4 ratchets)"
+}
+
 Section "Measured or observed only: no NEW source-derived claims (ratchet)"
 
 # CLAUDE.md "MEASURED OR OBSERVED ONLY -- NOTHING BORROWED", the user's rule of 2026-09-13

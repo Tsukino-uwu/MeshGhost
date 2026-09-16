@@ -1238,4 +1238,5 @@ now fails any ```c fence in tracked markdown (the expression check's patterns ha
 `meshghost_emerald.lua`) and the probe headers. Later the same day the file was stripped to the
 game's mechanics on the user's word — the rule section, the history paragraph, the delayed-ghost
 and renderer sections, the ADR aside and the quoted colour out, 867 → 773 lines (`phase12.md`,
-2026-09-16, later still).
+2026-09-16, later still). The Lua's 130 citations: a convention paragraph at the top of the file
+and a preflight ratchet, not a rewrite (`phase12.md`, 2026-09-16, last).
