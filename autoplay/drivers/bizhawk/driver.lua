@@ -141,6 +141,7 @@ local function selectProgram(p)
 	local keys = game.menuButtons
 	local target, label, before, dir
 	local phase, held, settle, steps, from, maxSteps = "look", 0, 0, 0, nil, 0
+	local releasing = nil -- frames spent waiting for the game to see a release, when the module can tell
 
 	local function sameMenu(m)
 		if not m or m.window ~= before.window or #m.items ~= #before.items then return false end
@@ -177,6 +178,15 @@ local function selectProgram(p)
 			label, maxSteps, phase = m.items[target + 1], #m.items * 2 + 2, "move"
 		end
 
+		-- A game that looks at the buttons only every few frames can miss a short release, and a button still held
+		-- is not a new press: Crystal's START menu saw Down at one frame and next looked 4 frames later, past the
+		-- 2-frame release, and never moved again (2026-09-17). A module that can read the game's own copy of the
+		-- buttons names game.inputReleased(); the release then lasts until the game has seen it.
+		if releasing then
+			releasing = releasing + 1
+			if not game.inputReleased() and releasing <= LEG_LIMIT then return nil, false end
+			releasing = nil
+		end
 		if settle > 0 then
 			settle = settle - 1
 			return nil, false
@@ -205,6 +215,7 @@ local function selectProgram(p)
 					end
 				elseif m.cursor ~= from then
 					held, settle = 0, SETTLE
+					if game.inputReleased then releasing = 0 end
 					return nil, false
 				end
 				held = held + 1

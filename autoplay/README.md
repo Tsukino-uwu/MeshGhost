@@ -95,6 +95,25 @@ The driver reports each of `map`, `mode`, `dialogue` and `menu` changing as an e
 `map_changed`, `mode_changed`, `dialogue_changed` and `menu_changed` (open or closed), and
 `battle_input_changed` when a battle starts or stops waiting for an action or a move.
 
+**Crystal**, on the vanilla V1.0 ROM only (its hash; `crystal/MEASURED.md`, 2026-09-17), reads less so
+far, and reads its text straight off the screen's tile buffer, with no hooks:
+
+- **`location`** — `map` (group.number), `x`, `y` and `facing`. The tile changes when a step ENDS, not
+  when it begins.
+- **`mode`** — `overworld` or `not_overworld` (a full-screen menu such as the PACK, a door's map load,
+  the title and main menu). A battle is not measured yet, so it is not named.
+- **`dialogue`** — `box` (the lines in the message box) and `state`: `printing`, `waiting_for_button`
+  (the ▼), or `finished` (the last box, no ▼). There is no `box_index`: the tile buffer shows one box.
+- **`menu`** — a one-column menu with a ▶ cursor (the START menu, a YES/NO, the main menu): `items` and
+  `cursor`, 0-based. Grids and scrolling lists (the PACK's items) are not read yet.
+- **`screen_text`** — `row` and `text` for every other row holding words.
+- **`warps`** — `x`, `y`, the map it leads `to` and `to_warp`, the destination's warp number from 1.
+- Not yet: `local_map`, `nearby`, `movement`, `battle`, and what the save has. The events are
+  `map_changed`, `mode_changed`, `dialogue_changed`, `menu_changed` and `battle_mode_raw_changed`.
+- Its tools: `walk` (on foot only; `run` walks and says `ran: false`, since Crystal has no running
+  shoes; a door answers once the player stands on the new map) and `select`. No `goto`, `battle`,
+  `advance_text` or cheats yet.
+
 ## The run log
 
 Every session writes `autoplay/runs/<time>.ndjson`: each tool call, and each segment labelled
@@ -130,14 +149,19 @@ code rather than by memory. A failed or refused cheat changes nothing.
   warp from `emerald/probes/cmd_drive.lua`'s measurements, text and menus from
   `text_probe.lua`'s, `charset_probe.lua`'s and `list_menu_probe.lua`'s, the map and `walk` from `map_probe.lua`'s and
   `step_probe.lua`'s, the party, bag, badges and their cheats from `party_bag_probe.lua`'s and
-  `substruct_order_probe.lua`'s). **While a press, a select or a walk runs it holds the controller** — take it
+  `substruct_order_probe.lua`'s), and `games/crystal.lua` (vanilla V1.0: position, mode, `walk`, warps, text
+  and menus from `crystal/probes/autoplay_state_probe.lua`'s, `autoplay_text_probe.lua`'s and
+  `autoplay_charset_probe.lua`'s measurements). **While a press, a select or a walk runs it holds the controller** — take it
   off the target when done.
+- **`select` waits for the game to see a release** where the module can tell (`game.inputReleased`):
+  Crystal's START menu looks at the buttons only every few frames, and a 2-frame release between cursor
+  moves was never seen, so the held button never moved the cursor again.
 - **Programs stop when nothing changes.** `walk`, `goto`, `select`, `battle` and `advance_text` run in the
   driver a frame at a time and end on the game's state; `battle` and `advance_text` press A once after
   3 seconds with no change, retry a press the game ignored, and answer `stuck` after 3 of those, so a
-  call never sits for minutes. The driver only knows text it saw printed: after reloading it, a message
-  already on screen reads as none until the next one.
-- **Text costs top speed.** Reading text needs execute hooks, and any execute hook halves the
+  call never sits for minutes. Emerald's module only knows text it saw printed: after reloading it, a message
+  already on screen reads as none until the next one (Crystal's reads whatever is on screen).
+- **Text costs top speed on Emerald.** Reading text there needs execute hooks (Crystal's needs none), and any execute hook halves the
   emulator's unthrottled speed, however many there are (one instance, a core connected: 818
   frames/s without, 410-416 with; `emerald/MEASURED.md`, 2026-09-16). `AUTOPLAY_TEXT=0` in the
   emulator's environment leaves them out for a run that wants full fast-forward and no text. With no

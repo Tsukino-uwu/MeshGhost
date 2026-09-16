@@ -624,3 +624,41 @@ told apart by which cursor routine last ran.
 
 **Next for Phase 1:** the acceptance run, from a new game to the first trainer battle. The bag inside a
 battle and the party menu an item asks for are not measured yet.
+
+## 2026-09-17 (the Crystal chat) — Crystal step 1: position, mode, `walk`, text and menus, with no core change
+
+**Built.** `autoplay/drivers/bizhawk/games/crystal.lua`, so the same core drives vanilla Crystal V1.0 on its
+own instance (port 7871, its own loader target, beside the Emerald chat's on 7870): `observe` with `location`
+(map, tile, facing), `mode` (`overworld` or `not_overworld`), `warps`, `dialogue`, `menu` and `screen_text`;
+`walk` on foot; `select`. The core needed no change. One shared change: `select` in `driver.lua` waits for
+the game to see a release where the module can say so (`game.inputReleased`); Emerald's module does not, so
+its path is unchanged. Measurements: `crystal/MEASURED.md`, six entries dated today; tools: the README.
+
+**How it was measured, the decomp as the map only.** Our V1.0 build's `.gbc` hashes identical to the ROM, so
+its `.sym` said where to look. Three new probes: `autoplay_state_probe.lua` (read-only, ~50 state bytes and
+the player object on change) through a cold boot, walks each way, a bump, a sign, the START menu, the PACK,
+the POKéGEAR and a door each way; `autoplay_text_probe.lua` (read-only, the tile buffer and the menu block on
+change) through the sign's boxes and SAVE's YES/NO; `autoplay_charset_probe.lua`, which wrote 0x60-0xFF into
+an open message box so the game drew every byte, cut into a labelled sheet and named, then checked against
+every word of real text read. Crystal's text is its tile buffer, so it needs no execute hooks — the thing
+that halves Emerald's top speed.
+
+**What went wrong on the way:**
+- **`select` moved the START menu's cursor once and then never again.** The probe showed the game's own
+  button byte still reading Down across the driver's 2-frame release: the menu looks at the buttons every few
+  frames, missed the release, and a held button is not a new press. Waiting for that byte to read 0 fixed it.
+- **A walk out of a house answered on the door tile**: the game walks the player off the outside door 2
+  frames after the map runs, with the player at rest for those 2. `walk` now wants 8 frames of rest.
+- **The core stopped building mid-session**: `runlog.go` was half-edited by the Emerald chat in the shared
+  tree. This chat built its core and `mcpcall` from the last commit into its scratch folder instead of
+  touching the file.
+- **The first probe line listed no WRAM domain**: BizHawk's domain list is indexed from 0 and
+  `table.concat` starts at 1. The reads themselves were fine.
+
+**The user:** chose vanilla V1.0 for the launch. No in-game save was made; SAVE's YES/NO was reached with
+`select` stopping on NO and left with B. Named snapshots in the gitignored `autoplay/states/crystal/`:
+`main_menu`, `newbark_start`, `sign_text` (the town sign's first box), `start_menu`, `house_24_9_mat`.
+
+**What Crystal needs next, and what waits for one chat:** a battle for `mode` (the save has no Pokémon: the
+starter from the lab first), then `local_map` and `nearby`. `advance_text` and `battle` would reuse
+`emerald.lua`'s text machine, which stays there until the user decides the move to shared Lua, in one chat.

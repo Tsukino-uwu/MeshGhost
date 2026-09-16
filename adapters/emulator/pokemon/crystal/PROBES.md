@@ -14,7 +14,7 @@ has been read, its conclusion belongs in `VERIFIED.md`.
 live, with no emulator relaunch. See `agent_docs/environment.md`. Older probes here predate the
 loader and run their own frame loop, so they still work opened directly in the Lua Console.
 
-## Seventeen of these WRITE (twenty until four were deleted 2026-09-16; `cmd_drive` added the same day), and nineteen hold the controller. Read this before running one.
+## Eighteen of these WRITE (twenty until four were deleted 2026-09-16; `cmd_drive` added the same day, `autoplay_charset_probe` 2026-09-17), and nineteen hold the controller. Read this before running one.
 
 Called out here rather than only in their own headers, because a folder index that hides a
 memory-writing tool is the worst kind of gap — nobody reads a header they did not know existed.
@@ -39,6 +39,8 @@ and `noclip.lua` redirects `wTilesetCollisionAddress` to a filtered table it wri
 tail of `wOverworldMapBlocks`, and sets `EMOTE_OBJECT` on nearby NPCs (2026-09-13); `cmd_drive.lua`
 writes whatever its command file says -- map blocks into `wOverworldMapBlocks`, single WRAM bytes
 (2026-09-16).
+**The screen's tile buffer only:** `autoplay_charset_probe.lua` writes bytes into the text rows of a
+message box that is already open, so the game draws them; closing the box puts the map back (2026-09-17).
 **None writes the `.sav`** — but an in-game save afterwards makes their changes
 permanent, so savestate first and reload after. `noclip_off.lua` restores the collision pointer.
 
@@ -217,6 +219,16 @@ wrong. Results and what is still unmeasured: `phase9.md` and `VERIFIED.md`.
 | `cmd_drive.lua` | **Writes the game and holds the controller.** Vanilla V1.0 only. Runs a command file beside it (`cmd_drive.cmd`, re-read live): hold/wait/shot/status, `poke`, `block BX,BY ID` into the map buffer, `redraw` (START then B), `tilecheck` (tile to block to collision, beside the engine's own byte), `collscan`/`collfind` (which blocks of the loaded tileset are ledges or water). The state-building half of the `/play-game` skill's "cheat to create, then use it as the game intends": built 2026-09-16 to hop real ledge blocks and cast at real water blocks for `borrowed_values_probe`. Its header says what is measured. |
 | `borrowed_values_probe.lua` | Read-only. Whenever the player fishes or a new object appears (a hop's shadow), logs every object struct and all 40 OAM entries per frame, 8 frames before to 60 after, unfiltered. Measured 2026-09-16 that `facingFrames.ROD`, the shadow's spawn bytes and `emote.SHADOW_DY` (down/left/right) match the engine's own (`UNVERIFIED.md`, the per-site audit entry). Reads every frame while loaded, so it is not for judging pacing. |
 | `xtrace_on.lua` | Sets `MESHGHOST_CRYSTAL_XTRACE` before the adapter loads, arming the adapter's own bounded per-frame tier trace (150 frames after each map change, with per-frame draw counters and the reason any frame went unpainted). The dev loader shares one Lua environment, which is why a global set here reaches the adapter. |
+
+## autoplay's Crystal module (2026-09-17)
+
+Loaded beside `autoplay/drivers/bizhawk/driver.lua` on an autoplay instance, and read against the driver's own answers; `MEASURED.md` has what each settled.
+
+| File | What it is |
+| --- | --- |
+| `autoplay_state_probe.lua` | Read-only. Every frame, one line when any of ~50 state bytes changes (map, tile, wMapStatus, wSpriteUpdatesEnabled, wBattleMode, the movement and direction bytes, the neighbour collisions, menu and script bytes, a few HRAM ones), and the player object's 0x28 bytes on change. Log named by `AUTOPLAY_PORT`. Settled position, facing, mode, a step, a refusal and a door. |
+| `autoplay_text_probe.lua` | Read-only. The 18 rows of `wTilemap`, 0x40 bytes of the menu block from `wWindowStackPointer`, and the text and joypad bytes, each on change; `AUTOPLAY_TEXT_PROBE_HRAM=1` (global or environment) adds all of HRAM. Settled the message box, the ▼'s blink, `wTextboxFlags`, the 2D menu block and when the game sees a button. |
+| `autoplay_charset_probe.lua` | **Writes the tile buffer.** With a message box open and waiting (refuses otherwise), writes 0x60-0xFF into its text rows 72 at a time and captures each page, so every byte is named from what the game draws. Presses nothing; closing the box restores the map. Take it off the target when it logs `done`. |
 
 ## Not a probe
 
