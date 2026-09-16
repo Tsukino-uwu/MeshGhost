@@ -1240,3 +1240,10 @@ game's mechanics on the user's word — the rule section, the history paragraph,
 and renderer sections, the ADR aside and the quoted colour out, 867 → 773 lines (`phase12.md`,
 2026-09-16, later still). The Lua's 130 citations: a convention paragraph at the top of the file
 and a preflight ratchet, not a rewrite (`phase12.md`, 2026-09-16, last).
+
+## 2026-09-16 — the fifth adversarial review, adapter side
+
+Pointer: the bridge's "no newline" bound went from 4,096 to 16 KiB (a `render_remote` can pass
+4,096), and a departed peer's per-peer render tables are now forgotten on despawn. Unwatched; the
+entries, and on Emerald the ghost-door abuse kept as a work in progress (the user, 2026-09-16),
+are in this adapter's `UNVERIFIED.md`. The review itself: `phase10.md`, the same date.
