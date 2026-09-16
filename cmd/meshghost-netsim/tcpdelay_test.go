@@ -146,13 +146,20 @@ func TestTCPDelayDoesNotClumpTheStream(t *testing.T) {
 	// AND THE STREAM IS NOT CLUMPED. With inline sleeping, a batch of lines sent
 	// 10 ms apart crosses in a few bursts and most gaps are ~0; delayed properly,
 	// the arrival gaps look like the send gaps.
+	//
+	// THE LIMIT SITS BETWEEN TWO MEASURED DISTRIBUTIONS, 2026-09-16, race detector,
+	// every core of a 12-thread machine saturated: the old inline-sleep proxy
+	// scored 32-35 of 39 (34 idle), this one 0-14 (0 idle). The first limit was a
+	// third, 13, which sat inside the loaded noise and failed once beside the whole
+	// race suite on 2026-09-15. Failing above 23 leaves both sides about ten clear.
 	tight := 0
 	for i := 1; i < len(seen); i++ {
 		if seen[i].Sub(seen[i-1]) < spacing/4 {
 			tight++
 		}
 	}
-	if tight > len(seen)/3 {
+	t.Logf("%d of %d arrival gaps under a quarter of the send spacing", tight, len(seen)-1)
+	if tight > (len(seen)-1)*3/5 {
 		t.Fatalf("%d of %d arrival gaps were under a quarter of the send spacing -- the proxy is "+
 			"CLUMPING the stream rather than delaying it, which is a different network from the "+
 			"one the flags describe, and it is the one every tcp verdict would be measured on",
