@@ -191,8 +191,10 @@ func TestTheTableIsBoundedAndEvictsTheOldestIdleEntry(t *testing.T) {
 func TestKeyShapes(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
 		{"1.2.3.4:80", "1.2.3.4"},
-		{"[::1]:80", "::1"},
-		{"[fe80::1%en0]:1", "fe80::1"},
+		{"[::1]:80", "::/64"},
+		{"[fe80::1%en0]:1", "fe80::/64"},
+		{"[::ffff:1.2.3.4]:80", "1.2.3.4"},
+		{"[2001:db8:1:2:aaaa:bbbb:cccc:dddd]:7777", "2001:db8:1:2::/64"},
 		{"pipe", ""},
 		{"", ""},
 	} {
@@ -210,3 +212,23 @@ type strAddr string
 
 func (s strAddr) Network() string { return "test" }
 func (s strAddr) String() string  { return string(s) }
+
+// TestOneIPv6SubscriberSharesOneBudget is pass 5's P1b-2: one machine on a
+// home IPv6 line can use any address in its /64, and keying by the whole
+// address gave each of them a fresh wrong-room-code budget -- unlimited
+// guesses from one host. Every address in the /64 must draw on one bucket;
+// the next /64 over is a different subscriber and must not.
+func TestOneIPv6SubscriberSharesOneBudget(t *testing.T) {
+	tb := New(Options{AuthBurst: 3, AuthRefillPerSecond: 0.0001})
+	conn := func(host string) fakeConn { return fakeConn{remote: strAddr("[" + host + "]:7777")} }
+	for i := 1; i <= 3; i++ {
+		tb.NoteAuthFailure(conn(fmt.Sprintf("2001:db8:1:2::%x", i)))
+	}
+	if !tb.Blocked(conn("2001:db8:1:2:ffff:ffff:ffff:ffff")) {
+		t.Fatal("three wrong codes from three addresses in one /64 left a fourth address in it unblocked: " +
+			"the budget is per address, so one IPv6 host guesses without limit")
+	}
+	if tb.Blocked(conn("2001:db8:1:3::1")) {
+		t.Fatal("the neighbouring /64 was blocked by another subscriber's failures")
+	}
+}

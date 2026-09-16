@@ -2,12 +2,15 @@ package tlsx
 
 import (
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
 	"math/big"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -52,15 +55,24 @@ func TestTheVerifierIsHandedOnlyTheLeafCertificate(t *testing.T) {
 	attacker := newDER(t, "attacker")
 	want := Fingerprint(relay)
 
-	cfg := clientConfig("", func(leaf []byte) error {
+	check := func(leaf []byte) error {
 		if Fingerprint(leaf) != want {
 			return errors.New("not the relay")
 		}
 		return nil
-	})
-	verify := cfg.VerifyPeerCertificate
-	if verify == nil {
-		t.Fatal("clientConfig must install VerifyPeerCertificate")
+	}
+	// VerifyLeaf is handed the completed handshake's state, whose
+	// PeerCertificates are whatever the peer sent, in its order.
+	verify := func(chain [][]byte, _ any) error {
+		state := tls.ConnectionState{HandshakeComplete: true}
+		for _, der := range chain {
+			c, err := x509.ParseCertificate(der)
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			state.PeerCertificates = append(state.PeerCertificates, c)
+		}
+		return VerifyLeaf(state, check)
 	}
 
 	if err := verify([][]byte{relay}, nil); err != nil {
@@ -122,4 +134,47 @@ func withColons(hex string) string {
 		b.WriteString(hex[i : i+2])
 	}
 	return b.String()
+}
+
+// TestTheVerifierSeesOnlyACertificateTheServerProvedItHolds is pass 5's
+// P1b-client-2. The known-relays Verifier RECORDS what it is shown, and it
+// used to be shown the Certificate message the moment it arrived -- before
+// the CertificateVerify signature proved the server holds that
+// certificate's key. A server presenting the genuine relay's certificate
+// while signing with a different key must fail the handshake WITHOUT the
+// verifier ever being called, or an on-path attacker rewrites a player's
+// remembered identity with bytes it cannot use.
+func TestTheVerifierSeesOnlyACertificateTheServerProvedItHolds(t *testing.T) {
+	_, genuineKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour)}
+	genuineDER, err := x509.CreateCertificate(nil, tmpl, tmpl, genuineKey.Public(), genuineKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, impostorKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &tls.Config{
+		MinVersion:   tls.VersionTLS13,
+		Certificates: []tls.Certificate{{Certificate: [][]byte{genuineDER}, PrivateKey: impostorKey}},
+	}
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	go func() {
+		_ = tls.Server(b, server).Handshake()
+		_ = b.Close()
+	}()
+	calls := 0
+	_, err = Client(a, "", func([]byte) error { calls++; return nil }, 2*time.Second)
+	if err == nil {
+		t.Fatal("a server that cannot sign for its certificate completed the handshake")
+	}
+	if calls != 0 {
+		t.Fatalf("the verifier was called %d time(s) for a certificate the server never proved it holds", calls)
+	}
 }

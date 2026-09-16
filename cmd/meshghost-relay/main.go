@@ -924,7 +924,7 @@ func (t *trackingListener) Accept() (net.Conn, error) {
 	// net.Conn as an INTERFACE hides any method net.Conn does not declare, and
 	// this repo has been bitten by that three times (2026-09-05, 2026-09-06,
 	// 2026-09-07 -- netx/limit.go's limitedConn carries the story). The three
-	// optional methods this codebase type-asserts for are forwarded below;
+	// optional methods this codebase type-asserts for (five since 2026-09-16) are forwarded below;
 	// WriteUnreliable gets a separate type so it stays ABSENT on a connection
 	// that genuinely has no datagram plane, since transport.SendUnreliable
 	// decides by asking whether the method is there.
@@ -1026,6 +1026,31 @@ func (c *trackedConn) TransportName() string {
 		return "tcp"
 	}
 	return tn.TransportName()
+}
+
+// AcceptedAt and MaxPayloadBytes forward for the same reason, and were missed
+// the same way: added to the codebase after this list was written. Without
+// AcceptedAt the relay's hello timer restarted at the handshake on every
+// shipped connection, holding a stranger for two windows instead of one
+// (pass 5 of the adversarial review, 2026-09-16, P1d-1;
+// TestShippedStackCountsTheHelloTimeoutFromAccept). A zero time means "no
+// accept time", which the relay reads as the whole window, today's fallback.
+func (c *trackedConn) AcceptedAt() time.Time {
+	a, ok := c.Conn.(interface{ AcceptedAt() time.Time })
+	if !ok {
+		return time.Time{}
+	}
+	return a.AcceptedAt()
+}
+
+// MaxPayloadBytes is 0 ("no datagram bound") when the connection has none,
+// which is what the relay's sendBudget assumes for a stream.
+func (c *trackedConn) MaxPayloadBytes() int {
+	m, ok := c.Conn.(interface{ MaxPayloadBytes() int })
+	if !ok {
+		return 0
+	}
+	return m.MaxPayloadBytes()
 }
 
 // trackedLossyConn is trackedConn for a connection that also has the datagram

@@ -25,9 +25,11 @@ package relay
 // is deliberately lossy). Left as an idea with the measurement it would need.
 
 import (
+	"errors"
 	"log"
 	"sync"
 
+	"github.com/Tsukino-uwu/MeshGhost/internal/throttle"
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
@@ -58,6 +60,10 @@ type outbox struct {
 	id   string
 
 	done chan struct{}
+
+	// refusedLine throttles the skipped-line report: a member whose path
+	// refuses a class of line refuses every one of them.
+	refusedLine throttle.Line
 }
 
 func newOutbox(id string, conn transport.Transport) *outbox {
@@ -158,6 +164,18 @@ func (o *outbox) run() {
 		} else {
 			err = conn.Send(m.line)
 		}
+		if err != nil && refusedBeforeWriting(err) {
+			// Not a dead socket: the connection refused THIS line before any
+			// byte left (a datagram too large for the path, say), and the next
+			// line may go through. Ending the writer on it discarded every
+			// join, leave and state owed to that member for the rest of its
+			// connection while its pongs kept it looking alive (pass 5 of the
+			// adversarial review, 2026-09-16, PM-1). Drop the one line and go on.
+			if n, ok := o.refusedLine.Allow(); ok {
+				log.Printf("relay: a message to %s was refused before sending and skipped: %v (%d so far)", o.id, err, n)
+			}
+			continue
+		}
 		if err != nil {
 			// The FIRST failed send ends this writer. A connection that
 			// refused one write refuses the rest, and until 2026-09-15 the
@@ -199,4 +217,12 @@ func (o *outbox) close() {
 	case o.signal <- struct{}{}:
 	default:
 	}
+}
+
+// refusedBeforeWriting reports whether err says the connection refused the
+// message outright, putting none of it on the wire -- transport's
+// writeNeverHappened, whose structural interface this mirrors.
+func refusedBeforeWriting(err error) bool {
+	var nw interface{ NotWritten() bool }
+	return errors.As(err, &nw) && nw.NotWritten()
 }

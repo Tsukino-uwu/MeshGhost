@@ -319,7 +319,12 @@ func (c *Conn) Write(p []byte) (int, error) {
 // method that makes QUIC worth choosing over TCP — see the package doc.
 //
 // A datagram too large for the connection's current path MTU is refused by
-// quic-go rather than fragmented, and that error is returned as-is.
+// quic-go rather than fragmented, and such a line is written to the stream
+// instead. Until 2026-09-16 the refusal was returned as-is, which made every
+// state line between ~1.2 KB and the protocol's 4 KB cap undeliverable to a
+// quic member on every send, and made the relay's outbox discard the member's
+// whole queue as if the socket had died (pass 5 of the adversarial review,
+// PM-1). A state late is better than never, and the stream is framed the same.
 func (c *Conn) WriteUnreliable(p []byte) (int, error) {
 	select {
 	case <-c.closed:
@@ -380,6 +385,10 @@ func (c *Conn) WriteUnreliable(p []byte) (int, error) {
 	}
 	select {
 	case err := <-done:
+		var tooLarge *quic.DatagramTooLargeError
+		if errors.As(err, &tooLarge) {
+			return c.Write(p)
+		}
 		if err != nil {
 			return 0, err
 		}
@@ -814,7 +823,7 @@ func Dial(addr string, timeout time.Duration) (net.Conn, error) {
 }
 
 // DialWith connects to a quicconn listener at addr, bounded by timeout,
-// verifies the relay's leaf certificate with verify during the handshake,
+// verifies the relay's leaf certificate with verify once the handshake completes,
 // and opens the single bidirectional stream the connection carries. A nil
 // verifier is an error before any packet is sent.
 func DialWith(addr string, timeout time.Duration, verify tlsx.Verifier) (net.Conn, error) {
@@ -831,6 +840,13 @@ func DialWith(addr string, timeout time.Duration, verify tlsx.Verifier) (net.Con
 	qc, err := quic.DialAddr(ctx, addr, tlsConf, quicConfig())
 	if err != nil {
 		return nil, fmt.Errorf("quicconn: dial %s: %w%s", addr, err, dialHint(err))
+	}
+	// DialAddr returns once the handshake has completed, so the leaf is one the
+	// relay signed with; checked here, before the stream exists, and never in
+	// the TLS config's callbacks (tlsx.clientConfig says why).
+	if err := tlsx.VerifyLeaf(qc.ConnectionState().TLS, verify); err != nil {
+		_ = qc.CloseWithError(0, "certificate refused")
+		return nil, fmt.Errorf("quicconn: %w", err)
 	}
 	stream, err := qc.OpenStreamSync(ctx)
 	if err != nil {

@@ -192,6 +192,28 @@ func (c *limitedConn) TransportName() string {
 	return tn.TransportName()
 }
 
+// AcceptedAt and MaxPayloadBytes forward for the same reason (pass 5 of the
+// adversarial review, 2026-09-16, P1d-1): the limiter wraps every quic
+// connection above quicconn, so the relay's hello timer could not see when a
+// quic connection was accepted and restarted its window at the first stream.
+// Zero values are the relay's own fallbacks: the whole window, no datagram
+// bound. Test: TestLimitListenerForwardsTheOptionalMethods.
+func (c *limitedConn) AcceptedAt() time.Time {
+	a, ok := c.Conn.(interface{ AcceptedAt() time.Time })
+	if !ok {
+		return time.Time{}
+	}
+	return a.AcceptedAt()
+}
+
+func (c *limitedConn) MaxPayloadBytes() int {
+	m, ok := c.Conn.(interface{ MaxPayloadBytes() int })
+	if !ok {
+		return 0
+	}
+	return m.MaxPayloadBytes()
+}
+
 // unreliableWriter is the state plane's fire-and-forget escape hatch, as the
 // transport package discovers it: by type assertion on the net.Conn, which is
 // exactly what an embedded-interface wrapper defeats.

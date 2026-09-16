@@ -186,23 +186,28 @@ func Fingerprint(der []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// clientConfig builds a dialer's TLS configuration around a Verifier.
+// clientConfig builds a dialer's TLS configuration.
 //
 // InsecureSkipVerify is set on purpose and is not a shortcut: "connect_to"
 // is a bare IP a friend sent you, so there is no CA and no hostname a
 // certificate could be checked against. Verification is the Verifier,
-// applied to the leaf certificate only (see Verifier for why only).
-func clientConfig(alpn string, verify Verifier) *tls.Config {
+// applied to the leaf certificate only (see Verifier for why only), and
+// AFTER the handshake completes -- by VerifyLeaf, which every dialer calls.
+//
+// Not in VerifyPeerCertificate, where it was until 2026-09-16: crypto/tls
+// calls that (and VerifyConnection) as soon as the Certificate message
+// arrives, BEFORE the CertificateVerify signature proves the server holds
+// the certificate's key. The known-relays Verifier records what it is shown,
+// so an on-path attacker could send any certificate bytes -- the genuine
+// relay's own included, or anyone's -- fail the handshake, and still have
+// rewritten the player's remembered identity (pass 5 of the adversarial
+// review, P1b-client-2). After the handshake, the leaf is one the peer
+// signed with.
+func clientConfig(alpn string) *tls.Config {
 	cfg := &tls.Config{
 		InsecureSkipVerify: true,
 		MinVersion:         tls.VersionTLS13,
 		KeyLogWriter:       keyLogWriter,
-		VerifyPeerCertificate: func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
-			if len(rawCerts) == 0 {
-				return errors.New("tlsx: the relay presented no certificate")
-			}
-			return verify(rawCerts[0])
-		},
 	}
 	if alpn != "" {
 		cfg.NextProtos = []string{alpn}
@@ -211,14 +216,33 @@ func clientConfig(alpn string, verify Verifier) *tls.Config {
 }
 
 // ClientConfig is clientConfig for a caller that drives its own handshake
-// -- quicconn, whose dial is quic-go's rather than crypto/tls's. A nil
-// verifier is an error there for the same reason it is in Client.
+// -- quicconn, whose dial is quic-go's rather than crypto/tls's. That caller
+// MUST call VerifyLeaf with the completed connection's state before sending
+// anything. A nil verifier is an error here for the same reason it is in
+// Client, so a caller cannot reach a config without having one to call.
 func ClientConfig(alpn string, verify Verifier) (*tls.Config, error) {
 	if verify == nil {
 		return nil, errors.New("tlsx: no certificate verifier -- a nil Verifier would accept anyone; " +
 			"pass TrustAnyCertificate explicitly if that is what you mean")
 	}
-	return clientConfig(alpn, verify), nil
+	return clientConfig(alpn), nil
+}
+
+// VerifyLeaf applies verify to a COMPLETED handshake's leaf certificate --
+// the only certificate the handshake signature binds (see Verifier). Call it
+// after the handshake and before the first byte of application data; a
+// non-nil error means close the connection.
+func VerifyLeaf(state tls.ConnectionState, verify Verifier) error {
+	if verify == nil {
+		return errors.New("tlsx: no certificate verifier")
+	}
+	if !state.HandshakeComplete {
+		return errors.New("tlsx: the handshake has not completed; nothing is proven yet")
+	}
+	if len(state.PeerCertificates) == 0 {
+		return errors.New("tlsx: the relay presented no certificate")
+	}
+	return verify(state.PeerCertificates[0].Raw)
 }
 
 // FingerprintHexLen is the length of a normalized fingerprint: SHA-256 as
@@ -260,7 +284,8 @@ func NormalizeFingerprint(s string) (string, error) {
 // halfway through the first Send. On failure the underlying connection is
 // closed — the caller has nothing usable left.
 //
-// verify is applied to the relay's leaf certificate during the handshake;
+// verify is applied to the relay's leaf certificate once the handshake has
+// proven it (VerifyLeaf);
 // nil is an error, closed before a byte is sent. There is deliberately no
 // "just encrypt" spelling here: a caller that wants that says
 // TrustAnyCertificate, in a place a reviewer can grep for.
@@ -277,6 +302,10 @@ func Client(conn net.Conn, alpn string, verify Verifier, timeout time.Duration) 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	if err := tc.HandshakeContext(ctx); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("tlsx: handshake: %w", err)
+	}
+	if err := VerifyLeaf(tc.ConnectionState(), verify); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("tlsx: handshake: %w", err)
 	}

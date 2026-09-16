@@ -193,3 +193,68 @@ func TestLimitListenerKeepsTheUnreliableWrite(t *testing.T) {
 		t.Fatal("plain connection was not accepted")
 	}
 }
+
+// acceptedConn is a connection that knows when it was accepted and has a
+// datagram bound, as tlsx's servedConn and quicconn's Conn do.
+type acceptedConn struct {
+	net.Conn
+	at time.Time
+}
+
+func (c *acceptedConn) AcceptedAt() time.Time { return c.at }
+func (c *acceptedConn) MaxPayloadBytes() int  { return 1111 }
+
+type acceptedListener struct {
+	net.Listener
+	at time.Time
+}
+
+func (l *acceptedListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return &acceptedConn{Conn: c, at: l.at}, nil
+}
+
+// TestLimitListenerForwardsTheOptionalMethods is pass 5's P1d-1: the relay
+// type-asserts for AcceptedAt (its hello timer counts from accept) and
+// MaxPayloadBytes (its Welcome budget), and a wrapper embedding net.Conn as
+// an interface hides both. The limiter wraps every quic connection, so the
+// accept-time fix never reached one.
+func TestLimitListenerForwardsTheOptionalMethods(t *testing.T) {
+	raw, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	at := time.Now().Add(-5 * time.Second)
+	ln := LimitListener(&acceptedListener{Listener: raw, at: at}, 4, nil)
+	defer ln.Close()
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		if c, err := ln.Accept(); err == nil {
+			accepted <- c
+		}
+	}()
+	client, err := net.Dial("tcp", raw.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer client.Close()
+	var server net.Conn
+	select {
+	case server = <-accepted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("connection was not accepted")
+	}
+	defer server.Close()
+
+	a, ok := server.(interface{ AcceptedAt() time.Time })
+	if !ok || !a.AcceptedAt().Equal(at) {
+		t.Fatalf("the limiter hid AcceptedAt (%T, ok=%v): the relay's hello timer restarts at the first stream", server, ok)
+	}
+	m, ok := server.(interface{ MaxPayloadBytes() int })
+	if !ok || m.MaxPayloadBytes() != 1111 {
+		t.Fatalf("the limiter hid MaxPayloadBytes (%T, ok=%v)", server, ok)
+	}
+}

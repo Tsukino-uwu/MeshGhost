@@ -340,3 +340,33 @@ func TestMaximalWorldStateFitsAQuicDatagram(t *testing.T) {
 		t.Errorf("server read %d bytes from the datagram, want %d", len(got), len(line))
 	}
 }
+
+// TestAnUnreliableWriteTooLargeForADatagramRidesTheStream is pass 5's PM-1.
+// quic-go refuses a datagram larger than the path allows (~1.2 KB) rather
+// than fragmenting it, and until 2026-09-16 that refusal was returned as-is:
+// a state line between that and the protocol's 4 KB cap -- a full extras
+// object does it, and a tcp member sends one without noticing -- was dropped
+// on every send to every quic member, and the relay's outbox took the error
+// for a dead socket and discarded everything owed to that member for the rest
+// of its connection. A line that cannot go as a datagram goes on the stream:
+// late is better than never for a state, and the stream is framed the same.
+func TestAnUnreliableWriteTooLargeForADatagramRidesTheStream(t *testing.T) {
+	l := listenTest(t)
+	client, server := connect(t, l, `{"type":"hello"}`+"\n")
+	readOne(t, server)
+
+	line := `{"type":"state","pad":"` + strings.Repeat("x", 3000) + `"}` + "\n"
+	uw := client.(interface {
+		WriteUnreliable(p []byte) (int, error)
+	})
+	if n, err := uw.WriteUnreliable([]byte(line)); err != nil || n != len(line) {
+		t.Fatalf("WriteUnreliable(%d bytes) = %d, %v; want the whole line accepted", len(line), n, err)
+	}
+	var got strings.Builder
+	for !strings.HasSuffix(got.String(), "\n") {
+		got.WriteString(readOne(t, server))
+	}
+	if got.String() != line {
+		t.Fatalf("server read %d bytes, want the %d-byte line intact", got.Len(), len(line))
+	}
+}

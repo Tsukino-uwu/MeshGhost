@@ -24,6 +24,7 @@ package relay
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -1428,8 +1429,29 @@ func sendEnvelope(conn transport.Transport, t protocol.MessageType, payload any)
 		return
 	}
 	if err := conn.Send(b); err != nil {
-		log.Printf("relay: send %s failed: %v", t, err)
+		if n, ok := sendFailedLine.Allow(); ok {
+			log.Printf("relay: send %s failed: %v (%d such failure(s) so far)", t, withoutAddress(err), n)
+		}
 	}
+}
+
+// sendFailedLine throttles sendEnvelope's failure line. A stranger reaches it
+// before admission: a refused hello followed by a stream reset makes the
+// Reject's write fail, one line per connection, and the log is 1 MiB with one
+// rotated copy -- the fourth review's A4 again, through the one line that
+// shape missed (pass 5, 2026-09-16, P1b-1). Package-level because
+// sendEnvelope is, and one budget for every connection is the point.
+var sendFailedLine throttle.Line
+
+// withoutAddress strips the peer address a *net.OpError prints, keeping what
+// went wrong: the relay does not write a client's IP to its log
+// (docs/security.md, privacy; netx/srclimit's package comment).
+func withoutAddress(err error) error {
+	var op *net.OpError
+	if errors.As(err, &op) && op.Err != nil {
+		return op.Err
+	}
+	return err
 }
 
 // rejectAndClose sends a protocol.Reject with reason, logs the refusal for

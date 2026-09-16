@@ -163,3 +163,92 @@ func TestHelloTimeoutsAndConnectionErrorsLogAtMostOnceASecond(t *testing.T) {
 		t.Fatalf("hello timeouts counted %d, want %d", got, each)
 	}
 }
+
+// addrFailingTransport fails every write with the *net.OpError a real socket
+// returns, which prints the peer's address.
+type addrFailingTransport struct{ transport.Transport }
+
+func (addrFailingTransport) Send([]byte) error {
+	return &net.OpError{Op: "write", Net: "tcp",
+		Addr: &net.TCPAddr{IP: net.IPv4(203, 0, 113, 7), Port: 51234},
+		Err:  errors.New("connection reset by peer")}
+}
+
+// TestAFailedPreAdmissionSendLogsAtMostOnceASecond is pass 5's P1b-1: a
+// stranger's refused hello followed by a stream reset makes the Reject's
+// write fail, and sendEnvelope printed one line per connection with no
+// throttle -- the A4 flood through the one line it missed. And the line
+// carried the peer's address, which the relay's log never does.
+func TestAFailedPreAdmissionSendLogsAtMostOnceASecond(t *testing.T) {
+	logs := captureRelayLog(t)
+	const attempts = 200
+	for i := 0; i < attempts; i++ {
+		sendEnvelope(addrFailingTransport{}, protocol.TypeReject, protocol.Reject{Reason: "no"})
+	}
+	if n := logs.count("failed"); n > 2 {
+		t.Fatalf("%d send-failure lines for %d failed sends; want at most 2 (one per second)", n, attempts)
+	}
+	if logs.count("203.0.113.7") != 0 {
+		t.Fatal("the send-failure line printed the peer's address")
+	}
+}
+
+// notWrittenErr is a refusal that put nothing on the wire.
+type notWrittenErr struct{}
+
+func (notWrittenErr) Error() string    { return "datagram too large" }
+func (notWrittenErr) NotWritten() bool { return true }
+
+// refusesFirstUnreliable refuses its first unreliable line before writing
+// and delivers everything else.
+type refusesFirstUnreliable struct {
+	transport.Transport
+	mu        sync.Mutex
+	refused   bool
+	delivered []string
+}
+
+func (r *refusesFirstUnreliable) Send(p []byte) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.delivered = append(r.delivered, string(p))
+	return nil
+}
+
+func (r *refusesFirstUnreliable) SendUnreliable(p []byte) error {
+	r.mu.Lock()
+	if !r.refused {
+		r.refused = true
+		r.mu.Unlock()
+		return notWrittenErr{}
+	}
+	r.mu.Unlock()
+	return r.Send(p)
+}
+
+// TestARefusedLineDoesNotEndTheOutbox is pass 5's PM-1: one line the
+// connection refused before writing -- a state too large for a quic
+// datagram -- ended the member's writer, and every join, leave and state
+// owed to it after that was silently discarded while its pongs kept it
+// looking alive.
+func TestARefusedLineDoesNotEndTheOutbox(t *testing.T) {
+	captureRelayLog(t)
+	rt := &refusesFirstUnreliable{}
+	o := newOutbox("p7", rt)
+	o.enqueue(outMsg{line: []byte("big-state"), unreliable: true})
+	o.enqueue(outMsg{line: []byte("join")})
+	o.enqueue(outMsg{line: []byte("state"), unreliable: true})
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		rt.mu.Lock()
+		n := len(rt.delivered)
+		rt.mu.Unlock()
+		if n == 2 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	t.Fatalf("delivered %q after one refused line; want the join and the next state", rt.delivered)
+}

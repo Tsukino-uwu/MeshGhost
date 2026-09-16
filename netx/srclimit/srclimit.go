@@ -82,10 +82,21 @@ func New(o Options) *Table {
 	return &Table{opts: o, now: time.Now, entries: make(map[string]*entry)}
 }
 
-// Key is the part of an address a Table is keyed by: the host, with any
-// IPv6 zone stripped. Empty when addr is not host:port shaped (net.Pipe
-// says "pipe"), in which case the Table counts nothing for it -- a
-// connection with no address cannot be a stranger's.
+// Key is the part of an address a Table is keyed by: an IPv4 host, or the
+// /64 an IPv6 host sits in, with any zone stripped. Empty when addr is not
+// host:port shaped (net.Pipe says "pipe"), in which case the Table counts
+// nothing for it -- a connection with no address cannot be a stranger's.
+//
+// Why the /64 and not the address (pass 5 of the adversarial review,
+// 2026-09-16, P1b-2): an ordinary home IPv6 line is handed a whole /64, and
+// one machine can bind any address in it, so keying by the full address gave
+// that machine a fresh wrong-room-code budget and a fresh connection share
+// per source address it chose to use -- the guessing rate the budget exists
+// to stop, bounded again only by the listener-wide caps. A /64 is the
+// smallest block a single subscriber is given; it is the IPv6 shape of the
+// one public IPv4 a NAT household already shares. An IPv4-mapped IPv6
+// address is keyed as the IPv4 it carries, so a dual-stack listener counts a
+// v4 client once whichever form the socket reports.
 func Key(addr net.Addr) string {
 	if addr == nil {
 		return ""
@@ -97,7 +108,14 @@ func Key(addr net.Addr) string {
 	if i := strings.IndexByte(host, '%'); i >= 0 {
 		host = host[:i]
 	}
-	return host
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return host
+	}
+	if v4 := ip.To4(); v4 != nil {
+		return v4.String()
+	}
+	return ip.Mask(net.CIDRMask(64, 128)).String() + "/64"
 }
 
 // Acquire records one more open connection from addr. False means the

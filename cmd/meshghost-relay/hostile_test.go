@@ -479,3 +479,39 @@ func TestAShortRoomCodeWarnsAtStartup(t *testing.T) {
 		t.Fatalf("long code: %q", got)
 	}
 }
+
+// TestShippedStackCountsTheHelloTimeoutFromAccept is pass 5's P1d-1. The
+// 2026-09-15 fix made the relay's hello timer count from the moment the
+// socket was accepted (tlsx.servedConn.AcceptedAt), so a stranger who drips
+// the TLS handshake and then goes silent is held for ONE window. It never
+// ran on the shipped stack: main wraps every accepted connection in
+// trackedConn, which forwarded only the methods it listed, so the relay's
+// type assertion for AcceptedAt failed and the timer restarted at the
+// handshake -- two windows again. The test above asserts only a lower bound
+// and passed throughout.
+//
+// Here the handshake starts most of a window after accept; the close must
+// come at the END of the window that started at accept, not a whole window
+// after the handshake.
+func TestShippedStackCountsTheHelloTimeoutFromAccept(t *testing.T) {
+	captureLog(t)
+	const hold = time.Second
+	const lateBy = 700 * time.Millisecond
+	addr, _ := startShippedStack(t, stackOpts{helloTimeout: hold})
+	raw := dialRaw(t, addr)
+	time.Sleep(lateBy) // the sniff waits for a first byte; the socket is already accepted
+	tc := tls.Client(raw, &tls.Config{
+		InsecureSkipVerify: true, // a stranger verifies nothing; see dialTLS
+		NextProtos:         []string{netx.TLSALPN},
+		MinVersion:         tls.VersionTLS13,
+	})
+	_ = tc.SetDeadline(time.Now().Add(hostileDialTimeout))
+	if err := tc.Handshake(); err != nil {
+		t.Fatalf("tls handshake: %v", err)
+	}
+	_ = tc.SetDeadline(time.Time{})
+	// Counted from accept, about hold-lateBy (300ms) is left. Counted from the
+	// handshake, a whole hold (1s) is. Allow well past the first, well short
+	// of the second.
+	expectClosed(t, tc, hold-lateBy+350*time.Millisecond)
+}
