@@ -32,6 +32,7 @@ func main() {
 	wait := flag.Duration("wait", 30*time.Second, "how long a game tool waits for a driver to connect")
 	coreCmd := flag.String("core", "go run ./cmd/autoplay", "the command that starts the core, run from autoplay/")
 	logPath := flag.String("log", "runs/core.log", "the core's log file; a second instance names its own")
+	resume := flag.String("resume", "", "a run log to carry on (the segment tool's log_file), so a run split across invocations stays one record")
 	flag.Parse()
 
 	var calls []call
@@ -42,6 +43,9 @@ func main() {
 
 	ctx := context.Background()
 	argv := append(strings.Fields(*coreCmd), "-listen", *listen, "-log", *logPath)
+	if *resume != "" {
+		argv = append(argv, "-resume", *resume)
+	}
 	core := exec.Command(argv[0], argv[1:]...)
 	core.Stderr = os.Stderr
 

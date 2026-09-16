@@ -61,6 +61,10 @@ then let the game run the mechanism through ordinary input — never force the o
   the ghost back as a real object (`emerald/UNVERIFIED.md`); `objdump` shows it, a warp clears it.
 - **An in-game save keeps what `givekey`/`register` wrote**: they write SaveBlock1, which is what the
   save stores. `cmd_drive` itself never writes the save file.
+- **A new game without losing the save** (2026-09-17, autoplay): A+B+Start+Select for 10 frames, Start to skip
+  the intro, Start on the drawn title, Down and A on NEW GAME -- then never SAVE, and the cartridge save stays.
+  Snapshot as soon as Birch speaks; the naming keyboard, the clock and the starter bag are pressed by hand
+  (`emerald/MEASURED.md`, "A new game to the first trainer battle").
 
 ## Other probes that reach a state
 

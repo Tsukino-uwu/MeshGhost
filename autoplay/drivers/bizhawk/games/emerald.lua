@@ -60,6 +60,12 @@ local GWINDOWS, WINDOW_SIZE = 0x02020004, 12
 -- closes, which is why a menu counts as open from the routine named Menu_MoveCursor (which both of
 -- its setups call, the START menu's and the YES/NO's) until its window is cleared or removed.
 local SMENU = 0x0203cd90
+-- The byte the build names sGlobalScriptContextStatus read 2 with no script running (before the step into
+-- the line, after a warp, and 25 frames after the overworld came back from the battle), 0 on the frame the
+-- trainer's approach began, and 0 or 1 from then through its words, the battle and its words after
+-- (trainer_approach_probe.lua, 2026-09-17, three approaches and one whole battle). Other scripts -- a
+-- character spoken to, a sign -- are not measured.
+local SCRIPT_CONTEXT_STATUS, SCRIPT_CONTEXT_OFF = 0x03000e38, 2
 -- Font 1 with no extra line spacing: the second line of a message box and the NO of a YES/NO sat 16px
 -- below the first.
 local LINE_ADVANCE = 16
@@ -265,7 +271,36 @@ local function windowLines(w)
 	return lines
 end
 
+-- A message already under way when the driver started looking (after a restore or a reload) never passes
+-- through the hook, and a string of several boxes prints them all from one call: Birch's speech read as no
+-- message after a restore while "Welcome to the world of" printed (2026-09-17). So with none known, a window
+-- whose printer is active and on screen is taken up from the printer's own pointer; for a string in the ROM
+-- its start is found by going back to the byte after the previous FF, and anywhere else the text starts at the
+-- pointer. `recovered` marks it: its box index counts from wherever that start was.
+local function recoverDialogue()
+	for w = 0, 31 do
+		if printerActive(w) and windowOnScreen(w) then
+			local ptr = r32(STEXTPRINTERS + w * PRINTER_SIZE)
+			local start = ptr
+			if ptr >= 0x08000200 and ptr < 0x0A000000 then
+				local back = memory.read_bytes_as_array(ptr - 512, 512, BUS)
+				for i = 512, 1, -1 do
+					if back[i] == EOS then
+						start = ptr - 512 + i
+						break
+					end
+				end
+			elseif ptr < 0x02000000 or ptr >= 0x04000000 then
+				return nil
+			end
+			return { window = w, bytes = readString(start), start = start, recovered = true }
+		end
+	end
+	return nil
+end
+
 local function readDialogue()
+	if not dialogue then dialogue = recoverDialogue() end
 	if not dialogue or not windowOnScreen(dialogue.window) then return nil end
 	local p = STEXTPRINTERS + dialogue.window * PRINTER_SIZE
 	local active, stateRaw = r8(p + 0x1B) == 1, r8(p + 0x1C)
@@ -311,6 +346,7 @@ local function readDialogue()
 		box = decode(b, boxes[index].from, boxes[index].to),
 		box_index = index,
 		boxes = #boxes,
+		recovered = dialogue.recovered,
 	}
 end
 
@@ -408,9 +444,17 @@ local function readWarps()
 	if not inRom(events) then return out end
 	local n, list = r8(events + 1), r32(events + 8)
 	if not inRom(list) then return out end
+	local width, height, grid = r32(GBACKUPMAPLAYOUT), r32(GBACKUPMAPLAYOUT + 4), r32(GBACKUPMAPLAYOUT + 8)
 	for i = 0, math.min(n, 64) - 1 do
 		local e = memory.read_bytes_as_array(list + i * 8, 8, BUS)
-		out[#out + 1] = { x = e[1] | (e[2] << 8), y = e[3] | (e[4] << 8), to = string.format("%d.%d", e[8], e[7]) }
+		local w = { x = e[1] | (e[2] << 8), y = e[3] | (e[4] << 8), to = string.format("%d.%d", e[8], e[7]) }
+		-- The tile under it, as describeTile reads one: how a warp is entered depends on it.
+		local gx, gy = w.x + MAP_OFFSET, w.y + MAP_OFFSET
+		if gx < width and gy < height then
+			local v = r16(grid + (gx + width * gy) * 2)
+			w.collision, w.elevation, w.behaviour = (v >> 10) & 3, v >> 12, behaviourOf(v & 0x3FF)
+		end
+		out[#out + 1] = w
 	end
 	return out
 end
@@ -1039,6 +1083,7 @@ function game.observe(asked)
 		},
 		extras = {
 			callback2 = string.format("%08X", cb2),
+			script_context_raw = r8(SCRIPT_CONTEXT_STATUS),
 			text_hook_errors = hookErrors > 0 and hookErrors or nil,
 			avatar_flags = r8(GPLAYERAVATAR),
 			player_object = {
@@ -1284,12 +1329,6 @@ end
 -- `walk` and `goto` used to report as `no_response`. What these read once a battle is over is not measured,
 -- so a reading left over from before the program counts only once it has changed.
 local NUM_APPROACHING, APPROACHING, LAST_TALKED = 0x030060a8, 0x03006090, 0x020375f2
--- The byte the build names sGlobalScriptContextStatus read 2 with no script running (before the step into
--- the line, after a warp, and 25 frames after the overworld came back from the battle), 0 on the frame the
--- trainer's approach began, and 0 or 1 from then through its words, the battle and its words after
--- (trainer_approach_probe.lua, 2026-09-17, three approaches and one whole battle). Other scripts -- a
--- character spoken to, a sign -- are not measured.
-local SCRIPT_CONTEXT_STATUS, SCRIPT_CONTEXT_OFF = 0x03000e38, 2
 
 local function approachWatch()
 	local startN, start = r8(NUM_APPROACHING), memory.read_bytes_as_array(APPROACHING, 8, BUS)
@@ -1471,6 +1510,8 @@ end
 --   * a bump ends the ride at rest, marks the refused tile closed, and plans again (at most REPLANS times).
 -- It stops for the same reasons `walk` does, and a warp or an edge that changes the map ends it too.
 local TURN_COST, GRASS_COST, SIGHT_COST, REPLANS = 2, 8, 100, 8
+-- The direction a warp you stand on is entered by (ENTERING A WARP, in goto).
+local WARP_PRESS = { [0x62] = "right", [0x65] = "down" }
 
 local function planRoute(fromX, fromY, toX, toY, closed, crossGrass)
 	local layout = r32(GMAPHEADER)
@@ -1483,6 +1524,21 @@ local function planRoute(fromX, fromY, toX, toY, closed, crossGrass)
 	end
 	local grid = memory.read_bytes_as_array(gp, gw * gh * 2, BUS)
 	local elevation = r8(playerObject() + 0x0B) & 0x0F
+	if elevation == 0 then
+		-- Standing on elevation 0 (a door mat), plan at the level of a clear neighbour: from the house's mat at
+		-- elevation 0 the next step right was onto elevation 3 (2026-09-17).
+		for _, off in ipairs({ { 0, -1 }, { 1, 0 }, { -1, 0 }, { 0, 1 } }) do
+			local nx, ny = fromX + off[1] + MAP_OFFSET, fromY + off[2] + MAP_OFFSET
+			if nx >= 0 and ny >= 0 and nx < gw and ny < gh then
+				local i = (nx + gw * ny) * 2 + 1
+				local v = grid[i] | (grid[i + 1] << 8)
+				if (v & 0x0C00) == 0 and (v >> 12) ~= 0 and (v >> 12) ~= 15 then
+					elevation = v >> 12
+					break
+				end
+			end
+		end
+	end
 	local blocked, objects = {}, readObjects()
 	for _, o in ipairs(objects) do blocked[o.y * mapW + o.x] = "character" end
 	local trainers = unbeatenTrainers(objects)
@@ -1499,7 +1555,9 @@ local function planRoute(fromX, fromY, toX, toY, closed, crossGrass)
 		if x < 0 or y < 0 or x >= mapW or y >= mapH or blocked[y * mapW + x] then return nil end
 		local i = ((x + MAP_OFFSET) + gw * (y + MAP_OFFSET)) * 2 + 1
 		local v = grid[i] | (grid[i + 1] << 8)
-		if (v & 0x0C00) ~= 0 or (v >> 12) ~= elevation then return nil end
+		-- Elevation 0 takes a step from any: the house's door mats and stairs read 0 and were walked onto
+		-- from elevation 3 (2026-09-17).
+		if (v & 0x0C00) ~= 0 or ((v >> 12) ~= elevation and (v >> 12) ~= 0) then return nil end
 		local behaviour = behaviourOf(v & 0x3FF)
 		if behaviour == 0x3B then return nil end
 		return ((behaviour == 0x02 and not crossGrass) and GRASS_COST or 0) + (seen[y * mapW + x] and SIGHT_COST or 0)
@@ -1618,10 +1676,27 @@ game.programs["goto"] = function(p)
 		return { [legs[li].d.button] = true, B = (run and onFoot) or nil }
 	end
 
+	-- ENTERING A WARP (2026-09-17, the new game's truck, house and town, `walk` and `observe`'s warps): stairs
+	-- (behaviour 0x60) warped on the step onto them; the truck's door (0x62) and the house's door mat (0x65)
+	-- only when the player, standing on them, pressed right and down; a town door (0x69, collision set) is
+	-- walked up into from the tile below it (a Pokémon Center's, 2026-09-16). So a goto to a warp goes onto it,
+	-- or below a door, and holds that direction until the map changes. `entered` names the warp in the answer.
+	local enter, warpX, warpY = nil, toX, toY
+	for _, w in ipairs(readWarps()) do
+		if w.x == toX and w.y == toY then
+			if w.behaviour == 0x69 then
+				toY, enter = toY + 1, DIRECTIONS.up
+			elseif WARP_PRESS[w.behaviour] then
+				enter = DIRECTIONS[WARP_PRESS[w.behaviour]]
+			end
+		end
+	end
+
 	return function()
 		frames = frames + 1
 		local map, x, y = here()
 		startMap = startMap or map
+		if map ~= startMap and enter then return finish("map_changed", { map = map, entered = { x = warpX, y = warpY } }) end
 		if map ~= startMap then return finish("map_changed", { map = map }) end
 		if not inOverworld() then return finish("left_overworld") end
 		local trainer = spotted()
@@ -1636,7 +1711,12 @@ game.programs["goto"] = function(p)
 				if frames > REST_LIMIT then return finish("not_at_rest") end
 				return nil, false
 			end
-			if x == toX and y == toY then return finish("done") end
+			if x == toX and y == toY and not enter then return finish("done") end
+			if x == toX and y == toY then
+				phase, frames = "enter", 0
+				return { [enter.button] = true }, false
+			end
+			-- A warp stepped onto ends the goto with map_changed; anything else still plans to stand on it.
 			local flags = r8(GPLAYERAVATAR)
 			mach, onFoot = (flags & MACH_BIKE_FLAG) ~= 0, (flags & ON_FOOT_FLAG) ~= 0
 			local planned, why = planRoute(x, y, toX, toY, closed, crossGrass)
@@ -1660,6 +1740,12 @@ game.programs["goto"] = function(p)
 			end
 			if frames > STEP_LIMIT then return finish("not_at_rest") end
 			return nil, false
+		end
+
+		if phase == "enter" then
+			-- Held into the warp until the map changes (checked above); a door that never opens stops it.
+			if frames > DOOR_LIMIT then return finish("no_response", { entering = { x = warpX, y = warpY } }) end
+			return { [enter.button] = true }, false
 		end
 
 		if phase == "refused" then
@@ -1738,13 +1824,20 @@ end
 -- nothing is let go and tried again later (the nurse's "for a few seconds" ignored A through its jingle),
 -- and after NUDGES of either without a change they finish `stuck` with what they last saw.
 local NUDGE_FRAMES, NUDGES, QUIET_FRAMES, PRESS_FRAMES, LOG_MAX = 180, 3, 90, 30, 200
+-- A on a message is a TAP, and a message that ends with no arrow waits FINISHED_WAIT frames first: an A held
+-- until the message changed went on to answer the menu that came up as the text ended -- Birch's "Are you a
+-- boy? Or are you a girl?" and "So it's A?" were both answered with their first entry (2026-09-17).
+local TAP_FRAMES, FINISHED_WAIT, SCRIPT_WAIT_FRAMES = 2, 20, 600
 
 -- The state a text or battle program watches for progress, as one string.
 local function progressSignature()
 	local d = (#hookNames > 0) and readDialogue() or nil
 	-- The printer's pointer moves with every character (the text entry), so a box still printing is progress.
+	-- The player's coordinates too: a cutscene walks the player between its messages (Route 101's, 2026-09-17).
+	local sb1 = r32(SB1PTR)
 	local parts = { r32(GMAIN_CB2), battleAsking() or "-", d and d.state or "-", d and d.box or "-",
-		d and r32(STEXTPRINTERS + d.window * PRINTER_SIZE) or "-", r8(ACTION_CURSOR), r8(MOVE_CURSOR) }
+		d and r32(STEXTPRINTERS + d.window * PRINTER_SIZE) or "-", r8(ACTION_CURSOR), r8(MOVE_CURSOR),
+		inEwram(sb1) and r16(sb1) or "-", inEwram(sb1) and r16(sb1 + 2) or "-" }
 	if inBattle() then
 		for i = 0, math.min(r8(BATTLERS_COUNT), 4) - 1 do parts[#parts + 1] = r16(BATTLE_MONS + i * BATTLE_MON_SIZE + 0x28) end
 		-- The battle's script moving on, and the level-up box's own state, are progress too: an A that
@@ -1775,6 +1868,7 @@ end
 -- battle menu, or nil to stop there; `stopWhen(state)` returns an outcome to finish with, or nil.
 local function textMachine(choose, stopWhen)
 	local log, lastBox, signature, still, nudges = {}, nil, nil, 0, 0
+	local finishedBox, finishedFor = nil, 0
 	local pressing, held, settle, battleSeen, quiet, frames = nil, 0, 0, false, 0, 0
 	local function note(entry)
 		if #log < LOG_MAX then log[#log + 1] = entry end
@@ -1814,6 +1908,8 @@ local function textMachine(choose, stopWhen)
 				return nil, false
 			end
 			held = held + 1
+			-- A tap lets go after TAP_FRAMES and waits for its answer with nothing held.
+			if pressing.tap and held > TAP_FRAMES and held <= PRESS_FRAMES then return nil, false end
 			if held > PRESS_FRAMES then
 				-- Unanswered (a message that waits out a jingle ignores A): let go, look again later, and
 				-- call it stuck only after NUDGES of these AND NUDGE_FRAMES with nothing changing -- an
@@ -1859,18 +1955,24 @@ local function textMachine(choose, stopWhen)
 		if page then
 			local at = r8(LEVEL_UP_BOX_STATE)
 			note({ level_up_box = page })
-			pressing = { what = "the level-up box, " .. page, pad = { A = true },
+			pressing = { what = "the level-up box, " .. page, pad = { A = true }, tap = true,
 				done = function() return r8(LEVEL_UP_BOX_STATE) ~= at end }
 			return pressing.pad, false
 		end
 
 		-- A message waiting for a button. In a battle only the arrow counts: a battle message window reads
 		-- "finished" while animations play.
+		if d and not battle and d.state == "finished" then
+			if finishedBox ~= d.box then finishedBox, finishedFor = d.box, 0 end
+			finishedFor = finishedFor + 1
+		else
+			finishedBox, finishedFor = nil, 0
+		end
 		if d then
-			local waiting = d.state == "waiting_for_button" or (not battle and d.state == "finished")
+			local waiting = d.state == "waiting_for_button" or (not battle and d.state == "finished" and finishedFor > FINISHED_WAIT)
 			if waiting then
 				local box, state = d.box, d.state
-				pressing = { what = "a message: " .. box, pad = { A = true },
+				pressing = { what = "a message: " .. box, pad = { A = true }, tap = true,
 					done = function()
 						local now = readDialogue()
 						return not now or now.box ~= box or now.state ~= state
@@ -1879,8 +1981,25 @@ local function textMachine(choose, stopWhen)
 			end
 		end
 
-		-- Nothing asked for: let the game run, nudging if it stays still.
+		-- Nothing asked for: let the game run, nudging if it stays still -- but only in a battle or with a message
+		-- known to be up. Anywhere else an A is a choice on a screen nobody read: on 2026-09-17 nudges picked the
+		-- starter on Birch's bag screen, answered YES to a nickname, and typed "AA" on the naming keyboard.
 		if still >= NUDGE_FRAMES then
+			-- A script still running with nothing to read is waited out longer: MAY walked off after her last words
+			-- for more than NUDGE_FRAMES with nothing here changing, and the script then ended by itself.
+			local scriptOn = r8(SCRIPT_CONTEXT_STATUS) ~= SCRIPT_CONTEXT_OFF
+			if not battle and not d and scriptOn and still < SCRIPT_WAIT_FRAMES then
+				return nil, false
+			end
+			-- With no script running in the overworld, the program's own quiet count ends it: MAY's script went off
+			-- 1044 frames after the battle, and a stuck answered here 31 frames later had pre-empted `ended`.
+			if not battle and not d and not scriptOn and inOverworld() then
+				return nil, false
+			end
+			if not battle and not d then
+				return finish("stuck", { waiting_on = "nothing changed and no message or menu is known to be up (a screen observe does not read?)",
+					signature = sig })
+			end
 			if nudges >= NUDGES then
 				return finish("stuck", { waiting_on = "no change after " .. nudges .. " A presses", signature = sig,
 					dialogue = d })
@@ -1888,7 +2007,7 @@ local function textMachine(choose, stopWhen)
 			nudges, still = nudges + 1, 0
 			note({ nudged = sig })
 			local before = sig
-			pressing = { what = "a nudge", pad = { A = true }, done = function() return progressSignature() ~= before end }
+			pressing = { what = "a nudge", pad = { A = true }, tap = true, done = function() return progressSignature() ~= before end }
 			return pressing.pad, false
 		end
 		return nil, false
@@ -1919,6 +2038,9 @@ game.programs.battle = function(p)
 			outside = 0
 			return nil
 		end
+		-- A menu outside the battle is the caller's to answer (Birch's nickname YES/NO after the rescue battle).
+		local menu = readMenu()
+		if menu then return "menu_open", { menu = menu } end
 		-- A script still running (a trainer walking over before its words, its words after) is not the end.
 		if st.dialogue ~= nil or r8(SCRIPT_CONTEXT_STATUS) ~= SCRIPT_CONTEXT_OFF then
 			outside = 0
@@ -1952,7 +2074,9 @@ game.programs.advance_text = function(p)
 		if st.battle then return "battle_started" end
 		local m = readMenu()
 		if m then return "menu_open", { menu = m } end
-		if st.dialogue then
+		-- A script still running is not the end: Route 101's cutscene walked the player on after its first
+		-- message, and advance_text had called it closed (2026-09-17). The status byte is the one `battle` waits on.
+		if st.dialogue or r8(SCRIPT_CONTEXT_STATUS) ~= SCRIPT_CONTEXT_OFF then
 			closed = 0
 			return nil
 		end

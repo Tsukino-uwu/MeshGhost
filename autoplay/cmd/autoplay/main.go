@@ -32,6 +32,7 @@ func main() {
 	logPath := flag.String("log", "", "append log lines to this file instead of stderr")
 	runsDir := flag.String("runs", "runs", "folder for this session's run log (gitignored)")
 	statesDir := flag.String("states", "states", "folder for named snapshots (gitignored)")
+	resume := flag.String("resume", "", "carry on this run log instead of starting one, its open segment included")
 	flag.Parse()
 
 	var out io.Writer = os.Stderr
@@ -65,7 +66,12 @@ func main() {
 		}
 	}()
 
-	runs, err := runlog.Open(*runsDir)
+	var runs *runlog.Log
+	if *resume != "" {
+		runs, err = runlog.Resume(*resume)
+	} else {
+		runs, err = runlog.Open(*runsDir)
+	}
 	if err != nil {
 		logger.Printf("run log: %v", err)
 		os.Exit(1)

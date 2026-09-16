@@ -10,8 +10,11 @@
 package runlog
 
 import (
+	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -50,7 +53,89 @@ func Open(dir string) (*Log, error) {
 	}
 	l := &Log{f: f, path: path, now: now}
 	l.seg = Segment{N: 1, Label: "start", Claim: "walked", Started: now()}
+	l.write(map[string]any{"at": l.seg.Started, "type": "segment_begin", "segment": l.seg})
 	return l, nil
+}
+
+// MaxRecordBytes bounds one line Resume will read back; a record is a tool call's arguments at most.
+const MaxRecordBytes = 1 << 20
+
+// Resume reopens a run log a previous core wrote and carries on its open segment -- the one begun last --
+// with the label it was given and the claim its calls earned. mcpcall starts a core per invocation, so
+// without this one run would be split across as many files, each starting a new walked segment. A core
+// that stops closes the segment only for itself (a segment record with session_end), which Resume undoes.
+func Resume(path string) (*Log, error) {
+	in, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	seg, err := openSegment(in)
+	in.Close()
+	if err != nil {
+		return nil, fmt.Errorf("resume %s: %w", path, err)
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	l := &Log{f: f, path: path, now: time.Now, seg: seg}
+	l.write(map[string]any{"at": l.now(), "type": "session_resume", "segment": seg.N})
+	return l, nil
+}
+
+// errNoOpenSegment is a log with no segment_begin record, or whose last segment was closed by Begin.
+var errNoOpenSegment = errors.New("no open segment to carry on (a log written before segments were begun in it?)")
+
+func openSegment(r io.Reader) (Segment, error) {
+	var seg *Segment
+	br := bufio.NewReaderSize(r, MaxRecordBytes)
+	for {
+		line, err := br.ReadSlice('\n')
+		if errors.Is(err, bufio.ErrBufferFull) {
+			return Segment{}, fmt.Errorf("a record over %d bytes", MaxRecordBytes)
+		}
+		if len(line) > 0 {
+			var rec struct {
+				Type       string          `json:"type"`
+				Segment    json.RawMessage `json:"segment"`
+				ReachedBy  string          `json:"reached_by"`
+				SessionEnd bool            `json:"session_end"`
+			}
+			if jerr := json.Unmarshal(line, &rec); jerr != nil {
+				return Segment{}, fmt.Errorf("a record that does not parse: %w", jerr)
+			}
+			switch rec.Type {
+			case "segment_begin":
+				var s Segment
+				if jerr := json.Unmarshal(rec.Segment, &s); jerr != nil {
+					return Segment{}, fmt.Errorf("a segment_begin record: %w", jerr)
+				}
+				s.Claim, s.Because, s.Ended = "walked", nil, nil
+				seg = &s
+			case "call":
+				var n int
+				if seg != nil && rec.ReachedBy != "" && json.Unmarshal(rec.Segment, &n) == nil && n == seg.N {
+					seg.Claim = "reached"
+					seg.Because = append(seg.Because, rec.ReachedBy)
+				}
+			case "segment":
+				var s Segment
+				if seg != nil && !rec.SessionEnd && json.Unmarshal(rec.Segment, &s) == nil && s.N == seg.N {
+					seg = nil
+				}
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return Segment{}, err
+		}
+	}
+	if seg == nil {
+		return Segment{}, errNoOpenSegment
+	}
+	return *seg, nil
 }
 
 // Path is the file being written.
@@ -101,27 +186,33 @@ func (l *Log) Begin(label string) Segment {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	closed := l.closeLocked()
+	closed := l.closeLocked(false)
 	l.seg = Segment{N: closed.N + 1, Label: label, Claim: "walked", Started: l.now()}
+	l.write(map[string]any{"at": l.seg.Started, "type": "segment_begin", "segment": l.seg})
 	return closed
 }
 
-// Close records the open segment and closes the file.
+// Close records the open segment as it stands when this core stops (session_end: Resume carries it on)
+// and closes the file.
 func (l *Log) Close() error {
 	if l == nil {
 		return nil
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.closeLocked()
+	l.closeLocked(true)
 	return l.f.Close()
 }
 
-func (l *Log) closeLocked() Segment {
+func (l *Log) closeLocked(sessionEnd bool) Segment {
 	s := l.seg
 	ended := l.now()
 	s.Ended = &ended
-	l.write(map[string]any{"at": ended, "type": "segment", "segment": s})
+	rec := map[string]any{"at": ended, "type": "segment", "segment": s}
+	if sessionEnd {
+		rec["session_end"] = true
+	}
+	l.write(rec)
 	return s
 }
 

@@ -662,3 +662,42 @@ that halves Emerald's top speed.
 **What Crystal needs next, and what waits for one chat:** a battle for `mode` (the save has no Pokémon: the
 starter from the lab first), then `local_map` and `nearby`. `advance_text` and `battle` would reuse
 `emerald.lua`'s text machine, which stays there until the user decides the move to shared Lua, in one chat.
+
+## 2026-09-17 (later still) — Phase 1 acceptance: a new game to the first trainer battle, walked, one run log
+
+**Result.** From a snapshot taken as Birch's speech began, the tools reached MAY's battle on Route 103 with no
+input from the user, and won it. The run log (`autoplay/runs/2026-09-17_003014.570637.ndjson`, gitignored)
+records segment 2 "load the new-game state" as **reached** (the restore) and segment 3 "new game to the first
+trainer battle, tools only" as **walked**, closed the moment the battle began, across 630 calls and 58 cores.
+On the way: the intro and naming, the truck, Mom, the clock, the TV, MAY's house, Route 101's rescue with
+MUDKIP chosen, Birch's lab, Routes 101 and 103 with four wild battles, Oldale Town. Measurements:
+`emerald/MEASURED.md`, "A new game to the first trainer battle" (2026-09-17). **CHECKPOINT** (the plan's end of
+Phase 1): reported to the user before Phase 2.
+
+**Presses outside the tools**, all on screens `observe` does not read: the main menu (Down, A), the naming
+keyboard (A, START, A; later B, B, START, A to undo a nickname), the clock (A), the starter bag (Right, A),
+and an A to face an object or start a conversation.
+
+**Built on the way, each from a failure in the run:**
+- **Run logs resume** (`runlog.Resume`, core and `mcpcall` `-resume`, two tests): each `mcpcall` started a
+  fresh core with its own log, which would have split one run into dozens of files each opening a walked
+  segment.
+- **A message under way is recovered** from the text printer after a restore: Birch's speech read as nothing.
+- **`advance_text` taps A and waits 20 frames on a message without an arrow**: an A held into the menu that came
+  up answered the gender menu and "So it's A?" with their first entries.
+- **`goto` enters warps and treats elevation 0 as open**: the house's stairs and mats planned as not open, and
+  a first try at "enter from a neighbour" walked straight across the mats. Stairs, mats, the truck's door and
+  town doors each measured as they came.
+- **Nudges only in a battle or on a readable message**: a nudge picked TORCHIC on the starter bag, answered YES
+  to a nickname and typed "AA". **`battle` stops `menu_open`** outside the battle, **waits while a script
+  runs**, and leaves the ending to its quiet count in the overworld: MAY's walk away outlasted 3 seconds, and
+  a first fix still pre-empted `ended` by 31 frames, found with `trainer_approach_probe.lua`.
+
+**The user, while it ran:** before NEW GAME, *"if you press "new game" you will have to to pick a gender, a name
+and a lot of other things. lot of text as well"*; later, *"keep going ur doing great!, i will tell you if i want
+us to stop or take a break"*. The other chat started Crystal V1.0 and committed its first step alongside.
+
+**Left open:** a battle message after STRING SHOT waits in a state `battle` does not count as waiting (a
+3-second nudge each time); the naming keyboard, clock and starter bag have no reader.
+
+**Next:** Phase 2 of the plan -- `goto` across maps (warps and edges), `talk`, and the staged block classifier.

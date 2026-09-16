@@ -57,6 +57,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - Turning at speed, routes, a Pokémon Center, and battles as one call (2026-09-16)
 - A trainer's sight and defeat flag, a trainer coming for the player, and the level-up box (2026-09-17)
 - The bag's item list, its item menu, and a Repel used through them (2026-09-17)
+- A new game to the first trainer battle: warps, elevation 0, cutscenes and the script status (2026-09-17)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -516,6 +517,52 @@ after that went through the game's own menus.
 - **Not seen**: the bag in a battle, the party menu an item asks for (POTION's USE), TOSS and GIVE, a
   pocket other than ITEMS and KEY ITEMS, a list that is not the bag's (a shop, the PC), and the Repel's
   step count.
+
+### A new game to the first trainer battle: warps, elevation 0, cutscenes and the script status (2026-09-17)
+
+**Vanilla ROM**, a new game started from the main menu after a soft reset (the cartridge save was never
+written), played to MAY's battle on Route 103 with autoplay's tools; the run log is one file carried across
+every core (`autoplay/runs/`, gitignored). Readings from `observe` (warps now carry their tile's collision,
+elevation and behaviour; extras the script context status), `walk`, `goto`, the programs' logs, captures
+(`dev-scripts/shots/emerald/autoplay_acc_*`, `autoplay_ng_*`, gitignored), and `probes/trainer_approach_probe.lua`
+for the script status after MAY's battle.
+
+- **Getting there.** A+B+Start+Select for 10 frames restarted to the intro; Start skipped it, and a Start on
+  the title once it had drawn opened the main menu (callback2 0x0802F6B1): CONTINUE, NEW GAME, OPTION, drawn
+  with the highlighted one filled white. Down, then A, began Birch's speech after a fade of more than 180
+  frames.
+- **A message already under way.** After a restore, the speech read as no message while "Welcome to the world
+  of" printed: its boxes were one string, printed from one text call. The window's printer read active with
+  its pointer inside a ROM string; going back to the byte after the previous FF gave "My name is BIRCH." as the
+  box on screen, and `advance_text` pressed through the speech from there.
+- **Choices under a held A.** An A held until a message changed went on to answer the menu that appeared as the
+  text ended: "Are you a boy? Or are you a girl?" and "So it's A?" were both answered with their first entry.
+  With A tapped for 2 frames and a message without an arrow waited on for 20 frames first, `advance_text`
+  stopped at the clock's "Is this the correct time?" and Birch's "go see MAY?" YES/NO menus.
+- **The naming screen** began with no name and the cursor on A; A added the highlighted letter, START moved the
+  cursor to OK, B deleted the last letter, and A on OK confirmed. It is not read by `observe`.
+- **Warps.** The truck's door (4,2) read behaviour 0x62 and stayed closed while the truck drove; once open,
+  stepping onto it did nothing until Right was pressed on it. The house's door mats (8,8) and (9,8) read 0x65,
+  collision 0, elevation 0: walking right across both did nothing; Down while standing on one left the house.
+  Stairs read 0x60 at elevation 0 (the three whose tiles were read) and warped on the step onto them (four
+  stairs taken, in both houses). Town doors read
+  0x69 with collision set and elevation 0; `goto` walked up into the neighbour's from the tile below and
+  arrived inside.
+- **Elevation 0.** The mats and stairs at elevation 0 took a step from elevation 3 and gave one back to it; the
+  planner, standing on a mat, had planned at elevation 0 and found the room (elevation 3) closed.
+- **The script context status** read 0 or 1 through MAY's conversation, her battle and her words after, and 2
+  1044 frames after the overworld came back from the battle, as she walked away. On Route 101 a cutscene walked
+  the player from y=19 to 15 between two messages with no message on screen.
+- **Screens nothing reads.** An A pressed after 3 seconds of no change picked the middle Poké Ball on Birch's
+  bag screen (TORCHIC), answered YES to a nickname, and typed "AA" on the naming keyboard. On the bag screen
+  Right moved to the right-hand ball (MUDKIP) and A asked "Do you choose this POKéMON?" with a YES/NO the
+  menu reading saw.
+- **Battles on the way.** In wild battles after "used STRING SHOT!" the game waited in a message state that
+  `battle` does not count as waiting (a nudge moved it on each time, four times in one battle). MAY's battle
+  read kind `trainer`, type flags 0x0C, her TREECKO, and ended `ended` with money 3000 to 3300.
+- **Not seen**: a West or North arrow warp, a door entered from another side, elevation 15 ("F" tiles), what
+  says a battle message waits for A after STRING SHOT, a nickname actually given, and the naming screen's
+  other pages.
 
 ## Not measured yet
 

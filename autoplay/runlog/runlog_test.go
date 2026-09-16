@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -82,5 +83,79 @@ func TestANilLogRecordsNothing(t *testing.T) {
 	l.Begin("x")
 	if l.Current().Claim != "" || l.Close() != nil || l.Path() != "" {
 		t.Fatal("a nil log should be a no-op")
+	}
+}
+
+// mcpcall starts a core per invocation: each one resumes the same file, and the segment a previous core
+// left open carries on with its label and the claim its calls earned.
+func TestResumeCarriesOnTheOpenSegment(t *testing.T) {
+	l, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.Begin("to the door")
+	l.Call("cheat", map[string]any{"kind": "warp"}, nil, "cheat:warp")
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := Resume(l.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cur := second.Current()
+	if cur.N != 2 || cur.Label != "to the door" || cur.Claim != "reached" || len(cur.Because) != 1 || cur.Because[0] != "cheat:warp" {
+		t.Fatalf("resumed segment = %+v", cur)
+	}
+	if closed := second.Begin("next"); closed.N != 2 || closed.Claim != "reached" {
+		t.Fatalf("closed after resume = %+v", closed)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	third, err := Resume(l.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cur := third.Current(); cur.N != 3 || cur.Label != "next" || cur.Claim != "walked" {
+		t.Fatalf("resumed segment = %+v", cur)
+	}
+	third.Call("cheat", map[string]any{"kind": "warp"}, errors.New("refused"), "cheat:warp")
+	if err := third.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	fourth, err := Resume(l.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cur := fourth.Current(); cur.Claim != "walked" {
+		t.Fatalf("a FAILED cheat before the resume marked the segment %q", cur.Claim)
+	}
+	fourth.Call("restore", map[string]any{"label": "x"}, nil, "restore")
+	if err := fourth.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	fifth, err := Resume(l.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cur := fifth.Current(); cur.N != 3 || cur.Claim != "reached" || len(cur.Because) != 1 || cur.Because[0] != "restore" {
+		t.Fatalf("resumed segment = %+v", cur)
+	}
+	fifth.Close()
+}
+
+func TestResumeRefusesALogWithNoOpenSegment(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.ndjson")
+	old := `{"type":"call","tool":"press","segment":1,"ok":true}` + "\n" +
+		`{"type":"segment","segment":{"n":1,"label":"start","claim":"walked"}}` + "\n"
+	if err := os.WriteFile(path, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Resume(path); !errors.Is(err, errNoOpenSegment) {
+		t.Fatalf("Resume of a log with no segment_begin = %v, want errNoOpenSegment", err)
 	}
 }

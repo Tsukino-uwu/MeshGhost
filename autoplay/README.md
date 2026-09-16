@@ -31,9 +31,9 @@ Claude Code --MCP (stdio)--> autoplay core --JSON lines (127.0.0.1)--> driver in
 | `wait` | Let 1-3600 frames pass with NO input, then report what changed. Never hold a button to wait |
 | `select` | Choose an entry in the open menu by its text (`item`) or 0-based `index`: the driver presses toward it until the game's own cursor is on it, then holds confirm until the menu responds (`confirm: false` stops on it). On a grid menu (a battle's) it reaches the column first. Every leg ends on the game's state, never a frame count |
 | `walk` | Move 1-32 tiles `up`, `down`, `left` or `right`, holding the direction the whole way the way a player does, each tile counted when the game starts its step; `run: true` runs where the save can (`ran` says whether it did). On a bike it rides, still stopping on the tile: the Acro Bike stops where released, and on the Mach Bike it lets go early by the tiles the bike will coast (`overshot` if it ever carries past). Stops early and says why: `blocked` (with what is on the refused tile), `map_changed` (a door or an edge), `spotted` (a trainer has begun coming for you: its `local_id` and how many tiles away, from the frame the step into its line begins; hand it to `battle`), `dialogue_open`, `menu_open`, `left_overworld`; `moved` counts the steps begun. Walk for precision, run for speed that still stops on its tile, a bike for distance (the play-game skill's `references/navigation.md`) |
-| `goto` | To a tile `x`,`y` on this map by a planned route: straight legs over the map's own grid (collision, elevation, characters and warps closed, ledges closed, tall grass avoided where there is another way unless `cross_grass`), turning at speed, replanning when a step is refused. Tiles an unbeaten trainer looks at cost far more than grass, so a route crosses a trainer's line only where there is no other way, and `route_in_sight` names each one it had to. Rides what the player is on, stopping exactly on the tile (`run` on foot). Stops early for the same reasons `walk` does, `spotted` included, or `unreachable` with the reason |
-| `battle` | Plays the battle on screen to its end in one call, a trainer's words before and after included: `policy` `strongest` (FIGHT, then the usable move with most power times accuracy) or `run`. Called straight after `spotted`, it waits while the trainer walks over; it turns both pages of the level-up box. Returns a `log` of every message and choice and ends `ended` (with money and the party), `needs_choice`, or `stuck` with what it was waiting on |
-| `advance_text` | Presses through the message on screen box by box; stops `closed`, `menu_open` (with the menu, for `select`), `battle_started`, or `stuck`. Returns a `log` of the boxes |
+| `goto` | To a tile `x`,`y` on this map by a planned route: straight legs over the map's own grid (collision, elevation, characters and warps closed, ledges closed, tall grass avoided where there is another way unless `cross_grass`), turning at speed, replanning when a step is refused. Tiles an unbeaten trainer looks at cost far more than grass, so a route crosses a trainer's line only where there is no other way, and `route_in_sight` names each one it had to. To a warp it goes in: onto stairs, onto a door mat or a truck's door and then the way out, or up into a town door from the tile below (`entered` names it; Emerald's measured kinds only). Tiles at elevation 0 (mats, stairs) are open from any level. Rides what the player is on, stopping exactly on the tile (`run` on foot). Stops early for the same reasons `walk` does, `spotted` included, or `unreachable` with the reason |
+| `battle` | Plays the battle on screen to its end in one call, a trainer's words before and after included: `policy` `strongest` (FIGHT, then the usable move with most power times accuracy) or `run`. Called straight after `spotted`, it waits while the trainer walks over; it turns both pages of the level-up box; it waits while the game's script still runs after the battle. Returns a `log` of every message and choice and ends `ended` (with money and the party), `needs_choice`, `menu_open` (a menu outside the battle, for `select`), or `stuck` with what it was waiting on |
+| `advance_text` | Presses through the message on screen box by box, tapping A, and waiting a moment on a message that ends with no arrow so a menu coming up is never answered by accident; waits out a cutscene while the game's script runs. Stops `closed`, `menu_open` (with the menu, for `select`), `battle_started`, or `stuck` -- at once, without pressing, on a screen it cannot read (a naming keyboard, the starter bag). Returns a `log` of the boxes |
 | `screenshot` | The game frame, saved to `dev-scripts/shots/<game>/autoplay_<name>.png` and returned as an image |
 | `events` | Events the driver reported since a sequence number |
 | `snapshot` | Save the whole game state to `autoplay/states/<game>/<label>.State` — a named file, never a numbered slot, so no slot of anyone's is ever touched |
@@ -48,8 +48,9 @@ Everything past `frame`, `mode` and `location` is the game module's. Emerald, on
 
 - **`dialogue`** — the message being shown: `box` (that box's text, lines split by `\n`),
   `box_index` of `boxes`, and `state`: `printing`, `waiting_for_button` (the red arrow), or
-  `finished` (its last box is up and waits for a button, with no arrow). Absent when no message box
-  is on screen.
+  `finished` (its last box is up and waits for a button, with no arrow). `recovered` when it was taken
+  up from the printer mid-way (its `box_index` then counts from where that string was found). Absent when
+  no message box is on screen.
 - **`menu`** — the menu waiting for input: `items` in order and `cursor`, 0-based. The START menu and a
   YES/NO; a grid such as the bag's USE/GIVE/TOSS/CANCEL with `columns` (numbered row by row); a scrolling
   list such as the bag's items with `list: true`, every entry whether shown or scrolled off, and in the
@@ -73,7 +74,8 @@ Everything past `frame`, `mode` and `location` is the game module's. Emerald, on
   (`down`, `up` or `right`; any other value as `facing_raw`) and `movement_type_raw`. A trainer carries
   `trainer`: `range` in tiles, `sees` (every way it turns; all four where its turning is not measured),
   `beaten` and its `flag`.
-- **`warps`** — every warp on the map: `x`, `y` and the map it leads `to`.
+- **`warps`** — every warp on the map: `x`, `y`, the map it leads `to`, and its tile's `collision`,
+  `elevation` and `behaviour` (how it is entered: `goto`'s row above).
 - **What the save has**, in an `observe` you call only (a press's, select's or walk's `before` and
   `after` leave it out):
   - **`party`** — per Pokémon: `slot`, `species` (and `species_id`), `nickname`, `level`, `hp`,
@@ -121,6 +123,11 @@ Every session writes `autoplay/runs/<time>.ndjson`: each tool call, and each seg
 succeeds in it, with what did it — the play-game skill's "walked to X" versus "reached X", kept by
 code rather than by memory. A failed or refused cheat changes nothing.
 
+A core started with `-resume <that file>` carries it on instead of starting one: the open segment keeps
+its label and its claim, rebuilt from the file. `mcpcall` starts a core per invocation, so a run driven
+through it passes `-resume` every time (the `segment` tool's answer names the file); Phase 1's acceptance run
+was one file across 58 cores.
+
 ## Cheats so far
 
 - **Emerald `warp`** `{map: "G.N", x, y}`: the game's own map load (the writes `cmd_drive.lua`
@@ -158,9 +165,10 @@ code rather than by memory. A failed or refused cheat changes nothing.
   moves was never seen, so the held button never moved the cursor again.
 - **Programs stop when nothing changes.** `walk`, `goto`, `select`, `battle` and `advance_text` run in the
   driver a frame at a time and end on the game's state; `battle` and `advance_text` press A once after
-  3 seconds with no change, retry a press the game ignored, and answer `stuck` after 3 of those, so a
-  call never sits for minutes. Emerald's module only knows text it saw printed: after reloading it, a message
-  already on screen reads as none until the next one (Crystal's reads whatever is on screen).
+  3 seconds with no change -- only in a battle or on a message they can read -- retry a press the game
+  ignored, and answer `stuck` after 3 of those, so a call never sits for minutes. Emerald's module learns text as it prints, and a message already under way when it
+  was reloaded or a snapshot restored is taken up from the game's text printer, marked `recovered` (Crystal's
+  reads whatever is on screen).
 - **Text costs top speed on Emerald.** Reading text there needs execute hooks (Crystal's needs none), and any execute hook halves the
   emulator's unthrottled speed, however many there are (one instance, a core connected: 818
   frames/s without, 410-416 with; `emerald/MEASURED.md`, 2026-09-16). `AUTOPLAY_TEXT=0` in the
@@ -177,7 +185,8 @@ code rather than by memory. A failed or refused cheat changes nothing.
   core logs to `autoplay/runs/core.log` (gitignored); stdout belongs to MCP.
 - **Without an agent**: `go run ./cmd/mcpcall -calls '<JSON list of {name, arguments}>'` (from
   `autoplay/`) starts the core over stdio the way Claude Code does, waits for a driver, and prints
-  each tool's answer. A second instance passes its own `-listen 127.0.0.1:<port>` and `-log runs/<name>.log`.
+  each tool's answer. A second instance passes its own `-listen 127.0.0.1:<port>` and `-log runs/<name>.log`;
+  a run spread over many invocations passes `-resume runs/<its file>.ndjson` to each (The run log).
 - **CI**: `.github/workflows/autoplay.yml` — build, vet, race tests, `govulncheck`, inside this module.
 
 ## What stays out of the repo
