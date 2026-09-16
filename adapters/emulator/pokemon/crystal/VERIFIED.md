@@ -150,6 +150,7 @@ filed under the right theme, but anything can check that it is listed.
 - CONFIRMED ON SCREEN 2026-09-13 — Crystal: a ghost no longer keeps the watcher's bike pixels after the watcher dismounts
 - CONFIRMED ON SCREEN 2026-09-13 — Crystal: a ghost plays the turn-in-place animation, in both directions across builds
 - AGENT-CONFIRMED 2026-09-13 (patched ROM) — Crystal: what running is on the Archipelago build, and where that build keeps the loaded tileset
+- CONFIRMED BY THE USER 2026-09-16 — Crystal: a drawn ghost is not solid
 
 ## Confirmed facts
 
@@ -2647,3 +2648,15 @@ shows a stutter at 450ms, this entry is the first thing to reopen.
 - Notes: agent-confirmed because the ROM is patched (`CLAUDE.md`). Only one gender was measured
   running (`$65`); `$66` is inferred as the other from the table rows' palettes. The header address
   is used by `probes/noclip.lua` only — no shipped code reads it.
+
+## CONFIRMED BY THE USER 2026-09-16 — Crystal: a drawn ghost is not solid
+
+- Date: 2026-09-16
+- Observed: the user, moving "ghost solidity" off `agent_docs/status.md`: *"ghosts should not be
+  solid now when they are drawn i think so put that in verified"*. A positive statement confirms
+  (`UNVERIFIED.md`, the user's rule of 2026-09-10).
+- Source: the user's word.
+- Notes: scope is the DRAWN tier, the shipped default since 2026-09-02. In code the drawn tier has no
+  collision at all (`shouldBlock`'s comment in `meshghost_crystal.lua`); only the dev-opt-in SPAWNED
+  tier is solid by design, and its honouring of the room's `ghost_collision` policy (the 2026-09-11
+  entry in `UNVERIFIED.md`) stays unwatched.

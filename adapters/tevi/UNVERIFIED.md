@@ -287,6 +287,11 @@ and speed up late) · a shot that hits a wall (its SPLIT, if the real one splits
 burst (how many of its shots appear at all — a known cause: birth rows are dropped oldest-first at
 the 1024-byte extras cap) · a drawn-sprite shot (it should animate).
 
+**Still WIP, moved here from `agent_docs/status.md` 2026-09-16 (the user's call):** birth rows go
+missing under sustained fire; the families that move themselves fly straight on a ghost; and the
+build-dependent pool indices remain ordinals — the follower-effect pool (same-family fallback), the
+two muzzle-flash pools and the orb/summon/shield rows (`agent_docs/phases/phase6.md`, 2026-09-09).
+
 **Known and not built:** what a real bullet does to the WORLD when it ends — the sub-bullets and
 effects its `WallAction` spawns are the shooter's own new births, so they arrive only if that frame's
 rows survived the cap. And the families that move themselves are owed a design that never runs game

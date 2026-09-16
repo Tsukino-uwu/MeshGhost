@@ -50,6 +50,22 @@ being work. An entry still here has not been confirmed.
 
 ---
 
+## [READY] the painted ghost's bikes: four causes fixed, none judged on screen (2026-09-13; moved from `status.md` 2026-09-16)
+
+**What changed** (`agent_docs/phases/phase8.md`, 2026-09-13): the sender ramps each gait at its own
+pace instead of walking pace; `mspd` (the engine's `MOVE_SPEED_*`) rides the wire so the receiver
+knows a bike; `FAST_2`'s uneven cadence uses its ceiling instead of an average; the painted tier has
+its own peer-graphic gate; and the paint origin is normalised to the walker's centring.
+
+**What to look at.** A second client rides both bikes near you, mounting and dismounting in view.
+**Correct:** no teleporting or sliding, the right facing, the bike graphic, and no sideways snap on
+mounting.
+
+## [OPEN] `noclip.lua` does not reach water (carried from `status.md` 2026-09-15; moved 2026-09-16)
+
+A dev probe, not shipped. Crystal's `noclip` was rebuilt for walls, water and NPCs on 2026-09-13
+(`phases/phase9.md`); Emerald's still stops at water. Not measured past that one-line report.
+
 ## [READY] two fixes from the fifth review, UNWATCHED (2026-09-16)
 
 **What changed** (`1f4fa60b`; Lua, so the next script load picks it up):
@@ -348,6 +364,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../../../_template/UNVERIFIED.md`](../../../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — **the painted ghost's bikes** — four causes fixed 2026-09-13, none judged: ride both bikes, mount and dismount in view (2026-09-16)
 - READY — **per-peer reflection rows are cleared on despawn** — invisible if right; a reflection that stops being drawn, or stops rippling, is the way it would be wrong (2026-09-12)
 - READY — **replay and chaser ghosts have never been watched here** — they are made by the client and ride the ordinary ghost path (`core/localpeer.go`), so they should work; only Pseudoregalia has been seen (2026-09-11)
 - READY — the JSON decoder refuses input nested past 64 levels instead of following it; load and connect confirmed, the guard itself is not observable (2026-09-03)

@@ -50,6 +50,13 @@ being work. An entry still here has not been confirmed.
 
 ---
 
+## [READY] a two-client Archipelago session installed from the release zip (moved from `status.md` 2026-09-16)
+
+Every Archipelago session so far ran from the dev tree (`agent_docs/phases/phase9.md`). **What to
+look at:** install the release zip the way a player would, on two clients on Archipelago seeds.
+**Correct:** both clients start their core, see each other's ghost, and walk as they do from the
+dev tree.
+
 ## [READY] two fixes from the fifth review, UNWATCHED (2026-09-16)
 
 **What changed** (`1f4fa60b`; Lua, so the next script load picks it up):
@@ -337,6 +344,9 @@ Nothing about rendering, the bridge or the wire is touched. The dev launchers se
 ---
 
 ## [READY] ghosts now honour the room's collision policy, UNWATCHED (2026-09-11)
+
+**The shipped DRAWN tier is not solid: user-confirmed 2026-09-16 (`VERIFIED.md`).** What stays here is
+the dev-opt-in SPAWNED tier's reading of the policy.
 
 **THIS ONE CHANGES WHAT YOU SEE, unlike everything else filed today** -- it is the adapter half of
 D3, which you answered plainly: ghosts should NOT collide.
