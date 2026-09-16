@@ -12,6 +12,9 @@
 -- the probes showed. Only on that ROM are the hooks installed; anywhere else `dialogue`, `menu` and
 -- `screen_text` are absent.
 
+-- The shared driver library the driver hands every game module (driver.lua: `text`).
+local lib = ...
+
 local BUS = "System Bus"
 local GPLAYERAVATAR, GOBJECTEVENTS = 0x02037590, 0x02037350
 local SB1PTR = 0x03005d8c
@@ -1815,19 +1818,8 @@ game.programs["goto"] = function(p)
 	end, nil, 7200
 end
 
--- TEXT AND BATTLES AS ONE CALL (2026-09-16). A loop driven from outside took several round trips a
--- step, waited fixed times and ran out its budget in silence when it met a state it did not handle (the
--- user: "so i don't sit around waiting for several minutes"). These run in the driver a frame at a time,
--- press only when a measured state asks for it, keep a `log` of every message and choice, and stop
--- within seconds once nothing changes: after NUDGE_FRAMES with no change they press A once (a message
--- in a printer state not yet measured, like the 1 a trainer's last words read), a press that changes
--- nothing is let go and tried again later (the nurse's "for a few seconds" ignored A through its jingle),
--- and after NUDGES of either without a change they finish `stuck` with what they last saw.
-local NUDGE_FRAMES, NUDGES, QUIET_FRAMES, PRESS_FRAMES, LOG_MAX = 180, 3, 90, 30, 200
--- A on a message is a TAP, and a message that ends with no arrow waits FINISHED_WAIT frames first: an A held
--- until the message changed went on to answer the menu that came up as the text ended -- Birch's "Are you a
--- boy? Or are you a girl?" and "So it's A?" were both answered with their first entry (2026-09-17).
-local TAP_FRAMES, FINISHED_WAIT, SCRIPT_WAIT_FRAMES = 2, 20, 600
+-- TEXT AND BATTLES AS ONE CALL: the machine that decides when to press is shared (`../text.lua`, moved out of this
+-- file on 2026-09-17); what it reads here is Emerald's, through the hooks below.
 
 -- The state a text or battle program watches for progress, as one string.
 local function progressSignature()
@@ -1864,227 +1856,59 @@ local function strongestMoveSlot()
 	return best
 end
 
--- A text-and-choices machine shared by both programs. `choose(asking)` returns the target cursor for a
--- battle menu, or nil to stop there; `stopWhen(state)` returns an outcome to finish with, or nil.
-local function textMachine(choose, stopWhen)
-	local log, lastBox, signature, still, nudges = {}, nil, nil, 0, 0
-	local finishedBox, finishedFor = nil, 0
-	local pressing, held, settle, battleSeen, quiet, frames = nil, 0, 0, false, 0, 0
-	local function note(entry)
-		if #log < LOG_MAX then log[#log + 1] = entry end
-	end
-	local function finish(outcome, extra)
-		local r = { outcome = outcome, log = log, frames = frames }
-		for k, v in pairs(extra or {}) do r[k] = v end
-		return nil, true, r
-	end
-	return function()
-		frames = frames + 1
-		local sig, d = progressSignature()
-		if sig ~= signature then
-			signature, still, nudges = sig, 0, 0
-		else
-			still = still + 1
-		end
-		if d and d.box ~= "" and d.box ~= lastBox then
-			lastBox = d.box
-			note({ text = d.box })
-		end
-		local battle = inBattle()
-		battleSeen = battleSeen or battle
-
-		local stop, extra = stopWhen({ battle = battle, battleSeen = battleSeen, dialogue = d })
-		if stop then return finish(stop, extra) end
-
-		if settle > 0 then
-			settle = settle - 1
-			return nil, false
-		end
-
-		-- A press under way: hold it until the thing it was for changes.
-		if pressing then
-			if pressing.done() then
-				pressing, held, settle = nil, 0, 2
-				return nil, false
-			end
-			held = held + 1
-			-- A tap lets go after TAP_FRAMES and waits for its answer with nothing held.
-			if pressing.tap and held > TAP_FRAMES and held <= PRESS_FRAMES then return nil, false end
-			if held > PRESS_FRAMES then
-				-- Unanswered (a message that waits out a jingle ignores A): let go, look again later, and
-				-- call it stuck only after NUDGES of these AND NUDGE_FRAMES with nothing changing -- an
-				-- answered press can take longer than PRESS_FRAMES to show (the level-up box's last A: the
-				-- next message printed 156 frames later).
-				local what = pressing.what
-				pressing, held, nudges, settle = nil, 0, nudges + 1, NUDGE_FRAMES // 2
-				if nudges > NUDGES and still >= NUDGE_FRAMES then
-					return finish("stuck", { waiting_on = what, signature = sig })
-				end
-				return nil, false
-			end
-			return pressing.pad, false
-		end
-
-		-- A battle menu waiting: move its cursor to the choice, then confirm.
-		local asking = battle and battleAsking() or nil
-		if asking then
-			local target, label = choose(asking)
-			if target == nil then return finish("needs_choice", { asking = asking, reason = label }) end
-			local cursorAt = asking == "action" and ACTION_CURSOR or MOVE_CURSOR
-			local cursor = r8(cursorAt)
-			if cursor ~= target then
-				local dir
-				if target % 2 ~= cursor % 2 then
-					dir = (target % 2 > cursor % 2) and "Right" or "Left"
-				else
-					dir = (target > cursor) and "Down" or "Up"
-				end
-				local from = cursor
-				pressing = { what = asking .. " cursor " .. dir, pad = { [dir] = true },
-					done = function() return r8(cursorAt) ~= from or battleAsking() ~= asking end }
-				return pressing.pad, false
-			end
-			note({ chose = label, from = asking })
-			pressing = { what = "confirm " .. label, pad = { A = true },
-				done = function() return battleAsking() ~= asking end }
-			return pressing.pad, false
-		end
-
-		-- The level-up box waiting on one of its pages.
-		local page = battle and LEVEL_UP_BOX_WAITING[r8(LEVEL_UP_BOX_STATE)] or nil
-		if page then
-			local at = r8(LEVEL_UP_BOX_STATE)
-			note({ level_up_box = page })
-			pressing = { what = "the level-up box, " .. page, pad = { A = true }, tap = true,
-				done = function() return r8(LEVEL_UP_BOX_STATE) ~= at end }
-			return pressing.pad, false
-		end
-
-		-- A message waiting for a button. In a battle only the arrow counts: a battle message window reads
-		-- "finished" while animations play.
-		if d and not battle and d.state == "finished" then
-			if finishedBox ~= d.box then finishedBox, finishedFor = d.box, 0 end
-			finishedFor = finishedFor + 1
-		else
-			finishedBox, finishedFor = nil, 0
-		end
-		if d then
-			local waiting = d.state == "waiting_for_button" or (not battle and d.state == "finished" and finishedFor > FINISHED_WAIT)
-			if waiting then
-				local box, state = d.box, d.state
-				pressing = { what = "a message: " .. box, pad = { A = true }, tap = true,
-					done = function()
-						local now = readDialogue()
-						return not now or now.box ~= box or now.state ~= state
-					end }
-				return pressing.pad, false
-			end
-		end
-
-		-- Nothing asked for: let the game run, nudging if it stays still -- but only in a battle or with a message
-		-- known to be up. Anywhere else an A is a choice on a screen nobody read: on 2026-09-17 nudges picked the
-		-- starter on Birch's bag screen, answered YES to a nickname, and typed "AA" on the naming keyboard.
-		if still >= NUDGE_FRAMES then
-			-- A script still running with nothing to read is waited out longer: MAY walked off after her last words
-			-- for more than NUDGE_FRAMES with nothing here changing, and the script then ended by itself.
-			local scriptOn = r8(SCRIPT_CONTEXT_STATUS) ~= SCRIPT_CONTEXT_OFF
-			if not battle and not d and scriptOn and still < SCRIPT_WAIT_FRAMES then
-				return nil, false
-			end
-			-- With no script running in the overworld, the program's own quiet count ends it: MAY's script went off
-			-- 1044 frames after the battle, and a stuck answered here 31 frames later had pre-empted `ended`.
-			if not battle and not d and not scriptOn and inOverworld() then
-				return nil, false
-			end
-			if not battle and not d then
-				return finish("stuck", { waiting_on = "nothing changed and no message or menu is known to be up (a screen observe does not read?)",
-					signature = sig })
-			end
-			if nudges >= NUDGES then
-				return finish("stuck", { waiting_on = "no change after " .. nudges .. " A presses", signature = sig,
-					dialogue = d })
-			end
-			nudges, still = nudges + 1, 0
-			note({ nudged = sig })
-			local before = sig
-			pressing = { what = "a nudge", pad = { A = true }, tap = true, done = function() return progressSignature() ~= before end }
-			return pressing.pad, false
-		end
-		return nil, false
-	end
-end
-
--- battle {policy = "strongest" | "run"}: plays a battle to its end, a trainer's words before and after
--- included. "strongest" chooses FIGHT and the usable move with the most power times accuracy (move data,
--- measured against the summary); "run" chooses RUN and, on the move menu, backs out with B.
-game.programs.battle = function(p)
-	if not isVanilla then return nil, "battle is measured on the vanilla ROM only" end
-	if #hookNames == 0 then return nil, "battle reads messages through the text hooks, which are off (AUTOPLAY_TEXT=0)" end
-	local policy = p.policy or "strongest"
-	if policy ~= "strongest" and policy ~= "run" then return nil, 'battle policy is "strongest" or "run"' end
-	local outside = 0
-	local machine = textMachine(function(asking)
-		if asking == "action" then
-			if policy == "run" then return 3, "RUN" end
-			return 0, "FIGHT"
-		end
-		if policy == "run" then return nil, "on the move menu with policy run" end
+local textHooks = {
+	-- The text hook copies each string when it starts printing, so a box is whole from its first letter.
+	boxKnownWhilePrinting = true,
+	signature = progressSignature,
+	readDialogue = readDialogue,
+	inBattle = inBattle,
+	-- Both battle menus are grids of two columns, their cursors at ACTION_CURSOR and MOVE_CURSOR.
+	battleMenu = function()
+		local asking = battleAsking()
+		if not asking then return nil end
+		return asking, { cursor = r8(asking == "action" and ACTION_CURSOR or MOVE_CURSOR), columns = 2 }
+	end,
+	scriptRunning = function() return r8(SCRIPT_CONTEXT_STATUS) ~= SCRIPT_CONTEXT_OFF end,
+	inOverworld = inOverworld,
+	readMenu = readMenu,
+	-- FIGHT is the action menu's 0 and RUN its 3 (BATTLE_ACTIONS).
+	actionIndex = { fight = 0, run = 3 },
+	levelUpPage = function()
+		local at = r8(LEVEL_UP_BOX_STATE)
+		return LEVEL_UP_BOX_WAITING[at], at
+	end,
+	strongestMove = function()
 		local slot = strongestMoveSlot()
 		if slot == nil then return nil, "no move has PP left" end
 		local id = r16(BATTLE_MONS + 0x0C + slot * 2)
 		return slot, nameAt(MOVE_NAMES, MOVE_LEN, MOVE_COUNT, id) or ("move " .. id)
-	end, function(st)
-		if st.battle then
-			outside = 0
-			return nil
-		end
-		-- A menu outside the battle is the caller's to answer (Birch's nickname YES/NO after the rescue battle).
-		local menu = readMenu()
-		if menu then return "menu_open", { menu = menu } end
-		-- A script still running (a trainer walking over before its words, its words after) is not the end.
-		if st.dialogue ~= nil or r8(SCRIPT_CONTEXT_STATUS) ~= SCRIPT_CONTEXT_OFF then
-			outside = 0
-			return nil
-		end
-		outside = outside + 1
-		if outside >= QUIET_FRAMES and inOverworld() then
-			if st.battleSeen then
-				local save = readSave()
-				return "ended", { outcome_raw = r8(BATTLE_OUTCOME), money = save and save.money,
-					party = save and save.party and (function()
-						local out = {}
-						for _, m in ipairs(save.party) do out[#out + 1] = { species = m.species, level = m.level, hp = m.hp, max_hp = m.max_hp } end
-						return out
-					end)() }
-			end
-			return "no_battle"
-		end
-		return nil
-	end)
-	return machine, nil, 36000
+	end,
+	endedReport = function()
+		local save = readSave()
+		return { outcome_raw = r8(BATTLE_OUTCOME), money = save and save.money,
+			party = save and save.party and (function()
+				local out = {}
+				for _, m in ipairs(save.party) do out[#out + 1] = { species = m.species, level = m.level, hp = m.hp, max_hp = m.max_hp } end
+				return out
+			end)() }
+	end,
+}
+
+-- battle {policy = "strongest" | "run"}: plays a battle to its end, a trainer's words before and after
+-- included. "strongest" chooses FIGHT and the usable move with the most power times accuracy (move data,
+-- measured against the summary); "run" chooses RUN.
+game.programs.battle = function(p)
+	if not isVanilla then return nil, "battle is measured on the vanilla ROM only" end
+	if #hookNames == 0 then return nil, "battle reads messages through the text hooks, which are off (AUTOPLAY_TEXT=0)" end
+	return lib.text.battle(textHooks, p)
 end
 
 -- advance_text: presses through the message on screen, box by box, and stops when it closes and stays
 -- closed, when a menu opens (answer it with select), or when a battle begins (hand it to battle).
-game.programs.advance_text = function(p)
+game.programs.advance_text = function()
 	if not isVanilla then return nil, "advance_text is measured on the vanilla ROM only" end
 	if #hookNames == 0 then return nil, "advance_text reads messages through the text hooks, which are off (AUTOPLAY_TEXT=0)" end
-	local closed = 0
-	local machine = textMachine(function() return nil, "a battle began" end, function(st)
-		if st.battle then return "battle_started" end
-		local m = readMenu()
-		if m then return "menu_open", { menu = m } end
-		-- A script still running is not the end: Route 101's cutscene walked the player on after its first
-		-- message, and advance_text had called it closed (2026-09-17). The status byte is the one `battle` waits on.
-		if st.dialogue or r8(SCRIPT_CONTEXT_STATUS) ~= SCRIPT_CONTEXT_OFF then
-			closed = 0
-			return nil
-		end
-		closed = closed + 1
-		if closed >= QUIET_FRAMES then return "closed" end
-		return nil
-	end)
-	return machine, nil, 7200
+	return lib.text.advanceText(textHooks)
 end
 
 -- What `changed` compares between two observations: the fields a press is expected to move.

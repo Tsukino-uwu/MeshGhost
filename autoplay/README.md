@@ -124,8 +124,9 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
   `map_changed`, `mode_changed`, `dialogue_changed`, `menu_changed` and `battle_mode_raw_changed`.
 - Its tools: `walk` (on foot only; `run` walks and says `ran: false`, since Crystal has no running
   shoes; a door or a map edge answers once the player stands on the new map; `blocked` names a
-  character in the way; `script_started` when a step starts a scene or an encounter) and `select`. No
-  `goto`, `battle`, `advance_text` or cheats yet.
+  character in the way; `script_started` when a step starts a scene or an encounter), `select`,
+  `advance_text`, and `battle` with `policy: "run"` only (its battlers and move data are not measured, so
+  `strongest` is refused). No `goto` or cheats yet.
 
 ## The run log
 
@@ -174,6 +175,10 @@ was one file across 58 cores.
 - **`select` waits for the game to see a release** where the module can tell (`game.inputReleased`):
   Crystal's START menu looks at the buttons only every few frames, and a 2-frame release between cursor
   moves was never seen, so the held button never moved the cursor again.
+- **`battle` and `advance_text` are one machine for every game** (`drivers/bizhawk/text.lua`, out of
+  `emerald.lua` since 2026-09-17): it decides when to press, and each game module hands it hooks for what
+  it measured -- the message on screen, the battle menu and its cursor, whether a script still runs. The
+  driver loads it and calls each module with it (`local lib = ...`); the hook list is at the top of the file.
 - **Programs stop when nothing changes.** `walk`, `goto`, `select`, `battle` and `advance_text` run in the
   driver a frame at a time and end on the game's state; `battle` and `advance_text` press A once after
   3 seconds with no change -- only in a battle or on a message they can read -- retry a press the game

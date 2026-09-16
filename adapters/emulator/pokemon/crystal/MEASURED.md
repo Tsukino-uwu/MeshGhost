@@ -54,6 +54,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - A script taking over: a scene, a character walking over, a wild encounter (2026-09-17)
 - Which font is loaded, and a picture drawn with the letters' tiles (2026-09-17)
 - A wild battle: when it is one, its two menus and its font (2026-09-17)
+- advance_text and battle through the shared machine (2026-09-17)
 - Not measured yet: The rest of autoplay's Crystal reading (from 2026-09-17)
 
 ## Measured
@@ -270,6 +271,18 @@ and 0x60-0x7F only by the table whose checksum is loaded.
 - **Live through `select`:** RUN reached in 2 steps (Right, then Down) and confirmed; "Got away safely!".
 - **Not seen:** a trainer battle, the battlers' species, HP and moves in memory, a Pokémon fainting, the
   PKMN and PACK screens in a battle.
+
+### advance_text and battle through the shared machine (2026-09-17)
+
+**Vanilla V1.0, the session's snapshots.** `autoplay/drivers/bizhawk/text.lua` with Crystal's hooks, live:
+`advance_text` closed the town sign's three boxes (221 frames), stopped `menu_open` at Elm's "You'll take CYNDAQUIL"
+YES/NO (28), got through "A received POTION." and its jingle to "always busy." (651), and read the west exit's six
+boxes while the girl walked the player back to (5,8) (688); `battle` with policy `run` chose RUN and ended in the
+overworld (480). Two readings the hooks rest on: **hJoyDown's bit 0 is A** (it read 1 while each A was held in the
+message boxes and 0 once let go, `autoplay_text_probe.lua`), so a tap holds A until the game has seen it; and **no
+message box had a frame tile (0x79-0x7E) in columns 1-18** of rows 13-16, while the battle's action menu drew a 0x7C
+column at 8 before its ▶ -- read as a message until that became a condition. **Not seen:** a trainer's words before
+and after a battle, a level-up, a battle won.
 
 ## Not measured yet
 

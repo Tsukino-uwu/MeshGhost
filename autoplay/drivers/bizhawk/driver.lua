@@ -68,7 +68,11 @@ local socket = openSocket()
 
 local game = nil
 if gameName and gameName:match("^[%w_]+$") then
-	game = dofile(DIR .. "/games/" .. gameName .. ".lua")
+	-- A game module is called with the shared library as its argument (`local lib = ...`): `text` is the
+	-- text-and-battle machine both games' advance_text and battle run on. By path, never by the module's own
+	-- folder, which a dofile'd chunk cannot resolve (adapters/emulator/CLAUDE.md).
+	local chunk = assert(loadfile(DIR .. "/games/" .. gameName .. ".lua"))
+	game = chunk({ text = dofile(DIR .. "/text.lua") })
 end
 
 local sock, partial, state = nil, "", "down"

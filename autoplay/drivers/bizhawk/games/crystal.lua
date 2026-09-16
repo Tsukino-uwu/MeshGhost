@@ -5,6 +5,9 @@
 -- the running game, recorded in that adapter's MEASURED.md; a byte whose meaning is not measured goes
 -- out raw under `extras`, never named.
 
+-- The shared driver library the driver hands every game module (driver.lua: `text`).
+local lib = ...
+
 local function flat(cpu) return cpu < 0xD000 and cpu - 0xC000 or 0x1000 + (cpu - 0xD000) end
 local function u8(a) return memory.read_u8(a, "WRAM") end
 local function rom8(bank, ptr) return memory.read_u8(bank * 0x4000 + (ptr - 0x4000), "ROM") end
@@ -299,6 +302,12 @@ local function boxOpen(t)
 	end
 	for r = BOX_TOP + 1, BOX_BOTTOM - 1 do
 		if cell(t, 0, r) ~= 0x7C or cell(t, 19, r) ~= 0x7C then return false end
+		-- No message had a frame tile inside it; the battle's action menu splits the same rows with a 0x7C column
+		-- at 8, drawn before its ▶ (text.lua's log caught it, 2026-09-17).
+		for c = 1, 18 do
+			local b = cell(t, c, r)
+			if b >= 0x79 and b <= 0x7E then return false end
+		end
 	end
 	return true
 end
@@ -401,10 +410,23 @@ local function readScreenText(t, dialogue, menuRows, low)
 	return out
 end
 
+-- The message and the menu on screen together: a menu drawn inside the message box's frame (the battle's action
+-- menu) is not a message.
+local function readTextAndMenu(t, low)
+	local d = readDialogue(t, low)
+	local m, menuRows = readMenu(t, low)
+	if d and menuRows then
+		for r = BOX_TOP + 1, BOX_BOTTOM - 1 do
+			if menuRows[r] then d = nil end
+		end
+	end
+	return d, m, menuRows
+end
+
 local game = {
 	game = "crystal",
 	variant = isVanilla and "vanilla" or "unverified",
-	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "walk", "select" },
+	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "walk", "select", "advance_text", "battle" },
 	-- The START menu: Down moved the cursor one item a press and A chose it (2026-09-17).
 	menuButtons = { prev = "Up", next = "Down", left = "Left", right = "Right", confirm = "A" },
 	protected_slots = { 1 },
@@ -444,14 +466,7 @@ function game.observe()
 	if isVanilla then
 		local t = readTilemap()
 		local letters, low = readFont()
-		d = readDialogue(t, low)
-		m, menuRows = readMenu(t, low)
-		-- A menu drawn inside the message box's frame (the battle's action menu) is not a message.
-		if d and menuRows then
-			for r = BOX_TOP + 1, BOX_BOTTOM - 1 do
-				if menuRows[r] then d = nil end
-			end
-		end
+		d, m, menuRows = readTextAndMenu(t, low)
 		if letters then
 			s = readScreenText(t, d, menuRows, low)
 			if #s == 0 then s = nil end
@@ -652,6 +667,68 @@ function game.menu()
 	if not isVanilla then return nil end
 	local _, low = readFont()
 	return (readMenu(readTilemap(), low))
+end
+
+-- TEXT AND BATTLES AS ONE CALL: the shared machine (`../text.lua`) through Crystal's reads.
+--   * Progress is any change in the tile buffer (every letter printed, every HP bar step, a menu's cursor) or the
+--     state bytes, and the player's tile (a scene walks the player: the west exit's, 2026-09-17).
+--   * The battle's action menu is the grid whose first row is 14 and column 9, its move menu the list at row 13,
+--     column 5 (autoplay_text_probe.lua, a wild PIDGEY); RUN is the grid's 3 and FIGHT its 0.
+--   * A script has the controls while wScriptRunning reads 255 (MEASURED.md, "A script taking over").
+--   * hJoyDown is the game's own copy of the buttons: the START menu looked every few frames and missed a 2-frame
+--     release, so presses wait for it to read 0, and a tap holds A until its bit 0 is set (hJoyDown read 1 for
+--     each A a message box took, 2026-09-17).
+-- Crystal's battlers, move data and level-up screens are not measured, so `battle` runs only with policy "run".
+local function textAndMenuNow()
+	local t = readTilemap()
+	local _, low = readFont()
+	return t, readTextAndMenu(t, low)
+end
+
+local textHooks = {
+	signature = function()
+		local t, d = textAndMenuNow()
+		local cells = {}
+		for i = 1, #t do cells[i] = string.char(t[i]) end
+		local parts = { table.concat(cells), u8(W_MAPSTATUS), u8(W_BATTLEMODE), u8(W_SCRIPT_RUNNING), u8(W_TEXTBOX_FLAGS),
+			u8(W_MENU_CURSOR_Y), u8(W_MENU_CURSOR_X), mapName(), u8(W_XCOORD), u8(W_YCOORD), d and d.state or "-" }
+		return table.concat(parts, "|"), d
+	end,
+	readDialogue = function()
+		local _, d = textAndMenuNow()
+		return d
+	end,
+	inBattle = function() return u8(W_BATTLEMODE) ~= 0 end,
+	battleMenu = function()
+		local _, _, m = textAndMenuNow()
+		if not m then return nil end
+		local b = memory.read_bytes_as_array(W_2DMENU, 4, "WRAM")
+		if b[1] == 14 and b[2] == 9 and b[4] == 2 then return "action", m end
+		if b[1] == 13 and b[2] == 5 and b[4] == 1 then return "move", m end
+		return nil
+	end,
+	scriptRunning = function() return u8(W_SCRIPT_RUNNING) == SCRIPT_TOOK_OVER end,
+	inOverworld = inOverworld,
+	readMenu = function()
+		local _, _, m = textAndMenuNow()
+		return m
+	end,
+	actionIndex = { fight = 0, run = 3 },
+	inputReleased = function() return game.inputReleased() end,
+	tapSeen = function() return (memory.read_u8(0xFFA8, "System Bus") & 0x01) ~= 0 end,
+}
+
+-- battle {policy = "run"}: RUN from the action menu, then through the text to the overworld.
+game.programs.battle = function(p)
+	if not isVanilla then return nil, "battle is measured on the vanilla V1.0 ROM only" end
+	return lib.text.battle(textHooks, p)
+end
+
+-- advance_text: presses through the message on screen, box by box, and stops when it closes and stays closed,
+-- when a menu opens (answer it with select), or when a battle begins (hand it to battle).
+game.programs.advance_text = function()
+	if not isVanilla then return nil, "advance_text is measured on the vanilla V1.0 ROM only" end
+	return lib.text.advanceText(textHooks)
 end
 
 -- What `changed` compares between two observations: the fields a press is expected to move.

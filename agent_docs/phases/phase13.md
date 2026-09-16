@@ -771,3 +771,31 @@ target at `none`; put `autoplay/drivers/bizhawk/driver.lua` back in
 the battlers in memory (species, HP, moves, read against the battle screen) and a trainer battle (Route 30);
 then the PACK's scrolling list. `advance_text` and `battle` for Crystal need the user's call on moving
 `emerald.lua`'s text machine into shared Lua.
+
+## 2026-09-17 (the Crystal chat, the same night) — the text-and-battle machine moved into shared Lua
+
+**The user:** *"the emerald chat has stopped for now, and i will continue both of these chats in \"new chats\""*,
+then of moving the text machine: *"do this now while this is the only active chat"*; and yes to launching vanilla
+Emerald to check it.
+
+**Done.** `drivers/bizhawk/text.lua` holds the machine and the `battle` and `advance_text` programs, moved from
+`emerald.lua` with its comments; every read became a hook the module supplies (the list heads the file). The driver
+calls each game module with the library (`local lib = ...`). Emerald's hooks are its old reads, and where it supplies
+no optional hook the machine runs its old path. Crystal's hooks are this session's measurements, plus three the move
+needed: a tap holds A until the game's button copy shows it (hJoyDown bit 0), a press waits for the release to be
+seen, and a box is logged once printed (the screen fills letter by letter; Emerald's text is whole from its first
+letter). Crystal's `battle` takes `run` only: its battlers and move data are not measured.
+
+**Checked live.** Crystal: `advance_text` closed the town sign (221 frames), stopped `menu_open` at Elm's YES/NO (28),
+waited out the POTION jingle (651), followed the west exit's scene while the girl walked the player back (688); `battle
+run` ended the PIDGEY battle (480), and `strongest` is refused with the reason. Emerald (started for this, the Emerald
+chat's snapshot `acc_before_may`): `advance_text` read MAY's five boxes to `battle_started`, and `battle strongest`
+played her battle through FIGHT and TACKLE each turn to `ended` (`outcome_raw` 2 — MUDKIP lost and the player whited
+out; in memory only, no in-game save).
+
+**What went wrong on the way:** the first Crystal log listed every letter of a box as it printed; and the battle's
+action menu, before its ▶ was drawn, read as a message with a frame column inside it — no message has a frame tile
+inside, so that is now a condition of a message box.
+
+**Left open:** both emulators (Crystal 7871, Emerald 7870) are running with their loader targets at `none`; closing
+them is the user's.
