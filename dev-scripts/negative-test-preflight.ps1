@@ -459,7 +459,7 @@ $fixtures = @(
         Section = 'Bridge constants agree across the four adapters'
         Expect = 'FAIL'
         Why = 'one adapter on a different bridge base port'
-        Plant = { param($wt) Plant-Replace $wt 'adapters/emulator/pokemon/emerald/meshghost_emerald.lua' '(?m)^local BRIDGE_BASE_PORT = 7778$' 'local BRIDGE_BASE_PORT = 7779' } },
+        Plant = { param($wt) Plant-Replace $wt 'adapters/emulator/pokemon/emerald/meshghost_emerald.lua' '(?m)^local BRIDGE_BASE_PORT = 7778\r?$' 'local BRIDGE_BASE_PORT = 7779' } },
 
     @{  Name = 'phase-file-unindexed'
         Section = 'Phase index coverage'

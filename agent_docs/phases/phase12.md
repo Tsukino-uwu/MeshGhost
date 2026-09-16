@@ -433,3 +433,9 @@ fixtures it did not run as gaps), and `gates.yml` runs six such jobs, the shape 
 the race tests. Checked locally: a 30-way slice ran two fixtures end to end with the tally intact,
 and an out-of-range shard is refused. The sharded workflow is unproven until the push that
 carries it.
+
+**Same day, after the push.** The sharded `gates` run: five shards green in 279 to 492 s, shard 1
+red on `bridge-port-drift` -- the PLANT failed, not the gate: the runner checks out with CRLF and
+the pattern's `$` anchor does not match before a carriage return. The pattern now tolerates `\r`
+(proved against both endings; a sed attempt put a raw CR byte into the file first, which the
+byte dump caught). The other three regex fixtures anchor on nothing that ends a line.
