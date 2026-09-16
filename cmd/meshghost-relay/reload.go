@@ -56,6 +56,17 @@ func snapshotRelayLive(t configTargets) relayLive {
 	}
 }
 
+// watcherSeed is what the watcher treats as live at startup: the running values,
+// except the two listen addresses as the FILE wrote them. main resolves those in
+// place (an empty listen_quic becomes the shared port), and a re-read can only
+// ever yield the raw value, so seeding the resolved one made every save report
+// listen_quic as changed (2026-09-16).
+func watcherSeed(t configTargets, fileQuicAddr, fileUDPAddr string) relayLive {
+	live := snapshotRelayLive(t)
+	live.quicAddr, live.udpAddr = fileQuicAddr, fileUDPAddr
+	return live
+}
+
 // relayConfigWatcher re-reads the file on a settled save and applies the diff.
 type relayConfigWatcher struct {
 	path     string
@@ -85,6 +96,13 @@ func (w *relayConfigWatcher) poll() {
 // reload re-reads the file into a fresh copy of the flag values, applies
 // what changed, and logs one line per changed key.
 func (w *relayConfigWatcher) reload() []string {
+	// A save that went wrong keeps what is live: re-reading from the defaults
+	// would turn a room code OFF over one stray comma (cfg.ReloadRefusal).
+	if why := cfg.ReloadRefusal(w.path, "meshghost-relay", "server"); why != "" {
+		log.Printf("meshghost-relay: config.json was saved but %s -- NOTHING changed: every server setting "+
+			"stays as it is running; fix the file and save again", why)
+		return nil
+	}
 	next := w.base
 	applyFileConfig(w.path, w.explicit, next.targets())
 	next.roomCode = strings.TrimSpace(next.roomCode) // as main trims it

@@ -399,6 +399,33 @@ const alsoIgnored = "That setting is being ignored and everything correctly type
 	"but if any OTHER value in the file also has the wrong type it is being ignored too and only " +
 	"the first one can be named here -- fix this one and run again to see whether there is another."
 
+// ReloadRefusal says why a SAVED config file must not be applied, or "" when it
+// may. A re-read starts from the flag defaults and lays the file over them, so a
+// file that cannot be read, is empty, does not parse, or has lost this binary's
+// section would otherwise apply the DEFAULTS live: found 2026-09-16 with the real
+// binaries, where one stray comma removed a relay's room code until the file was
+// fixed, and bound a client's default hotkeys system-wide. At startup the same file
+// means "use the defaults" and says so; mid-session it means "a save went wrong",
+// and what is live stays live until a save that parses. A wrong-TYPED value is not
+// a refusal: ApplyDespiteBadValue already keeps every other setting.
+func ReloadRefusal(path, prog, section string) string {
+	data, _, err := ReadConfigFile(path, prog)
+	switch {
+	case err != nil:
+		return fmt.Sprintf("could not be read (%v)", err)
+	case data == nil:
+		return "is empty"
+	}
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(data, &root); err != nil {
+		return fmt.Sprintf("does not parse (%v)", err)
+	}
+	if raw, ok := root[section]; !ok || string(bytes.TrimSpace(raw)) == "null" {
+		return fmt.Sprintf("has no %q section", section)
+	}
+	return ""
+}
+
 // ReadConfigFile resolves path for display, reads it, strips a BOM, and says
 // whether there is any JSON worth unmarshaling.
 //

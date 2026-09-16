@@ -378,6 +378,11 @@ func main() {
 	// starts from (reload.go), so a key removed from the file falls back here.
 	base := snapshotRelayLive(targets)
 	applyFileConfig(located.path, explicit, targets)
+	// The two listen addresses as the FILE says them, before they are resolved
+	// below: a re-read yields the raw value, so a watcher seeded with the
+	// resolved one reported listen_quic "changed" on every save (found
+	// 2026-09-16 with the real binaries, on the shipped empty listen_quic).
+	fileQuicAddr, fileUDPAddr := *quicAddr, *udpAddr
 	if *qlog {
 		quicconn.SetQLog(true)
 		log.Printf("meshghost-relay: qlog tracing ON for every quic connection -- traces go to QLOGDIR=%q "+
@@ -611,7 +616,7 @@ func main() {
 	// code, so the first diff sees what is actually live.
 	watchStop := make(chan struct{})
 	defer close(watchStop)
-	go newRelayConfigWatcher(located.path, explicit, base, snapshotRelayLive(targets), server).run(watchStop)
+	go newRelayConfigWatcher(located.path, explicit, base, watcherSeed(targets, fileQuicAddr, fileUDPAddr), server).run(watchStop)
 	log.Print(describeRelayReloadable(located.path))
 
 	serveErr := make(chan error, len(listeners))

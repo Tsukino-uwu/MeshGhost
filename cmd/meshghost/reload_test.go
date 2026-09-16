@@ -241,3 +241,43 @@ func TestASavedConfigCannotMoveALiveSessionEvenOnTheSecondSave(t *testing.T) {
 			c.RelayAddr, c.Room)
 	}
 }
+
+// TestConfigWatcherKeepsTheLiveSettingsWhenASaveGoesWrong: found 2026-09-16 with
+// the real binaries -- a save with a stray comma re-read from the defaults, so
+// the client rebound its default hotkeys system-wide and left the room until the
+// file was fixed. A broken, empty or section-less save must change nothing.
+func TestConfigWatcherKeepsTheLiveSettingsWhenASaveGoesWrong(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	write := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		future := time.Now().Add(2 * time.Second)
+		if err := os.Chtimes(path, future, future); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(`{"client": {"interp": "300ms", "name": "me"}}`)
+	base := liveValues{interp: 450 * time.Millisecond, curve: "linear", predict: "linear"}
+	live := base
+	applyFileConfig(path, nil, live.targets())
+	c := core.New()
+	t.Cleanup(c.StopChasers)
+	c.InterpolationDelay, c.DisplayName = live.interp, live.name
+	rebinds := 0
+	w := newConfigWatcher(path, nil, base, live, c, func([]hotkeyBinding) { rebinds++ })
+
+	for _, bad := range []string{`{"client": {"interp": "300ms",, "name": "me"}}`, ``, `{"server": {}}`} {
+		write(bad)
+		w.poll()
+		if lines := w.reload(); len(lines) != 0 {
+			t.Fatalf("a bad save %q applied changes: %v", bad, lines)
+		}
+		if c.InterpolationDelay != 300*time.Millisecond || c.DisplayName != "me" || rebinds != 0 {
+			t.Fatalf("a bad save %q moved what is live: interp=%s name=%q rebinds=%d",
+				bad, c.InterpolationDelay, c.DisplayName, rebinds)
+		}
+	}
+}

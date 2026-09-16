@@ -141,3 +141,70 @@ func TestRelayReloadFallsBackToTheFlagValueAndNamesRelaunchOnlyKeys(t *testing.T
 		t.Fatalf("the file overrode a flag given on the command line:\n%s", strings.Join(lines, "\n"))
 	}
 }
+
+// TestRelayReloadKeepsTheLiveSettingsWhenASaveGoesWrong: found 2026-09-16 with the
+// real binaries -- a save with one stray comma re-read from the defaults and
+// turned the room code OFF live until the file was fixed. A broken, empty or
+// section-less save must change nothing; the next good save still applies.
+func TestRelayReloadKeepsTheLiveSettingsWhenASaveGoesWrong(t *testing.T) {
+	captureLog(t)
+	path := filepath.Join(t.TempDir(), "config.json")
+	writeRelayConfig(t, path, `{"server":{"room_code":"secret","only_game":"game-a","max_clients":3}}`)
+	srv := relay.NewServer()
+	srv.RoomCode = "secret"
+	base := relayLive{maxClients: relay.DefaultMaxClients}
+	live := base
+	live.roomCode, live.onlyGame, live.maxClients = "secret", "game-a", 3
+	w := newRelayConfigWatcher(path, map[string]bool{}, base, live, srv)
+
+	for _, bad := range []string{
+		`{"server":{"room_code":"secret",,"max_clients":3}}`, // a stray comma
+		``,                        // an editor that truncates before writing
+		`{"client":{"name":"x"}}`, // the server section gone
+		`{"server":null}`,
+	} {
+		writeRelayConfig(t, path, bad)
+		w.poll()
+		if lines := w.reload(); len(lines) != 0 {
+			t.Fatalf("a bad save %q applied changes:\n%s", bad, strings.Join(lines, "\n"))
+		}
+		if srv.RoomCode != "secret" || w.prev.onlyGame != "game-a" || w.prev.maxClients != 3 {
+			t.Fatalf("a bad save %q moved what is live: room_code=%q only_game=%q max_clients=%d",
+				bad, srv.RoomCode, w.prev.onlyGame, w.prev.maxClients)
+		}
+	}
+	writeRelayConfig(t, path, `{"server":{"room_code":"rotated","only_game":"game-a","max_clients":3}}`)
+	w.poll()
+	if lines := w.reload(); !strings.Contains(strings.Join(lines, "\n"), "room_code changed") || srv.RoomCode != "rotated" {
+		t.Fatalf("the good save after the bad ones did not apply: room_code=%q lines=%v", srv.RoomCode, lines)
+	}
+}
+
+// TestRelayReloadDoesNotReportAResolvedListenAddressAsChanged: main resolves an
+// empty listen_quic/listen_udp in place, and a watcher seeded with the resolved
+// value reported "listen_quic 127.0.0.1:7777 -> " on every save (2026-09-16).
+func TestRelayReloadDoesNotReportAResolvedListenAddressAsChanged(t *testing.T) {
+	captureLog(t)
+	path := filepath.Join(t.TempDir(), "config.json")
+	writeRelayConfig(t, path, `{"server":{"room_code":"a"}}`)
+	srv := relay.NewServer()
+	var l relayLive
+	l.maxClients = relay.DefaultMaxClients
+	targets := l.targets()
+	l.roomCode = "a"
+	// As main does: the file leaves both empty, then they are resolved in place.
+	fileQuic, fileUDP := l.quicAddr, l.udpAddr
+	l.quicAddr, l.udpAddr = "127.0.0.1:7777", "127.0.0.1:7778"
+	w := newRelayConfigWatcher(path, map[string]bool{}, relayLive{maxClients: relay.DefaultMaxClients},
+		watcherSeed(targets, fileQuic, fileUDP), srv)
+
+	writeRelayConfig(t, path, `{"server":{"room_code":"b"}}`)
+	w.poll()
+	joined := strings.Join(w.reload(), "\n")
+	if strings.Contains(joined, "listen_quic") || strings.Contains(joined, "listen_udp") {
+		t.Fatalf("an untouched listen address was reported as changed:\n%s", joined)
+	}
+	if !strings.Contains(joined, "room_code changed") {
+		t.Fatalf("the real change was not reported:\n%s", joined)
+	}
+}

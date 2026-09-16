@@ -146,6 +146,14 @@ func (w *configWatcher) poll() {
 // reload re-reads the file into a fresh copy of the flag values, applies what
 // changed, and logs it.
 func (w *configWatcher) reload() []string {
+	// A save that went wrong keeps what is live: re-reading from the defaults
+	// would rebind default hotkeys system-wide and leave the room over one stray
+	// comma (cfg.ReloadRefusal).
+	if why := cfg.ReloadRefusal(w.path, "meshghost", "client"); why != "" {
+		log.Printf("meshghost: config.json was saved but %s -- NOTHING changed: every setting stays as it "+
+			"is running; fix the file and save again", why)
+		return nil
+	}
 	next := w.base
 	loadClientConfig(w.path, w.explicit, next.targets())
 	lines := applyLive(&w.prev, &next, w.c, w.rebind)
