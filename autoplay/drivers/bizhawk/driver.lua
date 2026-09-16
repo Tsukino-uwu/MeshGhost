@@ -14,6 +14,7 @@ local PROTOCOL = 1
 local MAX_LINE = 64 * 1024
 local RETRY_FRAMES = 30
 local REJECT_BACKOFF_FRAMES = 600
+local PROGRAM_FRAME_LIMIT = 1800 -- a select across a long menu is far shorter; the core waits 40s
 
 local function scriptDir()
 	local info = debug.getinfo(1, "S")
@@ -120,6 +121,94 @@ local function heldFor(frames)
 	end
 end
 
+-- select: a program run one frame at a time over the module's observe().menu ({cursor, items}) and
+-- its menuButtons ({prev, next, confirm}). Every leg ends on the game's own state, never on a frame
+-- count: press toward the entry until the menu's cursor changes, release for SETTLE frames, look
+-- again; then hold confirm until the menu closes or changes. Returns a function of an observation
+-- that answers (pad or nil, finished, result or nil, error or nil).
+local SETTLE, LEG_LIMIT = 2, 30
+
+local function selectProgram(p)
+	local keys = game.menuButtons
+	local target, label, before, dir
+	local phase, held, settle, steps, from, maxSteps = "look", 0, 0, 0, nil, 0
+
+	local function sameMenu(m)
+		if not m or m.window ~= before.menu.window or #m.items ~= #before.menu.items then return false end
+		for i, item in ipairs(m.items) do
+			if item ~= before.menu.items[i] then return false end
+		end
+		return true
+	end
+
+	return function(o)
+		local m = o.menu
+		if phase == "look" then
+			before = o
+			if type(m) ~= "table" or type(m.items) ~= "table" or #m.items == 0 then
+				return nil, true, nil, "no menu is open (observe shows none)"
+			end
+			if p.index ~= nil then
+				target = math.tointeger(p.index)
+				if not target or target < 0 or target >= #m.items then
+					return nil, true, nil, string.format("index %s is outside the menu's %d entries", tostring(p.index), #m.items)
+				end
+			else
+				local want, hits = tostring(p.item):lower(), {}
+				for i, item in ipairs(m.items) do
+					if item:lower() == want then hits[#hits + 1] = i - 1 end
+				end
+				if #hits ~= 1 then
+					return nil, true, nil, string.format("%d entries read %q; the menu has: %s", #hits, tostring(p.item), table.concat(m.items, " | "))
+				end
+				target = hits[1]
+			end
+			label, maxSteps, phase = m.items[target + 1], #m.items * 2 + 2, "move"
+		end
+
+		if settle > 0 then
+			settle = settle - 1
+			return nil, false
+		end
+
+		if phase == "move" then
+			if not sameMenu(m) then return nil, true, nil, "the menu closed or changed while the cursor was moving" end
+			if held == 0 and m.cursor == target then
+				if p.confirm == false then
+					return nil, true, { selected = label, index = target, steps = steps, confirmed = false }
+				end
+				phase = "confirm"
+			else
+				if held == 0 then
+					if steps >= maxSteps then
+						return nil, true, nil, string.format("the cursor is on %d after %d steps, not on %d", m.cursor, steps, target)
+					end
+					from, steps = m.cursor, steps + 1
+					dir = (target > m.cursor) and keys.next or keys.prev
+				elseif m.cursor ~= from then
+					held, settle = 0, SETTLE
+					return nil, false
+				end
+				held = held + 1
+				if held > LEG_LIMIT then
+					return nil, true, nil, string.format("the cursor did not move from %d on %s in %d frames", from, dir, LEG_LIMIT)
+				end
+				return { [dir] = true }, false
+			end
+		end
+
+		-- confirm: hold until the menu is gone or no longer the same menu with the cursor on the entry.
+		if held > 0 and (not sameMenu(m) or m.cursor ~= target) then
+			return nil, true, { selected = label, index = target, steps = steps, confirmed = true }
+		end
+		held = held + 1
+		if held > LEG_LIMIT then
+			return nil, true, nil, string.format("the menu did not respond to %s in %d frames", keys.confirm, LEG_LIMIT)
+		end
+		return { [keys.confirm] = true }, false
+	end
+end
+
 -- Start carrying out one request. Returns true when it answered at once.
 local function begin(req)
 	local verb, p = req.type, req.payload or {}
@@ -179,6 +268,18 @@ local function begin(req)
 			return true
 		end
 		hold = { id = req.id, pad = nil, left = frames, before = game.observe(), finish = heldFor(frames) }
+		return false
+	elseif verb == "select" then
+		if type(game.menuButtons) ~= "table" then
+			fail(req.id, "this game module names no menu buttons")
+			return true
+		end
+		if (p.item == nil) == (p.index == nil) then
+			fail(req.id, "select needs exactly one of item and index")
+			return true
+		end
+		log("select " .. tostring(p.item or p.index))
+		hold = { id = req.id, program = selectProgram(p), before = game.observe(), count = 0 }
 		return false
 	elseif verb == "snapshot" or verb == "restore" then
 		-- The core names the file: a named state under its gitignored states folder, never a numbered
@@ -294,15 +395,21 @@ local function drain()
 	end
 end
 
+-- Every frame: each key of the game module's watch() that changed goes out as a "<key>_changed" event
+-- (map_changed, mode_changed, and whatever else the module watches). Without a watch(), map and mode.
 local function watchEvents()
-	local o = game.observe()
-	local d = game.diffKeys(o)
+	local d
+	if game.watch then
+		d = game.watch()
+	else
+		local k = game.diffKeys(game.observe())
+		d = { map = k.map, mode = k.mode }
+	end
 	if lastDiff and state == "ready" then
-		if d.map ~= lastDiff.map then
-			send({ type = "event", payload = { kind = "map_changed", from = lastDiff.map, to = d.map, frame = o.frame } })
-		end
-		if d.mode ~= lastDiff.mode then
-			send({ type = "event", payload = { kind = "mode_changed", from = lastDiff.mode, to = d.mode, frame = o.frame } })
+		for key, value in pairs(d) do
+			if value ~= lastDiff[key] then
+				send({ type = "event", payload = { kind = key .. "_changed", from = lastDiff[key], to = value, frame = emu.framecount() } })
+			end
 		end
 	end
 	lastDiff = d
@@ -311,7 +418,8 @@ end
 if not game then
 	log("no game module: set AUTOPLAY_GAME (e.g. emerald) before loading; doing nothing")
 else
-	log(string.format("loaded for %s, core port %d", game.game, port))
+	log(string.format("loaded for %s (%s), core port %d", game.game, game.variant, port))
+	if game.start then log(game.start()) end
 end
 
 MESHGHOST_DEV_TICK = function()
@@ -328,7 +436,27 @@ MESHGHOST_DEV_TICK = function()
 	if not sock then return end
 
 	if hold then
-		if hold.left > 0 then
+		if hold.program then
+			-- One frame of a program: look, then either finish or set this frame's input.
+			local o = game.observe()
+			hold.count = hold.count + 1
+			local pad, finished, result, err = hold.program(o)
+			if not finished and hold.count > PROGRAM_FRAME_LIMIT then
+				finished, err = true, string.format("still running after %d frames", PROGRAM_FRAME_LIMIT)
+			end
+			if finished then
+				if err then
+					fail(hold.id, err)
+				else
+					result.frames, result.before, result.after = hold.count, hold.before, o
+					result.changed = changed(hold.before, o)
+					reply(hold.id, result)
+				end
+				hold = nil
+			elseif pad then
+				joypad.set(pad)
+			end
+		elseif hold.left > 0 then
 			if hold.pad then joypad.set(hold.pad) end
 			hold.left = hold.left - 1
 		elseif hold.untilFn then
@@ -353,6 +481,7 @@ MESHGHOST_DEV_TICK = function()
 end
 
 MESHGHOST_DEV_UNLOAD = function()
+	if game and game.stop then game.stop() end
 	close("unloaded")
 	if logf then logf:close() end
 	logf = nil

@@ -210,3 +210,49 @@ text drawn on screen against the bytes behind it — with the decomp as the map 
 **To pick up in a new chat:** start an instance with `autoplay/drivers/bizhawk/driver.lua` as the dev
 loader's target and `AUTOPLAY_GAME=emerald` (the README's "Drivers so far"), then drive it with
 `go run ./cmd/mcpcall` from `autoplay/`, or give a session `--mcp-config autoplay/.mcp.json`.
+
+## 2026-09-16 (next session) — Phase 1 step 4: text, menus and `select`, measured from the game
+
+**Built.** Emerald's `observe` gains `dialogue` (the box on screen, its index, and `printing`,
+`waiting_for_button` or `finished`), `menu` (items and cursor) and `screen_text`; the driver turns
+watched keys into `dialogue_changed` and `menu_changed` events; and a new `select` tool, generic in
+the driver, walks the game's own cursor to a named entry and confirms. The text hooks install only
+on the ROM whose hash they were measured on (`gameinfo.getromhash()`, the same SHA-1 as `sha1sum` and
+our pokeemerald build). Measurements: `emerald/UNVERIFIED.md`, same date; tools: the README.
+
+**How it was measured, the decomp as the map only.** The build's symbols said where the text
+routines, the printer and menu blocks and the message buffer live. `probes/text_probe.lua` hooked the
+routines and logged raw bytes per window while the agent opened the START menu and talked to a
+Pokémon Center nurse, and screenshots of the same frames paired each byte with its glyph. Then
+`probes/charset_probe.lua` overwrote one message's buffer with bytes 00-F7 between ▶ markers, so the
+game's printer drew all of them, and a script split each line at the marker's pixel mask and labelled
+every glyph before any was read. The method went into `_template/probes.md` ("Make the game draw
+what you cannot name").
+
+**What went wrong on the way:**
+- **The first menu hook missed the YES/NO.** The START menu was found from a hook on the routine
+  named InitMenu; the YES/NO sets the menu block through another path. The live run showed its items
+  in `screen_text` but no `menu`; both paths call Menu_MoveCursor, and a hook there caught both.
+- **The box index was off by one at the arrow**, caught before the first run: waiting on its arrow,
+  the printer's pointer is already past the box's end byte, so that byte belongs to the box shown.
+- **A 400% speed request hid the hooks' cost** (238 vs 239 frames/s, the setting's cap). With the
+  frame limiter off: 344 with no hook, 245.6 with one, 242.0 with five, so `AUTOPLAY_TEXT=0` exists
+  and trimming hooks does not.
+- **An inline-heredoc Lua script lost its backslashes** and failed to load; rewritten with the Write
+  tool (the known trap).
+
+**The user, while it ran.** On text speed: it can be set faster or slower, and romhacks like
+Speedchoice and Archipelago add faster, turbo or instant modes; *"how fast the text scroll/appear on
+the screen"*. So `dialogue.state` comes from the printer's own bytes, never from time; this save's
+speed only was measured, and instant modes are unmeasured. Watching the nurse's box fill with
+accented letters: *"did you change what the text itself would be ?"* — yes, for that one
+conversation only: the probe rewrote the scratch message buffer, nothing in the ROM or the save.
+Its 13th A landed on her YES, so she healed the party; no in-game save was made.
+
+**Go side:** `select` in the core with its tests (validation, index 0 reaching the driver, the
+capability refusal); `go test -race -count=10 ./...` clean in the module. **Live:** the START menu
+(3 steps down to OPTION, 5 up to POKéDEX, `exit` confirmed and closed) and the nurse's YES/NO (NO in
+one step), every result matching its capture.
+
+**Next for Phase 1:** the ASCII map around the player; party, bag and badges; cheats for items and
+flags; list menus and battle text; a move that ends on the game's own state.

@@ -29,12 +29,31 @@ Claude Code --MCP (stdio)--> autoplay core --JSON lines (127.0.0.1)--> driver in
 | `observe` | The driver's snapshot of the game |
 | `press` | Hold buttons for 1-600 frames, then report what changed — the escape hatch, not the default |
 | `wait` | Let 1-3600 frames pass with NO input, then report what changed. Never hold a button to wait |
+| `select` | Choose an entry in the open menu by its text (`item`) or 0-based `index`: the driver presses toward it until the game's own cursor is on it, then holds confirm until the menu responds (`confirm: false` stops on it). Every leg ends on the game's state, never a frame count |
 | `screenshot` | The game frame, saved to `dev-scripts/shots/<game>/autoplay_<name>.png` and returned as an image |
 | `events` | Events the driver reported since a sequence number |
 | `snapshot` | Save the whole game state to `autoplay/states/<game>/<label>.State` — a named file, never a numbered slot, so no slot of anyone's is ever touched |
 | `restore` | Load a named snapshot. **Marks the segment REACHED** |
 | `cheat` | A kind the driver announced as `cheat:<kind>`, with its arguments. **Marks the segment REACHED** |
 | `segment` | Close the current run segment and start a labelled one; returns the closed one as walked or reached |
+
+## What observe reads
+
+Everything past `frame`, `mode` and `location` is the game module's. Emerald, on the vanilla ROM only
+(the hash it was measured on; `emerald/UNVERIFIED.md`, 2026-09-16):
+
+- **`dialogue`** — the message being shown: `box` (that box's text, lines split by `\n`),
+  `box_index` of `boxes`, and `state`: `printing`, `waiting_for_button` (the red arrow), or
+  `finished` (its last box is up and waits for a button, with no arrow). Absent when no message box
+  is on screen.
+- **`menu`** — a list menu that is open (the START menu, a YES/NO): `items` in order and `cursor`,
+  0-based. List menus with their own cursor (the bag, the PC, shops) and battle menus are not read
+  yet.
+- **`screen_text`** — any other window's printed text, per window, top to bottom.
+- A byte whose character is not measured, or that draws nothing, reads as `{XX}`.
+
+The driver reports each of `map`, `mode`, `dialogue` and `menu` changing as an event:
+`map_changed`, `mode_changed`, `dialogue_changed` and `menu_changed` (open or closed).
 
 ## The run log
 
@@ -55,9 +74,14 @@ code rather than by memory. A failed or refused cheat changes nothing.
 - **BizHawk** (`drivers/bizhawk/driver.lua`), loaded through `dev-scripts/bizhawk-dev-loader.lua`: put
   the driver's absolute path in the instance's control file, and set `AUTOPLAY_GAME` (and
   `AUTOPLAY_PORT` when it is not 7870) in the environment the emulator starts with. It logs to
-  `autoplay/runs/driver_bizhawk.log`. Game modules: `games/emerald.lua` (vanilla, using only
-  addresses `emerald/probes/cmd_drive.lua` already measured). **While a press runs it holds the
+  `autoplay/runs/driver_bizhawk.log`. Game modules: `games/emerald.lua` (vanilla: position and
+  warp from `emerald/probes/cmd_drive.lua`'s measurements, text and menus from
+  `text_probe.lua`'s and `charset_probe.lua`'s). **While a press or a select runs it holds the
   controller** — take it off the target when done.
+- **Text costs top speed.** Reading text needs execute hooks, and any execute hook costs the
+  emulator about a third of its unthrottled speed (344 frames/s without, 242-246 with, one instance,
+  2026-09-16), however many there are. `AUTOPLAY_TEXT=0` in the emulator's environment leaves them
+  out for a run that wants full fast-forward and no text.
 
 ## Running it
 

@@ -35,6 +35,7 @@ nobody reads a header they did not know existed.
 | `wheelie_ghost.lua` | a ghost's movement action, to drive one wheelie deliberately | No — live RAM. |
 | `oaminject_probe.lua` | shadow-OAM entries above `gOamLimit` | No — live RAM, rewritten by the engine's own transfer every frame. |
 | `use_acro.lua` / `use_mach.lua` / `acroride.lua` | the registered-SELECT-item field, so the bike can be got onto by the game's own field effect | No — live RAM, and the game's own code does the rest. |
+| `charset_probe.lua` | once, the message buffer a window-0 message is about to print: every byte 00-F7 between ▶ markers, so the game's own printer draws each one (2026-09-16) | No — a scratch buffer every message rewrites. The conversation it lands in shows the test page instead of its words, then carries on as the game's script says (the nurse healed on the 13th A). |
 
 **Why this is allowed at all.** `CLAUDE.md`'s rule is that nothing which *ships* writes a save or
 game state; the carve-out for dev-only test tooling was granted by the user 2026-08-18 —
@@ -157,6 +158,7 @@ audit entry). Heavy while recording; idle otherwise.
 | `oaminject_probe.lua` | **Writes** (live RAM only: shadow-OAM entries). Parks N hardware sprites in `gMain.oamBuffer[64..119]` and lets the PPU draw them — Stage 1 of the hardware tier. `_NO_WRITE`/`_NO_SCAN`/`_QUIET` are subtraction switches kept from the run that proved the tier is free and the probe's own logging was not. |
 | `uiregion_probe.lua` | **A recorded negative.** Asked the GBA's display registers (`DISPCNT` window enables, `WIN0H`/`WIN0V`) where the UI panels are. They change every frame during ordinary walking, so they describe the display rather than the panel — the same trap that caught the Game Boy's window layer on Crystal. Kept as the reason the tilemap route was taken instead. |
 | `textbox_probe.lua` | The route that worked: asks what the game DREW rather than what the LCD is displaying, reading BG tilemaps with each background's address taken from its own `BGxCNT` screen-base bits, so no game symbol is involved. Measured 2026-08-19 that BG0 is the UI layer and empty until a panel opens — the whole detector behind the drawn tier's clipping. |
+| `text_probe.lua` | Read-only. What text the game prints and into which window: execute hooks at the text and window routines log each string's raw bytes with its window, x, y and speed, beside the text printers', windows' and menu's blocks on change and BG0's drawn rows. With screenshots of the same frames, it is how the encoding, the printer states and the menu block were measured for autoplay (2026-09-16, `UNVERIFIED.md`). `TEXT_PROBE_NO_HOOKS` leaves the hooks out. |
 
 ## Measuring cost
 

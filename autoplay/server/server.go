@@ -69,6 +69,15 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 	}, logged(t, "wait", nil, t.wait))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name: "select",
+		Description: "Choose an entry in the menu that is open now. The driver reads the menu from the " +
+			"game, presses toward the entry one step at a time until the game's own cursor is on it, " +
+			"then presses confirm and waits for the menu to respond -- never press-and-hope. Name the " +
+			"entry by its text as observe's menu.items shows it (item, case does not matter) or by its " +
+			"0-based index; confirm false stops with the cursor on it. Returns what changed.",
+	}, logged(t, "select", nil, t.selectEntry))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name: "screenshot",
 		Description: "A picture of the game frame, saved under dev-scripts/shots/<game>/ and returned " +
 			"as an image. The navigation sense: what is around, what a thing is, which entry is " +
@@ -184,6 +193,38 @@ func (t *tools) wait(ctx context.Context, _ *mcp.CallToolRequest, in WaitIn) (*m
 	}
 	timeout := CallTimeout + time.Duration(in.Frames)*50*time.Millisecond
 	raw, err := t.forward(ctx, "wait", "wait", in, timeout)
+	return nil, raw, err
+}
+
+// SelectIn is the select tool's input: exactly one of Item and Index.
+type SelectIn struct {
+	Item    string `json:"item,omitempty" jsonschema:"the entry's text as observe's menu.items shows it; case does not matter"`
+	Index   *int   `json:"index,omitempty" jsonschema:"the entry's 0-based position in menu.items, instead of item"`
+	Confirm *bool  `json:"confirm,omitempty" jsonschema:"press confirm once the cursor is on the entry; default true"`
+}
+
+// selectRequest is what the driver receives: confirm is always spelled out.
+type selectRequest struct {
+	Item    string `json:"item,omitempty"`
+	Index   *int   `json:"index,omitempty"`
+	Confirm bool   `json:"confirm"`
+}
+
+// SelectTimeout allows for a cursor walked across a long menu one step at a time.
+const SelectTimeout = CallTimeout + 30*time.Second
+
+func (t *tools) selectEntry(ctx context.Context, _ *mcp.CallToolRequest, in SelectIn) (*mcp.CallToolResult, any, error) {
+	if (in.Item != "") == (in.Index != nil) {
+		return nil, nil, fmt.Errorf("select needs exactly one of item and index")
+	}
+	if len(in.Item) > 64 {
+		return nil, nil, fmt.Errorf("an item is at most 64 bytes, got %d", len(in.Item))
+	}
+	if in.Index != nil && (*in.Index < 0 || *in.Index > 255) {
+		return nil, nil, fmt.Errorf("index must be 0 to 255, got %d", *in.Index)
+	}
+	req := selectRequest{Item: in.Item, Index: in.Index, Confirm: in.Confirm == nil || *in.Confirm}
+	raw, err := t.forward(ctx, "select", "select", req, SelectTimeout)
 	return nil, raw, err
 }
 

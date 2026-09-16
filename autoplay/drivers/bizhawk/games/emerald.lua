@@ -1,10 +1,16 @@
 -- autoplay BizHawk driver: vanilla Pokémon Emerald (DEV TOOL, never shipped).
 --
--- Every address here is one `adapters/emulator/pokemon/emerald/probes/cmd_drive.lua` already uses,
--- and that file's header says what was measured and when (vanilla, 2026-09-16); this module adds no
--- address of its own. Where a byte's MEANING is not measured -- a facing or an action code -- the
--- value goes out raw and unnamed. `mode` says whether gMain.callback2 is vanilla's overworld callback,
--- and the warp cheat refuses when it is not, as `cmd_drive.lua`'s `warp` does.
+-- The position and warp addresses are ones `adapters/emulator/pokemon/emerald/probes/cmd_drive.lua`
+-- already uses, and that file's header says what was measured and when (vanilla, 2026-09-16). Where a
+-- byte's MEANING is not measured -- a facing or an action code -- the value goes out raw and unnamed.
+-- `mode` says whether gMain.callback2 is vanilla's overworld callback, and the warp cheat refuses when
+-- it is not, as `cmd_drive.lua`'s `warp` does.
+--
+-- TEXT AND MENUS (measured 2026-09-16 with `emerald/probes/text_probe.lua` and `charset_probe.lua` on
+-- the vanilla ROM whose SHA-1 is VANILLA_SHA1; the record is that adapter's UNVERIFIED.md, same date).
+-- Addresses come from a pokeemerald build hashed identical to that ROM; what each byte means is what
+-- the probes showed. Only on that ROM are the hooks installed; anywhere else `dialogue`, `menu` and
+-- `screen_text` are absent.
 
 local BUS = "System Bus"
 local GPLAYERAVATAR, GOBJECTEVENTS = 0x02037590, 0x02037350
@@ -20,11 +26,295 @@ local function w8(a, v) memory.write_u8(a, v, BUS) end
 local function w16(a, v) memory.write_u16_le(a, v, BUS) end
 local function w32(a, v) memory.write_u32_le(a, v, BUS) end
 
+-- gameinfo.getromhash() on the vanilla ROM, equal to its sha1sum and to our pokeemerald build's
+-- (all three compared 2026-09-16).
+local VANILLA_SHA1 = "F3AE088181BF583E55DAF962A92BB46F4F1D07B7"
+local romHash = (function()
+	local ok, h = pcall(gameinfo.getromhash)
+	return ok and type(h) == "string" and h:upper() or ""
+end)()
+local isVanilla = romHash == VANILLA_SHA1
+
+-- Execute hooks, at the entry of routines named in the build: text_probe.lua saw each fire with a
+-- window id in R0 (AddTextPrinter: a pointer to a template whose first word points at the string,
+-- +4 the window, +6/+7 x and y; R1 the speed).
+local ADDTEXTPRINTER, FILLWINDOWPIXELBUFFER, REMOVEWINDOW, CLEARWINDOWTILEMAP, MENU_MOVECURSOR =
+	0x0800467c, 0x08003c48, 0x08003574, 0x080038a4, 0x081984d8
+-- 0x24 bytes per window id. +0x1B is 1 while a message is on its way (printing or waiting on its
+-- arrow) and 0 once its end is reached; +0x1C is 0 while printing and 2 while the red arrow waits for
+-- a button. Other +0x1C values are not measured and go out raw.
+local STEXTPRINTERS, PRINTER_SIZE = 0x020201b0, 0x24
+-- 12 bytes per window id: +0 the background (FF once removed), +1 left, +2 top, +3 width, +4 height,
+-- in tiles -- matched against the drawn BG0 cells for the START menu and the message box.
+local GWINDOWS, WINDOW_SIZE = 0x02020004, 12
+-- +1 top, +2 cursor, +4 last index, +5 window, +8 row height; it keeps its old values after the menu
+-- closes, which is why a menu counts as open from the routine named Menu_MoveCursor (which both of
+-- its setups call, the START menu's and the YES/NO's) until its window is cleared or removed.
+local SMENU = 0x0203cd90
+-- Font 1 with no extra line spacing: the second line of a message box and the NO of a YES/NO sat 16px
+-- below the first.
+local LINE_ADVANCE = 16
+local CURSOR, NEWLINE, NEXT_BOX, EOS = 0xEF, 0xFE, 0xFB, 0xFF
+
+-- The character each byte draws, read off the screen: bytes 00-F7 drawn by the game's own text printer
+-- in a message box (charset_probe.lua) and the START menu, the nurse's dialogue and a YES/NO. The
+-- letters in ordinary text agreed with the full pass. A byte that draws nothing, or one not listed, goes
+-- out as {XX}; 00 is the space between words.
+local CHARS = { [0x00] = " " }
+for i = 0, 25 do
+	CHARS[0xBB + i] = string.char(0x41 + i)
+	CHARS[0xD5 + i] = string.char(0x61 + i)
+end
+for i = 0, 9 do CHARS[0xA1 + i] = tostring(i) end
+do
+	local drawn = {
+		[0x01] = "À", [0x02] = "Á", [0x03] = "Â", [0x04] = "Ç", [0x05] = "È", [0x06] = "É", [0x07] = "Ê",
+		[0x08] = "Ë", [0x09] = "Ì", [0x0B] = "Î", [0x0C] = "Ï", [0x0D] = "Ò", [0x0E] = "Ó", [0x0F] = "Ô",
+		[0x10] = "Œ", [0x11] = "Ù", [0x12] = "Ú", [0x13] = "Û", [0x14] = "Ñ", [0x15] = "ß", [0x16] = "à",
+		[0x17] = "á", [0x19] = "ç", [0x1A] = "è", [0x1B] = "é", [0x1C] = "ê", [0x1D] = "ë", [0x1E] = "ì",
+		[0x20] = "î", [0x21] = "ï", [0x22] = "ò", [0x23] = "ó", [0x24] = "ô", [0x25] = "œ", [0x26] = "ù",
+		[0x27] = "ú", [0x28] = "û", [0x29] = "ñ", [0x2A] = "º", [0x2B] = "ª", [0x2C] = "ᵉʳ", [0x2D] = "&",
+		[0x2E] = "+", [0x34] = "Lv", [0x35] = "=", [0x36] = ";", [0x51] = "¿", [0x52] = "¡", [0x53] = "PK",
+		[0x54] = "MN", [0x55] = "PO", [0x56] = "Ké", [0x57] = "BL", [0x58] = "OCK", [0x5A] = "Í",
+		[0x5B] = "%", [0x5C] = "(", [0x5D] = ")", [0x68] = "â", [0x6F] = "í", [0x79] = "↑", [0x7A] = "↓",
+		[0x7B] = "←", [0x7C] = "→", [0x84] = "ᵉ", [0x85] = "<", [0x86] = ">", [0xA0] = "ʳᵉ", [0xAB] = "!",
+		[0xAC] = "?", [0xAD] = ".", [0xAE] = "-", [0xAF] = "·", [0xB0] = "…", [0xB1] = "“", [0xB2] = "”",
+		[0xB3] = "‘", [0xB4] = "’", [0xB5] = "♂", [0xB6] = "♀", [0xB7] = "₽", [0xB8] = ",", [0xB9] = "×",
+		[0xBA] = "/", [0xEF] = "▶", [0xF0] = ":", [0xF1] = "Ä", [0xF2] = "Ö", [0xF3] = "Ü", [0xF4] = "ä",
+		[0xF5] = "ö", [0xF6] = "ü",
+	}
+	for b, s in pairs(drawn) do CHARS[b] = s end
+end
+
+local function decode(bytes, from, to)
+	local out = {}
+	for i = from, to do
+		local b = bytes[i]
+		if b == NEWLINE then
+			out[#out + 1] = "\n"
+		else
+			out[#out + 1] = CHARS[b] or string.format("{%02X}", b)
+		end
+	end
+	return table.concat(out)
+end
+
+-- Bytes from a pointer up to the first FF, which is not kept; at most 1024.
+local function readString(at)
+	local out = {}
+	if at < 0x02000000 or at >= 0x0A000000 then return out end
+	for chunk = 0, 15 do
+		local b = memory.read_bytes_as_array(at + chunk * 64, 64, BUS)
+		for i = 1, 64 do
+			if b[i] == EOS then return out end
+			out[#out + 1] = b[i]
+		end
+	end
+	return out
+end
+
+-- What the game has printed and not yet cleared, per window id: { {x, y, bytes} }. Strings are
+-- copied when printing starts, since the buffer they come from is reused by the next one.
+local shown = {}
+local dialogue = nil -- { window, bytes, start }: the last string printed letter by letter
+local menuWindow = nil
+
+local function printerActive(w)
+	return r8(STEXTPRINTERS + w * PRINTER_SIZE + 0x1B) == 1
+end
+
+local hooks = {}
+function hooks.addTextPrinter()
+	local tmpl = emu.getregister("R0")
+	local t = memory.read_bytes_as_array(tmpl, 8, BUS)
+	local ptr = t[1] | (t[2] << 8) | (t[3] << 16) | (t[4] << 24)
+	local w, x, y, speed = t[5], t[7], t[8], emu.getregister("R1")
+	local bytes = readString(ptr)
+	local entry = { x = x, y = y, bytes = bytes }
+	local list = shown[w] or {}
+	shown[w] = list
+	for i, e in ipairs(list) do
+		if e.x == x and e.y == y then
+			list[i] = entry
+			entry = nil
+			break
+		end
+	end
+	if entry then list[#list + 1] = entry end
+	-- Speed 0 and 255 print at once (the START menu's items and cursor); anything else runs a printer.
+	if speed ~= 0 and speed ~= 255 then
+		dialogue = { window = w, bytes = bytes, start = ptr }
+	end
+end
+function hooks.fillWindowPixelBuffer()
+	-- A message clears its own window between boxes while its printer runs; that keeps its text.
+	local w = emu.getregister("R0")
+	if not printerActive(w) then shown[w] = nil end
+end
+function hooks.removeWindow()
+	local w = emu.getregister("R0")
+	shown[w] = nil
+	if menuWindow == w then menuWindow = nil end
+	if dialogue and dialogue.window == w then dialogue = nil end
+end
+function hooks.clearWindowTilemap()
+	local w = emu.getregister("R0")
+	if menuWindow == w then menuWindow = nil end
+	if dialogue and dialogue.window == w then dialogue = nil end
+end
+function hooks.menuMoveCursor()
+	menuWindow = r8(SMENU + 5)
+end
+
+local HOOKS = {
+	{ at = ADDTEXTPRINTER, fn = hooks.addTextPrinter },
+	{ at = FILLWINDOWPIXELBUFFER, fn = hooks.fillWindowPixelBuffer },
+	{ at = REMOVEWINDOW, fn = hooks.removeWindow },
+	{ at = CLEARWINDOWTILEMAP, fn = hooks.clearWindowTilemap },
+	{ at = MENU_MOVECURSOR, fn = hooks.menuMoveCursor },
+}
+local hookNames, hookErrors = {}, 0
+
+-- On screen: the window exists and its top row of tiles is drawn on its background.
+local function windowOnScreen(w)
+	if w < 0 or w > 31 then return nil end
+	local s = memory.read_bytes_as_array(GWINDOWS + w * WINDOW_SIZE, 5, BUS)
+	local bg, left, top, width = s[1], s[2], s[3], s[4]
+	if bg > 3 or width == 0 then return nil end
+	local cnt = memory.read_u16_le(0x04000008 + bg * 2, BUS)
+	local row = memory.read_bytes_as_array(0x06000000 + ((cnt >> 8) & 0x1F) * 0x800 + (top * 32 + left) * 2, width * 2, BUS)
+	for i = 1, width * 2, 2 do
+		if ((row[i] | (row[i + 1] << 8)) & 0x3FF) ~= 0 then return { left = left, top = top } end
+	end
+	return nil
+end
+
+-- A string's lines, each with its own y: a newline starts the next line LINE_ADVANCE lower, and a
+-- next-box byte starts again at the string's own y.
+local function linesOf(e, out)
+	local y, from = e.y, 1
+	local b = e.bytes
+	for i = 1, #b + 1 do
+		local c = b[i]
+		if c == nil or c == NEWLINE or c == NEXT_BOX then
+			if i > from then
+				local only = true
+				for k = from, i - 1 do
+					if b[k] ~= CURSOR then only = false end
+				end
+				if not only then out[#out + 1] = { x = e.x, y = y, text = decode(b, from, i - 1) } end
+			end
+			y = (c == NEXT_BOX) and e.y or (y + LINE_ADVANCE)
+			from = i + 1
+		end
+	end
+	return out
+end
+
+local function windowLines(w)
+	local segs = {}
+	for _, e in ipairs(shown[w] or {}) do linesOf(e, segs) end
+	table.sort(segs, function(a, b) return a.y < b.y or (a.y == b.y and a.x < b.x) end)
+	local lines = {}
+	for _, s in ipairs(segs) do
+		local last = lines[#lines]
+		if last and last.y == s.y then
+			last.text = last.text .. " " .. s.text
+		else
+			lines[#lines + 1] = { y = s.y, text = s.text }
+		end
+	end
+	return lines
+end
+
+local function readDialogue()
+	if not dialogue or not windowOnScreen(dialogue.window) then return nil end
+	local p = STEXTPRINTERS + dialogue.window * PRINTER_SIZE
+	local active, stateRaw = r8(p + 0x1B) == 1, r8(p + 0x1C)
+	local b = dialogue.bytes
+	-- Boxes: split at each next-box byte. The box being shown is the one the printer is in, or the
+	-- last one once the printer has reached the end.
+	local boxes, from = {}, 1
+	for i = 1, #b + 1 do
+		if b[i] == nil or b[i] == NEXT_BOX then
+			boxes[#boxes + 1] = { from = from, to = i - 1 }
+			from = i + 1
+		end
+	end
+	local index = #boxes
+	if active then
+		-- The printer's pointer is one past the last byte it took. Waiting on its arrow it has just taken
+		-- the next-box byte (the nurse's first box: pointer 42 bytes in, that byte at 41), which still
+		-- belongs to the box on screen; while printing, taking it means the next box has begun.
+		local consumed = r32(p) - dialogue.start
+		for i, box in ipairs(boxes) do
+			if consumed <= ((stateRaw == 2) and box.to + 1 or box.to) then
+				index = i
+				break
+			end
+		end
+	end
+	local state
+	if not active then
+		state = "finished"
+	elseif stateRaw == 0 then
+		state = "printing"
+	elseif stateRaw == 2 then
+		state = "waiting_for_button"
+	else
+		state = string.format("printer_state_%d", stateRaw)
+	end
+	return {
+		window = dialogue.window,
+		state = state,
+		box = decode(b, boxes[index].from, boxes[index].to),
+		box_index = index,
+		boxes = #boxes,
+	}
+end
+
+local function readMenu()
+	if not menuWindow or not windowOnScreen(menuWindow) then return nil end
+	local m = memory.read_bytes_as_array(SMENU, 12, BUS)
+	local top, cursor, last, w, height = m[2], m[3], m[5], m[6], m[9]
+	if w ~= menuWindow then return nil end
+	if cursor > 127 then cursor = cursor - 256 end
+	local lines = windowLines(w)
+	local items = {}
+	for i = 0, last do
+		local y, text = top + i * height, {}
+		for _, l in ipairs(lines) do
+			if l.y == y then text[#text + 1] = l.text end
+		end
+		items[#items + 1] = table.concat(text, " ")
+	end
+	return { window = w, cursor = cursor, items = items }
+end
+
+local function readScreenText(skipA, skipB)
+	local out = {}
+	for w, list in pairs(shown) do
+		local at = w ~= skipA and w ~= skipB and #list > 0 and windowOnScreen(w)
+		if at then
+			local texts = {}
+			for _, l in ipairs(windowLines(w)) do texts[#texts + 1] = l.text end
+			if #texts > 0 then out[#out + 1] = { window = w, top = at.top, left = at.left, lines = texts } end
+		elseif not windowOnScreen(w) and r8(GWINDOWS + w * WINDOW_SIZE) == 0xFF then
+			shown[w] = nil
+		end
+	end
+	table.sort(out, function(a, b) return a.top < b.top or (a.top == b.top and a.left < b.left) end)
+	for _, o in ipairs(out) do o.top, o.left = nil, nil end
+	return out
+end
+
 local game = {
 	game = "emerald",
-	-- Nothing here tells vanilla from a patched build yet; the ROM's own game code goes out raw.
-	variant = "unverified",
-	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "cheat:warp" },
+	-- "vanilla" only when the ROM's hash is the one every address here was measured on.
+	variant = isVanilla and "vanilla" or "unverified",
+	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "cheat:warp", "select" },
+	-- The START menu and a YES/NO: Down moved the cursor one entry per press and A chose it (2026-09-16).
+	menuButtons = { prev = "Up", next = "Down", confirm = "A" },
 	protected_slots = { 1 },
 	-- The folder under dev-scripts/shots/ this game's pictures go to.
 	shots = "emerald",
@@ -34,11 +324,51 @@ function game.build()
 	return string.format("gamecode %08X", r32(0x080000AC))
 end
 
+-- Install the text hooks, on the measured ROM only. Returns what happened, for the driver's log.
+-- Any execute hook costs the emulator a fixed share of its top speed, however many there are (one
+-- instance, frame limiter off, 2026-09-16: 344 frames/s with none, 245.6 with one, 242.0 with all
+-- five), so AUTOPLAY_TEXT=0 leaves them out for a run that wants full fast-forward and no text.
+function game.start()
+	if (AUTOPLAY_TEXT or os.getenv("AUTOPLAY_TEXT")) == "0" then
+		return "AUTOPLAY_TEXT=0: no text hooks"
+	end
+	if not isVanilla then
+		return "rom hash " .. romHash .. " is not the measured vanilla ROM: no text hooks"
+	end
+	for i, h in ipairs(HOOKS) do
+		local name = "autoplay_emerald_text_" .. i
+		pcall(event.unregisterbyname, name)
+		local ok = pcall(event.onmemoryexecute, function()
+			if not pcall(h.fn) then hookErrors = hookErrors + 1 end
+		end, h.at, name)
+		if not ok then
+			game.stop()
+			return string.format("event.onmemoryexecute refused %08X: no text hooks", h.at)
+		end
+		hookNames[#hookNames + 1] = name
+	end
+	return string.format("%d text hooks installed", #hookNames)
+end
+
+function game.stop()
+	for _, name in ipairs(hookNames) do pcall(event.unregisterbyname, name) end
+	hookNames, shown, dialogue, menuWindow = {}, {}, nil, nil
+end
+
 function game.observe()
 	local cb2 = r32(GMAIN_CB2)
 	local sb1 = r32(SB1PTR)
 	local obj = GOBJECTEVENTS + r8(GPLAYERAVATAR + 5) * 0x24
+	local d, m, s
+	if #hookNames > 0 then
+		d, m = readDialogue(), readMenu()
+		s = readScreenText(d and d.window, m and m.window)
+		if #s == 0 then s = nil end
+	end
 	return {
+		dialogue = d,
+		menu = m,
+		screen_text = s,
 		frame = emu.framecount(),
 		mode = (cb2 == CB2_OVERWORLD or cb2 == CB2_OVERWORLD + 1) and "overworld" or "not_overworld",
 		location = {
@@ -48,6 +378,7 @@ function game.observe()
 		},
 		extras = {
 			callback2 = string.format("%08X", cb2),
+			text_hook_errors = hookErrors > 0 and hookErrors or nil,
 			avatar_flags = r8(GPLAYERAVATAR),
 			player_object = {
 				x = r16(obj + 0x10),
@@ -113,6 +444,22 @@ function game.diffKeys(o)
 		x = o.location.x,
 		y = o.location.y,
 		facing_raw = o.extras.player_object.facing_raw,
+		dialogue_state = o.dialogue and o.dialogue.state or "none",
+		dialogue_box = o.dialogue and o.dialogue.box or "",
+		menu_cursor = o.menu and o.menu.cursor or "none",
+	}
+end
+
+-- Read every frame for events: a map or mode change, and a dialogue or menu opening or closing.
+-- Nothing is decoded here.
+function game.watch()
+	local sb1 = r32(SB1PTR)
+	local cb2 = r32(GMAIN_CB2)
+	return {
+		map = string.format("%d.%d", r8(sb1 + 4), r8(sb1 + 5)),
+		mode = (cb2 == CB2_OVERWORLD or cb2 == CB2_OVERWORLD + 1) and "overworld" or "not_overworld",
+		dialogue = (dialogue and windowOnScreen(dialogue.window)) and "open" or "closed",
+		menu = (menuWindow and windowOnScreen(menuWindow)) and "open" or "closed",
 	}
 end
 

@@ -312,6 +312,11 @@ So, when instrumenting an effect:
 - **If a human keeps reporting a difference your metrics deny, suspect the metrics.** Agreement
   between two sides measured by one instrument is not correctness — a shared blind spot makes them
   agree and describes neither.
+- **Price an emulator hook with the frame limiter OFF, against a wall clock.** 2026-09-16, Emerald:
+  at 60 fps the hooks looked free, and a requested 400% read 238 vs 239 frames/s, which is the speed
+  setting's own cap. With `emu.limitframerate(false)` and LuaSocket's `socket.gettime()`: 344
+  frames/s with no execute hook, 245.6 with one, 242.0 with five. **The price was having any hook,
+  not how many**, so trimming hooks would have bought nothing. Put the limiter back when done.
 
 ## Screenshot to your own game's folder, and actually take them — 2026-08-19
 
@@ -1072,6 +1077,25 @@ deleted, because the next states in the queue (bikes, surfing) are the same clas
 give it **its own** flag — it was originally written inside the two-renderer comparison flag, which
 is the intended dev default for judging a drawn tier, and leaving per-frame file I/O in there would
 have taxed every future comparison with a diagnostic nobody asked for.
+
+## Make the game draw what you cannot name — 2026-09-16
+
+**Emerald's character encoding, learned from the game in one conversation.** Ordinary dialogue
+pairs the common letters with their bytes, but a table of every character never comes from waiting
+for it to appear. So `emerald/probes/charset_probe.lua` hooks the routine that starts a message and,
+before the first letter prints, overwrites the message buffer with every byte 00-F7, ten per line.
+The game's own printer then draws each one in a real text box. The situation is made; the mechanism
+under test (the printer) runs untouched.
+
+- **Separate the unknowns with a glyph you already measured** (the menu cursor ▶), so a byte that
+  draws nothing still shows as two markers side by side.
+- **Split the capture by the marker's exact pixel mask, and check the count per line.** 11 markers
+  on every line, and 12 on the one holding the marker's own byte, was the proof that no glyph was
+  mistaken for a marker. Reading a packed line by eye had already miscounted one.
+- **Label each cropped glyph with its byte before reading any of it**, and read the ambiguous ones
+  again at a larger scale.
+- Use only line breaks and box breaks you measured in real text first, and leave every other command
+  byte out of the page.
 
 ## Measure what is DRAWN, not the fields that feed it — 2026-08-19
 

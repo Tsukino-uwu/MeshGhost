@@ -39,6 +39,7 @@ measurement.**
 | confirm what a field means | "Check what a thing IS and DOES — never assume from its name" |
 | separate your change from the game's own startup | "Delay your own change" |
 | the numbers all agree and the screen disagrees | "Measure what is DRAWN, not the fields that feed it" |
+| name a whole set of values only the screen shows (a character encoding) | "Make the game draw what you cannot name" |
 | you built something the game also builds | "Diff what you BUILT against what the game BUILT" |
 | a scripted interaction that moves the player | "A scripted interaction must return the game to a known state — and prove it did" |
 | before writing any script at all | "Look first, then write the script — not the other way round" |

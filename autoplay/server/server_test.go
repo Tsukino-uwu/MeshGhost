@@ -219,6 +219,54 @@ func TestPressValidatesAndForwards(t *testing.T) {
 	}
 }
 
+func TestSelectValidatesAndForwards(t *testing.T) {
+	h := newHarness(t)
+	got := make(chan map[string]any, 2)
+	h.startDriver(t, []string{"select"}, func(verb string, payload json.RawMessage) (string, any) {
+		var in map[string]any
+		json.Unmarshal(payload, &in)
+		got <- in
+		return "result", map[string]any{"selected": "NO"}
+	})
+
+	for _, bad := range []map[string]any{
+		{},
+		{"item": "YES", "index": 0},
+		{"index": -1},
+		{"index": 256},
+		{"item": strings.Repeat("x", 65)},
+	} {
+		if text, isErr := h.call(t, "select", bad); !isErr {
+			t.Errorf("select %v = %s, want a refusal", bad, text)
+		}
+	}
+
+	text, isErr := h.call(t, "select", map[string]any{"item": "NO"})
+	if isErr || !strings.Contains(text, `"selected":"NO"`) {
+		t.Fatalf("select item = %s (error %v)", text, isErr)
+	}
+	if in := <-got; in["item"] != "NO" || in["confirm"] != true || in["index"] != nil {
+		t.Fatalf("the driver received %v, want item NO with confirm true and no index", in)
+	}
+
+	// Index 0 must reach the driver: it is a real position, not an absent one.
+	if text, isErr := h.call(t, "select", map[string]any{"index": 0, "confirm": false}); isErr {
+		t.Fatalf("select index 0 = %s", text)
+	}
+	if in := <-got; in["index"] != float64(0) || in["confirm"] != false || in["item"] != nil {
+		t.Fatalf("the driver received %v, want index 0 with confirm false and no item", in)
+	}
+}
+
+func TestSelectIsRefusedWithoutTheCapability(t *testing.T) {
+	h := newHarness(t)
+	h.startDriver(t, []string{"observe"}, func(string, json.RawMessage) (string, any) { return "result", map[string]any{} })
+	text, isErr := h.call(t, "select", map[string]any{"item": "YES"})
+	if !isErr || !strings.Contains(text, `does not support "select"`) {
+		t.Fatalf("select = %s (error %v)", text, isErr)
+	}
+}
+
 func TestScreenshotReturnsTheDriversPicture(t *testing.T) {
 	h := newHarness(t)
 	pic := filepath.Join(t.TempDir(), "shot.png")
