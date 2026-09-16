@@ -49,6 +49,19 @@ declined ones go back to being work. An entry still here has not been confirmed.
 
 ---
 
+## [READY] a peer's bullets spawn again: the ordinal guard threw on every one, fixed and deployed, UNWATCHED (2026-09-16)
+
+**What was wrong** (found by reading, 2026-09-16): `96ed6168` guarded a peer bullet's type and
+sprite ordinals with `Enum.IsDefined(typeof(...), (int)value)`. `Bullet.BulletType` is Int16 and
+`Bullet.SpriteType` is Byte (read from `lib/Assembly-CSharp.dll`), and `IsDefined` throws unless the
+value has the enum's own width -- so `SpawnGhostBullet` threw before creating anything, every frame,
+caught as `projectiles mirroring failed`. Fixed in `6a538a0b` through
+`BridgeClient.DefinedOrdinalOrMinusOne`, which the harness tests on Int16 and Byte stand-ins (fails
+with the old call, passes now). DLL rebuilt and deployed to both installs, hashes matched.
+
+**What to look at.** A peer fires ordinary shots near you. **Correct:** its shots appear on its
+ghost, and `BepInEx/LogOutput.log` has no `projectiles mirroring failed` line.
+
 ## [READY] two fixes from the fifth review, built, UNWATCHED (2026-09-16)
 
 **What changed** (`1f4fa60b`, built and staged; deployed to both installs the same day):
