@@ -2816,3 +2816,11 @@ Fixed, Go side (`b6fbee0f`, then the second batch the same day):
 
 The instruments cell's findings are in `phase12.md`'s entry of the same date; the adapter findings
 in each adapter's `UNVERIFIED.md`; what was left for a decision in `risks.md` ("Pass 5, left open").
+
+**Addendum, the user's calls on the review's decisions (same day).** A room code on one side only
+is a mismatch: a client with a code refuses a relay that asks for none (*"both should either have
+no code or both have the same code"*); and a room-code refusal is tried again once a minute rather
+than lasting until restart. Both in ADR 0070 (`06c71edd`, `dfcc11b2`), each with a test shown
+failing first; run-gotests and run-gotests-race green, client redeployed to the four installs.
+Emerald's ghost doors stay as a WIP in its `UNVERIFIED.md`; Crystal's `lastPortable` is kept.
+Nothing pushed, so CI has not seen any of today's commits.
