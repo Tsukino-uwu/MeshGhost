@@ -1042,3 +1042,9 @@ planning; the Go side is fully specified and the adapter parts each begin with a
   tester's `BP_HpHitable` lead as things to measure. Nothing adapter-side is built or claimed.
 - **Worked alongside a second session** editing the correction knob (`core/correction.go`) in the same
   client files; this commit carries the chaser hunks only.
+
+## 2026-09-16 — replays: seats of their own, and a read budget
+
+Pointer: the fifth adversarial review gave local ghosts their own share of the roster bound (a
+512-clip zip hid every later arrival) and bounded how much of a clip is read (blank lines cost
+nothing). Detail and tests in `phase10.md`'s entry of the same date.

@@ -12,7 +12,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 
 - 2026-09-15 — **TLS always on, TOFU and the room-code PAKE are LANDED (ADRs 0066, 0067; protocol 3).** UNWATCHED in a real game: a coded join; the "identity changed" warning after `private/` is deleted.
 - 2026-09-15 — **Both `config.json` files are LIVE** (relay: room_code/only_game/max_clients; client: smoothing, chaser, replay, hotkeys); never watched with a real client editing one. `phases/phase10.md`.
-- 2026-09-16 — **Review pass 5 (the pass-3 re-run) DONE: 19 Go/instrument findings fixed with failing-first tests; 2 client-login DECISIONS open** (a code-less impostor is joined; an impostor's refusal is cached). `risks.md` "Pass 5, left open".
+- 2026-09-16 — **Review pass 5 DONE: 19 Go-side fixes; two client-login DECISIONS open for the user.** `risks.md`, "Pass 5, left open".
 - 2026-09-15 — **PARKED, the user's call: measure whether quic's congestion controller paces datagrams late after a loss** (the 2026-09-02 bike glide). Instrument, matrix and decision rule in `ideas.md`.
 - 2026-09-16 — **Adapter work from 2026-09-11 to 09-16 is UNWATCHED in all four games** (peer-input hardening, 29 SYNCED.md guards, autostart opt-in, replay/chaser ghosts, pass 5's fixes). Each `UNVERIFIED.md`.
 - 2026-09-16 — **Emerald: is a ghost opening a DOOR meant to be seen? The user's call** — it runs the engine's door task in the watcher's game (pass 5, P2c-1). `emerald/UNVERIFIED.md`.
