@@ -47,3 +47,7 @@ day on a loaded host (4 emulators, a crowd of drawn ghosts):
   may have raised it on purpose, and that means "make progress", not "reset me".
 - **Put back what YOU changed** — to 100 when finished — so the next reader of that instance is not
   confused by a fast-running game.
+- **To price something, turn the frame limiter off**: `emu.limitframerate(false)`, sample, then
+  `emu.limitframerate(true)`. Take the baseline with NOTHING loaded, not the script minus the feature
+  (`emerald/probes/hookcost_probe.lua`, 2026-09-16). **This BizHawk's own functions are userdata, not Lua
+  functions**: `type(emu.limitframerate) == "function"` is false — check `~= nil` before calling.

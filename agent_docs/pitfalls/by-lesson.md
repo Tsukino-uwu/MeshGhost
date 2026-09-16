@@ -7519,3 +7519,24 @@ caught it before the number was written down.
 **The rule this adds:** price a feature against nothing loaded as well as against the script without
 it. A "without" that still runs the rest of the script prices the feature against whatever else that
 script is doing.
+
+## A scripted play loop stalled for minutes on states it did not handle (2026-09-16)
+
+**Symptom.** The user, watching autoplay's first Emerald battles: *"seems like you get stuck at loops"*,
+and *"so i don't sit around waiting for several minutes for you to do something"*.
+
+**Diagnosed.** A scratch Python loop drove each step from outside: a fresh `mcpcall` per call (a core
+start and a driver reconnect), then a fixed 60-90 frame wait. It tried RUN about 118 times on a move menu
+that has no RUN, and it waited out 120 silent steps on a trainer's `finished` message it had stopped
+pressing. Its A presses meant for a message also landed on menus that opened under them.
+
+**Cause.** A fixed step budget with no progress check, fixed waits instead of the game's own signals,
+and a round trip per step.
+
+**Fix.** `battle` and `advance_text` run in the driver a frame at a time, press only on measured
+states, keep a log, nudge after 3 seconds of no change, retry a press the game ignored, and answer
+`stuck` with what they waited on after three (`autoplay/README.md`). A whole wild battle took 41 seconds,
+its own length on screen.
+
+**The rule this adds:** drive with one-call programs where they exist; a loop run from outside stops
+within seconds of the game's state not changing and says what it saw.

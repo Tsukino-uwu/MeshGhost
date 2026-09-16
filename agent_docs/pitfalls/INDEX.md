@@ -358,3 +358,4 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - A licensing gate that scanned 2 Markdown files of 184, because `git` in PowerShell is MSYS2's (2026-09-13) [CHECK: `dev-scripts/preflight.ps1` lists tracked files through the plain listing filtered in PowerShell; never `git ls-files '*.md'`]
 - A subagent's inventory of the wire was wrong twice, and read like a record (2026-09-13) [CHECK: preflight "SYNCED.md matches the send code" counts keys from source]
 - Emerald autoplay: "what a hook costs" was measured against a driver that cost more (2026-09-16) [RULE: checklists/before-trusting-a-reading.md]
+- A scripted play loop stalled for minutes on states it did not handle (2026-09-16) [RULE: .claude/skills/play-game/SKILL.md]
