@@ -454,3 +454,54 @@ Snapshot `tevi_inf_ribauld_beaten` (after try 11's conversations). Run log `auto
 **Open**: the bomb ring in the air; double jumps as dodge plans, their air time
 counted; a quickdrop onto an orb (which way it pushes); the Charged Shot (MP full, a stronger Orbitar shot); a hitless run through a room of
 normal enemies; hold-Attack combos; `exec` through the Quantum Console.
+
+## 2026-09-17 (end of the session) — what six builds of the fight taught, and how to pick up
+
+**The user, through the second half** (in order): *"stop being scared of the orbs all the time, melee/orbitar/quickdrop them and push them
+onto the boss"*; *"play aggressivly & keep constant damage uptime. will make it faster to defeat the boss. think you might even be able to use
+melee attacks when standing in the laser gaps"*; of the bomb ring, *"there should also be a gap to get in some more attacks instead of just
+standing idle and watching"*; *"also try to walk closer towards the boss during lasers, not away from the boss. whenever its possible to do so
+safely"*; *"always wanna try to stick as close to the boss as possible"*; of build F, *"i like the playstyle of this one, feels like its sticking
+to the boss a lot. but its still doing quickdrops a bit to much/randomly when it don't have to"*; and the rule for them: *"quickdrop should only
+be used to get back to the ground fast to dodge something, quickdrop ontop of an enemy to get iframes, or get back to the ground so you can do
+melee attacks asap. not while it would distrupt attacking"*. Also: autoplay must never unlock an achievement, in any game (after TEVI gave
+"Squeak By" mid-fight), and the idea filed in `ideas.md` about learning from a recording of the user's own play.
+
+**Each build was five tries from the same snapshot, scored as the user asked — time, Ribauld's HP left, hits:**
+
+| Build | What it added | Beaten | Time when beaten | Notes |
+| --- | --- | --- | --- | --- |
+| A | Down held 2 frames before a quickdrop's Jump; chaining on, no orb shots | 3 of 5 | 113.7-119.2 s | hitless once (115.4 s) |
+| B | + blanket chain guard, Orbitar at a resting orb | 3 of 5 | 136.1-164.8 s | slower for the same hits |
+| C | Down held 4 frames; chaining only while the target's hitstun outlasts the combo | 3 of 5 | 111.4-135.7 s | the defaults after it |
+| D | orbs used actively (any orb between her and him) | 2 of 5 | 130.8-139.1 s | one death 100 HP at once |
+| E | + swings nearer beams, red outline sooner, step plans toward him | 0 of 4 | – | contact hits while locked beside him |
+| F | E backed out; orbs by him shot from outside the blast, never one flying at her | 0 of 3, 1 interrupted | – | hitless at 293 HP when a core call failed |
+
+**What was learned:**
+- **Sticking close costs hits.** Every close-range build took more of them, nearly all from his charge (16 frames of warning) while she was
+  locked in a swing, or contact while locked. Her locks, measured every frame: a ground swing 20, the ground chain 20 then 17 then 19, an
+  air swing 15-21. `RootFrames` was 18 and is now 22.
+- **An enemy starts nothing while its hitstun runs** (337 of 339 of Ribauld's attack starts had none left), so a combo is safe while the
+  stun left plus the fastest tell outlasts it, and each landed hit renews the stun. That is the chain guard now.
+- **A blastorb is a 405-wide blast wherever it goes off**, so an orb hit next to the boss goes off on her too (83 HP), and her own Orbitar
+  shot into an orb flying at her took 100 HP at once. Orb use and hugging pull against each other; F's rule (shoot one by him from outside
+  the blast, melee only one far from him) is the attempt to have both and is not yet proven.
+- **Tells must come from states an attack actually follows.** The bomb ring's pieces were born after he returned to `NORMAL`, so every idle
+  moment predicted a ring and she stood still through it; counting how often an attack follows a state removed the ring hits entirely.
+- **A hit is diagnosed from every frame before it, never from sampled rows.** The chunk runner now saves the 90 frames before each hit.
+- **One try per build proves nothing**: five tries is the least that separates them, and even then 3 of 5 against 3 of 5 is a tie.
+
+**Left as it is, outside the repo:** TEVI (Steam) running, idle in play at the Sewerways save point on the Infernal BBQ game (slot 40, HP 100),
+the clock released, the save guard armed and the achievement guard installed (closing the game is the user's). The real save folder is
+byte-identical to `TEVI.meshghost-backup-20260917-114515` (56 files, PowerShell, logs left out). No core or `mcpcall` running. Snapshots in
+`autoplay/states/tevi/` as before plus `tevi_inf_ribauld_beaten`; `tells.json` holds the Ribauld tells including the orb throws.
+
+**To pick up:** core and `mcpcall` built into the chat's scratch folder, `-listen 127.0.0.1:7872`, its own `-log`, calls from Bash. A try is:
+release the clock, `restore tevi_inf_first_savepoint`, hold the clock, one `sequence` to Ribauld, `advance_text`, Confirm the Quickdrop window
+after 45 frames of game time, then `reflex fight` in 600-frame chunks with the clock held between them, reading `recent` after each. Judge a
+build over five tries by time, HP left and hits.
+
+**Open**: F's orb rule over five tries; the bomb ring while she is in the air; double jumps as dodge plans, their air time counted against them;
+what a quickdrop onto an orb does; the Charged Shot; a hitless run through a room of normal enemies; hold-Attack combos; `exec` through the
+game's Quantum Console; and the hardest difficulty once Infernal is clean.

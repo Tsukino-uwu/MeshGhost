@@ -33,9 +33,12 @@ namespace MeshGhostAutoplay.Tevi
         //  - with `dodge` (default true), each frame's intended move is checked against every box that can hurt the player
         //    (Dodge.cs) and replaced by the nearest safe plan when it would be hit; `dodges` counts the frames it was.
         private const float UnreachableDy = 180f;
-        private const int RootFrames = 18; // one swing locks her about 18 frames (TEVI_WEAK_GROUND_NORMAL1 in the flight recorder, 2026-09-17)
+        // Her swings' locks, measured over 67 ground and 51 air swings in the flight recorder read every frame (2026-09-17): a ground swing
+        // 20 frames (air 15-21), and a ground chain 20 then 17 then 19. Ribauld's charge reaches her about 21 frames into his ATTACK2, so an
+        // 18-frame guess let swings start that could not finish in time.
+        private const int RootFrames = 22;
         private const float MeleeReach = 139.5f, MeleeHalfHeight = 34f;
-        private const int ComboRootFrames = 32;
+        private const int ComboRootFrames = 40;
         private const int ChargeTravel = 5; // frames a charge box took from its birth to reach her beside him (the flight recorder, 2026-09-17)
 
         public static Func<JToken> Fight(JObject args, int frameLimit, Func<CharacterBase> player, Func<string> mode, Func<bool, JObject> observe)
@@ -167,7 +170,6 @@ namespace MeshGhostAutoplay.Tevi
                 float reachDy = it.y - groundY;
                 if (dodge) guard.Look(p, groundY);
                 guard.StickX = attackMode == "ranged" ? (float?)null : it.x;
-                guard.PreferDrop = !inMeleeReach(p, target, attackMode); // falling beside a target, an air swing beats a quickdrop
 
                 // What the fight means to do this frame, as a move (for the dodge) and the tap that goes with it.
                 Dodge.Move want = Dodge.Move.Stay;
@@ -177,6 +179,11 @@ namespace MeshGhostAutoplay.Tevi
                 // Her ground swing reaches 139.5 ahead and 34 above and below her (a box 189 by 67.5 centred 45 ahead, MEASURED.md); it
                 // lands when that box meets the target's own.
                 bool inMelee = attackMode != "ranged" && Mathf.Abs(dx) <= MeleeReach + target.GetHitboxW() / 2f && Mathf.Abs(dy) <= MeleeHalfHeight + target.GetHitboxH() / 2f;
+                // The user, 2026-09-17: a quickdrop is for getting down fast to dodge something, for the invincibility of landing on an enemy, or
+                // to reach the ground so she can melee again -- "not while it would distrupt attacking". So it is wanted only in the air with no
+                // swing running and nothing her air swing reaches; the dodge still takes one as a safe plan, and the orb one is asked for by name.
+                bool swinging = p.logicStatus.ToString().Contains("TEVI_WEAK");
+                guard.PreferDrop = !onGround && !swinging && !inMelee;
                 // No quickdrop as an attack: the user, 2026-09-17, "quickdrops do low damage and are slow, they should only be used for
                 // their iframes if other better damage options are available". The dodge still takes one to avoid a hit.
                 if (Mathf.Abs(dx) < minRange && onGround)
@@ -484,7 +491,7 @@ namespace MeshGhostAutoplay.Tevi
             private Dodge.Start start;
 
             public float? StickX; // a fight's target x, set each frame: the dodge prefers plans that keep her near it
-            public bool PreferDrop = true; // falling, want a quickdrop (movement); a fight turns it off beside its target
+            public bool PreferDrop = true; // falling, want a quickdrop (movement only: a fight leaves the fall alone)
             public int? Imminent; // movement: step in only for a hit this close (Dodge.Choose)
 
             public Dodge.Move Check(CharacterBase p, Dodge.Move want, float groundY)
@@ -637,13 +644,6 @@ namespace MeshGhostAutoplay.Tevi
                 if (c.phy_perfer._velocity.x * Math.Sign(dx) < -OrbKicked) return true;
             }
             return false;
-        }
-
-        private static bool inMeleeReach(CharacterBase p, CharacterBase target, string attackMode)
-        {
-            if (attackMode == "ranged" || p == null || target == null || p.t == null || target.t == null) return false;
-            float dx = target.t.position.x - p.t.position.x, dy = target.t.position.y - p.t.position.y;
-            return Mathf.Abs(dx) <= MeleeReach + target.GetHitboxW() / 2f + 60f && Mathf.Abs(dy) <= MeleeHalfHeight + target.GetHitboxH() / 2f + 60f;
         }
 
         private static bool ArmorRecovering(CharacterBase c)
