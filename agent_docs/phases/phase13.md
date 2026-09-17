@@ -1623,3 +1623,33 @@ ceiling means the launcher is started as its own process.
 
 **Next:** review the set-aside diff (keep only what a tool answered), rerun attempt 1 from `story_dynamo_badge` with the
 fixed store, then attempt 2, and report both model-call counts.
+
+## 2026-09-17 (the Emerald chat, Phase 3) — the acceptance: `story_dynamo_badge` to the HEAT BADGE twice, and loops caught
+
+**The runs** (`claude-opus-5`, budget 400, launcher started with `Start-Process`, hidden):
+
+| Attempt | Session folder | Play calls | Distill calls | Result |
+|---|---|---|---|---|
+| 1 | `2026-09-17_174528` | 44 | 8 | stopped at the user's word: a trip walking up a mud slope |
+| 2 | `2026-09-17_175751` | 49 | 5 | stopped at the user's word: the same slope, after reading the user's MACH BIKE line |
+| 1, rerun | `2026-09-17_181542` | 122 | 9 | **goal met** (launcher's check), 25 minutes |
+| 2, rerun | `2026-09-17_185825` | 82 | 6 | **goal met**, 16 minutes, no cheats or restores |
+
+**What changed between them:**
+- **`goto` closes a mud slope on foot** (`373e3a90`, emerald/MEASURED.md "A mud slope on 0.26"): behaviour 0xD0 slid the
+  player back; knowledge in the store could not stop it, because `trip` plans through `goto`.
+- **Loops caught for every game** (`c8d0e18a`, `4fadfdcc`; autoplay/README.md "The run log"): the core marks a call whose
+  tool, arguments, outcome, place and `changed` repeat 3 times in 12, and a skill ends `loop`; BizHawk's `goto` ends
+  `no_progress` on a tile entered more than 3 times. The first version keyed on place alone and marked menus walked
+  through at one tile (three records in attempt 2's rerun, run by the older core); `changed` fixed it. **Open for the
+  TEVI chat:** the BepInEx drivers' own `goto` has no such check.
+- **The user's movement guidance** (`c05011c4`): skip trainers as much as possible, run from wild Pokémon without REPELs,
+  move as fast as possible; `battle run_wild`, `trip` using it, a trainer's sight costing about 125 tiles of grass.
+- **Every distill reviewed** against its play stream before commit (`4db9f61c`, `6e1deba3`, `2863dca8`, `5a2f2704`); the
+  rerun's by a read-only agent claim by claim. The last review's edits went in with the TEVI chat's `c6434bdb` (a shared
+  working tree), content as reviewed. The recurring failures: place names only the model's narration held, compass
+  words for bare numbers, "trainers" for battles, and screenshot content written as fact.
+
+**Open:** `battle run_wild` answered `stuck` after "Got away safely!" when the battle began from `advance_text`'s
+`battle_started` (a ROCK SMASH rock's GEODUDE); a trip from 0.26 to 0.13 ended "unreachable" inside cave 24.4 (the route
+entered it, not looked at); the driver still does not reconnect after a core stops (target `none` and back, five times).

@@ -589,3 +589,22 @@ stream beside it (keep only what a tool answered: the ROCK SMASH man, the uncle,
 them); commit what passes; rebuild `autoplay.exe` and `session.exe` into the chat's scratch folder; start the launcher as its
 own hidden process (`Start-Process`), never under the Bash tool's 10-minute ceiling; if the driver does not reconnect after
 a core stops, set its target to `none` and back.
+
+## 2026-09-17 (the Emerald chat, Phase 3 acceptance) — the HEAT BADGE reached unattended, twice
+
+**Pointer.** The runs, counts and changes are in `../phase13.md` ("the acceptance"). In short: the two first attempts
+walked up a mud slope until the user stopped them (*"you need a mach bike to go up the mud slides"*, *"its stuck in a loop
+trying to walk up one"*); with `goto` closing slopes, both reruns met `story_heat_badge` (122 and 82 play calls).
+
+**The user, while they ran** (in game.md, dated): prefer grass and wild battles to trainers when one must be picked;
+*"you can't run from trainer fights and they usually have multiple pokemon in a row"*; trainers give more experience but
+are still skipped as much as possible; run from wild Pokémon without REPELs; move through the overworld as fast as
+possible. Also asked whether headless play costs the same usage as a chat (same subscription; about 76-84k tokens of
+context re-read per call, almost all cached) and how to detect loops (built, for every game).
+
+**Left as it is:** EmuHawk on vanilla Emerald, the loader target naming the driver alone, no core of this chat running.
+The game in Lavaridge's gym (4.1) at (13,10) after FLANNERY, badges [1-4], where attempt 2's rerun left it. Snapshots the
+sessions made: `before_maxie`, `lavaridge_gym_entry`, `before_flannery`, `r112_north_before_shayla`, `chimney_before_maxie`,
+`chimney_at_maxie`, `lavaridge_gym_before_flannery`, `em_0_27_before_shayla`.
+
+**To pick up:** the three open items in `../phase13.md`; then the next goal past the HEAT BADGE.
