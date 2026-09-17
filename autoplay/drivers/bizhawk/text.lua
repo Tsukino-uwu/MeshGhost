@@ -30,6 +30,8 @@
 --                                            `battle` answers the kinds it knows and stops `needs_choice` on the rest;
 --                                            it never nudges A on one (a nudge chose YES there, 2026-09-17)
 --   strongestMove()    -> slot, label | nil, reason
+--   effectiveMove()    -> slot, label, detail | nil, reason   policy "effective": the move weighed by type against the
+--                                            foe, and a table of what each move weighed that goes into the log's choice
 --   endedReport()      -> table              what `battle` adds to `ended`
 
 local M = {}
@@ -141,7 +143,7 @@ function M.machine(h, choose, stopWhen, answer)
 		local asking, menu = nil, nil
 		if battle then asking, menu = h.battleMenu() end
 		if asking then
-			local target, label = choose(asking)
+			local target, label, detail = choose(asking)
 			if target == nil then return finish("needs_choice", { asking = asking, reason = label }) end
 			local cursor, cols = menu.cursor, menu.columns or 1
 			if cursor ~= target then
@@ -160,7 +162,10 @@ function M.machine(h, choose, stopWhen, answer)
 					end }
 				return pressing.pad, false
 			end
-			note({ chose = label, from = asking })
+			-- What the choice weighed, where the policy says ("effective": each move's score).
+			local entry = { chose = label, from = asking }
+			for k, v in pairs(detail or {}) do entry[k] = v end
+			note(entry)
 			pressing = { what = "confirm " .. label, pad = { A = true },
 				done = function() return (h.battleMenu()) ~= asking end }
 			return pressing.pad, false
@@ -258,14 +263,20 @@ function M.machine(h, choose, stopWhen, answer)
 	end
 end
 
--- battle {policy = "strongest" | "run"}: plays a battle to its end, a trainer's words before and after
--- included. "strongest" chooses FIGHT and the move the module's strongestMove() names; "run" chooses RUN and,
--- on the move menu, stops. Returns (program, error, frame limit) like any program.
+-- battle {policy = "strongest" | "effective" | "run"}: plays a battle to its end, a trainer's words before and after
+-- included. "strongest" chooses FIGHT and the move the module's strongestMove() names, "effective" the one its
+-- effectiveMove() names; "run" chooses RUN and, on the move menu, stops. Returns (program, error, frame limit) like any program.
 function M.battle(h, p)
 	local policy = p.policy or "strongest"
-	if policy ~= "strongest" and policy ~= "run" then return nil, 'battle policy is "strongest" or "run"' end
+	if policy ~= "strongest" and policy ~= "effective" and policy ~= "run" then
+		return nil, 'battle policy is "strongest", "effective" or "run"'
+	end
 	if policy == "strongest" and not h.strongestMove then
 		return nil, 'battle policy "strongest" needs move data this game module has not measured; use "run"'
+	end
+	-- "effective" weighs each move by the game's own type chart against the foe (Emerald's, 2026-09-17).
+	if policy == "effective" and not h.effectiveMove then
+		return nil, 'battle policy "effective" needs a type chart this game module has not measured; use "strongest" or "run"'
 	end
 	local outside = 0
 	local machine = M.machine(h, function(asking)
@@ -274,6 +285,7 @@ function M.battle(h, p)
 			return h.actionIndex.fight, "FIGHT"
 		end
 		if policy == "run" then return nil, "on the move menu with policy run" end
+		if policy == "effective" then return h.effectiveMove() end
 		return h.strongestMove()
 	end, function(st)
 		if st.battle then

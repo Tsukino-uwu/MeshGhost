@@ -66,6 +66,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - The starter bag, and a stale message on its screen after a restore (2026-09-17)
 - Autoplay's noclip: through a collision tile and a character (2026-09-17)
 - A battle controller at work: the rescue battle's intro (2026-09-17)
+- What a move's type does to its damage (2026-09-17)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -789,6 +790,55 @@ build hashed identical to the ROM; routine names are the build's, what each did 
 - **Not seen**: a controller waiting for a button in any other routine (a switch after a faint, a move to forget, a
   catch's nickname, the BAG), a double battle, the BATTLE SCENE option turned off. The nudge last session also landed on
   "Go! MUDKIP!", not repeated here; the send-out's routines above ran 139 frames between them.
+
+### What a move's type does to its damage (2026-09-17)
+
+**Vanilla ROM, the new game's save**, BIRCH's rescue battle from the snapshots `ng_rescue_move_menu` and `ng_rescue_action_menu`
+(gitignored), with `probes/type_calc_probe.lua` loaded (execute hooks at the entries of the battle script commands the build
+names Cmd_typecalc and Cmd_adjustnormaldamage). Logs `type_calc_probe_bizhawk-dev-loader-autoplay_target_20260917_042811.log`
+and `_043610.log` (gitignored). The decomp was the map for where the multiplying happens; addresses from the build hashed
+identical to the ROM.
+
+- **The table.** The 0x150 ROM bytes the build names gTypeEffectiveness read as 112 triples: 108 of (a move's type, a
+  defending type, 20, 5 or 0), then FE FE 00, then two more (NORMAL and FIGHT against GHOST, 0), then FF FF 00. Types are
+  the indices autoplay already names moves by (gTypeNames: 0 NORMAL to 17 DARK, 9 drawn as "???"). Taken as a chart, the 110
+  entries and the ×1 of every pair not listed matched all 289 cells of Bulbapedia's Generation II-V type chart, the map the
+  user named; no pair was listed twice.
+- **What the battle does with it.** Ten trials, each from `ng_rescue_move_menu` with MUDKIP's (WATER) first move, its attack
+  and special attack (200), and ZIGZAGOON's two type bytes (+0x21, +0x22 of its gBattleMons entry) written through autoplay's
+  `exec`, then the move chosen with `select`. gBattleMoveDamage at typecalc's entry and at adjustnormaldamage's, and
+  gMoveResultFlags after:
+
+  | Move (its type) | Foe's type bytes | Damage before → after | Flags | Message |
+  |---|---|---|---|---|
+  | TACKLE (NORMAL) | NORMAL | 95 → 95 | 00 | none |
+  | WATER GUN (WATER) | NORMAL | 130 → 195 | 00 | none |
+  | TACKLE | ROCK | 95 → 47 | 04 | "It's not very effective…" |
+  | TACKLE | GHOST | 95 → 0 | 08 | "It doesn't affect Wild ZIGZAGOON…" |
+  | WATER GUN | GROUND, ROCK | 130 → 780 | 02 | "It's super effective!" |
+  | WATER GUN | WATER, GRASS | 130 → 48 | 04 | "It's not very effective…" |
+  | MUD-SLAP (GROUND) | FIRE, FLYING | 55 → 0 | 08 | "It doesn't affect…" |
+  | MUD-SLAP | FLYING, FIRE | 55 → 0 | 08 | "It doesn't affect…" |
+  | EMBER (FIRE) | GRASS, STEEL | 130 → 520 | 02 | "It's super effective!" |
+  | EMBER | WATER, GRASS | 130 → 130 | 00 | none |
+
+  So: ×1.5 (130 to 195) when the move's type is one of the attacker's type bytes, then the multiplier of each
+  entry naming the move's type and one of the foe's two bytes, one step at a time in whole numbers (130, 195, 97, 48), the
+  entries after FE included, and a single type (both bytes the same) counted once. The flags followed: 02 with a ×2 left,
+  04 with a ×0.5 left, neither when they cancelled, 08 at ×0.
+- **Its own type bytes.** MUDKIP's battle entry read 0B 0B and ZIGZAGOON's 00 00, the same as +6 and +7 of their 28-byte
+  entries in the block named gSpeciesInfo; RICK's WURMPLE's read BUG.
+- **Chosen by autoplay.** `battle` with the new policy `effective` (power × accuracy × that bonus × those multipliers) against
+  `strongest`, from `ng_rescue_action_menu` with the moves and the foe's types written before FIGHT (written after the move
+  menu opened, the game refused Down onto a slot its menu had opened empty, and `battle` answered `stuck` 4 times out of 6):
+  ROCK/GROUND, EMBER five turns against MUD-SLAP two; WATER/GRASS, WATER GUN seven against EMBER two; GHOST, TACKLE doing
+  0 until its PP ran out against MUD-SLAP from the first turn. Every typecalc logged ran the move `battle` had chosen that
+  turn; in the GHOST run TACKLE was chosen ten times and reached typecalc eight (the other two not looked at). The
+  same `effective` run with the probe unloaded: MUD-SLAP twice, 2222 frames, as with it. RICK's battle from
+  `rick_battle_start` under `effective`: TACKLE every turn (MUD-SLAP weighed ×0.5 against BUG), `ended`, a win.
+- **Not measured**: an ability (the decomp names LEVITATE and WONDER GUARD inside typecalc), FORESIGHT or ODOR SLEUTH (the
+  decomp stops at FE for a foe under them), a move whose type changes (HIDDEN POWER, WEATHER BALL), the physical and special
+  split by type, weather, a double battle, and the AI's own copy of the calculation.
 
 ## Not measured yet
 

@@ -105,7 +105,8 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 		Name: "battle",
 		Description: "Play the battle on screen to its end in one call, a trainer's words before and after " +
 			"included, so call it straight after a spotted. policy strongest (default) fights with the " +
-			"usable move of most power times accuracy; " +
+			"usable move of most power times accuracy; effective weighs that by the game's type chart " +
+			"against the foe and the same-type bonus, where the game module measured them; " +
 			"run runs. Returns a log of every message and choice, and ends ended, needs_choice (a menu it " +
 			"will not answer) or stuck (with what it was waiting on) -- within seconds of nothing changing.",
 	}, logged(t, "battle", nil, t.battle))
@@ -354,14 +355,14 @@ const BattleTimeout = CallTimeout + 10*time.Minute
 
 // BattleIn is the battle tool's input.
 type BattleIn struct {
-	Policy string `json:"policy,omitempty" jsonschema:"strongest (default) or run"`
+	Policy string `json:"policy,omitempty" jsonschema:"strongest (default), effective or run"`
 }
 
 func (t *tools) battle(ctx context.Context, _ *mcp.CallToolRequest, in BattleIn) (*mcp.CallToolResult, any, error) {
 	switch in.Policy {
-	case "", "strongest", "run":
+	case "", "strongest", "effective", "run":
 	default:
-		return nil, nil, fmt.Errorf(`policy must be "strongest" or "run", got %q`, in.Policy)
+		return nil, nil, fmt.Errorf(`policy must be "strongest", "effective" or "run", got %q`, in.Policy)
 	}
 	raw, err := t.forward(ctx, "battle", "battle", in, BattleTimeout)
 	return nil, raw, err

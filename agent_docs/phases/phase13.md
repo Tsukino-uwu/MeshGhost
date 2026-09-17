@@ -30,6 +30,7 @@ here adds its heading as one line under "The plan and the shared core".**
 - 2026-09-17 (the Emerald chat, next session) — `goto`'s route planner moved into shared Lua, Emerald's answers unchanged
 - 2026-09-17 (the Emerald chat, same session) — the log split: one file per game, this one for the plan and the shared core
 - 2026-09-17 (the Emerald chat, same session) — `exec`, and cheats still in effect in the run log: the last of Phase 1's list
+- 2026-09-17 (the Emerald chat, new session) — `battle`'s policy `effective`: the machine takes a policy's reasons into its log
 
 **Emerald (vanilla), before its own log** -- from 2026-09-17 in [autoplay/emerald.md](autoplay/emerald.md)
 - 2026-09-16 (later still) — Phase 1 step 2: a live driver in vanilla Emerald, from boot to walking
@@ -1333,3 +1334,19 @@ scenario 3 of 3, and the truck-door and route 0.17 `goto` answers identical to t
 **Crystal's path:** `driver.lua`'s changes are the hello's `capabilities` gaining `exec`, `persisting` (absent for
 Crystal), and `game.tick` (not called without one). Parsed with `luac -p`; not run on the Crystal instance, which is that
 chat's.
+
+## 2026-09-17 (the Emerald chat, new session) — `battle`'s policy `effective`: the machine takes a policy's reasons into its log
+
+**What changed in the shared core** (Emerald's type chart and its measurements are in
+[autoplay/emerald.md](autoplay/emerald.md), same date):
+- **The server** (`server.go`): `battle` accepts `policy` `effective` beside `strongest` and `run`, and the tool's description
+  says what it weighs. `TestBattleValidatesAndForwards` now forwards `effective` too.
+- **`text.lua`**: `M.battle` accepts `effective` and refuses it, with the reason, for a module that has no `effectiveMove`
+  hook (new, optional: slot, label and a detail table). The machine's `choose` may return that third value, and its fields
+  go into the log's choice entry (`weighed`, `against` for Emerald's); a choice with none logs `{chose, from}` as before.
+
+**Checked.** Go: `go vet` and `go test -count=1 ./...` in `autoplay/`, green. `luac -p` on `text.lua`, both game modules and
+`driver.lua`. Live on vanilla Emerald: `strongest` and `effective` from the same made states, and RICK's battle under each.
+**Crystal's path**, not run on the Crystal instance (that chat's): `text.lua` under a standalone Lua 5.4 with a stub module of
+Crystal's shape -- no `effectiveMove` -- refused `effective` with the reason, and `strongest` played to `ended` with the log's
+choice holding exactly `chose` and `from`. Crystal's module is unchanged.

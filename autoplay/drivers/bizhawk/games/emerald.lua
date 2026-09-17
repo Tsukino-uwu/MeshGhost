@@ -783,26 +783,64 @@ local function itemName(id) return nameAt(ITEMS, ITEM_NAME_LEN, ITEM_COUNT, id, 
 local BATTLE_MOVES, BATTLE_MOVE_SIZE = 0x0831c898, 12
 local TYPE_NAMES, TYPE_NAME_LEN, TYPE_COUNT = 0x0831ae38, 7, 18
 local MOVE_DESCRIPTIONS = 0x0861c524
+
+-- WHAT A MOVE'S TYPE DOES TO ITS DAMAGE (type_calc_probe.lua, the rescue battle from the snapshot `ng_rescue_move_menu`,
+-- 2026-09-17; that adapter's MEASURED.md, "What a move's type does to its damage"). The 0x150 ROM bytes the build names
+-- gTypeEffectiveness are triples -- the move's type, a defending type, a multiplier in tenths (20, 5 or 0) -- with FE FE 00
+-- after the 108th and FF FF 00 at the end; all 289 pairs they make matched the Generation II-V type chart the user named as
+-- the map. Read at the entry and the exit of the battle script command the build names Cmd_typecalc, the damage word was
+-- multiplied by 1.5 when the move's type was one of the attacker's two type bytes (+0x21 and +0x22 of its gBattleMons
+-- entry), then by the multiplier of each entry naming the move's type and one of the target's two type bytes, only once
+-- when both read the same, the two entries after FE included. Ten trials with the target's type bytes written: x1, x1.5,
+-- x0.5, x0 (NORMAL against GHOST, after FE), x6 (the bonus and two x2), x0.375, x0 either way round, x4, and x2 with x0.5 as
+-- x1, each "It's super effective!", "It's not very effective…", "It doesn't affect" or no message as the flags said.
+-- Both species' own type bytes (+6 and +7 of their 28-byte gSpeciesInfo entry) read what their battle entries held.
+-- Not measured: an ability (the decomp names LEVITATE and WONDER GUARD in that command), FORESIGHT (which the decomp stops
+-- at FE for), a move whose type changes, the physical and special split, weather, a double battle. One table, as the
+-- module is at Lua's local ceiling (199 of 200 with it).
+local TYPE_CHART = { at = 0x0831ace8, size = 0x150, sameTypeBonus = 1.5, entries = nil }
+
+-- A type's name as the game draws it, or nil. Type 0 is a real type (NORMAL), so this reads index 0 too, unlike nameAt.
+function TYPE_CHART.name(t)
+	if not t or t >= TYPE_COUNT then return nil end
+	local b = memory.read_bytes_as_array(TYPE_NAMES + t * TYPE_NAME_LEN, TYPE_NAME_LEN, BUS)
+	local last = TYPE_NAME_LEN
+	for i = 1, TYPE_NAME_LEN do
+		if b[i] == EOS then
+			last = i - 1
+			break
+		end
+	end
+	return decode(b, 1, last)
+end
+
+-- The multiplier a move of `moveType` meets against a target of types t1 and t2, as Cmd_typecalc applied it.
+function TYPE_CHART.multiplier(moveType, t1, t2)
+	if not TYPE_CHART.entries then
+		local b, entries = memory.read_bytes_as_array(TYPE_CHART.at, TYPE_CHART.size, BUS), {}
+		for i = 1, TYPE_CHART.size - 2, 3 do
+			if b[i] == 0xFF then break end
+			if b[i] ~= 0xFE then entries[#entries + 1] = { b[i], b[i + 1], b[i + 2] } end
+		end
+		TYPE_CHART.entries = entries
+	end
+	local m = 1
+	for _, e in ipairs(TYPE_CHART.entries) do
+		if e[1] == moveType then
+			if e[2] == t1 then m = m * e[3] / 10 end
+			if e[2] == t2 and t1 ~= t2 then m = m * e[3] / 10 end
+		end
+	end
+	return m
+end
+
 local moveCache = {}
 local function moveInfo(id)
 	local m = moveCache[id]
 	if m == nil and id >= 1 and id < MOVE_COUNT then
 		local e = memory.read_bytes_as_array(BATTLE_MOVES + id * BATTLE_MOVE_SIZE, BATTLE_MOVE_SIZE, BUS)
 		local desc = readString(r32(MOVE_DESCRIPTIONS + (id - 1) * 4))
-		local typeName
-		if e[3] < TYPE_COUNT then
-			-- Type 0 is a real type (NORMAL), so this reads index 0 too, unlike nameAt.
-			local t = memory.read_bytes_as_array(TYPE_NAMES + e[3] * TYPE_NAME_LEN, TYPE_NAME_LEN, BUS)
-			local last = TYPE_NAME_LEN
-			for i = 1, TYPE_NAME_LEN do
-				if t[i] == EOS then
-					last = i - 1
-					break
-				end
-			end
-			typeName = decode(t, 1, last)
-		end
-		m = { type = typeName, power = e[2], accuracy = e[4], base_pp = e[5],
+		m = { type = TYPE_CHART.name(e[3]), type_id = e[3], power = e[2], accuracy = e[4], base_pp = e[5],
 			description = #desc > 0 and decode(desc, 1, #desc) or nil }
 		moveCache[id] = m
 	end
@@ -1175,9 +1213,12 @@ local function readBattle()
 		end
 		-- Position 0 was the player's Pokémon and 1 the opponent's in a single battle; others unmeasured.
 		local pos = positions[i + 1]
+		-- The two type bytes, one name when both read the same (TYPE_CHART, above).
+		local types = { TYPE_CHART.name(b[0x22]) or string.format("type %d", b[0x22]) }
+		if b[0x23] ~= b[0x22] then types[2] = TYPE_CHART.name(b[0x23]) or string.format("type %d", b[0x23]) end
 		battlers[#battlers + 1] = { battler = i, position = pos, side = (pos == 0 and "player") or (pos == 1 and "opponent") or nil,
 			species_id = u16of(b, 1), species = nameAt(SPECIES_NAMES, SPECIES_LEN, SPECIES_COUNT, u16of(b, 1)),
-			nickname = decode(b, 49, last), level = b[43], hp = u16of(b, 41), max_hp = u16of(b, 45),
+			nickname = decode(b, 49, last), level = b[43], hp = u16of(b, 41), max_hp = u16of(b, 45), types = types,
 			moves = #moves > 0 and moves or nil }
 	end
 	-- The type flags read 0x04 in four wild battles and 0x0C against a trainer (one battle).
@@ -2015,6 +2056,37 @@ local function strongestMoveSlot()
 	return best
 end
 
+-- battle policy "effective": the usable move with the most power times accuracy times the type multiplier against the
+-- opponent (position 1, the only one measured) times the same-type bonus -- what Cmd_typecalc did to the damage word
+-- (TYPE_CHART, above); the first with PP when none scores above 0. Returns the slot, the move's name, and what each usable
+-- move weighed, for the battle's log.
+function TYPE_CHART.effectiveMove()
+	local mons = memory.read_bytes_as_array(BATTLE_MONS, BATTLE_MON_SIZE * 4, BUS)
+	local positions, foe = memory.read_bytes_as_array(BATTLER_POSITIONS, 4, BUS), nil
+	for i = 0, math.min(r8(BATTLERS_COUNT), 4) - 1 do
+		if positions[i + 1] == 1 then foe = i * BATTLE_MON_SIZE end
+	end
+	if not foe then return nil, "no battler at the opponent's position" end
+	local own1, own2, foe1, foe2 = mons[0x22], mons[0x23], mons[foe + 0x22], mons[foe + 0x23]
+	local best, bestScore, weighed = nil, nil, {}
+	for k = 0, 3 do
+		local id, pp = u16of(mons, 13 + k * 2), mons[37 + k]
+		if id ~= 0 and pp > 0 then
+			local info = moveInfo(id)
+			local same = info.type_id == own1 or info.type_id == own2
+			local multiplier = info.type_id and TYPE_CHART.multiplier(info.type_id, foe1, foe2) or 1
+			local score = (info.power or 0) * (info.accuracy or 0) * (same and TYPE_CHART.sameTypeBonus or 1) * multiplier
+			weighed[#weighed + 1] = { move = nameAt(MOVE_NAMES, MOVE_LEN, MOVE_COUNT, id), type = info.type, power = info.power,
+				accuracy = info.accuracy, same_type = same or nil, multiplier = multiplier, score = score }
+			if best == nil or score > bestScore then best, bestScore = k, score end
+		end
+	end
+	if best == nil then return nil, "no move has PP left" end
+	local foeTypes = { TYPE_CHART.name(foe1) }
+	if foe2 ~= foe1 then foeTypes[2] = TYPE_CHART.name(foe2) end
+	return best, nameAt(MOVE_NAMES, MOVE_LEN, MOVE_COUNT, u16of(mons, 13 + best * 2)), { weighed = weighed, against = foeTypes }
+end
+
 local textHooks = {
 	-- The text hook copies each string when it starts printing, so a box is whole from its first letter.
 	boxKnownWhilePrinting = true,
@@ -2047,6 +2119,7 @@ local textHooks = {
 		local id = r16(BATTLE_MONS + 0x0C + slot * 2)
 		return slot, nameAt(MOVE_NAMES, MOVE_LEN, MOVE_COUNT, id) or ("move " .. id)
 	end,
+	effectiveMove = TYPE_CHART.effectiveMove,
 	endedReport = function()
 		local save = readSave()
 		return { outcome_raw = r8(BATTLE_OUTCOME), money = save and save.money,
@@ -2058,9 +2131,10 @@ local textHooks = {
 	end,
 }
 
--- battle {policy = "strongest" | "run"}: plays a battle to its end, a trainer's words before and after
+-- battle {policy = "strongest" | "effective" | "run"}: plays a battle to its end, a trainer's words before and after
 -- included. "strongest" chooses FIGHT and the usable move with the most power times accuracy (move data,
--- measured against the summary); "run" chooses RUN.
+-- measured against the summary); "effective" weighs that by the type chart and the same-type bonus (TYPE_CHART); "run"
+-- chooses RUN.
 game.programs.battle = function(p)
 	if not isVanilla then return nil, "battle is measured on the vanilla ROM only" end
 	if #hookNames == 0 then return nil, "battle reads messages through the text hooks, which are off (AUTOPLAY_TEXT=0)" end

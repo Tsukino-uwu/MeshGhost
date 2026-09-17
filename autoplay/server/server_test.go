@@ -578,6 +578,13 @@ func TestBattleValidatesAndForwards(t *testing.T) {
 	if in := <-got; in.Policy != "run" {
 		t.Fatalf("the driver received %+v", in)
 	}
+	text, isErr = h.call(t, "battle", map[string]any{"policy": "effective"})
+	if isErr || !strings.Contains(text, `"outcome":"ended"`) {
+		t.Fatalf("battle effective = %s (error %v)", text, isErr)
+	}
+	if in := <-got; in.Policy != "effective" {
+		t.Fatalf("the driver received %+v", in)
+	}
 	text, isErr = h.call(t, "advance_text", map[string]any{})
 	if isErr || !strings.Contains(text, `"verb":"advance_text"`) {
 		t.Fatalf("advance_text = %s (error %v)", text, isErr)

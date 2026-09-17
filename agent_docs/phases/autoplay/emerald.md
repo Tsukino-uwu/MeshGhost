@@ -142,3 +142,54 @@ frames each); with the probe off, `rick_battle_start` to `ended` with STRING SHO
 
 **The user, while it ran:** Serebii's Emerald gym page, *"can use this for some info or as a map, tells you what badge allows
 each HM to be used"* -- a map for the policy and Phase 2, each fact measured on the game before it is written as one.
+
+## 2026-09-17 (the Emerald chat, same session) — the game's type chart measured, and `battle`'s policy `effective`
+
+**Pointer.** The server's new policy and `text.lua`'s choice detail are shared core, logged in `../phase13.md` ("`battle`'s
+policy `effective`").
+
+**Measured** (`emerald/MEASURED.md`, "What a move's type does to its damage"), with a new read-only probe,
+`probes/type_calc_probe.lua` (execute hooks at the entries of Cmd_typecalc and Cmd_adjustnormaldamage), and the decomp as the
+map. The ROM's table matched all 289 cells of the Gen II-V chart the user named. Ten trials from the new snapshot
+`ng_rescue_move_menu`, with MUDKIP's move and ZIGZAGOON's type bytes written in the battle copy through `exec`: ×1.5 for a move
+of the attacker's type, then each table entry for the foe's two types, a single type once, the entries after FE included,
+each with the flags and message the game printed.
+
+**Built** (`emerald.lua`). One table, `TYPE_CHART` (the module at 199 of Lua's 200 locals): the table read once from the
+ROM, the type names (`moveInfo` takes them from it), `observe`'s `types` per battler, and `effectiveMove` -- power × accuracy ×
+the same-type bonus × the chart against the battler at the opponent's position, the first move with PP when none scores
+above 0, and each move's `weighed` score and the foe's types (`against`) into the log's choice.
+
+**Checked** (all reached, from made states; run log `autoplay/runs/2026-09-17_041250.019796.ndjson`). From the new snapshot
+`ng_rescue_action_menu`, the moves and the foe's types written before FIGHT: ROCK/GROUND, `strongest` EMBER against `effective`
+MUD-SLAP; WATER/GRASS, WATER GUN against EMBER; GHOST, TACKLE (×0, until its PP ran out) against MUD-SLAP. The probe showed the
+game running each chosen move with the multiplier weighed; `effective` against ROCK/GROUND again with the probe unloaded, the
+same. RICK's battle under `effective`: TACKLE every turn, `ended`. No nudge in any of them.
+
+**What went wrong on the way:** moves written while the move menu was already open: the game refused Down onto a slot its
+menu had opened empty, and `battle` answered `stuck` 4 times of 6 -- written before FIGHT instead.
+
+**Found at the end:** the Crystal chat made Crystal's `strongest` itself weigh the type table and the same-type bonus the same
+day (its log, `crystal.md`). So `strongest` now weighs types on Crystal and not on Emerald, where that is `effective`. Which
+shape both games take is open for the user.
+
+## 2026-09-17 (the Emerald chat, end of the session) — where Emerald's autoplay stands, for the next chat
+
+**The user:** *"lets call it here for today, and continue tomorrow"*.
+
+**This session's commits** (straight to master, nothing pushed): `a513a022` (a battle controller at work counted as progress),
+and the type chart with `effective` (this entry's commit). The second changes Go in `autoplay/server`: once pushed, read
+`gh run list -L 5`.
+
+**Left as it is:** EmuHawk on vanilla Emerald still running, its loader target `dev-scripts/bizhawk-dev-loader-autoplay.target`
+at `none` (no driver, no probe), nothing listening on 7870, the game on route 0.17 (the old save) after RICK's battle under
+`effective`, no menu open. The Crystal chat's emulator is also running.
+
+**Snapshots** (gitignored `autoplay/states/emerald/`), new this session: `ng_rescue_battle` (the rescue battle's first frame),
+`ng_rescue_action_menu` (its first action menu), `ng_rescue_move_menu` (its move menu opening). The new game's path is otherwise
+as before, `ng_got_mudkip` newest.
+
+**Open:** which shape the type-weighing choice takes on both games (above); MAY's box shows the FA scroll command raw;
+noclip's per-frame cost and water; the plan's Phase 2 (`goto` across maps, `talk`, the stuck classifier), with the user's
+Serebii gym page as a map for the badges each HM needs; `effective` not yet met on a foe whose types matter without a write
+(ROXANNE's gym is the first on this path).
