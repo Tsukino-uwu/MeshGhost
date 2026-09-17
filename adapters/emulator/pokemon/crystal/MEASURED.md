@@ -63,6 +63,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - The ball pocket, a POKé BALL thrown in a battle, and a second Pokémon in the party (2026-09-17)
 - A warp written while a trainer's script runs; the switch question and the nickname question in a battle (2026-09-17)
 - A house's mat, a trainer before it loads, and `goto` ridden (2026-09-17)
+- The party's moves, PP, item and status, the POKéMON menu, a heal, and a defeat flag cleared in a trainer's line (2026-09-17)
 - Not measured yet: The rest of autoplay's Crystal reading (from 2026-09-17)
 
 ## Measured
@@ -568,6 +569,42 @@ captures `autoplay_scn_warp_mid_approach`, `_after_a`, `_after_a2`, `autoplay_sc
   and Route 30's (2,11), "collision 0x12 planned as closed: not measured".
 - **Not seen:** a replan after a bump; movement type 9 or any trainer that turns; a mat or stairs of any other byte (0x7A);
   a map edge crossed by `goto`; what a trainer's sight does past a wall.
+
+### The party's moves, PP, item and status, the POKéMON menu, a heal, and a defeat flag cleared in a trainer's line (2026-09-17)
+
+**Vanilla V1.0, from `session_end_route31` (CYNDAQUIL L5 10/19, BELLSPROUT L5 20/20), and Route 30.**
+`probes/autoplay_battle_probe.lua`'s party lines and `probes/autoplay_text_probe.lua` (`logs/autoplay_battle_7871_20260917_033339.log`,
+`logs/autoplay_text_7871_20260917_033339.log`), read against captures `autoplay_party_menu`, `autoplay_party_submenu`,
+`autoplay_summary_p1`, `_p3`, `autoplay_summary_bellsprout`, `autoplay_party_menu_healed`, `autoplay_summary_healed_moves`,
+`autoplay_scn_flag_cleared_in_sight` (gitignored).
+
+- **A party slot's bytes against the summary.** CYNDAQUIL's 0x30 bytes: `9B AD 21 2B 00 00 86 FB 00 00 9E …` with `1F 1E 00 00` at
+  +0x17 and `05 00 00 00 0A 00 13` from +0x1F. The summary's pages drew ITEM BERRY (+0x01 0xAD; the item names' 173rd
+  string spelled BERRY), MOVE TACKLE PP 31/35 and LEER 30/30 (+0x02/+0x03 33 and 43; +0x17/+0x18 31 and 30), EXP POINTS 158
+  (+0x08-+0x0A, high byte first), STATUS/ OK (+0x20 0), and 10/ 19 (+0x22-+0x25). BELLSPROUT's summary, reached with Down
+  from CYNDAQUIL's, drew no ITEM (+0x01 0) and VINE WHIP 10/10 (+0x02 22, +0x17 10). The stats at +0x26-+0x2F were not
+  drawn on the pages opened, and are not read.
+- **The POKéMON menu.** START, POKéMON: each name on rows 1 and 3 from column 3, its HP ("10/ 19") at columns 14-19, its
+  ":L5" and HP bar on the row under it, CANCEL on row 5, and "Choose a POKéMON." in a box at rows 14-17 (not the message
+  box's rows, so no `dialogue`). The menu block read first row 1, column 0, 3 rows by 1 column, 2 rows apart, the frame's
+  right column 19 -- so the grid reader cut the last digit of the HP -- and wMenuCursorY followed the ▶. A on CYNDAQUIL
+  opened STATS / SWITCH / MOVE / ITEM / CANCEL, read as a menu as drawn. On the summary, one 4-frame Right left the first page
+  as it was 40 frames later and a second brought up the moves page; two 8-frame Rights also reached the moves page. B
+  went back to the list with the ▶ on the Pokémon last shown.
+- **`heal`.** Written from `session_end_route31`: HP from +0x24/+0x25 into +0x22/+0x23, PP from the move table's +0x05
+  into +0x17-+0x1A, and 0 into +0x20. The POKéMON menu then drew CYNDAQUIL 19/ 19 (10/ 19 before), and the summary TACKLE PP
+  35/35 (31/35 before).
+- **A defeat flag cleared in a trainer's line.** A scenario run ended with Don beaten at (1,9), where he had walked, and the
+  player at (1,10) facing him. The next run's setup cleared his flag (`set_flag`) and healed; two cheats later the warp was
+  refused with wScriptRunning 1, and the screen showed "Instead of a bug / POKéMON, I found" with Don still at (1,9). No
+  step had been taken: the game's sight check found the player standing one tile into his line.
+- **The scenario, replayed** (`autoplay/games/crystal/scenarios/trainer_sight_range.json`, its setup reordered to warp, heal,
+  then clear the flag; run logs `autoplay/runs/2026-09-17_034156.929329.ndjson` and the two broken runs after it, gitignored):
+  3 of 3 passed (1m24s, 1m26s, 1m09s), each run starting where the last ended, Don beaten at (1,9) beside the player -- the
+  warp's map load put him back on (1,7) every time, and his cleared flag had him come at three tiles again. Broken on purpose
+  from copies: `tiles_away` 4 failed at the walk with "trainer.tiles_away: want 4, got 3"; his flag SET in the setup, with
+  the check on `beaten` dropped, failed at the walk with "outcome: want "spotted", got "done"". Both exited 1.
+- **Not seen:** a status other than OK; raised PP; a party slot past the second; the menu's SWITCH, MOVE or ITEM.
 
 ## Not measured yet
 

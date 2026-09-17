@@ -18,3 +18,30 @@ Opened by the Emerald chat when the user chose one autoplay log per game (`../ph
 split"). Crystal's entries so far — steps 1 and 2, the battlers, trainers seen and talked to, the PACK's
 pockets and a catch, `set_flag` and the switch question, and `goto` through the shared planner — stay in
 `../phase13.md` under "Crystal (vanilla V1.0), before its own log" in its index.
+
+## 2026-09-17 (the Crystal chat) — the party out of a battle, the POKéMON menu, `heal`, and the first Crystal scenario 3 of 3
+
+**Built** (`crystal.lua` only; no shared file changed). `observe`'s `party` carries each Pokémon's moves with PP, held
+item, EXP and status byte; the POKéMON menu reads as `party: true` with the party's names, so `select` takes a name; a
+`heal` cheat (HP, PP and status); and the first Crystal scenario,
+`autoplay/games/crystal/scenarios/trainer_sight_range.json`. Measurements: `crystal/MEASURED.md`, "The party's moves, PP,
+item and status, the POKéMON menu, a heal, and a defeat flag cleared in a trainer's line".
+
+**How it was measured.** The battle probe's party lines against the summary's pages (CYNDAQUIL's TACKLE 31/35, LEER 30/30,
+BERRY, EXP 158, STATUS OK; BELLSPROUT's VINE WHIP 10/10) and the text probe on the POKéMON menu; `heal` then checked on the
+game's own screens (19/ 19, PP 35/35). Every menu was closed again before any code was written.
+
+**The scenario.** It replays Don's sight from `crystal/MEASURED.md` with no model: warp four tiles below him, heal, clear his
+defeat flag, 120 frames with nothing, the step to three below `spotted`, then `battle strongest` to `ended` and his flag
+set. A run cannot stop at `spotted` on Crystal (a warp written during his script waits for his battle), so every run plays
+the battle out, about 1.5 minutes at normal speed. **What went wrong on the way:** the first 3-run pass failed at its first
+warp -- its setup had cleared his flag first, with the last run's player standing beside him, and he came at once with no
+step. The setup now warps first. Then 3 of 3 passed, each run starting from the last one's end, and two broken copies
+failed at the walk with the reason ("trainer.tiles_away: want 4, got 3"; "outcome: want "spotted", got "done"").
+
+**Snapshots:** none new. The instance is left on Route 30 after Don's battle (played out after the last broken run),
+the driver alone on its target.
+
+**Next for Crystal:** the key item and TM/HM pockets, badges, movement (the bike; the user: no running in vanilla, a bike,
+and running and a faster bike in the Archipelago build), and a `battle` policy that weighs type matchups from the game's
+own type table.

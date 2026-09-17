@@ -124,7 +124,8 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
   PACK RUN), the move list and a ball's USE / QUIT. The PACK's item and ball pockets are read whole, scrolled off or
   not, in or out of a battle: `list: true`, `pocket` (`items`, `balls`), every entry and CANCEL in `items`, their
   `quantities`, the `cursor` into the whole list, and the box under it as `description` (so `select` reaches any
-  entry). Its other pockets read only the rows on screen.
+  entry). Its other pockets read only the rows on screen. The POKéMON menu reads as `party: true` with the party's names
+  and CANCEL, so `select` takes a name; the menu under a name (STATS / SWITCH / MOVE / ITEM / CANCEL) reads as drawn.
 - **`screen_text`** — `row` and `text` for every other row holding words, only while the font is in the
   tiles (a Pokémon's picture reuses them; `crystal/MEASURED.md`, "Which font is loaded").
 - **`local_map`** — 15 by 11 around the player: `@` you, `N` a character, `W` a warp, `S` a sign, `#`
@@ -144,9 +145,11 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
   held at 0 the move missed, and the table's 242 both hit and missed). `kind` (`wild`, `trainer`); in a trainer's
   battle `opponent_party_count` and `opponent_party_index`. A battler is absent until its Pokémon is sent out. One wild
   battle and one trainer's measured.
-- **What the save has**, in an `observe` you call only: **`party`** (per Pokémon `slot`, `species`, `nickname`, `level`,
-  `hp`, `max_hp`; two slots measured), **`money`**, and **`bag`** with the item and ball pockets that hold anything
-  (`item`, `id`, `quantity`). Moves and PP out of a battle, badges and the other pockets are not read yet.
+- **What the save has**, in an `observe` you call only: **`party`** (per Pokémon `slot`, `species` and `species_id`,
+  `nickname`, `level`, `hp`, `max_hp`, `exp`, `held_item`, `status_raw` -- 0 drawn as OK, nothing else measured -- and
+  `moves` with `name`, `id`, `pp`, `base_pp`, `type`, `power` and `accuracy_raw`; two slots measured), **`money`**, and
+  **`bag`** with the item and ball pockets that hold anything (`item`, `id`, `quantity`). Badges and the other pockets are
+  not read yet.
 - Not yet: `movement`, a trainer that turns. The events are
   `map_changed`, `mode_changed`, `dialogue_changed`, `menu_changed` and `battle_mode_raw_changed`.
 - Its tools: `walk` (on foot only; `run` walks and says `ran: false`, since Crystal has no running
@@ -195,6 +198,11 @@ each run's `setup` and `steps` as their own segments, walked or reached.
 - **Scenarios so far**: `games/emerald/scenarios/trainer_sight_range.json` -- RICK's sight on route 0.17, from
   `emerald/MEASURED.md` (2026-09-17): cheats clear his defeat flag and warp three tiles above him, 120 frames
   pass with no script started, and the step to two above answers `spotted`, local id 3, two tiles away.
+  `games/crystal/scenarios/trainer_sight_range.json` -- Bug Catcher Don's sight on Route 30, from `crystal/MEASURED.md`
+  (2026-09-17): cheats warp four tiles below him, heal the party and clear his defeat flag (in that order: cleared with
+  the player in his line, he starts at once), 120 frames pass with no script, the step to three below answers `spotted`,
+  map object 4, three tiles away, and `battle strongest` plays his battle to `ended` so the next run starts clean (about
+  1.5 minutes a run at normal speed).
 - Not built yet: a `speed` setting, expectations on a MeshGhost adapter's own log, waiting on an event.
 
 ## Cheats so far
@@ -222,6 +230,11 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   words, the load waited for the whole battle); `done` once the target map runs, and `report` reads the map and tile back.
 - **Crystal `set_flag`** `{flag, value}`: one event flag on or off (`value` defaults to true), ids 0-2047; `report` reads it
   back. Only trainers' defeat flags are measured (`nearby` names each trainer's `flag`). Refused outside the overworld.
+  **A defeat flag cleared with the player standing in that trainer's line starts the trainer's approach at once**, with no
+  step: warp out of the line first.
+- **Crystal `heal`** `{}`: every Pokémon in the party to its max HP, each move's PP to its maximum and the status byte to 0
+  (OK), as the POKéMON screen then draws; `report` reads the party back. Refused outside the overworld and on a raised PP
+  byte (not measured).
 - Cheats write the save's data in memory: **an in-game save afterwards keeps them.**
 
 ## Drivers so far

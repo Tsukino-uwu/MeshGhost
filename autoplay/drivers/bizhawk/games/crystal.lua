@@ -478,7 +478,7 @@ local function readScreenText(t, dialogue, menuRows, low)
 end
 
 -- The PACK's item list, whole, when the menu on screen is it, and the pockets' contents (defined with the pockets, below).
-local itemPocketMenu, readBag
+local itemPocketMenu, readBag, readParty, partyMenu
 
 -- The message and the menu on screen together: a menu drawn inside the message box's frame (the battle's action
 -- menu) is not a message, and the box under the PACK's item list is that item's description.
@@ -495,7 +495,7 @@ local function readTextAndMenu(t, low)
 	if d and m and d.state == "waiting_for_button" and cell(t, ARROW_COL, BOX_BOTTOM) ~= ARROW and waitingInBattle() then
 		d.state = "finished"
 	end
-	local whole = itemPocketMenu(m)
+	local whole = itemPocketMenu(m) or partyMenu(m, t, low)
 	if whole then
 		whole.description = d and d.box ~= "" and d.box or nil
 		m, d = whole, nil
@@ -665,7 +665,7 @@ local game = {
 	game = "crystal",
 	variant = isVanilla and "vanilla" or "unverified",
 	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "walk", "goto", "select", "advance_text", "battle",
-		"cheat:warp", "cheat:give_item", "cheat:set_flag" },
+		"cheat:warp", "cheat:give_item", "cheat:set_flag", "cheat:heal" },
 	-- The START menu: Down moved the cursor one item a press and A chose it (2026-09-17).
 	menuButtons = { prev = "Up", next = "Down", left = "Left", right = "Right", confirm = "A" },
 	protected_slots = { 1 },
@@ -734,7 +734,7 @@ function game.observe(asked)
 	local party, money, bag
 	if asked and isVanilla then
 		local r = battleEndedReport()
-		party, money, bag = r.party, r.money, readBag()
+		party, money, bag = readParty(), r.money, readBag()
 	end
 	return {
 		frame = emu.framecount(),
@@ -935,6 +935,108 @@ readBag = function()
 		end
 	end
 	return bag
+end
+
+-- THE PARTY OUT OF A BATTLE (autoplay_battle_probe.lua's party lines and the POKéMON screen's summary pages, 2026-09-17,
+-- vanilla V1.0, `session_end_route31`; MEASURED.md, "The party's moves, PP, item and status, the POKéMON menu, and a heal").
+-- CYNDAQUIL's slot read +0x01 AD (ITEM BERRY drawn), +0x02/+0x03 21 2B (TACKLE, LEER), +0x08-+0x0A 00 00 9E (EXP POINTS
+-- 158), +0x17/+0x18 1F 1E (PP 31/35 and 30/30), +0x20 00 (STATUS/ OK); BELLSPROUT's +0x01 00 (no ITEM drawn), +0x02 16
+-- (VINE WHIP) and +0x17 0A (10/10). A PP byte of 0x40 or more (raised PP) is not measured and goes out as pp_raw.
+local PARTY_ITEM, PARTY_MOVES, PARTY_EXP, PARTY_PP, PARTY_LEVEL, PARTY_STATUS, PARTY_HP, PARTY_MAX_HP =
+	0x01, 0x02, 0x08, 0x17, 0x1F, 0x20, 0x22, 0x24
+local PP_RAISED = 0x40
+
+readParty = function()
+	local count = u8(W_PARTY_COUNT)
+	if count < 1 or count > PARTY_MAX then return nil end
+	local names, out = itemNames(), {}
+	for k = 0, count - 1 do
+		local p = memory.read_bytes_as_array(W_PARTY_MON1 + k * PARTY_MON_SIZE, PARTY_MON_SIZE, "WRAM")
+		local nick = memory.read_bytes_as_array(W_PARTY_NICK1 + k * NICK_LEN, NICK_LEN, "WRAM")
+		local mon = { slot = k + 1, species = speciesName(p[1]), species_id = p[1], nickname = spell(nick, 1, #nick),
+			level = p[PARTY_LEVEL + 1], hp = (p[PARTY_HP + 1] << 8) | p[PARTY_HP + 2],
+			max_hp = (p[PARTY_MAX_HP + 1] << 8) | p[PARTY_MAX_HP + 2], status_raw = p[PARTY_STATUS + 1],
+			exp = (p[PARTY_EXP + 1] << 16) | (p[PARTY_EXP + 2] << 8) | p[PARTY_EXP + 3], moves = {} }
+		local item = p[PARTY_ITEM + 1]
+		if item ~= 0 then mon.held_item = names[item] or string.format("{%02X}", item) end
+		for m = 0, 3 do
+			local id, pp = p[PARTY_MOVES + 1 + m], p[PARTY_PP + 1 + m]
+			if id ~= 0 then
+				local d = moveData(id)
+				mon.moves[#mon.moves + 1] = { name = d.name, id = id, pp = pp < PP_RAISED and pp or nil,
+					pp_raw = pp >= PP_RAISED and pp or nil, base_pp = d.base_pp, type = d.type, power = d.power,
+					accuracy_raw = d.accuracy_raw }
+			end
+		end
+		out[#out + 1] = mon
+	end
+	return out
+end
+
+-- THE POKéMON MENU (autoplay_text_probe.lua, 2026-09-17, START then POKéMON with CYNDAQUIL and BELLSPROUT): each Pokémon's
+-- name on rows 1 and 3 from column 3 and its HP "10/ 19" at columns 14-19, its level and HP bar on the row under it,
+-- CANCEL on row 5; the menu block read first row 1, column 0, 3 rows by 1 column, 2 rows apart, and the frame's right
+-- column 19, so the grid reader cut the last digit ("10/ 1"). The same list opened in a battle after the switch question's
+-- YES ("Which PKMN?"). A menu whose block has that shape, one row per Pokémon and CANCEL, and whose rows show the party's
+-- names reads as `party: true` with the names; `select` then takes a name, and A on one opened STATS / SWITCH / MOVE /
+-- ITEM / CANCEL (read as a menu, as drawn).
+partyMenu = function(m, t, low)
+	if not m then return nil end
+	local b = memory.read_bytes_as_array(W_2DMENU, 7, "WRAM")
+	local count = u8(W_PARTY_COUNT)
+	if b[1] ~= 1 or b[2] ~= 0 or b[4] ~= 1 or (b[7] >> 4) ~= 2 or count < 1 or count > PARTY_MAX or b[3] ~= count + 1 then
+		return nil
+	end
+	local items = {}
+	for k = 0, count - 1 do
+		local nick = memory.read_bytes_as_array(W_PARTY_NICK1 + k * NICK_LEN, NICK_LEN, "WRAM")
+		local name = spell(nick, 1, #nick)
+		if decodeCells(t, 1 + k * 2, 3, 12, low) ~= name then return nil end
+		items[#items + 1] = name
+	end
+	items[#items + 1] = "CANCEL"
+	return { items = items, cursor = m.cursor, party = true }
+end
+
+-- heal: every Pokémon in the party to its max HP (+0x22 from +0x24), each move's PP to the maximum the move table gives
+-- (the PP the summary drew as the maximum, 35 for TACKLE), and the status byte to 0 (drawn STATUS/ OK). Refused outside
+-- the overworld and on a raised PP byte, whose maximum is not measured. `report` reads the party back.
+function game.cheats.heal()
+	if not isVanilla then return nil, "heal is measured on the vanilla V1.0 ROM only" end
+	if not inOverworld() or u8(W_BATTLEMODE) ~= 0 then return nil, "heal refused: not in the overworld" end
+	local count = u8(W_PARTY_COUNT)
+	if count < 1 or count > PARTY_MAX then return nil, string.format("heal refused: the party count reads %d", count) end
+	for k = 0, count - 1 do
+		for m = 0, 3 do
+			local at = W_PARTY_MON1 + k * PARTY_MON_SIZE
+			if u8(at + PARTY_MOVES + m) ~= 0 and u8(at + PARTY_PP + m) >= PP_RAISED then
+				return nil, string.format("heal refused: slot %d move %d has raised PP, not measured", k + 1, m + 1)
+			end
+		end
+	end
+	for k = 0, count - 1 do
+		local at = W_PARTY_MON1 + k * PARTY_MON_SIZE
+		memory.write_u8(at + PARTY_HP, u8(at + PARTY_MAX_HP), "WRAM")
+		memory.write_u8(at + PARTY_HP + 1, u8(at + PARTY_MAX_HP + 1), "WRAM")
+		memory.write_u8(at + PARTY_STATUS, 0, "WRAM")
+		for m = 0, 3 do
+			local id = u8(at + PARTY_MOVES + m)
+			if id ~= 0 then memory.write_u8(at + PARTY_PP + m, moveData(id).base_pp, "WRAM") end
+		end
+	end
+	return {
+		limit = 1,
+		untilFn = function() return true end,
+		report = function()
+			local out = {}
+			for _, mon in ipairs(readParty() or {}) do
+				local pp = {}
+				for _, mv in ipairs(mon.moves) do pp[#pp + 1] = { name = mv.name, pp = mv.pp, base_pp = mv.base_pp } end
+				out[#out + 1] = { slot = mon.slot, species = mon.species, hp = mon.hp, max_hp = mon.max_hp, status_raw = mon.status_raw, moves = pp }
+			end
+			return { party = out }
+		end,
+	}
 end
 
 local function itemPocketOf(id)
@@ -1348,7 +1450,7 @@ function game.menu()
 	if not isVanilla then return nil end
 	local _, low = readFont()
 	local m = readMenu(readTilemap(), low)
-	return itemPocketMenu(m) or m
+	return itemPocketMenu(m) or partyMenu(m, readTilemap(), low) or m
 end
 
 -- TEXT AND BATTLES AS ONE CALL: the shared machine (`../text.lua`) through Crystal's reads.

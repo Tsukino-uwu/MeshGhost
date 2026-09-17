@@ -1,0 +1,80 @@
+{
+  "name": "crystal_trainer_sight_range",
+  "game": "crystal",
+  "variant": "vanilla",
+  "reproduces": "adapters/emulator/pokemon/crystal/MEASURED.md, \"A trainer battle: sight, approach, the battle's own waits with no ▼, and the words after\" (2026-09-17): Bug Catcher Don on Route 30 (26.1) at (1,7), range 3, facing down -- four tiles below him nothing in 120 frames, the step to three below brought him, and `battle strongest` played his battle to `ended` with his defeat flag set",
+  "needs": "vanilla Crystal V1.0 with a save loaded, the player in the overworld on foot, and a party whose first Pokémon beats two Lv3 CATERPIEs with TACKLE (the chat's CYNDAQUIL did)",
+  "note": "A run cannot end at `spotted`: Don's script then runs, and a warp written during it waits for his whole battle, so each run plays the battle out. The setup makes the situation with cheats (a warp four tiles below him, the party healed, then his defeat flag cleared -- cleared first, with the last run's player standing beside him, it started his approach with no step); the sight check and the battle are the game's own. Nothing here writes a save.",
+  "repeat": 3,
+  "setup": [
+    {
+      "tool": "cheat",
+      "args": {"kind": "warp", "args": {"map": "26.1", "x": 1, "y": 11}},
+      "note": "four tiles below Don, first: the last run leaves the player beside him, and his flag cleared there started his approach with no step",
+      "expect": [
+        {"path": "done", "equals": true},
+        {"path": "after.location.map", "equals": "26.1"},
+        {"path": "after.location.x", "equals": 1},
+        {"path": "after.location.y", "equals": 11}
+      ]
+    },
+    {
+      "tool": "cheat",
+      "args": {"kind": "heal", "args": {}},
+      "note": "full HP and PP, so the battle plays the same way every run",
+      "expect": [{"path": "report.party.0.status_raw", "equals": 0}]
+    },
+    {
+      "tool": "cheat",
+      "args": {"kind": "set_flag", "args": {"flag": 1336, "value": false}},
+      "note": "Don's defeat flag: unbeaten, whatever the save or the last run left, once the player is out of his line",
+      "expect": [{"path": "report.now", "equals": false}]
+    }
+  ],
+  "steps": [
+    {
+      "tool": "wait",
+      "args": {"frames": 120},
+      "note": "four below: nothing comes",
+      "expect": [
+        {"path": "after.nearby[map_object=4].x", "equals": 1, "note": "Don stands where the measurement had him"},
+        {"path": "after.nearby[map_object=4].y", "equals": 7},
+        {"path": "after.nearby[map_object=4].trainer.range", "equals": 3},
+        {"path": "after.nearby[map_object=4].trainer.beaten", "equals": false},
+        {"path": "after.location.y", "equals": 11},
+        {"path": "after.extras.script_running_raw", "equals": 0, "note": "no script running: no trainer has started for the player"},
+        {"path": "after.dialogue", "exists": false}
+      ]
+    },
+    {
+      "tool": "walk",
+      "args": {"direction": "up", "tiles": 1},
+      "note": "three below: Don comes",
+      "expect": [
+        {"path": "outcome", "equals": "spotted"},
+        {"path": "moved", "equals": 1},
+        {"path": "trainer.map_object", "equals": 4},
+        {"path": "trainer.tiles_away", "equals": 3}
+      ]
+    },
+    {
+      "tool": "battle",
+      "args": {"policy": "strongest"},
+      "note": "his words, both CATERPIEs and the prize, to the overworld",
+      "expect": [
+        {"path": "outcome", "equals": "ended"},
+        {"path": "outcome_raw", "equals": 0, "note": "0 after a win"}
+      ]
+    },
+    {
+      "tool": "wait",
+      "args": {"frames": 60},
+      "note": "the game set his defeat flag, and nothing is running",
+      "expect": [
+        {"path": "after.nearby[map_object=4].trainer.beaten", "equals": true},
+        {"path": "after.extras.script_running_raw", "equals": 0},
+        {"path": "after.mode", "equals": "overworld"}
+      ]
+    }
+  ]
+}
