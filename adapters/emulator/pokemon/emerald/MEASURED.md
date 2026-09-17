@@ -67,6 +67,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - Autoplay's noclip: through a collision tile and a character (2026-09-17)
 - A battle controller at work: the rescue battle's intro (2026-09-17)
 - What a move's type does to its damage (2026-09-17)
+- Ledges, water, and other maps read from the ROM (2026-09-17)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -839,6 +840,40 @@ identical to the ROM.
 - **Not measured**: an ability (the decomp names LEVITATE and WONDER GUARD inside typecalc), FORESIGHT or ODOR SLEUTH (the
   decomp stops at FE for a foe under them), a move whose type changes (HIDDEN POWER, WEATHER BALL), the physical and special
   split by type, weather, a double battle, and the AI's own copy of the calculation.
+
+### Ledges, water, and other maps read from the ROM (2026-09-17)
+
+**Vanilla ROM**, the old save restored from `session_end_route103` on map 0.18, read with autoplay's `exec` (read-only code),
+`walk` and `goto`, and `probes/step_probe.lua` loaded beside the driver for the hop (its log
+`step_probe_bizhawk-dev-loader-autoplay_target_20260917_115029.log`, gitignored). The build's `.sym` and the decomp are the
+map for the names.
+
+- **Any map's header.** The block named gMapGroups (0x08486578) held, at group 0, a pointer to a list whose entry 18 pointed at
+  a ROM header whose 28 bytes read the same as gMapHeader's copy (0x02037318) while on 0.18. Its layout's map data (+0x0C)
+  read equal to the live grid (gBackupMapLayout, 7 tiles in) on all 1760 tiles of the 80 by 22 map. Other maps were read
+  the same way and their tables used live: 0.10's warps and 2.2's (the Center) matched the doors walked through below.
+- **Connections** read as the adapter's seam work measured them (+0x0C: count, then 12-byte entries). 0.18: south to 0.10
+  offset 0, east to 0.25 offset -60; 0.10: north 0.18, south 0.16, west 0.17, all 0; 0.16: north 0.10, south 0.9; 0.9:
+  north 0.16. **The offset**: 0.18's side at x=79 is open on rows 7-11 and 0.25's at x=0 on rows 67-71; `goto` from 0.18
+  (76,9) to 0.25 (2,69) went straight right, 5 tiles, no turn -- a row r on the first map is r minus the offset on the next.
+- **A ledge.** On 0.18 the tiles with behaviour 0x3B read collision set, elevation 3 (23 of them, (6,5) among the
+  row at y=5). Down from (6,4): Down pressed, a 7-frame turn (avatar +2 at 1); then on one frame the object's y went 11 to 12
+  (map y 4 to 5, onto the ledge tile) with the avatar's +2 and +3 at 2 and the previous y still 11; 15 frames later y went
+  to 13 (map 6) with the previous at 12; 16 frames later the previous caught up and byte 0's top bit came back; at rest 2
+  frames after. `walk down 1` answered `done`, moved 2, overshot 1. Up into it from (6,6): refused, as a wall's bump
+  reads, `blocked_by` behaviour 59, collision 1. `goto` (6,4) to (6,7) went straight down over it (3 tiles, 60 frames); back
+  to (6,4) it went round (5 tiles, 2 turns).
+- **Water.** 338 tiles of 0.18 read behaviour 0x15, collision 0, elevation 1. On foot, `walk right` from the shore (21,8)
+  into (22,8) was refused (`blocked_by` behaviour 21, collision 0, elevation 1).
+- **The player's facing.** The player object's +0x18 read 0x11 after a walk down, 0x22 up, 0x33 left and 0x44 right.
+- **Warps crossed by `goto`**: 0.10's Center door (6,16), behaviour 0x69, walked up into from below, arrived on 2.2; and
+  back out by one of 2.2's warps at (6,8) and (7,8). The destination's warp number (+4 of a warp entry, 0 on each of 0.10's) was read with `exec`; nothing uses it.
+- **Scripts on the way.** On 0.10's bottom row, going south, MAY's "Let's hurry home!" opened (the player just past her
+  battle); on 0.10's west side, going left, "Aaaaah! Wait! Please don't come in here." -- both stopped `goto`
+  `dialogue_open`.
+- **Not measured**: ledges of behaviour 0x38, 0x39 and 0x3A (on 0.17 and other routes, not walked); water at another
+  behaviour; a cut tree, a boulder, a Rock Smash rock, a waterfall; a warp to a map the header names as dynamic; a warp
+  that lands on an arrow warp; what the refused water step looks like surfing or with SURF known.
 
 ## Not measured yet
 

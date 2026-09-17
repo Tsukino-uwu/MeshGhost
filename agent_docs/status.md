@@ -11,10 +11,10 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 ## Open now
 
 - 2026-09-16 — **Sort each adapter's older code-level entries out of `UNVERIFIED.md`/`VERIFIED.md` into `MEASURED.md`**, and give every `UNVERIFIED.md` (and `_template`) a full index. Another chat.
-- 2026-09-17 — **Autoplay, Emerald: Phase 1's list built**, a battle controller's work counted as progress, the type chart and `battle effective`;
-  open: Phase 2 (`goto` across maps, `talk`, the stuck classifier), MAY's raw FA, noclip's cost and water. `phases/autoplay/emerald.md`.
+- 2026-09-17 — **Autoplay, Emerald: Phase 1 and Phase 2's acceptance** (`goto` across maps, ledges, `talk`, the stuck classifier scenario 3 of 3);
+  open: ledges other than down, field-move obstacles, MAY's raw FA, noclip's cost and water. `phases/autoplay/emerald.md`.
 - 2026-09-17 — **Autoplay, Crystal**: `goto`, a scenario 3 of 3, every PACK pocket, the POKéMON menu, badges, bike and surf, a type- and stat-aware `strongest` on V1.0;
-  **paused** (the user, 2026-09-17) once that scoring is behind `effective` (committed `f8eeb328`; the Emerald chat does it); then the whiteout. `phases/autoplay/crystal.md`.
+  **paused** (the user, 2026-09-17), its scoring moved behind `effective` and checked (`df7326f7`); next the whiteout. `phases/autoplay/crystal.md`.
 - 2026-09-17 — **Autoplay, TEVI: the plan's Phase 6 starts next** (the user, 2026-09-17), before Phase 3: a driver on the same link (a BepInEx plugin),
   `observe`, teleport, events, and first where TEVI keeps its saves and which slot is safe. `phases/phase13.md`, "the order from here".
 - 2026-09-16 — **Prediction: A3 LANDED (ADR 0069, ships off), SCREEN VERDICT OPEN; A2.0 MEASURED** (worst-case transit p99 310–320ms; the dry tail is the 1 s blackouts); A2 undecided. `prediction-planning.md`.

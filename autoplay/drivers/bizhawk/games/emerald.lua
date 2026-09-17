@@ -1250,7 +1250,7 @@ local game = {
 	variant = isVanilla and "vanilla" or "unverified",
 	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "cheat:warp", "cheat:set_flag",
 		"cheat:give_item", "cheat:register_item", "select", "walk", "goto", "battle", "advance_text", "type_text",
-		"set_clock", "cheat:noclip" },
+		"set_clock", "cheat:noclip", "talk" },
 	-- The START menu and a YES/NO: Down moved the cursor one entry per press and A chose it; in a battle
 	-- menu Left and Right moved between its two columns (2026-09-16).
 	menuButtons = { prev = "Up", next = "Down", left = "Left", right = "Right", confirm = "A" },
@@ -1714,6 +1714,20 @@ function STEP.refused()
 end
 function STEP.idle() return r8(GPLAYERAVATAR + 2) == 0 end
 
+-- WHY A STEP WAS REFUSED (2026-09-17, `walk` into each on map 0.18 with `probes/step_probe.lua` loaded; MEASURED.md, "Ledges,
+-- water, and other maps read from the ROM"): a ledge (behaviour 0x3B, collision set) hopped going down and refused going up;
+-- water (0x15, collision clear, elevation 1) refused a step on foot; a character on the tile and a collision tile refused
+-- as `walk` measured them. The cause for a refused tile, from what describeTile read on it: `npc_in_way`, `one_way_edge`,
+-- `missing_ability` (with the ability), `solid`, `off_map`, or `unknown` for anything else (another elevation not measured).
+function STEP.cause(t)
+	if t.outside_map then return "off_map" end
+	if t.character then return "npc_in_way" end
+	if t.behaviour == 0x3B then return "one_way_edge" end
+	if t.behaviour == 0x15 and t.elevation == 1 and t.collision == 0 then return "missing_ability", "surf" end
+	if t.collision ~= 0 then return "solid" end
+	return "unknown"
+end
+
 -- On the Mach Bike, whether to let go now with `tiles` left: the step just begun carries on for +0x0B more tiles once
 -- released, and holding one more raises it from 0 to 1, or from 1 to 3 (bike_probe.lua, 2026-09-16; `walk`, below).
 function STEP.machCoasts(tiles)
@@ -1739,6 +1753,7 @@ local function describeTile(x, y)
 	for _, w in ipairs(readWarps()) do
 		if w.x == x and w.y == y then out.warp_to = w.to end
 	end
+	out.cause, out.ability = STEP.cause(out)
 	return out
 end
 
@@ -1904,9 +1919,9 @@ end
 -- GOTO: the route planner and the ride are shared (`../route.lua`, moved out of this file on 2026-09-17); what they read
 -- here is Emerald's, through the hooks below. Everything the ride does rests on `walk`'s measurements; the plan is made
 -- over the whole map grid (gBackupMapLayout, measured for `local_map`):
---   * a tile is open when it is inside the map, its collision bits are clear, its elevation is the player's, it is not
---     a ledge (behaviour 0x3B, which hopped two tiles going down), no character stands on it, and it is not a warp
---     unless it is the target. Other elevations and behaviours are not measured as walkable or not, so the plan stays
+--   * a tile is open when it is inside the map, its collision bits are clear, its elevation is the player's, no
+--     character stands on it, and it is not a warp unless it is the target; a ledge (behaviour 0x3B, collision set) is
+--     one way, crossed moving down, as it hopped, and never stood on (2026-09-17). Other elevations and behaviours are not measured as walkable or not, so the plan stays
 --     on the player's elevation and learns the rest;
 --   * tall grass is behaviour 0x02: every wild encounter so far began on one (route 0.16 four times, route 0.17 once);
 --   * a tile an unbeaten trainer looks at is every way it turns, as far as it sees (TRAINERS, above), and a trainer not
@@ -1957,9 +1972,11 @@ local function routeGrid(fromX, fromY, toX, toY)
 			local v = grid[i] | (grid[i + 1] << 8)
 			-- Elevation 0 takes a step from any: the house's door mats and stairs read 0 and were walked onto
 			-- from elevation 3 (2026-09-17).
-			if (v & 0x0C00) ~= 0 or ((v >> 12) ~= elevation and (v >> 12) ~= 0) then return nil end
+			if (v >> 12) ~= elevation and (v >> 12) ~= 0 then return nil end
 			local behaviour = behaviourOf(v & 0x3FF)
-			if behaviour == 0x3B then return nil end
+			-- A ledge reads collision set, and hopped moving down: two steps, onto it and past it (WHY A STEP WAS REFUSED).
+			if behaviour == 0x3B then return true, false, seen[y * mapW + x], "down" end
+			if (v & 0x0C00) ~= 0 then return nil end
 			return true, behaviour == 0x02, seen[y * mapW + x]
 		end,
 	}
@@ -2010,11 +2027,73 @@ local routeHooks = {
 	end,
 	blockedBy = describeTile,
 	limits = { rest = REST_LIMIT, idle = IDLE_LIMIT, press = PRESS_LIMIT, door = DOOR_LIMIT, step = STEP_LIMIT },
+	-- ANY MAP FROM THE ROM (2026-09-17, `exec` on map 0.18; MEASURED.md, "Ledges, water, and other maps read from the ROM"):
+	-- gMapGroups (0x08486578 in the build's .sym) is a pointer per group to a pointer per map to its ROM header, and that
+	-- header's 28 bytes read the same as gMapHeader's copy. The header's layout (+0) holds width, height and at +0x0C the
+	-- map data, which read equal to the live grid on all 1760 tiles of 0.18; the connections (+0x0C: count, list of 12-byte
+	-- entries) and warps are read as the adapter and `readWarps` measured them. A map is taken only when its header, layout
+	-- and events point into the ROM and its size is 1-512.
+	maps = {},
+	mapHeader = function(name)
+		local g, n = string.match(name or "", "^(%d+)%.(%d+)$")
+		g, n = tonumber(g), tonumber(n)
+		if not g or g > 255 or n > 255 then return nil end
+		local groupList = r32(0x08486578 + g * 4)
+		if not inRom(groupList) then return nil end
+		local hdr = r32(groupList + n * 4)
+		if not inRom(hdr) or not inRom(r32(hdr)) or not inRom(r32(hdr + 4)) then return nil end
+		local layout = r32(hdr)
+		local w, h = r32(layout), r32(layout + 4)
+		if w < 1 or h < 1 or w > 512 or h > 512 or not inRom(r32(layout + 12)) then return nil end
+		return hdr, layout, w, h
+	end,
 }
+-- A connection's direction byte: 1 south, 2 north, 3 west, 4 east (the adapter's seams, 2026-08-20).
+routeHooks.connectionDirections = { [1] = "down", [2] = "up", [3] = "left", [4] = "right" }
+routeHooks.mapExits = function(name)
+	if routeHooks.maps[name] ~= nil then return routeHooks.maps[name] or nil end
+	local hdr, _, w, h = routeHooks.mapHeader(name)
+	if not hdr then
+		routeHooks.maps[name] = false
+		return nil
+	end
+	local exits = {}
+	local conns = r32(hdr + 12)
+	if inRom(conns) then
+		local list = r32(conns + 4)
+		for i = 0, math.min(r32(conns), 16) - 1 do
+			local e = list + i * 12
+			local dir = routeHooks.connectionDirections[r8(e)]
+			if dir and inRom(list) then
+				local to = string.format("%d.%d", r8(e + 8), r8(e + 9))
+				exits[#exits + 1] = { kind = "edge", direction = dir, offset = memory.read_s32_le(e + 4, BUS), to = to,
+					key = "edge " .. dir .. " to " .. to }
+			end
+		end
+	end
+	local events = r32(hdr + 4)
+	local list = r32(events + 8)
+	for i = 0, math.min(r8(events + 1), 64) - 1 do
+		if not inRom(list) then break end
+		local e = list + i * 8
+		local x, y, to = r16(e), r16(e + 2), string.format("%d.%d", r8(e + 7), r8(e + 6))
+		exits[#exits + 1] = { kind = "warp", x = x, y = y, to = to, key = string.format("warp (%d,%d) to %s", x, y, to) }
+	end
+	routeHooks.maps[name] = { width = w, height = h, exits = exits }
+	return routeHooks.maps[name]
+end
+-- A tile of any map a step is planned onto: collision clear and not water's elevation 1 (WHY A STEP WAS REFUSED).
+routeHooks.tileOpenOn = function(name, x, y)
+	local _, layout, w, h = routeHooks.mapHeader(name)
+	if not layout or x < 0 or y < 0 or x >= w or y >= h then return false end
+	local v = r16(r32(layout + 12) + (x + w * y) * 2)
+	return (v & 0x0C00) == 0 and (v >> 12) ~= 1
+end
 
 -- goto {x, y, run, cross_grass}: to a tile on this map by a planned route (`../route.lua`).
 game.programs["goto"] = function(p)
 	if not isVanilla then return nil, "goto is measured on the vanilla ROM only" end
+	if p.map ~= nil and p.map ~= (routeHooks.position()) then return lib.route.travel(routeHooks, p) end
 	return lib.route.go(routeHooks, p)
 end
 
@@ -2147,6 +2226,22 @@ game.programs.advance_text = function()
 	if not isVanilla then return nil, "advance_text is measured on the vanilla ROM only" end
 	if #hookNames == 0 then return nil, "advance_text reads messages through the text hooks, which are off (AUTOPLAY_TEXT=0)" end
 	return lib.text.advanceText(textHooks)
+end
+
+-- talk {local_id}: to a tile beside the character, facing it, A, and advance_text (`../route.lua`'s M.talk). The player
+-- object's +0x18 low nibble read 1 after a walk down, 2 up, 3 left and 4 right (2026-09-17, `walk` and `goto` on 0.18); a
+-- script has the controls while the script context status is not SCRIPT_CONTEXT_OFF.
+routeHooks.characters = readObjects
+routeHooks.facing = function()
+	return ({ "down", "up", "left", "right" })[r8(playerObject() + 0x18) & 0x0F]
+end
+routeHooks.talkStarted = function()
+	return r8(SCRIPT_CONTEXT_STATUS) ~= SCRIPT_CONTEXT_OFF or readDialogue() ~= nil
+end
+game.programs.talk = function(p)
+	if not isVanilla then return nil, "talk is measured on the vanilla ROM only" end
+	if #hookNames == 0 then return nil, "talk reads messages through the text hooks, which are off (AUTOPLAY_TEXT=0)" end
+	return lib.route.talk(routeHooks, p, function() return lib.text.advanceText(textHooks) end)
 end
 
 -- type_text {text, confirm}: types on the naming keyboard (THE NAMING KEYBOARD, above) the way a player does. B until

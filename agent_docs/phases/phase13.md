@@ -32,6 +32,7 @@ here adds its heading as one line under "The plan and the shared core".**
 - 2026-09-17 (the Emerald chat, same session) — `exec`, and cheats still in effect in the run log: the last of Phase 1's list
 - 2026-09-17 (the Emerald chat, new session) — `battle`'s policy `effective`: the machine takes a policy's reasons into its log
 - 2026-09-17 (the Emerald chat, end of the night) — the order from here: Emerald on, TEVI's Phase 6 before Phase 3, Crystal paused
+- 2026-09-17 (the Emerald chat, Phase 2) — Phase 2 in the shared core: one-way tiles, `goto` across maps, `talk`
 
 **Emerald (vanilla), before its own log** -- from 2026-09-17 in [autoplay/emerald.md](autoplay/emerald.md)
 - 2026-09-16 (later still) — Phase 1 step 2: a live driver in vanilla Emerald, from boot to walking
@@ -1372,3 +1373,25 @@ this tomorrow ?"* -- agreed. **The order:** the Emerald chat continues (first, m
 `effective` and `strongest` back to power times accuracy, asking before launching Crystal to check it, so the pause leaves both
 games meaning the same by each policy; then Phase 2); a TEVI chat starts Phase 6; Crystal's chat pauses. Phase 3 comes after
 TEVI has `observe`, teleport and events.
+
+## 2026-09-17 (the Emerald chat, Phase 2) — Phase 2 in the shared core: one-way tiles, `goto` across maps, `talk`
+
+**What changed in the shared core** (Emerald's measurements and hooks are in [autoplay/emerald.md](autoplay/emerald.md), same
+date):
+- **`route.lua`.** `grid.tile` may return a fourth value, `oneWay` (a direction): the planner steps onto such a tile only
+  moving that way, leaves it only that way, and never ends on it -- a ledge. New `M.travel` (`goto` with `map`): the maps
+  between planned breadth-first over the module's `mapExits`, `M.go` to each exit, an edge left by holding off the side
+  from its nearest tile whose neighbour tile is open (`tileOpenOn`), a settle after every map change, then a fresh plan
+  from the map it is on; an exit that cannot be reached or crossed is set aside (12 at most). New `M.talk`: `M.go` to a
+  tile beside the character, replanned if it moved, facing it (`facing`), a tapped A until `talkStarted`, then the
+  module's `advance_text` program. The hook list at the top of the file names each.
+- **The server.** `goto` takes an optional `map` (opaque to the core, at most 32 bytes; a longer timeout when set); a new
+  tool `talk` (`local_id`, optional). Tests: `TestGotoValidatesAndForwards` forwards a map and refuses a long one;
+  `TestTalkValidatesAndForwards`.
+
+**Checked.** Go: `go vet ./...` and `go test -count=1 ./...` in `autoplay/`, green. `luac -p` on `route.lua`, both modules and
+`text.lua`. **Crystal's path**, not run on a Crystal instance (paused): the planner before and after this change, under a
+standalone Lua 5.4, on 400 random grids with no one-way tile -- the same legs and trainer lines on all 400 (276 with a
+route). Crystal's module supplies none of the new hooks: `talk` is not among its capabilities, and its `goto` now refuses a `map`
+other than the one it is on (`luac -p` only; not run).
+Live on vanilla Emerald: the acceptance run and the rest in the Emerald entry.

@@ -1690,6 +1690,8 @@ local routeHooks = {
 -- goto {x, y, cross_grass}: to a tile on this map by a planned route (`../route.lua`), on foot or on the BICYCLE.
 game.programs["goto"] = function(p)
 	if not isVanilla then return nil, "goto is measured on the vanilla V1.0 ROM only" end
+	-- Another map's tables are not read here yet (`../route.lua`'s travel is Emerald's so far, 2026-09-17).
+	if p.map ~= nil and p.map ~= mapName() then return nil, "goto to another map is not built for Crystal yet" end
 	if not MOVEMENT_STATES[u8(W_PLAYERSTATE)] then
 		return nil, string.format("goto is measured on foot and on the BICYCLE only; wPlayerState reads %d", u8(W_PLAYERSTATE))
 	end

@@ -24,10 +24,12 @@
 --   routeGrid(fromX, fromY, toX, toY) -> grid, or nil and the reason
 --        grid.width, grid.height        the map's own size in tiles
 --        grid.where                     appended to a refusal ("at elevation 3"), or nil
---        grid.tile(x, y)                -> open, grass, trainer   for a tile inside the map: nil when a step onto it is
---                                       not planned; `grass` true where wild encounters happen; `trainer` the unbeaten
---                                       trainer that looks at it ({x, y} and `local_id` or `map_object`), or nil. The
---                                       target is asked for too, so a warp is open when it is the target
+--        grid.tile(x, y)                -> open, grass, trainer, oneWay   for a tile inside the map: nil when a step
+--                                       onto it is not planned; `grass` true where wild encounters happen; `trainer` the
+--                                       unbeaten trainer that looks at it ({x, y} and `local_id` or `map_object`), or nil;
+--                                       `oneWay`, optional, a direction ("down"): the tile is stepped onto only moving that
+--                                       way and left the same way, never stood on (a ledge hopped). The target is asked for
+--                                       too, so a warp is open when it is the target
 --   warps()              -> list        the map's warps, each with x and y
 --   enterWarp(w)         -> nil, or { press = "up" | "down" | "left" | "right", dx, dy, fromRest }
 --                                       nil: a step onto the warp enters it. Otherwise the route goes to the warp's tile
@@ -44,6 +46,16 @@
 --                                       held then; the map is compared once it returns false, and after `limits.door`
 --                                       frames of it the goto ends. Crystal's map id changed 8 frames into a door's
 --                                       load, and the game then walked the player off the door by itself (2026-09-17)
+--   for a goto to another map (`M.travel`):
+--   mapExits(map)        -> nil, or { width, height, exits }   any map by its name, read from the game's own tables:
+--                                       each exit { kind = "edge", direction, offset, to } -- walked off this map's
+--                                       side that way onto `to`, a tile along the side at c being c - offset there --,
+--                                       or { kind = "warp", x, y, to }; each with a `key` naming it on this map
+--   tileOpenOn(map, x, y) -> boolean    a step onto that tile of any map is planned (a neighbour's side of an edge)
+--   for `M.talk`:
+--   characters()         -> list        the other characters on this map, each { local_id, x, y }
+--   facing()             -> direction   the way the player faces, or nil where not measured
+--   talkStarted()        -> boolean     an A was taken: a message is up or a script has the controls
 
 local M = {}
 
@@ -72,11 +84,11 @@ function M.plan(h, fromX, fromY, toX, toY, closed, crossGrass)
 	end
 	local where = grid.where and (" " .. grid.where) or ""
 	local tile = grid.tile
-	-- nil when a tile is closed; otherwise the extra cost of stepping onto it.
-	local function open(x, y)
+	-- nil when a tile is closed to a step moving `d` (nil: to stand on); otherwise the extra cost of stepping onto it.
+	local function open(x, y, d)
 		if x < 0 or y < 0 or x >= mapW or y >= mapH or closed[y * mapW + x] then return nil end
-		local ok, grass, trainer = tile(x, y)
-		if not ok then return nil end
+		local ok, grass, trainer, oneWay = tile(x, y)
+		if not ok or (oneWay and DIRECTIONS[oneWay] ~= d) then return nil end
 		return ((grass and not crossGrass) and GRASS_COST or 0) + (trainer and SIGHT_COST or 0)
 	end
 	if not open(toX, toY) then
@@ -128,10 +140,12 @@ function M.plan(h, fromX, fromY, toX, toY, closed, crossGrass)
 				goal = key
 				break
 			end
+			-- A one-way tile (a ledge) is left only the way it was entered.
+			local _, _, _, oneWay = tile(x, y)
 			for ni = 1, 4 do
 				local d = order[ni]
 				local nx, ny = x + d.dx, y + d.dy
-				local extra = open(nx, ny)
+				local extra = (not oneWay or DIRECTIONS[oneWay] == d) and open(nx, ny, d) or nil
 				if extra then
 					local nkey = (ny * mapW + nx) * 4 + ni - 1
 					local ncost = cost + 1 + extra + ((ni ~= di and cost > 0) and TURN_COST or 0)
@@ -332,6 +346,264 @@ function M.go(h, p)
 		end
 		return hold(), false
 	end, nil, 7200
+end
+
+-- GOTO ACROSS MAPS (2026-09-17, Emerald). The maps between are planned breadth-first over each map's exits
+-- (`mapExits`), fewest maps first; on each map the tile route to the exit is `M.go`'s, and it is ridden the same way.
+-- A warp is gone to as any goto to a warp goes in; an edge is left from the side's nearest tile whose neighbour tile
+-- is open (`tileOpenOn`), holding the direction off the side until the map changes. After every map change the
+-- program waits for the overworld at rest, then plans again from the map it is on, so a warp that lands somewhere
+-- else is followed from there. An exit that cannot be reached or crossed is set aside for this goto and the maps
+-- planned again, at most MAP_REPLANS times.
+local MAP_REPLANS, SETTLE_FRAMES, EDGE_CANDIDATES = 12, 600, 12
+
+function M.travel(h, p)
+	local toMap, toX, toY = p.map, math.tointeger(p.x), math.tointeger(p.y)
+	if type(toMap) ~= "string" or toMap == "" then return nil, "goto across maps needs map" end
+	if not toX or not toY then return nil, "goto needs x and y, a tile on its map" end
+	if not h.mapExits(toMap) then return nil, "no map " .. toMap end
+	if not h.inOverworld() then return nil, "goto needs the overworld" end
+	local L = h.limits
+	local sub = { run = p.run, cross_grass = p.cross_grass }
+	local failed, maps, moved, turns, replans, setAside = {}, {}, 0, 0, 0, 0
+	local phase, frames, inner, step, crossing, crossFrom = "settle", 0, nil, nil, nil, nil
+
+	local function finish(outcome, extra)
+		local map, x, y = h.position()
+		local r = { target = { map = toMap, x = toX, y = toY }, map = map, at = { x = x, y = y }, outcome = outcome,
+			maps = maps, moved = moved, turns = turns, replans = replans, exits_set_aside = setAside > 0 and setAside or nil }
+		for k, v in pairs(extra or {}) do
+			if r[k] == nil then r[k] = v end
+		end
+		return nil, true, r
+	end
+	-- The exits to take from `from`, fewest maps first, or nil.
+	local function route(from)
+		local prev, queue, seen, i = {}, { from }, { [from] = true }, 1
+		while i <= #queue and not seen[toMap] do
+			local m = queue[i]
+			i = i + 1
+			local info = h.mapExits(m)
+			for _, e in ipairs(info and info.exits or {}) do
+				local key = m .. " " .. e.key
+				if not failed[key] and not seen[e.to] and h.mapExits(e.to) then
+					seen[e.to], prev[e.to] = true, { from = m, exit = e, key = key }
+					queue[#queue + 1] = e.to
+				end
+			end
+		end
+		if not seen[toMap] then return nil end
+		local path, m = {}, toMap
+		while m ~= from do
+			table.insert(path, 1, prev[m])
+			m = prev[m].from
+		end
+		return path
+	end
+	-- The side's tile to leave from: open here, open across, and a route plans to it; nearest first.
+	local function edgeTile(map, e, x, y)
+		local here, there = h.mapExits(map), h.mapExits(e.to)
+		local grid = h.routeGrid(x, y, x, y)
+		if not grid then return nil end
+		local d, cands = DIRECTIONS[e.direction], {}
+		local along = (d.dx == 0) and here.width or here.height
+		for c = 0, along - 1 do
+			local tx, ty, nx, ny
+			if e.direction == "up" then tx, ty, nx, ny = c, 0, c - e.offset, there.height - 1
+			elseif e.direction == "down" then tx, ty, nx, ny = c, here.height - 1, c - e.offset, 0
+			elseif e.direction == "left" then tx, ty, nx, ny = 0, c, there.width - 1, c - e.offset
+			else tx, ty, nx, ny = here.width - 1, c, 0, c - e.offset end
+			local open, _, _, oneWay = grid.tile(tx, ty)
+			if open and not oneWay and h.tileOpenOn(e.to, nx, ny) then
+				cands[#cands + 1] = { x = tx, y = ty, dist = math.abs(tx - x) + math.abs(ty - y) }
+			end
+		end
+		table.sort(cands, function(a, b) return a.dist < b.dist end)
+		for i = 1, math.min(#cands, EDGE_CANDIDATES) do
+			if M.plan(h, x, y, cands[i].x, cands[i].y, {}, p.cross_grass == true) then return cands[i].x, cands[i].y end
+		end
+		return nil
+	end
+	local function setAsideStep()
+		failed[step.key], setAside, phase, frames = true, setAside + 1, "settle", 0
+		if setAside > MAP_REPLANS then return finish("unreachable", { reason = "set aside " .. setAside .. " exits" }) end
+		return nil, false
+	end
+
+	return function()
+		frames = frames + 1
+		local map, x, y = h.position()
+
+		if phase == "settle" then
+			if not (h.inOverworld() and h.atRest()) then
+				if frames > SETTLE_FRAMES then return finish("left_overworld") end
+				return nil, false
+			end
+			if maps[#maps] ~= map then maps[#maps + 1] = map end
+			local why
+			if map == toMap then
+				inner, why = M.go(h, { x = toX, y = toY, run = sub.run, cross_grass = sub.cross_grass })
+				if not inner then return finish("unreachable", { reason = why }) end
+				phase = "last"
+				return nil, false
+			end
+			local path = route(map)
+			if not path then
+				return finish("unreachable", { reason = "no way known from map " .. map .. " to " .. toMap })
+			end
+			step = path[1]
+			local e, tx, ty = step.exit, nil, nil
+			if e.kind == "warp" then
+				tx, ty = e.x, e.y
+			else
+				tx, ty = edgeTile(map, e, x, y)
+				if not tx then return setAsideStep() end
+			end
+			inner = M.go(h, { x = tx, y = ty, run = sub.run, cross_grass = sub.cross_grass })
+			if not inner then return setAsideStep() end
+			phase, frames = e.kind, 0
+			return nil, false
+		end
+
+		if phase == "cross" then
+			if map ~= crossFrom then
+				phase, frames = "settle", 0
+				return nil, false
+			end
+			if h.refused() or frames > L.door then return setAsideStep() end
+			return { [crossing.button] = true }, false
+		end
+
+		local pad, done, r = inner()
+		if not done then return pad, false end
+		moved, turns, replans = moved + (r.moved or 0), turns + (r.turns or 0), replans + (r.replans or 0)
+		if phase == "last" then return finish(r.outcome, r) end
+		if r.outcome == "map_changed" then
+			phase, frames = "settle", 0
+			return nil, false
+		end
+		if phase == "edge" and r.outcome == "done" then
+			phase, frames, crossing, crossFrom = "cross", 0, DIRECTIONS[step.exit.direction], map
+			return nil, false
+		end
+		if r.outcome == "unreachable" or r.outcome == "blocked" or r.outcome == "no_response" or r.outcome == "done" then
+			return setAsideStep()
+		end
+		return finish(r.outcome, r)
+	end, nil, 36000
+end
+
+-- TALK (2026-09-17, Emerald): to a tile beside a character by `M.go`'s route, facing it, a tapped A, and then the
+-- module's own text program (`advance`, advance_text's) to its end. The character's tile is read again on arrival, since
+-- one that walks about may have moved: the route is planned again up to TALK_TRIES times. The A is a tap, as the text
+-- machine's are (a held A went on to answer the menu under it), tried again after TALK_WAIT frames without an answer.
+local TALK_TRIES, TALK_WAIT, TALK_FACE_FRAMES = 3, 40, 60
+
+function M.talk(h, p, advance)
+	if not h.inOverworld() then return nil, "talk needs the overworld" end
+	local want = p.local_id ~= nil and math.tointeger(p.local_id) or nil
+	local function find()
+		local _, px, py = h.position()
+		local best, bestDist
+		for _, c in ipairs(h.characters()) do
+			local d = math.abs(c.x - px) + math.abs(c.y - py)
+			if (want == nil or c.local_id == want) and (best == nil or d < bestDist) then best, bestDist = c, d end
+		end
+		return best, bestDist
+	end
+	local who = find()
+	if not who then
+		return nil, want and ("no character with local_id " .. want .. " on this map") or "no character on this map"
+	end
+	local phase, frames, tries, taps, inner, face = "plan", 0, 0, 0, nil, nil
+	local function finish(outcome, extra)
+		local _, x, y = h.position()
+		local r = { outcome = outcome, talked_to = { local_id = who.local_id, x = who.x, y = who.y }, at = { x = x, y = y } }
+		for k, v in pairs(extra or {}) do
+			if r[k] == nil then r[k] = v end
+		end
+		return nil, true, r
+	end
+
+	return function()
+		frames = frames + 1
+		if phase == "plan" then
+			if not h.atRest() then
+				if frames > h.limits.rest then return finish("not_at_rest") end
+				return nil, false
+			end
+			local c, dist = find()
+			if not c then return finish("unreachable", { reason = "the character left the map" }) end
+			who = c
+			local _, px, py = h.position()
+			if dist == 1 then
+				for name, d in pairs(DIRECTIONS) do
+					if px + d.dx == c.x and py + d.dy == c.y then face = name end
+				end
+				phase, frames = "face", 0
+				return nil, false
+			end
+			tries = tries + 1
+			if tries > TALK_TRIES then return finish("unreachable", { reason = "the character kept moving away" }) end
+			-- The tiles beside it, nearest first, to the first a route plans to.
+			local spots = {}
+			for _, d in pairs(DIRECTIONS) do
+				local x, y = c.x - d.dx, c.y - d.dy
+				spots[#spots + 1] = { x = x, y = y, dist = math.abs(x - px) + math.abs(y - py) }
+			end
+			table.sort(spots, function(a, b) return a.dist < b.dist end)
+			for _, spot in ipairs(spots) do
+				if M.plan(h, px, py, spot.x, spot.y, {}, false) then
+					inner = M.go(h, { x = spot.x, y = spot.y })
+					break
+				end
+			end
+			if not inner then return finish("unreachable", { reason = "no route to a tile beside local_id " .. tostring(c.local_id) }) end
+			phase, frames = "walk", 0
+			return nil, false
+		end
+
+		if phase == "walk" then
+			local pad, done, r = inner()
+			if not done then return pad, false end
+			inner = nil
+			if r.outcome ~= "done" and r.outcome ~= "blocked" then return finish(r.outcome, r) end
+			phase, frames = "plan", 0
+			return nil, false
+		end
+
+		if phase == "face" then
+			if h.facing() == face and h.atRest() then
+				phase, frames = "tap", 0
+				return nil, false
+			end
+			if frames > TALK_FACE_FRAMES then return finish("no_response", { facing = h.facing(), wanted = face }) end
+			-- Held until the player faces it; a held direction into a character turns, then bumps.
+			if h.facing() == face then return nil, false end
+			return { [DIRECTIONS[face].button] = true }, false
+		end
+
+		if phase == "tap" then
+			if h.talkStarted() then
+				local why
+				inner, why = advance()
+				if not inner then return finish("stuck", { reason = why }) end
+				phase = "text"
+				return nil, false
+			end
+			if frames == 1 then
+				taps = taps + 1
+				if taps > TALK_TRIES then return finish("no_response", { reason = "A was pressed " .. TALK_TRIES .. " times and nothing answered" }) end
+			end
+			if frames > TALK_WAIT then frames = 0 end
+			if frames <= 2 then return { A = true }, false end
+			return nil, false
+		end
+
+		local pad, done, r = inner()
+		if not done then return pad, false end
+		return finish(r.outcome, r)
+	end, nil, 36000
 end
 
 return M

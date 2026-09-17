@@ -1,0 +1,104 @@
+{
+  "name": "emerald_stuck_classifier",
+  "game": "emerald",
+  "variant": "vanilla",
+  "reproduces": "adapters/emulator/pokemon/emerald/MEASURED.md, \"Ledges, water, and other maps read from the ROM\" (2026-09-17): a step refused by a wall, a character, a ledge from below and water on foot, each named by walk's blocked_by.cause, and a walk with a text box open answered dialogue_open",
+  "needs": "vanilla Emerald with a save loaded and the player in the overworld, on foot, knowing no SURF",
+  "note": "Each situation is made with cheats (RICK's defeat flag set so he stands and talks instead of battling, and warps beside each thing); every refusal is the game's own, met by an ordinary step. Nothing here writes a save.",
+  "repeat": 3,
+  "setup": [
+    {
+      "tool": "cheat",
+      "args": {"kind": "set_flag", "args": {"flag": 1895, "value": true}},
+      "note": "RICK's defeat flag, 0x767: beaten, so walking beside him starts nothing",
+      "expect": [{"path": "report.now", "equals": true}]
+    }
+  ],
+  "steps": [
+    {
+      "tool": "cheat",
+      "args": {"kind": "warp", "args": {"map": "0.18", "x": 8, "y": 2}},
+      "note": "below a collision tile at (8,1)",
+      "expect": [{"path": "done", "equals": true}]
+    },
+    {"tool": "wait", "args": {"frames": 60}, "note": "the warp's fade"},
+    {
+      "tool": "walk",
+      "args": {"direction": "up", "tiles": 1},
+      "note": "a wall",
+      "expect": [
+        {"path": "outcome", "equals": "blocked"},
+        {"path": "blocked_by.cause", "equals": "solid"},
+        {"path": "blocked_by.collision", "equals": 1}
+      ]
+    },
+    {
+      "tool": "cheat",
+      "args": {"kind": "warp", "args": {"map": "0.18", "x": 6, "y": 6}},
+      "note": "below the ledge at (6,5)",
+      "expect": [{"path": "done", "equals": true}]
+    },
+    {"tool": "wait", "args": {"frames": 60}, "note": "the warp's fade"},
+    {
+      "tool": "walk",
+      "args": {"direction": "up", "tiles": 1},
+      "note": "a ledge, from below",
+      "expect": [
+        {"path": "outcome", "equals": "blocked"},
+        {"path": "blocked_by.cause", "equals": "one_way_edge"},
+        {"path": "blocked_by.behaviour", "equals": 59}
+      ]
+    },
+    {
+      "tool": "cheat",
+      "args": {"kind": "warp", "args": {"map": "0.18", "x": 21, "y": 8}},
+      "note": "on the shore, water at (22,8)",
+      "expect": [{"path": "done", "equals": true}]
+    },
+    {"tool": "wait", "args": {"frames": 60}, "note": "the warp's fade"},
+    {
+      "tool": "walk",
+      "args": {"direction": "right", "tiles": 1},
+      "note": "water, on foot",
+      "expect": [
+        {"path": "outcome", "equals": "blocked"},
+        {"path": "blocked_by.cause", "equals": "missing_ability"},
+        {"path": "blocked_by.ability", "equals": "surf"}
+      ]
+    },
+    {
+      "tool": "cheat",
+      "args": {"kind": "warp", "args": {"map": "0.17", "x": 24, "y": 15}},
+      "note": "left of RICK at (25,15)",
+      "expect": [{"path": "done", "equals": true}]
+    },
+    {"tool": "wait", "args": {"frames": 60}, "note": "the warp's fade"},
+    {
+      "tool": "walk",
+      "args": {"direction": "right", "tiles": 1},
+      "note": "a character, which also turns the player to face him",
+      "expect": [
+        {"path": "outcome", "equals": "blocked"},
+        {"path": "blocked_by.cause", "equals": "npc_in_way"},
+        {"path": "blocked_by.character.local_id", "equals": 3}
+      ]
+    },
+    {"tool": "press", "args": {"buttons": ["A"], "frames": 2}, "note": "talk to him"},
+    {"tool": "wait", "args": {"frames": 60}, "note": "his words begin"},
+    {
+      "tool": "walk",
+      "args": {"direction": "up", "tiles": 1},
+      "note": "a text box open",
+      "expect": [
+        {"path": "outcome", "equals": "dialogue_open"},
+        {"path": "moved", "equals": 0}
+      ]
+    },
+    {
+      "tool": "advance_text",
+      "args": {},
+      "note": "close it, so the next run starts in the overworld",
+      "expect": [{"path": "outcome", "equals": "closed"}]
+    }
+  ]
+}

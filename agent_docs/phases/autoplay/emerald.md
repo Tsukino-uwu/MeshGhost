@@ -197,3 +197,45 @@ as before, `ng_got_mudkip` newest.
 noclip's per-frame cost and water; the plan's Phase 2 (`goto` across maps, `talk`, the stuck classifier), with the user's
 Serebii gym page as a map for the badges each HM needs; `effective` not yet met on a foe whose types matter without a write
 (ROXANNE's gym is the first on this path).
+
+## 2026-09-17 (the Emerald chat, Phase 2) — `goto` across maps, ledges, `talk`, and why a step was refused
+
+**Pointer.** The one-way tiles, `goto` with `map`, `talk` and the server's side are shared core, logged in `../phase13.md`
+("Phase 2 in the shared core"). Crystal's policies, aligned first this session, are in `crystal.md`.
+
+**Measured** (`emerald/MEASURED.md`, "Ledges, water, and other maps read from the ROM"), from `session_end_route103` on 0.18
+with `exec`, `walk`, `goto` and `probes/step_probe.lua`: gMapGroups (the `.sym`'s address) resolving the live header byte for
+byte, a map's ROM layout equal to the live grid on every tile, a ledge's hop frame by frame and its refusal from below,
+water refusing a step on foot, the player's facing nibble, and the connection offset's sign walked across 0.18's -60 seam.
+
+**Built** (`emerald.lua`). Ledges (0x3B) handed to the planner as one-way down. `mapExits` and `tileOpenOn` read any map's
+size, connections, warps and tiles from the ROM, cached per map; `goto` with a `map` other than this one runs the shared
+`travel`. `talk` with `characters`, `facing` and `talkStarted`. `describeTile` names a `cause` for a refused tile
+(`STEP.cause`). The module's count of locals is unchanged (the new reads live on `routeHooks` and `STEP`).
+
+**The plan's Phase 2 acceptance:**
+- **`goto` crosses 3 maps with no model involved** (walked; run log `autoplay/runs/2026-09-17_115738.529490.ndjson`, segment
+  "phase 2 acceptance: goto across maps, one call"): one `goto {map: "2.2", x: 7, y: 5}` from Littleroot 0.9 (10,10) went
+  0.9, 0.16, 0.10 and into Oldale's Center 2.2 through its door, 54 tiles, 1097 frames, `done` on the tile. The same way
+  back, 2.2 to 0.9, 38 tiles, `done`.
+- **A staged test classifies a wall, an NPC, an open text box, a ledge and a missing ability**:
+  `autoplay/games/emerald/scenarios/stuck_classifier.json`, cheats only, 3 of 3 with no model (`solid`, `one_way_edge`,
+  `missing_ability` `surf`, `npc_in_way` on a beaten RICK, `dialogue_open` after A on him), and a copy with the ledge's cause
+  expected `solid` failed at that step, naming both.
+
+**Also checked, live:** `goto` (6,4) to (6,7) over the ledge and back round it; 0.18 to 0.10 then 0.10 to 0.9; `talk` with
+no `local_id` in Littleroot to a wandering character that had moved a tile, both boxes logged, `closed`; 0.18 (76,9) to
+0.25 (2,69) across the -60 seam (reached: a warp beside it first).
+
+**Seen on the way:** two story scripts stopped `goto` `dialogue_open`, as built -- MAY's "Let's hurry home!" on 0.10's south
+row and Route 102's "Please don't come in here." on 0.10's west side; a trip from below 0.18's ledges set the east edge
+aside (water between, not looked at further) and went round by 0.10 into that second script. Wild encounters in grass
+answered `left_overworld` twice (`battle run` after each).
+
+**Not built or measured:** ledges 0x38, 0x39, 0x3A; a cut tree, boulder or other field-move obstacle as `missing_ability`;
+`goto` across maps while surfing or on a bike; a dynamic warp; `talk` to a trainer before its battle; the edge chooser
+across a side where the nearest open pair is not reachable by a straight hold.
+
+**Left as it is:** EmuHawk on vanilla Emerald (port 7870) running, its loader target with the driver alone, the game on
+0.25 at (2,69), no menu open, MUDKIP not healed after the wild battles run from. RICK's defeat flag set by the scenario (memory only).
+Crystal closed after its check.

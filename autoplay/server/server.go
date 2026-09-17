@@ -97,7 +97,9 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 		Description: "Move the player to a tile on this map by a planned route: straight legs, turning at " +
 			"speed, replanning around what refuses a step, and crossing an unbeaten trainer's line only " +
 			"where there is no other way (route_in_sight names them). Rides whatever the player is on " +
-			"(on foot, run: true to run). Stops early and says why, as walk does, or unreachable (with " +
+			"(on foot, run: true to run). With map, a tile on another map: the driver plans the maps " +
+			"between by their warps and edges, crosses each, and plans the tile route on each map it " +
+			"arrives on (maps lists them). Stops early and says why, as walk does, or unreachable (with " +
 			"the reason). Returns where it ended, the tiles moved, turns and replans.",
 	}, logged(t, "goto", nil, t.gotoTile))
 
@@ -117,6 +119,14 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 			"opens (answer it with select), when a battle begins (use battle), or stuck. Returns a log of " +
 			"every box.",
 	}, logged(t, "advance_text", nil, t.advanceText))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "talk",
+		Description: "Talk to a character on this map: go to a tile beside it by a planned route (as goto), " +
+			"face it, press A, and press through what it says (as advance_text). local_id names it (nearby " +
+			"lists them); omitted, the nearest. Returns the log of every box and ends as advance_text does " +
+			"(closed, menu_open, battle_started, ...), or as goto does if the walk there stopped early.",
+	}, logged(t, "talk", nil, t.talk))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "type_text",
@@ -334,19 +344,33 @@ const MaxGotoCoordinate = 1023
 // GotoTimeout allows a long route on foot: the driver bounds the ride itself in frames.
 const GotoTimeout = CallTimeout + 3*time.Minute
 
+// GotoMapsTimeout allows a route across several maps.
+const GotoMapsTimeout = CallTimeout + 10*time.Minute
+
+// MaxMapName bounds the map a goto names; the driver reads it, the core does not.
+const MaxMapName = 32
+
 // GotoIn is the goto tool's input.
 type GotoIn struct {
-	X          int  `json:"x" jsonschema:"the target tile's x on this map"`
-	Y          int  `json:"y" jsonschema:"the target tile's y on this map"`
-	Run        bool `json:"run,omitempty" jsonschema:"run where on foot"`
-	CrossGrass bool `json:"cross_grass,omitempty" jsonschema:"route through tall grass freely, as with a Repel running; by default the route avoids it where it can"`
+	X          int    `json:"x" jsonschema:"the target tile's x on its map"`
+	Y          int    `json:"y" jsonschema:"the target tile's y on its map"`
+	Map        string `json:"map,omitempty" jsonschema:"the target's map as observe names it (location.map); omitted, this map"`
+	Run        bool   `json:"run,omitempty" jsonschema:"run where on foot"`
+	CrossGrass bool   `json:"cross_grass,omitempty" jsonschema:"route through tall grass freely, as with a Repel running; by default the route avoids it where it can"`
 }
 
 func (t *tools) gotoTile(ctx context.Context, _ *mcp.CallToolRequest, in GotoIn) (*mcp.CallToolResult, any, error) {
 	if in.X < 0 || in.Y < 0 || in.X > MaxGotoCoordinate || in.Y > MaxGotoCoordinate {
 		return nil, nil, fmt.Errorf("x and y must be 0 to %d, got %d,%d", MaxGotoCoordinate, in.X, in.Y)
 	}
-	raw, err := t.forward(ctx, "goto", "goto", in, GotoTimeout)
+	if len(in.Map) > MaxMapName {
+		return nil, nil, fmt.Errorf("map must be at most %d bytes", MaxMapName)
+	}
+	timeout := GotoTimeout
+	if in.Map != "" {
+		timeout = GotoMapsTimeout
+	}
+	raw, err := t.forward(ctx, "goto", "goto", in, timeout)
 	return nil, raw, err
 }
 
@@ -370,6 +394,19 @@ func (t *tools) battle(ctx context.Context, _ *mcp.CallToolRequest, in BattleIn)
 
 func (t *tools) advanceText(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 	raw, err := t.forward(ctx, "advance_text", "advance_text", struct{}{}, CallTimeout+3*time.Minute)
+	return nil, raw, err
+}
+
+// TalkIn is the talk tool's input.
+type TalkIn struct {
+	LocalID *int `json:"local_id,omitempty" jsonschema:"the character's local_id as nearby lists it; omitted, the nearest"`
+}
+
+func (t *tools) talk(ctx context.Context, _ *mcp.CallToolRequest, in TalkIn) (*mcp.CallToolResult, any, error) {
+	if in.LocalID != nil && (*in.LocalID < 0 || *in.LocalID > 0xFFFF) {
+		return nil, nil, fmt.Errorf("local_id must be 0 to 65535, got %d", *in.LocalID)
+	}
+	raw, err := t.forward(ctx, "talk", "talk", in, GotoTimeout+3*time.Minute)
 	return nil, raw, err
 }
 

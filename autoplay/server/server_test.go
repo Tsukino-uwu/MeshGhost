@@ -534,6 +534,7 @@ func TestGotoValidatesAndForwards(t *testing.T) {
 	for _, bad := range []map[string]any{
 		{"x": -1, "y": 3},
 		{"x": 3, "y": MaxGotoCoordinate + 1},
+		{"x": 3, "y": 3, "map": strings.Repeat("9", MaxMapName+1)},
 	} {
 		if text, isErr := h.call(t, "goto", bad); !isErr {
 			t.Errorf("goto %v = %s, want a refusal", bad, text)
@@ -544,7 +545,15 @@ func TestGotoValidatesAndForwards(t *testing.T) {
 	if isErr || !strings.Contains(text, `"outcome":"done"`) {
 		t.Fatalf("goto = %s (error %v)", text, isErr)
 	}
-	if in := <-got; in.X != 12 || in.Y != 0 || !in.Run || !in.CrossGrass {
+	if in := <-got; in.X != 12 || in.Y != 0 || !in.Run || !in.CrossGrass || in.Map != "" {
+		t.Fatalf("the driver received %+v", in)
+	}
+
+	text, isErr = h.call(t, "goto", map[string]any{"x": 5, "y": 6, "map": "0.9"})
+	if isErr || !strings.Contains(text, `"outcome":"done"`) {
+		t.Fatalf("goto with a map = %s (error %v)", text, isErr)
+	}
+	if in := <-got; in.X != 5 || in.Y != 6 || in.Map != "0.9" {
 		t.Fatalf("the driver received %+v", in)
 	}
 }
@@ -590,6 +599,34 @@ func TestBattleValidatesAndForwards(t *testing.T) {
 		t.Fatalf("advance_text = %s (error %v)", text, isErr)
 	}
 	<-got
+}
+
+func TestTalkValidatesAndForwards(t *testing.T) {
+	h := newHarness(t)
+	got := make(chan TalkIn, 1)
+	h.startDriver(t, []string{"talk"}, func(verb string, payload json.RawMessage) (string, any) {
+		var in TalkIn
+		json.Unmarshal(payload, &in)
+		got <- in
+		return "result", map[string]any{"outcome": "closed"}
+	})
+
+	if text, isErr := h.call(t, "talk", map[string]any{"local_id": -1}); !isErr {
+		t.Errorf("talk with local_id -1 = %s, want a refusal", text)
+	}
+	text, isErr := h.call(t, "talk", map[string]any{"local_id": 4})
+	if isErr || !strings.Contains(text, `"outcome":"closed"`) {
+		t.Fatalf("talk = %s (error %v)", text, isErr)
+	}
+	if in := <-got; in.LocalID == nil || *in.LocalID != 4 {
+		t.Fatalf("the driver received %+v", in)
+	}
+	if _, isErr := h.call(t, "talk", map[string]any{}); isErr {
+		t.Fatal("talk to the nearest was refused")
+	}
+	if in := <-got; in.LocalID != nil {
+		t.Fatalf("the driver received %+v for the nearest", in)
+	}
 }
 
 func TestWalkIsRefusedWithoutTheCapability(t *testing.T) {
