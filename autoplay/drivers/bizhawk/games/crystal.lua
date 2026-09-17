@@ -606,7 +606,8 @@ local function readBattler(base, nickAt, side)
 	if b[1] == 0 then return nil end
 	local nick = memory.read_bytes_as_array(nickAt, NICK_LEN, "WRAM")
 	local out = { side = side, species = speciesName(b[1]), species_id = b[1], nickname = spell(nick, 1, #nick),
-		level = b[14], hp = (b[17] << 8) | b[18], max_hp = (b[19] << 8) | b[20], moves = {} }
+		level = b[14], hp = (b[17] << 8) | b[18], max_hp = (b[19] << 8) | b[20], moves = {},
+		types = b[31] == b[32] and { typeName(b[31]) } or { typeName(b[31]), typeName(b[32]) } }
 	for k = 0, 3 do
 		local id, pp = b[3 + k], b[9 + k]
 		if id ~= 0 then
@@ -619,14 +620,45 @@ local function readBattler(base, nickAt, side)
 end
 
 -- The player's usable move (measured PP above 0) with the most power times accuracy byte, as its move-menu index.
+-- TYPES AND THE TYPE TABLE (2026-09-17, vanilla V1.0, from `battle_menu`: CYNDAQUIL against a wild PIDGEY; MEASURED.md, "Type
+-- matchups and the same-type bonus").
+--   * A battler's +0x1E/+0x1F are its types: PIDGEY read 00 02 (the type names' NORMAL and FLYING) and CYNDAQUIL 14 14 (FIRE,
+--     drawn TYPE/ FIRE on its summary).
+--   * The table at 0D:4BB1 (TypeMatchups in our build's .sym) is attacking type, defending type, multiplier, three bytes an
+--     entry, FE once between and FF at the end. One TACKLE was replayed with its move struct's type byte held at a value
+--     (autoplay_move_write_probe.lua): ELECTRIC (table: 20 against FLYING) "It's super-effective!", PIDGEY 15 to 5 against
+--     NORMAL's 15 to 10; GRASS (5) "It's not very effective…", 15 to 13; GROUND (0) "It doesn't affect Enemy PIDGEY!", no
+--     damage; FIGHTING (20 against NORMAL, 5 against FLYING) no message and 15 to 10, the two multiplied; FIRE, CYNDAQUIL's own
+--     type, no message and 15 to 7 -- half again. So a multiplier byte is tenths, each of the defender's types applies, and
+--     a move of the attacker's type does half again.
+-- `strongest` scores a usable move (measured PP above 0) by power times the accuracy byte times those.
 local function strongestMoveSlot()
 	local b = memory.read_bytes_as_array(W_BATTLE_MON, BATTLER_SIZE, "WRAM")
+	local e = memory.read_bytes_as_array(W_ENEMY_MON, BATTLER_SIZE, "WRAM")
+	if not romNames.typeChart then
+		local t, raw = {}, memory.read_bytes_as_array(0x0D * 0x4000 + (0x4BB1 - 0x4000), 0x200, "ROM")
+		local i = 1
+		while i <= #raw - 2 and raw[i] ~= 0xFF do
+			if raw[i] == 0xFE then
+				i = i + 1
+			else
+				t[raw[i] * 256 + raw[i + 1]] = raw[i + 2]
+				i = i + 3
+			end
+		end
+		romNames.typeChart = t
+	end
 	local best, bestScore
 	for k = 0, 3 do
 		local id, pp = b[3 + k], b[9 + k]
 		if id ~= 0 and pp > 0 and pp < 0x40 then
 			local m = moveData(id)
 			local score = m.power * m.accuracy_raw
+			for _, defending in ipairs(e[31] == e[32] and { e[31] } or { e[31], e[32] }) do
+				local x = romNames.typeChart[m.type_id * 256 + defending]
+				if x then score = score * x / 10 end
+			end
+			if m.type_id == b[31] or m.type_id == b[32] then score = score * 3 / 2 end
 			if best == nil or score > bestScore then best, bestScore = k, score end
 		end
 	end

@@ -68,6 +68,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - The key item pocket, and riding the BICYCLE (2026-09-17)
 - The TM/HM pocket, and a list that redraws for 11 frames (2026-09-17)
 - Surfing, and a poisoned party on foot (2026-09-17)
+- Type matchups and the same-type bonus (2026-09-17)
 - Not measured yet: The rest of autoplay's Crystal reading (from 2026-09-17)
 
 ## Measured
@@ -715,6 +716,37 @@ party lines (`logs/autoplay_battle_7871_20260917_041644.log`, `logs/autoplay_sta
 - **Not seen:** badges 5-8 against SURF; a water tile of another byte; surfing across a map edge or into a trainer's line;
   the poison's flash on screen (no capture fell inside a tick); whether a party with every Pokémon fainted this way whites
   out.
+
+### Type matchups and the same-type bonus (2026-09-17)
+
+**Vanilla V1.0, from `battle_menu` (CYNDAQUIL L5 against a wild PIDGEY L3, on the move menu), then Route 29.**
+`probes/autoplay_battle_probe.lua` (its earlier `logs/autoplay_battle_7871_20260917_013116.log` for the type bytes) and
+`probes/autoplay_move_write_probe.lua` (`logs/autoplay_move_write_7871_20260917_042309.log`), with `battle strongest` and, for the
+no-effect replay, single presses; capture `autoplay_type_ground_vs_pidgey` (gitignored).
+
+- **A battler's types.** +0x1E/+0x1F of the battler block: PIDGEY read 00 02 and CYNDAQUIL 14 14; the type names' pointer table
+  (14:497B, measured with TACKLE's NORMAL) names 0 NORMAL, 1 FIGHTING, 2 FLYING, 4 GROUND, 20 FIRE, 22 GRASS, 23 ELECTRIC, and the
+  summary drew CYNDAQUIL's TYPE/ FIRE.
+- **The table.** 0D:4BB1 (TypeMatchups in our build's `.sym`), read from our identical `.gbc`: three bytes an entry (attacking
+  type, defending type, a multiplier byte), one FE between two runs of entries, FF after the last; 111 entries.
+- **Replays of one TACKLE with its type byte held** (+0x03 of the player's move struct, every frame while the struct held TACKLE),
+  each from `battle_menu`, first turn:
+
+  | Type written | Table against PIDGEY | Message | wCurDamage | PIDGEY's HP |
+  | --- | --- | --- | --- | --- |
+  | none (NORMAL) | -- | -- | 6, then 5 | 15 → 10 |
+  | ELECTRIC (23) | 20 vs FLYING | "It's super-effective!" | 6, 12, 10 | 15 → 5 |
+  | GRASS (22) | 5 vs FLYING | "It's not very effective…" | 6, 3, 2 | 15 → 13 |
+  | FIGHTING (1) | 20 vs NORMAL, 5 vs FLYING | none | 6, then 5 | 15 → 10 |
+  | GROUND (4) | 0 vs FLYING | "It doesn't affect Enemy PIDGEY!" (wAttackMissed 1) | 6, then 0 | 15 |
+  | FIRE (20, CYNDAQUIL's type) | none against either | none | 6, then 8 | 15 → 7 |
+
+  So the byte is tenths, a defender's two types each apply, and a move of the attacker's own type does half again.
+- **`strongest` weighing them, live on Route 29** with CYNDAQUIL given THUNDERSHOCK and EMBER beside TACKLE (`set_move`): against
+  a wild RATTATA (NORMAL) it chose EMBER both turns; against a wild PIDGEY (NORMAL, FLYING) THUNDERSHOCK, "It's super-effective!",
+  one turn.
+- **Not seen:** whether the entries after the FE ever apply differently from those before it; the attacking and defending stats'
+  part in the damage (base damage read 6 for NORMAL, ELECTRIC, GRASS and FIRE alike against this PIDGEY); a critical hit's factor.
 
 ## Not measured yet
 

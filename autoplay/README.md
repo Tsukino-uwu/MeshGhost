@@ -143,7 +143,7 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
   wild encounter, or a picture waiting for a button with no box on screen; 1 from the step into a trainer's sight
   until the map reloads after its battle, 2 from A on a trainer; 0 walking (9 a turn, 5 a door).
 - **`battle`** — while `mode` is `battle`: `asking` (`action`, `move`, or absent) and `battlers`, each with `side`
-  (`player`, `opponent`), `species` (and `species_id`), `nickname`, `level`, `hp`, `max_hp` and `moves` (`name`, `id`,
+  (`player`, `opponent`), `species` (and `species_id`), `nickname`, `level`, `hp`, `max_hp`, `types` and `moves` (`name`, `id`,
   `pp`, `base_pp` -- the maximum drawn --, `type`, `power`, and `accuracy_raw`, a byte whose scale is not measured:
   held at 0 the move missed, and the table's 242 both hit and missed). `kind` (`wild`, `trainer`); in a trainer's
   battle `opponent_party_count` and `opponent_party_index`. A battler is absent until its Pokémon is sent out. One wild
@@ -161,7 +161,8 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
   shoes; a door or a map edge answers once the player stands on the new map; `blocked` names a
   character in the way; `script_started` when a step starts a scene or an encounter; `spotted` with the
   trainer's `map_object` and `tiles_away` on the frame one sees the player), `select`, `advance_text`, `battle`
-  (`strongest` scores power times the accuracy byte; called after `spotted` it waits while the trainer walks over; it
+  (`strongest` scores power times the accuracy byte times the game's type table against the opponent's types, and half
+  again for a move of the user's own type; called after `spotted` it waits while the trainer walks over; it
   presses A on the level-up stats box and on a battle's waits with no ▼; `ended` adds `outcome_raw`, 0 after a win and
   2 after running, `money`, `party_count` and a `party` entry per Pokémon; in a battle, the question "Will A change
   POKéMON?" is answered NO and the nickname after a catch stops `needs_choice`), `goto` (on foot; open tiles are the

@@ -121,3 +121,23 @@ healed; the player on the BICYCLE in New Bark at (14,10); every menu closed; the
 
 **Next for Crystal:** a `battle` policy that weighs type matchups from the game's own table; then the switch question with
 the OPTION's battle style set the other way, and the whiteout.
+
+## 2026-09-17 (the Crystal chat, same session) — `battle strongest` weighs the type table and the same-type bonus
+
+**The user, earlier:** *"does "battle strongest" account for move type advantage/disadvantage ? ... physical/special moves, and
+pokemon have higher/lower physical/special attack & defense stats"*, and a type chart page offered as a map.
+
+**Built** (`crystal.lua` only). `strongest` scores power × accuracy byte × the game's type table against each of the opponent's
+types × 1.5 for a move of the user's type; `observe`'s battlers carry `types`. Measurements: `crystal/MEASURED.md`, "Type
+matchups and the same-type bonus".
+
+**How it was measured.** The table read from our identical build; then one TACKLE replayed from `battle_menu` with only its type
+byte held -- ELECTRIC, GRASS, GROUND, FIGHTING and FIRE -- and each turn's message and damage read: super effective, not very
+effective, no effect, the two multipliers cancelling, and the same-type half again. Live on Route 29 with CYNDAQUIL given
+THUNDERSHOCK and EMBER: EMBER against a RATTATA, THUNDERSHOCK against a PIDGEY ("It's super-effective!").
+
+**Not built:** the stats' part (attack against defense, the physical and special split); the base damage read the same for
+four types against one PIDGEY, which does not settle it.
+
+**Left as it is:** CYNDAQUIL (memory only) knows TACKLE, THUNDERSHOCK and EMBER, on Route 29 after the PIDGEY battle, every menu
+closed, the driver alone on its target; the move-write probe's command file back to `off`.
