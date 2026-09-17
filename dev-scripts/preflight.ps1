@@ -315,6 +315,14 @@ $domainAllow = @{
     'unicode.me' = 'NOT A DOMAIN: prose'; 'unicode.co' = 'NOT A DOMAIN: prose'
     'ref.no' = 'NOT A DOMAIN: prose'; 'e.info' = 'NOT A DOMAIN: prose'
     'env.io' = 'NOT A DOMAIN: Lua sandbox field env.io'
+    # autoplay's drivers, 2026-09-18. The Lua ones are field accesses whose key happens to be a
+    # TLD -- `.no` (a YES/NO question's NO index) and `.info` (a route step's info table); this
+    # section's whole purpose is that the pattern cannot tell those from a host. Steamworks.NET is
+    # the C# Steam binding AchievementGuard names, a library, and its site is a real reference.
+    'q.no' = 'NOT A DOMAIN: Lua field, a question table''s `no`'
+    'question.no' = 'NOT A DOMAIN: Lua field, a question table''s `no`'
+    's.info' = 'NOT A DOMAIN: Lua field, a route step''s `info`'
+    'steamworks.net' = 'Steamworks.NET, the C# Steam binding (a library name)'
     'blizzardwatch.com' = 'reference article (kill-credit.md)'
 }
 
@@ -416,13 +424,14 @@ $binaryFiles = & git ls-files -- '*.dll' '*.exe' '*.so' '*.dylib' '*.pdb' '*.lib
 # even while these four are outstanding. Delete an entry as its build is fixed; when the list is
 # empty, delete the list.
 #
-# These four are DECIDED, not pending (2026-09-18, the user): none is worth a rebuild on its own,
-# and the published copies cannot be recalled either way. Each fix rides along the next rebuild
-# that happens for another reason. agent_docs/risks.md carries the sizing -- read it there rather
-# than re-deriving it from the binaries, which is how this came back a second time.
+# SCHEDULED for the week of 2026-09-21 (2026-09-18, the user): all four at once. None is worth a
+# rebuild on its own, which is why they sat here -- but it is a one-time fix that keeps the tree
+# clean afterwards, and this report is the done-test: an entry clears when its rebuild stops
+# matching. agent_docs/risks.md carries the sizing and status.md the task -- read them there rather
+# than re-deriving from the binaries, which is how this came back a second time.
 $knownBinaryLeaks = @{
     'packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/ue4ss/UE4SS.dll' =
-        'third-party build from the submodule; needs RUSTFLAGS=--remap-path-prefix (cargo panic paths) -- DECIDED 2026-09-18: not on its own, RUSTFLAGS forces a full rebuild; do it at the next UE4SS bump (risks.md)'
+        'third-party build from the submodule; needs RUSTFLAGS=--remap-path-prefix (cargo panic paths) -- scheduled for the week of 2026-09-21; RUSTFLAGS forces a full from-scratch rebuild, then the runtime must be seen loading the game (risks.md)'
     'packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/ue4ss/Mods/MeshGhostPseudo/dlls/main.dll' =
         'MSVC PDB path; add /PDBALTPATH:%_PDB% to the link flags and rebuild'
     'packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/dwmapi.dll' =
