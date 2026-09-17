@@ -20,6 +20,7 @@ exempts this file, and the moment an adapter for one of these starts, `/new-adap
 - Super Metroid (SNES) — two reference projects, filed UNREAD — 2026-08-23
 - Ori (Blind Forest / Will of the Wisps) — candidate adapter, neither title owned
 - Two Ori randomizer clients, parked for later (filed 2026-08-30, NOTHING CHECKED)
+- PaperBoat (Paper Mario 64) — a recomp, filed 2026-09-18, NOTHING CHECKED
 
 ---
 
@@ -486,3 +487,25 @@ games are also 2.5D with continuous movement, so the rotation/interpolation work
 would apply rather than the tile-game path. **Read `/new-adapter` before any of that becomes a
 plan**, and `agent_docs/access-models.md` first, since "a randomizer exists" says nothing about
 whether OUR access model is legitimate.
+
+## PaperBoat (Paper Mario 64) — a recomp, filed 2026-09-18, NOTHING CHECKED
+
+**Filed on the user's request, un-researched.** Recorded so the pointer is not lost:
+
+- `https://github.com/HarbourMasters/PaperBoat`
+
+**The user's framing, and the only description here: *"paper mario 64 recomp"*.** Nothing has been
+fetched, opened, run or licence-checked, and no claim is made about what it is, what state it is in
+or what it can do — not even from the repo's name or its owner. A recompilation, a decompilation
+and a port are three different things with three different access models, and which of them this is
+has not been established.
+
+**Before anything is read from it, it gets a `licensing.md` row** — it has none, so by `CLAUDE.md`'s
+rule it may not be used until its licence has been read from the project's own file. Naming a public
+repo in a tracked file is fine; deriving anything from one that has not been cleared is not.
+
+**Why it would be worth a look, inferred from the user's one line and nothing else:** if a game runs
+as a native PC build rather than under an emulator, the access model is a different question from
+every emulator entry in this file — the drawing problem that gates Sunshine on Dolphin is not
+automatically the same problem. That is a reason to check, not a finding. `/new-adapter` and
+`access-models.md` before any of it becomes a plan.
