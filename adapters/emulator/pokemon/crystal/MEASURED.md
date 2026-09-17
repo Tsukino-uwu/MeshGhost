@@ -58,6 +58,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - The battlers, their moves, and what a move's power and accuracy bytes do (2026-09-17)
 - The warp cheat: the game's own map load, to Route 30 (2026-09-17)
 - A trainer battle: sight, approach, the battle's own waits with no ▼, and the words after (2026-09-17)
+- The PACK: its pockets, the item pocket, and its list that scrolls (2026-09-17)
 - Not measured yet: The rest of autoplay's Crystal reading (from 2026-09-17)
 
 ## Measured
@@ -408,6 +409,44 @@ with captures `autoplay_route30_y11`, `autoplay_route30_don_seen_a`/`_b`, `autop
   crossed by another character, a trainer battle lost, the other two trainers' flags changing, what +0x08's high nibble
   means.
 
+### The PACK: its pockets, the item pocket, and its list that scrolls (2026-09-17)
+
+**Vanilla V1.0, Route 30.** The new `probes/autoplay_bag_probe.lua` (read-only: wCurPocket, the pockets' cursor and scroll
+bytes, the scrolling menu's header copy, the four pockets, each item's name and attribute entry) with
+`autoplay_text_probe.lua`; logs `logs/autoplay_bag_7871_20260917_021016` (the pockets), `_021114` (the item ball), `_021200`
+(the attributes), `_021244` and `logs/autoplay_text_7871_20260917_021244` (the scroll), `logs/autoplay_text_7871_20260917_021505`
+(the redraw); captures `autoplay_pack_items`, `autoplay_pack9_*` (gitignored). Snapshots `route30_got_antidote`,
+`route30_items9`, `pack_items9_open`.
+
+- **The item pocket.** wNumItems (01:D892), then an id and a quantity per entry, then FF: `01 12 01 FF` while the PACK
+  drew POTION ×1. Facing Route 30's item ball at (8,35) and pressing A printed "A found ANTIDOTE!" and "A put the
+  ANTIDOTE in the ITEM POCKET.", and it read `02 12 01 09 01 FF`. Item names: the id'th 0x50-ended string from 72:4000
+  spelled POTION (18) and ANTIDOTE (9). The 7 bytes at 01:67C1 + (id - 1) * 7 read `2C 01 00 14 40 01 55` and
+  `64 00 00 00 40 01 55`: +0x05 01 for both, the pocket the game filed them in; nothing else there was read against
+  anything. The ball, key item and TM/HM pockets read empty (`00 FF`, `00 FF`, all 0).
+- **The pockets.** Right moved wCurPocket (00:CF65) 0 → 1 → 2 → 3, and the scrolling menu's header copy (from 00:CF91)
+  pointed at the pocket shown: D892 on 0, D8D7 on 1, D8BC on 2, with height 5 at CF92 and 02 at CF94 (01 on the D8BC
+  pocket). wItemsPocketCursor (01:D0D9) read 1, wMenuCursorY's value, once Right left the item pocket with the ▶ on its first row.
+- **The list that scrolls.** With `give_item` (below) the item pocket held 9 entries; the PACK drew 5 rows (name, then
+  the quantity on the row under it) and CANCEL after the last entry. Down 9 times from the top: wMenuCursorY (00:CFA9)
+  1 to 5 down the rows shown, then 5 while the list moved; wMenuScrollPosition (01:D0E4) 0, then 1 to 5; wScrollingMenuListSize
+  (01:D144) 9. So the entry under the ▶ is D0E4 + wMenuCursorY - 1, and CANCEL is at 9. The rows drawn were always
+  the entries from D0E4 down, a long name cut at the screen's edge ("SUPER POTIO" read from the tiles, SUPER POTION
+  from the table).
+- **The redraw after a press.** Down at f65085 moved wMenuCursorY on that frame; the rows were redrawn over the next 3
+  frames and the ▶ reached its new row at f65090. For those frames no menu read on screen, and `select` had stopped
+  with "the menu closed or changed". `crystal.lua` keeps the whole list for 10 frames after it last read it.
+- **Its description box** under the list read as a finished message ("Restores POKéMON / HP by 20."): it changed with
+  the ▶ and is not a message the player presses through, so it goes out as the menu's `description`.
+- **`give_item`** writes an entry the same way, for an item whose +0x05 reads 01: SUPER POTION ×3, REPEL ×2, ESCAPE
+  ROPE, FULL HEAL, AWAKENING, BURN HEAL and ICE HEAL each read back, and the PACK drew each name and quantity.
+- **Live through the tools** from `pack_items9_open`: `select` ICE HEAL (8 steps, the list scrolled), back to ANTIDOTE
+  (7), CANCEL (index 9), then REPEL confirmed opened USE / GIVE / TOSS / QUIT (read as a menu, as drawn); `select` USE
+  printed "A used the REPEL." and `advance_text` returned `menu_open` on the list with REPEL at 1 (2 before). Its log
+  also listed the description box once, from the frames before the list's ▶ was back.
+- **Not seen:** a list in another pocket with anything in it, the key item pocket's one-byte entries, TOSS or a quantity
+  chooser, a full pocket, what CF77 (which alternated between two values each press) is, the PACK in a battle.
+
 ## Not measured yet
 
 ### The rest of autoplay's Crystal reading (from 2026-09-17)
@@ -417,8 +456,8 @@ with captures `autoplay_route30_y11`, `autoplay_route30_don_seen_a`/`_b`, `autop
 - The rest of a battle (measured 2026-09-17 for one wild battle, above): a level-up and its stats box, the player's
   Pokémon fainting and the whiteout, a status, a second Pokémon in the party (is the next slot 0x30 on?), a move of
   another type drawn against the type table.
-- A scrolling list (the PACK with items in it, the Pokémon menu) and the PC: what CFA1-CFAC and the tile
-  buffer hold.
+- The other lists (measured 2026-09-17 for the PACK's item pocket, above): the ball and key item pockets with
+  something in them, the Pokémon menu, the PC, a mart; is the list always named by the header copy at CF91?
 - `walk` on a bike and surfing (wPlayerState other than 0) and off a ledge; collision 0x9D.
 - A text speed other than this save's; whether a box that waits with no ▼ reads anything besides
   wTextboxFlags ("A received POTION." ignored A through its jingle, then went on).

@@ -12,7 +12,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 
 - 2026-09-16 — **Sort each adapter's older code-level entries out of `UNVERIFIED.md`/`VERIFIED.md` into `MEASURED.md`**, and give every `UNVERIFIED.md` (and `_template`) a full index. Another chat.
 - 2026-09-17 — **Autoplay, Emerald: the scenario runner BUILT** (RICK's sight 3 of 3, no model); next: keyboard/clock/starter-bag readers, `exec`, noclip. `phases/phase13.md`.
-- 2026-09-17 — **Autoplay, Crystal (its own chat)**: battlers, a trainer's sight and battle (`walk` `spotted`), `select`, `advance_text`, `battle strongest`/`run`, `warp` on V1.0; next the PACK's list. `phases/phase13.md`.
+- 2026-09-17 — **Autoplay, Crystal (its own chat)**: battlers, a trainer's sight and battle, the PACK's item list whole, `battle strongest`/`run`, `warp`, `give_item` on V1.0; next open: `goto`, other lists. `phases/phase13.md`.
 - 2026-09-16 — **Prediction: A3 LANDED (ADR 0069, ships off), SCREEN VERDICT OPEN; A2.0 MEASURED** (worst-case transit p99 310–320ms; the dry tail is the 1 s blackouts); A2 undecided. `prediction-planning.md`.
 - 2026-09-15 — **Chaser contact: the Go half LANDED (`e546d38c`, ADR 0068, ships `off`); the adapter half is NOT started.** Next: Part A of `chaser-planning.md`; `pseudoregalia/UNVERIFIED.md` has the entry.
 - 2026-09-15 — **netsim: ADR 0046's 450 ms has never been judged on the correlated-loss model** (`-loss-burst`, opt-in since 2026-09-11). `phases/phase10.md`.

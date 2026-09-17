@@ -951,3 +951,33 @@ menu open, no message read. Regression: the sight scenario 3 of 3; `acc_before_m
 her five boxes to `battle_started` and `battle` played her battle to `ended`, as on the Crystal chat's check.
 
 **Left as it is:** the Emerald instance after MAY's battle, only the driver on its target.
+
+## 2026-09-17 (the Crystal chat, same session) — Crystal: the PACK's item list, read whole, and `give_item`
+
+**Built on `crystal.lua`.** The PACK's item pocket reads as one `menu` with every entry and CANCEL, their quantities,
+the cursor into the whole list and the item's `description`, so `select` scrolls to any entry; the item menu under it
+(USE / GIVE / TOSS / QUIT) reads as it did. A `give_item` cheat for items the game files in the item pocket.
+Measurements: `crystal/MEASURED.md`, "The PACK". New probe: `autoplay_bag_probe.lua` (read-only). The driver's `select`
+is unchanged.
+
+**How it was measured.** The save had one POTION, so the game's own filing came first: Route 30's item ball, whose
+message named the ITEM POCKET, and the attribute byte POTION and ANTIDOTE share. Then `give_item` filled the pocket to
+9 entries, and Down pressed through all of them with the bag and text probes loaded: the scroll position, the cursor's
+row and the list size give the entry under the ▶. Live: ICE HEAL, back to ANTIDOTE, CANCEL, then REPEL, USE, "A used
+the REPEL.", and the list again with REPEL at 1.
+
+**What went wrong on the way:**
+- **`select` stopped after its first Down** with "the menu closed or changed": the game redraws the list after a move
+  and draws the ▶ 5 frames later, so for those frames no menu reads. The reader keeps the whole list for 10 frames
+  after it last saw it.
+- **The item's description read as a finished message**, which `advance_text` would have pressed A on in the PACK. It
+  is the menu's `description` now.
+- **A name read from the tiles was cut** ("SUPER POTIO"): the list's rows are checked against the pocket's names as
+  prefixes, and the names come from the game's table.
+- The earlier snapshots replayed unchanged after this (the sign, Elm's question, the wild battle, Don's battle).
+
+**Snapshots** (gitignored `autoplay/states/crystal/`): `route30_facing_antidote`, `route30_got_antidote`, `route30_items9`,
+`pack_items_open`, `pack_items9_open`.
+
+**Next for Crystal:** the three steps asked for are done. Open: `goto` (Crystal has only `walk`), the Pokémon menu and
+the other pockets' lists, a trainer talked to or one that turns, what the save has in `observe`.

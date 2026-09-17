@@ -109,8 +109,10 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
   (the ▼), or `finished` (the last box, no ▼). There is no `box_index`: the tile buffer shows one box.
   Right after a `restore`, a waiting box can read `printing` until its ▼ blinks back (16 frames).
 - **`menu`** — a menu with a ▶ cursor: `items` and `cursor`, 0-based. The START menu, a YES/NO, the main
-  menu, and in a battle the action grid (`columns: 2`, FIGHT PKMN / PACK RUN) and the move list.
-  Scrolling lists (the PACK's items) are not read yet.
+  menu, the PACK's item menu (USE / GIVE / TOSS / QUIT), and in a battle the action grid (`columns: 2`, FIGHT PKMN /
+  PACK RUN) and the move list. The PACK's item pocket is read whole, scrolled off or not: `list: true`, `pocket:
+  "items"`, every entry and CANCEL in `items`, their `quantities`, the `cursor` into the whole list, and the box under
+  it as `description` (so `select` reaches any entry). Its other pockets read only the rows on screen.
 - **`screen_text`** — `row` and `text` for every other row holding words, only while the font is in the
   tiles (a Pokémon's picture reuses them; `crystal/MEASURED.md`, "Which font is loaded").
 - **`local_map`** — 15 by 11 around the player: `@` you, `N` a character, `W` a warp, `S` a sign, `#`
@@ -138,7 +140,8 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
   trainer's `map_object` and `tiles_away` on the frame one sees the player), `select`, `advance_text`, `battle`
   (`strongest` scores power times the accuracy byte; called after `spotted` it waits while the trainer walks over; it
   presses A on the level-up stats box and on a battle's waits with no ▼; `ended` adds `outcome_raw`, 0 after a win and
-  2 after running, `money`, `party_count` and the first Pokémon's `party` entry), and the `warp` cheat. No `goto` yet.
+  2 after running, `money`, `party_count` and the first Pokémon's `party` entry), and the `warp` and `give_item` cheats.
+  No `goto` yet.
 
 ## The run log
 
@@ -191,6 +194,9 @@ each run's `setup` and `steps` as their own segments, walked or reached.
 - **Emerald `register_item`** `{item}`: the item SELECT uses (by name or id; the bag must hold it). A bike
   registered, `press` Select gets on or off it; with the other bike registered, one press gets off and the
   next gets on. Refused outside the overworld.
+- **Crystal `give_item`** `{item, quantity}`: `item` a name as the PACK draws it (case ignored) or an id; quantity 1-99.
+  Only items the game files in the item pocket (their attribute entry's pocket byte reads 01, as POTION's and ANTIDOTE's
+  do); adds to the entry or starts one; refused past 99, past 20 entries, and outside the overworld. `report` reads it back.
 - **Crystal `warp`** `{map: "G.N", x, y}` (0-255 each): the game's own map load (`crystal/probes/goto_map.lua`'s writes),
   refused outside the overworld or while a script has the controls; `done` once the target map runs, and `report` reads
   the map and tile back.

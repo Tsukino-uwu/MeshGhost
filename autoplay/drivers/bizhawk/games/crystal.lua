@@ -475,8 +475,11 @@ local function readScreenText(t, dialogue, menuRows, low)
 	return out
 end
 
+-- The PACK's item list, whole, when the menu on screen is it (defined with the item pocket, below).
+local itemPocketMenu
+
 -- The message and the menu on screen together: a menu drawn inside the message box's frame (the battle's action
--- menu) is not a message.
+-- menu) is not a message, and the box under the PACK's item list is that item's description.
 local function readTextAndMenu(t, low)
 	local d = readDialogue(t, low)
 	local m, menuRows = readMenu(t, low)
@@ -484,6 +487,11 @@ local function readTextAndMenu(t, low)
 		for r = BOX_TOP + 1, BOX_BOTTOM - 1 do
 			if menuRows[r] then d = nil end
 		end
+	end
+	local whole = itemPocketMenu(m)
+	if whole then
+		whole.description = d and d.box ~= "" and d.box or nil
+		m, d = whole, nil
 	end
 	return d, m, menuRows
 end
@@ -643,7 +651,7 @@ local game = {
 	game = "crystal",
 	variant = isVanilla and "vanilla" or "unverified",
 	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "walk", "select", "advance_text", "battle",
-		"cheat:warp" },
+		"cheat:warp", "cheat:give_item" },
 	-- The START menu: Down moved the cursor one item a press and A chose it (2026-09-17).
 	menuButtons = { prev = "Up", next = "Down", left = "Left", right = "Right", confirm = "A" },
 	protected_slots = { 1 },
@@ -685,7 +693,8 @@ function game.observe()
 		local letters, low = readFont()
 		d, m, menuRows = readTextAndMenu(t, low)
 		if letters then
-			s = readScreenText(t, d, menuRows, low)
+			-- The PACK's description box is the menu's `description`, not screen text too.
+			s = readScreenText(t, d or (m and m.description), menuRows, low)
 			if #s == 0 then s = nil end
 		end
 	end
@@ -776,6 +785,118 @@ function game.cheats.warp(args)
 		end,
 		report = function()
 			return { map = mapName(), x = u8(W_XCOORD), y = u8(W_YCOORD), map_status_raw = u8(W_MAPSTATUS) }
+		end,
+	}
+end
+
+-- THE ITEM POCKET (autoplay_bag_probe.lua, 2026-09-17, vanilla V1.0, Route 30; MEASURED.md, "The PACK"). wNumItems (D892)
+-- then an id and a quantity per entry and FF: `01 12 01 FF` while the PACK showed POTION ×1; picking up Route 30's item
+-- ball printed "A put the ANTIDOTE in the ITEM POCKET." and it read `02 12 01 09 01 FF`. Item names: the id'th 0x50-ended
+-- string from 72:4000 (18 POTION, 9 ANTIDOTE, as drawn). The 7-byte entry at 01:67C1 + (id - 1) * 7 read 01 at +5 for both,
+-- the pocket the game filed them in. wItems holds 20 entries: wNumKeyItems (D8BC) is 41 bytes on in our build's .sym.
+local W_NUM_ITEMS, ITEM_POCKET_SLOTS, ITEM_ATTRIBUTES, ATTR_POCKET_ITEM = flat(0xD892), 20, 0x67C1, 0x01
+-- THE PACK'S ITEM LIST (autoplay_bag_probe.lua and autoplay_text_probe.lua, 2026-09-17, the item pocket holding 9 entries,
+-- Down pressed 9 times from the top): the scrolling menu's header copy read height 5 at CF92, 02 at CF94 and the pocket's
+-- address D892 at CF96-CF97 (D8D7 on the ball pocket, D8BC and 01 on the key pocket); the screen showed 5 entries then
+-- CANCEL after the last. wMenuCursorY counted 1-5 down the rows shown and stayed 5 while the list moved; wMenuScrollPosition
+-- (D0E4) read 0 until then and 1-5 as it moved; wScrollingMenuListSize (D144) read 9. So the entry under the ▶ is
+-- D0E4 + wMenuCursorY - 1, CANCEL at 9. wCurPocket (CF65) read 0 on this pocket and 1, 2, 3 for each Right.
+local W_CUR_POCKET, W_MENU_SCROLL, W_SCROLL_LIST_SIZE, W_MENU_DATA_HEIGHT = flat(0xCF65), flat(0xD0E4), flat(0xD144), flat(0xCF92)
+local ITEM_NAMES_BANK, ITEM_NAMES_PTR = 0x72, 0x4000
+
+local function itemNames()
+	if romNames.items then return romNames.items end
+	local b = memory.read_bytes_as_array(ITEM_NAMES_BANK * 0x4000 + (ITEM_NAMES_PTR - 0x4000), MOVE_NAMES_PTR - ITEM_NAMES_PTR, "ROM")
+	local names, i = {}, 1
+	while i <= #b and #names < 255 do
+		local j = i
+		while j <= #b and b[j] ~= STRING_END do j = j + 1 end
+		names[#names + 1] = spell(b, i, j)
+		i = j + 1
+	end
+	romNames.items = names
+	return names
+end
+
+-- The item list the menu header points at, or nil: the entries and CANCEL, their quantities, and the cursor.
+local function itemListFromMemory()
+	local h = memory.read_bytes_as_array(W_MENU_DATA_HEIGHT, 6, "WRAM")
+	if h[1] ~= 5 or h[3] ~= 2 or h[5] ~= 0x92 or h[6] ~= 0xD8 or u8(W_CUR_POCKET) ~= 0 then return nil end
+	local count, names, y = u8(W_NUM_ITEMS), itemNames(), u8(W_MENU_CURSOR_Y)
+	if count > ITEM_POCKET_SLOTS or u8(W_SCROLL_LIST_SIZE) ~= count or y < 1 or y > 5 then return nil end
+	local items, quantities = {}, {}
+	for k = 0, count - 1 do
+		local id = u8(W_NUM_ITEMS + 1 + k * 2)
+		items[#items + 1], quantities[#quantities + 1] = names[id] or string.format("{%02X}", id), u8(W_NUM_ITEMS + 2 + k * 2)
+	end
+	items[#items + 1] = "CANCEL"
+	return { items = items, cursor = u8(W_MENU_SCROLL) + y - 1, list = true, pocket = "items", quantities = quantities }
+end
+
+-- After a Down the list's rows were redrawn over 3 frames and the ▶ reached its new row 5 frames after the press, with
+-- wMenuCursorY already moved (autoplay_text_probe.lua, 2026-09-17): no menu reads on screen for those frames. The list
+-- read whole within REDRAW_GRACE frames before still counts while the header points at it.
+local REDRAW_GRACE, listSeenAt = 10, -1000
+itemPocketMenu = function(m)
+	local whole = itemListFromMemory()
+	if not whole then return nil end
+	local f = emu.framecount()
+	if m then
+		-- The rows on screen must be the entries from the scroll position down (a long name is cut at the list's edge).
+		local scroll = u8(W_MENU_SCROLL)
+		for i, shown in ipairs(m.items) do
+			local want = whole.items[scroll + i]
+			if not want or shown == "" or want:sub(1, #shown) ~= shown then return nil end
+		end
+		listSeenAt = f
+		return whole
+	end
+	if f - listSeenAt >= 0 and f - listSeenAt <= REDRAW_GRACE then return whole end
+	return nil
+end
+
+local function itemPocketOf(id)
+	return memory.read_u8(ITEM_ATTRIBUTES + (id - 1) * 7 + 5, "ROM")
+end
+
+-- give_item {item, quantity = 1}: `item` a name as the PACK draws it (case ignored) or an id. Only items whose attribute
+-- pocket byte reads the item pocket's 01, added to that item's entry or as a new one before the FF. Refused past 99 in
+-- one entry, past 20 entries, and outside the overworld. `report` reads the entry back.
+function game.cheats.give_item(args)
+	if not isVanilla then return nil, "give_item is measured on the vanilla V1.0 ROM only" end
+	if not inOverworld() or u8(W_BATTLEMODE) ~= 0 then return nil, "give_item refused: not in the overworld" end
+	local names, id = itemNames(), math.tointeger(args.item)
+	if not id and type(args.item) == "string" then
+		for k, name in ipairs(names) do
+			if name:upper() == args.item:upper() then id = k break end
+		end
+	end
+	local quantity = args.quantity == nil and 1 or math.tointeger(args.quantity)
+	if not id or id < 1 or id > #names then return nil, "give_item needs item: a name as the PACK draws it, or an id" end
+	if not quantity or quantity < 1 or quantity > 99 then return nil, "give_item needs quantity 1-99" end
+	if itemPocketOf(id) ~= ATTR_POCKET_ITEM then
+		return nil, string.format("give_item: %s files under pocket byte %d; only the item pocket (01) is measured", names[id], itemPocketOf(id))
+	end
+	local count = u8(W_NUM_ITEMS)
+	if count > ITEM_POCKET_SLOTS then return nil, "give_item refused: the item pocket's count reads " .. count end
+	local slot, had = nil, 0
+	for k = 0, count - 1 do
+		if u8(W_NUM_ITEMS + 1 + k * 2) == id then slot, had = k, u8(W_NUM_ITEMS + 2 + k * 2) end
+	end
+	if had + quantity > 99 then return nil, string.format("give_item refused: %s has %d, and 99 is the most measured", names[id], had) end
+	if not slot then
+		if count >= ITEM_POCKET_SLOTS then return nil, "give_item refused: the item pocket holds 20 entries" end
+		slot = count
+		memory.write_u8(W_NUM_ITEMS, count + 1, "WRAM")
+		memory.write_u8(W_NUM_ITEMS + 1 + slot * 2, id, "WRAM")
+		memory.write_u8(W_NUM_ITEMS + 3 + slot * 2, 0xFF, "WRAM")
+	end
+	memory.write_u8(W_NUM_ITEMS + 2 + slot * 2, had + quantity, "WRAM")
+	return {
+		limit = 1,
+		untilFn = function() return true end,
+		report = function()
+			return { item = names[id], id = id, had = had, now = u8(W_NUM_ITEMS + 2 + slot * 2), entries = u8(W_NUM_ITEMS) }
 		end,
 	}
 end
@@ -953,7 +1074,8 @@ end
 function game.menu()
 	if not isVanilla then return nil end
 	local _, low = readFont()
-	return (readMenu(readTilemap(), low))
+	local m = readMenu(readTilemap(), low)
+	return itemPocketMenu(m) or m
 end
 
 -- TEXT AND BATTLES AS ONE CALL: the shared machine (`../text.lua`) through Crystal's reads.
