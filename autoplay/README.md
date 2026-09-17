@@ -122,10 +122,10 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
   Right after a `restore`, a waiting box can read `printing` until its ▼ blinks back (16 frames).
 - **`menu`** — a menu with a ▶ cursor: `items` and `cursor`, 0-based. The START menu, a YES/NO, the main
   menu, the PACK's item menu (USE / GIVE / TOSS / QUIT), and in a battle the action grid (`columns: 2`, FIGHT PKMN /
-  PACK RUN), the move list and a ball's USE / QUIT. The PACK's item and ball pockets are read whole, scrolled off or
-  not, in or out of a battle: `list: true`, `pocket` (`items`, `balls`), every entry and CANCEL in `items`, their
-  `quantities`, the `cursor` into the whole list, and the box under it as `description` (so `select` reaches any
-  entry). Its other pockets read only the rows on screen. The POKéMON menu reads as `party: true` with the party's names
+  PACK RUN), the move list and a ball's USE / QUIT. The PACK's item, key item and ball pockets are read whole, scrolled
+  off or not, in or out of a battle: `list: true`, `pocket` (`items`, `key_items`, `balls`), every entry and CANCEL in
+  `items`, their `quantities` (not in the key item pocket, which has none), the `cursor` into the whole list, and the box
+  under it as `description` (so `select` reaches any entry). The TM/HM pocket reads only the rows on screen. The POKéMON menu reads as `party: true` with the party's names
   and CANCEL, so `select` takes a name; the menu under a name (STATS / SWITCH / MOVE / ITEM / CANCEL) reads as drawn.
 - **`screen_text`** — `row` and `text` for every other row holding words, only while the font is in the
   tiles (a Pokémon's picture reuses them; `crystal/MEASURED.md`, "Which font is loaded").
@@ -149,12 +149,13 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
 - **What the save has**, in an `observe` you call only: **`party`** (per Pokémon `slot`, `species` and `species_id`,
   `nickname`, `level`, `hp`, `max_hp`, `exp`, `held_item`, `status_raw` -- 0 drawn as OK, nothing else measured -- and
   `moves` with `name`, `id`, `pp`, `base_pp`, `type`, `power` and `accuracy_raw`; two slots measured), **`money`**, and
-  **`bag`** with the item and ball pockets that hold anything (`item`, `id`, `quantity`), and **`badge_count`** and
-  **`badges`** (Johto's, numbered 1-8 as the trainer card draws them). The other pockets and Kanto's badges are not read
-  yet.
-- Not yet: `movement`, a trainer that turns. The events are
+  **`bag`** with the item, key item and ball pockets that hold anything (`item`, `id`, and `quantity` but for key items),
+  and **`badge_count`** and **`badges`** (Johto's, numbered 1-8 as the trainer card draws them). The TM/HM pocket and
+  Kanto's badges are not read yet.
+- **`movement`** — in the overworld, `on_foot` or `bicycle` (any other state as `state_raw_N`).
+- Not yet: a trainer that turns. The events are
   `map_changed`, `mode_changed`, `dialogue_changed`, `menu_changed` and `battle_mode_raw_changed`.
-- Its tools: `walk` (on foot only; `run` walks and says `ran: false`, since Crystal has no running
+- Its tools: `walk` (on foot or on the BICYCLE, which stops on its tile as walking does; `run` walks and says `ran: false`, since Crystal has no running
   shoes; a door or a map edge answers once the player stands on the new map; `blocked` names a
   character in the way; `script_started` when a step starts a scene or an encounter; `spotted` with the
   trainer's `map_object` and `tiles_away` on the frame one sees the player), `select`, `advance_text`, `battle`
@@ -225,8 +226,9 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   next gets on. Refused outside the overworld.
 - **Crystal `give_item`** `{item, quantity}`: `item` a name as the PACK draws it (case ignored) or an id; quantity 1-99.
   Only items the game files in the item pocket (their attribute entry's pocket byte reads 01, as POTION's and ANTIDOTE's
-  do) or the ball pocket (03, as POKé BALL's); adds to the entry or starts one; refused past 99, past the pocket's
-  entries (20, 12), and outside the overworld. `report` reads it back.
+  do), the ball pocket (03, as POKé BALL's) or the key item pocket (02, as BICYCLE's: quantity 1, once); adds to the entry
+  or starts one; refused past 99, past the pocket's entries (20, 12, 25), and outside the overworld. `report` reads it
+  back.
 - **Crystal `warp`** `{map: "G.N", x, y}` (0-255 each): the game's own map load (`crystal/probes/goto_map.lua`'s writes),
   refused outside the overworld or while a script has the controls (any wScriptRunning but 0: written during a trainer's
   words, the load waited for the whole battle); `done` once the target map runs, and `report` reads the map and tile back.

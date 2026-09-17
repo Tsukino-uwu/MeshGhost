@@ -53,3 +53,24 @@ leaders 1-8; one bit of wJohtoBadges written at a time, the card reopened and ea
 no-badge one, bit N-1 drew a badge beside leader N (1, then 1, 4 and 8). `observe` reads `badge_count` and `badges`, and
 `set_badge` sets or clears one. The three test badges were cleared again; the save has none, as before. Kanto's byte is not
 read.
+
+## 2026-09-17 (the Crystal chat, same session) — the key item pocket and the BICYCLE: `walk` and `goto` ride it
+
+**Built** (`crystal.lua` only). The PACK's key item pocket is read whole like the item and ball pockets, `give_item` takes
+key items (once, no quantity), `observe` has `movement` (`on_foot`, `bicycle`), and `walk` and `goto` ride the BICYCLE.
+Measurements: `crystal/MEASURED.md`, "The key item pocket, and riding the BICYCLE".
+
+**How it was measured.** The game's own attribute table named which ids are key items; two written into the pocket and the
+PACK drew exactly those two and CANCEL, so an entry is one byte. USE on the BICYCLE with the state probe loaded: wPlayerState
+1 and a bike graphic, a ride of 40 frames logged step by step (a 6-frame step where walking takes 14, the same begin, end and
+stop), and off again the same way. On the bike: `walk` 5 tiles, `walk` into water (`blocked`), `goto` 11 tiles with turns,
+and `goto` a door (the player on foot inside).
+
+**Seen, not fixed:** `advance_text` started straight after USE logged the bike's description box once, from the frames the
+PACK was closing; it pressed nothing on it.
+
+**Left as it is:** the save holds BICYCLE and OLD ROD (memory only, no in-game save), the player on foot at New Bark (11,14),
+every menu closed, the driver alone on its target.
+
+**Next for Crystal:** the TM/HM pocket, surfing (an HM, a badge and a party move, all made with cheats), then a `battle`
+policy that weighs type matchups.

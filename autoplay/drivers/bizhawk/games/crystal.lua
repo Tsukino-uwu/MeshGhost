@@ -478,7 +478,7 @@ local function readScreenText(t, dialogue, menuRows, low)
 end
 
 -- The PACK's item list, whole, when the menu on screen is it, and the pockets' contents (defined with the pockets, below).
-local itemPocketMenu, readBag, readParty, partyMenu, readBadges
+local itemPocketMenu, readBag, readParty, partyMenu, readBadges, movementName
 
 -- The message and the menu on screen together: a menu drawn inside the message box's frame (the battle's action
 -- menu) is not a message, and the box under the PACK's item list is that item's description.
@@ -750,6 +750,8 @@ function game.observe(asked)
 		local_map = localMap,
 		nearby = (nearby and #nearby > 0) and nearby or nil,
 		mode = modeName(),
+		-- In the overworld, `on_foot` or `bicycle` (MOVEMENT_STATES, below); any other state goes out raw.
+		movement = overworld and (movementName() or string.format("state_raw_%d", u8(flat(0xD95D)))) or nil,
 		location = { map = mapName(), x = u8(W_XCOORD), y = u8(W_YCOORD), facing = overworld and FACING[ps[9]] or nil },
 		warps = (warps and #warps > 0) and warps or nil,
 		extras = {
@@ -882,9 +884,13 @@ local W_NUM_ITEMS, ITEM_POCKET_SLOTS, ITEM_ATTRIBUTES, ATTR_POCKET_ITEM = flat(0
 -- THE BALL POCKET, the same way (Route 31, the same day): its item ball printed "A put the POKé BALL in the BALL POCKET.",
 -- wNumBalls (D8D7) read `01 05 01 FF`, and POKé BALL's attribute entry read 03 at +5. It holds 12 entries: wNumPCItems
 -- (D8F1) is 26 bytes on in our build's .sym. The PACK's pockets by that byte: the address, the entries, wCurPocket.
+-- THE KEY ITEM POCKET (MEASURED.md, "The key item pocket"): the attribute table files 22 items under 02 (BICYCLE, OLD ROD, ...);
+-- the scrolling menu's header read 01 at CF94 on it where the other two read 02, and wNumKeyItems (D8BC) is 27 bytes before
+-- wNumBalls in our build's .sym: a count, 25 one-byte entries and FF. `size` is the bytes an entry takes.
 local POCKETS = {
-	[0x01] = { name = "items", addr = W_NUM_ITEMS, slots = ITEM_POCKET_SLOTS, cur = 0, ptr = 0xD892 },
-	[0x03] = { name = "balls", addr = flat(0xD8D7), slots = 12, cur = 1, ptr = 0xD8D7 },
+	[0x01] = { name = "items", addr = W_NUM_ITEMS, slots = ITEM_POCKET_SLOTS, cur = 0, ptr = 0xD892, size = 2 },
+	[0x02] = { name = "key_items", addr = flat(0xD8BC), slots = 25, cur = 2, ptr = 0xD8BC, size = 1 },
+	[0x03] = { name = "balls", addr = flat(0xD8D7), slots = 12, cur = 1, ptr = 0xD8D7, size = 2 },
 }
 -- THE PACK'S ITEM LIST (autoplay_bag_probe.lua and autoplay_text_probe.lua, 2026-09-17, the item pocket holding 9 entries,
 -- Down pressed 9 times from the top): the scrolling menu's header copy read height 5 at CF92, 02 at CF94 and the pocket's
@@ -912,18 +918,19 @@ end
 -- The item list the menu header points at, or nil: the entries and CANCEL, their quantities, and the cursor.
 local function itemListFromMemory()
 	local h = memory.read_bytes_as_array(W_MENU_DATA_HEIGHT, 6, "WRAM")
-	if h[1] ~= 5 or h[3] ~= 2 then return nil end
+	if h[1] ~= 5 then return nil end
 	local pocket
 	for _, p in pairs(POCKETS) do
-		if h[5] == p.ptr & 0xFF and h[6] == p.ptr >> 8 and u8(W_CUR_POCKET) == p.cur then pocket = p end
+		if h[3] == p.size and h[5] == p.ptr & 0xFF and h[6] == p.ptr >> 8 and u8(W_CUR_POCKET) == p.cur then pocket = p end
 	end
 	if not pocket then return nil end
 	local count, names, y = u8(pocket.addr), itemNames(), u8(W_MENU_CURSOR_Y)
 	if count > pocket.slots or u8(W_SCROLL_LIST_SIZE) ~= count or y < 1 or y > 5 then return nil end
-	local items, quantities = {}, {}
+	local items, quantities = {}, pocket.size == 2 and {} or nil
 	for k = 0, count - 1 do
-		local id = u8(pocket.addr + 1 + k * 2)
-		items[#items + 1], quantities[#quantities + 1] = names[id] or string.format("{%02X}", id), u8(pocket.addr + 2 + k * 2)
+		local id = u8(pocket.addr + 1 + k * pocket.size)
+		items[#items + 1] = names[id] or string.format("{%02X}", id)
+		if quantities then quantities[#quantities + 1] = u8(pocket.addr + 2 + k * 2) end
 	end
 	items[#items + 1] = "CANCEL"
 	return { items = items, cursor = u8(W_MENU_SCROLL) + y - 1, list = true, pocket = pocket.name, quantities = quantities }
@@ -959,8 +966,9 @@ readBag = function()
 		if count >= 1 and count <= pocket.slots then
 			local list = {}
 			for k = 0, count - 1 do
-				local id = u8(pocket.addr + 1 + k * 2)
-				list[#list + 1] = { item = names[id] or string.format("{%02X}", id), id = id, quantity = u8(pocket.addr + 2 + k * 2) }
+				local id = u8(pocket.addr + 1 + k * pocket.size)
+				list[#list + 1] = { item = names[id] or string.format("{%02X}", id), id = id,
+					quantity = pocket.size == 2 and u8(pocket.addr + 2 + k * 2) or nil }
 			end
 			bag = bag or {}
 			bag[pocket.name] = list
@@ -1094,11 +1102,27 @@ function game.cheats.give_item(args)
 	if not quantity or quantity < 1 or quantity > 99 then return nil, "give_item needs quantity 1-99" end
 	local pocket = POCKETS[itemPocketOf(id)]
 	if not pocket then
-		return nil, string.format("give_item: %s files under pocket byte %d; only the item (01) and ball (03) pockets are measured",
+		return nil, string.format("give_item: %s files under pocket byte %d; only the item (01), key item (02) and ball (03) pockets are measured",
 			names[id], itemPocketOf(id))
 	end
 	local at, count = pocket.addr, u8(pocket.addr)
 	if count > pocket.slots then return nil, string.format("give_item refused: the %s pocket's count reads %d", pocket.name, count) end
+	-- A key item is one byte an entry, with no quantity: added once.
+	if pocket.size == 1 then
+		if quantity ~= 1 then return nil, "give_item: a key item has no quantity; give 1" end
+		for k = 0, count - 1 do
+			if u8(at + 1 + k) == id then return nil, string.format("give_item refused: the key item pocket already holds %s", names[id]) end
+		end
+		if count >= pocket.slots then return nil, string.format("give_item refused: the %s pocket holds %d entries", pocket.name, pocket.slots) end
+		memory.write_u8(at + 1 + count, id, "WRAM")
+		memory.write_u8(at + 2 + count, 0xFF, "WRAM")
+		memory.write_u8(at, count + 1, "WRAM")
+		return {
+			limit = 1,
+			untilFn = function() return true end,
+			report = function() return { item = names[u8(at + 1 + count)], id = u8(at + 1 + count), pocket = pocket.name, entries = u8(at) } end,
+		}
+	end
 	local slot, had = nil, 0
 	for k = 0, count - 1 do
 		if u8(at + 1 + k * 2) == id then slot, had = k, u8(at + 2 + k * 2) end
@@ -1144,8 +1168,14 @@ game.programs = {}
 -- new map to run and the player to stand.
 local W_PLAYERMOVEMENT, W_PLAYERSTATE = flat(0xC2DF), flat(0xD95D)
 local MOVEMENT_REST, MOVEMENT_REFUSED = 62, 80
--- wPlayerState read 0 walking; nothing else is measured, so `walk` refuses anything else.
-local PLAYERSTATE_ON_FOOT = 0
+-- wPlayerState read 0 walking and 1 on the BICYCLE (autoplay_state_probe.lua, 2026-09-17, New Bark Town: USE on it in the
+-- PACK read 1 and turned the player object's graphic from 01 to 02, "A got on the BICYCLE.", and a warp kept both). On the
+-- bike a step ran the same way on foot's did, faster: wPlayerMovement read 4 + the code turning (6 frames), 16 + the code
+-- stepping, +0x10 moved as a step began and wXCoord caught up 6 frames later (14 on foot), the next step began 2 frames
+-- after, and let go mid-step the step finished and the player stood (62) 2 frames after its end -- 40 frames held right
+-- rode 4 tiles and stopped on the fourth. So `walk` and `goto` ride it as they walk. Nothing else is measured.
+local MOVEMENT_STATES = { [0] = "on_foot", [1] = "bicycle" }
+movementName = function() return MOVEMENT_STATES[u8(W_PLAYERSTATE)] end
 -- The engine's own collision bytes for the four tiles beside the player, in the order down, up, left, right:
 -- 7 beside the roof the player bumped from above and beside the sign they turned to from below; 0 beside open
 -- ground. They are refreshed mid-step. Other values go out raw.
@@ -1191,8 +1221,8 @@ function game.programs.walk(p)
 	if not d then return nil, 'walk needs direction "up", "down", "left" or "right"' end
 	if not tiles or tiles < 1 or tiles > 32 then return nil, "walk needs tiles, 1 to 32" end
 	if not isVanilla then return nil, "walk is measured on the vanilla V1.0 ROM only" end
-	if u8(W_PLAYERSTATE) ~= PLAYERSTATE_ON_FOOT then
-		return nil, string.format("walk is measured on foot only; wPlayerState reads %d", u8(W_PLAYERSTATE))
+	if not MOVEMENT_STATES[u8(W_PLAYERSTATE)] then
+		return nil, string.format("walk is measured on foot and on the BICYCLE only; wPlayerState reads %d", u8(W_PLAYERSTATE))
 	end
 
 	local hold = { [d.button] = true }
@@ -1459,11 +1489,11 @@ local routeHooks = {
 	limits = { rest = REST_LIMIT, idle = IDLE_LIMIT, press = STEP_LIMIT, door = WARP_LIMIT, step = STEP_LIMIT },
 }
 
--- goto {x, y, cross_grass}: to a tile on this map by a planned route (`../route.lua`), on foot.
+-- goto {x, y, cross_grass}: to a tile on this map by a planned route (`../route.lua`), on foot or on the BICYCLE.
 game.programs["goto"] = function(p)
 	if not isVanilla then return nil, "goto is measured on the vanilla V1.0 ROM only" end
-	if u8(W_PLAYERSTATE) ~= PLAYERSTATE_ON_FOOT then
-		return nil, string.format("goto is measured on foot only; wPlayerState reads %d", u8(W_PLAYERSTATE))
+	if not MOVEMENT_STATES[u8(W_PLAYERSTATE)] then
+		return nil, string.format("goto is measured on foot and on the BICYCLE only; wPlayerState reads %d", u8(W_PLAYERSTATE))
 	end
 	return lib.route.go(routeHooks, p)
 end

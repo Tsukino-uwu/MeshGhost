@@ -65,6 +65,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - A house's mat, a trainer before it loads, and `goto` ridden (2026-09-17)
 - The party's moves, PP, item and status, the POKéMON menu, a heal, and a defeat flag cleared in a trainer's line (2026-09-17)
 - Badges on the trainer card (2026-09-17)
+- The key item pocket, and riding the BICYCLE (2026-09-17)
 - Not measured yet: The rest of autoplay's Crystal reading (from 2026-09-17)
 
 ## Measured
@@ -623,6 +624,35 @@ compared to the no-badge one pixel by pixel.
   `set_badge` `value: false` (the byte read 0).
 - **Not seen:** a badge the game gave (a gym won); wKantoBadges (D858); anything a badge unlocks (an HM used outside a
   battle, obedience).
+
+### The key item pocket, and riding the BICYCLE (2026-09-17)
+
+**Vanilla V1.0, Route 30 and New Bark Town.** `probes/autoplay_bag_probe.lua`, `probes/autoplay_text_probe.lua` and
+`probes/autoplay_state_probe.lua` (`logs/autoplay_bag_7871_20260917_035248.log`, `logs/autoplay_text_7871_20260917_035248.log`,
+`logs/autoplay_state_7871_20260917_035340.log`); captures `autoplay_pack_key_items`, `autoplay_pack_bicycle_menu`,
+`autoplay_on_bicycle` (gitignored).
+
+- **Which items are key items.** The game's attribute table (01:67C1, 7 bytes an item) read +0x05 02 for 22 ids, among them
+  BICYCLE (7), COIN CASE (54), ITEMFINDER (55) and OLD ROD (58); 04 for 57 ids from TM01 (191); 01 for 164 and 03 for 12. Read
+  from our build's `.gbc`, whose SHA-1 is the ROM's.
+- **The pocket's layout, by what the PACK drew.** wNumKeyItems (01:D8BC) written as `02 07 3A FF` (`give_item` BICYCLE, then OLD
+  ROD): the PACK's third pocket (wCurPocket 2, two Rights from the item pocket) drew BICYCLE, OLD ROD and CANCEL, and under the
+  first "A collapsible bike / for fast movement."; wScrollingMenuListSize read 2 and the menu header 01 then D8BC where the item
+  pocket's reads 02 then D892. A two-byte entry would have drawn one item. So a count, one id an entry, FF; the `.sym` leaves
+  room for 25.
+- **On the bike.** BICYCLE chosen opened USE / SEL / QUIT; USE printed "A got on the BICYCLE." and on that frame wPlayerState
+  (01:D95D) went 0 to 1 and the player object's graphic 01 to 02. Chosen again from the PACK: "A got off the BICYCLE." and
+  `movement` `on_foot`. A warp to New Bark kept the bike; riding into house 24.9's door left the player on foot inside
+  (graphic 01), and on foot coming out.
+- **A ride.** 40 frames of Right on the bike from (4,9): wPlayerMovement 7 (4 + the code) for 6 frames, then 19 (16 + the
+  code) stepping; each step began as the object's +0x10 moved and wXCoord caught up 6 frames later, the next beginning 2
+  frames after; let go during the fourth step, that step finished, no fifth began, and wPlayerMovement read 62 two frames
+  after its end, on (8,9). On foot the same step took 14 frames.
+- **Through the tools on the bike:** `walk` right 5 `done` in 43 frames; `walk` right 10 `blocked` after 4 by the water at
+  (18,9), collision 0x29; `goto` (11,14) from (17,9), 11 tiles and 2 turns in 100 frames; `goto` the door (11,13)
+  `map_changed` into 24.9.
+- **Not seen:** SEL (registering the bike to SELECT); riding over a ledge or into tall grass; a building the game refuses a
+  bike in; the key items' other entries' effects.
 
 ## Not measured yet
 
