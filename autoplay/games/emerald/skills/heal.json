@@ -1,0 +1,17 @@
+{
+  "name": "heal",
+  "game": "emerald",
+  "variant": "vanilla",
+  "description": "Go to a Pokémon Center by its map (route.md lists them), talk to the nurse across the counter and answer YES: the party healed.",
+  "note": "In every Center walked so far the nurse is local 1 and (7,4) is below her counter (route.md, Centers).",
+  "params": {"center": "string"},
+  "call": {"skill": "trip", "args": {"map": "$center", "x": 7, "y": 4}},
+  "rules": [
+    {"after": "skill:trip", "when": [{"path": "outcome", "equals": "done"}], "then": {"tool": "talk", "args": {"local_id": 1}}},
+    {"after": "talk", "when": [{"path": "outcome", "equals": "menu_open"}], "then": {"tool": "select", "args": {"item": "YES"}}},
+    {"after": "select", "when": [{"path": "confirmed", "equals": true}], "then": {"tool": "advance_text"}},
+    {"after": "advance_text", "when": [{"path": "outcome", "equals": "closed"}], "then": "done"}
+  ],
+  "max_calls": 8,
+  "draft": true
+}

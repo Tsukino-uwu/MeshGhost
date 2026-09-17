@@ -1,0 +1,21 @@
+{
+  "name": "trip",
+  "game": "emerald",
+  "variant": "vanilla",
+  "description": "Go to a tile on any map, running: fight a trainer who spots the player and any wild battle (effective, forget strong_variety), read a message that stops the walk, and go on. Stops on a whiteout, and on anything no rule covers.",
+  "note": "The story sessions' scratch loop (trip.py, 2026-09-17), as rules. battle's no_battle is what it answered when a trainer's words ended with no battle.",
+  "params": {"map": "string", "x": "number", "y": "number"},
+  "call": {"tool": "goto", "args": {"map": "$map", "x": "$x", "y": "$y", "run": true}},
+  "rules": [
+    {"after": "goto", "when": [{"path": "outcome", "equals": "done"}], "then": "done"},
+    {"after": "goto", "when": [{"path": "outcome", "one_of": ["spotted", "left_overworld"]}], "then": {"tool": "battle", "args": {"policy": "effective", "forget": "strong_variety"}}},
+    {"after": "goto", "when": [{"path": "outcome", "equals": "dialogue_open"}], "then": {"tool": "advance_text"}},
+    {"after": "advance_text", "when": [{"path": "outcome", "equals": "battle_started"}], "then": {"tool": "battle", "args": {"policy": "effective", "forget": "strong_variety"}}},
+    {"after": "advance_text", "when": [{"path": "outcome", "equals": "closed"}], "then": "repeat"},
+    {"after": "battle", "when": [{"path": "outcome", "equals": "ended"}, {"path": "outcome_raw", "equals": 2}], "then": "stop", "note": "a whiteout: the player is below the last Center's door"},
+    {"after": "battle", "when": [{"path": "outcome", "equals": "no_battle"}], "then": {"tool": "advance_text"}},
+    {"after": "battle", "when": [{"path": "outcome", "equals": "ended"}], "then": "repeat"}
+  ],
+  "max_calls": 60,
+  "draft": true
+}

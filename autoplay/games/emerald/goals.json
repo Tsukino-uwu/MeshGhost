@@ -1,0 +1,49 @@
+{
+  "game": "emerald",
+  "variant": "vanilla",
+  "note": "The story in order, as walked (route.md). A badge is read from the save's badge flags, measured in MEASURED.md (2026-09-16: badge N is flag 2150 + N; observe's badges after ROXANNE, BRAWLY and WATTSON, 2026-09-17). A place is observe's location.map, as each was stood on. The gym order past the third badge is the user's (emerald.md, 2026-09-17): the fourth gym is FIRE, in Lavaridge (the user, 2026-09-17).",
+  "goals": [
+    {
+      "id": "story_stone_badge",
+      "description": "ROXANNE's STONE BADGE, in Rustboro's gym (11.3)",
+      "done_when": [{"path": "badges", "contains": 1}],
+      "hints": "route.md: Petalburg to the STONE BADGE"
+    },
+    {
+      "id": "story_in_dewford",
+      "description": "In Dewford (0.11), off MR. BRINEY's boat",
+      "done_when": [{"path": "location.map", "equals": "0.11"}],
+      "hints": "route.md: The STONE BADGE to Dewford"
+    },
+    {
+      "id": "story_knuckle_badge",
+      "description": "BRAWLY's KNUCKLE BADGE, in Dewford's gym (3.3)",
+      "done_when": [{"path": "badges", "contains": 2}],
+      "hints": "route.md: Dewford and the KNUCKLE BADGE"
+    },
+    {
+      "id": "story_in_slateport",
+      "description": "In Slateport (0.1)",
+      "done_when": [{"path": "location.map", "equals": "0.1"}, {"path": "badges", "contains": 2}],
+      "hints": "route.md: Dewford to Slateport"
+    },
+    {
+      "id": "story_in_mauville",
+      "description": "In Mauville (0.2)",
+      "done_when": [{"path": "location.map", "equals": "0.2"}, {"path": "badges", "contains": 2}],
+      "hints": "route.md: Slateport to the DYNAMO BADGE"
+    },
+    {
+      "id": "story_dynamo_badge",
+      "description": "WATTSON's DYNAMO BADGE, in Mauville's gym (10.0)",
+      "done_when": [{"path": "badges", "contains": 3}],
+      "hints": "route.md: Slateport to the DYNAMO BADGE"
+    },
+    {
+      "id": "story_heat_badge",
+      "description": "The fourth badge, from Lavaridge's gym (a FIRE gym, the user says); the way there is not walked yet",
+      "done_when": [{"path": "badges", "contains": 4}],
+      "hints": "route.md: nothing past the DYNAMO BADGE yet -- walk it, and write the stretch when the session ends"
+    }
+  ]
+}
