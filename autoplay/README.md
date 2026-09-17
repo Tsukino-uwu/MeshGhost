@@ -335,7 +335,9 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   with `port=<the core's>` and `repo=<this repo's root>` -- no file, no connection. ScriptEngine reloads it when the DLL
   changes. It logs to `autoplay/runs/driver_bepinex_tevi_<port>.log`. Tools: `observe` (`mode`, `location` with area,
   room and position, `player`, the save list's `menu` by page, row and slot, and `save`), `wait`, `press` (the game's
-  own Rewired actions by name, an axis with a sign: `Confirm`, `XAxis+`), `sequence`, `screenshot` (the game's own frame).
+  own Rewired actions by name, an axis with a sign: `Confirm`, `XAxis+`), `sequence`, `advance_text` (a conversation line by line:
+  Confirm tapped once a line has stood 30 frames unchanged; ends `closed`, `item_box`, `window_open` -- a tutorial window, its
+  words in `screen_text` --, or `stuck` after 6 taps with no change; a `log` of each line), `screenshot` (the game's own frame).
   Events: `mode_changed`, `area_changed`, `room_changed`; `damage_taken` (a hit on the player through the game's one hit
   method, with `damage`, `hp_from`/`hp_to`, `bullet_type` and the `source` character as `nearby` names it), `enemy_defeated`
   (a hit that takes another character to 0 HP, `by_player_raw`), `hp_changed` (any cause: a hit reports both), `game_over`,

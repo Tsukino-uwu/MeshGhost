@@ -142,7 +142,7 @@ namespace MeshGhostAutoplay.Tevi
 
         // ---- what the driver says about itself ------------------------------------------------------------------
 
-        private static readonly string[] Capabilities = { "observe", "wait", "press", "sequence", "screenshot", "snapshot", "restore", "cheat:teleport" };
+        private static readonly string[] Capabilities = { "observe", "wait", "press", "sequence", "advance_text", "screenshot", "snapshot", "restore", "cheat:teleport" };
 
         private JObject Hello()
         {
@@ -613,6 +613,9 @@ namespace MeshGhostAutoplay.Tevi
                     case "sequence":
                         currentTick = SequenceJob(req.Payload);
                         break;
+                    case "advance_text":
+                        currentTick = AdvanceTextJob();
+                        break;
                     case "screenshot":
                         currentTick = ScreenshotJob(req.Payload);
                         break;
@@ -746,6 +749,74 @@ namespace MeshGhostAutoplay.Tevi
                 };
                 if (stoppedBy != null) answer["stopped_by"] = stoppedBy;
                 return answer;
+            };
+        }
+
+        // ADVANCE_TEXT: through a conversation line by line, the way a player reads it. While a line is up, Confirm is tapped
+        // once it has stood TapEvery frames with no change (the first tap on a line still printing finishes it, the next moves
+        // on); each new line goes into the log. Ends `closed` once no conversation has been open for SettleFrames and the game
+        // is not paused, `item_box` when the item box is up, `window_open` when the game is paused with no conversation (a
+        // tutorial window: its words are in observe's screen_text), or `stuck` after StuckTaps taps with no change.
+        private const int TapEvery = 30, SettleFrames = 90, StuckTaps = 6, AdvanceFrameLimit = 3 * 60 * 60;
+
+        private Func<JToken> AdvanceTextJob()
+        {
+            var log = new JArray();
+            int start = Time.frameCount, lastChange = start, taps = 0;
+            string lastKey = null;
+            JObject entry = null; // the line being read: its text is filled while it is up, since the game's text changes after the line number
+            JObject Done(string outcome, JObject extra = null)
+            {
+                var o = new JObject { ["outcome"] = outcome, ["frames"] = Time.frameCount - start, ["log"] = log, ["after"] = Observe(false) };
+                if (extra != null) o.Merge(extra);
+                return o;
+            }
+            Log("advance_text");
+            return () =>
+            {
+                int f = Time.frameCount;
+                if (f - start > AdvanceFrameLimit) return Done("stuck", new JObject { ["reason"] = "the frame limit" });
+                if (InputInjection.Busy) return null;
+                JObject d = Dialogue();
+                if (d != null)
+                {
+                    string key = (string)d["section"] + "#" + (int?)d["line"];
+                    if (key != lastKey)
+                    {
+                        lastKey = key;
+                        lastChange = f;
+                        taps = 0;
+                        entry = null;
+                        if ((int?)d["line"] < (int?)d["lines"])
+                        {
+                            entry = new JObject { ["section"] = d["section"], ["line"] = d["line"] };
+                            log.Add(entry);
+                        }
+                        return null;
+                    }
+                    if (entry != null)
+                    {
+                        entry["speaker"] = d["speaker"];
+                        entry["text"] = d["text"];
+                    }
+                    if (f - lastChange < TapEvery * (taps + 1)) return null;
+                    if (taps >= StuckTaps) return Done("stuck", new JObject { ["reason"] = "the line did not change after " + taps + " taps", ["dialogue"] = d });
+                    string err = InputInjection.Schedule(new[] { "Confirm" }, 3, out int _);
+                    if (err != null) return Done("stuck", new JObject { ["reason"] = err });
+                    taps++;
+                    return null;
+                }
+                if (lastKey != null)
+                {
+                    lastKey = null;
+                    lastChange = f;
+                }
+                if (Obtained() != null) return Done("item_box", new JObject { ["obtained"] = Obtained() });
+                if (f - lastChange < SettleFrames) return null;
+                string mode = Mode();
+                if (mode == "paused") return Done("window_open", new JObject { ["screen_text"] = ScreenText() });
+                if (mode == "play" || mode == "title") return Done(log.Count > 0 ? "closed" : "no_text");
+                return null; // an event still running: a scene between lines
             };
         }
 
