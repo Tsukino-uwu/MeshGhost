@@ -335,7 +335,7 @@ floors). They change Go in `autoplay/server`: once pushed, read `gh run list -L 
 1. Read the learn-a-move question, its move list and the evolution scene (Emerald), so `battle` stops `needs_choice` on the
    question instead of nudging into it, and add a forget policy by the user's guidance.
 2. The BAG inside a battle: read it, and use a POTION through it.
-3. Items like the scratch trip loop into a tool (`goto`, `battle` on `spotted` or a wild battle, `advance_text` on a
+3. Turn the scratch trip loop into a tool (`goto`, `battle` on `spotted` or a wild battle, `advance_text` on a
    message) -- the plan's Phase 3 reflex layer -- once TEVI has `observe`, teleport and events (the order in
    `../phase13.md`).
 4. Smaller: FC bytes read raw; `advance_text` answering `battle_started` as the evolution screen closes; ledges 0x38-0x3A;
