@@ -26,9 +26,10 @@ namespace MeshGhostAutoplay.Tevi
         //    (its HP unchanged for `no_progress_frames`, default 300),
         //    `low_hp` (the player's HP at or below `stop_hp`), `mode_changed` (not in play any more: a scene, a menu), or
         //    `timeout` at the frame limit. Reports hits taken, attacks tapped, jumps and the target's HP at start and end.
-        //  - `push_orbs` (default true): a still blastorb near her, on her level, with the target beyond it, is hit toward the target
-        //    from outside touching distance. The user, 2026-09-17: "the player can also attack them to push them towards/into the
-        //    boss"; and a blastorb went off on Ribauld for most of his HP while she only dodged.
+        //  - `push_orbs` (default true): a blastorb not already flying between her and the target, already within her swing or under her
+        //    in the air, is hit toward the target (melee, or a quickdrop onto it); she never goes to one; `orb_frames`
+        //    counts the frames spent on it, `orb_log` samples the decisions and each time the orb was sent flying. The user, 2026-09-17: "the player can also
+        //    attack them to push them towards/into the boss"; and a blastorb went off on Ribauld for most of his HP while she only dodged.
         //  - with `dodge` (default true), each frame's intended move is checked against every box that can hurt the player
         //    (Dodge.cs) and replaced by the nearest safe plan when it would be hit; `dodges` counts the frames it was.
         private const float UnreachableDy = 180f;
@@ -58,7 +59,11 @@ namespace MeshGhostAutoplay.Tevi
             bool dodge = (bool?)args["dodge"] ?? true;
             int noProgressFrames = (int?)args["no_progress_frames"] ?? 300; // a boss the dodge keeps her away from needs far more
             bool pushOrbs = (bool?)args["push_orbs"] ?? true;
-            int pushes = 0;
+            int pushes = 0, orbFrames = 0;
+            var orbLog = new JArray(); // a sample of the orb decisions, every OrbLogEvery frames spent on an orb
+            JObject orbNote = null;
+            CharacterBase lastOrb = null; // the orb last used, watched for the frame it is sent flying and by what
+            float lastOrbSpeed = 0f;
 
             CharacterBase me = player();
             if (me == null || me.t == null) throw new Exception("no player to fight with");
@@ -99,6 +104,8 @@ namespace MeshGhostAutoplay.Tevi
                     ["jumps"] = jumps,
                     ["dodges"] = guard.Dodges,
                     ["orb_pushes"] = pushes,
+                    ["orb_frames"] = orbFrames,
+                    ["orb_log"] = orbLog,
                     ["last_dodge"] = guard.LastDodge,
                     ["after"] = observe(false),
                 };
@@ -203,22 +210,55 @@ namespace MeshGhostAutoplay.Tevi
                     else if (outOfReachFrames > 90 && Mathf.Abs(dx) < 500f && attackMode != "melee") tap = "Ranged";
                 }
 
-                if (pushOrbs && onGround)
+                // Orbs when they cost nothing: the user, 2026-09-17, "just abuse the orbs to deal a lot of damage to the boss fast", then
+                // "Priority 1 is to not get hit, but priority 2 is to always hugg/stick to the boss as much as possible to constantly deal
+                // damage, everything else is a 3rd priority". So only an orb between her and the target and already within her swing, or
+                // under her in the air, is hit, and she never goes to one: walking to orbs cost Ribauld's fight 365 frames for 20 HP, and
+                // going round one to its far side put her beside it as it went off (73 HP on Infernal BBQ, 2026-09-17). Orbitar shots at the
+                // target carry any orb in their path anyway. Every time the orb last used is sent flying, what she was doing is logged as `kicked`.
+                if (lastOrb != null && lastOrb.t != null && lastOrb.phy_perfer != null)
                 {
-                    CharacterBase orb = OrbToPush(p, target);
-                    if (orb != null)
+                    Vector2 ov = lastOrb.phy_perfer._velocity;
+                    if (ov.magnitude > OrbKicked && lastOrbSpeed <= OrbKicked && orbLog.Count < 60)
                     {
-                        float ox = orb.t.position.x - me3.x;
-                        bool facingOrb = (ox >= 0) == (p.direction.ToString() == "RIGHT");
-                        if (Mathf.Abs(ox) > OrbPushFar) want = ox >= 0 ? Dodge.Move.Right : Dodge.Move.Left;
-                        else if (!facingOrb) want = ox >= 0 ? Dodge.Move.Right : Dodge.Move.Left;
-                        else want = Dodge.Move.Stay;
-                        tap = Mathf.Abs(ox) <= OrbPushFar && facingOrb ? "Attack" : null;
-                        if (tap != null) pushes++;
+                        orbLog.Add(new JObject { ["frame"] = Time.frameCount, ["kicked"] = true, ["vx"] = Math.Round(ov.x), ["vy"] = Math.Round(ov.y), ["her_logic"] = p.logicStatus.ToString(), ["her_input"] = InputInjection.HeldNow(), ["ox"] = Math.Round(lastOrb.t.position.x - me3.x), ["oy"] = Math.Round(lastOrb.t.position.y - me3.y), ["boss_dx"] = Math.Round(dx) });
                     }
+                    lastOrbSpeed = ov.magnitude;
+                    if (!lastOrb.gameObject.activeInHierarchy) lastOrb = null;
+                }
+                CharacterBase orb = pushOrbs ? OrbToUse(p, target) : null;
+                orbNote = null;
+                if (orb != null)
+                {
+                    Vector3 o3 = orb.t.position;
+                    int s = dx >= 0 ? 1 : -1; // the way the orb has to go: toward the target, beyond it
+                    float ox = o3.x - me3.x, oy = o3.y - me3.y, ax = Mathf.Abs(ox);
+                    bool facingS = (s > 0) == (p.direction.ToString() == "RIGHT");
+                    Dodge.Move awayS = s > 0 ? Dodge.Move.Left : Dodge.Move.Right;
+                    tap = null;
+                    turn = false;
+                    if (orb != lastOrb)
+                    {
+                        lastOrb = orb;
+                        lastOrbSpeed = orb.phy_perfer != null ? orb.phy_perfer._velocity.magnitude : 0f;
+                    }
+                    // In the air over it: quickdrop onto it (the user, 2026-09-17: "its also possible to quickdrop onto bombs to push them").
+                    if (!onGround && ax < OrbHalf + 20f && oy < 0f && oy > -200f) want = Dodge.Move.Drop;
+                    else if (!facingS) turn = true;
+                    else if (ax < OrbTooClose) want = awayS;
+                    else tap = "Attack";
+                    orbFrames++;
+                    if (orbFrames % OrbLogEvery == 1 && orbLog.Count < 40)
+                        orbNote = new JObject { ["frame"] = Time.frameCount, ["ox"] = Math.Round(ox), ["oy"] = Math.Round(oy), ["boss_dx"] = Math.Round(dx), ["ground"] = onGround, ["want"] = want.ToString(), ["tap"] = tap };
                 }
 
                 Dodge.Move move = dodge ? guard.Check(p, want, groundY) : want;
+                if (orbNote != null)
+                {
+                    orbNote["took"] = move.ToString();
+                    if (move != want && guard.LastDodge != null) orbNote["by"] = guard.LastDodge["by"];
+                    orbLog.Add(orbNote);
+                }
                 if (move == want && Dodge.IsDrop(move))
                 {
                     if (guard.Execute(move, onGround)) jumps++;
@@ -240,11 +280,12 @@ namespace MeshGhostAutoplay.Tevi
                     // Its armor broken and refilling (the red outline): a hit does little and does not stop it, and it attacks freely (the
                     // user, 2026-09-17; the meter measured in MEASURED.md). A melee swing then only when standing stays safe for the whole
                     // horizon.
-                    if (tap == "Attack" && dodge && ArmorRecovering(target) && !guard.StandingSafe(Dodge.Horizon)) tap = null;
+                    if (tap == "Attack" && orb == null && dodge && ArmorRecovering(target) && !guard.StandingSafe(Dodge.Horizon)) tap = null;
                     if (tap != null && InputInjection.Tap(tap, 4))
                     {
                         if (tap == "Attack") attacks++;
                         else ranged++;
+                        if (orb != null) pushes++;
                     }
                 }
                 else if (guard.Execute(move, onGround))
@@ -477,11 +518,15 @@ namespace MeshGhostAutoplay.Tevi
             }
         }
 
-        // Pushing a blastorb: from farther than its touch distance (it goes off within about 42 units, EnergyBall read as a map) and
-        // within a melee swing (OrbPushFar, a first guess to be measured), on her level, still, with the target on the far side.
-        private const float OrbPushNear = 56f, OrbPushFar = 100f, OrbLook = 260f;
+        // Using a blastorb: never closer than its touch distance (it goes off within about 42 units, EnergyBall read as a map; its body
+        // box 50 by 50, the flight recorder).
+        private const int OrbLogEvery = 20;
+        private const float OrbKicked = 150f; // physics speed: a knocked orb read 400-600, a resting one about 0
+        private const float OrbTooClose = 56f, OrbHalf = 25f, OrbKnocked = 300f;
 
-        private static CharacterBase OrbToPush(CharacterBase me, CharacterBase target)
+        // The nearest orb between her and the target, within her swing (or under her in the air), that is not already flying (a
+        // knocked one moves 20-30 units a frame, 400-600 as the physics reads speed).
+        private static CharacterBase OrbToUse(CharacterBase me, CharacterBase target)
         {
             CharacterManager cm = CharacterManager.Instance;
             if (cm == null || cm.characters == null || target == null || target.t == null) return null;
@@ -492,11 +537,14 @@ namespace MeshGhostAutoplay.Tevi
             foreach (CharacterBase c in cm.characters)
             {
                 if (c == null || c == me || c == target || c.t == null || !c.gameObject.activeInHierarchy || c.maxhealth < 99999) continue;
-                if (c.type.ToString() != "EnergyBall") continue;
-                float dx = c.t.position.x - at.x, dy = c.t.position.y - at.y;
-                if (Mathf.Abs(dy) > 60f || Mathf.Abs(dx) < OrbPushNear || Mathf.Abs(dx) > OrbLook) continue;
+                if (c.type.ToString() != "EnergyBall" || Utility.isOutsideCamera(c.t.position, 0f)) continue;
+                float dx = c.t.position.x - at.x;
                 if (Math.Sign(dx) != Math.Sign(toTarget) || Mathf.Abs(dx) > Mathf.Abs(toTarget)) continue;
-                if (c.phy_perfer != null && c.phy_perfer._velocity.magnitude > 30f) continue; // moving: already on its way
+                float dy = c.t.position.y - at.y;
+                bool inSwing = Mathf.Abs(dx) <= MeleeReach + OrbHalf && Mathf.Abs(dy) <= MeleeHalfHeight + OrbHalf;
+                bool under = !me.onGround() && Mathf.Abs(dx) < OrbHalf + 20f && dy < 0f && dy > -200f;
+                if (!inSwing && !under) continue;
+                if (c.phy_perfer != null && c.phy_perfer._velocity.magnitude > OrbKnocked) continue;
                 if (Mathf.Abs(dx) < bestD)
                 {
                     bestD = Mathf.Abs(dx);

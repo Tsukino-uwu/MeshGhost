@@ -17,7 +17,8 @@ namespace MeshGhostAutoplay.Tevi
     // (Ribauld's charge box stood still its first frame and then ran with him, so a velocity read a frame after birth was 0). From then on a
     // character entering a state with samples is, to the dodge, those boxes appearing after their delay (Threats.Threat.AppearIn). The
     // table lives in the AppDomain's data, so a hot reload keeps what was learned, and in a file under the repo's gitignored
-    // autoplay/states/tevi/ (TableFile, set by the plugin), read when the AppDomain has none: a game restart keeps it too.
+    // autoplay/states/tevi/ (TableFile, set by the plugin), read when the AppDomain has none: a game restart keeps it too. A thrown
+    // explosive (SpawnFrame) is sampled the same way, as SPAWN_<type>.
     public static class Tells
     {
         private const string Key = "meshghost.autoplay.tells.v2";
@@ -42,6 +43,15 @@ namespace MeshGhostAutoplay.Tevi
         private static readonly Dictionary<int, Sample> Pending = new Dictionary<int, Sample>(); // born last frame, waiting for velocity
         private static readonly Dictionary<int, Vector2> PendingCentre = new Dictionary<int, Vector2>();
         private static readonly Dictionary<int, int> PendingBorn = new Dictionary<int, int>();
+        // Thrown explosives: a character that explodes (Threats.IsExplosive) coming into play is an attack too, and not a bullet. Ribauld's
+        // orb appeared 25 units from her 26 frames into his ATTACK1 and went off on her 8 frames later, with nothing for the dodge to see
+        // first (2026-09-17, Infernal BBQ; the user: "still getting hit a lot when the orbs are being thrown out"). Its birth is sampled for
+        // the nearest other living character within SpawnOwnerReach, as its touch box grown by the orb's own body.
+        private const float SpawnOwnerReach = 300f, SpawnBox = Threats.TouchBox + 50f;
+        private static readonly Dictionary<int, bool> CharActive = new Dictionary<int, bool>();
+        private static readonly Dictionary<int, KeyValuePair<CharacterBase, Sample>> PendingChar = new Dictionary<int, KeyValuePair<CharacterBase, Sample>>();
+        private static readonly Dictionary<int, Vector2> PendingCharAt = new Dictionary<int, Vector2>();
+        private static readonly Dictionary<int, int> PendingCharBorn = new Dictionary<int, int>();
         private static Dictionary<string, List<Sample>> table;
         private static int lastFileWrite = -1000;
         public static string TableFile; // autoplay/states/tevi/tells.json, when the plugin knows the repo
@@ -104,6 +114,8 @@ namespace MeshGhostAutoplay.Tevi
                 string st = c.logicStatus.ToString();
                 if (!States.TryGetValue(id, out Seen s) || s.State != st) States[id] = s = new Seen { State = st, Since = f, Facing = Facing(c) };
             }
+
+            SpawnFrame(p, cm, f);
 
             // Velocity for the ones born VelocityFrames ago (or gone sooner: the mean over the frames they lived).
             foreach (var kv in new List<KeyValuePair<int, Sample>>(Pending))
@@ -169,6 +181,78 @@ namespace MeshGhostAutoplay.Tevi
                 Pending[i] = sample;
                 PendingCentre[i] = centre;
                 PendingBorn[i] = f;
+                Save();
+            }
+        }
+
+        private static bool spawnPrimed; // the first frame after a (re)load only notes what is already active: none of it was just thrown
+
+        private static void SpawnFrame(CharacterBase p, CharacterManager cm, int f)
+        {
+            bool primed = spawnPrimed;
+            spawnPrimed = true;
+            foreach (CharacterBase c in cm.characters)
+            {
+                if (c == null || c == p || c.t == null) continue;
+                int id = c.GetInstanceID();
+                bool active = c.gameObject.activeInHierarchy;
+                bool was = CharActive.TryGetValue(id, out bool w) && w;
+                CharActive[id] = active;
+                if (!primed || !active || was || !Threats.IsExplosive(c.type.ToString())) continue;
+                if (Utility.isOutsideCamera(c.t.position, 64f)) continue; // a whole area's orbs coming into being as it loads
+                CharacterBase owner = null;
+                float best = SpawnOwnerReach;
+                foreach (CharacterBase o in cm.characters)
+                {
+                    if (o == null || o == p || o == c || o.t == null || !o.gameObject.activeInHierarchy || o.health <= 0) continue;
+                    if (Threats.IsExplosive(o.type.ToString())) continue;
+                    float d = Vector2.Distance(o.t.position, c.t.position);
+                    if (d < best)
+                    {
+                        best = d;
+                        owner = o;
+                    }
+                }
+                if (owner == null || !States.TryGetValue(owner.GetInstanceID(), out Seen s)) continue;
+                int delay = f - s.Since;
+                if (delay > MaxDelay) continue;
+                var sample = new Sample
+                {
+                    Delay = delay,
+                    Dx = (c.t.position.x - owner.t.position.x) * s.Facing,
+                    Dy = c.t.position.y - owner.t.position.y,
+                    W = SpawnBox,
+                    H = SpawnBox,
+                    Vx = s.Facing,
+                    Type = "SPAWN_" + c.type,
+                };
+                string key = owner.type + "|" + s.State;
+                if (!Table.TryGetValue(key, out List<Sample> list)) Table[key] = list = new List<Sample>();
+                list.Add(sample);
+                if (list.Count > MaxSamples) list.RemoveAt(0);
+                PendingChar[id] = new KeyValuePair<CharacterBase, Sample>(c, sample);
+                PendingCharAt[id] = new Vector2(c.t.position.x, c.t.position.y);
+                PendingCharBorn[id] = f;
+                Save();
+            }
+            foreach (var kv in new List<KeyValuePair<int, KeyValuePair<CharacterBase, Sample>>>(PendingChar))
+            {
+                CharacterBase c = kv.Value.Key;
+                Sample x = kv.Value.Value;
+                int age = f - PendingCharBorn[kv.Key];
+                bool alive = c != null && c.t != null && c.gameObject.activeInHierarchy;
+                if (alive && age < VelocityFrames) continue;
+                float turn = x.Vx;
+                if (alive && age > 0)
+                {
+                    Vector2 v = (new Vector2(c.t.position.x, c.t.position.y) - PendingCharAt[kv.Key]) / age;
+                    x.Vx = v.x * turn;
+                    x.Vy = v.y;
+                }
+                else x.Vx = 0f;
+                PendingChar.Remove(kv.Key);
+                PendingCharAt.Remove(kv.Key);
+                PendingCharBorn.Remove(kv.Key);
                 Save();
             }
         }

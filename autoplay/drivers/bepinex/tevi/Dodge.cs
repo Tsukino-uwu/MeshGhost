@@ -197,6 +197,7 @@ namespace MeshGhostAutoplay.Tevi
                         float reach = Math.Max(me.width, me.height) / 2f;
                         foreach (Threats.Laser l in lasers)
                         {
+                            if (f < l.AppearIn) continue; // a warning beam, safe until it activates
                             float away = Threats.DistanceToSegment(me.center, l.From, l.To) - l.Radius - reach;
                             if (f <= ClearanceFrames) clearance = Math.Min(clearance, Math.Max(0f, away));
                             if (away < 0f)

@@ -50,6 +50,22 @@ namespace MeshGhostAutoplay.Tevi
             public float Radius;
             public bool Hurting;
             public string Type;
+            public int AppearIn; // frames of game time until it hurts: 0 when it does, or when how long its warning lasts is not known yet
+        }
+
+        // A laser's warning beam is safe until it activates (the user, 2026-09-17: "they are safe locations, until they activate/start to
+        // deal damage"); Ribauld's cut-in lasers on Infernal BBQ hurt 56 frames after they appeared, at the same x (the flight recorder read
+        // every frame, 2026-09-17; a first reading of 138 came from rows printed only when the count changed, and stood her in a beam). So each
+        // laser's age is counted in frames of game time, and the age at which a type first hurts is learned, the shortest seen.
+        private static readonly Dictionary<LaserController2D, int> LaserAge = new Dictionary<LaserController2D, int>();
+        private static readonly Dictionary<LaserController2D, int> LaserAgedAt = new Dictionary<LaserController2D, int>();
+        private static readonly Dictionary<string, int> WarnFrames = new Dictionary<string, int> { ["RIBAULD_CUTIN_LASER"] = 56 };
+
+        public static JToken WarnTable()
+        {
+            var o = new Newtonsoft.Json.Linq.JObject();
+            foreach (var kv in WarnFrames) o[kv.Key] = kv.Value;
+            return o;
         }
 
         public static void Install()
@@ -83,8 +99,20 @@ namespace MeshGhostAutoplay.Tevi
                 if (l == null || !l.gameObject.activeInHierarchy)
                 {
                     Lasers.RemoveAt(i);
+                    if (l != null)
+                    {
+                        LaserAge.Remove(l);
+                        LaserAgedAt.Remove(l);
+                    }
                     continue;
                 }
+                // Aged once a frame of game time, however often it is read.
+                if (Time.deltaTime > 0f && (!LaserAgedAt.TryGetValue(l, out int agedAt) || agedAt != Time.frameCount))
+                {
+                    LaserAgedAt[l] = Time.frameCount;
+                    LaserAge[l] = LaserAge.TryGetValue(l, out int a) ? a + 1 : 1;
+                }
+                LaserAge.TryGetValue(l, out int age);
                 if (LaserOwner != null && LaserOwner.GetValue(l) as CharacterBase == p) continue;
                 float size = Math.Max(l.OverAll_Size, LaserTargetSize != null ? (float)LaserTargetSize.GetValue(l) : 0f);
                 float extra = LaserExtraWidth != null ? (float)LaserExtraWidth.GetValue(l) : 1f;
@@ -94,13 +122,18 @@ namespace MeshGhostAutoplay.Tevi
                 if (dir.sqrMagnitude < 1e-6f) continue;
                 dir.Normalize();
                 var from = new Vector2(l.transform.position.x, l.transform.position.y);
+                bool hurting = LaserHurt != null && (bool)LaserHurt.GetValue(l);
+                string type = LaserBulletType != null ? LaserBulletType.GetValue(l).ToString() : "LASER";
+                if (hurting && age > 0 && (!WarnFrames.TryGetValue(type, out int w) || age < w)) WarnFrames[type] = age;
+                int appearIn = !hurting && WarnFrames.TryGetValue(type, out int warn) ? Math.Max(0, warn - age) : 0;
                 list.Add(new Laser
                 {
                     From = from,
                     To = from + dir * reach,
                     Radius = size / LaserController2D.offsize * extra,
-                    Hurting = LaserHurt != null && (bool)LaserHurt.GetValue(l),
-                    Type = LaserBulletType != null ? LaserBulletType.GetValue(l).ToString() : "LASER",
+                    Hurting = hurting,
+                    Type = type,
+                    AppearIn = appearIn,
                 });
             }
             return list;
@@ -126,6 +159,14 @@ namespace MeshGhostAutoplay.Tevi
             float t = ab.sqrMagnitude > 0f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / ab.sqrMagnitude) : 0f;
             return Vector2.Distance(p, a + ab * t);
         }
+        // A character's threat slot, apart from bullet slots.
+        public static int CharacterKey(CharacterBase ch) => -1 - (ch.GetInstanceID() & 0x3fffffff);
+
+        public const float TouchBox = TouchReach * 2f;
+
+        // Whether characters of this type have been seen to explode (the blast table).
+        public static bool IsExplosive(string type) => BlastSize.ContainsKey(type);
+
         public struct Threat
         {
             public int Slot;
@@ -150,6 +191,10 @@ namespace MeshGhostAutoplay.Tevi
         private static readonly Dictionary<string, Vector2> BlastSize = new Dictionary<string, Vector2> { ["EnergyBall"] = new Vector2(405f, 405f) };
         private static readonly HashSet<int> BornEmpty = new HashSet<int>();
         private static readonly Dictionary<int, Vector2> LastVelocity = new Dictionary<int, Vector2>();
+        // How many frames in a row each explosive has lain still, and whether its current hop began from rest.
+        private static readonly Dictionary<int, int> StillFor = new Dictionary<int, int>();
+        private static readonly Dictionary<int, bool> HopFromRest = new Dictionary<int, bool>();
+        private const int RestFrames = 30;
 
         public static JToken BlastTable()
         {
@@ -238,14 +283,21 @@ namespace MeshGhostAutoplay.Tevi
                     if (!BlastSize.TryGetValue(ch.type.ToString(), out Vector2 size)) continue;
                     var c = new Vector2(ch.t.position.x, ch.t.position.y + 10f);
                     if (Utility.isOutsideCamera(c, margin)) continue;
-                    int key = -1 - (ch.GetInstanceID() & 0x3fffffff);
+                    int key = CharacterKey(ch);
                     Vector2 v = Vector2.zero;
                     if (LastCentre.TryGetValue(key, out Vector2 last) && LastFrame.TryGetValue(key, out int lf) && lf == f - 1) v = c - last;
                     LastCentre[key] = c;
                     LastFrame[key] = f;
                     // A hop in place is a detonation: both orbs in Ribauld's arena rose and fell straight, with no sideways speed, and went
                     // off as they landed on the same frame (2026-09-17), hitting her 122 units from one.
-                    bool hopping = Mathf.Abs(v.x) < 1f && Mathf.Abs(v.y) >= 2f;
+                    // Only a hop from rest: on Infernal BBQ Ribauld's thrown orbs bounced up and down many times without going off, and read
+                    // as detonating on every bounce they froze her 300 frames beside an orb she meant to hit (2026-09-17).
+                    StillFor.TryGetValue(key, out int still);
+                    bool moving = v.magnitude >= StillSpeed;
+                    if (!moving && still >= 2) HopFromRest[key] = false; // the top of a hop reads still for a frame
+                    else if (still >= RestFrames) HopFromRest[key] = true;
+                    StillFor[key] = moving ? 0 : still + 1;
+                    bool hopping = Mathf.Abs(v.x) < 1f && Mathf.Abs(v.y) >= 2f && HopFromRest.TryGetValue(key, out bool fromRest) && fromRest;
                     if (!hopping && (v.magnitude < StillSpeed || !PathMeetsCharacter(cm, ch, p, c, v))) size = new Vector2(TouchReach * 2f, TouchReach * 2f);
                     list.Add(new Threat { Slot = key, Type = "BLAST_OF_" + ch.type, Owner = ch.type.ToString(), Box = new Rect(c.x - size.x / 2f, c.y - size.y / 2f, size.x, size.y), Velocity = v, MinCx = float.MinValue, MaxCx = float.MaxValue });
                 }

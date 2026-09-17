@@ -321,7 +321,7 @@ namespace MeshGhostAutoplay.Tevi
                 var lasers = new JArray();
                 foreach (Threats.Laser l in Threats.ReadLasers(p))
                 {
-                    lasers.Add(new JObject { ["type"] = l.Type, ["from"] = new JArray(Math.Round(l.From.x, 1), Math.Round(l.From.y, 1)), ["to"] = new JArray(Math.Round(l.To.x, 1), Math.Round(l.To.y, 1)), ["radius"] = Math.Round(l.Radius, 1), ["hurting_raw"] = l.Hurting });
+                    lasers.Add(new JObject { ["type"] = l.Type, ["from"] = new JArray(Math.Round(l.From.x, 1), Math.Round(l.From.y, 1)), ["to"] = new JArray(Math.Round(l.To.x, 1), Math.Round(l.To.y, 1)), ["radius"] = Math.Round(l.Radius, 1), ["hurting_raw"] = l.Hurting, ["hurts_in"] = l.AppearIn });
                 }
                 o["lasers"] = lasers;
                 o["area_elements"] = Surroundings.AreaElements(p.t.position, 3);

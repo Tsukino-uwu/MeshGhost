@@ -17,11 +17,12 @@ namespace MeshGhostAutoplay.Tevi
     // index, logic state index] (what comes before an attack: a charge from a standstill gave no box to see, 2026-09-17), and
     // up to MaxBoxes live bullets not the player's -- attacks, shots, and the characters' own body and hurt boxes, which the
     // game keeps as bullets too -- nearest first as [type index, owner type index, x, y, width, height], the box's centre and
-    // size as the game's hitbox drawing takes them (BulletManager._BMDebugUpdate, read as a map). Types are named once. Its own cost per frame is measured and reported (`cost`), since it runs every frame.
+    // size as the game's hitbox drawing takes them (BulletManager._BMDebugUpdate, read as a map), and up to MaxLasers lasers not the player's as
+    // [type index, from x, from y, to x, to y, radius, hurting] (Threats.ReadLasers). Types are named once. Its own cost per frame is measured and reported (`cost`), since it runs every frame.
     public static class Recorder
     {
         public const int Capacity = 3600; // 60 seconds; one `recent` reads at most 600 of them, reaching back with until_frame
-        private const int MaxEnemies = 4, MaxBoxes = 8;
+        private const int MaxEnemies = 4, MaxBoxes = 8, MaxLasers = 32;
 
         // The link caps a line at 64 KB: an answer past this is thinned (every doubled) until it fits.
         private const int AnswerBudget = 48000;
@@ -40,6 +41,13 @@ namespace MeshGhostAutoplay.Tevi
             public float X, Y, W, H;
         }
 
+        private struct Beam
+        {
+            public string Type;
+            public float FromX, FromY, ToX, ToY, Radius;
+            public bool Hurting;
+        }
+
         private sealed class Row
         {
             public int Frame, Hp;
@@ -50,6 +58,8 @@ namespace MeshGhostAutoplay.Tevi
             public int EnemyCount;
             public Box[] Boxes = new Box[MaxBoxes];
             public int BoxCount;
+            public Beam[] Lasers = new Beam[MaxLasers];
+            public int LaserCount;
         }
 
         private static readonly Row[] Rows = CreateRows();
@@ -139,6 +149,16 @@ namespace MeshGhostAutoplay.Tevi
                 r.Boxes[i] = new Box { Type = b.type.ToString(), Owner = b.owner == null ? "none" : b.owner.type.ToString(), X = c.x, Y = c.y, W = b.GetHSizeW(), H = b.GetHSizeH() };
             }
 
+            // Lasers are not bullets (Threats.cs): Ribauld's cut-in lasers killed her twice on Infernal BBQ with no box in the rows
+            // before the hit (2026-09-17).
+            List<Threats.Laser> beams = Threats.ReadLasers(p);
+            r.LaserCount = Math.Min(beams.Count, MaxLasers);
+            for (int i = 0; i < r.LaserCount; i++)
+            {
+                Threats.Laser l = beams[i];
+                r.Lasers[i] = new Beam { Type = l.Type, FromX = l.From.x, FromY = l.From.y, ToX = l.To.x, ToY = l.To.y, Radius = l.Radius, Hurting = l.Hurting };
+            }
+
             next = (next + 1) % Capacity;
             count = Math.Min(count + 1, Capacity);
             Watch.Stop();
@@ -208,13 +228,20 @@ namespace MeshGhostAutoplay.Tevi
                     Box b = r.Boxes[k];
                     boxes.Add(new JArray(TypeIndex(types, b.Type), TypeIndex(types, b.Owner), Math.Round(b.X, 1), Math.Round(b.Y, 1), Math.Round(b.W, 1), Math.Round(b.H, 1)));
                 }
-                rows.Add(new JArray(r.Frame, r.Mode, Math.Round(r.X, 1), Math.Round(r.Y, 1), Math.Round(r.Vx, 2), Math.Round(r.Vy, 2), r.Ground ? 1 : 0, r.Anim, r.Logic, r.Hp, r.Input, enemies, boxes));
+                var lasers = new JArray();
+                for (int k = 0; k < r.LaserCount; k++)
+                {
+                    Beam l = r.Lasers[k];
+                    lasers.Add(new JArray(TypeIndex(types, l.Type), Math.Round(l.FromX, 1), Math.Round(l.FromY, 1), Math.Round(l.ToX, 1), Math.Round(l.ToY, 1), Math.Round(l.Radius, 1), l.Hurting ? 1 : 0));
+                }
+                rows.Add(new JArray(r.Frame, r.Mode, Math.Round(r.X, 1), Math.Round(r.Y, 1), Math.Round(r.Vx, 2), Math.Round(r.Vy, 2), r.Ground ? 1 : 0, r.Anim, r.Logic, r.Hp, r.Input, enemies, boxes, lasers));
             }
             return new JObject
             {
-                ["columns"] = new JArray("frame", "mode", "x", "y", "vx", "vy", "ground", "anim", "logic", "hp", "input", "near", "boxes"),
+                ["columns"] = new JArray("frame", "mode", "x", "y", "vx", "vy", "ground", "anim", "logic", "hp", "input", "near", "boxes", "lasers"),
                 ["near_columns"] = new JArray("type", "id", "x", "y", "hp", "anim", "logic", "hitstun_raw", "armor", "armor_recovering"),
                 ["boxes_columns"] = new JArray("type", "owner", "x", "y", "width", "height"),
+                ["lasers_columns"] = new JArray("type", "from_x", "from_y", "to_x", "to_y", "radius", "hurting"),
                 ["types"] = new JArray(types.ToArray()),
                 ["every"] = every,
                 ["rows"] = rows,
