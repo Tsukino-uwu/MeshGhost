@@ -235,7 +235,7 @@ namespace MeshGhostAutoplay.Tevi
             bool steerEarly = false;
             int overDropSince = -1; // frames standing over a planned fall that does not happen: a duct cover the grid does not show
             bool dodge = (bool?)args["dodge"] ?? true, stopOnDamage = (bool?)args["stop_on_damage"] ?? false;
-            var guard = new Reflexes.Guard(me) { PreferDrop = false }; // the route times its own quickdrops: one mid-jump would fall short
+            var guard = new Reflexes.Guard(me) { PreferDrop = false, Imminent = 14 }; // the route times its own quickdrops; step in only for a close hit
             float groundY = me.t.position.y;
 
             // The route's move for this frame through the dodge: true when the dodge took another plan (and carried it out).

@@ -53,6 +53,7 @@ namespace MeshGhostAutoplay.Tevi
             string attackMode = (string)args["attack"] ?? "auto";
             if (attackMode != "auto" && attackMode != "melee" && attackMode != "ranged") throw new Exception("attack is auto, melee or ranged");
             string inRangeTap = attackMode == "ranged" ? "Ranged" : "Attack";
+            string askedMode = attackMode;
             int stopHp = (int?)args["stop_hp"] ?? 0;
             bool dodge = (bool?)args["dodge"] ?? true;
             int noProgressFrames = (int?)args["no_progress_frames"] ?? 300; // a boss the dodge keeps her away from needs far more
@@ -129,6 +130,24 @@ namespace MeshGhostAutoplay.Tevi
 
                 Vector3 me3 = p.t.position, it = target.t.position;
                 float dx = it.x - me3.x, dy = it.y - me3.y;
+                // A kind whose attacks have not been seen yet is fought from range until one has: up close its first attack lands before
+                // the dodge knows it (a mouse and a cat on Infernal BBQ, 26 to 35 HP a hit, 2026-09-17).
+                if (askedMode == "auto")
+                {
+                    bool known = Tells.Known(target.type.ToString());
+                    attackMode = known ? "auto" : "ranged";
+                    inRangeTap = known ? "Attack" : "Ranged";
+                    if (!known)
+                    {
+                        range = Math.Max(range, 400f);
+                        minRange = Math.Max(minRange, 250f);
+                    }
+                    else if (range >= 400f)
+                    {
+                        range = (float?)args["range"] ?? 110f;
+                        minRange = (float?)args["min_range"] ?? 0f;
+                    }
+                }
                 Dodge.Move towardMove = dx >= 0 ? Dodge.Move.Right : Dodge.Move.Left;
                 bool onGround = p.onGround();
                 if (onGround) groundY = me3.y;
@@ -375,6 +394,7 @@ namespace MeshGhostAutoplay.Tevi
 
             public float? StickX; // a fight's target x, set each frame: the dodge prefers plans that keep her near it
             public bool PreferDrop = true; // falling, want a quickdrop (movement); a fight turns it off beside its target
+            public int? Imminent; // movement: step in only for a hit this close (Dodge.Choose)
 
             public Dodge.Move Check(CharacterBase p, Dodge.Move want, float groundY)
             {
@@ -397,10 +417,10 @@ namespace MeshGhostAutoplay.Tevi
                 }
                 List<Dodge.Plan> plans = lastPlans;
                 Dodge.Start st = start;
-                Dodge.Plan chosen = Dodge.Choose(plans, want, StickX);
+                Dodge.Plan chosen = Dodge.Choose(plans, want, StickX, Imminent);
                 // Inside the window the committed move wins over the wanted one too while it is as safe: a want that flips back the
                 // moment the danger is behind her is the same stutter.
-                if (Time.frameCount <= committedUntil && chosen.Move != committed)
+                if (Imminent == null && Time.frameCount <= committedUntil && chosen.Move != committed)
                 {
                     int i = plans.FindIndex(x => x.Move == committed);
                     if (i >= 0 && (plans[i].FirstHit > Dodge.Horizon || plans[i].FirstHit >= chosen.FirstHit)) chosen = plans[i];
@@ -450,7 +470,7 @@ namespace MeshGhostAutoplay.Tevi
                     return false;
                 }
                 if (!onGround || !Dodge.IsJump(m)) return false;
-                bool hop = m == Dodge.Move.Hop || m == Dodge.Move.HopLeft || m == Dodge.Move.HopRight;
+                bool hop = m == Dodge.Move.Hop || m == Dodge.Move.HopLeft || m == Dodge.Move.HopRight || Dodge.IsHopDrop(m);
                 if (!InputInjection.Tap("Jump", hop ? Dodge.HopHold : Dodge.JumpHold)) return false;
                 Jumps++;
                 return true;

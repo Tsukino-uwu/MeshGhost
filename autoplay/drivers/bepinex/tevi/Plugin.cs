@@ -55,6 +55,7 @@ namespace MeshGhostAutoplay.Tevi
             build = BuildStamp();
             Log("loaded: port " + port + ", repo " + (repo ?? "(none: screenshots and exec are off)") + ", build " + build);
             Log(SaveGuard.Install(Application.persistentDataPath, repo == null ? null : repo + "/autoplay/states/" + GameName + "/shadow"));
+            if (repo != null) Tells.TableFile = repo + "/autoplay/states/" + GameName + "/tells.json";
             InputInjection.Install();
             Events.Install();
             Clock.Install();

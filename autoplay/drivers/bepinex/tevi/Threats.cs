@@ -192,7 +192,9 @@ namespace MeshGhostAutoplay.Tevi
                     LastFrame[i] = f;
                     continue;
                 }
-                if (BornEmpty.Remove(i) && b.owner != null)
+                // Only an explosion teaches a blast: a dog's attack is also born with no box and grows, and learned as a blast it made the
+                // dog's whole surroundings a threat (2026-09-17).
+                if (BornEmpty.Remove(i) && b.owner != null && b.type.ToString().Contains("EXPLODE"))
                 {
                     // A blast: born with no box, grown now. Its owner's type explodes this big.
                     string owner = b.owner.type.ToString();

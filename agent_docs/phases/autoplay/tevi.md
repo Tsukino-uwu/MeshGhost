@@ -325,3 +325,17 @@ against 2,194 s on Cakewalk the first time (324.7 to 2,519.4); 3 hits by then ag
 
 **Open:** the rest of the route (blastvines to the save point, then Ribauld) hitless: unfamiliar enemies hit before their tells are
 learned, so fight them from range first; the tells table to survive a game restart; the whole Infernal fight with Ribauld.
+
+**The blastvines room on Infernal BBQ, try by try** (same session, from the revive at `tevi_inf_blastvines_hp17`, 50 HP each time):
+
+| Try | What ran | Result |
+| --- | --- | --- |
+| 1 | a hand-written step back to shoot a hanging orb | walked off the vine ledge onto a cat and a mouse: death |
+| 2 | `goto`, then `fight` against a bot in a pit (first meeting, from range) | no room to back off, its first attack: death |
+| 3 | `goto` with hop-then-quickdrop plans | one hit (27): the blast table had learned the dog as an explosive from its growing attack box (fixed: only `EXPLODE` bullets teach) |
+| 4 | `goto` stepping in only for a hit within 14 frames | a cat's contact hit at 23 HP: death |
+
+**Built along the way:** the tells table kept in `autoplay/states/tevi/tells.json` (gitignored) as well as the AppDomain; an enemy kind
+with no learned attack fought from range; hop-then-quickdrop plans; `goto`'s dodge steps in only for a close hit. **Not tried yet**, the
+combination the user pointed to: clearing the room's cats, dog, mouse and bot with the blastorbs from the vine ledge above before
+going down, instead of walking among them.

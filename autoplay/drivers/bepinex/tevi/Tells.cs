@@ -16,7 +16,8 @@ namespace MeshGhostAutoplay.Tevi
     // the box's offset from the character (x turned by the way it faces) and size, and its mean velocity over its first VelocityFrames
     // (Ribauld's charge box stood still its first frame and then ran with him, so a velocity read a frame after birth was 0). From then on a
     // character entering a state with samples is, to the dodge, those boxes appearing after their delay (Threats.Threat.AppearIn). The
-    // table lives in the AppDomain's data, so a hot reload keeps what was learned; a game restart forgets it.
+    // table lives in the AppDomain's data, so a hot reload keeps what was learned, and in a file under the repo's gitignored
+    // autoplay/states/tevi/ (TableFile, set by the plugin), read when the AppDomain has none: a game restart keeps it too.
     public static class Tells
     {
         private const string Key = "meshghost.autoplay.tells.v2";
@@ -42,6 +43,8 @@ namespace MeshGhostAutoplay.Tevi
         private static readonly Dictionary<int, Vector2> PendingCentre = new Dictionary<int, Vector2>();
         private static readonly Dictionary<int, int> PendingBorn = new Dictionary<int, int>();
         private static Dictionary<string, List<Sample>> table;
+        private static int lastFileWrite = -1000;
+        public static string TableFile; // autoplay/states/tevi/tells.json, when the plugin knows the repo
 
         private static Dictionary<string, List<Sample>> Table
         {
@@ -49,7 +52,12 @@ namespace MeshGhostAutoplay.Tevi
             {
                 if (table != null) return table;
                 table = new Dictionary<string, List<Sample>>();
-                if (AppDomain.CurrentDomain.GetData(Key) is string json)
+                string json = AppDomain.CurrentDomain.GetData(Key) as string;
+                if (json == null && TableFile != null && System.IO.File.Exists(TableFile))
+                {
+                    try { json = System.IO.File.ReadAllText(TableFile); } catch (Exception) { json = null; }
+                }
+                if (json != null)
                 {
                     try
                     {
@@ -66,7 +74,18 @@ namespace MeshGhostAutoplay.Tevi
 
         private static void Save()
         {
-            AppDomain.CurrentDomain.SetData(Key, JsonConvert.SerializeObject(table));
+            string json = JsonConvert.SerializeObject(table);
+            AppDomain.CurrentDomain.SetData(Key, json);
+            if (TableFile == null || Time.frameCount - lastFileWrite < 120) return; // a bomb ring is 8 samples in a frame
+            lastFileWrite = Time.frameCount;
+            try
+            {
+                System.IO.File.WriteAllText(TableFile, json);
+            }
+            catch (Exception)
+            {
+                // the file is a convenience: the AppDomain copy stands
+            }
         }
 
         private static int Facing(CharacterBase c) => c.direction.ToString() == "LEFT" ? -1 : 1;
@@ -186,6 +205,16 @@ namespace MeshGhostAutoplay.Tevi
                     });
                 }
             }
+        }
+
+        // Whether any attack of this character type has been seen.
+        public static bool Known(string type)
+        {
+            foreach (string key in Table.Keys)
+            {
+                if (key.StartsWith(type + "|")) return true;
+            }
+            return false;
         }
 
         public static JObject Report()

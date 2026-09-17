@@ -37,7 +37,11 @@ namespace MeshGhostAutoplay.Tevi
         private static readonly float[] HoldRise = { 16.9f, 32.9f, 48.2f, 62.8f, 76.5f, 89.5f, 101.7f, 113.1f, 123.7f, 133.6f, 142.7f, 151.0f, 158.5f, 165.3f, 171.2f, 176.4f, 180.8f, 184.5f, 187.3f, 189.4f, 190.7f, 191.3f, 191.0f, 190.0f, 188.2f, 185.6f, 182.2f, 178.1f, 173.2f, 167.5f, 161.0f, 153.8f, 145.7f, 136.9f, 127.4f, 117.0f, 105.9f, 93.9f, 81.2f, 67.8f, 53.5f, 38.5f, 23.5f, 8.5f };
         private static readonly float[] TapRise = { 16.9f, 32.9f, 48.2f, 60.4f, 69.8f, 77.0f, 82.3f, 86.0f, 88.3f, 89.5f, 89.7f, 89.2f, 87.8f, 85.7f, 82.7f, 79.0f, 74.6f, 69.3f, 63.3f, 56.5f, 48.9f, 40.5f, 31.4f, 21.4f, 10.7f };
 
-        public enum Move { Stay, Left, Right, Hop, HopLeft, HopRight, Jump, JumpLeft, JumpRight, Drop, DropLeft, DropRight }
+        // HopDropLeft/Right: a hop, then a quickdrop from its HopDropAt-th frame, so contact cannot hurt her from then on: the way past an
+        // enemy's body on the ground (normal enemies are run past, the user, 2026-09-17; the Quickdrop tutorial: contact during it does no
+        // damage). Carried out as a hop; in the air the Drop plans take over.
+        public enum Move { Stay, Left, Right, Hop, HopLeft, HopRight, Jump, JumpLeft, JumpRight, Drop, DropLeft, DropRight, HopDropLeft, HopDropRight }
+        public const int HopDropAt = 10;
 
         public struct Plan
         {
@@ -53,15 +57,16 @@ namespace MeshGhostAutoplay.Tevi
         // Threats remembered between frames for their acceleration.
         private static readonly Dictionary<int, Vector2> LastVelocity = new Dictionary<int, Vector2>();
 
-        public static bool IsJump(Move m) => m >= Move.Hop && m <= Move.JumpRight;
-        public static bool IsDrop(Move m) => m >= Move.Drop;
+        public static bool IsJump(Move m) => (m >= Move.Hop && m <= Move.JumpRight) || m >= Move.HopDropLeft;
+        public static bool IsDrop(Move m) => m >= Move.Drop && m <= Move.DropRight;
+        public static bool IsHopDrop(Move m) => m >= Move.HopDropLeft;
 
         public static int Dir(Move m)
         {
             switch (m)
             {
-                case Move.Left: case Move.HopLeft: case Move.JumpLeft: case Move.DropLeft: return -1;
-                case Move.Right: case Move.HopRight: case Move.JumpRight: case Move.DropRight: return 1;
+                case Move.Left: case Move.HopLeft: case Move.JumpLeft: case Move.DropLeft: case Move.HopDropLeft: return -1;
+                case Move.Right: case Move.HopRight: case Move.JumpRight: case Move.DropRight: case Move.HopDropRight: return 1;
                 default: return 0;
             }
         }
@@ -155,7 +160,7 @@ namespace MeshGhostAutoplay.Tevi
                     string inside = null;
                     // Contact during a quickdrop does no damage (the game's Quickdrop tutorial; the user, 2026-09-17: quickdrop on an enemy
                     // "to deal some damage/gain some iframes"): a contact box is not a threat to a quickdrop plan once it has begun.
-                    bool dropping = s.Quickdropping || (IsDrop(m) && f >= 2);
+                    bool dropping = s.Quickdropping || (IsDrop(m) && f >= 2) || (IsHopDrop(m) && f >= HopDropAt + 1);
                     foreach (Threats.Threat t in threats)
                     {
                         if (dropping && t.Type == "ENEMY_HURTBOX") continue;
@@ -231,7 +236,8 @@ namespace MeshGhostAutoplay.Tevi
             float y;
             if (s.OnGround)
             {
-                if (m == Move.Hop || m == Move.HopLeft || m == Move.HopRight) y = s.Pos.y + (f <= TapRise.Length ? TapRise[f - 1] : 0f);
+                if (IsHopDrop(m)) y = s.Pos.y + (f <= HopDropAt ? TapRise[f - 1] : Math.Max(0f, TapRise[HopDropAt - 1] - QuickdropFall * (f - HopDropAt)));
+                else if (m == Move.Hop || m == Move.HopLeft || m == Move.HopRight) y = s.Pos.y + (f <= TapRise.Length ? TapRise[f - 1] : 0f);
                 else if (IsJump(m)) y = s.Pos.y + (f <= HoldRise.Length ? HoldRise[f - 1] : 0f);
                 else y = s.Pos.y;
                 return new Vector2(x, y);
@@ -264,11 +270,16 @@ namespace MeshGhostAutoplay.Tevi
         // safe to do so", "prefer sticking onto the boss, rather than staying far away or playing it super safe".
         private const float StickClearance = 10f;
 
-        public static Plan Choose(List<Plan> plans, Move want, float? stickX = null)
+        // `imminent`: when given, the wanted plan stands unless it is hit within that many frames (movement: the user, 2026-09-17, "just
+        // keep running, don't pause/quickdrop randomly"); a fight leaves it out and wants the whole horizon clear.
+        public static Plan Choose(List<Plan> plans, Move want, float? stickX = null, int? imminent = null)
         {
             Plan wanted = plans.Find(p => p.Move == want);
             float needed = stickX.HasValue ? StickClearance : WantedClearance;
-            if (wanted.FirstHit > Horizon && wanted.Clearance >= needed && plans.Exists(p => p.Move == want)) return wanted;
+            if (plans.Exists(p => p.Move == want))
+            {
+                if (imminent.HasValue ? wanted.FirstHit > imminent.Value : wanted.FirstHit > Horizon && wanted.Clearance >= needed) return wanted;
+            }
             Plan best = default(Plan);
             int bestScore = int.MinValue;
             foreach (Plan p in plans)
