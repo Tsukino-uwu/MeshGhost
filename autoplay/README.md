@@ -209,6 +209,28 @@ appended to as a diary. No snapshot is named in any of it: snapshots stay in the
   is proved. Refused before its first call: an unknown field, a rule no call reaches, a `$name` not in `params`, arguments
   that do not match, a tool the server lacks, `run_skill` or `segment` as a call, skills nested deeper than 4.
 
+## The session loop
+
+`cmd/session` runs one unattended Claude Code session toward a goal and reports it, **on the Claude subscription only**:
+it refuses to start while `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` or a Bedrock, Vertex or Foundry switch is set, leaves
+them out of the session's environment, never passes `--bare` (it reads only an API key) or a dollar budget, and no report
+carries a cost. From `autoplay/`, with the driver waiting and its port free:
+`go run ./cmd/session -core <built autoplay.exe> -claude <claude executable> -goal <id> -snapshot <label> -model <model>`.
+
+- **Before the model**: its own core restores the snapshot, opens the session's segment and checks the goal.
+- **Play**: `claude -p` with `session/play.md` on stdin, `--output-format stream-json --verbose`, the core as its only MCP
+  server (`--strict-mcp-config`, carrying on the same run log), `--permission-mode dontAsk` and only the game's tools and
+  Read, Glob and Grep allowed. Stopped, with the core it started, once it has made `-budget` model calls (default 400).
+- **Distill**: the same session `--resume`d with `session/distill.md`, allowed to edit only `games/<game>/`, `-distill-budget`
+  calls (default 40). The launcher never commits: the diff is read against "measured or observed only" first.
+- **After the model**: its own core closes the segment, checks the goal and reads where the game is.
+- **The report**, `runs/sessions/<time>/report.md` and `.json` beside each run's stream: the goal met or not by that check,
+  model calls per run, game tool calls by tool (never `status`), the stops by outcome word, cheats and restores, each
+  segment walked or reached, and the knowledge store's diff.
+- **A model call is one response**: a distinct `message.id` in the stream. One response can hold several tool uses, and
+  every line of one id carried the same token usage; the result line's `num_turns` counted each tool use and the closing text
+  instead (10 against 4 responses on the dry run, 2026-09-17), and is reported beside it, never as the count.
+
 ## The run log
 
 Every session writes `autoplay/runs/<time>.ndjson`: each tool call (with its answer's `outcome` word, when it has one), and each segment labelled
