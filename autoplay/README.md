@@ -49,7 +49,8 @@ Everything past `frame`, `mode` and `location` is the game module's. Emerald, on
 - **`dialogue`** — the message being shown: `box` (that box's text, lines split by `\n`),
   `box_index` of `boxes`, and `state`: `printing`, `waiting_for_button` (the red arrow), or
   `finished` (its last box is up and waits for a button, with no arrow). `recovered` when it was taken
-  up from the printer mid-way (its `box_index` then counts from where that string was found). Absent when
+  up from the printer mid-way or already finished (its `box_index` then counts from where that string was found;
+  a field or battle message from its buffer's start). Absent when
   no message box is on screen.
 - **`menu`** — the menu waiting for input: `items` in order and `cursor`, 0-based. The START menu and a
   YES/NO; a grid such as the bag's USE/GIVE/TOSS/CANCEL with `columns` (numbered row by row); a scrolling
@@ -221,8 +222,9 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   3 seconds with no change -- only in a battle or on a message they can read -- retry a press the game
   ignored, and answer `stuck` after 3 of those, so a call never sits for minutes. A battle animation the module
   reports (`animationPlaying`; Emerald's is measured) counts as change, for up to 600 frames: STRING SHOT's runs 228
-  frames with nothing else moving. Emerald's module learns text as it prints, and a message already under way when it
-  was reloaded or a snapshot restored is taken up from the game's text printer, marked `recovered` (Crystal's
+  frames with nothing else moving. Emerald's module learns text as it prints, and a message already under way -- or finished, its
+  window still put -- when it was reloaded or a snapshot restored is taken up from the game's text printer, marked
+  `recovered` (Crystal's
   reads whatever is on screen).
 - **Text costs top speed on Emerald.** Reading text there needs execute hooks (Crystal's needs none), and any execute hook halves the
   emulator's unthrottled speed, however many there are (one instance, a core connected: 818

@@ -280,23 +280,57 @@ end
 -- whose printer is active and on screen is taken up from the printer's own pointer; for a string in the ROM
 -- its start is found by going back to the byte after the previous FF, and anywhere else the text starts at the
 -- pointer. `recovered` marks it: its box index counts from wherever that start was.
+--
+-- A FINISHED message is taken up too (2026-09-17): restored at a trainer's challenge whose last box had printed, `battle`
+-- saw no message at all and answered `stuck` after 601 frames. printer_state_probe.lua showed what one leaves: the
+-- printer inactive, its pointer one past the string's FF, and the window still PUT on its background -- its first
+-- cell holding its base block's tile and its last cell the block's last (the message box, base 0x194, 27 by 4: 194
+-- and 1FF while RICK's words were up; 000 once the box closed, and 000 after a battle while the printer still held
+-- "A got ₽64 for winning!"). The START menu's frame drew into window 0's top row with no message up, which the
+-- top-row test alone would take for a box. The field message and a battle message each began at their buffer's
+-- first byte (the build's gStringVar4 and gDisplayedStringBattle: RICK's challenge and his words after, "BUG CATCHER
+-- RICK would like to battle!"), so a pointer in one reads from there, and a finished one only when that string ends
+-- exactly at the pointer -- a stale pointer into a buffer since rewritten does not.
+local TEXT_BUFFERS = { { at = 0x02021fc4, size = 1000 }, { at = 0x02022e2c, size = 300 } }
+
+local function windowPut(w)
+	local s = memory.read_bytes_as_array(GWINDOWS + w * WINDOW_SIZE, 8, BUS)
+	local bg, left, top, width, height, base = s[1], s[2], s[3], s[4], s[5], s[7] | (s[8] << 8)
+	if bg > 3 or width == 0 or height == 0 or left + width > 32 or top + height > 32 then return false end
+	local map = 0x06000000 + ((memory.read_u16_le(0x04000008 + bg * 2, BUS) >> 8) & 0x1F) * 0x800
+	local first = memory.read_u16_le(map + (top * 32 + left) * 2, BUS) & 0x3FF
+	local last = memory.read_u16_le(map + ((top + height - 1) * 32 + left + width - 1) * 2, BUS) & 0x3FF
+	return first == base & 0x3FF and last == (base + width * height - 1) & 0x3FF
+end
+
 local function recoverDialogue()
 	for w = 0, 31 do
-		if printerActive(w) and windowOnScreen(w) then
+		local active = printerActive(w)
+		if (active and windowOnScreen(w)) or (not active and windowPut(w)) then
 			local ptr = r32(STEXTPRINTERS + w * PRINTER_SIZE)
-			local start = ptr
-			if ptr >= 0x08000200 and ptr < 0x0A000000 then
+			local start, bytes
+			for _, buf in ipairs(TEXT_BUFFERS) do
+				if ptr >= buf.at and ptr <= buf.at + buf.size then
+					bytes = readString(buf.at)
+					-- The pointer must lie inside the string read from the buffer's start, and a finished one at its end.
+					if ptr <= buf.at + #bytes + 1 and (active or ptr == buf.at + #bytes + 1) then start = buf.at end
+				end
+			end
+			if not start and ptr >= 0x08000200 and ptr < 0x0A000000 and (active or r8(ptr - 1) == EOS) then
+				-- In the ROM, back to the byte after the previous FF (past the string's own FF when finished).
 				local back = memory.read_bytes_as_array(ptr - 512, 512, BUS)
-				for i = 512, 1, -1 do
+				for i = active and 512 or 511, 1, -1 do
 					if back[i] == EOS then
 						start = ptr - 512 + i
 						break
 					end
 				end
-			elseif ptr < 0x02000000 or ptr >= 0x04000000 then
-				return nil
+				bytes = start and readString(start)
+			elseif not start and active and ptr >= 0x02000000 and ptr < 0x04000000 then
+				start = ptr
+				bytes = readString(start)
 			end
-			return { window = w, bytes = readString(start), start = start, recovered = true }
+			if start then return { window = w, bytes = bytes, start = start, recovered = true } end
 		end
 	end
 	return nil

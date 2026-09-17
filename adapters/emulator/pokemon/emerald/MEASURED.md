@@ -59,6 +59,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - The bag's item list, its item menu, and a Repel used through them (2026-09-17)
 - A new game to the first trainer battle: warps, elevation 0, cutscenes and the script status (2026-09-17)
 - A move's animation holds a battle's next message (2026-09-17)
+- A finished message's printer and window, and a stale one (2026-09-17)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -589,6 +590,33 @@ build hashed identical to the ROM, meanings as below.
   anything.
 - **Not seen**: any other move's animation, the BATTLE SCENE option turned off, a double battle, a wild battle with
   this probe loaded.
+
+### A finished message's printer and window, and a stale one (2026-09-17)
+
+**Vanilla ROM, the new game's save**, route 0.17: RICK's challenge restored from a named snapshot taken with its box
+finished, his words after the battle printed live, his battle's first message, and the START menu after it. From the
+new `probes/printer_state_probe.lua` (read-only: text printers 0-7 and window slots 0-7 whole on every change, the bytes
+before each printer's pointer back to an FF, each window's first and last tile on its background, BG0's drawn rows) and
+`text_probe.lua`, with a capture of the restored box (`dev-scripts/shots/emerald/autoplay_rick_challenge_restored.png`,
+gitignored). Addresses from the build hashed identical to the ROM.
+
+- **A finished field message.** Restored with "Hahah! Our eyes met! I'll take you on with my BUG POKéMON!" drawn and
+  waiting: printer 0's +0x1B read 0, its pointer 0x02021FFF, one past the FF that ends the 58 bytes from 0x02021FC4 (the
+  build's gStringVar4); no FF in the 197 bytes before 0x02021FC4. His words after the battle began printing with the
+  pointer at 0x02021FC4 and ended at 0x02022009, one past their FF, the same way.
+- **The window put, and cleared.** Window 0 read background 0, left 2, top 15, 27 by 4, base block 0x194; its first cell
+  on BG0 held tile 0x194 and its last 0x1FF (base + 27 x 4 - 1) while either message was up, and both read 0 once A
+  closed the box. In a battle window 0 read 26 by 4 with base 0x090, and its cells 0x090 and 0x0F7 while "BUG CATCHER
+  RICK would like to battle!" printed from 0x02022E2C (the build's gDisplayedStringBattle).
+- **A stale printer.** In the overworld after the battle, printer 0 still pointed one past "A got ₽64 for winning!"'s FF
+  while window 0's cells read 0; with the START menu open its frame drew BG0 rows 0-15 at columns 21-29, into window 0's
+  top row.
+- **MBOX is not the box** (the byte the build names sFieldMessageBoxMode, in `text_probe.lua`'s logs of 2026-09-16): it
+  read 02 from the frame a message's printer began to the frame it finished, and 00 while the finished text stayed up.
+- **The driver built on it** (same day): restored at the challenge, `observe` read the box `finished` and `recovered`,
+  and `battle` played from it to `ended` with no nudge; after the battle and with the START menu open, no message read.
+- **Not seen**: a finished message from a ROM string, windows 8-31, a message box other than window 0, a sign or a
+  nurse's box after a restore.
 
 ## Not measured yet
 

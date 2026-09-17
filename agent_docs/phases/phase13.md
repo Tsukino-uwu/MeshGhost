@@ -925,3 +925,29 @@ replayed after the last one (sign 221 frames, wild battle 2168 and 480, Elm's YE
 **Snapshots** (gitignored `autoplay/states/crystal/`): `route30_warped`, `route30_don_4below`, `route30_don_battle_start`.
 
 **Next for Crystal:** the PACK's scrolling list.
+
+## 2026-09-17 (the Emerald chat, later still) — a finished message is taken up after a restore
+
+**What was open:** the entry above's "seen, not fixed" -- restored at RICK's finished challenge box, `battle` read no
+message and answered `stuck`.
+
+**Measured** (`emerald/MEASURED.md`, "A finished message's printer and window, and a stale one"). A new read-only
+`probes/printer_state_probe.lua` logged the printers and windows whole. A finished message leaves its printer inactive
+with the pointer one past the string's FF, and its window PUT: the first and last cells on its background hold its own
+base block's first and last tiles (194 and 1FF for the 27-by-4 message box). A closed box reads 0 there, including after
+a battle while the printer still points past "A got ₽64 for winning!". The START menu's frame draws into window 0's top
+row, so the driver's existing top-row test alone would have taken a stale printer for a box. Field and battle messages
+began at their buffer's first byte (0x02021FC4 and 0x02022E2C); 197 bytes before the field buffer held no FF, so going
+back to an FF, as ROM strings are, would have run past the start. The byte text_probe logs as MBOX turned out to follow
+the printer, not the box.
+
+**Built** (`emerald.lua` only). `recoverDialogue` takes up a window whose printer is inactive when the window is put,
+and its string -- read from the buffer's start, or back to the FF in the ROM -- ends exactly at the pointer; an active
+printer's string in one of those buffers is now read from the buffer's start too.
+
+**Checked live** (driver only, the probe off): restored at `rick_challenge`, `observe` read the box `finished` and
+`recovered`, and `battle` played from "Hahah! Our eyes met!" to `ended` with no nudge; after it, and with the START
+menu open, no message read. Regression: the sight scenario 3 of 3; `acc_before_may`, a tap to MAY, `advance_text` read
+her five boxes to `battle_started` and `battle` played her battle to `ended`, as on the Crystal chat's check.
+
+**Left as it is:** the Emerald instance after MAY's battle, only the driver on its target.
