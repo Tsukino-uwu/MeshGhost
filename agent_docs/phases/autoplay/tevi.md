@@ -389,3 +389,54 @@ Cakewalk; Infernal may add moves). Moving is `reflex` `goto` (in stretches, with
 
 **Open:** a hitless run through a room of normal enemies on Infernal BBQ; Ribauld on Infernal BBQ; hold-Attack combos and the damage rotation;
 the combo meter in boss fights; `exec` (the game's Quantum Console first).
+
+## 2026-09-17 (new session) — Ribauld on Infernal BBQ: beaten three times, once hitless; the laser curtain, thrown orbs and the quickdrop press
+
+**The user, as it was played** (in order): *"its also possible to quickdrop onto bombs to push them"*; *"make sure to use the orbs more,
+melee/orbitar/quickdrop them into the boss"*; *"now its not using any melee attacks ?"* (a ranged-only comparison try); *"the combat logic does
+not know how to deal with multiple laser attacks at all"*; of the warning beams, *"they are safe locations, until they activate/start to deal
+damage"*; *"how would this acocunt for future/different beams ? variying sizes/speed/spacing ?"*; *"still getting hit a lot when the orbs are
+being thrown out"*; *"got scared at the start of the second phase / when there were 2 orbs out"*; *"Priority 1 is to not get hit, but priority 2
+is to always hugg/stick to the boss as much as possible to constantly deal damage, everything else is a 3rd priority"*; *"deal damage as
+much/fast as possible in whatever way is possible / don't take any damage at all"*, measured as *"time taken / current boss health / amount of
+hits"*, not per-attack damage (*"there will be more attack moves available later"*); *"double jumps can be useful, but think they need to be
+accounted for properly. they leave you vulnerable in the air longer"*. And an idea, filed in `ideas.md`: autoplay reading a replay or input
+recording of the user's play as a hint of what to do.
+
+**Built** (driver; the measurements in `adapters/tevi/MEASURED.md`, "Ribauld on Infernal BBQ"):
+- **Lasers**: the flight recorder keeps them (up to 32 a row); each laser's age is counted in game frames and the age a type first hurts is
+  learned (Ribauld's cut-in laser 56); the dodge counts a warning beam only from then. No swing within 40 of a beam about to hurt (a swing
+  slides her).
+- **Thrown orbs as tells**: an explosive character coming into play is sampled for the nearest enemy's state, like a bullet's birth
+  (Ribauld `ATTACK1` 27 frames, `ATTACK3` 40). An orb's hop counts as its detonation only from rest (thrown orbs bounce).
+- **Orbs third**: hit only when already in her swing or under her, never walked to; `orb_shots` shoots a still orb out of reach between them.
+  `orb_frames`, `orb_log` (each time an orb is sent flying, and what she was doing).
+- **`chain_guard`**: no combo chaining while a combo (56 frames, ground) outlasts the target's fastest learned tell (16, his charge).
+- **The quickdrop press**: Down held 4 frames, then Jump, Down kept through the press (`InputInjection.Quickdrop`, used by `fight` and `goto`).
+  Pressed together, or with Down let go or held only 2 frames while rising, the game made a double jump, and several hits came from it.
+
+**Reached / walked**: every try restored `tevi_inf_first_savepoint` (reached), then walked in with one `sequence`, `advance_text`, the Quickdrop
+window, and `fight` in 600-frame chunks with the clock held between them (a death came in the gap between two uncontrolled calls first).
+
+| Try | Build | Time | Ribauld HP left | Hits |
+| --- | --- | --- | --- | --- |
+| 1-10 | the fight as it was, then orbs first, ranged, warning beams (138, then 56) | died each time | 178 to 705 | 2-6 |
+| 11 | + thrown-orb tells | 138.7 s | 0 | 1 |
+| 12-16 | + orbs in reach, Orbitar at orbs, no chaining; from 15 the quickdrop with Down 2 frames first | died each time | 64 to 616 | 3-4 |
+| A1 | Down 2 frames first; chaining on, no orb shots | 115.4 s | **0** | **0** |
+| B1 | Down 2 frames first; chain guard, orb shots | died 99.5 s | 232 | 3 |
+| A2 | as A1 | died 42.5 s | 528 | 4 |
+| B2 | as B1 | 164.8 s | 0 | 1 |
+
+Snapshot `tevi_inf_ribauld_beaten` (after try 11's conversations). Run log `autoplay/runs/2026-09-17_174242.917353.ndjson`.
+
+**What was learned, for whoever fights next:**
+- **One try per build says little**: his attack order differs every try; compare builds over several tries by time, HP left and hits.
+- **Read the frames before a hit every frame**: rows every 3rd frame, or printed only when something changed, gave a wrong warning time (138)
+  and hid which input made a double jump; `DJUMPING` at a hit is her knockback, not always a jump.
+- **What still hits her on Infernal**: the bomb ring while she is in the air above him, a thrown orb arcing onto her, a `speeddown` shot, and his
+  charge while a combo locks her.
+
+**Open**: which of chain_guard and orb_shots helps (more tries each); the bomb ring in the air; double jumps as dodge plans, their air time
+counted; a quickdrop onto an orb (which way it pushes); the Charged Shot (MP full, a stronger Orbitar shot); a hitless run through a room of
+normal enemies; hold-Attack combos; `exec` through the Quantum Console.
