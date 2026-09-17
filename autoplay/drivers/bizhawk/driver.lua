@@ -206,11 +206,16 @@ end
 -- that answers (pad or nil, finished, result or nil, error or nil) -- the shape of every program,
 -- a game module's own included (game.programs).
 local SETTLE, LEG_LIMIT = 2, 30
+-- A confirm held CONFIRM_HOLD frames with no answer is let go and pressed again, CONFIRM_PRESSES times in all: Emerald's
+-- nurse's YES/NO, confirmed as soon as `talk` stopped on it, ignored A held 30 frames and took a tap 10 frames later
+-- (2026-09-17).
+local CONFIRM_HOLD, CONFIRM_PRESSES = 15, 3
 
 local function selectProgram(p)
 	local keys = game.menuButtons
 	local target, label, before, dir
 	local phase, held, settle, steps, from, maxSteps = "look", 0, 0, 0, nil, 0
+	local presses = 0
 	local releasing = nil -- frames spent waiting for the game to see a release, when the module can tell
 
 	local function sameMenu(m)
@@ -296,13 +301,21 @@ local function selectProgram(p)
 			end
 		end
 
-		-- confirm: hold until the menu is gone or no longer the same menu with the cursor on the entry.
-		if held > 0 and (not sameMenu(m) or m.cursor ~= target) then
+		-- confirm: hold until the menu is gone or no longer the same menu with the cursor on the entry; unanswered, let go
+		-- and press again.
+		if presses > 0 and (not sameMenu(m) or m.cursor ~= target) then
 			return nil, true, { selected = label, index = target, steps = steps, confirmed = true }
 		end
+		if held == 0 then presses = presses + 1 end
 		held = held + 1
-		if held > LEG_LIMIT then
-			return nil, true, nil, string.format("the menu did not respond to %s in %d frames", keys.confirm, LEG_LIMIT)
+		if held > CONFIRM_HOLD then
+			if presses >= CONFIRM_PRESSES then
+				return nil, true, nil, string.format("the menu did not respond to %s in %d presses of %d frames", keys.confirm,
+					presses, CONFIRM_HOLD)
+			end
+			held, settle = 0, SETTLE
+			if game.inputReleased then releasing = 0 end
+			return nil, false
 		end
 		return { [keys.confirm] = true }, false
 	end

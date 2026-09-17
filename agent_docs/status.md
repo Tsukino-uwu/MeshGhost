@@ -11,8 +11,8 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 ## Open now
 
 - 2026-09-16 — **Sort each adapter's older code-level entries out of `UNVERIFIED.md`/`VERIFIED.md` into `MEASURED.md`**, and give every `UNVERIFIED.md` (and `_template`) a full index. Another chat.
-- 2026-09-17 — **Autoplay, Emerald: Phase 1 and Phase 2's acceptance** (`goto` across maps, ledges, `talk`, the stuck classifier scenario 3 of 3);
-  open: ledges other than down, field-move obstacles, MAY's raw FA, noclip's cost and water. `phases/autoplay/emerald.md`.
+- 2026-09-17 — **Autoplay, Emerald: Phase 2's acceptance, and the story played to ROXANNE's badge** with the tools;
+  open: the learn-a-move question and evolution scene unread, items in a battle, FC bytes read raw. `phases/autoplay/emerald.md`.
 - 2026-09-17 — **Autoplay, Crystal**: `goto`, a scenario 3 of 3, every PACK pocket, the POKéMON menu, badges, bike and surf, a type- and stat-aware `strongest` on V1.0;
   **paused** (the user, 2026-09-17), its scoring moved behind `effective` and checked (`df7326f7`); next the whiteout. `phases/autoplay/crystal.md`.
 - 2026-09-17 — **Autoplay, TEVI: Phase 6's acceptance** (a BepInEx driver, a shadowing save guard, snapshots, teleport, the ground around the player,

@@ -273,3 +273,39 @@ accuracy and type but not the foe's accuracy drops or a paralysis, so it chose M
 not outlast (a policy that weighs HP, or `run`, is the caller's choice today).
 
 **Next:** Route 104, Petalburg Woods and Rustboro toward ROXANNE (ROCK: MUD-SLAP ×2, and WATER GUN if MUDKIP learns it).
+
+## 2026-09-17 (the Emerald chat, the first badge) — Petalburg to ROXANNE's STONE BADGE, a whiteout on the way
+
+**The user, while it ran:** *"some rotating trainers look towards the player if you are running/on a bike/going fast"*, and
+that opening the START menu one tile from them can shift their timing enough to slip by; *"paths to avoid walking into
+trainers sight is prefered whenever possible"*, *"its faster to not fight every single trainer"*; after the loss, *"if you
+whiteout you can always just run back, you will be a higher level now than when you tried last time"*, and that exploring
+before a gym works too, as it is done after anyway; on the learn-a-move question, *"delete growl"*, then that a variety of
+strong moves of different types is worth keeping and status, debuff and buff moves are harder to use than damaging ones;
+and that gym leaders and the Elite Four heal mid-fight, as the player can through BAG.
+
+**Played** (run log `autoplay/runs/2026-09-17_120845.522443.ndjson`). From the gym in Petalburg, after a `goto` refused its
+exit mats (fixed: planning from elevation 0), the Center healed through `talk` and `select`; the scratch trip loop to
+Rustboro: SCOTT's "Excuse me!" at Petalburg's west side, LADY CINDY on Route 104, Petalburg Woods with two BUG CATCHERs
+and the TEAM AQUA GRUNT's scene and battle (MUDKIP Lv 10 learned WATER GUN on the way), its north exit (fixed: behaviour
+0x64 on Up), RICH BOY WINSTON, and through a door into the Pokémon School (11.4). Rustboro's Center (11.5) healed; `talk` to
+ROXANNE past YOUNGSTER TOMMY; a whiteout to her NOSEPASS; back through the gym to ROXANNE again (the user's advice), the
+move-forget screen (GROWL for BIDE, the user's choice), her badge, the evolution to MARSHTOMP and BIDE for MUD SHOT (the
+user's guidance above). MARSHTOMP Lv 16: TACKLE, MUD SHOT, MUD-SLAP, WATER GUN; `badges` [1]; TM39 in the bag; money 3991.
+Snapshots: `story_rustboro`, `story_stone_badge`.
+
+**Measured** (`emerald/MEASURED.md`, "Rustboro: a north arrow warp, a floor at elevation 0, a YES/NO that ignores an early A,
+ROXANNE, an evolution").
+
+**Built** (`emerald.lua`; the shared changes in `../phase13.md`, "the first badge"): warp 0x64 entered on Up; a player at
+elevation 0 plans onto any level; `characters` falls back to templates for a character not loaded.
+
+**Open, from this stretch:**
+- **The learn-a-move question and the evolution scene** are not read: `battle`'s nudges pressed into the first, and it
+  stopped `stuck` on the second. Reading both, and a policy for which move to forget (the user's: keep strong moves of
+  different types, drop status moves first), is next.
+- **Items in a battle** (the BAG inside a battle is not measured), for healing mid-fight.
+- **Trainers that turn toward a running player**, and the START-menu timing the user described: not measured.
+- `advance_text` read the return from the evolution screen as `battle_started`; FC bytes read raw in several boxes.
+
+**Left as it is:** the game in ROXANNE's gym at (5,3) after the badge, snapshot `story_stone_badge`, no menu open.

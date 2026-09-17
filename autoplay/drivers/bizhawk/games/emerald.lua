@@ -1929,7 +1929,8 @@ end
 --   * on the Mach Bike the last leg lets go by `walk`'s coast rule (STEP.machCoasts), and a last leg of 3 tiles or fewer is
 --     reached by stopping at its corner first, since after a turn at speed the first tile reads 3 and coasts three.
 -- The direction a warp you stand on is entered by (ENTERING A WARP, below).
-local WARP_PRESS = { [0x62] = "right", [0x65] = "down" }
+-- Petalburg Woods' north exit (24.11 (14,5) and (15,5), behaviour 0x64) took no step onto it and warped on Up (2026-09-17).
+local WARP_PRESS = { [0x62] = "right", [0x64] = "up", [0x65] = "down" }
 
 local function routeGrid(fromX, fromY, toX, toY)
 	local layout = r32(GMAPHEADER)
@@ -1972,7 +1973,9 @@ local function routeGrid(fromX, fromY, toX, toY)
 			local v = grid[i] | (grid[i + 1] << 8)
 			-- Elevation 0 takes a step from any: the house's door mats and stairs read 0 and were walked onto
 			-- from elevation 3 (2026-09-17).
-			if (v >> 12) ~= elevation and (v >> 12) ~= 0 then return nil end
+			-- A player still at elevation 0 plans onto any level: in Petalburg's gym the floor reads 0 all round, and the player
+			-- had walked in onto it from the entrance mats at 3 (2026-09-17).
+			if elevation ~= 0 and (v >> 12) ~= elevation and (v >> 12) ~= 0 then return nil end
 			local behaviour = behaviourOf(v & 0x3FF)
 			-- A ledge reads collision set, and hopped moving down: two steps, onto it and past it (WHY A STEP WAS REFUSED).
 			if behaviour == 0x3B then return true, false, seen[y * mapW + x], "down" end
@@ -2254,7 +2257,16 @@ end
 -- talk {local_id}: to a tile beside the character, facing it, A, and advance_text (`../route.lua`'s M.talk). The player
 -- object's +0x18 low nibble read 1 after a walk down, 2 up, 3 left and 4 right (2026-09-17, `walk` and `goto` on 0.18); a
 -- script has the controls while the script context status is not SCRIPT_CONTEXT_OFF.
-routeHooks.characters = readObjects
+-- A character not loaded yet (off-screen: ROXANNE at 11.3 (5,2), talked to from the gym's door) comes from its template,
+-- as unbeaten trainers do; on arrival `talk` reads the loaded one again. A template's hide flag is not read.
+routeHooks.characters = function()
+	local out, seen = readObjects(), {}
+	for _, o in ipairs(out) do seen[o.local_id] = true end
+	for _, t in ipairs(readTemplates()) do
+		if not seen[t.local_id] then out[#out + 1] = { local_id = t.local_id, x = t.x, y = t.y, template = true } end
+	end
+	return out
+end
 routeHooks.facing = function()
 	return ({ "down", "up", "left", "right" })[r8(playerObject() + 0x18) & 0x0F]
 end

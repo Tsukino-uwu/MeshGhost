@@ -69,6 +69,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - What a move's type does to its damage (2026-09-17)
 - Ledges, water, and other maps read from the ROM (2026-09-17)
 - A warp's arrival, a whiteout, a Center's counter, and WALLY's battle (2026-09-17)
+- Rustboro: a north arrow warp, a floor at elevation 0, a YES/NO that ignores an early A, ROXANNE, an evolution (2026-09-17)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -901,6 +902,37 @@ log `autoplay/runs/2026-09-17_120845.522443.ndjson`, captures `dev-scripts/shots
   `autoplay_story_gym_door`), Birch's lab 1.4.
 - **Not measured**: the whiteout's own text beyond the two lines, where a whiteout lands with no Center visited, other
   `outcome_raw` values, other bits of the type flags.
+
+### Rustboro: a north arrow warp, a floor at elevation 0, a YES/NO that ignores an early A, ROXANNE, an evolution (2026-09-17)
+
+**Vanilla ROM**, played on from `story_after_wally` with autoplay's tools; run log
+`autoplay/runs/2026-09-17_120845.522443.ndjson`, captures `dev-scripts/shots/emerald/autoplay_story_*` (gitignored).
+
+- **Petalburg Woods' north exit** (24.11 (14,5) and (15,5)): behaviour 0x64, collision 0, elevation 0. `goto` stepped onto
+  it and stood there (`done`, no warp, twice); from (15,5) Up answered `map_changed` onto 0.19 (11,29).
+- **The gym's floor at elevation 0.** Petalburg's gym (8.1) from the scene with DAD: the player object's elevation read 0,
+  the floor round it read 0 and the entrance mats (4,111) and (5,111) read 3 (behaviour 0x65). A `goto` planned at
+  elevation 0 refused the mats as "not an open tile at elevation 0"; planned onto any level it walked onto (4,111), and
+  Down there left for 0.0 (15,8).
+- **A YES/NO right after it opens.** The nurse's "Would you like to rest your POKéMON?" in Petalburg's Center, just after
+  `talk` stopped `menu_open` on it: A held 30 frames did nothing; 10 frames later a 2-frame A answered YES ("Okay, I'll take
+  your POKéMON"). `select` holding A from that moment had answered "did not respond" twice; with a release and a second
+  press after 15 frames it answered YES 3 times of 3.
+- **A character not loaded.** In Rustboro's gym (11.3) from its door (5,17), ROXANNE (local 1, template at (5,2)) was not in
+  the object slots; `talk` to her by her template's tile reached her, past YOUNGSTER TOMMY (local 2, (5,13), range 2), whom
+  the only way up crossed.
+- **ROXANNE.** The first try, MUDKIP Lv 12 to 14 with WATER GUN chosen every turn: her NOSEPASS used ROCK TOMB, BLOCK, an
+  ORAN BERRY and two POTIONs and fainted MUDKIP -- `outcome_raw` 2, the player at 0.3 (16,39) below the Center door there,
+  money 4982 to 2491. The second, Lv 14 to 16: WATER GUN every turn, "Player defeated LEADER ROXANNE!", STONE BADGE,
+  TM39; `observe` then read `badges` [1] and `badge_count` 1.
+- **The learn-a-move question and the evolution scene.** "Delete a move to make room for BIDE?" in the battle read as no
+  menu, and after `battle`'s nudges the move list was up (callback2 0x081BFAB5, the cursor drawn on TACKLE; Down moved it one
+  row, A chose GROWL, "1, 2, and… Poof!" printed with FC bytes read raw). After the battle, "What? MUDKIP is evolving!":
+  `battle` answered `stuck` on it; 900 frames with no input later "Congratulations! Your MUDKIP evolved into MARSHTOMP!"
+  (callback2 0x0813E3A5), then "Delete a move to make room for MUD SHOT?", whose YES `advance_text`'s tap answered; BIDE
+  was chosen the same way. `advance_text` answered `battle_started` as that screen closed.
+- **Not measured**: the learn-a-move YES/NO and the move list in memory, the evolution scene's state, the arrow warps 0x63,
+  a hide flag on a character template.
 
 ## Not measured yet
 

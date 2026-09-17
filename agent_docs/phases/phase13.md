@@ -34,6 +34,7 @@ here adds its heading as one line under "The plan and the shared core".**
 - 2026-09-17 (the Emerald chat, end of the night) — the order from here: Emerald on, TEVI's Phase 6 before Phase 3, Crystal paused
 - 2026-09-17 (the Emerald chat, Phase 2) — Phase 2 in the shared core: one-way tiles, `goto` across maps, `talk`
 - 2026-09-17 (the Emerald chat, the story) — the plan across maps floods each map; `talk` across a counter; a battle the game answers
+- 2026-09-17 (the Emerald chat, the first badge) — `select` presses confirm again; routes out of a trainer's sight preferred
 
 **Emerald (vanilla), before its own log** -- from 2026-09-17 in [autoplay/emerald.md](autoplay/emerald.md)
 - 2026-09-16 (later still) — Phase 1 step 2: a live driver in vanilla Emerald, from boot to walking
@@ -1415,3 +1416,19 @@ Live on vanilla Emerald: the acceptance run and the rest in the Emerald entry.
 (`travel` and `talk` are not Crystal's), so its path is unchanged; not run. Live on vanilla Emerald: the stuck classifier
 scenario 1 of 1 after the changes, RICK's battle under `effective` to `ended` with no nudge, and the story trips in the
 Emerald entry.
+
+## 2026-09-17 (the Emerald chat, the first badge) — `select` presses confirm again; routes out of a trainer's sight preferred
+
+**What changed in the shared core** (the measurements in [autoplay/emerald.md](autoplay/emerald.md), same date):
+- **`driver.lua`, `select`.** Confirm was held until the menu answered, for up to 30 frames; a YES/NO confirmed as soon as
+  it opened ignored the held A. Now a hold of 15 frames with no answer is let go (waiting for the game to see the release
+  where the module says, as Crystal's does) and pressed again, 3 presses in all; the answer is looked for during the release
+  too. A menu that answers within 15 frames -- every one measured before -- is confirmed exactly as before.
+- **`route.lua`.** The user, while it ran: *"paths to avoid walking into trainers sight is prefered whenever possible"*, *"its
+  faster to not fight every single trainer"*. `travel`'s side tile for an edge and `talk`'s tile beside a character were the
+  nearest a route reached; now the nearest whose route crosses no trainer's line, else the nearest reached. `travel` names
+  each exit it set aside, and why, in `exits_set_aside`.
+
+**Checked.** `luac -p` on both. Live on vanilla Emerald: `talk` to a nurse then `select YES` straight after, 3 of 3; the stuck
+classifier scenario 1 of 1; the rest of the trip to the badge. **Crystal's path** not run (paused): its menus answered within
+15 frames when measured, which leaves them on the old path, but no Crystal menu was confirmed under this change.

@@ -374,13 +374,13 @@ function M.travel(h, p)
 	if not h.inOverworld() then return nil, "goto needs the overworld" end
 	local L = h.limits
 	local sub = { run = p.run, cross_grass = p.cross_grass }
-	local failed, maps, moved, turns, replans, setAside = {}, {}, 0, 0, 0, 0
+	local failed, maps, moved, turns, replans, setAside, setAsideKeys = {}, {}, 0, 0, 0, 0, {}
 	local phase, frames, inner, step, crossing, crossFrom = "settle", 0, nil, nil, nil, nil
 
 	local function finish(outcome, extra)
 		local map, x, y = h.position()
 		local r = { target = { map = toMap, x = toX, y = toY }, map = map, at = { x = x, y = y }, outcome = outcome,
-			maps = maps, moved = moved, turns = turns, replans = replans, exits_set_aside = setAside > 0 and setAside or nil }
+			maps = maps, moved = moved, turns = turns, replans = replans, exits_set_aside = #setAsideKeys > 0 and setAsideKeys or nil }
 		for k, v in pairs(extra or {}) do
 			if r[k] == nil then r[k] = v end
 		end
@@ -476,20 +476,25 @@ function M.travel(h, p)
 		end
 		return nil
 	end
-	-- The side tile to leave from: the nearest of those leading on that a route on the live grid plans to.
+	-- The side tile to leave from: of those leading on, the nearest whose route on the live grid crosses no trainer's line,
+	-- else the nearest a route reaches at all (the user: routes out of a trainer's sight are preferred whenever possible).
 	local function edgeTile(x, y)
-		local cands = {}
+		local cands, fallback = {}, nil
 		for _, t in ipairs(step.sides) do
 			cands[#cands + 1] = { x = t.x, y = t.y, dist = math.abs(t.x - x) + math.abs(t.y - y) }
 		end
 		table.sort(cands, function(a, b) return a.dist < b.dist end)
 		for i = 1, math.min(#cands, EDGE_CANDIDATES) do
-			if M.plan(h, x, y, cands[i].x, cands[i].y, {}, p.cross_grass == true) then return cands[i].x, cands[i].y end
+			local legs, inSight = M.plan(h, x, y, cands[i].x, cands[i].y, {}, p.cross_grass == true)
+			if legs and #inSight == 0 then return cands[i].x, cands[i].y end
+			if legs and not fallback then fallback = cands[i] end
 		end
+		if fallback then return fallback.x, fallback.y end
 		return nil
 	end
-	local function setAsideStep()
+	local function setAsideStep(why)
 		failed[step.key], setAside, phase, frames = true, setAside + 1, "settle", 0
+		setAsideKeys[#setAsideKeys + 1] = step.key .. (why and (": " .. why) or "")
 		if setAside > MAP_REPLANS then return finish("unreachable", { reason = "set aside " .. setAside .. " exits" }) end
 		return nil, false
 	end
@@ -522,7 +527,7 @@ function M.travel(h, p)
 				tx, ty = e.x, e.y
 			else
 				tx, ty = edgeTile(x, y)
-				if not tx then return setAsideStep() end
+				if not tx then return setAsideStep("no side tile a route reaches") end
 			end
 			inner = M.go(h, { x = tx, y = ty, run = sub.run, cross_grass = sub.cross_grass })
 			if not inner then return setAsideStep() end
@@ -552,7 +557,7 @@ function M.travel(h, p)
 			return nil, false
 		end
 		if r.outcome == "unreachable" or r.outcome == "blocked" or r.outcome == "no_response" or r.outcome == "done" then
-			return setAsideStep()
+			return setAsideStep(r.outcome .. (r.reason and (", " .. r.reason) or ""))
 		end
 		return finish(r.outcome, r)
 	end, nil, 36000
@@ -624,12 +629,17 @@ function M.talk(h, p, advance)
 				end
 			end
 			table.sort(spots, function(a, b) return a.dist < b.dist end)
+			-- The nearest spot a route reaches out of every trainer's sight, else the nearest a route reaches.
+			local chosen
 			for _, spot in ipairs(spots) do
-				if M.plan(h, px, py, spot.x, spot.y, {}, false) then
-					inner = M.go(h, { x = spot.x, y = spot.y })
+				local legs, inSight = M.plan(h, px, py, spot.x, spot.y, {}, false)
+				if legs and #inSight == 0 then
+					chosen = spot
 					break
 				end
+				if legs and not chosen then chosen = spot end
 			end
+			if chosen then inner = M.go(h, { x = chosen.x, y = chosen.y }) end
 			if not inner then return finish("unreachable", { reason = "no route to a tile beside local_id " .. tostring(c.local_id) }) end
 			phase, frames = "walk", 0
 			return nil, false
