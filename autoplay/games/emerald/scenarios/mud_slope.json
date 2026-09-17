@@ -1,0 +1,43 @@
+{
+  "name": "emerald_mud_slope",
+  "game": "emerald",
+  "variant": "vanilla",
+  "reproduces": "autoplay/drivers/bizhawk/games/emerald.lua, MUD SLOPE (2026-09-17): on 0.26 the slope at (17,36)-(17,37), behaviour 0xD0, slid the player back to (17,38) on `walk up 1`; two unattended sessions' trips looped on it until stopped, so goto closes it",
+  "needs": "vanilla Emerald with a save loaded and the player in the overworld, on foot",
+  "note": "The situation is made with a warp below the slope; goto plans from there with no step taken. Nothing here writes a save.",
+  "repeat": 3,
+  "setup": [
+    {
+      "tool": "cheat",
+      "args": {"kind": "warp", "args": {"map": "0.26", "x": 17, "y": 38}},
+      "note": "the tile below the slope",
+      "expect": [
+        {"path": "done", "equals": true},
+        {"path": "after.location.map", "equals": "0.26"},
+        {"path": "after.location.x", "equals": 17},
+        {"path": "after.location.y", "equals": 38}
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "tool": "walk",
+      "args": {"direction": "up", "tiles": 1},
+      "note": "the slope itself: onto it and slid back, as measured",
+      "expect": [
+        {"path": "after.location.x", "equals": 17},
+        {"path": "after.location.y", "equals": 38}
+      ]
+    },
+    {
+      "tool": "goto",
+      "args": {"x": 17, "y": 35, "run": true},
+      "note": "the tile above the slope: no route up it on foot, and no step taken",
+      "expect": [
+        {"path": "outcome", "equals": "unreachable"},
+        {"path": "after.location.x", "equals": 17},
+        {"path": "after.location.y", "equals": 38}
+      ]
+    }
+  ]
+}

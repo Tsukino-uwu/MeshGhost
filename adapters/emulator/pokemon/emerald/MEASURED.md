@@ -74,6 +74,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - The bag inside a battle, and a POTION used through it (2026-09-17)
 - A Mart: the buy list, the quantity box, and the list left active under it (2026-09-17)
 - The live grid against the ROM's layout: a gym's barriers opened by its switches (2026-09-17)
+- A mud slope on 0.26: onto it and slid back (2026-09-17)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -1032,6 +1033,21 @@ with captures `dev-scripts/shots/emerald/autoplay_battle_bag_*` (gitignored); ru
   grid, the same trip from the same snapshot went, and `heal` answered `done`, MARSHTOMP 67 to 95 of 95 HP.
 - **Not measured**: which other maps a script changes (Dewford's gym floor answered the same "no way on foot" on 2026-09-17,
   not looked at), and a map other than the current one whose tiles a script changed before the player left it.
+
+### A mud slope on 0.26: onto it and slid back (2026-09-17)
+
+**Vanilla ROM**, the game where attempt 2 of the autoplay acceptance was stopped (not a snapshot), on foot; run logs
+`autoplay/runs/2026-09-17_175751.136021.ndjson` (the loop) and `2026-09-17_181329.671765.ndjson` (the scenario).
+
+- **The tiles**: `observe`'s local map on 0.26 read behaviour 0xD0 at (17,36) and (17,37), straight above the player at
+  (17,38); the screenshot showed a brown slope cut into the cliff there.
+- **`walk up 1`** from (17,38) answered `done`, moved 2, overshot 1, and left the player on (17,38): onto the slope and
+  slid back. Two unattended sessions' trips (to 0.13 and to 0.28) walked up it until stopped. The user: *"you need a mach
+  bike to go up the mud slides"*.
+- **`goto` closes 0xD0 on foot** since: from (17,38) to (17,35) it answers `unreachable` with no step taken, and without that
+  check it was "still running after 7200 frames" (`games/emerald/scenarios/mud_slope.json`, 3 of 3 with it, 0 of 1 without).
+  A trip from (17,38) to 0.28 (88,6) then went round and arrived, one trainer on the way.
+- **Not measured**: moving down a slope, the MACH BIKE on one, and whether every 0xD0 tile is a slope.
 
 ## Not measured yet
 

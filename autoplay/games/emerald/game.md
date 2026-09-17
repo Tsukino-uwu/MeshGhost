@@ -30,6 +30,8 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
   0x03005DC0, a u16 per tile (collision bits 10-11, elevation 12-15), 7 tiles in (MEASURED.md); on 24.14 its
   collision matched what `goto` and `walk` did (run log `2026-09-17_174529.077127`). goto's "not an open tile from elevation N" was a collision
   tile: a neighbour from the grid went.
+- **A mud slope (behaviour 0xD0) is not walked up on foot**: the player slides back, and `goto` plans round it or
+  answers `unreachable` (MEASURED.md, "A mud slope on 0.26"). The user: a MACH BIKE goes up them.
 - **A warp tile of behaviour 101 inside a cave** (24.14's exits) is left by stepping onto it, then `walk` Down.
 - **A smashed rock was back after a whiteout** (0.26, run log `2026-09-17_175751.136021`): a trip answered "no way on
   foot" at (19,101) until (19,100) was smashed again.

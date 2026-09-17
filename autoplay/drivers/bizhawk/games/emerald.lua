@@ -2078,6 +2078,10 @@ end
 -- The direction a warp you stand on is entered by (ENTERING A WARP, below).
 -- Petalburg Woods' north exit (24.11 (14,5) and (15,5), behaviour 0x64) took no step onto it and warped on Up (2026-09-17).
 local WARP_PRESS = { [0x62] = "right", [0x64] = "up", [0x65] = "down" }
+-- MUD SLOPE (2026-09-17, 0.26 (17,36)-(17,37), behaviour 0xD0, below the player at (17,38)): `walk up 1` answered done,
+-- moved 2, overshot 1, and left the player on (17,38) -- onto the slope and slid back. Two unattended sessions' trips looped
+-- on it until stopped. The user: "you need a mach bike to go up the mud slides". Moving down one, and the bike on one, are
+-- not measured: the plan on foot closes 0xD0 both ways.
 
 local function routeGrid(fromX, fromY, toX, toY)
 	local layout = r32(GMAPHEADER)
@@ -2111,6 +2115,8 @@ local function routeGrid(fromX, fromY, toX, toY)
 			local behaviour = behaviourOf(v & 0x3FF)
 			-- Water (0x15 at elevation 1) is not walked onto (WHY A STEP WAS REFUSED); a step's level is elevationStep's.
 			if behaviour == 0x15 and (v >> 12) == 1 then return nil end
+			-- A mud slope (0xD0) slid the player back on foot (MUD SLOPE, above): closed.
+			if behaviour == 0xD0 then return nil end
 			-- A ledge reads collision set, and hopped moving down: two steps, onto it and past it (WHY A STEP WAS REFUSED).
 			if behaviour == 0x3B then return true, false, seen[y * mapW + x], "down" end
 			if (v & 0x0C00) ~= 0 then return nil end
@@ -2270,7 +2276,7 @@ routeHooks.mapTile = function(name, x, y)
 	local collision, elevation, behaviour = routeHooks.mapTileRaw(name, x, y)
 	if not collision then return nil end
 	if behaviour == 0x3B then return elevation, "down" end
-	if collision ~= 0 or (elevation == 1 and behaviour == 0x15) then return nil end
+	if collision ~= 0 or (elevation == 1 and behaviour == 0x15) or behaviour == 0xD0 then return nil end
 	return elevation
 end
 

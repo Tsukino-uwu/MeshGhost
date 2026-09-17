@@ -278,6 +278,9 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   below a wall, below a ledge, onto a shore and beside a beaten RICK; `walk` answers `blocked` with `cause` `solid`,
   `one_way_edge`, `missing_ability` (`surf`) and `npc_in_way`, and, after A on RICK, `dialogue_open` (3 of 3, and failing
   at its step with one expectation broken).
+  `games/emerald/scenarios/mud_slope.json` -- a mud slope on 0.26, from `emerald/MEASURED.md` (2026-09-17): a warp below
+  it, `walk up 1` slides back to the same tile, and `goto` to the tile above answers `unreachable` with no step (3 of 3;
+  without the check `goto` was still running after 7200 frames).
   `games/tevi/scenarios/cell_right_wall.json` -- the Bandit Base cell's right wall, from `adapters/tevi/MEASURED.md`
   (2026-09-17): a teleport onto the cell's floor, 30 frames standing, and two 60-frame holds of `XAxis+` that the wall stops
   at x 17040-17080 (3 of 3, and failing at its step with one expectation broken). The plan's Phase 6 acceptance.
