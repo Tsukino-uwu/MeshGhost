@@ -73,6 +73,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - The learn-a-move question, the move list and the evolution scene (2026-09-17)
 - The bag inside a battle, and a POTION used through it (2026-09-17)
 - A Mart: the buy list, the quantity box, and the list left active under it (2026-09-17)
+- The live grid against the ROM's layout: a gym's barriers opened by its switches (2026-09-17)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -1014,6 +1015,23 @@ with captures `dev-scripts/shots/emerald/autoplay_battle_bag_*` (gitignored); ru
 - "Here you go!" waited on A after the driver was reloaded, and read as no message (a finished message is recovered only on the
   overworld's and the main menu's screens).
 - **Not measured**: SELL, Right/Left in the quantity box (±10 in the decomp), a purchase refused for money.
+
+### The live grid against the ROM's layout: a gym's barriers opened by its switches (2026-09-17)
+
+**Vanilla ROM**, snapshot `story_dynamo_badge` (WATTSON's gym, 10.0, the player at (5,3) after its four switches); a read-only
+`exec` comparing each tile of the map's ROM layout (gMapGroups' header, +0 layout, +0x0C data) with the live grid
+(gBackupMapLayout, +7 each way); run log `autoplay/runs/2026-09-17_171332.417648.ndjson`.
+
+- **20 of the map's 210 tiles differ.** The barriers read collision set in the ROM and clear in the live grid: (4,7) `0628` against
+  `0238`, (5,7) `0629`/`0239`, (1,11), (2,11), (4,14), (5,14) the same; the tiles above them change metatile with no collision
+  change ((4,6) `0220`/`0230`); (6,9) `0648`/`021A` and (6,10) `0650`/`0251` go from collision set to clear; (6,8) `0640`/`0E42` and
+  (3,11) `0643`/`0E43` change metatile and stay collision set. The four switches, (0,15), (3,9),
+  (4,12) and (8,9), read `3205` in the ROM and `3206` live.
+- **What it did to `goto`**: a trip from (5,3) to Mauville's Center (10.5) planned the gym's own floor from the ROM and
+  answered "no way on foot known from 10.0 (5,3) to 10.5 (7,4)" at once. With the map the player stands on read from the live
+  grid, the same trip from the same snapshot went, and `heal` answered `done`, MARSHTOMP 67 to 95 of 95 HP.
+- **Not measured**: which other maps a script changes (Dewford's gym floor answered the same "no way on foot" on 2026-09-17,
+  not looked at), and a map other than the current one whose tiles a script changed before the player left it.
 
 ## Not measured yet
 

@@ -2227,10 +2227,23 @@ routeHooks.mapExits = function(name)
 end
 -- Any map's tile from the ROM: collision, elevation and behaviour, through that layout's own tilesets (as behaviourOf reads
 -- the current one's).
+-- The map the player stands on is read from the live grid instead: a script changes its tiles. In WATTSON's gym (10.0)
+-- after its four switches, 20 tiles read differently -- the barriers collision set in the ROM's layout (0628) and clear
+-- in the live grid (0238), the switches 3205 against 3206 -- and a trip from the floor to the Center answered "no way on
+-- foot" (2026-09-17, `exec` from `story_dynamo_badge`). The current map's name is read once a frame.
 routeHooks.mapTileRaw = function(name, x, y)
 	local _, layout, w, h = routeHooks.mapHeader(name)
 	if not layout or x < 0 or y < 0 or x >= w or y >= h then return nil end
-	local v = r16(r32(layout + 12) + (x + w * y) * 2)
+	if routeHooks.liveFrame ~= emu.framecount() then
+		routeHooks.liveFrame, routeHooks.liveMap = emu.framecount(), (routeHooks.position())
+	end
+	local v
+	if name == routeHooks.liveMap and r32(GMAPHEADER) == layout then
+		local gw = r32(GBACKUPMAPLAYOUT)
+		v = r16(r32(GBACKUPMAPLAYOUT + 8) + ((x + MAP_OFFSET) + gw * (y + MAP_OFFSET)) * 2)
+	else
+		v = r16(r32(layout + 12) + (x + w * y) * 2)
+	end
 	local id, k = v & 0x3FF, 0
 	if id >= 512 then id, k = id - 512, 1 end
 	local ts = r32(layout + 0x10 + k * 4)

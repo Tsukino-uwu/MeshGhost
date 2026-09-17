@@ -17,5 +17,8 @@
     {"after": "battle", "when": [{"path": "outcome", "equals": "ended"}], "then": "repeat"}
   ],
   "max_calls": 60,
-  "draft": true
+  "succeeded": [
+    "run log 2026-09-17_171332.417648, segment 5 (walked): Mauville's Center 10.5 to Slateport's Center 9.11 over Route 110, four wild battles and a message, done in 11 calls",
+    "run log 2026-09-17_171332.417648, segment 6 (walked): Slateport's Center 9.11 to Mauville 0.2 (20,10), two wild battles, done in 5 calls"
+  ]
 }
