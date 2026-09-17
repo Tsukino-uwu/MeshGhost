@@ -30,6 +30,11 @@
 --                                       `oneWay`, optional, a direction ("down"): the tile is stepped onto only moving that
 --                                       way and left the same way, never stood on (a ledge hopped). The target is asked for
 --                                       too, so a warp is open when it is the target
+--        optional: grid.elevation (the player's level now) and grid.elevationAt(x, y) (a tile's), used with h.elevationStep
+--   elevationStep(level, tileLevel, fromTileLevel) -> the level after the step, or nil when it is refused. Given, the plan
+--                                       carries the player's level in its state, and the cross-map flood does too, from
+--                                       h.playerElevation() on the map it starts on (Emerald: Route 110's ground at 3
+--                                       and at 1 meets through tiles of 0, 2026-09-17)
 --   warps()              -> list        the map's warps, each with x and y
 --   enterWarp(w)         -> nil, or { press = "up" | "down" | "left" | "right", dx, dy, fromRest }
 --                                       nil: a step onto the warp enters it. Otherwise the route goes to the warp's tile
@@ -129,8 +134,12 @@ function M.plan(h, fromX, fromY, toX, toY, closed, crossGrass)
 		end
 		return top
 	end
+	-- With levels (h.elevationStep and grid.elevationAt), a state is (tile, facing, level); without, the level stays 0.
+	local step, levelAt = h.elevationStep, grid.elevationAt
+	if not (step and levelAt) then step = nil end
+	local startLevel = step and (grid.elevation or 0) or 0
 	for di = 1, 4 do
-		local key = (fromY * mapW + fromX) * 4 + di - 1
+		local key = ((fromY * mapW + fromX) * 4 + di - 1) * 16 + startLevel
 		dist[key] = 0
 		push(0, key)
 	end
@@ -139,7 +148,8 @@ function M.plan(h, fromX, fromY, toX, toY, closed, crossGrass)
 		local item = pop()
 		local cost, key = item[1], item[2]
 		if cost == dist[key] then
-			local t, di = key // 4, key % 4 + 1
+			local level, rest = key % 16, key // 16
+			local t, di = rest // 4, rest % 4 + 1
 			local x, y = t % mapW, t // mapW
 			if x == toX and y == toY then
 				goal = key
@@ -151,8 +161,13 @@ function M.plan(h, fromX, fromY, toX, toY, closed, crossGrass)
 				local d = order[ni]
 				local nx, ny = x + d.dx, y + d.dy
 				local extra = (not oneWay or DIRECTIONS[oneWay] == d) and open(nx, ny, d) or nil
+				local nlevel = level
+				if extra and step then
+					nlevel = step(level, levelAt(nx, ny), levelAt(x, y))
+					if not nlevel then extra = nil end
+				end
 				if extra then
-					local nkey = (ny * mapW + nx) * 4 + ni - 1
+					local nkey = ((ny * mapW + nx) * 4 + ni - 1) * 16 + nlevel
 					local ncost = cost + 1 + extra + ((ni ~= di and cost > 0) and TURN_COST or 0)
 					if dist[nkey] == nil or ncost < dist[nkey] then
 						dist[nkey], prev[nkey] = ncost, key
@@ -166,7 +181,7 @@ function M.plan(h, fromX, fromY, toX, toY, closed, crossGrass)
 	-- Walk back to the start, then fold the steps into legs.
 	local steps, key = {}, goal
 	while prev[key] do
-		table.insert(steps, 1, order[key % 4 + 1])
+		table.insert(steps, 1, order[(key // 16) % 4 + 1])
 		key = prev[key]
 	end
 	local legs, x, y, inSight, named = {}, fromX, fromY, {}, {}
@@ -387,20 +402,33 @@ function M.travel(h, p)
 		return nil, true, r
 	end
 	-- The tiles a walk covers on `map` from (sx, sy), keyed y * width + x.
-	local function flood(map, info, sx, sy)
+	-- With h.elevationStep the flood carries the player's level (`level`, else the start tile's), as the plan does.
+	local function flood(map, info, sx, sy, level)
 		local w, hgt = info.width, info.height
-		local reached, queue, qi = { [sy * w + sx] = true }, { sx, sy }, 1
+		local step = h.elevationStep
+		local start = step and (level or h.mapTile(map, sx, sy) or 0) or 0
+		local reached, seen = { [sy * w + sx] = true }, { [(sy * w + sx) * 16 + start] = true }
+		local queue, qi = { sx, sy, start }, 1
 		while qi < #queue do
-			local x, y = queue[qi], queue[qi + 1]
-			qi = qi + 2
+			local x, y, lv = queue[qi], queue[qi + 1], queue[qi + 2]
+			qi = qi + 3
 			local e0, way = h.mapTile(map, x, y)
 			for _, d in pairs(DIRECTIONS) do
 				local nx, ny = x + d.dx, y + d.dy
-				if (not way or DIRECTIONS[way] == d) and nx >= 0 and ny >= 0 and nx < w and ny < hgt and not reached[ny * w + nx] then
+				if (not way or DIRECTIONS[way] == d) and nx >= 0 and ny >= 0 and nx < w and ny < hgt then
 					local e1, way1 = h.mapTile(map, nx, ny)
-					if e1 and (not way1 or DIRECTIONS[way1] == d) and (e0 == nil or e1 == e0 or e0 == 0 or e1 == 0) then
+					local nlv
+					if e1 and (not way1 or DIRECTIONS[way1] == d) then
+						if step then
+							nlv = step(lv, e1, e0 or 0)
+						elseif e0 == nil or e1 == e0 or e0 == 0 or e1 == 0 then
+							nlv = 0
+						end
+					end
+					if nlv and not seen[(ny * w + nx) * 16 + nlv] then
+						seen[(ny * w + nx) * 16 + nlv] = true
 						reached[ny * w + nx] = true
-						queue[#queue + 1], queue[#queue + 2] = nx, ny
+						queue[#queue + 1], queue[#queue + 2], queue[#queue + 3] = nx, ny, nlv
 					end
 				end
 			end
@@ -424,7 +452,8 @@ function M.travel(h, p)
 	-- side tiles that lead on.
 	local function route(fromMap, fx, fy)
 		local startInfo = h.mapExits(fromMap)
-		local parts = { { map = fromMap, info = startInfo, reached = flood(fromMap, startInfo, fx, fy) } }
+		local parts = { { map = fromMap, info = startInfo, reached = flood(fromMap, startInfo, fx, fy,
+			h.playerElevation and h.playerElevation() or nil) } }
 		local byMap = { [fromMap] = { parts[1].reached } }
 		local i = 1
 		while i <= #parts and #parts <= SEARCH_PARTS do

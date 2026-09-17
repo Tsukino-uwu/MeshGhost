@@ -453,3 +453,19 @@ EXIT, read by the menu reader) to Route 109's beach (0.24). MARSHTOMP Lv 23, mon
 **The user, while it ran:** a REPEL keeps wild Pokémon away while the lead is above their levels -- none in the bag, and a Mart's
 list is not read yet.
 
+## 2026-09-17 (the Emerald chat, next session) — Slateport: CAPT. STERN, ARCHIE, and Route 110 to MAY
+
+**Played** (walked; run log `autoplay/runs/2026-09-17_131645.118278.ndjson`, segments "story: Granite Cave to Slateport" and
+"story: Slateport to Mauville"). Slateport's doors found by trying and by each interior's size, stairs and characters read from
+the ROM (9.2 a house with a counter, 9.9 the harbor, 9.11 the Center, 9.0 the shipyard where DOCK sent the player to the museum,
+9.7 and 9.8 the museum -- TEAM AQUA's queue outside let the player through). The museum's fee paid through its YES/NO; STERN on
+9.8, two TEAM AQUA GRUNTs in a row, ARCHIE's speech, the DEVON GOODS handed over; SCOTT outside. Route 110 in one trip after the
+planner change (PROF. BIRCH's scene, POKéFAN KALEB, wild ELECTRIKE and WINGULLs), then MAY at its north end: her GROVYLE's ABSORB
+(×4) against TACKLE, the only neutral move -- a whiteout, the second loss to a GRASS type with MARSHTOMP alone. MARSHTOMP Lv 25,
+money 3423. Snapshots: `story_stern_goods`.
+
+**Built** (`emerald.lua`). Levels for `goto` (`elevationStep`, `playerElevation`, the grid's `elevationAt`; LEVELS in the file,
+the decomp as the map for the rule beyond the mats and floors measured before), water closed by behaviour 0x15 rather than by
+elevation 1 alone.
+
+**Open from this stretch:** a party of one loses to GRASS types however `effective` chooses; a second Pokémon (a catch) is next.

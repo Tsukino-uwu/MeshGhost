@@ -2068,22 +2068,8 @@ local function routeGrid(fromX, fromY, toX, toY)
 	local gw, gh, gp = r32(GBACKUPMAPLAYOUT), r32(GBACKUPMAPLAYOUT + 4), r32(GBACKUPMAPLAYOUT + 8)
 	if mapW < 1 or mapH < 1 or mapW > 512 or mapH > 512 or gw * gh > 262144 then return nil, "map size out of range" end
 	local grid = memory.read_bytes_as_array(gp, gw * gh * 2, BUS)
+	-- The player's level, the low nibble of the player object's +0x0B; each step's level is routeHooks.elevationStep's (LEVELS).
 	local elevation = r8(playerObject() + 0x0B) & 0x0F
-	if elevation == 0 then
-		-- Standing on elevation 0 (a door mat), plan at the level of a clear neighbour: from the house's mat at
-		-- elevation 0 the next step right was onto elevation 3 (2026-09-17).
-		for _, off in ipairs({ { 0, -1 }, { 1, 0 }, { -1, 0 }, { 0, 1 } }) do
-			local nx, ny = fromX + off[1] + MAP_OFFSET, fromY + off[2] + MAP_OFFSET
-			if nx >= 0 and ny >= 0 and nx < gw and ny < gh then
-				local i = (nx + gw * ny) * 2 + 1
-				local v = grid[i] | (grid[i + 1] << 8)
-				if (v & 0x0C00) == 0 and (v >> 12) ~= 0 and (v >> 12) ~= 15 then
-					elevation = v >> 12
-					break
-				end
-			end
-		end
-	end
 	local blocked, objects = {}, readObjects()
 	for _, o in ipairs(objects) do blocked[o.y * mapW + o.x] = "character" end
 	local trainers = unbeatenTrainers(objects)
@@ -2095,17 +2081,18 @@ local function routeGrid(fromX, fromY, toX, toY)
 		if not (w.x == toX and w.y == toY) then blocked[w.y * mapW + w.x] = blocked[w.y * mapW + w.x] or "warp" end
 	end
 	return {
-		width = mapW, height = mapH, where = "at elevation " .. elevation,
+		width = mapW, height = mapH, where = "from elevation " .. elevation, elevation = elevation,
+		elevationAt = function(x, y)
+			local i = ((x + MAP_OFFSET) + gw * (y + MAP_OFFSET)) * 2 + 1
+			return (grid[i] | (grid[i + 1] << 8)) >> 12
+		end,
 		tile = function(x, y)
 			if blocked[y * mapW + x] then return nil end
 			local i = ((x + MAP_OFFSET) + gw * (y + MAP_OFFSET)) * 2 + 1
 			local v = grid[i] | (grid[i + 1] << 8)
-			-- Elevation 0 takes a step from any: the house's door mats and stairs read 0 and were walked onto
-			-- from elevation 3 (2026-09-17).
-			-- A player still at elevation 0 plans onto any level: in Petalburg's gym the floor reads 0 all round, and the player
-			-- had walked in onto it from the entrance mats at 3 (2026-09-17).
-			if elevation ~= 0 and (v >> 12) ~= elevation and (v >> 12) ~= 0 then return nil end
 			local behaviour = behaviourOf(v & 0x3FF)
+			-- Water (0x15 at elevation 1) is not walked onto (WHY A STEP WAS REFUSED); a step's level is elevationStep's.
+			if behaviour == 0x15 and (v >> 12) == 1 then return nil end
 			-- A ledge reads collision set, and hopped moving down: two steps, onto it and past it (WHY A STEP WAS REFUSED).
 			if behaviour == 0x3B then return true, false, seen[y * mapW + x], "down" end
 			if (v & 0x0C00) ~= 0 then return nil end
@@ -2232,13 +2219,27 @@ routeHooks.mapTileRaw = function(name, x, y)
 	local attrs = inRom(ts) and r32(ts + 0x10) or 0
 	return (v >> 10) & 3, v >> 12, inRom(attrs) and (r16(attrs + id * 2) & 0xFF) or -1
 end
--- A tile of any map for the plan across maps, on foot: a ledge (0x3B) one way down, collision set closed, water's
--- elevation 1 closed (WHY A STEP WAS REFUSED); otherwise its elevation.
+-- LEVELS (2026-09-17). Measured before: the house's mats and stairs (0) were walked onto from 3 and walked off onto 3;
+-- Petalburg's gym floor read 0 all round and was walked from its mats at 3. The rest is the decomp as the map (the routines
+-- the build names IsElevationMismatchAt and ObjectEventUpdateElevation): a step is taken when the player's level is 0 or the
+-- tile's is 0, 15 or the same; the level then becomes the tile's, unless the tile stepped from or onto is 15. Built after
+-- Route 110 (0.25), whose ground at 3 and at 1 meets through 0s, had no route under the one-level plan.
+routeHooks.elevationStep = function(level, tileLevel, fromLevel)
+	if not tileLevel then return nil end
+	if level ~= 0 and tileLevel ~= 0 and tileLevel ~= 15 and tileLevel ~= level then return nil end
+	if tileLevel == 15 or fromLevel == 15 then return level end
+	return tileLevel
+end
+routeHooks.playerElevation = function() return r8(playerObject() + 0x0B) & 0x0F end
+-- A tile of any map for the plan across maps, on foot: a ledge (0x3B) one way down, collision set closed, water (behaviour
+-- 0x15 at elevation 1) closed (WHY A STEP WAS REFUSED); otherwise its elevation. Every elevation-1 tile was closed until
+-- 2026-09-17, when Route 110 (0.25) and DEWFORD's gym floor, both walked, read elevation 1 on land and `goto` found no way
+-- across them. Water of other behaviours is not measured.
 routeHooks.mapTile = function(name, x, y)
 	local collision, elevation, behaviour = routeHooks.mapTileRaw(name, x, y)
 	if not collision then return nil end
 	if behaviour == 0x3B then return elevation, "down" end
-	if collision ~= 0 or elevation == 1 then return nil end
+	if collision ~= 0 or (elevation == 1 and behaviour == 0x15) then return nil end
 	return elevation
 end
 

@@ -42,6 +42,7 @@ here adds its heading as one line under "The plan and the shared core".**
 - 2026-09-17 (the Emerald chat, the learn-a-move question) — questions asked outside a battle's screen, a scene that takes no input, and `battle`'s `forget`
 - 2026-09-17 (the Emerald chat, the bag in a battle) — `battle`'s `stop_hp_below`
 - 2026-09-17 (the Emerald chat, the story to Dewford) — `battle`'s `manual`; `talk` keeps trying a pacing character
+- 2026-09-17 (the Emerald chat, Route 110) — `goto` carries the player's level: ground at two levels meets through 0
 
 **Emerald (vanilla), before its own log** -- from 2026-09-17 in [autoplay/emerald.md](autoplay/emerald.md)
 - 2026-09-16 (later still) — Phase 1 step 2: a live driver in vanilla Emerald, from boot to walking
@@ -1558,3 +1559,16 @@ TEVI first as it said. BizHawk's driver does not announce it yet (its pause and 
 
 **Checked.** `go vet ./...` and `go test -count=1 ./...` in `autoplay/`, green. Live on TEVI: the player held mid-jump for 150 frames,
 a 20-frame step, a 1-frame step, and a 30-frame sequence run while held (`adapters/tevi/MEASURED.md`, "Holding the clock").
+
+## 2026-09-17 (the Emerald chat, Route 110) — `goto` carries the player's level: ground at two levels meets through 0
+
+**What changed in the shared core** (the story in [autoplay/emerald.md](autoplay/emerald.md), same date):
+- **`route.lua`.** New optional hooks `elevationStep(level, tileLevel, fromTileLevel)` and `playerElevation()`, and a grid's
+  `elevation` and `elevationAt(x, y)`. Given them, `M.plan`'s state is (tile, facing, level) and the cross-map flood's is
+  (tile, level): a step is allowed and changes the level as the module says. Without them (Crystal) both run as before.
+- **Why.** `goto {map: "0.2"}` from Slateport answered "no way on foot known": Route 110's ground reads elevation 3 south and 1
+  north, joined by tiles of 0 and bridges ending in 15, and Emerald's planner held one level for a whole plan (and closed every
+  elevation-1 tile as water across maps). After the change the same call crossed Route 110 with its scenes and battles.
+
+**Checked.** `luac -p`; live on vanilla Emerald, Slateport to Route 110's north end in one trip. Crystal not run (paused; it
+supplies neither hook).
