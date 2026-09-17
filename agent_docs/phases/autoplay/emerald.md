@@ -492,3 +492,23 @@ message. **Fixed in the records:** `emerald/MEASURED.md` had lost its `## Not me
 (`b7e17c5e`); put back.
 
 **Open:** a party of one against GRASS; money ₽3.
+
+## 2026-09-17 (the Emerald chat, next session) — MAY beaten on luck, Mauville, WALLY, WATTSON's switches and the DYNAMO BADGE
+
+**Played** (run log `autoplay/runs/2026-09-17_131645.118278.ndjson`). At the user's word, a snapshot right before MAY's trigger
+(`story_before_may_route110`) and tries from it (reached) with MUD-SLAP ×3 then TACKLE: the third got through, GROVYLE missing
+twice, MUD SHOT taking her SLUGMA with MARSHTOMP at 3 HP (`story_beat_may_route110`). Then walked: to Mauville at 3 HP (the trip
+loop does not heal first -- it survived TRIATHLETE ALYSSA and two wild battles), where `forget strong_variety` gave up MUD-SLAP for
+TAKE DOWN at Lv 31. Mauville's buildings named from their templates' graphics (the nurse 58 in 10.5, the clerk 83 in 10.7, trainers
+in 10.0). WALLY at the gym door, beaten. The gym's barriers: `talk` to WATTSON answered "no route" whatever the order of the three
+switches `goto` reached, because every route to the fourth, (8,9), walked over the middle switch (4,12), which flips the barriers
+mid-walk; the user: all four switches, walking round the middle one to the right. `walk` legs round it through (4,11) and (5,11)
+reached (8,9), and `talk` then found WATTSON (a trainer on the way). WATTSON: MUD SHOT four times, DYNAMO BADGE, TM34. MARSHTOMP
+Lv 33, snapshot `story_dynamo_badge`.
+
+**The user, while it ran:** mud-slap until its accuracy cannot drop further, heal only when the next hit would faint, then attack --
+easier with potions that heal more than a hit takes; make a state before a hard fight and get past it on luck.
+
+**Open from this stretch:** `goto` walks over step-on event tiles (the gym's switches: coord events in the decomp's map, not in any
+reader yet); a trip loop that heals when low; `forget` weighs no move's side effect (MUD-SLAP's accuracy drop won MAY's fight).
+
