@@ -291,6 +291,22 @@ namespace MeshGhostAutoplay.Tevi
             }
         }
 
+        // The shortest learned delay from a state's start to an attack of this character type (thrown explosives left out), or null.
+        public static int? FastestLead(string type)
+        {
+            int? best = null;
+            foreach (var kv in Table)
+            {
+                if (!kv.Key.StartsWith(type + "|")) continue;
+                foreach (Sample x in kv.Value)
+                {
+                    if (x.Type.StartsWith("SPAWN_")) continue;
+                    if (best == null || x.Delay < best.Value) best = x.Delay;
+                }
+            }
+            return best;
+        }
+
         // Whether any attack of this character type has been seen.
         public static bool Known(string type)
         {

@@ -36,6 +36,7 @@ namespace MeshGhostAutoplay.Tevi
         private const int RootFrames = 18; // one swing locks her about 18 frames (TEVI_WEAK_GROUND_NORMAL1 in the flight recorder, 2026-09-17)
         private const float MeleeReach = 139.5f, MeleeHalfHeight = 34f;
         private const int ComboRootFrames = 32;
+        private const int ChargeTravel = 5; // frames a charge box took from its birth to reach her beside him (the flight recorder, 2026-09-17)
 
         public static Func<JToken> Fight(JObject args, int frameLimit, Func<CharacterBase> player, Func<string> mode, Func<bool, JObject> observe)
         {
@@ -228,6 +229,23 @@ namespace MeshGhostAutoplay.Tevi
                 }
                 CharacterBase orb = pushOrbs ? OrbToUse(p, target) : null;
                 orbNote = null;
+                // A resting orb level with her between them, out of her swing, while the target is out of it too: shoot it. Standing still
+                // behind one (its touch box refuses every step) left it by Ribauld, who knocked it into her for her last 44 HP (2026-09-17).
+                CharacterBase shotOrb = pushOrbs && orb == null && onGround && !inMelee ? OrbToShoot(p, target) : null;
+                if (shotOrb != null)
+                {
+                    bool facingIt2 = (dx >= 0) == (p.direction.ToString() == "RIGHT");
+                    tap = facingIt2 ? "Ranged" : null;
+                    if (!facingIt2) turn = true;
+                    if (shotOrb != lastOrb)
+                    {
+                        lastOrb = shotOrb;
+                        lastOrbSpeed = shotOrb.phy_perfer != null ? shotOrb.phy_perfer._velocity.magnitude : 0f;
+                    }
+                    orbFrames++;
+                    if (orbFrames % OrbLogEvery == 1 && orbLog.Count < 40)
+                        orbNote = new JObject { ["frame"] = Time.frameCount, ["shoot"] = true, ["ox"] = Math.Round(shotOrb.t.position.x - me3.x), ["boss_dx"] = Math.Round(dx), ["want"] = want.ToString(), ["tap"] = tap };
+                }
                 if (orb != null)
                 {
                     Vector3 o3 = orb.t.position;
@@ -277,6 +295,13 @@ namespace MeshGhostAutoplay.Tevi
                     // for 22 frames while bombs fell on her (2026-09-17).
                     int root = tap == "Attack" && (p.logicStatus.ToString().Contains("NORMAL1") || p.logicStatus.ToString().Contains("NORMAL2")) ? ComboRootFrames : RootFrames;
                     if (tap != null && dodge && !guard.StandingSafe(root)) tap = null;
+                    // No chaining when a combo locks her longer than the target's fastest learned tell: an air swing carried on as the air combo
+                    // on the ground (AIR_NORMAL1 to 3, about 48 frames) while Attack was tapped on, Ribauld began ATTACK2 in the middle of it and
+                    // his charge, 16 frames later, killed her there (2026-09-17, Infernal BBQ). A fresh swing stays allowed.
+                    // A swing moves her (about 14 units): beside a beam that hurts, or will before the swing ends, it slid her into it twice as
+                    // it switched on (2026-09-17, Ribauld's cut-in lasers).
+                    if (tap == "Attack" && dodge && BeamNear(p, root + 6)) tap = null;
+                    if (tap == "Attack" && dodge && root == ComboRootFrames && Tells.FastestLead(target.type.ToString()) is int lead && lead + ChargeTravel < ComboRootFrames) tap = null;
                     // Its armor broken and refilling (the red outline): a hit does little and does not stop it, and it attacks freely (the
                     // user, 2026-09-17; the meter measured in MEASURED.md). A melee swing then only when standing stays safe for the whole
                     // horizon.
@@ -506,8 +531,7 @@ namespace MeshGhostAutoplay.Tevi
                 if (dir != 0) InputInjection.Keep(dir > 0 ? "XAxis+" : "XAxis-");
                 if (!onGround && Dodge.IsDrop(m))
                 {
-                    InputInjection.Keep("YAxis-");
-                    InputInjection.Tap("Jump", 4);
+                    InputInjection.Quickdrop();
                     return false;
                 }
                 if (!onGround || !Dodge.IsJump(m)) return false;
@@ -545,6 +569,45 @@ namespace MeshGhostAutoplay.Tevi
                 bool under = !me.onGround() && Mathf.Abs(dx) < OrbHalf + 20f && dy < 0f && dy > -200f;
                 if (!inSwing && !under) continue;
                 if (c.phy_perfer != null && c.phy_perfer._velocity.magnitude > OrbKnocked) continue;
+                if (Mathf.Abs(dx) < bestD)
+                {
+                    bestD = Mathf.Abs(dx);
+                    best = c;
+                }
+            }
+            return best;
+        }
+
+        private const float BeamSlide = 40f;
+
+        private static bool BeamNear(CharacterBase p, int withinFrames)
+        {
+            var c = new Vector2(p.t.position.x, p.t.position.y - 17f); // her hurtbox centre (observe: dy_from_position -17)
+            foreach (Threats.Laser l in Threats.ReadLasers(p))
+            {
+                if (l.AppearIn > withinFrames) continue;
+                if (Threats.DistanceToSegment(c, l.From, l.To) - l.Radius < BeamSlide) return true;
+            }
+            return false;
+        }
+
+        // A still orb between her and the target, level with her (an Orbitar shot flies level), beyond her swing.
+        private static CharacterBase OrbToShoot(CharacterBase me, CharacterBase target)
+        {
+            CharacterManager cm = CharacterManager.Instance;
+            if (cm == null || cm.characters == null || target == null || target.t == null) return null;
+            Vector3 at = me.t.position;
+            float toTarget = target.t.position.x - at.x;
+            CharacterBase best = null;
+            float bestD = float.MaxValue;
+            foreach (CharacterBase c in cm.characters)
+            {
+                if (c == null || c == me || c == target || c.t == null || !c.gameObject.activeInHierarchy || c.maxhealth < 99999) continue;
+                if (c.type.ToString() != "EnergyBall" || Utility.isOutsideCamera(c.t.position, 0f)) continue;
+                float dx = c.t.position.x - at.x, dy = c.t.position.y - at.y;
+                if (Math.Sign(dx) != Math.Sign(toTarget) || Mathf.Abs(dx) > Mathf.Abs(toTarget) + 60f) continue;
+                if (Mathf.Abs(dx) <= MeleeReach + OrbHalf || Mathf.Abs(dy) > 40f) continue;
+                if (c.phy_perfer != null && c.phy_perfer._velocity.magnitude > OrbKicked) continue;
                 if (Mathf.Abs(dx) < bestD)
                 {
                     bestD = Mathf.Abs(dx);

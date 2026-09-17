@@ -18,7 +18,7 @@ namespace MeshGhostAutoplay.Tevi
     // Walls are: a run stops at the first solid tile (byte 1 of the game's collision grid) either side of her on the rows her body
     // is in (Start.MinX, MaxX), found cornered against one on 2026-09-17 while every plan still ran through it.
     //
-    // In the air a quickdrop (down held, Jump pressed) is a plan too: the frame after the press she falls 22.5 units a frame, straight,
+    // In the air a quickdrop (down held, then Jump pressed) is a plan too: the frame after the press she falls 22.5 units a frame, straight,
     // until she lands (measured 2026-09-17). The user: "don't forget that you can use quickdrop to get back to the ground quickly, to be
     // able to jump/dodge new things".
     public static class Dodge
@@ -42,6 +42,9 @@ namespace MeshGhostAutoplay.Tevi
         // damage). Carried out as a hop; in the air the Drop plans take over.
         public enum Move { Stay, Left, Right, Hop, HopLeft, HopRight, Jump, JumpLeft, JumpRight, Drop, DropLeft, DropRight, HopDropLeft, HopDropRight }
         public const int HopDropAt = 10;
+        // Down is held this many frames before Jump is pressed (InputInjection.Quickdrop: pressed together they made a double jump), so
+        // a drop begins that much later.
+        private const int DropDelay = 2;
 
         public struct Plan
         {
@@ -160,7 +163,7 @@ namespace MeshGhostAutoplay.Tevi
                     string inside = null;
                     // Contact during a quickdrop does no damage (the game's Quickdrop tutorial; the user, 2026-09-17: quickdrop on an enemy
                     // "to deal some damage/gain some iframes"): a contact box is not a threat to a quickdrop plan once it has begun.
-                    bool dropping = s.Quickdropping || (IsDrop(m) && f >= 2) || (IsHopDrop(m) && f >= HopDropAt + 1);
+                    bool dropping = s.Quickdropping || (IsDrop(m) && f >= 2 + DropDelay) || (IsHopDrop(m) && f >= HopDropAt + 1 + DropDelay);
                     foreach (Threats.Threat t in threats)
                     {
                         if (dropping && t.Type == "ENEMY_HURTBOX") continue;
@@ -237,7 +240,7 @@ namespace MeshGhostAutoplay.Tevi
             float y;
             if (s.OnGround)
             {
-                if (IsHopDrop(m)) y = s.Pos.y + (f <= HopDropAt ? TapRise[f - 1] : Math.Max(0f, TapRise[HopDropAt - 1] - QuickdropFall * (f - HopDropAt)));
+                if (IsHopDrop(m)) y = s.Pos.y + (f <= HopDropAt + DropDelay ? TapRise[f - 1] : Math.Max(0f, TapRise[HopDropAt + DropDelay - 1] - QuickdropFall * (f - HopDropAt - DropDelay)));
                 else if (m == Move.Hop || m == Move.HopLeft || m == Move.HopRight) y = s.Pos.y + (f <= TapRise.Length ? TapRise[f - 1] : 0f);
                 else if (IsJump(m)) y = s.Pos.y + (f <= HoldRise.Length ? HoldRise[f - 1] : 0f);
                 else y = s.Pos.y;
@@ -249,7 +252,7 @@ namespace MeshGhostAutoplay.Tevi
             int hold = s.HoldLeft;
             for (int i = 0; i < f; i++)
             {
-                if (s.Quickdropping || (IsDrop(m) && i >= 1)) vy = -QuickdropFall;
+                if (s.Quickdropping || (IsDrop(m) && i >= 1 + DropDelay)) vy = -QuickdropFall;
                 else if (vy > 0f && hold <= 0) vy = vy * 0.77f - 0.2f;
                 else vy = Math.Max(vy - Gravity, -MaxFall);
                 hold--;

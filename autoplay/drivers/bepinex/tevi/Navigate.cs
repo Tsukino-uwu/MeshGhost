@@ -232,8 +232,7 @@ namespace MeshGhostAutoplay.Tevi
 
         private static void Quickdrop()
         {
-            InputInjection.Keep("YAxis-");
-            InputInjection.Tap("Jump", 4);
+            InputInjection.Quickdrop();
         }
 
         // GOTO {x, y}: world units, as observe's location reads them; or {tile_x, tile_y}. Ends `arrived`, `no_route`, `stuck` (no

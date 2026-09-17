@@ -200,6 +200,36 @@ namespace MeshGhostAutoplay.Tevi
             return true;
         }
 
+        // A quickdrop, as a reflex's input for the next frame: Down held, and Jump pressed only once Down has been held QuickdropDownFirst
+        // frames. Pressed on the same frame, the game took Down and Jump for a double jump and threw her up (every one of five double
+        // jumps in the flight recorder began with both on one frame; every quickdrop had Down held two frames or more first, 2026-09-17,
+        // Ribauld on Infernal BBQ, where the jump carried her into his charge). Returns true when Jump was pressed.
+        private const int QuickdropDownFirst = 2, QuickdropPress = 4;
+
+        public static bool Quickdrop()
+        {
+            if (!Keep("YAxis-") || !TryAction("YAxis-", out int id, out float value)) return false;
+            int f = Time.frameCount;
+            foreach (Hold h in Holds)
+            {
+                if (h.ActionId != id || h.Value != value || h.End != f + 2 || f + 1 - h.Start < QuickdropDownFirst) continue;
+                if (!Tap("Jump", QuickdropPress)) return false;
+                // Down stays held through the whole press: let go a frame after it began (the dodge changing its plan), the rest of the
+                // press read as a jump in the air and made a double jump (1272795, the same fight).
+                for (int i = 0; i < Holds.Count; i++)
+                {
+                    Hold d = Holds[i];
+                    if (d.ActionId == id && d.Value == value && d.End == f + 2)
+                    {
+                        d.End = Math.Max(d.End, f + 1 + QuickdropPress);
+                        Holds[i] = d;
+                    }
+                }
+                return true;
+            }
+            return false;
+        }
+
         private static bool TryAction(string name, out int id, out float value)
         {
             id = -1;
