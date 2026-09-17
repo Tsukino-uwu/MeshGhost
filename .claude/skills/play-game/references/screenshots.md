@@ -56,16 +56,23 @@ menu looks like — and they let the user check a claim without driving the game
 
 ## Capture the GAME, not the window
 
-- **Where the host can capture its own frame, use that and nothing else.** On BizHawk that is
-  `client.screenshot()` — no `PrintWindow`, no `PW_RENDERFULLCONTENT`, no DPI-aware window grab.
+- **What the rule actually forbids is capturing UNRELATED things** — other windows, other monitors,
+  anything of the user's that is not the game (user, 2026-09-17, correcting how this was written up:
+  *"we use whatever gives the best result"*). It was never a ban on window capture as such. Capture
+  the game's region and nothing around it, and keep every capture out of the repo.
+- **For navigation, where the host can capture its own frame, use that** — on BizHawk
+  `client.screenshot()`. It is exact, cheap and free of window, scaling and DPI concerns, so reach
+  for a window grab only when it answers something this cannot.
 - **A host with no frame capture may use a window capture** (user, 2026-09-16), kept out of the repo
   like every other capture.
 - **A drawn-tier ghost is a Lua overlay painted after the frame, so `client.screenshot()` never shows
   it** — a screen full of ghosts photographs as an empty map. A SPAWNED ghost is an engine sprite and
-  does appear. The answer is not a bigger camera: **judge the drawn tier NUMERICALLY**, with counters
-  sampled over time — "14-36 of ~40 peers were mid-stride at every sample, and none ever fell back
-  for want of a facing" settles what no photograph can, and one frame could not see a walk cycle
-  regardless.
+  does appear. **A bigger camera is not the answer to a question about a walk cycle**, because one
+  frame cannot see a cycle whatever took it: **judge that NUMERICALLY**, with counters sampled over
+  time — *"14-36 of ~40 peers were mid-stride at every sample, and none ever fell back for want of a
+  facing"* settles what no photograph can. **A window capture IS the answer when the question is what
+  the overlay itself draws**, which no counter and no `client.screenshot()` can show
+  (`agent_docs/plans/vision-plan.md`).
 
 ## Photograph the reference, count the painted one
 

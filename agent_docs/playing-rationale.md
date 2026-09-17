@@ -227,8 +227,17 @@ screen once it was already stuck.
 **Capture the GAME, not the window** (user, 2026-08-19): *"only capture what is in the game itself."*
 A window grab (`PrintWindow`, `PW_RENDERFULLCONTENT`, DPI-aware) was proposed after a real problem:
 an agent photographed a screen full of drawn ghosts three times and got an empty map, because the
-drawn tier is a Lua overlay painted after the frame. The answer was not a bigger camera but counters,
-which settle a walk cycle in a way no single frame can.
+drawn tier is a Lua overlay painted after the frame. For *that* question the answer was not a bigger
+camera but counters, which settle a walk cycle in a way no single frame can.
+
+**What that ruling meant, corrected by the user on 2026-09-17** — and the correction matters because
+the paragraph above had been read as a general ban on window capture, and was steering decisions as
+one. The user's intent was about *what is in the picture*, not about the capture method: **don't
+capture unrelated things — other windows, other monitors, anything of theirs that is not the game**.
+On method: *"we use whatever gives the best result."* So the rule is to frame the capture on the game
+and keep every capture out of the repo, the same care as a username or a home path. The one thing
+`client.screenshot()` structurally cannot show — the Lua overlay the drawn tier paints — is the case
+a window capture exists for, and the instrument being built on it is `agent_docs/plans/vision-plan.md`.
 
 **Window capture where there is no frame capture** (user, 2026-09-16, planning a harness meant for
 any game): a host that cannot capture its own frame may use a window capture — and every capture,
