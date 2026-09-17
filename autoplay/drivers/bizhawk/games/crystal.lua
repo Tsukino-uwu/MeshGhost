@@ -639,9 +639,11 @@ end
 --     stayed 6 for every id from 20 (FIRE to DARK); its special defense held, ELECTRIC's fell to 2 and NORMAL's stayed 6.
 --     CYNDAQUIL's attack held, NORMAL's rose to 30 and ELECTRIC's stayed 6; its special attack held, ELECTRIC's rose to 30.
 --     (A hold on the stats at C6C1-C6CA changed nothing: the game put the old value back within the frame.)
--- `strongest` scores a usable move (measured PP above 0) by power times the accuracy byte times those, times the user's
--- attack over the opponent's defense for a type below 20 and special attack over special defense from 20.
-local function strongestMoveSlot()
+-- `strongest` scores a usable move (measured PP above 0) by power times the accuracy byte alone, as Emerald's does; `effective`
+-- times those, times the user's attack over the opponent's defense for a type below 20 and special attack over special
+-- defense from 20, and returns what each move weighed and the opponent's types for the battle's log (2026-09-17, the
+-- policies aligned with Emerald's).
+local function strongestMoveSlot(effective)
 	local b = memory.read_bytes_as_array(W_BATTLE_MON, BATTLER_SIZE, "WRAM")
 	local e = memory.read_bytes_as_array(W_ENEMY_MON, BATTLER_SIZE, "WRAM")
 	if not romNames.typeChart then
@@ -657,25 +659,34 @@ local function strongestMoveSlot()
 		end
 		romNames.typeChart = t
 	end
-	local best, bestScore
+	local best, bestScore, weighed = nil, nil, {}
+	local foeTypes = e[31] == e[32] and { e[31] } or { e[31], e[32] }
 	for k = 0, 3 do
 		local id, pp = b[3 + k], b[9 + k]
 		if id ~= 0 and pp > 0 and pp < 0x40 then
 			local m = moveData(id)
 			local score = m.power * m.accuracy_raw
-			for _, defending in ipairs(e[31] == e[32] and { e[31] } or { e[31], e[32] }) do
-				local x = romNames.typeChart[m.type_id * 256 + defending]
-				if x then score = score * x / 10 end
+			if effective then
+				local multiplier = 1
+				for _, defending in ipairs(foeTypes) do
+					local x = romNames.typeChart[m.type_id * 256 + defending]
+					if x then multiplier = multiplier * x / 10 end
+				end
+				local same = m.type_id == b[31] or m.type_id == b[32]
+				local physical = m.type_id < 20
+				local attack = physical and ((b[21] << 8) | b[22]) or ((b[27] << 8) | b[28])
+				local defense = physical and ((e[23] << 8) | e[24]) or ((e[29] << 8) | e[30])
+				score = score * multiplier * (same and 3 / 2 or 1) * attack / math.max(defense, 1)
+				weighed[#weighed + 1] = { move = m.name, type = m.type, power = m.power, accuracy_raw = m.accuracy_raw,
+					same_type = same or nil, multiplier = multiplier, attack = attack, defense = defense, score = score }
 			end
-			if m.type_id == b[31] or m.type_id == b[32] then score = score * 3 / 2 end
-			local physical = m.type_id < 20
-			local attack = physical and ((b[21] << 8) | b[22]) or ((b[27] << 8) | b[28])
-			local defense = physical and ((e[23] << 8) | e[24]) or ((e[29] << 8) | e[30])
-			score = score * attack / math.max(defense, 1)
 			if best == nil or score > bestScore then best, bestScore = k, score end
 		end
 	end
-	return best, best and moveName(b[3 + best])
+	if not effective then return best, best and moveName(b[3 + best]) end
+	local against = {}
+	for i, t in ipairs(foeTypes) do against[i] = typeName(t) end
+	return best, best and moveName(b[3 + best]), { weighed = weighed, against = against }
 end
 
 -- AFTER A BATTLE (autoplay_battle_probe.lua, 2026-09-17, the same PIDGEY battle; MEASURED.md, "The battlers..."):
@@ -1713,7 +1724,8 @@ end
 --   * hJoyDown is the game's own copy of the buttons: the START menu looked every few frames and missed a 2-frame
 --     release, so presses wait for it to read 0, and a tap holds A until its bit 0 is set (hJoyDown read 1 for
 --     each A a message box took, 2026-09-17).
---   * The strongest move is the battlers' reading above (power times the accuracy byte, measured PP above 0).
+--   * The strongest move is the battlers' reading above (power times the accuracy byte, measured PP above 0); the
+--     effective one weighs the type table, the same-type bonus and the stats too.
 local function textAndMenuNow()
 	local t = readTilemap()
 	local _, low = readFont()
@@ -1805,10 +1817,16 @@ local textHooks = {
 		if slot == nil then return nil, "no move has measured PP left" end
 		return slot, name
 	end,
+	-- Policy "effective": the type table, the same-type bonus and the stats the damage uses (strongestMoveSlot, above).
+	effectiveMove = function()
+		local slot, name, detail = strongestMoveSlot(true)
+		if slot == nil then return nil, "no move has measured PP left" end
+		return slot, name, detail
+	end,
 	endedReport = battleEndedReport,
 }
 
--- battle {policy = "strongest" | "run"}: FIGHT and the strongest usable move each turn, or RUN; then through the text
+-- battle {policy = "strongest" | "effective" | "run"}: FIGHT and the strongest or most effective usable move each turn, or RUN; then through the text
 -- to the overworld.
 game.programs.battle = function(p)
 	if not isVanilla then return nil, "battle is measured on the vanilla V1.0 ROM only" end

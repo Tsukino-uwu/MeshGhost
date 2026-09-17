@@ -204,3 +204,26 @@ scratch folder; a new chat builds its own. To attach: put `autoplay/drivers/bizh
 **Later the same night** (noted by the Emerald chat) the user closed both emulators. To pick up: launch vanilla Crystal V1.0
 (asking first) with `MESHGHOST_DEV_LOADER_TARGET=bizhawk-dev-loader-autoplay-crystal.target`, `AUTOPLAY_GAME=crystal` and
 `AUTOPLAY_PORT=7871` (the README's "Drivers so far"), then attach and `restore` as above.
+
+## 2026-09-17 (the Emerald chat, next session) — the policies aligned: `strongest` back to power × accuracy, the rest behind `effective`
+
+**Why.** The order the user settled at the end of the night (`../phase13.md`, "the order from here"): before Crystal's pause,
+both games mean the same by each policy -- `strongest` power times accuracy, `effective` the game's own type chart on top.
+
+**Built** (`crystal.lua` only). `strongestMoveSlot` scores power × the accuracy byte alone unless asked for `effective`, which
+multiplies in the type table against the opponent's types, the same-type half again and the attack-over-defense ratio by
+the move's type, exactly as `strongest` did before; the new `effectiveMove` hook returns the slot, the move and what each
+usable move `weighed` with the opponent's types (`against`), as Emerald's does. `text.lua` and the README's policy lines:
+the README only.
+
+**Checked** on vanilla Crystal V1.0 (port 7871; run log `autoplay/runs/2026-09-17_114354.790843.ndjson`, reached: a restore
+and `set_move`). From `session_end2_route31`, CYNDAQUIL given EMBER and THUNDERSHOCK in slots 3 and 4, walked in Route 31's
+grass to a wild PIDGEY (NORMAL/FLYING), snapshot `policy_check_pidgey`. `strongest`: EMBER three turns (40 × 255, tied with
+THUNDERSHOCK, the first kept). Restored, `effective`: THUNDERSHOCK twice, "It's super-effective!", its weighed score 30600
+against EMBER's 22950 (same type, ×1) and TACKLE's 11646. No nudge in either.
+
+**Seen, not built:** both ended `needs_choice` after "CYNDAQUIL grew to level 6!" on the learn-a-move question ("Delete an
+older move to make room for SMOKESCREEN?") -- a YES/NO the question hook reads as `unread`, stopped on as built, with four
+moves known only because of the cheat.
+
+**Left as it is:** the emulator closed after the check, its loader target back at `none`. Crystal is paused.
