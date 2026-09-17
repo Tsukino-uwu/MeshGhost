@@ -34,6 +34,7 @@ namespace MeshGhostAutoplay.Tevi
         private const float UnreachableDy = 180f;
         private const int RootFrames = 18; // one swing locks her about 18 frames (TEVI_WEAK_GROUND_NORMAL1 in the flight recorder, 2026-09-17)
         private const float MeleeReach = 139.5f, MeleeHalfHeight = 34f;
+        private const int ComboRootFrames = 32;
 
         public static Func<JToken> Fight(JObject args, int frameLimit, Func<CharacterBase> player, Func<string> mode, Func<bool, JObject> observe)
         {
@@ -215,7 +216,14 @@ namespace MeshGhostAutoplay.Tevi
                     // (she hung at one x mid-air while a charge came under her and the dodge's steering did nothing, 2026-09-17). So it is
                     // taken, ground or air, whenever not moving -- the Stay plan -- stays safe for RootFrames. The user: "should be able to
                     // mix both ground/air to attack as much as possible whenever possible. while prioritizing never getting hit".
-                    if (tap != null && dodge && !guard.StandingSafe(RootFrames)) tap = null;
+                    // A swing that carries a combo on to its second and third hits holds her longer: after the third her Jump was not taken
+                    // for 22 frames while bombs fell on her (2026-09-17).
+                    int root = tap == "Attack" && (p.logicStatus.ToString().Contains("NORMAL1") || p.logicStatus.ToString().Contains("NORMAL2")) ? ComboRootFrames : RootFrames;
+                    if (tap != null && dodge && !guard.StandingSafe(root)) tap = null;
+                    // Its armor broken and refilling (the red outline): a hit does little and does not stop it, and it attacks freely (the
+                    // user, 2026-09-17; the meter measured in MEASURED.md). A melee swing then only when standing stays safe for the whole
+                    // horizon.
+                    if (tap == "Attack" && dodge && ArmorRecovering(target) && !guard.StandingSafe(Dodge.Horizon)) tap = null;
                     if (tap != null && InputInjection.Tap(tap, 4))
                     {
                         if (tap == "Attack") attacks++;
@@ -477,6 +485,11 @@ namespace MeshGhostAutoplay.Tevi
                 }
             }
             return best;
+        }
+
+        private static bool ArmorRecovering(CharacterBase c)
+        {
+            return c != null && c.enemy_perfer != null && c.enemy_perfer.inQuickArmorRecover;
         }
 
         private static CharacterBase Nearest(CharacterBase me, string type)

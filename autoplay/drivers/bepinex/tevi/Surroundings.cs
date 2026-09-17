@@ -18,7 +18,9 @@ namespace MeshGhostAutoplay.Tevi
     public static class Surroundings
     {
         // The text map's size in tiles around the player: a little more than the 1280x720 screen at 56 per tile.
-        public const int MapHalfWidth = 13, MapHalfHeight = 8;
+        // Wider than the screen (23 by 13 tiles at 56 a tile): finding the way back to a missed corridor needed the rooms around, not
+        // only the one in view (2026-09-17).
+        public const int MapHalfWidth = 50, MapHalfHeight = 25;
 
         // How far past the camera's edges a thing is still listed, in world units.
         private const float Margin = 280f;

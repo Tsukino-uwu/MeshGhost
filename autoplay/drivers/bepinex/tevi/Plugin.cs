@@ -27,9 +27,11 @@ namespace MeshGhostAutoplay.Tevi
     {
         private const string GameName = "tevi";
 
-        // The one in-game slot this driver plays and saves in (the user, 2026-09-17: vanilla 36-39 and Randomizer 36-80
-        // are autoplay's). Its file is the save guard's shadow copy; every other slot is listed as protected in the hello.
-        private const byte WorkingSlot = 39;
+        // The in-game slots this driver plays and saves in (the user, 2026-09-17: vanilla 36-39, "idm if 40-80~ is also used", and a
+        // fresh Infernal BBQ game "on slot40"). Their files are the save guard's shadow copies; every other slot is listed as
+        // protected in the hello. A snapshot saves to the running game's slot when it is one of these, else to the first.
+        private static readonly byte[] WorkingSlots = { 39, 40 };
+        private static byte WorkingSlot => Array.IndexOf(WorkingSlots, (byte)MainVar.instance._saveslot) >= 0 ? (byte)MainVar.instance._saveslot : WorkingSlots[0];
         private const int LastSlot = 100;
 
         private static readonly PropertyInfo MainCharacterProperty = typeof(EventManager).GetProperty("mainCharacter");
@@ -146,14 +148,14 @@ namespace MeshGhostAutoplay.Tevi
 
         // ---- what the driver says about itself ------------------------------------------------------------------
 
-        private static readonly string[] Capabilities = { "observe", "wait", "press", "sequence", "advance_text", "screenshot", "screenshot:annotate", "snapshot", "restore", "cheat:teleport", "reflex:fight", "reflex:evade", "clock", "recent" };
+        private static readonly string[] Capabilities = { "observe", "wait", "press", "sequence", "advance_text", "screenshot", "screenshot:annotate", "snapshot", "restore", "cheat:teleport", "cheat:difficulty", "reflex:fight", "reflex:evade", "reflex:goto", "clock", "recent" };
 
         private JObject Hello()
         {
             var slots = new JArray();
             for (int i = 0; i <= LastSlot; i++)
             {
-                if (i != WorkingSlot) slots.Add(i);
+                if (Array.IndexOf(WorkingSlots, (byte)i) < 0) slots.Add(i);
             }
             var hello = new JObject
             {
@@ -705,7 +707,9 @@ namespace MeshGhostAutoplay.Tevi
                         string kind = (string)req.Payload["kind"];
                         JObject rargs = req.Payload["args"] as JObject ?? new JObject();
                         int rframes = (int?)req.Payload["frames"] ?? 600;
-                        currentTick = kind == "evade" ? Reflexes.Evade(rargs, rframes, Player, Mode, Observe) : Reflexes.Fight(rargs, rframes, Player, Mode, Observe);
+                        currentTick = kind == "evade" ? Reflexes.Evade(rargs, rframes, Player, Mode, Observe)
+                            : kind == "goto" ? Navigate.Goto(rargs, rframes, Player, Mode, Observe)
+                            : Reflexes.Fight(rargs, rframes, Player, Mode, Observe);
                         Log("reflex " + kind);
                         break;
                     case "screenshot":
@@ -718,7 +722,9 @@ namespace MeshGhostAutoplay.Tevi
                         currentTick = RestoreJob(req.Payload);
                         break;
                     case "cheat":
-                        currentTick = TeleportJob(req.Payload["args"] as JObject ?? new JObject());
+                        currentTick = (string)req.Payload["kind"] == "difficulty"
+                            ? DifficultyJob(req.Payload["args"] as JObject ?? new JObject())
+                            : TeleportJob(req.Payload["args"] as JObject ?? new JObject());
                         break;
                 }
             }
@@ -1023,6 +1029,21 @@ namespace MeshGhostAutoplay.Tevi
                 bool held = now != null && now.t != null && Mathf.Abs(now.t.position.x - x) < 1f && Mathf.Abs(now.t.position.y - y) < 1f;
                 return new JObject { ["requested"] = new JObject { ["x"] = x, ["y"] = y }, ["held"] = held, ["before"] = before, ["after"] = after, ["changed"] = Changed(before, after) };
             };
+        }
+
+        // CHEAT difficulty {level}: the running save's difficulty, set the way the game's own difficulty change at a bed sets it
+        // (SaveManager.SetDifficulty; the new-game list is Cakewalk 0, Picnic 1, Normal 3, Hard 5, Expert 7, Infernal BBQ 10, read as a
+        // map from GemaNewGame). Answers with the value read back.
+        private Func<JToken> DifficultyJob(JObject args)
+        {
+            if (args["level"] == null) throw new Exception("difficulty needs level, 0 to 10");
+            int level = (int)args["level"];
+            if (level < 0 || level > 10) throw new Exception("difficulty level is 0 to 10");
+            if (SaveManager.Instance == null || Mode() != "play") throw new Exception("the difficulty is set in play");
+            int before = SaveManager.Instance.GetDifficulty();
+            SaveManager.Instance.SetDifficulty(level);
+            Log("cheat difficulty " + before + " -> " + level);
+            return () => new JObject { ["before"] = before, ["after"] = SaveManager.Instance.GetDifficulty() };
         }
 
         private Func<JToken> ScreenshotJob(JObject p)
