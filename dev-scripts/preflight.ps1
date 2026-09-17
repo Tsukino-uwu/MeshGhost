@@ -415,9 +415,14 @@ $binaryFiles = & git ls-files -- '*.dll' '*.exe' '*.so' '*.dylib' '*.pdb' '*.lib
 # this whole section exists to fix. Anything NOT on this list is a FAIL -- a new leak is blocked
 # even while these four are outstanding. Delete an entry as its build is fixed; when the list is
 # empty, delete the list.
+#
+# These four are DECIDED, not pending (2026-09-18, the user): none is worth a rebuild on its own,
+# and the published copies cannot be recalled either way. Each fix rides along the next rebuild
+# that happens for another reason. agent_docs/risks.md carries the sizing -- read it there rather
+# than re-deriving it from the binaries, which is how this came back a second time.
 $knownBinaryLeaks = @{
     'packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/ue4ss/UE4SS.dll' =
-        'third-party build from the submodule; needs RUSTFLAGS=--remap-path-prefix (cargo panic paths) -- decide at the next UE4SS bump'
+        'third-party build from the submodule; needs RUSTFLAGS=--remap-path-prefix (cargo panic paths) -- DECIDED 2026-09-18: not on its own, RUSTFLAGS forces a full rebuild; do it at the next UE4SS bump (risks.md)'
     'packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/ue4ss/Mods/MeshGhostPseudo/dlls/main.dll' =
         'MSVC PDB path; add /PDBALTPATH:%_PDB% to the link flags and rebuild'
     'packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/dwmapi.dll' =

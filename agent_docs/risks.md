@@ -706,6 +706,17 @@ being worked belongs here, as a risk, until someone picks it up. Each keeps its 
   is why it is a risk rather than a task: they clear the day someone rebuilds for another reason.
   This entry existed ONLY in `status.md` and in the script's allowlist — it was the one item in
   that file whose substance was recorded nowhere else.
+  **DECIDED 2026-09-18, the user: not worth doing on its own — do not re-raise it.** Re-derived
+  from scratch in a pre-push audit that found the binaries before it found this entry, which is
+  the re-raise this line exists to stop. What the audit added, so nobody sizes it a third time:
+  the three clone-path DLLs cost one build flag each (`<PathMap>` in the csproj, `/PDBALTPATH:%_PDB%`
+  on the two MSVC links) and leak no personal detail, only this clone's path; `UE4SS.dll` is the
+  only one carrying the username, and `RUSTFLAGS` invalidates the whole cargo cache, so its one-line
+  fix forces a from-scratch rebuild of a large third-party tree plus a live Pseudoregalia load the
+  user has to judge. And the published copies cannot be recalled: a history rewrite would not reach
+  a downloaded release zip, so the whole available win is that a FUTURE release stops carrying them.
+  The flags go in when something else already pays for that rebuild — at the submodule bump for
+  UE4SS, at any routine rebuild for the other three.
 - **Receive rate cap** — `max_receive_hz_per_player` never watched live; needs two clients at
   different caps. (The send side was confirmed on screen 2026-08-15.) `architecture.md` ADR.
 - **Transports: quic default confirmed with a real game attached** (2026-08-16, shared port, no
