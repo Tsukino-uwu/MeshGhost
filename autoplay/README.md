@@ -296,7 +296,8 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   3 seconds with no change -- only in a battle or on a message they can read -- retry a press the game
   ignored, and answer `stuck` after 3 of those, so a call never sits for minutes. A battle animation the module
   reports (`animationPlaying`; Emerald's is measured) counts as change, for up to 600 frames: STRING SHOT's runs 228
-  frames with nothing else moving. Emerald's module learns text as it prints, and a message already under way -- or finished, its
+  frames with nothing else moving. Emerald's also counts a battle controller at work, unless it waits on a message's arrow
+  or a menu: a wild battle's intro ran 218 frames so, and a nudge had landed in it. Emerald's module learns text as it prints, and a message already under way -- or finished, its
   window still put and drawn in -- when it was reloaded or a snapshot restored is taken up from the game's text printer, marked
   `recovered` (Crystal's
   reads whatever is on screen).

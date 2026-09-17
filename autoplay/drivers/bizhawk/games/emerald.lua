@@ -1111,7 +1111,27 @@ local LEVEL_UP_BOX_WAITING = { [6] = "page 1", [8] = "page 2" }
 -- RICK's battle from a snapshot, 2026-09-17): after "Foe WURMPLE used STRING SHOT!" it read 01 for 228 frames, four times,
 -- then 01 for 75 more (the stat-change animation) before "MUDKIP's SPEED fell!" printed; nothing else the probe logs
 -- changed in those frames, and an A pressed inside them changed nothing.
-local ANIM_SCRIPT_ACTIVE = 0x020383fd
+-- A BATTLER'S CONTROLLER AT WORK (battle_state_probe.lua, the rescue battle from the snapshot `ng_rescue_battle`, 2026-09-17;
+-- that adapter's MEASURED.md, "A battle controller at work"): bit n of the u32 the build names gBattleControllerExecFlags was
+-- set from the frame battler n's controller took a command until its routine (CONTROLLER_FUNCS, one per battler) was back
+-- at the one it idles in. In the intro, battler 1's ran 218 frames (the routine the build names TryShinyAnimAfterMonAnim)
+-- with nothing in `battle`'s signature changing, and it ended on the same frame with an A pressed inside it and with no
+-- input at all: that A was `battle`'s nudge. Through the whole battle every stretch of 20 frames or more ended with no
+-- button down, but for three routines: CompleteOnInactiveTextPrinter2 (a message on the player's side waiting on its arrow),
+-- HandleInputChooseAction and HandleInputChooseMove (the menus). So a set bit is the game at work unless its battler's
+-- routine is one of those; a wait for a button not measured yet is taken as work too, and is nudged after text.lua's longer
+-- wait. One table, as the module is at Lua's local ceiling.
+local BATTLE_BUSY = { anim = 0x020383fd, execFlags = 0x02024068,
+	inputWaits = { [0x080597b4] = true, [CHOOSE_ACTION] = true, [CHOOSE_MOVE] = true } }
+
+function BATTLE_BUSY.playing()
+	if r8(BATTLE_BUSY.anim) ~= 0 then return true end
+	local flags = r32(BATTLE_BUSY.execFlags)
+	for i = 0, math.min(r8(BATTLERS_COUNT), 4) - 1 do
+		if (flags >> i) & 1 == 1 and not BATTLE_BUSY.inputWaits[r32(CONTROLLER_FUNCS + i * 4) & 0xFFFFFFFE] then return true end
+	end
+	return false
+end
 -- The action menu as drawn, in cursor order: 0 FIGHT and 1 BAG on the top row, 2 POKéMON and 3 RUN below.
 local BATTLE_ACTIONS = { "FIGHT", "BAG", "POKéMON", "RUN" }
 
@@ -2017,7 +2037,8 @@ local textHooks = {
 		local at = r8(LEVEL_UP_BOX_STATE)
 		return LEVEL_UP_BOX_WAITING[at], at
 	end,
-	animationPlaying = function() return r8(ANIM_SCRIPT_ACTIVE) ~= 0 end,
+	-- A move's animation, or a battler's controller at work (BATTLE_BUSY, above).
+	animationPlaying = BATTLE_BUSY.playing,
 	readKeyboard = readKeyboard,
 	readClock = readClock,
 	strongestMove = function()

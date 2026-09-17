@@ -36,6 +36,9 @@ local FIELDS = {
 	-- Added 2026-09-17: `battle` saw nothing change for 180 frames after "used STRING SHOT!" and nudged. The build
 	-- names these gAnimScriptActive and gPauseCounterBattle.
 	{ "anim", 0x020383fd, 1 }, { "pause", 0x0202432c, 2 },
+	-- Added 2026-09-17 (later): `battle` nudged twice in the rescue battle's intro, before "Wild ZIGZAGOON appeared!" and on
+	-- "Go! MUDKIP!", with nothing above in its signature changing. The build names these gBattleMainFunc and gIntroSlideFlags.
+	{ "mainfunc", 0x03005d04, 4 }, { "slide", 0x020243fc, 2 },
 }
 -- The first two windows' text printers (the build's sTextPrinters, 0x24 bytes each), logged as PR on any change.
 local PRINTERS, PRINTERS_LEN = 0x020201b0, 0x48

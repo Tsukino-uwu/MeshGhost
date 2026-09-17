@@ -65,6 +65,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - The wall clock set: PM, midnight, YES, and the clock viewed after (2026-09-17)
 - The starter bag, and a stale message on its screen after a restore (2026-09-17)
 - Autoplay's noclip: through a collision tile and a character (2026-09-17)
+- A battle controller at work: the rescue battle's intro (2026-09-17)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -755,6 +756,39 @@ cheat's own counts.
   on (52 words, 3 characters) and the core restarted in between, `walk` down 2 moved 2 to (25,15), through his tile, while
   `nearby` still listed him at (25,14). Off put back 52 words and 3 elevations.
 - **Not measured**: what it costs a frame, water, a ledge, a map changed while it is on, a snapshot taken while it is on.
+
+### A battle controller at work: the rescue battle's intro (2026-09-17)
+
+**Vanilla ROM, the new game's save**, BIRCH's rescue battle against a wild ZIGZAGOON, from the snapshot `ng_rescue_battle`
+(gitignored; taken on the first frame callback2 read BattleMainCB2, f376300), with `probes/battle_state_probe.lua` loaded --
+now also logging the bytes the build names gBattleMainFunc and gIntroSlideFlags -- and played by autoplay's `battle`. Logs
+`battle_state_probe_bizhawk-dev-loader-autoplay_target_20260917_041303.log` and `_041754.log` (gitignored). Addresses from the
+build hashed identical to the ROM; routine names are the build's, what each did as below.
+
+- **The nudge.** `battle strongest` pressed A once at f376489, before "Wild ZIGZAGOON appeared!", its log's `nudged`
+  entry. From f376308 the u32 the build names gBattleControllerExecFlags read 03: battler 0's controller routine (the
+  build's gBattlerControllerFuncs, one word per battler) was CompleteOnBattlerSpriteCallbackDummy until f376462, and
+  battler 1's TryShinyAnimAfterMonAnim until f376526, when the flags read 00 and both routines were back at the ones they
+  idled in (PlayerBufferRunCommand, OpponentBufferRunCommand). Nothing in `battle`'s progress signature changed in those
+  218 frames.
+- **The A did nothing.** From the same snapshot with no input at all (`wait` 520), the flags went 03, 02 and 00 on the
+  same frames, f376308, f376462 and f376526, and gBattleMainFunc moved on at f376527 as before. The message that followed
+  then waited: battler 0's routine read CompleteOnInactiveTextPrinter2 with bit 0 set from f376528 to the end of the wait,
+  "Wild ZIGZAGOON appeared!" `waiting_for_button`.
+- **Every other stretch.** Through the whole battle (four turns, the faint, the EXP), a controller's bit read set for 20
+  frames or more 28 times; none had a button down but TryShinyAnimAfterMonAnim's (the nudge, above) and the three in
+  CompleteOnInactiveTextPrinter2 (messages, each ended by `battle`'s A). The rest, in frames: the send-out (BattleControllerDummy 31, Intro_TryShinyAnimShowHealthbox
+  108), PlayerDoMoveAnimation 44, OpponentDoMoveAnimation 44-58, DoHitAnimBlinkSpriteEffect 33, CompleteOnFinishedBattleAnimation
+  76, CompleteOnHealthbarDone 20, and battler 1's own CompleteOnInactiveTextPrinter 21-27 (the foe's messages, which went
+  on with nothing pressed). HandleInputChooseAction and HandleInputChooseMove, the menus, read with bit 0 set on every
+  line logged (8) and were answered in under 20 frames.
+- **With a set bit counted as progress** (autoplay's `animationPlaying`, unless the routine is one of those three waits),
+  the same battle from the snapshot went from "Wild ZIGZAGOON appeared!" to BIRCH's nickname YES/NO with no nudge, twice
+  (probe on, 3091 frames; probe off, 3091). With the probe on, every A landed on something waiting: 8 on the battle menus,
+  3 on a message's arrow, 15 on BIRCH's words after the battle.
+- **Not seen**: a controller waiting for a button in any other routine (a switch after a faint, a move to forget, a
+  catch's nickname, the BAG), a double battle, the BATTLE SCENE option turned off. The nudge last session also landed on
+  "Go! MUDKIP!", not repeated here; the send-out's routines above ran 139 frames between them.
 
 ## Not measured yet
 

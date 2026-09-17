@@ -115,3 +115,30 @@ MUDKIP, BIRCH's "go see MAY?" question up), `ng_starter_bag`, `ng_route101_facin
 watch the log); MAY's box shows the FA scroll command raw; a `battle` policy that weighs types (the game's own type table
 to measure, the user's Gen III chart as the map); noclip's per-frame cost and water; the plan's Phase 2 (`goto` across
 maps, `talk`, the stuck classifier).
+
+## 2026-09-17 (the Emerald chat, new session) — the rescue battle's nudge: a battle controller at work counts as progress
+
+**Reached** (run log `autoplay/runs/2026-09-17_041250.019796.ndjson`, every segment reached by a restore). From `ng_starter_bag`:
+`select MUDKIP`, `advance_text`, `select YES`, `advance_text` to `battle_started`, and a new snapshot `ng_rescue_battle` on the
+battle's first frame. The first try at it landed 543 frames late: the game runs on between two `mcpcall` invocations, so a
+snapshot meant for the frame a call answered on goes in the same invocation.
+
+**Measured** (`emerald/MEASURED.md`, "A battle controller at work: the rescue battle's intro"), with `battle_state_probe.lua`
+now also logging gBattleMainFunc and gIntroSlideFlags, and the build's `.sym` as the map for the routine names. `battle`'s one
+A in the intro landed while battler 1's controller ran by itself for 218 frames, past the 180 a nudge waits; from the snapshot
+with no input the controller finished on the same frame. Every other stretch of a busy controller in the battle ended with no
+button down, but the message waiting on its arrow and the two menus.
+
+**Built** (`emerald.lua` only). Emerald's `animationPlaying` hook is also true while a battler's bit in
+gBattleControllerExecFlags is set and its routine is not one of those three waits; the shared machine already treats that as
+progress for up to 600 frames. The one local it replaced became a table, so the module's count of locals is unchanged. **No shared
+Lua changed**, so Crystal's path is untouched; the README's line on what counts as change says it.
+
+**Regressions:** `ng_rescue_battle` to BIRCH's nickname YES/NO (`menu_open`), no nudge, twice (the probe on, then off; 3091
+frames each); with the probe off, `rick_battle_start` to `ended` with STRING SHOT three times and both level-up pages twice, no nudge;
+`acc_before_may`, Up, A, `advance_text` five boxes to `battle_started` and `battle strongest` to `ended` (a win), no nudge.
+
+**Not reproduced:** last session's second nudge on "Go! MUDKIP!"; the send-out's two routines, now counted, ran 139 frames.
+
+**The user, while it ran:** Serebii's Emerald gym page, *"can use this for some info or as a map, tells you what badge allows
+each HM to be used"* -- a map for the policy and Phase 2, each fact measured on the game before it is written as one.
