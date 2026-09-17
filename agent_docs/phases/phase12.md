@@ -710,15 +710,15 @@ TEVI driver reflects by name at runtime against the user's own install. That als
 access model — the repo works for someone holding only it and their own ROM.
 
 **Then preflight, which was already red, on five counts.** Cleared in `ca304b8f`, each at its cause:
-two "for hours" durations (one a real gap, now "past 24 hours", one about clock hours 0-11 and never
-a duration); three `status.md` items over one line; two items stale at 2026-09-15, re-dated only
+two durations written as bare hours (one a real gap, now "past 24 hours",
+one about clock hours 0-11 and never a duration at all); three `status.md` items over one line; two items stale at 2026-09-15, re-dated only
 after checking each was still true (the Pseudoregalia adapter still mentions `session_policy` only
 in 2026-09-04 comments; `phase10.md` says in its own words that the 450ms `-loss-burst` item stands);
 and a pitfalls lesson that said "the rule this adds" and then filed the rule nowhere, which is why
 its index line had no outcome — now in `checklists/before-trusting-a-reading.md`.
 
 **The `status.md` contradiction the previous entry left open is NOT resolved.** `CLAUDE.md` permits
-two lines per item and preflight's one-line gate fails the second. Today's items were compressed to
+two lines per item ([../claude-md-cap.md](../claude-md-cap.md)) and preflight's one-line gate fails the second. Today's items were compressed to
 one line each, which makes the tree green without deciding which rule is right. Whoever decides it
 changes one or the other; the workaround is not the decision.
 

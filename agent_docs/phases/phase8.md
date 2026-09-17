@@ -1304,3 +1304,9 @@ in `phase13.md`; none of it touches `meshghost_emerald.lua`.
 
 `emerald/MEASURED.md` gained "A mud slope on 0.26: onto it and slid back" and "Map headers, events and behaviours read by
 an unattended session", both from autoplay's Phase 3 acceptance (`phase13.md`); none of it touches `meshghost_emerald.lua`.
+
+## 2026-09-18 — one wording fix in `MEASURED.md`
+
+The wall-clock section's "Not seen" list described the unmeasured case as a bare stretch of hours; it now
+reads "once the game clock has advanced past 24 hours", which names something measurable. Nothing was
+measured or changed about the game: [phase12.md](phase12.md), 2026-09-18 (later).
