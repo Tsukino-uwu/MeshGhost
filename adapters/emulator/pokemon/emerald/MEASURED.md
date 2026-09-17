@@ -75,6 +75,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - A Mart: the buy list, the quantity box, and the list left active under it (2026-09-17)
 - The live grid against the ROM's layout: a gym's barriers opened by its switches (2026-09-17)
 - A mud slope on 0.26: onto it and slid back (2026-09-17)
+- Map headers, events and behaviours read by an unattended session (2026-09-17)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -1048,6 +1049,30 @@ with captures `dev-scripts/shots/emerald/autoplay_battle_bag_*` (gitignored); ru
   check it was "still running after 7200 frames" (`games/emerald/scenarios/mud_slope.json`, 3 of 3 with it, 0 of 1 without).
   A trip from (17,38) to 0.28 (88,6) then went round and arrived, one trainer on the way.
 - **Not measured**: moving down a slope, the MACH BIKE on one, and whether every 0xD0 tile is a slope.
+
+### Map headers, events and behaviours read by an unattended session (2026-09-17)
+
+**Vanilla ROM**, read-only `exec` reads by the headless sessions of the autoplay acceptance (run logs
+`autoplay/runs/2026-09-17_172659.154119.ndjson`, `2026-09-17_174529.077127.ndjson` and `2026-09-17_181542.300302.ndjson`),
+checked against the session's own play stream afterwards; each layout below is what its reads returned consistently.
+
+- **The header** (gMapHeader's copy at 0x02037318, or a ROM header through gMapGroups): connections at +0x0C (a count,
+  then a list of 12-byte entries: a direction byte, the offset at +4, group at +8, map at +9). Direction 3 was a west edge:
+  0.27's east edge (39,8) led onto 0.26 at x 0, row 28, with 0.27 listed on 0.26 at direction 3, offset 20; the other
+  directions are not measured. The warps they read on 0.26 and 0.27 matched `observe`'s.
+- **Events** (header +4): object count at +0, warp count at +1, objects at +4 (24 bytes: local id +0, graphics +1, x +4,
+  y +6), warps at +8 (8 bytes: x, y, destination warp id +5, map +6, group +7). On Lavaridge's gym 4.1, object 1 (graphics
+  128) at (13,9) was the local 1 whose `talk` started LEADER FLANNERY's battle; 4.1's warp at (10,18) pointed at id 0, and
+  4.2's warp 0 is (10,18).
+- **The live grid** (0x03005DC0: width, height, a pointer; a u16 per tile, 7 tiles in): metatile id bits 0-9, collision
+  10-11, elevation 12-15. A tile's behaviour is the low byte of its tileset's attribute table (layout +0x10 primary, +0x14
+  secondary; tileset +0x10; ids from 512 secondary). On 24.14 its collision matched what `goto` and `walk` did.
+- **Behaviours seen**: 0xD0 on 0.26 at (17,36), (17,37), (29,6) and (29,7) (A mud slope on 0.26, above); 0x3B drawn as
+  collision on 4.1 and 4.2, crossed by `walk down` 4 from 4.2 (10,6) to (10,11); 0x68 on 4.1's warp tiles (8,9), (12,12),
+  (10,6), (14,6), where a step dropped the player to the same tile on 4.2; 0x29 on 4.2's warp tiles (8,9), (12,12), (13,17),
+  (10,18), where a step threw the player to 4.1, standing one tile right. Standing on one after arriving did nothing.
+- **Not measured**: the other connection directions, whether 0x3B rows are one-way there, and why `observe`'s `nearby`
+  left out characters beyond about 10 tiles.
 
 ## Not measured yet
 

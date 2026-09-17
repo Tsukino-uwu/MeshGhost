@@ -42,6 +42,7 @@
 --   strongestMove()    -> slot, label | nil, reason
 --   effectiveMove()    -> slot, label, detail | nil, reason   policy "effective": the move weighed by type against the
 --                                            foe, and a table of what each move weighed that goes into the log's choice
+--   battleKind()       -> "wild" | "trainer"  the battle under way, for policy "run_wild"
 --   endedReport()      -> table              what `battle` adds to `ended`
 --   ownHp()            -> hp, max_hp         the player's battler in a battle (for `stop_hp_below`)
 --   gameAnswers()      -> boolean            the game answers this battle's menus itself (Emerald's WALLY tutorial: the bag's
@@ -330,9 +331,11 @@ function M.forgetChoice(options)
 	return out, weighed
 end
 
--- battle {policy = "strongest" | "effective" | "run", forget}: plays a battle to its end, a trainer's words before and after
--- included. "strongest" chooses FIGHT and the move the module's strongestMove() names, "effective" the one its
--- effectiveMove() names; "run" chooses RUN and, on the move menu, stops; "manual" plays the text and stops `needs_choice`
+-- battle {policy = "strongest" | "effective" | "run" | "run_wild" | "manual", forget}: plays a battle to its end, a trainer's
+-- words before and after included. "strongest" chooses FIGHT and the move the module's strongestMove() names, "effective" the
+-- one its effectiveMove() names; "run" chooses RUN and, on the move menu, stops; "run_wild" chooses RUN in a wild battle and
+-- plays a trainer battle as "effective" (the user, 2026-09-17: move through the overworld as fast as possible, running from
+-- wild Pokémon when there are no REPELs; a trainer battle cannot be run from); "manual" plays the text and stops `needs_choice`
 -- at every action or move menu. `forget` "strong_variety" answers a learn-a-move
 -- question (M.forgetChoice); without it `battle` stops `needs_choice` there. `stop_hp_below` (above 0, at most 1) stops
 -- `needs_choice` at the action menu while the player's battler has less than that share of its HP, so the caller can use
@@ -340,8 +343,8 @@ end
 -- (program, error, frame limit) like any program.
 function M.battle(h, p)
 	local policy = p.policy or "strongest"
-	if policy ~= "strongest" and policy ~= "effective" and policy ~= "run" and policy ~= "manual" then
-		return nil, 'battle policy is "strongest", "effective", "run" or "manual"'
+	if policy ~= "strongest" and policy ~= "effective" and policy ~= "run" and policy ~= "run_wild" and policy ~= "manual" then
+		return nil, 'battle policy is "strongest", "effective", "run", "run_wild" or "manual"'
 	end
 	if p.forget ~= nil and p.forget ~= "strong_variety" then
 		return nil, 'battle forget is "strong_variety" or absent'
@@ -362,6 +365,10 @@ function M.battle(h, p)
 	if policy == "effective" and not h.effectiveMove then
 		return nil, 'battle policy "effective" needs a type chart this game module has not measured; use "strongest" or "run"'
 	end
+	if policy == "run_wild" and not (h.battleKind and h.effectiveMove) then
+		return nil, 'battle policy "run_wild" needs the battle kind and a type chart, which this game module does not read'
+	end
+	local function running() return policy == "run" or (policy == "run_wild" and h.battleKind() == "wild") end
 	local outside = 0
 	local machine = M.machine(h, function(asking)
 		-- "manual": every action menu is the caller's (a ball thrown before a wild ABRA's first turn, the user, 2026-09-17).
@@ -373,11 +380,11 @@ function M.battle(h, p)
 					return nil, string.format("HP %d of %d is below stop_hp_below", hp, max)
 				end
 			end
-			if policy == "run" then return h.actionIndex.run, "RUN" end
+			if running() then return h.actionIndex.run, "RUN" end
 			return h.actionIndex.fight, "FIGHT"
 		end
-		if policy == "run" then return nil, "on the move menu with policy run" end
-		if policy == "effective" then return h.effectiveMove() end
+		if running() then return nil, "on the move menu with policy " .. policy end
+		if policy == "effective" or policy == "run_wild" then return h.effectiveMove() end
 		return h.strongestMove()
 	end, function(st)
 		if st.battle then

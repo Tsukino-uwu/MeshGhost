@@ -2405,6 +2405,8 @@ local textHooks = {
 		return slot, nameAt(MOVE_NAMES, MOVE_LEN, MOVE_COUNT, id) or ("move " .. id)
 	end,
 	effectiveMove = TYPE_CHART.effectiveMove,
+	-- The type flags' 0x08 read set against a trainer and clear in wild battles (BATTLES, readBattle).
+	battleKind = function() return (r32(BATTLE_TYPE_FLAGS) & 0x08) ~= 0 and "trainer" or "wild" end,
 	-- WALLY's catching battle in Petalburg's gym (2026-09-17): the type flags read 0x204 against 0x04 in four wild battles, and
 	-- the bag's USE/CANCEL that `battle` stopped on went on by itself, with no input, to "Gotcha! RALTS was caught!".
 	gameAnswers = function() return (r32(BATTLE_TYPE_FLAGS) & 0x200) ~= 0 and not inOverworld() end,

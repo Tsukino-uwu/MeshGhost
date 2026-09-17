@@ -23,16 +23,10 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
   wild battle, `advance_text` on a message; it stops on a whiteout (run log `2026-09-17_131645.118278`).
 - **When `goto` fails, look at the ground before trying again** (emerald.md, 2026-09-17): "no way on foot" on Route 110
   was two ground levels meeting only through tiles of 0, and "no route to WATTSON" was a floor switch on the only path.
-  Both were found by printing the map's grid through `exec`, not by more attempts. Header at 0x02037318: connections
-  (+0x0C: count, list; 12 bytes: direction byte, offset at +4, group +8, map +9; direction 3 was west; the others not measured) and
-  events (+4: object count +0, warp count +1, objects at +4 (24 bytes: local id, graphics, x at +4, y at +6), warps at +8
-  (8 bytes: x, y, dest warp id +5, map +6, group +7)) name the maps and doors ahead. Live grid: width, height, pointer at
-  0x03005DC0, u16 per tile (metatile id bits 0-9, collision 10-11, elevation 12-15), 7 tiles in; a tile's behaviour is the
-  low byte of the tileset's attribute table (layout +0x10 primary, +0x14 secondary; tileset +0x10; id 512+ secondary).
-  Seen: 0xD0 mud slope, 0x3B drawn as collision and crossed walking down, 0x68 hole, 0x29 geyser (run log
-  `2026-09-17_181542.300302.ndjson`); the warps read matched `observe`'s on 0.26 and 0.27, and on 24.14 the grid's
-  collision matched what `goto` and `walk` did. goto's "not an open tile from elevation N" was a collision tile: a
-  neighbour from the grid went. `observe`'s `nearby` lists characters within about 10 tiles of the player only.
+  Both were found by printing the map's grid through `exec`, not by more attempts. The header, event and tile bytes to
+  read the maps and doors ahead, and the behaviours seen (0xD0 mud slope, 0x3B, 0x68 hole, 0x29 geyser): MEASURED.md,
+  "Map headers, events and behaviours read by an unattended session". goto's "not an open tile from elevation N" was a
+  collision tile: a neighbour from the grid went. `observe`'s `nearby` lists characters within about 10 tiles only.
 - **A mud slope (behaviour 0xD0) is not walked up on foot**: the player slides back, and `goto` plans round it or
   answers `unreachable` (MEASURED.md, "A mud slope on 0.26"). The user: a MACH BIKE goes up them.
 - **A warp tile of behaviour 101** (cave exits, the cable car stations) is left by stepping onto it, then `walk` Down
@@ -45,8 +39,12 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
   round with `walk` legs (route.md, Mauville).
 - **A story scene can take the controls mid-route**; `goto` then reads `no_response` and may set an exit aside.
   `advance_text`, then the trip again.
-- **Avoid trainers' sight where a route allows** (the user, 2026-09-17): not fighting every trainer is faster. `goto`
-  already prefers routes out of sight; rotating trainers turn toward a running player.
+- **Move through the overworld as fast as possible; skip trainers as much as possible** (the user, 2026-09-17): a
+  trainer battle cannot be run from and is several Pokémon in a row, while a wild one can be run from -- prefer grass
+  to a trainer's sight, and run from wild Pokémon when there are no REPELs, though trainers give more experience.
+  `goto` weighs a tile in a trainer's sight as about 125 of grass; `trip` fights a trainer who spots the player and
+  answers any other battle with `battle run_wild` (RUN in a wild one, `effective` in a trainer's; "Got away safely!",
+  2026-09-17). Fight wild Pokémon yourself only when levels are wanted. Rotating trainers turn toward a running player.
 - **To talk to a walking character**, stand beside its path, face it and press as it passes (the user, 2026-09-17).
 - **Poké Balls lying on the ground hold items**: pick them up (the user, 2026-09-17).
 
@@ -67,8 +65,7 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
   GROVYLE on Route 110 was beaten with MUD-SLAP three times, then TACKLE, on the third try from a snapshot, after five
   losses (two of them under `effective`). `battle manual` stops at every action menu for that.
 - **`effective` does not know abilities**: it chose MUD SHOT six times into a wild KOFFING's LEVITATE while poison
-  fainted SWAMPERT, a whiteout inside a trip (run log `2026-09-17_181542.300302.ndjson`). Where wild battles are not
-  needed, `goto` and answer `left_overworld` with `battle run`.
+  fainted SWAMPERT, a whiteout inside a trip (run log `2026-09-17_181542.300302.ndjson`).
 - **A party of one hits a wall against a type it is weak to** (emerald.md, 2026-09-17): a second Pokémon is the answer.
   Only wild Pokémon can be caught; one at low HP or with a status is easier; never faint it (the user).
 - **Heal only when the next hit would faint, then attack**; potions work best when they heal more than a hit takes

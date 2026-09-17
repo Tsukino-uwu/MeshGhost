@@ -749,6 +749,13 @@ func TestBattleValidatesAndForwards(t *testing.T) {
 	if in := <-got; in.Policy != "manual" {
 		t.Fatalf("the driver received %+v", in)
 	}
+	text, isErr = h.call(t, "battle", map[string]any{"policy": "run_wild"})
+	if isErr || !strings.Contains(text, `"outcome":"ended"`) {
+		t.Fatalf("battle run_wild = %s (error %v)", text, isErr)
+	}
+	if in := <-got; in.Policy != "run_wild" {
+		t.Fatalf("the driver received %+v", in)
+	}
 	if text, isErr := h.call(t, "battle", map[string]any{"forget": "growl"}); !isErr {
 		t.Errorf("battle with forget growl = %s, want a refusal", text)
 	}

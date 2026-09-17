@@ -79,9 +79,11 @@ local DIRECTIONS = {
 --     more for a tile of tall grass unless `cross_grass` is true, as with a Repel running (the user: "some paths might
 --     require you to go across grass, with no way around" -- a cost, not a wall);
 --   * SIGHT_COST more for a tile an unbeaten trainer looks at, so a route enters a trainer's line only where there is no
---     other way; `route_in_sight` names each one the last plan had to cross;
+--     other way; `route_in_sight` names each one the last plan had to cross. 100 until 2026-09-17, then 1000, about 125
+--     tiles of grass (the user: skip trainers as much as possible -- a trainer battle cannot be run from and is several
+--     Pokémon in a row, a wild one can be);
 --   * a bump ends the ride at rest, marks the refused tile closed, and plans again (at most REPLANS times).
-local TURN_COST, GRASS_COST, SIGHT_COST, REPLANS = 2, 8, 100, 8
+local TURN_COST, GRASS_COST, SIGHT_COST, REPLANS = 2, 8, 1000, 8
 
 -- NO PROGRESS (2026-09-17, Emerald): a route never needs to stand on one tile many times, but a tile that sends the player
 -- back does exactly that -- two unattended sessions' trips walked up 0.26's mud slope and slid back onto (17,38) for minutes,
