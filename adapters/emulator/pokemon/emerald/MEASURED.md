@@ -72,6 +72,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - Rustboro: a north arrow warp, a floor at elevation 0, a YES/NO that ignores an early A, ROXANNE, an evolution (2026-09-17)
 - The learn-a-move question, the move list and the evolution scene (2026-09-17)
 - The bag inside a battle, and a POTION used through it (2026-09-17)
+- A Mart: the buy list, the quantity box, and the list left active under it (2026-09-17)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -995,6 +996,26 @@ with captures `dev-scripts/shots/emerald/autoplay_battle_bag_*` (gitignored); ru
   foe moved; HP read 46 of 51 in the battle and the party, and the bag 2 POTIONs after the battle.
 - **Not measured**: a party of more than one (the other slots' cursor values and layout), CANCEL chosen, a POTION on a
   Pokémon at full HP, the other pockets in a battle, a Poké Ball thrown.
+
+### A Mart: the buy list, the quantity box, and the list left active under it (2026-09-17)
+
+**Vanilla ROM**, Slateport's Mart (9.13), walked in the story; autoplay's `observe`, `select` and `exec` reads with captures
+`dev-scripts/shots/emerald/autoplay_shop_*` (gitignored); run log `autoplay/runs/2026-09-17_131645.118278.ndjson`.
+
+- `talk` to the clerk (local 1, across the counter) opened BUY / SELL / QUIT (the menu reader). BUY showed the list, read by the
+  list reader: POKé BALL, GREAT BALL, POTION, SUPER POTION, ANTIDOTE, PARLYZ HEAL, ESCAPE ROPE, REPEL, HARBOR MAIL, CANCEL, the
+  prices printed in window 1.
+- A on POTION printed "POTION? Certainly. How many would you like?" and a task ran 0x080E0D89 (the build's
+  Task_BuyHowManyDialogueHandleInput, +1): data word 1 read 1, then 2 and 3 after two Ups, the capture drawing "x03 ₽900"; word 5
+  read 13 (POTION). A printed "POTION? And you wanted 3? That will be ₽900." and a YES/NO the menu reader read; YES printed "Here you
+  go! Thank you very much.", the bag held 3 POTIONs and money read 7.
+- **The list's task (the build's ListMenuDummyTask) stayed active** under the quantity box, the price question and "Here you go!":
+  `select POTION` answered "did not respond" though its A had been taken, and `advance_text` stopped `menu_open` on the list at once.
+- "Here you go!" waited on A after the driver was reloaded, and read as no message (a finished message is recovered only on the
+  overworld's and the main menu's screens).
+- **Not measured**: SELL, Right/Left in the quantity box (±10 in the decomp), a purchase refused for money.
+
+## Not measured yet
 
 ### The rest of the text printer (from 2026-09-16)
 

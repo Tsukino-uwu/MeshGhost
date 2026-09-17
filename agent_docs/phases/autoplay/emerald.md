@@ -469,3 +469,26 @@ the decomp as the map for the rule beyond the mats and floors measured before), 
 elevation 1 alone.
 
 **Open from this stretch:** a party of one loses to GRASS types however `effective` chooses; a second Pokémon (a catch) is next.
+
+## 2026-09-17 (the Emerald chat, next session) — a Mart, POTIONs, a grind, and MAY's GROVYLE five times
+
+**Played** (walked; segments "story: a Mart in Slateport for POTIONs" to "story: MAY on Route 110 at Lv 30"). Slateport's Mart
+found at the user's word (9.13 at (13,26), which I had misread from the warp list); three POTIONs bought (`emerald/MEASURED.md`, "A
+Mart"). MAY at Route 110's north end (her trigger at (34,56)), five tries, MARSHTOMP alone each time:
+
+| Try | Lv | Tactic | Result |
+|---|---|---|---|
+| 1-2 | 25 | `effective` (TACKLE, the only neutral move) | fainted by ABSORB (×4), GROVYLE barely hurt |
+| 3 | 26 | MUD-SLAP ×4 then TACKLE (the user's tactic, `manual`) | GROVYLE at 8 HP when MARSHTOMP fell |
+| 4 | 26 | the same, POTION under 30 HP | three POTIONs spent back to back before the slaps; ABSORB out-healed each |
+| 5 | 30 (grown on Route 110's grass) | MUD-SLAP ×3 then TACKLE | a critical ABSORB took 54 HP; fainted before the third slap |
+
+**The user, while it ran:** status and accuracy moves have this use even against a resisting type; heal only when the next hit
+would faint, then attack; SUPER POTIONs heal more and cost more; selling at a Mart raises money, with no buying back; Poké Balls
+lying on the ground hold items.
+
+**Built** (`emerald.lua`, commit `e755a1e4`). A Mart's quantity box read; the list not taken as the menu under it or under a
+message. **Fixed in the records:** `emerald/MEASURED.md` had lost its `## Not measured yet` heading in the bag entry's edit
+(`b7e17c5e`); put back.
+
+**Open:** a party of one against GRASS; money ₽3.

@@ -70,7 +70,9 @@ Everything past `frame`, `mode` and `location` is the game module's. Emerald, on
   (`learn_move`, `stop_learning`, `forget_move`), `move`, `pokemon` and `options` (each move's `name`, `type`, `power`,
   `accuracy`, `same_type`; the move to learn last). The bag's list and its USE/CANCEL inside a battle read as they do in the field, and the
   party list an item opens ("Use on which POKéMON?") as `kind: party`, the party's names then CANCEL (a party of one measured).
-  The party menu opened from the START menu and other lists (the PC, shops) are not measured yet.
+  A Mart's quantity box as `kind: quantity` with `item` and `count` (Up adds one; `select` does not set it), and a list is not
+  taken as the menu while a message or that box is up. The party menu opened from the START menu, a Mart's SELL and the PC are
+  not measured yet.
 - **`keyboard`** — the naming screen: `title` ("YOUR NAME?"), `text` so far and its `length`, `max_length`,
   `page` (`capitals`, `small` or `symbols`; Select cycles them), `cursor` (`column`, `row`), `on` (the key under
   the cursor, or `OK`; `on_button_row` for the page and BACK buttons), `keys` (the page's rows as drawn), and
