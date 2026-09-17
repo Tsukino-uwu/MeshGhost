@@ -237,7 +237,7 @@ capture unrelated things — other windows, other monitors, anything of theirs t
 On method: *"we use whatever gives the best result."* So the rule is to frame the capture on the game
 and keep every capture out of the repo, the same care as a username or a home path. The one thing
 `client.screenshot()` structurally cannot show — the Lua overlay the drawn tier paints — is the case
-a window capture exists for, and the instrument being built on it is `agent_docs/plans/vision-plan.md`.
+a window capture exists for, and an instrument is being built on it (`status.md`, while it is open).
 
 **Window capture where there is no frame capture** (user, 2026-09-16, planning a harness meant for
 any game): a host that cannot capture its own frame may use a window capture — and every capture,

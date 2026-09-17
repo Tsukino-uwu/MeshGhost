@@ -300,6 +300,18 @@ adapters/**/config.json
 # Session working checklist, local only (committed once by mistake 2026-09-08, untracked 2026-09-09)
 REVIEW-FINDINGS.md
 
+# Scratch plans, local only and deliberately never tracked (the user, 2026-09-18): a planning file
+# is written to be BUILT AND DELETED, and this folder goes with the autoplay and vision work it
+# describes -- hoped gone the week of 2026-09-21. Listed here rather than in .git/info/exclude so a
+# second clone is protected too, and because an untracked folder inside a tracked tree is one
+# `git add -A` from being committed, which is how ap_try.flag got in on 2026-08-18.
+#
+# WHEN THE FOLDER GOES, THREE TRACKED POINTERS GO WITH IT, or they dangle on a fresh clone where
+# the folder never existed: agent_docs/status.md's Vision item, agent_docs/playing-rationale.md's
+# closing line, and .claude/skills/play-game/references/screenshots.md. Named here because this is
+# the file whoever deletes the folder will be looking at.
+/agent_docs/plans/
+
 # The identity a relay writes beside its config (private/server.key is a PRIVATE KEY: whoever has
 # it is that relay to every client that connected before) and the known-servers file a client
 # writes beside its own. Both are per-install runtime state, created on first run (ADR 0066,

@@ -71,8 +71,7 @@ menu looks like — and they let the user check a claim without driving the game
   frame cannot see a cycle whatever took it: **judge that NUMERICALLY**, with counters sampled over
   time — *"14-36 of ~40 peers were mid-stride at every sample, and none ever fell back for want of a
   facing"* settles what no photograph can. **A window capture IS the answer when the question is what
-  the overlay itself draws**, which no counter and no `client.screenshot()` can show
-  (`agent_docs/plans/vision-plan.md`).
+  the overlay itself draws**, which no counter and no `client.screenshot()` can show.
 
 ## Photograph the reference, count the painted one
 

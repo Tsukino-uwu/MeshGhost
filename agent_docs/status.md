@@ -14,7 +14,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 - 2026-09-17 — **Autoplay, Emerald: Phase 3 built** (goals, skills, the knowledge store, `cmd/session`); open: its acceptance -- the first unattended attempt looped and was stopped. `phases/autoplay/emerald.md`.
 - 2026-09-17 — **Autoplay, Crystal: paused** (the user), with `goto`, the PACK, the POKéMON menu, badges, bike, surf and scoring behind `effective` done on V1.0; next the whiteout. `phases/autoplay/crystal.md`.
 - 2026-09-17 — **Autoplay, TEVI: Ribauld beaten on Infernal BBQ, once hitless (115.4 s)**; open: the bomb ring in the air, orbs against hugging, normal enemies hitless, `exec`. `phases/autoplay/tevi.md`.
-- 2026-09-18 — **Vision: a pixel-side instrument planned, Phase 0 next** — window capture + OpenCV, a PAINTED ghost against the PLAYER, the pairing no OAM read or screenshot can answer. `plans/vision-plan.md`.
+- 2026-09-18 — **Vision: a pixel-side instrument, Phase 0 next** — window capture + OpenCV, a PAINTED ghost vs the PLAYER, the pairing no OAM read or screenshot can answer. `plans/vision-plan.md` (untracked).
 - 2026-09-16 — **Prediction: A3 LANDED (ADR 0069, ships off), SCREEN VERDICT OPEN; A2.0 MEASURED** (worst-case transit p99 310–320ms; the dry tail is the 1 s blackouts); A2 undecided. `prediction-planning.md`.
 - 2026-09-18 — **Chaser contact: the Go half LANDED (`e546d38c`, ADR 0068, ships `off`); the adapter half is NOT started.** Next: Part A of `chaser-planning.md`; `pseudoregalia/UNVERIFIED.md` has the entry.
 - 2026-09-18, hold to 2026-09-25 — **Strip the build paths out of the four shipped DLLs** (one holds the username): a flag each for three, a full rebuild and a user-judged reload for `UE4SS.dll`. `risks.md`.
