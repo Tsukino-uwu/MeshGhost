@@ -27,8 +27,8 @@ namespace MeshGhostAutoplay.Tevi
     {
         private const string GameName = "tevi";
 
-        // The one in-game slot this driver writes (the user, 2026-09-17: vanilla 36-39 and Randomizer 36-80 are
-        // autoplay's). Every other slot is refused, and listed as protected in the hello.
+        // The one in-game slot this driver plays and saves in (the user, 2026-09-17: vanilla 36-39 and Randomizer 36-80
+        // are autoplay's). Its file is the save guard's shadow copy; every other slot is listed as protected in the hello.
         private const byte WorkingSlot = 39;
         private const int LastSlot = 100;
 
@@ -52,9 +52,15 @@ namespace MeshGhostAutoplay.Tevi
             ReadConfig();
             build = BuildStamp();
             Log("loaded: port " + port + ", repo " + (repo ?? "(none: screenshots and exec are off)") + ", build " + build);
-            Log(SaveGuard.Install(Application.persistentDataPath, AllowedSaveNames()));
+            Log(SaveGuard.Install(Application.persistentDataPath, repo == null ? null : repo + "/autoplay/states/" + GameName + "/shadow"));
             InputInjection.Install();
             if (port == 0) return;
+            if (repo == null)
+            {
+                // No shadow folder without a repo, and a guard that only refuses breaks a new game (SaveGuard.cs).
+                Log("no repo in meshghost-autoplay.txt: the driver connects nowhere without one");
+                return;
+            }
             link = new Link("127.0.0.1", port);
             link.SetHello(Hello());
         }
@@ -130,14 +136,6 @@ namespace MeshGhostAutoplay.Tevi
             {
                 return "unknown (" + e.Message + ")";
             }
-        }
-
-        private static IEnumerable<string> AllowedSaveNames()
-        {
-            // The vanilla name and the Randomizer's (its GetSaveFileName prefix), read from both builds' code as maps
-            // and from the save folder's own files, 2026-09-17.
-            yield return "tevisave" + WorkingSlot + ".sav";
-            yield return "randomizer/rando.tevisave" + WorkingSlot + ".sav";
         }
 
         // ---- what the driver says about itself ------------------------------------------------------------------
@@ -275,7 +273,7 @@ namespace MeshGhostAutoplay.Tevi
                 }
                 o["location"] = loc;
             }
-            JObject menu = SaveMenu();
+            JObject menu = SaveMenu() ?? TitleMenu();
             if (menu != null) o["menu"] = menu;
             if (p != null && p.t != null)
             {
@@ -344,7 +342,45 @@ namespace MeshGhostAutoplay.Tevi
             };
         }
 
-        private static readonly string[] DiffKeys = { "mode", "menu.name", "menu.slot", "menu.question", "menu.entering", "location.area", "location.area_id", "location.room_x", "location.room_y", "location.x", "location.y", "location.facing", "player.anim", "player.hp" };
+        private const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
+
+        // The title's own menus: the main menu, Custom Game and the difficulty list. Each keeps its entries in a private
+        // `selections` (slots whose GetText is the text drawn) and its cursor in a private byte `selected`; the title
+        // screen holds the other two. Only the one on screen is returned.
+        private static JObject TitleMenu()
+        {
+            GemaTitleScreenManager title = GemaTitleScreenManager.Instance;
+            if (title == null || WorldManager.Instance != null) return null;
+            if (title.GetType().GetField("gemanewgame", Private)?.GetValue(title) is GemaNewGame difficulty && difficulty.isActiveAndEnabled)
+            {
+                return ListMenu("difficulty", difficulty);
+            }
+            if (title.GetType().GetField("gemacustomgame", Private)?.GetValue(title) is GemaCustomGame custom && custom.isActiveAndEnabled)
+            {
+                JObject m = ListMenu("custom_game", custom);
+                if (m != null && MainVar.instance.NewCustomGame != null)
+                {
+                    var ticked = new JArray();
+                    foreach (bool b in MainVar.instance.NewCustomGame) ticked.Add(b);
+                    m["ticked"] = ticked;
+                }
+                return m;
+            }
+            MethodInfo inTitle = title.GetType().GetMethod("InTitleScreen", Private);
+            if (inTitle != null && (bool)inTitle.Invoke(title, null)) return ListMenu("title", title);
+            return null;
+        }
+
+        private static JObject ListMenu(string name, object owner)
+        {
+            if (!(owner.GetType().GetField("selections", Private)?.GetValue(owner) is IEnumerable slots)) return null;
+            var items = new JArray();
+            foreach (object s in slots) items.Add(s is GemaMainMenuSelectionSlot slot && slot != null ? slot.GetText() : null);
+            object cursor = owner.GetType().GetField("selected", Private)?.GetValue(owner);
+            return new JObject { ["name"] = name, ["items"] = items, ["cursor"] = cursor is byte c ? (JToken)c : null };
+        }
+
+        private static readonly string[] DiffKeys = { "mode", "menu.name", "menu.cursor", "menu.slot", "menu.question", "menu.entering", "location.area", "location.area_id", "location.room_x", "location.room_y", "location.x", "location.y", "location.facing", "player.anim", "player.hp" };
 
         private static JObject Changed(JObject before, JObject after)
         {
@@ -370,8 +406,18 @@ namespace MeshGhostAutoplay.Tevi
                 welcomedOnce = true;
                 if (!SaveGuard.Armed)
                 {
-                    SaveGuard.Arm();
-                    Log("SAVE GUARD ARMED: a core connected, so until this game exits nothing is written to the save folder but " + string.Join(" and ", new List<string>(AllowedSaveNames()).ToArray()) + ", and autosaves are held");
+                    try
+                    {
+                        Log(SaveGuard.Arm());
+                    }
+                    catch (Exception e)
+                    {
+                        // Unguarded, nothing may be carried out: drop the core and stay off until a reload.
+                        Log("SAVE GUARD FAILED TO ARM (" + e.Message + "); the driver disconnects and stays off");
+                        link.Dispose();
+                        link = null;
+                        return;
+                    }
                 }
             }
             if (Time.frameCount % 30 == 0) link.SetHello(Hello());

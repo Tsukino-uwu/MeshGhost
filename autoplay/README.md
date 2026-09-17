@@ -327,10 +327,13 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   room and position, `player`, the save list's `menu` by page, row and slot, and `save`), `wait`, `press` (the game's
   own Rewired actions by name, an axis with a sign: `Confirm`, `XAxis+`), `screenshot` (the game's own frame);
   events `mode_changed`, `area_changed`, `room_changed`.
-- **TEVI's save guard.** From the moment a core first connects until the game exits, the driver refuses every save
-  write, move and delete in TEVI's save folder except autoplay's slot 39, and holds the autosave -- the unmodded saves
-  never change while autoplay may have changed the game (the user, 2026-09-17). It survives a hot reload; a change to
-  its code needs a game restart. Restart TEVI to play with saving again.
+- **TEVI's save guard.** From the moment a core first connects until the game exits, TEVI's save folder is a shadow copy
+  (`autoplay/states/tevi/shadow/`, copied fresh as it arms): every save read and write goes there, the real folder is
+  never written, and the autosave is held -- the unmodded saves never change while autoplay may have changed the game
+  (the user, 2026-09-17). A shadow rather than a refusal: a new game reads back the slot pointer it just wrote, and a
+  refused write loaded the player's autosave instead (`agent_docs/pitfalls/by-lesson.md`). No `repo` in the config, no
+  connection. It survives a hot reload; a change to its code needs a game restart. Restart TEVI to play with saving again.
+  `observe`'s `menu` also reads the title's main menu, Custom Game (`ticked`) and the difficulty list (`items`, `cursor`).
 
 ## Running it
 

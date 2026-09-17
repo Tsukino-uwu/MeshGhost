@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using ES3Internal;
 using HarmonyLib;
@@ -8,61 +9,63 @@ using UnityEngine;
 
 namespace MeshGhostAutoplay.Tevi
 {
-    // THE SAVE GUARD. While armed, nothing in this game process writes, moves or deletes a file in TEVI's save folder
-    // except autoplay's own slot, and the game's autosave does not run at all. Asked for by the user 2026-09-17: the
-    // driver holds the autosave off, and autoplay's saves go only to the slots granted it (vanilla 36-39, Randomizer
-    // 36-80; this driver uses one, WorkingSlot). The unmodded saves are the ones that must never change.
+    // THE SAVE GUARD. While armed, TEVI's save folder is a SHADOW COPY: every file the game or a mod opens there, to read
+    // or to write, is opened in autoplay/states/tevi/shadow/ instead, copied fresh from the real folder the moment the
+    // guard arms. The real folder is never written, and the game still reads back what it wrote. The game's autosave
+    // does not run at all. The user, 2026-09-17: the unmodded saves must never change, and the driver holds the autosave.
     //
-    // Where it sits (names read from the Steam build's assemblies, 2026-09-17; agent_docs/phases/autoplay/tevi.md):
-    // every save the game and the Randomizer make is an ES3File whose Sync writes a ".tmp" that ES3IO.CommitBackup
-    // then moves over the real file; a slot is deleted through ES3.DeleteFile. Sync and DeleteFile are refused for
-    // any other file, so no stray .tmp is left beside a real save; ES3IO's own file moves are refused too, as a
-    // backstop for a path this list does not know. SaveManager.ReallyDoAutoSave is skipped, which is where an
-    // autosave writes slot 0, a backup slot and the recent-slot pointer.
+    // WHY A SHADOW AND NOT A REFUSAL (measured 2026-09-17, agent_docs/phases/autoplay/tevi.md): the first guard refused
+    // every write but autoplay's slot. A new game in slot 39 then writes "recent slot 39" to tevisystem.sav and, after
+    // its scene reload, reads that pointer back to pick the slot to load; the refused write left it at 0, and the "new
+    // game" loaded the player's autosave instead. A guard that changes what the game reads back breaks the thing it
+    // guards. Redirecting keeps every read and write the game's own, only in another folder.
     //
-    // It ARMS when the driver first welcomes a core and stays armed until the game exits: once autoplay may have
-    // changed the game, nothing of this process may reach the player's saves. A driver left in scripts\ with no core
-    // never arms, so ordinary play saves as usual. Restart the game to play normally after a session.
+    // Where it sits (names read from the Steam build's assemblies, 2026-09-17): Easy Save 3 resolves every relative save
+    // path through ES3Settings.FullPath (persistentDataPath + "/" + path), and the game and the Randomizer save only
+    // through ES3. A postfix on that getter rewrites any path in the real folder to the shadow's. ES3IO's own file
+    // moves, writes and deletes then refuse any path still inside the real folder, as a backstop for a path that did
+    // not come through FullPath. SaveManager.ReallyDoAutoSave is skipped. Without a repo in the driver's config there is
+    // no shadow folder, and the guard falls back to refusing, with the new-game problem above: say so in the log.
+    //
+    // It ARMS when the driver first welcomes a core and stays armed until the game exits. A driver left in scripts\
+    // with no core never arms, so ordinary play saves as usual. Restart the game to play normally after a session.
     //
     // It SURVIVES A HOT RELOAD. ScriptEngine loads a new copy of this assembly and destroys the old plugin; patches
-    // removed and re-applied would leave a gap in which an autosave could land. So the patches are applied once per
-    // process (their Harmony id is checked first) and never removed, and their state -- armed, the allowed names,
-    // the counts -- lives in the AppDomain's data, which every copy of this assembly reads. Changing this file's
-    // code therefore needs a game restart to take effect; the log line on load says which copy is guarding.
+    // removed and re-applied would leave a gap. So the patches are applied once per process (their Harmony id is checked
+    // first) and never removed, and their state lives in the AppDomain's data, which every copy of this assembly reads.
+    // Changing this file's code therefore needs a game restart to take effect.
     public static class SaveGuard
     {
-        public const string HarmonyId = "dev.meshghost.autoplay.saveguard";
+        public const string HarmonyId = "dev.meshghost.autoplay.saveguard.shadow";
         private const string KeyArmed = "meshghost.autoplay.guard.armed";
-        private const string KeyAllowed = "meshghost.autoplay.guard.allowed";
         private const string KeyRoot = "meshghost.autoplay.guard.root";
+        private const string KeyShadow = "meshghost.autoplay.guard.shadow";
+        private const string KeyRedirected = "meshghost.autoplay.guard.redirected";
         private const string KeyRefused = "meshghost.autoplay.guard.refused";
-        private const string KeyAllowedCount = "meshghost.autoplay.guard.allowed_count";
         private const string KeyLastRefused = "meshghost.autoplay.guard.last_refused";
         private const string KeyAutosavesHeld = "meshghost.autoplay.guard.autosaves_held";
         private const string KeyLog = "meshghost.autoplay.guard.log";
 
         private static readonly object Gate = new object();
 
-        // Called by the plugin on Awake: applies the patches if no copy of this assembly has, and records the save
-        // folder and the allowed names. Returns what it did, for the log.
-        public static string Install(string persistentDataPath, IEnumerable<string> allowedRelativeNames)
+        // Called by the plugin on Awake: records the real save folder and the shadow's (null without a repo) and applies
+        // the patches if no copy of this assembly has. Returns what it did, for the log.
+        public static string Install(string persistentDataPath, string shadowRoot)
         {
-            var allowed = new List<string>();
-            foreach (string n in allowedRelativeNames) allowed.Add(Normalize(n));
-            AppDomain.CurrentDomain.SetData(KeyRoot, Normalize(persistentDataPath) + "/");
-            AppDomain.CurrentDomain.SetData(KeyAllowed, allowed.ToArray());
+            AppDomain.CurrentDomain.SetData(KeyRoot, Normalize(persistentDataPath).TrimEnd('/'));
+            if (!Armed) AppDomain.CurrentDomain.SetData(KeyShadow, shadowRoot == null ? null : Normalize(shadowRoot).TrimEnd('/'));
             if (Harmony.HasAnyPatches(HarmonyId))
             {
                 return "save guard: patches already in place from an earlier copy of the driver; armed=" + Armed;
             }
+            if (Harmony.HasAnyPatches("dev.meshghost.autoplay.saveguard"))
+            {
+                return "save guard: an OLDER guard (refusing, not shadowing) is patched into this process; restart the game";
+            }
             var h = new Harmony(HarmonyId);
             var self = typeof(SaveGuard);
-            h.Patch(AccessTools.Method(typeof(ES3File), nameof(ES3File.Sync), new[] { typeof(ES3Settings) }),
-                prefix: new HarmonyMethod(self, nameof(SyncPrefix)));
-            h.Patch(AccessTools.Method(typeof(ES3), nameof(ES3.DeleteFile), new[] { typeof(ES3Settings) }),
-                prefix: new HarmonyMethod(self, nameof(SettingsPrefix)));
-            h.Patch(AccessTools.Method(typeof(ES3IO), nameof(ES3IO.CommitBackup), new[] { typeof(ES3Settings) }),
-                prefix: new HarmonyMethod(self, nameof(SettingsPrefix)));
+            h.Patch(AccessTools.PropertyGetter(typeof(ES3Settings), nameof(ES3Settings.FullPath)),
+                postfix: new HarmonyMethod(self, nameof(FullPathPostfix)));
             h.Patch(AccessTools.Method(typeof(ES3IO), nameof(ES3IO.DeleteFile), new[] { typeof(string) }),
                 prefix: new HarmonyMethod(self, nameof(FirstPathPrefix)));
             h.Patch(AccessTools.Method(typeof(ES3IO), nameof(ES3IO.WriteAllBytes), new[] { typeof(string), typeof(byte[]) }),
@@ -82,9 +85,40 @@ namespace MeshGhostAutoplay.Tevi
 
         public static bool Armed => AppDomain.CurrentDomain.GetData(KeyArmed) is bool b && b;
 
-        public static void Arm()
+        public static string ShadowRoot => AppDomain.CurrentDomain.GetData(KeyShadow) as string;
+
+        private static string RealRoot => AppDomain.CurrentDomain.GetData(KeyRoot) as string ?? "";
+
+        // Copies the real save folder into a fresh shadow, then arms. The logs Unity keeps there are left out: they are
+        // not saves, and one is tens of megabytes. Returns what it did, for the log.
+        public static string Arm()
         {
+            if (Armed) return "save guard: already armed";
+            string shadow = ShadowRoot, real = RealRoot;
+            string how;
+            if (shadow == null)
+            {
+                how = "REFUSING writes to " + real + " (no repo in the driver's config, so no shadow folder: a new game there loads the recent slot instead)";
+            }
+            else
+            {
+                if (Directory.Exists(shadow)) Directory.Delete(shadow, recursive: true);
+                int files = 0;
+                foreach (string src in Directory.GetFiles(real, "*", SearchOption.AllDirectories))
+                {
+                    string ext = Path.GetExtension(src).ToLowerInvariant();
+                    if (ext == ".log" || ext == ".vdf") continue;
+                    string rel = Normalize(src).Substring(real.Length).TrimStart('/');
+                    string dst = shadow + "/" + rel;
+                    Directory.CreateDirectory(Path.GetDirectoryName(dst));
+                    File.Copy(src, dst);
+                    files++;
+                }
+                Directory.CreateDirectory(shadow);
+                how = "SHADOWING " + real + " in " + shadow + " (" + files + " files copied)";
+            }
             AppDomain.CurrentDomain.SetData(KeyArmed, true);
+            return "SAVE GUARD ARMED until the game exits: " + how + "; autosaves held";
         }
 
         public static JObject Report()
@@ -92,15 +126,15 @@ namespace MeshGhostAutoplay.Tevi
             return new JObject
             {
                 ["armed"] = Armed,
-                ["allowed"] = new JArray(AppDomain.CurrentDomain.GetData(KeyAllowed) as string[] ?? new string[0]),
+                ["shadow"] = ShadowRoot,
+                ["paths_redirected"] = Count(KeyRedirected),
                 ["writes_refused"] = Count(KeyRefused),
-                ["writes_allowed"] = Count(KeyAllowedCount),
                 ["last_refused"] = AppDomain.CurrentDomain.GetData(KeyLastRefused) as string,
                 ["autosaves_held"] = Count(KeyAutosavesHeld),
             };
         }
 
-        // Guard decisions since the last drain, for the plugin's log. Written from inside a save, read on the next frame.
+        // Guard decisions since the last drain, for the plugin's log.
         public static List<string> DrainLog()
         {
             lock (Gate)
@@ -118,6 +152,7 @@ namespace MeshGhostAutoplay.Tevi
             lock (Gate)
             {
                 AppDomain.CurrentDomain.SetData(countKey, Count(countKey) + 1);
+                if (line == null) return;
                 var q = AppDomain.CurrentDomain.GetData(KeyLog) as List<string> ?? new List<string>();
                 if (q.Count < 200) q.Add(line);
                 AppDomain.CurrentDomain.SetData(KeyLog, q);
@@ -126,61 +161,36 @@ namespace MeshGhostAutoplay.Tevi
 
         private static string Normalize(string path) => (path ?? "").Replace('\\', '/');
 
-        // Whether path is one of the allowed save files, or one of ES3's working copies of it (.tmp, .tmp.bak, .bac).
-        public static bool IsAllowed(string path)
+        // The part of path under the real save folder ("" for the folder itself), or null when it is not in it.
+        private static string UnderReal(string path)
         {
-            string p = Normalize(path);
-            foreach (string suffix in new[] { ".tmp.bak", ".tmp", ".bac", ".bak" })
-            {
-                if (p.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
-                {
-                    p = p.Substring(0, p.Length - suffix.Length);
-                    break;
-                }
-            }
-            string root = AppDomain.CurrentDomain.GetData(KeyRoot) as string ?? "";
-            if (root.Length == 0 || !p.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return false;
-            string rel = p.Substring(root.Length);
-            foreach (string a in AppDomain.CurrentDomain.GetData(KeyAllowed) as string[] ?? new string[0])
-            {
-                if (string.Equals(rel, a, StringComparison.OrdinalIgnoreCase)) return true;
-            }
-            return false;
+            string p = Normalize(path), real = RealRoot;
+            if (real.Length == 0) return null;
+            if (string.Equals(p.TrimEnd('/'), real, StringComparison.OrdinalIgnoreCase)) return "";
+            return p.StartsWith(real + "/", StringComparison.OrdinalIgnoreCase) ? p.Substring(real.Length + 1) : null;
+        }
+
+        private static readonly HashSet<string> RedirectedOnce = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        private static void FullPathPostfix(ref string __result)
+        {
+            if (!Armed) return;
+            string shadow = ShadowRoot;
+            if (shadow == null) return;
+            string rel = UnderReal(__result);
+            if (rel == null) return;
+            __result = rel.Length == 0 ? shadow : shadow + "/" + rel;
+            bool first;
+            lock (Gate) first = RedirectedOnce.Add(rel);
+            if (first) Note(KeyRedirected, "shadowed " + (rel.Length == 0 ? "(the folder)" : rel));
         }
 
         private static bool Decide(string what, string path)
         {
-            if (!Armed) return true;
-            if (IsAllowed(path))
-            {
-                Note(KeyAllowedCount, "allowed " + what + " " + path);
-                return true;
-            }
+            if (!Armed || UnderReal(path) == null) return true;
             lock (Gate) AppDomain.CurrentDomain.SetData(KeyLastRefused, what + " " + path);
             Note(KeyRefused, "REFUSED " + what + " " + path);
             return false;
-        }
-
-        private static string FullPath(ES3Settings settings)
-        {
-            try
-            {
-                return (settings ?? new ES3Settings()).FullPath;
-            }
-            catch (Exception e)
-            {
-                return "<no path: " + e.Message + ">";
-            }
-        }
-
-        private static bool SyncPrefix(ES3File __instance, ES3Settings __0)
-        {
-            return Decide("ES3File.Sync", FullPath(__0 ?? __instance.settings));
-        }
-
-        private static bool SettingsPrefix(MethodBase __originalMethod, ES3Settings __0)
-        {
-            return Decide(__originalMethod.DeclaringType.Name + "." + __originalMethod.Name, FullPath(__0));
         }
 
         private static bool FirstPathPrefix(MethodBase __originalMethod, string __0)

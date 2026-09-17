@@ -48,6 +48,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - 2026-09-17 — The save list's cursor, and a new game started through it by injected input
 - 2026-09-17 — Under ScriptEngine a plugin's `Info.Location` is empty
 - 2026-09-17 — The Randomizer turns Custom Game options on by itself
+- 2026-09-17 — A new game reads its slot back from `tevisystem.sav`; a vanilla Cakewalk new game in slot 39
 - Not measured yet — backup slots and the chapter-reset slot
 - Not measured yet — what `mode: paused` reads from, and why the pause menu opened
 
@@ -113,6 +114,23 @@ by the driver, and the corner text drawn during the fade-in.
 - The running save answered `SpeedRun`, `FreeRoam`, `TurboMode` and `WeaponMastery`, and the fade-in drew those four
   names. The mod's `GemaNewGame.OnEnable` prefix sets the first two (read in its installed DLL, MIT-licensed); where the other two come
   from is not traced.
+
+### 2026-09-17 — A new game reads its slot back from `tevisystem.sav`; a vanilla Cakewalk new game in slot 39
+
+**Evidence**: the game's own `Player.log` for two starts on the Steam build with the Randomizer disabled, and autoplay's
+driver (`observe`, events) around them; run log `autoplay/runs/2026-09-17_121000.061030.ndjson`, segments 3 and 4.
+
+- **Starting a new game writes the recent-slot pointer, then reads it back from the file**: `[GemaNewGame] Try to start game
+  at saveslot 39`, `Save recent manual save slot : 39` twice, then after the scene reload `Load recent auto or manual save
+  slot : <N>` and the load of slot N. With both pointer writes refused (the first save guard), N read 0 and `Loaded Save Slot
+  0.` put the player's autosave on screen (HP 1009, 22,650 coins). With them written to a shadow copy, N read 39 and `Save
+  File Slot 39 do not exist. Trying to start New Game` began the intro.
+- **The title's menus**, read through `GemaTitleScreenManager`: the main menu `Start`, `Contents`, `Gallery`, `Options`,
+  `About`, `Exit`; Custom Game's twelve options and `Confirm & Continue`, four of them drawn `? ? ?` without the Randomizer;
+  the difficulty list `Cakewalk`, `Picnic`, `Normal`, `Hard`, `Expert`, `Infernal BBQ`, opening on `Normal` (cursor 2).
+  `YAxis+` moves that cursor up; two presses reached `Cakewalk`, and the game logged `Diffiuclty : 0` for it (3 for Normal).
+- **The intro**: `mode` `event` in area `INTRO_ROOM` (area id 48), room 14,3, x 19152.0, y -2912.0, facing `RIGHT`, HP 100
+  of 100, no Custom Game option on, the save's slot 39; the screen black with the story's first line of text.
 
 ## Not measured yet
 

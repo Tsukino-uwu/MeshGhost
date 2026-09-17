@@ -7610,3 +7610,24 @@ the control the original reading never had.
 
 **The rule this adds:** a change that follows your press is not proof the press caused it; run the same moment with no
 press before building on it.
+
+## TEVI autoplay: a save guard that refused a write turned a new game into a load of the player's autosave (2026-09-17)
+
+**Symptom.** A vanilla new game started in slot 39 through TEVI's title screens came up in Thanatara Canyon with HP 1009,
+22,650 coins and EXPERT under the minimap -- the player's own slot-0 autosave (its first resource value was the same
+number), not the intro. Nothing reached the disk; the guard had refused two writes.
+
+**Diagnosis.** The game's own `Player.log` for that start: `Try to start game at saveslot 39`, `Save recent manual save slot :
+39` twice, `Load recent auto or manual save slot : 0`, `Loaded Save Slot 0.` The two refused writes were those pointers, to
+`tevisystem.sav`; the driver's log named them.
+
+**Cause.** The guard refused every save write but autoplay's slot. A new game writes the recent-slot pointer, reloads the
+scene, and reads the pointer back from the file to pick the slot to load; refused, it read the old 0.
+
+**Fix.** The guard redirects instead of refusing: while armed, Easy Save's `ES3Settings.FullPath` maps the save folder to
+a shadow copy made when it arms (`autoplay/states/tevi/shadow/`), so every read and write stays the game's own and the real
+folder is never written. The same start then logged `Load recent ... slot : 39` and `Save File Slot 39 do not exist. Trying
+to start New Game`, and the intro played; the real folder matched the backup by hash.
+
+**The rule this adds:** a guard around what a game writes must keep what the game READS BACK consistent -- redirect, never
+refuse, anything the game may read again.

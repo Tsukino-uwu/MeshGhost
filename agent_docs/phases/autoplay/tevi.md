@@ -79,3 +79,28 @@ fast games. The answer taken: the engine's own state every frame in the driver, 
 held while the model decides, a flight recorder of recent frames, and annotated pictures; a detector only for a
 game nothing can be read from (Phase 8). The screenshot is the game's own frame (Unity's `ScreenCapture`, 1280x720),
 never the desktop.
+
+## 2026-09-17 (same session) — the Randomizer off, the guard made a shadow, and a Cakewalk new game at the intro
+
+**The user**, after closing the game: *"lets disable the archipelago mod for now. i don't think it allows you to start a game
+at the intended intro area"*, and mid-way through the next start, *"Cakewalk, easiest difficulty"*.
+
+**The first vanilla start loaded the player's autosave.** Slot 39, no options, Normal: the game came up in Thanatara Canyon
+with HP 1009 and 22,650 coins. The game's log showed why: a new game writes the recent-slot pointer to `tevisystem.sav` and
+reads it back after its scene reload; the guard had refused both writes, so it read 0 and loaded slot 0 into memory (nothing
+reached the disk). Asked whether it was the autosave hold: the same guard, but the half that refused writes, not the hold
+(no autosave had fired). Record: `pitfalls/by-lesson.md`, same date.
+
+**The guard now shadows.** While armed, `ES3Settings.FullPath` maps the save folder to `autoplay/states/tevi/shadow/`, copied
+fresh from the real folder as it arms (56 files, the logs left out); ES3's own file moves refuse anything still aimed at the
+real folder; the autosave is still held. Without a repo in the config the driver no longer connects. TEVI was closed and
+relaunched for it (a guard change needs a new process).
+
+**Built too:** `observe`'s `menu` reads the title's own menus -- the main menu, Custom Game (with `ticked` per option) and the
+difficulty list -- as `items` and `cursor`, so the title flow ran on the game's cursor, not on pictures.
+
+**Walked** (run log `autoplay/runs/2026-09-17_121000.061030.ndjson`, segment 4): the title's Start, the save list to slot 39
+(9 pages, 3 rows, each read by `menu.slot`), Custom Game with nothing ticked, `Confirm & Continue`, the difficulty list from
+Normal up two to Cakewalk, Confirm. The game logged `Save File Slot 39 do not exist. Trying to start New Game`; `observe` read
+`mode: event` in `INTRO_ROOM`, HP 100, slot 39; the screen showed the story's first line. The guard: 42 paths shadowed, no
+write refused, no autosave held; only the shadow's `tevisystem.sav` written; the real folder identical to the backup by hash.
