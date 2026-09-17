@@ -475,8 +475,8 @@ local function readScreenText(t, dialogue, menuRows, low)
 	return out
 end
 
--- The PACK's item list, whole, when the menu on screen is it (defined with the item pocket, below).
-local itemPocketMenu
+-- The PACK's item list, whole, when the menu on screen is it, and the pockets' contents (defined with the pockets, below).
+local itemPocketMenu, readBag
 
 -- The message and the menu on screen together: a menu drawn inside the message box's frame (the battle's action
 -- menu) is not a message, and the box under the PACK's item list is that item's description.
@@ -689,7 +689,8 @@ function game.restored()
 	track = { lines = nil, changedAt = -1, arrowAt = -1, seenAt = -1, cycles = 0, lastDelay = 0 }
 end
 
-function game.observe()
+-- `asked`: an observe the caller asked for (not a program's before and after), which also reads what the save has.
+function game.observe(asked)
 	local overworld = isVanilla and inOverworld()
 	local ps = memory.read_bytes_as_array(PLAYER_STRUCT, 0x28, "WRAM")
 	local warps, nearby, localMap
@@ -727,11 +728,20 @@ function game.observe()
 		-- An empty Lua table goes out as {}, not []: leave the list out until a battler is there.
 		if #battle.battlers == 0 then battle.battlers = nil end
 	end
+	-- What the save has: the party and money as `battle`'s ended report reads them, and the measured pockets.
+	local party, money, bag
+	if asked and isVanilla then
+		local r = battleEndedReport()
+		party, money, bag = r.party, r.money, readBag()
+	end
 	return {
 		frame = emu.framecount(),
 		dialogue = d,
 		menu = m,
 		battle = battle,
+		party = party,
+		money = money,
+		bag = bag,
 		screen_text = s,
 		local_map = localMap,
 		nearby = (nearby and #nearby > 0) and nearby or nil,
@@ -877,6 +887,24 @@ itemPocketMenu = function(m)
 	end
 	if f - listSeenAt >= 0 and f - listSeenAt <= REDRAW_GRACE then return whole end
 	return nil
+end
+
+-- The measured pockets that hold anything: per entry the item's name, id and quantity.
+readBag = function()
+	local names, bag = itemNames(), nil
+	for _, pocket in pairs(POCKETS) do
+		local count = u8(pocket.addr)
+		if count >= 1 and count <= pocket.slots then
+			local list = {}
+			for k = 0, count - 1 do
+				local id = u8(pocket.addr + 1 + k * 2)
+				list[#list + 1] = { item = names[id] or string.format("{%02X}", id), id = id, quantity = u8(pocket.addr + 2 + k * 2) }
+			end
+			bag = bag or {}
+			bag[pocket.name] = list
+		end
+	end
+	return bag
 end
 
 local function itemPocketOf(id)

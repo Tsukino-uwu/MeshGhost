@@ -137,8 +137,10 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
   held at 0 the move missed, and the table's 242 both hit and missed). `kind` (`wild`, `trainer`); in a trainer's
   battle `opponent_party_count` and `opponent_party_index`. A battler is absent until its Pokémon is sent out. One wild
   battle and one trainer's measured.
-- Not yet: `movement`, a trainer that turns, and what the save has (`battle`'s `ended` alone reads money
-  and the party). The events are
+- **What the save has**, in an `observe` you call only: **`party`** (per Pokémon `slot`, `species`, `nickname`, `level`,
+  `hp`, `max_hp`; two slots measured), **`money`**, and **`bag`** with the item and ball pockets that hold anything
+  (`item`, `id`, `quantity`). Moves and PP out of a battle, badges and the other pockets are not read yet.
+- Not yet: `movement`, a trainer that turns. The events are
   `map_changed`, `mode_changed`, `dialogue_changed`, `menu_changed` and `battle_mode_raw_changed`.
 - Its tools: `walk` (on foot only; `run` walks and says `ran: false`, since Crystal has no running
   shoes; a door or a map edge answers once the player stands on the new map; `blocked` names a
