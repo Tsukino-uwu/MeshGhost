@@ -61,6 +61,10 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - 2026-09-17 — The interaction bubble, the bottom-left popup and the menu's tabs, read
 - 2026-09-17 — Into the Sewerways: a grate that broke on a falling quickdrop, the move list, and the first save point
 - 2026-09-17 — Holding the clock: what a timeScale of 0 stops, stepping, and input while held
+- 2026-09-17 — The game's hitbox drawing in a frame capture, and what the flight recorder costs
+- 2026-09-17 — Jump arcs by hold, the quickdrop, the player's hurtbox and her ground swing
+- 2026-09-17 — Ribauld's attacks: lasers, blastorbs, the arena's edges, and the states before each attack
+- 2026-09-17 — Fighting Ribauld with the dodge: hits per try
 - Not measured yet — backup slots and the chapter-reset slot
 - Not measured yet — what `mode: paused` reads from, and why the pause menu opened
 
@@ -349,6 +353,79 @@ the game's own short stops, the game speed otherwise; read as a map) setting 0 w
   a request's `after` is read before its last frame's movement, one frame behind.
 - **Not measured**: enemies, projectiles and the systems that run on the game's unscaled delta (banner fades, dialogue printing,
   the save point's refill) while held.
+
+### 2026-09-17 — The game's hitbox drawing in a frame capture, and what the flight recorder costs
+
+**Evidence**: autoplay's driver (`Annotate.cs`, `Recorder.cs`) on the Steam build, at the Sewerways save point room and in Ribauld's
+arena; screenshots `autoplay_l5_plain.png`, `autoplay_l5_annotated.png`, `autoplay_l5_plain_after.png`, `autoplay_sewer_right2.png`
+(gitignored), pixels counted by a script; run log `autoplay/runs/2026-09-17_150941.595165.ndjson`.
+
+- **`BulletManager.showHitBox(true)` draws into the captured frame**: 456 cyan pixels in a box at the player's feet (her
+  `BREAK_STAND` bullet, 32 by 56) in the annotated shot, 0 in plain shots taken before and 10 frames after it; the switch was
+  on for 1 frame of game update. Ribauld's `BODYBOX` drew blue. It draws while the clock is held.
+- **Tags placed by the camera's edges** landed on the save point's glow and on Ribauld, also with his scene's camera zoomed in.
+  Tags are drawn over the game's windows, where the hitbox lines are not (a tutorial window covered the lines, not the tag).
+- **The recorder**: 0.005 to 0.02 ms a recorded frame on average, worst 0.25 to 0.53 ms, with 4 characters and 8 boxes a row.
+  Nothing is recorded while the clock is held (90 frames held, the newest row unchanged). 600 idle rows fit in 42.8 KB; rows with
+  boxes need every 4th.
+
+### 2026-09-17 — Jump arcs by hold, the quickdrop, the player's hurtbox and her ground swing
+
+**Evidence**: the flight recorder (`recent`, every frame) on the save point block and in Ribauld's arena; `observe`'s
+`player.hurtbox` (Bodybox and `GameSystem.hitboxDisplay`, named from the assembly) and `projectiles` with boxes, stepped with the
+clock held; same run log.
+
+- **Rise per frame from the ground**: Jump held 24 frames 16.9, 32.9, 48.2, 62.8 ... peak 191.3 on frame 23, landing after 46
+  frames; held 3 frames peak 89.7 on frame 12, landing after 27. Let go, the rise shrinks by about a quarter a frame; falling
+  gains about 0.78 a frame to at most 15. Running is 6.33 a frame, in the air too.
+- **A quickdrop** (down held, Jump pressed in the air): from the next frame she falls 22.5 units a frame, straight, to the ground
+  (logic `QUICKDROP`), from a full jump's peak and from a short one alike.
+- **Her hurtbox**: 11 wide, 15 high, centred 17 below her position, standing.
+- **Her ground swing** (`TEVI_GROUND_COMBO_ATTACK`): a box 189 by 67.5 centred 45 ahead of her, there about 10 frames after the
+  press; a swing's logic state (`TEVI_WEAK_GROUND_NORMAL1`) lasts about 18 frames. An air swing kept her x fixed while it ran.
+
+### 2026-09-17 — Ribauld's attacks: lasers, blastorbs, the arena's edges, and the states before each attack
+
+**Evidence**: the flight recorder with boxes, owners, and nearby characters' animation, logic state and hitstun; `damage_taken`
+events; `observe`'s `lasers`; Cakewalk, Sewerways, from snapshot `tevi_ribauld_start` (it restores at the save point, x 20671.7, not
+where it was taken); read as a map beside it, `Ribauld`, `EnergyBall`, `LaserController2D` and `GemaPoolManager.CreateLaser`.
+
+- **The fight**: a conversation (`chapter0_mainstory2-1`, 11 lines), then the Quickdrop tutorial window; at about 181-194 HP the line
+  `chapter0_point3` and the Charged Shot window; 480 HP. Beating him gave the Spiral Slash popup earlier in the fight ("+[C] while
+  in the air").
+- **Attacks seen**, with the logic state before each and the frames from that state's start to the box's birth: a charge
+  (`RIBAULD_INVISIBLE`, 80 by 75, running with him at about 9-18 units a frame) 16-17 frames into `ATTACK2`, five times of five; a
+  ring of `Ribauld_BombShoot` (11 by 11) about 80 frames after `ATTACK1` began; `speeddown` (36 by 36, from his gun 72 ahead, 24 units
+  a frame) and `BULLET_RIBAULD_SLOWDOWN` (25 by 25, rolling on the floor) 34 frames into `ATTACK4`, and again at 66 and 99; a
+  vertical laser (`RIBAULD_CUTIN_LASER`, radius 22.2, the whole screen high) at the player's x, in `ATTACK5`.
+- **A laser hit reads bullet type `NORMAL`** with no bullet near her: lasers hurt through their own circle cast, not a bullet.
+- **Blastorbs**: an orb's blast (`ENERGYBALL_EXPLODE`) read 0 by 0 for two frames, then 405 by 405. Orbs knocked by Ribauld flew at
+  her at 20-30 units a frame and went off beside her; blasts on Ribauld took 56 to 91 HP each (480 to 424 to 333 with no attack of
+  hers). Both orbs in the arena hopped straight up on the same frame and went off as they landed, one 122 units from her. The user:
+  *"the orb only explode when it touch something, not when laying idle on the ground"*.
+- **The arena's edges are the camera's**: she stopped at x 22282 and 23530 with the view at 22266.5 to 23545.5, 15.5 inside each
+  edge, and no solid tile there.
+
+### 2026-09-17 — Fighting Ribauld with the dodge: hits per try
+
+**Evidence**: `reflex` `fight` and `evade` answers and `damage_taken` events, each try from `tevi_ribauld_start` (reached), Cakewalk;
+same run log. The fight replays closely: the first charge hit landed about 1,890-1,900 frames after the restore in two tries.
+
+| Try | Phase one | Hits | Ribauld's HP after |
+| --- | --- | --- | --- |
+| no dodge, melee | 2,999 frames | 9 | 172, into the phase-two line |
+| `evade` only, first version | 1,800 frames | 2 | – |
+| melee kept 110-150 away | 3,600 (limit) | 2 | 226 |
+| ranged, 250-400 away | 2,961 | **0** | 213; phase two 1,917 frames, 1 hit (a detonating orb), beaten |
+| auto (melee in reach), hugging | 3,080 | 2 | 183 |
+| + quickdrop instead of falling | 2,773 | 4 | 194 |
+| + tells learned (learning run) | 2,721 | 1 | 193 |
+| + tells used | 3,408 | **0** (163 swings, 13 orb pushes) | 181; phase two 2,182 frames, 2 hits (charges), beaten |
+
+- **Not measured**: which field the outline follows. The user: no outline; yellow while she is attacking it, when it is stunned and
+  does no attacks; red once it has been attacked too much, until a short cooldown, when her hits do less damage, do not knock it
+  back, and it attacks freely. Read as a map, a red flash comes with a hit passed as `blocked`, whose stun and knockback are zeroed.
+  Also not measured: holding Attack; the fight on harder difficulties.
 
 ## Not measured yet
 

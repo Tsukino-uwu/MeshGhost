@@ -86,6 +86,17 @@ hold-to-jump-higher and blastorbs, and each became something `observe` reads. Wh
 short hints; those are rulings and go into the game's autoplay log. Cheats stay the tool once the basics are known or a test
 needs a made situation (the mindset above).
 
+### Combat: a boss beaten fast and hitless, in every game (user, 2026-09-17)
+
+Watching autoplay fight TEVI's first boss, Ribauld: *"preferably you want to complete boss fights without taking any damage at
+all"*, *"damage/hitless boss fights, means we have a good way to handle combat and are doing things properly"*, *"applies for all
+games"*, then *"its not a requirement, but its a good bar/goal to have"*, and later *"defeat a boss as fast as possible, avoid getting
+hit. as an end goal for having perfect combat done"*. How to get there, as the user put it while it was played: stay close and melee
+*"all the time"* rather than *"staying far away or playing it super safe"*; melee before air attacks before ranged, a quickdrop to get
+down and dodge rather than as damage; *"air is better than standing around and doing nothing"*; keep a boss fight's combo going. The
+harder difficulties bring more moves and far more projectiles, so a fight is handled by reading the game's own boxes and an enemy's
+tells, never by a script of one boss (`autoplay/drivers/bepinex/tevi/Dodge.cs`, `Tells.cs`; `phases/autoplay/tevi.md`).
+
 ### The superseded rule, kept because its reasoning still matters
 
 Until the reversal the rule was the opposite — *"cheating is not allowed… try to progress just as a

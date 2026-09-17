@@ -1572,3 +1572,19 @@ a 20-frame step, a 1-frame step, and a 30-frame sequence run while held (`adapte
 
 **Checked.** `luac -p`; live on vanilla Emerald, Slateport to Route 110's north end in one trip. Crystal not run (paused; it
 supplies neither hook).
+
+## 2026-09-17 (the TEVI chat, new session) — layers 5 and 4: `screenshot`'s `annotate` and `recent`, the flight recorder
+
+**What changed in the shared core** (`server.go`; TEVI's half and the Ribauld fight they served are in [autoplay/tevi.md](autoplay/tevi.md),
+same date):
+- **`screenshot` `annotate`**: forwarded only to a driver that announces `screenshot:annotate`, refused otherwise; the driver draws
+  what it reads onto the picture and lists what it drew in the answer. A plain `screenshot` is unchanged. Tests:
+  `TestScreenshotAnnotateNeedsItsCapability` (fails with the gate removed), `TestScreenshotAnnotateForwards`.
+- **`recent`**: the flight recorder, `frames` (1-600, default 120) ending at `until_frame` (default the newest), one row every `every`
+  (1-60), forwarded to a driver announcing `recent`; reading only, so the segment keeps its label. Test: `TestRecentValidatesAndForwards`.
+
+**Why**: the approved plan's layers 5 and 4 (the entry "how an agent sees a game"). BizHawk's driver announces neither yet.
+
+**Checked.** `go vet ./...` and `go test -count=1 ./...` in `autoplay/`, green, on the staged tree alone. Live on TEVI: an annotated
+shot with the game's hitbox lines and plain shots without them either side; the recorder read around jumps and hits, across a held
+clock, and after the fight (`adapters/tevi/MEASURED.md`).

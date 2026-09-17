@@ -258,3 +258,37 @@ through from just beside it; the minimap and the full map (`Map`) show how rooms
 (a core `recent`); `exec` (the game's Quantum Console first). Smaller: the clock with enemies and the unscaled systems (fades, dialogue);
 `advance_text` equipping a sigil from its box; `hp_changed` grouped while HP refills; `fight` using Upper Slash and the air combo;
 a `goto` over TEVI's grid for the save point and exits `area_elements` lists; what a blastorb breaks.
+
+## 2026-09-17 (new session) — layers 5 and 4, and Ribauld: a dodge that reads the game's boxes and learns an enemy's tells
+
+**Built** (driver, and two shared-core tools: [../phase13.md](../phase13.md), same date; the measurements: `adapters/tevi/MEASURED.md`):
+- **Layer 5, `screenshot` `annotate`**: the game's own hitbox drawing (`BulletManager.showHitBox`) on for the captured frame only, and
+  numbered tags over what `observe` reads, each listed in the answer. **Layer 4, `recent`**: the flight recorder, 60 seconds of game
+  time a row a frame (position, speed, input, the nearest characters with animation, logic state and hitstun, the nearest hostile
+  boxes), read after an event with `until_frame`. The clock hold now survives a hot reload.
+- **Threats as the game tests a hit** (`Threats.cs`): live bullets with damage and a box, lasers (a circle cast, not a bullet), and a
+  blastorb as its blast when it moves toward a character or hops in place, else its touch distance.
+- **The dodge** (`Dodge.cs`): 12 plans (stand, run, hop, jump, and quickdrop in the air) over 45 frames against those boxes, with walls,
+  the boss arena's camera edges, floors, homing shots, clearance and commitment. `reflex` `evade`; `fight` with it, `attack` `auto`
+  (melee in reach, from the air when standing is not safe, Orbitars out of reach), hugging the target, quickdrop instead of falling,
+  orb pushes.
+- **Tells** (`Tells.cs`): the logic state an enemy is in when each attack box is born, learned by watching, predicted as that box after
+  its delay; the table survives a hot reload.
+
+**Walked and reached** (run log `autoplay/runs/2026-09-17_150941.595165.ndjson`): from the Sewerways save point right along the
+sewer, onto a raised floor and up a wall by its platform, to Ribauld (**walked**, one sequence each leg). The fight then many times
+from snapshot `tevi_ribauld_start` (**reached**; it restores at the save point, and each try walks back in one `sequence`). Ribauld
+beaten twice: once shooting from range (phase one hitless, one hit in phase two), once with tells (phase one hitless, two charges hit in
+phase two). The try-by-try table is in `MEASURED.md`.
+
+**The user, while it was played** (the combat rules they set are in `playing-rationale.md`, "Combat"): boss fights hitless and fast
+as the bar for every game, a goal rather than a requirement; *"this is on the easiest difficulty, harder/hardest diffs may have more
+moves/way more projectiles"*, and *"if this succeds, try the hardest difficulty afterwards"*; stay on the boss and melee, melee before
+air before Orbitars, quickdrop to get down and avoid hits (it does a little damage and gives invincibility frames); push orbs into the
+boss with melee or Orbitars; keep a boss fight's combo going; and *"you are always allowed to hot reload"*. Of outlines: none; yellow while being
+attacked, stunned and not attacking; red once attacked too much, until a cooldown, taking less damage, not knocked back and attacking
+freely. Holding Attack may give combos or a charge attack.
+
+**Open:** a hitless phase two; the outline (yellow, red) as a field the fight uses; attacking into every safe gap (the user still saw
+gaps, with over-dodging); holding Attack and the damage rotation; the combo meter; the hardest difficulty; then `exec` (the game's Quantum
+Console first).

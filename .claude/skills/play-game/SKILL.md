@@ -75,11 +75,12 @@ it and move on. **Never a third attempt on inputs** (`references/navigation.md`)
   reload**: reloading a driver drops the adapter with it. Take the driver off the target when done.
 - **On a trip to one state, bank a savestate at every milestone** in a free slot and name the slots
   in your report. A savestate is not an in-game save (`agent_docs/environment.md`).
-- **A run that ends badly is still a result.** Stuck, lost, softlocked: report it, never rewind out
-  of it quietly — the reload deletes exactly the evidence worth having.
+- **A run that ends badly is still a result** (stuck, softlocked): report it, never rewind out of it quietly.
 - **Move as a player does, never in stutter steps** — one continuous `sequence` (overlapping holds) or a
   one-call program (`walk`, `goto`, `battle`, `advance_text`); stepping is tolerable only while a driver is
   new, and fixed early. A loop you run must stop within seconds of nothing changing and say what it saw.
+- **Combat's bar, in every game: a boss beaten fast and hitless** — close in, the game's strongest attacks,
+  never idle; a goal, not a requirement (the user, 2026-09-17; `playing-rationale.md`, "Combat").
 
 ## Speed and screenshots
 

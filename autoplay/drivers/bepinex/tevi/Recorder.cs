@@ -30,7 +30,7 @@ namespace MeshGhostAutoplay.Tevi
         {
             public string Type, Anim, Logic;
             public int Id, Hp;
-            public float X, Y;
+            public float X, Y, Stun;
         }
 
         private struct Box
@@ -112,7 +112,7 @@ namespace MeshGhostAutoplay.Tevi
             for (int i = 0; i < r.EnemyCount; i++)
             {
                 CharacterBase c = Near[i].Value;
-                r.Enemies[i] = new Enemy { Type = c.type.ToString(), Id = c.ID, Hp = c.health, X = c.t.position.x, Y = c.t.position.y, Anim = c.aniStatus.ToString(), Logic = c.logicStatus.ToString() };
+                r.Enemies[i] = new Enemy { Type = c.type.ToString(), Id = c.ID, Hp = c.health, X = c.t.position.x, Y = c.t.position.y, Anim = c.aniStatus.ToString(), Logic = c.logicStatus.ToString(), Stun = c.GetHitStun() };
             }
 
             NearBoxes.Clear();
@@ -199,7 +199,7 @@ namespace MeshGhostAutoplay.Tevi
                 for (int k = 0; k < r.EnemyCount; k++)
                 {
                     Enemy e = r.Enemies[k];
-                    enemies.Add(new JArray(TypeIndex(types, e.Type), e.Id, Math.Round(e.X, 1), Math.Round(e.Y, 1), e.Hp, TypeIndex(types, e.Anim), TypeIndex(types, e.Logic)));
+                    enemies.Add(new JArray(TypeIndex(types, e.Type), e.Id, Math.Round(e.X, 1), Math.Round(e.Y, 1), e.Hp, TypeIndex(types, e.Anim), TypeIndex(types, e.Logic), Math.Round(e.Stun, 3)));
                 }
                 var boxes = new JArray();
                 for (int k = 0; k < r.BoxCount; k++)
@@ -212,7 +212,7 @@ namespace MeshGhostAutoplay.Tevi
             return new JObject
             {
                 ["columns"] = new JArray("frame", "mode", "x", "y", "vx", "vy", "ground", "anim", "logic", "hp", "input", "near", "boxes"),
-                ["near_columns"] = new JArray("type", "id", "x", "y", "hp", "anim", "logic"),
+                ["near_columns"] = new JArray("type", "id", "x", "y", "hp", "anim", "logic", "hitstun_raw"),
                 ["boxes_columns"] = new JArray("type", "owner", "x", "y", "width", "height"),
                 ["types"] = new JArray(types.ToArray()),
                 ["every"] = every,
