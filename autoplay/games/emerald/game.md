@@ -38,7 +38,8 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
 - **`goto` walks over step-on event tiles**: Mauville's gym switches flip its barriers when a route crosses one. Walk
   round with `walk` legs (route.md, Mauville).
 - **A story scene can take the controls mid-route**; `goto` then reads `no_response` and may set an exit aside.
-  `advance_text`, then the trip again.
+  `advance_text`, then the trip again. A `goto` answering `no_response` just after a geyser landing at Lavaridge's gym
+  (4.1 (2,14)) was two trainers' battles starting: `battle` played both (run log `2026-09-17_185825.337345.ndjson`).
 - **Move through the overworld as fast as possible; skip trainers as much as possible** (the user, 2026-09-17): a
   trainer battle cannot be run from and is several Pokémon in a row, while a wild one can be run from -- prefer grass
   to a trainer's sight, and run from wild Pokémon when there are no REPELs, though trainers give more experience.
@@ -85,7 +86,10 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
 - **An HM from the field BAG** (walked three times, last `2026-09-17_181542.300302.ndjson`): Start, `select` BAG, `press
   Right` twice (ITEMS to POKé BALLS to TMs & HMs; the driver has no `sequence`), `select` the HM by index, USE, `advance_text`, YES, `press A` twice (party screen),
   `advance_text`, YES, `advance_text` (needs_choice), `select` the move to forget by name, `advance_text`, `select` CLOSE BAG,
-  `press B`. In the field: face the rock, `press A`, `advance_text`, YES, `advance_text`.
+  `press B`. In the field: face the rock, `press A`, `advance_text`, YES, `advance_text`. After an HM was taught,
+  two `press Left` reached ITEMS again. A field SUPER POTION: `select` it, USE, `press A` (party screen),
+  `select` the Pokémon, `advance_text`; `select` CLOSE BAG failed on a two-entry list, `press B` twice closed it (run
+  log `2026-09-17_185825.337345.ndjson`).
 
 ## Not built yet
 

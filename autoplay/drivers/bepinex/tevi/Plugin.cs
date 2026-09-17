@@ -54,6 +54,8 @@ namespace MeshGhostAutoplay.Tevi
             ReadConfig();
             build = BuildStamp();
             Log("loaded: port " + port + ", repo " + (repo ?? "(none: screenshots and exec are off)") + ", build " + build);
+            // TEVI's own unlock and sync methods (names from its assembly, 2026-09-17), besides the Steam library's.
+            Log(AchievementGuard.Install(new[] { "GemaSteamAPIAchievements.UnlockAchievement", "GemaSteamAPIAccess.TrySyncAchievements" }));
             Log(SaveGuard.Install(Application.persistentDataPath, repo == null ? null : repo + "/autoplay/states/" + GameName + "/shadow"));
             if (repo != null) Tells.TableFile = repo + "/autoplay/states/" + GameName + "/tells.json";
             InputInjection.Install();
@@ -334,6 +336,7 @@ namespace MeshGhostAutoplay.Tevi
                     ["slot"] = MainVar.instance._saveslot,
                     ["randomizer"] = RandomizerEnabled(),
                     ["guard"] = SaveGuard.Report(),
+                    ["achievement_guard"] = AchievementGuard.Report(),
                 };
                 if (SaveManager.Instance != null && wm != null)
                 {

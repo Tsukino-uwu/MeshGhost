@@ -67,6 +67,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - 2026-09-17 — Fighting Ribauld with the dodge: hits per try
 - 2026-09-17 — Infernal BBQ: what a normal enemy's hit costs, a death, and the play time to the first save point
 - 2026-09-17 — Ribauld on Infernal BBQ: his HP, the laser curtain's warning, thrown orbs, and what makes a quickdrop a double jump
+- 2026-09-17 — Achievements: what TEVI calls to unlock one, and a load re-applying them
 - Not measured yet — backup slots and the chapter-reset slot
 - Not measured yet — what `mode: paused` reads from, and why the pause menu opened
 
@@ -475,6 +476,17 @@ Sewerways save point after restoring snapshot `tevi_inf_first_savepoint`; run lo
   67.3, 78.4, 88.7, 98.3, 107.1, 115.1, 122.3, 128.8, 134.4 units, the same each time.
 - **Not measured**: how far an Orbitar shot moves a resting orb; whether a quickdrop onto an orb pushes it and which way; how long a
   set of beams keeps hurting.
+
+### 2026-09-17 — Achievements: what TEVI calls to unlock one, and a load re-applying them
+
+**Evidence**: the Steam build's assemblies read for names (PowerShell reflection); autoplay's achievement guard, its log line and
+`observe`'s `save.achievement_guard` counter, around a `restore` of `tevi_inf_first_savepoint`.
+
+- **The Steam library is Facepunch.Steamworks** (`Facepunch.Steamworks.Win64.dll`); the game's own entry points are
+  `GemaSteamAPIAchievements.UnlockAchievement` and `GemaSteamAPIAccess.TrySyncAchievements`.
+- **Loading a save called `UnlockAchievement` 62 times** within the restore (counter 0 before, 62 after), all skipped by the guard.
+- During an autoplay fight before the guard existed, the user saw "Squeak By" unlock (beat a boss under 5% HP).
+- **Not measured**: which achievement each of the 62 calls named.
 
 ## Not measured yet
 

@@ -26,6 +26,7 @@
   <ItemGroup>
     <!-- The host half every BepInEx game shares. -->
     <Compile Include="..\Link.cs" Link="Link.cs" />
+    <Compile Include="..\AchievementGuard.cs" Link="AchievementGuard.cs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -35,44 +35,50 @@ three times then TACKLE beat GROVYLE from a snapshot. Gym 10.0 (door (8,5)): eve
 
 ## The DYNAMO BADGE to Fallarbor
 
-Run log `2026-09-17_181542.300302.ndjson`, 2026-09-17, from WATTSON's gym floor; the user, earlier: *"it needs to
-continue to the left around the desert"* and *"you need a mach bike to go up the mud slides"*.
-- `run_skill heal` 10.5; trip 0.2 (32,15), `walk up` into 10.2, `talk` local 1: HM06, taught as game.md says (TACKLE).
+Run logs `2026-09-17_181542.300302.ndjson`, `2026-09-17_185825.337345.ndjson`, 2026-09-17, from WATTSON's gym; the
+user: *"it needs to continue to the left around the desert"*, *"you need a mach bike to go up the mud slides"*.
+- `run_skill heal` 10.5; trip 0.2 (32,15), `walk up` into 10.2, `press B` 60, `talk` local 1: HM06, taught (TACKLE).
 - Trip 10.7 (3,5), `talk` local 1, BUY: 8 SUPER POTIONs (game.md, Money).
-- Trip 0.26 (18,102), `press Up`, `press A`, `advance_text`, YES, `advance_text`: (18,101) smashed. Then trip 0.27 (11,37)
-  went (9 calls, four trainers) without smashing (19,100). A trip from 0.26 straight to 24.14 stops on the sandstorm.
-- `walk up` into 24.14 (26,36) (a trip at once answers "goto needs the overworld": call it again), trip 24.14 (25,4), `walk right` 1, `walk down`: 0.27 (22,10).
-- `goto` (31,10) run: spotted; `battle effective` `stop_hp_below` 0.4 beat KINDLER BRYANT and AROMA LADY SHAYLA.
+- Trip 0.26 (18,102), `press Up`, `press A`, `advance_text`, YES, `advance_text`: (18,101) smashed (once it answered
+  battle_started, a wild GEODUDE: `battle run_wild` read "Got away safely!" but answered `stuck`). (19,100) was not needed.
+- Trip 0.27 (11,37) (9 calls, four trainers). `walk up` into 24.14 (26,36), `press B` 60, `goto` (25,4) run with
+  `battle run` on each `left_overworld` (3 goto calls), `walk right` 1, `walk down`, `press B` 60: 0.27 (22,10).
 - **0.13 is not reached by walking up 0.27 or 0.26 (mud slopes, collision rows).** 0.27's east edge (39,8) leads to 0.26 (0,28);
   0.26's west edge rows 7-10 lead to 0.28 (header read through `exec`: 0.28 west of 0.26 at offset 0, 0.27 at 20).
-  Trip 0.26 (0,9) (COOLTRAINER WILTON at (9,27)), then trip 0.13 (15,16): 11 calls through 0.28, Fallarbor 0.13.
+  From 0.27 (22,10): trip 0.26 (0,9) (7 calls, two trainers), trip 0.13 (15,16) (11 calls through 0.28): Fallarbor 0.13.
 - Fallarbor 0.13: the Center is 5.4, door (14,7); 5.0 at (15,15) is not (`run_skill heal` 5.0 answered no_rule).
 
 ## Fallarbor to MT. CHIMNEY
 
-Run log `2026-09-17_181542.300302.ndjson`, 2026-09-17.
-- Trip 0.29 (8,64) (four battles), `walk up` into 24.0 (27,18). Local 3 (graphics 59) at (27,5): FULL HEAL.
-- Trip 24.0 (16,22), `talk` local 6 (graphics 119): TEAM MAGMA takes the METEORITE, ARCHIE's scene; no battle.
-- `run_skill heal` 5.4 from 24.0 (6 calls); trip 0.27 (22,11) (9-11 calls, through 0.28 and 0.26), `walk up` into 24.14
-  (26,4). **Cross 24.14 with `goto` (26,35) and `battle run`**: a trip whited out there (game.md, Battles). `walk down`
-  twice, `press B` 60: 0.27 (11,37). Trip 0.27 (28,28) went (3 calls), where an earlier trip to (28,29) had stopped at (25,34).
+Run logs `2026-09-17_181542.300302.ndjson` and `2026-09-17_185825.337345.ndjson`, 2026-09-17.
+- `run_skill heal` 5.4, trip 0.29 (8,64) (7 calls, three battles), `walk up` into 24.0 (27,18), `press B` 60. Local 3
+  (graphics 59) at (27,5): FULL HEAL.
+- Trip 24.0 (16,22) (1 call), `talk` local 6 (graphics 119) answers dialogue_open, `advance_text`: TEAM MAGMA takes the
+  METEORITE, ARCHIE's scene; no battle.
+- `run_skill heal` 5.4 (6-12 calls); trip 0.27 (22,11) (9-11 calls), `walk up` into 24.14 (26,4), `press B` 60.
+  **Cross 24.14 with `goto` (26,35) run and `battle run`**: a trip whited out there (game.md, Battles). `walk down`
+  twice, `press B` 60: 0.27 (11,37). Trip 0.27 (28,28) (3 calls).
 - `walk up` into 19.0, `talk` local 1, YES, `advance_text` (answers stuck during the ride), `press B` 600: 19.1. `goto`
   (6,10), `walk down` twice, `press B` 60: MT. CHIMNEY 24.12 (17,37).
 - Trip 24.12 (10,9) (5 calls, two trainer battles); `talk` local 2 (graphics 196, MAXIE, at (13,6)): MIGHTYENA, ZUBAT, CAMERUPT,
-  beaten by SWAMPERT Lv 37 with `battle effective` at 108/131 (ended 94).
+  beaten by SWAMPERT Lv 36-37 with `battle effective` from 66/128 (`stop_hp_below` stopped at 33; WATER GUN
+  fainted CAMERUPT in one hit). Two
+  field SUPER POTIONs (game.md, Money) before going down.
 
 ## MT. CHIMNEY to the HEAT BADGE
 
-Run log `2026-09-17_181542.300302.ndjson`, 2026-09-17.
-- Trip 24.12 (20,40), `walk down` twice, `press B` 60: 24.13 (13,5). Trip 24.13 (14,39) (two battles), `walk
-  down` twice, `press B` 60: 0.27 (6,46). Trip 0.12 (10,10): Lavaridge. Heal at 4.5; the gym 4.1 door (5,15).
+Run logs `2026-09-17_181542.300302.ndjson` and `2026-09-17_185825.337345.ndjson`, 2026-09-17.
+- Trip 24.12 (20,40) (1 call), `walk down` twice, `press B` 60: 24.13 (13,5). Trip 24.13 (14,39) (1-2 battles), `walk
+  down` twice, `press B` 60: 0.27 (6,46). `run_skill heal` 4.5 (4 calls, into Lavaridge). Then trip 4.1 (11,18) from
+  4.5 (1 call) lands on the path's start below.
 - **The gym**: 4.1 and 4.2. A hole on 4.1 (behaviour 0x68) drops to the same (x,y) on 4.2; a geyser on 4.2 (0x29)
-  throws to the same (x,y) on 4.1, the player then standing one tile right (warp ids read through `exec`). Landing on one does nothing; stepping onto one
-  warps. Rows of 0x3B, drawn as collision, were crossed walking down. A trip to 4.1 (13,4) answered unreachable.
-  FLANNERY is local 1 at (13,9), reached from geyser 4.2 (12,12). After every warp `press B` 120. The path that worked from 4.1 (11,18), off geyser (10,18) (a `goto` (10,18) from the entrance drops through its hole):
+  throws to the same (x,y) on 4.1, landing one tile right (warp ids via `exec`). Landing on one does nothing; stepping
+  onto one warps. Rows of 0x3B, drawn as collision, were crossed walking down. FLANNERY is local 1 at (13,9), reached
+  from geyser 4.2 (12,12); a trip to 4.1 (13,4) answered unreachable. After every warp `press B` 120. The path from 4.1 (11,18):
   `goto` (8,10), `walk up` | trip 4.2 (1,13), `walk down` | `goto` (0,11), `walk up` | `walk right` 1, `up` 3, `left` 1, `up`
   1 | `goto` (2,4), `walk up` | `walk right` 5, `up` 1 | `goto` (10,5), `walk down` | `walk down` 4 (jumps the ledge to
-  (10,11)) | `walk right` 2, `down` 1 | `talk` local 1. Range-1 trainers (KINDLER COLE, COOLTRAINER GERALD, two more)
-  fought on the way. Stepping on 4.2 (0,10) from (0,11) throws the player back up; leave it sideways.
-- FLANNERY: NUMEL, SLUGMA, CAMERUPT, TORKOAL, all beaten by SWAMPERT Lv 38 with `battle effective` taking no damage;
-  MUDDY WATER learned (WATER GUN forgotten); HEAT BADGE, TM50.
+  (10,11)) | `walk right` 2, `down` 1 | `talk` local 1. Off geyser 4.2 (1,14) the player lands at 4.1 (2,14), where
+  `goto` answered no_response once and `battle effective` then beat KINDLER COLE and COOLTRAINER GERALD. Stepping on 4.2
+  (0,10) from (0,11) throws the player back up; leave it sideways.
+- FLANNERY: NUMEL, SLUGMA, CAMERUPT, TORKOAL, beaten by SWAMPERT Lv 37-38 with `battle effective` (WATER GUN, MUD SHOT)
+  taking no damage, both runs (the first learned MUDDY WATER, WATER GUN forgotten); HEAT BADGE, TM50.

@@ -443,6 +443,11 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   (`keyword`, `text` once `shown`; the game's own lessons in its controls), and `obtained`, the box naming an item just picked up. `snapshot` is the game's own save to
   slot 39 (in the shadow below) copied to the core's `.State` path; `restore` copies it back, points the recent slot at it
   and reloads, answering once the area, the camera and the fade-in are done (272 frames in the cell).
+- **The achievement guard** (`drivers/bepinex/AchievementGuard.cs`, any BepInEx driver). From the moment a driver loads until the game
+  exits, every call that unlocks an achievement or sends stats is skipped: the Steam library's (Steamworks.NET's or Facepunch's
+  `SteamUserStats`, `Achievement.Trigger`, `Stat`) and the game's own unlock methods its plugin names (TEVI's `UnlockAchievement` and
+  `TrySyncAchievements`). The user, 2026-09-17: autoplay never unlocks achievements, in any game. `observe`'s `save.achievement_guard`
+  counts what was skipped. Restart the game without the driver to earn achievements again.
 - **TEVI's save guard.** From the moment a core first connects until the game exits, TEVI's save folder is a shadow copy
   (`autoplay/states/tevi/shadow/`, copied fresh as it arms): every save read and write goes there, the real folder is
   never written, and the autosave is held -- the unmodded saves never change while autoplay may have changed the game
