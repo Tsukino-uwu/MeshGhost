@@ -1560,3 +1560,20 @@ built by writing the tileset's own ledge and water blocks into the map with the 
 
 The `autoplay_*` probes (state, text, charset, map, font, battle, move write, trainer, bag) and their `crystal/MEASURED.md` entries,
 from the Crystal chat's autoplay steps: all of it is in `phase13.md`; none of it touches `meshghost_crystal.lua`.
+
+## 2026-09-18 — pointer: autoplay's Crystal session, reconstructed from the commit record
+
+**Written from the commits, not from the session** — that chat was closed before its entry was
+written, so the reasoning and the user's words are not recoverable. An index, not a session log.
+
+All autoplay work, logged in [autoplay/crystal.md](autoplay/crystal.md); **`meshghost_crystal.lua`
+is untouched**. Ten commits, each adding a capability to the Crystal driver: `set_flag` and a warp
+refused during any script; battle's questions answered rather than nudged; `goto` through the shared
+planner, stepping onto doors and pressing down on mats, reading trainers before they load; the party
+menu, moves and PP, `heal`, and the first scenario (Don's sight, 3 of 3); badges as an `observe`
+field and a `set_badge` cheat measured on the trainer card; the key item pocket and the BICYCLE; the
+TM/HM pocket read whole; SURF behind badge 4, with poison walked until it fainted; and `strongest`
+weighing the game's own type table, the same-type bonus, and attack against defence.
+
+What touched this adapter's records: `crystal/MEASURED.md`, `PROBES.md`, and one new probe,
+`probes/autoplay_move_write_probe.lua`.

@@ -872,3 +872,24 @@ Logged in [autoplay/tevi.md](autoplay/tevi.md) (the plan's Phase 6 for autoplay,
 inside the adapter). What touched this adapter's records: `MEASURED.md` gained the save folder and its slots, the save list's
 cursor, ScriptEngine's empty `Info.Location`, and the Randomizer's forced Custom Game options; `PROBES.md`'s dev cheats row
 now says their toggle file is read from the game's root folder.
+
+## 2026-09-18 — pointer: autoplay's TEVI session, reconstructed from the commit record
+
+**Written from the commits, not from the session** — those chats were closed before their entry was
+written, so what was tried and abandoned, and what the user said, is not recoverable. What follows
+is what the tree can still show; treat it as an index, not as a session log.
+
+All of it is autoplay work, logged in [autoplay/tevi.md](autoplay/tevi.md). **No adapter code
+changed** — only records. `adapters/tevi/MEASURED.md` gained twelve dated entries on 2026-09-17: a
+new game reading its slot back from `tevisystem.sav`; a dialogue's lines and input while the window
+is unfocused; the collision grid, camera view and map elements against a picture of the cell;
+teleport and restore; hits and kills through one method and what a hit on Cakewalk costs; the
+instruction banner, item box and tutorial window as text; an autosave started by a teleport into a
+new room; jump height by how long Jump is held (partial); a jump's trail, its ceiling and a
+pass-through platform; the fight reflex against five kinds, and blastorbs; the interaction bubble,
+bottom-left popup and menu tabs; and the Sewerways to the first save point.
+
+`adapters/tevi/CLAUDE.md` gained one host rule from it: **under ScriptEngine a plugin's
+`Info.Location` is empty**, so a path built from it lands in the game's working folder rather than
+`BepInEx\scripts\` — build from `Paths.BepInExRootPath`. It cost a driver that found no config and
+knocked on another chat's core.

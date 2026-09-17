@@ -626,3 +626,23 @@ capture its own frame, a window capture is fine, and every capture stays gitigno
 `claude plugin validate --strict .claude/skills` passes; preflight clean; a headless fresh session
 loaded the skill as its first call on "Get the Crystal instance to a trainer battle" and did not on
 "Fix a build error in the Tevi adapter". Phase files and `doc-history.md` keep `playing.md` as written.
+
+## 2026-09-17 — the gates learn about autoplay (reconstructed from the commit record)
+
+**Written from the commits, not from the session.** Autoplay's arrival changed three things in this
+phase's territory, none of them logged here at the time:
+
+- **`.github/workflows/autoplay.yml`** — a CI workflow of its own, 50 lines, added with autoplay's
+  first commit (`551accd6`). ADR 0071's reasoning is why it must exist: `autoplay/` is a second Go
+  module, so the root module's build, vet, test, race shards and `govulncheck` — in CI and in
+  `release.yml` — never see it, and it therefore needs its own checks rather than inheriting any.
+- **`preflight.ps1` excludes `autoplay/` from the root-binaries check** (`551accd6`), for the same
+  reason in the other direction: none of the root binaries contain that module.
+- **`preflight.ps1`'s phase-index check went `-Recurse`** (`7eea2855`, 2026-09-17), because autoplay
+  logs moved to one file per game under `phases/autoplay/` on the user's call, and a nested phase
+  file was invisible to a flat scan. `c7dfeb55` carried a further +44/-7 to preflight alongside the
+  `MEASURED.md` records class.
+
+The pattern worth keeping: **a new dev-only component costs this phase a workflow and a preflight
+amendment, and both are easy to leave unlogged** because they ride in a commit whose subject line is
+about something else entirely.
