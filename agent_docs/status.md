@@ -11,7 +11,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 ## Open now
 
 - 2026-09-16 — **Sort each adapter's older code-level entries out of `UNVERIFIED.md`/`VERIFIED.md` into `MEASURED.md`**, and give every `UNVERIFIED.md` (and `_template`) a full index. Another chat.
-- 2026-09-17 — **Autoplay, Emerald: the scenario runner BUILT** (RICK's sight 3 of 3, no model); next: the clock reader (measured), the starter bag, `exec`, noclip. `phases/phase13.md`.
+- 2026-09-17 — **Autoplay, Emerald**: `goto`'s planner shared (`route.lua`), the clock (`set_clock`) and the starter bag read, the new game walked to MUDKIP; next: `exec`, noclip. `phases/autoplay/emerald.md`.
 - 2026-09-17 — **Autoplay, Crystal**: battlers, trainers, the PACK's item and ball pockets, a catch, party, `battle`, `warp`, `give_item` on V1.0; next: `goto`, other pockets. `phases/phase13.md`.
 - 2026-09-16 — **Prediction: A3 LANDED (ADR 0069, ships off), SCREEN VERDICT OPEN; A2.0 MEASURED** (worst-case transit p99 310–320ms; the dry tail is the 1 s blackouts); A2 undecided. `prediction-planning.md`.
 - 2026-09-15 — **Chaser contact: the Go half LANDED (`e546d38c`, ADR 0068, ships `off`); the adapter half is NOT started.** Next: Part A of `chaser-planning.md`; `pseudoregalia/UNVERIFIED.md` has the entry.

@@ -63,6 +63,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - The naming keyboard, and a blank box put back after it (2026-09-17)
 - The truck's door taken from rest, the wall clock's screen, and a question drawn instantly (2026-09-17)
 - The wall clock set: PM, midnight, YES, and the clock viewed after (2026-09-17)
+- The starter bag, and a stale message on its screen after a restore (2026-09-17)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -707,6 +708,37 @@ room upstairs (`ng_room`) and the clock (`ng_clock`), all gitignored. From autop
   direction and no overshoot, each capture drawing that time; 7:30 confirmed, and the view screen then read and drew it.
 - **Not seen**: the view screen's FadeOut and Exit routines, B on the question, NO chosen, a clock set on a save that already
   has one, the time drawn after the game has been running for hours.
+
+### The starter bag, and a stale message on its screen after a restore (2026-09-17)
+
+**Vanilla ROM, the new game "BRENDAN"**, walked from `ng_clock_set` to Route 101 with autoplay's tools (run log
+`autoplay/runs/2026-09-17_033152.953259.ndjson`, segment 3, walked), then from the snapshots `ng_route101_facing_bag` and
+`ng_starter_bag` (all gitignored), with `probes/task_probe.lua` beside the driver, against captures
+(`dev-scripts/shots/emerald/autoplay_ng_starter_bag.png`, `autoplay_bag_*`, gitignored). Routine and table names from the
+build hashed identical to the ROM; what each word does as below.
+
+- **The screen.** A toward BIRCH's bag from (7,15) facing up took callback2 to 0x08133F0D (`CB2_ChooseStarter`) and 3
+  frames later 0x081341E1 (`CB2_StarterChoose`); task 0 ran 0x081341FD and then 0x0813425D
+  (`Task_HandleStarterChooseInput`), its data word 0 reading 1, with the hand on the bottom ball and "CHICK POKéMON /
+  TORCHIC" labelled.
+- **Left and Right.** Left made word 0 read 0 on the pad's own frame, the task running 0x08134641 and then 0x08134669
+  (`Task_MoveStarterChooseCursor`, `Task_CreateStarterLabel`) and 0x0813425D again 2 frames later; the hand was on the left
+  ball with "WOOD GECKO POKéMON / TREECKO". Left again changed nothing. Right made it 1 and then 2 the same way, the second
+  with the hand on the right ball and "MUD FISH POKéMON / MUDKIP"; Right again changed nothing.
+- **The species.** The three u16s at 0x085B1DF8 (`sStarterMon`), named through the species table, read TREECKO, TORCHIC and
+  MUDKIP in that order, the label drawn for word 0, 1 and 2 (autoplay's `select` to each, against the captures after it).
+- **Choosing.** A on MUDKIP ran 0x08134341 (`Task_WaitForStarterSprite`) on the pad's frame, 0x08134391 17 frames later and
+  then 0x08134401 (`Task_HandleConfirmStarterInput`), with "Do you choose this POKéMON?" and a YES/NO the menu reader read
+  (cursor on YES). B there ran 0x081344AD and 0x081341FD and was back at 0x0813425D with word 0 still 2. YES began a wild
+  battle ("Wild ZIGZAGOON appeared!", "Go! MUDKIP!"); after it BIRCH's words, then in the lab (map 1.4) "BRENDAN received the
+  MUDKIP" and a nickname YES/NO.
+- **A stale message after a restore.** Restored at `ng_starter_bag`, window 0 read put and drawn while its printer was
+  inactive and pointed one past the FF of "In my BAG! There's a POKé BALL!" in the field message buffer, so the driver took
+  that up as a finished message; while the driver had been running, the bag screen's own "PROF. BIRCH is in trouble!"
+  printed into window 0 read as `screen_text` instead (the driver saw it printed instantly). The same restore reading on
+  `ng_gender` (callback2 0x0802F6B1, `CB2_MainMenu`) and `rick_challenge` (the overworld's) took up the right box, and on
+  `ng_clock` and `ng_naming` nothing.
+- **Not seen**: the other two balls chosen, NO on the question, the nickname screen, the bag on any build but vanilla.
 
 ## Not measured yet
 

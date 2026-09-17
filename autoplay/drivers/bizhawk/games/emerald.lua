@@ -326,9 +326,15 @@ local function windowHasPixels(w)
 end
 
 local function recoverDialogue()
+	-- A finished message is taken up only under the callback2s it was measured right on: the overworld's (RICK's box) and
+	-- the routine the build names CB2_MainMenu (Birch's "Are you a boy? Or are you a girl?" restored at `ng_gender`). Restored
+	-- on the starter bag, whose own text is an instant print, window 0 was put and drawn while its printer still pointed
+	-- past the last field message, and "In my BAG! There's a POKé BALL!" read as the dialogue (2026-09-17).
+	local cb = r32(GMAIN_CB2) & 0xFFFFFFFE
+	local finishedHere = cb == CB2_OVERWORLD or cb == 0x0802f6b0
 	for w = 0, 31 do
 		local active = printerActive(w)
-		if (active and windowOnScreen(w)) or (not active and not instantPrinted[w] and windowPut(w) and windowHasPixels(w)) then
+		if (active and windowOnScreen(w)) or (finishedHere and not active and not instantPrinted[w] and windowPut(w) and windowHasPixels(w)) then
 			local ptr = r32(STEXTPRINTERS + w * PRINTER_SIZE)
 			local start, bytes
 			for _, buf in ipairs(TEXT_BUFFERS) do
@@ -1037,6 +1043,37 @@ local function readClock()
 		turning = c.direction ~= 0 or nil }
 end
 
+-- THE STARTER BAG (2026-09-17, vanilla, the new game on Route 101 from the snapshot `ng_route101_facing_bag`:
+-- `emerald/probes/task_probe.lua` while Left, Right, A and B were pressed, against captures; that adapter's MEASURED.md,
+-- "The starter bag"). A on the bag took callback2 to the routine the build names CB2_StarterChoose (+1), and task 0 ran
+-- Task_HandleStarterChooseInput (+1) while a ball could be chosen. Its data word 0 read 1 with TORCHIC labelled and the
+-- hand on the bottom ball; Left made it 0 (TREECKO, the left ball) and Right from there 1 and then 2 (MUDKIP, the right
+-- ball), each through two short routines and back within 2 frames; Left at 0 and Right at 2 changed nothing. The three
+-- species are the u16s of the ROM table the build names sStarterMon, named from the species table: each name matched the
+-- label drawn for its word. A moved the task on and "Do you choose this POKéMON?" came with a YES/NO the menu reader
+-- already reads; B there went back to choosing with word 0 kept. One table, as the module is at Lua's local ceiling.
+-- The two routines a move runs (the build's Task_MoveStarterChooseCursor and Task_CreateStarterLabel) held the new word 0
+-- already, and a reader blind to them made `select` see the menu close mid-move.
+local STARTER = { cb2 = 0x081341e0, species = 0x085b1df8,
+	choosing = { [0x0813425c] = true, [0x08134640] = true, [0x08134668] = true } }
+
+-- The bag as a menu of one row of three, for `select` and `advance_text`, or nil.
+function STARTER.menu()
+	if (r32(GMAIN_CB2) & 0xFFFFFFFE) ~= STARTER.cb2 then return nil end
+	for n = 0, NUM_TASKS - 1 do
+		local at = GTASKS + n * TASK_SIZE
+		if r8(at + 4) ~= 0 and STARTER.choosing[r32(at) & 0xFFFFFFFE] then
+			local items = {}
+			for i = 0, 2 do
+				local id = r16(STARTER.species + i * 2)
+				items[#items + 1] = nameAt(SPECIES_NAMES, SPECIES_LEN, SPECIES_COUNT, id) or ("species " .. id)
+			end
+			return { kind = "starter", items = items, cursor = memory.read_s16_le(at + 8, BUS), columns = 3 }
+		end
+	end
+	return nil
+end
+
 -- What the save has: the party, the bag, money and badges. Nil until the save blocks are in place.
 local function readSave()
 	local sb1, sb2 = r32(SB1PTR), r32(SB2PTR)
@@ -1215,7 +1252,7 @@ function game.observe(asked)
 	end
 	-- A list menu under a menu opened from it (the bag's item menu) is not the one waiting.
 	local list = (isVanilla and not battle and not m) and readListMenu() or nil
-	m = m or list
+	m = m or list or (isVanilla and STARTER.menu()) or nil
 	if #hookNames > 0 then
 		-- In a battle the windows' own bytes do not say which are showing (the action and move menus
 		-- stayed listed while a message played), so screen_text is left out; `battle` and `menu` say
@@ -1458,7 +1495,7 @@ end
 function game.menu()
 	if isVanilla and inBattle() then return battleMenu() end
 	local m = (#hookNames > 0) and readMenu() or nil
-	return m or (isVanilla and readListMenu()) or nil
+	return m or (isVanilla and (readListMenu() or STARTER.menu())) or nil
 end
 
 -- PROGRAMS: run once a frame by the driver, each returning (pad or nil, finished, result, error).
@@ -1849,7 +1886,8 @@ local textHooks = {
 	end,
 	scriptRunning = function() return r8(SCRIPT_CONTEXT_STATUS) ~= SCRIPT_CONTEXT_OFF end,
 	inOverworld = inOverworld,
-	readMenu = readMenu,
+	-- The starter bag has no window: advance_text stops menu_open on it, for select.
+	readMenu = function() return readMenu() or (isVanilla and STARTER.menu()) or nil end,
 	-- FIGHT is the action menu's 0 and RUN its 3 (BATTLE_ACTIONS).
 	actionIndex = { fight = 0, run = 3 },
 	levelUpPage = function()
