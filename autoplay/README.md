@@ -148,8 +148,9 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
 - **What the save has**, in an `observe` you call only: **`party`** (per Pokémon `slot`, `species` and `species_id`,
   `nickname`, `level`, `hp`, `max_hp`, `exp`, `held_item`, `status_raw` -- 0 drawn as OK, nothing else measured -- and
   `moves` with `name`, `id`, `pp`, `base_pp`, `type`, `power` and `accuracy_raw`; two slots measured), **`money`**, and
-  **`bag`** with the item and ball pockets that hold anything (`item`, `id`, `quantity`). Badges and the other pockets are
-  not read yet.
+  **`bag`** with the item and ball pockets that hold anything (`item`, `id`, `quantity`), and **`badge_count`** and
+  **`badges`** (Johto's, numbered 1-8 as the trainer card draws them). The other pockets and Kanto's badges are not read
+  yet.
 - Not yet: `movement`, a trainer that turns. The events are
   `map_changed`, `mode_changed`, `dialogue_changed`, `menu_changed` and `battle_mode_raw_changed`.
 - Its tools: `walk` (on foot only; `run` walks and says `ran: false`, since Crystal has no running
@@ -235,6 +236,8 @@ each run's `setup` and `steps` as their own segments, walked or reached.
 - **Crystal `heal`** `{}`: every Pokémon in the party to its max HP, each move's PP to its maximum and the status byte to 0
   (OK), as the POKéMON screen then draws; `report` reads the party back. Refused outside the overworld and on a raised PP
   byte (not measured).
+- **Crystal `set_badge`** `{badge, value}`: Johto badge 1-8 on or off (`value` defaults to true), numbered as the trainer
+  card draws them; `report` reads the byte back. Refused outside the overworld.
 - Cheats write the save's data in memory: **an in-game save afterwards keeps them.**
 
 ## Drivers so far

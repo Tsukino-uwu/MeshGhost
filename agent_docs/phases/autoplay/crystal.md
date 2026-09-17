@@ -45,3 +45,11 @@ the driver alone on its target.
 **Next for Crystal:** the key item and TM/HM pockets, badges, movement (the bike; the user: no running in vanilla, a bike,
 and running and a faster bike in the Archipelago build), and a `battle` policy that weighs type matchups from the game's
 own type table.
+
+## 2026-09-17 (the Crystal chat, same session) — badges: `observe`'s `badges` and a `set_badge` cheat
+
+**Measured on the trainer card** (`crystal/MEASURED.md`, "Badges on the trainer card"): its badge page numbers eight
+leaders 1-8; one bit of wJohtoBadges written at a time, the card reopened and each capture compared pixel by pixel with the
+no-badge one, bit N-1 drew a badge beside leader N (1, then 1, 4 and 8). `observe` reads `badge_count` and `badges`, and
+`set_badge` sets or clears one. The three test badges were cleared again; the save has none, as before. Kanto's byte is not
+read.

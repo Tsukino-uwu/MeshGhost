@@ -478,7 +478,7 @@ local function readScreenText(t, dialogue, menuRows, low)
 end
 
 -- The PACK's item list, whole, when the menu on screen is it, and the pockets' contents (defined with the pockets, below).
-local itemPocketMenu, readBag, readParty, partyMenu
+local itemPocketMenu, readBag, readParty, partyMenu, readBadges
 
 -- The message and the menu on screen together: a menu drawn inside the message box's frame (the battle's action
 -- menu) is not a message, and the box under the PACK's item list is that item's description.
@@ -665,7 +665,7 @@ local game = {
 	game = "crystal",
 	variant = isVanilla and "vanilla" or "unverified",
 	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "walk", "goto", "select", "advance_text", "battle",
-		"cheat:warp", "cheat:give_item", "cheat:set_flag", "cheat:heal" },
+		"cheat:warp", "cheat:give_item", "cheat:set_flag", "cheat:heal", "cheat:set_badge" },
 	-- The START menu: Down moved the cursor one item a press and A chose it (2026-09-17).
 	menuButtons = { prev = "Up", next = "Down", left = "Left", right = "Right", confirm = "A" },
 	protected_slots = { 1 },
@@ -731,10 +731,10 @@ function game.observe(asked)
 		if #battle.battlers == 0 then battle.battlers = nil end
 	end
 	-- What the save has: the party and money as `battle`'s ended report reads them, and the measured pockets.
-	local party, money, bag
+	local party, money, bag, badges
 	if asked and isVanilla then
 		local r = battleEndedReport()
-		party, money, bag = readParty(), r.money, readBag()
+		party, money, bag, badges = readParty(), r.money, readBag(), readBadges()
 	end
 	return {
 		frame = emu.framecount(),
@@ -744,6 +744,8 @@ function game.observe(asked)
 		party = party,
 		money = money,
 		bag = bag,
+		badge_count = badges and #badges or nil,
+		badges = (badges and #badges > 0) and badges or nil,
 		screen_text = s,
 		local_map = localMap,
 		nearby = (nearby and #nearby > 0) and nearby or nil,
@@ -814,6 +816,36 @@ function game.cheats.warp(args)
 		report = function()
 			return { map = mapName(), x = u8(W_XCOORD), y = u8(W_YCOORD), map_status_raw = u8(W_MAPSTATUS) }
 		end,
+	}
+end
+
+-- BADGES (2026-09-17, vanilla V1.0, Route 30; MEASURED.md, "Badges on the trainer card"): the trainer card's second page
+-- numbers eight leaders 1-4 on the top row and 5-8 below, and drew no badge with wJohtoBadges (D857 in our build's .sym)
+-- at 0. With bit 0 set a badge was drawn beside leader 1; with the byte at 137 (bits 0, 3 and 7), beside leaders 1, 4 and
+-- 8. So bit (N - 1) is badge N. wKantoBadges (D858) is not measured.
+local W_JOHTO_BADGES = flat(0xD857)
+readBadges = function()
+	local b, list = u8(W_JOHTO_BADGES), {}
+	for n = 1, 8 do
+		if (b >> (n - 1)) & 1 == 1 then list[#list + 1] = n end
+	end
+	return list
+end
+
+-- set_badge {badge = 1-8, value = true}: bit (badge - 1) of wJohtoBadges. Refused outside the overworld; `report` reads the
+-- byte back.
+function game.cheats.set_badge(args)
+	local n = math.tointeger(args.badge)
+	if not n or n < 1 or n > 8 then return nil, "set_badge needs badge 1-8 (Johto's; Kanto's are not measured)" end
+	if args.value ~= nil and type(args.value) ~= "boolean" then return nil, "set_badge value is true or false" end
+	if not isVanilla then return nil, "set_badge is measured on the vanilla V1.0 ROM only" end
+	if not inOverworld() or u8(W_BATTLEMODE) ~= 0 then return nil, "set_badge refused: not in the overworld" end
+	local bit, was = 1 << (n - 1), u8(W_JOHTO_BADGES)
+	memory.write_u8(W_JOHTO_BADGES, args.value == false and (was & ~bit & 0xFF) or (was | bit), "WRAM")
+	return {
+		limit = 1,
+		untilFn = function() return true end,
+		report = function() return { badge = n, johto_badges_raw = u8(W_JOHTO_BADGES), was_raw = was } end,
 	}
 end
 

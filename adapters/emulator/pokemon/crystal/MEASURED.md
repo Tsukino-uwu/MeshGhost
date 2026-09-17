@@ -64,6 +64,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - A warp written while a trainer's script runs; the switch question and the nickname question in a battle (2026-09-17)
 - A house's mat, a trainer before it loads, and `goto` ridden (2026-09-17)
 - The party's moves, PP, item and status, the POKéMON menu, a heal, and a defeat flag cleared in a trainer's line (2026-09-17)
+- Badges on the trainer card (2026-09-17)
 - Not measured yet: The rest of autoplay's Crystal reading (from 2026-09-17)
 
 ## Measured
@@ -605,6 +606,23 @@ captures `autoplay_scn_warp_mid_approach`, `_after_a`, `_after_a2`, `autoplay_sc
   from copies: `tiles_away` 4 failed at the walk with "trainer.tiles_away: want 4, got 3"; his flag SET in the setup, with
   the check on `beaten` dropped, failed at the walk with "outcome: want "spotted", got "done"". Both exited 1.
 - **Not seen:** a status other than OK; raised PP; a party slot past the second; the menu's SWITCH, MOVE or ITEM.
+
+### Badges on the trainer card (2026-09-17)
+
+**Vanilla V1.0, Route 30, the chat's save (no badges).** START, the player's name ("A"), A: the trainer card's second page
+numbered eight gym leaders' faces 1-4 on the top row and 5-8 below, with no badge drawn, while wJohtoBadges (01:D857 in
+our build's `.sym`) read 0. Captures `autoplay_trainer_card_p2`, `autoplay_trainer_card_badge1`, `autoplay_trainer_card_badges148_a`
+and `_b`, and the enlarged comparisons `autoplay_badge1_compare`, `autoplay_badges148_b_zoom` (gitignored); each capture
+compared to the no-badge one pixel by pixel.
+
+- **Bit 0.** Written to 1 (`set_badge` 1) in the overworld, then the card reopened: the only pixels that changed were at x
+  22-26, y 89-103, a badge drawn beside leader 1 -- thin, as if turned edge-on.
+- **Bits 0, 3 and 7** (the byte read 137): badges beside leaders 1, 4 and 8, drawn face-on 16 pixels wide in a capture 10
+  frames after one that showed them 2-4 pixels wide, so they turn. Nothing changed by the other five leaders.
+- So bit N-1 is badge N as the card numbers it. `observe` read `badges` [1, 4, 8]; all three were cleared again with
+  `set_badge` `value: false` (the byte read 0).
+- **Not seen:** a badge the game gave (a gym won); wKantoBadges (D858); anything a badge unlocks (an HM used outside a
+  battle, obedience).
 
 ## Not measured yet
 
