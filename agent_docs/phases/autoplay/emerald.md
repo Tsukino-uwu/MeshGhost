@@ -309,3 +309,42 @@ elevation 0 plans onto any level; `characters` falls back to templates for a cha
 - `advance_text` read the return from the evolution screen as `battle_started`; FC bytes read raw in several boxes.
 
 **Left as it is:** the game in ROXANNE's gym at (5,3) after the badge, snapshot `story_stone_badge`, no menu open.
+
+## 2026-09-17 (the Emerald chat, end of the session) — where Emerald's autoplay stands, for the next chat
+
+**The user:** *"lets write down what we have learned and then continue in a new chat, im still working on TEVI in the other
+chat"*.
+
+**This session's commits** (straight to master, nothing pushed): `df7326f7` (Crystal's policies aligned), `30c3df58` (Phase 2:
+`goto` across maps, ledges, `talk`, the stuck classifier), `d97e7eeb` (the flooded plan across maps, `talk` across a counter,
+a battle the game answers), `3d6ede04` (`select` presses again, routes out of sight preferred, 0x64 warps, elevation-0
+floors). They change Go in `autoplay/server`: once pushed, read `gh run list -L 5`.
+
+**What was learned, in short** (the entries above and `emerald/MEASURED.md` hold the detail):
+- **Playing the story is the best test.** Every stretch walked found something a staged test had not: a map cut in two by
+  water, a floor at elevation 0, a north arrow warp, a counter, a scripted battle, a fresh YES/NO ignoring A, a character
+  not loaded, the learn-a-move question and an evolution.
+- **A map's exit list is not a route**: plan over what a walk covers from where the map is entered.
+- **The user's playing guidance** (dated in the entries above): keep to the story's path -- no area a badge or SURF gates
+  yet, warps only to make a test; avoid trainers' sight wherever a route allows, it is faster; after a whiteout just go
+  back, higher level; exploring before a gym is fine too; keep strong damaging moves of different types, drop status moves
+  first; leaders and the Elite Four heal mid-fight, and so can the player through BAG; rotating trainers turn toward a
+  running player, and the START menu one tile away can shift their timing; NORMAN's gym needs four badges.
+
+**Open, in order:**
+1. Read the learn-a-move question, its move list and the evolution scene (Emerald), so `battle` stops `needs_choice` on the
+   question instead of nudging into it, and add a forget policy by the user's guidance.
+2. The BAG inside a battle: read it, and use a POTION through it.
+3. Items like the scratch trip loop into a tool (`goto`, `battle` on `spotted` or a wild battle, `advance_text` on a
+   message) -- the plan's Phase 3 reflex layer -- once TEVI has `observe`, teleport and events (the order in
+   `../phase13.md`).
+4. Smaller: FC bytes read raw; `advance_text` answering `battle_started` as the evolution screen closes; ledges 0x38-0x3A;
+   field-move obstacles; trainers turning toward a running player.
+Then the story on: Route 116 and Rusturf Tunnel as DEVON's scene sends the player, Dewford and the second badge.
+
+**Left as it is:** EmuHawk on vanilla Emerald running, port 7870, its loader target `dev-scripts/bizhawk-dev-loader-autoplay.target`
+naming the driver alone, no core running; the game in ROXANNE's gym (11.3) at (5,3) after the badge, no menu open (snapshot
+`story_stone_badge`). MARSHTOMP Lv 16 alone in the party. The run log of the story: `autoplay/runs/2026-09-17_120845.522443.ndjson`.
+The scratch loop (`trip.py`) lived in this chat's scratch folder and is not in the repo. Snapshots in the gitignored
+`autoplay/states/emerald/`, the story's newest first: `story_stone_badge`, `story_rustboro`, `story_after_wally`,
+`story_wally_battle`, `story_petalburg`, `story_got_pokedex`, then last session's `ng_*`.
