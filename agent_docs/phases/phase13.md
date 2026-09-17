@@ -1634,6 +1634,11 @@ fixed store, then attempt 2, and report both model-call counts.
 | 2 | `2026-09-17_175751` | 49 | 5 | stopped at the user's word: the same slope, after reading the user's MACH BIKE line |
 | 1, rerun | `2026-09-17_181542` | 122 | 9 | **goal met** (launcher's check), 25 minutes |
 | 2, rerun | `2026-09-17_185825` | 82 | 6 | **goal met**, 16 minutes, no cheats or restores |
+| 3, confirmation | `2026-09-17_192410` | 75 | 4 | **goal met**, 16 minutes, no cheats or restores; attempt 2's core, launcher and driver |
+
+**The acceptance** ("a second attempt at the same goal, from the same savestate, uses measurably fewer model calls"): 122,
+then 82, then 75, each from `story_dynamo_badge`. Tools changed between the first two (below); between attempts 2 and 3
+only the knowledge store did, so 82 to 75 is the store's alone. `story_heat_badge` saved after, for the next goal.
 
 **What changed between them:**
 - **`goto` closes a mud slope on foot** (`373e3a90`, emerald/MEASURED.md "A mud slope on 0.26"): behaviour 0xD0 slid the
