@@ -502,6 +502,9 @@ release the clock, `restore tevi_inf_first_savepoint`, hold the clock, one `sequ
 after 45 frames of game time, then `reflex fight` in 600-frame chunks with the clock held between them, reading `recent` after each. Judge a
 build over five tries by time, HP left and hits.
 
+**Built but never measured** (deployed at the end, no try ran on it): the measured swing locks (`RootFrames` 22, `ComboRootFrames` 40)
+and the quickdrop rule above. Measure them first.
+
 **Open**: F's orb rule over five tries; the bomb ring while she is in the air; double jumps as dodge plans, their air time counted against them;
 what a quickdrop onto an orb does; the Charged Shot; a hitless run through a room of normal enemies; hold-Attack combos; `exec` through the
 game's Quantum Console; and the hardest difficulty once Infernal is clean.
