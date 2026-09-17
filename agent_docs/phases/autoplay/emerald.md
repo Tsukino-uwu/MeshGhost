@@ -439,3 +439,17 @@ TM08; MARSHTOMP Lv 21, money 4076. Snapshots: `story_dewford_gym`, `story_dewfor
 - The scratch heal script went on to `talk` local 1 after that refusal, and local 1 in the gym is BRAWLY. It now talks only once
   the trip ends `done` in the Center.
 
+## 2026-09-17 (the Emerald chat, next session) — Granite Cave: FLASH, STEVEN's LETTER, and the boat to Slateport
+
+**Played** (walked; run log `autoplay/runs/2026-09-17_131645.118278.ndjson`, segments "story: Dewford to Granite Cave" and
+"story: Granite Cave to Slateport"). Route 106's only warp is Granite Cave (24.7; its size and warps read from the ROM through
+`exec`); the HIKER gave HM05 FLASH. The west warp was not reachable on 24.7's floor, so `goto` by map to STEVEN's room (24.10,
+its layout and templates read the same way): one call planned 24.7, 24.8, 24.9 and 24.10 and crossed them with eight wild
+battles on the way (ZUBAT's SUPERSONIC confusion, SABLEYE, ARON super effective). STEVEN took the LETTER (TM47 STEEL WING,
+registered). Back the same way, ten more wild battles, Dewford's Center, and BRINEY's menu at the dock (PETALBURG / SLATEPORT /
+EXIT, read by the menu reader) to Route 109's beach (0.24). MARSHTOMP Lv 23, money 4076, badges [1, 2]. Snapshots:
+`story_steven_letter`, `story_slateport`.
+
+**The user, while it ran:** a REPEL keeps wild Pokémon away while the lead is above their levels -- none in the bag, and a Mart's
+list is not read yet.
+
