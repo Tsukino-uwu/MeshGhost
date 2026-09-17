@@ -40,7 +40,13 @@ namespace MeshGhostAutoplay.Tevi
         // HopDropLeft/Right: a hop, then a quickdrop from its HopDropAt-th frame, so contact cannot hurt her from then on: the way past an
         // enemy's body on the ground (normal enemies are run past, the user, 2026-09-17; the Quickdrop tutorial: contact during it does no
         // damage). Carried out as a hop; in the air the Drop plans take over.
-        public enum Move { Stay, Left, Right, Hop, HopLeft, HopRight, Jump, JumpLeft, JumpRight, Drop, DropLeft, DropRight, HopDropLeft, HopDropRight }
+        public enum Move { Stay, Left, Right, Hop, HopLeft, HopRight, Jump, JumpLeft, JumpRight, Drop, DropLeft, DropRight, HopDropLeft, HopDropRight, StepLeft, StepRight, StrideLeft, StrideRight }
+
+        // StepLeft/Right and StrideLeft/Right: running StepFrames or StrideFrames, then standing. A run for the whole horizon toward a boss met a
+        // beam of his laser curtain, so the dodge stood or backed off though a safe gap lay nearer him (the user, 2026-09-17: "try to walk
+        // closer towards the boss during lasers", "always wanna try to stick as close to the boss as possible").
+        public const int StepFrames = 8, StrideFrames = 16;
+        public static bool IsStep(Move m) => m >= Move.StepLeft;
         public const int HopDropAt = 10;
         // Down is held this many frames before Jump is pressed (InputInjection.Quickdrop: pressed together they made a double jump), so
         // a drop begins that much later.
@@ -60,16 +66,16 @@ namespace MeshGhostAutoplay.Tevi
         // Threats remembered between frames for their acceleration.
         private static readonly Dictionary<int, Vector2> LastVelocity = new Dictionary<int, Vector2>();
 
-        public static bool IsJump(Move m) => (m >= Move.Hop && m <= Move.JumpRight) || m >= Move.HopDropLeft;
+        public static bool IsJump(Move m) => (m >= Move.Hop && m <= Move.JumpRight) || IsHopDrop(m);
         public static bool IsDrop(Move m) => m >= Move.Drop && m <= Move.DropRight;
-        public static bool IsHopDrop(Move m) => m >= Move.HopDropLeft;
+        public static bool IsHopDrop(Move m) => m == Move.HopDropLeft || m == Move.HopDropRight;
 
         public static int Dir(Move m)
         {
             switch (m)
             {
-                case Move.Left: case Move.HopLeft: case Move.JumpLeft: case Move.DropLeft: case Move.HopDropLeft: return -1;
-                case Move.Right: case Move.HopRight: case Move.JumpRight: case Move.DropRight: case Move.HopDropRight: return 1;
+                case Move.Left: case Move.HopLeft: case Move.JumpLeft: case Move.DropLeft: case Move.HopDropLeft: case Move.StepLeft: case Move.StrideLeft: return -1;
+                case Move.Right: case Move.HopRight: case Move.JumpRight: case Move.DropRight: case Move.HopDropRight: case Move.StepRight: case Move.StrideRight: return 1;
                 default: return 0;
             }
         }
@@ -236,7 +242,7 @@ namespace MeshGhostAutoplay.Tevi
         // Where the player is `f` frames on under plan `m`.
         public static Vector2 Position(Start s, Move m, int f)
         {
-            float x = Mathf.Clamp(s.Pos.x + Dir(m) * Run * f, Math.Min(s.MinX, s.Pos.x), Math.Max(s.MaxX, s.Pos.x));
+            float x = Mathf.Clamp(s.Pos.x + Dir(m) * Run * (IsStep(m) ? Math.Min(f, m == Move.StepLeft || m == Move.StepRight ? StepFrames : StrideFrames) : f), Math.Min(s.MinX, s.Pos.x), Math.Max(s.MaxX, s.Pos.x));
             float y;
             if (s.OnGround)
             {

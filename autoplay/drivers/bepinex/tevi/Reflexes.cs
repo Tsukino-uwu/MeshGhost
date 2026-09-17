@@ -306,9 +306,9 @@ namespace MeshGhostAutoplay.Tevi
                     if (tap == "Attack" && dodge && chainGuard && root == ComboRootFrames && Tells.FastestLead(target.type.ToString()) is int lead
                         && Mathf.Max(0f, target.GetHitStun()) * 60f + lead + ChargeTravel < ComboRootFrames) tap = null;
                     // Its armor broken and refilling (the red outline): a hit does little and does not stop it, and it attacks freely (the
-                    // user, 2026-09-17; the meter measured in MEASURED.md). A melee swing then only when standing stays safe for the whole
-                    // horizon.
-                    if (tap == "Attack" && orb == null && dodge && ArmorRecovering(target) && !guard.StandingSafe(Dodge.Horizon)) tap = null;
+                    // user, 2026-09-17; the meter measured in MEASURED.md). A melee swing then only when standing stays safe for the swing and
+                    // 10 frames more (the whole 45-frame horizon cost damage uptime; the user: "play aggressivly & keep constant damage uptime").
+                    if (tap == "Attack" && orb == null && dodge && ArmorRecovering(target) && !guard.StandingSafe(root + 10)) tap = null;
                     if (tap != null && InputInjection.Tap(tap, 4))
                     {
                         if (tap == "Attack") attacks++;
@@ -578,15 +578,23 @@ namespace MeshGhostAutoplay.Tevi
             return best;
         }
 
-        private const float BeamSlide = 40f;
+        // A swing slid her about 14 units (the flight recorder, 2026-09-17); her hurtbox is 11 wide. A swing is refused only when where she
+        // stands or where the slide ends, either way, comes within her half-width and a margin of a beam's radius: a flat 40 from every beam
+        // refused every swing in the curtain's 84-wide gaps, which the user pointed to as the place to keep hitting from.
+        private const float BeamSlide = 16f, BeamMargin = 8f;
 
         private static bool BeamNear(CharacterBase p, int withinFrames)
         {
             var c = new Vector2(p.t.position.x, p.t.position.y - 17f); // her hurtbox centre (observe: dy_from_position -17)
+            float half = p.GetHitboxW() / 2f + BeamMargin;
             foreach (Threats.Laser l in Threats.ReadLasers(p))
             {
                 if (l.AppearIn > withinFrames) continue;
-                if (Threats.DistanceToSegment(c, l.From, l.To) - l.Radius < BeamSlide) return true;
+                for (int k = -1; k <= 1; k++)
+                {
+                    var at = new Vector2(c.x + k * BeamSlide, c.y);
+                    if (Threats.DistanceToSegment(at, l.From, l.To) - l.Radius < half) return true;
+                }
             }
             return false;
         }

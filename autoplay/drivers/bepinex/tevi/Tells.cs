@@ -36,6 +36,30 @@ namespace MeshGhostAutoplay.Tevi
             public string State;
             public int Since;
             public int Facing;
+            public bool Followed; // an attack was born during this stay in the state
+        }
+
+        // How often each (type|state) was entered, and how often an attack followed while in it. A state an enemy rests in is a poor tell:
+        // Ribauld's bomb ring was born after he went back to NORMAL, so every NORMAL predicted a ring 23 frames on and she stood idle
+        // through it (the user, 2026-09-17: "there should also be a gap to get in some more attacks instead of just standing idle").
+        // A state is predicted only while an attack followed at least FollowShare of its last entries (after MinEntries).
+        private const int MinEntries = 3, EntryWindow = 20;
+        private const float FollowShare = 0.5f;
+        private static readonly Dictionary<string, Queue<bool>> Entries = new Dictionary<string, Queue<bool>>();
+
+        private static void Close(string key, bool followed)
+        {
+            if (!Entries.TryGetValue(key, out Queue<bool> q)) Entries[key] = q = new Queue<bool>();
+            q.Enqueue(followed);
+            while (q.Count > EntryWindow) q.Dequeue();
+        }
+
+        private static bool Reliable(string key)
+        {
+            if (!Entries.TryGetValue(key, out Queue<bool> q) || q.Count < MinEntries) return true;
+            int n = 0;
+            foreach (bool b in q) if (b) n++;
+            return n >= FollowShare * q.Count;
         }
 
         private static readonly Dictionary<int, Seen> States = new Dictionary<int, Seen>(); // by character instance id
@@ -112,7 +136,11 @@ namespace MeshGhostAutoplay.Tevi
                 if (c == null || c == p || c.t == null) continue;
                 int id = c.GetInstanceID();
                 string st = c.logicStatus.ToString();
-                if (!States.TryGetValue(id, out Seen s) || s.State != st) States[id] = s = new Seen { State = st, Since = f, Facing = Facing(c) };
+                if (!States.TryGetValue(id, out Seen s) || s.State != st)
+                {
+                    if (s != null) Close(c.type + "|" + s.State, s.Followed);
+                    States[id] = s = new Seen { State = st, Since = f, Facing = Facing(c) };
+                }
             }
 
             SpawnFrame(p, cm, f);
@@ -175,6 +203,7 @@ namespace MeshGhostAutoplay.Tevi
                     Type = type,
                 };
                 string key = b.owner.type + "|" + s.State;
+                s.Followed = true;
                 if (!Table.TryGetValue(key, out List<Sample> list)) Table[key] = list = new List<Sample>();
                 list.Add(sample);
                 if (list.Count > MaxSamples) list.RemoveAt(0);
@@ -227,6 +256,7 @@ namespace MeshGhostAutoplay.Tevi
                     Type = "SPAWN_" + c.type,
                 };
                 string key = owner.type + "|" + s.State;
+                s.Followed = true;
                 if (!Table.TryGetValue(key, out List<Sample> list)) Table[key] = list = new List<Sample>();
                 list.Add(sample);
                 if (list.Count > MaxSamples) list.RemoveAt(0);
@@ -268,7 +298,7 @@ namespace MeshGhostAutoplay.Tevi
             {
                 if (c == null || c == p || c.t == null || !c.gameObject.activeInHierarchy || c.health <= 0) continue;
                 if (!States.TryGetValue(c.GetInstanceID(), out Seen s)) continue;
-                if (!Table.TryGetValue(c.type + "|" + s.State, out List<Sample> list)) continue;
+                if (!Table.TryGetValue(c.type + "|" + s.State, out List<Sample> list) || !Reliable(c.type + "|" + s.State)) continue;
                 int inState = f - s.Since, facing = Facing(c);
                 foreach (Sample x in list)
                 {
