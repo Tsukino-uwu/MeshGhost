@@ -159,3 +159,73 @@ func TestResumeRefusesALogWithNoOpenSegment(t *testing.T) {
 		t.Fatalf("Resume of a log with no segment_begin = %v, want errNoOpenSegment", err)
 	}
 }
+
+// A cheat still in effect when a segment begins (a noclip left on) reaches it from its first call, and a
+// resumed log keeps that claim rather than rebuilding the segment as walked.
+func TestASegmentBegunReachedStaysReachedAcrossAResume(t *testing.T) {
+	l, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.Begin("through the wall", "cheat:noclip (still on)")
+	if cur := l.Current(); cur.Claim != "reached" || len(cur.Because) != 1 || cur.Because[0] != "cheat:noclip (still on)" {
+		t.Fatalf("begun reached = %+v", cur)
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := Resume(l.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cur := second.Current(); cur.N != 2 || cur.Claim != "reached" || len(cur.Because) != 1 {
+		t.Fatalf("resumed = %+v", cur)
+	}
+	if closed := second.Begin("on foot again"); closed.Claim != "reached" {
+		t.Fatalf("closed = %+v", closed)
+	}
+	if cur := second.Current(); cur.Claim != "walked" || cur.Because != nil {
+		t.Fatalf("a segment begun with nothing in effect = %+v", cur)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	third, err := Resume(l.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cur := third.Current(); cur.N != 3 || cur.Claim != "walked" {
+		t.Fatalf("resumed = %+v", cur)
+	}
+	third.Close()
+}
+
+// A call made while a cheat is in effect reaches the open segment once per cause, and Resume keeps it.
+func TestInEffectReachesTheOpenSegmentOncePerCause(t *testing.T) {
+	l, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.InEffect("")
+	if cur := l.Current(); cur.Claim != "walked" {
+		t.Fatalf("an empty cause reached the segment: %+v", cur)
+	}
+	l.InEffect("cheat:noclip (still on)")
+	l.InEffect("cheat:noclip (still on)")
+	if cur := l.Current(); cur.Claim != "reached" || len(cur.Because) != 1 {
+		t.Fatalf("after two calls with noclip on = %+v", cur)
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Resume(l.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cur := again.Current(); cur.N != 1 || cur.Claim != "reached" || len(cur.Because) != 1 || cur.Because[0] != "cheat:noclip (still on)" {
+		t.Fatalf("resumed = %+v", cur)
+	}
+	again.Close()
+}

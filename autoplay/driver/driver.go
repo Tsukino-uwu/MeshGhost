@@ -12,6 +12,10 @@
 //	core -> driver  {"id":N,"type":"<verb>","payload":{...}}         a request
 //	driver -> core  {"id":N,"type":"result","payload":{...}}         or {"id":N,"type":"error","payload":{"message":"..."}}
 //	driver -> core  {"type":"event","payload":{"kind":"...",...}}    unsolicited, buffered by the hub
+//
+// A hello's "persisting", and a cheat's answer carrying the same field, list the cheats still in effect
+// in the game (a noclip left on): the only payload field the core reads, so a run segment begun while
+// one is on is not labelled walked.
 package driver
 
 import (
@@ -48,6 +52,33 @@ type Hello struct {
 	Build          string   `json:"build,omitempty"`
 	Capabilities   []string `json:"capabilities"`
 	ProtectedSlots []int    `json:"protected_slots,omitempty"`
+	// Persisting lists the cheat kinds in effect when the driver connected (package comment).
+	Persisting Kinds `json:"persisting,omitempty"`
+}
+
+// Kinds is a list of cheat kinds as a driver sends it. A Lua driver's JSON cannot tell an empty array from an
+// empty object, so {} reads as no kinds, the same as [].
+type Kinds []string
+
+// UnmarshalJSON takes an array of strings, or an empty object.
+func (k *Kinds) UnmarshalJSON(b []byte) error {
+	if len(b) > 0 && b[0] == '{' {
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal(b, &m); err != nil {
+			return err
+		}
+		if len(m) != 0 {
+			return fmt.Errorf("a list of cheat kinds is an array, got an object with %d keys", len(m))
+		}
+		*k = nil
+		return nil
+	}
+	var s []string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return err
+	}
+	*k = s
+	return nil
 }
 
 // Has reports whether the driver announced a capability.
@@ -87,6 +118,7 @@ type reply struct {
 type conn struct {
 	nc      net.Conn
 	hello   Hello
+	gen     uint64
 	writeMu sync.Mutex
 	done    chan struct{}
 }
@@ -102,6 +134,7 @@ type Hub struct {
 	pending map[uint64]chan reply
 	events  []Event
 	nextSeq uint64
+	gen     uint64 // counts accepted drivers, so a caller can tell a reconnect from the same driver
 }
 
 // Listen binds addr, which must be a loopback address: a driver is a local process, and nothing
@@ -160,12 +193,19 @@ func (h *Hub) Serve(ctx context.Context) error {
 
 // Current returns the connected driver's hello.
 func (h *Hub) Current() (Hello, bool) {
+	hello, _, ok := h.CurrentConnection()
+	return hello, ok
+}
+
+// CurrentConnection returns the connected driver's hello and its generation: every driver the hub
+// accepts gets the next number, so the same number means the same connection.
+func (h *Hub) CurrentConnection() (Hello, uint64, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.cur == nil {
-		return Hello{}, false
+		return Hello{}, 0, false
 	}
-	return h.cur.hello, true
+	return h.cur.hello, h.cur.gen, true
 }
 
 // EventsSince returns buffered events with Seq > since, oldest first, and the newest Seq seen.
@@ -274,6 +314,8 @@ func (h *Hub) handle(nc net.Conn) {
 		h.reject(c, "busy: this core already has a driver")
 		return
 	}
+	h.gen++
+	c.gen = h.gen
 	h.cur = c
 	h.mu.Unlock()
 

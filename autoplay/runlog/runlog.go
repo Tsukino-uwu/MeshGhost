@@ -110,9 +110,13 @@ func openSegment(r io.Reader) (Segment, error) {
 				if jerr := json.Unmarshal(rec.Segment, &s); jerr != nil {
 					return Segment{}, fmt.Errorf("a segment_begin record: %w", jerr)
 				}
-				s.Claim, s.Because, s.Ended = "walked", nil, nil
+				// A segment begins walked unless it began reached by something already in effect.
+				if s.Claim != "reached" || len(s.Because) == 0 {
+					s.Claim, s.Because = "walked", nil
+				}
+				s.Ended = nil
 				seg = &s
-			case "call":
+			case "call", "in_effect":
 				var n int
 				if seg != nil && rec.ReachedBy != "" && json.Unmarshal(rec.Segment, &n) == nil && n == seg.N {
 					seg.Claim = "reached"
@@ -168,6 +172,24 @@ func (l *Log) Call(tool string, args any, err error, reachedBy string) {
 	l.write(rec)
 }
 
+// InEffect marks the open segment reached by something already in effect when a call is made (a cheat left on),
+// once per cause: a segment opened before the driver said so, or carried on by Resume, is reached all the same.
+func (l *Log) InEffect(by string) {
+	if l == nil || by == "" {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, b := range l.seg.Because {
+		if b == by {
+			return
+		}
+	}
+	l.seg.Claim = "reached"
+	l.seg.Because = append(l.seg.Because, by)
+	l.write(map[string]any{"at": l.now(), "type": "in_effect", "segment": l.seg.N, "reached_by": by})
+}
+
 // Current returns the open segment.
 func (l *Log) Current() Segment {
 	if l == nil {
@@ -179,8 +201,9 @@ func (l *Log) Current() Segment {
 }
 
 // Begin closes the open segment, records it, and opens a new one with label. It returns the closed
-// segment.
-func (l *Log) Begin(label string) Segment {
+// segment. reachedBy, when given, names what already holds at the start (a cheat still in effect), and
+// the new segment begins reached by it.
+func (l *Log) Begin(label string, reachedBy ...string) Segment {
 	if l == nil {
 		return Segment{}
 	}
@@ -188,6 +211,9 @@ func (l *Log) Begin(label string) Segment {
 	defer l.mu.Unlock()
 	closed := l.closeLocked(false)
 	l.seg = Segment{N: closed.N + 1, Label: label, Claim: "walked", Started: l.now()}
+	if len(reachedBy) > 0 {
+		l.seg.Claim, l.seg.Because = "reached", append([]string(nil), reachedBy...)
+	}
 	l.write(map[string]any{"at": l.seg.Started, "type": "segment_begin", "segment": l.seg})
 	return closed
 }

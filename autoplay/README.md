@@ -41,7 +41,8 @@ Claude Code --MCP (stdio)--> autoplay core --JSON lines (127.0.0.1)--> driver in
 | `events` | Events the driver reported since a sequence number |
 | `snapshot` | Save the whole game state to `autoplay/states/<game>/<label>.State` — a named file, never a numbered slot, so no slot of anyone's is ever touched |
 | `restore` | Load a named snapshot. **Marks the segment REACHED** |
-| `cheat` | A kind the driver announced as `cheat:<kind>`, with its arguments. **Marks the segment REACHED** |
+| `cheat` | A kind the driver announced as `cheat:<kind>`, with its arguments. **Marks the segment REACHED**. A cheat that stays in effect (a noclip) is named in the answer's `persisting` and reaches every segment while it is on (The run log) |
+| `exec` | Runs `code` in the driver's host -- Lua in BizHawk, for every game -- and returns `results` (what it returns) and `output` (what it prints); the escape hatch for a question no tool answers yet. The core writes a fresh token to `runs/exec_token_<port>.txt` when it starts (`-exec-token` names another file) and removes it when it stops, and the driver runs nothing whose token is not that file's. The code gets its own globals (the driver's are read through them, never written), `game` (the module) and `print`, and is stopped after 20,000,000 instructions. **Marks the segment REACHED**. Off in the scenario runner |
 | `segment` | Close the current run segment and start a labelled one; returns the closed one as walked or reached |
 
 ## What observe reads
@@ -173,7 +174,9 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
 Every session writes `autoplay/runs/<time>.ndjson`: each tool call, and each segment labelled
 **walked** or **reached**. A segment starts walked and becomes reached the moment a cheat or a restore
 succeeds in it, with what did it — the play-game skill's "walked to X" versus "reached X", kept by
-code rather than by memory. A failed or refused cheat changes nothing.
+code rather than by memory. A failed or refused cheat changes nothing. **A cheat still in effect** -- one the
+driver lists in `persisting`, in its hello or a cheat's answer -- reaches the segment any call is made in, and a
+segment begun while it is on begins reached (`cheat:noclip (still on)`), across core restarts too.
 
 A core started with `-resume <that file>` carries it on instead of starting one: the open segment keeps
 its label and its claim, rebuilt from the file. `mcpcall` starts a core per invocation, so a run driven
@@ -224,6 +227,13 @@ each run's `setup` and `steps` as their own segments, walked or reached.
 - **Emerald `register_item`** `{item}`: the item SELECT uses (by name or id; the bag must hold it). A bike
   registered, `press` Select gets on or off it; with the other bike registered, one press gets off and the
   next gets on. Refused outside the overworld.
+- **Emerald `noclip`** `{on}` (default true): kept in effect every frame until turned off or the driver unloads, with
+  `probes/noclip.lua`'s mechanism: collision cleared on the grid within 6 tiles of the player (not the map's border), and
+  every other character moved to an elevation the player is not on. Off puts back every tile and elevation still as it
+  left them (`report` counts them). Walked through route 0.16's collision tile at (5,1) and through RICK on route 0.17
+  (2026-09-17).
+  Water, ledges and one-way tiles are not affected; `goto` plans over the grid as it reads, so only nearby walls are
+  open to it. A snapshot taken while it is on keeps the cleared tiles. Refused outside the overworld.
 - **Crystal `give_item`** `{item, quantity}`: `item` a name as the PACK draws it (case ignored) or an id; quantity 1-99.
   Only items the game files in the item pocket (their attribute entry's pocket byte reads 01, as POTION's and ANTIDOTE's
   do), the ball pocket (03, as POKé BALL's) or the key item pocket (02, as BICYCLE's: quantity 1, once); adds to the entry
@@ -257,6 +267,9 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   and menus from `crystal/probes/autoplay_state_probe.lua`'s, `autoplay_text_probe.lua`'s and
   `autoplay_charset_probe.lua`'s measurements). **While a press, a select or a walk runs it holds the controller** — take it
   off the target when done.
+- **What the driver adds for every game**: `exec`, and two optional module functions -- `game.tick()`, run every frame
+  whether or not a core is connected (Emerald's noclip lives there, so it survives `mcpcall` restarting the core), and
+  `game.persisting()`, the cheats still in effect, sent in the hello and in every cheat's answer.
 - **`select` waits for the game to see a release** where the module can tell (`game.inputReleased`):
   Crystal's START menu looks at the buttons only every few frames, and a 2-frame release between cursor
   moves was never seen, so the held button never moved the cursor again.

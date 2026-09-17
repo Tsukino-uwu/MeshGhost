@@ -120,11 +120,76 @@ local function changed(before, after)
 	return out
 end
 
+-- What the driver itself adds to every game module's capabilities: exec is BizHawk's Lua, the same for any game.
+local HOST_CAPABILITIES = { "exec" }
+
+local function capabilities()
+	local out = {}
+	for _, c in ipairs(game.capabilities) do out[#out + 1] = c end
+	for _, c in ipairs(HOST_CAPABILITIES) do out[#out + 1] = c end
+	return out
+end
+
 local function has(capability)
-	for _, c in ipairs(game.capabilities) do
+	for _, c in ipairs(capabilities()) do
 		if c == capability then return true end
 	end
 	return false
+end
+
+-- The cheats still in effect (a noclip left on), when the module keeps any: the core starts a run segment
+-- reached while one is (autoplay/driver/driver.go, the package comment).
+local function persisting()
+	return game.persisting and game.persisting() or nil
+end
+
+-- EXEC {code, token}: runs Lua inside the emulator for a question no tool answers yet. Only with the token the
+-- core wrote for this port (autoplay/runs/exec_token_<port>.txt): a process that merely reaches the loopback port
+-- first gets nothing. The chunk sees the driver's globals read-only through its own environment (a global it sets
+-- stays in that environment, never the driver's -- a probe global outlives the probe), `game` (the module) and
+-- `print` (into the answer's output). It is stopped after EXEC_INSTRUCTIONS VM instructions so a loop cannot hang
+-- the emulator, and one frame passes for none of it: it runs inside this frame's tick.
+local EXEC_INSTRUCTIONS, EXEC_OUTPUT_LINES = 20000000, 200
+
+local function execCode(p)
+	if type(p.code) ~= "string" or p.code == "" then return nil, "exec needs code" end
+	local path = string.format("%s/autoplay/runs/exec_token_%d.txt", ROOT, port)
+	local fh = io.open(path, "r")
+	local want = fh and fh:read("*l")
+	if fh then fh:close() end
+	if not want or want == "" or p.token ~= want then
+		return nil, "exec refused: the request's token is not the one in " .. path
+	end
+	local output = {}
+	local env = setmetatable({
+		game = game,
+		print = function(...)
+			if #output >= EXEC_OUTPUT_LINES then return end
+			local parts = {}
+			for i = 1, select("#", ...) do parts[i] = tostring((select(i, ...))) end
+			output[#output + 1] = table.concat(parts, "\t")
+		end,
+	}, { __index = _G })
+	local chunk, err = load(p.code, "=exec", "t", env)
+	if not chunk then return nil, "exec: " .. tostring(err) end
+	debug.sethook(function() error(string.format("stopped after %d instructions", EXEC_INSTRUCTIONS), 2) end, "", EXEC_INSTRUCTIONS)
+	local res = table.pack(pcall(chunk))
+	debug.sethook()
+	if not res[1] then return nil, "exec: " .. tostring(res[2]) end
+	local results = {}
+	for i = 2, res.n do
+		local v = res[i]
+		-- A value JSON cannot carry (a function, a table holding one) comes back as its tostring.
+		if v == nil or not pcall(json.encode, v) then v = tostring(v) end
+		results[#results + 1] = v
+	end
+	local answer = { results = results, output = output, frame = emu.framecount() }
+	local ok, line = pcall(json.encode, answer)
+	if not ok then return nil, "exec: the answer does not encode: " .. tostring(line) end
+	if #line > MAX_LINE - 256 then
+		return nil, string.format("exec: the answer is %d bytes, over the link's %d; return less", #line, MAX_LINE)
+	end
+	return answer
 end
 
 -- The answer to a press or a wait: how long, and what moved between before and after.
@@ -252,7 +317,12 @@ local function begin(req)
 		fail(req.id, "this driver does not support " .. tostring(capability))
 		return true
 	end
-	if verb == "observe" then
+	if verb == "exec" then
+		local answer, err = execCode(p)
+		log(answer and "exec" or ("exec failed: " .. tostring(err)))
+		if answer then reply(req.id, answer) else fail(req.id, err) end
+		return true
+	elseif verb == "observe" then
 		-- true: the agent asked, so the module may add what it leaves out of a press's before and after.
 		reply(req.id, game.observe(true))
 		return true
@@ -364,7 +434,7 @@ local function begin(req)
 			finish = function(after, done, count)
 				-- plan.report, when the module has one, reads the cheat's effect back from the game.
 				return { kind = p.kind, done = done, frames = count, before = before, after = after, changed = changed(before, after),
-					report = plan.report and plan.report() or nil }
+					report = plan.report and plan.report() or nil, persisting = persisting() }
 			end,
 		}
 		return false
@@ -422,8 +492,9 @@ local function connect()
 			game = game.game,
 			variant = game.variant,
 			build = game.build(),
-			capabilities = game.capabilities,
+			capabilities = capabilities(),
 			protected_slots = game.protected_slots,
+			persisting = persisting(),
 		},
 	})
 	log("connected to 127.0.0.1:" .. port .. ", hello sent")
@@ -475,6 +546,9 @@ end
 
 MESHGHOST_DEV_TICK = function()
 	if not game then return end
+	-- A module's own every-frame work (a cheat kept in effect), connected or not: mcpcall restarts the core
+	-- between calls, and a noclip that lapsed in the gap would drop the player back into the walls.
+	if game.tick then game.tick() end
 	if not sock then
 		if os.time() >= nextTry then connect() end
 		return

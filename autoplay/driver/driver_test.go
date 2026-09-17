@@ -262,3 +262,56 @@ func TestAnOverlongLineDropsTheDriver(t *testing.T) {
 	d.send(map[string]any{"type": "event", "payload": strings.Repeat("x", MaxLineBytes)})
 	waitConnected(t, h, false)
 }
+
+// Every accepted driver gets the next generation, so a reconnect is told apart from the same connection,
+// and a hello's persisting cheats are kept.
+func TestEachAcceptedDriverGetsTheNextGeneration(t *testing.T) {
+	h := startHub(t)
+	first := goodHello()
+	first.Persisting = []string{"noclip"}
+	d := dial(t, h, first)
+	if e := d.read(); e.Type != "welcome" {
+		t.Fatalf("got %q, want welcome", e.Type)
+	}
+	waitConnected(t, h, true)
+	hello, gen1, ok := h.CurrentConnection()
+	if !ok || gen1 == 0 || len(hello.Persisting) != 1 || hello.Persisting[0] != "noclip" {
+		t.Fatalf("first connection = %+v gen %d ok %v", hello, gen1, ok)
+	}
+	d.nc.Close()
+	waitConnected(t, h, false)
+	if _, gen, ok := h.CurrentConnection(); ok || gen != 0 {
+		t.Fatalf("no driver, yet gen %d ok %v", gen, ok)
+	}
+
+	d2 := dial(t, h, goodHello())
+	if e := d2.read(); e.Type != "welcome" {
+		t.Fatalf("got %q, want welcome", e.Type)
+	}
+	waitConnected(t, h, true)
+	hello, gen2, _ := h.CurrentConnection()
+	if gen2 <= gen1 || hello.Persisting != nil {
+		t.Fatalf("second connection = %+v gen %d after %d", hello, gen2, gen1)
+	}
+}
+
+// A Lua driver sends an empty list as {}: it reads as no kinds, and a hello carrying it is not refused.
+func TestKindsReadAnEmptyObjectAsNoKinds(t *testing.T) {
+	for in, want := range map[string]int{`["noclip","speed"]`: 2, `[]`: 0, `{}`: 0} {
+		var k Kinds
+		if err := json.Unmarshal([]byte(in), &k); err != nil || len(k) != want {
+			t.Errorf("Kinds from %s = %v, %v; want %d kinds", in, k, err, want)
+		}
+	}
+	var k Kinds
+	if err := json.Unmarshal([]byte(`{"noclip":true}`), &k); err == nil {
+		t.Errorf("an object with keys read as %v, want an error", k)
+	}
+
+	h := startHub(t)
+	d := dial(t, h, nil)
+	d.send(map[string]any{"type": "hello", "payload": json.RawMessage(`{"protocol":1,"host":"bizhawk","game":"g","capabilities":["observe"],"persisting":{}}`)})
+	if e := d.read(); e.Type != "welcome" {
+		t.Fatalf("a hello with persisting {} got %q, want welcome", e.Type)
+	}
+}

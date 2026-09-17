@@ -67,3 +67,27 @@ and measured, with the chart as the map.
 Route 103 (the last regression).
 
 **Next for Emerald:** `exec` and noclip (Phase 1's list; `probes/noclip.lua` exists).
+
+## 2026-09-17 (the Emerald chat) — noclip as a cheat, and a pointer: `exec` and cheats still in effect
+
+**Pointer.** `exec`, the `persisting` list and the driver's per-frame `game.tick` are shared core, logged in
+`../phase13.md` ("`exec`, and cheats still in effect in the run log").
+
+**Built** (`emerald.lua`). The `noclip {on}` cheat: `probes/noclip.lua`'s mechanism moved into the module and kept in
+effect by `game.tick` -- collision cleared within 6 tiles of the player except the border, other characters put on an
+elevation the player is not on -- put back when turned off or the driver unloads, dropped after a map change or a
+restore. `game.persisting` names it while on. The module's three step helpers from this session became one table, as
+the module is at Lua's local ceiling (198 of 200 after noclip).
+
+**Measured** (`emerald/MEASURED.md`, "Autoplay's noclip: through a collision tile and a character"). Route 0.16: blocked
+at (5,1) without it, through it with it; route 0.17: blocked by RICK without it, through his tile with it, across a core
+restart; every word and elevation put back when it went off, and the walls drawn again in `local_map`.
+
+**Not measured:** noclip's cost per frame, water (still open for the probe in `emerald/UNVERIFIED.md`), a ledge, a map
+change or a snapshot while it is on.
+
+**Left as it is:** the Emerald instance on vanilla, port 7870, the driver alone on its target, noclip off, the game on
+route 0.17 after the last `goto` regression.
+
+**Next for Emerald:** Phase 1's list is built. Open from this session: the two nudges in the rescue battle's intro, the
+FA scroll command read raw, and a `battle` policy that weighs types (the user's notes above).

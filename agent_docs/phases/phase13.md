@@ -29,6 +29,7 @@ here adds its heading as one line under "The plan and the shared core".**
 - 2026-09-17 (the Emerald chat, new) — the scenario runner: RICK's sight replayed 3 of 3 with no model, and failing when broken
 - 2026-09-17 (the Emerald chat, next session) — `goto`'s route planner moved into shared Lua, Emerald's answers unchanged
 - 2026-09-17 (the Emerald chat, same session) — the log split: one file per game, this one for the plan and the shared core
+- 2026-09-17 (the Emerald chat, same session) — `exec`, and cheats still in effect in the run log: the last of Phase 1's list
 
 **Emerald (vanilla), before its own log** -- from 2026-09-17 in [autoplay/emerald.md](autoplay/emerald.md)
 - 2026-09-16 (later still) — Phase 1 step 2: a live driver in vanilla Emerald, from boot to walking
@@ -1300,3 +1301,35 @@ file's header says what stays here (the plan, the core, the tools, the shared dr
 entry by game, since nothing moved. `phases/README.md` has a row for each new file and a note on the split, and
 preflight's "Phase index coverage" now looks inside subfolders, so a game log that no row links fails it as a top-level
 phase file does. `autoplay/README.md` points at both.
+
+## 2026-09-17 (the Emerald chat, same session) — `exec`, and cheats still in effect in the run log: the last of Phase 1's list
+
+**Built** (Go and the shared driver; the Emerald half, noclip, is in [autoplay/emerald.md](autoplay/emerald.md)):
+- **`exec {code}`**, the plan's hard boundary kept: the core already binds loopback only, and now writes a fresh token to
+  `runs/exec_token_<port>.txt` once its port and run log are open, removes it when it stops, and sends it with every
+  call; the BizHawk driver runs the Lua only when the token matches that file. The code gets its own globals (the
+  driver's read through them), `game` and `print`; it is stopped after 20,000,000 instructions; its answer is `results`
+  and `output`; it marks the segment reached. The scenario runner starts no token, so `exec` is off there. `exec` is a
+  host capability the driver adds for every game, Crystal's included.
+- **Cheats still in effect.** A cheat that stays on (noclip) would have let a later segment read walked. A driver may
+  now list them as `persisting`, in its hello and in every cheat's answer (the only payload field the core reads; a
+  list type that reads a Lua `{}` as empty); the core begins a segment reached while one is on and marks the open
+  segment reached by any call made while one is, once per cheat, and a resumed log keeps both. The hub numbers its
+  connections so an answer from an old connection is not taken for the current one.
+- **`game.tick()`**, optional, run every frame by the driver whether or not a core is connected; and
+  `game.persisting()`. Crystal's module supplies neither, so its path gains only `exec`.
+
+**Checked.** Go: tests for exec's validation, refusal with no token or no capability, forwarding with the token and the
+reached label; the token file; a cheat's `persisting` reaching the segments begun while on and not after; a hello with
+one; `{}` read as none and a hello carrying it welcomed; generations; a segment begun reached surviving a resume; the
+in-effect mark once per cause. The hello test was run once with the in-effect mark disabled and failed. `go test -race
+-count=10 ./...` clean in the module. Live on vanilla Emerald: `1 + 1`; a print and a memory read; a global set in one
+call reading nil in the next and in `_G`; `while true do end` stopped with the emulator on the next frame; a syntax error
+returned as an error; a core told to write its token elsewhere refused with the path named; no token file left after
+either core stopped. The run log's labels live: a segment begun with noclip on reached, after it off walked, and after a
+core restart with noclip still on, the new core's first segment reached. Regressions after the driver change: the sight
+scenario 3 of 3, and the truck-door and route 0.17 `goto` answers identical to this session's baseline.
+
+**Crystal's path:** `driver.lua`'s changes are the hello's `capabilities` gaining `exec`, `persisting` (absent for
+Crystal), and `game.tick` (not called without one). Parsed with `luac -p`; not run on the Crystal instance, which is that
+chat's.

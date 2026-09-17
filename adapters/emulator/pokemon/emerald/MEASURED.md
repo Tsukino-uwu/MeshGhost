@@ -64,6 +64,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - The truck's door taken from rest, the wall clock's screen, and a question drawn instantly (2026-09-17)
 - The wall clock set: PM, midnight, YES, and the clock viewed after (2026-09-17)
 - The starter bag, and a stale message on its screen after a restore (2026-09-17)
+- Autoplay's noclip: through a collision tile and a character (2026-09-17)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -739,6 +740,21 @@ build hashed identical to the ROM; what each word does as below.
   `ng_gender` (callback2 0x0802F6B1, `CB2_MainMenu`) and `rick_challenge` (the overworld's) took up the right box, and on
   `ng_clock` and `ng_naming` nothing.
 - **Not seen**: the other two balls chosen, NO on the question, the nickname screen, the bag on any build but vanilla.
+
+### Autoplay's noclip: through a collision tile and a character (2026-09-17)
+
+**Vanilla ROM**, autoplay's `noclip` cheat (the mechanism of `probes/noclip.lua`, applied by the driver every frame), from
+the snapshots `session_end_route016` and `fast_text_route102` (gitignored); read with autoplay's `walk`, `observe` and the
+cheat's own counts.
+
+- **A collision tile.** On route 0.16 at (5,4), `walk` up 3 moved 2 and stopped `blocked` at (5,1), collision 1. From the
+  same snapshot with noclip on (57 grid words cleared, 1 character moved), `walk` up 3 moved 3 and answered `done` at (5,1);
+  `local_map` drew the tiles around as `.` where it had drawn `#`. Off put back 75 words and 1 elevation -- more words than
+  first cleared, since each frame clears what the moved window holds -- and `local_map` drew the `#` again.
+- **A character.** On route 0.17 at (25,13), `walk` down 2 moved 0, `blocked` by RICK (local id 3) on (25,14). With noclip
+  on (52 words, 3 characters) and the core restarted in between, `walk` down 2 moved 2 to (25,15), through his tile, while
+  `nearby` still listed him at (25,14). Off put back 52 words and 3 elevations.
+- **Not measured**: what it costs a frame, water, a ledge, a map changed while it is on, a snapshot taken while it is on.
 
 ## Not measured yet
 

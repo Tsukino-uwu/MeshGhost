@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -33,6 +34,7 @@ func main() {
 	runsDir := flag.String("runs", "runs", "folder for this session's run log (gitignored)")
 	statesDir := flag.String("states", "states", "folder for named snapshots (gitignored)")
 	resume := flag.String("resume", "", "carry on this run log instead of starting one, its open segment included")
+	execToken := flag.String("exec-token", "", "file for this session's exec token; default <runs>/exec_token_<port>.txt, where the BizHawk driver looks")
 	flag.Parse()
 
 	var out io.Writer = os.Stderr
@@ -78,7 +80,22 @@ func main() {
 	}
 	logger.Printf("run log %s", runs.Path())
 
-	srv := server.New(hub, version, server.Options{Log: runs, StatesDir: *statesDir})
+	// Written only once the port is ours: a core that failed to bind must not replace the running one's token.
+	tokenPath := *execToken
+	if tokenPath == "" {
+		_, port, _ := net.SplitHostPort(hub.Addr().String())
+		tokenPath = filepath.Join(*runsDir, "exec_token_"+port+".txt")
+	}
+	token, err := server.WriteExecToken(tokenPath)
+	if err != nil {
+		logger.Printf("exec token: %v; exec is off", err)
+		token = ""
+	} else {
+		defer os.Remove(tokenPath)
+		logger.Printf("exec token written to %s", tokenPath)
+	}
+
+	srv := server.New(hub, version, server.Options{Log: runs, StatesDir: *statesDir, ExecToken: token})
 	if err := srv.Run(ctx, &mcp.StdioTransport{}); err != nil && ctx.Err() == nil {
 		logger.Printf("mcp: %v", err)
 	}

@@ -24,7 +24,7 @@ type harness struct {
 	states  string
 }
 
-func newHarness(t *testing.T) *harness {
+func newHarness(t *testing.T, options ...func(*Options)) *harness {
 	t.Helper()
 	hub, err := driver.Listen("127.0.0.1:0", nil)
 	if err != nil {
@@ -41,8 +41,12 @@ func newHarness(t *testing.T) *harness {
 	t.Cleanup(func() { runs.Close() })
 	states := t.TempDir()
 
+	opts := Options{Log: runs, StatesDir: states}
+	for _, o := range options {
+		o(&opts)
+	}
 	serverT, clientT := mcp.NewInMemoryTransports()
-	if _, err := New(hub, "test", Options{Log: runs, StatesDir: states}).Connect(ctx, serverT, nil); err != nil {
+	if _, err := New(hub, "test", opts).Connect(ctx, serverT, nil); err != nil {
 		t.Fatalf("server connect: %v", err)
 	}
 	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "test"}, nil)
@@ -78,13 +82,18 @@ type answerFunc func(verb string, payload json.RawMessage) (string, any)
 // a test can also send unsolicited lines (events).
 func (h *harness) startDriver(t *testing.T, capabilities []string, answer answerFunc) net.Conn {
 	t.Helper()
+	return h.startDriverWithHello(t, driver.Hello{Protocol: driver.Protocol, Host: "fakehost", Game: "fakegame", Capabilities: capabilities}, answer)
+}
+
+// startDriverWithHello is startDriver with the whole hello given.
+func (h *harness) startDriverWithHello(t *testing.T, hello driver.Hello, answer answerFunc) net.Conn {
+	t.Helper()
 	nc, err := net.Dial("tcp", h.hub.Addr().String())
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
 	t.Cleanup(func() { nc.Close() })
 
-	hello := driver.Hello{Protocol: driver.Protocol, Host: "fakehost", Game: "fakegame", Capabilities: capabilities}
 	writeLine(t, nc, map[string]any{"type": "hello", "payload": hello})
 
 	sc := bufio.NewScanner(nc)
@@ -381,6 +390,134 @@ func TestSetClockIsRefusedWithoutTheCapability(t *testing.T) {
 	h.startDriver(t, []string{"observe"}, func(string, json.RawMessage) (string, any) { return "result", map[string]any{} })
 	if text, isErr := h.call(t, "set_clock", map[string]any{"hours": 10, "minutes": 0}); !isErr || !strings.Contains(text, "set_clock") {
 		t.Fatalf("set_clock without the capability = %s (error %v)", text, isErr)
+	}
+}
+
+func TestExecIsOffWithoutATokenAndForwardsItWithOne(t *testing.T) {
+	off := newHarness(t)
+	off.startDriver(t, []string{"exec"}, func(string, json.RawMessage) (string, any) { return "result", map[string]any{} })
+	if text, isErr := off.call(t, "exec", map[string]any{"code": "return 1"}); !isErr || !strings.Contains(text, "exec is off") {
+		t.Fatalf("exec with no token = %s (error %v)", text, isErr)
+	}
+
+	h := newHarness(t, func(o *Options) { o.ExecToken = "session-token" })
+	got := make(chan execRequest, 1)
+	h.startDriver(t, []string{"exec"}, func(verb string, payload json.RawMessage) (string, any) {
+		var in execRequest
+		json.Unmarshal(payload, &in)
+		got <- in
+		return "result", map[string]any{"results": []any{2}}
+	})
+	for _, bad := range []map[string]any{{"code": ""}, {"code": strings.Repeat("x", MaxExecBytes+1)}} {
+		if text, isErr := h.call(t, "exec", bad); !isErr {
+			t.Errorf("exec %v = %s, want a refusal", bad, text)
+		}
+	}
+	if text, isErr := h.call(t, "segment", map[string]any{"label": "exec"}); isErr {
+		t.Fatalf("segment = %s", text)
+	}
+	if text, isErr := h.call(t, "exec", map[string]any{"code": "return 1 + 1"}); isErr || !strings.Contains(text, `"results":[2]`) {
+		t.Fatalf("exec = %s (error %v)", text, isErr)
+	}
+	if in := <-got; in.Code != "return 1 + 1" || in.Token != "session-token" {
+		t.Fatalf("the driver received %+v", in)
+	}
+	// Code that may have changed the game reaches the segment it ran in.
+	text, _ := h.call(t, "segment", map[string]any{"label": "after"})
+	var out SegmentOut
+	if json.Unmarshal([]byte(text), &out) != nil || out.Closed.Claim != "reached" || len(out.Closed.Because) != 1 || out.Closed.Because[0] != "exec" {
+		t.Fatalf("after exec, segment = %s", text)
+	}
+}
+
+func TestExecIsRefusedWithoutTheCapability(t *testing.T) {
+	h := newHarness(t, func(o *Options) { o.ExecToken = "session-token" })
+	h.startDriver(t, []string{"observe"}, func(string, json.RawMessage) (string, any) { return "result", map[string]any{} })
+	if text, isErr := h.call(t, "exec", map[string]any{"code": "return 1"}); !isErr || !strings.Contains(text, `"exec"`) {
+		t.Fatalf("exec without the capability = %s (error %v)", text, isErr)
+	}
+}
+
+func TestWriteExecTokenWritesAFreshTokenEachTime(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runs", "exec_token_7870.txt")
+	a, err := WriteExecToken(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := WriteExecToken(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	onDisk, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(a) != 32 || a == b || string(onDisk) != b {
+		t.Fatalf("tokens %q then %q, file holds %q", a, b, onDisk)
+	}
+}
+
+// A cheat the driver says is still in effect (a noclip left on) reaches every segment begun while it is,
+// until an answer says it is off.
+func TestACheatStillInEffectReachesTheSegmentsBegunWhileItIs(t *testing.T) {
+	h := newHarness(t)
+	h.startDriver(t, []string{"cheat:noclip", "cheat:warp"}, func(verb string, payload json.RawMessage) (string, any) {
+		var in CheatIn
+		json.Unmarshal(payload, &in)
+		if in.Kind == "noclip" && in.Args["on"] != false {
+			return "result", map[string]any{"persisting": []string{"noclip"}}
+		}
+		if in.Kind == "noclip" {
+			return "result", map[string]any{"persisting": []string{}}
+		}
+		// An answer without the field leaves what is known as it was.
+		return "result", map[string]any{"done": true}
+	})
+	segment := func(label string) SegmentOut {
+		t.Helper()
+		text, isErr := h.call(t, "segment", map[string]any{"label": label})
+		var out SegmentOut
+		if isErr || json.Unmarshal([]byte(text), &out) != nil {
+			t.Fatalf("segment = %s (error %v)", text, isErr)
+		}
+		return out
+	}
+
+	if text, isErr := h.call(t, "cheat", map[string]any{"kind": "noclip", "args": map[string]any{"on": true}}); isErr {
+		t.Fatalf("noclip on = %s", text)
+	}
+	if cur := segment("through the wall").Current; cur.Claim != "reached" || len(cur.Because) != 1 || cur.Because[0] != "cheat:noclip (still on)" {
+		t.Fatalf("a segment begun with noclip on = %+v", cur)
+	}
+	h.call(t, "cheat", map[string]any{"kind": "warp", "args": map[string]any{}})
+	if cur := segment("still through walls").Current; cur.Claim != "reached" {
+		t.Fatalf("an answer with no persisting field turned it off: %+v", cur)
+	}
+	h.call(t, "cheat", map[string]any{"kind": "noclip", "args": map[string]any{"on": false}})
+	if cur := segment("on foot").Current; cur.Claim != "walked" || cur.Because != nil {
+		t.Fatalf("a segment begun with noclip off = %+v", cur)
+	}
+}
+
+// A driver that connects with a cheat already in effect (a core restarted by mcpcall while the driver's
+// noclip stayed on) says so in its hello.
+func TestAHelloWithACheatInEffectReachesNewSegments(t *testing.T) {
+	h := newHarness(t)
+	h.startDriverWithHello(t, driver.Hello{Protocol: driver.Protocol, Host: "fakehost", Game: "fakegame",
+		Capabilities: []string{"observe"}, Persisting: []string{"noclip"}},
+		func(string, json.RawMessage) (string, any) { return "result", map[string]any{} })
+	// The segment the core opened before the driver connected is reached by the first call made with noclip on.
+	h.call(t, "observe", nil)
+	text, isErr := h.call(t, "segment", map[string]any{"label": "after the restart"})
+	var out SegmentOut
+	if isErr || json.Unmarshal([]byte(text), &out) != nil {
+		t.Fatalf("segment = %s (error %v)", text, isErr)
+	}
+	if c := out.Closed; c.Label != "start" || c.Claim != "reached" || len(c.Because) != 1 || c.Because[0] != "cheat:noclip (still on)" {
+		t.Fatalf("the segment begun before the hello = %+v", c)
+	}
+	if out.Current.Claim != "reached" || len(out.Current.Because) != 1 {
+		t.Fatalf("the segment begun after it = %+v", out.Current)
 	}
 }
 

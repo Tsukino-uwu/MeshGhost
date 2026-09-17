@@ -8,12 +8,15 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/autoplay/driver"
@@ -27,11 +30,13 @@ const CallTimeout = 10 * time.Second
 // MaxPressFrames bounds one press: a long hold is a leg, and legs end on the game's state.
 const MaxPressFrames = 600
 
-// Options are what the server needs besides the hub. A zero Options is valid: no run log, and
-// snapshots under "states".
+// Options are what the server needs besides the hub. A zero Options is valid: no run log, snapshots
+// under "states", and no exec.
 type Options struct {
 	Log       *runlog.Log
 	StatesDir string
+	// ExecToken is this session's token (WriteExecToken); exec refuses while it is empty.
+	ExecToken string
 }
 
 // New builds the MCP server over a hub.
@@ -40,7 +45,7 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 	if opts.StatesDir == "" {
 		opts.StatesDir = "states"
 	}
-	t := &tools{hub: hub, log: opts.Log, statesDir: opts.StatesDir}
+	t := &tools{hub: hub, log: opts.Log, statesDir: opts.StatesDir, execToken: opts.ExecToken}
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "status",
@@ -161,6 +166,14 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 	}, logged(t, "cheat", func(in CheatIn) string { return "cheat:" + in.Kind }, t.cheat))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name: "exec",
+		Description: "Run code inside the game's host (Lua in BizHawk) and return what it returns and prints. " +
+			"The escape hatch for a question no tool answers yet: read or write memory, call the host's API. " +
+			"Marks the current segment REACHED, since the code may change the game. Carries this core's " +
+			"session token, which the driver checks against the token file the core wrote.",
+	}, logged(t, "exec", func(ExecIn) string { return "exec" }, t.exec))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name: "segment",
 		Description: "Close the current run segment and start a new one with a label. Returns the " +
 			"closed segment, labelled walked or reached by what happened in it.",
@@ -173,6 +186,12 @@ type tools struct {
 	hub       *driver.Hub
 	log       *runlog.Log
 	statesDir string
+	execToken string
+
+	// The cheats still in effect as the driver last said, for the connection it said it on.
+	persistMu    sync.Mutex
+	persistGen   uint64
+	persistKinds []string
 }
 
 // logged wraps a handler so every call lands in the run log. reachedBy, when given, names what a
@@ -185,6 +204,10 @@ func logged[In, Out any](t *tools, name string, reachedBy func(In) string, h mcp
 			by = reachedBy(in)
 		}
 		t.log.Call(name, in, err, by)
+		// A call made while a cheat is still in effect belongs to a segment that cheat reaches, whenever it began.
+		for _, on := range t.stillOn() {
+			t.log.InEffect(on)
+		}
 		return res, out, err
 	}
 }
@@ -558,7 +581,90 @@ func (t *tools) cheat(ctx context.Context, _ *mcp.CallToolRequest, in CheatIn) (
 		in.Args = map[string]any{}
 	}
 	raw, err := t.forward(ctx, "cheat:"+in.Kind, "cheat", in, CheatTimeout)
+	if err == nil {
+		t.notePersisting(raw)
+	}
 	return nil, raw, err
+}
+
+// notePersisting keeps a cheat answer's list of cheats still in effect, when it carries one.
+func (t *tools) notePersisting(raw json.RawMessage) {
+	var answer struct {
+		Persisting *driver.Kinds `json:"persisting"`
+	}
+	if json.Unmarshal(raw, &answer) != nil || answer.Persisting == nil {
+		return
+	}
+	_, gen, ok := t.hub.CurrentConnection()
+	if !ok {
+		return
+	}
+	t.persistMu.Lock()
+	defer t.persistMu.Unlock()
+	t.persistGen, t.persistKinds = gen, append([]string(nil), (*answer.Persisting)...)
+}
+
+// stillOn names the cheats in effect on the connected driver: what its last cheat answer said, or its
+// hello when no cheat has answered on this connection. Nothing without a driver.
+func (t *tools) stillOn() []string {
+	hello, gen, ok := t.hub.CurrentConnection()
+	if !ok {
+		return nil
+	}
+	t.persistMu.Lock()
+	defer t.persistMu.Unlock()
+	kinds := hello.Persisting
+	if gen == t.persistGen {
+		kinds = t.persistKinds
+	}
+	var out []string
+	for _, k := range kinds {
+		out = append(out, "cheat:"+k+" (still on)")
+	}
+	return out
+}
+
+// MaxExecBytes bounds exec's code: it travels in one line of the link, escaped.
+const MaxExecBytes = 16 * 1024
+
+// ExecIn is the exec tool's input.
+type ExecIn struct {
+	Code string `json:"code" jsonschema:"the code to run, in the host's own language (Lua on BizHawk); return values come back"`
+}
+
+// execRequest is what the driver receives.
+type execRequest struct {
+	Code  string `json:"code"`
+	Token string `json:"token"`
+}
+
+func (t *tools) exec(ctx context.Context, _ *mcp.CallToolRequest, in ExecIn) (*mcp.CallToolResult, any, error) {
+	if in.Code == "" || len(in.Code) > MaxExecBytes {
+		return nil, nil, fmt.Errorf("code must be 1 to %d bytes, got %d", MaxExecBytes, len(in.Code))
+	}
+	if t.execToken == "" {
+		return nil, nil, fmt.Errorf("this core was started without an exec token, so exec is off")
+	}
+	raw, err := t.forward(ctx, "exec", "exec", execRequest{Code: in.Code, Token: t.execToken}, CallTimeout)
+	return nil, raw, err
+}
+
+// WriteExecToken makes this session's exec token and writes it to path, readable by this user: the
+// driver runs code only for a request carrying what that file holds, so exec takes a process that can
+// read this repo's runs folder, not merely one that reaches the loopback port first.
+func WriteExecToken(path string) (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	token := hex.EncodeToString(b)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, []byte(token), 0o600); err != nil {
+		return "", err
+	}
+	return token, nil
 }
 
 // SegmentIn is the segment tool's input.
@@ -580,7 +686,8 @@ func (t *tools) segment(ctx context.Context, _ *mcp.CallToolRequest, in SegmentI
 	if in.Label == "" || len(in.Label) > 200 {
 		return nil, SegmentOut{}, fmt.Errorf("a segment label is 1 to 200 characters")
 	}
-	closed := t.log.Begin(in.Label)
+	// A cheat still in effect (a noclip left on) reaches the new segment from its first frame.
+	closed := t.log.Begin(in.Label, t.stillOn()...)
 	return nil, SegmentOut{Closed: closed, Current: t.log.Current(), LogFile: t.log.Path()}, nil
 }
 

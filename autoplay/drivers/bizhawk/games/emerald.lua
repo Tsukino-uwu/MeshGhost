@@ -1189,7 +1189,7 @@ local game = {
 	variant = isVanilla and "vanilla" or "unverified",
 	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "cheat:warp", "cheat:set_flag",
 		"cheat:give_item", "cheat:register_item", "select", "walk", "goto", "battle", "advance_text", "type_text",
-		"set_clock" },
+		"set_clock", "cheat:noclip" },
 	-- The START menu and a YES/NO: Down moved the cursor one entry per press and A chose it; in a battle
 	-- menu Left and Right moved between its two columns (2026-09-16).
 	menuButtons = { prev = "Up", next = "Down", left = "Left", right = "Right", confirm = "A" },
@@ -1491,6 +1491,127 @@ function game.cheats.register_item(args)
 	}
 end
 
+-- NOCLIP (cheat `noclip {on}`): the mechanism of `emerald/probes/noclip.lua`, kept in effect by the driver every frame
+-- (game.tick) instead of by the dev loader. Around the player, every tile of the live grid with collision bits set has
+-- them cleared, again each frame since the grid streams tiles in as the camera scrolls, except a tile whose metatile id
+-- is 0x3FF, so the map's border still stops the player; and every other character is put on an odd elevation the player
+-- is not on, so none blocks a step. Every tile and elevation changed is put back when noclip is turned off or the driver
+-- unloads. A map change or a restored snapshot drops the record instead: the grid and the characters are rebuilt. Ledges,
+-- one-way tiles and water are the probe's own limits (its water is open in emerald/UNVERIFIED.md). While it is on, the
+-- driver says so in `persisting` and the core begins every run segment reached. One table, at the local ceiling.
+local NOCLIP = { on = false, radius = 6, tiles = {}, elevations = {}, where = nil }
+
+function NOCLIP.forget()
+	NOCLIP.tiles, NOCLIP.elevations, NOCLIP.where = {}, {}, nil
+end
+
+-- Puts back what is still as noclip left it, and returns how many tiles and characters that was.
+function NOCLIP.putBack()
+	local tiles, characters = 0, 0
+	for addr, t in pairs(NOCLIP.tiles) do
+		-- A word the game has rewritten since is not ours to put back.
+		if r16(addr) == t.now then
+			w16(addr, t.was)
+			tiles = tiles + 1
+		end
+	end
+	for slot, was in pairs(NOCLIP.elevations) do
+		local at = GOBJECTEVENTS + slot * OBJ_SIZE + 0x0B
+		w8(at, (r8(at) & 0xF0) | was)
+		characters = characters + 1
+	end
+	NOCLIP.forget()
+	return tiles, characters
+end
+
+function game.tick()
+	if not NOCLIP.on then return end
+	local sb1 = r32(SB1PTR)
+	if not inEwram(sb1) then return end
+	local here = r8(sb1 + 4) * 256 + r8(sb1 + 5)
+	if here ~= NOCLIP.where then
+		NOCLIP.forget()
+		NOCLIP.where = here
+	end
+	local me = playerSlot()
+	if me > 15 then return end
+	local obj = GOBJECTEVENTS + me * OBJ_SIZE
+	local px, py = r16(obj + 0x10), r16(obj + 0x12)
+	local width, height, grid = r32(GBACKUPMAPLAYOUT), r32(GBACKUPMAPLAYOUT + 4), r32(GBACKUPMAPLAYOUT + 8)
+	if inEwram(grid) and width > 0 and width < 1024 and height > 0 and height < 1024 then
+		local x0, x1 = math.max(px - NOCLIP.radius, 0), math.min(px + NOCLIP.radius, width - 1)
+		for y = math.max(py - NOCLIP.radius, 0), math.min(py + NOCLIP.radius, height - 1) do
+			if x1 >= x0 then
+				local row = memory.read_bytes_as_array(grid + (x0 + width * y) * 2, (x1 - x0 + 1) * 2, BUS)
+				for x = x0, x1 do
+					local i = (x - x0) * 2 + 1
+					local block = row[i] | (row[i + 1] << 8)
+					if (block & 0x0C00) ~= 0 and (block & 0x03FF) ~= 0x03FF then
+						local addr = grid + (x + width * y) * 2
+						NOCLIP.tiles[addr] = { was = block, now = block & 0xF3FF }
+						w16(addr, block & 0xF3FF)
+					end
+				end
+			end
+		end
+	end
+	-- Never elevation 0, which is compatible with every other (the probe's notes).
+	local want = ((r8(obj + 0x0B) & 0x0F) == 3) and 1 or 3
+	for s = 0, 15 do
+		local at = GOBJECTEVENTS + s * OBJ_SIZE
+		if s ~= me and (r8(at) & 1) == 1 then
+			local b = r8(at + 0x0B)
+			if (b & 0x0F) ~= want then
+				if NOCLIP.elevations[s] == nil then NOCLIP.elevations[s] = b & 0x0F end
+				w8(at + 0x0B, (b & 0xF0) | want)
+			end
+		end
+	end
+end
+
+-- The cheats still in effect, for the driver's hello and every cheat's answer.
+function game.persisting()
+	return NOCLIP.on and { "noclip" } or {}
+end
+
+function game.cheats.noclip(args)
+	if not isVanilla then return nil, "noclip is measured on the vanilla ROM only" end
+	local on = args.on ~= false
+	local tilesBack, charactersBack
+	if on then
+		if not inOverworld() then return nil, "noclip refused: not in vanilla's overworld callback" end
+		NOCLIP.on = true
+	else
+		NOCLIP.on = false
+		tilesBack, charactersBack = NOCLIP.putBack()
+	end
+	return {
+		limit = 1,
+		untilFn = function() return true end,
+		report = function()
+			if not on then return { on = false, tiles_put_back = tilesBack, characters_put_back = charactersBack } end
+			local tiles, characters = 0, 0
+			for _ in pairs(NOCLIP.tiles) do tiles = tiles + 1 end
+			for _ in pairs(NOCLIP.elevations) do characters = characters + 1 end
+			return { on = true, tiles_cleared = tiles, characters_moved = characters }
+		end,
+	}
+end
+
+-- Unloading puts everything back; a restored snapshot has replaced what noclip changed.
+do
+	local stop, restored = game.stop, game.restored
+	function game.stop()
+		if NOCLIP.on then NOCLIP.putBack() end
+		NOCLIP.on = false
+		stop()
+	end
+	function game.restored()
+		NOCLIP.forget()
+		restored()
+	end
+end
+
 -- The menu alone, for a program that looks every frame (select).
 function game.menu()
 	if isVanilla and inBattle() then return battleMenu() end
@@ -1523,16 +1644,18 @@ end
 -- A held step refused, and held input doing nothing yet, from step_probe.lua (2026-09-16; `walk`, below): a bump
 -- leaves the coordinates, the previous coordinate already equal to them, the avatar's +2 reading 2 and the object's
 -- byte 0 top bit clear; +2 reads 0 while nothing is under way (1 turning, or a door opening).
-local function stepRefused()
+-- One table, since this module's main chunk is at Lua's 200-local ceiling.
+local STEP = {}
+function STEP.refused()
 	local b = memory.read_bytes_as_array(playerObject(), 0x18, BUS)
 	local caughtUp = b[17] == b[21] and b[18] == b[22] and b[19] == b[23] and b[20] == b[24]
 	return r8(GPLAYERAVATAR + 2) == 2 and caughtUp and (b[1] & 0x80) == 0
 end
-local function stepIdle() return r8(GPLAYERAVATAR + 2) == 0 end
+function STEP.idle() return r8(GPLAYERAVATAR + 2) == 0 end
 
 -- On the Mach Bike, whether to let go now with `tiles` left: the step just begun carries on for +0x0B more tiles once
 -- released, and holding one more raises it from 0 to 1, or from 1 to 3 (bike_probe.lua, 2026-09-16; `walk`, below).
-local function machCoasts(tiles)
+function STEP.machCoasts(tiles)
 	local speed = r8(GPLAYERAVATAR + 0x0B)
 	local nextSpeed = speed == 0 and 1 or 3
 	return speed >= tiles or nextSpeed + 1 > tiles
@@ -1696,18 +1819,18 @@ function game.programs.walk(p)
 				phase = "arriving"
 				return nil, false
 			end
-			if mach and machCoasts(tiles - moved) then
+			if mach and STEP.machCoasts(tiles - moved) then
 				phase = "coasting"
 				return nil, false
 			end
 			towardWarp = warpAhead(x, y)
 			return hold, false
 		end
-		if stepRefused() then
+		if STEP.refused() then
 			phase, frames = "refused", 0
 			return nil, false
 		end
-		if stepIdle() then idle = idle + 1 end
+		if STEP.idle() then idle = idle + 1 end
 		if towardWarp then
 			if frames > DOOR_LIMIT then return finish("no_response") end
 		elseif idle > IDLE_LIMIT or frames > PRESS_LIMIT then
@@ -1727,7 +1850,7 @@ end
 --   * tall grass is behaviour 0x02: every wild encounter so far began on one (route 0.16 four times, route 0.17 once);
 --   * a tile an unbeaten trainer looks at is every way it turns, as far as it sees (TRAINERS, above), and a trainer not
 --     loaded yet closes its template's tile;
---   * on the Mach Bike the last leg lets go by `walk`'s coast rule (machCoasts), and a last leg of 3 tiles or fewer is
+--   * on the Mach Bike the last leg lets go by `walk`'s coast rule (STEP.machCoasts), and a last leg of 3 tiles or fewer is
 --     reached by stopping at its corner first, since after a turn at speed the first tile reads 3 and coasts three.
 -- The direction a warp you stand on is entered by (ENTERING A WARP, below).
 local WARP_PRESS = { [0x62] = "right", [0x65] = "down" }
@@ -1801,13 +1924,13 @@ local routeHooks = {
 		end
 	end,
 	atRest = atRest,
-	refused = stepRefused,
-	idle = stepIdle,
+	refused = STEP.refused,
+	idle = STEP.idle,
 	ride = function(run)
 		local flags = r8(GPLAYERAVATAR)
 		local mach, onFoot = (flags & MACH_BIKE_FLAG) ~= 0, (flags & ON_FOOT_FLAG) ~= 0
 		-- B only on foot: on the Acro Bike it is the wheelie button.
-		return { buttons = { B = (run and onFoot) or nil }, coast = mach and machCoasts or nil, shortLeg = mach and 3 or nil }
+		return { buttons = { B = (run and onFoot) or nil }, coast = mach and STEP.machCoasts or nil, shortLeg = mach and 3 or nil }
 	end,
 	routeGrid = routeGrid,
 	warps = readWarps,
