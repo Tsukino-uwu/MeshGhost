@@ -892,6 +892,19 @@ local POCKETS = {
 	[0x02] = { name = "key_items", addr = flat(0xD8BC), slots = 25, cur = 2, ptr = 0xD8BC, size = 1 },
 	[0x03] = { name = "balls", addr = flat(0xD8D7), slots = 12, cur = 1, ptr = 0xD8D7, size = 2 },
 }
+-- THE TM/HM POCKET (MEASURED.md, "The TM/HM pocket"): 57 ids file under 04 (TM01 at 191 to HM07 at 249, two placeholder ids
+-- between them filed elsewhere), and wTMsHMs (D859) is 57 bytes in our build's .sym: one count per TM or HM, the Kth of those
+-- ids in id order at D859 + K.
+local TM_POCKET = { name = "tms_hms", addr = flat(0xD859), slots = 57, cur = 3 }
+local tmIds
+local function tmIdList()
+	if tmIds then return tmIds end
+	tmIds = {}
+	for id = 1, 255 do
+		if memory.read_u8(ITEM_ATTRIBUTES + (id - 1) * 7 + 5, "ROM") == 0x04 then tmIds[#tmIds + 1] = id end
+	end
+	return tmIds
+end
 -- THE PACK'S ITEM LIST (autoplay_bag_probe.lua and autoplay_text_probe.lua, 2026-09-17, the item pocket holding 9 entries,
 -- Down pressed 9 times from the top): the scrolling menu's header copy read height 5 at CF92, 02 at CF94 and the pocket's
 -- address D892 at CF96-CF97 (D8D7 on the ball pocket, D8BC and 01 on the key pocket); the screen showed 5 entries then
@@ -938,17 +951,49 @@ end
 
 -- After a Down the list's rows were redrawn over 3 frames and the ▶ reached its new row 5 frames after the press, with
 -- wMenuCursorY already moved (autoplay_text_probe.lua, 2026-09-17): no menu reads on screen for those frames. The list
--- read whole within REDRAW_GRACE frames before still counts while the header points at it.
-local REDRAW_GRACE, listSeenAt = 10, -1000
+-- read whole within REDRAW_GRACE frames before still counts while the header points at it. In the TM/HM pocket a press
+-- that scrolled the list left no ▶ for 11 frames: `select`s that scrolled up from CANCEL failed "the menu closed or
+-- changed" 2 times in 13, and a temporary log line on every frame the reader gave up read no menu one frame past the 10
+-- each time the list moved, then the list whole again (2026-09-17). With 20, 64 of 64 (two batches after a reload).
+local REDRAW_GRACE, listSeenAt = 20, -1000
+-- THE TM/HM POCKET'S LIST (autoplay_bag_probe.lua and autoplay_text_probe.lua, 2026-09-17, nine TMs and HM07 given, Down
+-- pressed through them; MEASURED.md, "The TM/HM pocket"): the rows drew each one's move -- "01 DYNAMICPUNCH ×1", "05 ROAR
+-- ×1", "H7 WATERFALL" -- which the table at 04:567A (TMHMMoves in our build's .sym) names by the TM/HM's place among the
+-- 57 (its entries 1-8 and 57 spelled the nine drawn), and CANCEL after the last. wTMHMPocketCursor (D0DC) counted 0-4 down
+-- the rows shown and wTMHMPocketScrollPosition (D0E2) 1-5 as the list moved, so the entry under the ▶ is D0E2 + D0DC.
+local W_TMHM_CURSOR, W_TMHM_SCROLL, TMHM_MOVES_BANK, TMHM_MOVES_PTR = flat(0xD0DC), flat(0xD0E2), 0x04, 0x567A
+local function tmListFromMemory()
+	if u8(W_CUR_POCKET) ~= TM_POCKET.cur then return nil end
+	local names, items, moves, quantities = itemNames(), {}, {}, {}
+	for k, id in ipairs(tmIdList()) do
+		local n = u8(TM_POCKET.addr + k - 1)
+		if n > 0 then
+			items[#items + 1], quantities[#quantities + 1] = names[id], n
+			moves[#moves + 1] = moveName(rom8(TMHM_MOVES_BANK, TMHM_MOVES_PTR + k - 1))
+		end
+	end
+	local rows = {}
+	for i, move in ipairs(moves) do rows[i] = move end
+	items[#items + 1], rows[#rows + 1] = "CANCEL", "CANCEL"
+	local cursor, scroll = u8(W_TMHM_CURSOR), u8(W_TMHM_SCROLL)
+	if cursor > 4 or scroll + cursor >= #items then return nil end
+	return { items = items, cursor = scroll + cursor, list = true, pocket = TM_POCKET.name, moves = moves, quantities = quantities },
+		rows, scroll
+end
+
 itemPocketMenu = function(m)
-	local whole = itemListFromMemory()
-	if not whole then return nil end
+	local whole, rows, scroll = itemListFromMemory()
+	if whole then
+		rows, scroll = whole.items, u8(W_MENU_SCROLL)
+	else
+		whole, rows, scroll = tmListFromMemory()
+	end
 	local f = emu.framecount()
+	if not whole then return nil end
 	if m then
 		-- The rows on screen must be the entries from the scroll position down (a long name is cut at the list's edge).
-		local scroll = u8(W_MENU_SCROLL)
 		for i, shown in ipairs(m.items) do
-			local want = whole.items[scroll + i]
+			local want = rows[scroll + i]
 			if not want or shown == "" or want:sub(1, #shown) ~= shown then return nil end
 		end
 		listSeenAt = f
@@ -973,6 +1018,15 @@ readBag = function()
 			bag = bag or {}
 			bag[pocket.name] = list
 		end
+	end
+	local tms = {}
+	for k, id in ipairs(tmIdList()) do
+		local n = u8(TM_POCKET.addr + k - 1)
+		if n > 0 then tms[#tms + 1] = { item = names[id] or string.format("{%02X}", id), id = id, quantity = n } end
+	end
+	if #tms > 0 then
+		bag = bag or {}
+		bag[TM_POCKET.name] = tms
 	end
 	return bag
 end
@@ -1100,9 +1154,25 @@ function game.cheats.give_item(args)
 	local quantity = args.quantity == nil and 1 or math.tointeger(args.quantity)
 	if not id or id < 1 or id > #names then return nil, "give_item needs item: a name as the PACK draws it, or an id" end
 	if not quantity or quantity < 1 or quantity > 99 then return nil, "give_item needs quantity 1-99" end
+	-- A TM or HM is a count at its place in the TM/HM pocket.
+	if itemPocketOf(id) == 0x04 then
+		local at
+		for k, tm in ipairs(tmIdList()) do
+			if tm == id then at = TM_POCKET.addr + k - 1 end
+		end
+		if not at then return nil, string.format("give_item: %s is not in the TM/HM pocket's list", names[id]) end
+		local had = u8(at)
+		if had + quantity > 99 then return nil, string.format("give_item refused: %s has %d, and 99 is the most measured", names[id], had) end
+		memory.write_u8(at, had + quantity, "WRAM")
+		return {
+			limit = 1,
+			untilFn = function() return true end,
+			report = function() return { item = names[id], id = id, pocket = TM_POCKET.name, had = had, now = u8(at) } end,
+		}
+	end
 	local pocket = POCKETS[itemPocketOf(id)]
 	if not pocket then
-		return nil, string.format("give_item: %s files under pocket byte %d; only the item (01), key item (02) and ball (03) pockets are measured",
+		return nil, string.format("give_item: %s files under pocket byte %d; only the item (01), key item (02), ball (03) and TM/HM (04) pockets are measured",
 			names[id], itemPocketOf(id))
 	end
 	local at, count = pocket.addr, u8(pocket.addr)
@@ -1340,6 +1410,8 @@ end
 -- four doors 0x71): a walk right from one mat to the other and a walk down onto a mat from the room each answered `done` on
 -- the mat; a walk down from rest on it answered `map_changed` with no step (63 frames), and a held walk down 2 from the room
 -- stepped onto the mat and on into the town (88 frames). So a mat is gone to, then down is held.
+-- Scoped in a block: its locals are the goto program's alone (a chunk holds at most 200).
+do
 local WALK_ONTO = { [0x00] = "open", [0x18] = "grass" }
 local CLOSED_MEASURED = { [0x07] = true, [0x15] = true, [0x29] = true, [0xA0] = true, [0xA1] = true, [0xA3] = true }
 local WARP_ENTRY = { [0x71] = false, [0x70] = { press = "down" } }
@@ -1496,6 +1568,7 @@ game.programs["goto"] = function(p)
 		return nil, string.format("goto is measured on foot and on the BICYCLE only; wPlayerState reads %d", u8(W_PLAYERSTATE))
 	end
 	return lib.route.go(routeHooks, p)
+end
 end
 
 -- Whether the game has seen every button released: hJoyDown is the game's own copy of the buttons, updated

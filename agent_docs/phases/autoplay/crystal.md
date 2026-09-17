@@ -74,3 +74,25 @@ every menu closed, the driver alone on its target.
 
 **Next for Crystal:** the TM/HM pocket, surfing (an HM, a badge and a party move, all made with cheats), then a `battle`
 policy that weighs type matchups.
+
+## 2026-09-17 (the Crystal chat, same session) — the TM/HM pocket, read whole; a redraw grace too short for it
+
+**Built** (`crystal.lua` only). The TM/HM pocket in `observe`'s bag (`tms_hms`) and read whole as a PACK list (items TM01 /
+HM07, each one's move in `moves`), and `give_item` takes TMs and HMs. Measurements: `crystal/MEASURED.md`, "The TM/HM pocket,
+and a list that redraws for 11 frames".
+
+**How it was measured.** The attribute table named the 57 TM/HM ids; counts written at three places among them drew exactly
+those TMs and the HM in the PACK, and nine drew in order with the moves `TMHMMoves` names. Down through the list with the bag
+probe gave the cursor and scroll bytes.
+
+**What went wrong on the way:** `select` up the list from CANCEL failed "the menu closed or changed" 2 times in 13 --
+intermittently, and not when the text probe was loaded for the first retries. A temporary log line in the list reader, on the
+frames it gave up, showed no ▶ for 11 frames each time the list scrolled, one past the grace the item pocket's 5-frame redraw
+had set. The grace is 20 now: 64 of 64 in four batches, two straight after a reload. One batch before those counted 15 of 16
+in output not kept; that call is not known. The log line was removed.
+
+**Left as it is:** the save holds TM01-TM08 and HM07 besides the BICYCLE and OLD ROD (memory only), the player on foot at New
+Bark (11,14), every menu closed, the driver alone on its target.
+
+**Next for Crystal:** surfing (HM03, the badge that allows it outside a battle, and a Pokémon that knows SURF, made with
+cheats, then the game's own SURF from the party menu), then a `battle` policy that weighs type matchups.

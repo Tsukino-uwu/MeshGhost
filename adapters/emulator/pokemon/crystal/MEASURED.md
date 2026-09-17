@@ -66,6 +66,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - The party's moves, PP, item and status, the POKéMON menu, a heal, and a defeat flag cleared in a trainer's line (2026-09-17)
 - Badges on the trainer card (2026-09-17)
 - The key item pocket, and riding the BICYCLE (2026-09-17)
+- The TM/HM pocket, and a list that redraws for 11 frames (2026-09-17)
 - Not measured yet: The rest of autoplay's Crystal reading (from 2026-09-17)
 
 ## Measured
@@ -653,6 +654,32 @@ compared to the no-badge one pixel by pixel.
   `map_changed` into 24.9.
 - **Not seen:** SEL (registering the bike to SELECT); riding over a ledge or into tall grass; a building the game refuses a
   bike in; the key items' other entries' effects.
+
+### The TM/HM pocket, and a list that redraws for 11 frames (2026-09-17)
+
+**Vanilla V1.0, New Bark Town.** `probes/autoplay_bag_probe.lua` and `probes/autoplay_text_probe.lua`
+(`logs/autoplay_bag_7871_20260917_035825.log`, `logs/autoplay_text_7871_20260917_035825.log`, and
+`logs/autoplay_text_7871_20260917_040112.log` for the scroll-up selects); captures `autoplay_pack_tms`, `autoplay_pack_tms_scrolled`,
+`autoplay_pack_tms_hm07` (gitignored).
+
+- **Which items.** The attribute table files 57 ids under 04, in id order TM01 (191) to TM50 (242) and HM01 (243) to HM07
+  (249); two ids between them (195, 220) file elsewhere. wTMsHMs (01:D859) is 57 bytes in our build's `.sym`.
+- **The layout, by what the PACK drew.** 1 written at D859 + 0, + 4 and + 56 (`give_item` TM01, TM05, HM07): the fourth
+  pocket (wCurPocket 3) drew "01 DYNAMICPUNCH ×1", "05 ROAR ×1", "H7 WATERFALL" with no count, and CANCEL, and under the first
+  "An attack that / always confuses.". With TM02-TM04 and TM06-TM08 added, the rows in order drew DYNAMICPUNCH, HEADBUTT,
+  CURSE, ROLLOUT, ROAR, TOXIC, ZAP CANNON, ROCK SMASH, WATERFALL: a count per TM or HM at its place among the 57.
+- **The move names.** TMHMMoves (04:567A in our `.sym`) read one move id an entry; entries 1-8 and 57 spelled the nine drawn
+  (223 DYNAMICPUNCH, 29 HEADBUTT, 174 CURSE, 205 ROLLOUT, 46 ROAR, 92 TOXIC, 192 ZAP CANNON, 249 ROCK SMASH, 127 WATERFALL).
+- **The list that scrolls.** Down pressed 11 times from the top with nine held: wTMHMPocketCursor (01:D0DC) read 0-4 down the
+  five rows shown and stayed 4 while wTMHMPocketScrollPosition (01:D0E2) read 1-5 as the list moved, CANCEL on the last row
+  at 5 + 4; wMenuCursorY followed D0DC + 1. So the entry under the ▶ is D0E2 + D0DC.
+- **A redraw with no ▶ for 11 frames.** `select` that scrolled up from CANCEL failed "the menu closed or changed while the
+  cursor was moving" 2 times in 13. A temporary log line in the list reader, written on each frame within 30 of a verified
+  read where it gave up, showed no menu one frame past its 10-frame grace each time the list moved (seen at f227503, given up
+  at f227514), and the list whole again after. With the grace at 20: 64 selects of 64 in four batches, two right after a
+  driver reload. One earlier batch counted 15 successes of 16 in output that was not kept; which call, if any, failed is
+  not known.
+- **Not seen:** a TM taught (USE on a Pokémon), a TM's count past 1, HM01-HM06 drawn, the pocket in a battle.
 
 ## Not measured yet
 
