@@ -173,3 +173,31 @@ end.
 stats. Once that is committed, Crystal's scoring moves behind `effectiveMove` and `strongest` goes back to its shared meaning.
 
 **Left as it is:** Route 31 after that battle (memory only), BELLSPROUT out front of a fainted CYNDAQUIL until healed.
+
+## 2026-09-17 (the Crystal chat, end of the session) — where Crystal's autoplay stands, for the next chat
+
+**The user:** *"fine to stop here for now ? and il continue in another chat/tomorrow"*.
+
+**Crystal now has** (vanilla V1.0; `crystal/MEASURED.md` for every reading): everything the last session's end listed, plus
+`goto` (doors, mats, trainers read before they load, on foot, on the BICYCLE and surfing), the first scenario
+(`autoplay/games/crystal/scenarios/trainer_sight_range.json`, 3 of 3), the key item and TM/HM pockets read whole, the POKéMON
+menu as a list, the party's moves, PP, item, status and stats, badges, `movement`, battle questions named (`switch` answered
+NO; `nickname`, `next_pokemon` and `party` stop `needs_choice`), `strongest` weighing the type table, the same-type bonus and
+attack against defense, and the cheats `set_flag`, `heal`, `set_badge`, `set_move` and `set_status`.
+
+**Open, in order:**
+- **Align the policies.** The Emerald chat's uncommitted `text.lua` adds `effective` (hook `effectiveMove`) and keeps `strongest`
+  as power times accuracy. Once it is committed, move Crystal's scoring (`strongestMoveSlot` in `crystal.lua`) behind
+  `effectiveMove`, put `strongest` back to power times the accuracy byte, and say so in the README and here.
+- Which answer `battle` gives "Use next POKéMON?" and the party list itself (`text.lua`'s `answer`, once the file is free).
+- The whiteout; the switch question with OPTION's battle style set the other way; a replan after a bump in `goto`; stat
+  stages; `advance_text` logging the PACK's description box once as it closes.
+
+**Left as it is:** EmuHawk on vanilla Crystal V1.0 (port 7871) still running, its loader target
+`dev-scripts/bizhawk-dev-loader-autoplay-crystal.target` at `none`; the Emerald chat's emulator also running. Snapshot
+`session_end2_route31` (Route 31 at (14,14), on foot, CYNDAQUIL 19/19 and BELLSPROUT 20/20, both OK, no badges, the item and
+ball pockets as before) beside this session's others in the gitignored `autoplay/states/crystal/`: `route30_don_battle_start_2party`,
+`battle_don_party_menu_after_yes`, `battle_don_switch_question`, `battle_nickname_question`, `route31_cyndaquil_hp3`,
+`battle_use_next_question`. Nothing is pushed. This chat's core, `mcpcall` and `scenario` were built from HEAD into its own
+scratch folder; a new chat builds its own. To attach: put `autoplay/drivers/bizhawk/driver.lua` in that target, `restore`
+`session_end2_route31`, and pass `-listen 127.0.0.1:7871` with its own `-log`.
