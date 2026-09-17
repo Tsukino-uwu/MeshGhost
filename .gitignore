@@ -253,7 +253,14 @@ dev-scripts/bizhawk-dev-loader*.target
 # Every capture, from any host, goes to /dev-scripts/shots/ above.
 /autoplay/runs/
 /autoplay/states/
-/autoplay/*.log
+# Widened from /autoplay/*.log on 2026-09-18: that pattern was root-only, and /adapters/**/*.log does
+# not reach here, so a log, control file or capture written BESIDE a driver was untracked-but-not-ignored
+# -- the exact shape that swept ap_try.flag in on 2026-08-18 via one `git add -A`. Same three patterns
+# the adapters block carries, and for the same reasons, including its assets/ exception.
+/autoplay/**/*.log
+/autoplay/**/*.cmd
+/autoplay/**/*.png
+!/autoplay/**/assets/*.png
 
 # A core config dropped next to an adapter is a DEV artifact: the adapter-spawned core reads
 # its working directory, so this is how you change -interp on a running session without
