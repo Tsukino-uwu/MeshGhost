@@ -5,7 +5,10 @@
 -- autoplay_battle_probe.lua; arm it with a line in autoplay_move_write.cmd beside this file (read every 15 frames):
 --   write <offset> <value> <move id>   while a battle runs and the struct's first byte reads <move id>, keep byte
 --                                      <offset> (0-6) of wPlayerMoveStruct (C60F) at <value>, every frame
+--   hold <address> <value>             while a battle runs, keep the WRAM byte at CPU address <address> (hex, C000-DFFF)
+--                                      at <value>, every frame (added 2026-09-17 for which stat a type's damage uses)
 --   off                                write nothing (also the state with no file)
+-- A file may hold several lines, one command each.
 -- Then restore a snapshot on the move menu, choose that move, and read what the turn did (damage, HP, a miss message)
 -- against the same snapshot's turn with the probe off. Take it off the loader's target when done.
 --
@@ -38,7 +41,7 @@ end
 local function flat(cpu) return cpu < 0xD000 and cpu - 0xC000 or 0x1000 + (cpu - 0xD000) end
 local STRUCT, BATTLE_MODE, DAMAGE, MISSED, ENEMY_HP = flat(0xC60F), flat(0xD22D), flat(0xD256), flat(0xC667), flat(0xD216)
 
-local armed, cmdText, frames, pendingCheck, last = nil, nil, 0, nil, nil
+local armed, holds, cmdText, frames, pendingCheck, last = nil, {}, nil, 0, nil, nil
 
 local function readCmd()
 	local f = io.open(cmdPath, "r")
@@ -47,15 +50,24 @@ local function readCmd()
 	text = text:gsub("%s+$", "")
 	if text == cmdText then return end
 	cmdText = text
-	local off, val, move = text:match("^write%s+(%d+)%s+(%d+)%s+(%d+)$")
-	off, val, move = tonumber(off), tonumber(val), tonumber(move)
-	if off and val and move and off <= 6 and val <= 255 and move >= 1 and move <= 255 then
-		armed = { off = off, val = val, move = move }
-		log(string.format("armed: offset %d value %d move %d", off, val, move))
-	else
-		armed = nil
-		log("off (command: " .. (text == "" and "none" or text) .. ")")
+	armed, holds = nil, {}
+	for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+		line = line:gsub("%s+$", "")
+		local off, val, move = line:match("^write%s+(%d+)%s+(%d+)%s+(%d+)$")
+		off, val, move = tonumber(off), tonumber(val), tonumber(move)
+		local addr, hval = line:match("^hold%s+(%x+)%s+(%d+)$")
+		addr, hval = tonumber(addr or "", 16), tonumber(hval)
+		if off and val and move and off <= 6 and val <= 255 and move >= 1 and move <= 255 then
+			armed = { off = off, val = val, move = move }
+			log(string.format("armed: offset %d value %d move %d", off, val, move))
+		elseif addr and hval and addr >= 0xC000 and addr <= 0xDFFF and hval <= 255 then
+			holds[#holds + 1] = { at = flat(addr), addr = addr, val = hval }
+			log(string.format("armed: hold %04X at %d", addr, hval))
+		elseif line ~= "" then
+			log("ignored line: " .. line)
+		end
 	end
+	if not armed and #holds == 0 then log("off (command: " .. (text == "" and "none" or text) .. ")") end
 end
 
 log("loaded")
@@ -82,6 +94,15 @@ MESHGHOST_DEV_TICK = function()
 		log(string.format("write offset %d: was %d, writing %d", armed.off, s[armed.off + 1], armed.val))
 		memory.write_u8(STRUCT + armed.off, armed.val, "WRAM")
 		pendingCheck = { off = armed.off, val = armed.val }
+	end
+	if memory.read_u8(BATTLE_MODE, "WRAM") ~= 0 then
+		for _, h in ipairs(holds) do
+			local now = memory.read_u8(h.at, "WRAM")
+			if now ~= h.val then
+				log(string.format("hold %04X: was %d, writing %d", h.addr, now, h.val))
+				memory.write_u8(h.at, h.val, "WRAM")
+			end
+		end
 	end
 	if logf and frames % 120 == 0 then logf:flush() end
 end

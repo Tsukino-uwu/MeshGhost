@@ -69,6 +69,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - The TM/HM pocket, and a list that redraws for 11 frames (2026-09-17)
 - Surfing, and a poisoned party on foot (2026-09-17)
 - Type matchups and the same-type bonus (2026-09-17)
+- Which stats a move's damage uses, and where the stats are (2026-09-17)
 - Not measured yet: The rest of autoplay's Crystal reading (from 2026-09-17)
 
 ## Measured
@@ -747,6 +748,31 @@ no-effect replay, single presses; capture `autoplay_type_ground_vs_pidgey` (giti
   one turn.
 - **Not seen:** whether the entries after the FE ever apply differently from those before it; the attacking and defending stats'
   part in the damage (base damage read 6 for NORMAL, ELECTRIC, GRASS and FIRE alike against this PIDGEY); a critical hit's factor.
+
+### Which stats a move's damage uses, and where the stats are (2026-09-17)
+
+**Vanilla V1.0.** The summary's stats page against `probes/autoplay_battle_probe.lua`'s party lines, then replays from
+`battle_menu` (CYNDAQUIL L5 against a wild PIDGEY L3) with `probes/autoplay_move_write_probe.lua` holding bytes
+(`logs/autoplay_move_write_7871_20260917_*.log` from 04:31 on); captures `autoplay_summary_page3`, `autoplay_summary_stats_bellsprout`
+(gitignored).
+
+- **The stats' order.** The summary's third page drew CYNDAQUIL ATTACK 11, DEFENSE 10, SPCL.ATK 12, SPCL.DEF 11, SPEED 12 and
+  BELLSPROUT ATTACK 13, DEFENSE 9, SPCL.ATK 12, SPCL.DEF 8, SPEED 9. Their party slots from +0x26, two bytes each, read 11, 10,
+  12, 12, 11 and 13, 9, 9, 12, 8: attack, defense, speed, special attack, special defense. CYNDAQUIL's battler block read the
+  same five from +0x14 (`00 0B 00 0A 00 0C 00 0C 00 0B`), PIDGEY's 8, 7, 8, 7, 7.
+- **Which copy the damage reads.** Holding PIDGEY's defense or special defense at 70 in the stats at C6C3 and C6C9 changed no
+  turn's damage, and the probe had to write them again within the replay: the game puts them back. Holding them in PIDGEY's
+  battler block (D21C/D21D, D222/D223) did.
+- **Defense, by type.** PIDGEY's block defense held at 70 and TACKLE's type byte at each type id the table uses, one turn each:
+  the base damage (the first value wCurDamage read, before the type step) fell from 6 to 2 for NORMAL, FIGHTING, FLYING, POISON,
+  GROUND, ROCK, BUG, GHOST and STEEL (ids 0-9) and stayed 6 for FIRE, WATER, GRASS, ELECTRIC, PSYCHIC, ICE, DRAGON and DARK
+  (ids 20-27). Its special defense held instead: ELECTRIC's fell to 2 (then 4 against FLYING), NORMAL's stayed 6.
+- **Attack, by type.** CYNDAQUIL's block attack (C640/C641) held at 70: NORMAL's base damage 30, ELECTRIC's 6; its special
+  attack (C646/C647) held: ELECTRIC's 30, NORMAL's 6.
+- So a move of a type id below 20 uses attack against defense, and one from 20 special attack against special defense.
+  `battle strongest` multiplies its score by that ratio; against two wild PIDGEYs afterwards it chose THUNDERSHOCK every turn.
+- **Not seen:** the attacker's side for any type but NORMAL and ELECTRIC; stat stages (LEER, STRING SHOT) and where a battle
+  keeps them; a critical hit's effect on which stats count; a level other than 5 in the damage.
 
 ## Not measured yet
 

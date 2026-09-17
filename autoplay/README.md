@@ -143,13 +143,13 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
   wild encounter, or a picture waiting for a button with no box on screen; 1 from the step into a trainer's sight
   until the map reloads after its battle, 2 from A on a trainer; 0 walking (9 a turn, 5 a door).
 - **`battle`** — while `mode` is `battle`: `asking` (`action`, `move`, or absent) and `battlers`, each with `side`
-  (`player`, `opponent`), `species` (and `species_id`), `nickname`, `level`, `hp`, `max_hp`, `types` and `moves` (`name`, `id`,
+  (`player`, `opponent`), `species` (and `species_id`), `nickname`, `level`, `hp`, `max_hp`, `types`, `stats` and `moves` (`name`, `id`,
   `pp`, `base_pp` -- the maximum drawn --, `type`, `power`, and `accuracy_raw`, a byte whose scale is not measured:
   held at 0 the move missed, and the table's 242 both hit and missed). `kind` (`wild`, `trainer`); in a trainer's
   battle `opponent_party_count` and `opponent_party_index`. A battler is absent until its Pokémon is sent out. One wild
   battle and one trainer's measured.
 - **What the save has**, in an `observe` you call only: **`party`** (per Pokémon `slot`, `species` and `species_id`,
-  `nickname`, `level`, `hp`, `max_hp`, `exp`, `held_item`, `status_raw` and `status` (`OK` for 0, `PSN` for 8; others raw) and
+  `nickname`, `level`, `hp`, `max_hp`, `exp`, `held_item`, `status_raw` and `status` (`OK` for 0, `PSN` for 8; others raw), `stats` (`attack`, `defense`, `speed`, `sp_atk`, `sp_def`) and
   `moves` with `name`, `id`, `pp`, `base_pp`, `type`, `power` and `accuracy_raw`; two slots measured), **`money`**, and
   **`bag`** with the item, key item and ball pockets that hold anything (`item`, `id`, and `quantity` but for key items),
   and **`tms_hms`** (each TM or HM held, with its count), **`badge_count`** and **`badges`** (Johto's, numbered 1-8 as
@@ -161,8 +161,9 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
   shoes; a door or a map edge answers once the player stands on the new map; `blocked` names a
   character in the way; `script_started` when a step starts a scene or an encounter; `spotted` with the
   trainer's `map_object` and `tiles_away` on the frame one sees the player), `select`, `advance_text`, `battle`
-  (`strongest` scores power times the accuracy byte times the game's type table against the opponent's types, and half
-  again for a move of the user's own type; called after `spotted` it waits while the trainer walks over; it
+  (`strongest` scores power times the accuracy byte times the game's type table against the opponent's types, half again
+  for a move of the user's own type, and the user's attack over the opponent's defense -- special attack over special
+  defense for FIRE, WATER, GRASS, ELECTRIC, PSYCHIC, ICE, DRAGON and DARK; called after `spotted` it waits while the trainer walks over; it
   presses A on the level-up stats box and on a battle's waits with no ▼; `ended` adds `outcome_raw`, 0 after a win and
   2 after running, `money`, `party_count` and a `party` entry per Pokémon; in a battle, the question "Will A change
   POKéMON?" is answered NO and the nickname after a catch stops `needs_choice`), `goto` (on foot; open tiles are the

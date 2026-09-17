@@ -141,3 +141,18 @@ four types against one PIDGEY, which does not settle it.
 
 **Left as it is:** CYNDAQUIL (memory only) knows TACKLE, THUNDERSHOCK and EMBER, on Route 29 after the PIDGEY battle, every menu
 closed, the driver alone on its target; the move-write probe's command file back to `off`.
+
+## 2026-09-17 (the Crystal chat, same session) — which stats a move's damage uses; `strongest` weighs them too
+
+**Built.** `strongest` also multiplies by the user's attack over the opponent's defense, or special attack over special
+defense, by the move's type; `observe`'s party and battlers carry `stats`. The move-write probe gained `hold <address>
+<value>` lines. Measurements: `crystal/MEASURED.md`, "Which stats a move's damage uses, and where the stats are".
+
+**How it was measured.** The summary's stats page against the party bytes (BELLSPROUT's told speed from special attack, which
+CYNDAQUIL's did not). Then one TACKLE replayed per case with an opponent's or the user's stat held at 70 and its type byte set:
+all seventeen type ids against a held defense, and both sides for NORMAL and ELECTRIC. **What went wrong on the way:** the
+first holds, on the stats at C6C1-C6CA, changed nothing -- the game put the old values back within the frame -- so the
+battler block's copies were held instead, which moved the damage.
+
+**Left as it is:** `route29_after_run`'s CYNDAQUIL (memory only) with THUNDERSHOCK and EMBER, after two PIDGEY battles, every
+menu closed, the driver alone on its target, the probe's command file at `off`.

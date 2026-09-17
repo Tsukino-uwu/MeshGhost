@@ -41,8 +41,8 @@ writes whatever its command file says -- map blocks into `wOverworldMapBlocks`, 
 (2026-09-16).
 **The screen's tile buffer only:** `autoplay_charset_probe.lua` writes bytes into the text rows of a
 message box that is already open, so the game draws them; closing the box puts the map back (2026-09-17).
-**One byte of a battle's move struct:** `autoplay_move_write_probe.lua`, only while armed by its command file and only
-while a battle runs with the chosen move in the struct; a restore puts it back (2026-09-17).
+**One byte of a battle's move struct, or held WRAM bytes:** `autoplay_move_write_probe.lua`, only while armed by its command
+file and only while a battle runs (the struct write with the chosen move in it); a restore puts it back (2026-09-17).
 **None writes the `.sav`** — but an in-game save afterwards makes their changes
 permanent, so savestate first and reload after. `noclip_off.lua` restores the collision pointer.
 
@@ -236,7 +236,7 @@ Loaded beside `autoplay/drivers/bizhawk/driver.lua` on an autoplay instance, and
 | `autoplay_battle_probe.lua` | Read-only. Each frame, on change: the battle's state bytes (mode, result, current moves, damage, turns, trainer class), both battlers' 0x20 bytes and nicknames, both move structs, the party's first slot, money and the opponent's party; once per id met, that move's table entry and name, that species' name and that type's name, raw and spelled. Settled the battlers, the move data, the result byte, money and the party slot against the battle screen, the POKéMON screen and the trainer card. |
 | `autoplay_trainer_probe.lua` | Read-only. Each frame, on change: wScriptRunning, wScriptMode, wScriptFlags, hLastTalked, wBattleMode and the trainer class and id bytes; the 17 bytes D03E-D04E; and every map-object record whose +0x08 low nibble reads 2, with the 12 bytes its script pointer names and the wEventFlags bit their first two name. Settled a trainer's sight (which map object, how far), its record's range and its defeat flag. |
 | `autoplay_bag_probe.lua` | Read-only. Each frame, on change: wCurPocket, the pockets' cursor and scroll bytes (D0D9-D0E4), wScrollingMenuListSize, wMenuCursorY/X, the scrolling menu's header copy (CF81-CFA0), the four pockets raw; once per item id met, its name and its 7-byte attribute entry. Settled the item pocket, which pocket a list shows, and the scrolling list's position. |
-| `autoplay_move_write_probe.lua` | **Writes one byte of `wPlayerMoveStruct`.** Armed by `autoplay_move_write.cmd` beside it (`write <offset> <value> <move id>`, or `off`), it keeps that byte at the value every frame while a battle runs with that move in the struct, and logs each write with a fresh read-back and the damage, miss flag and opponent's HP. Replay one turn from one snapshot per value: that is how power and accuracy were measured. Take it off the target and write `off` when done. |
+| `autoplay_move_write_probe.lua` | **Writes one byte of `wPlayerMoveStruct`.** Armed by `autoplay_move_write.cmd` beside it (`write <offset> <value> <move id>`, `hold <address> <value>` for any WRAM byte, several lines at once, or `off`), it keeps those bytes at their values every frame while a battle runs (the struct's while that move is in it), and logs each write with a fresh read-back and the damage, miss flag and opponent's HP. Replay one turn from one snapshot per value: that is how power, accuracy, the type table and which stats a type's damage uses were measured. A byte the game rewrites and uses within one frame cannot be held this way (the stats at C6C1-C6CA). Take it off the target and write `off` when done. |
 
 ## Not a probe
 

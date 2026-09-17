@@ -607,7 +607,9 @@ local function readBattler(base, nickAt, side)
 	local nick = memory.read_bytes_as_array(nickAt, NICK_LEN, "WRAM")
 	local out = { side = side, species = speciesName(b[1]), species_id = b[1], nickname = spell(nick, 1, #nick),
 		level = b[14], hp = (b[17] << 8) | b[18], max_hp = (b[19] << 8) | b[20], moves = {},
-		types = b[31] == b[32] and { typeName(b[31]) } or { typeName(b[31]), typeName(b[32]) } }
+		types = b[31] == b[32] and { typeName(b[31]) } or { typeName(b[31]), typeName(b[32]) },
+		stats = { attack = (b[21] << 8) | b[22], defense = (b[23] << 8) | b[24], speed = (b[25] << 8) | b[26],
+			sp_atk = (b[27] << 8) | b[28], sp_def = (b[29] << 8) | b[30] } }
 	for k = 0, 3 do
 		local id, pp = b[3 + k], b[9 + k]
 		if id ~= 0 then
@@ -631,7 +633,14 @@ end
 --     damage; FIGHTING (20 against NORMAL, 5 against FLYING) no message and 15 to 10, the two multiplied; FIRE, CYNDAQUIL's own
 --     type, no message and 15 to 7 -- half again. So a multiplier byte is tenths, each of the defender's types applies, and
 --     a move of the attacker's type does half again.
--- `strongest` scores a usable move (measured PP above 0) by power times the accuracy byte times those.
+--   * Which stats, by the same replays with one of the battler blocks' stat bytes held at 70 (+0x14 attack, +0x16 defense,
+--     +0x1A special attack, +0x1C special defense, as the summary's stats page drew them for the party): PIDGEY's defense held,
+--     the base damage the log read before the type step fell from 6 to 2 for every type id below 20 (NORMAL to STEEL) and
+--     stayed 6 for every id from 20 (FIRE to DARK); its special defense held, ELECTRIC's fell to 2 and NORMAL's stayed 6.
+--     CYNDAQUIL's attack held, NORMAL's rose to 30 and ELECTRIC's stayed 6; its special attack held, ELECTRIC's rose to 30.
+--     (A hold on the stats at C6C1-C6CA changed nothing: the game put the old value back within the frame.)
+-- `strongest` scores a usable move (measured PP above 0) by power times the accuracy byte times those, times the user's
+-- attack over the opponent's defense for a type below 20 and special attack over special defense from 20.
 local function strongestMoveSlot()
 	local b = memory.read_bytes_as_array(W_BATTLE_MON, BATTLER_SIZE, "WRAM")
 	local e = memory.read_bytes_as_array(W_ENEMY_MON, BATTLER_SIZE, "WRAM")
@@ -659,6 +668,10 @@ local function strongestMoveSlot()
 				if x then score = score * x / 10 end
 			end
 			if m.type_id == b[31] or m.type_id == b[32] then score = score * 3 / 2 end
+			local physical = m.type_id < 20
+			local attack = physical and ((b[21] << 8) | b[22]) or ((b[27] << 8) | b[28])
+			local defense = physical and ((e[23] << 8) | e[24]) or ((e[29] << 8) | e[30])
+			score = score * attack / math.max(defense, 1)
 			if best == nil or score > bestScore then best, bestScore = k, score end
 		end
 	end
@@ -1085,7 +1098,11 @@ readParty = function()
 			level = p[PARTY.level + 1], hp = (p[PARTY.hp + 1] << 8) | p[PARTY.hp + 2],
 			max_hp = (p[PARTY.max_hp + 1] << 8) | p[PARTY.max_hp + 2], status_raw = p[PARTY.status + 1],
 			status = STATUS_NAMES[p[PARTY.status + 1]],
-			exp = (p[PARTY.exp + 1] << 16) | (p[PARTY.exp + 2] << 8) | p[PARTY.exp + 3], moves = {} }
+			exp = (p[PARTY.exp + 1] << 16) | (p[PARTY.exp + 2] << 8) | p[PARTY.exp + 3], moves = {},
+			-- +0x26 on, two bytes each: ATTACK, DEFENSE, SPEED, SPCL.ATK, SPCL.DEF as the summary's stats page drew them (13, 9,
+			-- 9, 12, 8 read for BELLSPROUT's 13, 9, SPEED 9, SPCL.ATK 12, SPCL.DEF 8; MEASURED.md, "Which stats a move's damage uses").
+			stats = { attack = (p[0x27] << 8) | p[0x28], defense = (p[0x29] << 8) | p[0x2A], speed = (p[0x2B] << 8) | p[0x2C],
+				sp_atk = (p[0x2D] << 8) | p[0x2E], sp_def = (p[0x2F] << 8) | p[0x30] } }
 		local item = p[PARTY.item + 1]
 		if item ~= 0 then mon.held_item = names[item] or string.format("{%02X}", item) end
 		for m = 0, 3 do
