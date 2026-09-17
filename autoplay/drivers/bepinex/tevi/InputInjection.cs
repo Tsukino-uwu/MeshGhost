@@ -277,6 +277,34 @@ namespace MeshGhostAutoplay.Tevi
             return 0f;
         }
 
+        // How many frames after this one a hold of the action still runs (0 when none does).
+        public static int FramesLeft(string name)
+        {
+            if (!TryAction(name, out int id, out float _)) return 0;
+            int f = Time.frameCount, left = 0;
+            foreach (Hold h in Holds)
+            {
+                if (h.ActionId == id && h.Start <= f + 1) left = Math.Max(left, h.End - f - 1);
+            }
+            return left;
+        }
+
+        // The driver's holds on this frame by name, an axis with its sign ("XAxis+ Jump"); empty when none.
+        public static string HeldNow()
+        {
+            if (Holds.Count == 0 || !ReInput.isReady) return "";
+            int f = Time.frameCount;
+            var names = new List<string>();
+            foreach (Hold h in Holds)
+            {
+                if (f < h.Start || f >= h.End) continue;
+                InputAction a = ReInput.mapping.GetAction(h.ActionId);
+                string n = a == null ? h.ActionId.ToString() : a.type == InputActionType.Axis ? a.name + (h.Value < 0 ? "-" : "+") : a.name;
+                if (!names.Contains(n)) names.Add(n);
+            }
+            return string.Join(" ", names.ToArray());
+        }
+
         // Whether a hold of this action on this side (sign) begins, or is released, on this frame.
         private static bool Edge(int actionId, float sign, bool release)
         {

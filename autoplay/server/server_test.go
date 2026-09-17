@@ -301,6 +301,45 @@ func TestClockValidatesAndForwards(t *testing.T) {
 	}
 }
 
+func TestRecentValidatesAndForwards(t *testing.T) {
+	h := newHarness(t)
+	got := make(chan RecentIn, 4)
+	h.startDriver(t, []string{"recent"}, func(verb string, payload json.RawMessage) (string, any) {
+		var in RecentIn
+		json.Unmarshal(payload, &in)
+		got <- in
+		return "result", map[string]any{"verb": verb, "rows": []any{}}
+	})
+	for _, bad := range []map[string]any{
+		{"frames": -1},
+		{"frames": MaxRecentFrames + 1},
+		{"every": MaxRecentEvery + 1},
+		{"every": -2},
+		{"until_frame": -5},
+	} {
+		if text, isErr := h.call(t, "recent", bad); !isErr {
+			t.Errorf("recent %v = %s, want a refusal", bad, text)
+		}
+	}
+	text, isErr := h.call(t, "recent", map[string]any{})
+	if isErr || !strings.Contains(text, `"verb":"recent"`) {
+		t.Fatalf("recent = %s (error %v)", text, isErr)
+	}
+	if in := <-got; in.Frames != 120 || in.Every != 1 || in.UntilFrame != nil {
+		t.Fatalf("the defaults reached the driver as %+v", in)
+	}
+	text, isErr = h.call(t, "recent", map[string]any{"frames": 600, "every": 3, "until_frame": 0})
+	if isErr {
+		t.Fatalf("recent at the bounds = %s", text)
+	}
+	if in := <-got; in.Frames != 600 || in.Every != 3 || in.UntilFrame == nil || *in.UntilFrame != 0 {
+		t.Fatalf("the driver received %+v", in)
+	}
+	if len(got) != 0 {
+		t.Fatalf("a refused call reached the driver")
+	}
+}
+
 func TestReflexValidatesAndForwards(t *testing.T) {
 	h := newHarness(t)
 	got := make(chan ReflexIn, 1)
@@ -809,6 +848,53 @@ func TestScreenshotReturnsTheDriversPicture(t *testing.T) {
 	}
 	if string(got) != string(want) {
 		t.Fatalf("image bytes = %q, want the file's", got)
+	}
+}
+
+func TestScreenshotAnnotateNeedsItsCapability(t *testing.T) {
+	h := newHarness(t)
+	pic := filepath.Join(t.TempDir(), "shot.png")
+	if err := os.WriteFile(pic, []byte("png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	h.startDriver(t, []string{"screenshot"}, func(verb string, payload json.RawMessage) (string, any) {
+		_ = json.Unmarshal(payload, &got)
+		return "result", map[string]any{"path": pic}
+	})
+	res, err := h.session.CallTool(context.Background(), &mcp.CallToolParams{Name: "screenshot", Arguments: map[string]any{"name": "here", "annotate": true}})
+	if err != nil || !res.IsError {
+		t.Fatalf("annotate without screenshot:annotate was not refused: %v %+v", err, res)
+	}
+	if got != nil {
+		t.Fatalf("the refused call reached the driver: %v", got)
+	}
+	res, err = h.session.CallTool(context.Background(), &mcp.CallToolParams{Name: "screenshot", Arguments: map[string]any{"name": "here"}})
+	if err != nil || res.IsError {
+		t.Fatalf("plain screenshot: %v %+v", err, res)
+	}
+	if _, ok := got["annotate"]; ok {
+		t.Fatalf("a plain screenshot forwarded annotate: %v", got)
+	}
+}
+
+func TestScreenshotAnnotateForwards(t *testing.T) {
+	h := newHarness(t)
+	pic := filepath.Join(t.TempDir(), "shot.png")
+	if err := os.WriteFile(pic, []byte("png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	h.startDriver(t, []string{"screenshot", "screenshot:annotate"}, func(verb string, payload json.RawMessage) (string, any) {
+		_ = json.Unmarshal(payload, &got)
+		return "result", map[string]any{"path": pic}
+	})
+	res, err := h.session.CallTool(context.Background(), &mcp.CallToolParams{Name: "screenshot", Arguments: map[string]any{"name": "here", "annotate": true}})
+	if err != nil || res.IsError {
+		t.Fatalf("annotate: %v %+v", err, res)
+	}
+	if got["annotate"] != true || got["name"] != "here" {
+		t.Fatalf("forwarded %v", got)
 	}
 }
 

@@ -31,6 +31,10 @@ namespace MeshGhostAutoplay.Tevi
                 ["logic"] = p.logicStatus.ToString(),
                 ["at_wall_raw"] = p.atWall,
             };
+            if (Threats.PlayerHurtbox(p, out Rect hb))
+            {
+                o["hurtbox"] = new JObject { ["cx"] = Math.Round(hb.center.x, 1), ["cy"] = Math.Round(hb.center.y, 1), ["w"] = Math.Round(hb.width, 1), ["h"] = Math.Round(hb.height, 1), ["dy_from_position"] = Math.Round(hb.center.y - p.t.position.y, 1) };
+            }
             if (p.phy_perfer != null)
             {
                 Vector3 v = p.phy_perfer._velocity;
@@ -192,6 +196,9 @@ namespace MeshGhostAutoplay.Tevi
                 o["slot"] = i;
                 o["type"] = b.type.ToString();
                 o["owner"] = b.owner == null ? "none" : b.owner == player ? "player" : b.owner.type.ToString();
+                // The box as the game's hitbox drawing takes it: centre offset from the position, full width and height.
+                Vector3 off = b.GetHOffset();
+                o["box"] = new JObject { ["cx"] = Math.Round(b.t.position.x + off.x, 1), ["cy"] = Math.Round(b.t.position.y + off.y, 1), ["w"] = Math.Round(b.GetHSizeW(), 1), ["h"] = Math.Round(b.GetHSizeH(), 1) };
                 found.Add(new KeyValuePair<float, JObject>((b.t.position - from).sqrMagnitude, o));
             }
             found.Sort((a, c) => a.Key.CompareTo(c.Key));
@@ -235,10 +242,7 @@ namespace MeshGhostAutoplay.Tevi
             var drawn = new JArray();
             foreach (JObject e in elements)
             {
-                string t = (string)e["type"] ?? "";
-                bool marker = t.StartsWith("MAPOBJECT") || t.StartsWith("Fade") || t == "MapPoint"
-                    || (t.StartsWith("ID") && t.Length > 2 && char.IsDigit(t[2]));
-                if (!marker) drawn.Add(e);
+                if (!IsMarker((string)e["type"] ?? "")) drawn.Add(e);
             }
             Put(drawn, o => (string)o["type"]);
             Put(items, o => "item:" + (string)o["item"]);
@@ -272,6 +276,12 @@ namespace MeshGhostAutoplay.Tevi
                 ["player_tile"] = new JObject { ["x"] = px, ["y"] = py },
                 ["legend"] = legend,
             };
+        }
+
+        // Map decoration and markers, not things a player meets.
+        public static bool IsMarker(string t)
+        {
+            return t.StartsWith("MAPOBJECT") || t.StartsWith("Fade") || t == "MapPoint" || (t.StartsWith("ID") && t.Length > 2 && char.IsDigit(t[2]));
         }
 
         private static JToken SafeBool(Func<bool> f)

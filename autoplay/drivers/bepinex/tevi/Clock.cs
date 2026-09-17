@@ -11,14 +11,20 @@ namespace MeshGhostAutoplay.Tevi
     // frame. A postfix on that method sets 0 after the game has, while held; a step lets the game's own value stand for that many
     // of its calls, then holds again. What a timeScale of 0 does and does not freeze in TEVI is in adapters/tevi/MEASURED.md.
     //
-    // The hold goes with the plugin (removed in OnDestroy, so a hot reload releases it) and survives a core going away: mcpcall
-    // starts a core per call, and a hold that ended with each call would hold nothing.
+    // The hold survives a core going away (mcpcall starts a core per call, and a hold that ended with each call would hold nothing)
+    // and a hot reload: the patch goes with the plugin, but whether the clock is held is kept in the AppDomain's data, which the next
+    // copy reads as it installs (a reload that let go of the clock in the middle of a boss fight let the boss act, 2026-09-17).
     public static class Clock
     {
         public const string HarmonyId = "dev.meshghost.autoplay.clock";
 
         private static Harmony harmony;
-        public static bool Held { get; private set; }
+        private const string KeyHeld = "meshghost.autoplay.clock.held";
+        public static bool Held
+        {
+            get => AppDomain.CurrentDomain.GetData(KeyHeld) is bool b && b;
+            private set => AppDomain.CurrentDomain.SetData(KeyHeld, value);
+        }
         private static int stepLeft;
         private static int stepped; // game-time frames let pass by the last step
 
@@ -46,14 +52,14 @@ namespace MeshGhostAutoplay.Tevi
             if (harmony != null) return;
             harmony = new Harmony(HarmonyId);
             harmony.Patch(AccessTools.Method(typeof(GameSystem), "TimeScale"), postfix: new HarmonyMethod(typeof(Clock), nameof(TimeScalePostfix)));
+            if (Held) Time.timeScale = 0f; // held before the reload: still held
         }
 
         public static void Uninstall()
         {
             harmony?.UnpatchSelf();
             harmony = null;
-            Held = false;
-            stepLeft = 0;
+            stepLeft = 0; // Held stays as it is for the next copy
         }
 
         private static void TimeScalePostfix()

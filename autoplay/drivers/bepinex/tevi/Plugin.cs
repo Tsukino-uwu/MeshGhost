@@ -47,40 +47,6 @@ namespace MeshGhostAutoplay.Tevi
 
         private string lastMode, lastArea, lastRoom;
 
-        // The player's last TrailFrames frames (frame, x, y, on the ground, animation), recorded every frame whether or not a core
-        // is connected, so a jump that went wrong can be read afterwards (observe's trail; the plan's flight recorder, begun).
-        private const int TrailFrames = 180;
-        private readonly int[] trailFrame = new int[TrailFrames];
-        private readonly float[] trailX = new float[TrailFrames], trailY = new float[TrailFrames];
-        private readonly bool[] trailGround = new bool[TrailFrames];
-        private readonly string[] trailAnim = new string[TrailFrames];
-        private int trailNext, trailCount;
-
-        private void RecordTrail()
-        {
-            CharacterBase p = Player();
-            if (p == null || p.t == null) return;
-            trailFrame[trailNext] = Time.frameCount;
-            trailX[trailNext] = p.t.position.x;
-            trailY[trailNext] = p.t.position.y;
-            trailGround[trailNext] = p.onGround();
-            trailAnim[trailNext] = p.aniStatus.ToString();
-            trailNext = (trailNext + 1) % TrailFrames;
-            trailCount = Math.Min(trailCount + 1, TrailFrames);
-        }
-
-        // Oldest first, one entry every `every` frames: [frame, x, y, on_ground, anim].
-        private JArray Trail(int every)
-        {
-            var arr = new JArray();
-            for (int i = 0; i < trailCount; i += every)
-            {
-                int k = (trailNext - trailCount + i + TrailFrames) % TrailFrames;
-                arr.Add(new JArray(trailFrame[k], Math.Round(trailX[k], 1), Math.Round(trailY[k], 1), trailGround[k], trailAnim[k]));
-            }
-            return arr;
-        }
-
         private void Awake()
         {
             ReadConfig();
@@ -90,6 +56,7 @@ namespace MeshGhostAutoplay.Tevi
             InputInjection.Install();
             Events.Install();
             Clock.Install();
+            Threats.Install();
             if (port == 0) return;
             if (repo == null)
             {
@@ -107,6 +74,7 @@ namespace MeshGhostAutoplay.Tevi
             InputInjection.Uninstall();
             Events.Uninstall();
             Clock.Uninstall();
+            Threats.Uninstall();
             Log("unloaded (the save guard stays as it was: " + (SaveGuard.Armed ? "armed" : "not armed") + ")");
         }
 
@@ -178,7 +146,7 @@ namespace MeshGhostAutoplay.Tevi
 
         // ---- what the driver says about itself ------------------------------------------------------------------
 
-        private static readonly string[] Capabilities = { "observe", "wait", "press", "sequence", "advance_text", "screenshot", "snapshot", "restore", "cheat:teleport", "reflex:fight", "clock" };
+        private static readonly string[] Capabilities = { "observe", "wait", "press", "sequence", "advance_text", "screenshot", "screenshot:annotate", "snapshot", "restore", "cheat:teleport", "reflex:fight", "reflex:evade", "clock", "recent" };
 
         private JObject Hello()
         {
@@ -347,6 +315,12 @@ namespace MeshGhostAutoplay.Tevi
                 o["elements"] = elements;
                 o["items"] = items;
                 o["projectiles"] = Surroundings.Projectiles(p, view, 8);
+                var lasers = new JArray();
+                foreach (Threats.Laser l in Threats.ReadLasers(p))
+                {
+                    lasers.Add(new JObject { ["type"] = l.Type, ["from"] = new JArray(Math.Round(l.From.x, 1), Math.Round(l.From.y, 1)), ["to"] = new JArray(Math.Round(l.To.x, 1), Math.Round(l.To.y, 1)), ["radius"] = Math.Round(l.Radius, 1), ["hurting_raw"] = l.Hurting });
+                }
+                o["lasers"] = lasers;
                 o["area_elements"] = Surroundings.AreaElements(p.t.position, 3);
             }
             if (full)
@@ -370,7 +344,7 @@ namespace MeshGhostAutoplay.Tevi
                     o["save"]["custom_game"] = custom;
                 }
                 o["screen_text"] = ScreenText();
-                o["trail"] = Trail(3);
+                o["trail"] = Recorder.Trail(180, 3);
                 o["extras"] = new JObject
                 {
                     ["event_mode_raw"] = em != null ? em.getMode().ToString() : null,
@@ -382,6 +356,7 @@ namespace MeshGhostAutoplay.Tevi
                     ["input_actions"] = InputInjection.Actions(),
                     ["input_focus"] = InputInjection.FocusReport(),
                     ["clock"] = Clock.Report(),
+                    ["recorder_cost"] = Recorder.Cost(),
                 };
                 JArray persisting = Persisting();
                 if (persisting.Count > 0) o["persisting"] = persisting;
@@ -602,7 +577,7 @@ namespace MeshGhostAutoplay.Tevi
         {
             try
             {
-                RecordTrail();
+                Recorder.Record(Player(), Mode());
             }
             catch (Exception)
             {
@@ -690,7 +665,8 @@ namespace MeshGhostAutoplay.Tevi
         private void Begin(Link.Request req)
         {
             string verb = req.Type;
-            string capability = verb == "cheat" || verb == "reflex" ? verb + ":" + (string)req.Payload["kind"] : verb;
+            string capability = verb == "cheat" || verb == "reflex" ? verb + ":" + (string)req.Payload["kind"]
+                : verb == "screenshot" && (bool?)req.Payload["annotate"] == true ? "screenshot:annotate" : verb;
             if (Array.IndexOf(Capabilities, capability) < 0)
             {
                 link.Fail(req, "this driver does not support " + capability);
@@ -716,13 +692,19 @@ namespace MeshGhostAutoplay.Tevi
                     case "advance_text":
                         currentTick = AdvanceTextJob();
                         break;
+                    case "recent":
+                        Finish(Recorder.Read((int?)req.Payload["frames"] ?? 120, Math.Max(1, (int?)req.Payload["every"] ?? 1), (int?)req.Payload["until_frame"]));
+                        return;
                     case "clock":
                         currentTick = Clock.Job(req.Payload, Observe);
                         break;
                     case "reflex":
-                        // Only fight so far (the capability check above refuses any other kind).
-                        currentTick = Reflexes.Fight(req.Payload["args"] as JObject ?? new JObject(), (int?)req.Payload["frames"] ?? 600, Player, Mode, Observe);
-                        Log("reflex fight");
+                        // The capability check above refuses a kind not listed.
+                        string kind = (string)req.Payload["kind"];
+                        JObject rargs = req.Payload["args"] as JObject ?? new JObject();
+                        int rframes = (int?)req.Payload["frames"] ?? 600;
+                        currentTick = kind == "evade" ? Reflexes.Evade(rargs, rframes, Player, Mode, Observe) : Reflexes.Fight(rargs, rframes, Player, Mode, Observe);
+                        Log("reflex " + kind);
                         break;
                     case "screenshot":
                         currentTick = ScreenshotJob(req.Payload);
@@ -1054,31 +1036,13 @@ namespace MeshGhostAutoplay.Tevi
             string path = dir + "/autoplay_" + name + ".png";
             string error = null;
             JObject answer = null;
-            StartCoroutine(Capture(path, (a, e) => { answer = a; error = e; }));
+            bool annotate = (bool?)p["annotate"] == true;
+            StartCoroutine(Annotate.Capture(path, annotate, Player, (a, e) => { answer = a; error = e; }));
             return () =>
             {
                 if (error != null) throw new Exception(error);
                 return answer;
             };
-        }
-
-        // The frame as the game drew it, taken at the end of the frame so it is complete.
-        private IEnumerator Capture(string path, Action<JObject, string> done)
-        {
-            yield return new WaitForEndOfFrame();
-            try
-            {
-                Texture2D tex = ScreenCapture.CaptureScreenshotAsTexture();
-                byte[] png = tex.EncodeToPNG();
-                int w = tex.width, h = tex.height;
-                Destroy(tex);
-                File.WriteAllBytes(path, png);
-                done(new JObject { ["path"] = path, ["width"] = w, ["height"] = h, ["bytes"] = png.Length, ["frame"] = Time.frameCount }, null);
-            }
-            catch (Exception e)
-            {
-                done(null, "screenshot: " + e.Message);
-            }
         }
     }
 }

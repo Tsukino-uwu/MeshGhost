@@ -160,7 +160,8 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 		Name: "screenshot",
 		Description: "A picture of the game frame, saved under dev-scripts/shots/<game>/ and returned " +
 			"as an image. The navigation sense: what is around, what a thing is, which entry is " +
-			"highlighted. Never proof of anything visual.",
+			"highlighted. Never proof of anything visual. With annotate, a driver that announces screenshot:annotate " +
+			"draws what it reads onto the picture and lists each numbered label in the answer.",
 	}, logged(t, "screenshot", nil, t.screenshot))
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -195,6 +196,14 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 			"waits for the model this way. The hold stays until released, across calls. Returns whether it is held and the " +
 			"frames of game time stepped.",
 	}, logged(t, "clock", nil, t.clock))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "recent",
+		Description: "The flight recorder: the driver's record of the last frames of game time, one row per frame (the player's " +
+			"position, speed, animation, HP, the input held, the enemies near), read after an event to see what led to it. " +
+			"`frames` (1-600, default 120) ending at `until_frame` (an event's frame; default the latest), one row every `every` " +
+			"frames (1-60). Frames while the clock is held are not recorded: nothing moved. Reading only.",
+	}, logged(t, "recent", nil, t.recent))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "reflex",
@@ -554,11 +563,16 @@ const MaxScreenshotBytes = 4 << 20
 
 // ScreenshotIn is the screenshot tool's input.
 type ScreenshotIn struct {
-	Name string `json:"name" jsonschema:"a short label for the file: letters, digits, _ or -"`
+	Name     string `json:"name" jsonschema:"a short label for the file: letters, digits, _ or -"`
+	Annotate bool   `json:"annotate,omitempty" jsonschema:"draw what the driver reads onto the picture (the game's own hitboxes, numbered labels listed in the answer); only a driver announcing screenshot:annotate"`
 }
 
 func (t *tools) screenshot(ctx context.Context, _ *mcp.CallToolRequest, in ScreenshotIn) (*mcp.CallToolResult, any, error) {
-	raw, err := t.forward(ctx, "screenshot", "screenshot", in, CallTimeout)
+	capability := "screenshot"
+	if in.Annotate {
+		capability = "screenshot:annotate"
+	}
+	raw, err := t.forward(ctx, capability, "screenshot", in, CallTimeout)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -720,6 +734,39 @@ func (t *tools) clock(ctx context.Context, _ *mcp.CallToolRequest, in ClockIn) (
 	}
 	timeout := CallTimeout + time.Duration(in.Frames)*50*time.Millisecond
 	raw, err := t.forward(ctx, "clock", "clock", in, timeout)
+	return nil, raw, err
+}
+
+// MaxRecentFrames bounds one read of the flight recorder, MaxRecentEvery its thinning.
+const (
+	MaxRecentFrames = 600
+	MaxRecentEvery  = 60
+)
+
+// RecentIn is the recent tool's input.
+type RecentIn struct {
+	Frames     int  `json:"frames,omitempty" jsonschema:"frames of game time to read, 1 to 600; default 120"`
+	Every      int  `json:"every,omitempty" jsonschema:"one row every this many frames, 1 to 60; default 1"`
+	UntilFrame *int `json:"until_frame,omitempty" jsonschema:"the last frame to read, such as an event's frame; default the latest recorded"`
+}
+
+func (t *tools) recent(ctx context.Context, _ *mcp.CallToolRequest, in RecentIn) (*mcp.CallToolResult, any, error) {
+	if in.Frames == 0 {
+		in.Frames = 120
+	}
+	if in.Every == 0 {
+		in.Every = 1
+	}
+	if in.Frames < 1 || in.Frames > MaxRecentFrames {
+		return nil, nil, fmt.Errorf("frames must be 1 to %d, got %d", MaxRecentFrames, in.Frames)
+	}
+	if in.Every < 1 || in.Every > MaxRecentEvery {
+		return nil, nil, fmt.Errorf("every must be 1 to %d, got %d", MaxRecentEvery, in.Every)
+	}
+	if in.UntilFrame != nil && *in.UntilFrame < 0 {
+		return nil, nil, fmt.Errorf("until_frame must not be negative, got %d", *in.UntilFrame)
+	}
+	raw, err := t.forward(ctx, "recent", "recent", in, CallTimeout)
 	return nil, raw, err
 }
 

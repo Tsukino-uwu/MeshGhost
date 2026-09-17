@@ -14,7 +14,8 @@ namespace MeshGhostAutoplay.Tevi
     // when it ends. Its input goes through InputInjection.Keep and Tap, so the game reads it as its own.
     public static class Reflexes
     {
-        // FIGHT {type?, range?, stop_hp?}: one enemy, followed and attacked until it is beaten.
+        // FIGHT {type?, range?, min_range?, stop_hp?, dodge?, push_orbs?, no_progress_frames?}: one enemy, followed and attacked until
+        // it is beaten.
         //  - the target: the nearest living enemy in view (of `type` when given), kept by reference so a second of the same
         //    kind never takes its place;
         //  - each frame: face it; outside melee `range` (default 110 world units) hold toward it; inside it and roughly level
@@ -22,17 +23,33 @@ namespace MeshGhostAutoplay.Tevi
         //    but out of reach for long (a gap, a ledge), tap Ranged;
         //  - ends `defeated` (its HP 0 or it is gone after a hit landed), `lost` (gone from view or inactive otherwise),
         //    `unreachable` (45 frames not moving with it higher than a jump reaches from where she stands), `no_progress`
-        //    (its HP unchanged for 300 frames),
+        //    (its HP unchanged for `no_progress_frames`, default 300),
         //    `low_hp` (the player's HP at or below `stop_hp`), `mode_changed` (not in play any more: a scene, a menu), or
         //    `timeout` at the frame limit. Reports hits taken, attacks tapped, jumps and the target's HP at start and end.
+        //  - `push_orbs` (default true): a still blastorb near her, on her level, with the target beyond it, is hit toward the target
+        //    from outside touching distance. The user, 2026-09-17: "the player can also attack them to push them towards/into the
+        //    boss"; and a blastorb went off on Ribauld for most of his HP while she only dodged.
+        //  - with `dodge` (default true), each frame's intended move is checked against every box that can hurt the player
+        //    (Dodge.cs) and replaced by the nearest safe plan when it would be hit; `dodges` counts the frames it was.
         private const float UnreachableDy = 180f;
-        private const int NoProgressFrames = 300;
+        private const int RootFrames = 30;
 
         public static Func<JToken> Fight(JObject args, int frameLimit, Func<CharacterBase> player, Func<string> mode, Func<bool, JObject> observe)
         {
             string wantType = (string)args["type"];
             float range = (float?)args["range"] ?? 110f;
+            // Closer than this she backs off: a boss's shots spawn at its gun, on top of anyone standing close (Ribauld's speeddown, fired
+            // at 35 units a frame from his gun, hit her at 83 units with no frame to see it, 2026-09-17). Her ground swing reaches 139.5
+            // ahead of her (a box 189 wide centred 45 ahead, MEASURED.md), so a big target can be hit from well outside 100.
+            float minRange = (float?)args["min_range"] ?? 0f;
+            // `attack`: melee (default) swings inside range; ranged shoots Orbitars there instead, for a target best fought from afar (a
+            // melee combo locks her for its swings, and Ribauld's charge from a standstill pushed her into a blastorb, 2026-09-17).
+            string inRangeTap = (string)args["attack"] == "ranged" ? "Ranged" : "Attack";
             int stopHp = (int?)args["stop_hp"] ?? 0;
+            bool dodge = (bool?)args["dodge"] ?? true;
+            int noProgressFrames = (int?)args["no_progress_frames"] ?? 300; // a boss the dodge keeps her away from needs far more
+            bool pushOrbs = (bool?)args["push_orbs"] ?? true;
+            int pushes = 0;
 
             CharacterBase me = player();
             if (me == null || me.t == null) throw new Exception("no player to fight with");
@@ -48,6 +65,7 @@ namespace MeshGhostAutoplay.Tevi
             bool landed = false;
             int targetHpSeen = target.health, lastProgress = Time.frameCount;
             string targetType = target.type.ToString();
+            var guard = new Guard(me);
             int targetId = target.ID;
 
             JObject Done(string outcome)
@@ -70,6 +88,9 @@ namespace MeshGhostAutoplay.Tevi
                     ["attacks"] = attacks,
                     ["ranged"] = ranged,
                     ["jumps"] = jumps,
+                    ["dodges"] = guard.Dodges,
+                    ["orb_pushes"] = pushes,
+                    ["last_dodge"] = guard.LastDodge,
                     ["after"] = observe(false),
                 };
             }
@@ -92,7 +113,7 @@ namespace MeshGhostAutoplay.Tevi
                 }
                 // 900 frames of shots at a dog 232 units below, through a floor, never hurt it (2026-09-17): whatever the reason,
                 // a fight that stops hurting its target says so.
-                if (Time.frameCount - lastProgress >= NoProgressFrames) return Done("no_progress");
+                if (Time.frameCount - lastProgress >= noProgressFrames) return Done("no_progress");
                 if (stopHp > 0 && p.health <= stopHp) return Done("low_hp");
                 if (mode() != "play") return Done("mode_changed");
                 if (Time.frameCount - start >= frameLimit) return Done("timeout");
@@ -100,14 +121,18 @@ namespace MeshGhostAutoplay.Tevi
 
                 Vector3 me3 = p.t.position, it = target.t.position;
                 float dx = it.x - me3.x, dy = it.y - me3.y;
-                string toward = dx >= 0 ? "XAxis+" : "XAxis-";
+                Dodge.Move towardMove = dx >= 0 ? Dodge.Move.Right : Dodge.Move.Left;
                 bool onGround = p.onGround();
                 if (onGround) groundY = me3.y;
                 float reachDy = it.y - groundY;
 
+                // What the fight means to do this frame, as a move (for the dodge) and the tap that goes with it.
+                Dodge.Move want = Dodge.Move.Stay;
+                string tap = null;
+                bool turn = false;
                 if (Mathf.Abs(dx) > range)
                 {
-                    InputInjection.Keep(toward);
+                    want = towardMove;
                     bool notMoving = Mathf.Abs(me3.x - lastX) < 0.5f;
                     stuckFrames = notMoving ? stuckFrames + 1 : 0;
                     // Out of a jump's reach (a full jump rose 175 units, MEASURED.md) and not getting closer: say so, never flail.
@@ -115,40 +140,281 @@ namespace MeshGhostAutoplay.Tevi
                     if (blockedFrames >= 45) return Done("unreachable");
                     if (onGround && (stuckFrames >= 12 || dy > 90f))
                     {
-                        if (InputInjection.Tap("Jump", 16)) jumps++;
+                        want = dx >= 0 ? Dodge.Move.JumpRight : Dodge.Move.JumpLeft;
                         stuckFrames = 0;
                     }
                     outOfReachFrames = Mathf.Abs(reachDy) > 90f ? outOfReachFrames + 1 : 0;
-                    if (outOfReachFrames > 90 && Mathf.Abs(dx) < 500f)
-                    {
-                        if (InputInjection.Tap("Ranged", 4)) ranged++;
-                    }
+                    if (outOfReachFrames > 90 && Mathf.Abs(dx) < 500f) tap = "Ranged";
                 }
                 else
                 {
                     stuckFrames = 0;
-                    // Turn to face it first: a one-frame hold toward it, then the attack.
+                    // Turn to face it first: a one-frame hold toward it, then the attack. Turning barely moves her, so the dodge sees it as
+                    // standing (it refused a turn toward a boss for want of room, and she stood 90 frames never facing it, 2026-09-17).
                     bool facingIt = (dx >= 0) == (p.direction.ToString() == "RIGHT");
-                    if (!facingIt)
+                    if (Mathf.Abs(dx) < minRange && onGround) want = dx >= 0 ? Dodge.Move.Left : Dodge.Move.Right;
+                    else if (!facingIt) turn = true;
+                    else if (dy > 90f && onGround) want = Dodge.Move.Jump;
+                    else if (Mathf.Abs(dy) <= 90f) tap = inRangeTap;
+                    else tap = "Ranged";
+                }
+
+                if (pushOrbs && onGround)
+                {
+                    CharacterBase orb = OrbToPush(p, target);
+                    if (orb != null)
                     {
-                        InputInjection.Keep(toward);
+                        float ox = orb.t.position.x - me3.x;
+                        bool facingOrb = (ox >= 0) == (p.direction.ToString() == "RIGHT");
+                        if (Mathf.Abs(ox) > OrbPushFar) want = ox >= 0 ? Dodge.Move.Right : Dodge.Move.Left;
+                        else if (!facingOrb) want = ox >= 0 ? Dodge.Move.Right : Dodge.Move.Left;
+                        else want = Dodge.Move.Stay;
+                        tap = Mathf.Abs(ox) <= OrbPushFar && facingOrb ? "Attack" : null;
+                        if (tap != null) pushes++;
                     }
-                    else if (dy > 90f && onGround)
+                }
+
+                Dodge.Move move = dodge ? guard.Check(p, want, groundY) : want;
+                if (move == want)
+                {
+                    if (turn) InputInjection.Keep(dx >= 0 ? "XAxis+" : "XAxis-");
+                    if (Dodge.IsJump(move) && onGround && InputInjection.Tap("Jump", 16)) jumps++;
+                    int dir = Dodge.Dir(move);
+                    if (dir != 0) InputInjection.Keep(dir > 0 ? "XAxis+" : "XAxis-");
+                    // A swing or a shot roots her for its animation: on the ground she stands, in the air she keeps her arc but cannot steer
+                    // (she hung at one x mid-air while a charge came under her and the dodge's steering did nothing, 2026-09-17). So it is
+                    // taken, ground or air, whenever not moving -- the Stay plan -- stays safe for RootFrames. The user: "should be able to
+                    // mix both ground/air to attack as much as possible whenever possible. while prioritizing never getting hit".
+                    if (tap != null && dodge && !guard.StandingSafe(RootFrames)) tap = null;
+                    if (tap != null && InputInjection.Tap(tap, 4))
                     {
-                        if (InputInjection.Tap("Jump", 16)) jumps++;
+                        if (tap == "Attack") attacks++;
+                        else ranged++;
                     }
-                    else if (Mathf.Abs(dy) <= 90f)
-                    {
-                        if (InputInjection.Tap("Attack", 4)) attacks++;
-                    }
-                    else if (InputInjection.Tap("Ranged", 4))
-                    {
-                        ranged++;
-                    }
+                }
+                else if (guard.Execute(move, onGround))
+                {
+                    jumps++;
                 }
                 lastX = me3.x;
                 return null;
             };
+        }
+
+        // EVADE {stop_hp?, stop_on_hit?, home_x?}: stay where the player is and let nothing hit her for `frames`: every box that can hurt her is read each
+        // frame and dodged (Dodge.cs), drifting back toward the starting x when that is safe. Ends `timeout` at the frame limit (the
+        // try passed when `hits_taken` is 0), `hit` (with stop_on_hit, the frame after the first), `low_hp`, or `mode_changed`. The dodge on its own, and a way to wait out a pattern.
+        public static Func<JToken> Evade(JObject args, int frameLimit, Func<CharacterBase> player, Func<string> mode, Func<bool, JObject> observe)
+        {
+            int stopHp = (int?)args["stop_hp"] ?? 0;
+            bool stopOnHit = (bool?)args["stop_on_hit"] ?? false;
+            CharacterBase me = player();
+            if (me == null || me.t == null) throw new Exception("no player");
+            if (mode() != "play") throw new Exception("evade starts in play, not in " + mode());
+            int start = Time.frameCount, hpStart = me.health, hitsTaken = 0, lastHp = me.health;
+            float homeX = (float?)args["home_x"] ?? me.t.position.x, groundY = me.t.position.y; // where it drifts back to: home_x, else where it began
+            var guard = new Guard(me);
+            var hits = new JArray();
+
+            JObject Done(string outcome)
+            {
+                CharacterBase p = player();
+                return new JObject
+                {
+                    ["outcome"] = outcome,
+                    ["frames"] = Time.frameCount - start,
+                    ["hp_start"] = hpStart,
+                    ["hp_end"] = p != null ? (JToken)p.health : null,
+                    ["hits_taken"] = hitsTaken,
+                    ["hits"] = hits,
+                    ["dodges"] = guard.Dodges,
+                    ["jumps"] = guard.Jumps,
+                    ["last_dodge"] = guard.LastDodge,
+                    ["after"] = observe(false),
+                };
+            }
+
+            return () =>
+            {
+                CharacterBase p = player();
+                if (p == null || p.t == null) return Done("lost");
+                if (p.health < lastHp)
+                {
+                    hitsTaken++;
+                    if (hits.Count < 20) hits.Add(new JObject { ["frame"] = Time.frameCount, ["hp"] = p.health, ["last_dodge"] = guard.LastDodge?.DeepClone() });
+                }
+                lastHp = p.health;
+                if (stopOnHit && hitsTaken > 0) return Done("hit");
+                if (stopHp > 0 && p.health <= stopHp) return Done("low_hp");
+                if (mode() != "play") return Done("mode_changed");
+                if (Time.frameCount - start >= frameLimit) return Done("timeout");
+                bool onGround = p.onGround();
+                if (onGround) groundY = p.t.position.y;
+                float off = homeX - p.t.position.x;
+                Dodge.Move want = Mathf.Abs(off) > 40f ? (off > 0 ? Dodge.Move.Right : Dodge.Move.Left) : Dodge.Move.Stay;
+                Dodge.Move move = guard.Check(p, want, groundY);
+                if (move == want)
+                {
+                    int dir = Dodge.Dir(move);
+                    if (dir != 0) InputInjection.Keep(dir > 0 ? "XAxis+" : "XAxis-");
+                }
+                else
+                {
+                    guard.Execute(move, onGround);
+                }
+                return null;
+            };
+        }
+
+        // The dodge's state for one reflex: the player's last height, for her vertical speed, and what it did.
+        private sealed class Guard
+        {
+            public int Dodges, Jumps;
+            public JObject LastDodge;
+
+            // Commitment: a move the dodge took is kept CommitFrames frames while it stays as good as any, so two near-equal plans never
+            // alternate frame by frame (she flipped left and right every 2 to 4 frames, 15 units back and forth, 2026-09-17).
+            private const int CommitFrames = 10;
+            private Dodge.Move committed;
+            private int committedUntil = -1;
+            private float lastY;
+            private int lastFrame = -1;
+
+            public Guard(CharacterBase p)
+            {
+                lastY = p.t.position.y;
+            }
+
+            private List<Dodge.Plan> lastPlans;
+            private int lastPlansFrame = -1;
+
+            // Whether standing where she is meets nothing for `frames` frames, by this frame's plans (true when nothing threatens).
+            public bool StandingSafe(int frames)
+            {
+                if (lastPlansFrame != Time.frameCount || lastPlans == null) return true;
+                int i = lastPlans.FindIndex(x => x.Move == Dodge.Move.Stay);
+                return i < 0 || lastPlans[i].FirstHit > frames;
+            }
+
+            public Dodge.Move Check(CharacterBase p, Dodge.Move want, float groundY)
+            {
+                Vector3 pos = p.t.position;
+                float vy = lastFrame == Time.frameCount - 1 ? pos.y - lastY : 0f;
+                lastY = pos.y;
+                lastFrame = Time.frameCount;
+                if (!Threats.PlayerHurtbox(p, out Rect hurt)) return want;
+                List<Threats.Threat> threats = Threats.Read(p, 200f);
+                List<Threats.Laser> lasers = Threats.ReadLasers(p);
+                if (threats.Count == 0 && lasers.Count == 0) return want;
+                bool onGround = p.onGround();
+                // A jump cannot begin in the air: what is wanted there is its direction.
+                if (!onGround && Dodge.IsJump(want))
+                {
+                    int d = Dodge.Dir(want);
+                    want = d < 0 ? Dodge.Move.Left : d > 0 ? Dodge.Move.Right : Dodge.Move.Stay;
+                }
+                var st = new Dodge.Start
+                {
+                    Pos = new Vector2(pos.x, pos.y),
+                    OnGround = onGround,
+                    Vy = onGround ? 0f : vy,
+                    HoldLeft = InputInjection.FramesLeft("Jump"),
+                    GroundY = groundY,
+                    Hurt = hurt,
+                    Quickdropping = p.logicStatus.ToString() == "QUICKDROP",
+                };
+                Dodge.WallLimits(pos, 14f, out st.MinX, out st.MaxX);
+                st.Floor = groundY + (hurt.yMin - pos.y);
+                List<Dodge.Plan> plans = Dodge.Evaluate(st, threats, lasers);
+                lastPlans = plans;
+                lastPlansFrame = Time.frameCount;
+                Dodge.Plan chosen = Dodge.Choose(plans, want);
+                // Inside the window the committed move wins over the wanted one too while it is as safe: a want that flips back the
+                // moment the danger is behind her is the same stutter.
+                if (Time.frameCount <= committedUntil && chosen.Move != committed)
+                {
+                    int i = plans.FindIndex(x => x.Move == committed);
+                    if (i >= 0 && (plans[i].FirstHit > Dodge.Horizon || plans[i].FirstHit >= chosen.FirstHit)) chosen = plans[i];
+                }
+                if (chosen.Move != want && chosen.Move != committed)
+                {
+                    committed = chosen.Move;
+                    committedUntil = Time.frameCount + CommitFrames;
+                }
+                if (chosen.Move != want)
+                {
+                    Dodges++;
+                    Dodge.Plan w = plans.Find(x => x.Move == want);
+                    LastDodge = new JObject
+                    {
+                        ["frame"] = Time.frameCount,
+                        ["wanted"] = want.ToString(),
+                        ["wanted_hit_in"] = w.FirstHit,
+                        ["by"] = w.HitBy,
+                        ["took"] = chosen.Move.ToString(),
+                        ["took_hit_in"] = chosen.FirstHit > Dodge.Horizon ? null : (JToken)chosen.FirstHit,
+                        ["wanted_clearance"] = Math.Round(w.Clearance, 1),
+                        ["took_clearance"] = Math.Round(chosen.Clearance, 1),
+                        ["walls"] = new JArray(st.MinX < -1e30f ? null : (JToken)Math.Round(st.MinX, 1), st.MaxX > 1e30f ? null : (JToken)Math.Round(st.MaxX, 1)),
+                        ["plans"] = PlanTable(plans),
+                    };
+                }
+                return chosen.Move;
+            }
+
+            private static JArray PlanTable(List<Dodge.Plan> plans)
+            {
+                var arr = new JArray();
+                foreach (Dodge.Plan pl in plans) arr.Add(new JArray(pl.Move.ToString(), pl.FirstHit, pl.HitFrames, Math.Round(pl.Clearance), Math.Round(pl.Room), pl.HitBy));
+                return arr;
+            }
+
+            // Carries out a plan the dodge chose for this frame. Returns true when it began a jump.
+            public bool Execute(Dodge.Move m, bool onGround)
+            {
+                int dir = Dodge.Dir(m);
+                if (dir != 0) InputInjection.Keep(dir > 0 ? "XAxis+" : "XAxis-");
+                if (!onGround && Dodge.IsDrop(m))
+                {
+                    InputInjection.Keep("YAxis-");
+                    InputInjection.Tap("Jump", 4);
+                    return false;
+                }
+                if (!onGround || !Dodge.IsJump(m)) return false;
+                bool hop = m == Dodge.Move.Hop || m == Dodge.Move.HopLeft || m == Dodge.Move.HopRight;
+                if (!InputInjection.Tap("Jump", hop ? Dodge.HopHold : Dodge.JumpHold)) return false;
+                Jumps++;
+                return true;
+            }
+        }
+
+        // Pushing a blastorb: from farther than its touch distance (it goes off within about 42 units, EnergyBall read as a map) and
+        // within a melee swing (OrbPushFar, a first guess to be measured), on her level, still, with the target on the far side.
+        private const float OrbPushNear = 56f, OrbPushFar = 100f, OrbLook = 260f;
+
+        private static CharacterBase OrbToPush(CharacterBase me, CharacterBase target)
+        {
+            CharacterManager cm = CharacterManager.Instance;
+            if (cm == null || cm.characters == null || target == null || target.t == null) return null;
+            Vector3 at = me.t.position;
+            float toTarget = target.t.position.x - at.x;
+            CharacterBase best = null;
+            float bestD = float.MaxValue;
+            foreach (CharacterBase c in cm.characters)
+            {
+                if (c == null || c == me || c == target || c.t == null || !c.gameObject.activeInHierarchy || c.maxhealth < 99999) continue;
+                if (c.type.ToString() != "EnergyBall") continue;
+                float dx = c.t.position.x - at.x, dy = c.t.position.y - at.y;
+                if (Mathf.Abs(dy) > 60f || Mathf.Abs(dx) < OrbPushNear || Mathf.Abs(dx) > OrbLook) continue;
+                if (Math.Sign(dx) != Math.Sign(toTarget) || Mathf.Abs(dx) > Mathf.Abs(toTarget)) continue;
+                if (c.phy_perfer != null && c.phy_perfer._velocity.magnitude > 30f) continue; // moving: already on its way
+                if (Mathf.Abs(dx) < bestD)
+                {
+                    bestD = Mathf.Abs(dx);
+                    best = c;
+                }
+            }
+            return best;
         }
 
         private static CharacterBase Nearest(CharacterBase me, string type)
