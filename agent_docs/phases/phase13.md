@@ -1047,3 +1047,24 @@ weakens first instead of replaying for luck. Then *"I stopped it as it looked li
 pause menu after going back out of the option menu"*: the game had sat on OPTION, then the START menu, for minutes while
 this chat wrote records. The command stopped had already closed OPTION; the START menu was closed after. Filed as a
 working rule for the agent (close menus before off-game work, and say the game is idle).
+
+## 2026-09-17 (the Crystal chat, end of the session) — where Crystal's autoplay stands, for the next chat
+
+**The user:** asked how far along the plan is (Phases 0, 1 and 4 done; 2 and 5 in part; 3 and 6-8 not started), then
+*"okay we are still a bit away from tevi/pseudo then i guess. can we start a new chat and continue there ? context is
+starting to fill up"*. On BATTLE SCENE: *"leave it, some attacks are faster/slower i think so probly good to have on for
+testing ?"* — left ON. **Open with the user:** whether this chat's successor moves `emerald.lua`'s route planner into
+shared Lua so Crystal gets `goto` (the Emerald chat had uncommitted work in `emerald.lua` at the time); not answered.
+
+**Crystal now has** (vanilla V1.0, `crystal/MEASURED.md` for every reading): `observe` with position, mode, text, menus
+(the PACK's item and ball pockets whole), `local_map` with trainers' lines, `nearby` with trainers' range and defeat
+flag, both battlers, and party, bag and money; `walk` (`spotted`, `script_started`, `blocked`), `select`,
+`advance_text`, `battle` (`strongest`, `run`; trainers seen or talked to, the level-up box, waits with no ▼), and the
+`warp` and `give_item` cheats. Not yet: `goto`, scenarios, badges, party moves out of a battle, the key item and TM/HM
+pockets, the Pokémon menu as a list, `movement` (bikes, surfing).
+
+**Left as it is:** EmuHawk on vanilla Crystal V1.0 (port 7871) still running, the loader target
+`dev-scripts/bizhawk-dev-loader-autoplay-crystal.target` at `none`; the Emerald chat's emulator also running. Snapshot
+`session_end_route31` (Route 31 at (15,14) in the grass, CYNDAQUIL L5 10/19 and BELLSPROUT L5 20/20, 9 item entries, 5
+POKé BALLs, money 3000, text speed FAST) beside this session's others in the gitignored `autoplay/states/crystal/`.
+Nothing is pushed. The core and `mcpcall` this chat ran were built into its own scratch folder; a new chat builds its own.
