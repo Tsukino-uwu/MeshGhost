@@ -7631,3 +7631,46 @@ to start New Game`, and the intro played; the real folder matched the backup by 
 
 **The rule this adds:** a guard around what a game writes must keep what the game READS BACK consistent -- redirect, never
 refuse, anything the game may read again.
+
+## TEVI autoplay: a plugin loaded by ScriptEngine found no config beside itself and connected to another chat's core (2026-09-17)
+
+**Symptom.** autoplay's TEVI driver, told to use port 7872 by a config file beside its DLL, logged `no .\meshghost-autoplay.txt;
+port 7870` and was refused as busy by the Emerald chat's core on 7870, every 10 seconds.
+
+**Cause.** ScriptEngine loads a plugin from its bytes, and `Info.Location` reads empty, so `Path.GetDirectoryName` gave nothing
+and the path fell back to the game's working folder. The dev cheats had built their toggle path the same way, so their toggle
+file in `scripts\` was never read either.
+
+**Fix.** The driver reads `Paths.BepInExRootPath\scripts\`, and with no config it connects nowhere instead of assuming a port.
+The dev cheats' toggle file was moved to the game's root, where they read it.
+
+**The rule this adds:** a hot-loaded plugin finds its files through BepInEx's own paths, and a missing config means off, never
+a default another instance may own.
+
+## TEVI autoplay: a game launched without focus took the user's typing as input (2026-09-17)
+
+**Symptom.** With no press injected, TEVI's pause menu opened on its Notebook tab, and later the intro's dialogue advanced line
+by line.
+
+**Diagnosis.** Asked, the user: it happened as they typed and used the mouse in another window; after they clicked TEVI once and
+left it, it stopped. The driver then read Rewired's `ignoreInputWhenAppNotInFocus` already true and `Application.isFocused` false.
+
+**Cause.** The game was started by Steam while another window had focus and had never been focused; until it was, it took input
+from the focused window.
+
+**Fix.** None in code (a change to that setting was written and taken out: it was already on). Click the game's window once after
+launching it.
+
+**The rule this adds:** a change the driver did not make is a person first -- ask before diagnosing it.
+
+## Autoplay harness: a JSON argument stripped by PowerShell, and a rejected call that kept its port (2026-09-17)
+
+**Symptom.** `mcpcall -calls '[...]'` from PowerShell 5.1 failed with `invalid character 'n' looking for beginning of object key`.
+Later a call rejected in the Claude Code UI left its `mcpcall` and core running through their queued waits, holding 7872, and the
+next call failed with `connection closed: calling "initialize": EOF`.
+
+**Cause.** PowerShell 5.1 drops the double quotes inside an argument passed to a native program. A rejected tool call does not stop
+the process it started.
+
+**Fix.** Calls run from Bash, where the quoting survives. The leftover pair was found by its command line (the chat's own scratch
+path) and stopped; the other chat's core, on 7870, was left alone.

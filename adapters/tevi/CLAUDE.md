@@ -81,3 +81,11 @@ on a player's machine is a shipped defect, not a debug convenience.
 deployed to the live installs** (CI cannot build it; `packaging/README.md`); the sources are LF-pinned,
 so normalize before building — preflight's DLL-vs-source, deployed-copies and LF checks each catch a
 miss (live 2026-08-14, 2026-08-15).
+
+## A ScriptEngine plugin, and a game that was never focused
+
+- **Under ScriptEngine a plugin's `Info.Location` is empty**, so a path built from it lands in the game's working folder, not
+  `BepInEx\scripts\`: build paths from `Paths.BepInExRootPath` (autoplay's driver found no config and knocked on another
+  chat's core; the dev cheats read their toggles from the game root; `tevi/MEASURED.md`, 2026-09-17).
+- **A TEVI started while another window has focus takes typing and mouse input from that window** until its own window has
+  been clicked once; a test launched by an agent is exposed to whatever the user types meanwhile (the user, 2026-09-17).

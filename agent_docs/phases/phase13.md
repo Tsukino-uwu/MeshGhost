@@ -13,7 +13,7 @@ core plus a thin driver per host, for any game, through whatever dev channel its
 
 **This file is autoplay's plan and shared core; each game logs in its own file** (the user, 2026-09-17, as more games
 join and two chats appended here at once). From 2026-09-17 a game's autoplay entries go to `autoplay/<game>.md` beside
-this file -- [autoplay/emerald.md](autoplay/emerald.md), [autoplay/crystal.md](autoplay/crystal.md) -- and this file takes
+this file -- [autoplay/emerald.md](autoplay/emerald.md), [autoplay/crystal.md](autoplay/crystal.md), [autoplay/tevi.md](autoplay/tevi.md) -- and this file takes
 entries whose subject is the plan, the core, a tool or a shared driver file (`driver.lua`, `text.lua`, `route.lua`). A
 change to shared Lua made in a game's chat gets its entry here, with a pointer line in the game's file. Nothing moved:
 every entry written before the split stays below, listed by game in the index. **Keep the `Index` below: a new entry
@@ -35,6 +35,7 @@ here adds its heading as one line under "The plan and the shared core".**
 - 2026-09-17 (the Emerald chat, Phase 2) — Phase 2 in the shared core: one-way tiles, `goto` across maps, `talk`
 - 2026-09-17 (the Emerald chat, the story) — the plan across maps floods each map; `talk` across a counter; a battle the game answers
 - 2026-09-17 (the Emerald chat, the first badge) — `select` presses confirm again; routes out of a trainer's sight preferred
+- 2026-09-17 (the TEVI chat) — how an agent sees a game: the engine's state first, the clock held for fast games, detection only at tier 0
 
 **Emerald (vanilla), before its own log** -- from 2026-09-17 in [autoplay/emerald.md](autoplay/emerald.md)
 - 2026-09-16 (later still) — Phase 1 step 2: a live driver in vanilla Emerald, from boot to walking
@@ -1432,3 +1433,28 @@ Emerald entry.
 **Checked.** `luac -p` on both. Live on vanilla Emerald: `talk` to a nurse then `select YES` straight after, 3 of 3; the stuck
 classifier scenario 1 of 1; the rest of the trip to the badge. **Crystal's path** not run (paused): its menus answered within
 15 frames when measured, which leaves them on the old path, but no Crystal menu was confirmed under this change.
+
+## 2026-09-17 (the TEVI chat) — how an agent sees a game: the engine's state first, the clock held for fast games, detection only at tier 0
+
+**The user's questions**, mid-way through TEVI's Phase 6 ([autoplay/tevi.md](autoplay/tevi.md)): whether taking pictures is the right
+way to see a game, whether YOLO or similar would be better, whether capture can be the game alone and not the monitor -- and then,
+*"for future games as well, especially fast paced ones might be a bit weird to only have pictures taken if things are time
+sensetive ? ... what do you think would work well ?"*
+
+**The answers given, and the plan the user approved:**
+- **The picture is already the game alone**: BizHawk's `client.screenshot` and Unity's `ScreenCapture` capture the game's frame,
+  never the desktop.
+- **A detector (YOLO and its kind) guesses from pixels what an engine already holds exactly**, and needs labelled pictures per game.
+  Where the state can be read -- every host so far -- it adds nothing; it belongs to Phase 8's tier 0, fed by a capture of the game's
+  window alone, with its output shaped like a driver's own reads so the tools above do not care. Any model or library there starts
+  with its `licensing.md` row.
+- **Fast games are a timing problem first**: a model turn takes seconds whatever it is given. So five layers, fastest first:
+  1. the engine's state every frame, in the driver (`observe` grown: characters, the collision grid, the view, projectiles);
+  2. reflexes at game speed, started by the model, stopping on the game's state with an event;
+  3. **the clock held** while the model decides -- a core tool (`clock`), BizHawk's pause and frame advance, Unity's `Time.timeScale`
+     measured per game first;
+  4. **a flight recorder**: the last seconds of per-frame state, a core tool (`recent`), read after an event;
+  5. pictures on request, and annotated with what layer 1 reads (on TEVI, the game's own hitbox drawing).
+
+**Where it stands**: TEVI's driver has layer 1 (its `Surroundings.cs`, measured against a picture). Layers 3 and 4 are shared-core
+changes, not made yet; they get their entries here when they are.
