@@ -221,3 +221,10 @@ a quickdrop into the Sewerways; the game's map read for the way down; Clean Staf
 `tevi_sewer_entry`, `tevi_first_savepoint`. The measurements: `adapters/tevi/MEASURED.md`, "Into the Sewerways".
 
 **Built**: `fight` ends `no_progress` when its target's HP stops changing; `screen_text` holds 150 entries of 1500 characters.
+
+## 2026-09-17 (same session) — layer 3: the clock held
+
+**Built**: `clock` in the core ([../phase13.md](../phase13.md)) and in the driver (`Clock.cs`: a postfix on the game's own per-frame
+`GameSystem.TimeScale`). **Measured** (segment 6, reached by nothing, at the Sewerways save point room; `adapters/tevi/MEASURED.md`,
+"Holding the clock"): held mid-jump, stepped 20 and 1, released; input while held does nothing unless it is the request running, and a
+sequence while held runs exactly its frames. Open: what enemies and the unscaled systems do while held.

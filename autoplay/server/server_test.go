@@ -273,6 +273,34 @@ func TestSequenceValidatesAndForwards(t *testing.T) {
 	}
 }
 
+func TestClockValidatesAndForwards(t *testing.T) {
+	h := newHarness(t)
+	got := make(chan ClockIn, 4)
+	h.startDriver(t, []string{"clock"}, func(verb string, payload json.RawMessage) (string, any) {
+		var in ClockIn
+		json.Unmarshal(payload, &in)
+		got <- in
+		return "result", map[string]any{"verb": verb, "held": in.Action != "release"}
+	})
+	for _, bad := range []map[string]any{
+		{"action": "pause"},
+		{"action": "step"},
+		{"action": "step", "frames": MaxPressFrames + 1},
+		{"action": "hold", "frames": 3},
+	} {
+		if text, isErr := h.call(t, "clock", bad); !isErr {
+			t.Errorf("clock %v = %s, want a refusal", bad, text)
+		}
+	}
+	text, isErr := h.call(t, "clock", map[string]any{"action": "step", "frames": 4})
+	if isErr || !strings.Contains(text, `"verb":"clock"`) || !strings.Contains(text, `"held":true`) {
+		t.Fatalf("clock step = %s (error %v)", text, isErr)
+	}
+	if in := <-got; in.Action != "step" || in.Frames != 4 {
+		t.Fatalf("the driver received %+v", in)
+	}
+}
+
 func TestReflexValidatesAndForwards(t *testing.T) {
 	h := newHarness(t)
 	got := make(chan ReflexIn, 1)

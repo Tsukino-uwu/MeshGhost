@@ -60,6 +60,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - 2026-09-17 — Fighting at game speed: the fight reflex against five kinds, and blastorbs
 - 2026-09-17 — The interaction bubble, the bottom-left popup and the menu's tabs, read
 - 2026-09-17 — Into the Sewerways: a grate that broke on a falling quickdrop, the move list, and the first save point
+- 2026-09-17 — Holding the clock: what a timeScale of 0 stops, stepping, and input while held
 - Not measured yet — backup slots and the chapter-reset slot
 - Not measured yet — what `mode: paused` reads from, and why the pause menu opened
 
@@ -331,6 +332,23 @@ picking them up, without having to go to the menu. if you have enought EP to do 
   shadowed, 0 writes refused, 210 autosaves held. The real save folder: 57 files, every hash equal to the backup.
 - **Sigils**: Knives Out (`BADGE_Normal2AntiHealth`, cost 4: "When target's HP is above 70%, basic ground combo damage +2")
   equipped from the Sigils tab, EP 7 of 10; Biscuit Delivery (cost 0) also on.
+
+### 2026-09-17 — Holding the clock: what a timeScale of 0 stops, stepping, and input while held
+
+**Evidence**: autoplay's driver with a postfix on `GameSystem.TimeScale` (which sets `Time.timeScale` every frame: 0 while paused or in
+the game's own short stops, the game speed otherwise; read as a map) setting 0 while the clock is held; `observe`'s `trail`, run log
+`autoplay/runs/2026-09-17_131747.151516.ndjson`, segment 6, at the Sewerways' save point room, the player jumping in place.
+
+- **Held, the player stops mid-air**: 8 frames into a jump she stayed at y -12857.4 for 150 frames, `Time.timeScale` reading 0 each.
+- **Input while held moves nothing and is not kept**: 30 frames of `XAxis+` and an `Attack` tap while held, then a step, showed
+  neither a move nor an attack.
+- **A step runs exactly its frames**: 20 frames of the fall, then still again; a step of 1 moved her one frame's fall (12.8 units).
+- **The game's call runs before the plugin's update each frame**: a hold that only set 0 in the postfix let one more frame pass
+  (6 units of rise); setting 0 when the hold is made stopped it on the next frame.
+- **A 30-frame `sequence` while held** (right and Jump) moved her 190 units (30 frames at 6.33) and stopped mid-fall when it ended;
+  a request's `after` is read before its last frame's movement, one frame behind.
+- **Not measured**: enemies, projectiles and the systems that run on the game's unscaled delta (banner fades, dialogue printing,
+  the save point's refill) while held.
 
 ## Not measured yet
 

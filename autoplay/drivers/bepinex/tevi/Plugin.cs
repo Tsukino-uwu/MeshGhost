@@ -89,6 +89,7 @@ namespace MeshGhostAutoplay.Tevi
             Log(SaveGuard.Install(Application.persistentDataPath, repo == null ? null : repo + "/autoplay/states/" + GameName + "/shadow"));
             InputInjection.Install();
             Events.Install();
+            Clock.Install();
             if (port == 0) return;
             if (repo == null)
             {
@@ -105,6 +106,7 @@ namespace MeshGhostAutoplay.Tevi
             link?.Dispose();
             InputInjection.Uninstall();
             Events.Uninstall();
+            Clock.Uninstall();
             Log("unloaded (the save guard stays as it was: " + (SaveGuard.Armed ? "armed" : "not armed") + ")");
         }
 
@@ -176,7 +178,7 @@ namespace MeshGhostAutoplay.Tevi
 
         // ---- what the driver says about itself ------------------------------------------------------------------
 
-        private static readonly string[] Capabilities = { "observe", "wait", "press", "sequence", "advance_text", "screenshot", "snapshot", "restore", "cheat:teleport", "reflex:fight" };
+        private static readonly string[] Capabilities = { "observe", "wait", "press", "sequence", "advance_text", "screenshot", "snapshot", "restore", "cheat:teleport", "reflex:fight", "clock" };
 
         private JObject Hello()
         {
@@ -379,6 +381,7 @@ namespace MeshGhostAutoplay.Tevi
                     ["fade_target_raw"] = FadeManager.Instance != null ? (JToken)Math.Round(FadeManager.Instance.GetTargetAlpha(), 3) : null,
                     ["input_actions"] = InputInjection.Actions(),
                     ["input_focus"] = InputInjection.FocusReport(),
+                    ["clock"] = Clock.Report(),
                 };
                 JArray persisting = Persisting();
                 if (persisting.Count > 0) o["persisting"] = persisting;
@@ -646,7 +649,11 @@ namespace MeshGhostAutoplay.Tevi
                 Begin(waiting.Dequeue());
             }
             if (current != null) TickCurrent();
+            Clock.LetInputRun(current != null && Array.IndexOf(InputVerbs, current.Type) >= 0);
         }
+
+        // The requests that carry input: while the clock is held, these run game time for their own frames (Clock.cs).
+        private static readonly string[] InputVerbs = { "press", "sequence", "reflex", "advance_text" };
 
         private void SendEvents()
         {
@@ -708,6 +715,9 @@ namespace MeshGhostAutoplay.Tevi
                         break;
                     case "advance_text":
                         currentTick = AdvanceTextJob();
+                        break;
+                    case "clock":
+                        currentTick = Clock.Job(req.Payload, Observe);
                         break;
                     case "reflex":
                         // Only fight so far (the capability check above refuses any other kind).

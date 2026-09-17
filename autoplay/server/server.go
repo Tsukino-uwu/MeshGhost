@@ -189,6 +189,14 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 	}, logged(t, "cheat", func(in CheatIn) string { return "cheat:" + in.Kind }, t.cheat))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name: "clock",
+		Description: "Hold the game's clock while you think: action hold stops game time (the driver keeps running and answering, " +
+			"and observe still reads), step lets `frames` of game time pass and holds again, release lets it run. A fast game " +
+			"waits for the model this way. The hold stays until released, across calls. Returns whether it is held and the " +
+			"frames of game time stepped.",
+	}, logged(t, "clock", nil, t.clock))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name: "reflex",
 		Description: "Start a program the driver runs at game speed, reading the game every frame and acting on it, " +
 			"for what a model turn is too slow to steer (an enemy that moves, shoots or closes in): a kind the driver " +
@@ -690,6 +698,30 @@ type CheatIn struct {
 
 // CheatTimeout allows for a cheat that ends on the game's state, such as a map load.
 const CheatTimeout = CallTimeout + 30*time.Second
+
+// ClockIn is the clock tool's input.
+type ClockIn struct {
+	Action string `json:"action" jsonschema:"hold, step or release"`
+	Frames int    `json:"frames,omitempty" jsonschema:"for step: frames of game time to let pass, 1 to 600"`
+}
+
+func (t *tools) clock(ctx context.Context, _ *mcp.CallToolRequest, in ClockIn) (*mcp.CallToolResult, any, error) {
+	switch in.Action {
+	case "hold", "release":
+		if in.Frames != 0 {
+			return nil, nil, fmt.Errorf("frames is for step only")
+		}
+	case "step":
+		if in.Frames < 1 || in.Frames > MaxPressFrames {
+			return nil, nil, fmt.Errorf("step frames must be 1 to %d, got %d", MaxPressFrames, in.Frames)
+		}
+	default:
+		return nil, nil, fmt.Errorf("action must be hold, step or release, got %q", in.Action)
+	}
+	timeout := CallTimeout + time.Duration(in.Frames)*50*time.Millisecond
+	raw, err := t.forward(ctx, "clock", "clock", in, timeout)
+	return nil, raw, err
+}
 
 // MaxReflexFrames bounds one reflex.
 const MaxReflexFrames = 3600

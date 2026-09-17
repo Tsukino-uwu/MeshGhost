@@ -30,6 +30,7 @@ Claude Code --MCP (stdio)--> autoplay core --JSON lines (127.0.0.1)--> driver in
 | `observe` | The driver's snapshot of the game |
 | `press` | Hold buttons for 1-600 frames, then report what changed — the escape hatch, not the default |
 | `sequence` | A timeline of holds in one call, frame-exact: each step `{buttons, from, frames}` holds from its own frame, and steps overlap (run right while Jump is held partway), so a player's continuous movement is one call, never stutter steps. `stop_on` names event kinds (`damage_taken`, `enemy_defeated`, ...): the first one ends it, what is held let go on the next frame. At most 64 steps over 1800 frames. Returns `frames_run`, what changed and `stopped_by`. TEVI |
+| `clock` | Hold the game's clock while the model thinks: `action` `hold` stops game time (the driver still answers and `observe` still reads), `step` lets `frames` (1-600) of game time pass and holds again, `release` lets it run. The hold lasts until released, across calls. While held, a request that carries input (`press`, `sequence`, `reflex`, `advance_text`) runs game time for exactly its own frames, as an emulator's frame advance with input does; `wait` does not. TEVI |
 | `reflex` | A program the driver runs at game speed, reading the game every frame and choosing the next frame's input, for what a model turn is too slow to steer: a kind the driver announced as `reflex:<kind>`, its `args`, at most `frames` (default 600, up to 3600). It ends on the game's state and says why. Ordinary input: the segment stays as it was. TEVI's `fight` |
 | `wait` | Let 1-3600 frames pass with NO input, then report what changed. Never hold a button to wait |
 | `select` | Choose an entry in the open menu by its text (`item`) or 0-based `index`: the driver presses toward it until the game's own cursor is on it, then holds confirm until the menu responds, letting go and pressing again after 15 frames with no answer, 3 presses in all (`confirm: false` stops on it). On a grid menu (a battle's) it reaches the column first. Every leg ends on the game's state, never a frame count |
@@ -339,7 +340,8 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   own Rewired actions by name, an axis with a sign: `Confirm`, `XAxis+`), `sequence`, `advance_text` (a conversation line by line:
   Confirm tapped once a line has stood 30 frames unchanged, the item box logged and confirmed the same way; ends `closed`,
   `window_open` -- a tutorial window, its words in `screen_text` --, or `stuck` after 6 taps with no change; a `log` of each
-  line), `reflex` `fight` (below), `screenshot` (the game's own frame).
+  line), `reflex` `fight` (below), `clock` (a postfix on the game's own per-frame `GameSystem.TimeScale` setting 0 while held;
+  `extras.clock`), `screenshot` (the game's own frame).
   **`reflex` `fight`** `{type?, range?, stop_hp?}`: the nearest living enemy in view (never one with 99999 HP: a blastorb, which
   is knocked into things, not fought), followed frame by frame -- held toward
   outside melee `range` (110), faced and Attack tapped inside it, a jump when it is above or she is stuck, Orbitars when it

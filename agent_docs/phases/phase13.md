@@ -38,6 +38,7 @@ here adds its heading as one line under "The plan and the shared core".**
 - 2026-09-17 (the TEVI chat) — how an agent sees a game: the engine's state first, the clock held for fast games, detection only at tier 0
 - 2026-09-17 (the TEVI chat, next session) — `sequence`: a player's continuous movement in one call
 - 2026-09-17 (the TEVI chat, same session) — `reflex`: a program at game speed that ends on the game's state
+- 2026-09-17 (the TEVI chat, same session) — layer 3, `clock`: game time held, stepped, and advanced by input
 - 2026-09-17 (the Emerald chat, the learn-a-move question) — questions asked outside a battle's screen, a scene that takes no input, and `battle`'s `forget`
 - 2026-09-17 (the Emerald chat, the bag in a battle) — `battle`'s `stop_hp_below`
 - 2026-09-17 (the Emerald chat, the story to Dewford) — `battle`'s `manual`; `talk` keeps trying a pacing character
@@ -1544,3 +1545,16 @@ four kinds defeated, one out of reach answered `unreachable` (the measurements i
 **Seen, not fixed (shared):** `goto` classifies a story script taking the controls mid-route as `no_response` on the exit it was
 using and sets that exit aside (Rustboro's DEVON scenes, three times), and once answered `left_overworld`; and when a core closed
 while `battle` ran (a tool call interrupted), the driver did not connect to the next core until it was reloaded.
+
+## 2026-09-17 (the TEVI chat, same session) — layer 3, `clock`: game time held, stepped, and advanced by input
+
+**What changed in the shared core**: a new tool `clock` (`server.go`): `action` `hold`, `step` (with `frames`, 1-600) or `release`,
+forwarded to a driver that announces `clock`. Test: `TestClockValidatesAndForwards`. The semantics every driver owes: a hold lasts
+until released, across cores; while held, a request carrying input (`press`, `sequence`, `reflex`, `advance_text`) runs game time for
+exactly its own frames; `wait` does not; `observe` reads the frozen state.
+
+**Why**: the approved plan's layer 3, "the clock held while the model decides" (the entry "how an agent sees a game"), measured on
+TEVI first as it said. BizHawk's driver does not announce it yet (its pause and frame advance are the obvious mechanism).
+
+**Checked.** `go vet ./...` and `go test -count=1 ./...` in `autoplay/`, green. Live on TEVI: the player held mid-jump for 150 frames,
+a 20-frame step, a 1-frame step, and a 30-frame sequence run while held (`adapters/tevi/MEASURED.md`, "Holding the clock").
