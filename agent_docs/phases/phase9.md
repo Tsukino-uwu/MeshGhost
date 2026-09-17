@@ -1558,5 +1558,5 @@ built by writing the tileset's own ledge and water blocks into the map with the 
 
 ## 2026-09-17 — pointer: autoplay's Crystal probes and measurements, logged in phase13.md
 
-The `autoplay_*` probes (state, text, charset, map, font, battle, move write) and their `crystal/MEASURED.md` entries,
+The `autoplay_*` probes (state, text, charset, map, font, battle, move write, trainer, bag) and their `crystal/MEASURED.md` entries,
 from the Crystal chat's autoplay steps: all of it is in `phase13.md`; none of it touches `meshghost_crystal.lua`.

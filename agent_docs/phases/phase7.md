@@ -3810,3 +3810,8 @@ records `426bace6` are logged in `phase10.md` ("the fifth adversarial review, Go
 `phase12.md`, with what stayed open in `risks.md` ("Pass 5, left open"). `c7dfeb55` added
 `pseudoregalia/MEASURED.md`, the record for code-level facts the user asked for, logged in
 `phase13.md` (step 5); its entries are still to be sorted in from `UNVERIFIED.md` (`status.md`).
+
+## 2026-09-17 — pointer: one rule moved into `pseudoregalia/CLAUDE.md` from agent memory
+
+"A fix is proven in Lua too, before its C++ is written" (the user, 2026-09-04), moved out of agent memory with the rig
+rules that went to `running-the-rig.md` (`877e24a1`; `phases/phase13.md`, the Emerald chat's session end). No adapter code changed.

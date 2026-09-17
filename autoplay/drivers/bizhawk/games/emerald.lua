@@ -150,6 +150,10 @@ end
 -- What the game has printed and not yet cleared, per window id: { {x, y, bytes} }. Strings are
 -- copied when printing starts, since the buffer they come from is reused by the next one.
 local shown = {}
+-- Windows whose last print was instant (speed 0 or 255), which never touches the window's text printer: on the wall
+-- clock's screen "Is this the correct time?" was drawn so into window 0 while its printer still held the finished
+-- "Better set it and start it!" (2026-09-17). A finished printer there is not what the window shows.
+local instantPrinted = {}
 local dialogue = nil -- { window, bytes, start }: the last string printed letter by letter
 local menuWindow = nil
 -- Whether the last menu set up was a grid: the struct's column count is left over from the last grid when a
@@ -181,6 +185,9 @@ function hooks.addTextPrinter()
 	-- Speed 0 and 255 print at once (the START menu's items and cursor); anything else runs a printer.
 	if speed ~= 0 and speed ~= 255 then
 		dialogue = { window = w, bytes = bytes, start = ptr }
+		instantPrinted[w] = nil
+	else
+		instantPrinted[w] = true
 	end
 end
 function hooks.fillWindowPixelBuffer()
@@ -207,7 +214,7 @@ function hooks.menuGridCursor()
 end
 -- A new screen's windows: nothing printed or opened before belongs to any window id now.
 function hooks.initWindows()
-	shown, dialogue, menuWindow = {}, nil, nil
+	shown, dialogue, menuWindow, instantPrinted = {}, nil, nil, {}
 end
 
 local HOOKS = {
@@ -321,7 +328,7 @@ end
 local function recoverDialogue()
 	for w = 0, 31 do
 		local active = printerActive(w)
-		if (active and windowOnScreen(w)) or (not active and windowPut(w) and windowHasPixels(w)) then
+		if (active and windowOnScreen(w)) or (not active and not instantPrinted[w] and windowPut(w) and windowHasPixels(w)) then
 			local ptr = r32(STEXTPRINTERS + w * PRINTER_SIZE)
 			local start, bytes
 			for _, buf in ipairs(TEXT_BUFFERS) do
@@ -1151,7 +1158,7 @@ end
 
 -- After a snapshot is loaded: the text seen so far belongs to the memory that was replaced.
 function game.restored()
-	shown, dialogue, menuWindow = {}, nil, nil
+	shown, dialogue, menuWindow, instantPrinted = {}, nil, nil, {}
 end
 
 -- `asked` is true for the agent's own observe; the before and after of a press, a select or a walk leave
@@ -1814,13 +1821,16 @@ game.programs["goto"] = function(p)
 	-- only when the player, standing on them, pressed right and down; a town door (0x69, collision set) is
 	-- walked up into from the tile below it (a Pokémon Center's, 2026-09-16). So a goto to a warp goes onto it,
 	-- or below a door, and holds that direction until the map changes. `entered` names the warp in the answer.
-	local enter, warpX, warpY = nil, toX, toY
+	-- A warp entered by a press on it is stepped onto from rest: from the new game's truck (snapshot `ng_truck_fast`, the
+	-- door open), a held walk right 2 bumped at the door (4,2) after one tile, and two walks of 1 each landed on it
+	-- (2026-09-17). So the ride lets go one tile short, comes to rest, and takes the last step alone.
+	local enter, warpX, warpY, restBefore = nil, toX, toY, false
 	for _, w in ipairs(readWarps()) do
 		if w.x == toX and w.y == toY then
 			if w.behaviour == 0x69 then
 				toY, enter = toY + 1, DIRECTIONS.up
 			elseif WARP_PRESS[w.behaviour] then
-				enter = DIRECTIONS[WARP_PRESS[w.behaviour]]
+				enter, restBefore = DIRECTIONS[WARP_PRESS[w.behaviour]], true
 			end
 		end
 	end
@@ -1911,6 +1921,10 @@ game.programs["goto"] = function(p)
 				li, legsTaken, turned = li + 1, legsTaken + 1, true
 			end
 			local leg = legs[li]
+			if restBefore and x + leg.d.dx == warpX and y + leg.d.dy == warpY then
+				phase = "coasting"
+				return nil, false
+			end
 			-- Not on a corner tile: letting go there would coast along the leg just finished.
 			if mach and not turned then
 				local dist = math.abs(leg.endX - x) + math.abs(leg.endY - y)

@@ -1068,3 +1068,31 @@ pockets, the Pokémon menu as a list, `movement` (bikes, surfing).
 `session_end_route31` (Route 31 at (15,14) in the grass, CYNDAQUIL L5 10/19 and BELLSPROUT L5 20/20, 9 item entries, 5
 POKé BALLs, money 3000, text speed FAST) beside this session's others in the gitignored `autoplay/states/crystal/`.
 Nothing is pushed. The core and `mcpcall` this chat ran were built into its own scratch folder; a new chat builds its own.
+
+## 2026-09-17 (the Emerald chat, end of the session) — the truck's door and the clock measured, memory moved into the repo, where to pick up
+
+**The user:** asked which agent memories belong in the repo (`877e24a1`: the rig rules into `running-the-rig.md`, text
+speed into the play-game skill, the rest checked against the repo and deleted where it already held them), then ended
+this chat and the Crystal chat to start two new ones as context grew.
+
+**Walked this session, from `ng_naming`:** "BRENDAN" typed and confirmed, Birch's speech to the truck, text speed FAST
+set in the truck, out of the truck, Mom's words, upstairs, and the wall clock's screen. Measured on the way
+(`emerald/MEASURED.md`, "The truck's door taken from rest, the wall clock's screen, and a question drawn instantly"):
+- **The truck's door refuses a held step and takes one from rest.** `goto` now lets go one tile short of a warp entered
+  by a press (the truck's door, a house mat) and takes the last step alone; from `ng_truck_fast` it entered in 73 frames.
+- **The clock's hours and minutes are words in task 0's data** (the new read-only `probes/task_probe.lua`). The reader
+  and a way to set a time are NOT built yet; `advance_text` still stops `stuck` there, without pressing.
+- **An instant print leaves a window's printer as it was**: "Is this the correct time?" read as the stale "Better set it
+  and start it!". The driver now skips a finished printer on a window whose last print was instant.
+
+**Left as it is:** EmuHawk on vanilla Emerald (port 7870, started by the Crystal chat for its check) still running, the
+loader target `dev-scripts/bizhawk-dev-loader-autoplay.target` at `none`, the game on RICK's restored challenge. Named
+snapshots in the gitignored `autoplay/states/emerald/`, newest first: `ng_clock` (the clock screen), `ng_room`,
+`ng_truck_fast` (FAST text), `ng_truck`, `ng_naming` (the keyboard, "H" typed, MID text), `ng_gender`,
+`fast_text_route102` (the old save, route 0.17, FAST), `rick_battle_start`, `rick_challenge`, and the earlier ones
+(`acc_before_may`, `new_game`, ...). Only `ng_truck_fast` and later, and `fast_text_route102`, carry FAST. Nothing is
+pushed; once it is, read `gh run list -L 5` (this session changed `autoplay/` Go: the scenario runner, `type_text`).
+
+**Next for Emerald:** the clock reader (measured) and the starter bag's reader, both on the new game's path from
+`ng_clock`; then `exec` and noclip. Open with the user, from the Crystal chat's end: moving the route planner out of
+`emerald.lua` into shared Lua so Crystal gets `goto`.

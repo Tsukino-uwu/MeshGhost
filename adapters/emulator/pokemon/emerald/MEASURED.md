@@ -61,6 +61,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - A move's animation holds a battle's next message (2026-09-17)
 - A finished message's printer and window, and a stale one (2026-09-17)
 - The naming keyboard, and a blank box put back after it (2026-09-17)
+- The truck's door taken from rest, the wall clock's screen, and a question drawn instantly (2026-09-17)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -652,6 +653,31 @@ from the build hashed identical to the ROM; meanings as below.
   finished box read 8 values, mostly 11.
 - **Not seen**: a nickname's keyboard (its title and length), pressing A on the page or BACK button, B with nothing
   typed, the pages' blank keys typed, any other language's keyboard.
+
+### The truck's door taken from rest, the wall clock's screen, and a question drawn instantly (2026-09-17)
+
+**Vanilla ROM, the new game "BRENDAN"** from the snapshot `ng_naming`: the truck (`ng_truck_fast`, text speed FAST), the
+room upstairs (`ng_room`) and the clock (`ng_clock`), all gitignored. From autoplay's own answers, captures
+(`dev-scripts/shots/emerald/autoplay_ng_*`, `autoplay_clk_*`, gitignored) and the new `probes/task_probe.lua`
+(read-only: every active task of the build's gTasks whole, on change, with the pad).
+
+- **The truck's door.** With the door open (its three warp tiles reading behaviour 0x62), a held walk right 2 from (2,2)
+  took one tile and bumped at (4,2); from the same snapshot, walk right 1 twice landed on (4,2), the second from rest.
+  Right pressed there warped to 0.9 after 21 frames. autoplay's `goto` (4,2), releasing a tile short, then entered
+  in 73 frames.
+- **The clock screen.** A toward the room's clock from (5,2) printed "The clock is stopped…" and "Better set it and
+  start it!", then callback2 read 0x08134C9D. Task 0 ran 0x08134CE9 while the hands turned, and the s16 words of its data
+  (from the task's +8, offsets below within them) read, drawn at 10:00 AM: +0 0, +2 300, +4 10, +6 0, +8 0, +10 0, +12 0.
+  One Right made +6 1 and +0 6. Right held for 60 frames raised +6 by one every 6 frames to 11, +2 reading 305 from
+  11, +8 reading 2 and +12 counting 1 to 10; Left made +6 10 and +8 1; each release set +8 and +12 back to 0. The capture after each showed 10:11 and 10:10 AM. So +4 and +6 are the hours and
+  minutes shown, and +0 and +2 the hands' angles; +10 read 0 with AM drawn, and PM was not seen.
+- **Its question.** A moved task 0 to 0x08134DC5 and then 0x08134E31, and "Is this the correct time?" was drawn with a
+  YES/NO that autoplay's `menu` read (cursor on NO). That question was drawn at once into window 0 while the window's
+  printer still pointed past "Better set it and start it!"'s FF, so the driver had taken that up as a finished message;
+  an instant print leaves the printer as it was (`text_probe.lua`'s w=1 printer stayed zero through instant prints,
+  2026-09-16).
+- **Not seen**: PM, the hours turning past 12, YES chosen and what the game then does, a door of this kind entered on a
+  bike.
 
 ## Not measured yet
 
