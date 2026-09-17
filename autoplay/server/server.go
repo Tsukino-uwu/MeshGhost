@@ -31,10 +31,12 @@ const CallTimeout = 10 * time.Second
 const MaxPressFrames = 600
 
 // Options are what the server needs besides the hub. A zero Options is valid: no run log, snapshots
-// under "states", and no exec.
+// under "states", the knowledge store under "games", and no exec.
 type Options struct {
 	Log       *runlog.Log
 	StatesDir string
+	// GamesDir holds each game's knowledge store (games/<game>/goals.json, ...).
+	GamesDir string
 	// ExecToken is this session's token (WriteExecToken); exec refuses while it is empty.
 	ExecToken string
 }
@@ -45,7 +47,10 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 	if opts.StatesDir == "" {
 		opts.StatesDir = "states"
 	}
-	t := &tools{hub: hub, log: opts.Log, statesDir: opts.StatesDir, execToken: opts.ExecToken}
+	if opts.GamesDir == "" {
+		opts.GamesDir = "games"
+	}
+	t := &tools{hub: hub, server: s, log: opts.Log, statesDir: opts.StatesDir, gamesDir: opts.GamesDir, execToken: opts.ExecToken}
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "status",
@@ -222,6 +227,24 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 	}, logged(t, "exec", func(ExecIn) string { return "exec" }, t.exec))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name: "goal",
+		Description: "Check the game's goals -- the milestones in its knowledge store's goals.json, in story order -- " +
+			"against the game as observe reads it now. With id, that goal: met, or each expectation that does not hold. " +
+			"Without, every goal's id and whether it is met. Either way `next`, the goal after the last one met (why it " +
+			"is not met yet, and hints: where route.md tells the way), and all_met. Reading only.",
+	}, logged(t, "goal", nil, t.goal))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "run_skill",
+		Description: "Run a stored skill: one tool call, and rules for what to call on each answer, made by the core with " +
+			"no model between the calls -- a trip that fights what spots it and reads what stops it, in one call. `name` " +
+			"is its file in the game's skills folder, `args` its params. Every call it makes is an ordinary tool call, " +
+			"logged and labelled walked or reached as yours are. Ends done, stopped (a rule's stop, with its note), " +
+			"no_rule (an answer no rule covers: yours to decide, in last), max_calls or tool_error; returns the calls made, " +
+			"a trail of each call's outcome and the rule that followed it, and the last answer whole.",
+	}, logged(t, "run_skill", nil, t.runSkill))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name: "segment",
 		Description: "Close the current run segment and start a new one with a label. Returns the " +
 			"closed segment, labelled walked or reached by what happened in it.",
@@ -232,14 +255,21 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 
 type tools struct {
 	hub       *driver.Hub
+	server    *mcp.Server
 	log       *runlog.Log
 	statesDir string
+	gamesDir  string
 	execToken string
 
 	// The cheats still in effect as the driver last said, for the connection it said it on.
 	persistMu    sync.Mutex
 	persistGen   uint64
 	persistKinds []string
+
+	// The session skills call tools through (self).
+	selfOnce    sync.Once
+	selfSession *mcp.ClientSession
+	selfErr     error
 }
 
 // logged wraps a handler so every call lands in the run log. reachedBy, when given, names what a
@@ -251,13 +281,45 @@ func logged[In, Out any](t *tools, name string, reachedBy func(In) string, h mcp
 		if reachedBy != nil {
 			by = reachedBy(in)
 		}
-		t.log.Call(name, in, err, by)
+		outcome := ""
+		if err == nil {
+			outcome = outcomeOf(out)
+		}
+		t.log.CallOutcome(name, in, err, by, outcome)
 		// A call made while a cheat is still in effect belongs to a segment that cheat reaches, whenever it began.
 		for _, on := range t.stillOn() {
 			t.log.InEffect(on)
 		}
 		return res, out, err
 	}
+}
+
+// MaxOutcomeBytes bounds the outcome word the run log keeps from an answer.
+const MaxOutcomeBytes = 64
+
+// outcomeOf is an answer's top-level "outcome" when it is a short string -- the word every program ends on ("done",
+// "spotted", "stuck") -- and "" otherwise. It is kept as a label, the way a driver's "persisting" is: the rest of the
+// answer is still passed through unread.
+func outcomeOf(answer any) string {
+	var word any
+	switch a := answer.(type) {
+	case interface{ OutcomeWord() string }:
+		word = a.OutcomeWord()
+	case json.RawMessage:
+		var probe struct {
+			Outcome any `json:"outcome"`
+		}
+		if json.Unmarshal(a, &probe) != nil {
+			return ""
+		}
+		word = probe.Outcome
+	case map[string]any:
+		word = a["outcome"]
+	}
+	if w, ok := word.(string); ok && len(w) <= MaxOutcomeBytes {
+		return w
+	}
+	return ""
 }
 
 // StatusOut is the status tool's answer.
@@ -641,6 +703,7 @@ var kindPattern = regexp.MustCompile(`^[a-z_]{1,32}$`)
 // SnapshotIn is the snapshot tool's input.
 type SnapshotIn struct {
 	Label string `json:"label" jsonschema:"a name for the state: letters, digits, _ or -, up to 64"`
+	Note  string `json:"note,omitempty" jsonschema:"what the state is, for the snapshot index: where, what just happened, what comes next"`
 }
 
 // RestoreIn is the restore tool's input.
@@ -673,6 +736,9 @@ func (t *tools) snapshot(ctx context.Context, _ *mcp.CallToolRequest, in Snapsho
 	if err != nil {
 		return nil, nil, err
 	}
+	if len(in.Note) > MaxNoteBytes {
+		return nil, nil, fmt.Errorf("a note is at most %d bytes, got %d", MaxNoteBytes, len(in.Note))
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, nil, err
 	}
@@ -689,7 +755,11 @@ func (t *tools) snapshot(ctx context.Context, _ *mcp.CallToolRequest, in Snapsho
 	if before != nil && !after.ModTime().After(before.ModTime()) {
 		return nil, nil, fmt.Errorf("the driver answered but %s was not rewritten", path)
 	}
-	return nil, map[string]any{"label": in.Label, "path": path, "bytes": after.Size(), "driver": raw}, nil
+	answer := map[string]any{"label": in.Label, "path": path, "bytes": after.Size(), "driver": raw}
+	if err := t.indexSnapshot(path, in.Label, in.Note); err != nil {
+		answer["index_error"] = err.Error()
+	}
+	return nil, answer, nil
 }
 
 func (t *tools) restore(ctx context.Context, _ *mcp.CallToolRequest, in RestoreIn) (*mcp.CallToolResult, any, error) {

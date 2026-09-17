@@ -47,6 +47,8 @@ func TestParseRefuses(t *testing.T) {
 		"error and expect":                {`{"name":"a","game":"g","steps":[{"tool":"wait","error":"x","expect":[{"path":"x","exists":true}]}]}`, "not both"},
 		"exists false and equals":         {`{"name":"a","game":"g","steps":[{"tool":"wait","expect":[{"path":"x","exists":false,"equals":1}]}]}`, "cannot be combined"},
 		"an empty one_of":                 {`{"name":"a","game":"g","steps":[{"tool":"wait","expect":[{"path":"x","one_of":[]}]}]}`, "one_of is empty"},
+		"share_of with no min or max":     {`{"name":"a","game":"g","steps":[{"tool":"wait","expect":[{"path":"x","share_of":"y","exists":true}]}]}`, "share_of needs min or max"},
+		"share_of with equals":            {`{"name":"a","game":"g","steps":[{"tool":"wait","expect":[{"path":"x","share_of":"y","max":1,"equals":1}]}]}`, "share_of takes only min and max"},
 		"two documents":                   {`{"name":"a","game":"g","steps":[{"tool":"wait"}]} {}`, "more than one"},
 		"a bad tool name":                 {`{"name":"a","game":"g","steps":[{"tool":"Wait"}]}`, "tool must"},
 	}
@@ -114,7 +116,8 @@ func TestLookup(t *testing.T) {
 
 func TestCheckOperators(t *testing.T) {
 	var answer any
-	json.Unmarshal([]byte(`{"n": 2, "s": "spotted", "b": false, "z": null, "list": ["A", 3], "obj": {"k": [1, 2]}}`), &answer)
+	json.Unmarshal([]byte(`{"n": 2, "s": "spotted", "b": false, "z": null, "list": ["A", 3], "obj": {"k": [1, 2]},
+	  "party": [{"hp": 30, "max_hp": 60}], "zero": 0}`), &answer)
 	cases := []struct {
 		expect string
 		fails  string // "" when it holds, else text the reason contains
@@ -144,6 +147,12 @@ func TestCheckOperators(t *testing.T) {
 		{`{"path":"list","contains":"B"}`, "a list holding"},
 		{`{"path":"n","contains":2}`, "needs text or a list"},
 		{`{"path":"missing","equals":1}`, "missing: nothing there"},
+		{`{"path":"party.0.hp","share_of":"party.0.max_hp","max":0.5}`, ""},
+		{`{"path":"party.0.hp","share_of":"party.0.max_hp","max":0.4}`, "at most 0.4, got 0.5"},
+		{`{"path":"party.0.hp","share_of":"party.0.max_hp","min":0.6}`, "at least 0.6, got 0.5"},
+		{`{"path":"party.0.hp","share_of":"zero","max":1}`, "above 0"},
+		{`{"path":"party.0.hp","share_of":"s","max":1}`, "want a number over a number"},
+		{`{"path":"party.0.hp","share_of":"missing","max":1}`, "want a number over a number"},
 	}
 	for _, c := range cases {
 		var e Expect

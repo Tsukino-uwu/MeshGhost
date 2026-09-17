@@ -44,11 +44,13 @@ Claude Code --MCP (stdio)--> autoplay core --JSON lines (127.0.0.1)--> driver in
 | `screenshot` | The game frame, saved to `dev-scripts/shots/<game>/autoplay_<name>.png` and returned as an image. `annotate` (a driver announcing `screenshot:annotate`): what the driver reads drawn onto it, listed in the answer. TEVI's: the game's own hitbox drawing and numbered tags on characters, items and elements |
 | `recent` | The flight recorder: the driver's last frames of game time, a row a frame, read after an event to see what led to it: `frames` (1-600) ending at `until_frame` (an event's frame), one row every `every`. Frames while the clock is held are not recorded. TEVI's: 60 seconds of position, speed, input, the nearest characters (animation, logic state) and the nearest boxes that can hurt her |
 | `events` | Events the driver reported since a sequence number |
-| `snapshot` | Save the whole game state to `autoplay/states/<game>/<label>.State` — a named file, never a numbered slot, so no slot of anyone's is ever touched |
+| `snapshot` | Save the whole game state to `autoplay/states/<game>/<label>.State` — a named file, never a numbered slot, so no slot of anyone's is ever touched. `note` says what the state is; each snapshot adds a line to that folder's `index.ndjson` (label, time, note, the run log and the segment's walked or reached) |
 | `restore` | Load a named snapshot. **Marks the segment REACHED** |
 | `cheat` | A kind the driver announced as `cheat:<kind>`, with its arguments. **Marks the segment REACHED**. A cheat that stays in effect (a noclip) is named in the answer's `persisting` and reaches every segment while it is on (The run log) |
 | `exec` | Runs `code` in the driver's host -- Lua in BizHawk, for every game -- and returns `results` (what it returns) and `output` (what it prints); the escape hatch for a question no tool answers yet. The core writes a fresh token to `runs/exec_token_<port>.txt` when it starts (`-exec-token` names another file) and removes it when it stops, and the driver runs nothing whose token is not that file's. The code gets its own globals (the driver's are read through them, never written), `game` (the module) and `print`, and is stopped after 20,000,000 instructions. **Marks the segment REACHED**. Off in the scenario runner |
 | `segment` | Close the current run segment and start a labelled one; returns the closed one as walked or reached |
+| `goal` | The game's goals (The knowledge store) checked against an `observe` made for it: with `id`, that goal `met` or each expectation that fails; without, every goal's id and `met`. Always `next`, the goal after the last one met, with its `hints`, and `all_met`. Reading only |
+| `run_skill` | A stored skill (The knowledge store) by `name`, with its `args`: its call, then whatever call its rules name for each answer, made by the core with no model between. Each is an ordinary tool call, logged and labelled as the agent's own. Ends `done`, `stopped` (a rule's stop, its note in `reason`), `no_rule` (an answer no rule covers: the caller's to decide, whole in `last`), `max_calls` or `tool_error`; `calls` counts every tool call, a nested skill's included, and `trail` lists each with its outcome and the rule that followed |
 
 ## What observe reads
 
@@ -185,9 +187,31 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
   water (0x29) and takes land only as the target, a step ashore; it answers
   `map_changed` once the player stands on the new map), and the `warp`, `give_item` and `set_flag` cheats.
 
+## The knowledge store
+
+What a session learned, for the next one to read: `games/<game>/` (tracked), beside `scenarios/`. **Measured or observed
+only**: every fact names its run log or record and date, and what a model knows of a game from anywhere else is where to
+look, never a fact (`agent_docs/licensing.md`). Each file is kept under about 8 KB and consolidated in place, never
+appended to as a diary. No snapshot is named in any of it: snapshots stay in the gitignored `states/`.
+
+- **`game.md`** — how to play the game with these tools, and the user's dated guidance. It points to the adapter's
+  `MEASURED.md` and this README rather than repeating them.
+- **`route.md`** — the way through the game as it was walked: maps, warps, where each building is, what was met.
+- **`goals.json`** — the milestones in story order: `{game, variant, goals: [{id, description, done_when, hints, note}]}`.
+  `done_when` is a list of scenario expectations (Scenarios) on an `observe` answer, all of which must hold. The next goal
+  is the one after the last goal met, so a goal checked by where the player stands may stop holding once passed.
+- **`skills/<name>.json`** — `{name, game, variant, description, params, call, rules, max_calls, succeeded, draft, note}`.
+  `params` names each argument and its kind (`string`, `number`, `bool`, `any`), all required; a string that is exactly
+  `"$name"` in any call's `args` is that argument. `call` is `{tool, args}` or `{skill, args}`, made first and again on
+  `repeat`. Each rule is `{after, when, then, note}`: after the call named `after` (a tool's name, or `skill:<name>`), the
+  first rule whose `when` expectations all hold decides `then` -- `done`, `stop`, `repeat`, or the next call. `max_calls`
+  (default 40) ends a run. **Kept only once it has succeeded twice**: `succeeded` names both runs, or `draft: true` while it
+  is proved. Refused before its first call: an unknown field, a rule no call reaches, a `$name` not in `params`, arguments
+  that do not match, a tool the server lacks, `run_skill` or `segment` as a call, skills nested deeper than 4.
+
 ## The run log
 
-Every session writes `autoplay/runs/<time>.ndjson`: each tool call, and each segment labelled
+Every session writes `autoplay/runs/<time>.ndjson`: each tool call (with its answer's `outcome` word, when it has one), and each segment labelled
 **walked** or **reached**. A segment starts walked and becomes reached the moment a cheat or a restore
 succeeds in it, with what did it — the play-game skill's "walked to X" versus "reached X", kept by
 code rather than by memory. A failed or refused cheat changes nothing. **A cheat still in effect** -- one the
@@ -210,7 +234,8 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   answer, and every one must hold. A path is keys and indices joined by dots (`after.location.x`, `log.0.text`),
   and `key[field=value]` picks an array's first element whose field reads value
   (`after.nearby[local_id=3].trainer.range`). Operators: `equals`, `not_equals`, `one_of`, `exists`, `min`,
-  `max`, `contains`. A step with `error` instead expects the tool to refuse, with that text in the refusal.
+  `max`, `contains`; and `share_of`, a second path the number is divided by before `min` or `max` (`party.0.hp` share_of
+  `party.0.max_hp`, max 0.5: at half HP or below). A step with `error` instead expects the tool to refuse, with that text in the refusal.
 - **Strict on purpose**: an unknown field, an expectation with no operator, or a tool the server lacks is
   refused before anything runs, since a misspelled check would pass forever. `restore` and `snapshot` are
   refused too: a scenario makes its situation with cheats.

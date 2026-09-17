@@ -75,9 +75,12 @@ type Expect struct {
 	Max    *float64 `json:"max,omitempty"`
 	// Contains: a string at Path contains it, or an array at Path has an element equal to it.
 	Contains json.RawMessage `json:"contains,omitempty"`
-	Note     string          `json:"note,omitempty"`
+	// ShareOf is a second path: the number at Path is divided by the number there (above 0) before Min and Max,
+	// the only operators it takes ("party.0.hp" share_of "party.0.max_hp", max 0.5: at half HP or below).
+	ShareOf string `json:"share_of,omitempty"`
+	Note    string `json:"note,omitempty"`
 
-	segs []pathSeg
+	segs, shareSegs []pathSeg
 }
 
 var namePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
@@ -175,12 +178,27 @@ func (st *Step) check() error {
 	return nil
 }
 
+// Prepare checks an expectation read from a file other than a scenario's (a goal's, a skill's) and readies it for
+// Check, as loading a scenario does for its own.
+func (e *Expect) Prepare() error { return e.check() }
+
 func (e *Expect) check() error {
 	segs, err := parsePath(e.Path)
 	if err != nil {
 		return err
 	}
 	e.segs = segs
+	if e.ShareOf != "" {
+		if e.shareSegs, err = parsePath(e.ShareOf); err != nil {
+			return fmt.Errorf("share_of: %w", err)
+		}
+		if e.Min == nil && e.Max == nil {
+			return errors.New("share_of needs min or max")
+		}
+		if e.Equals != nil || e.NotEquals != nil || e.OneOf != nil || e.Exists != nil || e.Contains != nil {
+			return errors.New("share_of takes only min and max")
+		}
+	}
 	given := 0
 	for _, set := range []bool{e.Equals != nil, e.NotEquals != nil, e.OneOf != nil, e.Exists != nil,
 		e.Min != nil, e.Max != nil, e.Contains != nil} {
@@ -332,6 +350,15 @@ func (e *Expect) Check(answer any) string {
 	}
 	if !ok {
 		return fmt.Sprintf("%s: nothing there", e.Path)
+	}
+	if e.ShareOf != "" {
+		n, isNum := got.(float64)
+		whole, found := lookup(answer, e.shareSegs)
+		d, dNum := whole.(float64)
+		if !isNum || !found || !dNum || d <= 0 {
+			return fmt.Sprintf("%s share_of %s: want a number over a number above 0, got %s over %s", e.Path, e.ShareOf, show(got), show(whole))
+		}
+		got = n / d
 	}
 	if e.Equals != nil {
 		if want := decode(e.Equals); !reflect.DeepEqual(got, want) {

@@ -33,6 +33,7 @@ func main() {
 	logPath := flag.String("log", "", "append log lines to this file instead of stderr")
 	runsDir := flag.String("runs", "runs", "folder for this session's run log (gitignored)")
 	statesDir := flag.String("states", "states", "folder for named snapshots (gitignored)")
+	gamesDir := flag.String("games", "games", "folder of each game's knowledge store: goals.json, skills/ (tracked)")
 	resume := flag.String("resume", "", "carry on this run log instead of starting one, its open segment included")
 	execToken := flag.String("exec-token", "", "file for this session's exec token; default <runs>/exec_token_<port>.txt, where the BizHawk driver looks")
 	flag.Parse()
@@ -95,7 +96,7 @@ func main() {
 		logger.Printf("exec token written to %s", tokenPath)
 	}
 
-	srv := server.New(hub, version, server.Options{Log: runs, StatesDir: *statesDir, ExecToken: token})
+	srv := server.New(hub, version, server.Options{Log: runs, StatesDir: *statesDir, GamesDir: *gamesDir, ExecToken: token})
 	if err := srv.Run(ctx, &mcp.StdioTransport{}); err != nil && ctx.Err() == nil {
 		logger.Printf("mcp: %v", err)
 	}

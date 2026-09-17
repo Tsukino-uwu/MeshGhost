@@ -153,6 +153,12 @@ func (l *Log) Path() string {
 // Call records one tool call. reachedBy names what the call did to the world when it succeeds by
 // other means than play ("cheat:warp", "restore"); empty for play and for reads.
 func (l *Log) Call(tool string, args any, err error, reachedBy string) {
+	l.CallOutcome(tool, args, err, reachedBy, "")
+}
+
+// CallOutcome is Call with the answer's outcome, the word a program ends on ("done", "stuck"), when it has one: a
+// session's report counts the stops from the log without reading any answer.
+func (l *Log) CallOutcome(tool string, args any, err error, reachedBy, outcome string) {
 	if l == nil {
 		return
 	}
@@ -163,6 +169,9 @@ func (l *Log) Call(tool string, args any, err error, reachedBy string) {
 	}
 	if err != nil {
 		rec["error"] = err.Error()
+	}
+	if outcome != "" {
+		rec["outcome"] = outcome
 	}
 	if err == nil && reachedBy != "" {
 		l.seg.Claim = "reached"
