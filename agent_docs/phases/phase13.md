@@ -37,6 +37,7 @@ here adds its heading as one line under "The plan and the shared core".**
 - 2026-09-17 (the Emerald chat, the first badge) — `select` presses confirm again; routes out of a trainer's sight preferred
 - 2026-09-17 (the TEVI chat) — how an agent sees a game: the engine's state first, the clock held for fast games, detection only at tier 0
 - 2026-09-17 (the TEVI chat, next session) — `sequence`: a player's continuous movement in one call
+- 2026-09-17 (the TEVI chat, same session) — `reflex`: a program at game speed that ends on the game's state
 - 2026-09-17 (the Emerald chat, the learn-a-move question) — questions asked outside a battle's screen, a scene that takes no input, and `battle`'s `forget`
 - 2026-09-17 (the Emerald chat, the bag in a battle) — `battle`'s `stop_hp_below`
 
@@ -1509,3 +1510,18 @@ game. moving smooth as a player would is always the goal"* ([autoplay/tevi.md](a
 
 **Checked.** `go vet ./...` and `go test -count=1 ./...` in `autoplay/`, green, on the staged tree alone. Live on TEVI: three jumps and
 a run onto a ledge as one call, stopped by `damage_taken` at frame 145; a 12-tap combo stopped by `enemy_defeated` at frame 66.
+
+## 2026-09-17 (the TEVI chat, same session) — `reflex`: a program at game speed that ends on the game's state
+
+**What changed in the shared core**: a new tool `reflex` (`server.go`): `kind` (a kind the driver announced as `reflex:<kind>`, the
+same shape as `cheat:<kind>`), `args` passed through unread, and `frames` (default 600, at most 3600) setting the timeout. It is
+ordinary input, so the segment keeps its label. Test: `TestReflexValidatesAndForwards` (an unannounced kind refused, a closed segment
+still walked after one).
+
+**Why**: the user, watching TEVI's enemies: *"need a better way to keep track of/be aware of moving enemies ... you can't just always
+stop in place and attack hopping that they will walk towards you"* ([autoplay/tevi.md](autoplay/tevi.md), same date). The plan's layer
+2: the model starts it, the driver reads the game every frame and picks the next frame's input. TEVI's first kind is `fight`;
+BizHawk's driver announces none.
+
+**Checked.** `go vet ./...` and `go test -count=1 ./...` in `autoplay/`, green, on the staged tree alone. Live on TEVI: five enemies of
+four kinds defeated, one out of reach answered `unreachable` (the measurements in `adapters/tevi/MEASURED.md`).
