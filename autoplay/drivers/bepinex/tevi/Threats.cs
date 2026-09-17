@@ -142,7 +142,9 @@ namespace MeshGhostAutoplay.Tevi
         private const int HomingFrames = 6;
         private static readonly Dictionary<int, int> TurningToward = new Dictionary<int, int>();
 
-        private const float TouchReach = 48f, StillSpeed = 0.5f;
+        // StillSpeed 3: orbs hanging on blastvines sway a little every frame, and read as moving at 0.5 they froze goto in place
+        // (2026-09-17); a knocked orb flies at 20-30 units a frame.
+        private const float TouchReach = 48f, StillSpeed = 3f;
 
         private static readonly Dictionary<int, Vector2> LastCentre = new Dictionary<int, Vector2>();
         private static readonly Dictionary<string, Vector2> BlastSize = new Dictionary<string, Vector2> { ["EnergyBall"] = new Vector2(405f, 405f) };

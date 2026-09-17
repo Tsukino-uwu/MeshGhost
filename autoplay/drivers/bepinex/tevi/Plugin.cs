@@ -855,7 +855,8 @@ namespace MeshGhostAutoplay.Tevi
         // on); each new line goes into the log, and the item box is logged and confirmed the same way. Ends `closed` once no
         // conversation has been open for SettleFrames and the game is not paused, `window_open` when paused with no conversation (a
         // tutorial window: its words are in observe's screen_text), or `stuck` after StuckTaps taps with no change.
-        private const int TapEvery = 30, SettleFrames = 90, StuckTaps = 6, AdvanceFrameLimit = 3 * 60 * 60;
+        // StuckTaps 12: a long line of Roleo's and one of Celia's stood through 6 taps and moved on at the next call (2026-09-17).
+        private const int TapEvery = 30, SettleFrames = 90, StuckTaps = 12, AdvanceFrameLimit = 3 * 60 * 60;
 
         private Func<JToken> AdvanceTextJob()
         {

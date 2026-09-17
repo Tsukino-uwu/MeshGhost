@@ -135,6 +135,7 @@ namespace MeshGhostAutoplay.Tevi
                 float reachDy = it.y - groundY;
                 if (dodge) guard.Look(p, groundY);
                 guard.StickX = attackMode == "ranged" ? (float?)null : it.x;
+                guard.PreferDrop = !inMeleeReach(p, target, attackMode); // falling beside a target, an air swing beats a quickdrop
 
                 // What the fight means to do this frame, as a move (for the dodge) and the tap that goes with it.
                 Dodge.Move want = Dodge.Move.Stay;
@@ -144,12 +145,9 @@ namespace MeshGhostAutoplay.Tevi
                 // Her ground swing reaches 139.5 ahead and 34 above and below her (a box 189 by 67.5 centred 45 ahead, MEASURED.md); it
                 // lands when that box meets the target's own.
                 bool inMelee = attackMode != "ranged" && Mathf.Abs(dx) <= MeleeReach + target.GetHitboxW() / 2f && Mathf.Abs(dy) <= MeleeHalfHeight + target.GetHitboxH() / 2f;
-                if (!onGround && attackMode != "ranged" && Mathf.Abs(dx) <= target.GetHitboxW() / 2f + 24f && dy < -40f && p.logicStatus.ToString() != "QUICKDROP")
-                {
-                    // Above it: quickdrop onto it, which hurts it and cannot be hurt by its body on the way.
-                    want = Dodge.Move.Drop;
-                }
-                else if (Mathf.Abs(dx) < minRange && onGround)
+                // No quickdrop as an attack: the user, 2026-09-17, "quickdrops do low damage and are slow, they should only be used for
+                // their iframes if other better damage options are available". The dodge still takes one to avoid a hit.
+                if (Mathf.Abs(dx) < minRange && onGround)
                 {
                     want = dx >= 0 ? Dodge.Move.Left : Dodge.Move.Right;
                 }
@@ -305,7 +303,7 @@ namespace MeshGhostAutoplay.Tevi
         }
 
         // The dodge's state for one reflex: the player's last height, for her vertical speed, and what it did.
-        private sealed class Guard
+        internal sealed class Guard
         {
             public int Dodges, Jumps;
             public JObject LastDodge;
@@ -376,6 +374,7 @@ namespace MeshGhostAutoplay.Tevi
             private Dodge.Start start;
 
             public float? StickX; // a fight's target x, set each frame: the dodge prefers plans that keep her near it
+            public bool PreferDrop = true; // falling, want a quickdrop (movement); a fight turns it off beside its target
 
             public Dodge.Move Check(CharacterBase p, Dodge.Move want, float groundY)
             {
@@ -384,7 +383,7 @@ namespace MeshGhostAutoplay.Tevi
                 // Falling, a quickdrop is wanted instead: the user, 2026-09-17, "prefer always using quickdrop instead of normally falling
                 // down. as its faster/makes it easier to react to attacks from enemies". The dodge still takes the plain fall when the drop
                 // would meet something.
-                if (!onGround && vyNow < 0f && p.logicStatus.ToString() != "QUICKDROP" && !Dodge.IsDrop(want))
+                if (PreferDrop && !onGround && vyNow < 0f && p.logicStatus.ToString() != "QUICKDROP" && !Dodge.IsDrop(want))
                 {
                     int d = Dodge.Dir(want);
                     want = d < 0 ? Dodge.Move.DropLeft : d > 0 ? Dodge.Move.DropRight : Dodge.Move.Drop;
@@ -485,6 +484,13 @@ namespace MeshGhostAutoplay.Tevi
                 }
             }
             return best;
+        }
+
+        private static bool inMeleeReach(CharacterBase p, CharacterBase target, string attackMode)
+        {
+            if (attackMode == "ranged" || p == null || target == null || p.t == null || target.t == null) return false;
+            float dx = target.t.position.x - p.t.position.x, dy = target.t.position.y - p.t.position.y;
+            return Mathf.Abs(dx) <= MeleeReach + target.GetHitboxW() / 2f + 60f && Mathf.Abs(dy) <= MeleeHalfHeight + target.GetHitboxH() / 2f + 60f;
         }
 
         private static bool ArmorRecovering(CharacterBase c)
