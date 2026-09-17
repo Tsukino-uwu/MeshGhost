@@ -3362,5 +3362,6 @@ above), and an input recording would say what they pressed there ("An INPUT plan
 the rooms and positions to head for next (a `goto` target list), where a player jumped, dropped or waited, and what was done
 at an element. The user, the same day: *"something like this would allow me to play, and then for the autoplay to see how i
 played/what i did"* -- the user plays a stretch with recording on, and autoplay reads that recording to learn the route and the
-moves the user chose there. It stays a map, not a script: the agent still plays through its own tools and the game runs the mechanism, and
+moves the user chose there. *"my path is never perfect/TAS, just a hint/suggestion on what to do"*: the recording is a hint,
+never a path to reproduce frame for frame, and autoplay may do better than it. It stays a map, not a script: the agent still plays through its own tools and the game runs the mechanism, and
 what it learns from the guide is checked against the game the way everything in autoplay's knowledge store is.
