@@ -11,7 +11,10 @@ import (
 // LOOPS (2026-09-17). Two unattended Emerald sessions spent minutes on calls that kept answering the same thing at the
 // same place -- a trip walking back into one message, a goto sliding back down a mud slope -- until the user saw it on
 // screen. Every call passes through logged, so the core watches them for every game: a call whose tool, arguments,
-// outcome word and place after it all match LoopRepeats of the last LoopWindow calls is a loop. Its answer gains a "loop"
+// outcome word, place after it and what it changed all match LoopRepeats of the last LoopWindow calls is a loop. What it
+// changed counts because a menu walked through stays at one place: three advance_text answering menu_open on 10.2 (4,5)
+// while an HM was taught were three messages, not a loop (attempt 2, 2026-09-17), and the sandstorm's message and the
+// mud slope changed the same thing every time. Its answer gains a "loop"
 // field saying so (a skill run ends there, outcome "loop"), and the run log a "loop" record. A call with no outcome word
 // (press, observe, a read) is not watched, and restore clears what was seen: a fight retried from a snapshot is a choice.
 const (
@@ -40,8 +43,8 @@ func (w *loopWatch) note(tool string, args any, outcome string, answer any) *Loo
 		return nil
 	}
 	a, _ := json.Marshal(args)
-	where := whereOf(answer)
-	key := tool + "\x00" + string(a) + "\x00" + outcome + "\x00" + where
+	where, changed := whereOf(answer), fieldOf(answer, "changed")
+	key := tool + "\x00" + string(a) + "\x00" + outcome + "\x00" + where + "\x00" + changed
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.seen = append(w.seen, key)
@@ -71,17 +74,9 @@ func (w *loopWatch) clear() {
 // whereOf is the place an answer says the player ended at: "after.location", "location", "at", or a skill run's
 // "last" answer's; numbers rounded to whole ones, so a position read to a fraction still compares. "" when none.
 func whereOf(answer any) string {
-	var m map[string]any
-	switch a := answer.(type) {
-	case json.RawMessage:
-		if json.Unmarshal(a, &m) != nil {
-			return ""
-		}
-	default:
-		b, err := json.Marshal(answer)
-		if err != nil || json.Unmarshal(b, &m) != nil {
-			return ""
-		}
+	m := objectOf(answer)
+	if m == nil {
+		return ""
 	}
 	for _, path := range [][]string{{"after", "location"}, {"location"}, {"at"}, {"last", "after", "location"}, {"last", "location"}} {
 		if v, ok := dig(m, path); ok {
@@ -90,6 +85,31 @@ func whereOf(answer any) string {
 		}
 	}
 	return ""
+}
+
+// fieldOf is an answer's top-level field, rounded as whereOf's place is; "" when it has none.
+func fieldOf(answer any, name string) string {
+	if v, ok := dig(objectOf(answer), []string{name}); ok {
+		b, _ := json.Marshal(rounded(v))
+		return string(b)
+	}
+	return ""
+}
+
+func objectOf(answer any) map[string]any {
+	var m map[string]any
+	switch a := answer.(type) {
+	case json.RawMessage:
+		if json.Unmarshal(a, &m) != nil {
+			return nil
+		}
+	default:
+		b, err := json.Marshal(answer)
+		if err != nil || json.Unmarshal(b, &m) != nil {
+			return nil
+		}
+	}
+	return m
 }
 
 func dig(m map[string]any, path []string) (any, bool) {

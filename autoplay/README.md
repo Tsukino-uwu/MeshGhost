@@ -249,8 +249,8 @@ through it passes `-resume` every time (the `segment` tool's answer names the fi
 was one file across 58 cores.
 
 **Loops, for every game** (2026-09-17: two unattended sessions spent minutes walking into one message and up one mud
-slope, until the user saw it on screen). A call whose tool, arguments, outcome word and place after it (`after.location`,
-`location` or `at`, rounded to whole numbers) all match 3 of the last 12 calls is a loop: its answer gains a `loop` field
+slope, until the user saw it on screen). A call whose tool, arguments, outcome word, place after it (`after.location`,
+`location` or `at`, rounded to whole numbers) and `changed` all match 3 of the last 12 calls is a loop: its answer gains a `loop` field
 naming what repeated, the run log a `loop` record, and a `run_skill` run ends there with outcome `loop`. A call with no
 outcome word is not watched, and a `restore` clears what was seen, so a fight retried from a snapshot is not one. Inside
 one `goto`, BizHawk's shared route (`drivers/bizhawk/route.lua`, Emerald and Crystal) ends `no_progress` instead; the
