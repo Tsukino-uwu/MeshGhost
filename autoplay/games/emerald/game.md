@@ -23,20 +23,24 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
   wild battle, `advance_text` on a message; it stops on a whiteout (run log `2026-09-17_131645.118278`).
 - **When `goto` fails, look at the ground before trying again** (emerald.md, 2026-09-17): "no way on foot" on Route 110
   was two ground levels meeting only through tiles of 0, and "no route to WATTSON" was a floor switch on the only path.
-  Both were found by printing the map's grid from the ROM through `exec`, not by more attempts. The same `exec` read of
-  a header's connections (+0x0C: count, list; 12 bytes each: a direction byte, the offset at +4,
-  group and map at +8; which byte is which direction is not measured) and warps (events at +4: the count at +1, the list at +8, 8 bytes each: x, y, then map at +6 and
-  group at +7) names the maps ahead (0.26's and 0.27's matched `observe`). The live grid: width, height, pointer at
-  0x03005DC0, a u16 per tile (collision bits 10-11, elevation 12-15), 7 tiles in (MEASURED.md); on 24.14 its
-  collision matched what `goto` and `walk` did (run log `2026-09-17_174529.077127`). goto's "not an open tile from elevation N" was a collision
-  tile: a neighbour from the grid went.
+  Both were found by printing the map's grid through `exec`, not by more attempts. Header at 0x02037318: connections
+  (+0x0C: count, list; 12 bytes: direction byte, offset at +4, group +8, map +9; direction 3 was west; the others not measured) and
+  events (+4: object count +0, warp count +1, objects at +4 (24 bytes: local id, graphics, x at +4, y at +6), warps at +8
+  (8 bytes: x, y, dest warp id +5, map +6, group +7)) name the maps and doors ahead. Live grid: width, height, pointer at
+  0x03005DC0, u16 per tile (metatile id bits 0-9, collision 10-11, elevation 12-15), 7 tiles in; a tile's behaviour is the
+  low byte of the tileset's attribute table (layout +0x10 primary, +0x14 secondary; tileset +0x10; id 512+ secondary).
+  Seen: 0xD0 mud slope, 0x3B drawn as collision and crossed walking down, 0x68 hole, 0x29 geyser (run log
+  `2026-09-17_181542.300302.ndjson`); the warps read matched `observe`'s on 0.26 and 0.27, and on 24.14 the grid's
+  collision matched what `goto` and `walk` did. goto's "not an open tile from elevation N" was a collision tile: a
+  neighbour from the grid went. `observe`'s `nearby` lists characters within about 10 tiles of the player only.
 - **A mud slope (behaviour 0xD0) is not walked up on foot**: the player slides back, and `goto` plans round it or
   answers `unreachable` (MEASURED.md, "A mud slope on 0.26"). The user: a MACH BIKE goes up them.
-- **A warp tile of behaviour 101 inside a cave** (24.14's exits) is left by stepping onto it, then `walk` Down.
-- **A smashed rock was back after a whiteout** (0.26, run log `2026-09-17_175751.136021`): a trip answered "no way on
-  foot" at (19,101) until (19,100) was smashed again.
-- **A trip that reads the same message on every try** (the sandstorm on 0.26) stops `no_rule` after three: trip to a
-  tile a different way instead (route.md, through 24.14).
+- **A warp tile of behaviour 101** (cave exits, the cable car stations) is left by stepping onto it, then `walk` Down
+  and `press B` 60. After any door or warp, `press B` 60 before the next call: `goto`/`talk` answer "needs the overworld"
+  during the fade (run log `2026-09-17_181542.300302.ndjson`).
+- **A smashed rock is back after a whiteout** (run log `2026-09-17_175751.136021`): a trip answered "no way on foot"
+  at 0.26 (19,101) until (19,100) was smashed again. **A trip reading the same message
+  on every try** (0.26's sandstorm) stops `no_rule` after three: trip to a tile a different way.
 - **`goto` walks over step-on event tiles**: Mauville's gym switches flip its barriers when a route crosses one. Walk
   round with `walk` legs (route.md, Mauville).
 - **A story scene can take the controls mid-route**; `goto` then reads `no_response` and may set an exit aside.
@@ -62,6 +66,9 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
 - **Status and accuracy moves still have uses** against a type that resists the rest (the user, 2026-09-17): MAY's
   GROVYLE on Route 110 was beaten with MUD-SLAP three times, then TACKLE, on the third try from a snapshot, after five
   losses (two of them under `effective`). `battle manual` stops at every action menu for that.
+- **`effective` does not know abilities**: it chose MUD SHOT six times into a wild KOFFING's LEVITATE while poison
+  fainted SWAMPERT, a whiteout inside a trip (run log `2026-09-17_181542.300302.ndjson`). Where wild battles are not
+  needed, `goto` and answer `left_overworld` with `battle run`.
 - **A party of one hits a wall against a type it is weak to** (emerald.md, 2026-09-17): a second Pokémon is the answer.
   Only wild Pokémon can be caught; one at low HP or with a status is easier; never faint it (the user).
 - **Heal only when the next hit would faint, then attack**; potions work best when they heal more than a hit takes
@@ -74,15 +81,17 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
 
 - A Mart: `talk` to the clerk, BUY, the item, Up in the quantity box, YES (MEASURED.md, "A Mart", 2026-09-17). SUPER
   POTIONs heal more and cost more; selling raises money, with no buying back; REPELs keep weaker wild Pokémon away (the
-  user, 2026-09-17). In the quantity box `press Right`, then `press Down` twice, asked for 8 (run log
-  `2026-09-17_174529.077127`); leave with CANCEL, then QUIT.
-- **A whiteout costs money**: 7357 before, 1910 after one (run log `2026-09-17_175751.136021`), and the walk back.
-- **An HM taught from the field BAG** (run log `2026-09-17_172659.154119`): Start, `select` BAG, `press Right` twice
-  (ITEMS to POKé BALLS to TMs & HMs; the driver has no `sequence`), `select` the HM by index, USE, `advance_text`, YES,
-  `press A` on the party screen, `advance_text`, YES, `advance_text` (needs_choice), `select` the move to forget by
-  name, `advance_text`, `select` CLOSE BAG, `press B` (walked again in `2026-09-17_174529.077127`). In the field: face the rock, `press A`, YES.
+  user, 2026-09-17). In the quantity box `press Right`, then `press Down` twice, asked for 8; A, `advance_text`, YES,
+  `advance_text`; leave with CANCEL, then QUIT (run logs `2026-09-17_174529.077127`,
+  `2026-09-17_181542.300302.ndjson`).
+- **A whiteout costs money** (7357 to 1910, run log `2026-09-17_175751.136021`) and the walk back.
+- **An HM from the field BAG** (walked three times, last `2026-09-17_181542.300302.ndjson`): Start, `select` BAG, `press
+  Right` twice (ITEMS to POKé BALLS to TMs & HMs; the driver has no `sequence`), `select` the HM by index, USE, `advance_text`, YES, `press A` twice (party screen),
+  `advance_text`, YES, `advance_text` (needs_choice), `select` the move to forget by name, `advance_text`, `select` CLOSE BAG,
+  `press B`. In the field: face the rock, `press A`, `advance_text`, YES, `advance_text`.
 
 ## Not built yet
 
 A catch through the battle's BAG (the nickname question is read from the decomp only); reading step-on event tiles; SELL
-at a Mart; TMs taught; `forget` weighing a move's side effect (it dropped MUD-SLAP, which had won MAY's fight).
+at a Mart; TMs taught; `forget` weighing a move's side effect (it dropped MUD-SLAP, which had won MAY's fight); abilities
+in `effective`.

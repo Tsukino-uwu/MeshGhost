@@ -40,10 +40,34 @@
       "hints": "route.md: Slateport to the DYNAMO BADGE"
     },
     {
+      "id": "story_in_fallarbor",
+      "description": "In Fallarbor (0.13), reached round the desert through 0.26's west edge and 0.28",
+      "done_when": [{"path": "location.map", "equals": "0.13"}, {"path": "badges", "contains": 3}],
+      "hints": "route.md: The DYNAMO BADGE to Fallarbor"
+    },
+    {
+      "id": "story_on_24_0",
+      "description": "On 24.0 (door 0.29 (8,63)), where TEAM MAGMA takes the METEORITE",
+      "done_when": [{"path": "location.map", "equals": "24.0"}, {"path": "badges", "contains": 3}],
+      "hints": "route.md: Fallarbor to MT. CHIMNEY"
+    },
+    {
+      "id": "story_on_mt_chimney",
+      "description": "On MT. CHIMNEY (24.12), off the cable car from 19.0 on 0.27",
+      "done_when": [{"path": "location.map", "equals": "24.12"}, {"path": "badges", "contains": 3}],
+      "hints": "route.md: Fallarbor to MT. CHIMNEY"
+    },
+    {
+      "id": "story_in_lavaridge",
+      "description": "In Lavaridge (0.12), down 24.13 after MAXIE",
+      "done_when": [{"path": "location.map", "equals": "0.12"}, {"path": "badges", "contains": 3}],
+      "hints": "route.md: MT. CHIMNEY to the HEAT BADGE"
+    },
+    {
       "id": "story_heat_badge",
-      "description": "The fourth badge, from Lavaridge's gym (a FIRE gym, the user says); the way there is walked as far as 0.27 (31,10), past 24.14 and AROMA LADY SHAYLA",
+      "description": "FLANNERY's HEAT BADGE, in Lavaridge's gym (4.1 and 4.2)",
       "done_when": [{"path": "badges", "contains": 4}],
-      "hints": "route.md: The DYNAMO BADGE through 24.14, walked as far as 0.27 (31,10) beyond it -- walk on, and write the stretch when the session ends"
+      "hints": "route.md: MT. CHIMNEY to the HEAT BADGE"
     }
   ]
 }
