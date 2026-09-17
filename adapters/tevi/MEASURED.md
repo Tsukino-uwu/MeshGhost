@@ -66,6 +66,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - 2026-09-17 — Ribauld's attacks: lasers, blastorbs, the arena's edges, and the states before each attack
 - 2026-09-17 — Fighting Ribauld with the dodge: hits per try
 - 2026-09-17 — Infernal BBQ: what a normal enemy's hit costs, a death, and the play time to the first save point
+- 2026-09-17 — Ribauld on Infernal BBQ: his HP, the laser curtain's warning, thrown orbs, and what makes a quickdrop a double jump
 - Not measured yet — backup slots and the chapter-reset slot
 - Not measured yet — what `mode: paused` reads from, and why the pause menu opened
 
@@ -445,6 +446,35 @@ same run log. The fight replays closely: the first charge hit landed about 1,890
 - **The Outline Status tutorial** (Sewerways, as text): attacked, a target enters the yellow outline, submissive, then the red, dominant;
   submissive it takes knockback and blowback when not attacking; dominant its actions cannot be interrupted and melee does less damage.
 - **Tab** in the pause menu is the `Bag` action; the options list ends with "Return to title screen", whose question Confirm answers yes.
+
+### 2026-09-17 — Ribauld on Infernal BBQ: his HP, the laser curtain's warning, thrown orbs, and what makes a quickdrop a double jump
+
+**Evidence**: autoplay's flight recorder (`recent`, read every frame where stated, otherwise every 3rd), `reflex` `fight` answers with
+their `orb_log`, and the fight's damage events; Steam build, slot 40 (a new game started at Infernal BBQ), each try walked from the
+Sewerways save point after restoring snapshot `tevi_inf_first_savepoint`; run log `autoplay/runs/2026-09-17_174242.917353.ndjson`.
+
+- **Ribauld has 807 HP** (480 on Cakewalk). The phase-two line (`chapter0_point3`) came at 328 to 379 HP, then the Charged Shot window.
+  Beaten once, in 8,324 frames of fighting with one hit taken (30 HP); afterwards the conversations `chapter0_mainstory2-2` to `2-13`.
+- **Hits on her**: his charge 45 (a second touch in the same charge 11), a `speeddown` shot 36, the bomb ring 27, an orb's blast 52 to 73,
+  a cut-in laser 27 to 30.
+- **The cut-in laser curtain** (`ATTACK5`): `RIBAULD_CUTIN_LASER` beams, vertical, radius 22.2, the first set 7 beams 56 apart centred on
+  her x, later sets 84 apart and offset, up to 17 beams alive at once. Read every frame: a set appeared at frame 1163311 and hurt
+  (`LaserController2D`'s private `hurt`) from 1163367, **56 frames**; the next set about 58 (read every 2nd frame), at the same x. A
+  first reading of 138 frames was wrong: it came from rows printed only when the count of beams changed. She was hit standing in a gap
+  5 units off its centre (gap about 11.6 wide between two beams) and running 25 units from a beam's centre.
+- **Thrown orbs are characters, not bullets**: an `EnergyBall` came into play 26-27 frames into his `ATTACK1` (about 64 ahead of him and
+  41 up) and 40 frames into `ATTACK3`; a thrown orb bounced up and down many times (`JUMPING`, `FALLING`) without going off, and went
+  off on touching her. In `ATTACK3` a swing (`DISAPPEAR`, 65 wide) beside a resting orb 15 units from him sent it at her at about 16
+  units a frame; it went off 45 units from her 12 frames later.
+- **His charge** from beside her: the box appeared 16-17 frames into `ATTACK2` and reached her in about 5 more.
+- **Her air swing landing** carried on as the air combo on the ground (`TEVI_WEAK_AIR_NORMAL1` to `3`, about 48 frames), during which a
+  move she was given did not happen.
+- **Quickdrop against double jump**, from the input column of every quickdrop and double jump in a 60-second stretch: each of five
+  double jumps began with Down (`YAxis-`) and Jump pressed on the same frame, or with Down let go while Jump was still held; each
+  quickdrop had Down held 2 frames or more before Jump. The double jump rose, frame by frame from the press, 15.0, 29.2, 42.7, 55.4,
+  67.3, 78.4, 88.7, 98.3, 107.1, 115.1, 122.3, 128.8, 134.4 units, the same each time.
+- **Not measured**: how far an Orbitar shot moves a resting orb; whether a quickdrop onto an orb pushes it and which way; how long a
+  set of beams keeps hurting.
 
 ## Not measured yet
 

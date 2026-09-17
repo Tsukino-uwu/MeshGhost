@@ -73,6 +73,7 @@ is USED, that project is checked and recorded there first.
 - The everything-fuzzer's peer space: eight ids became a wide space, a flood past the roster cap and eight hostile ids (the user's ask; BUILT 2026-09-06, and it found a deadlock the same evening)
 - Crystal: a peer's OWN SPRITE PIXELS over the wire -- custom outfits, a run pose on a cartridge that has none -- deferred behind the colour-only version (the user's call, 2026-09-09)
 - Re-anchor the clock at a relay drop, instead of rewinding or freezing it (review O1, filed 2026-09-12)
+- Autoplay reading replay and input ghosts as a map of what to do and where to go (the user's idea, filed 2026-09-17)
 
 ---
 
@@ -3350,3 +3351,14 @@ every playback due-time comes from, and it cannot simply live in `clock.offsetMs
 it was found during a fix pass for a different bug; attempting it in the same pass was declined
 deliberately. The reasoning is written into the assertion in `core/reconnect_test.go` so the next
 reader of that test inherits it, and this entry exists so it is findable without reading the test.
+
+## Autoplay reading replay and input ghosts as a map of what to do and where to go (the user's idea, filed 2026-09-17)
+
+**The user, 2026-09-17**: *"autoplay being able to make use of replay/input ghosts, to figure out what things to do/where to go.
+as a map to guide~"*
+
+A recorded run already says where a player went and in what order (the replay format, "Ghost RECORDING and racing a replay"
+above), and an input recording would say what they pressed there ("An INPUT plane" above). Autoplay could read one as a guide:
+the rooms and positions to head for next (a `goto` target list), where a player jumped, dropped or waited, and what was done
+at an element. It stays a map, not a script: the agent still plays through its own tools and the game runs the mechanism, and
+what it learns from the guide is checked against the game the way everything in autoplay's knowledge store is.
