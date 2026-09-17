@@ -127,6 +127,13 @@ pressed A expecting "accept the name" and kept typing the same letter, because t
 on the letter grid rather than on OK. Nothing errors, the screen barely changes, and the driver
 concludes the game is unresponsive — the question was always "what is selected".
 
+**Move as a player would, never in stutter steps** (user, 2026-09-17, TEVI): *"small steps/stutter steps, are
+never prefered in any game. moving smooth as a player would is always the goal"*, and *"small steps/stutters are fine
+when just starting out, but should be one of the earlier things to fix so movement everywhere is faster/easier"*. The
+stutter came from one `mcpcall` per 45-frame hold: the player stood still for about a second between holds while a new
+core started, and a jump taken mid-run was a separate hold. Autoplay's `sequence` tool (the same day) plays overlapping
+holds frame-exact in one call and ends on an event, so a climb of three platforms and a run onto a ledge is one motion.
+
 **The frames between two commands belong to somebody** (2026-08-19). A driver whose idle behaviour
 was "keep going the way the queue was going" — added so the character never looked parked —
 silently walked a player six tiles between a warp and the command after it, and the measurement that

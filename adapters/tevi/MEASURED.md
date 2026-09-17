@@ -52,6 +52,10 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - 2026-09-17 — A dialogue's lines, and input while the window is unfocused
 - 2026-09-17 — The collision grid, the camera's view and the map's elements, against a picture of the cell
 - 2026-09-17 — Teleport, restore and the cell's right wall
+- 2026-09-17 — Hits and kills go through one method; what a hit on Cakewalk costs
+- 2026-09-17 — The instruction banner, the item box and a tutorial window, as text
+- 2026-09-17 — A restore lets outside input in again; a teleport into a new room starts an autosave
+- 2026-09-17 — Jump height by how long Jump is held (partial)
 - Not measured yet — backup slots and the chapter-reset slot
 - Not measured yet — what `mode: paused` reads from, and why the pause menu opened
 
@@ -191,6 +195,61 @@ scenario runs `2026-09-17_130522.657707.ndjson` (3 of 3 passed) and `2026-09-17_
 - **The cell's right wall**: from x 16912, 60 frames of `XAxis+` took the player to x 17066 and stopped it (the wall's inner
   edge at 17080, 14 short), and 60 more moved it nothing; the same three runs of the scenario each read it again.
 
+### 2026-09-17 — Hits and kills go through one method; what a hit on Cakewalk costs
+
+**Evidence**: autoplay's TEVI driver on the Steam build, a prefix and postfix on `CharacterBase.BulletHurtPlayer` (named from the
+assembly; the decompilation read as a map showed every hit on a character calling it) and a per-frame read of the player's
+`health`, through the Cakewalk game walked out of the cell; run log `autoplay/runs/2026-09-17_131747.151516.ndjson`, segment 3.
+
+- **A hit on the player**: `GH_Member_Cat` (35 HP) twice, `damage_taken` with `bullet_type` `ENEMY_HURTBOX` (contact, the cat 25.7
+  units off) and `INVISIBLE` (its attack, 67.4 off), each 1 HP (`final_damage_raw` 1), `logic` `PLAYERDAMAGE`; the per-frame read
+  saw each on the same frame. `GH_Member_Mouse` (30 HP) and `GH_Member_Dog` (28 HP, contact) the same, 1 HP each.
+- **A kill**: the dog's HP taken to 0 by the method's call with `bullet_type` `TEVI_GROUND_COMBO_ATTACK` and the player as owner,
+  66 frames into a combo of Attack taps every 10 frames; it left `nearby` at once. The cat went from 35 to 24 with four taps.
+- **Hits the player lands on an enemy never reported as the player's**: none of the cat's 11 HP lost read as `damage_taken`.
+- **Not seen**: a hit that does no damage (blocked, godmode) or a death; HP lost from buffs, falls or scripts, which the method
+  does not carry and only the per-frame read would see. While TEVI sat idle between calls, the cat took 20 HP 1 at a time.
+
+### 2026-09-17 — The instruction banner, the item box and a tutorial window, as text
+
+**Evidence**: the same driver and run log; `ControlTips.Instance` (private `lastkeyword`, `text`, `targetalpha`),
+`HUDObtainedItem.Instance` (`isDisplaying`, private `gotitem`, `itemname`, `itemdesc`) and every active `TMP_Text`, beside
+screenshots of the same moments (`dev-scripts/shots/tevi/autoplay_upper_corridor.png`, `autoplay_switch_hit.png`,
+`autoplay_slope3.png`, `autoplay_up_right.png`, `autoplay_after_dagger.png`; gitignored).
+
+- **The banner**: walking from the cell drew, in turn, the quickdrop line ("Hold ... + [Z] while in the air to quickdrop, which can
+  break locked ventilation ducts"), "When a bubble prompt appears, press ... to interact", "Press [X] for ranged orbitar attacks,
+  [C] for melee attacks", and `Tips.MaintainDistance_LONG`, "Avoid contact damage by keeping distance from enemies".
+- **The keyword changes before the text**: the first read of `Tips.MaintainDistance_LONG` had alpha 0.012 and the orbitar line's
+  text; at alpha 0.764 the text was its own. The driver reports a banner once past alpha 0.5.
+- **The item box**: Dagger ("A sharp, trusty dagger. Allows for use of melee attacks.") then Orbitars, each closed by Confirm;
+  `mode` read `paused` while each was up.
+- **A tutorial window** ("Basic Engagement", closed by Confirm) is none of those: its words read from `TMP_Text` objects named
+  `Help Desc` and `Help Exit`. Its own class is not found yet.
+
+### 2026-09-17 — A restore lets outside input in again; a teleport into a new room starts an autosave
+
+**Evidence**: the user; the driver's `extras.input_focus` and log (`autoplay/runs/driver_bepinex_tevi_7872.log`), same session.
+
+- After a `restore` (`SaveManager.ReloadToGame`), the pause menu opened on its Items tab during a 19-frame hold of `XAxis+`, closed,
+  and opened again. The user: *"its grabbing inputs from outside the game when a save is reloaded i think ? i need to manually press
+  the game and focus it, then unfocus. and then it will stop reading inputs again"*. `application_focused_raw` read false.
+- With the driver dropping real input while unfocused (`real_input_muted` true), a `restore` of `tevi_first_enemy`, a 100-frame
+  `sequence` and 300 frames with no input read `mode` `play` and `any_pause_raw` false throughout (run log segment 4). Whether any
+  outside input was typed during it is not known, so this shows no leak, not that one was stopped.
+- A teleport from the cell (room 12,11) to x 17800 (room 13,11) logged `HELD an autosave (SaveManager.ReallyDoAutoSave skipped)`
+  one frame before the teleport's answer.
+
+### 2026-09-17 — Jump height by how long Jump is held (partial)
+
+**Evidence**: the driver's `press` and `sequence` answers in the same run log. The user: *"you should be able to jump short/high
+depending on how long the jump button is held"*.
+
+- From standing on flat floor: Jump held 15 frames rose from y -9072 to -8896.5 (175.5 units) by its last frame; held 16 frames,
+  it reached a pass-through platform 112 above, and held 14 frames three times 45 frames apart, three stacked 112 apart.
+- Held 26 frames with `XAxis-`, it landed on a block 168 above; held 11 frames with `XAxis-` from a slope, on a platform 154 above.
+- **Not measured**: the rise per frame of hold, the shortest hop, or the highest jump.
+
 ## Not measured yet
 
 ### Not measured yet — backup slots and the chapter-reset slot
@@ -209,4 +268,5 @@ on its Notebook tab with no injected input, and `mode` read `paused` both while 
 Back closed it (the picture showed the player in the field). **To settle**: log `isAnyPause()` and the pause menu's own
 open state each frame across opening and closing it, and whether the game opens the menu when its window loses focus.
 Pointer, same day: a TEVI never focused took typing from another window ("A dialogue's lines, and input while the window is
-unfocused" above), which may be what opened it; not confirmed.
+unfocused" above), which may be what opened it; not confirmed. Pointer, later: the user tied it to a restore ("A restore lets
+outside input in again" above).

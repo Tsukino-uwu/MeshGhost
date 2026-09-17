@@ -36,6 +36,7 @@ here adds its heading as one line under "The plan and the shared core".**
 - 2026-09-17 (the Emerald chat, the story) — the plan across maps floods each map; `talk` across a counter; a battle the game answers
 - 2026-09-17 (the Emerald chat, the first badge) — `select` presses confirm again; routes out of a trainer's sight preferred
 - 2026-09-17 (the TEVI chat) — how an agent sees a game: the engine's state first, the clock held for fast games, detection only at tier 0
+- 2026-09-17 (the TEVI chat, next session) — `sequence`: a player's continuous movement in one call
 - 2026-09-17 (the Emerald chat, the learn-a-move question) — questions asked outside a battle's screen, a scene that takes no input, and `battle`'s `forget`
 - 2026-09-17 (the Emerald chat, the bag in a battle) — `battle`'s `stop_hp_below`
 
@@ -1493,3 +1494,18 @@ the Emerald entry, RICK's battle from `rick_battle_start` to `ended` with no nud
 **Checked.** `luac -p`, `go vet`, `go test ./server`. Live on vanilla Emerald, from `bag_wild_battle_start`: `stop_hp_below` 0.6
 stopped at 26 of 51; BAG, POTION, USE, MARSHTOMP through `select`; `battle` again to `ended`. Crystal supplies no `ownHp`, so
 the option is refused there; its path is otherwise unchanged (not run, paused).
+
+## 2026-09-17 (the TEVI chat, next session) — `sequence`: a player's continuous movement in one call
+
+**What changed in the shared core**: a new tool `sequence` (`server.go`): `steps` of `{buttons, from, frames}` (at most 64, each 1-600
+frames, all within 1800) and `stop_on`, event kinds opaque to the core (at most 16). The core validates and forwards; the driver
+schedules every hold at once from the next frame and, on the first event of a `stop_on` kind, lets go of what is held on the next
+frame and drops what has not begun. Test: `TestSequenceValidatesAndForwards`. Only TEVI's driver announces it so far; BizHawk's
+driver does not, so the core refuses it there.
+
+**Why**: the user, watching TEVI played one 45-frame hold per `mcpcall`: *"small steps/stutter steps, are never prefered in any
+game. moving smooth as a player would is always the goal"* ([autoplay/tevi.md](autoplay/tevi.md), same date). It is the plan's layer
+2 (reflexes) begun early: input at game speed that ends on the game's state.
+
+**Checked.** `go vet ./...` and `go test -count=1 ./...` in `autoplay/`, green, on the staged tree alone. Live on TEVI: three jumps and
+a run onto a ledge as one call, stopped by `damage_taken` at frame 145; a 12-tap combo stopped by `enemy_defeated` at frame 66.

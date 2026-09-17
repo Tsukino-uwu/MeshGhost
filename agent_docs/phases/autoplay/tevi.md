@@ -159,3 +159,28 @@ then a core tool: a shared-core change); layer 5, the annotated picture (the gam
 flight recorder (`recent`); then reflexes (layer 2) and `exec` (the game's Quantum Console first). Not measured yet: backup slots,
 what exactly opened the pause menu, whether the fade or the load's timing undid a teleport, and which input reached a TEVI never
 focused. `tevi_cell_start` lives only in this machine's gitignored states folder.
+
+## 2026-09-17 (next session) — events, the intro played the intended way, and `sequence` for continuous movement
+
+**The user**, asked whether to teleport around looking for something that hurts: *"try to proceed in the game the intended way at
+least right now at the start ( its really linear, will force you to learn the basic gameplay)"*. Then, as it was played: *"you
+should be able to jump short/high depending on how long the jump button is held"*, that the instruction banners *"are really
+useful, as they can explain what to do/how to use things"*, and *"is it possible to move/jump around without doing it in stutter
+steps ?"* followed by *"small steps/stutter steps, are never prefered in any game. moving smooth as a player would is always the
+goal"* (the rule: the `play-game` skill; the ruling: `playing-rationale.md`).
+
+**Built** (driver, and one shared-core tool: [../phase13.md](../phase13.md), same date; the measurements: `adapters/tevi/MEASURED.md`):
+- **Events**: `damage_taken` with its source and `enemy_defeated`, both from the game's one hit method; `hp_changed`, `game_over`,
+  `dialogue_changed`, `menu_changed`, `tip_shown`, `item_obtained`.
+- **`observe`**: `tip` (the instruction banner), `obtained` (the item box), `screen_text` (every visible text) and `area_elements`.
+- **Real input muted** while the guard is armed and the window unfocused. The user, when the pause menu opened by itself: *"its
+  grabbing inputs from outside the game when a save is reloaded i think ?"*.
+- **`sequence`**: overlapping holds in one call, cut by a `stop_on` event.
+
+**Walked** (run log `autoplay/runs/2026-09-17_131747.151516.ndjson`, segment 3; segment 2, the teleport outside the cell, **reached**,
+and the cell restored): up the shelves and out of the cell's left, the ventilation duct broken by a quickdrop, the Dagger and
+Orbitars picked up and a conversation, the wall switch (a ↑ bubble) opening the corridor's gate, a shaft of platforms and slopes, a
+cat (hurt the player 1 HP a hit), crates, a scene with Caprice and Roleo (`chapter0_opening7`, 11 lines, read by
+`dialogue_changed`), a locked floor hatch passed by, the "Basic Engagement" tutorial window, a mouse, and a dog climbed to in one
+`sequence` that stopped on its contact hit and beaten by a combo that stopped on `enemy_defeated`. Snapshots `tevi_base_armed` and
+`tevi_first_enemy`. Segment 4 **reached**: a restore of `tevi_first_enemy` to check the mute, which also set the walk back to the cat.

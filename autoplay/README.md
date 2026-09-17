@@ -29,6 +29,7 @@ Claude Code --MCP (stdio)--> autoplay core --JSON lines (127.0.0.1)--> driver in
 | `status` | Whether a driver is connected, and its hello: host, game, variant, build, capabilities, protected slots |
 | `observe` | The driver's snapshot of the game |
 | `press` | Hold buttons for 1-600 frames, then report what changed — the escape hatch, not the default |
+| `sequence` | A timeline of holds in one call, frame-exact: each step `{buttons, from, frames}` holds from its own frame, and steps overlap (run right while Jump is held partway), so a player's continuous movement is one call, never stutter steps. `stop_on` names event kinds (`damage_taken`, `enemy_defeated`, ...): the first one ends it, what is held let go on the next frame. At most 64 steps over 1800 frames. Returns `frames_run`, what changed and `stopped_by`. TEVI |
 | `wait` | Let 1-3600 frames pass with NO input, then report what changed. Never hold a button to wait |
 | `select` | Choose an entry in the open menu by its text (`item`) or 0-based `index`: the driver presses toward it until the game's own cursor is on it, then holds confirm until the menu responds, letting go and pressing again after 15 frames with no answer, 3 presses in all (`confirm: false` stops on it). On a grid menu (a battle's) it reaches the column first. Every leg ends on the game's state, never a frame count |
 | `walk` | Move 1-32 tiles `up`, `down`, `left` or `right`, holding the direction the whole way the way a player does, each tile counted when the game starts its step; `run: true` runs where the save can (`ran` says whether it did). On a bike it rides, still stopping on the tile: the Acro Bike stops where released, and on the Mach Bike it lets go early by the tiles the bike will coast (`overshot` if it ever carries past). Stops early and says why: `blocked` (with what is on the refused tile and its `cause`: `solid`, `npc_in_way`, `one_way_edge` -- a ledge from the wrong side --, `missing_ability` with the `ability`, `off_map` or `unknown`; Emerald's), `map_changed` (a door or an edge), `spotted` (a trainer has begun coming for you: its `local_id` and how many tiles away, from the frame the step into its line begins; hand it to `battle`), `dialogue_open`, `menu_open`, `left_overworld`; `moved` counts the steps begun. Walk for precision, run for speed that still stops on its tile, a bike for distance (the play-game skill's `references/navigation.md`) |
@@ -334,12 +335,19 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   with `port=<the core's>` and `repo=<this repo's root>` -- no file, no connection. ScriptEngine reloads it when the DLL
   changes. It logs to `autoplay/runs/driver_bepinex_tevi_<port>.log`. Tools: `observe` (`mode`, `location` with area,
   room and position, `player`, the save list's `menu` by page, row and slot, and `save`), `wait`, `press` (the game's
-  own Rewired actions by name, an axis with a sign: `Confirm`, `XAxis+`), `screenshot` (the game's own frame);
-  events `mode_changed`, `area_changed`, `room_changed`. An `observe` the agent calls also reads what is around the player
+  own Rewired actions by name, an axis with a sign: `Confirm`, `XAxis+`), `sequence`, `screenshot` (the game's own frame).
+  Events: `mode_changed`, `area_changed`, `room_changed`; `damage_taken` (a hit on the player through the game's one hit
+  method, with `damage`, `hp_from`/`hp_to`, `bullet_type` and the `source` character as `nearby` names it), `enemy_defeated`
+  (a hit that takes another character to 0 HP, `by_player_raw`), `hp_changed` (any cause: a hit reports both), `game_over`,
+  `dialogue_changed` (each line, with speaker and text, and the close), `menu_changed`, `tip_shown` and `item_obtained`.
+  Each is reported while a core is connected; what happened between two cores is not (the HP it cost still reads). An `observe` the agent calls also reads what is around the player
   from the game's state (`Surroundings.cs`): `player` physics, `view` (the camera's edges; a pixel is a world unit), a
   27-by-17-tile `local_map` of the game's collision grid (`#` byte 1, `.` 0, `=` 255, a platform stood on from above, slopes
   by byte range) with characters, items and the elements a player meets drawn over it, `nearby`, `elements`, `items`,
-  `projectiles`, and `dialogue` (section, line of lines, speaker, the whole line). `snapshot` is the game's own save to
+  `projectiles`, `area_elements` (every element of the whole area by type: its count and nearest 3, to aim a teleport off
+  screen), `screen_text` (every visible text object's words, top to bottom: tutorial windows, popups, the HUD), and `dialogue`
+  (section, line of lines, speaker, the whole line). Any `observe` also reads `tip`, the game's short instruction banner
+  (`keyword`, `text` once `shown`; the game's own lessons in its controls), and `obtained`, the box naming an item just picked up. `snapshot` is the game's own save to
   slot 39 (in the shadow below) copied to the core's `.State` path; `restore` copies it back, points the recent slot at it
   and reloads, answering once the area, the camera and the fade-in are done (272 frames in the cell).
 - **TEVI's save guard.** From the moment a core first connects until the game exits, TEVI's save folder is a shadow copy
@@ -349,6 +357,9 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   refused write loaded the player's autosave instead (`agent_docs/pitfalls/by-lesson.md`). No `repo` in the config, no
   connection. It survives a hot reload; a change to its code needs a game restart. Restart TEVI to play with saving again.
   `observe`'s `menu` also reads the title's main menu, Custom Game (`ticked`) and the difficulty list (`items`, `cursor`).
+  While the guard is armed and TEVI's window is not focused, the keyboard, mouse and pads reach the game as nothing and only
+  the driver's holds do (`extras.input_focus.real_input_muted`): a restore reloads the game, and it took typing from other
+  windows again until focused (the user, 2026-09-17). Focus the window to play yourself.
 
 ## Running it
 

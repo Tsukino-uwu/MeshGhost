@@ -77,9 +77,9 @@ it and move on. **Never a third attempt on inputs** (`references/navigation.md`)
   in your report. A savestate is not an in-game save (`agent_docs/environment.md`).
 - **A run that ends badly is still a result.** Stuck, lost, softlocked: report it, never rewind out
   of it quietly — the reload deletes exactly the evidence worth having.
-- **Drive with autoplay's one-call programs where a game has them** (`walk`, `goto`, `battle`,
-  `advance_text`; `autoplay/README.md`). A loop you run from outside must stop within seconds of the
-  game's state not changing and say what it saw — never spend a step budget in silence.
+- **Move as a player does, never in stutter steps** — one continuous `sequence` (overlapping holds) or a
+  one-call program (`walk`, `goto`, `battle`, `advance_text`); stepping is tolerable only while a driver is
+  new, and fixed early. A loop you run must stop within seconds of nothing changing and say what it saw.
 
 ## Speed and screenshots
 

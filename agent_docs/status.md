@@ -15,8 +15,8 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
   open: the learn-a-move question and evolution scene unread, items in a battle, FC bytes read raw. `phases/autoplay/emerald.md`.
 - 2026-09-17 — **Autoplay, Crystal**: `goto`, a scenario 3 of 3, every PACK pocket, the POKéMON menu, badges, bike and surf, a type- and stat-aware `strongest` on V1.0;
   **paused** (the user, 2026-09-17), its scoring moved behind `effective` and checked (`df7326f7`); next the whiteout. `phases/autoplay/crystal.md`.
-- 2026-09-17 — **Autoplay, TEVI: Phase 6's acceptance** (a BepInEx driver, a shadowing save guard, snapshots, teleport, the ground around the player,
-  a scenario 3 of 3); open: layers 2-5 of the sight plan, damage events, `exec`. `phases/autoplay/tevi.md`.
+- 2026-09-17 — **Autoplay, TEVI: Phase 6 accepted; events and `sequence` built**, the intro walked past the first enemies; open: the clock held
+  (layer 3), annotated pictures (5), the flight recorder (4), reflexes past `sequence`, `exec`. `phases/autoplay/tevi.md`.
 - 2026-09-16 — **Prediction: A3 LANDED (ADR 0069, ships off), SCREEN VERDICT OPEN; A2.0 MEASURED** (worst-case transit p99 310–320ms; the dry tail is the 1 s blackouts); A2 undecided. `prediction-planning.md`.
 - 2026-09-15 — **Chaser contact: the Go half LANDED (`e546d38c`, ADR 0068, ships `off`); the adapter half is NOT started.** Next: Part A of `chaser-planning.md`; `pseudoregalia/UNVERIFIED.md` has the entry.
 - 2026-09-15 — **netsim: ADR 0046's 450 ms has never been judged on the correlated-loss model** (`-loss-burst`, opt-in since 2026-09-11). `phases/phase10.md`.
