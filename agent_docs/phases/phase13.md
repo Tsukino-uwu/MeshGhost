@@ -1173,3 +1173,32 @@ Crystal after this session's list.
 
 **Snapshots** (gitignored `autoplay/states/crystal/`): `route30_don_battle_start_2party`, `battle_don_party_menu_after_yes`,
 `battle_don_switch_question`, `battle_nickname_question`.
+
+## 2026-09-17 (the Emerald chat, same session) — the wall clock read and set: `observe`'s clock, `set_clock`, `clock_open`
+
+**Measured** (`emerald/MEASURED.md`, "The wall clock set: PM, midnight, YES, and the clock viewed after"). From `ng_clock`
+with `probes/task_probe.lua` beside the driver, held Right and Left against captures: the hours word runs 0 to 23 and the
+period word turns 1 at 12 (PM drawn) and back at 0; the minutes move one a frame at full speed, and the frame a direction is
+let go moves nothing more. The decomp, read as the map, named the task routines and said the AM/PM sign is on a turning
+disk, which is why one capture 1 frame after 23:59 was set still drew AM and the next, 14 frames on, PM. YES was then chosen
+for the first time: the game fades back to the room, MOM comes up and speaks, and A at the clock afterwards opens a view
+screen whose task held 7:30, the time set, with 7:30 AM drawn.
+
+**Built.** Emerald's `observe` gains `clock` (hours, minutes, period, `state`: setting, confirming, closing or viewing). A new
+core tool `set_clock {hours, minutes, confirm}` (Go, with validation and forwarding tests; `go test -race -count=3` clean on
+`server` and `cmd/scenario`) and Emerald's program: hold the shorter way round, let go on the frame the minutes read the
+time, wait for the hands, then A, Up to YES and A. The shared machine takes an optional `readClock` hook and `advance_text`
+stops `clock_open` on it; **Crystal's path is unchanged** (its module supplies no `readClock`). `emerald.lua`'s main chunk
+reached Lua's 200-local ceiling on the way (`luac -p` refused it): the clock's constants are one table and `type_text`'s and
+`set_clock`'s limits live inside their functions, which leaves the chunk at 198.
+
+**Checked live.** `set_clock` to 10:00, 13:00, 9:59, 0:00, 23:59 and 12:01 without confirming, each in one held direction
+with no overshoot and each capture drawing that time (after the sign had turned); 7:30 confirmed, then the view screen read
+and drew 7:30. From `ng_room`: `goto` to the clock, a turn and A, `advance_text` read "The clock is stopped…" and "Better set
+it and start it!" and stopped `clock_open` (123 frames); `set_clock` 10:00 confirmed in 33; `advance_text` read MOM's five
+boxes to `closed`.
+
+**Snapshot** (gitignored `autoplay/states/emerald/`): `ng_clock_set` (the room after MOM's words, the clock set to 7:30).
+
+**Next for Emerald:** the starter bag's reader on Route 101, walking the new game on from `ng_clock_set`; then `exec` and
+noclip.

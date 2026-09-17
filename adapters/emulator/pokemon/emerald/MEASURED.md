@@ -62,6 +62,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - A finished message's printer and window, and a stale one (2026-09-17)
 - The naming keyboard, and a blank box put back after it (2026-09-17)
 - The truck's door taken from rest, the wall clock's screen, and a question drawn instantly (2026-09-17)
+- The wall clock set: PM, midnight, YES, and the clock viewed after (2026-09-17)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -678,6 +679,34 @@ room upstairs (`ng_room`) and the clock (`ng_clock`), all gitignored. From autop
   2026-09-16).
 - **Not seen**: PM, the hours turning past 12, YES chosen and what the game then does, a door of this kind entered on a
   bike.
+
+### The wall clock set: PM, midnight, YES, and the clock viewed after (2026-09-17)
+
+**Vanilla ROM, the new game "BRENDAN"** from the snapshots `ng_clock` and `ng_room` (gitignored), with
+`probes/task_probe.lua` loaded beside autoplay's driver, against captures (`dev-scripts/shots/emerald/autoplay_clk2_*` to
+`autoplay_clk5_*`, gitignored). Routine names from the build hashed identical to the ROM; what the words do as below.
+
+- **Past noon and midnight.** Right held 300 frames from 10:00 raised task 0's +4 (data words from the task's +8) to 12 on
+  the frame +6 went 59 to 0, and +10 went 0 to 1 on that frame; it stopped at 13:00, drawn 1:00 PM. Left held from 10:00
+  took +4 down through 1 and 0 with +10 at 0, and from 0:59 to 23:59 with +10 going to 1; 22:36 was drawn 10:36 PM.
+- **The pace.** +12 counted up once a frame while a direction was held (to 255); the minutes moved one every 6 frames at
+  first, and one a frame once +12 passed 60 (11:01 to 13:00 in 119 frames). The frame the pad let go, nothing moved;
+  +8 and +12 read 0 on it.
+- **The sign.** The AM/PM sign turns over after +10 changes: set to 23:59 from midnight (one minute back), the capture one
+  frame after `set_clock` answered still drew AM, and the one 14 frames after it PM, as the later ones did.
+- **YES.** A moved the routine to 0x08134DC5 on the pad's own frame and to 0x08134E31 two frames later; "Is this the correct
+  time?" and YES/NO were drawn with the cursor on NO. Up moved it to YES; A moved the routine to 0x08134EA5 and then
+  0x08134EE9 (the build's `Task_SetClock_Confirmed` and `Task_SetClock_Exit`), callback2 read 0x0809E8B5 23 frames later
+  and, through two others, the overworld's 11 frames after that. The room was drawn with MOM beside the player, and her five
+  boxes followed ("MOM: BRENDAN, how do you like your new room?" to "...everything's all there on your desk.").
+- **Viewed after.** A toward the clock once set went straight to callback2 0x08134B45 (`CB2_ViewWallClock`) and then
+  0x08134C9D, with no message; task 0 ran 0x08134F11 and then 0x08134F41 (`Task_ViewClock_WaitFadeIn`, `_HandleInput`), its
+  words reading 7, 30, 0 after the clock was set to 7:30, and 7:30 AM was drawn with "A CANCEL"; read again after the
+  driver was reloaded they said 7, 31. A left it for the overworld.
+- **autoplay's `set_clock` built on it** (same day): 10:00, 13:00, 9:59, 0:00, 23:59 and 12:01 each set with one held
+  direction and no overshoot, each capture drawing that time; 7:30 confirmed, and the view screen then read and drew it.
+- **Not seen**: the view screen's FadeOut and Exit routines, B on the question, NO chosen, a clock set on a save that already
+  has one, the time drawn after the game has been running for hours.
 
 ## Not measured yet
 

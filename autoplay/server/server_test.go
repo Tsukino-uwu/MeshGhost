@@ -338,6 +338,52 @@ func TestTypeTextIsRefusedWithoutTheCapability(t *testing.T) {
 	}
 }
 
+func TestSetClockValidatesAndForwards(t *testing.T) {
+	h := newHarness(t)
+	got := make(chan map[string]any, 1)
+	h.startDriver(t, []string{"set_clock"}, func(verb string, payload json.RawMessage) (string, any) {
+		var in map[string]any
+		json.Unmarshal(payload, &in)
+		got <- in
+		return "result", map[string]any{"outcome": "confirmed", "set": map[string]any{"hours": in["hours"], "minutes": in["minutes"]}}
+	})
+
+	for _, bad := range []map[string]any{
+		{"minutes": 0},
+		{"hours": 0},
+		{"hours": -1, "minutes": 0},
+		{"hours": 24, "minutes": 0},
+		{"hours": 0, "minutes": -1},
+		{"hours": 0, "minutes": 60},
+	} {
+		if text, isErr := h.call(t, "set_clock", bad); !isErr {
+			t.Errorf("set_clock %v = %s, want a refusal", bad, text)
+		}
+	}
+
+	// Midnight is a time, and confirm is spelled out to the driver: true when left out, false when said.
+	if text, isErr := h.call(t, "set_clock", map[string]any{"hours": 0, "minutes": 0}); isErr || !strings.Contains(text, `"confirmed"`) {
+		t.Fatalf("set_clock 0:00 = %s (error %v)", text, isErr)
+	}
+	if in := <-got; in["hours"] != float64(0) || in["minutes"] != float64(0) || in["confirm"] != true {
+		t.Fatalf("the driver received %v, want 0:00 and confirm true", in)
+	}
+	if text, isErr := h.call(t, "set_clock", map[string]any{"hours": 23, "minutes": 59, "confirm": false}); isErr {
+		t.Fatalf("set_clock confirm false = %s", text)
+	}
+	if in := <-got; in["hours"] != float64(23) || in["minutes"] != float64(59) || in["confirm"] != false {
+		t.Fatalf("the driver received %v, want 23:59 and confirm false", in)
+	}
+}
+
+func TestSetClockIsRefusedWithoutTheCapability(t *testing.T) {
+	h := newHarness(t)
+	h.startDriver(t, []string{"observe"}, func(string, json.RawMessage) (string, any) { return "result", map[string]any{} })
+	if text, isErr := h.call(t, "set_clock", map[string]any{"hours": 10, "minutes": 0}); !isErr || !strings.Contains(text, "set_clock") {
+		t.Fatalf("set_clock without the capability = %s (error %v)", text, isErr)
+	}
+}
+
 func TestGotoValidatesAndForwards(t *testing.T) {
 	h := newHarness(t)
 	got := make(chan GotoIn, 1)

@@ -997,6 +997,46 @@ local function readKeyboard()
 		ready = k.state == KEYBOARD_READY or nil, state_raw = k.state ~= KEYBOARD_READY and k.state or nil }
 end
 
+-- THE WALL CLOCK (2026-09-17, vanilla, the new game's room from the snapshot `ng_clock`: `emerald/probes/task_probe.lua`
+-- while Right and Left were held and A, Up and A pressed, against captures; that adapter's MEASURED.md, "The wall clock
+-- screen" and "The wall clock set"). While callback2 read the routine the build names CB2_WallClock (+1), task 0 ran
+-- the routine named Task_SetClock_HandleInput (+1) while the hands could be moved; A moved it to AskConfirm and then
+-- HandleConfirmInput, with "Is this the correct time?" and a YES/NO whose cursor started on NO; YES moved it to
+-- Confirmed and Exit, and callback2 went back to the overworld's 34 frames later. Its data words (s16 from the task's
+-- +8): +4 the hours, 0 to 23 (0:59 went back to 23:59, 11:59 on to 12:00, and 13:00 drew 1:00 PM); +6 the minutes; +10
+-- 0 for hours 0-11 with AM drawn and 1 from 12 with PM drawn; +8 2 while Right moved the hands and 1 while Left did,
+-- 0 again with +12 once let go. A held direction moved one minute every 6 frames at first and one a frame once +12
+-- passed 60, and the frame the direction was let go moved nothing more. The AM/PM sign turns over after the period
+-- changes: one frame after `set_clock` answered 23:59, set from midnight, it still drew AM, and 14 frames after, PM. A toward the clock
+-- once it was set went through the routine named CB2_ViewWallClock to the same callback2, with task 0 running
+-- Task_ViewClock_WaitFadeIn and then HandleInput (+1 each), its words holding the time set (7, 30, 0) and 7:30 AM drawn.
+-- One table, since this module's main chunk is at Lua's 200-local ceiling.
+local CLOCK = { cb2 = 0x08134c9c, setting = 0x08134ce8, asking = 0x08134e30, periods = { [0] = "AM", [1] = "PM" },
+	states = { [0x08134ce8] = "setting", [0x08134dc4] = "confirming", [0x08134e30] = "confirming",
+		[0x08134ea4] = "closing", [0x08134ee8] = "closing", [0x08134f10] = "viewing", [0x08134f40] = "viewing" } }
+
+-- The clock being set, or nil: its task's routine and data words.
+local function clockState()
+	if (r32(GMAIN_CB2) & 0xFFFFFFFE) ~= CLOCK.cb2 then return nil end
+	for n = 0, NUM_TASKS - 1 do
+		local at = GTASKS + n * TASK_SIZE
+		local func = r32(at) & 0xFFFFFFFE
+		if r8(at + 4) ~= 0 and CLOCK.states[func] then
+			local s16 = function(o) return memory.read_s16_le(at + 8 + o, BUS) end
+			return { func = func, hours = s16(4), minutes = s16(6), direction = s16(8), period = s16(10), speed = s16(12) }
+		end
+	end
+	return nil
+end
+
+local function readClock()
+	local c = clockState()
+	if not c then return nil end
+	return { hours = c.hours, minutes = c.minutes, period = CLOCK.periods[c.period],
+		period_raw = not CLOCK.periods[c.period] and c.period or nil, state = CLOCK.states[c.func],
+		turning = c.direction ~= 0 or nil }
+end
+
 -- What the save has: the party, the bag, money and badges. Nil until the save blocks are in place.
 local function readSave()
 	local sb1, sb2 = r32(SB1PTR), r32(SB2PTR)
@@ -1111,7 +1151,8 @@ local game = {
 	-- "vanilla" only when the ROM's hash is the one every address here was measured on.
 	variant = isVanilla and "vanilla" or "unverified",
 	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "cheat:warp", "cheat:set_flag",
-		"cheat:give_item", "cheat:register_item", "select", "walk", "goto", "battle", "advance_text", "type_text" },
+		"cheat:give_item", "cheat:register_item", "select", "walk", "goto", "battle", "advance_text", "type_text",
+		"set_clock" },
 	-- The START menu and a YES/NO: Down moved the cursor one entry per press and A chose it; in a battle
 	-- menu Left and Right moved between its two columns (2026-09-16).
 	menuButtons = { prev = "Up", next = "Down", left = "Left", right = "Right", confirm = "A" },
@@ -1198,6 +1239,7 @@ function game.observe(asked)
 	local save = (asked and isVanilla) and readSave() or nil
 	return {
 		keyboard = isVanilla and readKeyboard() or nil,
+		clock = isVanilla and readClock() or nil,
 		party = save and save.party,
 		bag = save and save.bag,
 		money = save and save.money,
@@ -1816,6 +1858,7 @@ local textHooks = {
 	end,
 	animationPlaying = function() return r8(ANIM_SCRIPT_ACTIVE) ~= 0 end,
 	readKeyboard = readKeyboard,
+	readClock = readClock,
 	strongestMove = function()
 		local slot = strongestMoveSlot()
 		if slot == nil then return nil, "no move has PP left" end
@@ -1856,9 +1899,8 @@ end
 -- show the last one landed, and none while the screen is not taking keys. The typed byte is read back against the key's.
 -- With confirm, Start and A on OK; without, nothing after the last letter, since after the seventh the cursor had gone
 -- to OK by itself and an A there confirmed.
-local TYPE_TAP, TYPE_ANSWER, TYPE_BUSY = 2, 40, 300
-
 game.programs.type_text = function(p)
+	local TYPE_TAP, TYPE_ANSWER, TYPE_BUSY = 2, 40, 300
 	if not isVanilla then return nil, "type_text is measured on the vanilla ROM only" end
 	local k = keyboardState()
 	if not k then return nil, "no naming keyboard is open (observe shows no keyboard)" end
@@ -1989,6 +2031,90 @@ game.programs.type_text = function(p)
 	end, nil, 3600
 end
 
+-- set_clock {hours, minutes, confirm}: sets the wall clock (THE WALL CLOCK, above) the way a player does. Right or Left,
+-- whichever way round the dial is shorter, is held while the minutes read short of the time and let go on the frame
+-- they read it -- the frame a direction was let go moved nothing more -- and a time passed is gone back to the other
+-- way. Nothing is pressed while the hands still turn. With confirm (the default), A, Up to YES and A, and it answers
+-- once callback2 has left the clock.
+game.programs.set_clock = function(p)
+	local TAP, ANSWER, BUSY, HOLD = 2, 40, 120, 1500
+	if not isVanilla then return nil, "set_clock is measured on the vanilla ROM only" end
+	local hours, minutes = math.tointeger(p.hours), math.tointeger(p.minutes)
+	if not hours or hours < 0 or hours > 23 then return nil, "set_clock needs hours, 0 to 23" end
+	if not minutes or minutes < 0 or minutes > 59 then return nil, "set_clock needs minutes, 0 to 59" end
+	local c = clockState()
+	if not c or c.func ~= CLOCK.setting then return nil, "no clock is being set (observe shows no clock in state setting)" end
+	local confirm, target = p.confirm ~= false, hours * 60 + minutes
+	local phase, busy, held, presses, pressing, holding, set = "set", 0, 0, 0, nil, nil, nil
+	local function finish(outcome)
+		return nil, true, { outcome = outcome, set = set, presses = presses }
+	end
+	local function fail(msg) return nil, true, nil, msg end
+	local function tap(button, what, done)
+		pressing, presses = { pad = { [button] = true }, held = 0, what = what, done = done }, presses + 1
+		return pressing.pad, false
+	end
+
+	return function()
+		local s = clockState()
+		if not s then
+			if phase == "closing" then return finish("confirmed") end
+			return fail("the clock screen closed before the time was " .. (confirm and "confirmed" or "set"))
+		end
+		if pressing then
+			pressing.held = pressing.held + 1
+			if pressing.held <= TAP then return pressing.pad, false end
+			if pressing.done(s) then
+				pressing = nil
+			elseif pressing.held > ANSWER then
+				return fail(string.format("the clock did not answer %s in %d frames", pressing.what, ANSWER))
+			end
+			return nil, false
+		end
+
+		if phase == "set" then
+			if s.func ~= CLOCK.setting then return fail("the clock stopped taking the time (state " .. tostring(CLOCK.states[s.func]) .. ")") end
+			local ahead = (target - (s.hours * 60 + s.minutes)) % 1440
+			local way = ahead <= 720 and "Right" or "Left"
+			if holding then
+				if ahead == 0 or way ~= holding then
+					holding = nil
+					return nil, false
+				end
+				held = held + 1
+				if held > HOLD then
+					return fail(string.format("%s held %d frames and the clock reads %d:%02d", holding, HOLD, s.hours, s.minutes))
+				end
+				return { [holding] = true }, false
+			end
+			if s.direction ~= 0 or s.speed ~= 0 then
+				busy = busy + 1
+				if busy > BUSY then return fail(string.format("the hands kept turning for %d frames", BUSY)) end
+				return nil, false
+			end
+			busy = 0
+			if ahead ~= 0 then
+				holding, held, presses = way, 0, presses + 1
+				return { [holding] = true }, false
+			end
+			set = { hours = s.hours, minutes = s.minutes, period = CLOCK.periods[s.period] }
+			if not confirm then return finish("set") end
+			phase = "confirm"
+			return tap("A", "A", function(now) return now.func == CLOCK.asking end)
+		end
+
+		if phase == "confirm" then
+			if s.func ~= CLOCK.asking then return fail("the clock's question is not up") end
+			if r8(SMENU + 2) ~= 0 then
+				return tap("Up", "Up to YES", function() return r8(SMENU + 2) == 0 end)
+			end
+			phase = "closing"
+			return tap("A", "A on YES", function(now) return now.func ~= CLOCK.asking end)
+		end
+		return nil, false
+	end, nil, 3600
+end
+
 -- What `changed` compares between two observations: the fields a press is expected to move.
 function game.diffKeys(o)
 	return {
@@ -2003,6 +2129,7 @@ function game.diffKeys(o)
 		keyboard_text = o.keyboard and o.keyboard.text or "none",
 		keyboard_on = o.keyboard and (o.keyboard.on or ("button row " .. tostring(o.keyboard.on_button_row))) or "none",
 		keyboard_page = o.keyboard and o.keyboard.page or "none",
+		clock = o.clock and string.format("%d:%02d %s", o.clock.hours, o.clock.minutes, o.clock.state) or "none",
 		battle_asking = o.battle and o.battle.asking or "none",
 		battle_hp = o.battle and (function()
 			local hp = {}

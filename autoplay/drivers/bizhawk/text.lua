@@ -24,6 +24,7 @@
 --   animationPlaying() -> boolean            in a battle, the game is playing an animation by itself (Emerald's STRING
 --                                            SHOT ran 228 frames with nothing else changing)
 --   readKeyboard()     -> keyboard or nil    an on-screen keyboard (a naming screen): advance_text stops at it
+--   readClock()        -> clock or nil       a clock screen (a new game's wall clock): advance_text stops at it
 --   battleQuestion()   -> question or nil    in a battle, a menu that is not the action or move menu (Crystal's "Will A
 --                                            change POKéMON?" YES/NO): { kind, text, menu = { items, cursor }, no = n }.
 --                                            `battle` answers the kinds it knows and stops `needs_choice` on the rest;
@@ -310,6 +311,9 @@ function M.advanceText(h)
 		-- A keyboard is answered with type_text, never an A: a nudge once typed "AA" on Emerald's (2026-09-17).
 		local kb = h.readKeyboard and h.readKeyboard()
 		if kb then return "keyboard_open", { keyboard = kb } end
+		-- A clock is set with set_clock: advance_text waited out its screen as a running script and ended stuck (2026-09-17).
+		local clock = h.readClock and h.readClock()
+		if clock then return "clock_open", { clock = clock } end
 		local m = h.readMenu()
 		if m then return "menu_open", { menu = m } end
 		-- A script still running is not the end: Route 101's cutscene walked the player on after its first

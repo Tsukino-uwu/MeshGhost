@@ -121,6 +121,14 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 	}, logged(t, "type_text", nil, t.typeText))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name: "set_clock",
+		Description: "Set the clock on the game's clock screen (a new game's wall clock) to hours (0-23) and minutes " +
+			"the way a player does: the driver holds the hands' direction, whichever way round is shorter, and lets " +
+			"go on the frame the game reads the time, then with confirm (default true) answers the game's question " +
+			"YES. observe's clock shows the time and state. Returns the time set.",
+	}, logged(t, "set_clock", nil, t.setClock))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name: "screenshot",
 		Description: "A picture of the game frame, saved under dev-scripts/shots/<game>/ and returned " +
 			"as an image. The navigation sense: what is around, what a thing is, which entry is " +
@@ -362,6 +370,33 @@ func (t *tools) typeText(ctx context.Context, _ *mcp.CallToolRequest, in TypeTex
 	}
 	req := typeTextRequest{Text: in.Text, Confirm: in.Confirm == nil || *in.Confirm}
 	raw, err := t.forward(ctx, "type_text", "type_text", req, CallTimeout+2*time.Minute)
+	return nil, raw, err
+}
+
+// SetClockIn is the set_clock tool's input. Hours and minutes are pointers so that 0 is a time and a missing one is
+// refused.
+type SetClockIn struct {
+	Hours   *int  `json:"hours" jsonschema:"the hour, 0 to 23"`
+	Minutes *int  `json:"minutes" jsonschema:"the minute, 0 to 59"`
+	Confirm *bool `json:"confirm,omitempty" jsonschema:"answer the game's question YES once set; default true"`
+}
+
+// setClockRequest is what the driver receives: every field spelled out.
+type setClockRequest struct {
+	Hours   int  `json:"hours"`
+	Minutes int  `json:"minutes"`
+	Confirm bool `json:"confirm"`
+}
+
+func (t *tools) setClock(ctx context.Context, _ *mcp.CallToolRequest, in SetClockIn) (*mcp.CallToolResult, any, error) {
+	if in.Hours == nil || *in.Hours < 0 || *in.Hours > 23 {
+		return nil, nil, fmt.Errorf("hours must be 0 to 23")
+	}
+	if in.Minutes == nil || *in.Minutes < 0 || *in.Minutes > 59 {
+		return nil, nil, fmt.Errorf("minutes must be 0 to 59")
+	}
+	req := setClockRequest{Hours: *in.Hours, Minutes: *in.Minutes, Confirm: in.Confirm == nil || *in.Confirm}
+	raw, err := t.forward(ctx, "set_clock", "set_clock", req, CallTimeout+time.Minute)
 	return nil, raw, err
 }
 
