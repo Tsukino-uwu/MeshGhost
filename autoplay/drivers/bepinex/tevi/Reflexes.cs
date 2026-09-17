@@ -150,6 +150,9 @@ namespace MeshGhostAutoplay.Tevi
             {
                 if (c == null || c == me || c.t == null || !c.gameObject.activeInHierarchy || c.health <= 0) continue;
                 if (!IsEnemy(c) || Utility.isOutsideCamera(c.t.position, 0f)) continue;
+                // Not something to fight: EnergyBall reads enemy with 99999 HP, and the user, 2026-09-17: "these things are bombs
+                // you can attack/push towards things to break them, not enemies".
+                if (c.maxhealth >= 99999) continue;
                 if (type != null && c.type.ToString() != type) continue;
                 float d = (c.t.position - me.t.position).sqrMagnitude;
                 if (d < bestD)

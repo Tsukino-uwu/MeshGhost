@@ -184,3 +184,26 @@ cat (hurt the player 1 HP a hit), crates, a scene with Caprice and Roleo (`chapt
 `dialogue_changed`), a locked floor hatch passed by, the "Basic Engagement" tutorial window, a mouse, and a dog climbed to in one
 `sequence` that stopped on its contact hit and beaten by a combo that stopped on `enemy_defeated`. Snapshots `tevi_base_armed` and
 `tevi_first_enemy`. Segment 4 **reached**: a restore of `tevi_first_enemy` to check the mute, which also set the walk back to the cat.
+
+## 2026-09-17 (same session) — reflexes: `fight` follows an enemy; the artifact, the hatch, blastvines and the first sigils
+
+**The user**, as it was played: *"need a better way to keep track of/be aware of moving enemies. they will move around/go towards the
+player/use ranged attackes etc. you can't just always stop in place and attack hopping that they will walk towards you"*; of an
+interaction, *"there will be an icon above the player head, when you can use the up arrow to interact with things"*; of a jump that
+kept falling short, *"think you hit your head at the roof/celing"* and *"try to jump below the platform/just a bit to the side of the
+platform"*; of orbs on vines, *"these things are bombs you can attack/push towards things to break them, not enemies"*; of a missed
+message, *"you got another ui popup, a new skill, along with a description at the bottom left of how to use ti"*; and *"3/10 EP, so
+you can still equip more ones if you have any"*. A wrong turn (to a dead end the user had pointed at on purpose) was asked about
+rather than walked twice.
+
+**Built** (the shared core's `reflex`: [../phase13.md](../phase13.md); the measurements: `adapters/tevi/MEASURED.md`, same date):
+`reflex` `fight` in the driver, which chooses the next frame's input from the enemy's position; `advance_text`; `observe`'s
+`interact`, `popup` and a per-frame `trail`; events `interact_changed` and `popup_shown`. A restore made to test the input mute
+(segment 4) set the walk back to the first cat; that stretch was walked again in five sequences.
+
+**Walked** (run log `autoplay/runs/2026-09-17_131747.151516.ndjson`, segment 5; no cheat or restore in it): from the first cat to the
+dog's ledge again; a dark room lit by picking up the Astral Gear (`chapter0_mainstory1-1`); its red switch (the bubble read
+`action`), which opened the crate room's floor hatch and sent a dog down it; a second duct broken by a quickdrop; a mouse, a dog, a
+cat and a bot beaten by `fight`; a jump onto a pass-through platform worked out from the `trail`; a Clean Staff `fight` answered
+`unreachable`; the blastvines scene (`chapter0_point2`); Palladium picked up, and Palladium and Biscuit Delivery equipped from the
+Sigils tab. Snapshots `tevi_dog_ledge`, `tevi_astral_gear`, `tevi_blastvines`.

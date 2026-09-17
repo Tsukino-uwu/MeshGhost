@@ -340,15 +340,16 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   Confirm tapped once a line has stood 30 frames unchanged, the item box logged and confirmed the same way; ends `closed`,
   `window_open` -- a tutorial window, its words in `screen_text` --, or `stuck` after 6 taps with no change; a `log` of each
   line), `reflex` `fight` (below), `screenshot` (the game's own frame).
-  **`reflex` `fight`** `{type?, range?, stop_hp?}`: the nearest living enemy in view, followed frame by frame -- held toward
+  **`reflex` `fight`** `{type?, range?, stop_hp?}`: the nearest living enemy in view (never one with 99999 HP: a blastorb, which
+  is knocked into things, not fought), followed frame by frame -- held toward
   outside melee `range` (110), faced and Attack tapped inside it, a jump when it is above or she is stuck, Orbitars when it
   stays out of reach -- until `defeated`, `lost`, `unreachable` (45 frames not moving with it higher than a jump reaches),
   `low_hp`, `mode_changed` or `timeout`; reports hits taken, attacks, jumps and both HPs.
   Events: `mode_changed`, `area_changed`, `room_changed`; `damage_taken` (a hit on the player through the game's one hit
   method, with `damage`, `hp_from`/`hp_to`, `bullet_type` and the `source` character as `nearby` names it), `enemy_defeated`
   (a hit that takes another character to 0 HP, `by_player_raw`), `hp_changed` (any cause: a hit reports both), `game_over`,
-  `dialogue_changed` (each line, with speaker and text, and the close), `menu_changed`, `tip_shown`, `item_obtained` and
-  `interact_changed`.
+  `dialogue_changed` (each line, with speaker and text, and the close), `menu_changed`, `tip_shown`, `item_obtained`,
+  `interact_changed` and `popup_shown`.
   Each is reported while a core is connected; what happened between two cores is not (the HP it cost still reads). An `observe` the agent calls also reads what is around the player
   from the game's state (`Surroundings.cs`): `player` physics, `view` (the camera's edges; a pixel is a world unit), a
   27-by-17-tile `local_map` of the game's collision grid (`#` byte 1, `.` 0, `=` 255, a platform stood on from above, slopes
@@ -357,7 +358,8 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   screen), `screen_text` (every visible text object's words, top to bottom: tutorial windows, popups, the HUD), and `dialogue`
   (section, line of lines, speaker, the whole line), and `trail`, the player's last 180 frames every 3rd (frame, x, y, on the
   ground, animation), recorded whether or not a core is connected: read it to see where a jump went. Any `observe` also reads
-  `interact`, the bubble over her head saying Up does something here (`kind` `enter`, `talk` or `action`), `tip`, the game's short instruction banner
+  `interact`, the bubble over her head saying Up does something here (`kind` `enter`, `talk` or `action`), `popup`, the
+  message sliding in at the bottom left (a new ability and how to use it: `title`, `text`), `tip`, the game's short instruction banner
   (`keyword`, `text` once `shown`; the game's own lessons in its controls), and `obtained`, the box naming an item just picked up. `snapshot` is the game's own save to
   slot 39 (in the shadow below) copied to the core's `.State` path; `restore` copies it back, points the recent slot at it
   and reloads, answering once the area, the camera and the fade-in are done (272 frames in the cell).

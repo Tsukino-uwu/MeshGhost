@@ -56,6 +56,9 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - 2026-09-17 — The instruction banner, the item box and a tutorial window, as text
 - 2026-09-17 — A restore lets outside input in again; a teleport into a new room starts an autosave
 - 2026-09-17 — Jump height by how long Jump is held (partial)
+- 2026-09-17 — A trail of a jump: run speed, a ceiling that caps the arc, and a pass-through platform
+- 2026-09-17 — Fighting at game speed: the fight reflex against five kinds, and blastorbs
+- 2026-09-17 — The interaction bubble, the bottom-left popup and the menu's tabs, read
 - Not measured yet — backup slots and the chapter-reset slot
 - Not measured yet — what `mode: paused` reads from, and why the pause menu opened
 
@@ -249,6 +252,58 @@ depending on how long the jump button is held"*.
   it reached a pass-through platform 112 above, and held 14 frames three times 45 frames apart, three stacked 112 apart.
 - Held 26 frames with `XAxis-`, it landed on a block 168 above; held 11 frames with `XAxis-` from a slope, on a platform 154 above.
 - **Not measured**: the rise per frame of hold, the shortest hop, or the highest jump.
+
+### 2026-09-17 — A trail of a jump: run speed, a ceiling that caps the arc, and a pass-through platform
+
+**Evidence**: autoplay's TEVI driver recording the player's position every frame (`observe`'s `trail`), in Bandit Base below the
+second ventilation duct; run log `autoplay/runs/2026-09-17_131747.151516.ndjson`, segment 5. The user, watching: *"think you hit
+your head at the roof/celing"* and *"try to jump below the platform/just a bit to the side of the platform"*.
+
+- **Running moves 6.33 units a frame** (19 units every 3 frames, level and on the slope alike); the slope there drops 1 unit
+  for 1.
+- **A ceiling caps a jump**: from y -9072, holds of 5 and of 9 frames both peaked at y -8968 and fell from there; in the air 33
+  frames, they came down 212 units along. Holds of 16 and 30 frames did no better.
+- **A platform stood on from above (tile byte 255) is jumped up through**: from the slope 150 units below it and just to its
+  side, an 18-frame hold of Jump with left held from its 10th frame rose through its edge, peaked 38 units above, and landed on it.
+- Not measured: the height of the ceiling itself, or the player's collision box.
+
+### 2026-09-17 — Fighting at game speed: the fight reflex against five kinds, and blastorbs
+
+**Evidence**: the driver's `reflex` `fight` (each frame: face the nearest enemy, hold toward it outside 110 units, tap Attack
+inside it, jump or shoot when it is above), its answers and events, same run log, segment 5; `observe`'s `nearby` and
+`projectiles`; a screenshot of the blastvines (`dev-scripts/shots/tevi/autoplay_energyballs.png`, gitignored). The user: *"these
+things are bombs you can attack/push towards things to break them, not enemies"* and, of the Clean Staff, *"you can't reach that
+enemy from here / with your current items"*.
+
+- **Defeated** on Cakewalk: `GH_Member_Mouse` (30 HP) twice, 130 and 136 frames, 1 hit taken each; `GH_Member_Dog` (28 HP) 126
+  frames, 1 hit; `GH_Member_Cat` (35 HP) 99 frames, none; `GH_Bot` (34 HP) 133 frames, none. The four after a fix to how taps were counted took 14 to 17 taps of Attack each.
+- **Out of reach**: `GH_CleanStaff` (59 HP) on a ledge 224 units above the floor, behind a wall; 28 jumps into the wall over
+  1200 frames, until the reflex was changed to end `unreachable` after 45 frames not moving with its target more than 180 above
+  where she stood (it then ended in 44 frames).
+- **Blastorbs**: `EnergyBall` characters on the blastvines read `isCharacterEnemy` true, HP 99999 of 99999, with bullets
+  `ENEMY_HURTBOX` and `BODYBOX` of their own. Three Attack taps on one on the floor drew "3 HITS!", a 6 and a bar under it and moved
+  it from x 10052 to 10126, then to 10246; 150 frames on it had not burst. Tevi's lines on meeting them (`chapter0_point2`):
+  "Blastvines?", "I'm sure these blastorbs will come in handy." What they break was not seen.
+- **Shoot-chain blocks** (`B_SHOOT_CHAIN`) at the slope's top: ten Orbitar taps, a 30-frame Orbitar hold and three melee taps
+  against them left them whole.
+
+### 2026-09-17 — The interaction bubble, the bottom-left popup and the menu's tabs, read
+
+**Evidence**: the driver reading `EnterTips.Instance` (active, a private `fadeout` above 0, its sprite against the private
+`entersprite`, `talksprite`, `actionsprite`), `HUDPopupMessage.Instance` (private `timer`, `targetTitleText`, `targetPopupText`)
+and every `TMP_Text`; screenshots `autoplay_menu1.png`, `autoplay_sigils.png` (gitignored); same run log. The user: *"there will
+be an icon above the player head, when you can use the up arrow to interact with things"*.
+
+- **The bubble**: walking to the artifact room's red switch, `interact` read `action` from the frame she stood beside it (a
+  `sequence` stopped on `interact_changed` there); Up then ran the scene that opened the floor hatch. A door drawn in the tall
+  room by the Clean Staff gave no bubble.
+- **The bottom-left popup** (a new ability and its use) came and went during a 240-frame run before it was read; the driver has
+  read it since, not yet seen with a message up.
+- **The pause menu** opened on Characters, and PageR went Items, Sigils, Map, Characters. Characters lists each move with its
+  input and a description ("Starting jump height is 3 tiles. Hold jump to reach full height, tap jump to perform a smaller jump").
+  On Sigils, `YAxis-` moved to Palladium (cost 3) and Confirm read it `Equipped`, EP used 3 of 10.
+- **Items picked up**: the Astral Gear (`STACKABLE_COG`, the artifact) and Palladium (`BADGE_ANTIENERGYBALL`: "All damage taken
+  -2, damage taken from blastorbs -50%"), each through the item box and closed by Confirm.
 
 ## Not measured yet
 

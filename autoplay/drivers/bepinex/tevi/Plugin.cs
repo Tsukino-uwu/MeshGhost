@@ -319,6 +319,8 @@ namespace MeshGhostAutoplay.Tevi
             if (obtained != null) o["obtained"] = obtained;
             JObject interact = Interact();
             if (interact != null) o["interact"] = interact;
+            JObject popup = Popup();
+            if (popup != null) o["popup"] = popup;
             if (p != null && p.t != null)
             {
                 o["player"] = new JObject
@@ -539,6 +541,29 @@ namespace MeshGhostAutoplay.Tevi
             return new JObject { ["kind"] = kind };
         }
 
+        // The message that slides in at the bottom left (HUDPopupMessage): a new ability and how to use it, and the like. While its
+        // timer runs, `title` and `text` are the whole message it is printing, with the game's markup taken out. The user,
+        // 2026-09-17: "you got another ui popup, a new skill, along with a description at the bottom left of how to use it".
+        private static readonly System.Text.RegularExpressions.Regex Markup = new System.Text.RegularExpressions.Regex("<[^>]*>");
+
+        private static JObject Popup()
+        {
+            HUDPopupMessage hud = HUDPopupMessage.Instance;
+            if (hud == null || !hud.isActiveAndEnabled) return null;
+            Type t = typeof(HUDPopupMessage);
+            float timer = t.GetField("timer", Private)?.GetValue(hud) is float f ? f : 0f;
+            if (timer <= 0f) return null;
+            string title = t.GetField("targetTitleText", Private)?.GetValue(hud) as string;
+            string text = t.GetField("targetPopupText", Private)?.GetValue(hud) as string;
+            if (string.IsNullOrEmpty(title) && string.IsNullOrEmpty(text)) return null;
+            return new JObject
+            {
+                ["title"] = title == null ? null : Markup.Replace(title, "").Trim(),
+                ["text"] = text == null ? null : Markup.Replace(text, "").Trim(),
+                ["timer_raw"] = Math.Round(timer, 2),
+            };
+        }
+
         // The box that names an item just picked up (HUDObtainedItem), while it is up: the item's type and the name and
         // description drawn. Confirm closes it.
         private static JObject Obtained()
@@ -554,7 +579,7 @@ namespace MeshGhostAutoplay.Tevi
             };
         }
 
-        private static readonly string[] DiffKeys = { "mode", "interact.kind", "tip.keyword", "obtained.item", "dialogue.section", "dialogue.line", "menu.name", "menu.cursor", "menu.slot", "menu.question", "menu.entering", "location.area", "location.area_id", "location.room_x", "location.room_y", "location.x", "location.y", "location.facing", "player.anim", "player.hp" };
+        private static readonly string[] DiffKeys = { "mode", "popup.title", "interact.kind", "tip.keyword", "obtained.item", "dialogue.section", "dialogue.line", "menu.name", "menu.cursor", "menu.slot", "menu.question", "menu.entering", "location.area", "location.area_id", "location.room_x", "location.room_y", "location.x", "location.y", "location.facing", "player.anim", "player.hp" };
 
         private static JObject Changed(JObject before, JObject after)
         {
@@ -631,7 +656,7 @@ namespace MeshGhostAutoplay.Tevi
                 return;
             }
             foreach (JObject e in hits) Emit(e);
-            Events.Poll(Player(), Dialogue(), SaveMenu() ?? TitleMenu(), Tip(), Obtained(), Interact());
+            Events.Poll(Player(), Dialogue(), SaveMenu() ?? TitleMenu(), Tip(), Obtained(), Interact(), Popup());
             foreach (JObject e in Events.Drain()) Emit(e);
             string mode = Mode();
             WorldManager wm = WorldManager.Instance;
