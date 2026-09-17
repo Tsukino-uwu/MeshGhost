@@ -357,8 +357,17 @@ check, then `verified.md` for whatever addresses come out. The order matters mor
 question; how complete each one is has not been checked, and "WIP" means the second may not answer
 the questions below yet.
 
-**Before anything is read from either, they go through `licensing.md`** — neither is on that list, so
-by CLAUDE.md's rule neither may be used until its license has been checked and recorded. A decomp is
+**A third link, filed 2026-09-18 on the user's request and also unchecked:**
+`https://github.com/SSunnKing/Open-Nectar---Pikmin-Native-PC-Mobile-Port`. Nothing has been fetched,
+opened or licence-checked, and nothing is claimed about what it is or what state it is in — the
+repo's own name is not a finding. **If it turns out to be a native build, it changes this entry's
+hardest open question**, which is the host: the two decomps above leave a GameCube game needing
+BizHawk's Dolphin core or Dolphin's own scripting, neither examined, and a native port would not
+need either. Same shape as the PaperBoat entry at the end of this file, and the same order of
+operations applies to all three.
+
+**Before anything is read from any of them, they go through `licensing.md`** — none is on that list,
+so by CLAUDE.md's rule none may be used until its license has been checked and recorded. A decomp is
 the highest-risk shape of reference we have: it is source, so the facts/expression line matters more
 than usual. Facts learned from one (a structure's field order, what a function does) may be used with
 a citation; their code may never be committed, adapted, or paraphrased into ours, whatever the license
