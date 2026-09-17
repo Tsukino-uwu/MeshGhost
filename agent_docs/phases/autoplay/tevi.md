@@ -242,8 +242,8 @@ snapshots `tevi_cell_start`, `tevi_base_armed`, `tevi_first_enemy`, `tevi_dog_le
 
 **To pick up:** as the last session's entry says (core and `mcpcall` built into the chat's scratch folder, `-listen 127.0.0.1:7872`,
 its own `-log`, calls from Bash). If TEVI is still running, no launch is needed: the driver connects when a core starts. If it was
-closed, start the core first, ask before launching, then the title's Start, slot 39 (it exists only in the shadow, copied fresh at arm,
-so a fresh process loads it only after `restore` of `tevi_first_savepoint` from inside a game), or restore from a new game.
+closed, start the core first and ask before launching; the guard copies the real folder into the shadow as it arms, so
+slot 39's save is gone from a fresh process: get into a game (Start, slot 39, a new game) and `restore` `tevi_first_savepoint`.
 Moving is `sequence` (never one hold per call), enemies `reflex` `fight`, conversations and item boxes `advance_text`, time `clock`.
 Hot reload: rebuild in `autoplay/drivers/bepinex/tevi/` and copy the DLL and pdb into `BepInEx\scripts\`; a change to `SaveGuard.cs`
 needs a restart. The game's own lessons are text now: `tip`, `popup`, `screen_text` (tutorial windows), the pause menu's Characters
