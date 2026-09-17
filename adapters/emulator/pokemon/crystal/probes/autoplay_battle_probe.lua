@@ -15,7 +15,8 @@
 --   player  wBattleMon (0x20 bytes from C62C) and wBattleMonNickname (11 from C621), hex.
 --   enemy   wEnemyMon (0x20 from D206) and wEnemyMonNickname (11 from C616), hex.
 --   pmove   wPlayerMoveStruct (7 from C60F); emove wEnemyMoveStruct (7 from C608).
---   party   wPartyCount and its species list, wPartyMon1 (0x30 from DCDF), its nickname; money wMoney (3 bytes).
+--   party   wPartyCount and its species list, wPartyMon1 (0x30 from DCDF), its nickname; partyN each later slot, 0x30
+--           on, and 11 bytes on for its nickname; money wMoney (3 bytes).
 --   ot      wOTPartyCount and species list, wOTPartyMon1 (0x30 from D288).
 -- And ONCE per id met in any battler, move struct or party slot 1 (so a byte is only named once it is seen):
 --   move N  its 7 bytes in the table at 10:5AFB (entry N-1), and the Nth '@'-ended string from 72:5F29, raw and
@@ -143,6 +144,12 @@ MESHGHOST_DEV_TICK = function()
 	local party = wram(0xDCDF, 0x30)
 	changed("party", string.format("count %d species %s mon1 %s | %s", u8(0xDCD7), hex(wram(0xDCD8, 7)), hex(party),
 		hex(wram(0xDE41, 11))))
+	-- Every later slot too, 0x30 bytes apart from the first and its nickname 11 bytes after the first's (2026-09-17:
+	-- the addresses a second Pokémon would sit at if the slots are evenly spaced, which this log is to check).
+	for k = 1, math.min(u8(0xDCD7), 6) - 1 do
+		changed("party" .. (k + 1), string.format("mon%d %s | %s", k + 1, hex(wram(0xDCDF + k * 0x30, 0x30)),
+			hex(wram(0xDE41 + k * 11, 11))))
+	end
 	changed("money", hex(wram(0xD84E, 3)))
 	changed("ot", string.format("count %d species %s mon1 %s", u8(0xD280), hex(wram(0xD281, 7)), hex(wram(0xD288, 0x30))))
 

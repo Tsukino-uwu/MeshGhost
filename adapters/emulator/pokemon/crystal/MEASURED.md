@@ -60,6 +60,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - A trainer battle: sight, approach, the battle's own waits with no ▼, and the words after (2026-09-17)
 - The PACK: its pockets, the item pocket, and its list that scrolls (2026-09-17)
 - A trainer talked to (2026-09-17)
+- The ball pocket, a POKé BALL thrown in a battle, and a second Pokémon in the party (2026-09-17)
 - Not measured yet: The rest of autoplay's Crystal reading (from 2026-09-17)
 
 ## Measured
@@ -464,6 +465,41 @@ bytes, the scrolling menu's header copy, the four pockets, each item's name and 
   frames with no nudge; money 3064 against 3000 in that snapshot. His `beaten` then read true (flag 1450's bit set).
 - **Not seen:** talking to a beaten trainer, a trainer talked to from beside or behind.
 
+### The ball pocket, a POKé BALL thrown in a battle, and a second Pokémon in the party (2026-09-17)
+
+**Vanilla V1.0, Route 31 (26.2).** `probes/autoplay_bag_probe.lua` (`logs/autoplay_bag_7871_20260917_022537`, `_023151`),
+`probes/autoplay_battle_probe.lua` (`logs/autoplay_battle_7871_20260917_023151`, `_023923`, the second with every party
+slot), `probes/autoplay_text_probe.lua` (`logs/autoplay_text_7871_20260917_023014`); captures `autoplay_pack_balls`,
+`autoplay_battle_pack`, `autoplay_battle_ball_menu`, `autoplay_battle_ball_thrown2`, `autoplay_party2` (gitignored).
+Snapshots `route31_got_ball`, `route31_balls6`, `route31_wild_bellsprout`, `battle_ball_use_menu`,
+`battle_caught_bellsprout`, `route31_caught_bellsprout`.
+
+- **The ball pocket.** Route 31's item ball at (19,15), faced and pressed: "A found POKé BALL!", "A put the POKé BALL in the
+  BALL POCKET.", and wNumBalls (01:D8D7) read `01 05 01 FF` (from `00 FF`). POKé BALL's name is `54 7F 81 80 8B 8B 50`
+  in the table at 72:4000, printed "POKé BALL": 0x54 printed as POKé. Its attribute entry read `C8 00 00 00 40 03 06`,
+  +0x05 03. `give_item` added 5 more; the PACK's ball pocket then drew POKé BALL ×6 and CANCEL, and the list reader,
+  with the header pointing at D8D7 and wCurPocket 1, read the same. BICYCLE's +0x05 read 02 and was refused.
+- **Mom's call on the way.** A step in the grass stopped `walk` with `script_started` and no text; the POKéGEAR rang,
+  then "MOM:" in a box at the top and "Hello?" below, then "What about money? Should I save it?" with YES / NO (NO
+  chosen through `select`), then "Click!". `advance_text` read all of it.
+- **The PACK in a battle.** A wild BELLSPROUT (L5, VINE WHIP, 20 HP): PACK from the action grid opened the PACK on the
+  pocket last shown (the ball pocket), read whole as out of a battle. POKé BALL chosen opened USE / QUIT (read as drawn),
+  over the item's description. That box read `waiting_for_button`: wTextDelayFrames counted 5 down to 1 and back
+  under it for as long as the menu waited (249 times), as under the PACK's list out of a battle — so under a menu the
+  count no longer makes a box wait.
+- **The throw.** USE printed "A used the POKé BALL." and the ball shook on the opponent's side; the ball pocket read 5.
+  Replayed from `battle_ball_use_menu` with 3, 9, 17, 29 and 41 frames before USE: "Aww! It appeared to be caught!",
+  "Shoot! It was so close too!" twice, "Aargh! Almost had it!", and at 41 "Gotcha! BELLSPROUT was caught!", then "Give a
+  nickname to BELLSPROUT?" with YES / NO, still in the battle (wBattleMode 1); NO ended it.
+- **The second party slot.** wPartyCount 2, the species list at 01:DCD8 `9B 45 FF`, and 0x30 bytes after the first
+  slot: `45 00 16 00 00 00 86 FB 00 00 87 …` with +0x1F 05, +0x22/+0x23 20 and +0x24/+0x25 20; its nickname 11 bytes
+  after the first's spelled BELLSPROUT. The POKéMON screen drew CYNDAQUIL :L5 10/19 and BELLSPROUT :L5 20/20. It also
+  read the player's ID (34555) at +0x06 and 135 at +0x08-+0x0A. `battle run` in the next wild battle ended with
+  `party` listing both.
+- **Not seen:** a third slot, a nickname given, a Pokémon sent to the PC, a throw at a weakened or paralysed Pokémon
+  (the user, on being told of the replays: catching is easier at lower HP and with a status such as paralysis), the
+  key item and TM/HM pockets with anything in them.
+
 ## Not measured yet
 
 ### The rest of autoplay's Crystal reading (from 2026-09-17)
@@ -473,8 +509,8 @@ bytes, the scrolling menu's header copy, the four pockets, each item's name and 
 - The rest of a battle (measured 2026-09-17 for one wild battle, above): a level-up and its stats box, the player's
   Pokémon fainting and the whiteout, a status, a second Pokémon in the party (is the next slot 0x30 on?), a move of
   another type drawn against the type table.
-- The other lists (measured 2026-09-17 for the PACK's item pocket, above): the ball and key item pockets with
-  something in them, the Pokémon menu, the PC, a mart; is the list always named by the header copy at CF91?
+- The other lists (measured 2026-09-17 for the PACK's item and ball pockets, above): the key item and TM/HM pockets
+  with something in them, the Pokémon menu, the PC, a mart; is the list always named by the header copy at CF91?
 - `walk` on a bike and surfing (wPlayerState other than 0) and off a ledge; collision 0x9D.
 - A text speed other than this save's; whether a box that waits with no ▼ reads anything besides
   wTextboxFlags ("A received POTION." ignored A through its jingle, then went on).

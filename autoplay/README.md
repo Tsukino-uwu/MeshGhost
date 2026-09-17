@@ -115,9 +115,10 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
   Right after a `restore`, a waiting box can read `printing` until its ▼ blinks back (16 frames).
 - **`menu`** — a menu with a ▶ cursor: `items` and `cursor`, 0-based. The START menu, a YES/NO, the main
   menu, the PACK's item menu (USE / GIVE / TOSS / QUIT), and in a battle the action grid (`columns: 2`, FIGHT PKMN /
-  PACK RUN) and the move list. The PACK's item pocket is read whole, scrolled off or not: `list: true`, `pocket:
-  "items"`, every entry and CANCEL in `items`, their `quantities`, the `cursor` into the whole list, and the box under
-  it as `description` (so `select` reaches any entry). Its other pockets read only the rows on screen.
+  PACK RUN), the move list and a ball's USE / QUIT. The PACK's item and ball pockets are read whole, scrolled off or
+  not, in or out of a battle: `list: true`, `pocket` (`items`, `balls`), every entry and CANCEL in `items`, their
+  `quantities`, the `cursor` into the whole list, and the box under it as `description` (so `select` reaches any
+  entry). Its other pockets read only the rows on screen.
 - **`screen_text`** — `row` and `text` for every other row holding words, only while the font is in the
   tiles (a Pokémon's picture reuses them; `crystal/MEASURED.md`, "Which font is loaded").
 - **`local_map`** — 15 by 11 around the player: `@` you, `N` a character, `W` a warp, `S` a sign, `#`
@@ -137,7 +138,7 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
   battle `opponent_party_count` and `opponent_party_index`. A battler is absent until its Pokémon is sent out. One wild
   battle and one trainer's measured.
 - Not yet: `movement`, a trainer that turns, and what the save has (`battle`'s `ended` alone reads money
-  and the first party slot). The events are
+  and the party). The events are
   `map_changed`, `mode_changed`, `dialogue_changed`, `menu_changed` and `battle_mode_raw_changed`.
 - Its tools: `walk` (on foot only; `run` walks and says `ran: false`, since Crystal has no running
   shoes; a door or a map edge answers once the player stands on the new map; `blocked` names a
@@ -145,7 +146,7 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
   trainer's `map_object` and `tiles_away` on the frame one sees the player), `select`, `advance_text`, `battle`
   (`strongest` scores power times the accuracy byte; called after `spotted` it waits while the trainer walks over; it
   presses A on the level-up stats box and on a battle's waits with no ▼; `ended` adds `outcome_raw`, 0 after a win and
-  2 after running, `money`, `party_count` and the first Pokémon's `party` entry), and the `warp` and `give_item` cheats.
+  2 after running, `money`, `party_count` and a `party` entry per Pokémon), and the `warp` and `give_item` cheats.
   No `goto` yet.
 
 ## The run log
@@ -201,7 +202,8 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   next gets on. Refused outside the overworld.
 - **Crystal `give_item`** `{item, quantity}`: `item` a name as the PACK draws it (case ignored) or an id; quantity 1-99.
   Only items the game files in the item pocket (their attribute entry's pocket byte reads 01, as POTION's and ANTIDOTE's
-  do); adds to the entry or starts one; refused past 99, past 20 entries, and outside the overworld. `report` reads it back.
+  do) or the ball pocket (03, as POKé BALL's); adds to the entry or starts one; refused past 99, past the pocket's
+  entries (20, 12), and outside the overworld. `report` reads it back.
 - **Crystal `warp`** `{map: "G.N", x, y}` (0-255 each): the game's own map load (`crystal/probes/goto_map.lua`'s writes),
   refused outside the overworld or while a script has the controls; `done` once the target map runs, and `report` reads
   the map and tile back.

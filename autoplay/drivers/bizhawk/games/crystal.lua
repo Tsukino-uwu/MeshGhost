@@ -488,6 +488,11 @@ local function readTextAndMenu(t, low)
 			if menuRows[r] then d = nil end
 		end
 	end
+	-- The count back to 5 runs under a menu too (the PACK's, in a battle, with its item's description in the box): with a
+	-- menu on screen the box waits only if its ▼ says so.
+	if d and m and d.state == "waiting_for_button" and cell(t, ARROW_COL, BOX_BOTTOM) ~= ARROW and waitingInBattle() then
+		d.state = "finished"
+	end
 	local whole = itemPocketMenu(m)
 	if whole then
 		whole.description = d and d.box ~= "" and d.box or nil
@@ -536,11 +541,13 @@ local STRING_END = 0x50
 local BATTLE_KINDS, BATTLE_MODE_TRAINER = { [1] = "wild", [2] = "trainer" }, 2
 local W_CUR_OT_MON, OT_MON_NONE_YET, W_OT_PARTY_COUNT = flat(0xC663), 255, flat(0xD280)
 
+-- In a string read from ROM, 0x54 printed as "POKé": the item named 54 7F 81 80 8B 8B printed "A found POKé BALL!"
+-- (autoplay_bag_probe.lua, 2026-09-17, Route 31).
 local function spell(b, from, to)
 	local out = {}
 	for i = from, to do
 		if b[i] == STRING_END then break end
-		out[#out + 1] = CHARS[b[i]] or string.format("{%02X}", b[i])
+		out[#out + 1] = b[i] == 0x54 and "POKé" or CHARS[b[i]] or string.format("{%02X}", b[i])
 	end
 	return table.concat(out)
 end
@@ -629,20 +636,25 @@ end
 --   * wMoney (D84E), 3 bytes high first, read 3000 as the trainer card drew MONEY ₽3000.
 --   * The party (wPartyCount DCD7, the first Pokémon's 0x30 bytes from DCDF, its nickname at DE41): +0x00 the species,
 --     +0x1F the level, +0x22 and +0x24 the HP and max HP, high byte first -- the POKéMON screen drew CYNDAQUIL :L5
---     10/19 as they read 155, 5, 10 and 19; the HP followed the battle's. Only the first slot is measured (the save has
---     one Pokémon), so the report names that one and the count.
+--     10/19 as they read 155, 5, 10 and 19; the HP followed the battle's. A BELLSPROUT caught on Route 31 sat 0x30 bytes
+--     on, its nickname 11 bytes on, reading 69, 5, 20 and 20 as the screen drew BELLSPROUT :L5 20/20 under CYNDAQUIL
+--     (the species list at DCD8 read 9B 45 FF). Slots past the second are read the same way, not yet seen.
 local W_BATTLE_RESULT, W_MONEY, W_PARTY_COUNT, W_PARTY_MON1, W_PARTY_NICK1 = flat(0xD0EE), flat(0xD84E), flat(0xDCD7),
 	flat(0xDCDF), flat(0xDE41)
+local PARTY_MON_SIZE, PARTY_MAX = 0x30, 6
 
 local function battleEndedReport()
 	local money = memory.read_bytes_as_array(W_MONEY, 3, "WRAM")
 	local report = { outcome_raw = u8(W_BATTLE_RESULT), money = (money[1] << 16) | (money[2] << 8) | money[3],
 		party_count = u8(W_PARTY_COUNT) }
-	if report.party_count >= 1 then
-		local p = memory.read_bytes_as_array(W_PARTY_MON1, 0x30, "WRAM")
-		local nick = memory.read_bytes_as_array(W_PARTY_NICK1, NICK_LEN, "WRAM")
-		report.party = { { slot = 1, species = speciesName(p[1]), nickname = spell(nick, 1, #nick), level = p[0x20],
-			hp = (p[0x23] << 8) | p[0x24], max_hp = (p[0x25] << 8) | p[0x26] } }
+	if report.party_count >= 1 and report.party_count <= PARTY_MAX then
+		report.party = {}
+		for k = 0, report.party_count - 1 do
+			local p = memory.read_bytes_as_array(W_PARTY_MON1 + k * PARTY_MON_SIZE, PARTY_MON_SIZE, "WRAM")
+			local nick = memory.read_bytes_as_array(W_PARTY_NICK1 + k * NICK_LEN, NICK_LEN, "WRAM")
+			report.party[#report.party + 1] = { slot = k + 1, species = speciesName(p[1]), nickname = spell(nick, 1, #nick),
+				level = p[0x20], hp = (p[0x23] << 8) | p[0x24], max_hp = (p[0x25] << 8) | p[0x26] }
+		end
 	end
 	return report
 end
@@ -795,6 +807,13 @@ end
 -- string from 72:4000 (18 POTION, 9 ANTIDOTE, as drawn). The 7-byte entry at 01:67C1 + (id - 1) * 7 read 01 at +5 for both,
 -- the pocket the game filed them in. wItems holds 20 entries: wNumKeyItems (D8BC) is 41 bytes on in our build's .sym.
 local W_NUM_ITEMS, ITEM_POCKET_SLOTS, ITEM_ATTRIBUTES, ATTR_POCKET_ITEM = flat(0xD892), 20, 0x67C1, 0x01
+-- THE BALL POCKET, the same way (Route 31, the same day): its item ball printed "A put the POKé BALL in the BALL POCKET.",
+-- wNumBalls (D8D7) read `01 05 01 FF`, and POKé BALL's attribute entry read 03 at +5. It holds 12 entries: wNumPCItems
+-- (D8F1) is 26 bytes on in our build's .sym. The PACK's pockets by that byte: the address, the entries, wCurPocket.
+local POCKETS = {
+	[0x01] = { name = "items", addr = W_NUM_ITEMS, slots = ITEM_POCKET_SLOTS, cur = 0, ptr = 0xD892 },
+	[0x03] = { name = "balls", addr = flat(0xD8D7), slots = 12, cur = 1, ptr = 0xD8D7 },
+}
 -- THE PACK'S ITEM LIST (autoplay_bag_probe.lua and autoplay_text_probe.lua, 2026-09-17, the item pocket holding 9 entries,
 -- Down pressed 9 times from the top): the scrolling menu's header copy read height 5 at CF92, 02 at CF94 and the pocket's
 -- address D892 at CF96-CF97 (D8D7 on the ball pocket, D8BC and 01 on the key pocket); the screen showed 5 entries then
@@ -821,16 +840,21 @@ end
 -- The item list the menu header points at, or nil: the entries and CANCEL, their quantities, and the cursor.
 local function itemListFromMemory()
 	local h = memory.read_bytes_as_array(W_MENU_DATA_HEIGHT, 6, "WRAM")
-	if h[1] ~= 5 or h[3] ~= 2 or h[5] ~= 0x92 or h[6] ~= 0xD8 or u8(W_CUR_POCKET) ~= 0 then return nil end
-	local count, names, y = u8(W_NUM_ITEMS), itemNames(), u8(W_MENU_CURSOR_Y)
-	if count > ITEM_POCKET_SLOTS or u8(W_SCROLL_LIST_SIZE) ~= count or y < 1 or y > 5 then return nil end
+	if h[1] ~= 5 or h[3] ~= 2 then return nil end
+	local pocket
+	for _, p in pairs(POCKETS) do
+		if h[5] == p.ptr & 0xFF and h[6] == p.ptr >> 8 and u8(W_CUR_POCKET) == p.cur then pocket = p end
+	end
+	if not pocket then return nil end
+	local count, names, y = u8(pocket.addr), itemNames(), u8(W_MENU_CURSOR_Y)
+	if count > pocket.slots or u8(W_SCROLL_LIST_SIZE) ~= count or y < 1 or y > 5 then return nil end
 	local items, quantities = {}, {}
 	for k = 0, count - 1 do
-		local id = u8(W_NUM_ITEMS + 1 + k * 2)
-		items[#items + 1], quantities[#quantities + 1] = names[id] or string.format("{%02X}", id), u8(W_NUM_ITEMS + 2 + k * 2)
+		local id = u8(pocket.addr + 1 + k * 2)
+		items[#items + 1], quantities[#quantities + 1] = names[id] or string.format("{%02X}", id), u8(pocket.addr + 2 + k * 2)
 	end
 	items[#items + 1] = "CANCEL"
-	return { items = items, cursor = u8(W_MENU_SCROLL) + y - 1, list = true, pocket = "items", quantities = quantities }
+	return { items = items, cursor = u8(W_MENU_SCROLL) + y - 1, list = true, pocket = pocket.name, quantities = quantities }
 end
 
 -- After a Down the list's rows were redrawn over 3 frames and the ▶ reached its new row 5 frames after the press, with
@@ -859,44 +883,50 @@ local function itemPocketOf(id)
 	return memory.read_u8(ITEM_ATTRIBUTES + (id - 1) * 7 + 5, "ROM")
 end
 
--- give_item {item, quantity = 1}: `item` a name as the PACK draws it (case ignored) or an id. Only items whose attribute
--- pocket byte reads the item pocket's 01, added to that item's entry or as a new one before the FF. Refused past 99 in
--- one entry, past 20 entries, and outside the overworld. `report` reads the entry back.
+-- give_item {item, quantity = 1}: `item` a name as the PACK draws it (case and é ignored) or an id. Only items whose
+-- attribute pocket byte reads 01 (the item pocket) or 03 (the ball pocket), added to that item's entry or as a new one
+-- before the FF. Refused past 99 in one entry, past the pocket's entries, and outside the overworld. `report` reads the
+-- entry back.
+local function plain(name) return (name:gsub("é", "e"):upper()) end
 function game.cheats.give_item(args)
 	if not isVanilla then return nil, "give_item is measured on the vanilla V1.0 ROM only" end
 	if not inOverworld() or u8(W_BATTLEMODE) ~= 0 then return nil, "give_item refused: not in the overworld" end
 	local names, id = itemNames(), math.tointeger(args.item)
 	if not id and type(args.item) == "string" then
 		for k, name in ipairs(names) do
-			if name:upper() == args.item:upper() then id = k break end
+			if plain(name) == plain(args.item) then id = k break end
 		end
 	end
 	local quantity = args.quantity == nil and 1 or math.tointeger(args.quantity)
 	if not id or id < 1 or id > #names then return nil, "give_item needs item: a name as the PACK draws it, or an id" end
 	if not quantity or quantity < 1 or quantity > 99 then return nil, "give_item needs quantity 1-99" end
-	if itemPocketOf(id) ~= ATTR_POCKET_ITEM then
-		return nil, string.format("give_item: %s files under pocket byte %d; only the item pocket (01) is measured", names[id], itemPocketOf(id))
+	local pocket = POCKETS[itemPocketOf(id)]
+	if not pocket then
+		return nil, string.format("give_item: %s files under pocket byte %d; only the item (01) and ball (03) pockets are measured",
+			names[id], itemPocketOf(id))
 	end
-	local count = u8(W_NUM_ITEMS)
-	if count > ITEM_POCKET_SLOTS then return nil, "give_item refused: the item pocket's count reads " .. count end
+	local at, count = pocket.addr, u8(pocket.addr)
+	if count > pocket.slots then return nil, string.format("give_item refused: the %s pocket's count reads %d", pocket.name, count) end
 	local slot, had = nil, 0
 	for k = 0, count - 1 do
-		if u8(W_NUM_ITEMS + 1 + k * 2) == id then slot, had = k, u8(W_NUM_ITEMS + 2 + k * 2) end
+		if u8(at + 1 + k * 2) == id then slot, had = k, u8(at + 2 + k * 2) end
 	end
 	if had + quantity > 99 then return nil, string.format("give_item refused: %s has %d, and 99 is the most measured", names[id], had) end
 	if not slot then
-		if count >= ITEM_POCKET_SLOTS then return nil, "give_item refused: the item pocket holds 20 entries" end
+		if count >= pocket.slots then
+			return nil, string.format("give_item refused: the %s pocket holds %d entries", pocket.name, pocket.slots)
+		end
 		slot = count
-		memory.write_u8(W_NUM_ITEMS, count + 1, "WRAM")
-		memory.write_u8(W_NUM_ITEMS + 1 + slot * 2, id, "WRAM")
-		memory.write_u8(W_NUM_ITEMS + 3 + slot * 2, 0xFF, "WRAM")
+		memory.write_u8(at, count + 1, "WRAM")
+		memory.write_u8(at + 1 + slot * 2, id, "WRAM")
+		memory.write_u8(at + 3 + slot * 2, 0xFF, "WRAM")
 	end
-	memory.write_u8(W_NUM_ITEMS + 2 + slot * 2, had + quantity, "WRAM")
+	memory.write_u8(at + 2 + slot * 2, had + quantity, "WRAM")
 	return {
 		limit = 1,
 		untilFn = function() return true end,
 		report = function()
-			return { item = names[id], id = id, had = had, now = u8(W_NUM_ITEMS + 2 + slot * 2), entries = u8(W_NUM_ITEMS) }
+			return { item = names[id], id = id, pocket = pocket.name, had = had, now = u8(at + 2 + slot * 2), entries = u8(at) }
 		end,
 	}
 end

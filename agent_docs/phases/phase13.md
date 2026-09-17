@@ -1024,3 +1024,26 @@ closed in 184 frames. Snapshot `fast_text_route102`; older snapshots keep MID. A
 no catching policy yet.
 
 **Left as it is:** the Emerald instance on route 0.17 with FAST text, only the driver on its target.
+
+## 2026-09-17 (the Crystal chat, same session) — Crystal: the ball pocket, a catch through the battle's PACK, two in the party
+
+**Built on `crystal.lua`.** `give_item` and the PACK's whole-list reading cover the ball pocket; `ended` lists every party
+slot; a box under a menu in a battle no longer reads as waiting for A. Measurements: `crystal/MEASURED.md`, "The ball
+pocket, a POKé BALL thrown in a battle, and a second Pokémon in the party".
+
+**How it went.** Route 31's item ball gave a POKé BALL and named the BALL POCKET; `give_item` made it six. In the grass Mom
+called on the POKéGEAR ("Should I save it?", answered NO in this snapshot branch). A wild BELLSPROUT: PACK, POKé BALL,
+USE through `select`; the first throw broke free, and replays from the USE / QUIT menu with different waits before USE
+caught it on the fifth. The second party slot read against the POKéMON screen.
+
+**What went wrong on the way:** under the ball's USE / QUIT in a battle the description box read `waiting_for_button`,
+because the game counts wTextDelayFrames round under any waiting menu, and `battle` would have pressed A on USE; the
+count no longer makes a box wait while a menu is on screen.
+
+**The user, while it ran:** *"can you go into options and change the text speed to be faster ?"* — it already read FAST, the
+fastest of the menu's three; BATTLE SCENE OFF and a memory write were offered, with no answer yet, so nothing changed.
+*"a pokemon is easier to catch if it has lower health, and if it has a status problem like paralazys"* — the next catch
+weakens first instead of replaying for luck. Then *"I stopped it as it looked like you got stuck, you never closed the
+pause menu after going back out of the option menu"*: the game had sat on OPTION, then the START menu, for minutes while
+this chat wrote records. The command stopped had already closed OPTION; the START menu was closed after. Filed as a
+working rule for the agent (close menus before off-game work, and say the game is idle).
