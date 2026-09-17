@@ -685,3 +685,52 @@ quietly running on an empty map.
 write. It only forces the moment of writing while the context still exists, which is most of the
 value and not all of it. And it is a `pre-commit` hook, so it protects a clone that ran
 `git config core.hooksPath .githooks` and nothing else; preflight and CI remain the backstop.
+
+## 2026-09-18 (later) — a pre-push audit of autoplay, and the gates it went red on
+
+**Why.** Autoplay had never been pushed. The user's question before pushing it: is anything under
+`autoplay/` gitignored — saves, states, logs, pictures — and is there anything in there we would not
+want in a public repo.
+
+**The ignore answer was yes, with two gaps.** Everything autoplay generates was already out:
+`runs/` (30MB of run `.ndjson`, session folders, driver logs), `states/` (118 savestates, 56 `.sav`,
+TEVI's shadow save folder), `bin/`, `obj/` (including the `FileListAbsolute.txt` that holds
+machine-local NuGet paths), and every capture, which goes to `dev-scripts/shots/`. The gaps were
+that `/autoplay/*.log` was ROOT-ONLY and `/adapters/**/*.log` does not reach autoplay, so a log,
+control file or capture written beside a driver was untracked-but-not-ignored — the shape that
+swept `ap_try.flag` in on 2026-08-18. Widened to `/autoplay/**/` for `.log`, `.cmd` and `.png`,
+with the adapters block's `assets/` exception (`a1b310e0`).
+
+**The provenance answer was clean, and it is worth recording WHY it is clean**, because the pattern
+is the reusable part: no game data is in the repo at all. Species, move, type and item names, move
+power and accuracy, and the full type chart are READ OUT OF THE ROM at runtime from measured
+addresses; the charsets are built from measured letter ranges plus captures of the game drawing each
+byte; every decomp mention is labelled as a map (`the decomp as the map only: NOT measured`); the
+TEVI driver reflects by name at runtime against the user's own install. That also satisfies the
+access model — the repo works for someone holding only it and their own ROM.
+
+**Then preflight, which was already red, on five counts.** Cleared in `ca304b8f`, each at its cause:
+two "for hours" durations (one a real gap, now "past 24 hours", one about clock hours 0-11 and never
+a duration); three `status.md` items over one line; two items stale at 2026-09-15, re-dated only
+after checking each was still true (the Pseudoregalia adapter still mentions `session_policy` only
+in 2026-09-04 comments; `phase10.md` says in its own words that the 450ms `-loss-burst` item stands);
+and a pitfalls lesson that said "the rule this adds" and then filed the rule nowhere, which is why
+its index line had no outcome — now in `checklists/before-trusting-a-reading.md`.
+
+**The `status.md` contradiction the previous entry left open is NOT resolved.** `CLAUDE.md` permits
+two lines per item and preflight's one-line gate fails the second. Today's items were compressed to
+one line each, which makes the tree green without deciding which rule is right. Whoever decides it
+changes one or the other; the workaround is not the decision.
+
+**The hostname gate went red on autoplay and on nothing real:** `q.no`, `question.no` and `s.info`
+are Lua field accesses whose key is a TLD, and `steamworks.net` is the C# Steam binding
+`AchievementGuard` names. They joined the section that already carries `env.io` and `ref.no`.
+
+**And the four grandfathered binary leaks came back around.** They were found by scanning before the
+record was read, which is exactly the re-raise `risks.md` existed to prevent — the record was
+complete but read as pending ("decide at the next UE4SS bump"). The user's first call was not worth
+doing; their second was to schedule all four together, since it is a one-time fix that keeps the
+tree clean afterwards. `status.md` holds the task (`hold to 2026-09-25`), `risks.md` the sizing and
+the done-test (an entry clears when preflight stops naming it), preflight's own message the pointer
+(`e903b30a`, `457aa398`). **The lesson is about records, not binaries: a findable record that reads
+as an open question gets re-derived by the next session that trips over it.**
