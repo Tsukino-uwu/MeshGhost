@@ -494,11 +494,13 @@ whether OUR access model is legitimate.
 
 - `https://github.com/HarbourMasters/PaperBoat`
 
-**The user's framing, and the only description here: *"paper mario 64 recomp"*.** Nothing has been
-fetched, opened, run or licence-checked, and no claim is made about what it is, what state it is in
-or what it can do — not even from the repo's name or its owner. A recompilation, a decompilation
-and a port are three different things with three different access models, and which of them this is
-has not been established.
+**The user's framing, and the only description here: *"paper mario 64 recomp"*, and on the same day
+their read that it is a recomp or *"proper pc port"* that *"also seems to have windows/linux/mac
+builds"* — theirs, unchecked, and settled *"whenever we take a look at it"*.** Nothing has been
+fetched, opened, run or licence-checked, and no claim is made here about what it is, what state it
+is in or what it can do — not from the repo's name, not from its owner. A recompilation, a
+decompilation and a port are three different things with three different access models, and which
+of them this is has not been established.
 
 **Before anything is read from it, it gets a `licensing.md` row** — it has none, so by `CLAUDE.md`'s
 rule it may not be used until its licence has been read from the project's own file. Naming a public
@@ -507,5 +509,9 @@ repo in a tracked file is fine; deriving anything from one that has not been cle
 **Why it would be worth a look, inferred from the user's one line and nothing else:** if a game runs
 as a native PC build rather than under an emulator, the access model is a different question from
 every emulator entry in this file — the drawing problem that gates Sunshine on Dolphin is not
-automatically the same problem. That is a reason to check, not a finding. `/new-adapter` and
+automatically the same problem. And if the user's read of Windows/Linux/macOS builds holds, it
+would be the first candidate offering a NATIVE build on each: the client and the server already
+release for all three (`release.yml`'s unix-binaries job), whereas the adapters are Windows builds
+— Pseudoregalia's reaches Linux through Proton, not natively (its `VERIFIED.md`, 2026-08-16).
+That is a reason to check, not a finding. `/new-adapter` and
 `access-models.md` before any of it becomes a plan.
