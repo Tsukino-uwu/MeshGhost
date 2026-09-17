@@ -67,6 +67,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - Badges on the trainer card (2026-09-17)
 - The key item pocket, and riding the BICYCLE (2026-09-17)
 - The TM/HM pocket, and a list that redraws for 11 frames (2026-09-17)
+- Surfing, and a poisoned party on foot (2026-09-17)
 - Not measured yet: The rest of autoplay's Crystal reading (from 2026-09-17)
 
 ## Measured
@@ -680,6 +681,40 @@ compared to the no-badge one pixel by pixel.
   driver reload. One earlier batch counted 15 successes of 16 in output that was not kept; which call, if any, failed is
   not known.
 - **Not seen:** a TM taught (USE on a Pokémon), a TM's count past 1, HM01-HM06 drawn, the pocket in a battle.
+
+### Surfing, and a poisoned party on foot (2026-09-17)
+
+**Vanilla V1.0, New Bark Town's pond (x 18-19, y 6-9).** The autoplay tools' answers, `probes/autoplay_text_probe.lua`,
+`probes/autoplay_state_probe.lua` (`logs/autoplay_state_7871_20260917_040949.log`) and `probes/autoplay_battle_probe.lua`'s
+party lines (`logs/autoplay_battle_7871_20260917_041644.log`, `logs/autoplay_state_7871_20260917_041644.log`); captures
+`autoplay_water_no_badge`, `autoplay_bellsprout_field_menu`, `autoplay_surf_no_badge`, `autoplay_surfing`, `autoplay_surf_landed`,
+`autoplay_party_poisoned`, `autoplay_party_healed_from_psn`, `autoplay_poison_hp0` (gitignored).
+
+- **SURF on a party Pokémon.** `set_move` wrote SURF (57) into BELLSPROUT's second slot with PP 15; its party menu then listed
+  SURF above STATS / SWITCH / MOVE / ITEM / CANCEL.
+- **Which badge.** With no badge, A facing the water at (18,9) printed nothing, and SURF from the menu printed "Sorry! A new
+  BADGE / is required.". Badges 1, 2 and 3 each alone (`set_badge`) got the same answer; badge 4 alone got "BELLSPROUT used
+  SURF!". Badges 5-8 were not tried. With badge 4, A facing the water printed "The water is calm. / Want to SURF?" with YES /
+  NO, and YES surfed.
+- **On the water.** wPlayerState (01:D95D) went 0 to 4 and the player object's graphic to 0x53, the player moved onto the
+  water tile by itself, and `observe` read `movement` `surfing`. Up held: wPlayerMovement 5 (4 + the code) turning for 6
+  frames, 13 (12 + the code) stepping, the target tile moving as a step began and wYCoord catching up 14 frames later, the
+  next step 2 frames after, rest (62) 2 frames after the last -- a step on foot's numbers.
+- **Ashore.** Left held from the water at (18,7): wPlayerState went to 0 as the press began, then a step on foot (14, 14
+  frames) onto (17,7), graphic 01.
+- **Through the tools, surfing:** `walk` down 2 `done` in 43 frames; `goto` (19,6) stopped `script_started` after 3 tiles, a
+  wild TENTACOOL (POISON STING, SUPERSONIC, CONSTRICT, ACID); `battle run` answered "Can't escape!" four times, CYNDAQUIL was
+  confused and then poisoned, and the fifth RUN got away; `goto` (17,8), ashore, `done` in 65 frames, 3 tiles, `movement`
+  `on_foot`.
+- **The poison.** CYNDAQUIL's status byte (+0x20) read 8, and the POKéMON menu drew "PSN" where its level mark stands; `heal`
+  wrote 0 and the menu drew the level again. Walking poisoned (`set_status` PSN), its HP fell by 1 about every fourth step,
+  and at each fall wWalkingDirection read 0 for about 5 frames with wPlayerMovement still 14 and wScriptRunning 0, so the
+  next step began about 7 frames late; `walk` and `goto` rode through with `done`. Riding on, the HP read 3, 2, 1, then 0:
+  the status byte read 0 with it, and "CYNDAQUIL / fainted!" printed in the overworld with wScriptRunning 255, which `goto`
+  answered as `script_started`; `advance_text` closed it with the player where they stood.
+- **Not seen:** badges 5-8 against SURF; a water tile of another byte; surfing across a map edge or into a trainer's line;
+  the poison's flash on screen (no capture fell inside a tick); whether a party with every Pokémon fainted this way whites
+  out.
 
 ## Not measured yet
 

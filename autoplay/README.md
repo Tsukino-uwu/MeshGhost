@@ -149,15 +149,15 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
   battle `opponent_party_count` and `opponent_party_index`. A battler is absent until its Pokémon is sent out. One wild
   battle and one trainer's measured.
 - **What the save has**, in an `observe` you call only: **`party`** (per Pokémon `slot`, `species` and `species_id`,
-  `nickname`, `level`, `hp`, `max_hp`, `exp`, `held_item`, `status_raw` -- 0 drawn as OK, nothing else measured -- and
+  `nickname`, `level`, `hp`, `max_hp`, `exp`, `held_item`, `status_raw` and `status` (`OK` for 0, `PSN` for 8; others raw) and
   `moves` with `name`, `id`, `pp`, `base_pp`, `type`, `power` and `accuracy_raw`; two slots measured), **`money`**, and
   **`bag`** with the item, key item and ball pockets that hold anything (`item`, `id`, and `quantity` but for key items),
   and **`tms_hms`** (each TM or HM held, with its count), **`badge_count`** and **`badges`** (Johto's, numbered 1-8 as
   the trainer card draws them). Kanto's badges are not read yet.
-- **`movement`** — in the overworld, `on_foot` or `bicycle` (any other state as `state_raw_N`).
+- **`movement`** — in the overworld, `on_foot`, `bicycle` or `surfing` (any other state as `state_raw_N`).
 - Not yet: a trainer that turns. The events are
   `map_changed`, `mode_changed`, `dialogue_changed`, `menu_changed` and `battle_mode_raw_changed`.
-- Its tools: `walk` (on foot or on the BICYCLE, which stops on its tile as walking does; `run` walks and says `ran: false`, since Crystal has no running
+- Its tools: `walk` (on foot, on the BICYCLE, which stops on its tile as walking does, or surfing, whose steps are walking's; `run` walks and says `ran: false`, since Crystal has no running
   shoes; a door or a map edge answers once the player stands on the new map; `blocked` names a
   character in the way; `script_started` when a step starts a scene or an encounter; `spotted` with the
   trainer's `map_object` and `tiles_away` on the frame one sees the player), `select`, `advance_text`, `battle`
@@ -167,7 +167,8 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
   POKéMON?" is answered NO and the nickname after a catch stops `needs_choice`), `goto` (on foot; open tiles are the
   collision bytes a step was measured onto, 0x00 and 0x18 grass, and a refusal names any other byte on the map as not
   measured; trainers' lines are read from every trainer on the map, loaded or not, the way its movement type was seen
-  standing (6 down, 7 up, 8 left) or every way; a door is stepped onto and a mat pressed down on; it answers
+  standing (6 down, 7 up, 8 left) or every way; a door is stepped onto and a mat pressed down on; surfing, it keeps to the
+  water (0x29) and takes land only as the target, a step ashore; it answers
   `map_changed` once the player stands on the new map), and the `warp`, `give_item` and `set_flag` cheats.
 
 ## The run log
@@ -253,6 +254,12 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   byte (not measured).
 - **Crystal `set_badge`** `{badge, value}`: Johto badge 1-8 on or off (`value` defaults to true), numbered as the trainer
   card draws them; `report` reads the byte back. Refused outside the overworld.
+- **Crystal `set_move`** `{slot, move_slot, move}`: a party Pokémon's move slot (1-4) to a move by name or id, its PP to the
+  move's maximum; it does not check whether the Pokémon could learn it. A field move written this way shows in the party
+  menu (SURF did, and needed badge 4 to be used). Refused outside the overworld.
+- **Crystal `set_status`** `{slot, status}`: `OK` or `PSN`, the values the POKéMON menu was seen to draw. A poisoned Pokémon
+  loses 1 HP about every fourth step on foot and faints at 0 ("CYNDAQUIL fainted!", which stops `walk` and `goto`).
+  Refused outside the overworld.
 - Cheats write the save's data in memory: **an in-game save afterwards keeps them.**
 
 ## Drivers so far

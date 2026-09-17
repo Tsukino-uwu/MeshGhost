@@ -96,3 +96,28 @@ Bark (11,14), every menu closed, the driver alone on its target.
 
 **Next for Crystal:** surfing (HM03, the badge that allows it outside a battle, and a Pokémon that knows SURF, made with
 cheats, then the game's own SURF from the party menu), then a `battle` policy that weighs type matchups.
+
+## 2026-09-17 (the Crystal chat, same session) — surfing through the game's own SURF; poison walked until it fainted
+
+**Built** (`crystal.lua` only). `movement` `surfing`; `walk` surfs, and `goto` keeps to the water and takes land only as its
+target; the party's `status` (`OK`, `PSN`); `set_move` and `set_status` cheats. Measurements: `crystal/MEASURED.md`, "Surfing,
+and a poisoned party on foot". To make room, the goto hooks sit in a `do` block and the party offsets in one table: the
+module had reached Lua's 200 locals in one chunk.
+
+**How it went.** SURF written onto BELLSPROUT showed in its party menu; the game refused it without a badge ("Sorry! A new
+BADGE is required."), and badges 1-4 were tried one at a time: 4 let it through. With it, A facing the water asked "Want to
+SURF?". A surf step logged the same as a step on foot, and a step ashore set the state back and walked on. On the pond
+`goto` met a wild TENTACOOL; `battle run` got away on its fifth RUN, CYNDAQUIL poisoned.
+
+**The user, while it ran:** a gym page on another site offered as a map for which badge each HM needs -- used as that, and
+SURF's badge was measured before it came; *"poison should also do a hurt animation when walking around i think ?"* and *"and
+eventually stop when your pokemon gets down to low hp, don't think it can faint a pokemon"*. Both measured rather than
+assumed: each poison tick is a ~5-frame hitch between steps that `walk` and `goto` ride through (the flash itself was not
+caught in a capture), and the HP went 3, 2, 1, 0 and "CYNDAQUIL fainted!" printed in the overworld. The user: *"ohh guess it
+does that in the older games, i know it stops at 1hp for modern pokemon games"*.
+
+**Left as it is:** the save (memory only) holds badge 4, SURF on BELLSPROUT, the key items and TMs from earlier; the party
+healed; the player on the BICYCLE in New Bark at (14,10); every menu closed; the driver alone on its target.
+
+**Next for Crystal:** a `battle` policy that weighs type matchups from the game's own table; then the switch question with
+the OPTION's battle style set the other way, and the whiteout.

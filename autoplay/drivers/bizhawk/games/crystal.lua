@@ -665,7 +665,7 @@ local game = {
 	game = "crystal",
 	variant = isVanilla and "vanilla" or "unverified",
 	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "walk", "goto", "select", "advance_text", "battle",
-		"cheat:warp", "cheat:give_item", "cheat:set_flag", "cheat:heal", "cheat:set_badge" },
+		"cheat:warp", "cheat:give_item", "cheat:set_flag", "cheat:heal", "cheat:set_badge", "cheat:set_move", "cheat:set_status" },
 	-- The START menu: Down moved the cursor one item a press and A chose it (2026-09-17).
 	menuButtons = { prev = "Up", next = "Down", left = "Left", right = "Right", confirm = "A" },
 	protected_slots = { 1 },
@@ -1036,9 +1036,11 @@ end
 -- CYNDAQUIL's slot read +0x01 AD (ITEM BERRY drawn), +0x02/+0x03 21 2B (TACKLE, LEER), +0x08-+0x0A 00 00 9E (EXP POINTS
 -- 158), +0x17/+0x18 1F 1E (PP 31/35 and 30/30), +0x20 00 (STATUS/ OK); BELLSPROUT's +0x01 00 (no ITEM drawn), +0x02 16
 -- (VINE WHIP) and +0x17 0A (10/10). A PP byte of 0x40 or more (raised PP) is not measured and goes out as pp_raw.
-local PARTY_ITEM, PARTY_MOVES, PARTY_EXP, PARTY_PP, PARTY_LEVEL, PARTY_STATUS, PARTY_HP, PARTY_MAX_HP =
-	0x01, 0x02, 0x08, 0x17, 0x1F, 0x20, 0x22, 0x24
+local PARTY = { item = 0x01, moves = 0x02, exp = 0x08, pp = 0x17, level = 0x1F, status = 0x20, hp = 0x22, max_hp = 0x24 }
 local PP_RAISED = 0x40
+-- The status byte as the POKéMON menu drew it: 0 nothing (STATUS/ OK on the summary), 8 "PSN" after a TENTACOOL's POISON
+-- STING (2026-09-17, MEASURED.md, "Surfing"); others go out raw only.
+local STATUS_NAMES = { [0] = "OK", [8] = "PSN" }
 
 readParty = function()
 	local count = u8(W_PARTY_COUNT)
@@ -1048,13 +1050,14 @@ readParty = function()
 		local p = memory.read_bytes_as_array(W_PARTY_MON1 + k * PARTY_MON_SIZE, PARTY_MON_SIZE, "WRAM")
 		local nick = memory.read_bytes_as_array(W_PARTY_NICK1 + k * NICK_LEN, NICK_LEN, "WRAM")
 		local mon = { slot = k + 1, species = speciesName(p[1]), species_id = p[1], nickname = spell(nick, 1, #nick),
-			level = p[PARTY_LEVEL + 1], hp = (p[PARTY_HP + 1] << 8) | p[PARTY_HP + 2],
-			max_hp = (p[PARTY_MAX_HP + 1] << 8) | p[PARTY_MAX_HP + 2], status_raw = p[PARTY_STATUS + 1],
-			exp = (p[PARTY_EXP + 1] << 16) | (p[PARTY_EXP + 2] << 8) | p[PARTY_EXP + 3], moves = {} }
-		local item = p[PARTY_ITEM + 1]
+			level = p[PARTY.level + 1], hp = (p[PARTY.hp + 1] << 8) | p[PARTY.hp + 2],
+			max_hp = (p[PARTY.max_hp + 1] << 8) | p[PARTY.max_hp + 2], status_raw = p[PARTY.status + 1],
+			status = STATUS_NAMES[p[PARTY.status + 1]],
+			exp = (p[PARTY.exp + 1] << 16) | (p[PARTY.exp + 2] << 8) | p[PARTY.exp + 3], moves = {} }
+		local item = p[PARTY.item + 1]
 		if item ~= 0 then mon.held_item = names[item] or string.format("{%02X}", item) end
 		for m = 0, 3 do
-			local id, pp = p[PARTY_MOVES + 1 + m], p[PARTY_PP + 1 + m]
+			local id, pp = p[PARTY.moves + 1 + m], p[PARTY.pp + 1 + m]
 			if id ~= 0 then
 				local d = moveData(id)
 				mon.moves[#mon.moves + 1] = { name = d.name, id = id, pp = pp < PP_RAISED and pp or nil,
@@ -1095,6 +1098,58 @@ end
 -- heal: every Pokémon in the party to its max HP (+0x22 from +0x24), each move's PP to the maximum the move table gives
 -- (the PP the summary drew as the maximum, 35 for TACKLE), and the status byte to 0 (drawn STATUS/ OK). Refused outside
 -- the overworld and on a raised PP byte, whose maximum is not measured. `report` reads the party back.
+-- set_move {slot = 1-6, move_slot = 1-4, move}: writes a move id into a party Pokémon's move slot and its PP to the move
+-- table's maximum -- the bytes the summary drew (+0x02-+0x05 and +0x17-+0x1A, above). `move` is a name as the game spells it
+-- (case ignored) or an id. It does not check whether the Pokémon could learn the move. Refused outside the overworld.
+-- set_status {slot = 1-6, status = "OK" | "PSN"}: writes a party Pokémon's status byte, only the values the POKéMON menu was
+-- seen to draw (STATUS_NAMES). Refused outside the overworld; `report` reads the party slot back.
+function game.cheats.set_status(args)
+	if not isVanilla then return nil, "set_status is measured on the vanilla V1.0 ROM only" end
+	if not inOverworld() or u8(W_BATTLEMODE) ~= 0 then return nil, "set_status refused: not in the overworld" end
+	local slot, count, value = math.tointeger(args.slot), u8(W_PARTY_COUNT), nil
+	if not slot or slot < 1 or slot > count or count > PARTY_MAX then return nil, string.format("set_status needs slot, 1 to %d", count) end
+	for raw, name in pairs(STATUS_NAMES) do
+		if type(args.status) == "string" and args.status:upper() == name then value = raw end
+	end
+	if not value then return nil, "set_status needs status \"OK\" or \"PSN\" (the values measured)" end
+	memory.write_u8(W_PARTY_MON1 + (slot - 1) * PARTY_MON_SIZE + PARTY.status, value, "WRAM")
+	return {
+		limit = 1,
+		untilFn = function() return true end,
+		report = function()
+			local mon = (readParty() or {})[slot]
+			return { slot = slot, status_raw = mon and mon.status_raw, status = mon and mon.status, hp = mon and mon.hp }
+		end,
+	}
+end
+
+function game.cheats.set_move(args)
+	if not isVanilla then return nil, "set_move is measured on the vanilla V1.0 ROM only" end
+	if not inOverworld() or u8(W_BATTLEMODE) ~= 0 then return nil, "set_move refused: not in the overworld" end
+	local slot, index = math.tointeger(args.slot), math.tointeger(args.move_slot)
+	local count = u8(W_PARTY_COUNT)
+	if not slot or slot < 1 or slot > count or count > PARTY_MAX then return nil, string.format("set_move needs slot, 1 to %d", count) end
+	if not index or index < 1 or index > 4 then return nil, "set_move needs move_slot, 1 to 4" end
+	local id = math.tointeger(args.move)
+	if not id and type(args.move) == "string" then
+		for k = 1, 251 do
+			if moveName(k):upper() == args.move:upper() then id = k break end
+		end
+	end
+	if not id or id < 1 or id > 251 then return nil, "set_move needs move: a name as the game spells it, or an id 1-251" end
+	local at = W_PARTY_MON1 + (slot - 1) * PARTY_MON_SIZE
+	memory.write_u8(at + PARTY.moves + index - 1, id, "WRAM")
+	memory.write_u8(at + PARTY.pp + index - 1, moveData(id).base_pp, "WRAM")
+	return {
+		limit = 1,
+		untilFn = function() return true end,
+		report = function()
+			local mon = (readParty() or {})[slot]
+			return { slot = slot, move_slot = index, moves = mon and mon.moves }
+		end,
+	}
+end
+
 function game.cheats.heal()
 	if not isVanilla then return nil, "heal is measured on the vanilla V1.0 ROM only" end
 	if not inOverworld() or u8(W_BATTLEMODE) ~= 0 then return nil, "heal refused: not in the overworld" end
@@ -1103,19 +1158,19 @@ function game.cheats.heal()
 	for k = 0, count - 1 do
 		for m = 0, 3 do
 			local at = W_PARTY_MON1 + k * PARTY_MON_SIZE
-			if u8(at + PARTY_MOVES + m) ~= 0 and u8(at + PARTY_PP + m) >= PP_RAISED then
+			if u8(at + PARTY.moves + m) ~= 0 and u8(at + PARTY.pp + m) >= PP_RAISED then
 				return nil, string.format("heal refused: slot %d move %d has raised PP, not measured", k + 1, m + 1)
 			end
 		end
 	end
 	for k = 0, count - 1 do
 		local at = W_PARTY_MON1 + k * PARTY_MON_SIZE
-		memory.write_u8(at + PARTY_HP, u8(at + PARTY_MAX_HP), "WRAM")
-		memory.write_u8(at + PARTY_HP + 1, u8(at + PARTY_MAX_HP + 1), "WRAM")
-		memory.write_u8(at + PARTY_STATUS, 0, "WRAM")
+		memory.write_u8(at + PARTY.hp, u8(at + PARTY.max_hp), "WRAM")
+		memory.write_u8(at + PARTY.hp + 1, u8(at + PARTY.max_hp + 1), "WRAM")
+		memory.write_u8(at + PARTY.status, 0, "WRAM")
 		for m = 0, 3 do
-			local id = u8(at + PARTY_MOVES + m)
-			if id ~= 0 then memory.write_u8(at + PARTY_PP + m, moveData(id).base_pp, "WRAM") end
+			local id = u8(at + PARTY.moves + m)
+			if id ~= 0 then memory.write_u8(at + PARTY.pp + m, moveData(id).base_pp, "WRAM") end
 		end
 	end
 	return {
@@ -1244,7 +1299,11 @@ local MOVEMENT_REST, MOVEMENT_REFUSED = 62, 80
 -- stepping, +0x10 moved as a step began and wXCoord caught up 6 frames later (14 on foot), the next step began 2 frames
 -- after, and let go mid-step the step finished and the player stood (62) 2 frames after its end -- 40 frames held right
 -- rode 4 tiles and stopped on the fourth. So `walk` and `goto` ride it as they walk. Nothing else is measured.
-local MOVEMENT_STATES = { [0] = "on_foot", [1] = "bicycle" }
+-- SURFING (autoplay_state_probe.lua, 2026-09-17, New Bark Town's pond; MEASURED.md, "Surfing"): SURF from the party menu put
+-- the player on the water with wPlayerState 4 and graphic 0x53; a step on the water ran exactly as one on foot (4 + the code
+-- turning for 6 frames, 12 + the code stepping, 14 frames, the next 2 after, rest 2 after the last), and a step onto land set
+-- wPlayerState 0 as it began and ran as a step on foot. So `walk` surfs as it walks.
+local MOVEMENT_STATES = { [0] = "on_foot", [1] = "bicycle", [4] = "surfing" }
 movementName = function() return MOVEMENT_STATES[u8(W_PLAYERSTATE)] end
 -- The engine's own collision bytes for the four tiles beside the player, in the order down, up, left, right:
 -- 7 beside the roof the player bumped from above and beside the sign they turned to from below; 0 beside open
@@ -1413,6 +1472,7 @@ end
 -- Scoped in a block: its locals are the goto program's alone (a chunk holds at most 200).
 do
 local WALK_ONTO = { [0x00] = "open", [0x18] = "grass" }
+local WATER = 0x29
 local CLOSED_MEASURED = { [0x07] = true, [0x15] = true, [0x29] = true, [0xA0] = true, [0xA1] = true, [0xA3] = true }
 local WARP_ENTRY = { [0x71] = false, [0x70] = { press = "down" } }
 local TRAINER_FACES_ONE_WAY = { [6] = "down", [7] = "up", [8] = "left" }
@@ -1439,6 +1499,7 @@ end
 
 local function routeGrid(fromX, fromY, toX, toY)
 	local mapW, mapH, collision = collisionGrid()
+	local surfing = MOVEMENT_STATES[u8(W_PLAYERSTATE)] == "surfing"
 	if not mapW then return nil, "no map loaded" end
 	local blocked, objects = {}, readObjects()
 	for _, o in ipairs(objects) do
@@ -1508,6 +1569,11 @@ local function routeGrid(fromX, fromY, toX, toY)
 			if targetWarp and x == toX and y == toY then
 				if WARP_ENTRY[c] == nil then return nil end
 				return true, false, seen[y * mapW + x]
+			end
+			-- Surfing, the route stays on the water (0x29), and land is open only as the target: a step ashore ends the surf.
+			if surfing then
+				if c == WATER then return true, false, seen[y * mapW + x] end
+				if not (x == toX and y == toY) then return nil end
 			end
 			local kind = WALK_ONTO[c]
 			if not kind then return nil end
