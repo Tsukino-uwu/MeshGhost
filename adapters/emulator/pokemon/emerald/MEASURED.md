@@ -719,7 +719,7 @@ room upstairs (`ng_room`) and the clock (`ng_clock`), all gitignored. From autop
 - **autoplay's `set_clock` built on it** (same day): 10:00, 13:00, 9:59, 0:00, 23:59 and 12:01 each set with one held
   direction and no overshoot, each capture drawing that time; 7:30 confirmed, and the view screen then read and drew it.
 - **Not seen**: the view screen's FadeOut and Exit routines, B on the question, NO chosen, a clock set on a save that already
-  has one, the time drawn after the game has been running for hours.
+  has one, the time drawn once the game clock has advanced past 24 hours.
 
 ### The starter bag, and a stale message on its screen after a restore (2026-09-17)
 

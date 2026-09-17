@@ -367,7 +367,7 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - TEVI autoplay: a plugin loaded by ScriptEngine found no config beside itself and connected to another chat's core (2026-09-17) [RULE: adapters/tevi/CLAUDE.md]
 - TEVI autoplay: a game launched without focus took the user's typing as input (2026-09-17) [RULE: adapters/tevi/CLAUDE.md]
 - Autoplay harness: a JSON argument stripped by PowerShell, and a rejected call that kept its port (2026-09-17) [RECORD]
-- TEVI autoplay: a save-folder check in Bash reported every file changed; it had changed nothing (2026-09-17) -- `by-lesson.md`
+- TEVI autoplay: a save-folder check in Bash reported every file changed; it had changed nothing (2026-09-17) [RULE: checklists/before-trusting-a-reading.md]
 - Emerald autoplay: two unattended attempts walked up a mud slope until stopped, and a written warning could not stop the third (2026-09-17) [CHECK: autoplay/games/emerald/scenarios/mud_slope.json, autoplay server TestARepeatedAnswerCarriesTheLoopAndRestoreClearsIt]
 - Autoplay harness: the first loop check keyed on place alone and marked menus walked at one tile (2026-09-17) [CHECK: autoplay server TestLoopWatchLeavesAloneWhatDiffers]
 - Autoplay sessions: a distill writes the model's narration, screenshots and guesses as fact (2026-09-17) [RULE: checklists/before-trusting-a-reading.md]

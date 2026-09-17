@@ -1048,7 +1048,7 @@ end
 -- HandleConfirmInput, with "Is this the correct time?" and a YES/NO whose cursor started on NO; YES moved it to
 -- Confirmed and Exit, and callback2 went back to the overworld's 34 frames later. Its data words (s16 from the task's
 -- +8): +4 the hours, 0 to 23 (0:59 went back to 23:59, 11:59 on to 12:00, and 13:00 drew 1:00 PM); +6 the minutes; +10
--- 0 for hours 0-11 with AM drawn and 1 from 12 with PM drawn; +8 2 while Right moved the hands and 1 while Left did,
+-- 0 on hours 0-11 with AM drawn and 1 from 12 with PM drawn; +8 2 while Right moved the hands and 1 while Left did,
 -- 0 again with +12 once let go. A held direction moved one minute every 6 frames at first and one a frame once +12
 -- passed 60, and the frame the direction was let go moved nothing more. The AM/PM sign turns over after the period
 -- changes: one frame after `set_clock` answered 23:59, set from midnight, it still drew AM, and 14 frames after, PM. A toward the clock

@@ -11,17 +11,14 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 ## Open now
 
 - 2026-09-16 — **Sort each adapter's older code-level entries out of `UNVERIFIED.md`/`VERIFIED.md` into `MEASURED.md`**, and give every `UNVERIFIED.md` (and `_template`) a full index. Another chat.
-- 2026-09-17 — **Autoplay, Emerald: Phase 3 built** (goals, skills, the knowledge store, `cmd/session`); open: its acceptance -- the first
-  unattended attempt looped and was stopped, its distill set aside for review. `phases/phase13.md` ("Phase 3"), `phases/autoplay/emerald.md`.
-- 2026-09-17 — **Autoplay, Crystal**: `goto`, a scenario 3 of 3, every PACK pocket, the POKéMON menu, badges, bike and surf, a type- and stat-aware `strongest` on V1.0;
-  **paused** (the user, 2026-09-17), its scoring moved behind `effective` and checked (`df7326f7`); next the whiteout. `phases/autoplay/crystal.md`.
-- 2026-09-17 — **Autoplay, TEVI: Ribauld beaten on Infernal BBQ, once hitless (115.4 s), over six measured builds of the fight**; the
-  achievement guard (no unlock from any autoplay game); open: the bomb ring in the air, orbs against hugging, normal enemies hitless, `exec`. `phases/autoplay/tevi.md`.
+- 2026-09-17 — **Autoplay, Emerald: Phase 3 built** (goals, skills, the knowledge store, `cmd/session`); open: its acceptance -- the first unattended attempt looped and was stopped. `phases/autoplay/emerald.md`.
+- 2026-09-17 — **Autoplay, Crystal: paused** (the user), with `goto`, the PACK, the POKéMON menu, badges, bike, surf and scoring behind `effective` done on V1.0; next the whiteout. `phases/autoplay/crystal.md`.
+- 2026-09-17 — **Autoplay, TEVI: Ribauld beaten on Infernal BBQ, once hitless (115.4 s)**; open: the bomb ring in the air, orbs against hugging, normal enemies hitless, `exec`. `phases/autoplay/tevi.md`.
 - 2026-09-18 — **Vision: a pixel-side instrument planned, Phase 0 next** — window capture + OpenCV, a PAINTED ghost against the PLAYER, the pairing no OAM read or screenshot can answer. `plans/vision-plan.md`.
 - 2026-09-16 — **Prediction: A3 LANDED (ADR 0069, ships off), SCREEN VERDICT OPEN; A2.0 MEASURED** (worst-case transit p99 310–320ms; the dry tail is the 1 s blackouts); A2 undecided. `prediction-planning.md`.
-- 2026-09-15 — **Chaser contact: the Go half LANDED (`e546d38c`, ADR 0068, ships `off`); the adapter half is NOT started.** Next: Part A of `chaser-planning.md`; `pseudoregalia/UNVERIFIED.md` has the entry.
+- 2026-09-18 — **Chaser contact: the Go half LANDED (`e546d38c`, ADR 0068, ships `off`); the adapter half is NOT started.** Next: Part A of `chaser-planning.md`; `pseudoregalia/UNVERIFIED.md` has the entry.
 - 2026-09-18, hold to 2026-09-25 — **Strip the build paths out of the four shipped DLLs** (one holds the username): a flag each for three, a full rebuild and a user-judged reload for `UE4SS.dll`. `risks.md`.
-- 2026-09-15 — **netsim: ADR 0046's 450 ms has never been judged on the correlated-loss model** (`-loss-burst`, opt-in since 2026-09-11). `phases/phase10.md`.
+- 2026-09-18 — **netsim: ADR 0046's 450 ms has never been judged on the correlated-loss model** (`-loss-burst`, opt-in since 2026-09-11). `phases/phase10.md`.
 
 **Trimmed 2026-09-15**: records of finished work were dropped and items already queued in an
 adapter's `UNVERIFIED.md` folded into one line per game; every pointer was checked against its
