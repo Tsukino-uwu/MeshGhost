@@ -2151,29 +2151,21 @@ Section "Phase log freshness"
 # does: for each live phase, count the commits that touched its adapter since the last commit that
 # touched the phase file. Three or more is a session's worth of work with no log line. FAIL, not
 # WARN: a warning here was the state of affairs the rule replaces.
-$phaseMap = [ordered]@{
-    'agent_docs/phases/phase6.md'  = @('adapters/tevi')
-    'agent_docs/phases/phase7.md'  = @('adapters/pseudoregalia')
-    'agent_docs/phases/phase8.md'  = @('adapters/emulator/pokemon/emerald')
-    'agent_docs/phases/phase9.md'  = @('adapters/emulator/pokemon/crystal')
-    'agent_docs/phases/phase10.md' = @('core', 'relay', 'protocol', 'transport', 'bridge', 'netx', 'cmd', 'internal')
-    # phase11 is Live and was missing entirely until 2026-09-10 -- so the one gate meant to stop a
-    # phase file falling behind never fired for it. Narrower than phase10's whole-Go-side pathspec
-    # on purpose: replays live inside core/, so listing 'core' here would make every Go commit
-    # count against BOTH files and neither count would mean anything. These are the replay files.
-    'agent_docs/phases/phase11.md' = @('core/replay.go', 'core/replaycontrol.go', 'core/replayinputs.go',
-                                       'core/recorder.go', 'core/inputrecorder.go', 'core/chaser.go')
-    # phase12 (created 2026-09-11) is delivery: what ships and what checks. The 2026-09-11 audit
-    # found ~195 commits of release/CI/packaging work owned by no phase file at all. Deliberately
-    # NOT listing 'packaging' -- almost every packaging commit is a deployed DLL riding along with
-    # an adapter session already logged in phase6/7/8/9, so it would count against two files and
-    # neither count would mean anything (the same reasoning as phase11 vs phase10 above). These are
-    # the files that only change when delivery itself changes.
-    'agent_docs/phases/phase12.md' = @('.github/workflows', '.githooks', 'dev-scripts/release.ps1',
-                                       'dev-scripts/stage-release.ps1', 'dev-scripts/preflight.ps1',
-                                       'dev-scripts/negative-test-preflight.ps1', 'docs')
-}
+# The map and the threshold moved to dev-scripts/phase-map.txt on 2026-09-18, when .githooks/
+# pre-commit became a second reader of them. Written twice, the two would drift; this repo has
+# already been bitten by a gate disagreeing with the rule it enforces.
+$phaseMapFile = Join-Path $PSScriptRoot 'phase-map.txt'
+if (-not (Test-Path -LiteralPath $phaseMapFile)) { Report-Fail "dev-scripts/phase-map.txt is missing -- the phase-log gate and the pre-commit hook both read it" }
+$phaseMap = [ordered]@{}
 $phaseLagMax = 3
+foreach ($line in (Get-Content -LiteralPath $phaseMapFile)) {
+    $t = $line.Trim()
+    if ($t -eq '' -or $t.StartsWith('#')) { continue }
+    $parts = $t -split '\s+'
+    if ($parts[0] -eq 'lag-max') { $phaseLagMax = [int]$parts[1]; continue }
+    $phaseMap[$parts[0]] = $parts[1..($parts.Count - 1)]
+}
+
 $phaseStale = @()
 foreach ($pf in $phaseMap.Keys) {
     if (-not (Test-Path -LiteralPath $pf)) { Report-Fail "$pf is in the phase map but does not exist"; continue }

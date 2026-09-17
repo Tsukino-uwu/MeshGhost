@@ -113,7 +113,7 @@ for f in $staged; do
 	fi
 done
 
-[ -z "$hits" ] && exit 0
+if [ -n "$hits" ]; then
 
 echo "COMMIT REFUSED: a machine-specific path would be recorded in this repo." >&2
 echo >&2
@@ -128,4 +128,89 @@ echo "is what every probe in adapters/*/probes/ already does." >&2
 echo >&2
 echo "A placeholder is not a fix on its own: it makes a file safe to WRITE and unsafe to COPY," >&2
 echo "because the safety lives in the placeholder and a copy is taken after it is gone." >&2
+exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Refuse a commit that would leave a phase log a session's work behind.
+#
+# WHY, and why preflight already checking it was not enough. `preflight.ps1` has counted commits
+# to an area since its phase file last changed for a while, and FAILs at three. That catches the
+# neglect -- LATER, in a batch, once the work is done. On 2026-09-18 three logs were found behind
+# by 12, 10 and 3 commits, and the chats that did the work had already been closed: what was tried,
+# what failed and what the user said was gone, and the entries had to be reconstructed from the
+# commit record and labelled as such.
+#
+# A chat has no end event. Nothing fires when one is closed, so "write the entry before the session
+# ends" depends on a human remembering to hint and an agent choosing to act on the hint. This moves
+# the moment to the one event that always happens and always has the context still loaded: the
+# commit that does the work.
+#
+# The threshold and the path map are NOT defined here -- dev-scripts/phase-map.txt holds both, and
+# preflight.ps1 reads the same file. Two copies of a rule drift, and this repo has already been
+# bitten by a gate disagreeing with the rule it enforces.
+#
+# This refuses the commit that WOULD reach the threshold, so preflight's copy should never fire
+# from accumulation again. If it does, something committed without this hook -- a clone that never
+# ran `git config core.hooksPath .githooks`, or --no-verify, which CLAUDE.md forbids.
+#
+# A ONE-LINE POINTER IS A COMPLETE ENTRY (agent_docs/phases/README.md). This is not asking for an
+# essay; it is asking that the line be written while the answer is still in the room.
+
+MAP="$(git rev-parse --show-toplevel)/dev-scripts/phase-map.txt"
+[ -f "$MAP" ] || { echo "COMMIT REFUSED: dev-scripts/phase-map.txt is missing -- this hook and preflight both read it." >&2; exit 1; }
+
+lagmax=$(awk '$1=="lag-max"{print $2}' "$MAP")
+[ -n "$lagmax" ] || lagmax=3
+
+# Read from a FILE, never a pipe: a `while` on the right of a pipe runs in a subshell and every
+# line it accumulated is discarded at the end of the loop.
+tmpmap=$(mktemp)
+awk '!/^[[:space:]]*#/ && NF && $1!="lag-max"' "$MAP" > "$tmpmap"
+
+behind=''
+while IFS= read -r line; do
+	pf=${line%% *}
+	specs=${line#* }
+	# Staged changes to the phase file itself mean this commit IS the log line.
+	if printf '%s\n' "$staged" | grep -qxF "$pf"; then continue; fi
+	# Does this commit touch the area that phase file owns?
+	touches=''
+	for f in $staged; do
+		for spec in $specs; do
+			case "$f" in "$spec"|"$spec"/*) touches=1 ;; esac
+		done
+	done
+	[ -n "$touches" ] || continue
+	last=$(git log -1 --format=%H -- "$pf")
+	[ -n "$last" ] || continue
+	n=$(git rev-list --count "$last..HEAD" -- $specs)
+	# This commit is about to become the (n+1)th touching that area with no entry.
+	if [ $((n + 1)) -ge "$lagmax" ]; then
+		behind="$behind    $pf -- this would be commit $((n + 1)) with no entry
+"
+	fi
+done < "$tmpmap"
+rm -f "$tmpmap"
+
+[ -z "$behind" ] && exit 0
+
+echo "COMMIT REFUSED: a phase log would fall a session's work behind." >&2
+echo >&2
+printf '%s' "$behind" >&2
+echo >&2
+echo "A phase file is the COMPLETE running log of its work, appended every session" >&2
+echo "(agent_docs/phases/README.md). Add the entry to this commit:" >&2
+echo >&2
+echo "    what was tried, what happened, what the user said, and links to the records it produced." >&2
+echo >&2
+echo "A ONE-LINE POINTER IS A COMPLETE ENTRY. This is not asking for an essay -- it is asking" >&2
+echo "that the line be written while the answer is still in the room." >&2
+echo >&2
+echo "On 2026-09-18 three logs were found 12, 10 and 3 commits behind with their chats already" >&2
+echo "closed. What was tried and what the user said was gone; the entries had to be rebuilt from" >&2
+echo "the commit record and labelled as reconstructions. That is what this prevents." >&2
+echo >&2
+echo "The threshold and the path map are in dev-scripts/phase-map.txt, read by this hook and by" >&2
+echo "preflight.ps1 alike. Do not use --no-verify: it leaves no record of the decision." >&2
 exit 1

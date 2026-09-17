@@ -646,3 +646,42 @@ phase's territory, none of them logged here at the time:
 The pattern worth keeping: **a new dev-only component costs this phase a workflow and a preflight
 amendment, and both are easy to leave unlogged** because they ride in a commit whose subject line is
 about something else entirely.
+
+## 2026-09-18 — the phase-log rule gets a gate at the moment it can still be obeyed
+
+**The problem, found the same day.** `preflight.ps1` has counted commits to an area since its phase
+file last changed for a while, failing at three. It works — it is what found phase6 twelve commits
+behind, phase9 ten and phase12 three. But it catches the neglect **later, in a batch**, and by then
+the chats that did the work were closed: what was tried, what failed and what the user said was
+gone, and three entries had to be reconstructed from the commit record and labelled as such
+(`phase6.md`, `phase9.md`, and the entry above this one).
+
+**Why the rule alone could not hold.** A chat has no end event. Nothing fires when one is closed, so
+*"append a dated entry before the session ends"* depends on the user remembering to hint and on an
+agent choosing to read the hint as an instruction. The user, 2026-09-18: *"i do try to end most chats
+with 'is it fine to start a new chat', but i guess that is not enough of a hint/push"*. It is not,
+and on that very exchange this agent treated it as a yes/no question and pushed the missing entries
+onto a chat that no longer existed.
+
+**What was built.** `.githooks/pre-commit` gained a second check: if this commit touches an area a
+phase file owns, and does not touch that phase file, and would be the `lag-max`-th such commit, the
+commit is refused. It moves the moment from "before the session ends", which nothing signals, to
+"the commit that does the work", which always happens and always has the context still loaded.
+
+**One definition, two enforcers.** The path map and the threshold moved out of `preflight.ps1` into
+**`dev-scripts/phase-map.txt`**, which both read. Written twice they would drift, and this repo was
+already carrying a live example of a gate disagreeing with the rule it enforces (preflight's
+"One-line entries" check fails a second line on a `status.md` item that `CLAUDE.md` explicitly
+permits — still open). The file also brought `phase-map.txt` itself into phase12's pathspec: a
+change to the gate's map is delivery work.
+
+**Proved in both directions before being kept**, per `testing.md`'s "Confirming a test can actually
+fail": at `lag-max 1` a commit touching `.githooks` with no phase entry was refused naming
+`phase12.md`; staging this entry let the same commit through; at `lag-max 0` preflight named all
+seven phases with their full pathspecs, which is what proves it parses the shared file rather than
+quietly running on an empty map.
+
+**What it does not do.** No gate can make an entry *good* — the narrative is still the agent's to
+write. It only forces the moment of writing while the context still exists, which is most of the
+value and not all of it. And it is a `pre-commit` hook, so it protects a clone that ran
+`git config core.hooksPath .githooks` and nothing else; preflight and CI remain the backstop.
