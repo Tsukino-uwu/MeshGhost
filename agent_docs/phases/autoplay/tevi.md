@@ -133,3 +133,29 @@ one teleport inside a fade not holding.
 floor, 30 frames standing, then two 60-frame holds of `XAxis+` that the right wall stops at x 17066 -- passed **3 of 3** with no
 model (`runs/2026-09-17_130522.657707.ndjson`, its steps walked), and a copy expecting the player short of x 17000 failed at that
 step with the value it read. The real save folder matched the backup by hash after both.
+
+## 2026-09-17 (end of the session) — where TEVI's autoplay stands, and how to pick it up
+
+**The user**: *"can we pause here and continue in a new chat ? context is getting high"*.
+
+**Left as it is, outside the repo:**
+- **TEVI (Steam) still running**, launched by this chat, in play in Bandit Base's cell, the save guard armed: nothing it does
+  reaches the real saves until it exits. Closing it is the user's.
+- **The Randomizer disabled**: `BepInEx\plugins\Tevi Randomizer\TeviRandomizer.dll.off` (rename back to enable).
+- **The dev cheats off**: `meshghost-devcheats.txt` (all five `=0`) in the game's root folder, beside `TEVI.exe`.
+- **The driver** in `BepInEx\scripts\` with `meshghost-autoplay.txt` (`port=7872`, the repo): it arms the guard only when a core
+  connects, so ordinary play saves as usual.
+- The save folder's backup `TEVI.meshghost-backup-20260917-114515` beside it; the real save files matched it by hash at the end.
+- `autoplay/states/tevi/`: the shadow and the snapshot `tevi_cell_start` (gitignored).
+
+**To pick up:** build the core and `mcpcall` into the chat's scratch folder, run them with `-listen 127.0.0.1:7872` and their own
+`-log` (Bash quoting: PowerShell 5.1 strips the JSON's quotes), start the core before launching TEVI so the guard arms at load,
+and ask before launching. From a fresh launch the title flow is read by `observe`'s `menu`: Start, the save list to slot 39 (it
+now holds a Cakewalk game in the shadow only -- the real slot 39 is empty, so a new chat's first launch starts from a new game or
+a snapshot copied in by `restore`). The scenario: `go run ./cmd/scenario -listen 127.0.0.1:7872 games/tevi/scenarios`.
+
+**Open, in the approved plan's order:** damage-taken and other events; layer 3, the clock held (`Time.timeScale` measured first,
+then a core tool: a shared-core change); layer 5, the annotated picture (the game's own `BulletManager.showHitBox`); layer 4, the
+flight recorder (`recent`); then reflexes (layer 2) and `exec` (the game's Quantum Console first). Not measured yet: backup slots,
+what exactly opened the pause menu, whether the fade or the load's timing undid a teleport, and which input reached a TEVI never
+focused. `tevi_cell_start` lives only in this machine's gitignored states folder.
