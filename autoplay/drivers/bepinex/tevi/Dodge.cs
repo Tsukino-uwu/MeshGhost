@@ -46,6 +46,7 @@ namespace MeshGhostAutoplay.Tevi
             public int HitFrames; // how many frames of the horizon it is inside one
             public float Clearance; // the smallest gap to any threat over the first ClearanceFrames, at most ClearanceCap
             public float Room; // how far from the nearer wall the plan ends, at most RoomCap
+            public float EndX; // where the plan has her after ClearanceFrames
             public string HitBy;
         }
 
@@ -152,10 +153,16 @@ namespace MeshGhostAutoplay.Tevi
                     Vector2 p = Position(s, m, f);
                     Rect me = new Rect(s.Hurt.x + (p.x - s.Pos.x) - Margin, s.Hurt.y + (p.y - s.Pos.y) - Margin, s.Hurt.width + 2 * Margin, s.Hurt.height + 2 * Margin);
                     string inside = null;
+                    // Contact during a quickdrop does no damage (the game's Quickdrop tutorial; the user, 2026-09-17: quickdrop on an enemy
+                    // "to deal some damage/gain some iframes"): a contact box is not a threat to a quickdrop plan once it has begun.
+                    bool dropping = s.Quickdropping || (IsDrop(m) && f >= 2);
                     foreach (Threats.Threat t in threats)
                     {
-                        Vector2 a = accel[t.Slot];
-                        Vector2 d = t.Velocity * f + 0.5f * a * f * f;
+                        if (dropping && t.Type == "ENEMY_HURTBOX") continue;
+                        if (f < t.AppearIn) continue;
+                        Vector2 a = accel.TryGetValue(t.Slot, out Vector2 acc) ? acc : Vector2.zero;
+                        int since = f - t.AppearIn;
+                        Vector2 d = t.Velocity * since + 0.5f * a * since * since;
                         if (t.Homing)
                         {
                             // It follows her: at its speed, straight at where this plan puts her, frame by frame.
@@ -205,7 +212,7 @@ namespace MeshGhostAutoplay.Tevi
                 // Room from the walls where the plan ends: a corner leaves no way out of the next attack (pinned twice, 2026-09-17).
                 Vector2 end = Position(s, m, Horizon);
                 float room = Math.Min(RoomCap, Math.Min(end.x - s.MinX, s.MaxX - end.x));
-                plans.Add(new Plan { Move = m, FirstHit = hit, HitFrames = frames, HitBy = by, Clearance = clearance, Room = room });
+                plans.Add(new Plan { Move = m, FirstHit = hit, HitFrames = frames, HitBy = by, Clearance = clearance, Room = room, EndX = Position(s, m, ClearanceFrames).x });
             }
             return plans;
         }
@@ -252,17 +259,25 @@ namespace MeshGhostAutoplay.Tevi
         // The plan to take: `want` when nothing meets it within the horizon; otherwise the safe plan nearest to it (same direction
         // first, then standing, then the fewest frames in the air); and when every plan is hit, the one hit latest, then the one inside
         // a threat for the fewest frames (out of a laser's beam soonest).
-        public static Plan Choose(List<Plan> plans, Move want)
+        // With `stickX` (a fight's target), a safe plan that ends nearer it wins over one with more room, and the wanted plan needs only
+        // StickClearance. The user, 2026-09-17: "try to hugg and be close to the boss as much as possible and melee it, whenever its
+        // safe to do so", "prefer sticking onto the boss, rather than staying far away or playing it super safe".
+        private const float StickClearance = 10f;
+
+        public static Plan Choose(List<Plan> plans, Move want, float? stickX = null)
         {
             Plan wanted = plans.Find(p => p.Move == want);
-            if (wanted.FirstHit > Horizon && wanted.Clearance >= WantedClearance && plans.Exists(p => p.Move == want)) return wanted;
+            float needed = stickX.HasValue ? StickClearance : WantedClearance;
+            if (wanted.FirstHit > Horizon && wanted.Clearance >= needed && plans.Exists(p => p.Move == want)) return wanted;
             Plan best = default(Plan);
             int bestScore = int.MinValue;
             foreach (Plan p in plans)
             {
                 // Hit either way: later is worth most (time to plan again: a roll hit in 3 frames was taken over one in 32, 2026-09-17),
                 // then fewest frames inside (out of a laser's beam, where every plan is hit at once).
-                int score = (p.FirstHit > Horizon ? 100000 : 0) + p.FirstHit * 1000 - p.HitFrames * 300 + (int)(p.Clearance * 2f) + (int)(Math.Max(0f, p.Room) * 2f);
+                int score = (p.FirstHit > Horizon ? 100000 : 0) + p.FirstHit * 1000 - p.HitFrames * 300 + (int)(Math.Max(0f, p.Room) * 2f);
+                if (stickX.HasValue) score += (int)(Math.Max(0f, 400f - Mathf.Abs(p.EndX - stickX.Value)) * 3f) + (int)Math.Min(p.Clearance, 40f);
+                else score += (int)(p.Clearance * 2f);
                 if (Dir(p.Move) == Dir(want)) score += 30;
                 if (!IsJump(p.Move)) score += 20;
                 else if (p.Move == Move.Hop || p.Move == Move.HopLeft || p.Move == Move.HopRight) score += 10;

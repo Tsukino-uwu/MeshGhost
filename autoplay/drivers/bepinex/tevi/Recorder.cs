@@ -13,7 +13,8 @@ namespace MeshGhostAutoplay.Tevi
     // stopped its own time (a menu, a conversation), nothing moves and nothing is kept, so the buffer holds what happened.
     //
     // A row: frame, mode, x, y, velocity x and y, on the ground, animation, logic state, HP, the driver's input held (the real
-    // controller's is not seen), up to MaxEnemies living characters in view nearest first as [type index, id, x, y, hp], and
+    // controller's is not seen), up to MaxEnemies living characters in view nearest first as [type index, id, x, y, hp, animation
+    // index, logic state index] (what comes before an attack: a charge from a standstill gave no box to see, 2026-09-17), and
     // up to MaxBoxes live bullets not the player's -- attacks, shots, and the characters' own body and hurt boxes, which the
     // game keeps as bullets too -- nearest first as [type index, owner type index, x, y, width, height], the box's centre and
     // size as the game's hitbox drawing takes them (BulletManager._BMDebugUpdate, read as a map). Types are named once. Its own cost per frame is measured and reported (`cost`), since it runs every frame.
@@ -27,7 +28,7 @@ namespace MeshGhostAutoplay.Tevi
 
         private struct Enemy
         {
-            public string Type;
+            public string Type, Anim, Logic;
             public int Id, Hp;
             public float X, Y;
         }
@@ -111,7 +112,7 @@ namespace MeshGhostAutoplay.Tevi
             for (int i = 0; i < r.EnemyCount; i++)
             {
                 CharacterBase c = Near[i].Value;
-                r.Enemies[i] = new Enemy { Type = c.type.ToString(), Id = c.ID, Hp = c.health, X = c.t.position.x, Y = c.t.position.y };
+                r.Enemies[i] = new Enemy { Type = c.type.ToString(), Id = c.ID, Hp = c.health, X = c.t.position.x, Y = c.t.position.y, Anim = c.aniStatus.ToString(), Logic = c.logicStatus.ToString() };
             }
 
             NearBoxes.Clear();
@@ -198,7 +199,7 @@ namespace MeshGhostAutoplay.Tevi
                 for (int k = 0; k < r.EnemyCount; k++)
                 {
                     Enemy e = r.Enemies[k];
-                    enemies.Add(new JArray(TypeIndex(types, e.Type), e.Id, Math.Round(e.X, 1), Math.Round(e.Y, 1), e.Hp));
+                    enemies.Add(new JArray(TypeIndex(types, e.Type), e.Id, Math.Round(e.X, 1), Math.Round(e.Y, 1), e.Hp, TypeIndex(types, e.Anim), TypeIndex(types, e.Logic)));
                 }
                 var boxes = new JArray();
                 for (int k = 0; k < r.BoxCount; k++)
@@ -211,7 +212,7 @@ namespace MeshGhostAutoplay.Tevi
             return new JObject
             {
                 ["columns"] = new JArray("frame", "mode", "x", "y", "vx", "vy", "ground", "anim", "logic", "hp", "input", "near", "boxes"),
-                ["near_columns"] = new JArray("type", "id", "x", "y", "hp"),
+                ["near_columns"] = new JArray("type", "id", "x", "y", "hp", "anim", "logic"),
                 ["boxes_columns"] = new JArray("type", "owner", "x", "y", "width", "height"),
                 ["types"] = new JArray(types.ToArray()),
                 ["every"] = every,

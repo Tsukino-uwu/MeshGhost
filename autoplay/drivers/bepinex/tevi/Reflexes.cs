@@ -32,7 +32,8 @@ namespace MeshGhostAutoplay.Tevi
         //  - with `dodge` (default true), each frame's intended move is checked against every box that can hurt the player
         //    (Dodge.cs) and replaced by the nearest safe plan when it would be hit; `dodges` counts the frames it was.
         private const float UnreachableDy = 180f;
-        private const int RootFrames = 30;
+        private const int RootFrames = 18; // one swing locks her about 18 frames (TEVI_WEAK_GROUND_NORMAL1 in the flight recorder, 2026-09-17)
+        private const float MeleeReach = 139.5f, MeleeHalfHeight = 34f;
 
         public static Func<JToken> Fight(JObject args, int frameLimit, Func<CharacterBase> player, Func<string> mode, Func<bool, JObject> observe)
         {
@@ -42,9 +43,15 @@ namespace MeshGhostAutoplay.Tevi
             // at 35 units a frame from his gun, hit her at 83 units with no frame to see it, 2026-09-17). Her ground swing reaches 139.5
             // ahead of her (a box 189 wide centred 45 ahead, MEASURED.md), so a big target can be hit from well outside 100.
             float minRange = (float?)args["min_range"] ?? 0f;
-            // `attack`: melee (default) swings inside range; ranged shoots Orbitars there instead, for a target best fought from afar (a
-            // melee combo locks her for its swings, and Ribauld's charge from a standstill pushed her into a blastorb, 2026-09-17).
-            string inRangeTap = (string)args["attack"] == "ranged" ? "Ranged" : "Attack";
+            // `attack`: auto (default), melee or ranged. The user, 2026-09-17: "prefer melee attacks over orbitars, as melee always do more
+            // damage. but orbitars are nice when you can't reach with melee", "ground is prefered over air, but air is better than
+            // standing around and doing nothing", and above all never getting hit. So auto swings whenever her swing reaches the
+            // target, on the ground while standing is safe and else from a jump; out of reach it closes in and shoots on the way. ranged
+            // keeps to `range` and shoots (a melee combo locks her for its swings: Ribauld's charge from a standstill pushed her into a
+            // blastorb, 2026-09-17); melee never shoots.
+            string attackMode = (string)args["attack"] ?? "auto";
+            if (attackMode != "auto" && attackMode != "melee" && attackMode != "ranged") throw new Exception("attack is auto, melee or ranged");
+            string inRangeTap = attackMode == "ranged" ? "Ranged" : "Attack";
             int stopHp = (int?)args["stop_hp"] ?? 0;
             bool dodge = (bool?)args["dodge"] ?? true;
             int noProgressFrames = (int?)args["no_progress_frames"] ?? 300; // a boss the dodge keeps her away from needs far more
@@ -125,12 +132,41 @@ namespace MeshGhostAutoplay.Tevi
                 bool onGround = p.onGround();
                 if (onGround) groundY = me3.y;
                 float reachDy = it.y - groundY;
+                if (dodge) guard.Look(p, groundY);
+                guard.StickX = attackMode == "ranged" ? (float?)null : it.x;
 
                 // What the fight means to do this frame, as a move (for the dodge) and the tap that goes with it.
                 Dodge.Move want = Dodge.Move.Stay;
                 string tap = null;
                 bool turn = false;
-                if (Mathf.Abs(dx) > range)
+                bool facingIt = (dx >= 0) == (p.direction.ToString() == "RIGHT");
+                // Her ground swing reaches 139.5 ahead and 34 above and below her (a box 189 by 67.5 centred 45 ahead, MEASURED.md); it
+                // lands when that box meets the target's own.
+                bool inMelee = attackMode != "ranged" && Mathf.Abs(dx) <= MeleeReach + target.GetHitboxW() / 2f && Mathf.Abs(dy) <= MeleeHalfHeight + target.GetHitboxH() / 2f;
+                if (!onGround && attackMode != "ranged" && Mathf.Abs(dx) <= target.GetHitboxW() / 2f + 24f && dy < -40f && p.logicStatus.ToString() != "QUICKDROP")
+                {
+                    // Above it: quickdrop onto it, which hurts it and cannot be hurt by its body on the way.
+                    want = Dodge.Move.Drop;
+                }
+                else if (Mathf.Abs(dx) < minRange && onGround)
+                {
+                    want = dx >= 0 ? Dodge.Move.Left : Dodge.Move.Right;
+                }
+                else if (attackMode != "ranged" ? inMelee : Mathf.Abs(dx) <= range)
+                {
+                    stuckFrames = 0;
+                    // Turn to face it first: a one-frame hold toward it. Turning barely moves her, so the dodge sees it as standing (it
+                    // refused a turn toward a boss for want of room, and she stood 90 frames never facing it, 2026-09-17).
+                    if (!facingIt) turn = true;
+                    else if (attackMode == "ranged" && Mathf.Abs(dy) > 90f) tap = null;
+                    else
+                    {
+                        tap = inRangeTap;
+                        // Standing to swing is not safe but a jump is: swing from the air instead of doing nothing.
+                        if (onGround && dodge && !guard.StandingSafe(RootFrames) && guard.Safe(Dodge.Move.Jump)) want = Dodge.Move.Jump;
+                    }
+                }
+                else
                 {
                     want = towardMove;
                     bool notMoving = Mathf.Abs(me3.x - lastX) < 0.5f;
@@ -143,20 +179,10 @@ namespace MeshGhostAutoplay.Tevi
                         want = dx >= 0 ? Dodge.Move.JumpRight : Dodge.Move.JumpLeft;
                         stuckFrames = 0;
                     }
+                    // Out of melee reach: shoot on the way in (auto), or after closing in has not worked for a while (melee never).
                     outOfReachFrames = Mathf.Abs(reachDy) > 90f ? outOfReachFrames + 1 : 0;
-                    if (outOfReachFrames > 90 && Mathf.Abs(dx) < 500f) tap = "Ranged";
-                }
-                else
-                {
-                    stuckFrames = 0;
-                    // Turn to face it first: a one-frame hold toward it, then the attack. Turning barely moves her, so the dodge sees it as
-                    // standing (it refused a turn toward a boss for want of room, and she stood 90 frames never facing it, 2026-09-17).
-                    bool facingIt = (dx >= 0) == (p.direction.ToString() == "RIGHT");
-                    if (Mathf.Abs(dx) < minRange && onGround) want = dx >= 0 ? Dodge.Move.Left : Dodge.Move.Right;
-                    else if (!facingIt) turn = true;
-                    else if (dy > 90f && onGround) want = Dodge.Move.Jump;
-                    else if (Mathf.Abs(dy) <= 90f) tap = inRangeTap;
-                    else tap = "Ranged";
+                    if (facingIt && Mathf.Abs(dx) < 500f && Mathf.Abs(dy) <= 90f && attackMode == "auto") tap = "Ranged";
+                    else if (outOfReachFrames > 90 && Mathf.Abs(dx) < 500f && attackMode != "melee") tap = "Ranged";
                 }
 
                 if (pushOrbs && onGround)
@@ -175,7 +201,11 @@ namespace MeshGhostAutoplay.Tevi
                 }
 
                 Dodge.Move move = dodge ? guard.Check(p, want, groundY) : want;
-                if (move == want)
+                if (move == want && Dodge.IsDrop(move))
+                {
+                    if (guard.Execute(move, onGround)) jumps++;
+                }
+                else if (move == want)
                 {
                     if (turn) InputInjection.Keep(dx >= 0 ? "XAxis+" : "XAxis-");
                     if (Dodge.IsJump(move) && onGround && InputInjection.Tap("Jump", 16)) jumps++;
@@ -296,39 +326,71 @@ namespace MeshGhostAutoplay.Tevi
                 return i < 0 || lastPlans[i].FirstHit > frames;
             }
 
-            public Dodge.Move Check(CharacterBase p, Dodge.Move want, float groundY)
+            // Whether a plan meets nothing over the whole horizon, by this frame's plans (false when it cannot be taken from here).
+            public bool Safe(Dodge.Move m)
             {
+                if (lastPlansFrame != Time.frameCount || lastPlans == null) return true;
+                int i = lastPlans.FindIndex(x => x.Move == m);
+                return i >= 0 && lastPlans[i].FirstHit > Dodge.Horizon;
+            }
+
+            // This frame's plans, worked out once; the fight reads them before it decides, and Check uses them after.
+            public void Look(CharacterBase p, float groundY)
+            {
+                if (lastPlansFrame == Time.frameCount) return;
+                lastPlansFrame = Time.frameCount;
+                lastPlans = null;
                 Vector3 pos = p.t.position;
-                float vy = lastFrame == Time.frameCount - 1 ? pos.y - lastY : 0f;
+                vyNow = lastFrame == Time.frameCount - 1 ? pos.y - lastY : 0f;
                 lastY = pos.y;
                 lastFrame = Time.frameCount;
-                if (!Threats.PlayerHurtbox(p, out Rect hurt)) return want;
+                if (!Threats.PlayerHurtbox(p, out Rect hurt)) return;
                 List<Threats.Threat> threats = Threats.Read(p, 200f);
                 List<Threats.Laser> lasers = Threats.ReadLasers(p);
-                if (threats.Count == 0 && lasers.Count == 0) return want;
+                if (threats.Count == 0 && lasers.Count == 0) return;
                 bool onGround = p.onGround();
+                start = new Dodge.Start
+                {
+                    Pos = new Vector2(pos.x, pos.y),
+                    OnGround = onGround,
+                    Vy = onGround ? 0f : vyNow,
+                    HoldLeft = InputInjection.FramesLeft("Jump"),
+                    GroundY = groundY,
+                    Hurt = hurt,
+                    Quickdropping = p.logicStatus.ToString() == "QUICKDROP",
+                };
+                Dodge.WallLimits(pos, 14f, out start.MinX, out start.MaxX);
+                start.Floor = groundY + (hurt.yMin - pos.y);
+                lastPlans = Dodge.Evaluate(start, threats, lasers);
+            }
+
+            private float vyNow;
+            private Dodge.Start start;
+
+            public float? StickX; // a fight's target x, set each frame: the dodge prefers plans that keep her near it
+
+            public Dodge.Move Check(CharacterBase p, Dodge.Move want, float groundY)
+            {
+                Look(p, groundY);
+                bool onGround = p.onGround();
+                // Falling, a quickdrop is wanted instead: the user, 2026-09-17, "prefer always using quickdrop instead of normally falling
+                // down. as its faster/makes it easier to react to attacks from enemies". The dodge still takes the plain fall when the drop
+                // would meet something.
+                if (!onGround && vyNow < 0f && p.logicStatus.ToString() != "QUICKDROP" && !Dodge.IsDrop(want))
+                {
+                    int d = Dodge.Dir(want);
+                    want = d < 0 ? Dodge.Move.DropLeft : d > 0 ? Dodge.Move.DropRight : Dodge.Move.Drop;
+                }
+                if (lastPlans == null) return want;
                 // A jump cannot begin in the air: what is wanted there is its direction.
                 if (!onGround && Dodge.IsJump(want))
                 {
                     int d = Dodge.Dir(want);
                     want = d < 0 ? Dodge.Move.Left : d > 0 ? Dodge.Move.Right : Dodge.Move.Stay;
                 }
-                var st = new Dodge.Start
-                {
-                    Pos = new Vector2(pos.x, pos.y),
-                    OnGround = onGround,
-                    Vy = onGround ? 0f : vy,
-                    HoldLeft = InputInjection.FramesLeft("Jump"),
-                    GroundY = groundY,
-                    Hurt = hurt,
-                    Quickdropping = p.logicStatus.ToString() == "QUICKDROP",
-                };
-                Dodge.WallLimits(pos, 14f, out st.MinX, out st.MaxX);
-                st.Floor = groundY + (hurt.yMin - pos.y);
-                List<Dodge.Plan> plans = Dodge.Evaluate(st, threats, lasers);
-                lastPlans = plans;
-                lastPlansFrame = Time.frameCount;
-                Dodge.Plan chosen = Dodge.Choose(plans, want);
+                List<Dodge.Plan> plans = lastPlans;
+                Dodge.Start st = start;
+                Dodge.Plan chosen = Dodge.Choose(plans, want, StickX);
                 // Inside the window the committed move wins over the wanted one too while it is as safe: a want that flips back the
                 // moment the danger is behind her is the same stutter.
                 if (Time.frameCount <= committedUntil && chosen.Move != committed)

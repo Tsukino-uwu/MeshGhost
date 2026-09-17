@@ -357,6 +357,7 @@ namespace MeshGhostAutoplay.Tevi
                     ["input_focus"] = InputInjection.FocusReport(),
                     ["clock"] = Clock.Report(),
                     ["recorder_cost"] = Recorder.Cost(),
+                    ["tells"] = Tells.Report(),
                 };
                 JArray persisting = Persisting();
                 if (persisting.Count > 0) o["persisting"] = persisting;
@@ -578,6 +579,7 @@ namespace MeshGhostAutoplay.Tevi
             try
             {
                 Recorder.Record(Player(), Mode());
+                Tells.Frame(Player());
             }
             catch (Exception)
             {

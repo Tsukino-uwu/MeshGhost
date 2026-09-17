@@ -134,6 +134,7 @@ namespace MeshGhostAutoplay.Tevi
             public Vector2 Velocity; // world units a frame, from its last position; zero the first frame it is seen
             public float MinCx, MaxCx; // how far its centre can move before a wall: unbounded for a projectile
             public bool Homing; // its heading has been turning toward the player: it follows her
+            public int AppearIn; // frames until it exists: 0 for a live box, the learned delay for a tell (Tells.cs)
         }
 
         // How a shot's heading has turned relative to the player, frame by frame: a `speeddown` shot passed under her, turned and
@@ -221,6 +222,8 @@ namespace MeshGhostAutoplay.Tevi
                 }
                 list.Add(threat);
             }
+            // Attacks being wound up, from the tells learned so far.
+            Tells.Predict(p, list);
             // Characters that explode, as their blast (keyed apart from bullet slots by a negative id).
             CharacterManager cm = CharacterManager.Instance;
             if (cm != null && cm.characters != null)
