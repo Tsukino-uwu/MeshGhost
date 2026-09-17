@@ -497,7 +497,8 @@ namespace MeshGhostAutoplay.Tevi
 
         // Every text the game draws right now: each active TextMeshPro (world or UI) whose text is not empty and whose colour
         // is not faded out, with the object's name, top to bottom by screen position. What no reader above knows by name
-        // (a tutorial window, a popup) still reaches the agent as words. At most 40 entries of 400 characters.
+        // (a tutorial window, a popup) still reaches the agent as words. At most 150 entries (a menu's list with its labels ran past 40) of 1500 characters (a tutorial
+        // window's text ran past 400).
         private static JArray ScreenText()
         {
             var found = new List<KeyValuePair<float, JObject>>();
@@ -507,7 +508,7 @@ namespace MeshGhostAutoplay.Tevi
                 if (t == null || !t.isActiveAndEnabled || t.color.a <= 0.01f || t.alpha <= 0.01f) continue;
                 string s = t.GetParsedText();
                 if (string.IsNullOrEmpty(s) || s.Trim().Length == 0) continue;
-                if (s.Length > 400) s = s.Substring(0, 400);
+                if (s.Length > 1500) s = s.Substring(0, 1500);
                 float y = 0f;
                 if (t is TMPro.TextMeshProUGUI) y = -t.transform.position.y;
                 else if (cam != null) y = -cam.WorldToScreenPoint(t.transform.position).y;
@@ -515,7 +516,7 @@ namespace MeshGhostAutoplay.Tevi
             }
             found.Sort((a, b) => a.Key.CompareTo(b.Key));
             var arr = new JArray();
-            for (int i = 0; i < found.Count && i < 40; i++) arr.Add(found[i].Value);
+            for (int i = 0; i < found.Count && i < 150; i++) arr.Add(found[i].Value);
             return arr;
         }
 

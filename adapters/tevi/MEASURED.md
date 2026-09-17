@@ -59,6 +59,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - 2026-09-17 — A trail of a jump: run speed, a ceiling that caps the arc, and a pass-through platform
 - 2026-09-17 — Fighting at game speed: the fight reflex against five kinds, and blastorbs
 - 2026-09-17 — The interaction bubble, the bottom-left popup and the menu's tabs, read
+- 2026-09-17 — Into the Sewerways: a grate that broke on a falling quickdrop, the move list, and the first save point
 - Not measured yet — backup slots and the chapter-reset slot
 - Not measured yet — what `mode: paused` reads from, and why the pause menu opened
 
@@ -304,6 +305,32 @@ be an icon above the player head, when you can use the up arrow to interact with
   On Sigils, `YAxis-` moved to Palladium (cost 3) and Confirm read it `Equipped`, EP used 3 of 10.
 - **Items picked up**: the Astral Gear (`STACKABLE_COG`, the artifact) and Palladium (`BADGE_ANTIENERGYBALL`: "All damage taken
   -2, damage taken from blastorbs -50%"), each through the item box and closed by Confirm.
+
+### 2026-09-17 — Into the Sewerways: a grate that broke on a falling quickdrop, the move list, and the first save point
+
+**Evidence**: the same driver and run log (segment 5), `trail`, `screen_text`, `menu`, `save.guard`, and screenshots
+`autoplay_shaft_down.png`, `autoplay_map2.png`, `autoplay_toward_save.png` (gitignored); the real save folder hashed against its
+backup afterwards. The user: *"normal enemies are never required to defeat, only bosses"*, and *"you can equip sigils directly when
+picking them up, without having to go to the menu. if you have enought EP to do so"* (not tried yet).
+
+- **A duct grate over a shaft** (Bandit Base, x about 12935-13045) held against two quickdrops begun while rising (Jump held 14
+  and 16 frames, down + Jump pressed 4 frames after the hold ended), each falling about 22 units a frame and drifting up to 45
+  forward; it broke on a third begun after the peak (Jump held 22 frames, down + Jump from 8 frames after), with no drift, and
+  the player fell into area `SEWER`. One of each: whether the timing or the drift decided it is not told apart.
+- **The move list** (pause menu, Characters, the cursor walked down with `YAxis-` and each move's detail read): 26 rows, wrapping;
+  known so far Jump, Quickdrop ("Contact with a target during quickdrop will negate contact damage and perform 1 additional
+  bounce"), Basic Ground Combo I-III (`[C]`, `[C][C]`, `[C][C][C]`), Upper Slash (Up + `[C]`, "Rise into the air while performing a
+  multi-stage attack"; the bottom-left popup had announced it, unread) and Basic Air Combo I-III; the rest `???`. `screen_text`
+  missed rows until its caps were raised to 150 entries and 1500 characters.
+- **More fights**: two Clean Staffs (59 HP) in 263 and 315 frames; a bat (17 HP, flying) in 52; mice (22 HP, the sewer's) in 45 and
+  109; `GH_Member_Mouse` (60 HP) in 195; `GH_Member_Cat` (70 HP) in 192; `GH_Bot` twice. A `GH_Member_Dog` 232 units below, under a
+  floor, took 137 Orbitar shots over 900 frames and lost no HP; the reflex now ends `no_progress` after 300 frames of that.
+- **The save point** (x about 20690, y -12880, a green glow): standing on it drew `Tips.SavePoint` ("Save points can fully recover
+  HP. Press ... to save game progress"). Up raised HP one point a frame from 53 to 67 and opened the save list with `purpose`
+  `save` and the cursor on slot 39; Confirm asked "Save game?", Confirm again saved and HP read 100. The guard: 42 paths
+  shadowed, 0 writes refused, 210 autosaves held. The real save folder: 57 files, every hash equal to the backup.
+- **Sigils**: Knives Out (`BADGE_Normal2AntiHealth`, cost 4: "When target's HP is above 70%, basic ground combo damage +2")
+  equipped from the Sigils tab, EP 7 of 10; Biscuit Delivery (cost 0) also on.
 
 ## Not measured yet
 

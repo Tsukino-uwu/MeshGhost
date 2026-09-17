@@ -344,6 +344,7 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   is knocked into things, not fought), followed frame by frame -- held toward
   outside melee `range` (110), faced and Attack tapped inside it, a jump when it is above or she is stuck, Orbitars when it
   stays out of reach -- until `defeated`, `lost`, `unreachable` (45 frames not moving with it higher than a jump reaches),
+  `no_progress` (its HP unchanged for 300 frames),
   `low_hp`, `mode_changed` or `timeout`; reports hits taken, attacks, jumps and both HPs.
   Events: `mode_changed`, `area_changed`, `room_changed`; `damage_taken` (a hit on the player through the game's one hit
   method, with `damage`, `hp_from`/`hp_to`, `bullet_type` and the `source` character as `nearby` names it), `enemy_defeated`

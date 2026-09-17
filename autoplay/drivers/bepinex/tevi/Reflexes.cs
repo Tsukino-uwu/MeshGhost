@@ -21,10 +21,12 @@ namespace MeshGhostAutoplay.Tevi
         //    tap Attack; well above and on the ground, jump toward it; stuck against something while closing in, jump; level
         //    but out of reach for long (a gap, a ledge), tap Ranged;
         //  - ends `defeated` (its HP 0 or it is gone after a hit landed), `lost` (gone from view or inactive otherwise),
-        //    `unreachable` (45 frames not moving with it higher than a jump reaches from where she stands),
+        //    `unreachable` (45 frames not moving with it higher than a jump reaches from where she stands), `no_progress`
+        //    (its HP unchanged for 300 frames),
         //    `low_hp` (the player's HP at or below `stop_hp`), `mode_changed` (not in play any more: a scene, a menu), or
         //    `timeout` at the frame limit. Reports hits taken, attacks tapped, jumps and the target's HP at start and end.
         private const float UnreachableDy = 180f;
+        private const int NoProgressFrames = 300;
 
         public static Func<JToken> Fight(JObject args, int frameLimit, Func<CharacterBase> player, Func<string> mode, Func<bool, JObject> observe)
         {
@@ -44,6 +46,7 @@ namespace MeshGhostAutoplay.Tevi
             int stuckFrames = 0, outOfReachFrames = 0, blockedFrames = 0;
             float groundY = me.t.position.y; // where she last stood: reach is measured from there, so a jump does not reset it
             bool landed = false;
+            int targetHpSeen = target.health, lastProgress = Time.frameCount;
             string targetType = target.type.ToString();
             int targetId = target.ID;
 
@@ -82,6 +85,14 @@ namespace MeshGhostAutoplay.Tevi
                     return Done(target != null && target.health <= 0 || landed ? "defeated" : "lost");
                 }
                 if (target.health < targetHpStart) landed = true;
+                if (target.health != targetHpSeen)
+                {
+                    targetHpSeen = target.health;
+                    lastProgress = Time.frameCount;
+                }
+                // 900 frames of shots at a dog 232 units below, through a floor, never hurt it (2026-09-17): whatever the reason,
+                // a fight that stops hurting its target says so.
+                if (Time.frameCount - lastProgress >= NoProgressFrames) return Done("no_progress");
                 if (stopHp > 0 && p.health <= stopHp) return Done("low_hp");
                 if (mode() != "play") return Done("mode_changed");
                 if (Time.frameCount - start >= frameLimit) return Done("timeout");

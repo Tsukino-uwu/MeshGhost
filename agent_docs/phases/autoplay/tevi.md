@@ -207,3 +207,17 @@ dog's ledge again; a dark room lit by picking up the Astral Gear (`chapter0_main
 cat and a bot beaten by `fight`; a jump onto a pass-through platform worked out from the `trail`; a Clean Staff `fight` answered
 `unreachable`; the blastvines scene (`chapter0_point2`); Palladium picked up, and Palladium and Biscuit Delivery equipped from the
 Sigils tab. Snapshots `tevi_dog_ledge`, `tevi_astral_gear`, `tevi_blastvines`.
+
+## 2026-09-17 (same session) — into the Sewerways and to the first save point
+
+**The user**, as it was played: *"normal enemies are never required to defeat, only bosses"*; *"got a new move, showed how to use it in
+the bottom left"* and *"can also view how all moves are used/done at the pause menu"*; *"you can scroll down the list, if you can't
+see everything"*; *"not all sigils are worth using all the time, can enable/disable ones you want by preference"*; *"you can equip
+sigils directly when picking them up"*.
+
+**Walked** (run log `autoplay/runs/2026-09-17_131747.151516.ndjson`, segment 5): Knives Out picked up and equipped; a grate broken by
+a quickdrop into the Sewerways; the game's map read for the way down; Clean Staffs, bats, mice, bots, a mouse and a cat beaten by
+`fight` on the way; the move list read row by row; the first save point used, saved to slot 39 in the shadow. Snapshots
+`tevi_sewer_entry`, `tevi_first_savepoint`. The measurements: `adapters/tevi/MEASURED.md`, "Into the Sewerways".
+
+**Built**: `fight` ends `no_progress` when its target's HP stops changing; `screen_text` holds 150 entries of 1500 characters.
