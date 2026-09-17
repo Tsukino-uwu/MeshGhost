@@ -383,6 +383,12 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   reloads), over 12 plans and 45 frames, and takes the nearest safe one: it keeps her close to a fight's target, quickdrops instead of
   falling, and lets a swing go only while standing stays safe for its 18 frames. **`reflex` `evade`** `{stop_on_hit?, home_x?, stop_hp?}`:
   the dodge alone, drifting back to `home_x`. Answers carry `dodges` and `last_dodge` with every plan's numbers.
+  **`reflex` `goto`** `{tile_x, tile_y}` or `{x, y}` (`Navigate.cs`): a route over the collision grid's standing tiles -- steps, stairs,
+  falls, jumps up to 3 rows and 5 across, held for their height and distance -- run a frame at a time through the dodge, heading for the
+  route's next tile, quickdropping onto landings and down drops, hopping and quickdropping through a drop the grid shows open but that
+  holds her up (a duct cover), shooting a resting blastorb on her level aside; planned again from where she stands. Ends `arrived`,
+  `no_route`, `stuck` (no progress along the route for 120 frames), `mode_changed` (a scene) or `timeout`; `hits_taken`, `dodges`.
+  **`cheat` `difficulty`** `{level}` (0-10; the game's own setter, but the fight did not change until a new game: the phase log).
   Events: `mode_changed`, `area_changed`, `room_changed`; `damage_taken` (a hit on the player through the game's one hit
   method, with `damage`, `hp_from`/`hp_to`, `bullet_type` and the `source` character as `nearby` names it), `enemy_defeated`
   (a hit that takes another character to 0 HP, `by_player_raw`), `hp_changed` (any cause: a hit reports both), `game_over`,

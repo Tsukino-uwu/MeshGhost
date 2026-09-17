@@ -292,3 +292,36 @@ freely. Holding Attack may give combos or a charge attack.
 **Open:** a hitless phase two; the outline (yellow, red) as a field the fight uses; attacking into every safe gap (the user still saw
 gaps, with over-dodging); holding Attack and the damage rotation; the combo meter; the hardest difficulty; then `exec` (the game's Quantum
 Console first).
+
+## 2026-09-17 (same session) — Infernal BBQ from the cell, `reflex` `goto`, and a death at the blastvines
+
+**The user**, as the Ribauld fight ran on a save whose difficulty had been set by a cheat: *"this does not look like infernal bbq, lets
+go back to the main menu and start a fresh new save on slot40"*, *"I want you to replay from the cell, at the harder difficulty"* and
+*"prove that you can do the whole intro section faster now, than we did before"*. Then, as it was played: *"can we add a reflex for how
+to move around with boxes/ledges/platforms ?"*; *"spend as little time in the air as possible"*, *"basically be efficient while moving
+around"*, *"there is no need to jump constantly when walking up stairs"*; *"its always fine to run past normal enemies"*, *"going below
+enemies or jumping over them etc, to get to where you want faster. as long as its safe"*, *"prefer always going forward"*; of the
+blastorbs, *"use the orbs to your advantage, melee/orbitar them towards enemies if they are nearby. else just go past them"*; and
+*"you want to avoid ever taking a hit ... especially on infernal bbq where everything hurts a lot"*.
+
+**Built** (driver): `cheat` `difficulty` (the game's own `SaveManager.SetDifficulty`; the HUD read "Infernal BBQ" after it, but a hit
+still cost 1 HP and the user judged the fight unchanged); slots 39 and 40 autoplay's; `local_map` 101 by 51 tiles; **`reflex` `goto`**
+(`Navigate.cs`): a route over the collision grid's standing tiles by steps, stairs, falls and jumps held for their height and distance,
+carried out a frame at a time through the fight's dodge, quickdropping onto landings, breaking a covered duct, shooting a resting blastorb
+aside; `fight` with no quickdrop as an attack.
+
+**Walked and reached** (run log `autoplay/runs/2026-09-17_150941.595165.ndjson`): back to the title through the options' "Return to title
+screen" (Tab is the `Bag` action), a new game in slot 40 on Infernal BBQ with no Custom Game option, the intro, the cell (snapshot
+`tevi_inf_cell_start`). From the cell by hand-timed sequences to the gate room: **reached**, because a teleport to the spot she already
+stood on was sent by mistake. Then **walked**: the Dagger and Orbitars (the first run's snapshots gave the positions to head for), the
+wall switch, the gate, the shaft of platforms (two hand-timed tries failed; `goto` climbed it), the corridor, a cat (fought, hitless),
+Caprice and Roleo, Basic Engagement, a mouse (it hit her for 26 HP on the way; then fought hitless), the Astral Gear and its switch, a
+dog in the hatch (fought, hitless), the duct, a cat (fought: one hit for 33), the blastvines (snapshot `tevi_inf_blastvines_hp17`,
+HP 17). There a hand-written step back walked her off the vine ledge onto a cat and a mouse, and she died; the game revived her at that
+snapshot's save with 50 HP. From it `goto` shot the floor orb aside, and a mouse in the way hit her once more (35 HP) while fought.
+
+**Faster than the first run**, by the game's own play time in the snapshots: the cell to the blastvines took 624 s (17.7 to 641.7),
+against 2,194 s on Cakewalk the first time (324.7 to 2,519.4); 3 hits by then against 49 by the first save point.
+
+**Open:** the rest of the route (blastvines to the save point, then Ribauld) hitless: unfamiliar enemies hit before their tells are
+learned, so fight them from range first; the tells table to survive a game restart; the whole Infernal fight with Ribauld.
