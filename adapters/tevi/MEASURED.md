@@ -65,6 +65,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - 2026-09-17 — Jump arcs by hold, the quickdrop, the player's hurtbox and her ground swing
 - 2026-09-17 — Ribauld's attacks: lasers, blastorbs, the arena's edges, and the states before each attack
 - 2026-09-17 — Fighting Ribauld with the dodge: hits per try
+- 2026-09-17 — Infernal BBQ: what a normal enemy's hit costs, a death, and the play time to the first save point
 - Not measured yet — backup slots and the chapter-reset slot
 - Not measured yet — what `mode: paused` reads from, and why the pause menu opened
 
@@ -426,6 +427,24 @@ same run log. The fight replays closely: the first charge hit landed about 1,890
   does no attacks; red once it has been attacked too much, until a short cooldown, when her hits do less damage, do not knock it
   back, and it attacks freely. Read as a map, a red flash comes with a hit passed as `blocked`, whose stun and knockback are zeroed.
   Also not measured: holding Attack; the fight on harder difficulties.
+
+### 2026-09-17 — Infernal BBQ: what a normal enemy's hit costs, a death, and the play time to the first save point
+
+**Evidence**: a new game in slot 40 started at Infernal BBQ from the title's difficulty list (the HUD read "Infernal BBQ"); `reflex` answers,
+`damage_taken` events and the flight recorder; the saves' own `playtime` and `damageTakenTime` read from the snapshots
+`tevi_first_savepoint` (Cakewalk, the first run) and `tevi_inf_first_savepoint`; run log `autoplay/runs/2026-09-17_150941.595165.ndjson`.
+
+- **A hit from a normal enemy**: a mouse 26 and 35 HP, a cat 33, a Clean Staff's and a bot's sweep (`INVISIBLE`, 80 by 75) 39; the
+  Clean Staff's sweep came 40 frames into its `ATTACK1`, 50 units ahead of it. On Cakewalk the same hits cost 1.
+- **Setting the difficulty with `SaveManager.SetDifficulty` on a Cakewalk save** changed the HUD's label and not a hit's cost (still 1 HP
+  against Ribauld's charge); the user judged the fight unchanged on screen.
+- **A death** (HP 0) showed a scene away from the area, then reloaded the last save with HP 50 of 100 and the room as it was at that save
+  (the blastorbs back on their vines); every time.
+- **To the first save point**: `playtime` 713.7 s and `damageTakenTime` 7 on Infernal BBQ, against 3,393.2 s and 49 on Cakewalk. Only the
+  timeline kept by the saves counts: attempts lost to deaths are not in it.
+- **The Outline Status tutorial** (Sewerways, as text): attacked, a target enters the yellow outline, submissive, then the red, dominant;
+  submissive it takes knockback and blowback when not attacking; dominant its actions cannot be interrupted and melee does less damage.
+- **Tab** in the pause menu is the `Bag` action; the options list ends with "Return to title screen", whose question Confirm answers yes.
 
 ## Not measured yet
 

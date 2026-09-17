@@ -339,3 +339,53 @@ learned, so fight them from range first; the tells table to survive a game resta
 with no learned attack fought from range; hop-then-quickdrop plans; `goto`'s dodge steps in only for a close hit. **Not tried yet**, the
 combination the user pointed to: clearing the room's cats, dog, mouse and bot with the blastorbs from the vine ledge above before
 going down, instead of walking among them.
+
+## 2026-09-17 (end of the session) — the Infernal BBQ run reached the first save point; what was learned, and how to pick up
+
+**The user**: *"yee just keep running and pay as little time and effort as possible on normal enemies, they are only an obstacle if you
+wait around/try to fight them"*; *"just keep running, don't panic and stay idle/wait for enemies to attack you. dodge things along the way"*;
+of the blastvines room, *"shot the orb with the orbitar, so it gets pushed towards the robot enemy. then jump down into the hole"* and *"you
+have to shot the orb earler/from further away, and then you can just melee it into the robot afterwards"*; *"if you manage to jump into the
+hole/go to another area enemies can't follow you there"*; *"just drop down fast to avoid the bats, jump on the cleaners head with quickdrop
+to get past safely as long as you won't hit the roof/ceiling"*; *"go backwards/forwards a bit after hitting enemies with quickdrop, you can
+control your movement in the air still"*; *"push orbs into enemies when possible, it deals damage and knocks them back"*; and of the Outline
+Status tutorial, *"this tutorial explains the armor thing"*. Then: *"lets end this chat here, write down what we have learned, then continue
+TEVI in a new chat"*.
+
+**Reached the first save point on Infernal BBQ** and saved there (slot 40, in the shadow), snapshot `tevi_inf_first_savepoint`. By the game's
+own play time in the saves: **the cell to the save point in 713.7 s with 7 hits, against 3,393.2 s and 49 hits on Cakewalk the first time.**
+A death reloads the last save, so that play time leaves out the attempts lost to deaths: there were eight or so, in the blastvines room and on
+the Sewerways' way down (the Clean Staffs, a bat, a bot).
+
+**Built in this stretch** (`Navigate.cs`): a resting blastorb or a normal enemy on her level ahead is hurdled by a running jump steered to the
+first standing tile past it (shooting an orb aside sent it back into her path, 50 HP); in the air over an enemy she quickdrops once onto it and
+steers on through the bounce (stomping again kept her over a bot until it swept her for 39); `goto` with `dodge` false runs without stopping.
+A driving loop outside the repo ran `goto` in 240-frame stretches and snapshotted each one that took no hit, so a death cost one stretch.
+
+**What was learned, for whoever plays TEVI next:**
+- **Normal enemies are passed, not fought.** Keep running; hurdle a body in the way; quickdrop onto one below for its invincibility frames
+  and steer on; drop into a hole or change area and they cannot follow. Standing near one to dodge is what gets her hit.
+- **On Infernal BBQ a normal enemy's hit costs 24 to 39 HP** (a mouse 26 and 35, a cat 33, a Clean Staff's sweep and a bot's sweep 39), so two
+  hits can kill; a death reloads the last save with half HP.
+- **Blastorbs**: push them into enemies (damage and knockback) from further away, with Orbitars first and melee after; never walk into a
+  resting one; one that is shot can come back into the path.
+- **Outlines** (the game's Outline Status tutorial): attacked, a target goes yellow (submissive: knocked back when not attacking), then red
+  (dominant: its actions cannot be interrupted and melee does less damage). The armor meter measured in `MEASURED.md` is the same thing.
+- **Tells come too late on a first meeting**: the dodge learns an attack by seeing it once, and a tight room gives no room to learn it from
+  range. The tells table is now kept in `autoplay/states/tevi/tells.json` (gitignored), so it survives a restart.
+- **Hold the clock between calls** for timing claims: play time otherwise runs while the model reads.
+
+**Left as it is, outside the repo:** TEVI (Steam) running, idle in play at the Sewerways save point on the Infernal BBQ game (slot 40, HP 100),
+clock released, the save guard armed (closing the game is the user's). The Randomizer still `.off`, the dev cheats off. Snapshots in
+`autoplay/states/tevi/`: the Cakewalk ones as before plus `tevi_ribauld_start`, `tevi_ribauld_start_infernal` (difficulty set by cheat, not a
+real Infernal game), `tevi_inf_cell_start`, `tevi_inf_blastvines_hp17`, `tevi_inf_palladium`, `tevi_inf_leg`, `tevi_inf_first_savepoint`;
+`tells.json`. The real save folder matched `TEVI.meshghost-backup-20260917-114515` by hash at the end (PowerShell, 57 files, logs left out).
+
+**To pick up:** core and `mcpcall` built into the chat's scratch folder, `-listen 127.0.0.1:7872`, its own `-log`, calls from Bash (as before).
+If TEVI is still running, no launch is needed. If not, ask before launching; from the title, Start, slot 40 loads the Infernal game at the save
+point (it is in the shadow only: a fresh process copies the real folder over the shadow as the guard arms, so restore
+`tevi_inf_first_savepoint` from inside a game instead). Next on the route: Ribauld on Infernal BBQ, hitless (the fight's tells are learned on
+Cakewalk; Infernal may add moves). Moving is `reflex` `goto` (in stretches, with snapshots); combat `reflex` `fight`; conversations `advance_text`.
+
+**Open:** a hitless run through a room of normal enemies on Infernal BBQ; Ribauld on Infernal BBQ; hold-Attack combos and the damage rotation;
+the combo meter in boss fights; `exec` (the game's Quantum Console first).

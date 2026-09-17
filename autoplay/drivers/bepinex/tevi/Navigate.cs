@@ -185,6 +185,36 @@ namespace MeshGhostAutoplay.Tevi
         // short into the shaft below, 2026-09-17).
         private static int HoldFor(int rows, int across) => across >= 3 ? 24 : rows <= 0 ? 8 : rows == 1 ? 12 : rows == 2 ? 16 : 24;
 
+        private static bool EnemyBelow(CharacterBase p)
+        {
+            CharacterManager cm = CharacterManager.Instance;
+            if (cm == null || cm.characters == null) return false;
+            foreach (CharacterBase c in cm.characters)
+            {
+                if (c == null || c == p || c.t == null || !c.gameObject.activeInHierarchy || c.health <= 0 || c.maxhealth >= 99999) continue;
+                float dx = c.t.position.x - p.t.position.x, dy = c.t.position.y - p.t.position.y;
+                if (Mathf.Abs(dx) < 60f && dy < -20f && dy > -250f) return true;
+            }
+            return false;
+        }
+
+        private static CharacterBase EnemyAhead(CharacterBase p, int sign)
+        {
+            CharacterManager cm = CharacterManager.Instance;
+            if (cm == null || cm.characters == null) return null;
+            CharacterBase best = null;
+            float bestDx = float.MaxValue;
+            foreach (CharacterBase c in cm.characters)
+            {
+                if (c == null || c == p || c.t == null || !c.gameObject.activeInHierarchy || c.health <= 0 || c.maxhealth >= 99999) continue;
+                if (c.isBoss.ToString() != "NONE") continue;
+                float dx = (c.t.position.x - p.t.position.x) * sign, dy = c.t.position.y - p.t.position.y;
+                if (dx < 30f || dx > 180f || Mathf.Abs(dy) > 60f) continue;
+                if (dx < bestDx) { bestDx = dx; best = c; }
+            }
+            return best;
+        }
+
         private static CharacterBase OrbAhead(CharacterBase p, int sign)
         {
             CharacterManager cm = CharacterManager.Instance;
@@ -233,6 +263,7 @@ namespace MeshGhostAutoplay.Tevi
             List<int> path = null;
             int step = 0, jumpFrom = -1, jumpRows = 0, jumpTarget = -1, hits = 0, dodges = 0, lastHp = me.health;
             bool steerEarly = false;
+            int lastStomp = -1000;
             int overDropSince = -1; // frames standing over a planned fall that does not happen: a duct cover the grid does not show
             bool dodge = (bool?)args["dodge"] ?? true, stopOnDamage = (bool?)args["stop_on_damage"] ?? false;
             var guard = new Reflexes.Guard(me) { PreferDrop = false, Imminent = 14 }; // the route times its own quickdrops; step in only for a close hit
@@ -329,6 +360,23 @@ namespace MeshGhostAutoplay.Tevi
                     }
                 }
 
+                // In the air over an enemy: quickdrop onto it, contact cannot hurt her then and she bounces off (the user, 2026-09-17: "you
+                // can get iframes if you quickdrop on top of an enemy, use it to get by things safely"; a Clean Staff waiting where a drop
+                // landed hit her twice).
+                // One stomp, then steer on through the bounce: stomping again and again kept her hovering over a bot while it wound up
+                // and swept her for 39 (2026-09-17; the user: "go backwards/forwards a bit after hitting enemies with quickdrop").
+                if (!onGround && Time.frameCount - lastStomp < 45)
+                {
+                    int away = gx * 56 + 28 > pos.x ? 1 : -1;
+                    InputInjection.Keep(away > 0 ? "XAxis+" : "XAxis-");
+                    return null;
+                }
+                if (!onGround && p.logicStatus.ToString() != "QUICKDROP" && EnemyBelow(p))
+                {
+                    Quickdrop();
+                    lastStomp = Time.frameCount;
+                    return null;
+                }
                 if (path == null) return null;
                 // Forward first: the dodge prefers safe plans that end nearest the route's next tile, and backs off only to avoid a hit (the
                 // user, 2026-09-17: "prefer always going forward / as fast as possible whenever possible. instead of going backwards unless
@@ -416,18 +464,35 @@ namespace MeshGhostAutoplay.Tevi
                 }
                 bool move = Mathf.Abs(toward) > 4f || isFall;
                 int sign = (isFall ? nx - cx : (int)Mathf.Sign(toward));
-                // A blastorb resting on the way blocks it like a wall (walking into it sets it off): shoot it on ahead from range, the way
-                // the user taught ("melee/orbitar them towards enemies if they are nearby. else just go past them"; a floor orb held goto
-                // still, 2026-09-17).
+                // A blastorb resting on the way: jumped over at a run, never shot (a shot orb flew a short way, landed back in her path and
+                // went off as she ran into it, 50 HP on Infernal BBQ, 2026-09-17; the user: "just keep running").
                 if (onGround && sign != 0)
                 {
-                    CharacterBase orb = OrbAhead(p, sign);
-                    if (orb != null)
+                    // Any body in the way on her level is hurdled the same way: a normal enemy too, which cannot keep up once she is past
+                    // (the user, 2026-09-17: "if you run past they shouldn't be able to keep up"; a Clean Staff she stood in front of swept
+                    // her after a 40-frame wind-up).
+                    CharacterBase orb = OrbAhead(p, sign) ?? EnemyAhead(p, sign);
+                    if (orb != null && Mathf.Abs(orb.t.position.x - pos.x) < 180f)
                     {
-                        bool facing = (sign > 0) == (p.direction.ToString() == "RIGHT");
-                        if (!facing) InputInjection.Keep(sign > 0 ? "XAxis+" : "XAxis-");
-                        else InputInjection.Tap("Ranged", 3);
-                        return null;
+                        // A running jump aimed at the first standing tile two or more beyond the orb, steered all the way (a hop that was
+                        // not steered bounced in place beside the orb and landed on it, 2026-09-17).
+                        Surroundings.Tile(orb.t.position, out int ox, out int oy);
+                        int land = -1;
+                        for (int k = 2; k <= JumpCols + 1 && land < 0; k++)
+                        {
+                            for (int r = -1; r <= 1 && land < 0; r++) if (Stand(ox + sign * k, cy + r)) land = Key(ox + sign * k, cy + r);
+                        }
+                        if (land >= 0 && InputInjection.Tap("Jump", 24))
+                        {
+                            jumps++;
+                            jumpFrom = cur;
+                            jumpTarget = land;
+                            jumpRows = 0;
+                            steerEarly = true;
+                            lastPlan = Time.frameCount;
+                            InputInjection.Keep(sign > 0 ? "XAxis+" : "XAxis-");
+                            return null;
+                        }
                     }
                 }
                 Dodge.Move groundWant = !move ? Dodge.Move.Stay : sign > 0 ? Dodge.Move.Right : Dodge.Move.Left;
