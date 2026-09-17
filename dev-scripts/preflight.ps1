@@ -2706,11 +2706,16 @@ if (-not (Test-Path -LiteralPath $phaseIndex)) {
     Report-Fail "$phaseIndex does not exist -- the phase index is supposed to live there"
 } else {
     $phaseText = Get-Content -LiteralPath $phaseIndex -Raw
-    $phaseFiles = @(Get-ChildItem -LiteralPath $phaseDir -Filter '*.md' |
-        Where-Object { $_.Name -ne 'README.md' } | Sort-Object Name)
+    # -Recurse since 2026-09-17: autoplay logs one file per game under phases/autoplay/ (the user's call), and a
+    # file there that no row links is as unreachable as a top-level one. A row links it by its path relative to
+    # phases/, with forward slashes: (autoplay/emerald.md).
+    $phaseDirFull = (Resolve-Path -LiteralPath $phaseDir).Path
+    $phaseFiles = @(Get-ChildItem -LiteralPath $phaseDir -Filter '*.md' -Recurse |
+        Where-Object { $_.Name -ne 'README.md' } | Sort-Object FullName)
     $unlinkedPhases = @()
     foreach ($f in $phaseFiles) {
-        if ($phaseText -notmatch [regex]::Escape("($($f.Name))")) { $unlinkedPhases += $f.Name }
+        $rel = $f.FullName.Substring($phaseDirFull.Length).TrimStart('\', '/').Replace('\', '/')
+        if ($phaseText -notmatch [regex]::Escape("($rel)")) { $unlinkedPhases += $rel }
     }
     if ($unlinkedPhases.Count -gt 0) {
         Report-Fail "$($unlinkedPhases.Count) phase file(s) not linked from $phaseIndex -- add one row each:"

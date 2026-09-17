@@ -11,9 +11,13 @@ files; cheats are first-class and every segment says whether it was walked or re
 agent explores once becomes a scenario that replays after every build with no model. A game-agnostic
 core plus a thin driver per host, for any game, through whatever dev channel its host already has.
 
-**One log for every game's autoplay** (the user, 2026-09-17: no phase file per game). **Keep the `Index` below: every
-new `##` entry adds its heading as one line under its game**, or under "The plan and the shared core" when its subject is
-the core, a tool or a shared driver file; a new game gets its own group. Entries stay in date order below it.
+**This file is autoplay's plan and shared core; each game logs in its own file** (the user, 2026-09-17, as more games
+join and two chats appended here at once). From 2026-09-17 a game's autoplay entries go to `autoplay/<game>.md` beside
+this file -- [autoplay/emerald.md](autoplay/emerald.md), [autoplay/crystal.md](autoplay/crystal.md) -- and this file takes
+entries whose subject is the plan, the core, a tool or a shared driver file (`driver.lua`, `text.lua`, `route.lua`). A
+change to shared Lua made in a game's chat gets its entry here, with a pointer line in the game's file. Nothing moved:
+every entry written before the split stays below, listed by game in the index. **Keep the `Index` below: a new entry
+here adds its heading as one line under "The plan and the shared core".**
 
 ### Index
 
@@ -24,8 +28,9 @@ the core, a tool or a shared driver file; a new game gets its own group. Entries
 - 2026-09-17 (the Crystal chat, the same night) — the text-and-battle machine moved into shared Lua
 - 2026-09-17 (the Emerald chat, new) — the scenario runner: RICK's sight replayed 3 of 3 with no model, and failing when broken
 - 2026-09-17 (the Emerald chat, next session) — `goto`'s route planner moved into shared Lua, Emerald's answers unchanged
+- 2026-09-17 (the Emerald chat, same session) — the log split: one file per game, this one for the plan and the shared core
 
-**Emerald (vanilla)**
+**Emerald (vanilla), before its own log** -- from 2026-09-17 in [autoplay/emerald.md](autoplay/emerald.md)
 - 2026-09-16 (later still) — Phase 1 step 2: a live driver in vanilla Emerald, from boot to walking
 - 2026-09-16 (later still) — Phase 1 step 3: snapshots, a warp, and a run log that labels walked or reached
 - 2026-09-16 (end of the session) — where Phase 1 stands, and what comes next
@@ -48,7 +53,7 @@ the core, a tool or a shared driver file; a new game gets its own group. Entries
 - 2026-09-17 (the Emerald chat, end of the session) — the truck's door and the clock measured, memory moved into the repo, where to pick up
 - 2026-09-17 (the Emerald chat, same session) — the wall clock read and set: `observe`'s clock, `set_clock`, `clock_open`
 
-**Crystal (vanilla V1.0)**
+**Crystal (vanilla V1.0), before its own log** -- from 2026-09-17 in [autoplay/crystal.md](autoplay/crystal.md)
 - 2026-09-17 (the Crystal chat) — Crystal step 1: position, mode, `walk`, text and menus, with no core change
 - 2026-09-17 (the Crystal chat, later) — Crystal step 2: the map, characters, scripts, a picture, and a wild battle
 - 2026-09-17 (the Crystal chat, next session) — Crystal: the battlers in memory, and `battle strongest`
@@ -58,6 +63,7 @@ the core, a tool or a shared driver file; a new game gets its own group. Entries
 - 2026-09-17 (the Crystal chat, same session) — Crystal: the ball pocket, a catch through the battle's PACK, two in the party
 - 2026-09-17 (the Crystal chat, end of the session) — where Crystal's autoplay stands, for the next chat
 - 2026-09-17 (the Crystal chat, new session) — Crystal: `set_flag`, a warp refused during any script, and the switch question
+- 2026-09-17 (the Crystal chat, same session) — Crystal's `goto` through the shared planner: doors, mats, trainers before they load
 
 ## 2026-09-16 — Phase 0: the plan checked against the repo; the proposal waits at the checkpoint
 
@@ -1280,3 +1286,17 @@ own table read from the ROM and a replayed move's result.
 **Next for Crystal:** the Pokémon menu and the party's moves and PP out of a battle, then a `heal` cheat from those
 bytes, so the first scenario (Don's sight, each run playing his battle out since a warp cannot end his script) can
 repeat; then the key item and TM/HM pockets, badges, movement, and a `battle` policy that weighs type matchups.
+
+## 2026-09-17 (the Emerald chat, same session) — the log split: one file per game, this one for the plan and the shared core
+
+**The user**, mid-session: *"does phase13 have an index ? probly gonna be useful if we push several different games into
+it ?"*, then *"or should we make something like /phase/autoplay phase1, phase2 etc ? to keep unique autoplay phases per
+game as well ?"*. Offered three layouts (per-game files named by game, numbered files per game, or one file with an
+index); the user chose **per-game files**. Named by game rather than numbered because the plan already has its own
+Phases 0-8.
+
+**Done.** `agent_docs/phases/autoplay/emerald.md` and `autoplay/crystal.md` opened, each with the dated-record note; this
+file's header says what stays here (the plan, the core, the tools, the shared driver files) and gained an index of every
+entry by game, since nothing moved. `phases/README.md` has a row for each new file and a note on the split, and
+preflight's "Phase index coverage" now looks inside subfolders, so a game log that no row links fails it as a top-level
+phase file does. `autoplay/README.md` points at both.

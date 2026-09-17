@@ -25,7 +25,15 @@ never referenced from anywhere. Added 2026-08-25.
 | [phase10.md](phase10.md) | The online stack: relay, client core, protocol, transports — one component log for the whole Go side, backfilled to the repo's start. | Live — the Go side's whole log |
 | [phase11.md](phase11.md) | Replays: recording, playback ghosts, the chaser pack, system-wide hotkeys, split times — Go-side feature work (ADRs 0047, 0048). | Live — planned 2026-09-03 |
 | [phase12.md](phase12.md) | Delivery: packaging, the release pipeline, CI and the gates — one component log for what ships and what checks. | Live — created 2026-09-11 |
-| [phase13.md](phase13.md) | Autoplay: a dev-only harness that plays games for mod and adapter testing — never shipped. | Live — created 2026-09-16 |
+| [phase13.md](phase13.md) | Autoplay: a dev-only harness that plays games for mod and adapter testing — never shipped. The plan, the core, the tools and the shared driver files; every game's entries before 2026-09-17. | Live — created 2026-09-16 |
+| [autoplay/emerald.md](autoplay/emerald.md) | Autoplay on Emerald (vanilla): its driver module and what was walked with it, from 2026-09-17. | Live — created 2026-09-17 |
+| [autoplay/crystal.md](autoplay/crystal.md) | Autoplay on Crystal (vanilla V1.0): its driver module and what was walked with it, from 2026-09-17. | Live — created 2026-09-17 |
+
+**Autoplay logs per game (the user, 2026-09-17).** Autoplay is one phase across many games, and two chats were appending
+to `phase13.md` at once. So a game's autoplay entries go to `autoplay/<game>.md` from 2026-09-17, and `phase13.md` keeps
+the plan, the core and the shared driver files. This is not a split in the "never split a phase file" sense: nothing
+moved, and `phase13.md`'s earlier entries stay where they are, listed by game in its index. A new game's autoplay log
+gets its own row here.
 
 **Frozen is not "done" (the user's call, 2026-09-06).** The six early files mixed the server, the
 client and Emerald together before each stream had a log of its own; their work continues in phases

@@ -3,7 +3,8 @@
 **Never built by a MeshGhost release and never shipped.** A Claude Code agent uses it to play a game
 on a dev instance: reach a state, hold it, repeat it, and later turn what worked into a scenario that
 runs with no model at all. It is its own Go module (ADR 0071); the log is
-`agent_docs/phases/phase13.md`, and today's rules for playing are the `play-game` skill
+`agent_docs/phases/phase13.md` for the plan and the shared core and `agent_docs/phases/autoplay/<game>.md`
+for each game, and today's rules for playing are the `play-game` skill
 (`.claude/skills/play-game/`).
 
 ## The shape
