@@ -60,8 +60,10 @@ namespace MeshGhostAutoplay.Tevi
             bool dodge = (bool?)args["dodge"] ?? true;
             int noProgressFrames = (int?)args["no_progress_frames"] ?? 300; // a boss the dodge keeps her away from needs far more
             bool pushOrbs = (bool?)args["push_orbs"] ?? true;
-            bool chainGuard = (bool?)args["chain_guard"] ?? true; // no combo chaining against a faster tell (below)
-            bool orbShots = (bool?)args["orb_shots"] ?? true; // an Orbitar shot at a still orb out of reach between them (below)
+            // Both off by default: against Ribauld on Infernal BBQ, five tries each (2026-09-17), off beat him 3 of 5 in 113.7-119.2 s with
+            // 0-3 hits, on 3 of 5 in 136.1-164.8 s with 1-3 hits (agent_docs/phases/autoplay/tevi.md).
+            bool chainGuard = (bool?)args["chain_guard"] ?? false; // no combo chaining against a faster tell (below)
+            bool orbShots = (bool?)args["orb_shots"] ?? false; // an Orbitar shot at a still orb out of reach between them (below)
             int pushes = 0, orbFrames = 0;
             var orbLog = new JArray(); // a sample of the orb decisions, every OrbLogEvery frames spent on an orb
             JObject orbNote = null;

@@ -428,6 +428,20 @@ window, and `fight` in 600-frame chunks with the clock held between them (a deat
 | A2 | as A1 | died 42.5 s | 528 | 4 |
 | B2 | as B1 | 164.8 s | 0 | 1 |
 
+Then, with Down held 4 frames before a quickdrop's Jump:
+
+| Try | Build | Time | Ribauld HP left | Hits |
+| --- | --- | --- | --- | --- |
+| A3 | chaining on, no orb shots | 113.7 s | 0 | 2 |
+| B3 | chain guard, orb shots | 136.1 s | 0 | 2 |
+| A4 | as A3 | died 76.0 s | 339 | 3 |
+| B4 | as B3 | 148.8 s | 0 | 3 |
+| A5 | as A3 | 119.2 s | 0 | 3 |
+| B5 | as B3 | died 138.5 s | 84 | 4 |
+
+Over five tries each, both beat him 3 times with about the same hits, A in about 116 s and B in about 150 s, so both policies are off by
+default now. The same session: the achievement guard (the user saw "Squeak By" unlock during a fight; `autoplay/README.md`).
+
 Snapshot `tevi_inf_ribauld_beaten` (after try 11's conversations). Run log `autoplay/runs/2026-09-17_174242.917353.ndjson`.
 
 **What was learned, for whoever fights next:**
@@ -437,6 +451,6 @@ Snapshot `tevi_inf_ribauld_beaten` (after try 11's conversations). Run log `auto
 - **What still hits her on Infernal**: the bomb ring while she is in the air above him, a thrown orb arcing onto her, a `speeddown` shot, and his
   charge while a combo locks her.
 
-**Open**: which of chain_guard and orb_shots helps (more tries each); the bomb ring in the air; double jumps as dodge plans, their air time
+**Open**: the bomb ring in the air; double jumps as dodge plans, their air time
 counted; a quickdrop onto an orb (which way it pushes); the Charged Shot (MP full, a stronger Orbitar shot); a hitless run through a room of
 normal enemies; hold-Attack combos; `exec` through the Quantum Console.
