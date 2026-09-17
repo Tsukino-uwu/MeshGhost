@@ -1192,7 +1192,10 @@ end
 -- Not measured: an HM in the list ("can't be forgotten"), a party slot other than 0, the move list opened outside a battle.
 local LEARN = { stateAt = 0x02024474 + 0x1F, cursorAt = 0x02024332 + 1, commands = 0x0831bd10,
 	learnCmd = 0x0804e038, stopCmd = 0x0804e3c8, summaryCB2 = 0x081bfab4, summaryPtr = 0x0203cf1c, replaceInput = 0x081c174c,
-	evoCB2 = 0x0813e3a4, evoLoadCB2 = 0x0813dd7c, evoTask = 0x0813e570, speciesInfo = 0x083203cc }
+	evoCB2 = 0x0813e3a4, evoLoadCB2 = 0x0813dd7c, evoTask = 0x0813e570, speciesInfo = 0x083203cc,
+	-- The routine the build names Cmd_trygivecaughtmonnick: "Give a nickname to the captured X?" after a catch, its YES/NO
+	-- waiting while gBattleCommunication +0 reads 1 -- the decomp as the map only: NOT measured, no catch made yet (2026-09-17).
+	nicknameCmd = 0x08056bec }
 
 -- The evolution scene's task data, or nil.
 function LEARN.evolution()
@@ -1230,8 +1233,13 @@ end
 function LEARN.question()
 	local cb = r32(GMAIN_CB2) & 0xFFFFFFFE
 	local kind
-	if cb == BATTLE_MAIN_CB2 and r8(LEARN.stateAt) == 1 then
+	if cb == BATTLE_MAIN_CB2 then
 		local handler = r32(LEARN.commands + r8(r32(BATTLESCRIPT_INSTR)) * 4) & 0xFFFFFFFE
+		if handler == LEARN.nicknameCmd and r8(LEARN.cursorAt - 1) == 1 then
+			local d = readDialogue()
+			return { kind = "nickname", text = d and d.box, menu = { items = { "YES", "NO" }, cursor = r8(LEARN.cursorAt) }, no = 1 }
+		end
+		if r8(LEARN.stateAt) ~= 1 then return nil end
 		kind = (handler == LEARN.learnCmd and "learn_move") or (handler == LEARN.stopCmd and "stop_learning") or nil
 	elseif cb == LEARN.evoCB2 then
 		local e = LEARN.evolution()
@@ -2291,7 +2299,10 @@ function TYPE_CHART.effectiveMove()
 	end
 	if not foe then return nil, "no battler at the opponent's position" end
 	local own1, own2, foe1, foe2 = mons[0x22], mons[0x23], mons[foe + 0x22], mons[foe + 0x23]
-	local best, bestScore, weighed = nil, nil, {}
+	-- The user, 2026-09-17, after MUD SHOT at x0.5 (scored above TACKLE) lost to MAY's TREECKO: "its bad to use ineffective
+	-- moves, they deal less damage". So a move the foe resists (multiplier below 1) is chosen only when no unresisted move
+	-- scores above 0.
+	local best, bestScore, weighed, bestResisted = nil, nil, {}, true
 	for k = 0, 3 do
 		local id, pp = u16of(mons, 13 + k * 2), mons[37 + k]
 		if id ~= 0 and pp > 0 then
@@ -2301,7 +2312,10 @@ function TYPE_CHART.effectiveMove()
 			local score = (info.power or 0) * (info.accuracy or 0) * (same and TYPE_CHART.sameTypeBonus or 1) * multiplier
 			weighed[#weighed + 1] = { move = nameAt(MOVE_NAMES, MOVE_LEN, MOVE_COUNT, id), type = info.type, power = info.power,
 				accuracy = info.accuracy, same_type = same or nil, multiplier = multiplier, score = score }
-			if best == nil or score > bestScore then best, bestScore = k, score end
+			local resisted = multiplier < 1 or score <= 0
+			if best == nil or (bestResisted and not resisted) or (resisted == bestResisted and score > bestScore) then
+				best, bestScore, bestResisted = k, score, resisted
+			end
 		end
 	end
 	if best == nil then return nil, "no move has PP left" end

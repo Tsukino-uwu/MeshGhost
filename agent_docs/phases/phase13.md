@@ -40,6 +40,7 @@ here adds its heading as one line under "The plan and the shared core".**
 - 2026-09-17 (the TEVI chat, same session) — `reflex`: a program at game speed that ends on the game's state
 - 2026-09-17 (the Emerald chat, the learn-a-move question) — questions asked outside a battle's screen, a scene that takes no input, and `battle`'s `forget`
 - 2026-09-17 (the Emerald chat, the bag in a battle) — `battle`'s `stop_hp_below`
+- 2026-09-17 (the Emerald chat, the story to Dewford) — `battle`'s `manual`; `talk` keeps trying a pacing character
 
 **Emerald (vanilla), before its own log** -- from 2026-09-17 in [autoplay/emerald.md](autoplay/emerald.md)
 - 2026-09-16 (later still) — Phase 1 step 2: a live driver in vanilla Emerald, from boot to walking
@@ -1525,3 +1526,21 @@ BizHawk's driver announces none.
 
 **Checked.** `go vet ./...` and `go test -count=1 ./...` in `autoplay/`, green, on the staged tree alone. Live on TEVI: five enemies of
 four kinds defeated, one out of reach answered `unreachable` (the measurements in `adapters/tevi/MEASURED.md`).
+
+## 2026-09-17 (the Emerald chat, the story to Dewford) — `battle`'s `manual`; `talk` keeps trying a pacing character
+
+**What changed in the shared core** (the story stretch is in [autoplay/emerald.md](autoplay/emerald.md), same date):
+- **`text.lua`.** Policy `manual`: the text is played and every action or move menu stops `needs_choice`, so the caller chooses
+  (made for a ball thrown before a wild ABRA's first turn; the user then chose to skip the ABRA, so no catch has used it yet).
+- **`route.lua`, `talk`.** TALK_TRIES 3 to 10, the A taps kept at 3 (TALK_TAPS), and a walk ending `unreachable` plans again
+  instead of ending `talk`: talking to MR. BRINEY while he paced answered "kept moving away" six calls of six. Neither change got
+  him: the one that walked was PEEKO on a fixed square, and BRINEY was reached the way the user described -- stand beside the
+  path, face it, press as he passes -- timed by a one-shot frame callback armed through `exec`. A `talk` that waits beside a
+  walking character's path is not built.
+- **`server.go`.** `manual` accepted; the test covers it.
+
+**Checked.** `luac -p`, `go test ./server`; live on vanilla Emerald through the stretch in the Emerald entry. Crystal not run (paused).
+
+**Seen, not fixed (shared):** `goto` classifies a story script taking the controls mid-route as `no_response` on the exit it was
+using and sets that exit aside (Rustboro's DEVON scenes, three times), and once answered `left_overworld`; and when a core closed
+while `battle` ran (a tool call interrupted), the driver did not connect to the next core until it was reloaded.

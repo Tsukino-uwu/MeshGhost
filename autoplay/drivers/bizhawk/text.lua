@@ -332,15 +332,16 @@ end
 
 -- battle {policy = "strongest" | "effective" | "run", forget}: plays a battle to its end, a trainer's words before and after
 -- included. "strongest" chooses FIGHT and the move the module's strongestMove() names, "effective" the one its
--- effectiveMove() names; "run" chooses RUN and, on the move menu, stops. `forget` "strong_variety" answers a learn-a-move
+-- effectiveMove() names; "run" chooses RUN and, on the move menu, stops; "manual" plays the text and stops `needs_choice`
+-- at every action or move menu. `forget` "strong_variety" answers a learn-a-move
 -- question (M.forgetChoice); without it `battle` stops `needs_choice` there. `stop_hp_below` (above 0, at most 1) stops
 -- `needs_choice` at the action menu while the player's battler has less than that share of its HP, so the caller can use
 -- the BAG through `select` and call `battle` again (the user: the player can heal mid-fight through BAG, 2026-09-17). Returns
 -- (program, error, frame limit) like any program.
 function M.battle(h, p)
 	local policy = p.policy or "strongest"
-	if policy ~= "strongest" and policy ~= "effective" and policy ~= "run" then
-		return nil, 'battle policy is "strongest", "effective" or "run"'
+	if policy ~= "strongest" and policy ~= "effective" and policy ~= "run" and policy ~= "manual" then
+		return nil, 'battle policy is "strongest", "effective", "run" or "manual"'
 	end
 	if p.forget ~= nil and p.forget ~= "strong_variety" then
 		return nil, 'battle forget is "strong_variety" or absent'
@@ -363,6 +364,8 @@ function M.battle(h, p)
 	end
 	local outside = 0
 	local machine = M.machine(h, function(asking)
+		-- "manual": every action menu is the caller's (a ball thrown before a wild ABRA's first turn, the user, 2026-09-17).
+		if policy == "manual" then return nil, "policy manual: the caller chooses at " .. asking end
 		if asking == "action" then
 			if stopBelow then
 				local hp, max = h.ownHp()

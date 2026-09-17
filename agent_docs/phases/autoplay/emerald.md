@@ -394,3 +394,30 @@ point(s)."; `battle` to `ended`, 46 of 51, 2 POTIONs left.
 
 **What went wrong on the way:** calls chained with no wait: `select POTION` straight after `select BAG` found no menu (the bag
 was still coming up), and `battle` on the bag then answered `stuck` (its menu reader did not take list menus; fixed).
+
+## 2026-09-17 (the Emerald chat, next session) — the story from the STONE BADGE to DEWFORD
+
+**Played** (run log `autoplay/runs/2026-09-17_131645.118278.ndjson`, segments "story: ..."; the first reached by restoring
+`story_stone_badge`, the rest walked). Rustboro's Center healed; the TEAM AQUA grunt's scene; Route 116 (a wild ABRA the trip
+loop fought before the user's advice to catch one arrived, YOUNGSTER JOHNSON, SCHOOL KID KAREN, whose SHROOMISH paralyzed
+MARSHTOMP); Rusturf Tunnel: the grunt beaten, the DEVON GOODS back, MR. BRINEY and PEEKO met. Walking back to the Center the
+story took the controls: DEVON's employee to MR. STONE (the LETTER, a POKéNAV, a heal), MATCH CALL added and its tutorial --
+the POKéNAV's screens driven by `press` and pictures, MR. STONE called. A catch of ABRA was prepared (`manual`, the nickname
+question read from the decomp only) and dropped at the user's word. MAY at Rustboro's south edge: `battle effective` chose
+MUD SHOT (×0.5) against her TREECKO three times, ABSORB (×4) fainted MARSHTOMP -- a whiteout; after it her scene did not run
+again. Route 104 through Petalburg Woods in one `goto` to MR. BRINEY's cottage (17.0), BRINEY talked to beside PEEKO's path,
+the voyage (DAD's call on the way) to DEWFORD (0.11). MARSHTOMP Lv 18, money 2259. Snapshots: `story_devon_goods`,
+`story_pokenav`, `story_dewford`.
+
+**Built** (`emerald.lua`). `effective` takes a resisted or no-damage move only when no neutral or super effective move does
+damage (the user: *"its bad to use ineffective moves, they deal less damage"*, *"should always use a neutral or super effective
+move, whenever possible"*). The post-catch nickname YES/NO is read as `nickname` from the decomp's map, not measured.
+
+**The user, while it ran:** catch an ABRA for TELEPORT back to the last Center until FLY (its HM and badge); a Pokémon at low
+HP or with a status is easier to catch, only wild ones can be caught, and one that faints cannot; Poké Balls lying in the
+overworld hold items; PEEKO walks and BRINEY is talked to by standing beside the path, facing it, and pressing as he passes;
+then *"you can skip the abra, and continue with the story"*.
+
+**Open from this stretch:** `goto` reads a story script taking the controls as `no_response` and sets the exit aside; the
+driver not reconnecting after its core closed mid-program; `talk` to a walking character (wait beside its path); items in Poké
+Balls on the ground not yet picked up by any tool; shops (to buy POTIONs) not read; the POKéNAV's screens not read.

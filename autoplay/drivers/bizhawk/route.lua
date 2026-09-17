@@ -567,7 +567,8 @@ end
 -- module's own text program (`advance`, advance_text's) to its end. The character's tile is read again on arrival, since
 -- one that walks about may have moved: the route is planned again up to TALK_TRIES times. The A is a tap, as the text
 -- machine's are (a held A went on to answer the menu under it), tried again after TALK_WAIT frames without an answer.
-local TALK_TRIES, TALK_WAIT, TALK_FACE_FRAMES = 3, 40, 60
+-- TALK_TRIES was 3 until MR. BRINEY, pacing his cottage (17.0), answered "kept moving away" six calls of six (2026-09-17).
+local TALK_TRIES, TALK_TAPS, TALK_WAIT, TALK_FACE_FRAMES = 10, 3, 40, 60
 
 function M.talk(h, p, advance)
 	if not h.inOverworld() then return nil, "talk needs the overworld" end
@@ -649,7 +650,8 @@ function M.talk(h, p, advance)
 			local pad, done, r = inner()
 			if not done then return pad, false end
 			inner = nil
-			if r.outcome ~= "done" and r.outcome ~= "blocked" then return finish(r.outcome, r) end
+			-- `unreachable` too: the tile beside him closed while walking (MR. BRINEY stepped next to it, 2026-09-17).
+			if r.outcome ~= "done" and r.outcome ~= "blocked" and r.outcome ~= "unreachable" then return finish(r.outcome, r) end
 			phase, frames = "plan", 0
 			return nil, false
 		end
@@ -675,7 +677,7 @@ function M.talk(h, p, advance)
 			end
 			if frames == 1 then
 				taps = taps + 1
-				if taps > TALK_TRIES then return finish("no_response", { reason = "A was pressed " .. TALK_TRIES .. " times and nothing answered" }) end
+				if taps > TALK_TAPS then return finish("no_response", { reason = "A was pressed " .. TALK_TAPS .. " times and nothing answered" }) end
 			end
 			if frames > TALK_WAIT then frames = 0 end
 			if frames <= 2 then return { A = true }, false end

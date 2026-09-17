@@ -118,7 +118,7 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 			"included, so call it straight after a spotted. policy strongest (default) fights with the " +
 			"usable move of most power times accuracy; effective weighs that by the game's type chart " +
 			"against the foe and the same-type bonus, where the game module measured them; " +
-			"run runs. forget strong_variety answers a question to learn a move -- keeping strong damaging moves of " +
+			"run runs; manual plays the text and stops needs_choice at every action menu, for the caller's select. forget strong_variety answers a question to learn a move -- keeping strong damaging moves of " +
 			"different types, status moves going first, and saying no when the new move is worth least; " +
 			"without it battle stops needs_choice there. stop_hp_below stops needs_choice at the action menu while the player's " +
 			"HP share is below it, to heal with select through the BAG. Returns a log of every message and choice, and ends ended, needs_choice (a menu it " +
@@ -449,16 +449,16 @@ const BattleTimeout = CallTimeout + 10*time.Minute
 
 // BattleIn is the battle tool's input.
 type BattleIn struct {
-	Policy      string  `json:"policy,omitempty" jsonschema:"strongest (default), effective or run"`
+	Policy      string  `json:"policy,omitempty" jsonschema:"strongest (default), effective, run, or manual (stop needs_choice at every action menu)"`
 	Forget      string  `json:"forget,omitempty" jsonschema:"strong_variety answers a learn-a-move question; absent stops needs_choice there"`
 	StopHPBelow float64 `json:"stop_hp_below,omitempty" jsonschema:"stop needs_choice at the action menu while the player's HP share is below this (0-1], to heal through the BAG"`
 }
 
 func (t *tools) battle(ctx context.Context, _ *mcp.CallToolRequest, in BattleIn) (*mcp.CallToolResult, any, error) {
 	switch in.Policy {
-	case "", "strongest", "effective", "run":
+	case "", "strongest", "effective", "run", "manual":
 	default:
-		return nil, nil, fmt.Errorf(`policy must be "strongest", "effective" or "run", got %q`, in.Policy)
+		return nil, nil, fmt.Errorf(`policy must be "strongest", "effective", "run" or "manual", got %q`, in.Policy)
 	}
 	switch in.Forget {
 	case "", "strong_variety":
