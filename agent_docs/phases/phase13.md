@@ -1139,3 +1139,37 @@ the second set ran the moved code.
 **Crystal's path:** `crystal.lua` and `text.lua` untouched by this chat; Crystal's module never reads `lib.route`, and
 the driver's one new load is `route.lua`, which loaded and ran on the Emerald instance and parses with `luac -p`. Not run
 on the Crystal instance, which is that chat's.
+
+## 2026-09-17 (the Crystal chat, new session) — Crystal: `set_flag`, a warp refused during any script, and the switch question
+
+**The user, as it began:** continue Crystal beside the Emerald chat, which moves `goto`'s route planner into shared Lua
+first; meanwhile a first Crystal scenario, the PACK's other pockets, the Pokémon menu, badges and movement. The chat
+attached to the running instance (7871), restored `session_end_route31`, and built its core, `mcpcall` and `scenario`
+from HEAD into its scratch folder.
+
+**Built.** Crystal's `set_flag` cheat (the defeat-flag layout two trainers measured; ids 0-2047 from our build's `.sym`).
+`warp` now refuses while wScriptRunning reads anything but 0. In `text.lua`, an optional hook `battleQuestion` and an
+`answer` argument to the machine: a question inside a battle is answered where its kind is known and otherwise stops
+`needs_choice`, never nudged. `battle`'s policies answer `switch` NO. Crystal reads the switch question and the nickname
+question after a catch. **Emerald's path is unchanged by construction**: its module supplies no `battleQuestion`, so the
+new branch never runs there; not run on the Emerald instance, which is that chat's. Measurements: `crystal/MEASURED.md`,
+"A warp written while a trainer's script runs; the switch question and the nickname question in a battle".
+
+**How it went.** Replaying Don's sight by hand for a scenario (flag cleared, warp four below, 120 frames, a step up:
+`spotted`, map object 4, three tiles, as measured) left his script running, and a warp written then waited for his words
+and his whole battle. That battle, played with `battle strongest`, met "Will A change POKéMON?" (BELLSPROUT is now in the
+party): the nudge chose YES. **The user, watching:** *"you pressed "yes" for swapping a pokemon during a trainer fight
+after defeating a pokemon ( there is a setting to change this in options, set/shift i think) so now you either have to
+B/cancel/go back. or pick another pokemon"*; then *"the same thing can happen in emerald, not sure if its solved there
+already ?"* -- it is not: Emerald's records list a switch as not seen, and its module would nudge there too; the hook is
+there for that chat to supply. The program was stopped (only this chat's core and `mcpcall`, found by port, not the
+Emerald chat's), `select` CANCEL went back into the battle, and it was played out. The question was then measured with the
+text probe and the machine stopping on it, answered, and replayed with the probe off.
+
+**Also asked, answered in chat:** *"does "battle strongest" account for move type advantage/disadvantage ? ... physical/
+special moves, and pokemon have higher/lower physical/special attack & defense stats"* -- no: power times the accuracy
+byte only, on both games. A policy that weighs matchups needs the type table and the stats measured first; queued for
+Crystal after this session's list.
+
+**Snapshots** (gitignored `autoplay/states/crystal/`): `route30_don_battle_start_2party`, `battle_don_party_menu_after_yes`,
+`battle_don_switch_question`, `battle_nickname_question`.

@@ -61,6 +61,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - The PACK: its pockets, the item pocket, and its list that scrolls (2026-09-17)
 - A trainer talked to (2026-09-17)
 - The ball pocket, a POKé BALL thrown in a battle, and a second Pokémon in the party (2026-09-17)
+- A warp written while a trainer's script runs; the switch question and the nickname question in a battle (2026-09-17)
 - Not measured yet: The rest of autoplay's Crystal reading (from 2026-09-17)
 
 ## Measured
@@ -499,6 +500,43 @@ Snapshots `route31_got_ball`, `route31_balls6`, `route31_wild_bellsprout`, `batt
 - **Not seen:** a third slot, a nickname given, a Pokémon sent to the PC, a throw at a weakened or paralysed Pokémon
   (the user, on being told of the replays: catching is easier at lower HP and with a status such as paralysis), the
   key item and TM/HM pockets with anything in them.
+
+### A warp written while a trainer's script runs; the switch question and the nickname question in a battle (2026-09-17)
+
+**Vanilla V1.0, Route 30 (26.1), Bug Catcher Don, with CYNDAQUIL (L5, 10/19) and BELLSPROUT (L5, 20/20) in the party**, from
+`session_end_route31`. `observe` through the autoplay tools, then `probes/autoplay_text_probe.lua` (`logs/autoplay_text_7871_20260917_031530.log`);
+captures `autoplay_scn_warp_mid_approach`, `_after_a`, `_after_a2`, `autoplay_scn_party_menu_after_yes`, `autoplay_switch_question`,
+`autoplay_nickname_question` (gitignored). Snapshots `route30_don_battle_start_2party`, `battle_don_party_menu_after_yes`,
+`battle_don_switch_question`, `battle_nickname_question`.
+
+- **A warp during Don's words.** After `walk` answered `spotted`, with "Instead of a bug / POKéMON, I found" waiting and
+  wScriptRunning 1, the `warp` cheat's writes (26.1 at (1,11)) left wMapStatus at 1 and the map did not load: 900 frames
+  with the box up and `mode` `not_overworld`. A went on through his words ("a trainer!", then A) and wBattleMode read 2
+  ("BUG CATCHER DON wants to battle!") with wMapStatus still 1. After `battle strongest` won it (3339 frames) the map ran
+  with the player on (1,11), the tile the warp had written, and Don beaten at (1,9). The cheat now refuses while
+  wScriptRunning reads anything but 0.
+- **The switch question.** After "Enemy CATERPIE fainted!", the EXP, level 6, the stats box and "CYNDAQUIL learned
+  SMOKESCREEN!", the box printed "BUG CATCHER DON / is about to use", "is about to use / CATERPIE.", then "Will A" on row
+  14 and "change POKéMON?" on row 16 (last letter f138085). On f138086 a frame was drawn at rows 7-11, columns 1-6 (79 and 7B
+  at (1,7) and (6,7), 7D and 7E at (1,11) and (6,11)) with YES on row 8 and NO on row 10 from column 3, and the ▶ at (2,8) on
+  f138090. The menu block read wWindowStackSize 2, first row 8 (CFA1), column 2 (CFA2), 2 rows by 1 column, CFA7 0x20;
+  wTextboxFlags 1, no ▼, wTextDelayFrames counting 5 down to 1 and back while it waited, wScriptRunning 1.
+- **YES, and back out.** On the first run `battle` had no reader for it, nudged A after 180 frames, and YES opened "Which
+  PKMN?" with the party and CANCEL (the menu reader read the rows cut at the frame: "CYNDAQUIL  18/ 2"). The user, watching:
+  *"you pressed "yes" for swapping a pokemon during a trainer fight after defeating a pokemon ( there is a setting to
+  change this in options, set/shift i think) so now you either have to B/cancel/go back. or pick another pokemon"*.
+  `select` CANCEL went back into the battle, CYNDAQUIL still in, and Don sent out his second CATERPIE.
+- **Answered NO.** With the reader, `battle` stopped `needs_choice` on the question without pressing; answering NO, from
+  `battle_don_switch_question` it pressed Down and A, logged `chose NO` with the question, and played Don's second
+  CATERPIE to `ended` (3107 frames, `outcome_raw` 0, ₽3048), CYNDAQUIL in throughout.
+- **The nickname question.** From the snapshot at "Gotcha! BELLSPROUT was caught!", 40 frames on the box read "Give a
+  nickname to" / "BELLSPROUT?" and a YES/NO was framed at rows 7-11, columns 14-19: first row 8, column 15 (14 before the
+  ▶ was drawn), the same block. `battle` stops `needs_choice` there, kind `nickname`.
+- **Replayed after the change, unchanged:** the town sign (221 frames), Elm's YES/NO (28), the wild PIDGEY with
+  `strongest` (2168) and `run` (480).
+- **Not seen:** the switch question with the OPTION the user named set the other way; "Use next POKéMON?" after the
+  player's Pokémon faints; the question to forget a move for a new one; what the party menu in a battle reads past its cut
+  rows.
 
 ## Not measured yet
 

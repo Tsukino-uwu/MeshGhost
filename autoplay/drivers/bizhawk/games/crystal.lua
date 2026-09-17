@@ -663,7 +663,7 @@ local game = {
 	game = "crystal",
 	variant = isVanilla and "vanilla" or "unverified",
 	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "walk", "select", "advance_text", "battle",
-		"cheat:warp", "cheat:give_item" },
+		"cheat:warp", "cheat:give_item", "cheat:set_flag" },
 	-- The START menu: Down moved the cursor one item a press and A chose it (2026-09-17).
 	menuButtons = { prev = "Up", next = "Down", left = "Left", right = "Right", confirm = "A" },
 	protected_slots = { 1 },
@@ -774,8 +774,10 @@ game.cheats = {}
 -- warp {map = "G.N", x, y}: the writes `probes/goto_map.lua` makes, the game's own warp as that probe's header records
 -- (2026-08-21): the map group and number and the tile written directly, wDefaultSpawnpoint 0xFF, hMapEntryMethod
 -- (FF9F) 0xF1 -- without it the game reloaded the map it was on -- and wMapStatus 1. Refused outside the overworld or
--- while a script has the controls. Done once the game has left the overworld and runs the target map again; `report`
--- reads the map and tile back.
+-- while a script has the controls: any wScriptRunning but 0. Written while Bug Catcher Don walked over and spoke
+-- (wScriptRunning 1), the load did not run -- wMapStatus read 1 for 900 frames with his box up, and A went on through his
+-- words into his battle with it still 1 (2026-09-17). Done once the game has left the overworld and runs the target map
+-- again; `report` reads the map and tile back.
 local W_DEFAULT_SPAWNPOINT, H_MAP_ENTRY_METHOD, MAPSETUP_WARP = flat(0xD001), 0xFF9F, 0xF1
 function game.cheats.warp(args)
 	local map = type(args.map) == "string" and args.map or ""
@@ -787,7 +789,9 @@ function game.cheats.warp(args)
 	end
 	if not isVanilla then return nil, "warp is measured on the vanilla V1.0 ROM only" end
 	if not inOverworld() or u8(W_BATTLEMODE) ~= 0 then return nil, "warp refused: not in the overworld" end
-	if u8(W_SCRIPT_RUNNING) == SCRIPT_TOOK_OVER then return nil, "warp refused: a script has the controls" end
+	if u8(W_SCRIPT_RUNNING) ~= 0 then
+		return nil, string.format("warp refused: a script has the controls (wScriptRunning %d)", u8(W_SCRIPT_RUNNING))
+	end
 	memory.write_u8(W_MAPGROUP, g, "WRAM")
 	memory.write_u8(W_MAPNUMBER, n, "WRAM")
 	memory.write_u8(W_XCOORD, x, "WRAM")
@@ -808,6 +812,30 @@ function game.cheats.warp(args)
 		report = function()
 			return { map = mapName(), x = u8(W_XCOORD), y = u8(W_YCOORD), map_status_raw = u8(W_MAPSTATUS) }
 		end,
+	}
+end
+
+-- set_flag {flag, value = true}: one event flag, bit (flag & 7) of the byte (flag >> 3) past wEventFlags -- the layout
+-- two defeat flags read (Don's 1336, byte 167 bit 0, and Mikey's 1450, each 0 before his battle and 1 after;
+-- MEASURED.md, "A trainer battle" and "A trainer talked to"). wEventFlags is 0x100 bytes in our build's .sym (DA72, and
+-- wCurBox at DB72), so ids 0-2047. Only defeat flags are measured; refused outside the overworld. `report` reads it back.
+local EVENT_FLAG_COUNT = 0x100 * 8
+function game.cheats.set_flag(args)
+	local flag = math.tointeger(args.flag)
+	if not flag or flag < 0 or flag >= EVENT_FLAG_COUNT then
+		return nil, string.format("set_flag needs flag, 0 to %d", EVENT_FLAG_COUNT - 1)
+	end
+	if args.value ~= nil and type(args.value) ~= "boolean" then return nil, "set_flag value is true or false" end
+	if not isVanilla then return nil, "set_flag is measured on the vanilla V1.0 ROM only" end
+	if not inOverworld() or u8(W_BATTLEMODE) ~= 0 then return nil, "set_flag refused: not in the overworld" end
+	local at, bit = W_EVENT_FLAGS + (flag >> 3), 1 << (flag & 7)
+	local was = (u8(at) & bit) ~= 0
+	local want = args.value ~= false
+	memory.write_u8(at, want and (u8(at) | bit) or (u8(at) & ~bit & 0xFF), "WRAM")
+	return {
+		limit = 1,
+		untilFn = function() return true end,
+		report = function() return { flag = flag, was = was, now = (u8(at) & bit) ~= 0 } end,
 	}
 end
 
@@ -1196,6 +1224,35 @@ local textHooks = {
 		end
 		if not waitingInBattle() then return nil end
 		return "stats", "waiting"
+	end,
+	-- Any other menu read in a battle -- not the action grid, the move list or the PACK's list -- is a question: `battle`
+	-- stops on it rather than nudge A. THE SWITCH QUESTION (autoplay_text_probe.lua, 2026-09-17, Bug Catcher Don's battle
+	-- with CYNDAQUIL and BELLSPROUT in the party; MEASURED.md, "A trainer's next Pokémon, and the switch question"): after
+	-- "is about to use CATERPIE." the box read "Will A" on row 14 and "change POKéMON?" on row 16, and a YES/NO framed at
+	-- rows 7-11, columns 1-6 read through the menu block (first row 8, column 2, 2 rows); a nudge's A there chose YES and
+	-- opened the party menu. `no` is NO's index. THE NICKNAME QUESTION (the same probe and day, from the snapshot at "Gotcha!
+	-- BELLSPROUT was caught!"): the box read "Give a nickname to" / "BELLSPROUT?" and its YES/NO sat at rows 7-11, columns
+	-- 14-19 (first row 8, column 15). It is a choice for the caller, so it carries no `no`.
+	battleQuestion = function()
+		if u8(W_BATTLEMODE) == 0 then return nil end
+		local t = readTilemap()
+		local _, low = readFont()
+		local m = readMenu(t, low)
+		if not m or battleAskingFor(m) or itemPocketMenu(m) then return nil end
+		local lines = {}
+		for r = BOX_TOP + 1, BOX_BOTTOM - 1 do
+			local s = decodeCells(t, r, 1, 18, low)
+			if s ~= "" then lines[#lines + 1] = s end
+		end
+		local q = { kind = "unread", text = table.concat(lines, "\n"), menu = { items = m.items, cursor = m.cursor } }
+		if #m.items == 2 and m.items[1] == "YES" and m.items[2] == "NO" then
+			if lines[#lines] == "change POKéMON?" then
+				q.kind, q.no = "switch", 1
+			elseif lines[1] == "Give a nickname to" then
+				q.kind = "nickname"
+			end
+		end
+		return q
 	end,
 	strongestMove = function()
 		local slot, name = strongestMoveSlot()

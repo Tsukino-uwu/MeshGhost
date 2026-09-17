@@ -24,6 +24,10 @@
 --   animationPlaying() -> boolean            in a battle, the game is playing an animation by itself (Emerald's STRING
 --                                            SHOT ran 228 frames with nothing else changing)
 --   readKeyboard()     -> keyboard or nil    an on-screen keyboard (a naming screen): advance_text stops at it
+--   battleQuestion()   -> question or nil    in a battle, a menu that is not the action or move menu (Crystal's "Will A
+--                                            change POKéMON?" YES/NO): { kind, text, menu = { items, cursor }, no = n }.
+--                                            `battle` answers the kinds it knows and stops `needs_choice` on the rest;
+--                                            it never nudges A on one (a nudge chose YES there, 2026-09-17)
 --   strongestMove()    -> slot, label | nil, reason
 --   endedReport()      -> table              what `battle` adds to `ended`
 
@@ -45,8 +49,9 @@ local TAP_FRAMES, FINISHED_WAIT, SCRIPT_WAIT_FRAMES = 2, 20, 600
 M.QUIET_FRAMES = QUIET_FRAMES
 
 -- A text-and-choices machine shared by both programs. `choose(asking)` returns the target cursor for a
--- battle menu, or nil to stop there; `stopWhen(state)` returns an outcome to finish with, or nil.
-function M.machine(h, choose, stopWhen)
+-- battle menu, or nil to stop there; `stopWhen(state)` returns an outcome to finish with, or nil; `answer(question)`,
+-- optional, returns the target cursor for a battle question (battleQuestion), or nil and a reason to stop there.
+function M.machine(h, choose, stopWhen, answer)
 	local log, lastBox, signature, still, nudges = {}, nil, nil, 0, 0
 	local finishedBox, finishedFor = nil, 0
 	local pressing, held, settle, battleSeen, frames = nil, 0, 0, false, 0
@@ -173,6 +178,31 @@ function M.machine(h, choose, stopWhen)
 			return pressing.pad, false
 		end
 
+		-- A question in a battle, where the module reads one: answered when `answer` knows its kind, else the program
+		-- stops with it. After Bug Catcher Don's first CATERPIE fainted, Crystal asked "Will A change POKéMON?" with a
+		-- YES/NO the machine did not read, and its nudge chose YES and opened the party menu (2026-09-17).
+		local question = battle and h.battleQuestion and h.battleQuestion() or nil
+		if question then
+			local target, label
+			if answer then target, label = answer(question) end
+			if target == nil then
+				return finish("needs_choice", { question = question, reason = label or "a question this program does not answer" })
+			end
+			local from = question.menu.cursor
+			if from ~= target then
+				local dir = (target > from) and "Down" or "Up"
+				pressing = { what = "question cursor " .. dir, pad = { [dir] = true },
+					done = function()
+						local q = h.battleQuestion()
+						return not q or q.menu.cursor ~= from
+					end }
+				return pressing.pad, false
+			end
+			note({ chose = label, question = question.text or question.kind })
+			pressing = { what = "answer " .. label, pad = { A = true }, done = function() return h.battleQuestion() == nil end }
+			return pressing.pad, false
+		end
+
 		-- A message waiting for a button. In a battle only the arrow counts: a battle message window reads
 		-- "finished" while animations play.
 		if d and not battle and d.state == "finished" then
@@ -263,6 +293,10 @@ function M.battle(h, p)
 			return "no_battle"
 		end
 		return nil
+	end, function(question)
+		-- Both policies keep the Pokémon that is in: a switch is a choice neither makes.
+		if question.kind == "switch" and question.no then return question.no, "NO" end
+		return nil, "a question this policy does not answer: " .. tostring(question.kind)
 	end)
 	return machine, nil, 36000
 end
