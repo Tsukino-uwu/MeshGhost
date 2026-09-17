@@ -41,9 +41,9 @@
     },
     {
       "id": "story_heat_badge",
-      "description": "The fourth badge, from Lavaridge's gym (a FIRE gym, the user says); the way there is not walked yet",
+      "description": "The fourth badge, from Lavaridge's gym (a FIRE gym, the user says); the way there is walked as far as 24.14",
       "done_when": [{"path": "badges", "contains": 4}],
-      "hints": "route.md: nothing past the DYNAMO BADGE yet -- walk it, and write the stretch when the session ends"
+      "hints": "route.md: The DYNAMO BADGE toward the fourth gym, walked as far as arriving on 24.14 -- walk on, and write the stretch when the session ends"
     }
   ]
 }

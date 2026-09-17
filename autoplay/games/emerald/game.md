@@ -24,7 +24,11 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
   `2026-09-17_120845.522443` and `2026-09-17_131645.118278`).
 - **When `goto` fails, look at the ground before trying again** (emerald.md, 2026-09-17): "no way on foot" on Route 110
   was two ground levels meeting only through tiles of 0, and "no route to WATTSON" was a floor switch on the only path.
-  Both were found by printing the map's grid from the ROM through `exec`, not by more attempts.
+  Both were found by printing the map's grid from the ROM through `exec`, not by more attempts. The same `exec` read of
+  a header's connections (+0x0C) and warps (events at +4: the count at +1, the list at +8, 8 bytes each) names the maps
+  ahead before walking; the warps it read on 0.26 matched `observe`'s (route.md, toward the fourth gym, 2026-09-17).
+- **A trip that reads the same message on every try** (the sandstorm on 0.26) stops `no_rule` after three: trip to a
+  tile a different way instead (route.md, toward the fourth gym).
 - **`goto` walks over step-on event tiles**: Mauville's gym switches flip its barriers when a route crosses one. Walk
   round with `walk` legs (route.md, Mauville).
 - **A story scene can take the controls mid-route**; `goto` then reads `no_response` and may set an exit aside.
@@ -63,6 +67,9 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
 - A Mart: `talk` to the clerk, BUY, the item, Up in the quantity box, YES (MEASURED.md, "A Mart", 2026-09-17). SUPER
   POTIONs heal more and cost more; selling raises money, with no buying back; REPELs keep weaker wild Pokémon away (the
   user, 2026-09-17).
+- **An HM taught from the field BAG** (run log `2026-09-17_172659.154119`): Start, `select` BAG, `press Right` twice
+  (ITEMS to POKé BALLS to TMs & HMs; the driver has no `sequence`), `select` the HM by index, USE, `advance_text`, YES,
+  and on the forget question `select` the move by name. In the field: face the rock, `press A`, YES.
 
 ## Not built yet
 

@@ -68,10 +68,21 @@ switches (0,15), (4,12), (3,9) and (8,9) open the barriers, and every planned ro
 with `walk` legs through (4,11) and (5,11). Then `talk` local 1 (WATTSON, a trainer on the way): MARSHTOMP Lv 32 with MUD
 SHOT four times, DYNAMO BADGE, TM34.
 
-## Past the DYNAMO BADGE: not walked yet
+## The DYNAMO BADGE toward the fourth gym
 
-The user, 2026-09-17, watching the first unattended session go back and forth north of Mauville: *"it needs to continue
-to the left around the desert"*. That session (run log `2026-09-17_172659.154119`, stopped) was told by a man at 0.26
-(19,102) that his uncle across from the bike shop in MAUVILLE gives ROCK SMASH for ROUTE 111, and a trip through 0.26's
-desert looped on "The sandstorm is vicious. It's impossible to keep going." at (14,61). The rest of what it wrote is
-under review and not here.
+Run log `2026-09-17_172659.154119.ndjson` (the first unattended session, stopped), 2026-09-17. The user, watching it go
+back and forth: *"it needs to continue to the left around the desert"*.
+- **Maps ahead, read from the ROM headers through `exec`** (game.md, Moving): 0.2 connects to 0.26; 0.26 to 0.2, 0.28
+  and 0.27; 0.27 to 0.28, 0.12 and 0.26. 0.27's warps: (11,36) and (22,10) to 24.14, (28,27) and (29,27) to 19.0. A trip
+  from 0.2 (20,10) to 0.12 answered "no way on foot"; which map holds the fourth gym is not seen yet.
+- **ROCK SMASH**: a trip north from Mauville stopped "unreachable" at 0.26 (19,102): rocks (graphics 86) at (18,101)
+  and (19,100), and local 46 said his uncle in MAUVILLE, across from the bike shop, told him to take ROCK SMASH to ROUTE
+  111. Trip to 0.2 (32,15), `walk up` into 10.2, `talk` local 1: HM06. Taught as game.md says (TACKLE forgotten). Trip
+  to 0.26 (18,102), `press Up`, `press A`, YES, `advance_text`: "MARSHTOMP used ROCK SMASH!", and the next trip went on
+  to 0.27.
+- A trip to 0.27 (28,29) fought four trainers and stopped at 0.27 (25,34), "unreachable": two characters of graphics
+  119 (not talked to) stand at (26,30) and (27,30).
+- A trip from there to 0.13 went back onto 0.26 and read "The sandstorm is vicious. It's impossible to keep going." at
+  (14,61) over and over until its 60 calls (trip's rule now stops after three).
+- Trip to 0.27 (11,37), `walk up`: on 24.14 at (26,36), MARSHTOMP Lv 34, 54 of 100 HP, no potions in the bag. Nothing
+  past arriving on 24.14 is walked.
