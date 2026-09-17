@@ -32,20 +32,20 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
 - **A warp tile of behaviour 101** (cave exits, the cable car stations) is left by stepping onto it, then `walk` Down
   and `press B` 60. After any door or warp, `press B` 60 before the next call: `goto`/`talk` answer "needs the overworld"
   during the fade (run log `2026-09-17_181542.300302.ndjson`).
-- **A smashed rock is back after a whiteout** (run log `2026-09-17_175751.136021`): a trip answered "no way on foot"
-  at 0.26 (19,101) until (19,100) was smashed again. **A trip reading the same message
-  on every try** (0.26's sandstorm) stops `no_rule` after three: trip to a tile a different way.
+- **A smashed rock is back after a whiteout**: a trip answered "no way on foot" at 0.26 (19,101) until (19,100) was
+  smashed again. **A trip reading the same message every try** (0.26's sandstorm) stops `no_rule` after three: go a
+  different way. A call repeating at one place is marked `loop` (README, The run log).
 - **`goto` walks over step-on event tiles**: Mauville's gym switches flip its barriers when a route crosses one. Walk
   round with `walk` legs (route.md, Mauville).
 - **A story scene can take the controls mid-route**; `goto` then reads `no_response` and may set an exit aside.
-  `advance_text`, then the trip again. A `goto` answering `no_response` just after a geyser landing at Lavaridge's gym
-  (4.1 (2,14)) was two trainers' battles starting: `battle` played both (run log `2026-09-17_185825.337345.ndjson`).
+  `advance_text`, then the trip again; `no_response` after a geyser landing at Lavaridge's gym (4.1 (2,14)) was two
+  trainers' battles starting, and `battle` played both.
 - **Move through the overworld as fast as possible; skip trainers as much as possible** (the user, 2026-09-17): a
   trainer battle cannot be run from and is several Pokémon in a row, while a wild one can be run from -- prefer grass
   to a trainer's sight, and run from wild Pokémon when there are no REPELs, though trainers give more experience.
   `goto` weighs a tile in a trainer's sight as about 125 of grass; `trip` fights a trainer who spots the player and
-  answers any other battle with `battle run_wild` (RUN in a wild one, `effective` in a trainer's; "Got away safely!",
-  2026-09-17). Fight wild Pokémon yourself only when levels are wanted. Rotating trainers turn toward a running player.
+  answers any other battle with `battle run_wild` (RUN in a wild one, `effective` in a trainer's). Fight wild Pokémon
+  yourself only when levels are wanted. Rotating trainers turn toward a running player.
 - **To talk to a walking character**, stand beside its path, face it and press as it passes (the user, 2026-09-17).
 - **Poké Balls lying on the ground hold items**: pick them up (the user, 2026-09-17).
 
@@ -62,10 +62,10 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
   use ineffective moves"*). **`forget strong_variety`**: keep strong damaging moves of different types, status moves go
   first, and NO to a new move is a choice.
 - **Status and accuracy moves still have uses** against a type that resists the rest (the user, 2026-09-17): MAY's
-  GROVYLE on Route 110 was beaten with MUD-SLAP three times, then TACKLE, on the third try from a snapshot, after five
-  losses (two of them under `effective`). `battle manual` stops at every action menu for that.
-- **`effective` does not know abilities**: it chose MUD SHOT six times into a wild KOFFING's LEVITATE while poison
-  fainted SWAMPERT, a whiteout inside a trip (run log `2026-09-17_181542.300302.ndjson`).
+  GROVYLE fell to MUD-SLAP then TACKLE after five losses (emerald.md, Route 110). `battle manual` stops at every action
+  menu for that.
+- **`effective` does not know abilities**: MUD SHOT six times into a wild KOFFING's LEVITATE, while poison fainted
+  SWAMPERT -- a whiteout inside a trip.
 - **A party of one hits a wall against a type it is weak to** (emerald.md, 2026-09-17): a second Pokémon is the answer.
   Only wild Pokémon can be caught; one at low HP or with a status is easier; never faint it (the user).
 - **Heal only when the next hit would faint, then attack**; potions work best when they heal more than a hit takes
@@ -76,22 +76,21 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
 
 ## Money and items
 
-- A Mart: `talk` to the clerk, BUY, the item, Up in the quantity box, YES (MEASURED.md, "A Mart", 2026-09-17). SUPER
-  POTIONs heal more and cost more; selling raises money, with no buying back; REPELs keep weaker wild Pokémon away (the
-  user, 2026-09-17). In the quantity box `press Right`, then `press Down` twice, asked for 8; A, `advance_text`, YES,
-  `advance_text`; leave with CANCEL, then QUIT (run logs `2026-09-17_174529.077127`,
-  `2026-09-17_181542.300302.ndjson`).
-- **A whiteout costs money** (7357 to 1910, run log `2026-09-17_175751.136021`) and the walk back.
-- **An HM from the field BAG** (walked three times, last `2026-09-17_181542.300302.ndjson`): Start, `select` BAG, `press
-  Right` twice (ITEMS to POKé BALLS to TMs & HMs; the driver has no `sequence`), `select` the HM by index (by name
-  fails: TM/HM entries read with control codes, run log `2026-09-17_192410.553244.ndjson`), USE, `advance_text`, YES, `press A` twice (party screen),
-  `advance_text`, YES, `advance_text` (needs_choice), `select` the move to forget by name, `advance_text`, `select` CLOSE BAG,
-  `press B`. In the field: face the rock, `press A`, `advance_text`, YES, `advance_text`. After an HM was taught,
-  two `press Left` reached ITEMS again. A field SUPER POTION: `select` it, USE, `press A` (party screen),
-  `select` the Pokémon, `advance_text`; `select` CLOSE BAG failed on a two-entry list, `press B` twice closed it (run
-  log `2026-09-17_185825.337345.ndjson`). **After an HM was taught the BAG opened on TMs & HMs, in battle too** (`select` SUPER
-  POTION by name failed there): at `stop_hp_below`, `select` BAG, `press Left` twice (TMs & HMs to ITEMS), `select` SUPER POTION, USE, `press A`, then `battle` again
-  (MAXIE, run log `2026-09-17_192410.553244.ndjson`).
+Walked in the run logs of 2026-09-17 (`174529.077127`, `181542.300302`, `185825.337345`, `192410.553244`); the bytes
+are in MEASURED.md ("A Mart", "The bag inside a battle").
+
+- **A Mart**: `talk` the clerk, BUY, `select` the item; in the quantity box `press Right` then `press Down` twice asked
+  for 8; `press A`, `advance_text`, YES, `advance_text`; leave with CANCEL, then QUIT. SUPER POTIONs heal more and cost
+  more; selling raises money, with no buying back; REPELs keep weaker wild Pokémon away (the user, 2026-09-17).
+- **The BAG opens on the pocket last used** and `press Left`/`Right` change pocket one press each (no `sequence`):
+  ITEMS, POKé BALLS, TMs & HMs. A TM or HM is `select`ed by index, never by name (its entry carries control codes).
+- **Teach an HM** (walked three times): BAG, the HM, USE, `advance_text`, YES, `press A` twice (party screen),
+  `advance_text`, YES, `advance_text` (`needs_choice`), `select` the move to forget by name, `advance_text`, CLOSE BAG,
+  `press B`. Use it in the field: face the rock, `press A`, `advance_text`, YES, `advance_text`.
+- **Use an item**: `select` it, USE, `press A` (party screen), `select` the Pokémon, `advance_text`. In a battle stopped
+  by `stop_hp_below`, the same through `select` BAG, then `battle` again. CLOSE BAG failed on a two-entry list; `press
+  B` twice closed it.
+- **A whiteout costs money** (7357 to 1910) and the walk back.
 
 ## Not built yet
 

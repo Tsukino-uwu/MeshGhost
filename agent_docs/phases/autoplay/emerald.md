@@ -626,7 +626,10 @@ The user, asking whether Phase 3 is done: the acceptance is met; the checkpoint 
   a second, verified edit ran it (the scripted-edit checklist's rule, again).
 
 **Left as it is:** EmuHawk on vanilla Emerald, the loader target naming the driver alone, no core of this chat running, the
-game idle in the overworld at 4.1 (13,10) with 4 badges. game.md is 8.5 KB, over the store's 8 KB: trim it first next time.
+game idle in the overworld at 4.1 (13,10) with 4 badges. game.md trimmed to 7.9 KB (the stories to pointers, one recipe a
+line, each run log cited once). **`skills/teach_hm.json` is a DRAFT never walked**: written from the three teachings in
+the logs, its rules matching the answers those held. Walk it twice before it counts, and `use_item` (the field and battle
+BAG, the same shape) is the next one to write.
 
 **To pick up:** the open items in `../phase13.md` (`run_wild` answering `stuck` after an escape begun from
 `battle_started`, a trip ending "unreachable" in cave 24.4, the driver not reconnecting after a core stops, TEVI's own

@@ -1,0 +1,32 @@
+{
+  "name": "teach_hm",
+  "game": "emerald",
+  "variant": "vanilla",
+  "description": "Teach a TM or HM from the field BAG, standing in the overworld: the START menu, the BAG, the TMs & HMs pocket, the machine by its index, USE, YES, the party's first Pokemon, and the move to forget by name. Ends with the bag closed.",
+  "note": "DRAFT, never walked: written from the three teachings in the run logs of 2026-09-17 (172659.154119, 181542.300302, 192410.553244) and game.md's Money and items. Every rule matches what those answers held -- the START menu's items, the pocket, the dialogue box, the needs_choice question -- so a step that reads differently ends the run no_rule with that answer, which is what to look at first. `index` is the machine's place in the TMs & HMs list (HM06 was 5); a TM or HM cannot be selected by name.",
+  "params": {"index": "number", "forget": "string"},
+  "call": {"tool": "press", "args": {"buttons": ["Start"], "frames": 10}},
+  "rules": [
+    {"after": "press", "when": [{"path": "after.menu.items", "contains": "BAG"}], "then": {"tool": "select", "args": {"item": "BAG"}}, "note": "the START menu is up"},
+    {"after": "press", "when": [{"path": "after.dialogue.box", "contains": "wants to learn"}], "then": {"tool": "advance_text"}, "note": "A on the party screen took the Pokemon"},
+    {"after": "press", "when": [{"path": "after.menu.pocket", "equals": "tms_hms"}], "then": {"tool": "select", "args": {"index": "$index"}}},
+    {"after": "press", "when": [{"path": "after.menu.pocket", "exists": true}], "then": {"tool": "press", "args": {"buttons": ["Right"], "frames": 10}}, "max": 3, "note": "one pocket a press: ITEMS, POKe BALLS, TMs & HMs"},
+    {"after": "press", "when": [{"path": "after.mode", "equals": "overworld"}], "then": "done", "note": "B closed the bag and the START menu"},
+
+    {"after": "select", "when": [{"path": "selected", "equals": "CLOSE BAG"}], "then": {"tool": "press", "args": {"buttons": ["B"], "frames": 30}}},
+    {"after": "select", "when": [{"path": "after.menu.pocket", "equals": "tms_hms"}], "then": {"tool": "select", "args": {"index": "$index"}}, "note": "the BAG opened on a pocket already"},
+    {"after": "select", "when": [{"path": "after.menu.pocket", "exists": true}], "then": {"tool": "press", "args": {"buttons": ["Right"], "frames": 10}}, "max": 3},
+    {"after": "select", "when": [{"path": "after.menu.items", "contains": "USE"}], "then": {"tool": "select", "args": {"item": "USE"}}},
+    {"after": "select", "when": [{"path": "after.dialogue.box", "contains": "Booted up"}], "then": {"tool": "advance_text"}},
+    {"after": "select", "when": [{"path": "after.dialogue.box", "contains": "Teach"}], "then": {"tool": "press", "args": {"buttons": ["A"], "frames": 10}}, "note": "YES answered; A picks the party's first"},
+    {"after": "select", "when": [{"path": "after.dialogue.box", "contains": "forgotten"}], "then": {"tool": "advance_text"}},
+    {"after": "select", "when": [{"path": "after.mode", "equals": "not_overworld"}], "then": {"tool": "advance_text"}, "note": "the move to forget was taken"},
+
+    {"after": "advance_text", "when": [{"path": "question.kind", "equals": "forget_move"}], "then": {"tool": "select", "args": {"item": "$forget"}}},
+    {"after": "advance_text", "when": [{"path": "after.menu.items", "contains": "YES"}], "then": {"tool": "select", "args": {"item": "YES"}}},
+    {"after": "advance_text", "when": [{"path": "after.menu.items", "contains": "CLOSE BAG"}], "then": {"tool": "select", "args": {"item": "CLOSE BAG"}}, "note": "learned: back on the TMs & HMs list"},
+    {"after": "advance_text", "when": [{"path": "after.dialogue.box", "contains": "wants to learn"}], "then": {"tool": "advance_text"}}
+  ],
+  "max_calls": 24,
+  "draft": true
+}
