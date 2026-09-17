@@ -140,7 +140,7 @@ namespace MeshGhostAutoplay.Tevi
 
         // ---- what the driver says about itself ------------------------------------------------------------------
 
-        private static readonly string[] Capabilities = { "observe", "wait", "press", "screenshot" };
+        private static readonly string[] Capabilities = { "observe", "wait", "press", "screenshot", "snapshot", "restore", "cheat:teleport" };
 
         private JObject Hello()
         {
@@ -275,6 +275,8 @@ namespace MeshGhostAutoplay.Tevi
             }
             JObject menu = SaveMenu() ?? TitleMenu();
             if (menu != null) o["menu"] = menu;
+            JObject dialogue = Dialogue();
+            if (dialogue != null) o["dialogue"] = dialogue;
             if (p != null && p.t != null)
             {
                 o["player"] = new JObject
@@ -284,6 +286,21 @@ namespace MeshGhostAutoplay.Tevi
                     ["anim"] = p.spranim_prefer != null && p.spranim_prefer.pixel != null && p.spranim_prefer.pixel.anim != null
                         ? p.spranim_prefer.GetAnimationTrueName() : p.aniStatus.ToString(),
                 };
+            }
+            if (full && p != null && p.t != null && wm != null)
+            {
+                // What is around the player, from the game's own state (Surroundings.cs).
+                ((JObject)o["player"]).Merge(Surroundings.Player(p));
+                JObject view = Surroundings.View();
+                JArray characters = Surroundings.Characters(p, view);
+                JArray elements = Surroundings.Elements(p.t.position, view);
+                JArray items = Surroundings.Items(p.t.position, view);
+                o["view"] = view;
+                o["local_map"] = Surroundings.LocalMap(p, characters, elements, items);
+                o["nearby"] = characters;
+                o["elements"] = elements;
+                o["items"] = items;
+                o["projectiles"] = Surroundings.Projectiles(p, view, 8);
             }
             if (full)
             {
@@ -311,7 +328,10 @@ namespace MeshGhostAutoplay.Tevi
                     ["changing_map_raw"] = em != null && wm != null ? (JToken)em.IsChangingMap() : null,
                     ["any_pause_raw"] = GameSystem.Instance != null ? (JToken)GameSystem.Instance.isAnyPause() : null,
                     ["map_inited_raw"] = wm != null ? (JToken)wm.MapInited : null,
+                    ["fade_alpha_raw"] = FadeManager.Instance != null ? (JToken)Math.Round(FadeManager.Instance.GetCurrentAlpha(), 3) : null,
+                    ["fade_target_raw"] = FadeManager.Instance != null ? (JToken)Math.Round(FadeManager.Instance.GetTargetAlpha(), 3) : null,
                     ["input_actions"] = InputInjection.Actions(),
+                    ["input_focus"] = InputInjection.FocusReport(),
                 };
                 JArray persisting = Persisting();
                 if (persisting.Count > 0) o["persisting"] = persisting;
@@ -380,7 +400,32 @@ namespace MeshGhostAutoplay.Tevi
             return new JObject { ["name"] = name, ["items"] = items, ["cursor"] = cursor is byte c ? (JToken)c : null };
         }
 
-        private static readonly string[] DiffKeys = { "mode", "menu.name", "menu.cursor", "menu.slot", "menu.question", "menu.entering", "location.area", "location.area_id", "location.room_x", "location.room_y", "location.x", "location.y", "location.facing", "player.anim", "player.hp" };
+        // A conversation (ChatSystem): its status while not OFF, the section and line the game is on of how many, who
+        // speaks (the row's character id), the whole line and how much of it has printed. Private fields, read by name.
+        private static JObject Dialogue()
+        {
+            ChatSystem chat = ChatSystem.Instance;
+            if (chat == null || chat.getStatus() == SystemVar.Status.OFF) return null;
+            Type t = typeof(ChatSystem);
+            int line = t.GetField("CurrentLine", Private)?.GetValue(chat) is int l ? l : -1;
+            var rows = t.GetField("chatdb", Private)?.GetValue(chat) as IList;
+            object row = rows != null && line >= 0 && line < rows.Count ? rows[line] : null;
+            string full = t.GetField("TargetText", Private)?.GetValue(chat) as string;
+            string shown = (t.GetField("text_prefer", Private)?.GetValue(chat) as TMPro.TextMeshPro)?.GetParsedText();
+            return new JObject
+            {
+                ["status"] = chat.getStatus().ToString(),
+                ["section"] = t.GetField("CurrentSection", Private)?.GetValue(chat) as string,
+                ["line"] = line,
+                ["lines"] = rows?.Count,
+                ["speaker"] = row?.GetType().GetField("character")?.GetValue(row) as string,
+                ["text"] = full,
+                ["printed"] = shown?.Length,
+                ["auto"] = t.GetField("autovoiceadvance", Private)?.GetValue(chat) is bool a && a,
+            };
+        }
+
+        private static readonly string[] DiffKeys = { "mode", "dialogue.section", "dialogue.line", "menu.name", "menu.cursor", "menu.slot", "menu.question", "menu.entering", "location.area", "location.area_id", "location.room_x", "location.room_y", "location.x", "location.y", "location.facing", "player.anim", "player.hp" };
 
         private static JObject Changed(JObject before, JObject after)
         {
@@ -457,9 +502,10 @@ namespace MeshGhostAutoplay.Tevi
         private void Begin(Link.Request req)
         {
             string verb = req.Type;
-            if (Array.IndexOf(Capabilities, verb) < 0)
+            string capability = verb == "cheat" ? "cheat:" + (string)req.Payload["kind"] : verb;
+            if (Array.IndexOf(Capabilities, capability) < 0)
             {
-                link.Fail(req, "this driver does not support " + verb);
+                link.Fail(req, "this driver does not support " + capability);
                 return;
             }
             current = req;
@@ -478,6 +524,15 @@ namespace MeshGhostAutoplay.Tevi
                         break;
                     case "screenshot":
                         currentTick = ScreenshotJob(req.Payload);
+                        break;
+                    case "snapshot":
+                        Finish(Snapshot(req.Payload));
+                        return;
+                    case "restore":
+                        currentTick = RestoreJob(req.Payload);
+                        break;
+                    case "cheat":
+                        currentTick = TeleportJob(req.Payload["args"] as JObject ?? new JObject());
                         break;
                 }
             }
@@ -546,6 +601,118 @@ namespace MeshGhostAutoplay.Tevi
                 if (Time.frameCount < done) return null;
                 JObject after = Observe(false);
                 return new JObject { ["frames"] = frames, ["buttons"] = new JArray(buttons.ToArray()), ["before"] = before, ["after"] = after, ["changed"] = Changed(before, after) };
+            };
+        }
+
+        // ---- snapshots: the game's own save and load, through autoplay's slot in the save guard's shadow ----------------
+
+        // The file the game uses for a slot, where Easy Save resolves it now: in the shadow while the guard is armed. Only
+        // a path inside the shadow is returned; anything else is refused, so a snapshot never reads or writes a real save.
+        private string ShadowSlotFile(byte slot)
+        {
+            string shadow = SaveGuard.ShadowRoot;
+            if (!SaveGuard.Armed || shadow == null) throw new Exception("the save guard is not shadowing the save folder, so no slot file is touched");
+            MethodInfo name = typeof(SaveManager).GetMethod("GetSaveFileName", Private);
+            if (name == null || SaveManager.Instance == null) throw new Exception("SaveManager.GetSaveFileName is not there to name the slot's file");
+            string file = new ES3Settings((string)name.Invoke(SaveManager.Instance, new object[] { slot })).FullPath.Replace('\\', '/');
+            if (!file.StartsWith(shadow + "/", StringComparison.OrdinalIgnoreCase)) throw new Exception("slot " + slot + " resolves to " + file + ", outside the shadow; refusing");
+            return file;
+        }
+
+        // A snapshot's own file, which the core names: only under this repo's autoplay/states/<game>/.
+        private string StatePath(JObject p)
+        {
+            string path = ((string)p["path"] ?? "").Replace('\\', '/');
+            string states = repo + "/autoplay/states/" + GameName + "/";
+            if (repo == null || !path.StartsWith(states, StringComparison.OrdinalIgnoreCase) || path.Contains("..") || path.Substring(states.Length).Contains("/"))
+            {
+                throw new Exception("a snapshot path must be a file directly in " + states + ", got " + path);
+            }
+            return path;
+        }
+
+        // SNAPSHOT {path}: the game saves to autoplay's slot exactly as its save menu does (SaveManager.SaveGame with the
+        // slot set; it keeps the area and the player's x and y), and that file is copied to the core's path.
+        private JToken Snapshot(JObject p)
+        {
+            string path = StatePath(p);
+            string mode = Mode();
+            if (mode != "play") throw new Exception("a snapshot is taken in play, not in " + mode);
+            string slotFile = ShadowSlotFile(WorkingSlot);
+            MainVar.instance._saveslot = WorkingSlot;
+            SaveManager.Instance.savedata.isAutoSave = false;
+            SaveManager.Instance.SaveGame();
+            if (!File.Exists(slotFile)) throw new Exception("the game saved, but " + slotFile + " is not there");
+            File.Copy(slotFile, path, overwrite: true);
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow);
+            Log("snapshot: slot " + WorkingSlot + " saved and copied to " + path);
+            return new JObject { ["slot"] = WorkingSlot, ["slot_file"] = slotFile, ["bytes"] = new FileInfo(path).Length, ["frame"] = Time.frameCount, ["at"] = Observe(false) };
+        }
+
+        // RESTORE {path}: the file goes back into autoplay's slot, the recent-slot pointer is set to it the way the save
+        // menu's load sets it, and the game reloads (SaveManager.ReloadToGame, what that menu calls once its fade is out).
+        // Answers once a new world has loaded and play has resumed, or fails after RestoreFrameLimit frames.
+        private const int RestoreFrameLimit = 1800;
+
+        private Func<JToken> RestoreJob(JObject p)
+        {
+            string path = StatePath(p);
+            if (!File.Exists(path)) throw new Exception("no snapshot file at " + path);
+            if (SaveManager.Instance == null || SettingManager.Instance == null) throw new Exception("the game's save and setting managers are not loaded");
+            string slotFile = ShadowSlotFile(WorkingSlot);
+            File.Copy(path, slotFile, overwrite: true);
+            MainVar.instance._saveslot = WorkingSlot;
+            MainVar.instance._isAutoSave = false;
+            SettingManager.Instance.SaveSystemRecentSlot(recentMSave: false);
+            SettingManager.Instance.SaveSystemRecentSlot(recentMSave: true);
+            WorldManager before = WorldManager.Instance;
+            int start = Time.frameCount;
+            SaveManager.Instance.ReloadToGame();
+            Log("restore: " + path + " copied to slot " + WorkingSlot + ", reloading");
+            int settledAt = -1;
+            return () =>
+            {
+                int frames = Time.frameCount - start;
+                if (frames > RestoreFrameLimit) throw new Exception("the game had not resumed play " + RestoreFrameLimit + " frames after the reload (mode " + Mode() + ")");
+                WorldManager wm = WorldManager.Instance;
+                CharacterBase pl = Player();
+                // Play resumes before the area and the camera are set (measured 2026-09-17: 10 frames after `play` the area
+                // read NONE and the camera's view was far from the player), so both are waited for too.
+                // And the fade-in: play resumed at alpha 0.49, which fell to 0 about 132 frames later, and a teleport made
+                // while it was above 0 did not hold, while one made at 0 did (measured 2026-09-17).
+                bool loaded = wm != null && wm != before && wm.MapInited && (Mode() == "play" || Mode() == "event")
+                    && wm.CurrentRoomArea != Map.AreaType.NONE && pl != null && pl.t != null && !Utility.isOutsideCamera(pl.t.position, 0f)
+                    && FadeManager.Instance != null && FadeManager.Instance.GetCurrentAlpha() <= 0.001f;
+                if (!loaded) { settledAt = -1; return null; }
+                if (settledAt < 0) settledAt = Time.frameCount;
+                if (Time.frameCount - settledAt < 10) return null;
+                return new JObject { ["slot"] = WorkingSlot, ["frames"] = frames, ["after"] = Observe(false) };
+            };
+        }
+
+        // CHEAT teleport {x, y}: the player's transform to world x, y (as observe's location reads them), the velocity
+        // zeroed; answers 10 frames later with where the game has the player then, read back, not the values written.
+        private Func<JToken> TeleportJob(JObject args)
+        {
+            if (args["x"] == null || args["y"] == null) throw new Exception("teleport needs x and y, world units as observe's location reads them");
+            float x = (float)args["x"], y = (float)args["y"];
+            string mode = Mode();
+            if (mode != "play") throw new Exception("a teleport is made in play, not in " + mode);
+            CharacterBase pl = Player();
+            JObject before = Observe(false);
+            pl.t.position = new Vector3(x, y, pl.t.position.z);
+            if (pl.phy_perfer != null) pl.phy_perfer._velocity = Vector3.zero;
+            int until = Time.frameCount + 10;
+            Log("cheat teleport to " + x + "," + y);
+            return () =>
+            {
+                if (Time.frameCount < until) return null;
+                JObject after = Observe(false);
+                // Held: the position the game has 10 frames on is the one asked for (within a unit). One made 11 frames after a
+                // restore answered did not hold (measured 2026-09-17), so this is said, never assumed.
+                CharacterBase now = Player();
+                bool held = now != null && now.t != null && Mathf.Abs(now.t.position.x - x) < 1f && Mathf.Abs(now.t.position.y - y) < 1f;
+                return new JObject { ["requested"] = new JObject { ["x"] = x, ["y"] = y }, ["held"] = held, ["before"] = before, ["after"] = after, ["changed"] = Changed(before, after) };
             };
         }
 

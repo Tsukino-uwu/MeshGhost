@@ -220,6 +220,9 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   below a wall, below a ledge, onto a shore and beside a beaten RICK; `walk` answers `blocked` with `cause` `solid`,
   `one_way_edge`, `missing_ability` (`surf`) and `npc_in_way`, and, after A on RICK, `dialogue_open` (3 of 3, and failing
   at its step with one expectation broken).
+  `games/tevi/scenarios/cell_right_wall.json` -- the Bandit Base cell's right wall, from `adapters/tevi/MEASURED.md`
+  (2026-09-17): a teleport onto the cell's floor, 30 frames standing, and two 60-frame holds of `XAxis+` that the wall stops
+  at x 17040-17080 (3 of 3, and failing at its step with one expectation broken). The plan's Phase 6 acceptance.
 - Not built yet: a `speed` setting, expectations on a MeshGhost adapter's own log, waiting on an event.
 
 ## Cheats so far
@@ -269,6 +272,9 @@ each run's `setup` and `steps` as their own segments, walked or reached.
 - **Crystal `set_status`** `{slot, status}`: `OK` or `PSN`, the values the POKéMON menu was seen to draw. A poisoned Pokémon
   loses 1 HP about every fourth step on foot and faints at 0 ("CYNDAQUIL fainted!", which stops `walk` and `goto`).
   Refused outside the overworld.
+- **TEVI `teleport`** `{x, y}`: the player's position in world units, as `observe`'s location reads them, the velocity zeroed;
+  answers 10 frames later with `held` (the position read back is the one asked for). Only in play; one made during a restore's
+  fade-in did not hold, so `restore` answers after the fade.
 - Cheats write the save's data in memory: **an in-game save afterwards keeps them.**
 
 ## Drivers so far
@@ -326,7 +332,13 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   changes. It logs to `autoplay/runs/driver_bepinex_tevi_<port>.log`. Tools: `observe` (`mode`, `location` with area,
   room and position, `player`, the save list's `menu` by page, row and slot, and `save`), `wait`, `press` (the game's
   own Rewired actions by name, an axis with a sign: `Confirm`, `XAxis+`), `screenshot` (the game's own frame);
-  events `mode_changed`, `area_changed`, `room_changed`.
+  events `mode_changed`, `area_changed`, `room_changed`. An `observe` the agent calls also reads what is around the player
+  from the game's state (`Surroundings.cs`): `player` physics, `view` (the camera's edges; a pixel is a world unit), a
+  27-by-17-tile `local_map` of the game's collision grid (`#` byte 1, `.` 0, `=` 255, a platform stood on from above, slopes
+  by byte range) with characters, items and the elements a player meets drawn over it, `nearby`, `elements`, `items`,
+  `projectiles`, and `dialogue` (section, line of lines, speaker, the whole line). `snapshot` is the game's own save to
+  slot 39 (in the shadow below) copied to the core's `.State` path; `restore` copies it back, points the recent slot at it
+  and reloads, answering once the area, the camera and the fade-in are done (272 frames in the cell).
 - **TEVI's save guard.** From the moment a core first connects until the game exits, TEVI's save folder is a shadow copy
   (`autoplay/states/tevi/shadow/`, copied fresh as it arms): every save read and write goes there, the real folder is
   never written, and the autosave is held -- the unmodded saves never change while autoplay may have changed the game

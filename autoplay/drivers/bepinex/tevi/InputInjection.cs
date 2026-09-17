@@ -66,6 +66,20 @@ namespace MeshGhostAutoplay.Tevi
             Holds.Clear();
         }
 
+        // Whether the game hears the keyboard and mouse while unfocused, read only. The user, 2026-09-17: a TEVI started
+        // while another window had focus took typing from that window (dialogue advanced, the pause menu opened), until
+        // its own window had been clicked once and left; after that it ignored input while unfocused. A hold above is
+        // added after Rewired's read, so it reaches the game either way.
+        public static JObject FocusReport()
+        {
+            if (!ReInput.isReady) return null;
+            return new JObject
+            {
+                ["ignore_input_when_unfocused_raw"] = ReInput.configuration.ignoreInputWhenAppNotInFocus,
+                ["application_focused_raw"] = Application.isFocused,
+            };
+        }
+
         public static bool Busy => Holds.Count > 0;
 
         // The game's Rewired actions as it defines them: id, name, and whether an axis.

@@ -104,3 +104,32 @@ difficulty list -- as `items` and `cursor`, so the title flow ran on the game's 
 Normal up two to Cakewalk, Confirm. The game logged `Save File Slot 39 do not exist. Trying to start New Game`; `observe` read
 `mode: event` in `INTRO_ROOM`, HP 100, slot 39; the screen showed the story's first line. The guard: 42 paths shadowed, no
 write refused, no autosave held; only the shadow's `tevisystem.sav` written; the real folder identical to the backup by hash.
+
+## 2026-09-17 (same session) — Phase 6's list: the dialogue, the ground around the player, snapshots, a teleport, and a scenario 3 of 3
+
+**The user**, as the intro advanced with no press of the driver's: *"yee it happens when i type/use my mouse"*, then *"it reads
+inputs from outside the game i think"* and *"ohh its not doing that anymore now, i had to press Tevi and then unfocus it and its
+not reading inputs anymore now unless i have the window active again"*. A change to Rewired's unfocused-input setting was
+written and taken out again before it was deployed: the setting already read true, and the leak was a window never focused.
+Later, of the intro, *"can play now"*: a 150-second wait of the driver's was rejected, and its core, left holding port 7872, was
+stopped (the Emerald chat's on 7870 left alone).
+
+**Built** (the driver only; the Go core unchanged; each measured in `adapters/tevi/MEASURED.md`, same date):
+- `observe`'s **`dialogue`** -- status, section, line of lines, speaker, the whole line, how much printed, Auto -- and
+  `extras.input_focus`, `fade_alpha_raw`.
+- **`Surroundings.cs`**, the plan's layer 1, in an `observe` the agent calls: `player` (on the ground, logic state, velocity),
+  `view` (the camera's edges), `local_map` (27 by 17 tiles of the game's own collision grid around the player, with characters,
+  items and the elements a player meets drawn over it), `nearby` characters, `elements`, `items`, and `projectiles` (count and
+  the nearest 8). The map matched a picture of the cell tile for tile once markers stopped being drawn over it.
+- **`snapshot` and `restore`**: the game's own save to slot 39 in the shadow, copied to `autoplay/states/tevi/<label>.State`,
+  and back with the recent slot set and `ReloadToGame`, answering once the area, the camera and the fade-in are done (272
+  frames; the core's 10 s restore timeout is not near). **`cheat:teleport`** `{x, y}`, answering `held` from a read-back.
+
+**Walked and reached** (run log `autoplay/runs/2026-09-17_121000.061030.ndjson`, segment 5, **reached** by the snapshot's restores
+and the teleports): the intro read line by line to Bandit Base's cell; a snapshot `tevi_cell_start`; teleports and three restores,
+one teleport inside a fade not holding.
+
+**Phase 6's acceptance: one scenario passes.** `autoplay/games/tevi/scenarios/cell_right_wall.json` -- a teleport onto the cell's
+floor, 30 frames standing, then two 60-frame holds of `XAxis+` that the right wall stops at x 17066 -- passed **3 of 3** with no
+model (`runs/2026-09-17_130522.657707.ndjson`, its steps walked), and a copy expecting the player short of x 17000 failed at that
+step with the value it read. The real save folder matched the backup by hash after both.

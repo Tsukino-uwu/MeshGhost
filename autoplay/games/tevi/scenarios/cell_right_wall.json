@@ -1,0 +1,53 @@
+{
+  "name": "tevi_cell_right_wall",
+  "game": "tevi",
+  "variant": "vanilla",
+  "reproduces": "adapters/tevi/MEASURED.md, \"Teleport, restore and the cell's right wall\" (2026-09-17): from x 16912 in the Bandit Base cell, 60 frames of XAxis+ carried the player to x 17066 and stopped there, 14 short of the wall's inner edge at 17080, and 60 more moved it nothing",
+  "needs": "TEVI (the Steam build, the Randomizer disabled) with autoplay's driver loaded, in play in the Bandit Base cell where a new game's Chapter 0 opens (area BASE, room 12,11), the dev cheats off",
+  "note": "The situation is made with a teleport, onto the cell's floor four tiles right of where Chapter 0 starts; the wall stopping the player is the game's own collision, met by ordinary held input. Nothing here writes a save.",
+  "repeat": 3,
+  "setup": [
+    {
+      "tool": "cheat",
+      "args": {"kind": "teleport", "args": {"x": 16912, "y": -9072}},
+      "note": "on the cell's floor, 3 tiles short of the right wall",
+      "expect": [
+        {"path": "held", "equals": true},
+        {"path": "after.mode", "equals": "play"},
+        {"path": "after.location.area", "equals": "BASE"},
+        {"path": "after.location.room_x", "equals": 12},
+        {"path": "after.location.room_y", "equals": 11}
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "tool": "wait",
+      "args": {"frames": 30},
+      "note": "standing: nothing moves the player",
+      "expect": [
+        {"path": "after.location.x", "equals": 16912},
+        {"path": "after.mode", "equals": "play"}
+      ]
+    },
+    {
+      "tool": "press",
+      "args": {"buttons": ["XAxis+"], "frames": 60},
+      "note": "held right: the player reaches the wall and no further",
+      "expect": [
+        {"path": "after.location.x", "min": 17040, "max": 17080},
+        {"path": "after.location.room_x", "equals": 12}
+      ]
+    },
+    {
+      "tool": "press",
+      "args": {"buttons": ["XAxis+"], "frames": 60},
+      "note": "held right again, against the wall: still no further",
+      "expect": [
+        {"path": "before.location.x", "min": 17040, "max": 17080},
+        {"path": "after.location.x", "min": 17040, "max": 17080},
+        {"path": "after.location.room_x", "equals": 12}
+      ]
+    }
+  ]
+}
