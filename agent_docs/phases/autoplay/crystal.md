@@ -201,3 +201,6 @@ ball pockets as before) beside this session's others in the gitignored `autoplay
 `battle_use_next_question`. Nothing is pushed. This chat's core, `mcpcall` and `scenario` were built from HEAD into its own
 scratch folder; a new chat builds its own. To attach: put `autoplay/drivers/bizhawk/driver.lua` in that target, `restore`
 `session_end2_route31`, and pass `-listen 127.0.0.1:7871` with its own `-log`.
+**Later the same night** (noted by the Emerald chat) the user closed both emulators. To pick up: launch vanilla Crystal V1.0
+(asking first) with `MESHGHOST_DEV_LOADER_TARGET=bizhawk-dev-loader-autoplay-crystal.target`, `AUTOPLAY_GAME=crystal` and
+`AUTOPLAY_PORT=7871` (the README's "Drivers so far"), then attach and `restore` as above.

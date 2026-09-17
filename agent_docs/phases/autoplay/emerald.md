@@ -185,6 +185,9 @@ and the type chart with `effective` (this entry's commit). The second changes Go
 **Left as it is:** EmuHawk on vanilla Emerald still running, its loader target `dev-scripts/bizhawk-dev-loader-autoplay.target`
 at `none` (no driver, no probe), nothing listening on 7870, the game on route 0.17 (the old save) after RICK's battle under
 `effective`, no menu open. The Crystal chat's emulator is also running.
+**Later the same night** the user closed both emulators, after both chats had ended. To pick up: launch vanilla Emerald
+(asking first) with `MESHGHOST_DEV_LOADER_TARGET=bizhawk-dev-loader-autoplay.target` and `AUTOPLAY_GAME=emerald`, put
+`autoplay/drivers/bizhawk/driver.lua` in that target, and `restore` a snapshot; the game's own save is the old one on route 0.17.
 
 **Snapshots** (gitignored `autoplay/states/emerald/`), new this session: `ng_rescue_battle` (the rescue battle's first frame),
 `ng_rescue_action_menu` (its first action menu), `ng_rescue_move_menu` (its move menu opening). The new game's path is otherwise
