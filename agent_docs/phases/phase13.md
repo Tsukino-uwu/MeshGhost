@@ -31,6 +31,7 @@ here adds its heading as one line under "The plan and the shared core".**
 - 2026-09-17 (the Emerald chat, same session) — the log split: one file per game, this one for the plan and the shared core
 - 2026-09-17 (the Emerald chat, same session) — `exec`, and cheats still in effect in the run log: the last of Phase 1's list
 - 2026-09-17 (the Emerald chat, new session) — `battle`'s policy `effective`: the machine takes a policy's reasons into its log
+- 2026-09-17 (the Emerald chat, end of the night) — the order from here: Emerald on, TEVI's Phase 6 before Phase 3, Crystal paused
 
 **Emerald (vanilla), before its own log** -- from 2026-09-17 in [autoplay/emerald.md](autoplay/emerald.md)
 - 2026-09-16 (later still) — Phase 1 step 2: a live driver in vanilla Emerald, from boot to walking
@@ -1350,3 +1351,24 @@ chat's.
 **Crystal's path**, not run on the Crystal instance (that chat's): `text.lua` under a standalone Lua 5.4 with a stub module of
 Crystal's shape -- no `effectiveMove` -- refused `effective` with the reason, and `strongest` played to `ended` with the log's
 choice holding exactly `chose` and `from`. Crystal's module is unchanged.
+
+## 2026-09-17 (the Emerald chat, end of the night) — the order from here: Emerald on, TEVI's Phase 6 before Phase 3, Crystal paused
+
+**Where the plan stood** (the phases of the user's `autoplay-plan.md`, as the user asked): 0, 1 and 4 done; 2 in part (`goto` on
+one map, the battle policies; not `goto` across maps, ledges, `talk` or the stuck classifier); 5 in part (vanilla Crystal, no
+Archipelago variant); 3 and 6-8 not started.
+
+**The user's questions and the answers given.** Whether autoplay goes through MeshGhost's core or client: no -- its own Go
+module, importing nothing from MeshGhost's (checked: 0 imports), Claude over MCP to autoplay's game-blind core, JSON lines on
+127.0.0.1 to a driver inside the game; a TEVI driver would be a BepInEx plugin of its own on that link. Whether starting TEVI
+before Phase 3 is bad, since the Pokémon games seem to be the foundation: the foundation that carries to any game (the core,
+the link, the run log, snapshots, cheats, `exec`, the scenario runner) is built; most of what the Pokémon chats build now is
+BizHawk Lua shaped by Pokémon; Phase 3's knowledge store and goals are what most risk being shaped by Pokémon alone, and TEVI's
+Phase 6 needs neither Phase 2 nor 3 (its navigation may be teleport-first). Its cost: TEVI's saves are the snapshot and the
+risk, measured before anything writes.
+
+**The user:** *"I guess continue with emerald, and then start on TEVI and pause crystal a bit ? when we continue working on
+this tomorrow ?"* -- agreed. **The order:** the Emerald chat continues (first, moving Crystal's type-and-stats scoring behind
+`effective` and `strongest` back to power times accuracy, asking before launching Crystal to check it, so the pause leaves both
+games meaning the same by each policy; then Phase 2); a TEVI chat starts Phase 6; Crystal's chat pauses. Phase 3 comes after
+TEVI has `observe`, teleport and events.
