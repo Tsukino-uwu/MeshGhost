@@ -20,15 +20,19 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
 ## Moving
 
 - **`trip` {map, x, y}**: `goto` running, `battle effective` with `forget strong_variety` on a trainer's `spotted` or a
-  wild battle, `advance_text` on a message; it stops on a whiteout. From the story sessions' loop (run logs
-  `2026-09-17_120845.522443` and `2026-09-17_131645.118278`).
+  wild battle, `advance_text` on a message; it stops on a whiteout (run log `2026-09-17_131645.118278`).
 - **When `goto` fails, look at the ground before trying again** (emerald.md, 2026-09-17): "no way on foot" on Route 110
   was two ground levels meeting only through tiles of 0, and "no route to WATTSON" was a floor switch on the only path.
   Both were found by printing the map's grid from the ROM through `exec`, not by more attempts. The same `exec` read of
-  a header's connections (+0x0C) and warps (events at +4: the count at +1, the list at +8, 8 bytes each) names the maps
-  ahead before walking; the warps it read on 0.26 matched `observe`'s (route.md, toward the fourth gym, 2026-09-17).
+  a header's connections (+0x0C: count, list; 12 bytes each: a direction byte, the offset at +4,
+  group and map at +8; which byte is which direction is not measured) and warps (events at +4: the count at +1, the list at +8, 8 bytes each: x, y, then map at +6 and
+  group at +7) names the maps ahead (0.26's and 0.27's matched `observe`). The live grid: width, height, pointer at
+  0x03005DC0, a u16 per tile (collision bits 10-11, elevation 12-15), 7 tiles in (MEASURED.md); on 24.14 its
+  collision matched what `goto` and `walk` did (run log `2026-09-17_174529.077127`). goto's "not an open tile from elevation N" was a collision
+  tile: a neighbour from the grid went.
+- **A warp tile of behaviour 101 inside a cave** (24.14's exits) is left by stepping onto it, then `walk` Down.
 - **A trip that reads the same message on every try** (the sandstorm on 0.26) stops `no_rule` after three: trip to a
-  tile a different way instead (route.md, toward the fourth gym).
+  tile a different way instead (route.md, through 24.14).
 - **`goto` walks over step-on event tiles**: Mauville's gym switches flip its barriers when a route crosses one. Walk
   round with `walk` legs (route.md, Mauville).
 - **A story scene can take the controls mid-route**; `goto` then reads `no_response` and may set an exit aside.
@@ -66,10 +70,12 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
 
 - A Mart: `talk` to the clerk, BUY, the item, Up in the quantity box, YES (MEASURED.md, "A Mart", 2026-09-17). SUPER
   POTIONs heal more and cost more; selling raises money, with no buying back; REPELs keep weaker wild Pokémon away (the
-  user, 2026-09-17).
+  user, 2026-09-17). In the quantity box `press Right`, then `press Down` twice, asked for 8 (run log
+  `2026-09-17_174529.077127`); leave with CANCEL, then QUIT.
 - **An HM taught from the field BAG** (run log `2026-09-17_172659.154119`): Start, `select` BAG, `press Right` twice
   (ITEMS to POKé BALLS to TMs & HMs; the driver has no `sequence`), `select` the HM by index, USE, `advance_text`, YES,
-  and on the forget question `select` the move by name. In the field: face the rock, `press A`, YES.
+  `press A` on the party screen, `advance_text`, YES, `advance_text` (needs_choice), `select` the move to forget by
+  name, `advance_text`, `select` CLOSE BAG, `press B` (walked again in `2026-09-17_174529.077127`). In the field: face the rock, `press A`, YES.
 
 ## Not built yet
 

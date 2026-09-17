@@ -68,21 +68,25 @@ switches (0,15), (4,12), (3,9) and (8,9) open the barriers, and every planned ro
 with `walk` legs through (4,11) and (5,11). Then `talk` local 1 (WATTSON, a trainer on the way): MARSHTOMP Lv 32 with MUD
 SHOT four times, DYNAMO BADGE, TM34.
 
-## The DYNAMO BADGE toward the fourth gym
+## The DYNAMO BADGE through 24.14
 
-Run log `2026-09-17_172659.154119.ndjson` (the first unattended session, stopped), 2026-09-17. The user, watching it go
-back and forth: *"it needs to continue to the left around the desert"*.
-- **Maps ahead, read from the ROM headers through `exec`** (game.md, Moving): 0.2 connects to 0.26; 0.26 to 0.2, 0.28
-  and 0.27; 0.27 to 0.28, 0.12 and 0.26. 0.27's warps: (11,36) and (22,10) to 24.14, (28,27) and (29,27) to 19.0. A trip
-  from 0.2 (20,10) to 0.12 answered "no way on foot"; which map holds the fourth gym is not seen yet.
-- **ROCK SMASH**: a trip north from Mauville stopped "unreachable" at 0.26 (19,102): rocks (graphics 86) at (18,101)
-  and (19,100), and local 46 said his uncle in MAUVILLE, across from the bike shop, told him to take ROCK SMASH to ROUTE
-  111. Trip to 0.2 (32,15), `walk up` into 10.2, `talk` local 1: HM06. Taught as game.md says (TACKLE forgotten). Trip
-  to 0.26 (18,102), `press Up`, `press A`, YES, `advance_text`: "MARSHTOMP used ROCK SMASH!", and the next trip went on
-  to 0.27.
-- A trip to 0.27 (28,29) fought four trainers and stopped at 0.27 (25,34), "unreachable": two characters of graphics
-  119 (not talked to) stand at (26,30) and (27,30).
-- A trip from there to 0.13 went back onto 0.26 and read "The sandstorm is vicious. It's impossible to keep going." at
-  (14,61) over and over until its 60 calls (trip's rule now stops after three).
-- Trip to 0.27 (11,37), `walk up`: on 24.14 at (26,36), MARSHTOMP Lv 34, 54 of 100 HP, no potions in the bag. Nothing
-  past arriving on 24.14 is walked.
+Run logs `2026-09-17_172659.154119.ndjson` and `2026-09-17_174529.077127.ndjson`, 2026-09-17. The user, watching the
+first go back and forth: *"it needs to continue to the left around the desert"*.
+- **ROCK SMASH**: rocks (graphics 86) at 0.26 (18,101) and (19,100) stop a trip north; local 46 there points to
+  Mauville. Trip to 0.2 (32,15), `walk up` into 10.2, `talk` local 1: HM06. Taught as game.md says (TACKLE forgotten).
+  Trip to 0.26 (18,102), `press Up`, `press A`, YES, `advance_text`: "MARSHTOMP used ROCK SMASH!"
+- Mauville's Mart 10.7: trip (3,5), `talk` local 1, BUY, SUPER POTION (₽700): 8 bought (game.md, Money).
+- Trip to 0.27 (11,37): nine calls, four trainers beaten. Not this way: a trip to 0.27 (28,29)
+  stops at (25,34) behind two characters of graphics 119; a trip to 0.13 from there goes onto 0.26's sandstorm at (14,61).
+- **24.14**: `walk up` from 0.27 (11,37) arrives at (26,36). Trip to 24.14 (25,4) (two battles), `walk
+  right` 1 onto the exit (26,4), `walk down` 1: out on 0.27 (22,10). (26,5) is collision: goto answered
+  "not an open tile from elevation 3" until the live grid was printed (game.md, Moving).
+- **Maps ahead, read from the ROM headers through `exec`**: 0.27 connects to 0.28, 0.12 and 0.26.
+  0.28 (100x20): to 0.27, 0.13 and 0.26; warps (33,5) to 30.0, (41,12) and (88,5) to 24.104.
+  0.13 (20x20): to 0.29 and 0.28; warps (15,15) 5.0, (8,7) 5.1, (14,7) 5.4, (6,17) 5.6, (1,6) 5.7. 0.12 (20x20)
+  connects only to 0.27; warps to 4.0, 4.1, 4.3, 4.4, 4.5. 0.29 (40x80): to 0.30 and 0.13; warps (8,63) 24.0,
+  (29,5) 20.0, (27,36) 20.2, (6,46) and (7,4) 24.104. A trip from 0.2 to 0.12 answered "no way on foot"; which map
+  holds the fourth gym is not seen yet.
+- **The mud slides**: a trip from 0.27 (22,10) to 0.13 (15,16) fought one trainer, read a message, and then kept walking
+  up a mud slide until it was stopped. The user, 2026-09-17: *"you need a mach bike to go up the mud slides"*. Nothing
+  past 0.27 (22,10) is walked.
