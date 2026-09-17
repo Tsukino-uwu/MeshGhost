@@ -124,14 +124,14 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
 - **`warps`** — `x`, `y`, the map it leads `to` and `to_warp`, the destination's warp number from 1.
 - **`extras.script_running_raw`** — 255 while a script has the controls: a message, a menu, a scene, a
   wild encounter, or a picture waiting for a button with no box on screen; 1 from the step into a trainer's sight
-  until the map reloads after its battle; 0 walking (9 a turn, 5 a door).
+  until the map reloads after its battle, 2 from A on a trainer; 0 walking (9 a turn, 5 a door).
 - **`battle`** — while `mode` is `battle`: `asking` (`action`, `move`, or absent) and `battlers`, each with `side`
   (`player`, `opponent`), `species` (and `species_id`), `nickname`, `level`, `hp`, `max_hp` and `moves` (`name`, `id`,
   `pp`, `base_pp` -- the maximum drawn --, `type`, `power`, and `accuracy_raw`, a byte whose scale is not measured:
   held at 0 the move missed, and the table's 242 both hit and missed). `kind` (`wild`, `trainer`); in a trainer's
   battle `opponent_party_count` and `opponent_party_index`. A battler is absent until its Pokémon is sent out. One wild
   battle and one trainer's measured.
-- Not yet: `movement`, a trainer that turns or is talked to, and what the save has (`battle`'s `ended` alone reads money
+- Not yet: `movement`, a trainer that turns, and what the save has (`battle`'s `ended` alone reads money
   and the first party slot). The events are
   `map_changed`, `mode_changed`, `dialogue_changed`, `menu_changed` and `battle_mode_raw_changed`.
 - Its tools: `walk` (on foot only; `run` walks and says `ran: false`, since Crystal has no running

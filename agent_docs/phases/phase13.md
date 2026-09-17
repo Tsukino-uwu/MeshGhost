@@ -981,3 +981,10 @@ the REPEL.", and the list again with REPEL at 1.
 
 **Next for Crystal:** the three steps asked for are done. Open: `goto` (Crystal has only `walk`), the Pokémon menu and
 the other pockets' lists, a trainer talked to or one that turns, what the save has in `observe`.
+
+## 2026-09-17 (the Crystal chat, same session) — Crystal: a trainer talked to, through the same tools
+
+Youngster Mikey on Route 30, walked up to from above and talked to with A: wScriptRunning reads 2 there (1 when a
+trainer sees the player), and `battle strongest` played his words, battle and prize to `ended` with no nudge and no code
+change, since the script hook already counts any value but 0. His defeat flag read 0 before and 1 after, a second
+trainer's. Measurements: `crystal/MEASURED.md`, "A trainer talked to". Snapshot `route30_facing_mikey`.

@@ -59,6 +59,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - The warp cheat: the game's own map load, to Route 30 (2026-09-17)
 - A trainer battle: sight, approach, the battle's own waits with no ▼, and the words after (2026-09-17)
 - The PACK: its pockets, the item pocket, and its list that scrolls (2026-09-17)
+- A trainer talked to (2026-09-17)
 - Not measured yet: The rest of autoplay's Crystal reading (from 2026-09-17)
 
 ## Measured
@@ -447,12 +448,28 @@ bytes, the scrolling menu's header copy, the four pockets, each item's name and 
 - **Not seen:** a list in another pocket with anything in it, the key item pocket's one-byte entries, TOSS or a quantity
   chooser, a full pocket, what CF77 (which alternated between two values each press) is, the PACK in a battle.
 
+### A trainer talked to (2026-09-17)
+
+**Vanilla V1.0, Route 30, Youngster Mikey at (5,23) facing down**, from `route30_warped` warped to (5,20); snapshot
+`route30_facing_mikey`. `probes/autoplay_trainer_probe.lua` (`logs/autoplay_trainer_7871_20260917_022238.log`).
+
+- `walk` down 3 answered `blocked` after 2 tiles with his map object (3) in the way. `nearby` gave him `trainer: {range:
+  1, beaten: false, flag: 1450}` (his record's +0x09 1); nothing was marked `!`, since the tile below him holds another
+  character.
+- A pressed facing him: wScriptRunning went 0 to **2** (not the 1 of a trainer who sees the player), wScriptMode 1,
+  hLastTalked 3, D03F 1, D040 FF, and D041-D04C `AA 05 16 02 28 59 5F 59 00 00 B6 57`: flag 1450, then 22 and 2, which
+  wOtherTrainerClass and wOtherTrainerID read two frames later.
+- `battle strongest` from there: "You're a POKéMON trainer, right?", "Then you have to battle!", "YOUNGSTER MIKEY wants to
+  battle!", his PIDGEY, the level-up box, "That's strange. I won before." and "A got ₽64 for winning!", to `ended` in 5063
+  frames with no nudge; money 3064 against 3000 in that snapshot. His `beaten` then read true (flag 1450's bit set).
+- **Not seen:** talking to a beaten trainer, a trainer talked to from beside or behind.
+
 ## Not measured yet
 
 ### The rest of autoplay's Crystal reading (from 2026-09-17)
 
-- The rest of a trainer (measured 2026-09-17 for Bug Catcher Don, above): a trainer talked to (does wScriptRunning read
-  2?), a trainer that turns, Route 30's range-1 youngster at (5,23) walked, a lost trainer battle.
+- The rest of a trainer (measured 2026-09-17 for Bug Catcher Don and Youngster Mikey, above): a trainer that turns or
+  walks, a range-1 line walked into, a lost trainer battle.
 - The rest of a battle (measured 2026-09-17 for one wild battle, above): a level-up and its stats box, the player's
   Pokémon fainting and the whiteout, a status, a second Pokémon in the party (is the next slot 0x30 on?), a move of
   another type drawn against the type table.
