@@ -91,3 +91,27 @@ route 0.17 after the last `goto` regression.
 
 **Next for Emerald:** Phase 1's list is built. Open from this session: the two nudges in the rescue battle's intro, the
 FA scroll command read raw, and a `battle` policy that weighs types (the user's notes above).
+
+## 2026-09-17 (the Emerald chat, end of the session) — where Emerald's autoplay stands, for the next chat
+
+**The user:** *"I want to start a new chat for emerald, can we end this one ?"*
+
+**This session's commits** (straight to master, nothing pushed): `b3113ba0` (the route planner into `route.lua`),
+`1e52c234` (the wall clock, `set_clock`), `7eea2855` (the per-game logs), `a18c648b` (the starter bag, the walk to
+MUDKIP), `3573ac9d` (`exec`, cheats still in effect, noclip). They change Go in `autoplay/` (server, driver, runlog,
+`cmd/autoplay`): once pushed, read `gh run list -L 5`.
+
+**Left as it is:** EmuHawk on vanilla Emerald still running, its loader target
+`dev-scripts/bizhawk-dev-loader-autoplay.target` at `none` (no driver, no probe), nothing listening on 7870, noclip off,
+the game on route 0.17 (the old save, from the last `goto` regression) with no menu open. The Crystal chat's emulator is
+also running.
+
+**Snapshots** (gitignored `autoplay/states/emerald/`), the new game's path newest first: `ng_got_mudkip` (the lab after
+MUDKIP, BIRCH's "go see MAY?" question up), `ng_starter_bag`, `ng_route101_facing_bag`, `ng_route101_birch`,
+`ng_met_may`, `ng_tv_done`, `ng_clock_set`, then last session's `ng_clock` and earlier. The walk's run log:
+`autoplay/runs/2026-09-17_033152.953259.ndjson`.
+
+**Open:** `battle` pressed A twice in the rescue battle's intro (restore `ng_starter_bag`, `select MUDKIP`, YES, and
+watch the log); MAY's box shows the FA scroll command raw; a `battle` policy that weighs types (the game's own type table
+to measure, the user's Gen III chart as the map); noclip's per-frame cost and water; the plan's Phase 2 (`goto` across
+maps, `talk`, the stuck classifier).
