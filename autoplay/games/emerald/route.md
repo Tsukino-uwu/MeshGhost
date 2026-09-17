@@ -35,9 +35,11 @@ three times then TACKLE beat GROVYLE from a snapshot. Gym 10.0 (door (8,5)): eve
 
 ## The DYNAMO BADGE to Fallarbor
 
-Run logs `2026-09-17_181542.300302.ndjson`, `2026-09-17_185825.337345.ndjson`, 2026-09-17, from WATTSON's gym; the
-user: *"it needs to continue to the left around the desert"*, *"you need a mach bike to go up the mud slides"*.
-- `run_skill heal` 10.5; trip 0.2 (32,15), `walk up` into 10.2, `press B` 60, `talk` local 1: HM06, taught (TACKLE).
+Run logs `2026-09-17_181542.300302.ndjson`, `2026-09-17_185825.337345.ndjson`, `2026-09-17_192410.553244.ndjson`,
+2026-09-17, from WATTSON's gym; the user: *"it needs to continue to the left around the desert"*, *"you need a mach
+bike to go up the mud slides"*.
+- `run_skill heal` 10.5 (4 calls); trip 0.2 (32,15), `walk up` into 10.2, `press B` 60, `talk` local 1: HM06, taught
+  over TACKLE (the HM is index 5 in the TMs & HMs list; game.md, Money).
 - Trip 10.7 (3,5), `talk` local 1, BUY: 8 SUPER POTIONs (game.md, Money).
 - Trip 0.26 (18,102), `press Up`, `press A`, `advance_text`, YES, `advance_text`: (18,101) smashed (once it answered
   battle_started, a wild GEODUDE: `battle run_wild` read "Got away safely!" but answered `stuck`). (19,100) was not needed.
@@ -54,20 +56,23 @@ Run logs `2026-09-17_181542.300302.ndjson` and `2026-09-17_185825.337345.ndjson`
 - `run_skill heal` 5.4, trip 0.29 (8,64) (7 calls, three battles), `walk up` into 24.0 (27,18), `press B` 60. Local 3
   (graphics 59) at (27,5): FULL HEAL.
 - Trip 24.0 (16,22) (1 call), `talk` local 6 (graphics 119) answers dialogue_open, `advance_text`: TEAM MAGMA takes the
-  METEORITE, ARCHIE's scene; no battle.
-- `run_skill heal` 5.4 (6-12 calls); trip 0.27 (22,11) (9-11 calls), `walk up` into 24.14 (26,4), `press B` 60.
+  METEORITE, ARCHIE's scene; no battle. Once the walk to local 6 answered left_overworld (a wild ZUBAT): `battle
+  run_wild`, then `talk` local 6 again (run log `2026-09-17_192410.553244.ndjson`).
+- `run_skill heal` 5.4 (6-12 calls); trip 0.27 (22,11) (9-17 calls), `walk up` into 24.14 (26,4), `press B` 60.
   **Cross 24.14 with `goto` (26,35) run and `battle run`**: a trip whited out there (game.md, Battles). `walk down`
   twice, `press B` 60: 0.27 (11,37). Trip 0.27 (28,28) (3 calls).
 - `walk up` into 19.0, `talk` local 1, YES, `advance_text` (answers stuck during the ride), `press B` 600: 19.1. `goto`
   (6,10), `walk down` twice, `press B` 60: MT. CHIMNEY 24.12 (17,37).
 - Trip 24.12 (10,9) (5 calls, two trainer battles); `talk` local 2 (graphics 196, MAXIE, at (13,6)): MIGHTYENA, ZUBAT, CAMERUPT,
   beaten by SWAMPERT Lv 36-37 with `battle effective` from 66/128 (`stop_hp_below` stopped at 33; WATER GUN
-  fainted CAMERUPT in one hit). Two
+  fainted CAMERUPT in one hit); again from 50/128 with `stop_hp_below` 0.3, one battle SUPER POTION at 38 (game.md,
+  Money), run log `2026-09-17_192410.553244.ndjson`. Two
   field SUPER POTIONs (game.md, Money) before going down.
 
 ## MT. CHIMNEY to the HEAT BADGE
 
-Run logs `2026-09-17_181542.300302.ndjson` and `2026-09-17_185825.337345.ndjson`, 2026-09-17.
+Run logs `2026-09-17_181542.300302.ndjson`, `2026-09-17_185825.337345.ndjson` and
+`2026-09-17_192410.553244.ndjson` (2026-09-17).
 - Trip 24.12 (20,40) (1 call), `walk down` twice, `press B` 60: 24.13 (13,5). Trip 24.13 (14,39) (1-2 battles), `walk
   down` twice, `press B` 60: 0.27 (6,46). `run_skill heal` 4.5 (4 calls, into Lavaridge). Then trip 4.1 (11,18) from
   4.5 (1 call) lands on the path's start below.
@@ -81,4 +86,4 @@ Run logs `2026-09-17_181542.300302.ndjson` and `2026-09-17_185825.337345.ndjson`
   `goto` answered no_response once and `battle effective` then beat KINDLER COLE and COOLTRAINER GERALD. Stepping on 4.2
   (0,10) from (0,11) throws the player back up; leave it sideways.
 - FLANNERY: NUMEL, SLUGMA, CAMERUPT, TORKOAL, beaten by SWAMPERT Lv 37-38 with `battle effective` (WATER GUN, MUD SHOT)
-  taking no damage, both runs (the first learned MUDDY WATER, WATER GUN forgotten); HEAT BADGE, TM50.
+  taking no damage, all three runs (the first learned MUDDY WATER, WATER GUN forgotten); HEAT BADGE, TM50.

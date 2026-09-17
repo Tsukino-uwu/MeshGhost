@@ -55,7 +55,6 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
   83, a gym's templates are trainers (Mauville, checked against Slateport and Dewford). Misreading a warp list cost
   several doors in Slateport. The user: Centers, Marts and gyms look unique from outside, so a screenshot of the town
   says which door.
-- In every Center entered so far the nurse is local 1, talked to across the counter from (7,4) (route.md lists them).
 
 ## Battles
 
@@ -84,12 +83,15 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
   `2026-09-17_181542.300302.ndjson`).
 - **A whiteout costs money** (7357 to 1910, run log `2026-09-17_175751.136021`) and the walk back.
 - **An HM from the field BAG** (walked three times, last `2026-09-17_181542.300302.ndjson`): Start, `select` BAG, `press
-  Right` twice (ITEMS to POKé BALLS to TMs & HMs; the driver has no `sequence`), `select` the HM by index, USE, `advance_text`, YES, `press A` twice (party screen),
+  Right` twice (ITEMS to POKé BALLS to TMs & HMs; the driver has no `sequence`), `select` the HM by index (by name
+  fails: TM/HM entries read with control codes, run log `2026-09-17_192410.553244.ndjson`), USE, `advance_text`, YES, `press A` twice (party screen),
   `advance_text`, YES, `advance_text` (needs_choice), `select` the move to forget by name, `advance_text`, `select` CLOSE BAG,
   `press B`. In the field: face the rock, `press A`, `advance_text`, YES, `advance_text`. After an HM was taught,
   two `press Left` reached ITEMS again. A field SUPER POTION: `select` it, USE, `press A` (party screen),
   `select` the Pokémon, `advance_text`; `select` CLOSE BAG failed on a two-entry list, `press B` twice closed it (run
-  log `2026-09-17_185825.337345.ndjson`).
+  log `2026-09-17_185825.337345.ndjson`). **After an HM was taught the BAG opened on TMs & HMs, in battle too** (`select` SUPER
+  POTION by name failed there): at `stop_hp_below`, `select` BAG, `press Left` twice (TMs & HMs to ITEMS), `select` SUPER POTION, USE, `press A`, then `battle` again
+  (MAXIE, run log `2026-09-17_192410.553244.ndjson`).
 
 ## Not built yet
 
