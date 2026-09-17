@@ -43,7 +43,10 @@ jobs:
   # the moment the job finishes, and a leak there is worse than one in a tracked file because it
   # is what people read first.
   validate-release-notes:
-    runs-on: ubuntu-latest
+    # TEMPORARY 2026-09-18, reverted to ubuntu-latest once CI is read: ubuntu-latest becomes
+    # 26.04 over 2026-10-19..11-19, and this commit is how we find out what that breaks
+    # while ubuntu-24.04 is still a one-line fallback.
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -114,7 +117,7 @@ jobs:
   # the one download almost everyone wants, and these are here for whoever specifically wants
   # a native binary (a native relay host above all, which has no Windows game involved at all).
   #
-  # Built on ubuntu-latest, not cross-built on the Windows runner, for one concrete reason:
+  # Built on a Linux runner, not cross-built on the Windows runner, for one concrete reason:
   # the executable bit. A file only runs on Unix if it is marked as a program, a Windows
   # runner's filesystem has no such mark to set, and .zip cannot store one either. Building
   # here lets chmod +x mean something and tar preserve it, so these unpack ready to run --
@@ -123,7 +126,10 @@ jobs:
   unix-binaries:
     # Gate first: no build, no tag, no assets until the body is known clean.
     needs: validate-release-notes
-    runs-on: ubuntu-latest
+    # TEMPORARY 2026-09-18, reverted to ubuntu-latest once CI is read: ubuntu-latest becomes
+    # 26.04 over 2026-10-19..11-19, and this commit is how we find out what that breaks
+    # while ubuntu-24.04 is still a one-line fallback.
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -171,7 +177,7 @@ jobs:
           # NOT verifiable on the dev machine: a local dry run of these exact steps produced
           # correct packages in every respect except that one, because NTFS has no executable
           # bit for chmod to set or tar to record (checked 2026-08-16 -- the tarred files came
-          # out 0644). That is precisely why this job runs on ubuntu-latest, and it also means
+          # out 0644). That is precisely why this job runs on Linux, and it also means
           # the first real release is where it gets proven. If a Linux user reports "permission
           # denied", this is the line to look at.
           tar -czf "MeshGhost-linux-server-client-$VERSION.tar.gz" -C stage/linux .
