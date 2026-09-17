@@ -868,3 +868,32 @@ blink memory answered `waiting_for_button` first. A changing box now skips that 
 frames and the battle in 2168, as before.
 
 **Snapshots** (gitignored `autoplay/states/crystal/`): `route29_after_win` (CYNDAQUIL 10/19 after the PIDGEY fainted).
+
+## 2026-09-17 (the Emerald chat, later) — the STRING SHOT stall was an animation, not a wait for A
+
+**What was open:** `battle` nudged after "used STRING SHOT!" in every wild battle of the acceptance run, recorded as a
+message state it did not count as waiting.
+
+**Measured** (`emerald/MEASURED.md`, "A move's animation holds a battle's next message"). The Emerald instance's save
+had RICK's challenge up (the scenario's last run), so it was snapshotted (`rick_challenge`) and `battle` played it: his
+WURMPLE used STRING SHOT on the second turn and the nudge came. `probes/battle_state_probe.lua` gained the bytes the
+build names gAnimScriptActive and gPauseCounterBattle, the first two text printers and every pad change, and the
+battle was replayed from a second snapshot (`rick_battle_start`): after each "used STRING SHOT!" the byte read 01 for
+228 frames and 01 again for 75, and "SPEED fell!" began 431 frames after the first message. The nudge's A fell inside
+the 228 and changed nothing.
+
+**Fixed.** The shared machine (`text.lua`) takes an optional hook, `animationPlaying`: while it says true in a battle,
+the frames count as change, up to the script wait's 600. Emerald's reads that byte. **Crystal's path is unchanged**: its
+module supplies no `animationPlaying`, so the new branch never runs there (its other optional hooks, `inputReleased` and
+`tapSeen`, and the absent `boxKnownWhilePrinting`, are untouched). Not run on the Crystal instance, which is that chat's.
+A first version only held the nudge until the animation ended, and it fired on the next frame (one replay). Then three
+replays: seven STRING SHOTs, no nudge, 431 frames message to message with no button pressed -- the no-press control
+the first reading lacked, filed as a lesson (`pitfalls/by-lesson.md`; a line on `before-trusting-a-reading.md`).
+
+**Seen, not fixed yet:** restored at `rick_challenge`, `battle` answered `stuck` after 601 frames with an empty log. The
+challenge box there is finished (last box, no arrow, printer inactive), and only a message whose printer is still
+active is recovered after a restore or a reload, so the box read as nothing while a script ran. A tap of A and a
+snapshot inside the battle got past it. Next: recover a finished box.
+
+**Left as it is:** the Emerald instance after RICK's third replay (won, MUDKIP Lv8), the driver and
+`battle_state_probe.lua` on its target.

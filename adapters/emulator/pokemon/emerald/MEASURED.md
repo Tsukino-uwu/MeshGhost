@@ -58,6 +58,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - A trainer's sight and defeat flag, a trainer coming for the player, and the level-up box (2026-09-17)
 - The bag's item list, its item menu, and a Repel used through them (2026-09-17)
 - A new game to the first trainer battle: warps, elevation 0, cutscenes and the script status (2026-09-17)
+- A move's animation holds a battle's next message (2026-09-17)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -563,6 +564,31 @@ for the script status after MAY's battle.
 - **Not seen**: a West or North arrow warp, a door entered from another side, elevation 15 ("F" tiles), what
   says a battle message waits for A after STRING SHOT, a nickname actually given, and the naming screen's
   other pages.
+- **Superseded in part (2026-09-17):** nothing waited for A after STRING SHOT; its animation held the next message
+  ("A move's animation holds a battle's next message", below).
+
+### A move's animation holds a battle's next message (2026-09-17)
+
+**Vanilla ROM, the new game's save**, BUG CATCHER RICK's battle on route 0.17, replayed from one named snapshot
+taken at "BUG CATCHER RICK would like to battle!" (gitignored `autoplay/states/`) and played by autoplay's `battle`,
+with `probes/battle_state_probe.lua` loaded -- now also logging the bytes the build names gAnimScriptActive and
+gPauseCounterBattle, the first two text printers' 0x24 bytes, and every pad change. Five battles; addresses from the
+build hashed identical to the ROM, meanings as below.
+
+- **The stall.** "Foe WURMPLE used STRING SHOT!" began printing and printer 0's +0x1B went to 0 115 frames later;
+  gAnimScriptActive then read 01 for 228 frames, 00 for 4, 01 for 75, and "MUDKIP's SPEED fell!" began 2 frames after
+  that -- 431 frames from the first message's start to the second's. Nothing else the probe logs changed while it read
+  01, and no message was on its way.
+- **No button was waited for.** With `battle` pressing A after 180 frames of no change, its A landed inside the
+  228-frame animation four times in one battle and changed nothing logged; with the press held off while the byte read
+  01, seven STRING SHOTs in three more battles went from message to message in 431 frames each, with no button pressed
+  between them.
+- **Every other stretch of 01** in the first battle, 14 of its 18, read 20, 41 or 75 frames; only STRING SHOT's four
+  of 228 outlasted 180.
+- **gPauseCounterBattle** counted from 00 to 3F and went back to 00, many times in each battle; not read against
+  anything.
+- **Not seen**: any other move's animation, the BATTLE SCENE option turned off, a double battle, a wild battle with
+  this probe loaded.
 
 ## Not measured yet
 

@@ -21,6 +21,8 @@
 --   inputReleased()    -> boolean            the game has seen every button let go (Crystal's menus look every few
 --                                            frames, and a short release between presses was never seen)
 --   tapSeen()          -> boolean            the game has seen the A of a tap (a 2-frame tap can fall between looks)
+--   animationPlaying() -> boolean            in a battle, the game is playing an animation by itself (Emerald's STRING
+--                                            SHOT ran 228 frames with nothing else changing)
 --   strongestMove()    -> slot, label | nil, reason
 --   endedReport()      -> table              what `battle` adds to `ended`
 
@@ -47,7 +49,7 @@ function M.machine(h, choose, stopWhen)
 	local log, lastBox, signature, still, nudges = {}, nil, nil, 0, 0
 	local finishedBox, finishedFor = nil, 0
 	local pressing, held, settle, battleSeen, frames = nil, 0, 0, false, 0
-	local releasing = nil
+	local releasing, animating = nil, 0
 	local function note(entry)
 		if #log < LOG_MAX then log[#log + 1] = entry end
 	end
@@ -72,6 +74,16 @@ function M.machine(h, choose, stopWhen)
 		end
 		local battle = h.inBattle()
 		battleSeen = battleSeen or battle
+		-- A battle animation the module says is playing is the game's own progress, for as long as a script is waited
+		-- out: after "Foe WURMPLE used STRING SHOT!" its animation ran 228 frames with nothing in the signature changing,
+		-- every nudge landed inside it and changed nothing, and the next message came when it ended; a nudge held back
+		-- only until it ended fired on the frame after (2026-09-17).
+		if battle and h.animationPlaying and h.animationPlaying() then
+			animating = animating + 1
+			if animating <= SCRIPT_WAIT_FRAMES then still = 0 end
+		else
+			animating = 0
+		end
 
 		local stop, extra = stopWhen({ battle = battle, battleSeen = battleSeen, dialogue = d })
 		if stop then return finish(stop, extra) end

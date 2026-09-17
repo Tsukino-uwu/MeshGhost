@@ -1555,3 +1555,8 @@ the shadow's spawn bytes and `emote.SHADOW_DY` all match the engine (up-hop asid
 built by writing the tileset's own ledge and water blocks into the map with the new
 `probes/cmd_drive.lua`, the method now in `agent_docs/playing.md` ("Building a state"). Detail:
 `crystal/UNVERIFIED.md`, the per-site audit entry.
+
+## 2026-09-17 — pointer: autoplay's Crystal probes and measurements, logged in phase13.md
+
+The `autoplay_*` probes (state, text, charset, map, font, battle, move write) and their `crystal/MEASURED.md` entries,
+from the Crystal chat's autoplay steps: all of it is in `phase13.md`; none of it touches `meshghost_crystal.lua`.

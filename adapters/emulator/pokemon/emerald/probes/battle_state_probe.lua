@@ -14,7 +14,9 @@
 --         gBattlerPositions, gActionSelectionCursor, gMoveSelectionCursor, gBattleOutcome,
 --         gBattleCommunication, gBattleControllerExecFlags, gBattlerControllerFuncs, gActiveBattler,
 --         gChosenActionByBattler, gMultiUsePlayerCursor, gAbsentBattlerFlags, gBattlescriptCurrInstr and
---         all 0x28 bytes of gBattleScripting -- all raw hex -- and the pad
+--         all 0x28 bytes of gBattleScripting, gAnimScriptActive and gPauseCounterBattle -- all raw hex --
+--         and the pad (a pad change alone logs a line)
+--   PR    on any change of the first two text printers' 0x24 bytes each (sTextPrinters), raw
 --   MON n on any change of that battler's 0x58 bytes named gBattleMons: raw hex, and +0x30 decoded
 --         as a name (letters and digits only)
 --   STR   on any change of the first 0x80 bytes named gDisplayedStringBattle: decoded up to FF, and raw
@@ -31,7 +33,12 @@ local FIELDS = {
 	{ "multicur", 0x03005d74, 1 }, { "absent", 0x02024210, 1 },
 	-- Added 2026-09-16 (later): the level-up box waited for A with nothing above changing.
 	{ "instr", 0x02024214, 4 }, { "scripting", 0x02024474, 0x28 },
+	-- Added 2026-09-17: `battle` saw nothing change for 180 frames after "used STRING SHOT!" and nudged. The build
+	-- names these gAnimScriptActive and gPauseCounterBattle.
+	{ "anim", 0x020383fd, 1 }, { "pause", 0x0202432c, 2 },
 }
+-- The first two windows' text printers (the build's sTextPrinters, 0x24 bytes each), logged as PR on any change.
+local PRINTERS, PRINTERS_LEN = 0x020201b0, 0x48
 local BATTLE_MONS, BATTLE_MON_SIZE = 0x02024084, 0x58
 local STRING_BATTLE = 0x02022e2c
 
@@ -90,16 +97,22 @@ local function padString()
 	return table.concat(on, "+")
 end
 
-local lastSt, lastMons, lastStr, frames = nil, {}, nil, 0
+local lastSt, lastMons, lastStr, lastPr, frames = nil, {}, nil, nil, 0
 log("battle_state_probe loaded")
 MESHGHOST_DEV_TICK = function()
 	frames = frames + 1
 	local parts = { string.format("cb2=%08X", memory.read_u32_le(GMAIN_CB2, BUS)) }
 	for _, f in ipairs(FIELDS) do parts[#parts + 1] = f[1] .. "=" .. hex(f[2], f[3]) end
-	local st = table.concat(parts, " ")
+	-- The pad is part of what counts as a change (2026-09-17): a press that changes nothing else is logged too.
+	local st = table.concat(parts, " ") .. " pad=" .. padString()
 	if st ~= lastSt then
-		log("ST " .. st .. " pad=" .. padString())
+		log("ST " .. st)
 		lastSt = st
+	end
+	local pr = hex(PRINTERS, PRINTERS_LEN)
+	if pr ~= lastPr then
+		log("PR " .. pr)
+		lastPr = pr
 	end
 	for n = 0, 3 do
 		local raw = hex(BATTLE_MONS + n * BATTLE_MON_SIZE, BATTLE_MON_SIZE)

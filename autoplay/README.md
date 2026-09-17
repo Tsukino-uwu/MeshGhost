@@ -210,7 +210,9 @@ each run's `setup` and `steps` as their own segments, walked or reached.
 - **Programs stop when nothing changes.** `walk`, `goto`, `select`, `battle` and `advance_text` run in the
   driver a frame at a time and end on the game's state; `battle` and `advance_text` press A once after
   3 seconds with no change -- only in a battle or on a message they can read -- retry a press the game
-  ignored, and answer `stuck` after 3 of those, so a call never sits for minutes. Emerald's module learns text as it prints, and a message already under way when it
+  ignored, and answer `stuck` after 3 of those, so a call never sits for minutes. A battle animation the module
+  reports (`animationPlaying`; Emerald's is measured) counts as change, for up to 600 frames: STRING SHOT's runs 228
+  frames with nothing else moving. Emerald's module learns text as it prints, and a message already under way when it
   was reloaded or a snapshot restored is taken up from the game's text printer, marked `recovered` (Crystal's
   reads whatever is on screen).
 - **Text costs top speed on Emerald.** Reading text there needs execute hooks (Crystal's needs none), and any execute hook halves the

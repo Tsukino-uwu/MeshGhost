@@ -899,6 +899,11 @@ local CONTROLLER_FUNCS, CHOOSE_ACTION, CHOOSE_MOVE = 0x03005d60, 0x08057588, 0x0
 -- the box waited.
 local BATTLESCRIPT_INSTR, LEVEL_UP_BOX_STATE = 0x02024214, 0x02024474 + 0x1E
 local LEVEL_UP_BOX_WAITING = { [6] = "page 1", [8] = "page 2" }
+-- The byte the build names gAnimScriptActive read 01 while a move's animation played and 00 between (battle_state_probe.lua,
+-- RICK's battle from a snapshot, 2026-09-17): after "Foe WURMPLE used STRING SHOT!" it read 01 for 228 frames, four times,
+-- then 01 for 75 more (the stat-change animation) before "MUDKIP's SPEED fell!" printed; nothing else the probe logs
+-- changed in those frames, and an A pressed inside them changed nothing.
+local ANIM_SCRIPT_ACTIVE = 0x020383fd
 -- The action menu as drawn, in cursor order: 0 FIGHT and 1 BAG on the top row, 2 POKéMON and 3 RUN below.
 local BATTLE_ACTIONS = { "FIGHT", "BAG", "POKéMON", "RUN" }
 
@@ -1877,6 +1882,7 @@ local textHooks = {
 		local at = r8(LEVEL_UP_BOX_STATE)
 		return LEVEL_UP_BOX_WAITING[at], at
 	end,
+	animationPlaying = function() return r8(ANIM_SCRIPT_ACTIVE) ~= 0 end,
 	strongestMove = function()
 		local slot = strongestMoveSlot()
 		if slot == nil then return nil, "no move has PP left" end

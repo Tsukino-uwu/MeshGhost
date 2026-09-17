@@ -1291,3 +1291,10 @@ in `phase13.md` (Phase 1, steps 4-6); none of it touches `meshghost_emerald.lua`
 `bike_probe`) and their `emerald/MEASURED.md` entries: a new screen's windows, the driver's real cost,
 wild and trainer battles, move data, map edges, held movement and both bikes. All of it is in
 `phase13.md` (Phase 1, steps 7-10); none of it touches `meshghost_emerald.lua`.
+
+## 2026-09-17 — pointer: autoplay's Emerald probes and measurements, logged in phase13.md
+
+`list_menu_probe`, `trainer_approach_probe` and `battle_state_probe` (gaining the script pointer, gBattleScripting, then
+the animation byte, the pause counter and the text printers), and their `emerald/MEASURED.md` entries: a trainer's
+sight, the bag's list, a new game to MAY's battle, and a move's animation holding a battle's next message. All of it is
+in `phase13.md`; none of it touches `meshghost_emerald.lua`.

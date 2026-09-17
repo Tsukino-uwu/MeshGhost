@@ -362,3 +362,4 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - Emerald autoplay: presses nobody meant as choices made choices -- a held A and a blind nudge (2026-09-17) [RULE: .claude/skills/play-game/SKILL.md]
 - Emerald autoplay: one run split across as many log files as tool calls (2026-09-17) [CHECK: autoplay runlog TestResumeCarriesOnTheOpenSegment]
 - Emerald autoplay: a fix that changed nothing, and a callback that did not exist (2026-09-17) [RECORD]
+- Emerald autoplay: a nudge "moved on" a battle message that an animation was holding (2026-09-17) [RULE: checklists/before-trusting-a-reading.md]

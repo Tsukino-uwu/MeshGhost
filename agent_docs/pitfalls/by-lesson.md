@@ -7588,3 +7588,25 @@ replay ended `ended`.
 
 **The rule this adds:** when a fix changes nothing, measure the timeline before a second guess; and convert
 numbers with a tool, never by eye.
+
+## Emerald autoplay: a nudge "moved on" a battle message that an animation was holding (2026-09-17)
+
+**Symptom.** In the new game's wild battles, `battle` stalled for 3 seconds after "Foe WURMPLE used STRING SHOT!",
+pressed its nudge (A), and the next message came. It was recorded as "the game waited in a message state `battle`
+does not count as waiting (a nudge moved it on each time)", and left open as a reader to build.
+
+**Diagnosis.** `battle_state_probe.lua` gained the byte the build names gAnimScriptActive, the text printers and every
+pad change, and RICK's battle was replayed from a snapshot. The message finished printing, the byte read 01 for 228
+frames, the nudge's A landed at frame 179 of it and changed nothing logged, the animation ended 47 frames after the A,
+a 75-frame stat animation followed, and "SPEED fell!" began 431 frames after "used STRING SHOT!". Four times.
+
+**Cause.** Nothing waited for a button: the move's animation outlasted the program's 180 frames of no change, and the
+next message's arrival after the A was read as the A's doing.
+
+**Fix.** A module hook, `animationPlaying`, counts as progress in the shared text machine (Emerald: that byte), for as
+long as a script is waited out. A first version only held the nudge back and fired it on the frame the animation
+ended. Then seven STRING SHOTs in three battles: no nudge, 431 frames each, no button pressed between the messages --
+the control the original reading never had.
+
+**The rule this adds:** a change that follows your press is not proof the press caused it; run the same moment with no
+press before building on it.
