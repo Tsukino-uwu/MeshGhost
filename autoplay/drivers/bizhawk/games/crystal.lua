@@ -1789,8 +1789,15 @@ local textHooks = {
 				q.kind, q.no = "switch", 1
 			elseif lines[1] == "Give a nickname to" then
 				q.kind = "nickname"
+			elseif lines[#lines] == "Use next POKéMON?" then
+				-- After "CYNDAQUIL fainted!" with BELLSPROUT left (Route 31, 2026-09-17): NO answered "Got away safely!" in
+				-- that wild battle, YES opened the party list "Which PKMN?" (MEASURED.md, "The lead fainted").
+				q.kind = "next_pokemon"
 			end
 		end
+		-- The party list in a battle ("Which PKMN?"), read as the POKéMON menu is: a Pokémon is chosen by name with select.
+		local party = partyMenu(m, t, low)
+		if party then q.kind, q.menu = "party", { items = party.items, cursor = party.cursor } end
 		return q
 	end,
 	strongestMove = function()

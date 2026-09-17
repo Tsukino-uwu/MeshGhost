@@ -156,3 +156,20 @@ battler block's copies were held instead, which moved the damage.
 
 **Left as it is:** `route29_after_run`'s CYNDAQUIL (memory only) with THUNDERSHOCK and EMBER, after two PIDGEY battles, every
 menu closed, the driver alone on its target, the probe's command file at `off`.
+
+## 2026-09-17 (the Crystal chat, same session) — the lead fainted: "Use next POKéMON?" and the party list, named
+
+**Built** (`crystal.lua` only; `text.lua` untouched while the Emerald chat has it open). Crystal's battle question hook names
+"Use next POKéMON?" (`next_pokemon`) and the party list in a battle (`party`, with the names), so `battle` stops on each with its
+kind and the caller answers with `select`. Which answer `battle` should give itself waits for the shared file. Measurements:
+`crystal/MEASURED.md`, "The lead fainted".
+
+**How it went.** CYNDAQUIL walked poisoned to 3 HP, cured, into Route 31's grass; a PIDGEY's TACKLE fainted it and the game asked.
+From a snapshot there: NO ran ("Got away safely!"), YES opened "Which PKMN?", BELLSPROUT sent out and the battle played to its
+end.
+
+**Seen, to align:** the Emerald chat's uncommitted `text.lua` adds a policy `effective` (the type chart, through a hook
+`effectiveMove`) and keeps `strongest` as power times accuracy; this chat made Crystal's `strongest` itself weigh types and
+stats. Once that is committed, Crystal's scoring moves behind `effectiveMove` and `strongest` goes back to its shared meaning.
+
+**Left as it is:** Route 31 after that battle (memory only), BELLSPROUT out front of a fainted CYNDAQUIL until healed.

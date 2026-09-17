@@ -70,6 +70,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - Surfing, and a poisoned party on foot (2026-09-17)
 - Type matchups and the same-type bonus (2026-09-17)
 - Which stats a move's damage uses, and where the stats are (2026-09-17)
+- The lead fainted: "Use next POKéMON?" and the party list in a battle (2026-09-17)
 - Not measured yet: The rest of autoplay's Crystal reading (from 2026-09-17)
 
 ## Measured
@@ -773,6 +774,20 @@ no-effect replay, single presses; capture `autoplay_type_ground_vs_pidgey` (giti
   `battle strongest` multiplies its score by that ratio; against two wild PIDGEYs afterwards it chose THUNDERSHOCK every turn.
 - **Not seen:** the attacker's side for any type but NORMAL and ELECTRIC; stat stages (LEER, STRING SHOT) and where a battle
   keeps them; a critical hit's effect on which stats count; a level other than 5 in the damage.
+
+### The lead fainted: "Use next POKéMON?" and the party list in a battle (2026-09-17)
+
+**Vanilla V1.0, Route 31, from `session_end_route31`.** The autoplay tools' answers; captures `autoplay_lead_fainted_question`,
+`autoplay_use_next_no`, `autoplay_use_next_yes` (gitignored). Snapshots `route31_cyndaquil_hp3`, `battle_use_next_question`.
+
+- **Making it.** CYNDAQUIL healed, poisoned (`set_status`) and walked back and forth on row 14 until its HP read 3 (two HP a
+  round of 8 steps), cured, then walked into the grass: a wild PIDGEY L4.
+- **The question.** `battle strongest`: "CYNDAQUIL used TACKLE!", "Enemy PIDGEY used TACKLE!", "CYNDAQUIL fainted!", then "Use
+  next POKéMON?" in the message box with a YES / NO; `battle` stopped `needs_choice` on it without pressing.
+- **NO** printed "Got away safely!" (this wild battle). **YES** opened "Which PKMN?" with CYNDAQUIL drawn FNT and BELLSPROUT
+  and CANCEL, the POKéMON menu's layout, read as the party list; `select` BELLSPROUT sent it out, and `battle strongest` played
+  on to `ended` (VINE WHIP each turn).
+- **Not seen:** the question in a trainer battle; the whole party fainting (the whiteout); NO when escape fails.
 
 ## Not measured yet
 
