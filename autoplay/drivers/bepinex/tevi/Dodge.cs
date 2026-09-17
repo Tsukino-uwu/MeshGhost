@@ -224,6 +224,7 @@ namespace MeshGhostAutoplay.Tevi
                         by = inside;
                     }
                 }
+                if (IsStep(m)) continue; // step plans are off: in four tries with them she ended against his body and took contact hits (2026-09-17)
                 // Room from the walls where the plan ends: a corner leaves no way out of the next attack (pinned twice, 2026-09-17).
                 Vector2 end = Position(s, m, Horizon);
                 float room = Math.Min(RoomCap, Math.Min(end.x - s.MinX, s.MaxX - end.x));

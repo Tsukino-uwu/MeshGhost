@@ -233,6 +233,10 @@ namespace MeshGhostAutoplay.Tevi
                 }
                 CharacterBase orb = pushOrbs ? OrbToUse(p, target) : null;
                 orbNote = null;
+                // An orb by the target but beyond her swing, with her inside its blast: her swing cannot set it off, so the fight goes on as
+                // if it were not there.
+                if (orb != null && Mathf.Abs(orb.t.position.x - target.t.position.x) < OrbBlastClear && Mathf.Abs(orb.t.position.x - me3.x) < OrbBlastClear + 10f
+                    && Mathf.Abs(orb.t.position.x - me3.x) > MeleeReach + OrbHalf + 10f) orb = null;
                 if (orb != null)
                 {
                     Vector3 o3 = orb.t.position;
@@ -248,8 +252,22 @@ namespace MeshGhostAutoplay.Tevi
                         lastOrb = orb;
                         lastOrbSpeed = orb.phy_perfer != null ? orb.phy_perfer._velocity.magnitude : 0f;
                     }
+                    // An orb by the target goes off there, and its blast (405 wide) reaches her if she is within about 200: a swing at Ribauld
+                    // with an orb at his feet set it off 104 units from her for 83 HP (2026-09-17, Infernal BBQ). So one by the target is shot
+                    // from outside the blast, and one away from it is hit any way (it flies off and goes off on him, away from her).
+                    bool byTarget = Mathf.Abs(o3.x - target.t.position.x) < OrbBlastClear;
+                    if (byTarget)
+                    {
+                        if (!facingS) turn = true;
+                        else if (ax < OrbBlastClear + 10f) want = awayS; // back to shot distance
+                        else if (orbShots && Mathf.Abs(oy) <= 40f)
+                        {
+                            want = Dodge.Move.Stay;
+                            tap = "Ranged";
+                        }
+                    }
                     // In the air over it: quickdrop onto it (the user, 2026-09-17: "its also possible to quickdrop onto bombs to push them").
-                    if (!onGround && ax < OrbHalf + 20f && oy < 0f && oy > -200f) want = Dodge.Move.Drop;
+                    else if (!onGround && ax < OrbHalf + 20f && oy < 0f && oy > -200f) want = Dodge.Move.Drop;
                     else if (!facingS) turn = true;
                     else if (ax < OrbTooClose) want = awayS;
                     else if (inSwing)
@@ -306,9 +324,13 @@ namespace MeshGhostAutoplay.Tevi
                     if (tap == "Attack" && dodge && chainGuard && root == ComboRootFrames && Tells.FastestLead(target.type.ToString()) is int lead
                         && Mathf.Max(0f, target.GetHitStun()) * 60f + lead + ChargeTravel < ComboRootFrames) tap = null;
                     // Its armor broken and refilling (the red outline): a hit does little and does not stop it, and it attacks freely (the
-                    // user, 2026-09-17; the meter measured in MEASURED.md). A melee swing then only when standing stays safe for the swing and
-                    // 10 frames more (the whole 45-frame horizon cost damage uptime; the user: "play aggressivly & keep constant damage uptime").
-                    if (tap == "Attack" && orb == null && dodge && ArmorRecovering(target) && !guard.StandingSafe(root + 10)) tap = null;
+                    // user, 2026-09-17; the meter measured in MEASURED.md). A melee swing then only when standing stays safe for the whole
+                    // horizon: with only the swing and 10 frames more, he walked into her twice for 17 and 44 HP while she was locked (four tries,
+                    // 2026-09-17).
+                    if (tap == "Attack" && orb == null && dodge && ArmorRecovering(target) && !guard.StandingSafe(Dodge.Horizon)) tap = null;
+                    // Never at an orb flying at her: her Orbitar shot met one Ribauld had knocked toward her 199 units off, and its blast took
+                    // all 100 HP (2026-09-17, Infernal BBQ).
+                    if (tap != null && IncomingOrb(p, IncomingOrbReach)) tap = null;
                     if (tap != null && InputInjection.Tap(tap, 4))
                     {
                         if (tap == "Attack") attacks++;
@@ -581,7 +603,7 @@ namespace MeshGhostAutoplay.Tevi
         // A swing slid her about 14 units (the flight recorder, 2026-09-17); her hurtbox is 11 wide. A swing is refused only when where she
         // stands or where the slide ends, either way, comes within her half-width and a margin of a beam's radius: a flat 40 from every beam
         // refused every swing in the curtain's 84-wide gaps, which the user pointed to as the place to keep hitting from.
-        private const float BeamSlide = 16f, BeamMargin = 8f;
+        private const float BeamSlide = 16f, BeamMargin = 18f;
 
         private static bool BeamNear(CharacterBase p, int withinFrames)
         {
@@ -595,6 +617,24 @@ namespace MeshGhostAutoplay.Tevi
                     var at = new Vector2(c.x + k * BeamSlide, c.y);
                     if (Threats.DistanceToSegment(at, l.From, l.To) - l.Radius < half) return true;
                 }
+            }
+            return false;
+        }
+
+        private const float IncomingOrbReach = 500f, OrbBlastClear = 215f; // half the blast's 405 and half her width
+
+        // An orb within `reach` moving toward her faster than a resting one sways.
+        private static bool IncomingOrb(CharacterBase me, float reach)
+        {
+            CharacterManager cm = CharacterManager.Instance;
+            if (cm == null || cm.characters == null) return false;
+            Vector3 at = me.t.position;
+            foreach (CharacterBase c in cm.characters)
+            {
+                if (c == null || c == me || c.t == null || !c.gameObject.activeInHierarchy || c.type.ToString() != "EnergyBall" || c.phy_perfer == null) continue;
+                float dx = c.t.position.x - at.x;
+                if (Mathf.Abs(dx) > reach || Mathf.Abs(c.t.position.y - at.y) > 250f) continue;
+                if (c.phy_perfer._velocity.x * Math.Sign(dx) < -OrbKicked) return true;
             }
             return false;
         }
