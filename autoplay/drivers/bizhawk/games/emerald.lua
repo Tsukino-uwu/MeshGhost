@@ -1272,6 +1272,23 @@ end
 -- which POKéMON?": callback2 the routine the build names CB2_UpdatePartyMenu (+1), task 0 running Task_HandleChooseMonInput
 -- (+1), and byte 9 of the struct it names gPartyMenu 0 with the frame on MARSHTOMP, 7 with it on CANCEL after a Down, 0 again
 -- after the next. Read as the party's nicknames in slot order, then CANCEL. Only a party of one is measured.
+-- A MART'S QUANTITY BOX (2026-09-17, Slateport's Mart 9.13, `exec` reads against captures `autoplay_shop_*`; that adapter's
+-- MEASURED.md, "A Mart"). After A on POTION in the buy list and "How many would you like?", a task ran the routine the build
+-- names Task_BuyHowManyDialogueHandleInput (+1): its data word 1 read 1, then 2 and 3 after two Ups, with "x03 ₽900" drawn, and
+-- word 5 read 13, POTION's id. The list's own task stayed active under it (and under the price question after), so the list
+-- is not taken as the menu while this box or a message is up.
+LEARN.quantityTask = 0x080e0d88
+function LEARN.quantity()
+	for n = 0, NUM_TASKS - 1 do
+		local at = GTASKS + n * TASK_SIZE
+		if r8(at + 4) ~= 0 and (r32(at) & 0xFFFFFFFE) == LEARN.quantityTask then
+			local id = memory.read_s16_le(at + 18, BUS)
+			return { kind = "quantity", item = itemName(id) or ("item " .. id), count = memory.read_s16_le(at + 10, BUS), items = {},
+				cursor = 0 }
+		end
+	end
+	return nil
+end
 LEARN.partyMenu = { cb2 = 0x081b01b0, task = 0x081b1370, at = 0x0203cec8 }
 function LEARN.partyMenu.read()
 	local pm = LEARN.partyMenu
@@ -1431,7 +1448,7 @@ function game.observe(asked)
 		d, m = readDialogue(), readMenu()
 	end
 	-- A list menu under a menu opened from it (the bag's item menu) is not the one waiting.
-	local list = (isVanilla and not battle and not m) and readListMenu() or nil
+	local list = (isVanilla and not battle and not m and not d) and (LEARN.quantity() or readListMenu()) or nil
 	m = m or list or (isVanilla and (STARTER.menu() or LEARN.partyMenu.read())) or nil
 	if #hookNames > 0 then
 		-- In a battle the windows' own bytes do not say which are showing (the action and move menus
@@ -1806,7 +1823,8 @@ function game.menu()
 	if q then return { kind = q.kind, items = q.menu.items, cursor = q.menu.cursor } end
 	if isVanilla and inBattle() then return battleMenu() end
 	local m = (#hookNames > 0) and readMenu() or nil
-	return m or (isVanilla and (readListMenu() or STARTER.menu() or LEARN.partyMenu.read())) or nil
+	local d = (#hookNames > 0) and readDialogue() or nil
+	return m or (isVanilla and (LEARN.quantity() or (not d and readListMenu()) or STARTER.menu() or LEARN.partyMenu.read())) or nil
 end
 
 -- PROGRAMS: run once a frame by the driver, each returning (pad or nil, finished, result, error).
@@ -2341,7 +2359,11 @@ local textHooks = {
 	inOverworld = inOverworld,
 	-- The starter bag has no window: advance_text stops menu_open on it, for select.
 	-- The bag's list too: `battle` on the bag opened from a battle answered `stuck` without it (2026-09-17).
-	readMenu = function() return readMenu() or (isVanilla and (readListMenu() or STARTER.menu() or LEARN.partyMenu.read())) or nil end,
+	-- A Mart's quantity box first, and the list only with no message up (A MART'S QUANTITY BOX).
+	readMenu = function()
+		return readMenu() or (isVanilla and (LEARN.quantity() or (not readDialogue() and readListMenu()) or STARTER.menu()
+			or LEARN.partyMenu.read())) or nil
+	end,
 	-- FIGHT is the action menu's 0 and RUN its 3 (BATTLE_ACTIONS).
 	actionIndex = { fight = 0, run = 3 },
 	levelUpPage = function()
