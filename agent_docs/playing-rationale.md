@@ -77,6 +77,15 @@ sentences, and only the second one is about the game.
 game state — `CLAUDE.md`'s rule stands untouched; this permission is for dev-driven play, never for
 an adapter.
 
+### A new game's opening is played, not skipped (user, 2026-09-17)
+
+Asked whether to teleport around TEVI's first base looking for something that deals damage: *"try to proceed in the game the
+intended way at least right now at the start ( its really linear, will force you to learn the basic gameplay)"*. It paid off
+at once: the opening's banners, tutorial windows, item boxes and move list taught the quickdrop, the up-to-interact bubble,
+hold-to-jump-higher and blastorbs, and each became something `observe` reads. While it was played the user watched and gave
+short hints; those are rulings and go into the game's autoplay log. Cheats stay the tool once the basics are known or a test
+needs a made situation (the mindset above).
+
 ### The superseded rule, kept because its reasoning still matters
 
 Until the reversal the rule was the opposite — *"cheating is not allowed… try to progress just as a

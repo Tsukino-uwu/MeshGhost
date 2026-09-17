@@ -29,8 +29,8 @@ adapter's `CLAUDE.md` and `PROBES.md`.
   around the player, the items in hand, whether a battle happens and how it ends, whether an NPC
   speaks or a script runs. Nothing inside a game can stop you, strand you or make you wait — a
   ledge, a wall, a locked door and a missing HM are all just memory.
-- **A test situation is MADE, never found, waited for or asked for** — and made fresh, not loaded from
-  an old named slot, which the user rewrites often.
+- **A test situation is MADE, never found, waited for or asked for** — made fresh, not from an old named
+  slot. **But a new game's opening is PLAYED the intended way first**: its tutorials teach what the tools need.
 - **The one limit is on the thing being tested.** Create the situation any way at all, then let the
   game run the mechanism through ordinary input: make a ledge and walk off it, never force a hop; put
   water beside the player, then face it and cast. Forcing the OUTCOME tests nothing.
