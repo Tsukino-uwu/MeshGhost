@@ -1096,3 +1096,46 @@ pushed; once it is, read `gh run list -L 5` (this session changed `autoplay/` Go
 **Next for Emerald:** the clock reader (measured) and the starter bag's reader, both on the new game's path from
 `ng_clock`; then `exec` and noclip. Open with the user, from the Crystal chat's end: moving the route planner out of
 `emerald.lua` into shared Lua so Crystal gets `goto`.
+
+## 2026-09-17 (the Emerald chat, next session) — `goto`'s route planner moved into shared Lua, Emerald's answers unchanged
+
+**The user, as it began:** the planner out of `emerald.lua` first, so Crystal can get `goto` by supplying hooks, with
+Emerald's `goto` behaving exactly as before, checked live and committed; then the clock reader, the starter bag's reader,
+`exec` and noclip. This answers the question left open at both chats' ends.
+
+**Done.** `drivers/bizhawk/route.lua` holds the planner (Dijkstra over tile and facing: a step costs 1, a turn 2, grass 8
+unless `cross_grass`, a trainer's line 100; the legs; `route_in_sight`) and `goto`'s ride (hold a leg, turn on the corner
+tile, let go for a coast or before a warp taken from rest, plan again after a bump up to 8 times, hold into a warp), moved
+with its comments. The driver hands it to every module as `lib.route`; a module offers `game.programs["goto"]` by calling
+`lib.route.go(hooks, p)`. In `emerald.lua`, `walk`'s bump check and the Mach Bike's let-go rule became one function each,
+shared by `walk` and the hooks.
+
+**The hooks a game supplies** (the list heads `route.lua`):
+- `position()` (map name and tile, the tile moving when a step begins) and `inOverworld()`;
+- `watch()`, which makes the per-frame check for early stops (Emerald's: `spotted`, `dialogue_open`, `menu_open`);
+- `atRest()`, `refused()` and `idle()`: the step states `walk` measured;
+- `ride(run)`: buttons held with the direction (B to run), and for a ride that coasts, `coast(tiles)` and `shortLeg`
+  (Emerald's Mach Bike, 3);
+- `routeGrid(fromX, fromY, toX, toY)`: the map's size, a `where` for refusals, and `tile(x, y)` answering open, grass,
+  and the trainer that looks at the tile;
+- `warps()` and `enterWarp(w)`: stepped onto, a direction pressed on it (from rest or not), or a tile beside it;
+- `blockedBy(x, y)`, and `limits` (rest, idle, press, door and step, in frames).
+
+Crystal's `walk` already reads what most of these need. One thing the hooks do not cover: Crystal's `walk` waits after a
+door until the game has walked the player off it (8 frames of rest on the new map), while `goto` answers `map_changed` on
+the first frame the map differs, so a Crystal door would answer mid-warp until a hook for that is added.
+
+**Checked live** (vanilla Emerald, port 7870, the instance left running): 24 calls made before the move and again after,
+each from a restored snapshot, compared on outcome, reason, tile, tiles moved, turns, replans, frames, `entered` and
+`route_in_sight` -- identical. The truck's door from `ng_truck_fast` (73 frames, as last session); Oldale's Pokémon Center
+door from `town_start` and the lab's mat from `acc_got_mudkip`, walked and run; route 0.16 from `session_end_route016` on
+foot (a turn, grass avoided and crossed, two routes into wild battles at the same frame both times) and on the Mach Bike
+(three routes of 9 to 24 tiles with turns at speed); route 0.17 from `fast_text_route102` into trainer 2's line
+(`spotted`, `route_in_sight`) and beside it; the player's own tile and three refusals (outside the map, a wall, RICK's
+tile); five `walk` calls for the shared functions (a bump, a run, three Mach Bike rides). The sight scenario 3 of 3. Not
+exercised live: a replan after a bump, and `no_response`. `goto` on Emerald can only answer through `lib.route` now, so
+the second set ran the moved code.
+
+**Crystal's path:** `crystal.lua` and `text.lua` untouched by this chat; Crystal's module never reads `lib.route`, and
+the driver's one new load is `route.lua`, which loaded and ran on the Emerald instance and parses with `luac -p`. Not run
+on the Crystal instance, which is that chat's.

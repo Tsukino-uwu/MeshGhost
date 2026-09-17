@@ -12,7 +12,7 @@
 -- the probes showed. Only on that ROM are the hooks installed; anywhere else `dialogue`, `menu` and
 -- `screen_text` are absent.
 
--- The shared driver library the driver hands every game module (driver.lua: `text`).
+-- The shared driver library the driver hands every game module (driver.lua: `text`, `route`).
 local lib = ...
 
 local BUS = "System Bus"
@@ -1441,6 +1441,24 @@ local function atRest()
 		and a[1] == 0 and a[2] == 0
 end
 
+-- A held step refused, and held input doing nothing yet, from step_probe.lua (2026-09-16; `walk`, below): a bump
+-- leaves the coordinates, the previous coordinate already equal to them, the avatar's +2 reading 2 and the object's
+-- byte 0 top bit clear; +2 reads 0 while nothing is under way (1 turning, or a door opening).
+local function stepRefused()
+	local b = memory.read_bytes_as_array(playerObject(), 0x18, BUS)
+	local caughtUp = b[17] == b[21] and b[18] == b[22] and b[19] == b[23] and b[20] == b[24]
+	return r8(GPLAYERAVATAR + 2) == 2 and caughtUp and (b[1] & 0x80) == 0
+end
+local function stepIdle() return r8(GPLAYERAVATAR + 2) == 0 end
+
+-- On the Mach Bike, whether to let go now with `tiles` left: the step just begun carries on for +0x0B more tiles once
+-- released, and holding one more raises it from 0 to 1, or from 1 to 3 (bike_probe.lua, 2026-09-16; `walk`, below).
+local function machCoasts(tiles)
+	local speed = r8(GPLAYERAVATAR + 0x0B)
+	local nextSpeed = speed == 0 and 1 or 3
+	return speed >= tiles or nextSpeed + 1 > tiles
+end
+
 -- What stands on a tile, in map coordinates, for a refused step.
 local function describeTile(x, y)
 	local ox, oy = x + MAP_OFFSET, y + MAP_OFFSET
@@ -1599,27 +1617,18 @@ function game.programs.walk(p)
 				phase = "arriving"
 				return nil, false
 			end
-			if mach then
-				-- The step just begun carries on for `speed` more tiles once released; holding one more
-				-- raises it from 0 to 1, or from 1 to 3 (bike_probe.lua).
-				local speed = r8(GPLAYERAVATAR + 0x0B)
-				local nextSpeed = speed == 0 and 1 or 3
-				if moved + speed >= tiles or moved + 1 + nextSpeed > tiles then
-					phase = "coasting"
-					return nil, false
-				end
+			if mach and machCoasts(tiles - moved) then
+				phase = "coasting"
+				return nil, false
 			end
 			towardWarp = warpAhead(x, y)
 			return hold, false
 		end
-		local b = memory.read_bytes_as_array(playerObject(), 0x18, BUS)
-		local caughtUp = b[17] == b[21] and b[18] == b[22] and b[19] == b[23] and b[20] == b[24]
-		local state = r8(GPLAYERAVATAR + 2)
-		if state == 2 and caughtUp and (b[1] & 0x80) == 0 then
+		if stepRefused() then
 			phase, frames = "refused", 0
 			return nil, false
 		end
-		if state == 0 then idle = idle + 1 end
+		if stepIdle() then idle = idle + 1 end
 		if towardWarp then
 			if frames > DOOR_LIMIT then return finish("no_response") end
 		elseif idle > IDLE_LIMIT or frames > PRESS_LIMIT then
@@ -1629,39 +1638,27 @@ function game.programs.walk(p)
 	end
 end
 
--- goto {x, y, run}: to a tile on this map by a planned route of straight legs, holding each leg's
--- direction and switching to the next as the step into the corner begins -- a held direction turns on
--- arrival, and the Mach Bike kept its speed through a turn (bike_probe.lua, 2026-09-16: the first tile
--- after the corner read +0x0B 3). Everything the ride does rests on `walk`'s measurements; what is new is
--- the plan, made over the whole map grid (gBackupMapLayout, measured for `local_map`):
---   * a tile is open when it is inside the map, its collision bits are clear, its elevation is the
---     player's, it is not a ledge (behaviour 0x3B, which hopped two tiles going down), no character stands
---     on it, and it is not a warp unless it is the target. Other elevations and behaviours are not
---     measured as walkable or not, so the plan stays on the player's elevation and learns the rest;
---   * the cost is a tile a step plus TURN_COST a turn, so the route takes straight legs where it can, and
---     GRASS_COST more for a tile of behaviour 0x02 (every wild encounter so far began on one: route 0.16
---     four times, route 0.17 once) unless `cross_grass` is true, as with a Repel running;
---   * SIGHT_COST more for a tile an unbeaten trainer looks at (TRAINERS, above: every way it turns, as far
---     as it sees), and a trainer not loaded yet closes its template's tile, so a route enters a trainer's
---     line only where there is no other way; `route_in_sight` names each one the last plan had to cross;
---   * on the Mach Bike the last leg lets go by `walk`'s coast rule, and a last leg of 3 tiles or fewer is
---     reached by stopping at its corner first, since after a turn at speed the first tile reads 3 and
---     coasts three;
---   * a bump ends the ride at rest, marks the refused tile closed, and plans again (at most REPLANS times).
--- It stops for the same reasons `walk` does, and a warp or an edge that changes the map ends it too.
-local TURN_COST, GRASS_COST, SIGHT_COST, REPLANS = 2, 8, 100, 8
--- The direction a warp you stand on is entered by (ENTERING A WARP, in goto).
+-- GOTO: the route planner and the ride are shared (`../route.lua`, moved out of this file on 2026-09-17); what they read
+-- here is Emerald's, through the hooks below. Everything the ride does rests on `walk`'s measurements; the plan is made
+-- over the whole map grid (gBackupMapLayout, measured for `local_map`):
+--   * a tile is open when it is inside the map, its collision bits are clear, its elevation is the player's, it is not
+--     a ledge (behaviour 0x3B, which hopped two tiles going down), no character stands on it, and it is not a warp
+--     unless it is the target. Other elevations and behaviours are not measured as walkable or not, so the plan stays
+--     on the player's elevation and learns the rest;
+--   * tall grass is behaviour 0x02: every wild encounter so far began on one (route 0.16 four times, route 0.17 once);
+--   * a tile an unbeaten trainer looks at is every way it turns, as far as it sees (TRAINERS, above), and a trainer not
+--     loaded yet closes its template's tile;
+--   * on the Mach Bike the last leg lets go by `walk`'s coast rule (machCoasts), and a last leg of 3 tiles or fewer is
+--     reached by stopping at its corner first, since after a turn at speed the first tile reads 3 and coasts three.
+-- The direction a warp you stand on is entered by (ENTERING A WARP, below).
 local WARP_PRESS = { [0x62] = "right", [0x65] = "down" }
 
-local function planRoute(fromX, fromY, toX, toY, closed, crossGrass)
+local function routeGrid(fromX, fromY, toX, toY)
 	local layout = r32(GMAPHEADER)
 	if not inRom(layout) then return nil, "no map layout" end
 	local mapW, mapH = r32(layout), r32(layout + 4)
 	local gw, gh, gp = r32(GBACKUPMAPLAYOUT), r32(GBACKUPMAPLAYOUT + 4), r32(GBACKUPMAPLAYOUT + 8)
 	if mapW < 1 or mapH < 1 or mapW > 512 or mapH > 512 or gw * gh > 262144 then return nil, "map size out of range" end
-	if toX < 0 or toY < 0 or toX >= mapW or toY >= mapH then
-		return nil, string.format("(%d,%d) is outside this map's %d by %d", toX, toY, mapW, mapH)
-	end
 	local grid = memory.read_bytes_as_array(gp, gw * gh * 2, BUS)
 	local elevation = r8(playerObject() + 0x0B) & 0x0F
 	if elevation == 0 then
@@ -1689,277 +1686,73 @@ local function planRoute(fromX, fromY, toX, toY, closed, crossGrass)
 	for _, w in ipairs(readWarps()) do
 		if not (w.x == toX and w.y == toY) then blocked[w.y * mapW + w.x] = blocked[w.y * mapW + w.x] or "warp" end
 	end
-	for k, why in pairs(closed) do blocked[k] = why end
-	-- nil when a tile is closed; otherwise the extra cost of stepping onto it.
-	local function open(x, y)
-		if x < 0 or y < 0 or x >= mapW or y >= mapH or blocked[y * mapW + x] then return nil end
-		local i = ((x + MAP_OFFSET) + gw * (y + MAP_OFFSET)) * 2 + 1
-		local v = grid[i] | (grid[i + 1] << 8)
-		-- Elevation 0 takes a step from any: the house's door mats and stairs read 0 and were walked onto
-		-- from elevation 3 (2026-09-17).
-		if (v & 0x0C00) ~= 0 or ((v >> 12) ~= elevation and (v >> 12) ~= 0) then return nil end
-		local behaviour = behaviourOf(v & 0x3FF)
-		if behaviour == 0x3B then return nil end
-		return ((behaviour == 0x02 and not crossGrass) and GRASS_COST or 0) + (seen[y * mapW + x] and SIGHT_COST or 0)
-	end
-	if not open(toX, toY) then
-		return nil, string.format("(%d,%d) is not an open tile at elevation %d", toX, toY, elevation)
-	end
-	-- Dijkstra over (tile, facing) with a binary heap.
-	local order = { DIRECTIONS.up, DIRECTIONS.down, DIRECTIONS.left, DIRECTIONS.right }
-	local dist, prev, heap = {}, {}, {}
-	local function push(cost, key)
-		heap[#heap + 1] = { cost, key }
-		local i = #heap
-		while i > 1 do
-			local parent = i // 2
-			if heap[parent][1] <= heap[i][1] then break end
-			heap[parent], heap[i] = heap[i], heap[parent]
-			i = parent
-		end
-	end
-	local function pop()
-		local top = heap[1]
-		local last = table.remove(heap)
-		if #heap > 0 then
-			heap[1] = last
-			local i = 1
-			while true do
-				local l, r, m = i * 2, i * 2 + 1, i
-				if l <= #heap and heap[l][1] < heap[m][1] then m = l end
-				if r <= #heap and heap[r][1] < heap[m][1] then m = r end
-				if m == i then break end
-				heap[m], heap[i] = heap[i], heap[m]
-				i = m
-			end
-		end
-		return top
-	end
-	for di = 1, 4 do
-		local key = (fromY * mapW + fromX) * 4 + di - 1
-		dist[key] = 0
-		push(0, key)
-	end
-	local goal
-	while #heap > 0 do
-		local item = pop()
-		local cost, key = item[1], item[2]
-		if cost == dist[key] then
-			local tile, di = key // 4, key % 4 + 1
-			local x, y = tile % mapW, tile // mapW
-			if x == toX and y == toY then
-				goal = key
-				break
-			end
-			for ni = 1, 4 do
-				local d = order[ni]
-				local nx, ny = x + d.dx, y + d.dy
-				local extra = open(nx, ny)
-				if extra then
-					local nkey = (ny * mapW + nx) * 4 + ni - 1
-					local ncost = cost + 1 + extra + ((ni ~= di and cost > 0) and TURN_COST or 0)
-					if dist[nkey] == nil or ncost < dist[nkey] then
-						dist[nkey], prev[nkey] = ncost, key
-						push(ncost, nkey)
-					end
-				end
-			end
-		end
-	end
-	if not goal then return nil, string.format("no open route from (%d,%d) to (%d,%d) at elevation %d", fromX, fromY, toX, toY, elevation) end
-	-- Walk back to the start, then fold the steps into legs.
-	local steps, key = {}, goal
-	while prev[key] do
-		table.insert(steps, 1, order[key % 4 + 1])
-		key = prev[key]
-	end
-	local legs, x, y, inSight, named = {}, fromX, fromY, {}, {}
-	for _, d in ipairs(steps) do
-		x, y = x + d.dx, y + d.dy
-		local t = seen[y * mapW + x]
-		if t and not named[t] then
-			named[t] = true
-			inSight[#inSight + 1] = { trainer_local_id = t.local_id, trainer_at = { x = t.x, y = t.y }, first_tile = { x = x, y = y } }
-		end
-		local leg = legs[#legs]
-		if leg and leg.d == d then
-			leg.len, leg.endX, leg.endY = leg.len + 1, x, y
-		else
-			legs[#legs + 1] = { d = d, len = 1, endX = x, endY = y }
-		end
-	end
-	return legs, inSight
+	return {
+		width = mapW, height = mapH, where = "at elevation " .. elevation,
+		tile = function(x, y)
+			if blocked[y * mapW + x] then return nil end
+			local i = ((x + MAP_OFFSET) + gw * (y + MAP_OFFSET)) * 2 + 1
+			local v = grid[i] | (grid[i + 1] << 8)
+			-- Elevation 0 takes a step from any: the house's door mats and stairs read 0 and were walked onto
+			-- from elevation 3 (2026-09-17).
+			if (v & 0x0C00) ~= 0 or ((v >> 12) ~= elevation and (v >> 12) ~= 0) then return nil end
+			local behaviour = behaviourOf(v & 0x3FF)
+			if behaviour == 0x3B then return nil end
+			return true, behaviour == 0x02, seen[y * mapW + x]
+		end,
+	}
 end
 
-game.programs["goto"] = function(p)
-	local toX, toY = math.tointeger(p.x), math.tointeger(p.y)
-	if not toX or not toY then return nil, "goto needs x and y, a tile on this map" end
-	if not isVanilla then return nil, "goto is measured on the vanilla ROM only" end
-	if not inOverworld() then return nil, "goto needs the overworld" end
-	local run, crossGrass = p.run == true, p.cross_grass == true
-	local phase, frames, idle, moved, replans = "rest", 0, 0, 0, 0
-	local startMap, lastX, lastY, legs, li, mach, onFoot = nil, 0, 0, nil, 1, false, true
-	local closed, towardWarp, legsTaken, inSight = {}, false, 0, {}
-	local spotted = approachWatch()
-	local function here()
+local routeHooks = {
+	position = function()
 		local sb1 = r32(SB1PTR)
 		return string.format("%d.%d", r8(sb1 + 4), r8(sb1 + 5)), r16(sb1), r16(sb1 + 2)
-	end
-	local function finish(outcome, extra)
-		local _, x, y = here()
-		local r = { target = { x = toX, y = toY }, at = { x = x, y = y }, outcome = outcome, moved = moved,
-			turns = legsTaken, replans = replans, route_in_sight = #inSight > 0 and inSight or nil }
-		for k, v in pairs(extra or {}) do r[k] = v end
-		return nil, true, r
-	end
-	local function hold()
-		return { [legs[li].d.button] = true, B = (run and onFoot) or nil }
-	end
-
+	end,
+	inOverworld = inOverworld,
+	-- `walk`'s early stops: a trainer coming (A TRAINER COMING FOR THE PLAYER, above), a message or a menu on screen.
+	watch = function()
+		local spotted = approachWatch()
+		return function()
+			local trainer = spotted()
+			if trainer then return "spotted", { trainer = trainer } end
+			if #hookNames > 0 then
+				if dialogue and windowOnScreen(dialogue.window) then return "dialogue_open" end
+				if menuWindow and windowOnScreen(menuWindow) then return "menu_open" end
+			end
+			return nil
+		end
+	end,
+	atRest = atRest,
+	refused = stepRefused,
+	idle = stepIdle,
+	ride = function(run)
+		local flags = r8(GPLAYERAVATAR)
+		local mach, onFoot = (flags & MACH_BIKE_FLAG) ~= 0, (flags & ON_FOOT_FLAG) ~= 0
+		-- B only on foot: on the Acro Bike it is the wheelie button.
+		return { buttons = { B = (run and onFoot) or nil }, coast = mach and machCoasts or nil, shortLeg = mach and 3 or nil }
+	end,
+	routeGrid = routeGrid,
+	warps = readWarps,
 	-- ENTERING A WARP (2026-09-17, the new game's truck, house and town, `walk` and `observe`'s warps): stairs
 	-- (behaviour 0x60) warped on the step onto them; the truck's door (0x62) and the house's door mat (0x65)
 	-- only when the player, standing on them, pressed right and down; a town door (0x69, collision set) is
 	-- walked up into from the tile below it (a Pokémon Center's, 2026-09-16). So a goto to a warp goes onto it,
-	-- or below a door, and holds that direction until the map changes. `entered` names the warp in the answer.
+	-- or below a door, and holds that direction until the map changes.
 	-- A warp entered by a press on it is stepped onto from rest: from the new game's truck (snapshot `ng_truck_fast`, the
 	-- door open), a held walk right 2 bumped at the door (4,2) after one tile, and two walks of 1 each landed on it
 	-- (2026-09-17). So the ride lets go one tile short, comes to rest, and takes the last step alone.
-	local enter, warpX, warpY, restBefore = nil, toX, toY, false
-	for _, w in ipairs(readWarps()) do
-		if w.x == toX and w.y == toY then
-			if w.behaviour == 0x69 then
-				toY, enter = toY + 1, DIRECTIONS.up
-			elseif WARP_PRESS[w.behaviour] then
-				enter, restBefore = DIRECTIONS[WARP_PRESS[w.behaviour]], true
-			end
-		end
-	end
+	enterWarp = function(w)
+		if w.behaviour == 0x69 then return { dy = 1, press = "up" } end
+		if WARP_PRESS[w.behaviour] then return { press = WARP_PRESS[w.behaviour], fromRest = true } end
+		return nil
+	end,
+	blockedBy = describeTile,
+	limits = { rest = REST_LIMIT, idle = IDLE_LIMIT, press = PRESS_LIMIT, door = DOOR_LIMIT, step = STEP_LIMIT },
+}
 
-	return function()
-		frames = frames + 1
-		local map, x, y = here()
-		startMap = startMap or map
-		if map ~= startMap and enter then return finish("map_changed", { map = map, entered = { x = warpX, y = warpY } }) end
-		if map ~= startMap then return finish("map_changed", { map = map }) end
-		if not inOverworld() then return finish("left_overworld") end
-		local trainer = spotted()
-		if trainer then return finish("spotted", { trainer = trainer }) end
-		if #hookNames > 0 then
-			if dialogue and windowOnScreen(dialogue.window) then return finish("dialogue_open") end
-			if menuWindow and windowOnScreen(menuWindow) then return finish("menu_open") end
-		end
-
-		if phase == "rest" then
-			if not atRest() then
-				if frames > REST_LIMIT then return finish("not_at_rest") end
-				return nil, false
-			end
-			if x == toX and y == toY and not enter then return finish("done") end
-			if x == toX and y == toY then
-				phase, frames = "enter", 0
-				return { [enter.button] = true }, false
-			end
-			-- A warp stepped onto ends the goto with map_changed; anything else still plans to stand on it.
-			local flags = r8(GPLAYERAVATAR)
-			mach, onFoot = (flags & MACH_BIKE_FLAG) ~= 0, (flags & ON_FOOT_FLAG) ~= 0
-			local planned, why = planRoute(x, y, toX, toY, closed, crossGrass)
-			if not planned then return finish(replans > 0 and "blocked" or "unreachable", { reason = why }) end
-			inSight = why
-			legs, li, phase, frames, idle, lastX, lastY = planned, 1, "hold", 0, 0, x, y
-			towardWarp = false
-			for _, w in ipairs(readWarps()) do
-				towardWarp = towardWarp or (w.x == x + legs[1].d.dx and w.y == y + legs[1].d.dy)
-			end
-		end
-
-		if phase == "coasting" then
-			if x ~= lastX or y ~= lastY then
-				moved = moved + math.abs(x - lastX) + math.abs(y - lastY)
-				lastX, lastY, frames = x, y, 0
-			end
-			if atRest() then
-				phase, frames = "rest", 0
-				return nil, false
-			end
-			if frames > STEP_LIMIT then return finish("not_at_rest") end
-			return nil, false
-		end
-
-		if phase == "enter" then
-			-- Held into the warp until the map changes (checked above); a door that never opens stops it.
-			if frames > DOOR_LIMIT then return finish("no_response", { entering = { x = warpX, y = warpY } }) end
-			return { [enter.button] = true }, false
-		end
-
-		if phase == "refused" then
-			if atRest() then
-				local d = legs[li].d
-				local layout = r32(GMAPHEADER)
-				local mapW = inRom(layout) and r32(layout) or 0
-				closed[(y + d.dy) * mapW + (x + d.dx)] = "refused"
-				replans = replans + 1
-				if replans > REPLANS then
-					return finish("blocked", { blocked_by = describeTile(x + d.dx, y + d.dy) })
-				end
-				phase, frames = "rest", 0
-			elseif frames > REST_LIMIT then
-				return finish("not_at_rest")
-			end
-			return nil, false
-		end
-
-		-- hold: follow the legs.
-		if x ~= lastX or y ~= lastY then
-			moved = moved + math.abs(x - lastX) + math.abs(y - lastY)
-			lastX, lastY, frames, idle = x, y, 0, 0
-			if x == toX and y == toY then
-				phase = "coasting"
-				return nil, false
-			end
-			local turned = false
-			if x == legs[li].endX and y == legs[li].endY and li < #legs then
-				li, legsTaken, turned = li + 1, legsTaken + 1, true
-			end
-			local leg = legs[li]
-			if restBefore and x + leg.d.dx == warpX and y + leg.d.dy == warpY then
-				phase = "coasting"
-				return nil, false
-			end
-			-- Not on a corner tile: letting go there would coast along the leg just finished.
-			if mach and not turned then
-				local dist = math.abs(leg.endX - x) + math.abs(leg.endY - y)
-				local last = li == #legs
-				local stopAtCorner = li == #legs - 1 and legs[#legs].len <= 3
-				if last or stopAtCorner then
-					local speed = r8(GPLAYERAVATAR + 0x0B)
-					local nextSpeed = speed == 0 and 1 or 3
-					if speed >= dist or nextSpeed + 1 > dist then
-						phase = "coasting"
-						return nil, false
-					end
-				end
-			end
-			towardWarp = false
-			for _, w in ipairs(readWarps()) do
-				towardWarp = towardWarp or (w.x == x + leg.d.dx and w.y == y + leg.d.dy)
-			end
-			return hold(), false
-		end
-		local b = memory.read_bytes_as_array(playerObject(), 0x18, BUS)
-		local caughtUp = b[17] == b[21] and b[18] == b[22] and b[19] == b[23] and b[20] == b[24]
-		local state = r8(GPLAYERAVATAR + 2)
-		if state == 2 and caughtUp and (b[1] & 0x80) == 0 then
-			phase, frames = "refused", 0
-			return nil, false
-		end
-		if state == 0 then idle = idle + 1 end
-		if towardWarp then
-			if frames > DOOR_LIMIT then return finish("no_response") end
-		elseif idle > IDLE_LIMIT or frames > PRESS_LIMIT then
-			return finish("no_response")
-		end
-		return hold(), false
-	end, nil, 7200
+-- goto {x, y, run, cross_grass}: to a tile on this map by a planned route (`../route.lua`).
+game.programs["goto"] = function(p)
+	if not isVanilla then return nil, "goto is measured on the vanilla ROM only" end
+	return lib.route.go(routeHooks, p)
 end
 
 -- TEXT AND BATTLES AS ONE CALL: the machine that decides when to press is shared (`../text.lua`, moved out of this

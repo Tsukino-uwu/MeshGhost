@@ -232,6 +232,11 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   `emerald.lua` since 2026-09-17): it decides when to press, and each game module hands it hooks for what
   it measured -- the message on screen, the battle menu and its cursor, whether a script still runs. The
   driver loads it and calls each module with it (`local lib = ...`); the hook list is at the top of the file.
+- **`goto` is one program for every game** (`drivers/bizhawk/route.lua`, out of `emerald.lua` since 2026-09-17): it
+  plans the route -- what a step, a turn, grass and a trainer's line cost -- and rides it, holding, turning, letting go
+  and planning again after a bump; each game module hands it hooks for what it measured: which tiles are open, when a
+  step begins or is refused, how a bike coasts, how each warp is entered. The hook list is at the top of the file;
+  Emerald's module supplies them, Crystal's not yet.
 - **Programs stop when nothing changes.** `walk`, `goto`, `select`, `battle` and `advance_text` run in the
   driver a frame at a time and end on the game's state; `battle` and `advance_text` press A once after
   3 seconds with no change -- only in a battle or on a message they can read -- retry a press the game
