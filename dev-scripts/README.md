@@ -617,7 +617,8 @@ $env:MESHGHOST_TEVI_DIR2 = "<second install>"
 ```
 
 **3. Launch both games and label the windows.** Start the Steam copy first, wait for it to reach
-the title, then the standalone -- then `tevi-label-windows.ps1`, which retitles them `[A: STEAM]`
+the title, then the standalone (the other way round, or both at once, Steam sees the title already
+running and its copy closes again: the user, 2026-09-02) -- then `tevi-label-windows.ps1`, which retitles them `[A: STEAM]`
 and `[B: STANDALONE]` so a screenshot or a bug report can name which one it is.
 
 **4. Verify from the ADAPTER logs, not from the absence of errors.** Each install's

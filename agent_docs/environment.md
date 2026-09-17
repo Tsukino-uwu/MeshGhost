@@ -285,7 +285,9 @@ so this file stays the dated record of versions and traps, and that one is the s
   (checked at runtime, not from a doc string — `savestate.saveslots` does NOT exist). BizHawk has
   **ten slots**, and the user has given standing permission to use all of them during
   dev/testing: *"you are allowed to use all 10 during dev/testing/local tests"*. **Narrowed
-  2026-08-19: slot 1 is the user's on every instance** (`CLAUDE.md`; `playing-rationale.md`).
+  2026-08-19: slot 1 is the user's on every instance** (`CLAUDE.md`; `playing-rationale.md`). Overwriting
+  another occupied slot needs no permission (2026-08-26: *"feel free to overwrite them if we need to use for other
+  things"*), but say which slot was replaced and what it held: the user cannot see that from the game.
   `dev-scripts/bizhawk-savestate.lua` saves or loads one slot and stops.
   **Why it matters:** reaching a test state costs the user real playing time, so a checkpoint
   turns "walk back to the route / re-catch a Pokemon / replay the intro" into an instant restore,

@@ -106,6 +106,14 @@ the gesture for what it is: raising the speed is the user removing the excuse th
 — which is why the skill says never to reset a speed you did not set. The measurement that showed
 400% buys about 2.3x on a loaded host is in `references/bizhawk.md`.
 
+**Text speed (user, 2026-09-17).** Watching autoplay play vanilla Emerald: *"can you go into options and change the
+text speed to be faster ?"*, then *"some rom hacks have speed beyond 'fast'. but it should make all text dialouges go a
+bit faster than keeping it at 'mid' or 'slow'"*, and *"its also possible to change/set these options before starting a
+'new game' at the main menu"* -- before CONTINUE too, after a reset to it. So the fastest the game offers, set where it
+is cheapest. The speed is save data: a savestate taken before it was set brings the old speed back on a restore. On
+Emerald FAST read RICK's words in 184 frames against 268 of printing alone at MID, and the text readers go by the
+printer's own state, never time (`phases/phase13.md`, 2026-09-17).
+
 ## Building a state
 
 The per-game recipes (Crystal and Emerald, 2026-09-16) moved into the skill's

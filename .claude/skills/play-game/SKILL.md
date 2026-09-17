@@ -85,6 +85,7 @@ it and move on. **Never a third attempt on inputs** (`references/navigation.md`)
 
 - `client.speedmode(n)` is a request, not a guarantee (400% gave about 2.3x on a loaded host).
   Measure what you got; **never reset a speed you did not set**; put back what you changed.
+  **Set the game's own text speed to its fastest** (a main-menu or in-game OPTION); a snapshot keeps its own.
 - **Capture the game frame** where the host can (`client.screenshot()`); a drawn-tier ghost is not in
   it, so judge that tier with counters. Picture and numbers in the SAME frame. Shots go to
   `dev-scripts/shots/<game>/` (gitignored), never a scratch folder (`references/screenshots.md`).

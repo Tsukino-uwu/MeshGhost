@@ -13,6 +13,7 @@ game points here. The `play-game` skill is the sibling for driving the game itse
 
 - Running the scaffolding for a local test — keep it hidden
 - The default dev rig is NETSIM, not a clean loopback (user's call, 2026-08-28)
+- Setting a live test up so the user can judge it — the user's rules, 2026-08-20 to 2026-09-06
 - Running the TEVI two-instance rig — the runbook is in `dev-scripts/README.md`
 - Launching BizHawk from PowerShell — quote the ROM path yourself, 2026-08-19
 - Working two games at once, and which model an agent gets — 2026-08-19
@@ -86,6 +87,38 @@ interp verdict; a milder profile is a comparison, never a verdict.** Rule and re
 `agent_docs/testing.md` ("Running a session over a bad network") and `dev-scripts/README.md`
 ("The two-rig doctrine"). Why: one netsim session found three shipped bugs and a timing flaw the
 clean rig structurally could not show.
+
+## Setting a live test up so the user can judge it — the user's rules, 2026-08-20 to 2026-09-06
+
+Moved here from agent memory on 2026-09-17 (the user: rules every agent needs belong in the repo). Each is what
+the user watching the screen needs in order to tell one fault from another.
+
+- **Two rendered characters never share a tile** (2026-08-21: *"NEVER PLACE SPRITES ON TOP OF OTHER SPRITES DURING
+  LOCAL TESTING! makes it impossible for me to see/tell what is happening"*). A loopback ghost sits to the side of
+  the player; two ghosts go two tiles right and two tiles left; a leftover object stacked on a live ghost is cleared
+  before anything is diagnosed. `MESHGHOST_COMPARE_TIERS` builds exactly that layout.
+- **Both renderers on, every local BizHawk session, unasked** (2026-08-20: *"its just nice to be able to compare the
+  drawn/player/spawned all at once side by side, for any/all local dev testing"*): `MESHGHOST_COMPARE_TIERS=1`,
+  `dev-scripts/README.md`.
+- **Interp pairs with the offset**: beside the player, 0 ms and judged 1:1; on top of the player, a deliberate delay
+  and judged as following. `dev-scripts/README.md`, "Interp is PAIRED with the loopback offset".
+- **Ghost collision stays off in dev.** A solid ghost beside the player blocks the movement under test (2026-08-20:
+  *"you keep bumping into the spawned ghost"*). Since 2026-09-02 the relay's `-ghost-collision` defaults to
+  `disabled`, and since 2026-09-11 both Lua adapters read that policy and make ghosts walk-through; the PC adapters
+  ship no solid ghosts. Only a test of collision itself turns it on, and it goes back off after.
+- **Two real clients by default** (2026-08-31: *"probly always better to test 2 real peers when possible to see that
+  things actually work as intended"*). A fake peer shows one direction only; it is for pricing a ghost, a
+  deterministic spawn or a load test. When one client crashes, keep the other running: it says whether the fault is
+  shared.
+- **For a rate, interp or stutter verdict the second client stands still** (2026-09-02: *"you moving around made it
+  harder to judge ping/stutters"*): the user moves and watches their own ghost in the other window. A driven second
+  client is for hunting faults, never for a verdict.
+- **Trails and afterimages are judged from a top-down camera**; from behind, the two trails merge
+  (`pitfalls/method.md`).
+- **A frame cap comes off only for the sample** (2026-09-06: *"can we remove the unlimited fps cap again, or at least
+  whenever a test is not running?"*): Pseudoregalia's samplers send `t.MaxFPS 0`, sample, and send `t.MaxFPS 144`
+  (the user's limit) in the same step; an interrupted run puts the cap back before anything else is said.
+- **TEVI: the Steam copy first**, then the standalone (`dev-scripts/README.md`, step 3).
 
 ## Running the TEVI two-instance rig — the runbook is in `dev-scripts/README.md`
 
@@ -363,7 +396,10 @@ by name, which does not truncate. Cost one silent monitor and a launch nobody wa
   exclusion are the bridge; SignPath is the fix.
 - **Edit an install's `config.json` with a Python script, never a PowerShell one-liner.** A
   `-replace` that failed to parse left `$c2` null and `Set-Content` wrote a 3-byte file; the backup
-  taken one statement earlier is what saved it. Take the backup first, every time.
+  taken one statement earlier is what saved it. Take the backup first, every time. **And change the value in
+  place, never `json.load` then `json.dump`**: a dump rewrote the user's live game-root `config.json` and flattened
+  the grouping they keep (2026-09-08: *"since when did i tell you to restructure the config structure/layout ?"*).
+  Replace the one value with a regex anchored on its key, write the text back, and re-read the key.
 - **`show_console` can only open a console for a core that was started with NONE.** A core the agent
   starts with `Start-Process -WindowStyle Hidden` already has a (hidden) console, so `AllocConsole`
   fails and the setting does nothing. To honour it from a script, start the process with

@@ -23,7 +23,8 @@ touching an actor, read `agent_docs/checklists/before-spawning-in-unreal.md`** â
 `ue4ss\Mods\`, and reloaded INTO THE RUNNING GAME.** A C++ change costs a rebuild and a full
 game relaunch per attempt; a Lua reload costs seconds. The 2026-08-28 nametag session iterated
 the C++ adapter and paid a relaunch per experiment; 2026-08-29 re-ran the same investigation in
-Lua at ~5 rounds in one game session. User: make this the default (2026-08-29).
+Lua at ~5 rounds in one game session. User: make this the default (2026-08-29). **A FIX is proven in Lua
+too, before its C++ is written** (user, 2026-09-04: *"try with lua first, so we actually test the fix before making it"*).
 
 **Reload without touching the game window:** deploy `probe_reloader/` (once), then write
 `<ModName> <nonce>` to `ue4ss\Mods\MeshGhostProbeReloader\reload_request.txt` â€” it calls
