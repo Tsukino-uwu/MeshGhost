@@ -1170,6 +1170,94 @@ function BATTLE_BUSY.playing()
 	end
 	return false
 end
+-- THE LEARN-A-MOVE QUESTION, THE MOVE LIST AND THE EVOLUTION SCENE (battle_state_probe.lua with its SUM and TASK lines, a
+-- wild battle on 0.31 from the snapshot `learn_wild_battle_start` -- MUDKIP Lv 12 with its EXP written to 2534 through `exec`,
+-- the made situation -- against captures `autoplay_learn_*`, 2026-09-17; that adapter's MEASURED.md, "The learn-a-move
+-- question, the move list and the evolution scene"). The decomp was the map for every routine and field named here.
+--   * In the battle: after "Delete a move to make room for BIDE?" the battle script's pointer stood at 0x082DABF4, whose byte
+--     (5A) indexes the ROM table the build names gBattleScriptingCommandsTable to the routine it names Cmd_yesnoboxlearnmove
+--     (+1); gBattleScripting +0x1F read 1 while the YES/NO waited, with the cursor in gBattleCommunication +1 (0 YES), and A
+--     made it 2 and opened the list. The "Stop learning?" command (Cmd_yesnoboxstoplearningmove) in a battle is taken to wait
+--     the same way, on the evolution scene's measurement below.
+--   * The list: callback2 the routine the build names MainCB2 at 0x081BFAB4 (+1), task 0 running Task_HandleReplaceMoveInput
+--     (+1), and at +0x40BC of the pointer sMonSummaryScreen: 3 (the mode), the party slot at +0x40BE, the move to learn at
+--     +0x40C4 (0x75 BIDE, 0x155 MUD SHOT) and the cursor at +0x40C6, which Down moved 0 to 4: the four moves in the party's
+--     slot order, then the move to learn, as drawn. A on 1 forgot GROWL; A on 3 forgot WATER GUN (slot 3 by then).
+--   * The evolution: callback2 CB2_EvolutionSceneUpdate (0x0813E3A4, +1) with task 0 running Task_EvolutionScene (+1), its data
+--     word 0 the scene's state: 0x0F waiting on "Congratulations! ... evolved into MARSHTOMP!" and its arrow, reached 900-odd
+--     frames after "What? MUDKIP is evolving!" with no input; 0x16 while a move is replaced, data word 6 its step -- 1 and 2
+--     the first two messages on their arrows, 3 the third printing, 4 the YES/NO waiting (cursor gBattleCommunication +1:
+--     Down made it 1 and the capture drew No), 6 the list, 8 "Poof!". Data word 7 is where YES goes: 5 on "Delete a move to
+--     make room for MUD SHOT?", 0x0B on "Stop learning MUD SHOT?" (after NO; NO there went back to the first message).
+-- Not measured: an HM in the list ("can't be forgotten"), a party slot other than 0, the move list opened outside a battle.
+local LEARN = { stateAt = 0x02024474 + 0x1F, cursorAt = 0x02024332 + 1, commands = 0x0831bd10,
+	learnCmd = 0x0804e038, stopCmd = 0x0804e3c8, summaryCB2 = 0x081bfab4, summaryPtr = 0x0203cf1c, replaceInput = 0x081c174c,
+	evoCB2 = 0x0813e3a4, evoLoadCB2 = 0x0813dd7c, evoTask = 0x0813e570, speciesInfo = 0x083203cc }
+
+-- The evolution scene's task data, or nil.
+function LEARN.evolution()
+	local cb = r32(GMAIN_CB2) & 0xFFFFFFFE
+	if cb ~= LEARN.evoCB2 and cb ~= LEARN.evoLoadCB2 then return nil end
+	for n = 0, NUM_TASKS - 1 do
+		local at = GTASKS + n * TASK_SIZE
+		if r8(at + 4) ~= 0 and (r32(at) & 0xFFFFFFFE) == LEARN.evoTask then
+			local s16 = function(i) return memory.read_s16_le(at + 8 + i * 2, BUS) end
+			return { state = s16(0), species = s16(2), step = s16(6), yes = s16(7), loading = cb == LEARN.evoLoadCB2 }
+		end
+	end
+	return nil
+end
+
+-- The options a learn-a-move question weighs: party slot `slot`'s moves in order, then `newMove`.
+function LEARN.options(slot, newMove)
+	local mon = (readParty() or {})[slot + 1]
+	if not mon or not mon.moves then return nil end
+	local sp = LEARN.speciesInfo + (mon.species_id or 0) * 28
+	local t1, t2 = r8(sp + 6), r8(sp + 7)
+	local out, items = {}, {}
+	local function add(id, name)
+		local info = moveInfo(id)
+		out[#out + 1] = { name = name, type = info.type, power = info.power, accuracy = info.accuracy,
+			same_type = (info.type_id == t1 or info.type_id == t2) or nil }
+		items[#items + 1] = name
+	end
+	for _, m in ipairs(mon.moves) do add(m.id, m.name) end
+	add(newMove, nameAt(MOVE_NAMES, MOVE_LEN, MOVE_COUNT, newMove) or ("move " .. newMove))
+	return out, items, mon
+end
+
+-- The learn-a-move question on screen, as text.lua's battleQuestion hook returns one, or nil.
+function LEARN.question()
+	local cb = r32(GMAIN_CB2) & 0xFFFFFFFE
+	local kind
+	if cb == BATTLE_MAIN_CB2 and r8(LEARN.stateAt) == 1 then
+		local handler = r32(LEARN.commands + r8(r32(BATTLESCRIPT_INSTR)) * 4) & 0xFFFFFFFE
+		kind = (handler == LEARN.learnCmd and "learn_move") or (handler == LEARN.stopCmd and "stop_learning") or nil
+	elseif cb == LEARN.evoCB2 then
+		local e = LEARN.evolution()
+		if e and e.state == 0x16 and e.step == 4 then kind = (e.yes == 5 and "learn_move") or (e.yes == 0x0B and "stop_learning") or nil end
+	elseif cb == LEARN.summaryCB2 then
+		local ptr = r32(LEARN.summaryPtr)
+		local s = inEwram(ptr) and memory.read_bytes_as_array(ptr + 0x40BC, 12, BUS)
+		if not s or s[1] ~= 3 then return nil end
+		for n = 0, NUM_TASKS - 1 do
+			local at = GTASKS + n * TASK_SIZE
+			if r8(at + 4) ~= 0 and (r32(at) & 0xFFFFFFFE) == LEARN.replaceInput then
+				local options, items = LEARN.options(s[3], s[9] | (s[10] << 8))
+				if not options then return nil end
+				return { kind = "forget_move", text = "the move list", options = options, move = options[#options].name,
+					menu = { items = items, cursor = s[11] } }
+			end
+		end
+		return nil
+	end
+	if not kind then return nil end
+	local d = readDialogue()
+	local options, _, mon = LEARN.options(0, r16(0x020244e2))
+	return { kind = kind, text = d and d.box, options = options, move = options and options[#options].name,
+		pokemon = mon and mon.nickname, menu = { items = { "YES", "NO" }, cursor = r8(LEARN.cursorAt) }, no = 1 }
+end
+
 -- The action menu as drawn, in cursor order: 0 FIGHT and 1 BAG on the top row, 2 POKéMON and 3 RUN below.
 local BATTLE_ACTIONS = { "FIGHT", "BAG", "POKéMON", "RUN" }
 
@@ -1324,6 +1412,13 @@ function game.observe(asked)
 		end
 	end
 	if battle then m = battleMenu() end
+	-- A learn-a-move question, in a battle, on the move list or in the evolution scene (LEARN, above): its YES/NO or its list
+	-- as the menu, with its kind and what each option weighs.
+	local question = isVanilla and LEARN.question() or nil
+	if question then
+		m = { kind = question.kind, text = question.text, items = question.menu.items, cursor = question.menu.cursor,
+			move = question.move, pokemon = question.pokemon, options = question.options }
+	end
 	local overworld = cb2 == CB2_OVERWORLD or cb2 == CB2_OVERWORLD + 1
 	local localMap, nearby, warps
 	if isVanilla and overworld then
@@ -1675,6 +1770,9 @@ end
 
 -- The menu alone, for a program that looks every frame (select).
 function game.menu()
+	-- A learn-a-move question is a menu too, for `select` (LEARN, above).
+	local q = isVanilla and LEARN.question() or nil
+	if q then return { kind = q.kind, items = q.menu.items, cursor = q.menu.cursor } end
 	if isVanilla and inBattle() then return battleMenu() end
 	local m = (#hookNames > 0) and readMenu() or nil
 	return m or (isVanilla and (readListMenu() or STARTER.menu())) or nil
@@ -2213,6 +2311,9 @@ local textHooks = {
 	end,
 	-- A move's animation, or a battler's controller at work (BATTLE_BUSY, above).
 	animationPlaying = BATTLE_BUSY.playing,
+	-- The learn-a-move questions and the move list, and the evolution scene playing by itself (LEARN, above).
+	battleQuestion = LEARN.question,
+	scenePlaying = function() return LEARN.evolution() ~= nil end,
 	readKeyboard = readKeyboard,
 	readClock = readClock,
 	strongestMove = function()

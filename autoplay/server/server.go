@@ -109,7 +109,9 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 			"included, so call it straight after a spotted. policy strongest (default) fights with the " +
 			"usable move of most power times accuracy; effective weighs that by the game's type chart " +
 			"against the foe and the same-type bonus, where the game module measured them; " +
-			"run runs. Returns a log of every message and choice, and ends ended, needs_choice (a menu it " +
+			"run runs. forget strong_variety answers a question to learn a move -- keeping strong damaging moves of " +
+			"different types, status moves going first, and saying no when the new move is worth least; " +
+			"without it battle stops needs_choice there. Returns a log of every message and choice, and ends ended, needs_choice (a menu it " +
 			"will not answer) or stuck (with what it was waiting on) -- within seconds of nothing changing.",
 	}, logged(t, "battle", nil, t.battle))
 
@@ -380,6 +382,7 @@ const BattleTimeout = CallTimeout + 10*time.Minute
 // BattleIn is the battle tool's input.
 type BattleIn struct {
 	Policy string `json:"policy,omitempty" jsonschema:"strongest (default), effective or run"`
+	Forget string `json:"forget,omitempty" jsonschema:"strong_variety answers a learn-a-move question; absent stops needs_choice there"`
 }
 
 func (t *tools) battle(ctx context.Context, _ *mcp.CallToolRequest, in BattleIn) (*mcp.CallToolResult, any, error) {
@@ -387,6 +390,11 @@ func (t *tools) battle(ctx context.Context, _ *mcp.CallToolRequest, in BattleIn)
 	case "", "strongest", "effective", "run":
 	default:
 		return nil, nil, fmt.Errorf(`policy must be "strongest", "effective" or "run", got %q`, in.Policy)
+	}
+	switch in.Forget {
+	case "", "strong_variety":
+	default:
+		return nil, nil, fmt.Errorf(`forget must be "strong_variety" or absent, got %q`, in.Forget)
 	}
 	raw, err := t.forward(ctx, "battle", "battle", in, BattleTimeout)
 	return nil, raw, err

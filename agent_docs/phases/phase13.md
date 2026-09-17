@@ -36,6 +36,7 @@ here adds its heading as one line under "The plan and the shared core".**
 - 2026-09-17 (the Emerald chat, the story) — the plan across maps floods each map; `talk` across a counter; a battle the game answers
 - 2026-09-17 (the Emerald chat, the first badge) — `select` presses confirm again; routes out of a trainer's sight preferred
 - 2026-09-17 (the TEVI chat) — how an agent sees a game: the engine's state first, the clock held for fast games, detection only at tier 0
+- 2026-09-17 (the Emerald chat, the learn-a-move question) — questions asked outside a battle's screen, a scene that takes no input, and `battle`'s `forget`
 
 **Emerald (vanilla), before its own log** -- from 2026-09-17 in [autoplay/emerald.md](autoplay/emerald.md)
 - 2026-09-16 (later still) — Phase 1 step 2: a live driver in vanilla Emerald, from boot to walking
@@ -1458,3 +1459,23 @@ sensetive ? ... what do you think would work well ?"*
 
 **Where it stands**: TEVI's driver has layer 1 (its `Surroundings.cs`, measured against a picture). Layers 3 and 4 are shared-core
 changes, not made yet; they get their entries here when they are.
+
+## 2026-09-17 (the Emerald chat, the learn-a-move question) — questions asked outside a battle's screen, a scene that takes no input, and `battle`'s `forget`
+
+**What changed in the shared core** (the measurements in [autoplay/emerald.md](autoplay/emerald.md), same date):
+- **`text.lua`, the machine.** `battleQuestion` is asked in and out of a battle's own screen: Emerald's move list and its
+  evolution scene run under callback2s of their own. A new optional hook, `scenePlaying`: while it is true nothing is pressed
+  but a message waiting on its arrow, and it counts as change for up to 3600 frames (the evolution: a nudge on its first,
+  arrowless message changed nothing and `battle` ended `stuck`). An answer may return a detail table, logged with the choice.
+- **`text.lua`, `battle`'s `forget`.** `strong_variety`, `M.forgetChoice`: of four known moves and the one offered, leave out the
+  one whose loss costs least -- a set worth, per type, its strongest move's power × accuracy / 100 (×1.5 for the Pokémon's own
+  type) and a quarter of each other move of that type. Status moves (power 0) go first; NO when the new move is worth least,
+  and YES to "Stop learning?" after that NO. Without `forget`, `battle` stops `needs_choice` on these questions. The user's
+  guidance, while it was built: keep strong damaging moves of different types, drop status moves first, and *"you can say no,
+  not learn a new move as well"*, with the follow-up question after NO.
+- **`server.go`.** `battle` takes `forget` (`strong_variety` or absent), refused otherwise; `TestBattleValidatesAndForwards` covers it.
+
+**Checked.** `luac -p`; `go vet` and `go test ./server`. Offline, `forgetChoice` on the story's moves leaves out GROWL for BIDE and
+BIDE for MUD SHOT (the user's own choices at ROXANNE) and FORESIGHT at Lv 20. Live on vanilla Emerald: the learn-a-move battles in
+the Emerald entry, RICK's battle from `rick_battle_start` to `ended` with no nudge, the stuck classifier scenario 3 of 3.
+**Crystal's path** not run (paused): its `battleQuestion` returns nil outside a battle mode, and it supplies no `scenePlaying`.

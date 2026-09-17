@@ -348,3 +348,30 @@ naming the driver alone, no core running; the game in ROXANNE's gym (11.3) at (5
 The scratch loop (`trip.py`) lived in this chat's scratch folder and is not in the repo. Snapshots in the gitignored
 `autoplay/states/emerald/`, the story's newest first: `story_stone_badge`, `story_rustboro`, `story_after_wally`,
 `story_wally_battle`, `story_petalburg`, `story_got_pokedex`, then last session's `ng_*`.
+
+## 2026-09-17 (the Emerald chat, next session) — the learn-a-move question, the move list and the evolution scene read; `forget` `strong_variety`
+
+**Pointer.** The machine's questions outside a battle's screen, `scenePlaying` and the forget policy are shared core, logged in
+`../phase13.md` ("questions asked outside a battle's screen").
+
+**Measured** (`emerald/MEASURED.md`, "The learn-a-move question, the move list and the evolution scene"), with
+`battle_state_probe.lua` now also logging the summary screen's block and the task list. Made situations: EXP written through
+`exec` (MUDKIP to 2534 from `story_rustboro`, a wild WHISMUR on 0.31, snapshot `learn_wild_battle_start`; MARSHTOMP to 5459 from
+`story_stone_badge`, a wild ABRA), with the ROM's learnsets and EXP table read first to know where each question comes.
+
+**Built** (`emerald.lua`, one table `LEARN`). `battleQuestion` reads the battle's YES/NO by the script command at its pointer and
+gBattleScripting +0x1F, the evolution's by its task's step and where YES leads, and the move list by the summary screen's block,
+each with `options` from the party slot's moves and the move to learn; `observe`'s `menu` and `select` take them too.
+`scenePlaying` is the evolution task running.
+
+**Checked** (reached: every run began with a restore and an EXP write). From `learn_wild_battle_start`: `battle effective`
+stopped `needs_choice` on "Delete a move to make room for BIDE?"; `select NO`, "Stop learning BIDE?" read `stop_learning`;
+`select NO`; `battle effective forget strong_variety` to `ended` in one call through GROWL out, the evolution, and BIDE out for MUD
+SHOT, no nudge. The ABRA battle: NO to FORESIGHT, YES to stop, "did not learn". RICK's battle, and the stuck classifier.
+
+**What went wrong on the way:** measuring by hand, A on the list's index 3 forgot WATER GUN: BIDE had taken GROWL's slot 1. The
+reader names the entries from memory.
+
+**Seen on the way:** after the badge, walking out of Rustboro's gym ran the story's scene -- a TEAM AQUA grunt's "Get out! Out of
+the way!" and DEVON's employee asking for the GOODS back -- which stopped `goto` `dialogue_open` twice; `advance_text` closed both.
+That run was a made situation (EXP written), so the story restarts from `story_stone_badge`.

@@ -70,6 +70,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - Ledges, water, and other maps read from the ROM (2026-09-17)
 - A warp's arrival, a whiteout, a Center's counter, and WALLY's battle (2026-09-17)
 - Rustboro: a north arrow warp, a floor at elevation 0, a YES/NO that ignores an early A, ROXANNE, an evolution (2026-09-17)
+- The learn-a-move question, the move list and the evolution scene (2026-09-17)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -933,6 +934,48 @@ log `autoplay/runs/2026-09-17_120845.522443.ndjson`, captures `dev-scripts/shots
   was chosen the same way. `advance_text` answered `battle_started` as that screen closed.
 - **Not measured**: the learn-a-move YES/NO and the move list in memory, the evolution scene's state, the arrow warps 0x63,
   a hide flag on a character template.
+
+### The learn-a-move question, the move list and the evolution scene (2026-09-17)
+
+**Vanilla ROM.** Made situation: `story_rustboro` restored, MUDKIP's EXP written to 2534 through `exec` (its encrypted block
+and checksum; `observe` read it back with no mismatch), a wild WHISMUR on 0.31 (snapshot `learn_wild_battle_start`); and
+`story_stone_badge` with MARSHTOMP's EXP written to 5459, a wild ABRA there. `probes/battle_state_probe.lua` loaded, with its
+new SUM and TASK lines; run log `autoplay/runs/2026-09-17_131645.118278.ndjson`; captures `dev-scripts/shots/emerald/autoplay_learn_*`
+(gitignored). The decomp was the map for every routine and field; the build's `.sym` names the addresses.
+
+- **The level-up learnsets and EXP table.** The ROM's pointer table the build names gLevelUpLearnsets read, for MUDKIP,
+  BIDE (117) at 15, and for MARSHTOMP MUD SHOT (341) at 16 and FORESIGHT (193) at 20; the table it names gExperienceTables,
+  at the growth byte +0x13 of a species' 28-byte entry, 2535 for level 16 and 5460 for 20. The game did what they said: EXP
+  2534 at Lv 12 went to Lv 15 and "trying to learn BIDE", then Lv 16 and an evolution with MUD SHOT; 5459 at Lv 16 went to
+  Lv 20 and FORESIGHT.
+- **The question inside a battle.** After "Delete a move to make room for BIDE?" the battle script's pointer stood at
+  0x082DABF4, whose byte 5A indexes the ROM's command table (the build's gBattleScriptingCommandsTable) to 0x0804E039 (the
+  build's Cmd_yesnoboxlearnmove, +1). gBattleScripting +0x1F read 1 while the YES/NO waited, gBattleCommunication +1 the
+  cursor (0 YES; `select NO` made it 1). A made +0x1F 2 and opened the move list; NO printed "Stop learning BIDE?", after
+  which the pointer stood at 0x082DAC03 with +0x1F 1 and the cursor 0 again, and NO there went back to "MUDKIP is trying to
+  learn BIDE."
+- **The move list.** callback2 0x081BFAB5 (the build's MainCB2 in the summary screen), task 0 running 0x081C174D (its
+  Task_HandleReplaceMoveInput); the pointer sMonSummaryScreen (0x0203CF1C) led to a block whose +0x40BC read 03, +0x40BE 00
+  (the party slot), +0x40C4 the move to learn (0x0075 BIDE, 0x0155 MUD SHOT) and +0x40C6 the cursor: Down took it 0 to 4,
+  and the captures drew the red frame on TACKLE at 0 and on BIDE, the move to learn, at 4 -- the four moves in the party's
+  slot order, then the new one. A on 1 forgot GROWL. A on 3 forgot WATER GUN, not BIDE: BIDE had taken GROWL's slot 1, which
+  the capture drew (a wrong press of this session's, and the reason the entries are read, not assumed).
+- **The evolution scene.** "What? MUDKIP is evolving!" read `finished`; with no input callback2 read 0x0813E3A5 (the build's
+  CB2_EvolutionSceneUpdate) and task 0 ran 0x0813E571 (Task_EvolutionScene), data word 0 stepping to 0x0F by frame 662300,
+  where "Congratulations! Your MUDKIP evolved into MARSHTOMP!" waited on its arrow (2646 frames with no input, until an A).
+  Then word 0 read 0x16 while MUD SHOT was offered, data word 6 its step: 1 and 2 on "is trying to learn" and "can't learn
+  more than four moves" (each on its arrow), 3 printing "Delete a move to make room for MUD SHOT?", 4 with the YES/NO up
+  (Down made gBattleCommunication +1 read 1 and the capture drew No), 6 on the list (the same summary fields, move 0x0155),
+  7 and 8 through "Poof!". Data word 7 read 5 on that question and 0x0B on "Stop learning MUD SHOT?", which NO opened; NO
+  there went back to step 0. At the end callback2 went to BattleMainCB2 again, where `observe` read `mode` battle for a
+  moment with the old battlers.
+- **Autoplay's reading of them, checked live.** From `learn_wild_battle_start`: `battle effective` stopped `needs_choice` on
+  the BIDE question with no nudge; `select NO` then read "Stop learning BIDE?" as `stop_learning`; `select NO`; `battle effective
+  forget strong_variety` chose YES and GROWL, went through the evolution, YES and BIDE for MUD SHOT, and ended (TACKLE, MUD
+  SHOT, MUD-SLAP, WATER GUN). From the ABRA battle: NO to FORESIGHT, YES to "Stop learning FORESIGHT?", "did not learn".
+- **Not measured**: an HM in the list; a party slot other than 0 learning or evolving; the list opened outside a battle
+  (a TM, the Move Tutor); B anywhere here (the decomp says B held during the evolution stops it); the FC bytes read raw in
+  "Stop learning" and "Poof!".
 
 ## Not measured yet
 

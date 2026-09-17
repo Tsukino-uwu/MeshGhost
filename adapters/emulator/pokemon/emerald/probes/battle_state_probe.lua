@@ -20,6 +20,8 @@
 --   MON n on any change of that battler's 0x58 bytes named gBattleMons: raw hex, and +0x30 decoded
 --         as a name (letters and digits only)
 --   STR   on any change of the first 0x80 bytes named gDisplayedStringBattle: decoded up to FF, and raw
+--   SUM   on any change of the pointer named sMonSummaryScreen and 12 bytes at its +0x40BC (2026-09-17)
+--   TASK  on any change of the active tasks at gTasks: index, routine, first 24 data bytes (2026-09-17)
 -- WHAT IT CANNOT SEE: text drawn by any path that does not fill that buffer; anything in the frames
 -- between two logged changes; a patched ROM.
 
@@ -39,7 +41,14 @@ local FIELDS = {
 	-- Added 2026-09-17 (later): `battle` nudged twice in the rescue battle's intro, before "Wild ZIGZAGOON appeared!" and on
 	-- "Go! MUDKIP!", with nothing above in its signature changing. The build names these gBattleMainFunc and gIntroSlideFlags.
 	{ "mainfunc", 0x03005d04, 4 }, { "slide", 0x020243fc, 2 },
+	-- Added 2026-09-17 (the learn-a-move question): `battle` nudged into "Delete a move to make room for BIDE?" and stopped
+	-- `stuck` in the evolution scene. The build names this gMoveToLearn.
+	{ "movetolearn", 0x020244e2, 2 },
 }
+-- Added 2026-09-17 (the learn-a-move question): the pointer the build names sMonSummaryScreen, and 12 bytes from +0x40BC of
+-- what it points at (the build's layout names mode, curMonIndex, currPageIndex, newMove and firstMoveIndex there), logged as
+-- SUM on any change; and every active task of the 16 at gTasks (40 bytes each), its routine and first 24 data bytes, as TASK.
+local SUMMARY_PTR, TASKS = 0x0203cf1c, 0x03005e00
 -- The first two windows' text printers (the build's sTextPrinters, 0x24 bytes each), logged as PR on any change.
 local PRINTERS, PRINTERS_LEN = 0x020201b0, 0x48
 local BATTLE_MONS, BATTLE_MON_SIZE = 0x02024084, 0x58
@@ -101,6 +110,7 @@ local function padString()
 end
 
 local lastSt, lastMons, lastStr, lastPr, frames = nil, {}, nil, nil, 0
+local lastSum, lastTasks = nil, nil
 log("battle_state_probe loaded")
 MESHGHOST_DEV_TICK = function()
 	frames = frames + 1
@@ -124,6 +134,24 @@ MESHGHOST_DEV_TICK = function()
 			log(string.format("MON %d name=%q raw %s", n, decode(b, 1, 11), raw))
 			lastMons[n] = raw
 		end
+	end
+	local sp = memory.read_u32_le(SUMMARY_PTR, BUS)
+	local sum = string.format("%08X", sp) .. ((sp >= 0x02000000 and sp < 0x02040000) and (" " .. hex(sp + 0x40BC, 12)) or "")
+	if sum ~= lastSum then
+		log("SUM " .. sum)
+		lastSum = sum
+	end
+	local tasks = {}
+	for i = 0, 15 do
+		local at = TASKS + i * 40
+		if memory.read_u8(at + 4, BUS) ~= 0 then
+			tasks[#tasks + 1] = string.format("%d:%08X:%s", i, memory.read_u32_le(at, BUS), hex(at + 8, 24))
+		end
+	end
+	local tk = table.concat(tasks, " ")
+	if tk ~= lastTasks then
+		log("TASK " .. tk)
+		lastTasks = tk
 	end
 	local sraw = hex(STRING_BATTLE, 0x80)
 	if sraw ~= lastStr then

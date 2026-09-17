@@ -25,10 +25,20 @@
 --                                            SHOT ran 228 frames with nothing else changing)
 --   readKeyboard()     -> keyboard or nil    an on-screen keyboard (a naming screen): advance_text stops at it
 --   readClock()        -> clock or nil       a clock screen (a new game's wall clock): advance_text stops at it
---   battleQuestion()   -> question or nil    in a battle, a menu that is not the action or move menu (Crystal's "Will A
---                                            change POKéMON?" YES/NO): { kind, text, menu = { items, cursor }, no = n }.
+--   battleQuestion()   -> question or nil    a menu that is not the action or move menu (Crystal's "Will A change
+--                                            POKéMON?" YES/NO): { kind, text, menu = { items, cursor }, no = n }.
 --                                            `battle` answers the kinds it knows and stops `needs_choice` on the rest;
---                                            it never nudges A on one (a nudge chose YES there, 2026-09-17)
+--                                            it never nudges A on one (a nudge chose YES there, 2026-09-17). Asked in
+--                                            and out of a battle's own screen (Emerald's move list and its evolution
+--                                            scene are screens of their own): the module returns nil where none is up.
+--                                            A learn-a-move question carries `options`, one per move with `name`,
+--                                            `type`, `power`, `accuracy` and `same_type`, the move to learn last:
+--                                            kinds `learn_move` (the YES/NO), `stop_learning` (the YES/NO after NO) and
+--                                            `forget_move` (the list, its entries the options in order)
+--   scenePlaying()     -> boolean            a scene plays by itself and takes no button but the questions above
+--                                            (Emerald's evolution: A on its first message changed nothing for 900
+--                                            frames, 2026-09-17): no press on a message, and it counts as change for up
+--                                            to SCENE_WAIT_FRAMES
 --   strongestMove()    -> slot, label | nil, reason
 --   effectiveMove()    -> slot, label, detail | nil, reason   policy "effective": the move weighed by type against the
 --                                            foe, and a table of what each move weighed that goes into the log's choice
@@ -51,7 +61,7 @@ local NUDGE_FRAMES, NUDGES, QUIET_FRAMES, PRESS_FRAMES, LOG_MAX = 180, 3, 90, 30
 -- A on a message is a TAP, and a message that ends with no arrow waits FINISHED_WAIT frames first: an A held
 -- until the message changed went on to answer the menu that came up as the text ended -- Birch's "Are you a
 -- boy? Or are you a girl?" and "So it's A?" were both answered with their first entry (2026-09-17).
-local TAP_FRAMES, FINISHED_WAIT, SCRIPT_WAIT_FRAMES = 2, 20, 600
+local TAP_FRAMES, FINISHED_WAIT, SCRIPT_WAIT_FRAMES, SCENE_WAIT_FRAMES = 2, 20, 600, 3600
 M.QUIET_FRAMES = QUIET_FRAMES
 
 -- A text-and-choices machine shared by both programs. `choose(asking)` returns the target cursor for a
@@ -61,7 +71,7 @@ function M.machine(h, choose, stopWhen, answer)
 	local log, lastBox, signature, still, nudges = {}, nil, nil, 0, 0
 	local finishedBox, finishedFor = nil, 0
 	local pressing, held, settle, battleSeen, frames = nil, 0, 0, false, 0
-	local releasing, animating = nil, 0
+	local releasing, animating, scene = nil, 0, 0
 	local function note(entry)
 		if #log < LOG_MAX then log[#log + 1] = entry end
 	end
@@ -187,13 +197,13 @@ function M.machine(h, choose, stopWhen, answer)
 			return pressing.pad, false
 		end
 
-		-- A question in a battle, where the module reads one: answered when `answer` knows its kind, else the program
+		-- A question, where the module reads one: answered when `answer` knows its kind, else the program
 		-- stops with it. After Bug Catcher Don's first CATERPIE fainted, Crystal asked "Will A change POKéMON?" with a
 		-- YES/NO the machine did not read, and its nudge chose YES and opened the party menu (2026-09-17).
-		local question = battle and h.battleQuestion and h.battleQuestion() or nil
+		local question = h.battleQuestion and h.battleQuestion() or nil
 		if question then
-			local target, label
-			if answer then target, label = answer(question) end
+			local target, label, detail
+			if answer then target, label, detail = answer(question) end
 			if target == nil then
 				return finish("needs_choice", { question = question, reason = label or "a question this program does not answer" })
 			end
@@ -207,9 +217,23 @@ function M.machine(h, choose, stopWhen, answer)
 					end }
 				return pressing.pad, false
 			end
-			note({ chose = label, question = question.text or question.kind })
+			local entry = { chose = label, question = question.text or question.kind }
+			for k, v in pairs(detail or {}) do entry[k] = v end
+			note(entry)
 			pressing = { what = "answer " .. label, pad = { A = true }, done = function() return h.battleQuestion() == nil end }
 			return pressing.pad, false
+		end
+
+		-- A scene playing by itself: nothing is pressed but a message's arrow ("Congratulations! Your MUDKIP evolved into
+		-- MARSHTOMP!" waited on its arrow), and it is change for as long as SCENE_WAIT_FRAMES.
+		if h.scenePlaying and h.scenePlaying() and not (d and d.state == "waiting_for_button") then
+			scene = scene + 1
+			if scene <= SCENE_WAIT_FRAMES then
+				still = 0
+				return nil, false
+			end
+		else
+			scene = 0
 		end
 
 		-- A message waiting for a button. In a battle only the arrow counts: a battle message window reads
@@ -266,14 +290,60 @@ function M.machine(h, choose, stopWhen, answer)
 	end
 end
 
--- battle {policy = "strongest" | "effective" | "run"}: plays a battle to its end, a trainer's words before and after
+-- THE FORGET POLICY "strong_variety" (the user, 2026-09-17: keep a variety of strong moves of different types; status,
+-- debuff and buff moves are harder to use than damaging ones, so they go first; and saying NO to a new move is a choice
+-- too). Of the four known moves and the one to learn, the one left out is the one whose loss costs least, where a set of
+-- four is worth, per type, its strongest move's score in full and every other move of that type a quarter, a score
+-- being power x accuracy / 100, x1.5 for a move of the Pokémon's own type. A move of power 0 scores 0, so status moves go
+-- first; a tie keeps what is known, then leaves out the lower score. Returns the index (1-5) left out, and what each weighed.
+function M.forgetChoice(options)
+	local function score(o)
+		return (o.power or 0) * (o.accuracy or 0) / 100 * (o.same_type and 1.5 or 1)
+	end
+	local function worth(without)
+		local best, rest = {}, 0
+		for i, o in ipairs(options) do
+			if i ~= without then
+				local s, t = score(o), o.type or "?"
+				if not best[t] then
+					best[t] = s
+				elseif s > best[t] then
+					rest, best[t] = rest + best[t] / 4, s
+				else
+					rest = rest + s / 4
+				end
+			end
+		end
+		for _, s in pairs(best) do rest = rest + s end
+		return rest
+	end
+	local out, weighed = #options, {}
+	for i, o in ipairs(options) do
+		weighed[i] = { move = o.name, type = o.type, power = o.power, accuracy = o.accuracy, same_type = o.same_type or nil,
+			score = score(o), kept_worth = worth(i) }
+	end
+	for i = #options - 1, 1, -1 do
+		local w, best = weighed[i].kept_worth, weighed[out].kept_worth
+		if w > best or (w == best and out ~= #options and weighed[i].score < weighed[out].score) then out = i end
+	end
+	return out, weighed
+end
+
+-- battle {policy = "strongest" | "effective" | "run", forget}: plays a battle to its end, a trainer's words before and after
 -- included. "strongest" chooses FIGHT and the move the module's strongestMove() names, "effective" the one its
--- effectiveMove() names; "run" chooses RUN and, on the move menu, stops. Returns (program, error, frame limit) like any program.
+-- effectiveMove() names; "run" chooses RUN and, on the move menu, stops. `forget` "strong_variety" answers a learn-a-move
+-- question (M.forgetChoice); without it `battle` stops `needs_choice` there. Returns (program, error, frame limit) like
+-- any program.
 function M.battle(h, p)
 	local policy = p.policy or "strongest"
 	if policy ~= "strongest" and policy ~= "effective" and policy ~= "run" then
 		return nil, 'battle policy is "strongest", "effective" or "run"'
 	end
+	if p.forget ~= nil and p.forget ~= "strong_variety" then
+		return nil, 'battle forget is "strong_variety" or absent'
+	end
+	-- What the last learn-a-move question decided: the move left out, by name, so "stop learning?" is answered to match.
+	local decided = nil
 	if policy == "strongest" and not h.strongestMove then
 		return nil, 'battle policy "strongest" needs move data this game module has not measured; use "run"'
 	end
@@ -317,6 +387,25 @@ function M.battle(h, p)
 	end, function(question)
 		-- Both policies keep the Pokémon that is in: a switch is a choice neither makes.
 		if question.kind == "switch" and question.no then return question.no, "NO" end
+		local learning = question.kind == "learn_move" or question.kind == "forget_move" or question.kind == "stop_learning"
+		if learning and not p.forget then
+			return nil, "a learn-a-move question, and no forget policy was given"
+		end
+		if (question.kind == "learn_move" or question.kind == "forget_move") and question.options then
+			local out, weighed = M.forgetChoice(question.options)
+			local learnIt = out ~= #question.options
+			decided = question.options[out].name
+			local detail = { forget = decided, weighed = weighed }
+			if question.kind == "learn_move" then
+				if learnIt then return 0, "YES", detail end
+				return question.no, "NO", detail
+			end
+			return out - 1, question.menu.items[out], detail
+		end
+		-- "Stop learning X?" follows NO, or the list left with the new move itself: YES when that is what was decided.
+		if question.kind == "stop_learning" and decided and question.options and decided == question.options[#question.options].name then
+			return 0, "YES"
+		end
 		return nil, "a question this policy does not answer: " .. tostring(question.kind)
 	end)
 	return machine, nil, 36000
