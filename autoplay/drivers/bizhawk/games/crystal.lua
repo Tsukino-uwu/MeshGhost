@@ -158,7 +158,9 @@ local function readWarps()
 	if ptr < 0x4000 or ptr > 0x7FFF then return out end
 	for i = 0, math.min(n, 32) - 1 do
 		local at = ptr + i * 5
-		out[#out + 1] = { x = rom8(bank, at + 1), y = rom8(bank, at),
+		local x, y = rom8(bank, at + 1), rom8(bank, at)
+		local _, collision = tileAt(x, y)
+		out[#out + 1] = { x = x, y = y, collision_raw = collision,
 			to = string.format("%d.%d", rom8(bank, at + 3), rom8(bank, at + 4)), to_warp = rom8(bank, at + 2) }
 	end
 	return out
@@ -662,7 +664,7 @@ end
 local game = {
 	game = "crystal",
 	variant = isVanilla and "vanilla" or "unverified",
-	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "walk", "select", "advance_text", "battle",
+	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "walk", "goto", "select", "advance_text", "battle",
 		"cheat:warp", "cheat:give_item", "cheat:set_flag" },
 	-- The START menu: Down moved the cursor one item a press and A chose it (2026-09-17).
 	menuButtons = { prev = "Up", next = "Down", left = "Left", right = "Right", confirm = "A" },
@@ -1031,6 +1033,22 @@ local function atRest()
 		and b[10] - 4 == u8(W_XCOORD) and b[11] - 4 == u8(W_YCOORD)
 end
 
+-- What is on a tile a step was refused onto: its collision byte on the map, a warp, a character.
+local function describeTile(x, y)
+	local blocked = { x = x, y = y }
+	local _, c = tileAt(x, y)
+	blocked.map_collision_raw = c
+	for _, w in ipairs(readWarps()) do
+		if w.x == x and w.y == y then blocked.warp_to = w.to end
+	end
+	for _, o in ipairs(readObjects()) do
+		if o.x == x and o.y == y then
+			blocked.character = { slot = o.slot, map_object = o.map_object, graphics_id = o.graphics_id }
+		end
+	end
+	return blocked
+end
+
 -- walk {direction, tiles}: on foot only, holding the direction from the first tile to the last.
 function game.programs.walk(p)
 	local name = type(p.direction) == "string" and p.direction:lower() or ""
@@ -1108,18 +1126,8 @@ function game.programs.walk(p)
 
 		if phase == "refused" then
 			if atRest() then
-				local px, py = u8(W_XCOORD), u8(W_YCOORD)
-				local blocked = { x = px + d.dx, y = py + d.dy, collision_raw = u8(W_TILE_DOWN + d.cached) }
-				local _, c = tileAt(blocked.x, blocked.y)
-				blocked.map_collision_raw = c
-				for _, w in ipairs(readWarps()) do
-					if w.x == blocked.x and w.y == blocked.y then blocked.warp_to = w.to end
-				end
-				for _, o in ipairs(readObjects()) do
-					if o.x == blocked.x and o.y == blocked.y then
-						blocked.character = { slot = o.slot, map_object = o.map_object, graphics_id = o.graphics_id }
-					end
-				end
+				local blocked = describeTile(u8(W_XCOORD) + d.dx, u8(W_YCOORD) + d.dy)
+				blocked.collision_raw = u8(W_TILE_DOWN + d.cached)
 				return finish("blocked", { blocked_by = blocked })
 			end
 			if frames > STEP_LIMIT then return finish("not_at_rest") end
@@ -1145,6 +1153,185 @@ function game.programs.walk(p)
 		if idle > IDLE_LIMIT or frames > STEP_LIMIT then return finish("no_response") end
 		return hold, false
 	end
+end
+
+-- GOTO: the route planner and the ride are shared (`../route.lua`); what they read here is Crystal's, all of it `walk`'s
+-- and `local_map`'s measurements above:
+--   * position is the step's target tile (the player object's +0x10/+0x11), which moves on the frame a step BEGINS;
+--   * a tile is open when its collision byte is one a step was measured onto -- 0x00, and 0x18, tall grass, where the
+--     wild battles began -- and no character stands on it. Every other byte is planned as closed: 0x07, 0x15 and 0x29
+--     refused a step, the ledges (0xA0, 0xA1, 0xA3) hop one way, and the rest are not measured, named in the refusal;
+--   * a warp is closed unless it is the target: a door (0x71) warped on the step onto it, and a house's mat (0x70) only
+--     on a press down while on it (below);
+--   * a tile an unbeaten trainer may look at: its range the way its movement type was seen standing (6 down: Bug Catcher
+--     Don and Youngster Mikey on every visit; 7 up: a character in house 24.9; 8 left: Route 31's trainer at (21,13);
+--     2026-09-17), every way for any other type, whose turning is not measured. A trainer not loaded yet (Crystal loads a
+--     character as the player comes near) is read from its map-object record: Don's, with only the player and one other
+--     character loaded, read `FF 25 0B 05 06 00 FF FF B2 03 ...` -- FF where a loaded one holds its object slot (02
+--     once he loaded), then his graphic, his tile plus 4 and movement type 6 (autoplay_map_probe.lua,
+--     logs/autoplay_map_7871_20260917_032920.log);
+--   * a warp under way (`arriving`): wMapStatus 1, or a new map until the player has stood WARP_SETTLE frames -- `walk`'s
+--     door rule, since the game walks the player off an outside door after the load.
+-- ENTERING A MAT (2026-09-17, New Bark's house 24.9, whose two warps at (2,7) and (3,7) read collision 0x70 and the town's
+-- four doors 0x71): a walk right from one mat to the other and a walk down onto a mat from the room each answered `done` on
+-- the mat; a walk down from rest on it answered `map_changed` with no step (63 frames), and a held walk down 2 from the room
+-- stepped onto the mat and on into the town (88 frames). So a mat is gone to, then down is held.
+local WALK_ONTO = { [0x00] = "open", [0x18] = "grass" }
+local CLOSED_MEASURED = { [0x07] = true, [0x15] = true, [0x29] = true, [0xA0] = true, [0xA1] = true, [0xA3] = true }
+local WARP_ENTRY = { [0x71] = false, [0x70] = { press = "down" } }
+local TRAINER_FACES_ONE_WAY = { [6] = "down", [7] = "up", [8] = "left" }
+local MAP_OBJ_COUNT, MAPOBJ_NOT_LOADED = 16, 0xFF
+local SIGHT = { down = { 0, 1 }, up = { 0, -1 }, left = { -1, 0 }, right = { 1, 0 } }
+
+-- The map's size in tiles and a collision lookup over the whole map, reading the block buffer once.
+local function collisionGrid()
+	local w, h = u8(W_MAPWIDTH), u8(W_MAPHEIGHT)
+	local bank, ptr = u8(W_TILESET + 6), u8(W_TILESET + 7) | (u8(W_TILESET + 8) << 8)
+	if w < 1 or h < 1 or ptr < 0x4000 or ptr > 0x7FFF then return nil end
+	local blocks = memory.read_bytes_as_array(W_BLOCKS, (w + 6) * (h + 6), "WRAM")
+	local quads = {}
+	return w * 2, h * 2, function(x, y)
+		local block = blocks[(y // 2 + 3) * (w + 6) + (x // 2 + 3) + 1]
+		local c = quads[block]
+		if not c then
+			c = memory.read_bytes_as_array(bank * 0x4000 + (ptr - 0x4000) + block * 4, 4, "ROM")
+			quads[block] = c
+		end
+		return c[(y % 2) * 2 + (x % 2) + 1]
+	end
+end
+
+local function routeGrid(fromX, fromY, toX, toY)
+	local mapW, mapH, collision = collisionGrid()
+	if not mapW then return nil, "no map loaded" end
+	local blocked, objects = {}, readObjects()
+	for _, o in ipairs(objects) do
+		if o.x >= 0 and o.y >= 0 then blocked[o.y * mapW + o.x] = "character" end
+	end
+	local targetWarp = false
+	for _, w in ipairs(readWarps()) do
+		if w.x == toX and w.y == toY then
+			targetWarp = true
+		else
+			blocked[w.y * mapW + w.x] = blocked[w.y * mapW + w.x] or "warp"
+		end
+	end
+	-- Every trainer on the map, loaded or not, from its map-object record: an unloaded one's tile and movement type are its
+	-- record's, and its tile is closed as a loaded one's would be.
+	local trainers, byMapObject = {}, {}
+	for _, o in ipairs(objects) do byMapObject[o.map_object] = o end
+	for i = 1, MAP_OBJ_COUNT - 1 do
+		local t = trainerOf(i)
+		local o = byMapObject[i]
+		if t and not t.beaten then
+			if o then
+				trainers[#trainers + 1] = { x = o.x, y = o.y, map_object = i, trainer = t,
+					facing = TRAINER_FACES_ONE_WAY[o.movement_type_raw] and o.facing or nil }
+			else
+				local r = memory.read_bytes_as_array(W_MAP_OBJECTS + i * MAP_OBJ_SIZE, 5, "WRAM")
+				if r[1] == MAPOBJ_NOT_LOADED then
+					local x, y = r[4] - 4, r[3] - 4
+					trainers[#trainers + 1] = { x = x, y = y, map_object = i, trainer = t, facing = TRAINER_FACES_ONE_WAY[r[5]] }
+					if x >= 0 and y >= 0 and x < mapW and y < mapH then blocked[y * mapW + x] = blocked[y * mapW + x] or "trainer" end
+				end
+			end
+		end
+	end
+	local seen = {}
+	for _, o in ipairs(trainers) do
+		local t = o.trainer
+		do
+			local ways = o.facing and { o.facing } or { "down", "up", "left", "right" }
+			for _, way in ipairs(ways) do
+				for k = 1, t.range do
+					local x, y = o.x + SIGHT[way][1] * k, o.y + SIGHT[way][2] * k
+					if x >= 0 and y >= 0 and x < mapW and y < mapH and not seen[y * mapW + x] then
+						seen[y * mapW + x] = { x = o.x, y = o.y, map_object = o.map_object }
+					end
+				end
+			end
+		end
+	end
+	local unmeasured, names = {}, {}
+	for y = 0, mapH - 1 do
+		for x = 0, mapW - 1 do
+			local c = collision(x, y)
+			if not WALK_ONTO[c] and not CLOSED_MEASURED[c] and WARP_ENTRY[c] == nil and not unmeasured[c] then
+				unmeasured[c] = true
+				names[#names + 1] = string.format("0x%02X", c)
+			end
+		end
+	end
+	table.sort(names)
+	return {
+		width = mapW, height = mapH,
+		where = #names > 0 and ("(collision " .. table.concat(names, ", ") .. " planned as closed: not measured)") or nil,
+		tile = function(x, y)
+			if blocked[y * mapW + x] then return nil end
+			local c = collision(x, y)
+			if targetWarp and x == toX and y == toY then
+				if WARP_ENTRY[c] == nil then return nil end
+				return true, false, seen[y * mapW + x]
+			end
+			local kind = WALK_ONTO[c]
+			if not kind then return nil end
+			return true, kind == "grass", seen[y * mapW + x]
+		end,
+	}
+end
+
+local routeHooks = {
+	position = function()
+		local x, y = stepTarget()
+		return mapName(), x, y
+	end,
+	inOverworld = inOverworld,
+	-- `walk`'s early stops, in its order: a message or a menu on screen, a script taking the controls, a trainer's sight.
+	watch = function()
+		return function()
+			local t = readTilemap()
+			if boxOpen(t) then return "dialogue_open" end
+			if readMenu(t, false) then return "menu_open" end
+			local s = u8(W_SCRIPT_RUNNING)
+			if s == SCRIPT_TOOK_OVER then return "script_started", { map = mapName() } end
+			if s == SCRIPT_SEEN_BY_TRAINER then
+				return "spotted", { map = mapName(), trainer = { map_object = memory.read_u8(H_LAST_TALKED, "System Bus"),
+					tiles_away = u8(W_SEEN_TRAINER_DISTANCE) } }
+			end
+			return nil
+		end
+	end,
+	arriving = function()
+		local startMap, settled = mapName(), 0
+		return function()
+			if u8(W_MAPSTATUS) == MAPSTATUS_WARPING then
+				settled = 0
+				return true
+			end
+			if mapName() == startMap then return false end
+			if inOverworld() and atRest() then settled = settled + 1 else settled = 0 end
+			return settled < WARP_SETTLE
+		end
+	end,
+	atRest = atRest,
+	refused = function() return u8(W_PLAYERMOVEMENT) == MOVEMENT_REFUSED end,
+	idle = function() return u8(W_PLAYERMOVEMENT) == MOVEMENT_REST end,
+	-- On foot, with nothing held but the direction: Crystal has no running shoes.
+	ride = function() return {} end,
+	routeGrid = routeGrid,
+	warps = readWarps,
+	enterWarp = function(w) return WARP_ENTRY[w.collision_raw] or nil end,
+	blockedBy = describeTile,
+	limits = { rest = REST_LIMIT, idle = IDLE_LIMIT, press = STEP_LIMIT, door = WARP_LIMIT, step = STEP_LIMIT },
+}
+
+-- goto {x, y, cross_grass}: to a tile on this map by a planned route (`../route.lua`), on foot.
+game.programs["goto"] = function(p)
+	if not isVanilla then return nil, "goto is measured on the vanilla V1.0 ROM only" end
+	if u8(W_PLAYERSTATE) ~= PLAYERSTATE_ON_FOOT then
+		return nil, string.format("goto is measured on foot only; wPlayerState reads %d", u8(W_PLAYERSTATE))
+	end
+	return lib.route.go(routeHooks, p)
 end
 
 -- Whether the game has seen every button released: hJoyDown is the game's own copy of the buttons, updated

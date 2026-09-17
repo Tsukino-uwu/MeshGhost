@@ -11,6 +11,54 @@ files; cheats are first-class and every segment says whether it was walked or re
 agent explores once becomes a scenario that replays after every build with no model. A game-agnostic
 core plus a thin driver per host, for any game, through whatever dev channel its host already has.
 
+**One log for every game's autoplay** (the user, 2026-09-17: no phase file per game). **Keep the `Index` below: every
+new `##` entry adds its heading as one line under its game**, or under "The plan and the shared core" when its subject is
+the core, a tool or a shared driver file; a new game gets its own group. Entries stay in date order below it.
+
+### Index
+
+**The plan and the shared core**
+- 2026-09-16 — Phase 0: the plan checked against the repo; the proposal waits at the checkpoint
+- 2026-09-16 (later) — the checkpoint answered
+- 2026-09-16 (later still) — MCP adopted; Phase 1 step 1: the core answers, with no game yet
+- 2026-09-17 (the Crystal chat, the same night) — the text-and-battle machine moved into shared Lua
+- 2026-09-17 (the Emerald chat, new) — the scenario runner: RICK's sight replayed 3 of 3 with no model, and failing when broken
+- 2026-09-17 (the Emerald chat, next session) — `goto`'s route planner moved into shared Lua, Emerald's answers unchanged
+
+**Emerald (vanilla)**
+- 2026-09-16 (later still) — Phase 1 step 2: a live driver in vanilla Emerald, from boot to walking
+- 2026-09-16 (later still) — Phase 1 step 3: snapshots, a warp, and a run log that labels walked or reached
+- 2026-09-16 (end of the session) — where Phase 1 stands, and what comes next
+- 2026-09-16 (next session) — Phase 1 step 4: text, menus and `select`, measured from the game
+- 2026-09-16 (same session) — Phase 1 step 5: the local map and `walk`; and a third record, MEASURED.md
+- 2026-09-16 (same session, later) — Phase 1 step 6: party, bag and badges; `give_item` and `set_flag`
+- 2026-09-16 (same session, later still) — Phase 1 step 7: a new screen's windows, and what the driver costs
+- 2026-09-16 (same session, later still) — Phase 1 step 8: wild battles, and what a move does
+- 2026-09-16 (same session, later still) — Phase 1 step 9: walked to the first trainer battle; held movement and running
+- 2026-09-16 (same session, later still) — Phase 1 step 10: both bikes, and a Mach Bike that still stops on its tile
+- 2026-09-16 (same session, later still) — Phase 1 step 11: `goto`, and battles and text as one call that stops when stuck
+- 2026-09-16 (end of the session) — where Phase 1 stands, for the next chat
+- 2026-09-17 — Phase 1 step 12: a trainer's sight in `goto`, `spotted`, and the level-up box
+- 2026-09-17 (later) — Phase 1 step 13: the bag's list, its item menu, and a Repel used through them
+- 2026-09-17 (later still) — Phase 1 acceptance: a new game to the first trainer battle, walked, one run log
+- 2026-09-17 (end of the session) — where autoplay stands, for the next chat
+- 2026-09-17 (the Emerald chat, later) — the STRING SHOT stall was an animation, not a wait for A
+- 2026-09-17 (the Emerald chat, later still) — a finished message is taken up after a restore
+- 2026-09-17 (the Emerald chat, later still) — the naming keyboard read, `type_text`, and the text speed on FAST
+- 2026-09-17 (the Emerald chat, end of the session) — the truck's door and the clock measured, memory moved into the repo, where to pick up
+- 2026-09-17 (the Emerald chat, same session) — the wall clock read and set: `observe`'s clock, `set_clock`, `clock_open`
+
+**Crystal (vanilla V1.0)**
+- 2026-09-17 (the Crystal chat) — Crystal step 1: position, mode, `walk`, text and menus, with no core change
+- 2026-09-17 (the Crystal chat, later) — Crystal step 2: the map, characters, scripts, a picture, and a wild battle
+- 2026-09-17 (the Crystal chat, next session) — Crystal: the battlers in memory, and `battle strongest`
+- 2026-09-17 (the Crystal chat, same session) — Crystal: a trainer's sight and battle, the warp cheat
+- 2026-09-17 (the Crystal chat, same session) — Crystal: the PACK's item list, read whole, and `give_item`
+- 2026-09-17 (the Crystal chat, same session) — Crystal: a trainer talked to, through the same tools
+- 2026-09-17 (the Crystal chat, same session) — Crystal: the ball pocket, a catch through the battle's PACK, two in the party
+- 2026-09-17 (the Crystal chat, end of the session) — where Crystal's autoplay stands, for the next chat
+- 2026-09-17 (the Crystal chat, new session) — Crystal: `set_flag`, a warp refused during any script, and the switch question
+
 ## 2026-09-16 — Phase 0: the plan checked against the repo; the proposal waits at the checkpoint
 
 **Where it came from.** The user brought `autoplay-plan.md`, written in a Claude Desktop chat that
@@ -1202,3 +1250,33 @@ boxes to `closed`.
 
 **Next for Emerald:** the starter bag's reader on Route 101, walking the new game on from `ng_clock_set`; then `exec` and
 noclip.
+
+## 2026-09-17 (the Crystal chat, same session) — Crystal's `goto` through the shared planner: doors, mats, trainers before they load
+
+**Built.** Crystal supplies `route.lua`'s hooks, so `goto` runs on Crystal on foot: position is the step's target tile;
+open tiles are the collision bytes a step was measured onto (0x00, and 0x18 grass), every other byte closed and a
+refusal naming the unmeasured ones on the map; a door (0x71) is stepped onto and a house's mat (0x70) pressed down on;
+every trainer on the map is read from its map-object record, loaded or not, its line the way its movement type was
+seen standing (6 down, 7 up, 8 left) or every way. `observe`'s `warps` carry `collision_raw`. `walk`'s description of
+a refused tile became a function `goto`'s `blockedBy` shares; `walk`'s answer is unchanged. One shared change:
+`route.lua` takes an optional hook, `arriving`, while which `goto` holds nothing and waits -- Crystal's map id changes 8
+frames into a door's load and the game then walks the player off the door. **Emerald's path is unchanged by
+construction**: its module supplies no `arriving`, so the new branch never runs there; not run on the Emerald instance.
+Measurements: `crystal/MEASURED.md`, "A house's mat, a trainer before it loads, and `goto` ridden".
+
+**How it was measured.** The mats by `walk` in house 24.9: onto a mat from the side and from above, `done` on it; down
+from rest on it, or held through it, into the town. Don's record read with `autoplay_map_probe.lua` while he was not
+loaded. Then `goto` from snapshots: a door around a house, a mat, past Don's line up the grass beside it with Don not
+loaded when planned, into his line (`spotted`, `route_in_sight`), and three refusals.
+
+**The user, while it ran:** *"In crystal there is no running (except in the archipelago version) so there is just
+walking, and then a bike ( + faster bike in archipelago)"* -- as `walk` and `goto` already treat vanilla; the bike
+waits for the movement work. And, of the type chart: *"not sure if this is useful as a map ? pokemon crystal is gen2,
+emerald is gen3"* -- as a map of what to expect and which matchups to replay, yes; what enters the repo is the game's
+own table read from the ROM and a replayed move's result.
+
+**Not exercised:** a replan after a bump; a map edge crossed by `goto`; movement type 9.
+
+**Next for Crystal:** the Pokémon menu and the party's moves and PP out of a battle, then a `heal` cheat from those
+bytes, so the first scenario (Don's sight, each run playing his battle out since a warp cannot end his script) can
+repeat; then the key item and TM/HM pockets, badges, movement, and a `battle` policy that weighs type matchups.

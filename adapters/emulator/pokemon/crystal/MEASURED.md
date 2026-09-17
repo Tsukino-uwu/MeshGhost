@@ -62,6 +62,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - A trainer talked to (2026-09-17)
 - The ball pocket, a POKé BALL thrown in a battle, and a second Pokémon in the party (2026-09-17)
 - A warp written while a trainer's script runs; the switch question and the nickname question in a battle (2026-09-17)
+- A house's mat, a trainer before it loads, and `goto` ridden (2026-09-17)
 - Not measured yet: The rest of autoplay's Crystal reading (from 2026-09-17)
 
 ## Measured
@@ -537,6 +538,36 @@ captures `autoplay_scn_warp_mid_approach`, `_after_a`, `_after_a2`, `autoplay_sc
 - **Not seen:** the switch question with the OPTION the user named set the other way; "Use next POKéMON?" after the
   player's Pokémon faints; the question to forget a move for a new one; what the party menu in a battle reads past its cut
   rows.
+
+### A house's mat, a trainer before it loads, and `goto` ridden (2026-09-17)
+
+**Vanilla V1.0: New Bark Town (24.4), houses 24.9 and 24.6, Route 30 (26.1).** The autoplay tools' answers, with
+`probes/autoplay_map_probe.lua` for the map-object records (`logs/autoplay_map_7871_20260917_032920.log`).
+
+- **Warp tiles' collision bytes.** New Bark's four doors read 0x71 (the formula `local_map` uses); the mats inside 24.9 at
+  (2,7) and (3,7), and inside 24.6 at (6,7) and (7,7), read 0x70; 24.6's third warp, at (9,0) to 24.7, read 0x7A (not
+  entered).
+- **A mat.** In 24.9, `walk` right from one mat onto the other and `walk` down onto a mat from (3,6) each answered `done`
+  on the mat (26 and 27 frames): stepping onto it does not warp. From rest on it, `walk` down answered `map_changed` to
+  24.4 with `moved` 0 (63 frames), and a held `walk` down 2 from (2,6) stepped onto the mat and went on into the town
+  (`moved` 1, 88 frames).
+- **A trainer before it loads.** From Route 30's (1,13) only the player and one character had object records; Don's
+  map-object record 4 read `FF 25 0B 05 06 00 FF FF B2 03 BE 57 FF FF 00 00` -- FF where, once he loaded one step later, it
+  read 02, his object slot -- then his graphic, his tile plus 4 (y 7, x 1), 06 at +0x04, the trainer nibble 2 and range
+  3. The route's other two trainers' records read (2,28) range 3 with 09 at +0x04, and Youngster Mikey's (5,23) range 1
+  with 06. Don's 06 is the `movement_type_raw` `nearby` read from his object record once he loaded. Movement types seen
+  with a facing that never changed while watched: 6 for Don and Mikey, facing down; 7 for 24.9's character at (5,4),
+  facing up; 8 for Route 31's trainer at (21,13), facing left. No 9 was seen on screen.
+- **`goto` ridden, from snapshots.** From (11,14) below 24.9's door to 24.6's door at (13,5): 13 tiles, 3 turns, `map_changed`
+  standing on 24.6's mat at (6,7), 258 frames. From (6,5) in 24.6 to its mat (7,7): onto the mat, down held, `map_changed`
+  with `entered` (7,7), standing in town on (13,6), 122 frames. From `route30_warped` (1,13), with Don not loaded: to (2,6)
+  in 172 frames, 10 tiles, 2 turns, up the grass column beside his line and never into it; to (5,4), 15 tiles, 252 frames;
+  from (1,11) to (1,9), in his line, over three grass tiles rather than one line tile, `spotted` at (1,9) with map object 4
+  two tiles away and Don named in `route_in_sight` (74 frames). From (2,6) toward (1,10) the first step, into grass,
+  answered `script_started` (a wild encounter). Refused at once: (20,20), outside the map's 20 by 18; the mailbox (9,13);
+  and Route 30's (2,11), "collision 0x12 planned as closed: not measured".
+- **Not seen:** a replan after a bump; movement type 9 or any trainer that turns; a mat or stairs of any other byte (0x7A);
+  a map edge crossed by `goto`; what a trainer's sight does past a wall.
 
 ## Not measured yet
 

@@ -31,7 +31,7 @@ Claude Code --MCP (stdio)--> autoplay core --JSON lines (127.0.0.1)--> driver in
 | `wait` | Let 1-3600 frames pass with NO input, then report what changed. Never hold a button to wait |
 | `select` | Choose an entry in the open menu by its text (`item`) or 0-based `index`: the driver presses toward it until the game's own cursor is on it, then holds confirm until the menu responds (`confirm: false` stops on it). On a grid menu (a battle's) it reaches the column first. Every leg ends on the game's state, never a frame count |
 | `walk` | Move 1-32 tiles `up`, `down`, `left` or `right`, holding the direction the whole way the way a player does, each tile counted when the game starts its step; `run: true` runs where the save can (`ran` says whether it did). On a bike it rides, still stopping on the tile: the Acro Bike stops where released, and on the Mach Bike it lets go early by the tiles the bike will coast (`overshot` if it ever carries past). Stops early and says why: `blocked` (with what is on the refused tile), `map_changed` (a door or an edge), `spotted` (a trainer has begun coming for you: its `local_id` and how many tiles away, from the frame the step into its line begins; hand it to `battle`), `dialogue_open`, `menu_open`, `left_overworld`; `moved` counts the steps begun. Walk for precision, run for speed that still stops on its tile, a bike for distance (the play-game skill's `references/navigation.md`) |
-| `goto` | To a tile `x`,`y` on this map by a planned route: straight legs over the map's own grid (collision, elevation, characters and warps closed, ledges closed, tall grass avoided where there is another way unless `cross_grass`), turning at speed, replanning when a step is refused. Tiles an unbeaten trainer looks at cost far more than grass, so a route crosses a trainer's line only where there is no other way, and `route_in_sight` names each one it had to. To a warp it goes in: onto stairs, onto a door mat or a truck's door and then the way out, or up into a town door from the tile below (`entered` names it; Emerald's measured kinds only). Tiles at elevation 0 (mats, stairs) are open from any level. Rides what the player is on, stopping exactly on the tile (`run` on foot). Stops early for the same reasons `walk` does, `spotted` included, or `unreachable` with the reason |
+| `goto` | To a tile `x`,`y` on this map by a planned route: straight legs over the map's own grid (collision, elevation, characters and warps closed, ledges closed, tall grass avoided where there is another way unless `cross_grass`), turning at speed, replanning when a step is refused. Tiles an unbeaten trainer looks at cost far more than grass, so a route crosses a trainer's line only where there is no other way, and `route_in_sight` names each one it had to. To a warp it goes in: onto stairs, onto a door mat or a truck's door and then the way out, or up into a town door from the tile below (`entered` names it; each game's measured kinds only). Tiles at elevation 0 (mats, stairs) are open from any level. Rides what the player is on, stopping exactly on the tile (`run` on foot). Stops early for the same reasons `walk` does, `spotted` included, or `unreachable` with the reason |
 | `battle` | Plays the battle on screen to its end in one call, a trainer's words before and after included: `policy` `strongest` (FIGHT, then the usable move with most power times accuracy) or `run`. Called straight after `spotted`, it waits while the trainer walks over; it turns both pages of the level-up box; it waits while the game's script still runs after the battle. A question inside the battle, where the module reads one (Crystal's), is never answered by a nudge: "change POKéMON?" is answered NO by both policies, and any other (the nickname after a catch) stops `needs_choice` with the `question`. Returns a `log` of every message and choice and ends `ended` (with money and the party), `needs_choice`, `menu_open` (a menu outside the battle, for `select`), or `stuck` with what it was waiting on |
 | `advance_text` | Presses through the message on screen box by box, tapping A, and waiting a moment on a message that ends with no arrow so a menu coming up is never answered by accident; waits out a cutscene while the game's script runs. Stops `closed`, `menu_open` (with the menu, for `select`), `keyboard_open` (with the keyboard, for `type_text`), `clock_open` (with the clock, for `set_clock`), `battle_started`, or `stuck` -- at once, without pressing, on a screen it cannot read (the starter bag). Returns a `log` of the boxes |
 | `type_text` | Types `text` on the game's on-screen keyboard (a naming screen) the way a player does: clears what is typed, then per character changes page, walks the game's own cursor to the key one step at a time and presses it, reading each typed byte back; `confirm` (default true) then chooses OK. Never presses after the last letter without `confirm` (Emerald's cursor goes to OK by itself on a full name). Returns `typed` as the game holds it and `confirmed` or `typed` |
@@ -132,7 +132,8 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
   a door, ledges).
 - **`nearby`** — each character: `slot`, `map_object`, `graphics_id`, `x`/`y`, `dx`/`dy`, `facing`,
   `movement_type_raw`; a trainer carries `trainer`: `range`, `beaten` and its `flag` (one trainer walked, range 3).
-- **`warps`** — `x`, `y`, the map it leads `to` and `to_warp`, the destination's warp number from 1.
+- **`warps`** — `x`, `y`, the map it leads `to` and `to_warp`, the destination's warp number from 1, and its tile's
+  `collision_raw` (0x71 a door, stepped onto; 0x70 a house's mat, entered by a press down on it).
 - **`extras.script_running_raw`** — 255 while a script has the controls: a message, a menu, a scene, a
   wild encounter, or a picture waiting for a button with no box on screen; 1 from the step into a trainer's sight
   until the map reloads after its battle, 2 from A on a trainer; 0 walking (9 a turn, 5 a door).
@@ -154,8 +155,11 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
   (`strongest` scores power times the accuracy byte; called after `spotted` it waits while the trainer walks over; it
   presses A on the level-up stats box and on a battle's waits with no ▼; `ended` adds `outcome_raw`, 0 after a win and
   2 after running, `money`, `party_count` and a `party` entry per Pokémon; in a battle, the question "Will A change
-  POKéMON?" is answered NO and the nickname after a catch stops `needs_choice`), and the `warp`, `give_item` and `set_flag`
-  cheats. No `goto` yet.
+  POKéMON?" is answered NO and the nickname after a catch stops `needs_choice`), `goto` (on foot; open tiles are the
+  collision bytes a step was measured onto, 0x00 and 0x18 grass, and a refusal names any other byte on the map as not
+  measured; trainers' lines are read from every trainer on the map, loaded or not, the way its movement type was seen
+  standing (6 down, 7 up, 8 left) or every way; a door is stepped onto and a mat pressed down on; it answers
+  `map_changed` once the player stands on the new map), and the `warp`, `give_item` and `set_flag` cheats.
 
 ## The run log
 
@@ -244,7 +248,7 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   plans the route -- what a step, a turn, grass and a trainer's line cost -- and rides it, holding, turning, letting go
   and planning again after a bump; each game module hands it hooks for what it measured: which tiles are open, when a
   step begins or is refused, how a bike coasts, how each warp is entered. The hook list is at the top of the file;
-  Emerald's module supplies them, Crystal's not yet.
+  both modules supply them, and Crystal's also says when a warp is still under way (`arriving`).
 - **Programs stop when nothing changes.** `walk`, `goto`, `select`, `battle` and `advance_text` run in the
   driver a frame at a time and end on the game's state; `battle` and `advance_text` press A once after
   3 seconds with no change -- only in a battle or on a message they can read -- retry a press the game

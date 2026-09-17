@@ -38,6 +38,12 @@
 --   limits               = { rest, idle, press, door, step }   frames: waiting to be at rest; idle frames and frames in
 --                                       all before a held direction is `no_response`; the same toward a warp or while
 --                                       entering one; a coast or a last step finishing
+--   optional:
+--   arriving()           -> function    called once per goto; the function it returns is called first every frame and
+--                                       returns true while a warp or a map change is still under way, and nothing is
+--                                       held then; the map is compared once it returns false, and after `limits.door`
+--                                       frames of it the goto ends. Crystal's map id changed 8 frames into a door's
+--                                       load, and the game then walked the player off the door by itself (2026-09-17)
 
 local M = {}
 
@@ -180,6 +186,7 @@ function M.go(h, p)
 	local startMap, lastX, lastY, legs, li, ride, width = nil, 0, 0, nil, 1, nil, 0
 	local closed, towardWarp, legsTaken, inSight = {}, false, 0, {}
 	local stops = h.watch()
+	local arriving, arrivingFor = h.arriving and h.arriving(), 0
 	local function finish(outcome, extra)
 		local _, x, y = h.position()
 		local r = { target = { x = toX, y = toY }, at = { x = x, y = y }, outcome = outcome, moved = moved,
@@ -215,6 +222,16 @@ function M.go(h, p)
 		frames = frames + 1
 		local map, x, y = h.position()
 		startMap = startMap or map
+		-- A warp under way, where the module says so: wait for it with nothing held.
+		if arriving then
+			if arriving() then
+				arrivingFor = arrivingFor + 1
+				if arrivingFor <= L.door then return nil, false end
+				if map ~= startMap then return finish("map_changed", { map = map, settled = false }) end
+				return finish("left_overworld")
+			end
+			arrivingFor = 0
+		end
 		if map ~= startMap and enter then return finish("map_changed", { map = map, entered = { x = warpX, y = warpY } }) end
 		if map ~= startMap then return finish("map_changed", { map = map }) end
 		if not h.inOverworld() then return finish("left_overworld") end
