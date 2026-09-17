@@ -68,6 +68,15 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 	}, logged(t, "press", nil, t.press))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name: "sequence",
+		Description: "Play a timeline of inputs in one go, frame-exact, the way a player's hands overlap: each step " +
+			"holds its buttons from frame `from` (counted from the sequence's first frame) for `frames`, and steps may " +
+			"overlap (run right for 90 frames while Jump is held from 30 to 44). With stop_on (event kinds, as events " +
+			"names them), the first such event the driver reports ends the sequence early: what is held is let go on " +
+			"the next frame and nothing later starts. Returns what changed, the frames run and the event it stopped on.",
+	}, logged(t, "sequence", nil, t.sequence))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name: "wait",
 		Description: "Let frames pass with no input at all, then return what changed. Use this to " +
 			"wait -- never hold a button to wait, since every button does something somewhere.",
@@ -263,6 +272,56 @@ func (t *tools) press(ctx context.Context, _ *mcp.CallToolRequest, in PressIn) (
 	// A driver answers after the hold ends; allow for a slow host (20 fps) on top of the base.
 	timeout := CallTimeout + time.Duration(in.Frames)*50*time.Millisecond
 	raw, err := t.forward(ctx, "press", "press", in, timeout)
+	return nil, raw, err
+}
+
+// MaxSequenceFrames bounds a sequence's length, MaxSequenceSteps its steps and MaxStopOn its stop_on kinds.
+const (
+	MaxSequenceFrames = 1800
+	MaxSequenceSteps  = 64
+	MaxStopOn         = 16
+)
+
+// SequenceStep is one hold in a sequence.
+type SequenceStep struct {
+	Buttons []string `json:"buttons" jsonschema:"button names the driver accepts, as press takes them"`
+	From    int      `json:"from" jsonschema:"the frame the hold begins, counted from the sequence's first frame (0)"`
+	Frames  int      `json:"frames" jsonschema:"how many frames to hold, 1 to 600"`
+}
+
+// SequenceIn is the sequence tool's input.
+type SequenceIn struct {
+	Steps  []SequenceStep `json:"steps" jsonschema:"the holds, in any order; they may overlap"`
+	StopOn []string       `json:"stop_on,omitempty" jsonschema:"event kinds that end the sequence early, e.g. damage_taken"`
+}
+
+func (t *tools) sequence(ctx context.Context, _ *mcp.CallToolRequest, in SequenceIn) (*mcp.CallToolResult, any, error) {
+	if len(in.Steps) == 0 || len(in.Steps) > MaxSequenceSteps {
+		return nil, nil, fmt.Errorf("a sequence has 1 to %d steps, got %d", MaxSequenceSteps, len(in.Steps))
+	}
+	end := 0
+	for i, st := range in.Steps {
+		if len(st.Buttons) == 0 {
+			return nil, nil, fmt.Errorf("step %d holds no button", i)
+		}
+		if st.Frames < 1 || st.Frames > MaxPressFrames {
+			return nil, nil, fmt.Errorf("step %d: frames must be 1 to %d, got %d", i, MaxPressFrames, st.Frames)
+		}
+		if st.From < 0 || st.From+st.Frames > MaxSequenceFrames {
+			return nil, nil, fmt.Errorf("step %d: from %d plus %d frames is outside 0 to %d", i, st.From, st.Frames, MaxSequenceFrames)
+		}
+		end = max(end, st.From+st.Frames)
+	}
+	if len(in.StopOn) > MaxStopOn {
+		return nil, nil, fmt.Errorf("stop_on names at most %d kinds, got %d", MaxStopOn, len(in.StopOn))
+	}
+	for _, k := range in.StopOn {
+		if k == "" || len(k) > 64 {
+			return nil, nil, fmt.Errorf("a stop_on kind is 1 to 64 bytes, got %q", k)
+		}
+	}
+	timeout := CallTimeout + time.Duration(end)*50*time.Millisecond
+	raw, err := t.forward(ctx, "sequence", "sequence", in, timeout)
 	return nil, raw, err
 }
 

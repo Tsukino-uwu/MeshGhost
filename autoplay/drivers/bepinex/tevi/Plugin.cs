@@ -54,6 +54,7 @@ namespace MeshGhostAutoplay.Tevi
             Log("loaded: port " + port + ", repo " + (repo ?? "(none: screenshots and exec are off)") + ", build " + build);
             Log(SaveGuard.Install(Application.persistentDataPath, repo == null ? null : repo + "/autoplay/states/" + GameName + "/shadow"));
             InputInjection.Install();
+            Events.Install();
             if (port == 0) return;
             if (repo == null)
             {
@@ -69,6 +70,7 @@ namespace MeshGhostAutoplay.Tevi
         {
             link?.Dispose();
             InputInjection.Uninstall();
+            Events.Uninstall();
             Log("unloaded (the save guard stays as it was: " + (SaveGuard.Armed ? "armed" : "not armed") + ")");
         }
 
@@ -140,7 +142,7 @@ namespace MeshGhostAutoplay.Tevi
 
         // ---- what the driver says about itself ------------------------------------------------------------------
 
-        private static readonly string[] Capabilities = { "observe", "wait", "press", "screenshot", "snapshot", "restore", "cheat:teleport" };
+        private static readonly string[] Capabilities = { "observe", "wait", "press", "sequence", "screenshot", "snapshot", "restore", "cheat:teleport" };
 
         private JObject Hello()
         {
@@ -277,6 +279,10 @@ namespace MeshGhostAutoplay.Tevi
             if (menu != null) o["menu"] = menu;
             JObject dialogue = Dialogue();
             if (dialogue != null) o["dialogue"] = dialogue;
+            JObject tip = Tip();
+            if (tip != null) o["tip"] = tip;
+            JObject obtained = Obtained();
+            if (obtained != null) o["obtained"] = obtained;
             if (p != null && p.t != null)
             {
                 o["player"] = new JObject
@@ -301,6 +307,7 @@ namespace MeshGhostAutoplay.Tevi
                 o["elements"] = elements;
                 o["items"] = items;
                 o["projectiles"] = Surroundings.Projectiles(p, view, 8);
+                o["area_elements"] = Surroundings.AreaElements(p.t.position, 3);
             }
             if (full)
             {
@@ -322,6 +329,7 @@ namespace MeshGhostAutoplay.Tevi
                     }
                     o["save"]["custom_game"] = custom;
                 }
+                o["screen_text"] = ScreenText();
                 o["extras"] = new JObject
                 {
                     ["event_mode_raw"] = em != null ? em.getMode().ToString() : null,
@@ -425,7 +433,69 @@ namespace MeshGhostAutoplay.Tevi
             };
         }
 
-        private static readonly string[] DiffKeys = { "mode", "dialogue.section", "dialogue.line", "menu.name", "menu.cursor", "menu.slot", "menu.question", "menu.entering", "location.area", "location.area_id", "location.room_x", "location.room_y", "location.x", "location.y", "location.facing", "player.anim", "player.hp" };
+        // The short instruction banner (ControlTips): its keyword (Tips.<name>), the text as drawn with the button pictures
+        // taken out, and how far it has faded in. Returned while it is fading in or shown, not once it fades out.
+        private static JObject Tip()
+        {
+            ControlTips tips = ControlTips.Instance;
+            if (tips == null) return null;
+            Type t = typeof(ControlTips);
+            float target = t.GetField("targetalpha", Private)?.GetValue(tips) is float f ? f : 0f;
+            var text = t.GetField("text", Private)?.GetValue(tips) as TMPro.TextMeshPro;
+            float alpha = text != null ? text.color.a : 0f;
+            if (target <= 0f) return null;
+            // The keyword changes before the text does: while fading in (measured 2026-09-17: alpha 0.012 with the last tip's
+            // text) the text is left out, and `shown` is false until the banner is half faded in.
+            bool shown = alpha >= 0.5f;
+            return new JObject
+            {
+                ["keyword"] = t.GetField("lastkeyword", Private)?.GetValue(tips) as string,
+                ["text"] = shown ? text?.GetParsedText() : null,
+                ["shown"] = shown,
+                ["alpha_raw"] = Math.Round(alpha, 3),
+            };
+        }
+
+        // Every text the game draws right now: each active TextMeshPro (world or UI) whose text is not empty and whose colour
+        // is not faded out, with the object's name, top to bottom by screen position. What no reader above knows by name
+        // (a tutorial window, a popup) still reaches the agent as words. At most 40 entries of 400 characters.
+        private static JArray ScreenText()
+        {
+            var found = new List<KeyValuePair<float, JObject>>();
+            Camera cam = Camera.main;
+            foreach (TMPro.TMP_Text t in FindObjectsOfType<TMPro.TMP_Text>())
+            {
+                if (t == null || !t.isActiveAndEnabled || t.color.a <= 0.01f || t.alpha <= 0.01f) continue;
+                string s = t.GetParsedText();
+                if (string.IsNullOrEmpty(s) || s.Trim().Length == 0) continue;
+                if (s.Length > 400) s = s.Substring(0, 400);
+                float y = 0f;
+                if (t is TMPro.TextMeshProUGUI) y = -t.transform.position.y;
+                else if (cam != null) y = -cam.WorldToScreenPoint(t.transform.position).y;
+                found.Add(new KeyValuePair<float, JObject>(y, new JObject { ["object"] = t.gameObject.name, ["text"] = s.Trim() }));
+            }
+            found.Sort((a, b) => a.Key.CompareTo(b.Key));
+            var arr = new JArray();
+            for (int i = 0; i < found.Count && i < 40; i++) arr.Add(found[i].Value);
+            return arr;
+        }
+
+        // The box that names an item just picked up (HUDObtainedItem), while it is up: the item's type and the name and
+        // description drawn. Confirm closes it.
+        private static JObject Obtained()
+        {
+            HUDObtainedItem hud = HUDObtainedItem.Instance;
+            if (hud == null || !hud.isDisplaying()) return null;
+            Type t = typeof(HUDObtainedItem);
+            return new JObject
+            {
+                ["item"] = t.GetField("gotitem", Private)?.GetValue(hud)?.ToString(),
+                ["name"] = (t.GetField("itemname", Private)?.GetValue(hud) as TMPro.TextMeshPro)?.GetParsedText(),
+                ["description"] = (t.GetField("itemdesc", Private)?.GetValue(hud) as TMPro.TextMeshPro)?.GetParsedText(),
+            };
+        }
+
+        private static readonly string[] DiffKeys = { "mode", "tip.keyword", "obtained.item", "dialogue.section", "dialogue.line", "menu.name", "menu.cursor", "menu.slot", "menu.question", "menu.entering", "location.area", "location.area_id", "location.room_x", "location.room_y", "location.x", "location.y", "location.facing", "player.anim", "player.hp" };
 
         private static JObject Changed(JObject before, JObject after)
         {
@@ -467,6 +537,7 @@ namespace MeshGhostAutoplay.Tevi
             }
             if (Time.frameCount % 30 == 0) link.SetHello(Hello());
 
+            InputInjection.MuteReal = SaveGuard.Armed && !Application.isFocused; // armed: a core has connected since the game started
             InputInjection.Expire();
             SendEvents();
 
@@ -486,17 +557,34 @@ namespace MeshGhostAutoplay.Tevi
 
         private void SendEvents()
         {
-            if (!link.Connected) return;
+            List<JObject> hits = Events.Drain(); // a hit while no core is connected is dropped, never sent to the next one
+            if (!link.Connected)
+            {
+                Events.Unprime();
+                return;
+            }
+            foreach (JObject e in hits) Emit(e);
+            Events.Poll(Player(), Dialogue(), SaveMenu() ?? TitleMenu(), Tip(), Obtained());
+            foreach (JObject e in Events.Drain()) Emit(e);
             string mode = Mode();
             WorldManager wm = WorldManager.Instance;
             string area = wm != null ? wm.CurrentRoomArea.ToString() : null;
             string room = wm != null ? wm.CurrentRoomX + "," + wm.CurrentRoomY : null;
-            if (lastMode != null && mode != lastMode) link.Event(new JObject { ["kind"] = "mode_changed", ["from"] = lastMode, ["to"] = mode, ["frame"] = Time.frameCount });
-            if (lastArea != null && area != null && area != lastArea) link.Event(new JObject { ["kind"] = "area_changed", ["from"] = lastArea, ["to"] = area, ["frame"] = Time.frameCount });
-            if (lastRoom != null && room != null && room != lastRoom) link.Event(new JObject { ["kind"] = "room_changed", ["from"] = lastRoom, ["to"] = room, ["frame"] = Time.frameCount });
+            if (lastMode != null && mode != lastMode) Emit(new JObject { ["kind"] = "mode_changed", ["from"] = lastMode, ["to"] = mode, ["frame"] = Time.frameCount });
+            if (lastArea != null && area != null && area != lastArea) Emit(new JObject { ["kind"] = "area_changed", ["from"] = lastArea, ["to"] = area, ["frame"] = Time.frameCount });
+            if (lastRoom != null && room != null && room != lastRoom) Emit(new JObject { ["kind"] = "room_changed", ["from"] = lastRoom, ["to"] = room, ["frame"] = Time.frameCount });
             lastMode = mode;
             if (area != null) lastArea = area;
             if (room != null) lastRoom = room;
+        }
+
+        // Every event goes out through here, and a running sequence sees each one first (its stop_on).
+        private Action<JObject> eventWatch;
+
+        private void Emit(JObject e)
+        {
+            eventWatch?.Invoke(e);
+            link.Event(e);
         }
 
         private void Begin(Link.Request req)
@@ -521,6 +609,9 @@ namespace MeshGhostAutoplay.Tevi
                         break;
                     case "press":
                         currentTick = PressJob(req.Payload);
+                        break;
+                    case "sequence":
+                        currentTick = SequenceJob(req.Payload);
                         break;
                     case "screenshot":
                         currentTick = ScreenshotJob(req.Payload);
@@ -557,6 +648,7 @@ namespace MeshGhostAutoplay.Tevi
 
         private void Finish(JToken answer)
         {
+            eventWatch = null;
             link.Reply(current, answer);
             current = null;
             currentTick = null;
@@ -564,6 +656,7 @@ namespace MeshGhostAutoplay.Tevi
 
         private void FailCurrent(string message)
         {
+            eventWatch = null;
             Log(current.Type + " failed: " + message);
             link.Fail(current, message);
             current = null;
@@ -601,6 +694,58 @@ namespace MeshGhostAutoplay.Tevi
                 if (Time.frameCount < done) return null;
                 JObject after = Observe(false);
                 return new JObject { ["frames"] = frames, ["buttons"] = new JArray(buttons.ToArray()), ["before"] = before, ["after"] = after, ["changed"] = Changed(before, after) };
+            };
+        }
+
+        // SEQUENCE {steps: [{buttons, from, frames}], stop_on}: every hold scheduled at once from the next frame, so they
+        // overlap exactly as asked; the first event whose kind is in stop_on cuts what is held (let go on the next frame)
+        // and drops what has not begun, and the answer waits a frame for that release.
+        private Func<JToken> SequenceJob(JObject p)
+        {
+            var steps = new List<KeyValuePair<IList<string>, KeyValuePair<int, int>>>();
+            foreach (JToken st in p["steps"] as JArray ?? new JArray())
+            {
+                var buttons = new List<string>();
+                foreach (JToken b in st["buttons"] as JArray ?? new JArray()) buttons.Add((string)b);
+                int from = (int?)st["from"] ?? 0, frames = (int?)st["frames"] ?? 0;
+                if (buttons.Count == 0 || frames < 1 || from < 0) throw new Exception("each step needs buttons, from and frames");
+                steps.Add(new KeyValuePair<IList<string>, KeyValuePair<int, int>>(buttons, new KeyValuePair<int, int>(from, frames)));
+            }
+            if (steps.Count == 0) throw new Exception("sequence needs steps");
+            var stopOn = new HashSet<string>();
+            foreach (JToken k in p["stop_on"] as JArray ?? new JArray()) stopOn.Add((string)k);
+            JObject before = Observe(false);
+            string err = InputInjection.ScheduleSequence(steps, out int done);
+            if (err != null) throw new Exception(err);
+            int start = Time.frameCount + 1;
+            JObject stoppedBy = null;
+            int stopFrame = -1;
+            if (stopOn.Count > 0)
+            {
+                eventWatch = e =>
+                {
+                    if (stoppedBy == null && stopOn.Contains((string)e["kind"] ?? "")) stoppedBy = e;
+                };
+            }
+            Log("sequence of " + steps.Count + " steps over " + (done - start - 1) + " frames" + (stopOn.Count > 0 ? ", stop on " + string.Join(",", new List<string>(stopOn).ToArray()) : ""));
+            return () =>
+            {
+                if (stoppedBy != null && stopFrame < 0)
+                {
+                    InputInjection.CutShort();
+                    stopFrame = Time.frameCount;
+                }
+                if (stopFrame >= 0 ? Time.frameCount < stopFrame + 2 : Time.frameCount < done) return null;
+                JObject after = Observe(false);
+                var answer = new JObject
+                {
+                    ["frames_run"] = (stopFrame >= 0 ? stopFrame : done - 1) - start,
+                    ["before"] = before,
+                    ["after"] = after,
+                    ["changed"] = Changed(before, after),
+                };
+                if (stoppedBy != null) answer["stopped_by"] = stoppedBy;
+                return answer;
             };
         }
 

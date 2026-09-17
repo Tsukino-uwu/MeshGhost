@@ -64,6 +64,7 @@ namespace MeshGhostAutoplay.Tevi
             harmony?.UnpatchSelf();
             harmony = null;
             Holds.Clear();
+            MuteReal = false;
         }
 
         // Whether the game hears the keyboard and mouse while unfocused, read only. The user, 2026-09-17: a TEVI started
@@ -77,6 +78,7 @@ namespace MeshGhostAutoplay.Tevi
             {
                 ["ignore_input_when_unfocused_raw"] = ReInput.configuration.ignoreInputWhenAppNotInFocus,
                 ["application_focused_raw"] = Application.isFocused,
+                ["real_input_muted"] = MuteReal,
             };
         }
 
@@ -103,6 +105,16 @@ namespace MeshGhostAutoplay.Tevi
             if (Holds.Count > 0) return "a press is still running";
             var parsed = new List<Hold>();
             int start = Time.frameCount + 1;
+            string err = Parse(buttons, start, frames, parsed);
+            if (err != null) return err;
+            Holds.AddRange(parsed);
+            doneFrame = start + frames + 1;
+            return null;
+        }
+
+        // Names to holds from `start` for `frames`, added to `into`; an error names what is wrong, and adds nothing more.
+        private static string Parse(IList<string> buttons, int start, int frames, List<Hold> into)
+        {
             foreach (string raw in buttons)
             {
                 string name = (raw ?? "").Trim();
@@ -128,11 +140,53 @@ namespace MeshGhostAutoplay.Tevi
                 {
                     return "\"" + action.name + "\" is a button, which has no negative side";
                 }
-                parsed.Add(new Hold { ActionId = action.id, Value = value, Start = start, End = start + frames });
+                into.Add(new Hold { ActionId = action.id, Value = value, Start = start, End = start + frames });
             }
-            Holds.AddRange(parsed);
-            doneFrame = start + frames + 1;
             return null;
+        }
+
+        // A SEQUENCE: several holds, each from its own offset after the next frame, overlapping as they like. All are checked
+        // before any is scheduled. Returns an error, or null and the first frame after the last release.
+        public static string ScheduleSequence(IList<KeyValuePair<IList<string>, KeyValuePair<int, int>>> steps, out int doneFrame)
+        {
+            doneFrame = 0;
+            if (!ReInput.isReady) return "Rewired is not ready yet";
+            if (Holds.Count > 0) return "a press is still running";
+            var all = new List<Hold>();
+            int start = Time.frameCount + 1, end = start;
+            foreach (var step in steps)
+            {
+                int from = step.Value.Key, frames = step.Value.Value;
+                string err = Parse(step.Key, start + from, frames, all);
+                if (err != null) return err;
+                end = Math.Max(end, start + from + frames);
+            }
+            Holds.AddRange(all);
+            doneFrame = end + 1;
+            return null;
+        }
+
+        // Ends every hold now: one still held is let go on the next frame (so the game sees it released), and one not begun
+        // is dropped. Returns how many were cut.
+        public static int CutShort()
+        {
+            int f = Time.frameCount, cut = 0;
+            for (int i = Holds.Count - 1; i >= 0; i--)
+            {
+                Hold h = Holds[i];
+                if (h.Start > f)
+                {
+                    Holds.RemoveAt(i);
+                    cut++;
+                }
+                else if (h.End > f + 1)
+                {
+                    h.End = f + 1;
+                    Holds[i] = h;
+                    cut++;
+                }
+            }
+            return cut;
         }
 
         // Called every frame by the plugin: a hold whose release frame has passed is forgotten.
@@ -184,31 +238,40 @@ namespace MeshGhostAutoplay.Tevi
             return false;
         }
 
-        private static void ButtonPostfixId(int __0, ref bool __result) { if (!__result && Holds.Count > 0 && Held(__0) > 0f) __result = true; }
-        private static void ButtonPostfixName(string __0, ref bool __result) { if (!__result && Holds.Count > 0) ButtonPostfixId(IdOf(__0), ref __result); }
+        // While true, what Rewired reads from the real keyboard, mouse and pads is dropped before the holds above are added:
+        // the plugin sets it each frame while the save guard is armed (a core has connected since launch; mcpcall drops the link
+        // between calls) and the game's window is not focused. The user, 2026-09-17:
+        // after a restore reloads the game it takes typing from other windows again (the pause menu opened mid-press) until
+        // its window is focused and left once more. Focused, the player's own input reaches the game as always.
+        public static bool MuteReal;
 
-        private static void ButtonDownPostfixId(int __0, ref bool __result) { if (!__result && Holds.Count > 0 && Edge(__0, 1f, false)) __result = true; }
-        private static void ButtonDownPostfixName(string __0, ref bool __result) { if (!__result && Holds.Count > 0) ButtonDownPostfixId(IdOf(__0), ref __result); }
+        private static void ButtonPostfixId(int __0, ref bool __result) { if (MuteReal) __result = false; if (!__result && Holds.Count > 0 && Held(__0) > 0f) __result = true; }
+        private static void ButtonPostfixName(string __0, ref bool __result) { if (MuteReal) __result = false; if (!__result && Holds.Count > 0) ButtonPostfixId(IdOf(__0), ref __result); }
 
-        private static void ButtonUpPostfixId(int __0, ref bool __result) { if (!__result && Holds.Count > 0 && Edge(__0, 1f, true)) __result = true; }
-        private static void ButtonUpPostfixName(string __0, ref bool __result) { if (!__result && Holds.Count > 0) ButtonUpPostfixId(IdOf(__0), ref __result); }
+        private static void ButtonDownPostfixId(int __0, ref bool __result) { if (MuteReal) __result = false; if (!__result && Holds.Count > 0 && Edge(__0, 1f, false)) __result = true; }
+        private static void ButtonDownPostfixName(string __0, ref bool __result) { if (MuteReal) __result = false; if (!__result && Holds.Count > 0) ButtonDownPostfixId(IdOf(__0), ref __result); }
 
-        private static void NegativeButtonPostfixId(int __0, ref bool __result) { if (!__result && Holds.Count > 0 && Held(__0) < 0f) __result = true; }
-        private static void NegativeButtonPostfixName(string __0, ref bool __result) { if (!__result && Holds.Count > 0) NegativeButtonPostfixId(IdOf(__0), ref __result); }
+        private static void ButtonUpPostfixId(int __0, ref bool __result) { if (MuteReal) __result = false; if (!__result && Holds.Count > 0 && Edge(__0, 1f, true)) __result = true; }
+        private static void ButtonUpPostfixName(string __0, ref bool __result) { if (MuteReal) __result = false; if (!__result && Holds.Count > 0) ButtonUpPostfixId(IdOf(__0), ref __result); }
 
-        private static void NegativeButtonDownPostfixId(int __0, ref bool __result) { if (!__result && Holds.Count > 0 && Edge(__0, -1f, false)) __result = true; }
-        private static void NegativeButtonDownPostfixName(string __0, ref bool __result) { if (!__result && Holds.Count > 0) NegativeButtonDownPostfixId(IdOf(__0), ref __result); }
+        private static void NegativeButtonPostfixId(int __0, ref bool __result) { if (MuteReal) __result = false; if (!__result && Holds.Count > 0 && Held(__0) < 0f) __result = true; }
+        private static void NegativeButtonPostfixName(string __0, ref bool __result) { if (MuteReal) __result = false; if (!__result && Holds.Count > 0) NegativeButtonPostfixId(IdOf(__0), ref __result); }
+
+        private static void NegativeButtonDownPostfixId(int __0, ref bool __result) { if (MuteReal) __result = false; if (!__result && Holds.Count > 0 && Edge(__0, -1f, false)) __result = true; }
+        private static void NegativeButtonDownPostfixName(string __0, ref bool __result) { if (MuteReal) __result = false; if (!__result && Holds.Count > 0) NegativeButtonDownPostfixId(IdOf(__0), ref __result); }
 
         private static void AxisPostfixId(int __0, ref float __result)
         {
+            if (MuteReal) __result = 0f;
             if (Holds.Count == 0) return;
             float v = Held(__0);
             if (v != 0f && Mathf.Abs(v) > Mathf.Abs(__result)) __result = v;
         }
-        private static void AxisPostfixName(string __0, ref float __result) { if (Holds.Count > 0) AxisPostfixId(IdOf(__0), ref __result); }
+        private static void AxisPostfixName(string __0, ref float __result) { if (MuteReal) __result = 0f; if (Holds.Count > 0) AxisPostfixId(IdOf(__0), ref __result); }
 
         private static void AnyButtonPostfix(ref bool __result)
         {
+            if (MuteReal) __result = false;
             if (__result || Holds.Count == 0) return;
             int f = Time.frameCount;
             foreach (Hold h in Holds)

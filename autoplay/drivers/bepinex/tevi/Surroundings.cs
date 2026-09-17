@@ -124,6 +124,39 @@ namespace MeshGhostAutoplay.Tevi
             return arr;
         }
 
+        // The whole area's elements, not only those in view: per type, how many and the nearest few, so a teleport can aim at
+        // something off screen (an enemy's spawn, a spike, a door marker). Kept small: the link caps a line at 64 KB.
+        public static JObject AreaElements(Vector3 from, int nearest)
+        {
+            var o = new JObject();
+            AreaMapData area = WorldManager.Instance != null ? WorldManager.Instance.areadata : null;
+            if (area == null || area.elementlist == null) return o;
+            var byType = new Dictionary<string, List<KeyValuePair<float, ElementTile>>>();
+            foreach (ElementTile e in area.elementlist)
+            {
+                if (e == null) continue;
+                string type = e.elementtype.ToString();
+                if (!byType.TryGetValue(type, out var list)) byType[type] = list = new List<KeyValuePair<float, ElementTile>>();
+                list.Add(new KeyValuePair<float, ElementTile>((e.transform.position - from).sqrMagnitude, e));
+            }
+            var keys = new List<string>(byType.Keys);
+            keys.Sort(StringComparer.Ordinal);
+            foreach (string type in keys)
+            {
+                var list = byType[type];
+                list.Sort((a, b) => a.Key.CompareTo(b.Key));
+                var near = new JArray();
+                for (int i = 0; i < list.Count && i < nearest; i++)
+                {
+                    JObject at = Offset(list[i].Value.transform.position, from);
+                    at["active_raw"] = list[i].Value.gameObject.activeInHierarchy;
+                    near.Add(at);
+                }
+                o[type] = new JObject { ["count"] = list.Count, ["nearest"] = near };
+            }
+            return o;
+        }
+
         public static JArray Items(Vector3 from, JObject view)
         {
             var arr = new JArray();

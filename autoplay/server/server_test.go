@@ -228,6 +228,51 @@ func TestPressValidatesAndForwards(t *testing.T) {
 	}
 }
 
+func TestSequenceValidatesAndForwards(t *testing.T) {
+	h := newHarness(t)
+	got := make(chan SequenceIn, 1)
+	h.startDriver(t, []string{"sequence"}, func(verb string, payload json.RawMessage) (string, any) {
+		var in SequenceIn
+		json.Unmarshal(payload, &in)
+		got <- in
+		return "result", map[string]any{"frames_run": 90}
+	})
+
+	step := func(from, frames int, buttons ...string) map[string]any {
+		return map[string]any{"buttons": buttons, "from": from, "frames": frames}
+	}
+	tooMany := make([]map[string]any, MaxSequenceSteps+1)
+	for i := range tooMany {
+		tooMany[i] = step(i, 1, "A")
+	}
+	for _, bad := range []map[string]any{
+		{"steps": []map[string]any{}},
+		{"steps": tooMany},
+		{"steps": []map[string]any{step(0, 4)}},
+		{"steps": []map[string]any{step(0, 0, "A")}},
+		{"steps": []map[string]any{step(0, MaxPressFrames+1, "A")}},
+		{"steps": []map[string]any{step(-1, 4, "A")}},
+		{"steps": []map[string]any{step(MaxSequenceFrames-3, 4, "A")}},
+		{"steps": []map[string]any{step(0, 4, "A")}, "stop_on": []string{""}},
+	} {
+		if text, isErr := h.call(t, "sequence", bad); !isErr {
+			t.Errorf("sequence %v = %s, want a refusal", bad, text)
+		}
+	}
+
+	text, isErr := h.call(t, "sequence", map[string]any{
+		"steps":   []map[string]any{step(0, 90, "XAxis+"), step(30, 14, "Jump")},
+		"stop_on": []string{"damage_taken"},
+	})
+	if isErr || !strings.Contains(text, `"frames_run":90`) {
+		t.Fatalf("sequence = %s (error %v)", text, isErr)
+	}
+	in := <-got
+	if len(in.Steps) != 2 || in.Steps[1].From != 30 || in.Steps[1].Buttons[0] != "Jump" || len(in.StopOn) != 1 || in.StopOn[0] != "damage_taken" {
+		t.Fatalf("the driver received %+v", in)
+	}
+}
+
 func TestSelectValidatesAndForwards(t *testing.T) {
 	h := newHarness(t)
 	got := make(chan map[string]any, 2)
