@@ -2071,23 +2071,43 @@ routeHooks.mapExits = function(name)
 			end
 		end
 	end
-	local events = r32(hdr + 4)
+	-- A warp's +5 is the destination's warp number, from 0: through 0.10's Center door (+5 0) the player arrived on 2.2's
+	-- warp 0 at (7,8), and out through that (+5 2) on 0.10's warp 2 at (6,16) (2026-09-17). +4 read 3 on 2.2's mats, which
+	-- read elevation 3, and 0 or 4 elsewhere (not used).
+	local events, warps = r32(hdr + 4), {}
 	local list = r32(events + 8)
 	for i = 0, math.min(r8(events + 1), 64) - 1 do
 		if not inRom(list) then break end
 		local e = list + i * 8
 		local x, y, to = r16(e), r16(e + 2), string.format("%d.%d", r8(e + 7), r8(e + 6))
-		exits[#exits + 1] = { kind = "warp", x = x, y = y, to = to, key = string.format("warp (%d,%d) to %s", x, y, to) }
+		local _, _, behaviour = routeHooks.mapTileRaw(name, x, y)
+		warps[#warps + 1] = { kind = "warp", x = x, y = y, to = to, to_warp = r8(e + 5), behaviour = behaviour,
+			key = string.format("warp (%d,%d) to %s", x, y, to) }
+		exits[#exits + 1] = warps[#warps]
 	end
-	routeHooks.maps[name] = { width = w, height = h, exits = exits }
+	routeHooks.maps[name] = { width = w, height = h, exits = exits, warps = warps }
 	return routeHooks.maps[name]
 end
--- A tile of any map a step is planned onto: collision clear and not water's elevation 1 (WHY A STEP WAS REFUSED).
-routeHooks.tileOpenOn = function(name, x, y)
+-- Any map's tile from the ROM: collision, elevation and behaviour, through that layout's own tilesets (as behaviourOf reads
+-- the current one's).
+routeHooks.mapTileRaw = function(name, x, y)
 	local _, layout, w, h = routeHooks.mapHeader(name)
-	if not layout or x < 0 or y < 0 or x >= w or y >= h then return false end
+	if not layout or x < 0 or y < 0 or x >= w or y >= h then return nil end
 	local v = r16(r32(layout + 12) + (x + w * y) * 2)
-	return (v & 0x0C00) == 0 and (v >> 12) ~= 1
+	local id, k = v & 0x3FF, 0
+	if id >= 512 then id, k = id - 512, 1 end
+	local ts = r32(layout + 0x10 + k * 4)
+	local attrs = inRom(ts) and r32(ts + 0x10) or 0
+	return (v >> 10) & 3, v >> 12, inRom(attrs) and (r16(attrs + id * 2) & 0xFF) or -1
+end
+-- A tile of any map for the plan across maps, on foot: a ledge (0x3B) one way down, collision set closed, water's
+-- elevation 1 closed (WHY A STEP WAS REFUSED); otherwise its elevation.
+routeHooks.mapTile = function(name, x, y)
+	local collision, elevation, behaviour = routeHooks.mapTileRaw(name, x, y)
+	if not collision then return nil end
+	if behaviour == 0x3B then return elevation, "down" end
+	if collision ~= 0 or elevation == 1 then return nil end
+	return elevation
 end
 
 -- goto {x, y, run, cross_grass}: to a tile on this map by a planned route (`../route.lua`).
@@ -2199,6 +2219,9 @@ local textHooks = {
 		return slot, nameAt(MOVE_NAMES, MOVE_LEN, MOVE_COUNT, id) or ("move " .. id)
 	end,
 	effectiveMove = TYPE_CHART.effectiveMove,
+	-- WALLY's catching battle in Petalburg's gym (2026-09-17): the type flags read 0x204 against 0x04 in four wild battles, and
+	-- the bag's USE/CANCEL that `battle` stopped on went on by itself, with no input, to "Gotcha! RALTS was caught!".
+	gameAnswers = function() return (r32(BATTLE_TYPE_FLAGS) & 0x200) ~= 0 and not inOverworld() end,
 	endedReport = function()
 		local save = readSave()
 		return { outcome_raw = r8(BATTLE_OUTCOME), money = save and save.money,
@@ -2234,6 +2257,12 @@ end
 routeHooks.characters = readObjects
 routeHooks.facing = function()
 	return ({ "down", "up", "left", "right" })[r8(playerObject() + 0x18) & 0x0F]
+end
+-- A Center's counter: behaviour 0x80, collision set, elevation 0 at 8.4 (7,3); from (7,4) facing up, A opened the nurse's
+-- "Hello, and welcome to the POKéMON CENTER." with her at (7,2) (2026-09-17).
+routeHooks.talkAcross = function(x, y)
+	local t = describeTile(x, y)
+	return t.behaviour == 0x80
 end
 routeHooks.talkStarted = function()
 	return r8(SCRIPT_CONTEXT_STATUS) ~= SCRIPT_CONTEXT_OFF or readDialogue() ~= nil

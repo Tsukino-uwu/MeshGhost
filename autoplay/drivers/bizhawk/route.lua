@@ -50,12 +50,17 @@
 --   mapExits(map)        -> nil, or { width, height, exits }   any map by its name, read from the game's own tables:
 --                                       each exit { kind = "edge", direction, offset, to } -- walked off this map's
 --                                       side that way onto `to`, a tile along the side at c being c - offset there --,
---                                       or { kind = "warp", x, y, to }; each with a `key` naming it on this map
---   tileOpenOn(map, x, y) -> boolean    a step onto that tile of any map is planned (a neighbour's side of an edge)
+--                                       or { kind = "warp", x, y, to, to_warp, behaviour } -- arriving on `to`'s
+--                                       warps[to_warp + 1] --; each with a `key` naming it on this map; and `warps`, the
+--                                       map's warps in order
+--   mapTile(map, x, y)   -> nil, or elevation, oneWay   a tile of any map a step on foot is planned onto, as the
+--                                       game's tables read (no characters): its elevation, and a direction for a
+--                                       one-way tile
 --   for `M.talk`:
 --   characters()         -> list        the other characters on this map, each { local_id, x, y }
 --   facing()             -> direction   the way the player faces, or nil where not measured
 --   talkStarted()        -> boolean     an A was taken: a message is up or a script has the controls
+--   optional: talkAcross(x, y) -> boolean   A reaches a character across this tile (a counter)
 
 local M = {}
 
@@ -348,14 +353,18 @@ function M.go(h, p)
 	end, nil, 7200
 end
 
--- GOTO ACROSS MAPS (2026-09-17, Emerald). The maps between are planned breadth-first over each map's exits
--- (`mapExits`), fewest maps first; on each map the tile route to the exit is `M.go`'s, and it is ridden the same way.
--- A warp is gone to as any goto to a warp goes in; an edge is left from the side's nearest tile whose neighbour tile
--- is open (`tileOpenOn`), holding the direction off the side until the map changes. After every map change the
+-- GOTO ACROSS MAPS (2026-09-17, Emerald). The maps between are planned breadth-first, fewest maps first, over the parts
+-- of each map a walk can cover: from the tile it is entered on, a flood over `mapTile` (a step to a tile of the same
+-- elevation, or to or from elevation 0, a one-way tile only its way), so an exit counts only where that part reaches it
+-- -- a warp by its tile or the tile it is entered from (`enterWarp`), an edge by a side tile whose neighbour tile is
+-- open. The first plan only went by each map's exit list: from 0.18's east strip, cut off by water, it crossed back and
+-- round into a trainer's sight (2026-09-17). On each map the tile route to the exit is `M.go`'s, and it is ridden the
+-- same way. A warp is gone to as any goto to a warp goes in; an edge is left from the nearest of the side tiles that
+-- plan says lead on, holding the direction off the side until the map changes. After every map change the
 -- program waits for the overworld at rest, then plans again from the map it is on, so a warp that lands somewhere
 -- else is followed from there. An exit that cannot be reached or crossed is set aside for this goto and the maps
 -- planned again, at most MAP_REPLANS times.
-local MAP_REPLANS, SETTLE_FRAMES, EDGE_CANDIDATES = 12, 600, 12
+local MAP_REPLANS, SETTLE_FRAMES, EDGE_CANDIDATES, SEARCH_PARTS = 12, 600, 12, 400
 
 function M.travel(h, p)
 	local toMap, toX, toY = p.map, math.tointeger(p.x), math.tointeger(p.y)
@@ -377,46 +386,101 @@ function M.travel(h, p)
 		end
 		return nil, true, r
 	end
-	-- The exits to take from `from`, fewest maps first, or nil.
-	local function route(from)
-		local prev, queue, seen, i = {}, { from }, { [from] = true }, 1
-		while i <= #queue and not seen[toMap] do
-			local m = queue[i]
-			i = i + 1
-			local info = h.mapExits(m)
-			for _, e in ipairs(info and info.exits or {}) do
-				local key = m .. " " .. e.key
-				if not failed[key] and not seen[e.to] and h.mapExits(e.to) then
-					seen[e.to], prev[e.to] = true, { from = m, exit = e, key = key }
-					queue[#queue + 1] = e.to
+	-- The tiles a walk covers on `map` from (sx, sy), keyed y * width + x.
+	local function flood(map, info, sx, sy)
+		local w, hgt = info.width, info.height
+		local reached, queue, qi = { [sy * w + sx] = true }, { sx, sy }, 1
+		while qi < #queue do
+			local x, y = queue[qi], queue[qi + 1]
+			qi = qi + 2
+			local e0, way = h.mapTile(map, x, y)
+			for _, d in pairs(DIRECTIONS) do
+				local nx, ny = x + d.dx, y + d.dy
+				if (not way or DIRECTIONS[way] == d) and nx >= 0 and ny >= 0 and nx < w and ny < hgt and not reached[ny * w + nx] then
+					local e1, way1 = h.mapTile(map, nx, ny)
+					if e1 and (not way1 or DIRECTIONS[way1] == d) and (e0 == nil or e1 == e0 or e0 == 0 or e1 == 0) then
+						reached[ny * w + nx] = true
+						queue[#queue + 1], queue[#queue + 2] = nx, ny
+					end
 				end
 			end
 		end
-		if not seen[toMap] then return nil end
-		local path, m = {}, toMap
-		while m ~= from do
-			table.insert(path, 1, prev[m])
-			m = prev[m].from
-		end
-		return path
+		return reached
 	end
-	-- The side's tile to leave from: open here, open across, and a route plans to it; nearest first.
-	local function edgeTile(map, e, x, y)
-		local here, there = h.mapExits(map), h.mapExits(e.to)
-		local grid = h.routeGrid(x, y, x, y)
-		if not grid then return nil end
-		local d, cands = DIRECTIONS[e.direction], {}
-		local along = (d.dx == 0) and here.width or here.height
-		for c = 0, along - 1 do
-			local tx, ty, nx, ny
-			if e.direction == "up" then tx, ty, nx, ny = c, 0, c - e.offset, there.height - 1
-			elseif e.direction == "down" then tx, ty, nx, ny = c, here.height - 1, c - e.offset, 0
-			elseif e.direction == "left" then tx, ty, nx, ny = 0, c, there.width - 1, c - e.offset
-			else tx, ty, nx, ny = here.width - 1, c, 0, c - e.offset end
-			local open, _, _, oneWay = grid.tile(tx, ty)
-			if open and not oneWay and h.tileOpenOn(e.to, nx, ny) then
-				cands[#cands + 1] = { x = tx, y = ty, dist = math.abs(tx - x) + math.abs(ty - y) }
+	-- The side tiles of an edge exit, each with its neighbour tile across.
+	local function sides(here, there, e)
+		local d, out = DIRECTIONS[e.direction], {}
+		for c = 0, ((d.dx == 0) and here.width or here.height) - 1 do
+			local t
+			if e.direction == "up" then t = { x = c, y = 0, nx = c - e.offset, ny = there.height - 1 }
+			elseif e.direction == "down" then t = { x = c, y = here.height - 1, nx = c - e.offset, ny = 0 }
+			elseif e.direction == "left" then t = { x = 0, y = c, nx = there.width - 1, ny = c - e.offset }
+			else t = { x = here.width - 1, y = c, nx = 0, ny = c - e.offset } end
+			out[#out + 1] = t
+		end
+		return out
+	end
+	-- The steps from (map, x, y) to the target, fewest maps first, or nil: each { exit, key, sides }, `sides` the edge's
+	-- side tiles that lead on.
+	local function route(fromMap, fx, fy)
+		local startInfo = h.mapExits(fromMap)
+		local parts = { { map = fromMap, info = startInfo, reached = flood(fromMap, startInfo, fx, fy) } }
+		local byMap = { [fromMap] = { parts[1].reached } }
+		local i = 1
+		while i <= #parts and #parts <= SEARCH_PARTS do
+			local s = parts[i]
+			i = i + 1
+			local w = s.info.width
+			if s.map == toMap and s.reached[toY * w + toX] then
+				local path = {}
+				while s.prev do
+					table.insert(path, 1, s)
+					s = s.prev
+				end
+				return path
 			end
+			for _, e in ipairs(s.info.exits) do
+				local key = s.map .. " " .. e.key
+				local there = not failed[key] and h.mapExits(e.to) or nil
+				local seeds = {}
+				if there and e.kind == "warp" then
+					local how = h.enterWarp(e)
+					local rx, ry = e.x + (how and how.dx or 0), e.y + (how and how.dy or 0)
+					local arrive = there.warps[e.to_warp + 1]
+					if arrive and rx >= 0 and ry >= 0 and s.reached[ry * w + rx] then seeds[1] = { x = arrive.x, y = arrive.y } end
+				elseif there then
+					for _, t in ipairs(sides(s.info, there, e)) do
+						local _, way = h.mapTile(s.map, t.x, t.y)
+						if s.reached[t.y * w + t.x] and not way and h.mapTile(e.to, t.nx, t.ny) then
+							seeds[#seeds + 1] = { x = t.nx, y = t.ny, side = t }
+						end
+					end
+				end
+				for _, seed in ipairs(seeds) do
+					local known = false
+					for _, r in ipairs(byMap[e.to] or {}) do
+						if r[seed.y * there.width + seed.x] then known = true end
+					end
+					if not known then
+						local reached = flood(e.to, there, seed.x, seed.y)
+						byMap[e.to] = byMap[e.to] or {}
+						table.insert(byMap[e.to], reached)
+						local lead = {}
+						for _, other in ipairs(seeds) do
+							if other.side and reached[other.y * there.width + other.x] then lead[#lead + 1] = other.side end
+						end
+						parts[#parts + 1] = { map = e.to, info = there, reached = reached, prev = s, exit = e, key = key, sides = lead }
+					end
+				end
+			end
+		end
+		return nil
+	end
+	-- The side tile to leave from: the nearest of those leading on that a route on the live grid plans to.
+	local function edgeTile(x, y)
+		local cands = {}
+		for _, t in ipairs(step.sides) do
+			cands[#cands + 1] = { x = t.x, y = t.y, dist = math.abs(t.x - x) + math.abs(t.y - y) }
 		end
 		table.sort(cands, function(a, b) return a.dist < b.dist end)
 		for i = 1, math.min(#cands, EDGE_CANDIDATES) do
@@ -447,16 +511,17 @@ function M.travel(h, p)
 				phase = "last"
 				return nil, false
 			end
-			local path = route(map)
+			local path = route(map, x, y)
 			if not path then
-				return finish("unreachable", { reason = "no way known from map " .. map .. " to " .. toMap })
+				return finish("unreachable", { reason = "no way on foot known from " .. map .. " (" .. x .. "," .. y .. ") to " ..
+					toMap .. " (" .. toX .. "," .. toY .. ")" })
 			end
 			step = path[1]
 			local e, tx, ty = step.exit, nil, nil
 			if e.kind == "warp" then
 				tx, ty = e.x, e.y
 			else
-				tx, ty = edgeTile(map, e, x, y)
+				tx, ty = edgeTile(x, y)
 				if not tx then return setAsideStep() end
 			end
 			inner = M.go(h, { x = tx, y = ty, run = sub.run, cross_grass = sub.cross_grass })
@@ -532,14 +597,18 @@ function M.talk(h, p, advance)
 				if frames > h.limits.rest then return finish("not_at_rest") end
 				return nil, false
 			end
-			local c, dist = find()
+			local c = find()
 			if not c then return finish("unreachable", { reason = "the character left the map" }) end
 			who = c
 			local _, px, py = h.position()
-			if dist == 1 then
-				for name, d in pairs(DIRECTIONS) do
-					if px + d.dx == c.x and py + d.dy == c.y then face = name end
+			-- Beside it, or two tiles off with a tile A reaches across between (a Center's counter, 2026-09-17).
+			for name, d in pairs(DIRECTIONS) do
+				if (px + d.dx == c.x and py + d.dy == c.y) or (px + 2 * d.dx == c.x and py + 2 * d.dy == c.y and h.talkAcross
+					and h.talkAcross(px + d.dx, py + d.dy)) then
+					face = name
 				end
+			end
+			if face then
 				phase, frames = "face", 0
 				return nil, false
 			end
@@ -550,6 +619,9 @@ function M.talk(h, p, advance)
 			for _, d in pairs(DIRECTIONS) do
 				local x, y = c.x - d.dx, c.y - d.dy
 				spots[#spots + 1] = { x = x, y = y, dist = math.abs(x - px) + math.abs(y - py) }
+				if h.talkAcross and h.talkAcross(x, y) then
+					spots[#spots + 1] = { x = x - d.dx, y = y - d.dy, dist = math.abs(x - d.dx - px) + math.abs(y - d.dy - py) }
+				end
 			end
 			table.sort(spots, function(a, b) return a.dist < b.dist end)
 			for _, spot in ipairs(spots) do

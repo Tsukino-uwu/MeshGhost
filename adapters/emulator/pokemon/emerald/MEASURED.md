@@ -68,6 +68,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - A battle controller at work: the rescue battle's intro (2026-09-17)
 - What a move's type does to its damage (2026-09-17)
 - Ledges, water, and other maps read from the ROM (2026-09-17)
+- A warp's arrival, a whiteout, a Center's counter, and WALLY's battle (2026-09-17)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -874,6 +875,32 @@ map for the names.
 - **Not measured**: ledges of behaviour 0x38, 0x39 and 0x3A (on 0.17 and other routes, not walked); water at another
   behaviour; a cut tree, a boulder, a Rock Smash rock, a waterfall; a warp to a map the header names as dynamic; a warp
   that lands on an arrow warp; what the refused water step looks like surfing or with SURF known.
+
+### A warp's arrival, a whiteout, a Center's counter, and WALLY's battle (2026-09-17)
+
+**Vanilla ROM**, the old save played from Route 110 (0.25) through the story to Petalburg's gym with autoplay's tools; run
+log `autoplay/runs/2026-09-17_120845.522443.ndjson`, captures `dev-scripts/shots/emerald/autoplay_story_*` (gitignored).
+
+- **Where a warp lands.** A warp entry's +5 is the destination's warp number from 0: 0.10's Center door (6,16) reads +5 0
+  and the player arrived on 2.2's warp 0 at (7,8); 2.2's (7,8) reads +5 2 and the player arrived on 0.10's warp 2 at
+  (6,16), the game then stepping the player down to (6,17). +4 read 3 on 2.2's two mats (their tiles read elevation 3), 4
+  on its stairs and 0 on the other maps read.
+- **A whiteout.** POKéFAN ISABEL's PLUSLE fainted MUDKIP (8 HP at the start) on 0.25: "A is out of usable POKéMON!", "A
+  whited out!". `battle` answered `ended` with `outcome_raw` 2; money 3300 before, 1650 after; the player stood on 0.10
+  (6,17), below the Center door there (the last Center entered), MUDKIP at 25/25, status 0.
+- **A Center's counter.** Petalburg's Center (8.4): the nurse at (7,2), the counter tile (7,3) behaviour 0x80, collision
+  set, elevation 0. From (7,4) facing up, A opened "Hello, and welcome to the POKéMON CENTER.", "Would you like to rest
+  your POKéMON?" with a YES/NO; YES healed MUDKIP 13/27 to 27/27.
+- **WALLY's catching battle** (the gym, after DAD's words): the type flags read 0x204, against 0x04 in the four wild
+  battles measured before. The game played ZIGZAGOON's turns and WALLY's POKé BALL with no input; the bag's USE/CANCEL that
+  `battle` had stopped on moved on alone within 300 frames to "Gotcha! RALTS was caught!". `outcome_raw` read 7 after it.
+  The message after "Wild RALTS appeared!" and "RALTS was caught!" decoded with bytes after an FC read raw
+  (`{FC}Ë{7F}`), not measured.
+- **Map ids met** (each map's number read as `observe` names it, matching the decomp's order where checked): Littleroot 0.9,
+  Oldale 0.10, Routes 101-103 as 0.16-0.18, Petalburg 0.0, its Center 8.4 and gym 8.1 (the door drawn "GYM" in
+  `autoplay_story_gym_door`), Birch's lab 1.4.
+- **Not measured**: the whiteout's own text beyond the two lines, where a whiteout lands with no Center visited, other
+  `outcome_raw` values, other bits of the type flags.
 
 ## Not measured yet
 

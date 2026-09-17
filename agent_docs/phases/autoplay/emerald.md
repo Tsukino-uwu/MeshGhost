@@ -239,3 +239,37 @@ across a side where the nearest open pair is not reachable by a straight hold.
 **Left as it is:** EmuHawk on vanilla Emerald (port 7870) running, its loader target with the driver alone, the game on
 0.25 at (2,69), no menu open, MUDKIP not healed after the wild battles run from. RICK's defeat flag set by the scenario (memory only).
 Crystal closed after its check.
+
+## 2026-09-17 (the Emerald chat, the story) — Littleroot to Petalburg's gym through the tools: POKéDEX, a whiteout, WALLY
+
+**The user, while it ran:** on the warp beside 0.18's east seam, *"this area is not somewhere you will be until you are done
+with 2 gyms / you normally never have surf available at this point, or the badge to use it"*; and in Petalburg's gym, *"you
+need 4 gym badges, before you can challenge this 5th gym"*. So the story's path is followed from here, and warps only make a
+test situation, labelled reached.
+
+**Played** (run log `autoplay/runs/2026-09-17_120845.522443.ndjson`; its first segments reached by the earlier warp, later
+ones by restores where named). From 0.25: `goto` Oldale's Center crossed to 0.18's strip and back and walked into POKéFAN
+ISABEL's sight; `battle effective` chose MUD-SLAP against PLUSLE (ELECTRIC) every turn and lost -- the first Emerald whiteout,
+`ended` with `outcome_raw` 2, the player below Oldale's Center. Then `goto` Littleroot and Birch's lab: `advance_text` through
+BIRCH's POKéDEX and MAY's POKé BALLS (16 boxes), MOM's RUNNING SHOES on the way out, and a scratch loop (not in the repo:
+`goto`, and `battle effective` on `spotted` or a wild battle, `advance_text` on a message) to Petalburg -- a trainer on Route
+102 and two wild battles, won with TACKLE. Petalburg's Center: `talk` to the nurse (after the counter fix), `select YES`,
+healed. The gym: `talk` to DAD through WALLY's request to the battle; `battle` through WALLY's catch (after the fix) and DAD's
+advice to challenge ROXANNE in Rustboro. Snapshots: `story_got_pokedex`, `story_petalburg`, `story_wally_battle`,
+`story_after_wally`.
+
+**Measured** (`emerald/MEASURED.md`, "A warp's arrival, a whiteout, a Center's counter, and WALLY's battle").
+
+**Built** (`emerald.lua`, and the shared hooks logged in `../phase13.md`, "the plan across maps floods each map"): `mapTile`
+and `mapTileRaw` (any map's tile through its own tilesets) and each warp's `to_warp`; `talkAcross` (behaviour 0x80);
+`gameAnswers` (type flag 0x200 outside the overworld).
+
+**Checked after:** `goto` 0.10 to 2.2 (3 tiles) and 2.2 to 0.9 (38) with the flooded plan; `talk` to the nurse from (4,7),
+across the counter, to her YES/NO; WALLY's battle from `story_wally_battle` to `ended` in one call; the stuck classifier 1 of 1;
+RICK's battle under `effective`, no nudge.
+
+**Seen, not fixed:** bytes after an FC in "Wild RALTS appeared!" and "RALTS was caught!" read raw; `effective` scores a move's
+accuracy and type but not the foe's accuracy drops or a paralysis, so it chose MUD-SLAP seven times against a PLUSLE it could
+not outlast (a policy that weighs HP, or `run`, is the caller's choice today).
+
+**Next:** Route 104, Petalburg Woods and Rustboro toward ROXANNE (ROCK: MUD-SLAP ×2, and WATER GUN if MUDKIP learns it).

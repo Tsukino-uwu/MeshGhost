@@ -33,6 +33,9 @@
 --   effectiveMove()    -> slot, label, detail | nil, reason   policy "effective": the move weighed by type against the
 --                                            foe, and a table of what each move weighed that goes into the log's choice
 --   endedReport()      -> table              what `battle` adds to `ended`
+--   gameAnswers()      -> boolean            the game answers this battle's menus itself (Emerald's WALLY tutorial: the bag's
+--                                            USE/CANCEL came up with no input and went on to the catch), so `battle` does
+--                                            not stop on a menu then
 
 local M = {}
 
@@ -292,9 +295,14 @@ function M.battle(h, p)
 			outside = 0
 			return nil
 		end
-		-- A menu outside the battle is the caller's to answer (Birch's nickname YES/NO after the rescue battle).
+		-- A menu outside the battle is the caller's to answer (Birch's nickname YES/NO after the rescue battle), unless the
+		-- game is answering it itself.
 		local menu = h.readMenu()
-		if menu then return "menu_open", { menu = menu } end
+		if menu and not (h.gameAnswers and h.gameAnswers()) then return "menu_open", { menu = menu } end
+		if menu then
+			outside = 0
+			return nil
+		end
 		-- A script still running (a trainer walking over before its words, its words after) is not the end.
 		if st.dialogue ~= nil or h.scriptRunning() then
 			outside = 0

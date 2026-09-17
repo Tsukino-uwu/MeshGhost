@@ -33,6 +33,7 @@ here adds its heading as one line under "The plan and the shared core".**
 - 2026-09-17 (the Emerald chat, new session) — `battle`'s policy `effective`: the machine takes a policy's reasons into its log
 - 2026-09-17 (the Emerald chat, end of the night) — the order from here: Emerald on, TEVI's Phase 6 before Phase 3, Crystal paused
 - 2026-09-17 (the Emerald chat, Phase 2) — Phase 2 in the shared core: one-way tiles, `goto` across maps, `talk`
+- 2026-09-17 (the Emerald chat, the story) — the plan across maps floods each map; `talk` across a counter; a battle the game answers
 
 **Emerald (vanilla), before its own log** -- from 2026-09-17 in [autoplay/emerald.md](autoplay/emerald.md)
 - 2026-09-16 (later still) — Phase 1 step 2: a live driver in vanilla Emerald, from boot to walking
@@ -1395,3 +1396,22 @@ standalone Lua 5.4, on 400 random grids with no one-way tile -- the same legs an
 route). Crystal's module supplies none of the new hooks: `talk` is not among its capabilities, and its `goto` now refuses a `map`
 other than the one it is on (`luac -p` only; not run).
 Live on vanilla Emerald: the acceptance run and the rest in the Emerald entry.
+
+## 2026-09-17 (the Emerald chat, the story) — the plan across maps floods each map; `talk` across a counter; a battle the game answers
+
+**What changed in the shared core** (the measurements behind each are in [autoplay/emerald.md](autoplay/emerald.md), same date):
+- **`route.lua`, `travel`.** The map search went by each map's exit list alone, and from 0.18's east strip (cut off by water)
+  it crossed back to 0.25 and round into a trainer's sight. It now searches parts of maps: from the tile a map is entered on,
+  a flood over the new hook `mapTile` (same elevation or to and from 0, one-way tiles their way), and an exit counts only
+  where that part reaches it -- a warp by its tile or the tile it is entered from (`enterWarp`), landing on the destination's
+  warp `to_warp`; an edge by the side tiles whose neighbours are open, and `goto` leaves by the nearest of those that lead
+  on. `tileOpenOn` is gone; `mapExits` adds `warps` and each warp's `to_warp` and `behaviour`. At most 400 parts a plan.
+- **`route.lua`, `talk`.** Optional hook `talkAcross(x, y)`: a character two tiles off with such a tile between is talked to
+  from there, and those tiles are among the places `talk` walks to.
+- **`text.lua`.** Optional hook `gameAnswers()`: while it is true, `battle` does not stop `menu_open` on a menu outside the
+  battle's callback, and keeps waiting.
+
+**Checked.** `luac -p` on the three files. Crystal's module supplies none of the new hooks, and each change is behind one
+(`travel` and `talk` are not Crystal's), so its path is unchanged; not run. Live on vanilla Emerald: the stuck classifier
+scenario 1 of 1 after the changes, RICK's battle under `effective` to `ended` with no nudge, and the story trips in the
+Emerald entry.
