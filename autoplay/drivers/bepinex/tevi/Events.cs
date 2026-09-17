@@ -20,6 +20,7 @@ namespace MeshGhostAutoplay.Tevi
     // - dialogue_changed: a conversation opening, moving to another line or section, or closing.
     // - menu_changed: the menu observe reads (the save list, the title's menus) opening, changing or closing.
     // - tip_shown: a short instruction banner (observe's tip) coming up, with its keyword and text.
+    // - interact_changed: the bubble saying Up does something here (observe's interact) appearing, changing kind or going.
     // - item_obtained: the box naming an item just picked up (observe's obtained) coming up.
     //
     // Reading only: nothing here changes what the game does. The patch goes with the plugin (removed in OnDestroy) as
@@ -34,7 +35,7 @@ namespace MeshGhostAutoplay.Tevi
 
         private static int lastHp = int.MinValue;
         private static bool lastGameOver;
-        private static string lastDialogue, lastMenu, lastTip, lastItem;
+        private static string lastDialogue, lastMenu, lastTip, lastItem, lastInteract;
         private static bool primed;
 
         public static void Install()
@@ -143,7 +144,7 @@ namespace MeshGhostAutoplay.Tevi
 
         // Once a frame, from Plugin.Update: the watched values compared with the last frame's. The first frame after a
         // load only records them, so a reload never reports the whole state as changed.
-        public static void Poll(CharacterBase player, JObject dialogue, JObject menu, JObject tip, JObject obtained)
+        public static void Poll(CharacterBase player, JObject dialogue, JObject menu, JObject tip, JObject obtained, JObject interact)
         {
             int hp = player != null ? player.health : int.MinValue;
             bool over = GameSystem.Instance != null && GameSystem.Instance.isGameOver() > 0f;
@@ -151,6 +152,7 @@ namespace MeshGhostAutoplay.Tevi
             string mnu = menu == null ? null : menu.ToString(Newtonsoft.Json.Formatting.None);
             string tipKey = tip == null || !(bool)tip["shown"] ? null : (string)tip["keyword"];
             string item = obtained == null ? null : (string)obtained["item"];
+            string near = interact == null ? null : (string)interact["kind"];
             if (primed)
             {
                 if (hp != lastHp && hp != int.MinValue && lastHp != int.MinValue)
@@ -173,6 +175,10 @@ namespace MeshGhostAutoplay.Tevi
                     e.Merge(tip);
                     Enqueue(e);
                 }
+                if (near != lastInteract)
+                {
+                    Enqueue(new JObject { ["kind"] = "interact_changed", ["frame"] = Time.frameCount, ["available"] = near != null, ["interact"] = near });
+                }
                 if (item != null && item != lastItem)
                 {
                     var e = new JObject { ["kind"] = "item_obtained", ["frame"] = Time.frameCount };
@@ -193,6 +199,7 @@ namespace MeshGhostAutoplay.Tevi
             lastMenu = mnu;
             if (tipKey != null || tip == null) lastTip = tipKey; // a banner still fading in is neither new nor gone
             lastItem = item;
+            lastInteract = near;
         }
 
         // No core connected: the next Poll only records, so a reconnect reports nothing that happened meanwhile.

@@ -189,6 +189,14 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 	}, logged(t, "cheat", func(in CheatIn) string { return "cheat:" + in.Kind }, t.cheat))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name: "reflex",
+		Description: "Start a program the driver runs at game speed, reading the game every frame and acting on it, " +
+			"for what a model turn is too slow to steer (an enemy that moves, shoots or closes in): a kind the driver " +
+			"announced as reflex:<kind> (status lists them), with that kind's arguments, for at most `frames` " +
+			"(default 600). It ends on the game's state and says why. Ordinary input: the segment stays as it was.",
+	}, logged(t, "reflex", nil, t.reflex))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name: "exec",
 		Description: "Run code inside the game's host (Lua in BizHawk) and return what it returns and prints. " +
 			"The escape hatch for a question no tool answers yet: read or write memory, call the host's API. " +
@@ -682,6 +690,34 @@ type CheatIn struct {
 
 // CheatTimeout allows for a cheat that ends on the game's state, such as a map load.
 const CheatTimeout = CallTimeout + 30*time.Second
+
+// MaxReflexFrames bounds one reflex.
+const MaxReflexFrames = 3600
+
+// ReflexIn is the reflex tool's input.
+type ReflexIn struct {
+	Kind   string         `json:"kind" jsonschema:"the reflex, as the driver announced reflex:<kind>"`
+	Args   map[string]any `json:"args,omitempty" jsonschema:"that kind's arguments"`
+	Frames int            `json:"frames,omitempty" jsonschema:"the most frames it may run, 1 to 3600; default 600"`
+}
+
+func (t *tools) reflex(ctx context.Context, _ *mcp.CallToolRequest, in ReflexIn) (*mcp.CallToolResult, any, error) {
+	if !kindPattern.MatchString(in.Kind) {
+		return nil, nil, fmt.Errorf("a reflex kind is lowercase letters and _: got %q", in.Kind)
+	}
+	if in.Frames == 0 {
+		in.Frames = 600
+	}
+	if in.Frames < 1 || in.Frames > MaxReflexFrames {
+		return nil, nil, fmt.Errorf("frames must be 1 to %d, got %d", MaxReflexFrames, in.Frames)
+	}
+	if in.Args == nil {
+		in.Args = map[string]any{}
+	}
+	timeout := CallTimeout + time.Duration(in.Frames)*50*time.Millisecond
+	raw, err := t.forward(ctx, "reflex:"+in.Kind, "reflex", in, timeout)
+	return nil, raw, err
+}
 
 func (t *tools) cheat(ctx context.Context, _ *mcp.CallToolRequest, in CheatIn) (*mcp.CallToolResult, any, error) {
 	if !kindPattern.MatchString(in.Kind) {

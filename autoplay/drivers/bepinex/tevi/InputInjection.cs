@@ -166,6 +166,56 @@ namespace MeshGhostAutoplay.Tevi
             return null;
         }
 
+        // A REFLEX's input, decided each frame for the next: Keep holds an action on the next frame, extending a hold that is on
+        // now (so the game sees one long hold, never a fresh press), or starting one; Tap presses it for `frames` from the next
+        // frame, only when nothing holds it now or ends on the next frame (so each tap reads as its own press). Keep returns
+        // false for an action the game does not have; Tap returns true only when it began a new press.
+        public static bool Keep(string name)
+        {
+            if (!TryAction(name, out int id, out float value)) return false;
+            int f = Time.frameCount;
+            for (int i = 0; i < Holds.Count; i++)
+            {
+                Hold h = Holds[i];
+                if (h.ActionId == id && h.Value == value && h.End == f + 1)
+                {
+                    h.End = f + 2;
+                    Holds[i] = h;
+                    return true;
+                }
+            }
+            Holds.Add(new Hold { ActionId = id, Value = value, Start = f + 1, End = f + 2 });
+            return true;
+        }
+
+        public static bool Tap(string name, int frames)
+        {
+            if (!TryAction(name, out int id, out float value)) return false;
+            int f = Time.frameCount;
+            foreach (Hold h in Holds)
+            {
+                if (h.ActionId == id && h.End >= f) return false; // still held or just released: no new press this frame
+            }
+            Holds.Add(new Hold { ActionId = id, Value = value, Start = f + 1, End = f + 1 + frames });
+            return true;
+        }
+
+        private static bool TryAction(string name, out int id, out float value)
+        {
+            id = -1;
+            value = 1f;
+            if (!ReInput.isReady || string.IsNullOrEmpty(name)) return false;
+            if (name.EndsWith("+") || name.EndsWith("-"))
+            {
+                value = name.EndsWith("-") ? -1f : 1f;
+                name = name.Substring(0, name.Length - 1);
+            }
+            InputAction a = Find(name);
+            if (a == null) return false;
+            id = a.id;
+            return true;
+        }
+
         // Ends every hold now: one still held is let go on the next frame (so the game sees it released), and one not begun
         // is dropped. Returns how many were cut.
         public static int CutShort()

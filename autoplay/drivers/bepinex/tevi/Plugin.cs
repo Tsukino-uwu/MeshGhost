@@ -47,6 +47,40 @@ namespace MeshGhostAutoplay.Tevi
 
         private string lastMode, lastArea, lastRoom;
 
+        // The player's last TrailFrames frames (frame, x, y, on the ground, animation), recorded every frame whether or not a core
+        // is connected, so a jump that went wrong can be read afterwards (observe's trail; the plan's flight recorder, begun).
+        private const int TrailFrames = 180;
+        private readonly int[] trailFrame = new int[TrailFrames];
+        private readonly float[] trailX = new float[TrailFrames], trailY = new float[TrailFrames];
+        private readonly bool[] trailGround = new bool[TrailFrames];
+        private readonly string[] trailAnim = new string[TrailFrames];
+        private int trailNext, trailCount;
+
+        private void RecordTrail()
+        {
+            CharacterBase p = Player();
+            if (p == null || p.t == null) return;
+            trailFrame[trailNext] = Time.frameCount;
+            trailX[trailNext] = p.t.position.x;
+            trailY[trailNext] = p.t.position.y;
+            trailGround[trailNext] = p.onGround();
+            trailAnim[trailNext] = p.aniStatus.ToString();
+            trailNext = (trailNext + 1) % TrailFrames;
+            trailCount = Math.Min(trailCount + 1, TrailFrames);
+        }
+
+        // Oldest first, one entry every `every` frames: [frame, x, y, on_ground, anim].
+        private JArray Trail(int every)
+        {
+            var arr = new JArray();
+            for (int i = 0; i < trailCount; i += every)
+            {
+                int k = (trailNext - trailCount + i + TrailFrames) % TrailFrames;
+                arr.Add(new JArray(trailFrame[k], Math.Round(trailX[k], 1), Math.Round(trailY[k], 1), trailGround[k], trailAnim[k]));
+            }
+            return arr;
+        }
+
         private void Awake()
         {
             ReadConfig();
@@ -142,7 +176,7 @@ namespace MeshGhostAutoplay.Tevi
 
         // ---- what the driver says about itself ------------------------------------------------------------------
 
-        private static readonly string[] Capabilities = { "observe", "wait", "press", "sequence", "advance_text", "screenshot", "snapshot", "restore", "cheat:teleport" };
+        private static readonly string[] Capabilities = { "observe", "wait", "press", "sequence", "advance_text", "screenshot", "snapshot", "restore", "cheat:teleport", "reflex:fight" };
 
         private JObject Hello()
         {
@@ -283,6 +317,8 @@ namespace MeshGhostAutoplay.Tevi
             if (tip != null) o["tip"] = tip;
             JObject obtained = Obtained();
             if (obtained != null) o["obtained"] = obtained;
+            JObject interact = Interact();
+            if (interact != null) o["interact"] = interact;
             if (p != null && p.t != null)
             {
                 o["player"] = new JObject
@@ -330,6 +366,7 @@ namespace MeshGhostAutoplay.Tevi
                     o["save"]["custom_game"] = custom;
                 }
                 o["screen_text"] = ScreenText();
+                o["trail"] = Trail(3);
                 o["extras"] = new JObject
                 {
                     ["event_mode_raw"] = em != null ? em.getMode().ToString() : null,
@@ -480,6 +517,28 @@ namespace MeshGhostAutoplay.Tevi
             return arr;
         }
 
+        // The bubble over the player's head that says Up does something here (EnterTips): `kind` by its sprite -- `enter` (a
+        // door), `talk`, `action` -- while the game keeps it shown (it re-arms a short timer each frame the player is in range,
+        // and fades once that runs out). The user, 2026-09-17: "there will be an icon above the player head, when you can use
+        // the up arrow to interact with things".
+        private static JObject Interact()
+        {
+            EnterTips tips = EnterTips.Instance;
+            if (tips == null || !tips.isActiveAndEnabled) return null;
+            Type t = typeof(EnterTips);
+            float fadeout = t.GetField("fadeout", Private)?.GetValue(tips) is float f ? f : 0f;
+            if (fadeout <= 0f) return null;
+            Sprite shown = (t.GetField("sr", Private)?.GetValue(tips) as SpriteRenderer)?.sprite;
+            string kind = "unknown";
+            if (shown != null)
+            {
+                if (shown == t.GetField("entersprite", Private)?.GetValue(tips) as Sprite) kind = "enter";
+                else if (shown == t.GetField("talksprite", Private)?.GetValue(tips) as Sprite) kind = "talk";
+                else if (shown == t.GetField("actionsprite", Private)?.GetValue(tips) as Sprite) kind = "action";
+            }
+            return new JObject { ["kind"] = kind };
+        }
+
         // The box that names an item just picked up (HUDObtainedItem), while it is up: the item's type and the name and
         // description drawn. Confirm closes it.
         private static JObject Obtained()
@@ -495,7 +554,7 @@ namespace MeshGhostAutoplay.Tevi
             };
         }
 
-        private static readonly string[] DiffKeys = { "mode", "tip.keyword", "obtained.item", "dialogue.section", "dialogue.line", "menu.name", "menu.cursor", "menu.slot", "menu.question", "menu.entering", "location.area", "location.area_id", "location.room_x", "location.room_y", "location.x", "location.y", "location.facing", "player.anim", "player.hp" };
+        private static readonly string[] DiffKeys = { "mode", "interact.kind", "tip.keyword", "obtained.item", "dialogue.section", "dialogue.line", "menu.name", "menu.cursor", "menu.slot", "menu.question", "menu.entering", "location.area", "location.area_id", "location.room_x", "location.room_y", "location.x", "location.y", "location.facing", "player.anim", "player.hp" };
 
         private static JObject Changed(JObject before, JObject after)
         {
@@ -512,6 +571,14 @@ namespace MeshGhostAutoplay.Tevi
 
         private void Update()
         {
+            try
+            {
+                RecordTrail();
+            }
+            catch (Exception)
+            {
+                // a frame between scenes: nothing to record
+            }
             if (link == null) return;
             foreach (string line in link.DrainLogs()) Log(line);
             foreach (string line in SaveGuard.DrainLog()) Log(line);
@@ -564,7 +631,7 @@ namespace MeshGhostAutoplay.Tevi
                 return;
             }
             foreach (JObject e in hits) Emit(e);
-            Events.Poll(Player(), Dialogue(), SaveMenu() ?? TitleMenu(), Tip(), Obtained());
+            Events.Poll(Player(), Dialogue(), SaveMenu() ?? TitleMenu(), Tip(), Obtained(), Interact());
             foreach (JObject e in Events.Drain()) Emit(e);
             string mode = Mode();
             WorldManager wm = WorldManager.Instance;
@@ -590,7 +657,7 @@ namespace MeshGhostAutoplay.Tevi
         private void Begin(Link.Request req)
         {
             string verb = req.Type;
-            string capability = verb == "cheat" ? "cheat:" + (string)req.Payload["kind"] : verb;
+            string capability = verb == "cheat" || verb == "reflex" ? verb + ":" + (string)req.Payload["kind"] : verb;
             if (Array.IndexOf(Capabilities, capability) < 0)
             {
                 link.Fail(req, "this driver does not support " + capability);
@@ -615,6 +682,11 @@ namespace MeshGhostAutoplay.Tevi
                         break;
                     case "advance_text":
                         currentTick = AdvanceTextJob();
+                        break;
+                    case "reflex":
+                        // Only fight so far (the capability check above refuses any other kind).
+                        currentTick = Reflexes.Fight(req.Payload["args"] as JObject ?? new JObject(), (int?)req.Payload["frames"] ?? 600, Player, Mode, Observe);
+                        Log("reflex fight");
                         break;
                     case "screenshot":
                         currentTick = ScreenshotJob(req.Payload);
@@ -754,8 +826,8 @@ namespace MeshGhostAutoplay.Tevi
 
         // ADVANCE_TEXT: through a conversation line by line, the way a player reads it. While a line is up, Confirm is tapped
         // once it has stood TapEvery frames with no change (the first tap on a line still printing finishes it, the next moves
-        // on); each new line goes into the log. Ends `closed` once no conversation has been open for SettleFrames and the game
-        // is not paused, `item_box` when the item box is up, `window_open` when the game is paused with no conversation (a
+        // on); each new line goes into the log, and the item box is logged and confirmed the same way. Ends `closed` once no
+        // conversation has been open for SettleFrames and the game is not paused, `window_open` when paused with no conversation (a
         // tutorial window: its words are in observe's screen_text), or `stuck` after StuckTaps taps with no change.
         private const int TapEvery = 30, SettleFrames = 90, StuckTaps = 6, AdvanceFrameLimit = 3 * 60 * 60;
 
@@ -778,16 +850,18 @@ namespace MeshGhostAutoplay.Tevi
                 if (f - start > AdvanceFrameLimit) return Done("stuck", new JObject { ["reason"] = "the frame limit" });
                 if (InputInjection.Busy) return null;
                 JObject d = Dialogue();
-                if (d != null)
+                JObject box = d == null ? Obtained() : null;
+                if (d != null || box != null)
                 {
-                    string key = (string)d["section"] + "#" + (int?)d["line"];
+                    string key = d != null ? (string)d["section"] + "#" + (int?)d["line"] : "item#" + (string)box["item"];
                     if (key != lastKey)
                     {
                         lastKey = key;
                         lastChange = f;
                         taps = 0;
                         entry = null;
-                        if ((int?)d["line"] < (int?)d["lines"])
+                        if (box != null) log.Add(new JObject { ["obtained"] = box });
+                        else if ((int?)d["line"] < (int?)d["lines"])
                         {
                             entry = new JObject { ["section"] = d["section"], ["line"] = d["line"] };
                             log.Add(entry);
@@ -800,7 +874,7 @@ namespace MeshGhostAutoplay.Tevi
                         entry["text"] = d["text"];
                     }
                     if (f - lastChange < TapEvery * (taps + 1)) return null;
-                    if (taps >= StuckTaps) return Done("stuck", new JObject { ["reason"] = "the line did not change after " + taps + " taps", ["dialogue"] = d });
+                    if (taps >= StuckTaps) return Done("stuck", new JObject { ["reason"] = "the line did not change after " + taps + " taps", ["dialogue"] = d, ["obtained"] = box });
                     string err = InputInjection.Schedule(new[] { "Confirm" }, 3, out int _);
                     if (err != null) return Done("stuck", new JObject { ["reason"] = err });
                     taps++;
@@ -811,7 +885,6 @@ namespace MeshGhostAutoplay.Tevi
                     lastKey = null;
                     lastChange = f;
                 }
-                if (Obtained() != null) return Done("item_box", new JObject { ["obtained"] = Obtained() });
                 if (f - lastChange < SettleFrames) return null;
                 string mode = Mode();
                 if (mode == "paused") return Done("window_open", new JObject { ["screen_text"] = ScreenText() });

@@ -273,6 +273,42 @@ func TestSequenceValidatesAndForwards(t *testing.T) {
 	}
 }
 
+func TestReflexValidatesAndForwards(t *testing.T) {
+	h := newHarness(t)
+	got := make(chan ReflexIn, 1)
+	h.startDriver(t, []string{"reflex:fight"}, func(verb string, payload json.RawMessage) (string, any) {
+		var in ReflexIn
+		json.Unmarshal(payload, &in)
+		got <- in
+		return "result", map[string]any{"verb": verb, "outcome": "defeated"}
+	})
+
+	for _, bad := range []map[string]any{
+		{"kind": "Fight"},
+		{"kind": "fight", "frames": -1},
+		{"kind": "fight", "frames": MaxReflexFrames + 1},
+	} {
+		if text, isErr := h.call(t, "reflex", bad); !isErr {
+			t.Errorf("reflex %v = %s, want a refusal", bad, text)
+		}
+	}
+	if text, isErr := h.call(t, "reflex", map[string]any{"kind": "dodge"}); !isErr || !strings.Contains(text, "reflex:dodge") {
+		t.Errorf("reflex dodge = %s (error %v), want refused as not announced", text, isErr)
+	}
+
+	text, isErr := h.call(t, "reflex", map[string]any{"kind": "fight", "args": map[string]any{"id": 1}})
+	if isErr || !strings.Contains(text, `"verb":"reflex"`) || !strings.Contains(text, `"defeated"`) {
+		t.Fatalf("reflex = %s (error %v)", text, isErr)
+	}
+	in := <-got
+	if in.Kind != "fight" || in.Frames != 600 || in.Args["id"] != float64(1) {
+		t.Fatalf("the driver received %+v", in)
+	}
+	if seg, _ := h.call(t, "segment", map[string]any{"label": "after the reflex"}); !strings.Contains(seg, `"claim":"walked"`) {
+		t.Fatalf("segment after a reflex = %s, want the closed one walked", seg)
+	}
+}
+
 func TestSelectValidatesAndForwards(t *testing.T) {
 	h := newHarness(t)
 	got := make(chan map[string]any, 2)
