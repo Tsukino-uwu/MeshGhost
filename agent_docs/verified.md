@@ -144,6 +144,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-15 (later) — TLS always on and trust on first use: the Go-side facts, each with its instrument
 - 2026-09-15 (evening) — the room code is proven, not sent: the Go-side facts, each with its instrument
 - 2026-09-16 — room codes, TOFU and live config.json edits on the real binaries: the Go-side facts
+- 2026-09-18 — every Linux CI job is green on ubuntu-26.04, tested a month before the label moves
 
 ## Split per game — 2026-08-25
 
@@ -2218,3 +2219,27 @@ fed by a scripted bridge adapter (hello plus `local_state` at 20 Hz); logs kept 
   JSON applied the defaults live (the relay's room code turned off; the client rebound default hotkeys
   and left the room), and every relay save reported `listen_quic` as changed.
 - **Not yet covered**: the same through a real game's adapter rather than a scripted one.
+
+## 2026-09-18 — every Linux CI job is green on ubuntu-26.04, tested a month before the label moves
+
+**Established with the tools**, on a real push, not reasoned from the image's contents.
+
+`ubuntu-latest` becomes Ubuntu 26.04 over 2026-10-19..11-19 (actions/runner-images issue 14748).
+Commit `41f16dd2` named `ubuntu-26.04` on all twelve Linux jobs, pushed as `db21e52d`, and the ten
+that a push triggers all came back green:
+
+- **CI** (build/vet, the three-shard `-race -count=3` matrix, govulncheck, the six fuzz shards),
+  **Autoplay**, **Hygiene**, **TEVI adapter**, **Pseudoregalia adapter**, **Emulator adapters**,
+  **Lua**.
+- The two that actually depend on the IMAGE rather than on a toolchain action both passed: apt
+  `lua5.4` still installs and compiles every tracked `.lua` (`lua.yml`, `emulator.yml`), and the
+  peer-JSON fuzz still builds and runs clean under `g++ -std=c++23` with ASan+UBSan and
+  `-fno-sanitize-recover=all` (`pseudoregalia.yml`). Nothing there carries `-Werror`, so a newer
+  GCC's extra warnings could not have turned it red on their own -- what passed is the sanitizer
+  run, not merely the compile.
+- **`release.yml` is NOT covered**: it is `workflow_dispatch` only, so the push never ran it. Its Go
+  jobs mirror CI's, but the `chmod +x` / `tar` packaging step was not exercised on 26.04.
+
+**The jobs were then reverted to `ubuntu-latest`** (the user's call, 2026-09-18): auto-tracking is
+worth the repeated warning annotation, because a pin is something that has to be remembered. The
+warning appears on every run until the rollout finishes, and stops on its own after it.

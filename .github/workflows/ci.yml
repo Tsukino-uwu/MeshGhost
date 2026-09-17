@@ -72,10 +72,7 @@ jobs:
     # The Go code is platform-agnostic (net, encoding/json, no syscalls), so
     # a race here is a race on Windows too; the windows job below covers the
     # actual shipping target.
-    # TEMPORARY 2026-09-18, reverted to ubuntu-latest once CI is read: ubuntu-latest becomes
-    # 26.04 over 2026-10-19..11-19, and this commit is how we find out what that breaks
-    # while ubuntu-24.04 is still a one-line fallback.
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -157,10 +154,7 @@ jobs:
     # 2026-08-17 move of the library packages to the repo root). The race detector is the
     # deterministic version of the "run it repeatedly and watch" ritual
     # that replaced; running both is belt and braces.
-    # TEMPORARY 2026-09-18, reverted to ubuntu-latest once CI is read: ubuntu-latest becomes
-    # 26.04 over 2026-10-19..11-19, and this commit is how we find out what that breaks
-    # while ubuntu-24.04 is still a one-line fallback.
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -194,10 +188,7 @@ jobs:
     # the Go version) before the next release, and the answer to "are your dependencies current"
     # before anyone has to ask. Installed at latest on purpose: the database and the tool move
     # together, and pinning the tool would pin the question to an old answer.
-    # TEMPORARY 2026-09-18, reverted to ubuntu-latest once CI is read: ubuntu-latest becomes
-    # 26.04 over 2026-10-19..11-19, and this commit is how we find out what that breaks
-    # while ubuntu-24.04 is still a one-line fallback.
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -226,10 +217,7 @@ jobs:
 
   fuzz:
     name: Fuzz ${{ matrix.name }}
-    # TEMPORARY 2026-09-18, reverted to ubuntu-latest once CI is read: ubuntu-latest becomes
-    # 26.04 over 2026-10-19..11-19, and this commit is how we find out what that breaks
-    # while ubuntu-24.04 is still a one-line fallback.
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     # Six shards in parallel instead of one job running all 29 targets end to end. The
     # serial job took 17m24s on 2026-09-15 -- each target is its own instrumented build
     # plus its campaign, and they only ever ran one after another. The targets, their
