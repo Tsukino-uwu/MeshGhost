@@ -34,6 +34,8 @@ local W_MAPGROUP, W_MAPNUMBER, W_YCOORD, W_XCOORD = flat(0xDCB5), flat(0xDCB6), 
 local W_MAPSTATUS, W_SPRITEUPDATES, W_BATTLEMODE = flat(0xD432), flat(0xC2CE), flat(0xD22D)
 local MAPSTATUS_WARPING, MAPSTATUS_RUNNING = 1, 2
 local W_SCRIPT_RUNNING, SCRIPT_TOOK_OVER = flat(0xD438), 255 -- wScriptMode is the byte before it
+-- A trainer's sight (see `walk`): wScriptRunning 1, the trainer's map object in hLastTalked, its distance in D03F.
+local SCRIPT_SEEN_BY_TRAINER, H_LAST_TALKED, W_SEEN_TRAINER_DISTANCE = 1, 0xFFE0, flat(0xD03F)
 -- The player's object, 0x28 bytes: +0x08 the way it faces (0x00 down, 0x04 up, 0x08 left, 0x0C right --
 -- each read after a turn that way), +0x10/+0x11 the tile a step is going to (wXCoord/wYCoord plus 4).
 local PLAYER_STRUCT = flat(0xD4D6)
@@ -93,13 +95,40 @@ end
 -- faced as drawn (0x00 down for the girl, 0x04 up for the man) -- the player's own codes.
 local W_OBJECTS, OBJ_SIZE, OBJ_COUNT = flat(0xD4D6), 0x28, 13
 
+-- TRAINERS (autoplay_trainer_probe.lua and autoplay_map_probe.lua, 2026-09-17, vanilla V1.0, Bug Catcher Don on Route 30;
+-- MEASURED.md, "A trainer battle: sight, approach, words and the result"). The map-object records, 0x10 bytes each from
+-- D71E, indexed by an object record's +0x01: Don's (4) read +0x00 the object record holding him (2), +0x01 his graphic
+-- (37), +0x02/+0x03 his tile plus 4, following his walk, +0x08 0xB2 (low nibble 2, as on the route's other two trainers'
+-- records and no other), +0x09 3 -- he came for the player three tiles below him and not four -- and +0x0A a pointer into
+-- wMapScriptsBank to 12 bytes whose first two are his defeat flag (1336, set once he was beaten: bit 0 of wEventFlags
+-- (DA72) + 167, 0 before the battle and 1 after), then the class and id wOtherTrainerClass/ID read during it (36, 1).
+local W_MAP_OBJECTS, MAP_OBJ_SIZE, W_EVENT_FLAGS = flat(0xD71E), 0x10, flat(0xDA72)
+local MAPOBJ_TYPE_TRAINER = 2
+
+-- A map object's trainer reading, or nil when its record is not a trainer's.
+local function trainerOf(mapObject)
+	if mapObject > 15 then return nil end
+	local r = memory.read_bytes_as_array(W_MAP_OBJECTS + mapObject * MAP_OBJ_SIZE, MAP_OBJ_SIZE, "WRAM")
+	if (r[9] & 0x0F) ~= MAPOBJ_TYPE_TRAINER then return nil end
+	local t = { range = r[10] }
+	local ptr = r[11] | (r[12] << 8)
+	if ptr >= 0x4000 and ptr <= 0x7FFE then
+		local bank = u8(W_MAP_SCRIPTS_BANK)
+		local flag = rom8(bank, ptr) | (rom8(bank, ptr + 1) << 8)
+		t.flag = flag
+		t.beaten = ((u8(W_EVENT_FLAGS + (flag >> 3)) >> (flag & 7)) & 1) == 1
+	end
+	return t
+end
+
 local function readObjects()
 	local out = {}
 	for s = 1, OBJ_COUNT - 1 do
 		local b = memory.read_bytes_as_array(W_OBJECTS + s * OBJ_SIZE, 0x12, "WRAM")
 		if b[1] ~= 0 then
 			out[#out + 1] = { slot = s, map_object = b[2], graphics_id = b[1], x = b[17] - 4, y = b[18] - 4,
-				facing = FACING[b[9]], facing_raw = not FACING[b[9]] and b[9] or nil, movement_type_raw = b[4] }
+				facing = FACING[b[9]], facing_raw = not FACING[b[9]] and b[9] or nil, movement_type_raw = b[4],
+				trainer = trainerOf(b[2]) }
 		end
 	end
 	return out
@@ -115,7 +144,8 @@ end
 
 -- A wild battle: wBattleMode went 0 to 1 about 180 frames after the encounter's script began in the grass, on the
 -- same frame wSpriteUpdatesEnabled went to 0, and read 1 through the battle's text and both menus
--- (autoplay_state_probe.lua, 2026-09-17, a PIDGEY on Route 29). A trainer battle is not measured on this build.
+-- (autoplay_state_probe.lua, 2026-09-17, a PIDGEY on Route 29). It read 2 from "BUG CATCHER DON wants to battle!" to the
+-- end of his battle (autoplay_trainer_probe.lua, the same day, Route 30).
 local function modeName()
 	if not isVanilla then return "not_overworld" end
 	if u8(W_BATTLEMODE) ~= 0 then return "battle" end
@@ -151,6 +181,17 @@ local function readLocalMap(warps, objects, signs)
 	local marks = {}
 	for _, s in ipairs(signs) do marks[s.x * 256 + s.y] = "S" end
 	for _, w in ipairs(warps) do marks[w.x * 256 + w.y] = "W" end
+	-- An unbeaten trainer's line: its range of tiles the way it faces now (Don faced down and came from three tiles).
+	for _, o in ipairs(objects) do
+		local t = o.trainer
+		if t and not t.beaten and o.facing then
+			local d = ({ down = { 0, 1 }, up = { 0, -1 }, left = { -1, 0 }, right = { 1, 0 } })[o.facing]
+			for k = 1, t.range do
+				local x, y = o.x + d[1] * k, o.y + d[2] * k
+				if x >= 0 and y >= 0 then marks[x * 256 + y] = "!" end
+			end
+		end
+	end
 	for _, o in ipairs(objects) do
 		if o.x >= 0 and o.y >= 0 then marks[o.x * 256 + o.y] = "N" end
 	end
@@ -188,6 +229,7 @@ local function readLocalMap(warps, objects, signs)
 	local fixed = {
 		{ "@", "you" }, { "N", "a character (nearby lists them)" }, { "W", "a warp (warps says where to)" },
 		{ "S", "something to read or use when faced (a sign; bg event)" },
+		{ "!", "a tile an unbeaten trainer looks at the way it faces now (stepping there starts its battle)" },
 		{ "#", "collision 0x07: a step refused" }, { ".", "collision 0x00: walked on" },
 		{ ":", "beyond this map's edge" }, { " ", "outside the block buffer" },
 	}
@@ -313,7 +355,13 @@ local function boxOpen(t)
 end
 
 -- Kept once a frame by game.watch(): when the box's lines last changed, and when the ▼ was last drawn.
-local track = { lines = nil, changedAt = -1, arrowAt = -1, seenAt = -1 }
+-- A wait for A with no ▼ in a battle: wTextDelayFrames (CFB2) counted 5, 4, 3, 2, 1 and back to 5 for as long as the
+-- level-up stats box (31 times) and "Argh! You're too strong!" after Bug Catcher Don's defeat (36 times) waited, both
+-- with wTextboxFlags 1 and no ▼, until A. Across that battle it went from 1 back to 5 on no other screen; at the action
+-- menu it counted down once, as A was pressed (autoplay_text_probe.lua, 2026-09-17). `cycles` counts the returns to 5
+-- since the box's rows last changed.
+local W_TEXT_DELAY_FRAMES = flat(0xCFB2)
+local track = { lines = nil, changedAt = -1, arrowAt = -1, seenAt = -1, cycles = 0, lastDelay = 0 }
 local function boxBytes(t)
 	local b = {}
 	for r = BOX_TOP + 1, BOX_BOTTOM - 1 do
@@ -324,9 +372,17 @@ end
 local function trackText(t)
 	local f = emu.framecount()
 	local lines = boxBytes(t)
-	if lines ~= track.lines then track.lines, track.changedAt = lines, f end
+	if lines ~= track.lines then track.lines, track.changedAt, track.cycles = lines, f, 0 end
 	if cell(t, ARROW_COL, BOX_BOTTOM) == ARROW then track.arrowAt = f end
+	local delay = u8(W_TEXT_DELAY_FRAMES)
+	if delay == 5 and track.lastDelay == 1 then track.cycles = track.cycles + 1 end
+	track.lastDelay = delay
 	track.seenAt = f
+end
+
+-- In a battle, the game waiting for A with no ▼ (above).
+local function waitingInBattle()
+	return u8(W_BATTLEMODE) ~= 0 and track.cycles >= 1 and track.seenAt >= emu.framecount() - 1
 end
 
 local function readDialogue(t, low)
@@ -342,7 +398,8 @@ local function readDialogue(t, low)
 	-- changed since the frame the watcher last saw is still changing, whatever the ▼ did before.
 	local changing = track.seenAt == f - 1 and boxBytes(t) ~= track.lines
 	if cell(t, ARROW_COL, BOX_BOTTOM) == ARROW
-		or (not changing and track.arrowAt >= track.changedAt and f - track.arrowAt >= 0 and f - track.arrowAt <= BLINK_GAP) then
+		or (not changing and track.arrowAt >= track.changedAt and f - track.arrowAt >= 0 and f - track.arrowAt <= BLINK_GAP)
+		or (not changing and #lines > 0 and waitingInBattle()) then
 		state = "waiting_for_button"
 	elseif (u8(W_TEXTBOX_FLAGS) & TEXTBOX_PRINTING) ~= 0 or #lines == 0 or changing then
 		-- An empty frame was drawn 4 frames before the save question began printing.
@@ -464,6 +521,12 @@ local MOVES_BANK, MOVES_PTR, MOVE_SIZE = 0x10, 0x5AFB, 7
 local MOVE_NAMES_BANK, MOVE_NAMES_PTR = 0x72, 0x5F29
 local NAMES_BANK, SPECIES_NAMES_PTR, SPECIES_NAME_LEN, TYPE_NAMES_PTR = 0x14, 0x7384, 10, 0x497B
 local STRING_END = 0x50
+-- Which battle: wBattleMode 1 for the wild PIDGEY, 2 for Bug Catcher Don. In Don's battle wCurOTMon (C663) read 255
+-- until his first CATERPIE was sent out -- the frame its nickname was written; the opponent's block held the PIDGEY
+-- from the battle before until then -- 0 for that one and 1 for his second, with wOTPartyCount (D280) 2; in the wild
+-- battle it read 0 throughout (autoplay_battle_probe.lua, 2026-09-17).
+local BATTLE_KINDS, BATTLE_MODE_TRAINER = { [1] = "wild", [2] = "trainer" }, 2
+local W_CUR_OT_MON, OT_MON_NONE_YET, W_OT_PARTY_COUNT = flat(0xC663), 255, flat(0xD280)
 
 local function spell(b, from, to)
 	local out = {}
@@ -579,7 +642,8 @@ end
 local game = {
 	game = "crystal",
 	variant = isVanilla and "vanilla" or "unverified",
-	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "walk", "select", "advance_text", "battle" },
+	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "walk", "select", "advance_text", "battle",
+		"cheat:warp" },
 	-- The START menu: Down moved the cursor one item a press and A chose it (2026-09-17).
 	menuButtons = { prev = "Up", next = "Down", left = "Left", right = "Right", confirm = "A" },
 	protected_slots = { 1 },
@@ -602,7 +666,7 @@ end
 
 -- After a snapshot is loaded: what was tracked belongs to the frames that were replaced.
 function game.restored()
-	track = { lines = nil, changedAt = -1, arrowAt = -1, seenAt = -1 }
+	track = { lines = nil, changedAt = -1, arrowAt = -1, seenAt = -1, cycles = 0, lastDelay = 0 }
 end
 
 function game.observe()
@@ -627,9 +691,20 @@ function game.observe()
 	end
 	local battle
 	if isVanilla and u8(W_BATTLEMODE) ~= 0 then
-		battle = { asking = battleAskingFor(m), battlers = {} }
+		local modeRaw = u8(W_BATTLEMODE)
+		battle = { asking = battleAskingFor(m), kind = BATTLE_KINDS[modeRaw], battlers = {} }
 		battle.battlers[#battle.battlers + 1] = readBattler(W_BATTLE_MON, W_BATTLE_MON_NICK, "player")
-		battle.battlers[#battle.battlers + 1] = readBattler(W_ENEMY_MON, W_ENEMY_MON_NICK, "opponent")
+		-- In a trainer battle the opponent's block holds the last battle's Pokémon until the first is sent out.
+		local otMon = u8(W_CUR_OT_MON)
+		if modeRaw ~= BATTLE_MODE_TRAINER or otMon ~= OT_MON_NONE_YET then
+			battle.battlers[#battle.battlers + 1] = readBattler(W_ENEMY_MON, W_ENEMY_MON_NICK, "opponent")
+		end
+		if modeRaw == BATTLE_MODE_TRAINER then
+			battle.opponent_party_count = u8(W_OT_PARTY_COUNT)
+			battle.opponent_party_index = otMon ~= OT_MON_NONE_YET and otMon or nil
+		end
+		-- An empty Lua table goes out as {}, not []: leave the list out until a battler is there.
+		if #battle.battlers == 0 then battle.battlers = nil end
 	end
 	return {
 		frame = emu.framecount(),
@@ -657,6 +732,51 @@ function game.observe()
 				return table.concat(out, " ")
 			end)(),
 		},
+	}
+end
+
+-- CHEATS: each takes its args and returns a plan -- { untilFn = function(observation) -> done, limit = frames,
+-- report = function() } -- or nil and a reason. A cheat changes the world by other means than play; the core marks
+-- the segment reached.
+game.cheats = {}
+
+-- warp {map = "G.N", x, y}: the writes `probes/goto_map.lua` makes, the game's own warp as that probe's header records
+-- (2026-08-21): the map group and number and the tile written directly, wDefaultSpawnpoint 0xFF, hMapEntryMethod
+-- (FF9F) 0xF1 -- without it the game reloaded the map it was on -- and wMapStatus 1. Refused outside the overworld or
+-- while a script has the controls. Done once the game has left the overworld and runs the target map again; `report`
+-- reads the map and tile back.
+local W_DEFAULT_SPAWNPOINT, H_MAP_ENTRY_METHOD, MAPSETUP_WARP = flat(0xD001), 0xFF9F, 0xF1
+function game.cheats.warp(args)
+	local map = type(args.map) == "string" and args.map or ""
+	local g, n = map:match("^(%d+)%.(%d+)$")
+	local x, y = math.tointeger(args.x), math.tointeger(args.y)
+	g, n = tonumber(g), tonumber(n)
+	if not g or g > 255 or n > 255 or not x or not y or x < 0 or y < 0 or x > 255 or y > 255 then
+		return nil, 'warp needs map "G.N" (each 0-255), x and y (0-255)'
+	end
+	if not isVanilla then return nil, "warp is measured on the vanilla V1.0 ROM only" end
+	if not inOverworld() or u8(W_BATTLEMODE) ~= 0 then return nil, "warp refused: not in the overworld" end
+	if u8(W_SCRIPT_RUNNING) == SCRIPT_TOOK_OVER then return nil, "warp refused: a script has the controls" end
+	memory.write_u8(W_MAPGROUP, g, "WRAM")
+	memory.write_u8(W_MAPNUMBER, n, "WRAM")
+	memory.write_u8(W_XCOORD, x, "WRAM")
+	memory.write_u8(W_YCOORD, y, "WRAM")
+	memory.write_u8(W_DEFAULT_SPAWNPOINT, 0xFF, "WRAM")
+	memory.write_u8(H_MAP_ENTRY_METHOD, MAPSETUP_WARP, "System Bus")
+	memory.write_u8(W_MAPSTATUS, MAPSTATUS_WARPING, "WRAM")
+	local left = false
+	return {
+		limit = 600,
+		untilFn = function(o)
+			if o.mode ~= "overworld" then
+				left = true
+				return false
+			end
+			return left and o.location.map == map
+		end,
+		report = function()
+			return { map = mapName(), x = u8(W_XCOORD), y = u8(W_YCOORD), map_status_raw = u8(W_MAPSTATUS) }
+		end,
 	}
 end
 
@@ -756,6 +876,13 @@ function game.programs.walk(p)
 		-- (wScriptMode 1, "Wait, A!" 10 frames later) and onto the tile where Elm's aide walks over (mode 2, her
 		-- walk first); walking itself only ever read 9 (a turn) or 5 (a door). Held input then does nothing.
 		if u8(W_SCRIPT_RUNNING) == SCRIPT_TOOK_OVER then return finish("script_started", { map = mapName() }) end
+		-- A trainer seeing the player: wScriptRunning read 1 (not 255) two frames after the step three tiles below Bug
+		-- Catcher Don ended, on the frame hLastTalked read his map object (4) and wSeenTrainerDistance (D03F) 3; he then
+		-- walked over and spoke (autoplay_trainer_probe.lua, 2026-09-17). Held input did nothing from there on.
+		if u8(W_SCRIPT_RUNNING) == SCRIPT_SEEN_BY_TRAINER then
+			return finish("spotted", { map = mapName(), trainer = { map_object = memory.read_u8(H_LAST_TALKED, "System Bus"),
+				tiles_away = u8(W_SEEN_TRAINER_DISTANCE) } })
+		end
 
 		local x, y = stepTarget()
 		if phase == "rest" then
@@ -834,7 +961,8 @@ end
 --     state bytes, and the player's tile (a scene walks the player: the west exit's, 2026-09-17).
 --   * The battle's action menu is the grid whose first row is 14 and column 9, its move menu the list at row 13,
 --     column 5 (autoplay_text_probe.lua, a wild PIDGEY); RUN is the grid's 3 and FIGHT its 0.
---   * A script has the controls while wScriptRunning reads 255 (MEASURED.md, "A script taking over").
+--   * A script has the controls while wScriptRunning reads anything but 0 (MEASURED.md, "A script taking over" and
+--     "A trainer battle").
 --   * hJoyDown is the game's own copy of the buttons: the START menu looked every few frames and missed a 2-frame
 --     release, so presses wait for it to read 0, and a tap holds A until its bit 0 is set (hJoyDown read 1 for
 --     each A a message box took, 2026-09-17).
@@ -865,7 +993,10 @@ local textHooks = {
 		if not asking then return nil end
 		return asking, m
 	end,
-	scriptRunning = function() return u8(W_SCRIPT_RUNNING) == SCRIPT_TOOK_OVER end,
+	-- Any value but 0: 255 through a sign, a scene or a wild encounter, and 1 from the step into Don's sight through his
+	-- walk, his words, the stretch with no text before the battle, the battle and the map's reload after it (2026-09-17;
+	-- `battle` had answered no_battle in that quiet stretch while this read only 255).
+	scriptRunning = function() return u8(W_SCRIPT_RUNNING) ~= 0 end,
 	inOverworld = inOverworld,
 	readMenu = function()
 		local _, _, m = textAndMenuNow()
@@ -874,6 +1005,18 @@ local textHooks = {
 	actionIndex = { fight = 0, run = 3 },
 	inputReleased = function() return game.inputReleased() end,
 	tapSeen = function() return (memory.read_u8(0xFFA8, "System Bus") & 0x01) ~= 0 end,
+	-- The level-up stats box ("CYNDAQUIL grew to level 6!", autoplay_text_probe.lua, 2026-09-17): a frame from (9,0) to
+	-- (19,11) -- 79 and 7B its top corners, 7D and 7E its bottom ones -- with ATTACK at row 1 from column 11, drawn 114
+	-- frames after the message's last letter and waiting (waitingInBattle) until A closed it.
+	levelUpPage = function()
+		local t = readTilemap()
+		if cell(t, 9, 0) ~= 0x79 or cell(t, 19, 0) ~= 0x7B or cell(t, 9, 11) ~= 0x7D or cell(t, 19, 11) ~= 0x7E then return nil end
+		for i, b in ipairs({ 0x80, 0x93, 0x93, 0x80, 0x82, 0x8A }) do
+			if cell(t, 10 + i, 1) ~= b then return nil end
+		end
+		if not waitingInBattle() then return nil end
+		return "stats", "waiting"
+	end,
 	strongestMove = function()
 		local slot, name = strongestMoveSlot()
 		if slot == nil then return nil, "no move has measured PP left" end

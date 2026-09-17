@@ -56,6 +56,8 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - A wild battle: when it is one, its two menus and its font (2026-09-17)
 - advance_text and battle through the shared machine (2026-09-17)
 - The battlers, their moves, and what a move's power and accuracy bytes do (2026-09-17)
+- The warp cheat: the game's own map load, to Route 30 (2026-09-17)
+- A trainer battle: sight, approach, the battle's own waits with no ▼, and the words after (2026-09-17)
 - Not measured yet: The rest of autoplay's Crystal reading (from 2026-09-17)
 
 ## Measured
@@ -344,12 +346,74 @@ field, `strongestMove` and `endedReport`.
   other than NORMAL drawn, raised PP, a status, a level-up, the player's Pokémon fainting, a trainer battle, the party
   past its first slot, the scale of the accuracy byte, what +0x01 of a move entry (0x13 for LEER) does.
 
+### The warp cheat: the game's own map load, to Route 30 (2026-09-17)
+
+**Vanilla V1.0, from `route29_after_win` (24.3 at (53,12)).** `crystal.lua`'s `warp` cheat writes what
+`probes/goto_map.lua` writes (its header, 2026-08-21: map group and number and the tile directly, wDefaultSpawnpoint
+01:D001 0xFF, hMapEntryMethod FF9F 0xF1, wMapStatus 1). Read with `probes/autoplay_state_probe.lua` and
+`probes/autoplay_map_probe.lua` (`logs/autoplay_state_7871_20260917_014819.log`, `logs/autoplay_map_7871_20260917_014819.log`)
+and the capture `autoplay_route30_warp` (gitignored). Asked for 26.1 at (1,13): wMapStatus read 1 from the frame after the
+writes (f57414) and 2 again 30 frames later; the map read 26.1 and the tile (1,13); the game drew its "ROUTE 30" sign; the
+object records loaded the woman at (2,13) and, walking up, a character at (1,7). The cheat answered `done` in 31 frames.
+**Not seen:** a warp onto a solid tile, water or a warp tile, a warp into a building, any map but 26.1.
+
+### A trainer battle: sight, approach, the battle's own waits with no ▼, and the words after (2026-09-17)
+
+**Vanilla V1.0, Route 30 (26.1), Bug Catcher Don at (1,7) facing down, CYNDAQUIL L5.** Snapshots `route30_warped`,
+`route30_don_4below` (the player at (1,11)), `route30_don_battle_start`. Four read-only probes, each replaying from
+`route30_don_4below`: `autoplay_state_probe.lua` and `autoplay_battle_probe.lua` (`logs/autoplay_state_7871_20260917_014819.log`,
+`logs/autoplay_battle_7871_20260917_014819.log`), the new `autoplay_trainer_probe.lua`
+(`logs/autoplay_trainer_7871_20260917_015340.log`) and `autoplay_text_probe.lua` (`logs/autoplay_text_7871_20260917_015635.log`),
+with captures `autoplay_route30_y11`, `autoplay_route30_don_seen_a`/`_b`, `autoplay_don_caterpie_out`/`2` (gitignored).
+
+- **Sight.** Standing at (1,11), four tiles below Don, for 120 frames: nothing. One step up to (1,10): two frames after the
+  step ended wScriptRunning (01:D438) went 0 to 1 -- not the 255 of a sign, a scene or a wild encounter -- with wScriptMode
+  1, then 2 while Don walked. On that frame hLastTalked (FFE0) read 4, Don's map object; D03F read 3, the tiles between
+  them; D040 0; D03E 0x68, wMapScriptsBank; and D041-D04C held the 12 bytes his map-object record points at (below).
+  An object record with graphic 255 and map object 255 sat on Don's tile while he came, as one did on Elm's in his scene;
+  what it is was not looked at.
+- **His map-object record** (16 x 0x10 from 01:D71E, indexed by an object record's +0x01): `02 25 0B 05 06 00 FF FF B2 03
+  BE 57 FF FF 00 00` -- +0x00 the object record holding him (slot 2 in `nearby`), +0x01 his graphic (37), +0x02 and
+  +0x03 his y and x plus 4, which followed his walk to (1,9), +0x08 0xB2, +0x09 3 (the range walked above), +0x0A a pointer (57BE) into
+  wMapScriptsBank. The route's other two records whose +0x08 low nibble reads 2 are at (2,28), range 3, and (5,23), range
+  1; no other record reads 2 there. Neither of those was walked into.
+- **What that pointer holds**: `38 05 24 01 D8 59 03 5A 00 00 CA 57`. 0x0538 = 1336, and bit 0 of the byte 167 past
+  wEventFlags (01:DA72) read 1 in the state the first win left, 0 once `route30_don_4below` was restored, and 1 after the
+  replayed win;
+  36 and 1 are what wOtherTrainerClass (D22F) and wOtherTrainerID (D231) read from the approach through the battle.
+- **The words before.** "Instead of a bug POKéMON, I found a trainer!" in the message box, pressed with A, then no text
+  while wScriptRunning stayed 1, until wSpriteUpdatesEnabled went 0 and 22 frames later wBattleMode read **2**: "BUG
+  CATCHER DON wants to battle!". `advance_text` called when `walk` answered took 442 frames to `battle_started`.
+- **The opponent before it is sent out.** From wBattleMode 2 until "BUG CATCHER DON sent out" began, wCurOTMon (00:C663)
+  read 255 and the opponent's block still held the wild PIDGEY of the battle before, with its nickname zeroed; on the
+  frame the first CATERPIE was written (L3, 16 HP, TACKLE and STRING SHOT, whose uses the log printed) it read 0, and 1
+  for his second. wOTPartyCount (01:D280) read 2. In the wild battle wCurOTMon read 0 throughout.
+- **Two waits with no ▼.** After "CYNDAQUIL grew to level 6!" the box cleared and a framed window from (9,0) to (19,11)
+  -- corners 79 7B 7D 7E, ATTACK at row 1 column 11, then the five stats -- was drawn 114 frames after the message's last
+  letter and stayed until A. After "BUG CATCHER DON was defeated!", "Argh! You're too strong!" printed and stayed until
+  A. In both, wTextboxFlags read 1, no ▼ was drawn, and wTextDelayFrames (00:CFB2) counted 5, 4, 3, 2, 1 and back to 5
+  until the A (reaching 5 31 and 36 times). Elsewhere in the replayed battle it went from 1 back to 5 on no screen; at
+  the action menu it counted down once as A was pressed, and under "learned SMOKESCREEN!" once, with its ▼. Before the
+  restore it had also cycled under a "wants to battle!" with its ▼, so the ▼ is read first. `battle` had waited 180
+  frames and nudged at each.
+- **The words after.** "A got ₽48 for winning!", and wMoney read 3048 against 3000: a second reading of it. The map
+  reloaded (wMapStatus 1, then 2) with wScriptRunning 1 until it ran again, then 0; Don stood at (1,9).
+- **Live through the tools** from `route30_don_4below`: `walk` up 1 answered `spotted` in 18 frames with `trainer`
+  `{map_object: 4, tiles_away: 3}`; `battle strongest` straight after played his words, both CATERPIEs, the level-up box,
+  "SMOKESCREEN" learned, his defeat and the prize to `ended` (6956 frames, `outcome_raw` 0, money 3048), with no nudge.
+  `nearby` gave Don `trainer: {range: 3, beaten: false, flag: 1336}` before and `beaten: true` after; `local_map` marked
+  (1,8)-(1,10) `!` before and nothing after. The earlier snapshots replayed unchanged (the sign 221 frames, the wild
+  battle 2168 and 480, Elm's YES/NO 28, the west exit 688).
+- **Not seen:** a trainer talked to first, a trainer that turns or walks, a range other than 3 walked, a sight line
+  crossed by another character, a trainer battle lost, the other two trainers' flags changing, what +0x08's high nibble
+  means.
+
 ## Not measured yet
 
 ### The rest of autoplay's Crystal reading (from 2026-09-17)
 
-- A trainer battle: whether wBattleMode reads 2 on this build, and what a trainer's sight and approach
-  read (Route 30's youngster is the nearest).
+- The rest of a trainer (measured 2026-09-17 for Bug Catcher Don, above): a trainer talked to (does wScriptRunning read
+  2?), a trainer that turns, Route 30's range-1 youngster at (5,23) walked, a lost trainer battle.
 - The rest of a battle (measured 2026-09-17 for one wild battle, above): a level-up and its stats box, the player's
   Pokémon fainting and the whiteout, a status, a second Pokémon in the party (is the next slot 0x30 on?), a move of
   another type drawn against the type table.

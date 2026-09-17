@@ -897,3 +897,31 @@ snapshot inside the battle got past it. Next: recover a finished box.
 
 **Left as it is:** the Emerald instance after RICK's third replay (won, MUDKIP Lv8), the driver and
 `battle_state_probe.lua` on its target.
+
+## 2026-09-17 (the Crystal chat, same session) — Crystal: a trainer's sight and battle, the warp cheat
+
+**Built on `crystal.lua`.** A `warp` cheat (the writes `crystal/probes/goto_map.lua` makes). `walk` stops `spotted` with the
+trainer's map object and distance on the frame a trainer sees the player. `battle` waits while the trainer walks over,
+presses A on the level-up stats box (a `levelUpPage` hook) and on a battle's waits with no ▼, and its `battle` field has
+`kind` and leaves out an opponent not yet sent out. `nearby` gives a trainer's `range`, `beaten` and `flag`; `local_map`
+marks its line `!`. Measurements: `crystal/MEASURED.md`, "The warp cheat" and "A trainer battle". New probe:
+`autoplay_trainer_probe.lua` (read-only). `text.lua` untouched by this chat: the Emerald chat's `animationPlaying` hook,
+committed meanwhile, is one Crystal does not supply.
+
+**How it was measured.** Warped to Route 30 below Bug Catcher Don and walked up a tile at a time: nothing at four tiles,
+he came at three. Each fix was then replayed from `route30_don_4below` with the probes loaded, and the older snapshots
+replayed after the last one (sign 221 frames, wild battle 2168 and 480, Elm's YES/NO 28, the west exit 688, as before).
+
+**What went wrong on the way:**
+- **`battle` answered `no_battle` between Don's words and his battle.** A trainer's script reads wScriptRunning 1, not the
+  255 every earlier script read, and the battle began after a stretch with no text. The hook now counts anything but 0.
+- **`walk` answered `not_at_rest`** when Don saw the player: it only stopped on 255. Now `spotted`, as on Emerald.
+- **Two nudges**, on the level-up stats box and on "Argh! You're too strong!": both wait for A with no ▼. The text probe
+  showed wTextDelayFrames counting 5 down to 1 and back for as long as either waited, and on no other screen of the
+  battle without a ▼, so in a battle that return to 5 counts as waiting (the ▼ is still read first).
+- **The opponent read as the last battle's PIDGEY** at the start of Don's battle: its block is not written until his
+  first Pokémon is sent out, and wCurOTMon reads 255 until then.
+
+**Snapshots** (gitignored `autoplay/states/crystal/`): `route30_warped`, `route30_don_4below`, `route30_don_battle_start`.
+
+**Next for Crystal:** the PACK's scrolling list.

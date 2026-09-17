@@ -102,7 +102,7 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
 
 - **`location`** — `map` (group.number), `x`, `y` and `facing`. The tile changes when a step ENDS, not
   when it begins.
-- **`mode`** — `overworld`, `battle` (a wild one measured), or `not_overworld` (a full-screen menu such
+- **`mode`** — `overworld`, `battle` (a wild one and a trainer's measured), or `not_overworld` (a full-screen menu such
   as the PACK, a door's map load, the title and main menu).
 - **`dialogue`** — `box` (the lines in the message box) and `state`: `printing`, `waiting_for_button`
   (the ▼), or `finished` (the last box, no ▼). There is no `box_index`: the tile buffer shows one box.
@@ -113,25 +113,31 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
 - **`screen_text`** — `row` and `text` for every other row holding words, only while the font is in the
   tiles (a Pokémon's picture reuses them; `crystal/MEASURED.md`, "Which font is loaded").
 - **`local_map`** — 15 by 11 around the player: `@` you, `N` a character, `W` a warp, `S` a sign, `#`
-  collision 0x07, `.` 0x00, `:` past this map's edge, and a letter per other collision byte with what it
-  did when measured (0x15 trees, 0x18 tall grass, 0x29 water, 0x71 a door, ledges).
+  collision 0x07, `.` 0x00, `:` past this map's edge, `!` a tile an unbeaten trainer looks at the way it faces now,
+  and a letter per other collision byte with what it did when measured (0x15 trees, 0x18 tall grass, 0x29 water, 0x71
+  a door, ledges).
 - **`nearby`** — each character: `slot`, `map_object`, `graphics_id`, `x`/`y`, `dx`/`dy`, `facing`,
-  `movement_type_raw`.
+  `movement_type_raw`; a trainer carries `trainer`: `range`, `beaten` and its `flag` (one trainer walked, range 3).
 - **`warps`** — `x`, `y`, the map it leads `to` and `to_warp`, the destination's warp number from 1.
 - **`extras.script_running_raw`** — 255 while a script has the controls: a message, a menu, a scene, a
-  wild encounter, or a picture waiting for a button with no box on screen.
+  wild encounter, or a picture waiting for a button with no box on screen; 1 from the step into a trainer's sight
+  until the map reloads after its battle; 0 walking (9 a turn, 5 a door).
 - **`battle`** — while `mode` is `battle`: `asking` (`action`, `move`, or absent) and `battlers`, each with `side`
   (`player`, `opponent`), `species` (and `species_id`), `nickname`, `level`, `hp`, `max_hp` and `moves` (`name`, `id`,
   `pp`, `base_pp` -- the maximum drawn --, `type`, `power`, and `accuracy_raw`, a byte whose scale is not measured:
-  held at 0 the move missed, and the table's 242 both hit and missed). The player's battler is absent until its Pokémon is sent out. One wild battle measured.
-- Not yet: `movement`, trainer sight, and what the save has (`battle`'s `ended` alone reads money and the first
-  party slot). The events are
+  held at 0 the move missed, and the table's 242 both hit and missed). `kind` (`wild`, `trainer`); in a trainer's
+  battle `opponent_party_count` and `opponent_party_index`. A battler is absent until its Pokémon is sent out. One wild
+  battle and one trainer's measured.
+- Not yet: `movement`, a trainer that turns or is talked to, and what the save has (`battle`'s `ended` alone reads money
+  and the first party slot). The events are
   `map_changed`, `mode_changed`, `dialogue_changed`, `menu_changed` and `battle_mode_raw_changed`.
 - Its tools: `walk` (on foot only; `run` walks and says `ran: false`, since Crystal has no running
   shoes; a door or a map edge answers once the player stands on the new map; `blocked` names a
-  character in the way; `script_started` when a step starts a scene or an encounter), `select`,
-  `advance_text`, and `battle` (`strongest` scores power times the accuracy byte; `ended` adds `outcome_raw`, 0 after a
-  win and 2 after running, `money`, `party_count` and the first Pokémon's `party` entry). No `goto` or cheats yet.
+  character in the way; `script_started` when a step starts a scene or an encounter; `spotted` with the
+  trainer's `map_object` and `tiles_away` on the frame one sees the player), `select`, `advance_text`, `battle`
+  (`strongest` scores power times the accuracy byte; called after `spotted` it waits while the trainer walks over; it
+  presses A on the level-up stats box and on a battle's waits with no ▼; `ended` adds `outcome_raw`, 0 after a win and
+  2 after running, `money`, `party_count` and the first Pokémon's `party` entry), and the `warp` cheat. No `goto` yet.
 
 ## The run log
 
@@ -184,6 +190,9 @@ each run's `setup` and `steps` as their own segments, walked or reached.
 - **Emerald `register_item`** `{item}`: the item SELECT uses (by name or id; the bag must hold it). A bike
   registered, `press` Select gets on or off it; with the other bike registered, one press gets off and the
   next gets on. Refused outside the overworld.
+- **Crystal `warp`** `{map: "G.N", x, y}` (0-255 each): the game's own map load (`crystal/probes/goto_map.lua`'s writes),
+  refused outside the overworld or while a script has the controls; `done` once the target map runs, and `report` reads
+  the map and tile back.
 - Cheats write the save's data in memory: **an in-game save afterwards keeps them.**
 
 ## Drivers so far
