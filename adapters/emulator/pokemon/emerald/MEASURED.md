@@ -60,6 +60,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - A new game to the first trainer battle: warps, elevation 0, cutscenes and the script status (2026-09-17)
 - A move's animation holds a battle's next message (2026-09-17)
 - A finished message's printer and window, and a stale one (2026-09-17)
+- The naming keyboard, and a blank box put back after it (2026-09-17)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -617,6 +618,40 @@ gitignored). Addresses from the build hashed identical to the ROM.
   and `battle` played from it to `ended` with no nudge; after the battle and with the START menu open, no message read.
 - **Not seen**: a finished message from a ROM string, windows 8-31, a message box other than window 0, a sign or a
   nurse's box after a restore.
+- **Superseded in part (2026-09-17):** a window put with a stale printer can be blank; a finished message also needs
+  drawn pixels ("The naming keyboard, and a blank box put back after it", below).
+
+### The naming keyboard, and a blank box put back after it (2026-09-17)
+
+**Vanilla ROM, the new game's "YOUR NAME?"** (reached from the `new_game` snapshot with `advance_text` and `select`
+BOY; a snapshot `ng_naming` taken on it, gitignored). From the new `probes/naming_probe.lua` (read-only: the block the
+build's sNamingScreen points at -- its +0x1800 and +0x1E10..+0x1E3F -- the cursor's sprite and every sprite whose data
+changed, the template, and once the ROM's keyboard table; each on change with the pad) and `printer_state_probe.lua`,
+while single presses were made, against captures (`dev-scripts/shots/emerald/autoplay_nm_*`, gitignored). Addresses
+from the build hashed identical to the ROM; meanings as below.
+
+- **The block.** While callback2 read 0x080E4F59, the pointer at 0x02039F94 held 0x02000010. +0x1800 read FF until A
+  typed H (C2 at +0x1800), then h (DC), and B took the last one off. +0x1E22 read 1 on the capitals page, 2 after Select,
+  0 after another and 1 after a third, each drawn so. +0x1E10 read 2 while presses were taken, 4 and 5 through a page
+  swap (34 frames, three times), 3 for 17 frames after the seventh letter, and 6, 8, 9 once A chose OK, before callback2 went
+  0x08031679 and the pointer 0.
+- **The cursor.** +0x1E23 read 0; sprite 0 of the build's gSprites (0x44 bytes a sprite) sat at x 38, y 88, and its
+  +0x2E and +0x30 went 0 to 1 on Right and on Down, with x and y moving 12 and 16. Start put them at 8 and 2 (OK, below
+  the page and BACK buttons); on the symbols page the button column read 6, and Left from it read 5 and row 3. After the
+  seventh letter they went to 8 and 2 by themselves, and the next A closed the screen with the name.
+- **The template.** The pointer at +0x1E28 (0x0858BFA8) led to 00 07 01 00 01 ...: the name was drawn with 7 places,
+  and +8 pointed at "YOUR NAME?".
+- **The keys.** The 0x60 bytes from 0x0858BE40 read as three blocks of 4 rows of 8: block 1 as the capitals page drew
+  (A-F, a blank, "." / G-L, a blank, "," / M-S / T-Z), block 0 the same in small letters, block 2 the symbols page
+  (0-4 / 5-9 / ! ? ♂ ♀ / - / … “ ” ‘ ’). Every typed byte was its key's: H and T from block 1, h from block 0, … from block 2.
+- **autoplay's `type_text` built on it** (same day): "Ab1…" typed across all three pages in 279 frames without
+  confirming, as drawn; "BRENDAN" typed, confirmed, and Birch's next box read "So it's BRENDAN?".
+- **A blank box put back.** Back from the keyboard, Birch's window 0 (base 0x001) read put (cells 001 and 06C) for 7
+  frames before "So it's BRENDAN?" began, while its printer still pointed past "What's your name?"'s FF in gStringVar4:
+  the driver took that up as a finished message. Its pixel buffer's first 16 rows read one value (00, then 11); RICK's
+  finished box read 8 values, mostly 11.
+- **Not seen**: a nickname's keyboard (its title and length), pressing A on the page or BACK button, B with nothing
+  typed, the pages' blank keys typed, any other language's keyboard.
 
 ## Not measured yet
 

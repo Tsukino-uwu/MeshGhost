@@ -988,3 +988,39 @@ Youngster Mikey on Route 30, walked up to from above and talked to with A: wScri
 trainer sees the player), and `battle strongest` played his words, battle and prize to `ended` with no nudge and no code
 change, since the script hook already counts any value but 0. His defeat flag read 0 before and 1 after, a second
 trainer's. Measurements: `crystal/MEASURED.md`, "A trainer talked to". Snapshot `route30_facing_mikey`.
+
+## 2026-09-17 (the Emerald chat, later still) — the naming keyboard read, `type_text`, and the text speed on FAST
+
+**Measured** (`emerald/MEASURED.md`, "The naming keyboard, and a blank box put back after it"). From `new_game`,
+`advance_text` read Birch's 13 boxes to BOY/GIRL, `select` BOY, and `advance_text` stopped `stuck` on the keyboard
+without pressing, as built. The new read-only `probes/naming_probe.lua` logged the naming screen's block while single
+presses were made against captures: the name so far, the page (Select cycling capitals, small, symbols), a state byte
+that says when presses are taken, the cursor's sprite holding its column and row, the template's length (7), and the
+ROM's key table, whose three blocks matched the three pages drawn and every byte typed. **One press went further than
+meant**: of six A presses meant as letters, the fifth made the name seven long, the cursor went to OK by itself, and
+the sixth chose OK, so the name "H…TTTTT" was confirmed in memory; `ng_naming`, taken first, put it back. That became a rule of
+the program.
+
+**Built.** Emerald's `observe` gains `keyboard`; a new core tool `type_text {text, confirm}` (Go, with its validation
+and forwarding tests); Emerald's program clears the name with B, then per character presses Select to the page,
+single steps to the key and A, each waiting on the game's bytes and checking the typed byte, and presses nothing after
+the last letter unless confirming. The shared machine takes an optional `readKeyboard` hook and `advance_text` stops
+`keyboard_open` on it; **Crystal's path is unchanged** (no such hook in its module).
+
+**Checked live.** "Ab1…" typed across all three pages in 279 frames, not confirmed, as drawn. "BRENDAN" typed and
+confirmed in 366, and `advance_text` then read "So it's BRENDAN?" and stopped at its YES/NO. **Found on the way**: that
+run's log began with "All right. What's your name?" -- after the keyboard, Birch's window 0 read put for 7 frames with
+a stale printer while blank. `printer_state_probe.lua` gained each window's pixel buffer: one byte value in the blank
+box, eight in RICK's finished one; a finished message now also needs something drawn, and the next run's log began at
+"So it's BRENDAN?". Regressions after it: RICK's restored box still recovered; MAY's five boxes and battle; the sight
+scenario 3 of 3.
+
+**The user, while it ran:** *"can you go into options and change the text speed to be faster ?"*, then *"some rom hacks
+have speed beyond 'fast'. but it should make all text dialouges go a bit faster than keeping it at 'mid' or 'slow'"*.
+RICK's battle was played out first (his challenge was up from the scenario), then START, `select` OPTION, Right on
+TEXT SPEED to FAST (a capture), B, and OPTION opened again read FAST. `advance_text` read RICK's words after it and
+closed in 184 frames. Snapshot `fast_text_route102`; older snapshots keep MID. Also from the user, for later:
+*"a pokemon is easier to catch if it has lower health, and if it has a status problem like paralazys"* -- `battle` has
+no catching policy yet.
+
+**Left as it is:** the Emerald instance on route 0.17 with FAST text, only the driver on its target.

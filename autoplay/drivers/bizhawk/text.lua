@@ -23,6 +23,7 @@
 --   tapSeen()          -> boolean            the game has seen the A of a tap (a 2-frame tap can fall between looks)
 --   animationPlaying() -> boolean            in a battle, the game is playing an animation by itself (Emerald's STRING
 --                                            SHOT ran 228 frames with nothing else changing)
+--   readKeyboard()     -> keyboard or nil    an on-screen keyboard (a naming screen): advance_text stops at it
 --   strongestMove()    -> slot, label | nil, reason
 --   endedReport()      -> table              what `battle` adds to `ended`
 
@@ -272,6 +273,9 @@ function M.advanceText(h)
 	local closed = 0
 	local machine = M.machine(h, function() return nil, "a battle began" end, function(st)
 		if st.battle then return "battle_started" end
+		-- A keyboard is answered with type_text, never an A: a nudge once typed "AA" on Emerald's (2026-09-17).
+		local kb = h.readKeyboard and h.readKeyboard()
+		if kb then return "keyboard_open", { keyboard = kb } end
 		local m = h.readMenu()
 		if m then return "menu_open", { menu = m } end
 		-- A script still running is not the end: Route 101's cutscene walked the player on after its first

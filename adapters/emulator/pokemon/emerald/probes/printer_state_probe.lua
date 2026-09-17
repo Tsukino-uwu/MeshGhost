@@ -15,6 +15,7 @@
 --          to the previous FF, at most 256 bytes, decoded as letters where they are letters
 --   WIN    window slots 0-7, 12 bytes each, raw
 --   TILES  per window with a background: its base block and the tile ids in its first and last cells
+--   PIX    per window with a background: how many different bytes its pixel buffer's first 16 rows hold
 --   BG0    per screen row, the first and last column with a non-zero BG0 tile (textbox_probe.lua's method)
 --   CB2    gMain.callback2
 -- WHAT IT CANNOT SEE: windows 8-31 and their printers, anything in the frames between changes, a patched ROM.
@@ -134,6 +135,28 @@ MESHGHOST_DEV_TICK = function()
 	end
 	local ts = table.concat(tiles, " ")
 	onChange("tiles", ts, "TILES " .. ts)
+	-- Added later the same day: an empty box read as put with a stale printer on the way back from the naming screen.
+	-- For each window with a background, its pixel buffer (+8, 4 bits a pixel, width * 8 pixels a row): how many
+	-- different byte values its first 16 pixel rows hold, and the most common one.
+	local pix = {}
+	for s = 0, IDS - 1 do
+		local o = s * WINDOW_SIZE
+		local bg, width, buf = wb[o + 1], wb[o + 4], wb[o + 9] | (wb[o + 10] << 8) | (wb[o + 11] << 16) | (wb[o + 12] << 24)
+		if bg <= 3 and width > 0 and buf >= 0x02000000 and buf < 0x02040000 then
+			local n = width * 4 * 16
+			local b = memory.read_bytes_as_array(buf, n, BUS)
+			local counts, distinct, top, topN = {}, 0, 0, 0
+			for i = 1, n do
+				local v = b[i]
+				if not counts[v] then counts[v], distinct = 0, distinct + 1 end
+				counts[v] = counts[v] + 1
+				if counts[v] > topN then top, topN = v, counts[v] end
+			end
+			pix[#pix + 1] = string.format("%d:distinct=%d top=%02Xx%d/%d", s, distinct, top, topN, n)
+		end
+	end
+	local ps = table.concat(pix, " ")
+	onChange("pix", ps, "PIX " .. ps)
 	if frames % 4 == 0 then
 		local cnt = memory.read_u16_le(0x04000008, BUS)
 		local base = 0x06000000 + ((cnt >> 8) & 0x1F) * 0x800

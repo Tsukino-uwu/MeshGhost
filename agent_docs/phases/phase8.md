@@ -1294,8 +1294,8 @@ wild and trainer battles, move data, map edges, held movement and both bikes. Al
 
 ## 2026-09-17 — pointer: autoplay's Emerald probes and measurements, logged in phase13.md
 
-`list_menu_probe`, `trainer_approach_probe`, `printer_state_probe` and `battle_state_probe` (gaining the script pointer,
+`list_menu_probe`, `trainer_approach_probe`, `printer_state_probe`, `naming_probe` and `battle_state_probe` (gaining the script pointer,
 gBattleScripting, then the animation byte, the pause counter and the text printers), and their `emerald/MEASURED.md`
 entries: a trainer's sight, the bag's list, a new game to MAY's battle, a move's animation holding a battle's next
-message, and a finished message's printer and window. All of it is
+message, a finished message's printer and window, and the naming keyboard. All of it is
 in `phase13.md`; none of it touches `meshghost_emerald.lua`.

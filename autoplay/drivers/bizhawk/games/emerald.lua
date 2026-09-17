@@ -303,10 +303,25 @@ local function windowPut(w)
 	return first == base & 0x3FF and last == (base + width * height - 1) & 0x3FF
 end
 
+-- Something drawn in a window: its pixel buffer (gWindows +8, 4 bits a pixel, 8 pixels a tile) holds more than one byte
+-- value in its first 16 pixel rows. Put back on the screen after the naming keyboard, Birch's box was put for 7
+-- frames with every byte 00 and then 11, while its printer still pointed past "What's your name?"; RICK's finished box
+-- held 8 values (printer_state_probe.lua, 2026-09-17).
+local function windowHasPixels(w)
+	local s = memory.read_bytes_as_array(GWINDOWS + w * WINDOW_SIZE, 12, BUS)
+	local buf = s[9] | (s[10] << 8) | (s[11] << 16) | (s[12] << 24)
+	if buf < 0x02000000 or buf >= 0x02040000 or s[4] == 0 then return false end
+	local b = memory.read_bytes_as_array(buf, s[4] * 4 * 16, BUS)
+	for i = 2, #b do
+		if b[i] ~= b[1] then return true end
+	end
+	return false
+end
+
 local function recoverDialogue()
 	for w = 0, 31 do
 		local active = printerActive(w)
-		if (active and windowOnScreen(w)) or (not active and windowPut(w)) then
+		if (active and windowOnScreen(w)) or (not active and windowPut(w) and windowHasPixels(w)) then
 			local ptr = r32(STEXTPRINTERS + w * PRINTER_SIZE)
 			local start, bytes
 			for _, buf in ipairs(TEXT_BUFFERS) do
@@ -900,6 +915,81 @@ local function readListMenu()
 	return nil
 end
 
+-- THE NAMING KEYBOARD (naming_probe.lua against captures of all three pages, 2026-09-17, vanilla, the new game's
+-- "YOUR NAME?"; that adapter's MEASURED.md, "The naming keyboard"). While callback2 read the routine the build names
+-- CB2_NamingScreen (+1), the pointer it names sNamingScreen held a block where: +0x1800 is the name so far, FF-ended
+-- (A on H added C2, B took it off); +0x1E10 read 2 while keys were taken, 4 and 5 during a page swap, 3 for the 17
+-- frames after the last letter, 6-9 once OK was chosen; +0x1E22 is the page -- 1 capitals, 2 small letters, 0
+-- symbols, Select going 1, 2, 0, 1; +0x1E23 the cursor's sprite, whose data[0] and data[1] (+0x2E, +0x30 of a
+-- 0x44-byte sprite) are its column and row (Right 0 to 1, Down 0 to 1); and the pointer at +0x1E28 leads to a template
+-- whose +1 is how long the name may be (7, as drawn) and +8 points at the title. The column past a page's last one is
+-- the buttons: Start put the cursor on it at row 2 (OK), and it also went there by itself after the seventh letter,
+-- where the next A chose OK and closed the screen. The keys are the ROM's 0x60 bytes the build names sKeyboardChars,
+-- three blocks of 4 rows of 8: block 1 read as the capitals page drew, block 0 the small letters and block 2 the
+-- symbols (six columns: Left from its button column went to column 5), and each typed byte matched its key.
+local CB2_NAMING_SCREEN, SNAMINGSCREEN, GSPRITES, SPRITE_SIZE = 0x080e4f58, 0x02039f94, 0x02020630, 0x44
+local KEYBOARD_CHARS, KEYBOARD_READY = 0x0858be40, 2
+local PAGE_BLOCK, PAGE_COLUMNS = { [0] = 2, [1] = 1, [2] = 0 }, { [0] = 6, [1] = 8, [2] = 8 }
+local PAGE_NAMES, OK_ROW = { [0] = "symbols", [1] = "capitals", [2] = "small" }, 2
+
+local keyboardKeys = nil -- per page, rows of { byte, glyph }
+local function keysOf(page)
+	if not keyboardKeys then
+		keyboardKeys = {}
+		local b = memory.read_bytes_as_array(KEYBOARD_CHARS, 0x60, BUS)
+		for p, block in pairs(PAGE_BLOCK) do
+			local rows = {}
+			for r = 0, 3 do
+				local row = {}
+				for c = 0, PAGE_COLUMNS[p] - 1 do
+					local byte = b[block * 32 + r * 8 + c + 1]
+					row[#row + 1] = { byte = byte, glyph = CHARS[byte] or string.format("{%02X}", byte) }
+				end
+				rows[#rows + 1] = row
+			end
+			keyboardKeys[p] = rows
+		end
+	end
+	return keyboardKeys[page]
+end
+
+-- The keyboard's state, or nil when no naming screen is up.
+local function keyboardState()
+	local cb = r32(GMAIN_CB2) & 0xFFFFFFFE
+	if cb ~= CB2_NAMING_SCREEN then return nil end
+	local ns = r32(SNAMINGSCREEN)
+	if not inEwram(ns) then return nil end
+	local tail = memory.read_bytes_as_array(ns + 0x1E10, 0x1C, BUS)
+	local page, sprite, tpl = tail[0x13], tail[0x14], u32of(tail, 0x19)
+	if not PAGE_BLOCK[page] or sprite > 64 or not inRom(tpl) then return nil end
+	local spr = GSPRITES + sprite * SPRITE_SIZE
+	local text = readString(ns + 0x1800)
+	return { ns = ns, state = tail[1], page = page, column = memory.read_s16_le(spr + 0x2E, BUS),
+		row = memory.read_s16_le(spr + 0x30, BUS), text = text, max = r8(tpl + 1), title = r32(tpl + 8) }
+end
+
+local function readKeyboard()
+	local k = keyboardState()
+	if not k then return nil end
+	local keys, rows = keysOf(k.page), {}
+	for _, row in ipairs(keys) do
+		local glyphs = {}
+		for _, key in ipairs(row) do glyphs[#glyphs + 1] = key.glyph end
+		rows[#rows + 1] = glyphs
+	end
+	local on
+	if k.column >= 0 and k.column < PAGE_COLUMNS[k.page] and k.row >= 0 and k.row <= 3 then
+		on = keys[k.row + 1][k.column + 1].glyph
+	elseif k.column == PAGE_COLUMNS[k.page] and k.row == OK_ROW then
+		on = "OK"
+	end
+	local title = inRom(k.title) and readString(k.title) or {}
+	return { title = #title > 0 and decode(title, 1, #title) or nil, text = decode(k.text, 1, #k.text), length = #k.text,
+		max_length = k.max, page = PAGE_NAMES[k.page], cursor = { column = k.column, row = k.row }, on = on,
+		on_button_row = on == nil and k.column == PAGE_COLUMNS[k.page] and k.row or nil, keys = rows,
+		ready = k.state == KEYBOARD_READY or nil, state_raw = k.state ~= KEYBOARD_READY and k.state or nil }
+end
+
 -- What the save has: the party, the bag, money and badges. Nil until the save blocks are in place.
 local function readSave()
 	local sb1, sb2 = r32(SB1PTR), r32(SB2PTR)
@@ -1014,7 +1104,7 @@ local game = {
 	-- "vanilla" only when the ROM's hash is the one every address here was measured on.
 	variant = isVanilla and "vanilla" or "unverified",
 	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "cheat:warp", "cheat:set_flag",
-		"cheat:give_item", "cheat:register_item", "select", "walk", "goto", "battle", "advance_text" },
+		"cheat:give_item", "cheat:register_item", "select", "walk", "goto", "battle", "advance_text", "type_text" },
 	-- The START menu and a YES/NO: Down moved the cursor one entry per press and A chose it; in a battle
 	-- menu Left and Right moved between its two columns (2026-09-16).
 	menuButtons = { prev = "Up", next = "Down", left = "Left", right = "Right", confirm = "A" },
@@ -1100,6 +1190,7 @@ function game.observe(asked)
 	end
 	local save = (asked and isVanilla) and readSave() or nil
 	return {
+		keyboard = isVanilla and readKeyboard() or nil,
 		party = save and save.party,
 		bag = save and save.bag,
 		money = save and save.money,
@@ -1917,6 +2008,7 @@ local textHooks = {
 		return LEVEL_UP_BOX_WAITING[at], at
 	end,
 	animationPlaying = function() return r8(ANIM_SCRIPT_ACTIVE) ~= 0 end,
+	readKeyboard = readKeyboard,
 	strongestMove = function()
 		local slot = strongestMoveSlot()
 		if slot == nil then return nil, "no move has PP left" end
@@ -1951,6 +2043,145 @@ game.programs.advance_text = function()
 	return lib.text.advanceText(textHooks)
 end
 
+-- type_text {text, confirm}: types on the naming keyboard (THE NAMING KEYBOARD, above) the way a player does. B until
+-- nothing is typed; then for each character Select until a page holding it shows, a direction one step at a time until
+-- the cursor is on its key, and A -- each press let go after TAP frames and the next waiting until the game's own bytes
+-- show the last one landed, and none while the screen is not taking keys. The typed byte is read back against the key's.
+-- With confirm, Start and A on OK; without, nothing after the last letter, since after the seventh the cursor had gone
+-- to OK by itself and an A there confirmed.
+local TYPE_TAP, TYPE_ANSWER, TYPE_BUSY = 2, 40, 300
+
+game.programs.type_text = function(p)
+	if not isVanilla then return nil, "type_text is measured on the vanilla ROM only" end
+	local k = keyboardState()
+	if not k then return nil, "no naming keyboard is open (observe shows no keyboard)" end
+	local text, confirm = type(p.text) == "string" and p.text or "", p.confirm ~= false
+	local chars = {}
+	local ok, err = pcall(function()
+		for _, cp in utf8.codes(text) do chars[#chars + 1] = utf8.char(cp) end
+	end)
+	if not ok then return nil, "text is not UTF-8: " .. tostring(err) end
+	if #chars == 0 or #chars > k.max then
+		return nil, string.format("text must be 1 to %d characters on this keyboard, got %d", k.max, #chars)
+	end
+	-- Where a character's key is on a page, or nil.
+	local function keyOn(page, ch)
+		for r, row in ipairs(keysOf(page)) do
+			for c, key in ipairs(row) do
+				if key.glyph == ch then return { page = page, row = r - 1, column = c - 1, byte = key.byte } end
+			end
+		end
+		return nil
+	end
+	local function keyFor(page, ch)
+		local here = keyOn(page, ch)
+		if here then return here end
+		for _, pg in ipairs({ 1, 2, 0 }) do
+			local there = keyOn(pg, ch)
+			if there then return there end
+		end
+		return nil
+	end
+	for _, ch in ipairs(chars) do
+		if not keyFor(k.page, ch) then return nil, string.format("%q is on no page of this keyboard", ch) end
+	end
+
+	local phase, i, frames, busy, settle, presses, typed = "clear", 1, 0, 0, 0, 0, nil
+	local pressing, expect = nil, nil
+	local function finish(outcome, extra)
+		local r = { outcome = outcome, typed = typed, presses = presses }
+		for key, v in pairs(extra or {}) do r[key] = v end
+		return nil, true, r
+	end
+	local function tap(button, what, done)
+		pressing, presses = { pad = { [button] = true }, held = 0, what = what, done = done }, presses + 1
+		return pressing.pad, false
+	end
+
+	return function()
+		frames = frames + 1
+		local s = keyboardState()
+		if not s then
+			if phase == "closing" then return finish("confirmed") end
+			return finish("closed", { waiting_on = pressing and pressing.what or phase })
+		end
+		typed = decode(s.text, 1, #s.text)
+		if pressing then
+			pressing.held = pressing.held + 1
+			if pressing.held <= TYPE_TAP then return pressing.pad, false end
+			if pressing.done(s) then
+				pressing, settle = nil, 2
+			elseif pressing.held > TYPE_ANSWER then
+				return nil, true, nil, string.format("the keyboard did not answer %s in %d frames", pressing.what, TYPE_ANSWER)
+			end
+			return nil, false
+		end
+		if settle > 0 then
+			settle = settle - 1
+			return nil, false
+		end
+		if s.state ~= KEYBOARD_READY then
+			busy = busy + 1
+			if busy > TYPE_BUSY then
+				return nil, true, nil, string.format("the keyboard was not taking keys for %d frames (state %d)", TYPE_BUSY, s.state)
+			end
+			return nil, false
+		end
+		busy = 0
+		if expect then
+			if #s.text ~= expect.length or s.text[#s.text] ~= expect.byte then
+				return nil, true, nil, string.format("typed %q, expected character %d to be byte %02X", typed, expect.length, expect.byte)
+			end
+			expect, i = nil, i + 1
+		end
+
+		if phase == "clear" then
+			if #s.text > 0 then
+				local n = #s.text
+				return tap("B", "B", function(now) return #now.text < n end)
+			end
+			phase = "type"
+		end
+
+		if phase == "type" then
+			if i > #chars then
+				if not confirm then return finish("typed") end
+				phase = "confirm"
+			else
+				local key = keyFor(s.page, chars[i])
+				local columns = PAGE_COLUMNS[s.page]
+				if key.page ~= s.page then
+					local from = s.page
+					return tap("Select", "Select", function(now) return now.page ~= from end)
+				end
+				local col, row = s.column, s.row
+				local moved = function(now) return now.column ~= col or now.row ~= row end
+				if col >= columns then return tap("Left", "Left", moved) end
+				if col ~= key.column then
+					local dir = col < key.column and "Right" or "Left"
+					return tap(dir, dir, moved)
+				end
+				if row ~= key.row then
+					local dir = row < key.row and "Down" or "Up"
+					return tap(dir, dir, moved)
+				end
+				local n = #s.text
+				expect = { length = n + 1, byte = key.byte }
+				return tap("A", "A on " .. chars[i], function(now) return #now.text ~= n or now.state ~= KEYBOARD_READY end)
+			end
+		end
+
+		if phase == "confirm" then
+			if s.column == PAGE_COLUMNS[s.page] and s.row == OK_ROW then
+				phase = "closing"
+				return tap("A", "A on OK", function(now) return now.state ~= KEYBOARD_READY end)
+			end
+			return tap("Start", "Start", function(now) return now.column == PAGE_COLUMNS[now.page] and now.row == OK_ROW end)
+		end
+		return nil, false
+	end, nil, 3600
+end
+
 -- What `changed` compares between two observations: the fields a press is expected to move.
 function game.diffKeys(o)
 	return {
@@ -1962,6 +2193,9 @@ function game.diffKeys(o)
 		dialogue_state = o.dialogue and o.dialogue.state or "none",
 		dialogue_box = o.dialogue and o.dialogue.box or "",
 		menu_cursor = o.menu and o.menu.cursor or "none",
+		keyboard_text = o.keyboard and o.keyboard.text or "none",
+		keyboard_on = o.keyboard and (o.keyboard.on or ("button row " .. tostring(o.keyboard.on_button_row))) or "none",
+		keyboard_page = o.keyboard and o.keyboard.page or "none",
 		battle_asking = o.battle and o.battle.asking or "none",
 		battle_hp = o.battle and (function()
 			local hp = {}

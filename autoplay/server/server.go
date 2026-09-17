@@ -113,6 +113,14 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 	}, logged(t, "advance_text", nil, t.advanceText))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name: "type_text",
+		Description: "Type text on the on-screen keyboard the game shows (a naming screen): the driver clears what " +
+			"is typed, then for each character changes page, moves the game's own cursor to its key one step at a " +
+			"time and presses it, reading each result back, and with confirm (default true) chooses OK. observe's " +
+			"keyboard lists the keys. Returns what was typed as the game read it.",
+	}, logged(t, "type_text", nil, t.typeText))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name: "screenshot",
 		Description: "A picture of the game frame, saved under dev-scripts/shots/<game>/ and returned " +
 			"as an image. The navigation sense: what is around, what a thing is, which entry is " +
@@ -330,6 +338,30 @@ func (t *tools) battle(ctx context.Context, _ *mcp.CallToolRequest, in BattleIn)
 
 func (t *tools) advanceText(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 	raw, err := t.forward(ctx, "advance_text", "advance_text", struct{}{}, CallTimeout+3*time.Minute)
+	return nil, raw, err
+}
+
+// MaxTypeTextBytes bounds the text for type_text; a game's keyboard bounds it further.
+const MaxTypeTextBytes = 64
+
+// TypeTextIn is the type_text tool's input.
+type TypeTextIn struct {
+	Text    string `json:"text" jsonschema:"the characters to type, as observe's keyboard keys show them"`
+	Confirm *bool  `json:"confirm,omitempty" jsonschema:"choose OK once typed; default true"`
+}
+
+// typeTextRequest is what the driver receives: confirm is always spelled out.
+type typeTextRequest struct {
+	Text    string `json:"text"`
+	Confirm bool   `json:"confirm"`
+}
+
+func (t *tools) typeText(ctx context.Context, _ *mcp.CallToolRequest, in TypeTextIn) (*mcp.CallToolResult, any, error) {
+	if in.Text == "" || len(in.Text) > MaxTypeTextBytes {
+		return nil, nil, fmt.Errorf("text must be 1 to %d bytes, got %d", MaxTypeTextBytes, len(in.Text))
+	}
+	req := typeTextRequest{Text: in.Text, Confirm: in.Confirm == nil || *in.Confirm}
+	raw, err := t.forward(ctx, "type_text", "type_text", req, CallTimeout+2*time.Minute)
 	return nil, raw, err
 }
 

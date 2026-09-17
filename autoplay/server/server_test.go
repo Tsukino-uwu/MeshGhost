@@ -296,6 +296,48 @@ func TestWalkValidatesAndForwards(t *testing.T) {
 	}
 }
 
+func TestTypeTextValidatesAndForwards(t *testing.T) {
+	h := newHarness(t)
+	got := make(chan map[string]any, 1)
+	h.startDriver(t, []string{"type_text"}, func(verb string, payload json.RawMessage) (string, any) {
+		var in map[string]any
+		json.Unmarshal(payload, &in)
+		got <- in
+		return "result", map[string]any{"typed": in["text"], "confirmed": in["confirm"]}
+	})
+
+	for _, bad := range []map[string]any{
+		{"text": ""},
+		{"text": strings.Repeat("A", MaxTypeTextBytes+1)},
+	} {
+		if text, isErr := h.call(t, "type_text", bad); !isErr {
+			t.Errorf("type_text %v = %s, want a refusal", bad, text)
+		}
+	}
+
+	// confirm is spelled out to the driver: true when left out, false when said.
+	if text, isErr := h.call(t, "type_text", map[string]any{"text": "MAY"}); isErr || !strings.Contains(text, `"typed":"MAY"`) {
+		t.Fatalf("type_text = %s (error %v)", text, isErr)
+	}
+	if in := <-got; in["text"] != "MAY" || in["confirm"] != true {
+		t.Fatalf("the driver received %v, want confirm true", in)
+	}
+	if text, isErr := h.call(t, "type_text", map[string]any{"text": "A", "confirm": false}); isErr {
+		t.Fatalf("type_text confirm false = %s", text)
+	}
+	if in := <-got; in["confirm"] != false {
+		t.Fatalf("the driver received %v, want confirm false", in)
+	}
+}
+
+func TestTypeTextIsRefusedWithoutTheCapability(t *testing.T) {
+	h := newHarness(t)
+	h.startDriver(t, []string{"observe"}, func(string, json.RawMessage) (string, any) { return "result", map[string]any{} })
+	if text, isErr := h.call(t, "type_text", map[string]any{"text": "A"}); !isErr || !strings.Contains(text, "type_text") {
+		t.Fatalf("type_text without the capability = %s (error %v)", text, isErr)
+	}
+}
+
 func TestGotoValidatesAndForwards(t *testing.T) {
 	h := newHarness(t)
 	got := make(chan GotoIn, 1)
