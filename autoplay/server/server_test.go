@@ -649,6 +649,16 @@ func TestBattleValidatesAndForwards(t *testing.T) {
 	if in := <-got; in.Forget != "strong_variety" {
 		t.Fatalf("the driver received %+v", in)
 	}
+	if text, isErr := h.call(t, "battle", map[string]any{"stop_hp_below": 1.5}); !isErr {
+		t.Errorf("battle with stop_hp_below 1.5 = %s, want a refusal", text)
+	}
+	text, isErr = h.call(t, "battle", map[string]any{"stop_hp_below": 0.5})
+	if isErr || !strings.Contains(text, `"outcome":"ended"`) {
+		t.Fatalf("battle stop_hp_below = %s (error %v)", text, isErr)
+	}
+	if in := <-got; in.StopHPBelow != 0.5 {
+		t.Fatalf("the driver received %+v", in)
+	}
 	text, isErr = h.call(t, "advance_text", map[string]any{})
 	if isErr || !strings.Contains(text, `"verb":"advance_text"`) {
 		t.Fatalf("advance_text = %s (error %v)", text, isErr)

@@ -1258,6 +1258,29 @@ function LEARN.question()
 		pokemon = mon and mon.nickname, menu = { items = { "YES", "NO" }, cursor = r8(LEARN.cursorAt) }, no = 1 }
 end
 
+-- THE PARTY LIST A BATTLE'S BAG OPENS (2026-09-17, a wild TAILLOW on 0.31 from the snapshot `bag_wild_battle_start`, POTION x3
+-- given; `exec` reads and captures `autoplay_battle_bag_*`; that adapter's MEASURED.md, "The bag inside a battle"). BAG from the
+-- action menu opened the bag's list (read already, pocket `items`), A on POTION a USE/CANCEL menu (read already), and USE "Use on
+-- which POKéMON?": callback2 the routine the build names CB2_UpdatePartyMenu (+1), task 0 running Task_HandleChooseMonInput
+-- (+1), and byte 9 of the struct it names gPartyMenu 0 with the frame on MARSHTOMP, 7 with it on CANCEL after a Down, 0 again
+-- after the next. Read as the party's nicknames in slot order, then CANCEL. Only a party of one is measured.
+LEARN.partyMenu = { cb2 = 0x081b01b0, task = 0x081b1370, at = 0x0203cec8 }
+function LEARN.partyMenu.read()
+	local pm = LEARN.partyMenu
+	if (r32(GMAIN_CB2) & 0xFFFFFFFE) ~= pm.cb2 then return nil end
+	for n = 0, NUM_TASKS - 1 do
+		local at = GTASKS + n * TASK_SIZE
+		if r8(at + 4) ~= 0 and (r32(at) & 0xFFFFFFFE) == pm.task then
+			local items = {}
+			for _, mon in ipairs(readParty() or {}) do items[#items + 1] = mon.nickname end
+			local slot = memory.read_s8(pm.at + 9, BUS)
+			items[#items + 1] = "CANCEL"
+			return { kind = "party", items = items, cursor = (slot == 7) and (#items - 1) or slot }
+		end
+	end
+	return nil
+end
+
 -- The action menu as drawn, in cursor order: 0 FIGHT and 1 BAG on the top row, 2 POKéMON and 3 RUN below.
 local BATTLE_ACTIONS = { "FIGHT", "BAG", "POKéMON", "RUN" }
 
@@ -1401,7 +1424,7 @@ function game.observe(asked)
 	end
 	-- A list menu under a menu opened from it (the bag's item menu) is not the one waiting.
 	local list = (isVanilla and not battle and not m) and readListMenu() or nil
-	m = m or list or (isVanilla and STARTER.menu()) or nil
+	m = m or list or (isVanilla and (STARTER.menu() or LEARN.partyMenu.read())) or nil
 	if #hookNames > 0 then
 		-- In a battle the windows' own bytes do not say which are showing (the action and move menus
 		-- stayed listed while a message played), so screen_text is left out; `battle` and `menu` say
@@ -1775,7 +1798,7 @@ function game.menu()
 	if q then return { kind = q.kind, items = q.menu.items, cursor = q.menu.cursor } end
 	if isVanilla and inBattle() then return battleMenu() end
 	local m = (#hookNames > 0) and readMenu() or nil
-	return m or (isVanilla and (readListMenu() or STARTER.menu())) or nil
+	return m or (isVanilla and (readListMenu() or STARTER.menu() or LEARN.partyMenu.read())) or nil
 end
 
 -- PROGRAMS: run once a frame by the driver, each returning (pad or nil, finished, result, error).
@@ -2302,7 +2325,8 @@ local textHooks = {
 	scriptRunning = function() return r8(SCRIPT_CONTEXT_STATUS) ~= SCRIPT_CONTEXT_OFF end,
 	inOverworld = inOverworld,
 	-- The starter bag has no window: advance_text stops menu_open on it, for select.
-	readMenu = function() return readMenu() or (isVanilla and STARTER.menu()) or nil end,
+	-- The bag's list too: `battle` on the bag opened from a battle answered `stuck` without it (2026-09-17).
+	readMenu = function() return readMenu() or (isVanilla and (readListMenu() or STARTER.menu() or LEARN.partyMenu.read())) or nil end,
 	-- FIGHT is the action menu's 0 and RUN its 3 (BATTLE_ACTIONS).
 	actionIndex = { fight = 0, run = 3 },
 	levelUpPage = function()
@@ -2313,6 +2337,8 @@ local textHooks = {
 	animationPlaying = BATTLE_BUSY.playing,
 	-- The learn-a-move questions and the move list, and the evolution scene playing by itself (LEARN, above).
 	battleQuestion = LEARN.question,
+	-- Battler 0's HP and max HP (BATTLE_MONS +0x28, +0x2C; the player's in every single battle measured).
+	ownHp = function() return r16(BATTLE_MONS + 0x28), r16(BATTLE_MONS + 0x2C) end,
 	scenePlaying = function() return LEARN.evolution() ~= nil end,
 	readKeyboard = readKeyboard,
 	readClock = readClock,

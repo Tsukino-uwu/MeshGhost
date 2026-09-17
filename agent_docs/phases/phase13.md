@@ -37,6 +37,7 @@ here adds its heading as one line under "The plan and the shared core".**
 - 2026-09-17 (the Emerald chat, the first badge) — `select` presses confirm again; routes out of a trainer's sight preferred
 - 2026-09-17 (the TEVI chat) — how an agent sees a game: the engine's state first, the clock held for fast games, detection only at tier 0
 - 2026-09-17 (the Emerald chat, the learn-a-move question) — questions asked outside a battle's screen, a scene that takes no input, and `battle`'s `forget`
+- 2026-09-17 (the Emerald chat, the bag in a battle) — `battle`'s `stop_hp_below`
 
 **Emerald (vanilla), before its own log** -- from 2026-09-17 in [autoplay/emerald.md](autoplay/emerald.md)
 - 2026-09-16 (later still) — Phase 1 step 2: a live driver in vanilla Emerald, from boot to walking
@@ -1479,3 +1480,16 @@ changes, not made yet; they get their entries here when they are.
 BIDE for MUD SHOT (the user's own choices at ROXANNE) and FORESIGHT at Lv 20. Live on vanilla Emerald: the learn-a-move battles in
 the Emerald entry, RICK's battle from `rick_battle_start` to `ended` with no nudge, the stuck classifier scenario 3 of 3.
 **Crystal's path** not run (paused): its `battleQuestion` returns nil outside a battle mode, and it supplies no `scenePlaying`.
+
+## 2026-09-17 (the Emerald chat, the bag in a battle) — `battle`'s `stop_hp_below`
+
+**What changed in the shared core** (the measurements in [autoplay/emerald.md](autoplay/emerald.md), same date):
+- **`text.lua`.** `battle` takes `stop_hp_below`: at the action menu, with the player's battler below that share of its HP, it
+  stops `needs_choice` (`asking` action, the HP in `reason`), so the caller heals through the BAG with `select` and calls `battle`
+  again. New optional hook `ownHp`; refused where a module lacks it. The user's words it follows: leaders and the Elite Four heal
+  mid-fight, and so can the player through BAG.
+- **`server.go`.** `battle`'s `stop_hp_below`, refused outside (0, 1]; `TestBattleValidatesAndForwards` covers it.
+
+**Checked.** `luac -p`, `go vet`, `go test ./server`. Live on vanilla Emerald, from `bag_wild_battle_start`: `stop_hp_below` 0.6
+stopped at 26 of 51; BAG, POTION, USE, MARSHTOMP through `select`; `battle` again to `ended`. Crystal supplies no `ownHp`, so
+the option is refused there; its path is otherwise unchanged (not run, paused).

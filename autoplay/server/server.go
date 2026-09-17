@@ -120,7 +120,8 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 			"against the foe and the same-type bonus, where the game module measured them; " +
 			"run runs. forget strong_variety answers a question to learn a move -- keeping strong damaging moves of " +
 			"different types, status moves going first, and saying no when the new move is worth least; " +
-			"without it battle stops needs_choice there. Returns a log of every message and choice, and ends ended, needs_choice (a menu it " +
+			"without it battle stops needs_choice there. stop_hp_below stops needs_choice at the action menu while the player's " +
+			"HP share is below it, to heal with select through the BAG. Returns a log of every message and choice, and ends ended, needs_choice (a menu it " +
 			"will not answer) or stuck (with what it was waiting on) -- within seconds of nothing changing.",
 	}, logged(t, "battle", nil, t.battle))
 
@@ -440,8 +441,9 @@ const BattleTimeout = CallTimeout + 10*time.Minute
 
 // BattleIn is the battle tool's input.
 type BattleIn struct {
-	Policy string `json:"policy,omitempty" jsonschema:"strongest (default), effective or run"`
-	Forget string `json:"forget,omitempty" jsonschema:"strong_variety answers a learn-a-move question; absent stops needs_choice there"`
+	Policy      string  `json:"policy,omitempty" jsonschema:"strongest (default), effective or run"`
+	Forget      string  `json:"forget,omitempty" jsonschema:"strong_variety answers a learn-a-move question; absent stops needs_choice there"`
+	StopHPBelow float64 `json:"stop_hp_below,omitempty" jsonschema:"stop needs_choice at the action menu while the player's HP share is below this (0-1], to heal through the BAG"`
 }
 
 func (t *tools) battle(ctx context.Context, _ *mcp.CallToolRequest, in BattleIn) (*mcp.CallToolResult, any, error) {
@@ -454,6 +456,9 @@ func (t *tools) battle(ctx context.Context, _ *mcp.CallToolRequest, in BattleIn)
 	case "", "strong_variety":
 	default:
 		return nil, nil, fmt.Errorf(`forget must be "strong_variety" or absent, got %q`, in.Forget)
+	}
+	if in.StopHPBelow < 0 || in.StopHPBelow > 1 {
+		return nil, nil, fmt.Errorf("stop_hp_below must be above 0 and at most 1, got %v", in.StopHPBelow)
 	}
 	raw, err := t.forward(ctx, "battle", "battle", in, BattleTimeout)
 	return nil, raw, err

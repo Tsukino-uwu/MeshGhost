@@ -36,13 +36,14 @@
 --                                            kinds `learn_move` (the YES/NO), `stop_learning` (the YES/NO after NO) and
 --                                            `forget_move` (the list, its entries the options in order)
 --   scenePlaying()     -> boolean            a scene plays by itself and takes no button but the questions above
---                                            (Emerald's evolution: A on its first message changed nothing for 900
---                                            frames, 2026-09-17): no press on a message, and it counts as change for up
+--                                            (Emerald's evolution: A on its first, arrowless message changed nothing,
+--                                            2026-09-17): no press on a message, and it counts as change for up
 --                                            to SCENE_WAIT_FRAMES
 --   strongestMove()    -> slot, label | nil, reason
 --   effectiveMove()    -> slot, label, detail | nil, reason   policy "effective": the move weighed by type against the
 --                                            foe, and a table of what each move weighed that goes into the log's choice
 --   endedReport()      -> table              what `battle` adds to `ended`
+--   ownHp()            -> hp, max_hp         the player's battler in a battle (for `stop_hp_below`)
 --   gameAnswers()      -> boolean            the game answers this battle's menus itself (Emerald's WALLY tutorial: the bag's
 --                                            USE/CANCEL came up with no input and went on to the catch), so `battle` does
 --                                            not stop on a menu then
@@ -332,8 +333,10 @@ end
 -- battle {policy = "strongest" | "effective" | "run", forget}: plays a battle to its end, a trainer's words before and after
 -- included. "strongest" chooses FIGHT and the move the module's strongestMove() names, "effective" the one its
 -- effectiveMove() names; "run" chooses RUN and, on the move menu, stops. `forget` "strong_variety" answers a learn-a-move
--- question (M.forgetChoice); without it `battle` stops `needs_choice` there. Returns (program, error, frame limit) like
--- any program.
+-- question (M.forgetChoice); without it `battle` stops `needs_choice` there. `stop_hp_below` (above 0, at most 1) stops
+-- `needs_choice` at the action menu while the player's battler has less than that share of its HP, so the caller can use
+-- the BAG through `select` and call `battle` again (the user: the player can heal mid-fight through BAG, 2026-09-17). Returns
+-- (program, error, frame limit) like any program.
 function M.battle(h, p)
 	local policy = p.policy or "strongest"
 	if policy ~= "strongest" and policy ~= "effective" and policy ~= "run" then
@@ -341,6 +344,13 @@ function M.battle(h, p)
 	end
 	if p.forget ~= nil and p.forget ~= "strong_variety" then
 		return nil, 'battle forget is "strong_variety" or absent'
+	end
+	local stopBelow = tonumber(p.stop_hp_below)
+	if p.stop_hp_below ~= nil and (not stopBelow or stopBelow <= 0 or stopBelow > 1) then
+		return nil, "battle stop_hp_below is a share of HP above 0, at most 1"
+	end
+	if stopBelow and not h.ownHp then
+		return nil, "battle stop_hp_below needs the player's HP, which this game module does not read"
 	end
 	-- What the last learn-a-move question decided: the move left out, by name, so "stop learning?" is answered to match.
 	local decided = nil
@@ -354,6 +364,12 @@ function M.battle(h, p)
 	local outside = 0
 	local machine = M.machine(h, function(asking)
 		if asking == "action" then
+			if stopBelow then
+				local hp, max = h.ownHp()
+				if hp and max and max > 0 and hp / max < stopBelow then
+					return nil, string.format("HP %d of %d is below stop_hp_below", hp, max)
+				end
+			end
 			if policy == "run" then return h.actionIndex.run, "RUN" end
 			return h.actionIndex.fight, "FIGHT"
 		end

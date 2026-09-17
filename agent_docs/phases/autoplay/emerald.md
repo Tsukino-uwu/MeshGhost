@@ -375,3 +375,22 @@ reader names the entries from memory.
 **Seen on the way:** after the badge, walking out of Rustboro's gym ran the story's scene -- a TEAM AQUA grunt's "Get out! Out of
 the way!" and DEVON's employee asking for the GOODS back -- which stopped `goto` `dialogue_open` twice; `advance_text` closed both.
 That run was a made situation (EXP written), so the story restarts from `story_stone_badge`.
+
+## 2026-09-17 (the Emerald chat, next session) — the bag inside a battle, and a POTION used through it
+
+**Pointer.** `battle`'s `stop_hp_below` is shared core, logged in `../phase13.md` ("the bag in a battle").
+
+**Measured** (`emerald/MEASURED.md`, "The bag inside a battle, and a POTION used through it"). Made situation: `story_stone_badge`,
+`give_item` POTION ×3, a wild TAILLOW on 0.31 (snapshot `bag_wild_battle_start`).
+
+**Built** (`emerald.lua`). "Use on which POKéMON?" read as a menu (`kind: party`, the party's names and CANCEL, the cursor from
+gPartyMenu +9), in `observe`, `select` and the text machine's menu reader; that reader now also takes the bag's list, so `battle`
+answers `menu_open` on a bag opened from a battle instead of `stuck`; `ownHp`. The party reader hangs off the `LEARN` table, as the
+module is at Lua's local ceiling.
+
+**Checked** (reached, from the snapshot): `battle effective stop_hp_below 0.6` stopped at 26 of 51; `select BAG`; `battle` answered
+`menu_open` on the bag; `select POTION`, `wait` 20, `select USE`, `wait` 60, `select MARSHTOMP`: "MARSHTOMP's HP was restored by 20
+point(s)."; `battle` to `ended`, 46 of 51, 2 POTIONs left.
+
+**What went wrong on the way:** calls chained with no wait: `select POTION` straight after `select BAG` found no menu (the bag
+was still coming up), and `battle` on the bag then answered `stuck` (its menu reader did not take list menus; fixed).

@@ -71,6 +71,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - A warp's arrival, a whiteout, a Center's counter, and WALLY's battle (2026-09-17)
 - Rustboro: a north arrow warp, a floor at elevation 0, a YES/NO that ignores an early A, ROXANNE, an evolution (2026-09-17)
 - The learn-a-move question, the move list and the evolution scene (2026-09-17)
+- The bag inside a battle, and a POTION used through it (2026-09-17)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -977,7 +978,23 @@ new SUM and TASK lines; run log `autoplay/runs/2026-09-17_131645.118278.ndjson`;
   (a TM, the Move Tutor); B anywhere here (the decomp says B held during the evolution stops it); the FC bytes read raw in
   "Stop learning" and "Poof!".
 
-## Not measured yet
+### The bag inside a battle, and a POTION used through it (2026-09-17)
+
+**Vanilla ROM.** Made situation: `story_stone_badge` (MARSHTOMP Lv 16 at 26/51 HP), `give_item` POTION ×3, a wild TAILLOW on
+0.31 (snapshot `bag_wild_battle_start`); autoplay's `observe`, `select` and `exec` reads of the build's gPartyMenu (0x0203CEC8),
+with captures `dev-scripts/shots/emerald/autoplay_battle_bag_*` (gitignored); run log `autoplay/runs/2026-09-17_131645.118278.ndjson`.
+
+- **BAG from the action menu** opened the bag: `observe` read the list as it reads the bag's list in the field (the
+  task running the build's ListMenuDummyTask) -- POTION and CLOSE BAG, pocket `items`, with the POTION's effect text in
+  window 1 -- about 40 frames after the action menu answered; a `select` in that gap found no menu.
+- **A on POTION** opened USE / CANCEL (the menu reader, window 6) and "POTION is selected."; USE opened "Use on which
+  POKéMON?" -- callback2 0x081B01B1 (the build's CB2_UpdatePartyMenu, +1) with task 0 running 0x081B1371 (its
+  Task_HandleChooseMonInput, +1) about 20 frames later. Byte +9 of gPartyMenu read 0 with the capture's frame on MARSHTOMP, 7
+  after a Down with it on CANCEL, and 0 again after the next Down. Bytes +0..+3 read the routine 0x081B6255, +8 01, +0x0B 03.
+- **A on MARSHTOMP** printed "MARSHTOMP's HP was restored by 20 point(s)." (ending FC 09) and returned to the battle, where the
+  foe moved; HP read 46 of 51 in the battle and the party, and the bag 2 POTIONs after the battle.
+- **Not measured**: a party of more than one (the other slots' cursor values and layout), CANCEL chosen, a POTION on a
+  Pokémon at full HP, the other pockets in a battle, a Poké Ball thrown.
 
 ### The rest of the text printer (from 2026-09-16)
 
