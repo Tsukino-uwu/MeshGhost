@@ -228,3 +228,33 @@ a quickdrop into the Sewerways; the game's map read for the way down; Clean Staf
 `GameSystem.TimeScale`). **Measured** (segment 6, reached by nothing, at the Sewerways save point room; `adapters/tevi/MEASURED.md`,
 "Holding the clock"): held mid-jump, stepped 20 and 1, released; input while held does nothing unless it is the request running, and a
 sequence while held runs exactly its frames. Open: what enemies and the unscaled systems do while held.
+
+## 2026-09-17 (end of the session) — where TEVI's autoplay stands, and how to pick it up
+
+**The user**: *"can we start a new chat ?"*, with the Emerald chat still running.
+
+**Left as it is, outside the repo:** TEVI (Steam) running, idle in play in the Sewerways save point room, the clock released, the save
+guard armed (nothing reaches the real saves until it exits; closing it is the user's). The Randomizer still `.off`, the dev cheats off,
+the driver in `BepInEx\scripts\` with its config (port 7872). The real save folder matched `TEVI.meshghost-backup-20260917-114515` by
+hash (PowerShell, 57 files). No core running. `autoplay/states/tevi/`: the shadow (slot 39 holds the save made at the save point) and
+snapshots `tevi_cell_start`, `tevi_base_armed`, `tevi_first_enemy`, `tevi_dog_ledge`, `tevi_astral_gear`, `tevi_blastvines`,
+`tevi_sewer_entry`, `tevi_first_savepoint` (gitignored).
+
+**To pick up:** as the last session's entry says (core and `mcpcall` built into the chat's scratch folder, `-listen 127.0.0.1:7872`,
+its own `-log`, calls from Bash). If TEVI is still running, no launch is needed: the driver connects when a core starts. If it was
+closed, start the core first, ask before launching, then the title's Start, slot 39 (it exists only in the shadow, copied fresh at arm,
+so a fresh process loads it only after `restore` of `tevi_first_savepoint` from inside a game), or restore from a new game.
+Moving is `sequence` (never one hold per call), enemies `reflex` `fight`, conversations and item boxes `advance_text`, time `clock`.
+Hot reload: rebuild in `autoplay/drivers/bepinex/tevi/` and copy the DLL and pdb into `BepInEx\scripts\`; a change to `SaveGuard.cs`
+needs a restart. The game's own lessons are text now: `tip`, `popup`, `screen_text` (tutorial windows), the pause menu's Characters
+move list.
+
+**What the user taught about playing TEVI** (for whoever plays next): normal enemies are never required, only bosses; the icon over
+her head means Up interacts; blastorbs are pushed by attacks into things to break them, not fought; sigils cost EP and are chosen by
+preference, and can be equipped from the pickup box when EP allows; hold length sets jump height; a pass-through platform is jumped up
+through from just beside it; the minimap and the full map (`Map`) show how rooms connect.
+
+**Open, in the plan's order:** layer 5, annotated pictures with the game's hitbox drawing; layer 4, the flight recorder past `trail`
+(a core `recent`); `exec` (the game's Quantum Console first). Smaller: the clock with enemies and the unscaled systems (fades, dialogue);
+`advance_text` equipping a sigil from its box; `hp_changed` grouped while HP refills; `fight` using Upper Slash and the air combo;
+a `goto` over TEVI's grid for the save point and exits `area_elements` lists; what a blastorb breaks.

@@ -7674,3 +7674,18 @@ the process it started.
 
 **Fix.** Calls run from Bash, where the quoting survives. The leftover pair was found by its command line (the chat's own scratch
 path) and stopped; the other chat's core, on 7870, was left alone.
+
+## TEVI autoplay: a save-folder check in Bash reported every file changed; it had changed nothing (2026-09-17)
+
+**Symptom.** After the first in-game save, a Bash loop hashing the real save folder against its backup printed `DIFF` for all 57
+files, the Randomizer's untouched saves and `steam_autocloud.vdf` among them.
+
+**Diagnosis.** A change to files nothing had written was the tell that the instrument was wrong. The same check in PowerShell
+(`Get-FileHash` on each file and its twin under the backup) found 57 files each side, 0 different, 0 missing; the guard's own count
+read 0 writes refused, everything shadowed.
+
+**Cause.** The loop built the backup's paths from `$USERPROFILE` in Git Bash (a Windows path with backslashes) joined to `./` relative
+names, so each backup file was never found and its missing hash compared unequal.
+
+**Fix.** The end-of-session check runs in PowerShell. **The rule this adds:** a result that also condemns what could not have
+changed is the instrument's fault until checked another way.
