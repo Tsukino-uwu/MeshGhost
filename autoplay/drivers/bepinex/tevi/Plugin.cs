@@ -1,0 +1,546 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
+using System.Security.Cryptography;
+using BepInEx;
+using Newtonsoft.Json.Linq;
+using UnityEngine;
+
+namespace MeshGhostAutoplay.Tevi
+{
+    // autoplay's TEVI driver (DEV TOOL, WRITES INPUT AND GAME STATE, never shipped; agent_docs/phases/phase13.md,
+    // agent_docs/phases/autoplay/tevi.md, ADR 0071). A BepInEx plugin of its own, the way the dev cheats are: loaded by
+    // ScriptEngine from a developer install's BepInEx\scripts\, never from plugins\, and never inside MeshGhostTevi.dll.
+    // It carries out the autoplay core's commands over autoplay/driver/driver.go's protocol 1 (Link.cs).
+    //
+    // CONFIG: `meshghost-autoplay.txt` in BepInEx\scripts\, one `key=value` per line -- `port` (the core's; with no
+    // file the driver connects nowhere) and `repo` (this repository's root, for screenshots, the exec token and the
+    // driver's log under autoplay/runs/). Machine paths live there, in the install, never here.
+    //
+    // Names of the game's types and members are read from the Steam build's assemblies (agent_docs/licensing.md's
+    // facts-not-code posture; the adapter's own measurements in adapters/tevi/documentation.md), and what each one
+    // does is measured into agent_docs/phases/autoplay/tevi.md before anything here relies on it.
+    [BepInPlugin("dev.meshghost.autoplay.tevi", "MeshGhost Autoplay TEVI driver", "0.1.0")]
+    public class Plugin : BaseUnityPlugin
+    {
+        private const string GameName = "tevi";
+
+        // The one in-game slot this driver writes (the user, 2026-09-17: vanilla 36-39 and Randomizer 36-80 are
+        // autoplay's). Every other slot is refused, and listed as protected in the hello.
+        private const byte WorkingSlot = 39;
+        private const int LastSlot = 100;
+
+        private static readonly PropertyInfo MainCharacterProperty = typeof(EventManager).GetProperty("mainCharacter");
+
+        private Link link;
+        private int port; // 0: no config names one, so the driver connects nowhere
+        private string repo;
+        private string build = "unknown";
+        private string logPath;
+        private bool welcomedOnce;
+
+        private Link.Request current;
+        private Func<JToken> currentTick; // returns the answer when done, null while running; throws to fail
+        private readonly Queue<Link.Request> waiting = new Queue<Link.Request>();
+
+        private string lastMode, lastArea, lastRoom;
+
+        private void Awake()
+        {
+            ReadConfig();
+            build = BuildStamp();
+            Log("loaded: port " + port + ", repo " + (repo ?? "(none: screenshots and exec are off)") + ", build " + build);
+            Log(SaveGuard.Install(Application.persistentDataPath, AllowedSaveNames()));
+            InputInjection.Install();
+            if (port == 0) return;
+            link = new Link("127.0.0.1", port);
+            link.SetHello(Hello());
+        }
+
+        private void OnDestroy()
+        {
+            link?.Dispose();
+            InputInjection.Uninstall();
+            Log("unloaded (the save guard stays as it was: " + (SaveGuard.Armed ? "armed" : "not armed") + ")");
+        }
+
+        // Where this plugin's files sit. Not Info.Location: ScriptEngine loads a plugin from its bytes, and Location
+        // reads empty, so a path built from it lands in the game's working folder (measured 2026-09-17: the first
+        // load looked for .\meshghost-autoplay.txt, found none, and connected to the default port).
+        private static string ScriptsDir => Path.Combine(Paths.BepInExRootPath, "scripts");
+
+        private void ReadConfig()
+        {
+            string path = Path.Combine(ScriptsDir, "meshghost-autoplay.txt");
+            if (!File.Exists(path))
+            {
+                // No port is guessed: another instance's core may own the default one.
+                port = 0;
+                Logger.LogWarning("autoplay: no " + path + "; the driver connects nowhere until it exists and the plugin reloads");
+                return;
+            }
+            foreach (string raw in File.ReadAllLines(path))
+            {
+                string line = raw.Trim();
+                int eq = line.IndexOf('=');
+                if (line.StartsWith("#") || eq <= 0) continue;
+                string key = line.Substring(0, eq).Trim().ToLowerInvariant();
+                string value = line.Substring(eq + 1).Trim();
+                if (key == "port" && int.TryParse(value, out int p) && p > 0 && p < 65536) port = p;
+                else if (key == "repo" && Directory.Exists(Path.Combine(value, "autoplay"))) repo = value.Replace('\\', '/').TrimEnd('/');
+                else Logger.LogWarning("autoplay: ignoring config line \"" + line + "\"");
+            }
+            if (repo != null)
+            {
+                Directory.CreateDirectory(repo + "/autoplay/runs");
+                logPath = repo + "/autoplay/runs/driver_bepinex_" + GameName + "_" + port + ".log";
+            }
+        }
+
+        private void Log(string msg)
+        {
+            Logger.LogInfo("autoplay: " + msg);
+            if (logPath == null) return;
+            try
+            {
+                File.AppendAllText(logPath, "[" + DateTime.Now.ToString("HH:mm:ss") + " f" + Time.frameCount + "] " + msg + "\n");
+            }
+            catch (Exception e)
+            {
+                Logger.LogWarning("autoplay: log file: " + e.Message);
+                logPath = null;
+            }
+        }
+
+        // The game's own assembly, hashed: facts measured on one build are facts about that build.
+        private static string BuildStamp()
+        {
+            try
+            {
+                string dll = Path.Combine(Path.Combine(Application.dataPath, "Managed"), "Assembly-CSharp.dll");
+                using (var sha = SHA256.Create())
+                using (var f = File.OpenRead(dll))
+                {
+                    return "Assembly-CSharp sha256 " + BitConverter.ToString(sha.ComputeHash(f)).Replace("-", "").Substring(0, 16).ToLowerInvariant();
+                }
+            }
+            catch (Exception e)
+            {
+                return "unknown (" + e.Message + ")";
+            }
+        }
+
+        private static IEnumerable<string> AllowedSaveNames()
+        {
+            // The vanilla name and the Randomizer's (its GetSaveFileName prefix), read from both builds' code as maps
+            // and from the save folder's own files, 2026-09-17.
+            yield return "tevisave" + WorkingSlot + ".sav";
+            yield return "randomizer/rando.tevisave" + WorkingSlot + ".sav";
+        }
+
+        // ---- what the driver says about itself ------------------------------------------------------------------
+
+        private static readonly string[] Capabilities = { "observe", "wait", "press", "screenshot" };
+
+        private JObject Hello()
+        {
+            var slots = new JArray();
+            for (int i = 0; i <= LastSlot; i++)
+            {
+                if (i != WorkingSlot) slots.Add(i);
+            }
+            var hello = new JObject
+            {
+                ["protocol"] = Link.Protocol,
+                ["host"] = "bepinex",
+                ["game"] = GameName,
+                ["variant"] = RandomizerEnabled() == true ? "randomizer" : "vanilla",
+                ["build"] = build,
+                ["capabilities"] = new JArray(Capabilities),
+                ["protected_slots"] = slots,
+            };
+            JArray persisting = Persisting();
+            if (persisting.Count > 0) hello["persisting"] = persisting;
+            return hello;
+        }
+
+        // The Randomizer's own switch (TeviRandomizer.RandomizerPlugin.randomizerEnabled), when it is loaded: while on,
+        // every slot's file is its randomizer/rando.tevisave<N>.sav. Null without the mod.
+        private static FieldInfo randomizerField;
+        private static bool randomizerLooked;
+
+        private static bool? RandomizerEnabled()
+        {
+            if (!randomizerLooked)
+            {
+                randomizerLooked = true;
+                foreach (Assembly a in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    Type t = a.GetType("TeviRandomizer.RandomizerPlugin", false);
+                    if (t == null) continue;
+                    randomizerField = t.GetField("randomizerEnabled", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                    break;
+                }
+            }
+            return randomizerField != null ? (bool?)(bool)randomizerField.GetValue(null) : null;
+        }
+
+        // The dev cheats (adapters/tevi/devtools/MeshGhostTeviDevCheats) hold HP, MP, charge and crystals every frame
+        // while loaded, each unless its toggle file says =0: a run segment with any of them on is not walked.
+        private JArray Persisting()
+        {
+            var out_ = new JArray();
+            foreach (BaseUnityPlugin plugin in FindObjectsOfType<BaseUnityPlugin>())
+            {
+                if (plugin == null || plugin.GetType().FullName != "MeshGhostTeviDevCheats.Plugin") continue;
+                var on = new Dictionary<string, bool> { ["hp"] = true, ["mp"] = true, ["charge"] = true, ["crystal"] = true, ["swap"] = true };
+                // Where the dev cheats read it: they build the path from their own location, which is empty under
+                // ScriptEngine, so it is the game's root folder, not scripts\ (their load line named
+                // .\meshghost-devcheats.txt and a file in the root switched them off, 2026-09-17).
+                string toggles = Path.Combine(Paths.GameRootPath, "meshghost-devcheats.txt");
+                try
+                {
+                    if (File.Exists(toggles))
+                    {
+                        foreach (string raw in File.ReadAllLines(toggles))
+                        {
+                            int eq = raw.IndexOf('=');
+                            if (eq <= 0) continue;
+                            string key = raw.Substring(0, eq).Trim().ToLowerInvariant();
+                            if (on.ContainsKey(key)) on[key] = raw.Substring(eq + 1).Trim() != "0";
+                        }
+                    }
+                }
+                catch (Exception)
+                {
+                    // Unreadable: the cheats keep their last values, which this cannot know; say all on.
+                }
+                foreach (var kv in on)
+                {
+                    if (kv.Value) out_.Add("devcheats_" + kv.Key);
+                }
+                break;
+            }
+            return out_;
+        }
+
+        // ---- reading the game ------------------------------------------------------------------------------------
+
+        private static CharacterBase Player()
+        {
+            EventManager em = EventManager.Instance;
+            if (em == null || MainCharacterProperty == null) return null;
+            return MainCharacterProperty.GetValue(em, null) as CharacterBase;
+        }
+
+        private static string Mode()
+        {
+            WorldManager wm = WorldManager.Instance;
+            if (wm == null) return GemaTitleScreenManager.Instance != null ? "title" : "no_world";
+            CharacterBase p = Player();
+            EventManager em = EventManager.Instance;
+            if (p == null || p.t == null || em == null) return "no_player";
+            if (!wm.MapInited || em.IsChangingMap()) return "loading";
+            if (GameSystem.Instance != null && GameSystem.Instance.isAnyPause()) return "paused";
+            if (em.getMode() != EventMode.Mode.OFF) return "event";
+            return "play";
+        }
+
+        private JObject Observe(bool full)
+        {
+            var o = new JObject
+            {
+                ["frame"] = Time.frameCount,
+                ["mode"] = Mode(),
+            };
+            WorldManager wm = WorldManager.Instance;
+            CharacterBase p = Player();
+            if (wm != null)
+            {
+                var loc = new JObject
+                {
+                    ["area"] = wm.CurrentRoomArea.ToString(),
+                    ["area_id"] = (int)wm.Area,
+                    ["room_x"] = (int)wm.CurrentRoomX,
+                    ["room_y"] = (int)wm.CurrentRoomY,
+                };
+                if (p != null && p.t != null)
+                {
+                    Vector3 pos = p.t.position;
+                    loc["x"] = Math.Round(pos.x, 3);
+                    loc["y"] = Math.Round(pos.y, 3);
+                    loc["facing"] = p.direction.ToString();
+                }
+                o["location"] = loc;
+            }
+            JObject menu = SaveMenu();
+            if (menu != null) o["menu"] = menu;
+            if (p != null && p.t != null)
+            {
+                o["player"] = new JObject
+                {
+                    ["hp"] = p.health,
+                    ["max_hp"] = p.maxhealth,
+                    ["anim"] = p.spranim_prefer != null && p.spranim_prefer.pixel != null && p.spranim_prefer.pixel.anim != null
+                        ? p.spranim_prefer.GetAnimationTrueName() : p.aniStatus.ToString(),
+                };
+            }
+            if (full)
+            {
+                EventManager em = EventManager.Instance;
+                o["save"] = new JObject
+                {
+                    ["slot"] = MainVar.instance._saveslot,
+                    ["randomizer"] = RandomizerEnabled(),
+                    ["guard"] = SaveGuard.Report(),
+                };
+                if (SaveManager.Instance != null && wm != null)
+                {
+                    // The Custom Game options this save runs with, as the game answers for each (not the title screen's
+                    // choice: the Randomizer turns some on by itself).
+                    var custom = new JArray();
+                    for (byte i = 0; i < (byte)Game.CustomGame.MAX; i++)
+                    {
+                        if (SaveManager.Instance.GetCustomGame((Game.CustomGame)i)) custom.Add(((Game.CustomGame)i).ToString());
+                    }
+                    o["save"]["custom_game"] = custom;
+                }
+                o["extras"] = new JObject
+                {
+                    ["event_mode_raw"] = em != null ? em.getMode().ToString() : null,
+                    ["changing_map_raw"] = em != null && wm != null ? (JToken)em.IsChangingMap() : null,
+                    ["any_pause_raw"] = GameSystem.Instance != null ? (JToken)GameSystem.Instance.isAnyPause() : null,
+                    ["map_inited_raw"] = wm != null ? (JToken)wm.MapInited : null,
+                    ["input_actions"] = InputInjection.Actions(),
+                };
+                JArray persisting = Persisting();
+                if (persisting.Count > 0) o["persisting"] = persisting;
+            }
+            return o;
+        }
+
+        private static readonly FieldInfo SaveMenuPage = typeof(HUDSaveMenu).GetField("page", BindingFlags.Instance | BindingFlags.NonPublic);
+        private static readonly FieldInfo SaveMenuSelected = typeof(HUDSaveMenu).GetField("selected", BindingFlags.Instance | BindingFlags.NonPublic);
+        private static readonly FieldInfo SaveMenuEntering = typeof(HUDSaveMenu).GetField("isEntering", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        // The save list (title and in game): 4 rows a page, a slot is page * 4 + row. Its fields are the menu's own, so
+        // `slot` is where the game's cursor is, whatever the highlight has drawn yet.
+        private static JObject SaveMenu()
+        {
+            HUDSaveMenu m = HUDSaveMenu.Instance;
+            if (m == null || !m.gameObject.activeInHierarchy || SaveMenuPage == null || SaveMenuSelected == null) return null;
+            byte page = (byte)SaveMenuPage.GetValue(m), row = (byte)SaveMenuSelected.GetValue(m);
+            return new JObject
+            {
+                ["name"] = "save_list",
+                ["purpose"] = m.isSave ? "save" : "load_or_new",
+                ["page"] = page,
+                ["row"] = row,
+                ["slot"] = page * 4 + row,
+                ["question"] = m.isQuestion(),
+                ["entering"] = SaveMenuEntering != null && (bool)SaveMenuEntering.GetValue(m),
+            };
+        }
+
+        private static readonly string[] DiffKeys = { "mode", "menu.name", "menu.slot", "menu.question", "menu.entering", "location.area", "location.area_id", "location.room_x", "location.room_y", "location.x", "location.y", "location.facing", "player.anim", "player.hp" };
+
+        private static JObject Changed(JObject before, JObject after)
+        {
+            var out_ = new JObject();
+            foreach (string k in DiffKeys)
+            {
+                JToken a = before.SelectToken(k), b = after.SelectToken(k);
+                if (!JToken.DeepEquals(a, b)) out_[k] = new JObject { ["from"] = a, ["to"] = b };
+            }
+            return out_;
+        }
+
+        // ---- the frame loop --------------------------------------------------------------------------------------
+
+        private void Update()
+        {
+            if (link == null) return;
+            foreach (string line in link.DrainLogs()) Log(line);
+            foreach (string line in SaveGuard.DrainLog()) Log(line);
+
+            if (link.Connected && !welcomedOnce)
+            {
+                welcomedOnce = true;
+                if (!SaveGuard.Armed)
+                {
+                    SaveGuard.Arm();
+                    Log("SAVE GUARD ARMED: a core connected, so until this game exits nothing is written to the save folder but " + string.Join(" and ", new List<string>(AllowedSaveNames()).ToArray()) + ", and autosaves are held");
+                }
+            }
+            if (Time.frameCount % 30 == 0) link.SetHello(Hello());
+
+            InputInjection.Expire();
+            SendEvents();
+
+            foreach (Link.Request req in link.Poll()) waiting.Enqueue(req);
+            if (current != null && current.Generation != link.Generation)
+            {
+                Log("dropping " + current.Type + " " + current.Id + ": its core has gone");
+                current = null;
+                currentTick = null;
+            }
+            if (current == null && waiting.Count > 0)
+            {
+                Begin(waiting.Dequeue());
+            }
+            if (current != null) TickCurrent();
+        }
+
+        private void SendEvents()
+        {
+            if (!link.Connected) return;
+            string mode = Mode();
+            WorldManager wm = WorldManager.Instance;
+            string area = wm != null ? wm.CurrentRoomArea.ToString() : null;
+            string room = wm != null ? wm.CurrentRoomX + "," + wm.CurrentRoomY : null;
+            if (lastMode != null && mode != lastMode) link.Event(new JObject { ["kind"] = "mode_changed", ["from"] = lastMode, ["to"] = mode, ["frame"] = Time.frameCount });
+            if (lastArea != null && area != null && area != lastArea) link.Event(new JObject { ["kind"] = "area_changed", ["from"] = lastArea, ["to"] = area, ["frame"] = Time.frameCount });
+            if (lastRoom != null && room != null && room != lastRoom) link.Event(new JObject { ["kind"] = "room_changed", ["from"] = lastRoom, ["to"] = room, ["frame"] = Time.frameCount });
+            lastMode = mode;
+            if (area != null) lastArea = area;
+            if (room != null) lastRoom = room;
+        }
+
+        private void Begin(Link.Request req)
+        {
+            string verb = req.Type;
+            if (Array.IndexOf(Capabilities, verb) < 0)
+            {
+                link.Fail(req, "this driver does not support " + verb);
+                return;
+            }
+            current = req;
+            try
+            {
+                switch (verb)
+                {
+                    case "observe":
+                        Finish(Observe(true));
+                        return;
+                    case "wait":
+                        currentTick = WaitJob(req.Payload);
+                        break;
+                    case "press":
+                        currentTick = PressJob(req.Payload);
+                        break;
+                    case "screenshot":
+                        currentTick = ScreenshotJob(req.Payload);
+                        break;
+                }
+            }
+            catch (Exception e)
+            {
+                FailCurrent(e.Message);
+            }
+        }
+
+        private void TickCurrent()
+        {
+            try
+            {
+                JToken answer = currentTick();
+                if (answer != null) Finish(answer);
+            }
+            catch (Exception e)
+            {
+                FailCurrent(e.Message);
+            }
+        }
+
+        private void Finish(JToken answer)
+        {
+            link.Reply(current, answer);
+            current = null;
+            currentTick = null;
+        }
+
+        private void FailCurrent(string message)
+        {
+            Log(current.Type + " failed: " + message);
+            link.Fail(current, message);
+            current = null;
+            currentTick = null;
+        }
+
+        // ---- verbs -----------------------------------------------------------------------------------------------
+
+        private Func<JToken> WaitJob(JObject p)
+        {
+            int frames = (int?)p["frames"] ?? 0;
+            if (frames < 1) throw new Exception("wait needs frames");
+            JObject before = Observe(false);
+            int until = Time.frameCount + frames;
+            return () =>
+            {
+                if (Time.frameCount < until) return null;
+                JObject after = Observe(false);
+                return new JObject { ["frames"] = frames, ["before"] = before, ["after"] = after, ["changed"] = Changed(before, after) };
+            };
+        }
+
+        private Func<JToken> PressJob(JObject p)
+        {
+            int frames = (int?)p["frames"] ?? 0;
+            var buttons = new List<string>();
+            foreach (JToken b in p["buttons"] as JArray ?? new JArray()) buttons.Add((string)b);
+            if (frames < 1 || buttons.Count == 0) throw new Exception("press needs buttons and frames");
+            JObject before = Observe(false);
+            string err = InputInjection.Schedule(buttons, frames, out int done);
+            if (err != null) throw new Exception(err);
+            Log("press " + string.Join("+", buttons.ToArray()) + " for " + frames + " frames");
+            return () =>
+            {
+                if (Time.frameCount < done) return null;
+                JObject after = Observe(false);
+                return new JObject { ["frames"] = frames, ["buttons"] = new JArray(buttons.ToArray()), ["before"] = before, ["after"] = after, ["changed"] = Changed(before, after) };
+            };
+        }
+
+        private Func<JToken> ScreenshotJob(JObject p)
+        {
+            if (repo == null) throw new Exception("no repo in meshghost-autoplay.txt, so there is no shots folder");
+            string name = (string)p["name"] ?? "";
+            if (name.Length == 0 || name.Length > 64 || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || name.Contains(".") || name.Contains(" "))
+            {
+                throw new Exception("a screenshot name is letters, digits, _ or -");
+            }
+            string dir = repo + "/dev-scripts/shots/" + GameName;
+            Directory.CreateDirectory(dir);
+            string path = dir + "/autoplay_" + name + ".png";
+            string error = null;
+            JObject answer = null;
+            StartCoroutine(Capture(path, (a, e) => { answer = a; error = e; }));
+            return () =>
+            {
+                if (error != null) throw new Exception(error);
+                return answer;
+            };
+        }
+
+        // The frame as the game drew it, taken at the end of the frame so it is complete.
+        private IEnumerator Capture(string path, Action<JObject, string> done)
+        {
+            yield return new WaitForEndOfFrame();
+            try
+            {
+                Texture2D tex = ScreenCapture.CaptureScreenshotAsTexture();
+                byte[] png = tex.EncodeToPNG();
+                int w = tex.width, h = tex.height;
+                Destroy(tex);
+                File.WriteAllBytes(path, png);
+                done(new JObject { ["path"] = path, ["width"] = w, ["height"] = h, ["bytes"] = png.Length, ["frame"] = Time.frameCount }, null);
+            }
+            catch (Exception e)
+            {
+                done(null, "screenshot: " + e.Message);
+            }
+        }
+    }
+}

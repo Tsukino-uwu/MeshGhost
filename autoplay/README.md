@@ -317,6 +317,20 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   frames/s without, 410-416 with; `emerald/MEASURED.md`, 2026-09-16). `AUTOPLAY_TEXT=0` in the
   emulator's environment leaves them out for a run that wants full fast-forward and no text. With no
   core running, the driver retries once a second, which costs little (802.5 with no hooks).
+- **BepInEx (TEVI)** (`drivers/bepinex/`: `Link.cs`, the link for any BepInEx game; `tevi/`, the plugin), the plan's
+  Phase 6 (`agent_docs/phases/autoplay/tevi.md`). A plugin of its own, never inside MeshGhost's adapter: build with
+  `dotnet restore --source <the local NuGet cache>` once, then `dotnet build -c Release --no-restore` in `tevi/` (it
+  references the Steam install's game assemblies; `-p:TeviManaged=<folder>` for another), copy
+  `MeshGhostAutoplayTevi.dll` and `.pdb` into the install's `BepInEx\scripts\`, and put `meshghost-autoplay.txt` there
+  with `port=<the core's>` and `repo=<this repo's root>` -- no file, no connection. ScriptEngine reloads it when the DLL
+  changes. It logs to `autoplay/runs/driver_bepinex_tevi_<port>.log`. Tools: `observe` (`mode`, `location` with area,
+  room and position, `player`, the save list's `menu` by page, row and slot, and `save`), `wait`, `press` (the game's
+  own Rewired actions by name, an axis with a sign: `Confirm`, `XAxis+`), `screenshot` (the game's own frame);
+  events `mode_changed`, `area_changed`, `room_changed`.
+- **TEVI's save guard.** From the moment a core first connects until the game exits, the driver refuses every save
+  write, move and delete in TEVI's save folder except autoplay's slot 39, and holds the autosave -- the unmodded saves
+  never change while autoplay may have changed the game (the user, 2026-09-17). It survives a hot reload; a change to
+  its code needs a game restart. Restart TEVI to play with saving again.
 
 ## Running it
 

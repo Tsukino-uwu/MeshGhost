@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    DEV-ONLY. autoplay's TEVI driver (Plugin.cs says what it is). A BepInEx plugin of its own, loaded by ScriptEngine
+    from a developer install's BepInEx\scripts\; never staged, never shipped (the repo's blanket *.dll ignore covers
+    the output), and nothing of it is in MeshGhostTevi.dll.
+
+    Built the way adapters/tevi/MeshGhostTevi/MeshGhostTevi.csproj is, whose comments explain each line: netstandard2.0,
+    BepInEx and Unity's API from NuGet at compile time, a Windows pdb for ScriptEngine. The game's own assemblies are
+    referenced where the game keeps them, never copied into this repo: TeviManaged names that folder, the Steam
+    install's by default (pass -p:TeviManaged=<folder> for another). CI cannot build this, as it cannot build the adapter.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>MeshGhostAutoplayTevi</AssemblyName>
+    <RootNamespace>MeshGhostAutoplay.Tevi</RootNamespace>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <DebugType>full</DebugType>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <TeviManaged Condition="'$(TeviManaged)' == ''">C:\Program Files (x86)\Steam\steamapps\common\TEVI\TEVI_Data\Managed</TeviManaged>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The host half every BepInEx game shares. -->
+    <Compile Include="..\Link.cs" Link="Link.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BepInEx.Core" Version="5.*" />
+    <PackageReference Include="UnityEngine.Modules" Version="2021.3.25" IncludeAssets="compile" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(TeviManaged)\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Assembly-CSharp-firstpass">
+      <HintPath>$(TeviManaged)\Assembly-CSharp-firstpass.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Rewired_Core">
+      <HintPath>$(TeviManaged)\Rewired_Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>$(TeviManaged)\Newtonsoft.Json.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

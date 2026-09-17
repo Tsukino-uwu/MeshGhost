@@ -865,3 +865,10 @@ installs, hashes matched; unwatched (`tevi/UNVERIFIED.md`, top). Lesson: the har
 
 Also the user's call the same day: the projectile WIP items moved out of `status.md` into
 `tevi/UNVERIFIED.md`'s projectile entry.
+
+## 2026-09-17 — pointer: autoplay's TEVI driver, the save folder measured, and the dev cheats' toggle file found in the game root
+
+Logged in [autoplay/tevi.md](autoplay/tevi.md) (the plan's Phase 6 for autoplay, a dev-only BepInEx plugin of its own, never
+inside the adapter). What touched this adapter's records: `MEASURED.md` gained the save folder and its slots, the save list's
+cursor, ScriptEngine's empty `Info.Location`, and the Randomizer's forced Custom Game options; `PROBES.md`'s dev cheats row
+now says their toggle file is read from the game's root folder.

@@ -28,6 +28,7 @@ never referenced from anywhere. Added 2026-08-25.
 | [phase13.md](phase13.md) | Autoplay: a dev-only harness that plays games for mod and adapter testing — never shipped. The plan, the core, the tools and the shared driver files; every game's entries before 2026-09-17. | Live — created 2026-09-16 |
 | [autoplay/emerald.md](autoplay/emerald.md) | Autoplay on Emerald (vanilla): its driver module and what was walked with it, from 2026-09-17. | Live — created 2026-09-17 |
 | [autoplay/crystal.md](autoplay/crystal.md) | Autoplay on Crystal (vanilla V1.0): its driver module and what was walked with it, from 2026-09-17. | Live — created 2026-09-17 |
+| [autoplay/tevi.md](autoplay/tevi.md) | Autoplay on TEVI (Steam build): the plan's Phase 6, its BepInEx driver and what was walked with it, from 2026-09-17. | Live — created 2026-09-17 |
 
 **Autoplay logs per game (the user, 2026-09-17).** Autoplay is one phase across many games, and two chats were appending
 to `phase13.md` at once. So a game's autoplay entries go to `autoplay/<game>.md` from 2026-09-17, and `phase13.md` keeps
