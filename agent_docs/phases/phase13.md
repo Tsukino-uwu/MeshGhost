@@ -43,6 +43,7 @@ here adds its heading as one line under "The plan and the shared core".**
 - 2026-09-17 (the Emerald chat, the bag in a battle) — `battle`'s `stop_hp_below`
 - 2026-09-17 (the Emerald chat, the story to Dewford) — `battle`'s `manual`; `talk` keeps trying a pacing character
 - 2026-09-17 (the Emerald chat, Route 110) — `goto` carries the player's level: ground at two levels meets through 0
+- 2026-09-17 (the Emerald chat, Phase 3) — the knowledge store, goals, skills and the session loop built; the first unattended attempt stopped in a loop
 
 **Emerald (vanilla), before its own log** -- from 2026-09-17 in [autoplay/emerald.md](autoplay/emerald.md)
 - 2026-09-16 (later still) — Phase 1 step 2: a live driver in vanilla Emerald, from boot to walking
@@ -1588,3 +1589,37 @@ same date):
 **Checked.** `go vet ./...` and `go test -count=1 ./...` in `autoplay/`, green, on the staged tree alone. Live on TEVI: an annotated
 shot with the game's hitbox lines and plain shots without them either side; the recorder read around jumps and hits, across a held
 clock, and after the fight (`adapters/tevi/MEASURED.md`).
+
+## 2026-09-17 (the Emerald chat, Phase 3) — the knowledge store, goals, skills and the session loop built; the first unattended attempt stopped in a loop
+
+**The proposal and the user's answers.** Checked against the repo first: snapshots stay out of tracked files (the snapshot
+index is gitignored), `game.md` is a playing manual pointing at MEASURED.md rather than a second home for it, and every
+fact names its run log. The user asked for a re-check and for context; JSON had already been settled on 2026-09-16 (this
+file, "the checkpoint answered"), which the first proposal had missed. Approved: skills run in the core as JSON rules,
+`claude-opus-5` with a budget of 400 model calls per attempt, the headless session edits the knowledge store and nothing
+is committed before review.
+
+**Built** (commits `afb2d44c`, `e661abb1`, `7d25a006`, `6ed6587e` and this entry's):
+- `goal` (goals.json checked against `observe`; `next` is the goal after the last one met), `run_skill` (a call and rules
+  on each answer, made through an in-process session on the same server so every inner call is validated and logged), a
+  rule's `max`, `share_of` in expectations, `snapshot`'s `note` and `states/<game>/index.ndjson`, and each answer's
+  `outcome` in the run log. Tests load every tracked goals file and skill.
+- `cmd/session`: refuses API-key and cloud-provider variables and leaves them out of the child; plays with `claude -p` and
+  stops it at its budget; distills with `--resume`; checks the goal with no model; reports. **A model call is one
+  response** (a distinct `message.id`): the dry run on an already-met goal had 4 against a `num_turns` of 10.
+
+**The first attempt** (`autoplay/runs/sessions/2026-09-17_172659`, run log `2026-09-17_172659.154119`): 42 play calls in 8
+minutes, stopped by me at the user's word (*"its just going back and forth right now, it needs to continue to the left
+around the desert"*, *"its just stuck in a loop right now"*): `trip` walked back into the sandstorm's message on 0.26 until
+its 60 calls, then into another message on the way to heal. 158 game tool calls; stops: unreachable 4, no_rule 4,
+max_calls 1. It got ROCK SMASH and smashed a rock. The distill (13 calls) wrote place names no tool answer held (Route 112,
+Lavaridge as 0.12, Fiery Path, Fallarbor, the cable car, TEAM MAGMA): set aside unreviewed as
+`knowledge.reviewed-before-revert.diff` in that folder, and the files put back. **Not an acceptance result**: it was stopped,
+not run to its budget or its goal.
+
+**Found:** dontAsk ran read-only Bash and PowerShell commands the allow list left out (denied by name now); a core killed
+with `taskkill` left the driver believing it was connected, twice (a driver reload recovered it); the Bash tool's 10-minute
+ceiling means the launcher is started as its own process.
+
+**Next:** review the set-aside diff (keep only what a tool answered), rerun attempt 1 from `story_dynamo_badge` with the
+fixed store, then attempt 2, and report both model-call counts.

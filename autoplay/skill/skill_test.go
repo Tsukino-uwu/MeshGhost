@@ -144,6 +144,24 @@ func TestMaxCallsEndsARunThatWouldGoOn(t *testing.T) {
 	}
 }
 
+func TestARuleStopsDecidingAtItsMax(t *testing.T) {
+	looping := strings.Replace(trip, `"then": "repeat"},`, `"then": "repeat", "max": 2},`, 1)
+	goes, reads := make([]string, 10), make([]string, 10)
+	for i := range goes {
+		goes[i], reads[i] = `{"outcome":"dialogue_open"}`, `{"outcome":"closed"}`
+	}
+	sc := &script{answers: map[string][]string{"goto": goes, "advance_text": reads}}
+	res, err := Runner{Caller: sc, Skills: loader{"trip": looping}, Tools: tools}.Run(context.Background(), "trip", tripArgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// goto, read, repeat; goto, read, repeat; goto, read -- and the third closed matches rule 5 past its max.
+	if res.Outcome != OutcomeNoRule || strings.Join(sc.calls, " ") != "goto advance_text goto advance_text goto advance_text" ||
+		!strings.Contains(res.Reason, "rule 5 matched and had decided its max 2 times") {
+		t.Fatalf("result = %+v, calls %v", res, sc.calls)
+	}
+}
+
 func TestAToolErrorEndsTheRun(t *testing.T) {
 	sc := &script{answers: map[string][]string{"goto": {`ERROR the connected driver does not support "goto"`}}}
 	res := run(t, sc, "trip", tripArgs)
@@ -196,6 +214,7 @@ func TestParseRefuses(t *testing.T) {
 		"a bad param kind":         {base(func(m map[string]any) { m["params"] = map[string]any{"x": "int"} }), "kind must be"},
 		"no rules":                 {base(func(m map[string]any) { m["rules"] = []any{} }), "at least one rule"},
 		"max_calls too high":       {base(func(m map[string]any) { m["max_calls"] = MaxMaxCalls + 1 }), "max_calls must be"},
+		"a negative max":           {base(rule(map[string]any{"after": "goto", "then": "done", "max": -1})), "max must be"},
 		"a bad expectation":        {base(rule(map[string]any{"after": "goto", "when": []any{map[string]any{"path": "x"}}, "then": "done"})), "no operator"},
 	}
 	for name, c := range cases {

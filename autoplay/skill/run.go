@@ -109,6 +109,7 @@ func (rn Runner) run(ctx context.Context, loaded map[string]*Skill, name string,
 	res := Result{Skill: name, Draft: s.Draft, Trail: []Step{}}
 	next := s.Call
 	own := 0
+	fired := make([]int, len(s.Rules))
 	for {
 		if err := ctx.Err(); err != nil {
 			return res, err
@@ -135,12 +136,16 @@ func (rn Runner) run(ctx context.Context, loaded map[string]*Skill, name string,
 			res.Outcome, res.Reason = OutcomeToolError, fmt.Sprintf("%s answered an error", next.Name())
 			return res, nil
 		}
-		rule := match(s, next.Name(), answer)
+		rule, spent := match(s, next.Name(), answer, fired)
 		if rule < 0 {
 			res.Trail = append(res.Trail, step)
 			res.Outcome, res.Reason = OutcomeNoRule, fmt.Sprintf("no rule after %s matched its answer", next.Name())
+			if spent > 0 {
+				res.Reason += fmt.Sprintf(" (rule %d matched and had decided its max %d times)", spent, s.Rules[spent-1].Max)
+			}
 			return res, nil
 		}
+		fired[rule]++
 		step.Rule = rule + 1
 		res.Trail = append(res.Trail, step)
 		r := s.Rules[rule]
@@ -195,8 +200,9 @@ func orEmpty(m map[string]any) map[string]any {
 	return m
 }
 
-// match returns the index of the first rule after call whose expectations all hold on answer, or -1.
-func match(s *Skill, call string, answer any) int {
+// match returns the index of the first rule after call whose expectations all hold on answer and that has not decided its
+// max times, or -1; spent is the 1-based first rule that held but had, 0 when none.
+func match(s *Skill, call string, answer any, fired []int) (index, spent int) {
 	for i := range s.Rules {
 		r := &s.Rules[i]
 		if r.After != call {
@@ -209,9 +215,15 @@ func match(s *Skill, call string, answer any) int {
 				break
 			}
 		}
+		if holds && r.Max > 0 && fired[i] >= r.Max {
+			if spent == 0 {
+				spent = i + 1
+			}
+			continue
+		}
 		if holds {
-			return i
+			return i, spent
 		}
 	}
-	return -1
+	return -1, spent
 }

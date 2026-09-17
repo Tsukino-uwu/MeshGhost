@@ -11,7 +11,7 @@
     {"after": "goto", "when": [{"path": "outcome", "one_of": ["spotted", "left_overworld"]}], "then": {"tool": "battle", "args": {"policy": "effective", "forget": "strong_variety"}}},
     {"after": "goto", "when": [{"path": "outcome", "equals": "dialogue_open"}], "then": {"tool": "advance_text"}},
     {"after": "advance_text", "when": [{"path": "outcome", "equals": "battle_started"}], "then": {"tool": "battle", "args": {"policy": "effective", "forget": "strong_variety"}}},
-    {"after": "advance_text", "when": [{"path": "outcome", "equals": "closed"}], "then": "repeat"},
+    {"after": "advance_text", "when": [{"path": "outcome", "equals": "closed"}], "then": "repeat", "max": 3, "note": "a message that stops the trip every time (the desert's sandstorm on Route 111 looped until max_calls, 2026-09-17) ends it no_rule after three"},
     {"after": "battle", "when": [{"path": "outcome", "equals": "ended"}, {"path": "outcome_raw", "equals": 2}], "then": "stop", "note": "a whiteout: the player is below the last Center's door"},
     {"after": "battle", "when": [{"path": "outcome", "equals": "no_battle"}], "then": {"tool": "advance_text"}},
     {"after": "battle", "when": [{"path": "outcome", "equals": "ended"}], "then": "repeat"}

@@ -204,7 +204,8 @@ appended to as a diary. No snapshot is named in any of it: snapshots stay in the
   `params` names each argument and its kind (`string`, `number`, `bool`, `any`), all required; a string that is exactly
   `"$name"` in any call's `args` is that argument. `call` is `{tool, args}` or `{skill, args}`, made first and again on
   `repeat`. Each rule is `{after, when, then, note}`: after the call named `after` (a tool's name, or `skill:<name>`), the
-  first rule whose `when` expectations all hold decides `then` -- `done`, `stop`, `repeat`, or the next call. `max_calls`
+  first rule whose `when` expectations all hold decides `then` -- `done`, `stop`, `repeat`, or the next call; a rule's `max`
+  is the most times it may decide in one run, after which it no longer matches (a trip walking back into one message). `max_calls`
   (default 40) ends a run. **Kept only once it has succeeded twice**: `succeeded` names both runs, or `draft: true` while it
   is proved. Refused before its first call: an unknown field, a rule no call reaches, a `$name` not in `params`, arguments
   that do not match, a tool the server lacks, `run_skill` or `segment` as a call, skills nested deeper than 4.
@@ -219,8 +220,9 @@ carries a cost. From `autoplay/`, with the driver waiting and its port free:
 
 - **Before the model**: its own core restores the snapshot, opens the session's segment and checks the goal.
 - **Play**: `claude -p` with `session/play.md` on stdin, `--output-format stream-json --verbose`, the core as its only MCP
-  server (`--strict-mcp-config`, carrying on the same run log), `--permission-mode dontAsk` and only the game's tools and
-  Read, Glob and Grep allowed. Stopped, with the core it started, once it has made `-budget` model calls (default 400).
+  server (`--strict-mcp-config`, carrying on the same run log), `--permission-mode dontAsk`, only the game's tools and
+  Read, Glob and Grep allowed, and Bash and PowerShell denied by name (dontAsk still ran read-only shell commands left off
+  the allow list, 2026-09-17). Stopped, with the core it started, once it has made `-budget` model calls (default 400).
 - **Distill**: the same session `--resume`d with `session/distill.md`, allowed to edit only `games/<game>/`, `-distill-budget`
   calls (default 40). The launcher never commits: the diff is read against "measured or observed only" first.
 - **After the model**: its own core closes the segment, checks the goal and reads where the game is.

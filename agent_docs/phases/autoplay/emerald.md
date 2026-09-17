@@ -568,3 +568,24 @@ DOWN, WATER GUN), money 7357, badges [1, 2, 3]. Snapshots in the gitignored `aut
 `bag_wild_battle_start`. The run log: `autoplay/runs/2026-09-17_131645.118278.ndjson`. The scratch helpers (`trip.py`, `may.py`,
 `gym.py`, `mapinfo.py`, a map-grid reader through `exec`) lived in this chat's scratch folder and are not in the repo.
 
+## 2026-09-17 (the Emerald chat, Phase 3, end of the session) — the knowledge store seeded, two skills proved, one fix, where to pick up
+
+**Pointer.** Phase 3's core, the launcher and the first unattended attempt are logged in `../phase13.md` ("Phase 3").
+
+**Built and walked** (run log `autoplay/runs/2026-09-17_171332.417648.ndjson`): `autoplay/games/emerald/` seeded from this
+log and MEASURED.md (`game.md`, `route.md`, `goals.json`); `heal` walked twice (segments 4 and 7) and `trip` twice (5 and 6,
+Mauville's Center to Slateport's and back). **Fix** (`emerald.lua`): the plan across maps reads the current map from the
+live grid -- WATTSON's gym had 20 tiles differing from the ROM's layout (MEASURED.md, "The live grid against the ROM's
+layout").
+
+**The user, while the attempt ran:** *"it needs to continue to the left around the desert"* (in `route.md`, dated).
+
+**Left as it is:** EmuHawk on vanilla Emerald running, the loader target naming the driver alone, no core running. The game
+on Route 111 (0.26) at (14,61) by the sandstorm, where the stopped session left it: MARSHTOMP Lv 34, 54 of 100 HP, ROCK SMASH
+taught in TACKLE's place, money 10549 (not a snapshot; `story_dynamo_badge` starts every attempt).
+
+**To pick up:** review `autoplay/runs/sessions/2026-09-17_172659/knowledge.reviewed-before-revert.diff` against the play
+stream beside it (keep only what a tool answered: the ROCK SMASH man, the uncle, the sandstorm, the maps as `observe` named
+them); commit what passes; rebuild `autoplay.exe` and `session.exe` into the chat's scratch folder; start the launcher as its
+own hidden process (`Start-Process`), never under the Bash tool's 10-minute ceiling; if the driver does not reconnect after
+a core stops, set its target to `none` and back.

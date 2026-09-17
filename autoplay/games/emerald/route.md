@@ -67,3 +67,11 @@ Center 10.5, Mart 10.7, gym 10.0 (door (8,5) on 0.2; WALLY at the door, `talk` l
 switches (0,15), (4,12), (3,9) and (8,9) open the barriers, and every planned route to (8,9) crosses (4,12): reach it
 with `walk` legs through (4,11) and (5,11). Then `talk` local 1 (WATTSON, a trainer on the way): MARSHTOMP Lv 32 with MUD
 SHOT four times, DYNAMO BADGE, TM34.
+
+## Past the DYNAMO BADGE: not walked yet
+
+The user, 2026-09-17, watching the first unattended session go back and forth north of Mauville: *"it needs to continue
+to the left around the desert"*. That session (run log `2026-09-17_172659.154119`, stopped) was told by a man at 0.26
+(19,102) that his uncle across from the bike shop in MAUVILLE gives ROCK SMASH for ROUTE 111, and a trip through 0.26's
+desert looped on "The sandstorm is vicious. It's impossible to keep going." at (14,61). The rest of what it wrote is
+under review and not here.

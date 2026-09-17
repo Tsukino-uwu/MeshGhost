@@ -77,7 +77,10 @@ type Rule struct {
 	After string            `json:"after"`
 	When  []scenario.Expect `json:"when,omitempty"`
 	Then  Then              `json:"then"`
-	Note  string            `json:"note,omitempty"`
+	// Max, when above 0, is the most times the rule may decide in one run; after that it no longer matches. A trip that
+	// read the same message and walked back into it looped until max_calls (the first unattended session, 2026-09-17).
+	Max  int    `json:"max,omitempty"`
+	Note string `json:"note,omitempty"`
 }
 
 // Then is a word (done, stop, repeat) or an action.
@@ -218,6 +221,9 @@ func (s *Skill) check() error {
 			}
 		} else if err := s.checkAction(fmt.Sprintf("rule %d", i+1), *r.Then.Action); err != nil {
 			return err
+		}
+		if r.Max < 0 || r.Max > MaxMaxCalls {
+			return fmt.Errorf("rule %d: max must be 0 to %d, got %d", i+1, MaxMaxCalls, r.Max)
 		}
 		for j := range r.When {
 			if err := r.When[j].Prepare(); err != nil {

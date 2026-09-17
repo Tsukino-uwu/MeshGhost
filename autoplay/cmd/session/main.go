@@ -309,8 +309,10 @@ func distillTools(game string) []string {
 // claudeArgs is a headless run: the prompt on stdin, stream-json out, this core as the only MCP server, tools not
 // allowed denied rather than asked about. Never --bare (it takes an API key only) and never a dollar budget.
 func claudeArgs(o options, mcpConfig, resume string, tools []string) []string {
+	// dontAsk still ran read-only shell commands the allow list left out (the first session's distill: `wc -c` in Bash, `git
+	// diff` in PowerShell, 2026-09-17), so the shells are denied by name.
 	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--strict-mcp-config", "--mcp-config", mcpConfig,
-		"--permission-mode", "dontAsk", "--allowedTools", strings.Join(tools, ",")}
+		"--permission-mode", "dontAsk", "--allowedTools", strings.Join(tools, ","), "--disallowedTools", "Bash,PowerShell"}
 	if o.model != "" {
 		args = append(args, "--model", o.model)
 	}
