@@ -1106,6 +1106,17 @@ under test (the printer) runs untouched.
   the buffer to the screen, so bytes written into the box's rows draw at a known cell each and need no
   marker at all.
 
+## A value the game never draws: replay one action from a snapshot with only that byte changed — 2026-09-17
+
+**When no screen shows what a byte is, make the game use it and compare.** Crystal draws a move's type and PP but
+never its power or accuracy. `crystal/probes/autoplay_move_write_probe.lua` holds one byte of the move struct at a
+chosen value every frame while a battle runs, armed by a command file; one TACKLE replayed from a snapshot on the move
+menu gave 5 damage as the table had it, none at 0, 8 at 70, a faint at 140, and a miss with the other byte at 0. It
+reads only because the replay is exact: **run the unchanged action twice first and see the two logs agree frame for
+frame**, and drive every run with the same state-waiting tool calls so the random number generator sees the same frames.
+Check the write is still in place when the game reads it (the log shows the struct reloaded a few frames after the
+restore, rewritten on that frame, 30 frames before the damage).
+
 ## A tile id is a letter only while the font is in that tile — checksum the tiles — 2026-09-17
 
 **Crystal's text is its tile buffer, and the same ids draw other things.** A Pokémon's picture in Elm's
