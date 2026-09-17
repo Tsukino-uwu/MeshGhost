@@ -512,3 +512,59 @@ easier with potions that heal more than a hit takes; make a state before a hard 
 **Open from this stretch:** `goto` walks over step-on event tiles (the gym's switches: coord events in the decomp's map, not in any
 reader yet); a trip loop that heals when low; `forget` weighs no move's side effect (MUD-SLAP's accuracy drop won MAY's fight).
 
+## 2026-09-17 (the Emerald chat, end of the session) — where Emerald's autoplay stands, for the next chat
+
+**The user:** *"lets write down what we have learned from this chat. and then continue with emerald in a new one"* (the TEVI chat
+still running beside it).
+
+**This session's commits** (straight to master, nothing pushed): `83221507` (the learn-a-move question, the move list, the
+evolution scene, `forget strong_variety`), `b7e17c5e` (the bag in a battle, POTIONs, `stop_hp_below`), `df494a9b` (`effective`
+avoids resisted moves, `manual`, `talk` keeps trying), `07c54c3f` and `76af9797` (Dewford, Granite Cave, the boat), `358a67cb`
+(`goto` carries the player's level), `e755a1e4` and `6da25b97` (a Mart's quantity box; MAY's five tries; MEASURED.md's heading
+restored), `13749745` and `4e1faf4f` (Mauville, the DYNAMO BADGE). They change Go in `autoplay/server`: once pushed, read
+`gh run list -L 5`.
+
+**What was learned, in short** (the entries above, `emerald/MEASURED.md` and `../phase13.md` hold the detail):
+- **Playing the story keeps finding what staged tests miss**: a learn-a-move question and an evolution mid-battle, a Mart's
+  list left active under its quantity box, ground at two elevations joined only through tiles of 0, floor switches that flip a
+  gym's barriers when a route walks over them, a pacing gull mistaken for the man beside it, a story scene taking the controls
+  mid-route.
+- **A party of one hits a wall against a type it is weak to.** MAY's GROVYLE beat a lone MARSHTOMP five times; `effective`
+  cannot fix a type matchup, and what won was the user's tactic (accuracy drops, a snapshot before the fight, retries on luck).
+  A second Pokémon, and potions that out-heal a hit, are the real answers.
+- **Find buildings by who is inside, not by trying doors**: a Center's nurse is graphics 58, a Mart's clerk 83, a gym's templates
+  are trainers (Mauville, checked against Slateport and Dewford); the user adds that Centers, Marts and gyms look unique from
+  outside. Misreading a warp list cost several doors in Slateport.
+- **When a plan fails, look at the ground before retrying**: "no way on foot" was elevation (Route 110), and "no route to
+  WATTSON" was a switch on the path, both found by printing the map's grid from the ROM, not by more attempts.
+- **The user's playing guidance, dated 2026-09-17** (this session): keep strong damaging moves of different types, status moves
+  first to go, and NO to a new move is a choice (with its "Stop learning?" follow-up); use neutral or super effective moves
+  whenever possible; status and accuracy moves still have uses against a type that resists them; heal only when the next hit
+  would faint, then attack, and potions work best when they heal more than a hit takes; SUPER POTIONs heal more and cost more;
+  selling at a Mart raises money, with no buying back; REPELs keep weaker wild Pokémon away; Poké Balls lying in the overworld
+  hold items -- pick them up; ABRA's TELEPORT returns to the last Center until FLY (skipped this time, at the user's word); a
+  Pokémon at low HP or with a status is easier to catch, only wild ones, and never faint it; make a state before a hard fight and
+  get past it on luck; to talk to a walking character, stand beside its path, face it and press as it passes.
+
+**Open, in order:**
+1. **A second party member**, then a catch through the battle's BAG (`manual`; the nickname question is read from the decomp
+   only, not measured): a GRASS-type answer for MARSHTOMP.
+2. **`goto` and event tiles**: it walks over step-on events (a gym's switches, the decomp's coord events); read them and avoid
+   them unless they are the target. Also: a story scene taking the controls reads as `no_response` and sets an exit aside.
+3. **The scratch loops into tools** (the plan's Phase 3 is next in the plan's order): the trip loop (goto, battle on `spotted` or
+   a wild battle, text), healing before a trip when HP is low, item balls picked up (graphics 59 in templates), a buy by count.
+4. Smaller: `forget` weighs no side effects (it dropped MUD-SLAP, which won MAY's fight); SELL at a Mart; TMs taught; the driver
+   did not reconnect after a core closed mid-program; a finished message outside the overworld is not recovered after a reload;
+   FC bytes read raw ("Poof!", "Stop learning").
+Then the story on: Route 111 and Route 112 toward Mt. Chimney and Lavaridge (the fourth badge).
+
+**Left as it is:** EmuHawk on vanilla Emerald running, its loader target `dev-scripts/bizhawk-dev-loader-autoplay.target` naming
+the driver alone (`battle_state_probe.lua` taken off), no core of this chat running (the TEVI chat's core on 7872 is its own). The
+game in WATTSON's gym (10.0) at (5,3) after the DYNAMO BADGE, no menu open: MARSHTOMP Lv 32, 67 of 95 HP (TACKLE, MUD SHOT, TAKE
+DOWN, WATER GUN), money 7357, badges [1, 2, 3]. Snapshots in the gitignored `autoplay/states/emerald/`, the story's newest first:
+`story_dynamo_badge`, `story_mauville_gym`, `story_beat_may_route110`, `story_before_may_route110`, `story_stern_goods`,
+`story_slateport`, `story_steven_letter`, `story_knuckle_badge`, `story_dewford_before_brawly`, `story_dewford_gym`,
+`story_dewford`, `story_pokenav`, `story_devon_goods`, then last session's; made test states `learn_wild_battle_start` and
+`bag_wild_battle_start`. The run log: `autoplay/runs/2026-09-17_131645.118278.ndjson`. The scratch helpers (`trip.py`, `may.py`,
+`gym.py`, `mapinfo.py`, a map-grid reader through `exec`) lived in this chat's scratch folder and are not in the repo.
+
