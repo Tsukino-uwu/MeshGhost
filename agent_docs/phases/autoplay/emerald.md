@@ -421,3 +421,21 @@ then *"you can skip the abra, and continue with the story"*.
 **Open from this stretch:** `goto` reads a story script taking the controls as `no_response` and sets the exit aside; the
 driver not reconnecting after its core closed mid-program; `talk` to a walking character (wait beside its path); items in Poké
 Balls on the ground not yet picked up by any tool; shops (to buy POTIONs) not read; the POKéNAV's screens not read.
+
+## 2026-09-17 (the Emerald chat, next session) — DEWFORD's gym: two whiteouts, its trainers, BRAWLY's KNUCKLE BADGE
+
+**Played** (walked; run log `autoplay/runs/2026-09-17_131645.118278.ndjson`, segments "story: Dewford" and after). The Center healed
+(3.1, found after a house, 3.0, by trying doors; the gym, 3.3, found by counting each interior's trainer templates through `exec`
+-- the user: Centers, Marts and gyms look unique from outside, so a picture of the town says which door). `talk` to BRAWLY
+reached him past every trainer; MARSHTOMP Lv 18 lost to him (a whiteout, money 2259 to 1129). Back, as the user advises: the
+gym's trainers by `talk` (BATTLE GIRL LAURA, BLACK BELT TAKAO, BLACK BELT CRISTIAN -- FORESIGHT declined by `forget` at Lv 20 --,
+SAILOR BRENDEN, BATTLE GIRL JOCELYN). A heal trip then misfired (below) into BRAWLY at 28 of 62 HP, a second whiteout. Healed,
+then BRAWLY at full HP: MUD SHOT every turn through BULK UP, two SUPER POTIONs and a SITRUS BERRY, won at 7 HP -- KNUCKLE BADGE,
+TM08; MARSHTOMP Lv 21, money 4076. Snapshots: `story_dewford_gym`, `story_dewford_before_brawly`, `story_knuckle_badge`.
+
+**What went wrong on the way:**
+- `goto {map: 3.1}` from the gym's floor at (9,8) answered "no way on foot known from 3.3 (9,8) to 3.1"; from the entrance
+  (5,26) the same trip was `done`. Not looked at (the gym's floor elevations, or the part-of-map flood from there).
+- The scratch heal script went on to `talk` local 1 after that refusal, and local 1 in the gym is BRAWLY. It now talks only once
+  the trip ends `done` in the Center.
+
