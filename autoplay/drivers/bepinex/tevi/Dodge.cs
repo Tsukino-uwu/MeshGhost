@@ -44,7 +44,7 @@ namespace MeshGhostAutoplay.Tevi
         public const int HopDropAt = 10;
         // Down is held this many frames before Jump is pressed (InputInjection.Quickdrop: pressed together they made a double jump), so
         // a drop begins that much later.
-        private const int DropDelay = 2;
+        private const int DropDelay = 4;
 
         public struct Plan
         {

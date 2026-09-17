@@ -14,7 +14,7 @@ namespace MeshGhostAutoplay.Tevi
     // when it ends. Its input goes through InputInjection.Keep and Tap, so the game reads it as its own.
     public static class Reflexes
     {
-        // FIGHT {type?, range?, min_range?, stop_hp?, dodge?, push_orbs?, no_progress_frames?}: one enemy, followed and attacked until
+        // FIGHT {type?, range?, min_range?, stop_hp?, dodge?, push_orbs?, orb_shots?, chain_guard?, no_progress_frames?}: one enemy, followed and attacked until
         // it is beaten.
         //  - the target: the nearest living enemy in view (of `type` when given), kept by reference so a second of the same
         //    kind never takes its place;
@@ -60,6 +60,8 @@ namespace MeshGhostAutoplay.Tevi
             bool dodge = (bool?)args["dodge"] ?? true;
             int noProgressFrames = (int?)args["no_progress_frames"] ?? 300; // a boss the dodge keeps her away from needs far more
             bool pushOrbs = (bool?)args["push_orbs"] ?? true;
+            bool chainGuard = (bool?)args["chain_guard"] ?? true; // no combo chaining against a faster tell (below)
+            bool orbShots = (bool?)args["orb_shots"] ?? true; // an Orbitar shot at a still orb out of reach between them (below)
             int pushes = 0, orbFrames = 0;
             var orbLog = new JArray(); // a sample of the orb decisions, every OrbLogEvery frames spent on an orb
             JObject orbNote = null;
@@ -231,7 +233,7 @@ namespace MeshGhostAutoplay.Tevi
                 orbNote = null;
                 // A resting orb level with her between them, out of her swing, while the target is out of it too: shoot it. Standing still
                 // behind one (its touch box refuses every step) left it by Ribauld, who knocked it into her for her last 44 HP (2026-09-17).
-                CharacterBase shotOrb = pushOrbs && orb == null && onGround && !inMelee ? OrbToShoot(p, target) : null;
+                CharacterBase shotOrb = pushOrbs && orbShots && orb == null && onGround && !inMelee ? OrbToShoot(p, target) : null;
                 if (shotOrb != null)
                 {
                     bool facingIt2 = (dx >= 0) == (p.direction.ToString() == "RIGHT");
@@ -301,7 +303,7 @@ namespace MeshGhostAutoplay.Tevi
                     // A swing moves her (about 14 units): beside a beam that hurts, or will before the swing ends, it slid her into it twice as
                     // it switched on (2026-09-17, Ribauld's cut-in lasers).
                     if (tap == "Attack" && dodge && BeamNear(p, root + 6)) tap = null;
-                    if (tap == "Attack" && dodge && root == ComboRootFrames && Tells.FastestLead(target.type.ToString()) is int lead && lead + ChargeTravel < ComboRootFrames) tap = null;
+                    if (tap == "Attack" && dodge && chainGuard && root == ComboRootFrames && Tells.FastestLead(target.type.ToString()) is int lead && lead + ChargeTravel < ComboRootFrames) tap = null;
                     // Its armor broken and refilling (the red outline): a hit does little and does not stop it, and it attacks freely (the
                     // user, 2026-09-17; the meter measured in MEASURED.md). A melee swing then only when standing stays safe for the whole
                     // horizon.

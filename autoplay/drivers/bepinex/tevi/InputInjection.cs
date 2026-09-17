@@ -203,8 +203,10 @@ namespace MeshGhostAutoplay.Tevi
         // A quickdrop, as a reflex's input for the next frame: Down held, and Jump pressed only once Down has been held QuickdropDownFirst
         // frames. Pressed on the same frame, the game took Down and Jump for a double jump and threw her up (every one of five double
         // jumps in the flight recorder began with both on one frame; every quickdrop had Down held two frames or more first, 2026-09-17,
-        // Ribauld on Infernal BBQ, where the jump carried her into his charge). Returns true when Jump was pressed.
-        private const int QuickdropDownFirst = 2, QuickdropPress = 4;
+        // Ribauld on Infernal BBQ, where the jump carried her into his charge). Two frames was the edge: with Down held two frames while
+        // still rising, the press made a double jump into his bomb ring (frame 1313181), and quickdrops while rising had Down held four
+        // or more. Returns true when Jump was pressed.
+        private const int QuickdropDownFirst = 4, QuickdropPress = 4;
 
         public static bool Quickdrop()
         {
