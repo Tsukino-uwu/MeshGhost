@@ -162,6 +162,18 @@ func TestARuleStopsDecidingAtItsMax(t *testing.T) {
 	}
 }
 
+func TestAnAnswerMarkedALoopEndsTheRun(t *testing.T) {
+	sc := &script{answers: map[string][]string{
+		"goto":         {`{"outcome":"dialogue_open"}`, `{"loop":{"tool":"goto","repeats":3,"note":"goto answered the same here 3 times"},"outcome":"dialogue_open"}`},
+		"advance_text": {`{"outcome":"closed"}`},
+	}}
+	res := run(t, sc, "trip", tripArgs)
+	if res.Outcome != OutcomeLoop || res.Reason != "goto answered the same here 3 times" || res.Calls != 3 ||
+		len(res.Trail) != 3 || res.Trail[2].Rule != 0 {
+		t.Fatalf("result = %+v, calls %v", res, sc.calls)
+	}
+}
+
 func TestAToolErrorEndsTheRun(t *testing.T) {
 	sc := &script{answers: map[string][]string{"goto": {`ERROR the connected driver does not support "goto"`}}}
 	res := run(t, sc, "trip", tripArgs)

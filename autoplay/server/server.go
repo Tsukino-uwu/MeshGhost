@@ -270,6 +270,9 @@ type tools struct {
 	selfOnce    sync.Once
 	selfSession *mcp.ClientSession
 	selfErr     error
+
+	// Calls repeating the same answer at the same place (LOOPS, loops.go).
+	loops loopWatch
 }
 
 // logged wraps a handler so every call lands in the run log. reachedBy, when given, names what a
@@ -286,6 +289,19 @@ func logged[In, Out any](t *tools, name string, reachedBy func(In) string, h mcp
 			outcome = outcomeOf(out)
 		}
 		t.log.CallOutcome(name, in, err, by, outcome)
+		if err == nil && name == "restore" {
+			t.loops.clear()
+		}
+		if err == nil {
+			if loop := t.loops.note(name, in, outcome, out); loop != nil {
+				t.log.Loop(loop.Tool, loop.Outcome, loop.Where, loop.Repeats, loop.Within)
+				if raw, ok := any(out).(json.RawMessage); ok {
+					if marked, ok := any(withLoop(raw, loop)).(Out); ok {
+						out = marked
+					}
+				}
+			}
+		}
 		// A call made while a cheat is still in effect belongs to a segment that cheat reaches, whenever it began.
 		for _, on := range t.stillOn() {
 			t.log.InEffect(on)

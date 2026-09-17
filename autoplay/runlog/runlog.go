@@ -181,6 +181,18 @@ func (l *Log) CallOutcome(tool string, args any, err error, reachedBy, outcome s
 	l.write(rec)
 }
 
+// Loop records a call the core saw repeat: the same tool, arguments, outcome and place `repeats` times in the last
+// `within` calls (server's LOOPS).
+func (l *Log) Loop(tool, outcome, where string, repeats, within int) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.write(map[string]any{"at": l.now(), "type": "loop", "segment": l.seg.N, "tool": tool, "outcome": outcome,
+		"where": where, "repeats": repeats, "within": within})
+}
+
 // InEffect marks the open segment reached by something already in effect when a call is made (a cheat left on),
 // once per cause: a segment opened before the driver said so, or carried on by Resume, is reached all the same.
 func (l *Log) InEffect(by string) {

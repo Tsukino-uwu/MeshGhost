@@ -83,6 +83,12 @@ local DIRECTIONS = {
 --   * a bump ends the ride at rest, marks the refused tile closed, and plans again (at most REPLANS times).
 local TURN_COST, GRASS_COST, SIGHT_COST, REPLANS = 2, 8, 100, 8
 
+-- NO PROGRESS (2026-09-17, Emerald): a route never needs to stand on one tile many times, but a tile that sends the player
+-- back does exactly that -- two unattended sessions' trips walked up 0.26's mud slope and slid back onto (17,38) for minutes,
+-- until `goto` ran out of frames or was stopped. A goto that enters one tile more than ENTRY_LIMIT times ends `no_progress`,
+-- naming the tile and its entries; the start tile counts as entered once. Across maps it ends the whole trip.
+local ENTRY_LIMIT = 3
+
 -- The legs from one tile to another, or nil and why. `closed` holds tiles refused on this goto, keyed y * width + x.
 -- Also returns the tiles in a trainer's line the route crosses, and the width the keys use.
 function M.plan(h, fromX, fromY, toX, toY, closed, crossGrass)
@@ -218,7 +224,7 @@ function M.go(h, p)
 	local run, crossGrass = p.run == true, p.cross_grass == true
 	local phase, frames, idle, moved, replans = "rest", 0, 0, 0, 0
 	local startMap, lastX, lastY, legs, li, ride, width = nil, 0, 0, nil, 1, nil, 0
-	local closed, towardWarp, legsTaken, inSight = {}, false, 0, {}
+	local closed, towardWarp, legsTaken, inSight, entries = {}, false, 0, {}, {}
 	local stops = h.watch()
 	local arriving, arrivingFor = h.arriving and h.arriving(), 0
 	local function finish(outcome, extra)
@@ -227,6 +233,12 @@ function M.go(h, p)
 			turns = legsTaken, replans = replans, route_in_sight = #inSight > 0 and inSight or nil }
 		for k, v in pairs(extra or {}) do r[k] = v end
 		return nil, true, r
+	end
+	-- Counts an entry onto (x, y); true once it is more than ENTRY_LIMIT (NO PROGRESS).
+	local function looping(x, y)
+		local key = x .. "," .. y
+		entries[key] = (entries[key] or 0) + 1
+		return entries[key] > ENTRY_LIMIT
 	end
 	local function hold()
 		local pad = { [legs[li].d.button] = true }
@@ -255,6 +267,7 @@ function M.go(h, p)
 	return function()
 		frames = frames + 1
 		local map, x, y = h.position()
+		if not startMap then looping(x, y) end
 		startMap = startMap or map
 		-- A warp under way, where the module says so: wait for it with nothing held.
 		if arriving then
@@ -295,6 +308,7 @@ function M.go(h, p)
 			if x ~= lastX or y ~= lastY then
 				moved = moved + math.abs(x - lastX) + math.abs(y - lastY)
 				lastX, lastY, frames = x, y, 0
+				if looping(x, y) then return finish("no_progress", { tile = { x = x, y = y }, entries = entries[x .. "," .. y] }) end
 			end
 			if h.atRest() then
 				phase, frames = "rest", 0
@@ -329,6 +343,7 @@ function M.go(h, p)
 		if x ~= lastX or y ~= lastY then
 			moved = moved + math.abs(x - lastX) + math.abs(y - lastY)
 			lastX, lastY, frames, idle = x, y, 0, 0
+			if looping(x, y) then return finish("no_progress", { tile = { x = x, y = y }, entries = entries[x .. "," .. y] }) end
 			if x == toX and y == toY then
 				phase = "coasting"
 				return nil, false

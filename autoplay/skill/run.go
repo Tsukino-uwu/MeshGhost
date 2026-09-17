@@ -15,6 +15,7 @@ const (
 	OutcomeNoRule    = "no_rule"    // no rule matched the last answer: the caller decides
 	OutcomeMaxCalls  = "max_calls"  // the skill made its max_calls and a rule still asked for another
 	OutcomeToolError = "tool_error" // a call was refused or failed; the last answer holds the error text
+	OutcomeLoop      = "loop"       // the core marked an answer as a loop (server's LOOPS): the same answer at the same place again
 )
 
 // Loader finds a skill by name.
@@ -135,6 +136,13 @@ func (rn Runner) run(ctx context.Context, loaded map[string]*Skill, name string,
 			res.Trail = append(res.Trail, step)
 			res.Outcome, res.Reason = OutcomeToolError, fmt.Sprintf("%s answered an error", next.Name())
 			return res, nil
+		}
+		if m, ok := answer.(map[string]any); ok {
+			if loop, ok := m["loop"].(map[string]any); ok {
+				res.Trail = append(res.Trail, step)
+				res.Outcome, res.Reason = OutcomeLoop, fmt.Sprint(loop["note"])
+				return res, nil
+			}
 		}
 		rule, spent := match(s, next.Name(), answer, fired)
 		if rule < 0 {
