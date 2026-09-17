@@ -170,8 +170,9 @@ same. RICK's battle under `effective`: TACKLE every turn, `ended`. No nudge in a
 menu had opened empty, and `battle` answered `stuck` 4 times of 6 -- written before FIGHT instead.
 
 **Found at the end:** the Crystal chat made Crystal's `strongest` itself weigh the type table and the same-type bonus the same
-day (its log, `crystal.md`). So `strongest` now weighs types on Crystal and not on Emerald, where that is `effective`. Which
-shape both games take is open for the user.
+day (its log, `crystal.md`). So `strongest` now weighs types on Crystal and not on Emerald, where that is `effective`. That
+chat's session end, the same night, settles it: next, Crystal's scoring moves behind `effective` and its `strongest` goes back
+to power × accuracy, so both games mean the same by each.
 
 ## 2026-09-17 (the Emerald chat, end of the session) — where Emerald's autoplay stands, for the next chat
 
@@ -189,7 +190,7 @@ at `none` (no driver, no probe), nothing listening on 7870, the game on route 0.
 `ng_rescue_action_menu` (its first action menu), `ng_rescue_move_menu` (its move menu opening). The new game's path is otherwise
 as before, `ng_got_mudkip` newest.
 
-**Open:** which shape the type-weighing choice takes on both games (above); MAY's box shows the FA scroll command raw;
+**Open:** MAY's box shows the FA scroll command raw;
 noclip's per-frame cost and water; the plan's Phase 2 (`goto` across maps, `talk`, the stuck classifier), with the user's
 Serebii gym page as a map for the badges each HM needs; `effective` not yet met on a foe whose types matter without a write
 (ROXANNE's gym is the first on this path).

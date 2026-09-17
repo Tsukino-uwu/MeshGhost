@@ -11,7 +11,8 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 ## Open now
 
 - 2026-09-16 — **Sort each adapter's older code-level entries out of `UNVERIFIED.md`/`VERIFIED.md` into `MEASURED.md`**, and give every `UNVERIFIED.md` (and `_template`) a full index. Another chat.
-- 2026-09-17 — **Autoplay, Emerald: Phase 1's list built** (`route.lua` shared, `set_clock`, the starter bag, `exec`, noclip); open: the rescue battle's intro nudges, a type-aware `battle`. `phases/autoplay/emerald.md`.
+- 2026-09-17 — **Autoplay, Emerald: Phase 1's list built**, a battle controller's work counted as progress, the type chart and `battle effective`;
+  open: Phase 2 (`goto` across maps, `talk`, the stuck classifier), MAY's raw FA, noclip's cost and water. `phases/autoplay/emerald.md`.
 - 2026-09-17 — **Autoplay, Crystal**: `goto`, a scenario 3 of 3, every PACK pocket, the POKéMON menu, badges, bike and surf, a type- and stat-aware `strongest` on V1.0;
   open: move that scoring behind the Emerald chat's `effective` policy once committed, the whiteout. `phases/autoplay/crystal.md`.
 - 2026-09-16 — **Prediction: A3 LANDED (ADR 0069, ships off), SCREEN VERDICT OPEN; A2.0 MEASURED** (worst-case transit p99 310–320ms; the dry tail is the 1 s blackouts); A2 undecided. `prediction-planning.md`.
