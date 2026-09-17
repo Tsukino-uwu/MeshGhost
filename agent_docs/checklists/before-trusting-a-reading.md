@@ -43,3 +43,4 @@ The instrument is the first suspect. When a person sees what the numbers deny, t
 - A per-second report printing per-frame counters cannot see a gap (Crystal, 2026-08-27) — [by-lesson.md](../pitfalls/by-lesson.md)
 - Membership is not visibility (Crystal, 2026-08-27) — [by-lesson.md](../pitfalls/by-lesson.md)
 - A PowerShell identifier check is case-insensitive unless you say otherwise -- and reported a bug that did not exist (2026-09-02) — [by-lesson.md](../pitfalls/by-lesson.md)
+- **A headless session's distill is checked claim by claim against its play stream's tool answers before commit** -- four Emerald distills wrote the model's narration, screenshot reads and compass guesses as fact ([by-lesson.md](../pitfalls/by-lesson.md))

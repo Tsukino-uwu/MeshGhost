@@ -1299,3 +1299,8 @@ gBattleScripting, then the animation byte, the pause counter and the text printe
 entries: a trainer's sight, the bag's list, a new game to MAY's battle, a move's animation holding a battle's next
 message, a finished message's printer and window, the naming keyboard, and the truck's door and the wall clock. All of it is
 in `phase13.md`; none of it touches `meshghost_emerald.lua`.
+
+## 2026-09-17 (the Emerald chat, Phase 3) — pointer: a mud slope and map bytes read by unattended sessions, logged in phase13.md
+
+`emerald/MEASURED.md` gained "A mud slope on 0.26: onto it and slid back" and "Map headers, events and behaviours read by
+an unattended session", both from autoplay's Phase 3 acceptance (`phase13.md`); none of it touches `meshghost_emerald.lua`.

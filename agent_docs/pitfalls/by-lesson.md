@@ -7689,3 +7689,45 @@ names, so each backup file was never found and its missing hash compared unequal
 
 **Fix.** The end-of-session check runs in PowerShell. **The rule this adds:** a result that also condemns what could not have
 changed is the instrument's fault until checked another way.
+
+## Emerald autoplay: two unattended attempts walked up a mud slope until stopped, and a written warning could not stop the third (2026-09-17)
+
+**Symptom.** The first Phase 3 attempt went "back and forth" north of Mauville; the user said so on screen, then *"its stuck
+in a loop trying to walk up one"*. The second attempt read the user's *"you need a mach bike to go up the mud slides"* in
+route.md and did the same.
+
+**Diagnosis.** The model never chose the slope: it asked `trip` for a tile, and `goto` planned the route. On the game, `walk
+up 1` from 0.26 (17,38) answered `done`, moved 2, overshot 1, and left the player on (17,38); the tiles above read behaviour
+0xD0. Without a closing check, `goto` to the tile above was "still running after 7200 frames".
+
+**Cause.** The planner treated 0xD0 as open ground, and nothing noticed a program returning to one tile over and over.
+
+**Fix.** `goto` closes 0xD0 on foot (emerald.lua; `games/emerald/scenarios/mud_slope.json`, 3 of 3, 0 of 1 without); a `goto`
+entering one tile more than 3 times ends `no_progress` (route.lua); the core marks a call repeating at one place
+(server/loops.go). Both reruns then met the goal. **What to reach for first:** when a session repeats itself, find which
+tool made the choice -- guidance for the model cannot change what a planner plans.
+
+## Autoplay harness: the first loop check keyed on place alone and marked menus walked at one tile (2026-09-17)
+
+**Symptom.** Three `loop` records in a run that met its goal: `advance_text` answering `menu_open` three times at 10.2 (4,5)
+while an HM was taught, at a Mart, and while a SUPER POTION was used against MAXIE.
+
+**Cause.** The key was tool, arguments, outcome and place; inside a menu the player does not move, so three different
+messages read as one repeat.
+
+**Fix.** The key includes the answer's `changed` (`TestLoopWatchLeavesAloneWhatDiffers` fails without it). A real loop -- the
+sandstorm's message, the slope -- changes the same thing each time.
+
+## Autoplay sessions: a distill writes the model's narration, screenshots and guesses as fact (2026-09-17)
+
+**Symptom.** Four distills in a row added claims no tool answer held: place names only the model's own narration used
+("Fiery Path", "Meteor Falls", "Jagged Pass"), compass words for bare connection bytes ("north", "1 south"), "trainers" where
+the trail showed battles, "a Mart" and "the red roof" from screenshots, "grunts" from a snapshot note, and call counts nothing
+matched; one rewrite dropped reviewed facts while condensing.
+
+**Diagnosis.** Each claim was checked against the play stream's tool results (and the run log for inner skill calls); a
+read-only agent did the longest one claim by claim with block numbers.
+
+**Fix.** No distill is committed before that check; what fails is dropped or narrowed to what was shown, and dropped
+reviewed facts are restored. **The rule this adds:** a session's own words, pictures and notes are where to look, never a
+fact for the store.

@@ -608,3 +608,26 @@ sessions made: `before_maxie`, `lavaridge_gym_entry`, `before_flannery`, `r112_n
 `chimney_at_maxie`, `lavaridge_gym_before_flannery`, `em_0_27_before_shayla`.
 
 **To pick up:** the three open items in `../phase13.md`; then the next goal past the HEAT BADGE.
+
+## 2026-09-17 (the Emerald chat, Phase 3, end of the session) — what was learned, where it stands
+
+**The confirmation** (`../phase13.md`, "the acceptance"): attempt 3, with attempt 2's core, launcher and driver, met
+`story_heat_badge` in 75 model calls against 82; `story_heat_badge` saved at Lavaridge's gym (4.1) at (13,10) after FLANNERY.
+The user, asking whether Phase 3 is done: the acceptance is met; the checkpoint is theirs.
+
+**What was learned** (filed in `../../pitfalls/by-lesson.md`, the three 2026-09-17 autoplay entries at its end):
+- **When a session repeats itself, find which tool made the choice.** Written guidance could not stop a loop `goto`
+  planned; closing the tile in the planner did, and both reruns went.
+- **A loop check needs what changed, not only where.** Place alone marked menus walked at one tile.
+- **Every distill is checked claim by claim before commit.** The model's narration, screenshot reads and guesses kept
+  arriving as facts; the recurring kinds are listed in the pitfall.
+- **Parallel chats share one tree:** the TEVI chat's `c6434bdb` committed this chat's reviewed store edits under its own
+  message (content as reviewed); a scripted `sed` that matched nothing once left a "fails without it" claim unchecked until
+  a second, verified edit ran it (the scripted-edit checklist's rule, again).
+
+**Left as it is:** EmuHawk on vanilla Emerald, the loader target naming the driver alone, no core of this chat running, the
+game idle in the overworld at 4.1 (13,10) with 4 badges. game.md is 8.5 KB, over the store's 8 KB: trim it first next time.
+
+**To pick up:** the open items in `../phase13.md` (`run_wild` answering `stuck` after an escape begun from
+`battle_started`, a trip ending "unreachable" in cave 24.4, the driver not reconnecting after a core stops, TEVI's own
+`goto` without a loop check); then the next goal past the HEAT BADGE.
