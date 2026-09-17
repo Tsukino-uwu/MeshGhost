@@ -474,6 +474,12 @@ Sewerways save point after restoring snapshot `tevi_inf_first_savepoint`; run lo
   double jumps began with Down (`YAxis-`) and Jump pressed on the same frame, or with Down let go while Jump was still held; each
   quickdrop had Down held 2 frames or more before Jump. The double jump rose, frame by frame from the press, 15.0, 29.2, 42.7, 55.4,
   67.3, 78.4, 88.7, 98.3, 107.1, 115.1, 122.3, 128.8, 134.4 units, the same each time.
+- **He starts no attack while his hitstun runs**: over ten more tries (the flight recorder every 3rd frame, `near`'s `hitstun_raw` and
+  `armor_recovering`), 337 of 339 attack starts (`ATTACK1` to `ATTACK5`) came with his hitstun at or below 0; the two others were
+  `ATTACK1` with his armor recovering. Hitstun counts down 0.05 every 3 frames: seconds of game time. His charge (`ATTACK2`) started 61
+  times with the armor recovering and 61 without.
+- **Hits by cause** over those ten tries (every frame before each hit): his charge the most (about 11), the bomb ring about 7 (nearly all
+  in the air), cut-in lasers 3, `speeddown` and its rolling shot 3.
 - **Not measured**: how far an Orbitar shot moves a resting orb; whether a quickdrop onto an orb pushes it and which way; how long a
   set of beams keeps hurting.
 

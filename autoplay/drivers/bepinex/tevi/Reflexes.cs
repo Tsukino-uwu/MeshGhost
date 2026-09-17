@@ -60,9 +60,10 @@ namespace MeshGhostAutoplay.Tevi
             bool dodge = (bool?)args["dodge"] ?? true;
             int noProgressFrames = (int?)args["no_progress_frames"] ?? 300; // a boss the dodge keeps her away from needs far more
             bool pushOrbs = (bool?)args["push_orbs"] ?? true;
-            // Both off by default: against Ribauld on Infernal BBQ, five tries each (2026-09-17), off beat him 3 of 5 in 113.7-119.2 s with
-            // 0-3 hits, on 3 of 5 in 136.1-164.8 s with 1-3 hits (agent_docs/phases/autoplay/tevi.md).
-            bool chainGuard = (bool?)args["chain_guard"] ?? false; // no combo chaining against a faster tell (below)
+            // Orb shots off by default: against Ribauld on Infernal BBQ, five tries each (2026-09-17), with neither this nor the blanket chain
+            // guard he was beaten 3 of 5 in 113.7-119.2 s with 0-3 hits, with both 3 of 5 in 136.1-164.8 s with 1-3 hits
+            // (agent_docs/phases/autoplay/tevi.md). The chain guard is now stun-aware (below) and on.
+            bool chainGuard = (bool?)args["chain_guard"] ?? true; // no combo chaining once the target could attack before the combo ends
             bool orbShots = (bool?)args["orb_shots"] ?? false; // an Orbitar shot at a still orb out of reach between them (below)
             int pushes = 0, orbFrames = 0;
             var orbLog = new JArray(); // a sample of the orb decisions, every OrbLogEvery frames spent on an orb
@@ -305,7 +306,11 @@ namespace MeshGhostAutoplay.Tevi
                     // A swing moves her (about 14 units): beside a beam that hurts, or will before the swing ends, it slid her into it twice as
                     // it switched on (2026-09-17, Ribauld's cut-in lasers).
                     if (tap == "Attack" && dodge && BeamNear(p, root + 6)) tap = null;
-                    if (tap == "Attack" && dodge && chainGuard && root == ComboRootFrames && Tells.FastestLead(target.type.ToString()) is int lead && lead + ChargeTravel < ComboRootFrames) tap = null;
+                    // While its hitstun runs it starts nothing: of 339 attack starts by Ribauld over ten tries, 337 came with his hitstun at or
+                    // below 0 (hitstun is seconds, 0.05 less every 3 frames; the flight recorder, 2026-09-17). So a combo is safe while the
+                    // stun left plus the fastest tell outlasts it, and each landed hit renews the stun, except in the red outline.
+                    if (tap == "Attack" && dodge && chainGuard && root == ComboRootFrames && Tells.FastestLead(target.type.ToString()) is int lead
+                        && Mathf.Max(0f, target.GetHitStun()) * 60f + lead + ChargeTravel < ComboRootFrames) tap = null;
                     // Its armor broken and refilling (the red outline): a hit does little and does not stop it, and it attacks freely (the
                     // user, 2026-09-17; the meter measured in MEASURED.md). A melee swing then only when standing stays safe for the whole
                     // horizon.
