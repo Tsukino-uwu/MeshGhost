@@ -63,6 +63,14 @@ namespace MeshGhostPseudo
         // brightening the instant a peer connected, from across the level, and staying that way.
         bool light_zeroed{false};
 
+        // **Chaser contact (ADR 0068).** True while the player capsule and this chaser's capsule
+        // last overlapped, so "kill" fires ONCE per overlap (edge-triggered) rather than re-running
+        // `BPI_CombatDeath` every tick of a multi-second dissolve/respawn -- "hurt" is deliberately
+        // NOT edge-triggered, since a real enemy's own contact damage is a per-tick query too and
+        // the game's own i-frame gate on `BP_HpHitable` already throttles it (measured 2026-09-18:
+        // real consecutive hits landed no closer than ~1.56s apart under continuous contact).
+        bool chaser_contact_overlapping{false};
+
         // **NO light-component list here, deliberately.** One was added on 2026-08-30 to stop the
         // per-tick whole-world light scan and withdrawn the same day: components held between
         // ticks are freed by a same-level save reload without LoadMap PRE firing, and the guard
@@ -1356,6 +1364,10 @@ namespace MeshGhostPseudo
 
         // RESET_FN_PROBE. Off unless `log_reset_fns.txt` is present.
         uint64_t reset_fn_probe_callback_id{0};
+        // The damage-vocabulary probe (`log_damage_fns.txt`), 2026-09-18 -- unregistered beside the
+        // reset one, since both are ProcessEvent callbacks and a live one outliving the mod is a
+        // call into freed code.
+        uint64_t damage_fn_probe_callback_id{0};
 
         // **The pause menu's Reset button, hooked so ghosts can be destroyed BEFORE the reset
         // runs.** Resetting to the last save crashes this game whenever a ghost exists

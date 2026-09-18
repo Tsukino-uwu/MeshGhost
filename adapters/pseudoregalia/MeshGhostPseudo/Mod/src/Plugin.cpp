@@ -4006,6 +4006,14 @@ namespace MeshGhostPseudo
 
         // Every damage-shaped property (with its value) and function (with its parameters) on one
         // actor. See DAMAGE_FIELD_CENSUS for why this exists and what the last run ruled out.
+        // Matches everything. Part B of chaser-planning.md: `log_damage_fns.txt`'s ProcessEvent
+        // filter (2026-09-18) found NOTHING named damage/hurt/hp/health/kill/die/dead ever calls on
+        // the player's `BP_HpHitable` -- only `ExecuteUbergraph_BP_HpHitable`, the compiled event
+        // graph's own entry, which is not itself a name to search for. Dump everything the class
+        // OFFERS instead of guessing another name; `census_named_fields` already exists and prints
+        // every property and every function with its parameter types, both proven code.
+        auto matches_everything(const StringType&) -> bool { return true; }
+
         auto census_named_fields(UObject* actor, const wchar_t* label, bool (*matches)(const StringType&),
                                  const wchar_t* tag) -> void
         {
@@ -5905,6 +5913,152 @@ namespace MeshGhostPseudo
             }
             ghost->ProcessEvent(function, params_buffer.data());
             return true;
+        }
+
+        // **Chaser contact (ADR 0068), Part E.** The game's own zero-parameter contact interface,
+        // named by dumping `BP_HpHitable_C`'s function list (2026-09-18) after `log_damage_fns.txt`
+        // proved nothing NAMED damage/hurt/hp/health/kill/die/dead is ever called on it through
+        // ProcessEvent for an ordinary enemy touch -- only the compiled ubergraph runs, dispatching
+        // internally to one of several BPI_* interface entries by an EntryPoint index. `HitboxInfo`-
+        // shaped interfaces (`BPI_TryDamage`, `BPI_TryParry`) need a struct this file has not
+        // measured the layout of; this one takes nothing, which is exactly the shape a body-contact
+        // touch needs and the only one safe to call without another struct-layout guess (the
+        // `attackDirection` FVector guess already crashed the game twice on `BPI_PerformDamageResponse`
+        // -- `probes/probe_hitlist/Scripts/damage_sweep.lua`'s header has the full account).
+        //
+        // **Called on the PLAYER's `BP_HpHitable` component, not the pawn** -- the dump found every
+        // BPI_* interface function declared on the component, and `BPI_PerformDamageResponse`
+        // resolved on the PAWN only because Blueprint interfaces are commonly re-exposed up the
+        // owner; calling it where it is actually declared is the safer of the two.
+        auto call_contact_damage_response(UObject* hitable) -> bool
+        {
+            if (!hitable)
+            {
+                return false;
+            }
+            UFunction* function = hitable->GetFunctionByNameInChain(STR("BPI_ContactDamageResponse"));
+            if (!function)
+            {
+                return false;
+            }
+            hitable->ProcessEvent(function, nullptr);
+            return true;
+        }
+
+        // **Chaser "kill" (ADR 0068).** `BPI_CombatDeath(dissolveDelay)` is a DISTINCT interface
+        // from the normal damage path -- not a repeated hurt call driving HP to zero, which the
+        // plan explicitly rejected in favour of "kill is a guaranteed death". `dissolveDelay` is a
+        // plain Double (measured in the same dump), so this carries no struct-layout risk either.
+        // **UNVERIFIED: whether this also zeroes `CurrentHp` or only plays the dissolve/respawn
+        // while HP stays wherever it was** -- the first live call must read HP before and after,
+        // the same tripwire shape `MIRROR_HURT_REACTION` already uses.
+        auto call_combat_death(UObject* hitable, double dissolve_delay) -> bool
+        {
+            if (!hitable)
+            {
+                return false;
+            }
+            UFunction* function = hitable->GetFunctionByNameInChain(STR("BPI_CombatDeath"));
+            if (!function)
+            {
+                return false;
+            }
+            const int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < 1)
+            {
+                return false;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            bool wrote = false;
+            for (FProperty* param : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (param && param->GetName() == STR("dissolveDelay") &&
+                    param->GetClass().GetName() == STR("DoubleProperty"))
+                {
+                    *reinterpret_cast<double*>(params_buffer.data() + param->GetOffset_Internal()) = dissolve_delay;
+                    wrote = true;
+                }
+            }
+            if (!wrote)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: BPI_CombatDeath has no 'dissolveDelay' Double parameter by name -- not called.\n"));
+                return false;
+            }
+            hitable->ProcessEvent(function, params_buffer.data());
+            return true;
+        }
+
+        // Reads a pawn's OWN capsule radius and half-height, live, through its `CapsuleComponent`
+        // reference -- never assumed, since a ghost's capsule size is not necessarily the same
+        // constant the player spawns with (`documentation.md`'s own capsule_half history). Returns
+        // false (leaving the outputs untouched) if either does not resolve; the caller decides
+        // what "unknown" should mean for its own test.
+        auto read_capsule(UObject* actor, float& radius, float& half_height) -> bool
+        {
+            if (!actor)
+            {
+                return false;
+            }
+            UObject** cap = mg_property_value<UObject*>(actor, STR("CapsuleComponent"));
+            if (!cap || !*cap)
+            {
+                return false;
+            }
+            const float* r = mg_property_value<float>(*cap, STR("CapsuleRadius"));
+            const float* h = mg_property_value<float>(*cap, STR("CapsuleHalfHeight"));
+            if (!r || !h)
+            {
+                return false;
+            }
+            radius = *r;
+            half_height = *h;
+            return true;
+        }
+
+        // **Chaser contact overlap test (ADR 0068, Part E of chaser-planning.md).** A capsule-vs-
+        // capsule overlap, never collision -- chaser collision stays off by construction (this
+        // adapter ships no solid ghost at all). Horizontal separation is compared against the SUM
+        // of both capsules' radii (two cylinders overlap when their centers are closer than that,
+        // which is the standard capsule-capsule test collapsed to 2D since both capsules stand
+        // upright); vertical separation is compared against the sum of both half-heights the same
+        // way. Both must overlap for contact -- a chaser standing on a ledge above the player must
+        // not touch through the floor.
+        //
+        // **Known gap, stated rather than hidden (first live pass, 2026-09-18):** this does NOT yet
+        // implement the plan's grace windows (a window after a chaser SPAWNS, and after the
+        // player's own RESPAWN) or an explicit i-frame/death skip -- `player_frozen_sent` is the
+        // only guard wired in so far. Measured tonight, a real enemy's own contact damage already
+        // throttles itself via `BP_HpHitable`'s internal cooldown (~1.56s between real hits under
+        // continuous contact), which is why "hurt" is safe to call every tick while overlapping
+        // without inventing a second cooldown here -- but the spawn/respawn windows are a real
+        // requirement the plan lists and are not covered by that. Read `UNVERIFIED.md` before
+        // calling this feature done.
+        auto chaser_capsules_overlap(AActor* player_actor, AActor* ghost_actor) -> bool
+        {
+            if (!player_actor || !ghost_actor)
+            {
+                return false;
+            }
+            float player_radius = 0.0f, player_half = 0.0f;
+            float ghost_radius = 0.0f, ghost_half = 0.0f;
+            if (!read_capsule(player_actor, player_radius, player_half) ||
+                !read_capsule(ghost_actor, ghost_radius, ghost_half))
+            {
+                return false;
+            }
+            const FVector p = player_actor->K2_GetActorLocation();
+            const FVector g = ghost_actor->K2_GetActorLocation();
+            const double dx = p.X() - g.X();
+            const double dy = p.Y() - g.Y();
+            const double horiz_dist_sq = dx * dx + dy * dy;
+            const double horiz_limit = static_cast<double>(player_radius) + static_cast<double>(ghost_radius);
+            if (horiz_dist_sq > horiz_limit * horiz_limit)
+            {
+                return false;
+            }
+            const double dz = std::abs(p.Z() - g.Z());
+            const double vert_limit = static_cast<double>(player_half) + static_cast<double>(ghost_half);
+            return dz <= vert_limit;
         }
 
         // Whether a UTimelineComponent is currently running. Stock `IsPlaying`, and the same
@@ -7991,6 +8145,51 @@ namespace MeshGhostPseudo
                                        value.X(), value.Y(), value.Z());
         }
 
+        // **Chaser "hurt" via the PROVEN path, 2026-09-18.** Three interface calls with no real
+        // context (`BPI_PerformDamageResponse`, `BPI_ContactDamageResponse`, `BPI_CombatDeath`)
+        // each produced no HP change and no visible effect -- the ubergraph dispatch that actually
+        // deducts HP reads state (`Attacker`, `incomingHitboxInfo`) this file has no safe way to
+        // populate, and decoding it live crashed the game once already (`UBERGRAPH_DECODE`'s own
+        // comment). `BPI_TouchHazard(Location)` is different: it is the function this mod's own
+        // 2026-08-27 comment already ties to "a pit fall costs exactly 5 HP", it needs no Attacker
+        // at all, and its one parameter is a plain FVector written through `write_vector_param`
+        // just above -- the SAME reflected-offset helper this file already uses everywhere else,
+        // never a guessed byte layout.
+        auto call_touch_hazard(UObject* hitable, const FVector& location) -> bool
+        {
+            if (!hitable)
+            {
+                return false;
+            }
+            UFunction* function = hitable->GetFunctionByNameInChain(STR("BPI_TouchHazard"));
+            if (!function)
+            {
+                return false;
+            }
+            const int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < 1)
+            {
+                return false;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            bool wrote = false;
+            for (FProperty* param : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (param && param->GetName() == STR("Location") &&
+                    param->GetClass().GetName() == STR("StructProperty"))
+                {
+                    wrote = write_vector_param(params_buffer.data(), param, location);
+                }
+            }
+            if (!wrote)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: BPI_TouchHazard has no 'Location' struct parameter by name -- not called.\n"));
+                return false;
+            }
+            hitable->ProcessEvent(function, params_buffer.data());
+            return true;
+        }
+
         auto write_rotator_param(uint8_t* base, FProperty* struct_property, const FRotator& value) -> bool
         {
             return write_struct_triple(base, struct_property,
@@ -9216,6 +9415,11 @@ namespace MeshGhostPseudo
         UObject* g_recording_time_plate_mid = nullptr; // stale-safe: same hook; a material instance owned by the plate above
         bool g_recording_active = false;
         int64_t g_recording_started_unix_ms = 0;
+
+        // Chaser contact (ADR 0068, contract.md): "", "hurt" or "kill", from session_policy. Empty
+        // means off, including "the chaser itself is disabled" -- the core's own rule, never
+        // re-derived here.
+        std::string g_chaser_contact_mode;
 
         // Drops the indicator's handles. Deliberately does NOT destroy: these are components on the
         // local pawn, and every one of this file's crashes in that family came from calling into an
@@ -12561,6 +12765,10 @@ namespace MeshGhostPseudo
         if (reset_fn_probe_callback_id != Hook::ERROR_ID && reset_fn_probe_callback_id != 0)
         {
             Hook::UnregisterCallback(reset_fn_probe_callback_id);
+        }
+        if (damage_fn_probe_callback_id != Hook::ERROR_ID && damage_fn_probe_callback_id != 0)
+        {
+            Hook::UnregisterCallback(damage_fn_probe_callback_id);
         }
         if (pause_reset_function && pause_reset_hook_id != 0)
         {
@@ -16075,6 +16283,160 @@ namespace MeshGhostPseudo
                 Hook::FCallbackOptions{.OwnerModName = STR("MeshGhostPseudo"), .HookName = STR("ResetFnProbe")});
         }
 
+        // **What actually LOWERS the player's health. Armed by `log_damage_fns.txt`, 2026-09-18.**
+        //
+        // The question chaser contact (ADR 0068) is blocked on, and the one thing a live session on
+        // 2026-09-18 could not answer by watching fields. What IS established, that day, and none of
+        // it needs re-deriving:
+        //   * an enemy's contact hit costs the player 5.0 HP (15 drops; one event cost 10.0, and
+        //     some hits -- including the knockback that drops the sword -- cost nothing at all);
+        //   * BOTH health locations move inside one 25ms sample on a hit, so watching fields cannot
+        //     order them, but on RESPAWN the GameInstance moved ALONE (0 -> 80 with the component
+        //     still 0), so they are not one value mirrored instantly;
+        //   * `BPI_PerformDamageResponse(DamageType, attackDirection)` is the REACTION and never the
+        //     deduction -- called on the player's own pawn it moved no HP at any offset, which is
+        //     the same answer the shipped hurt mirror's tripwire has given for ghosts since
+        //     2026-08-27. DamageType 0 is a blink, 1 is knockback plus blink, and anything >= 2
+        //     crashed the game instantly (two dumps, 02:26 and 02:30).
+        //
+        // So the deduction is some OTHER call, and guessing candidates off a class's function list
+        // is what has already cost two live sessions. This asks the game instead: every Blueprint
+        // call passes through ProcessEvent, so filtering it during a real enemy hit NAMES the path.
+        // Same mechanism as the reset probe above -- the one hooking shape this build tolerates, as
+        // distinct from hooking an individual Blueprint UFunction, which crashes.
+        //
+        // The context object is logged with every line, because WHICH object a verb runs on is half
+        // the answer: the pawn, its `BP_HpHitable` component, or the GameInstance singleton.
+        //
+        // Put `repeat` in the file to stop de-duplicating, which is what makes the ORDER across one
+        // hit readable; the default logs each distinct name once, as a vocabulary.
+        //
+        // **Never leave it armed.** It runs a lowercase copy and several substring searches on every
+        // Blueprint call in the game -- CLAUDE.md, "a diagnostic can break the thing it measures".
+        if (dev_toggle_present(STR("log_damage_fns.txt")))
+        {
+            Output::send(STR("[MeshGhostPseudo] DAMAGE_FN_PROBE armed -- logging health/damage-ish UFunction calls. Never leave this on.\n"));
+            damage_fn_probe_callback_id = Hook::RegisterProcessEventPreCallback(
+                [](Hook::TCallbackIterationData<void>&, UObject* context, UFunction* function, void* params) {
+                    if (!function)
+                    {
+                        return;
+                    }
+                    // **Liveness, proven rather than assumed.** A filtered probe that prints nothing
+                    // looks exactly like a probe that never armed -- which cost a live session on
+                    // 2026-09-18 when a silent watcher could not be told apart from a dead one
+                    // (`checklists/before-trusting-a-reading.md`). The first few calls are announced
+                    // unconditionally, so "armed and receiving" is visible before any hit lands.
+                    static int seen_total = 0;
+                    if (++seen_total <= 3)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] DAMAGE_FN_PROBE: alive -- call #{} is '{}'\n"),
+                                     seen_total, function->GetName());
+                    }
+
+                    static std::set<std::wstring> announced;
+                    const std::wstring name = function->GetName();
+                    std::wstring lowered = name;
+                    for (wchar_t& c : lowered)
+                    {
+                        c = static_cast<wchar_t>(::towlower(c));
+                    }
+                    static const wchar_t* const WANTED[] = {STR("damage"), STR("hurt"), STR("hp"),
+                                                            STR("health"), STR("hit"),  STR("heal"),
+                                                            STR("kill"),   STR("die"),  STR("dead")};
+                    bool interesting = false;
+                    for (const wchar_t* needle : WANTED)
+                    {
+                        if (lowered.find(needle) != std::wstring::npos)
+                        {
+                            interesting = true;
+                            break;
+                        }
+                    }
+
+                    // **Filter by the OBJECT, not only by the name.** Measured 2026-09-18: the only
+                    // game-side line the name filter caught for a real hit was
+                    // `ExecuteUbergraph_BP_HpHitable` on the player's own health component -- and an
+                    // ubergraph is the COMPILED event graph, so the nodes inside it are not separate
+                    // UFunction calls and whatever EVENT enters it carries none of the words above.
+                    // A name list is therefore a guess about the answer, which is the failure mode
+                    // `checklists/before-a-probe.md` opens with. Anything whose context IS a
+                    // `BP_HpHitable` is logged regardless of what it is called, so the component's
+                    // real vocabulary can be read rather than guessed.
+                    StringType context_name = context ? context->GetFullName() : StringType(STR("<null>"));
+                    if (!interesting && context_name.find(STR("BP_HpHitable")) != StringType::npos)
+                    {
+                        interesting = true;
+                    }
+                    if (!interesting)
+                    {
+                        return;
+                    }
+
+                    // **Decode the ubergraph's own EntryPoint and Attacker, every time -- unconditional
+                    // on the de-dup below, since this IS the "watch a real hit" instrument the
+                    // 2026-09-18 session needed.** Three BPI_* interface calls (`BPI_PerformDamageResponse`,
+                    // `BPI_ContactDamageResponse`, `BPI_CombatDeath`) each did nothing when called
+                    // directly with `Attacker`/`incomingHitboxInfo` left at their null defaults -- the
+                    // dump named EntryPoint and two same-named `Attacker` parameters
+                    // (`K2Node_Event_Attacker`/`_1`, one per merged interface) as exactly the fields
+                    // that would explain it. Read here from the FUNCTION's own reflected offsets
+                    // (never assumed), against the real `params` buffer this hook receives --
+                    // the same "named reads only" shape as `probes/probe_dump/`, just off a stack
+                    // buffer instead of an object.
+                    if (params && name == STR("ExecuteUbergraph_BP_HpHitable"))
+                    {
+                        for (FProperty* param : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+                        {
+                            if (!param)
+                            {
+                                continue;
+                            }
+                            const StringType pname = param->GetName();
+                            const StringType pclass = param->GetClass().GetName();
+                            uint8_t* at = static_cast<uint8_t*>(params) + param->GetOffset_Internal();
+                            if (pname == STR("EntryPoint") && pclass == STR("IntProperty"))
+                            {
+                                Output::send(STR("[MeshGhostPseudo] UBERGRAPH_DECODE: on '{}': EntryPoint={}\n"),
+                                             context_name, *reinterpret_cast<int32_t*>(at));
+                            }
+                            else if (pclass == STR("ObjectProperty") &&
+                                     (pname.find(STR("Attacker")) != StringType::npos ||
+                                      pname.find(STR("HitPerson")) != StringType::npos))
+                            {
+                                // **ADDRESS ONLY, NEVER THE POINTEE.** Crashed the game 2026-09-18
+                                // (`EXCEPTION_ACCESS_VIOLATION` inside UE4SS.dll) by calling
+                                // `GetFullName()` here: `ExecuteUbergraph_BP_HpHitable`'s single
+                                // params buffer is shared across every merged interface's fields,
+                                // so a field belonging to an entry point OTHER than the one that
+                                // actually fired is uninitialized stack garbage, not a null the
+                                // pointer check catches -- exactly the trap `probe_dump/` was
+                                // built to avoid (`../../agent_docs/pitfalls/by-lesson.md`, "An
+                                // object IsValid() refuses is address-only"). Print the raw
+                                // pointer value and stop there.
+                                UObject* value = *reinterpret_cast<UObject**>(at);
+                                Output::send(STR("[MeshGhostPseudo] UBERGRAPH_DECODE: on '{}': {} = {}\n"),
+                                             context_name, pname,
+                                             value ? std::to_wstring(reinterpret_cast<uintptr_t>(value)) : StringType(STR("<null>")));
+                            }
+                        }
+                    }
+
+                    // **De-duplicate on the name AND the object, never the name alone.** Measured
+                    // 2026-09-18, and it cost a reading in the same run: `dieFade` printed for a
+                    // GHOST (our own mirror calling it) and the player's own `dieFade` through a
+                    // real death was then swallowed as a repeat, so the log said the player never
+                    // died. The same verb on a different object is a different fact.
+                    static const bool repeat_every_call = dev_toggle_contains(STR("log_damage_fns.txt"), "repeat");
+                    if (!repeat_every_call && !announced.insert(name + STR("|") + context_name).second)
+                    {
+                        return;
+                    }
+                    Output::send(STR("[MeshGhostPseudo] DAMAGE_FN_PROBE: {} on '{}'\n"), name, context_name);
+                },
+                Hook::FCallbackOptions{.OwnerModName = STR("MeshGhostPseudo"), .HookName = STR("DamageFnProbe")});
+        }
+
         init_game_state_pre_callback_id = Hook::RegisterInitGameStatePreCallback(
             [this](Hook::TCallbackIterationData<void>&, AGameModeBase*) {
                 Output::send(STR("[MeshGhostPseudo] HOOK: InitGameState PRE fired -- releasing ghosts (covers a same-level save reload).\n"));
@@ -19210,6 +19572,35 @@ namespace MeshGhostPseudo
                 }
             }
         }
+        else if (type == "session_policy")
+        {
+            // **First handler for this message on this adapter.** `contract.md`: sent right after
+            // `bridge_ready` and again on change; `chaser_contact` is `"hurt"`/`"kill"` or ABSENT
+            // (absent means off, including when the chaser itself is disabled). `ghost_collision`
+            // is read here too, though this adapter ships no solid ghost -- so it is logged once
+            // rather than silently ignored, per `../CLAUDE.md`'s "an adapter that cannot honour a
+            // shared setting logs that once".
+            size_t rb = 0, re = 0, pb = 0, pe = 0;
+            if (!json_root_body(line, rb, re) || !json_object_member(line, rb, re, "payload", pb, pe))
+            {
+                return;
+            }
+            const std::string contact = json_string_member(line, pb, pe, "chaser_contact");
+            if (contact != g_chaser_contact_mode)
+            {
+                g_chaser_contact_mode = contact;
+                Output::send(STR("[MeshGhostPseudo] SESSION_POLICY: chaser_contact = \"{}\".\n"),
+                             to_wide_ascii(g_chaser_contact_mode.empty() ? "off" : g_chaser_contact_mode));
+            }
+            static bool logged_collision_once = false;
+            if (!logged_collision_once)
+            {
+                logged_collision_once = true;
+                const std::string collision = json_string_member(line, pb, pe, "ghost_collision");
+                Output::send(STR("[MeshGhostPseudo] SESSION_POLICY: ghost_collision = \"{}\" -- this adapter ships no solid ghost and does not act on it.\n"),
+                             to_wide_ascii(collision));
+            }
+        }
         else if (type == "despawn_remote")
         {
             // Payload-level reads, scoped for the reason render_remote's are -- see the
@@ -19472,6 +19863,42 @@ namespace MeshGhostPseudo
         perf_start(PERF_LOCAL_STATE);
         if (controller && pawn_obj)
         {
+            // **The `BP_HpHitable` function vocabulary, once. Armed by `dump_hphitable.txt`,
+            // 2026-09-18.** `log_damage_fns.txt` (above) proved nothing NAMED damage/hurt/hp/
+            // health/kill/die/dead is ever called on it through ProcessEvent -- only the compiled
+            // ubergraph itself runs. So this asks the class what it OFFERS instead of guessing
+            // another name to watch for: every property and every function with its parameter
+            // types, through the proven `census_named_fields` walker (named reads and reflected
+            // metadata only, the safe shape -- `probes/probe_dump/`'s method, not a blind walk).
+            // One-shot: it costs a class-chain walk, so it runs once and disarms itself.
+            static bool hphitable_dumped = false;
+            // **Disarm only on SUCCESS.** First run (2026-09-18) disarmed unconditionally and hit
+            // the title screen's DefaultPawn, which has no BP_HpHitable -- so it reported failure
+            // once and then stayed permanently silent for the rest of the process, including after
+            // the real pawn spawned. Retrying on every miss is what a toggle file this cheap should
+            // do; the class-chain walk it guards only runs once it actually has something to dump.
+            if (!hphitable_dumped && dev_toggle_present(STR("dump_hphitable.txt")))
+            {
+                if (UObject** hitable = mg_property_value<UObject*>(pawn_obj, STR("BP_HpHitable")); hitable && *hitable)
+                {
+                    hphitable_dumped = true;
+                    Output::send(STR("[MeshGhostPseudo] HPHITABLE_DUMP: starting -- {}\n"), (*hitable)->GetFullName());
+                    census_named_fields(*hitable, STR("player's BP_HpHitable"), matches_everything,
+                                        STR("HPHITABLE_DUMP"));
+                }
+                else
+                {
+                    static bool logged_miss = false;
+                    if (!logged_miss)
+                    {
+                        logged_miss = true;
+                        UClass* pawn_class = pawn_obj->GetClassPrivate();
+                        Output::send(STR("[MeshGhostPseudo] HPHITABLE_DUMP: 'BP_HpHitable' not on this pawn yet ({}) -- will keep checking.\n"),
+                                     pawn_class ? pawn_class->GetName() : StringType(STR("?")));
+                    }
+                }
+            }
+
             // Bug found live 2026-08-13: this must only count while possessing the REAL player
             // pawn. The title screen's own DefaultPawn is a valid controller+pawn pair too and
             // sits there for several real seconds before "Start" -- counting from any valid pawn
@@ -25385,39 +25812,149 @@ namespace MeshGhostPseudo
                 continue;
             }
             perf_start(PERF_TAIL_EVENTS);
+            // **A CHASER never plays the hurt reaction** (below) **and is the only id chaser
+            // contact ever acts on** (further below) -- see ADR 0068, `contract.md`: "`chaser_contact`
+            // ... applies to `chaser:<n>` ids only, never to a replay or a real peer." Deliberately
+            // NOT `render_remote.cosmetic`: cosmetic is true for replays too, and replays keep both
+            // the hurt reaction and their immunity from dealing contact damage.
+            const bool is_chaser = id.rfind("chaser:", 0) == 0;
+
             // Hurt reaction on the ghost -- see MIRROR_HURT_REACTION, including why this reads the
             // player's health around the call.
             if constexpr (MIRROR_HURT_REACTION)
             {
+                // A peer's ghost and a replay ghost blinking red is faithful mirroring: that player,
+                // or that recording, really did take a hit at that moment. A chaser is an adversary
+                // in a game mode, and one that looks like it is the thing taking damage reads as a
+                // bug -- the more so now that chaser contact can hurt the player.
                 static bool hurt_mirror_disarmed = false;
                 if (!hurt_mirror_disarmed && remote.target_hurt_count > remote.last_seen_hurt_count)
                 {
+                    // Consumed for a chaser too, so suppressing the call cannot leave a
+                    // permanently-true edge behind for this ghost.
                     remote.last_seen_hurt_count = remote.target_hurt_count;
 
-                    double hp_before = 0.0;
-                    const bool have_before = read_shared_current_hp(pawn_obj, hp_before);
-
-                    static bool logged_hurt = false;
-                    const bool called = call_perform_damage_response(remote.ghost, 0);
-                    if (!logged_hurt)
+                    if (is_chaser)
                     {
-                        logged_hurt = true;
-                        Output::send(called
-                                         ? STR("[MeshGhostPseudo] ghost hurt: running the pawn's own 'BPI_PerformDamageResponse'.\n")
-                                         : STR("[MeshGhostPseudo] WARNING: 'BPI_PerformDamageResponse' does not resolve on the ghost -- no hurt reaction.\n"));
+                        static bool logged_chaser_skip = false;
+                        if (!logged_chaser_skip)
+                        {
+                            logged_chaser_skip = true;
+                            Output::send(STR("[MeshGhostPseudo] chaser hurt reaction SUPPRESSED -- a chaser never blinks red (the user's call, 2026-09-18); peer and replay ghosts keep it.\n"));
+                        }
                     }
-
-                    // **The tripwire.** If the call moved the shared health, this mirror is doing
-                    // the one thing the project forbids and it stops NOW -- not at the next
-                    // rebuild, not when somebody notices their run going wrong.
-                    double hp_after = 0.0;
-                    if (called && have_before && read_shared_current_hp(pawn_obj, hp_after) && hp_after != hp_before)
+                    else
                     {
-                        hurt_mirror_disarmed = true;
-                        Output::send(STR("[MeshGhostPseudo] DISARMED the hurt mirror: calling 'BPI_PerformDamageResponse' on a ghost changed the player's health {} -> {}. A ghost must never affect the player's run.\n"),
-                                     hp_before, hp_after);
+                        double hp_before = 0.0;
+                        const bool have_before = read_shared_current_hp(pawn_obj, hp_before);
+
+                        static bool logged_hurt = false;
+                        const bool called = call_perform_damage_response(remote.ghost, 0);
+                        if (!logged_hurt)
+                        {
+                            logged_hurt = true;
+                            Output::send(called
+                                             ? STR("[MeshGhostPseudo] ghost hurt: running the pawn's own 'BPI_PerformDamageResponse'.\n")
+                                             : STR("[MeshGhostPseudo] WARNING: 'BPI_PerformDamageResponse' does not resolve on the ghost -- no hurt reaction.\n"));
+                        }
+
+                        // **The tripwire.** If the call moved the shared health, this mirror is doing
+                        // the one thing the project forbids and it stops NOW -- not at the next
+                        // rebuild, not when somebody notices their run going wrong.
+                        double hp_after = 0.0;
+                        if (called && have_before && read_shared_current_hp(pawn_obj, hp_after) && hp_after != hp_before)
+                        {
+                            hurt_mirror_disarmed = true;
+                            Output::send(STR("[MeshGhostPseudo] DISARMED the hurt mirror: calling 'BPI_PerformDamageResponse' on a ghost changed the player's health {} -> {}. A ghost must never affect the player's run.\n"),
+                                         hp_before, hp_after);
+                        }
                     }
                 }
+            }
+
+            // **Chaser contact (ADR 0068, Part E) -- first live pass, 2026-09-18.**
+            if (is_chaser && !g_chaser_contact_mode.empty() && remote.ghost)
+            {
+                // `player_frozen_sent` is this adapter's own record of what it last told the core
+                // (ADR 0053) -- reused rather than re-derived, so "what we tell the chaser pack to
+                // stop for" and "what we enforce locally" can never disagree.
+                const bool overlapping = !player_frozen_sent &&
+                    chaser_capsules_overlap(static_cast<AActor*>(pawn_obj), remote.ghost);
+
+                if (g_chaser_contact_mode == "hurt")
+                {
+                    // Continuous, not edge-triggered -- see chaser_capsules_overlap's own comment
+                    // for why the game's own i-frame gate is trusted to throttle this rather than a
+                    // second cooldown invented here.
+                    if (overlapping)
+                    {
+                        UObject** hitable = mg_property_value<UObject*>(pawn_obj, STR("BP_HpHitable"));
+                        double hp_before = 0.0;
+                        const bool have_before = read_shared_current_hp(pawn_obj, hp_before);
+                        // `BPI_TouchHazard(Location)`, not `BPI_ContactDamageResponse` -- see
+                        // call_touch_hazard's own comment. The player's own current location, since
+                        // a hazard's Location is presumably where THEY touched it, not the chaser.
+                        const FVector player_loc = static_cast<AActor*>(pawn_obj)->K2_GetActorLocation();
+                        static bool logged_hurt_call = false;
+                        const bool called = hitable && *hitable && call_touch_hazard(*hitable, player_loc);
+                        if (!logged_hurt_call)
+                        {
+                            logged_hurt_call = true;
+                            Output::send(called
+                                             ? STR("[MeshGhostPseudo] CHASER_CONTACT: hurt -- running the player's own 'BPI_TouchHazard'.\n")
+                                             : STR("[MeshGhostPseudo] WARNING: CHASER_CONTACT hurt -- 'BPI_TouchHazard' did not resolve or the player's BP_HpHitable is missing.\n"));
+                        }
+                        // **First live test (2026-09-18) called this and produced no visible effect
+                        // on screen** -- logged every time (not just once) until that is understood,
+                        // so a HP move that only happens sometimes is not hidden by the one-shot log
+                        // above.
+                        if (called && have_before)
+                        {
+                            double hp_after = 0.0;
+                            if (read_shared_current_hp(pawn_obj, hp_after))
+                            {
+                                Output::send(STR("[MeshGhostPseudo] CHASER_CONTACT: hurt -- CurrentHp {} -> {} across the call.\n"),
+                                             hp_before, hp_after);
+                            }
+                        }
+                    }
+                }
+                else if (g_chaser_contact_mode == "kill")
+                {
+                    // **Latched on the PAWN'S OWN IDENTITY, not the overlap edge.** The geometric
+                    // edge-latch alone re-fired dozens of times a second in the first live test
+                    // (2026-09-18): a cluster of chasers near a stationary player produced enough
+                    // position jitter (interpolation) that `overlapping` flickered false/true
+                    // between ticks, and each flicker was a fresh "edge". A player has exactly ONE
+                    // life at a time, so "already killed this pawn" is the correct gate -- it
+                    // survives jitter by construction and clears itself for free on the next
+                    // respawn, which the mod already measured makes an entirely new pawn object.
+                    static UObject* last_killed_pawn = nullptr;
+                    if (overlapping && !remote.chaser_contact_overlapping && pawn_obj != last_killed_pawn)
+                    {
+                        last_killed_pawn = pawn_obj;
+                        UObject** hitable = mg_property_value<UObject*>(pawn_obj, STR("BP_HpHitable"));
+                        double hp_before = 0.0;
+                        const bool have_before = read_shared_current_hp(pawn_obj, hp_before);
+                        const bool called = hitable && *hitable && call_combat_death(*hitable, 0.0);
+                        Output::send(called
+                                         ? STR("[MeshGhostPseudo] CHASER_CONTACT: kill -- running the player's own 'BPI_CombatDeath'.\n")
+                                         : STR("[MeshGhostPseudo] WARNING: CHASER_CONTACT kill -- 'BPI_CombatDeath' did not resolve or the player's BP_HpHitable is missing.\n"));
+                        // **Unverified question, answered live the first time this fires:** does
+                        // this also zero CurrentHp, or only play the dissolve/respawn while HP
+                        // stays wherever it was? Logged, not assumed -- `UNVERIFIED.md` records it.
+                        if (called && have_before)
+                        {
+                            double hp_after = 0.0;
+                            if (read_shared_current_hp(pawn_obj, hp_after))
+                            {
+                                Output::send(STR("[MeshGhostPseudo] CHASER_CONTACT: kill -- CurrentHp {} -> {} across the call.\n"),
+                                             hp_before, hp_after);
+                            }
+                        }
+                    }
+                }
+                remote.chaser_contact_overlapping = overlapping;
             }
 
             // Death fade on the ghost -- see MIRROR_DEATH_FADE. Edge-triggered off the peer's

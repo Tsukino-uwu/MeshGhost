@@ -3815,3 +3815,53 @@ records `426bace6` are logged in `phase10.md` ("the fifth adversarial review, Go
 
 "A fix is proven in Lua too, before its C++ is written" (the user, 2026-09-04), moved out of agent memory with the rig
 rules that went to `running-the-rig.md` (`877e24a1`; `phases/phase13.md`, the Emerald chat's session end). No adapter code changed.
+
+## 2026-09-18 — Chaser contact: Part A's leak mechanism found, Part B measured but the damage call unresolved, Part E built and blocked
+
+Full account, including every probe, every measured number and the working theory for what to try
+next, is in `chaser-planning.md` itself (Parts A, B and E rewritten in place rather than duplicated
+here). This entry is the session summary a future session should read first.
+
+**Part A (the three ghost-attack leaks): mechanism found, fix not built.** `probe_hitlist/` (finally
+run live, having sat parked since 2026-09-15) caught the save-crystal leak in the act: a chaser-planning
+Sunsetter next to a save point added it to the attacking ghost's own `hitActorsArray` — the SAME array
+`GHOST_PREHIT_PLAYER` pre-fills for the player, which is why the leak fires once per ghost and again
+after a reload (a new pawn, a fresh array). Sunsetter/Strikebreak reach farther than melee's own query;
+the exact wider mechanism is not yet isolated.
+
+**Part B (how the game hurts/kills): the visible facts are measured; the artificial trigger is not
+found.** `enemy_hit_watch.lua` (read-only) clocked real contact damage at 5 HP typically, 10 once, 0 on
+a strong knockback; i-frames at ≤~1.56s; death-to-respawn at ~3.0s through a new pawn. But **four
+different `BPI_*` interface calls — `BPI_PerformDamageResponse`, `BPI_ContactDamageResponse`,
+`BPI_CombatDeath`, `BPI_TouchHazard` — each called correctly and each did NOTHING** (no HP change, no
+visible effect). The likely reason: these interfaces read `Attacker`/`incomingHitboxInfo` state a real
+attacker sets before dispatching, left null in every test. Untried: writing `Attacker` (a plain object
+pointer, not a guessed struct) before calling. The real dispatch point, `ExecuteUbergraph_BP_HpHitable`,
+was decoded live and found NOT useful as a discriminator (same `EntryPoint=15` for a player taking
+damage AND an enemy taking damage from the player) — a dead end, recorded so it isn't retried.
+
+**Part E (the adapter): built, currently inert.** `session_policy` parsing, the capsule-overlap contact
+test, and both call sites exist and round-trip correctly end to end (`config.json` → core →
+`SESSION_POLICY: chaser_contact = "hurt"` in the log) — they just call into Part B's unresolved
+mechanism, so nothing happens on screen. Grace windows (chaser spawn, player respawn) and the
+i-frame/death skip are NOT built yet.
+
+**Two crashes, both fixed the same session, both from Lua-side guesses about a native call's shape:**
+(1) `BPI_PerformDamageResponse` called with `DamageType` 2 or 3 crashed instantly — the valid range is
+apparently just 0/1; `damage_sweep.lua`'s header has the account, and that probe must not be re-armed
+past type 1. (2) The C++ ubergraph decoder crashed once from `GetFullName()` on a garbage pointer read
+out of a shared params buffer — fixed to print the raw address only, the same "IsValid() refuses is
+address-only" lesson this repo already carries, violated once here.
+
+**One unrelated bug found and logged, not investigated:** chaser ghosts went invisible after the user
+died and respawned (`UNVERIFIED.md`, OPEN, 2026-09-18 — logged at the user's request mid-session).
+
+**User asks answered along the way, now standing rules:** chasers never play the hurt-reaction blink
+(peer/replay ghosts keep it) — built, and confirmed on screen the same session (loopback ghost still
+blinks, chasers do not). `BPI_TouchHazard`'s amount is not configurable (no damage parameter exists);
+for a stronger effect than a fixed hazard hit, `kill` (`BPI_CombatDeath`, once it works) is the correct
+tool, not a modified `hurt`.
+
+Next session: either the untried `Attacker`-pointer write, or step back from per-function guessing
+entirely and probe what a REAL hazard/enemy actor's own overlap does before it calls into the victim,
+so the full calling convention is copied rather than guessed one field at a time.
