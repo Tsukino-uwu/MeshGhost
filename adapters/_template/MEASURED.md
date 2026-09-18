@@ -37,8 +37,9 @@ When a measurement has a visible consequence, the bytes go here and the visible 
 
 **The rule for an entry** (`CLAUDE.md`, MEASURED OR OBSERVED ONLY; `agent_docs/licensing.md`):
 
-- **It names its evidence and its date**: the probe or test, the log or capture, what was done in the
-  game while it ran. "Measured" with no instrument named is not an entry.
+- **It names its evidence and its date**: the probe or test, what was done in the game while it ran,
+  and what it read. "Measured" with no instrument named is not an entry. A log or capture is
+  gitignored and local, so it is described, never cited by file name (`licensing.md`).
 - **It is true as of that date, on that build.** Say which ROM, version or install; a fact from one
   build is not a fact about another.
 - **A source is never the evidence.** A decompilation, wiki, symbol file, dump or other project says

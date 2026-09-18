@@ -3,7 +3,7 @@
   "game": "emerald",
   "variant": "vanilla",
   "description": "Go to a tile on any map, running: fight a trainer who spots the player (effective, forget strong_variety), run from a wild battle (run_wild: a trainer's battle is still fought), read a message that stops the walk, and go on. Stops on a whiteout, and on anything no rule covers.",
-  "note": "The story sessions' scratch loop (trip.py, 2026-09-17), as rules. battle's no_battle is what it answered when a trainer's words ended with no battle.",
+  "note": "The loop the story sessions ran by hand (2026-09-17), as rules. battle's no_battle is what it answered when a trainer's words ended with no battle.",
   "params": {"map": "string", "x": "number", "y": "number"},
   "call": {"tool": "goto", "args": {"map": "$map", "x": "$x", "y": "$y", "run": true}},
   "rules": [

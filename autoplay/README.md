@@ -482,4 +482,5 @@ each run's `setup` and `steps` as their own segments, walked or reached.
 ## What stays out of the repo
 
 `runs/` and `states/` are gitignored, so nothing tracked depends on a file in them still existing (The knowledge
-store). A savestate carries game data and never enters the repo: a scenario builds its state with cheats. Every capture goes to `dev-scripts/shots/<game>/`.
+store). A savestate carries game data and never enters the repo: a scenario builds its state with cheats. Every
+capture goes to `dev-scripts/shots/<game>/`.

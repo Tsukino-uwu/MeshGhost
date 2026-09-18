@@ -80,7 +80,10 @@ it left open where a fact may COME FROM, and a reworded source walked through th
 as decided with the user the same day:
 
 - **A claim is written as fact only when it names OUR evidence, with its date**: a probe log or trace,
-  a test, a file we built or hashed ourselves, or the user's confirmation on screen.
+  a test, a file we built or hashed ourselves, or the user's confirmation on screen. **Name what is
+  tracked; describe what is not** (user, 2026-09-18): a probe script or test is named so it can be
+  re-run, but a log, capture, run log or savestate is gitignored and local to one machine, so the
+  entry says what was done, what it read and when, and never cites that file as where the fact lives.
 - **A source is a map, never the evidence.** A decompilation, a wiki, a dump or another project may be
   read first — it is the fastest way to learn WHERE to measure — but what it says enters a tracked
   file only as a question to measure (the adapter's `MEASURED.md`, its "Not measured yet" section;

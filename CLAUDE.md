@@ -68,7 +68,7 @@ to one line per entry instead. The cases: `agent_docs/claude-md-cap.md`.
 - **Nothing goes in that couldn't be published. The test is "fine in a public repo forever?", not
   "does a license permit it?"** No or unclear means out; a permissive license is not an exception.
 - **MEASURED OR OBSERVED ONLY — NOTHING BORROWED** (user, 2026-09-13). **A claim is written as fact
-  only when it names OUR evidence, dated**: a probe log or trace, a test, a file we built or hashed (a
+  only when it names OUR evidence, dated**: a probe run (never its gitignored log), a test, a file we built or hashed (a
   byte-identical build's `.sym` proves an ADDRESS, never what the byte means), or the user on screen.
   A decomp, wiki, dump or other project is where to LOOK; what it says waits in that adapter's
   `MEASURED.md`, last section, as something to measure. A short name may point at our value; source

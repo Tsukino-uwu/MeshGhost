@@ -62,8 +62,8 @@ measurement.**
 
 ## Where the results go
 
-- Your measurements go to **that adapter's own `MEASURED.md`**, each naming its probe, log and date
-  (since 2026-09-16); only what the user can judge on screen goes to `UNVERIFIED.md`.
+- Your measurements go to **that adapter's own `MEASURED.md`**, each naming its probe, what it read
+  and the date (since 2026-09-16; its log is gitignored, so never cited by name); only what the user can judge on screen goes to `UNVERIFIED.md`.
 - **Nothing adapter/game-side on a vanilla game becomes "verified" until the USER confirms it on
   screen.** No probe log, console read, or screenshot of yours substitutes. A patched ROM
   (Archipelago etc.) is yours to confirm visually — say so.
