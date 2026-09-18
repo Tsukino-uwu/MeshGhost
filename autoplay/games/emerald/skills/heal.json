@@ -14,7 +14,7 @@
   ],
   "max_calls": 8,
   "succeeded": [
-    "run log 2026-09-17_171332.417648, segment 4 (walked): from WATTSON's gym floor (10.0 (5,3)) to Mauville's Center 10.5, MARSHTOMP 67 to 95 of 95 HP, done in 4 calls",
-    "run log 2026-09-17_171332.417648, segment 7 (walked): from Mauville 0.2 (20,10) to Center 10.5, the nurse's four boxes to closed, done in 4 calls"
+    "2026-09-17 (walked):from WATTSON's gym floor (10.0 (5,3)) to Mauville's Center 10.5, MARSHTOMP 67 to 95 of 95 HP, done in 4 calls",
+    "2026-09-17, the same run (walked):from Mauville 0.2 (20,10) to Center 10.5, the nurse's four boxes to closed, done in 4 calls"
   ]
 }

@@ -76,7 +76,7 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
 
 ## Money and items
 
-Walked in the run logs of 2026-09-17 (`174529.077127`, `181542.300302`, `185825.337345`, `192410.553244`); the bytes
+Walked in four runs on 2026-09-17; the bytes
 are in MEASURED.md ("A Mart", "The bag inside a battle").
 
 - **A Mart**: `talk` the clerk, BUY, `select` the item; in the quantity box `press Right` then `press Down` twice asked

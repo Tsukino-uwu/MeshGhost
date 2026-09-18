@@ -1,7 +1,7 @@
 # Emerald (vanilla): the way through, as it was walked
 
-**Only what a session walked**: each stretch names the run it was walked in and the date, as history only (the logs are
-gitignored and local; README, The knowledge store). Maps are
+**Only what a session walked**: each stretch says when and how it was walked, never which log (the logs are gitignored and
+local; README, The knowledge store). Maps are
 `group.number`, as `observe`'s `location.map` names them; a tile is (x,y) on that map. A trip is `run_skill trip` with
 that map and tile. **Nothing past the last stretch is known here**: a session that walks further adds the stretch, in
 the same form, when it ends. Kept under 8 KB: replace a stretch that is walked better, never add a second copy.
@@ -15,14 +15,14 @@ door of the last Center entered (MEASURED.md, 2026-09-17).
 
 ## Littleroot to the STONE BADGE
 
-Run log `2026-09-17_120845.522443`. Littleroot 0.9, 0.16, Oldale 0.10, 0.18, 0.17, Petalburg 0.0; BIRCH's lab 1.4
+Walked 2026-09-17. Littleroot 0.9, 0.16, Oldale 0.10, 0.18, 0.17, Petalburg 0.0; BIRCH's lab 1.4
 (POKéDEX, POKé BALLS after MAY on 0.18). Petalburg gym 8.1 (door (15,8)): `talk` local 1 (DAD). One trip to Rustboro 0.3
 (27,34) crossed 0.19 and the Woods 24.11 (exit (14,5) with Up). Gym 11.3: trip (5,17), `talk` local 1 (ROXANNE); MUDKIP
 won at Lv 14-16 with WATER GUN; STONE BADGE.
 
 ## The STONE BADGE to Slateport
 
-Run log `2026-09-17_131645.118278`. Trip 0.31 (2,9), `goto` (47,8), `talk` local 6: DEVON GOODS back; MR. STONE's scene
+Walked 2026-09-17. Trip 0.31 (2,9), `goto` (47,8), `talk` local 6: DEVON GOODS back; MR. STONE's scene
 runs on the way back to 11.5. 0.19: trips (10,20), (17,50), BRINEY's cottage 17.0 (5,6), `talk` local 1, then from (7,6)
 `talk` local 2 beside PEEKO's path: Dewford 0.11. Gym 3.3 (door (8,17)), BRAWLY local 1: MUD SHOT at Lv 21 won. Trip
 24.7 (5,10), `talk` local 1: HM05; trip 24.10 (7,7), `talk` local 1 (STEVEN). BRINEY at 0.11 (11,9), `talk` local 2,
@@ -30,14 +30,13 @@ runs on the way back to 11.5. 0.19: trips (10,20), (17,50), BRINEY's cottage 17.
 
 ## Slateport to the DYNAMO BADGE
 
-Run log `2026-09-17_131645.118278`. One trip to Mauville 0.2 (20,10) over 0.25. MAY's trigger (34,56) on 0.25: MUD-SLAP
+Walked 2026-09-17. One trip to Mauville 0.2 (20,10) over 0.25. MAY's trigger (34,56) on 0.25: MUD-SLAP
 three times then TACKLE beat GROVYLE from a snapshot. Gym 10.0 (door (8,5)): every planned route to switch (8,9) crosses
 (4,12); `walk` legs through (4,11) and (5,11). `talk` local 1 (WATTSON): MUD SHOT at Lv 32, DYNAMO BADGE.
 
 ## The DYNAMO BADGE to Fallarbor
 
-Run logs `2026-09-17_181542.300302.ndjson`, `2026-09-17_185825.337345.ndjson`, `2026-09-17_192410.553244.ndjson`,
-2026-09-17, from WATTSON's gym; the user: *"it needs to continue to the left around the desert"*, *"you need a mach
+Walked three times 2026-09-17, from WATTSON's gym; the user: *"it needs to continue to the left around the desert"*, *"you need a mach
 bike to go up the mud slides"*.
 - `run_skill heal` 10.5 (4 calls); trip 0.2 (32,15), `walk up` into 10.2, `press B` 60, `talk` local 1: HM06, taught
   over TACKLE (the HM is index 5 in the TMs & HMs list; game.md, Money).
@@ -53,12 +52,12 @@ bike to go up the mud slides"*.
 
 ## Fallarbor to MT. CHIMNEY
 
-Run logs `2026-09-17_181542.300302.ndjson` and `2026-09-17_185825.337345.ndjson`, 2026-09-17.
+Walked twice 2026-09-17, and a third time where noted.
 - `run_skill heal` 5.4, trip 0.29 (8,64) (7 calls, three battles), `walk up` into 24.0 (27,18), `press B` 60. Local 3
   (graphics 59) at (27,5): FULL HEAL.
 - Trip 24.0 (16,22) (1 call), `talk` local 6 (graphics 119) answers dialogue_open, `advance_text`: TEAM MAGMA takes the
   METEORITE, ARCHIE's scene; no battle. Once the walk to local 6 answered left_overworld (a wild ZUBAT): `battle
-  run_wild`, then `talk` local 6 again (run log `2026-09-17_192410.553244.ndjson`).
+  run_wild`, then `talk` local 6 again (the third walk).
 - `run_skill heal` 5.4 (6-12 calls); trip 0.27 (22,11) (9-17 calls), `walk up` into 24.14 (26,4), `press B` 60.
   **Cross 24.14 with `goto` (26,35) run and `battle run`**: a trip whited out there (game.md, Battles). `walk down`
   twice, `press B` 60: 0.27 (11,37). Trip 0.27 (28,28) (3 calls).
@@ -67,13 +66,11 @@ Run logs `2026-09-17_181542.300302.ndjson` and `2026-09-17_185825.337345.ndjson`
 - Trip 24.12 (10,9) (5 calls, two trainer battles); `talk` local 2 (graphics 196, MAXIE, at (13,6)): MIGHTYENA, ZUBAT, CAMERUPT,
   beaten by SWAMPERT Lv 36-37 with `battle effective` from 66/128 (`stop_hp_below` stopped at 33; WATER GUN
   fainted CAMERUPT in one hit); again from 50/128 with `stop_hp_below` 0.3, one battle SUPER POTION at 38 (game.md,
-  Money), run log `2026-09-17_192410.553244.ndjson`. Two
-  field SUPER POTIONs (game.md, Money) before going down.
+  Money), the third walk. Two field SUPER POTIONs (game.md, Money) before going down.
 
 ## MT. CHIMNEY to the HEAT BADGE
 
-Run logs `2026-09-17_181542.300302.ndjson`, `2026-09-17_185825.337345.ndjson` and
-`2026-09-17_192410.553244.ndjson` (2026-09-17).
+Walked three times 2026-09-17.
 - Trip 24.12 (20,40) (1 call), `walk down` twice, `press B` 60: 24.13 (13,5). Trip 24.13 (14,39) (1-2 battles), `walk
   down` twice, `press B` 60: 0.27 (6,46). `run_skill heal` 4.5 (4 calls, into Lavaridge). Then trip 4.1 (11,18) from
   4.5 (1 call) lands on the path's start below.

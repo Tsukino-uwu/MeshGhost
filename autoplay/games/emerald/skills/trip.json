@@ -19,7 +19,7 @@
   ],
   "max_calls": 60,
   "succeeded": [
-    "run log 2026-09-17_185456.075972, segment 2 (walked): 0.27 (22,11) across 24.14 to (26,35), one wild battle answered run_wild, done in 3 calls",
-    "run log 2026-09-17_185538.784889, segment 2 (walked until a restore after it): the same trip again, one wild battle answered run_wild, done in 3 calls; a hand-run battle run_wild on the same route read \"Got away safely!\", outcome_raw 4 (run log 2026-09-17_185518.357652)"
+    "2026-09-17 (walked):0.27 (22,11) across 24.14 to (26,35), one wild battle answered run_wild, done in 3 calls",
+    "2026-09-17, a second run (walked until a restore after it):the same trip again, one wild battle answered run_wild, done in 3 calls; a hand-run battle run_wild on the same route read \"Got away safely!\", outcome_raw 4 (2026-09-17)"
   ]
 }

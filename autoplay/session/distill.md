@@ -3,9 +3,9 @@ You have at most {{.Budget}} model calls for this. Edit only files in `autoplay/
 
 **Measured or observed only.** Write a fact only when this session saw it through the tools: an answer, an `observe`,
 a picture, a `goal` check. What you know about this game from anywhere else does not go in, not even as a hint. Every
-new stretch names this session's run log, `{{.RunLog}}`, and the date, {{.Date}}: a label saying when it was walked,
-not a reference, because the log is gitignored and will not be there for the next session, so write out what was seen.
-Never name a snapshot, a file path outside the repo, or a person.
+new fact says when and how it was found: the date, {{.Date}}, and walked (played through), reached (after a restore or a
+cheat), read through `exec`, or the user's words. Never name the run log (it is gitignored and will not be there for
+the next session: write out what was seen), a snapshot, a file path outside the repo, or a person.
 
 What to write:
 - **`route.md`**: the stretch you walked, in the form of the stretches already there — the maps as `observe` named

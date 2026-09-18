@@ -187,7 +187,7 @@ func runSession(ctx context.Context, o options, stdout, stderr io.Writer) error 
 
 	vars := map[string]any{
 		"Game": o.game, "GameTitle": gameTitle(o.game), "Goal": o.goal, "GoalDescription": before.Goal.Description,
-		"RunLog": filepath.Base(runLog), "Date": started.Format("2006-01-02"),
+		"Date": started.Format("2006-01-02"),
 	}
 
 	// 3. Play.

@@ -190,12 +190,11 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
 ## The knowledge store
 
 What a session learned, for the next one to read: `games/<game>/` (tracked), beside `scenarios/`. **Measured or observed
-only**: every fact names its run log or record and date, and what a model knows of a game from anywhere else is where to
-look, never a fact (`agent_docs/licensing.md`). Each file is kept under about 8 KB and consolidated in place, never
-appended to as a diary. No snapshot is named in any of it: snapshots stay in the gitignored `states/`. **A run log is
-not permanent either** (gitignored `runs/`, local to one machine): its name dates a fact as history, "walked in this
-run", never a reference to go and read, so the fact itself is written out. How a tool behaves cites its code or this
-README, never a run.
+only**: every fact says when and how it was found (the date; walked, reached, read through `exec`, or the user), and
+what a model knows of a game from anywhere else is where to look, never a fact (`agent_docs/licensing.md`). Each file is kept under about 8 KB and consolidated in place, never
+appended to as a diary. No snapshot is named in any of it: snapshots stay in the gitignored `states/`. **Nor is a run
+log** (gitignored `runs/`, local to one machine): the date and how say where a fact came from, and the fact itself is
+written out. How a tool behaves cites its code or this README, never a run.
 
 - **`game.md`** — how to play the game with these tools, and the user's dated guidance. It points to the adapter's
   `MEASURED.md` and this README rather than repeating them.

@@ -3,7 +3,7 @@
   "game": "emerald",
   "variant": "vanilla",
   "description": "Teach a TM or HM from the field BAG, standing in the overworld: the START menu, the BAG, the TMs & HMs pocket, the machine by its index, USE, YES, the party's first Pokemon, and the move to forget by name. Ends with the bag closed.",
-  "note": "DRAFT, never walked: written from the three teachings in the run logs of 2026-09-17 (172659.154119, 181542.300302, 192410.553244) and game.md's Money and items. Every rule matches what those answers held -- the START menu's items, the pocket, the dialogue box, the needs_choice question -- so a step that reads differently ends the run no_rule with that answer, which is what to look at first. `index` is the machine's place in the TMs & HMs list (HM06 was 5); a TM or HM cannot be selected by name.",
+  "note": "DRAFT, never walked: written from the three teachings walked on 2026-09-17 and game.md's Money and items. Every rule matches what those answers held -- the START menu's items, the pocket, the dialogue box, the needs_choice question -- so a step that reads differently ends the run no_rule with that answer, which is what to look at first. `index` is the machine's place in the TMs & HMs list (HM06 was 5); a TM or HM cannot be selected by name.",
   "params": {"index": "number", "forget": "string"},
   "call": {"tool": "press", "args": {"buttons": ["Start"], "frames": 10}},
   "rules": [

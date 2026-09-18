@@ -113,7 +113,7 @@ func TestCounterCountsResponsesNotLines(t *testing.T) {
 
 func TestThePromptsFill(t *testing.T) {
 	vars := map[string]any{"Game": "emerald", "GameTitle": "Pokémon Emerald (vanilla)", "Goal": "story_heat_badge",
-		"GoalDescription": "the fourth badge", "Budget": 400, "RunLog": "x.ndjson", "Date": "2026-09-17"}
+		"GoalDescription": "the fourth badge", "Budget": 400, "Date": "2026-09-17"}
 	for name, text := range map[string]string{"play": PlayPrompt, "distill": DistillPrompt} {
 		got, err := Fill(text, vars)
 		if err != nil || strings.Contains(got, "{{") || strings.Contains(got, "<no value>") {
