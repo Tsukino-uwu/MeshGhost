@@ -16,7 +16,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 - 2026-09-17 — **Autoplay, TEVI: Ribauld beaten on Infernal BBQ, once hitless (115.4 s)**; open: the bomb ring in the air, orbs against hugging, normal enemies hitless, `exec`. `phases/autoplay/tevi.md`.
 - 2026-09-18 — **Vision: a pixel-side instrument, Phase 0 next** — window capture + OpenCV, a PAINTED ghost vs the PLAYER, the pairing no OAM read or screenshot can answer. `plans/vision-plan.md` (untracked).
 - 2026-09-16 — **Prediction: A3 LANDED (ADR 0069, ships off), SCREEN VERDICT OPEN; A2.0 MEASURED** (worst-case transit p99 310–320ms; the dry tail is the 1 s blackouts); A2 undecided. `prediction-planning.md`.
-- 2026-09-18 — **Chaser contact: Part A's leak mechanism FOUND (fix not built); Part B's damage facts MEASURED but the artificial trigger call is UNRESOLVED after four dead ends; Part E BUILT but inert on Part B.** Next: an untried `Attacker`-pointer write, or probe a real hazard's own calling convention. Full account: `phases/phase7.md`, 2026-09-18; live detail in `chaser-planning.md`.
+- 2026-09-18 — **Chaser contact: Part A's leak mechanism FOUND (no fix built); Part B's damage facts MEASURED but the artificial trigger UNRESOLVED, four dead ends; Part E BUILT but inert.** `phases/phase7.md`
 - 2026-09-18, hold to 2026-09-25 — **Strip the build paths out of the four shipped DLLs** (one holds the username): a flag each for three, a full rebuild and a user-judged reload for `UE4SS.dll`. `risks.md`.
 - 2026-09-18 — **netsim: ADR 0046's 450 ms has never been judged on the correlated-loss model** (`-loss-burst`, opt-in since 2026-09-11). `phases/phase10.md`.
 

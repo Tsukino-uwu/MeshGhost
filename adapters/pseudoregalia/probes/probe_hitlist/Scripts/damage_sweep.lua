@@ -38,7 +38,7 @@
 -- **If this question is picked up again, do it from C++ instead**, where `call_perform_damage_response`
 -- already builds a correctly SIZED, fully ZEROED parameter buffer and writes only the DamageType
 -- byte at its own reflected offset (`Plugin.cpp`) -- which is exactly why the shipped hurt mirror has
--- called this function for a year without crashing anything. Reading the real signature from C++ is
+-- called this function since it shipped without crashing anything. Reading the real signature from C++ is
 -- the prerequisite; `attackDirection`'s type is UNESTABLISHED as of this file's date.
 --
 -- WHAT THE RUN DID ESTABLISH before it died, the user watching the screen: the damage type SELECTS
