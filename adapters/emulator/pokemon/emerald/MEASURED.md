@@ -88,8 +88,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 **Vanilla ROM.** Its SHA-1 (`F3AE0881…`) equals our pokeemerald build's and what
 `gameinfo.getromhash()` returns, so the build's addresses are addresses; every meaning below is from
 `probes/text_probe.lua` (read-only) and `probes/charset_probe.lua` (writes the message buffer once),
-read against captures of the same frames (`dev-scripts/shots/emerald/autoplay_text_*` and
-`autoplay_cs_box01`..`13`, gitignored). Used by `autoplay/drivers/bizhawk/games/emerald.lua`, whose
+read against captures of the same frames (thirteen of the charset's boxes among them). Used by `autoplay/drivers/bizhawk/games/emerald.lua`, whose
 table holds the byte-to-character mapping. Moved here from `UNVERIFIED.md` the day this file began.
 
 - **The encoding.** The game's own printer drew every byte 00-F7 in a message box, ten per line
@@ -128,8 +127,8 @@ table holds the byte-to-character mapping. Moved here from `UNVERIFIED.md` the d
 **Vanilla ROM, map 0.10 (the town with the Pokémon Center) and 2.2 (inside it).** From
 `probes/map_probe.lua` (read-only: the grid, behaviours, objects and the header's event lists on
 every tile, facing or elevation change) and `probes/step_probe.lua` (read-only: the player object's
-movement bytes and the avatar block on every frame they change), against captures
-`dev-scripts/shots/emerald/autoplay_map_00`..`03` and the walks that produced them. Used by
+movement bytes and the avatar block on every frame they change), against four captures
+of the map and the walks that produced them. Used by
 `autoplay/drivers/bizhawk/games/emerald.lua` for `local_map`, `nearby`, `warps` and `walk`.
 
 - **Position.** SaveBlock1's x and y plus 7 equal the player object's +0x10/+0x12, at five walked
@@ -174,8 +173,7 @@ movement bytes and the avatar block on every frame they change), against capture
 eight badges). From `probes/party_bag_probe.lua` (read-only: the party, pockets, money and flag bytes,
 dumped on change), `probes/substruct_order_probe.lua` (writes the party in live RAM, restored on
 unload), and autoplay's `set_flag` and `give_item` cheats; each read against captures of what the game
-drew (`dev-scripts/shots/emerald/autoplay_pb_*`, `autoplay_so_*`, `autoplay_badge_*`, `autoplay_gi_*`,
-gitignored). Used by `autoplay/drivers/bizhawk/games/emerald.lua` for `party`, `bag`, `money`,
+drew (the party, its order, the badges, the items given). Used by `autoplay/drivers/bizhawk/games/emerald.lua` for `party`, `bag`, `money`,
 `badges` and both cheats.
 
 - **A party slot is 0x64 bytes** at the address the build names gPlayerParty; the byte named
@@ -281,7 +279,7 @@ climbs for the first several), then the limiter back on. In frames per second:
 an encounter). From `probes/battle_state_probe.lua` (read-only: the battle's globals, its four
 battler records and its message buffer, logged on every change with the pad) through one wild battle
 against a level-3 POOCHYENA, read against captures of every message, both menus and each cursor
-position (`dev-scripts/shots/emerald/autoplay_bt_*`, gitignored). Then three more battles driven by
+position. Then three more battles driven by
 autoplay's tools alone. Used by `autoplay/drivers/bizhawk/games/emerald.lua` for `battle`, the battle
 `menu` and `mode`.
 
@@ -327,7 +325,7 @@ autoplay's tools alone. Used by `autoplay/drivers/bizhawk/games/emerald.lua` for
 **Vanilla ROM, the same save.** From `probes/move_data_probe.lua` (read-only: the 12-byte entries of
 the table the build names gBattleMoves for the MUDKIP's three moves, the 7-byte type name each points
 at, and the string behind each move's entry in gMoveDescriptionPointers), read against captures of the
-summary's BATTLE MOVES page with each move selected (`autoplay_mv_det_1`..`3`). Used by
+summary's BATTLE MOVES page with each of the three moves selected. Used by
 `autoplay/drivers/bizhawk/games/emerald.lua` for each move in `party` and `battle`.
 
 - **+1 the power**: 35 TACKLE, 0 GROWL (drawn "---"), 20 MUD-SLAP.
@@ -345,7 +343,7 @@ summary's BATTLE MOVES page with each move selected (`autoplay_mv_det_1`..`3`). 
 
 **Vanilla ROM, the same save.** Walked with autoplay's `walk` from route 0.16 through the town 0.10 to
 route 0.17, with `probes/battle_state_probe.lua` loaded for the battle, read against captures
-(`dev-scripts/shots/emerald/autoplay_tr_*`, gitignored). The trainer was found with
+of the same moments. The trainer was found with
 `probes/find_objects.py`, which lists a map's character templates from the ROM.
 
 - **Map edges.** Walking up from 0.16 (9,4), the step after (9,0) arrived on 0.10 at (9,19) with
@@ -357,7 +355,7 @@ route 0.17, with `probes/battle_state_probe.lua` loaded for the battle, read aga
   opened its challenge with the trainer walked to (33,16) and `walk` answering `dialogue_open`. A
   template's other trainers were not tried.
 - **The printer's +0x1C read 3** on that challenge while both lines were drawn with the red arrow, before
-  an FA scrolled the text (`autoplay_tr_state3`).
+  an FA scrolled the text (a capture of that moment).
 - **The battle.** "YOUNGSTER CALVIN would like to battle!", "YOUNGSTER CALVIN sent out POOCHYENA!", and
   the opponent's messages began "Foe POOCHYENA". The byte named gBattleTypeFlags read 0x0C through it,
   against 0x04 in the four wild battles; callback2 went 0x08036761 (the routine named CB2_InitBattle, +1)
@@ -422,7 +420,7 @@ with the pad). Object x values below are map x + 7.
 
 **Vanilla ROM, the same save**, routes 0.16 and 0.17, the town 0.10 and its Pokémon Center 2.2. From
 `probes/bike_probe.lua` for the ride bytes, autoplay's own answers and `observe`, and captures
-(`dev-scripts/shots/emerald/autoplay_tr2_state`, `autoplay_heal_state`, gitignored).
+of the second trainer and the heal.
 
 - **A Mach Bike turn at speed.** Riding left at +0x0B 3, the direction let go for two frames (+0x0B read
   2 on the next tile) and Down held before that tile's end: on arrival the next step went down, +0x1C
@@ -454,8 +452,8 @@ with the pad). Object x values below are map x + 7.
 script) and moved with `walk` and `goto`, beside `probes/battle_state_probe.lua` (now also logging the
 battle script pointer and all 0x28 bytes of the struct the build names gBattleScripting) and the new
 `probes/trainer_approach_probe.lua` (read-only: the approach globals, the script context status, the
-player's coordinates and the pad, on every change). Captures in `dev-scripts/shots/emerald/autoplay_sight_*`
-(gitignored). Addresses from the build hashed identical to the ROM; meanings as below.
+player's coordinates and the pad, on every change). Captures of the same
+moments. Addresses from the build hashed identical to the ROM; meanings as below.
 
 - **Template and live character agree.** All four trainers' templates read +0x0C 1 and +0x0E 3, 2, 3, 3;
   the live characters read +0x07 1 and +0x1D the same numbers, and +0x06 the template's +0x09 (8, 7, 0x12,
@@ -505,8 +503,7 @@ player's coordinates and the pad, on every change). Captures in `dev-scripts/sho
 **Vanilla ROM, the same save**, route 0.17, the bag opened from the START menu. From the new
 `probes/list_menu_probe.lua` (read-only: callback2, the 0x1C bytes the build names gBagPosition, the first
 12 bytes of sMenu, gMultiuseListMenuTemplate, every active task's routine, and each list-menu task's data
-and entries, on every change, with the pad), read against captures (`dev-scripts/shots/emerald/autoplay_bag_*`,
-gitignored). REPEL, POTION and nine more kinds were put in the ITEMS pocket with `give_item`; everything
+and entries, on every change, with the pad), read against captures of the bag. REPEL, POTION and nine more kinds were put in the ITEMS pocket with `give_item`; everything
 after that went through the game's own menus.
 
 - **The bag screen.** callback2 read 0x081AAB9D and 0x081AAD8D on the way in (the routines the build
@@ -539,10 +536,10 @@ after that went through the game's own menus.
 ### A new game to the first trainer battle: warps, elevation 0, cutscenes and the script status (2026-09-17)
 
 **Vanilla ROM**, a new game started from the main menu after a soft reset (the cartridge save was never
-written), played to MAY's battle on Route 103 with autoplay's tools; the run log is one file carried across
-every core (`autoplay/runs/`, gitignored). Readings from `observe` (warps now carry their tile's collision,
+written), played to MAY's battle on Route 103 with autoplay's tools, one run log carried across every
+core. Readings from `observe` (warps now carry their tile's collision,
 elevation and behaviour; extras the script context status), `walk`, `goto`, the programs' logs, captures
-(`dev-scripts/shots/emerald/autoplay_acc_*`, `autoplay_ng_*`, gitignored), and `probes/trainer_approach_probe.lua`
+along the way, and `probes/trainer_approach_probe.lua`
 for the script status after MAY's battle.
 
 - **Getting there.** A+B+Start+Select for 10 frames restarted to the intro; Start skipped it, and a Start on
@@ -586,8 +583,8 @@ for the script status after MAY's battle.
 
 ### A move's animation holds a battle's next message (2026-09-17)
 
-**Vanilla ROM, the new game's save**, BUG CATCHER RICK's battle on route 0.17, replayed from one named snapshot
-taken at "BUG CATCHER RICK would like to battle!" (gitignored `autoplay/states/`) and played by autoplay's `battle`,
+**Vanilla ROM, the new game's save**, BUG CATCHER RICK's battle on route 0.17, replayed from one snapshot
+taken at "BUG CATCHER RICK would like to battle!" (reached) and played by autoplay's `battle`,
 with `probes/battle_state_probe.lua` loaded -- now also logging the bytes the build names gAnimScriptActive and
 gPauseCounterBattle, the first two text printers' 0x24 bytes, and every pad change. Five battles; addresses from the
 build hashed identical to the ROM, meanings as below.
@@ -613,8 +610,7 @@ build hashed identical to the ROM, meanings as below.
 finished, his words after the battle printed live, his battle's first message, and the START menu after it. From the
 new `probes/printer_state_probe.lua` (read-only: text printers 0-7 and window slots 0-7 whole on every change, the bytes
 before each printer's pointer back to an FF, each window's first and last tile on its background, BG0's drawn rows) and
-`text_probe.lua`, with a capture of the restored box (`dev-scripts/shots/emerald/autoplay_rick_challenge_restored.png`,
-gitignored). Addresses from the build hashed identical to the ROM.
+`text_probe.lua`, with a capture of the restored box. Addresses from the build hashed identical to the ROM.
 
 - **A finished field message.** Restored with "Hahah! Our eyes met! I'll take you on with my BUG POKéMON!" drawn and
   waiting: printer 0's +0x1B read 0, its pointer 0x02021FFF, one past the FF that ends the 58 bytes from 0x02021FC4 (the
@@ -638,11 +634,11 @@ gitignored). Addresses from the build hashed identical to the ROM.
 
 ### The naming keyboard, and a blank box put back after it (2026-09-17)
 
-**Vanilla ROM, the new game's "YOUR NAME?"** (reached from the `new_game` snapshot with `advance_text` and `select`
-BOY; a snapshot `ng_naming` taken on it, gitignored). From the new `probes/naming_probe.lua` (read-only: the block the
+**Vanilla ROM, the new game's "YOUR NAME?"** (reached from a snapshot at the new game's start with `advance_text` and
+`select` BOY; a snapshot taken on it). From the new `probes/naming_probe.lua` (read-only: the block the
 build's sNamingScreen points at -- its +0x1800 and +0x1E10..+0x1E3F -- the cursor's sprite and every sprite whose data
 changed, the template, and once the ROM's keyboard table; each on change with the pad) and `printer_state_probe.lua`,
-while single presses were made, against captures (`dev-scripts/shots/emerald/autoplay_nm_*`, gitignored). Addresses
+while single presses were made, against captures of each press. Addresses
 from the build hashed identical to the ROM; meanings as below.
 
 - **The block.** While callback2 read 0x080E4F59, the pointer at 0x02039F94 held 0x02000010. +0x1800 read FF until A
@@ -670,9 +666,8 @@ from the build hashed identical to the ROM; meanings as below.
 
 ### The truck's door taken from rest, the wall clock's screen, and a question drawn instantly (2026-09-17)
 
-**Vanilla ROM, the new game "BRENDAN"** from the snapshot `ng_naming`: the truck (`ng_truck_fast`, text speed FAST), the
-room upstairs (`ng_room`) and the clock (`ng_clock`), all gitignored. From autoplay's own answers, captures
-(`dev-scripts/shots/emerald/autoplay_ng_*`, `autoplay_clk_*`, gitignored) and the new `probes/task_probe.lua`
+**Vanilla ROM, the new game "BRENDAN"** from the snapshot at "YOUR NAME?", then snapshots in the truck (text speed
+FAST), the room upstairs and at the clock. From autoplay's own answers, captures of the same moments and the new `probes/task_probe.lua`
 (read-only: every active task of the build's gTasks whole, on change, with the pad).
 
 - **The truck's door.** With the door open (its three warp tiles reading behaviour 0x62), a held walk right 2 from (2,2)
@@ -695,9 +690,8 @@ room upstairs (`ng_room`) and the clock (`ng_clock`), all gitignored. From autop
 
 ### The wall clock set: PM, midnight, YES, and the clock viewed after (2026-09-17)
 
-**Vanilla ROM, the new game "BRENDAN"** from the snapshots `ng_clock` and `ng_room` (gitignored), with
-`probes/task_probe.lua` loaded beside autoplay's driver, against captures (`dev-scripts/shots/emerald/autoplay_clk2_*` to
-`autoplay_clk5_*`, gitignored). Routine names from the build hashed identical to the ROM; what the words do as below.
+**Vanilla ROM, the new game "BRENDAN"** from the snapshots at the clock and in the room upstairs, with
+`probes/task_probe.lua` loaded beside autoplay's driver, against captures of four tries. Routine names from the build hashed identical to the ROM; what the words do as below.
 
 - **Past noon and midnight.** Right held 300 frames from 10:00 raised task 0's +4 (data words from the task's +8) to 12 on
   the frame +6 went 59 to 0, and +10 went 0 to 1 on that frame; it stopped at 13:00, drawn 1:00 PM. Left held from 10:00
@@ -723,10 +717,9 @@ room upstairs (`ng_room`) and the clock (`ng_clock`), all gitignored. From autop
 
 ### The starter bag, and a stale message on its screen after a restore (2026-09-17)
 
-**Vanilla ROM, the new game "BRENDAN"**, walked from `ng_clock_set` to Route 101 with autoplay's tools (run log
-`autoplay/runs/2026-09-17_033152.953259.ndjson`, segment 3, walked), then from the snapshots `ng_route101_facing_bag` and
-`ng_starter_bag` (all gitignored), with `probes/task_probe.lua` beside the driver, against captures
-(`dev-scripts/shots/emerald/autoplay_ng_starter_bag.png`, `autoplay_bag_*`, gitignored). Routine and table names from the
+**Vanilla ROM, the new game "BRENDAN"**, walked from the clock being set to Route 101 with autoplay's tools (walked), then from snapshots
+facing the bag and at the starter bag (reached), with `probes/task_probe.lua` beside the driver, against captures of
+the same moments. Routine and table names from the
 build hashed identical to the ROM; what each word does as below.
 
 - **The screen.** A toward BIRCH's bag from (7,15) facing up took callback2 to 0x08133F0D (`CB2_ChooseStarter`) and 3
@@ -744,18 +737,18 @@ build hashed identical to the ROM; what each word does as below.
   (cursor on YES). B there ran 0x081344AD and 0x081341FD and was back at 0x0813425D with word 0 still 2. YES began a wild
   battle ("Wild ZIGZAGOON appeared!", "Go! MUDKIP!"); after it BIRCH's words, then in the lab (map 1.4) "BRENDAN received the
   MUDKIP" and a nickname YES/NO.
-- **A stale message after a restore.** Restored at `ng_starter_bag`, window 0 read put and drawn while its printer was
+- **A stale message after a restore.** Restored at the starter bag, window 0 read put and drawn while its printer was
   inactive and pointed one past the FF of "In my BAG! There's a POKé BALL!" in the field message buffer, so the driver took
   that up as a finished message; while the driver had been running, the bag screen's own "PROF. BIRCH is in trouble!"
   printed into window 0 read as `screen_text` instead (the driver saw it printed instantly). The same restore reading on
-  `ng_gender` (callback2 0x0802F6B1, `CB2_MainMenu`) and `rick_challenge` (the overworld's) took up the right box, and on
-  `ng_clock` and `ng_naming` nothing.
+  snapshots at the gender question (callback2 0x0802F6B1, `CB2_MainMenu`) and RICK's challenge (the overworld's) took up
+  the right box, and at the clock and "YOUR NAME?" nothing.
 - **Not seen**: the other two balls chosen, NO on the question, the nickname screen, the bag on any build but vanilla.
 
 ### Autoplay's noclip: through a collision tile and a character (2026-09-17)
 
 **Vanilla ROM**, autoplay's `noclip` cheat (the mechanism of `probes/noclip.lua`, applied by the driver every frame), from
-the snapshots `session_end_route016` and `fast_text_route102` (gitignored); read with autoplay's `walk`, `observe` and the
+snapshots on routes 0.16 and 0.17 (reached); read with autoplay's `walk`, `observe` and the
 cheat's own counts.
 
 - **A collision tile.** On route 0.16 at (5,4), `walk` up 3 moved 2 and stopped `blocked` at (5,1), collision 1. From the
@@ -769,10 +762,9 @@ cheat's own counts.
 
 ### A battle controller at work: the rescue battle's intro (2026-09-17)
 
-**Vanilla ROM, the new game's save**, BIRCH's rescue battle against a wild ZIGZAGOON, from the snapshot `ng_rescue_battle`
-(gitignored; taken on the first frame callback2 read BattleMainCB2, f376300), with `probes/battle_state_probe.lua` loaded --
-now also logging the bytes the build names gBattleMainFunc and gIntroSlideFlags -- and played by autoplay's `battle`. Logs
-`battle_state_probe_bizhawk-dev-loader-autoplay_target_20260917_041303.log` and `_041754.log` (gitignored). Addresses from the
+**Vanilla ROM, the new game's save**, BIRCH's rescue battle against a wild ZIGZAGOON, from a snapshot
+taken on the first frame callback2 read BattleMainCB2 (f376300), with `probes/battle_state_probe.lua` loaded --
+now also logging the bytes the build names gBattleMainFunc and gIntroSlideFlags -- and played by autoplay's `battle`, twice. Addresses from the
 build hashed identical to the ROM; routine names are the build's, what each did as below.
 
 - **The nudge.** `battle strongest` pressed A once at f376489, before "Wild ZIGZAGOON appeared!", its log's `nudged`
@@ -802,10 +794,8 @@ build hashed identical to the ROM; routine names are the build's, what each did 
 
 ### What a move's type does to its damage (2026-09-17)
 
-**Vanilla ROM, the new game's save**, BIRCH's rescue battle from the snapshots `ng_rescue_move_menu` and `ng_rescue_action_menu`
-(gitignored), with `probes/type_calc_probe.lua` loaded (execute hooks at the entries of the battle script commands the build
-names Cmd_typecalc and Cmd_adjustnormaldamage). Logs `type_calc_probe_bizhawk-dev-loader-autoplay_target_20260917_042811.log`
-and `_043610.log` (gitignored). The decomp was the map for where the multiplying happens; addresses from the build hashed
+**Vanilla ROM, the new game's save**, BIRCH's rescue battle from snapshots at its move menu and its action menu, with `probes/type_calc_probe.lua` loaded (execute hooks at the entries of the battle script commands the build
+names Cmd_typecalc and Cmd_adjustnormaldamage), two runs. The decomp was the map for where the multiplying happens; addresses from the build hashed
 identical to the ROM.
 
 - **The table.** The 0x150 ROM bytes the build names gTypeEffectiveness read as 112 triples: 108 of (a move's type, a
@@ -813,7 +803,7 @@ identical to the ROM.
   the indices autoplay already names moves by (gTypeNames: 0 NORMAL to 17 DARK, 9 drawn as "???"). Taken as a chart, the 110
   entries and the ×1 of every pair not listed matched all 289 cells of Bulbapedia's Generation II-V type chart, the map the
   user named; no pair was listed twice.
-- **What the battle does with it.** Ten trials, each from `ng_rescue_move_menu` with MUDKIP's (WATER) first move, its attack
+- **What the battle does with it.** Ten trials, each from the snapshot at the move menu with MUDKIP's (WATER) first move, its attack
   and special attack (200), and ZIGZAGOON's two type bytes (+0x21, +0x22 of its gBattleMons entry) written through autoplay's
   `exec`, then the move chosen with `select`. gBattleMoveDamage at typecalc's entry and at adjustnormaldamage's, and
   gMoveResultFlags after:
@@ -838,22 +828,21 @@ identical to the ROM.
 - **Its own type bytes.** MUDKIP's battle entry read 0B 0B and ZIGZAGOON's 00 00, the same as +6 and +7 of their 28-byte
   entries in the block named gSpeciesInfo; RICK's WURMPLE's read BUG.
 - **Chosen by autoplay.** `battle` with the new policy `effective` (power × accuracy × that bonus × those multipliers) against
-  `strongest`, from `ng_rescue_action_menu` with the moves and the foe's types written before FIGHT (written after the move
+  `strongest`, from the snapshot at the action menu with the moves and the foe's types written before FIGHT (written after the move
   menu opened, the game refused Down onto a slot its menu had opened empty, and `battle` answered `stuck` 4 times out of 6):
   ROCK/GROUND, EMBER five turns against MUD-SLAP two; WATER/GRASS, WATER GUN seven against EMBER two; GHOST, TACKLE doing
   0 until its PP ran out against MUD-SLAP from the first turn. Every typecalc logged ran the move `battle` had chosen that
   turn; in the GHOST run TACKLE was chosen ten times and reached typecalc eight (the other two not looked at). The
   same `effective` run with the probe unloaded: MUD-SLAP twice, 2222 frames, as with it. RICK's battle from
-  `rick_battle_start` under `effective`: TACKLE every turn (MUD-SLAP weighed ×0.5 against BUG), `ended`, a win.
+  its snapshot under `effective`: TACKLE every turn (MUD-SLAP weighed ×0.5 against BUG), `ended`, a win.
 - **Not measured**: an ability (the decomp names LEVITATE and WONDER GUARD inside typecalc), FORESIGHT or ODOR SLEUTH (the
   decomp stops at FE for a foe under them), a move whose type changes (HIDDEN POWER, WEATHER BALL), the physical and special
   split by type, weather, a double battle, and the AI's own copy of the calculation.
 
 ### Ledges, water, and other maps read from the ROM (2026-09-17)
 
-**Vanilla ROM**, the old save restored from `session_end_route103` on map 0.18, read with autoplay's `exec` (read-only code),
-`walk` and `goto`, and `probes/step_probe.lua` loaded beside the driver for the hop (its log
-`step_probe_bizhawk-dev-loader-autoplay_target_20260917_115029.log`, gitignored). The build's `.sym` and the decomp are the
+**Vanilla ROM**, the old save restored from a snapshot on map 0.18, read with autoplay's `exec` (read-only code),
+`walk` and `goto`, and `probes/step_probe.lua` loaded beside the driver for the hop. The build's `.sym` and the decomp are the
 map for the names.
 
 - **Any map's header.** The block named gMapGroups (0x08486578) held, at group 0, a pointer to a list whose entry 18 pointed at
@@ -885,8 +874,8 @@ map for the names.
 
 ### A warp's arrival, a whiteout, a Center's counter, and WALLY's battle (2026-09-17)
 
-**Vanilla ROM**, the old save played from Route 110 (0.25) through the story to Petalburg's gym with autoplay's tools; run
-log `autoplay/runs/2026-09-17_120845.522443.ndjson`, captures `dev-scripts/shots/emerald/autoplay_story_*` (gitignored).
+**Vanilla ROM**, the old save played from Route 110 (0.25) through the story to Petalburg's gym with autoplay's tools
+(walked), with captures along the way.
 
 - **Where a warp lands.** A warp entry's +5 is the destination's warp number from 0: 0.10's Center door (6,16) reads +5 0
   and the player arrived on 2.2's warp 0 at (7,8); 2.2's (7,8) reads +5 2 and the player arrived on 0.10's warp 2 at
@@ -905,14 +894,14 @@ log `autoplay/runs/2026-09-17_120845.522443.ndjson`, captures `dev-scripts/shots
   (`{FC}Ë{7F}`), not measured.
 - **Map ids met** (each map's number read as `observe` names it, matching the decomp's order where checked): Littleroot 0.9,
   Oldale 0.10, Routes 101-103 as 0.16-0.18, Petalburg 0.0, its Center 8.4 and gym 8.1 (the door drawn "GYM" in
-  `autoplay_story_gym_door`), Birch's lab 1.4.
+  a capture), Birch's lab 1.4.
 - **Not measured**: the whiteout's own text beyond the two lines, where a whiteout lands with no Center visited, other
   `outcome_raw` values, other bits of the type flags.
 
 ### Rustboro: a north arrow warp, a floor at elevation 0, a YES/NO that ignores an early A, ROXANNE, an evolution (2026-09-17)
 
-**Vanilla ROM**, played on from `story_after_wally` with autoplay's tools; run log
-`autoplay/runs/2026-09-17_120845.522443.ndjson`, captures `dev-scripts/shots/emerald/autoplay_story_*` (gitignored).
+**Vanilla ROM**, played on from after WALLY's battle with autoplay's tools, the same
+session, with captures along the way.
 
 - **Petalburg Woods' north exit** (24.11 (14,5) and (15,5)): behaviour 0x64, collision 0, elevation 0. `goto` stepped onto
   it and stood there (`done`, no warp, twice); from (15,5) Up answered `map_changed` onto 0.19 (11,29).
@@ -942,11 +931,10 @@ log `autoplay/runs/2026-09-17_120845.522443.ndjson`, captures `dev-scripts/shots
 
 ### The learn-a-move question, the move list and the evolution scene (2026-09-17)
 
-**Vanilla ROM.** Made situation: `story_rustboro` restored, MUDKIP's EXP written to 2534 through `exec` (its encrypted block
-and checksum; `observe` read it back with no mismatch), a wild WHISMUR on 0.31 (snapshot `learn_wild_battle_start`); and
-`story_stone_badge` with MARSHTOMP's EXP written to 5459, a wild ABRA there. `probes/battle_state_probe.lua` loaded, with its
-new SUM and TASK lines; run log `autoplay/runs/2026-09-17_131645.118278.ndjson`; captures `dev-scripts/shots/emerald/autoplay_learn_*`
-(gitignored). The decomp was the map for every routine and field; the build's `.sym` names the addresses.
+**Vanilla ROM.** Made situation: a snapshot in Rustboro restored, MUDKIP's EXP written to 2534 through `exec` (its encrypted block
+and checksum; `observe` read it back with no mismatch), a wild WHISMUR on 0.31; and
+the save just after the STONE BADGE with MARSHTOMP's EXP written to 5459, a wild ABRA there. `probes/battle_state_probe.lua` loaded, with its
+new SUM and TASK lines, with captures of the same moments. The decomp was the map for every routine and field; the build's `.sym` names the addresses.
 
 - **The level-up learnsets and EXP table.** The ROM's pointer table the build names gLevelUpLearnsets read, for MUDKIP,
   BIDE (117) at 15, and for MARSHTOMP MUD SHOT (341) at 16 and FORESIGHT (193) at 20; the table it names gExperienceTables,
@@ -974,7 +962,7 @@ new SUM and TASK lines; run log `autoplay/runs/2026-09-17_131645.118278.ndjson`;
   7 and 8 through "Poof!". Data word 7 read 5 on that question and 0x0B on "Stop learning MUD SHOT?", which NO opened; NO
   there went back to step 0. At the end callback2 went to BattleMainCB2 again, where `observe` read `mode` battle for a
   moment with the old battlers.
-- **Autoplay's reading of them, checked live.** From `learn_wild_battle_start`: `battle effective` stopped `needs_choice` on
+- **Autoplay's reading of them, checked live.** From a snapshot at the WHISMUR battle's start: `battle effective` stopped `needs_choice` on
   the BIDE question with no nudge; `select NO` then read "Stop learning BIDE?" as `stop_learning`; `select NO`; `battle effective
   forget strong_variety` chose YES and GROWL, went through the evolution, YES and BIDE for MUD SHOT, and ended (TACKLE, MUD
   SHOT, MUD-SLAP, WATER GUN). From the ABRA battle: NO to FORESIGHT, YES to "Stop learning FORESIGHT?", "did not learn".
@@ -984,9 +972,9 @@ new SUM and TASK lines; run log `autoplay/runs/2026-09-17_131645.118278.ndjson`;
 
 ### The bag inside a battle, and a POTION used through it (2026-09-17)
 
-**Vanilla ROM.** Made situation: `story_stone_badge` (MARSHTOMP Lv 16 at 26/51 HP), `give_item` POTION ×3, a wild TAILLOW on
-0.31 (snapshot `bag_wild_battle_start`); autoplay's `observe`, `select` and `exec` reads of the build's gPartyMenu (0x0203CEC8),
-with captures `dev-scripts/shots/emerald/autoplay_battle_bag_*` (gitignored); run log `autoplay/runs/2026-09-17_131645.118278.ndjson`.
+**Vanilla ROM.** Made situation: the save just after the STONE BADGE (MARSHTOMP Lv 16 at 26/51 HP), `give_item` POTION ×3, a wild
+TAILLOW on 0.31 (reached); autoplay's `observe`, `select` and `exec` reads of the build's gPartyMenu (0x0203CEC8),
+with captures of the same moments.
 
 - **BAG from the action menu** opened the bag: `observe` read the list as it reads the bag's list in the field (the
   task running the build's ListMenuDummyTask) -- POTION and CLOSE BAG, pocket `items`, with the POTION's effect text in
@@ -1003,7 +991,7 @@ with captures `dev-scripts/shots/emerald/autoplay_battle_bag_*` (gitignored); ru
 ### A Mart: the buy list, the quantity box, and the list left active under it (2026-09-17)
 
 **Vanilla ROM**, Slateport's Mart (9.13), walked in the story; autoplay's `observe`, `select` and `exec` reads with captures
-`dev-scripts/shots/emerald/autoplay_shop_*` (gitignored); run log `autoplay/runs/2026-09-17_131645.118278.ndjson`.
+of the same moments.
 
 - `talk` to the clerk (local 1, across the counter) opened BUY / SELL / QUIT (the menu reader). BUY showed the list, read by the
   list reader: POKé BALL, GREAT BALL, POTION, SUPER POTION, ANTIDOTE, PARLYZ HEAL, ESCAPE ROPE, REPEL, HARBOR MAIL, CANCEL, the
@@ -1020,9 +1008,9 @@ with captures `dev-scripts/shots/emerald/autoplay_battle_bag_*` (gitignored); ru
 
 ### The live grid against the ROM's layout: a gym's barriers opened by its switches (2026-09-17)
 
-**Vanilla ROM**, snapshot `story_dynamo_badge` (WATTSON's gym, 10.0, the player at (5,3) after its four switches); a read-only
+**Vanilla ROM**, a snapshot in WATTSON's gym (10.0, the player at (5,3) after its four switches); a read-only
 `exec` comparing each tile of the map's ROM layout (gMapGroups' header, +0 layout, +0x0C data) with the live grid
-(gBackupMapLayout, +7 each way); run log `autoplay/runs/2026-09-17_171332.417648.ndjson`.
+(gBackupMapLayout, +7 each way).
 
 - **20 of the map's 210 tiles differ.** The barriers read collision set in the ROM and clear in the live grid: (4,7) `0628` against
   `0238`, (5,7) `0629`/`0239`, (1,11), (2,11), (4,14), (5,14) the same; the tiles above them change metatile with no collision
@@ -1037,8 +1025,8 @@ with captures `dev-scripts/shots/emerald/autoplay_battle_bag_*` (gitignored); ru
 
 ### A mud slope on 0.26: onto it and slid back (2026-09-17)
 
-**Vanilla ROM**, the game where attempt 2 of the autoplay acceptance was stopped (not a snapshot), on foot; run logs
-`autoplay/runs/2026-09-17_175751.136021.ndjson` (the loop) and `2026-09-17_181329.671765.ndjson` (the scenario).
+**Vanilla ROM**, the game where attempt 2 of the autoplay acceptance was stopped (not a snapshot), on foot (walked), then the
+tracked scenario `autoplay/games/emerald/scenarios/mud_slope.json`.
 
 - **The tiles**: `observe`'s local map on 0.26 read behaviour 0xD0 at (17,36) and (17,37), straight above the player at
   (17,38); the screenshot showed a brown slope cut into the cliff there.
@@ -1052,8 +1040,7 @@ with captures `dev-scripts/shots/emerald/autoplay_battle_bag_*` (gitignored); ru
 
 ### Map headers, events and behaviours read by an unattended session (2026-09-17)
 
-**Vanilla ROM**, read-only `exec` reads by the headless sessions of the autoplay acceptance (run logs
-`autoplay/runs/2026-09-17_172659.154119.ndjson`, `2026-09-17_174529.077127.ndjson` and `2026-09-17_181542.300302.ndjson`),
+**Vanilla ROM**, read-only `exec` reads by three headless sessions of the autoplay acceptance,
 checked against the session's own play stream afterwards; each layout below is what its reads returned consistently.
 
 - **The header** (gMapHeader's copy at 0x02037318, or a ROM header through gMapGroups): connections at +0x0C (a count,

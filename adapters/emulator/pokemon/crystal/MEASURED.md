@@ -79,7 +79,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 
 **Vanilla V1.0.** `sha1sum` of the ROM file and of our pokecrystal build's `.gbc` both read
 `F4CD194B…18C133`, and `gameinfo.getromhash()` in BizHawk returned the same string, upper case
-(`probes/autoplay_state_probe.lua`'s first log line, `logs/autoplay_state_7871_20260917_002042.log`).
+(`probes/autoplay_state_probe.lua`'s first log line).
 So the build's `.sym` gives addresses on this ROM; every meaning below is from the running game.
 `autoplay/drivers/bizhawk/games/crystal.lua` reads and drives only when the hash matches. What this
 could not see: any other build (V1.1, Speedchoice, Archipelago), none of which was run.
@@ -89,8 +89,7 @@ could not see: any other build (V1.1, Speedchoice, Archipelago), none of which w
 **Vanilla V1.0, a save in New Bark Town (map 24.4) with no Pokémon.** `probes/autoplay_state_probe.lua`
 (read-only, every watched byte on change) through a cold boot, the intro, the title, the main menu,
 CONTINUE, walks in all four directions, a sign, the START menu, the PACK, the POKéGEAR and a door each
-way, read against captures `dev-scripts/shots/crystal/autoplay_boot_00`..`05`, `sign_*`, `start_*`,
-`pack_*`, `gear_*`, `door_*` (gitignored).
+way, read against captures of the same moments.
 
 - **Map and tile.** wMapGroup/wMapNumber (01:DCB5/DCB6) read 0.0 through the intro, title and main menu
   and 24.4 once CONTINUE loaded the town; through the door they read 24.9, and back 24.4.
@@ -150,8 +149,7 @@ destination warp is not 1 or 4.
 **Vanilla V1.0, New Bark Town.** `probes/autoplay_text_probe.lua` (read-only: the 18 rows of wTilemap,
 00:C4A0, 20 wide, and wTextboxFlags, 00:CFCF, on change) through the town sign's three boxes, twice, and
 SAVE's question; `probes/autoplay_charset_probe.lua` (writes wTilemap inside an open box) for the glyphs.
-Logs `logs/autoplay_text_7871_20260917_003358.log`, `..._003702.log`, `logs/autoplay_charset_*.log`;
-captures `autoplay_txt_*`, `autoplay_charset_p0`..`p2`, `autoplay_charset_sheet` (gitignored).
+Two runs of the text probe and the charset probe's logs, read against captures of the boxes and of the glyph sheets.
 
 - **The text is the tile buffer.** Every letter printed was written into wTilemap, one a frame, and on
   the frame the sign's box closed the map's own tiles were back in rows 12-17.
@@ -197,7 +195,7 @@ pressed four times, SAVE chosen, its YES/NO, B back out; then autoplay's `select
   Down still held, and hJoyDown stayed Down for the 36 frames it was held. autoplay's `select` released
   for 2 frames between moves, the menu never saw the release, and the held Down never moved the cursor
   again; waiting until hJoyDown reads 0 fixed it: down 4 in 33 frames, up 4 in 35, EXIT confirmed, and
-  NO reached on the YES/NO (its ▶ on NO in `autoplay_yesno_no`), which was left with B, never confirmed.
+  NO reached on the YES/NO (its ▶ on NO in a capture), which was left with B, never confirmed.
 - **Not seen:** a menu with more than one column, a scrolling list (the PACK's items, the PC), a menu
   whose items are not 2 rows apart.
 
@@ -206,8 +204,8 @@ pressed four times, SAVE chosen, its YES/NO, B back out; then autoplay's `select
 **Vanilla V1.0: New Bark Town, Elm's lab (24.5), Route 29 (24.3).** `probes/autoplay_map_probe.lua`
 (read-only: 11 by 15 tiles of block id and collision around the player, every object record, every
 map-object record and the coord, bg and object event lists, on each tile, map or object change), read
-against captures with a tile grid drawn over them (`autoplay_map_00_grid`, `coll15_00_grid`,
-`route29_00_grid`, `route29_01_grid`, gitignored), and `walk` into what it named.
+against captures with a tile grid drawn over them (New Bark, its collision, Route 29 twice), and `walk` into what
+it named.
 
 - **The collision formula holds on three maps.** `cmd_drive.lua`'s (2026-09-16): block (x//2, y//2) at
   (by+3)*(wMapWidth+6)+(bx+3) in wOverworldMapBlocks, quadrant (y%2)*2+(x%2) of its four bytes in the
@@ -262,8 +260,8 @@ checksum of each id range's tiles in VRAM bank 0 (LCDC read E3 on every screen, 
 | Cyndaquil's picture | A75F347B | (not logged) | (not logged) |
 | New Bark with no text up | CF66AFAD | (not logged) | (not logged) |
 
-**The battle's 0x60-0x7F**, charset-probed in its message box ("Wild PIDGEY appeared!",
-`autoplay_charset_60_7F_overworld_vs_battle`, gitignored): 0x6E the ":L" before a level (PIDGEY's "3",
+**The battle's 0x60-0x7F**, charset-probed in its message box ("Wild PIDGEY appeared!", a capture set beside
+the overworld's): 0x6E the ":L" before a level (PIDGEY's "3",
 CYNDAQUIL's "5"), 0x75 "…", 0x79-0x7F the frame and the space as in the town; the rest drew HP-bar pieces
 and shapes. `crystal.lua` names 0x80-0xFF only while the first checksum reads ABC168AD for `screen_text`,
 and 0x60-0x7F only by the table whose checksum is loaded.
@@ -271,7 +269,7 @@ and 0x60-0x7F only by the table whose checksum is loaded.
 ### A wild battle: when it is one, its two menus and its font (2026-09-17)
 
 **Vanilla V1.0, Route 29, a wild PIDGEY (L3) against CYNDAQUIL (L5).** `autoplay_state_probe.lua` and
-`autoplay_text_probe.lua`, captures `autoplay_battle_00`..`02` (gitignored).
+`autoplay_text_probe.lua`, with captures of the battle's screens.
 
 - **When.** wBattleMode (01:D22D) went 0 to 1 about 180 frames after the encounter's script began, on the
   frame wSpriteUpdatesEnabled went 1 to 0, and read 1 through the text, both menus and "Got away
@@ -302,12 +300,11 @@ and after a battle, a level-up, a battle won.
 
 ### The battlers, their moves, and what a move's power and accuracy bytes do (2026-09-17)
 
-**Vanilla V1.0, Route 29, the wild PIDGEY (L3) against CYNDAQUIL (L5)**, from the snapshots `battle_pidgey_appeared` and
-`battle_menu` (the move menu). `probes/autoplay_battle_probe.lua` (read-only; logs `logs/autoplay_battle_7871_20260917_013116`,
-`_013317`, `_013711`, `_014010`) read against `observe`'s `screen_text` and captures `autoplay_bprobe_move_menu`, `_leer`,
-`_menu_turn2`, `autoplay_party_after_win`, `autoplay_trainer_card` (gitignored); `probes/autoplay_move_write_probe.lua`
-(writes, `logs/autoplay_move_write_7871_20260917_013317.log`) for power and accuracy. Used by `crystal.lua`'s `battle`
-field, `strongestMove` and `endedReport`.
+**Vanilla V1.0, Route 29, the wild PIDGEY (L3) against CYNDAQUIL (L5)**, from snapshots at "Wild PIDGEY appeared!" and
+at the move menu. `probes/autoplay_battle_probe.lua` (read-only; four runs) read against `observe`'s `screen_text` and
+captures of the move menu, LEER, the second turn's menu, the party after the win and the trainer card;
+`probes/autoplay_move_write_probe.lua` (writes) for power and accuracy. Used by `crystal.lua`'s `battle` field,
+`strongestMove` and `endedReport`.
 
 - **The battlers.** 0x20 bytes at 00:C62C (the player's) and 01:D206 (the opponent's). +0x00 the species: 155 and 16,
   whose entries in the name table (10 bytes at 14:7384 + (id - 1) * 10) spelled CYNDAQUIL and PIDGEY as the screen drew
@@ -325,7 +322,7 @@ field, `strongestMove` and `endedReport`.
   turn. +0x03 the type: 0 for both, and the pointer at 14:497B + 2 * 0 led to "NORMAL", drawn TYPE/ NORMAL. +0x05 the PP
   drawn as the maximum (35, 30), on a Pokémon whose PP were never raised. Move names: the id'th 0x50-ended string from
   72:5F29 spelled TACKLE (33) and LEER (43), as the menu drew them.
-- **Power and accuracy, by what they did.** Crystal draws neither, so one TACKLE was replayed from `battle_menu` with one
+- **Power and accuracy, by what they did.** Crystal draws neither, so one TACKLE was replayed from the move menu with one
   byte of the player's move struct held at a value every frame (the probe's log shows each write read back, and the
   struct reloaded 7 frames after the restore and rewritten on that frame, 30 frames before the damage was computed). Two
   runs with nothing written matched frame for frame (wCurDamage, 01:D256, 6 then 5; PIDGEY 15 to 10), so each row
@@ -342,7 +339,7 @@ field, `strongestMove` and `endedReport`.
 
   So +0x02 is the power and +0x04 the accuracy. With 0 held, the byte read 1 on the frame the miss was decided: the game
   had changed it. The scale of +0x04 is not measured (242 missed once, on the first turn from
-  `battle_pidgey_appeared`), so autoplay reports it as `accuracy_raw` and only compares it.
+  the snapshot at "Wild PIDGEY appeared!"), so autoplay reports it as `accuracy_raw` and only compares it.
 - **After the battle.** wBattleResult (01:D0EE) read 0 after "Enemy PIDGEY fainted!" and 2 after "Got away safely!", in
   the overworld. wMoney (01:D84E), 3 bytes high first, read 3000 as the trainer card drew MONEY ₽3000. The party's first
   Pokémon (0x30 bytes from 01:DCDF, wPartyCount 01:DCD7 reading 1, its nickname at 01:DE41): +0x00 155, +0x1F the level
@@ -350,34 +347,33 @@ field, `strongestMove` and `endedReport`.
   followed the battle's on the same frames. Also read: +0x06/+0x07 34555 as the card drew the ID No., and +0x08-+0x0A
   135 then 158 as "CYNDAQUIL gained 23 EXP. Points!" printed.
 - **A battle's message box is cleared over 2 frames**: row 14 on one and row 16 on the next (`autoplay_text_probe.lua`,
-  `logs/autoplay_text_7871_20260917_014010.log`, f52753 and f53728), and `battle`'s log listed the frame between as
+  f52753 and f53728), and `battle`'s log listed the frame between as
   boxes ("            d!", "used TACKLE!"). A box whose rows changed since the frame before now reads `printing`.
-- **Live through `battle` with policy `strongest`** from `battle_pidgey_appeared`: FIGHT and TACKLE four turns (LEER
-  scores 0), one miss, "Enemy PIDGEY fainted!", "CYNDAQUIL gained 23 EXP. Points!", `ended` in 2168 frames with
-  `outcome_raw` 0, money 3000 and CYNDAQUIL 10/19; RUN from the same snapshot, `outcome_raw` 2.
+- **Live through `battle` with policy `strongest`** from the snapshot at "Wild PIDGEY appeared!": FIGHT and TACKLE
+  four turns (LEER scores 0), one miss, "Enemy PIDGEY fainted!", "CYNDAQUIL gained 23 EXP. Points!", `ended` in 2168
+  frames with `outcome_raw` 0, money 3000 and CYNDAQUIL 10/19; RUN from the same snapshot, `outcome_raw` 2.
 - **Not seen:** any move but TACKLE and LEER (so one power and one type in the table read against anything), a type
   other than NORMAL drawn, raised PP, a status, a level-up, the player's Pokémon fainting, a trainer battle, the party
   past its first slot, the scale of the accuracy byte, what +0x01 of a move entry (0x13 for LEER) does.
 
 ### The warp cheat: the game's own map load, to Route 30 (2026-09-17)
 
-**Vanilla V1.0, from `route29_after_win` (24.3 at (53,12)).** `crystal.lua`'s `warp` cheat writes what
-`probes/goto_map.lua` writes (its header, 2026-08-21: map group and number and the tile directly, wDefaultSpawnpoint
-01:D001 0xFF, hMapEntryMethod FF9F 0xF1, wMapStatus 1). Read with `probes/autoplay_state_probe.lua` and
-`probes/autoplay_map_probe.lua` (`logs/autoplay_state_7871_20260917_014819.log`, `logs/autoplay_map_7871_20260917_014819.log`)
-and the capture `autoplay_route30_warp` (gitignored). Asked for 26.1 at (1,13): wMapStatus read 1 from the frame after the
-writes (f57414) and 2 again 30 frames later; the map read 26.1 and the tile (1,13); the game drew its "ROUTE 30" sign; the
-object records loaded the woman at (2,13) and, walking up, a character at (1,7). The cheat answered `done` in 31 frames.
+**Vanilla V1.0, from a snapshot on Route 29 after the wild win (24.3 at (53,12)).** `crystal.lua`'s `warp` cheat
+writes what `probes/goto_map.lua` writes (its header, 2026-08-21: map group and number and the tile directly,
+wDefaultSpawnpoint 01:D001 0xFF, hMapEntryMethod FF9F 0xF1, wMapStatus 1). Read with `probes/autoplay_state_probe.lua`
+and `probes/autoplay_map_probe.lua` and a capture of the warp. Asked for 26.1 at (1,13): wMapStatus read 1 from the
+frame after the writes (f57414) and 2 again 30 frames later; the map read 26.1 and the tile (1,13); the game drew its
+"ROUTE 30" sign; the object records loaded the woman at (2,13) and, walking up, a character at (1,7). The cheat answered
+`done` in 31 frames.
 **Not seen:** a warp onto a solid tile, water or a warp tile, a warp into a building, any map but 26.1.
 
 ### A trainer battle: sight, approach, the battle's own waits with no ▼, and the words after (2026-09-17)
 
-**Vanilla V1.0, Route 30 (26.1), Bug Catcher Don at (1,7) facing down, CYNDAQUIL L5.** Snapshots `route30_warped`,
-`route30_don_4below` (the player at (1,11)), `route30_don_battle_start`. Four read-only probes, each replaying from
-`route30_don_4below`: `autoplay_state_probe.lua` and `autoplay_battle_probe.lua` (`logs/autoplay_state_7871_20260917_014819.log`,
-`logs/autoplay_battle_7871_20260917_014819.log`), the new `autoplay_trainer_probe.lua`
-(`logs/autoplay_trainer_7871_20260917_015340.log`) and `autoplay_text_probe.lua` (`logs/autoplay_text_7871_20260917_015635.log`),
-with captures `autoplay_route30_y11`, `autoplay_route30_don_seen_a`/`_b`, `autoplay_don_caterpie_out`/`2` (gitignored).
+**Vanilla V1.0, Route 30 (26.1), Bug Catcher Don at (1,7) facing down, CYNDAQUIL L5.** Snapshots saved just after
+the warp, with the player at (1,11) four tiles below Don, and at the battle's start. Four read-only probes, each
+replaying from the one at (1,11): `autoplay_state_probe.lua`, `autoplay_battle_probe.lua`, the new
+`autoplay_trainer_probe.lua` and `autoplay_text_probe.lua`, with captures at (1,11), of Don seeing the player and of
+his CATERPIE sent out.
 
 - **Sight.** Standing at (1,11), four tiles below Don, for 120 frames: nothing. One step up to (1,10): two frames after the
   step ended wScriptRunning (01:D438) went 0 to 1 -- not the 255 of a sign, a scene or a wild encounter -- with wScriptMode
@@ -391,7 +387,7 @@ with captures `autoplay_route30_y11`, `autoplay_route30_don_seen_a`/`_b`, `autop
   wMapScriptsBank. The route's other two records whose +0x08 low nibble reads 2 are at (2,28), range 3, and (5,23), range
   1; no other record reads 2 there. Neither of those was walked into.
 - **What that pointer holds**: `38 05 24 01 D8 59 03 5A 00 00 CA 57`. 0x0538 = 1336, and bit 0 of the byte 167 past
-  wEventFlags (01:DA72) read 1 in the state the first win left, 0 once `route30_don_4below` was restored, and 1 after the
+  wEventFlags (01:DA72) read 1 in the state the first win left, 0 once the snapshot at (1,11) was restored, and 1 after the
   replayed win;
   36 and 1 are what wOtherTrainerClass (D22F) and wOtherTrainerID (D231) read from the approach through the battle.
 - **The words before.** "Instead of a bug POKéMON, I found a trainer!" in the message box, pressed with A, then no text
@@ -411,7 +407,7 @@ with captures `autoplay_route30_y11`, `autoplay_route30_don_seen_a`/`_b`, `autop
   frames and nudged at each.
 - **The words after.** "A got ₽48 for winning!", and wMoney read 3048 against 3000: a second reading of it. The map
   reloaded (wMapStatus 1, then 2) with wScriptRunning 1 until it ran again, then 0; Don stood at (1,9).
-- **Live through the tools** from `route30_don_4below`: `walk` up 1 answered `spotted` in 18 frames with `trainer`
+- **Live through the tools** from the snapshot at (1,11): `walk` up 1 answered `spotted` in 18 frames with `trainer`
   `{map_object: 4, tiles_away: 3}`; `battle strongest` straight after played his words, both CATERPIEs, the level-up box,
   "SMOKESCREEN" learned, his defeat and the prize to `ended` (6956 frames, `outcome_raw` 0, money 3048), with no nudge.
   `nearby` gave Don `trainer: {range: 3, beaten: false, flag: 1336}` before and `beaten: true` after; `local_map` marked
@@ -425,10 +421,8 @@ with captures `autoplay_route30_y11`, `autoplay_route30_don_seen_a`/`_b`, `autop
 
 **Vanilla V1.0, Route 30.** The new `probes/autoplay_bag_probe.lua` (read-only: wCurPocket, the pockets' cursor and scroll
 bytes, the scrolling menu's header copy, the four pockets, each item's name and attribute entry) with
-`autoplay_text_probe.lua`; logs `logs/autoplay_bag_7871_20260917_021016` (the pockets), `_021114` (the item ball), `_021200`
-(the attributes), `_021244` and `logs/autoplay_text_7871_20260917_021244` (the scroll), `logs/autoplay_text_7871_20260917_021505`
-(the redraw); captures `autoplay_pack_items`, `autoplay_pack9_*` (gitignored). Snapshots `route30_got_antidote`,
-`route30_items9`, `pack_items9_open`.
+`autoplay_text_probe.lua`; runs for the pockets, the item ball, the attributes, the scroll (both probes) and the
+redraw; captures of the item pocket, with one item and with nine. Snapshots saved at those moments.
 
 - **The item pocket.** wNumItems (01:D892), then an id and a quantity per entry, then FF: `01 12 01 FF` while the PACK
   drew POTION ×1. Facing Route 30's item ball at (8,35) and pressing A printed "A found ANTIDOTE!" and "A put the
@@ -452,7 +446,7 @@ bytes, the scrolling menu's header copy, the four pockets, each item's name and 
   the ▶ and is not a message the player presses through, so it goes out as the menu's `description`.
 - **`give_item`** writes an entry the same way, for an item whose +0x05 reads 01: SUPER POTION ×3, REPEL ×2, ESCAPE
   ROPE, FULL HEAL, AWAKENING, BURN HEAL and ICE HEAL each read back, and the PACK drew each name and quantity.
-- **Live through the tools** from `pack_items9_open`: `select` ICE HEAL (8 steps, the list scrolled), back to ANTIDOTE
+- **Live through the tools** from the open nine-item pocket: `select` ICE HEAL (8 steps, the list scrolled), back to ANTIDOTE
   (7), CANCEL (index 9), then REPEL confirmed opened USE / GIVE / TOSS / QUIT (read as a menu, as drawn); `select` USE
   printed "A used the REPEL." and `advance_text` returned `menu_open` on the list with REPEL at 1 (2 before). Its log
   also listed the description box once, from the frames before the list's ▶ was back.
@@ -461,8 +455,8 @@ bytes, the scrolling menu's header copy, the four pockets, each item's name and 
 
 ### A trainer talked to (2026-09-17)
 
-**Vanilla V1.0, Route 30, Youngster Mikey at (5,23) facing down**, from `route30_warped` warped to (5,20); snapshot
-`route30_facing_mikey`. `probes/autoplay_trainer_probe.lua` (`logs/autoplay_trainer_7871_20260917_022238.log`).
+**Vanilla V1.0, Route 30, Youngster Mikey at (5,23) facing down**, from the snapshot just after the warp to Route 30,
+warped to (5,20); a snapshot facing MIKEY saved. `probes/autoplay_trainer_probe.lua`.
 
 - `walk` down 3 answered `blocked` after 2 tiles with his map object (3) in the way. `nearby` gave him `trainer: {range:
   1, beaten: false, flag: 1450}` (his record's +0x09 1); nothing was marked `!`, since the tile below him holds another
@@ -477,12 +471,9 @@ bytes, the scrolling menu's header copy, the four pockets, each item's name and 
 
 ### The ball pocket, a POKé BALL thrown in a battle, and a second Pokémon in the party (2026-09-17)
 
-**Vanilla V1.0, Route 31 (26.2).** `probes/autoplay_bag_probe.lua` (`logs/autoplay_bag_7871_20260917_022537`, `_023151`),
-`probes/autoplay_battle_probe.lua` (`logs/autoplay_battle_7871_20260917_023151`, `_023923`, the second with every party
-slot), `probes/autoplay_text_probe.lua` (`logs/autoplay_text_7871_20260917_023014`); captures `autoplay_pack_balls`,
-`autoplay_battle_pack`, `autoplay_battle_ball_menu`, `autoplay_battle_ball_thrown2`, `autoplay_party2` (gitignored).
-Snapshots `route31_got_ball`, `route31_balls6`, `route31_wild_bellsprout`, `battle_ball_use_menu`,
-`battle_caught_bellsprout`, `route31_caught_bellsprout`.
+**Vanilla V1.0, Route 31 (26.2).** `probes/autoplay_bag_probe.lua` (two runs), `probes/autoplay_battle_probe.lua` (two
+runs, the second with every party slot), `probes/autoplay_text_probe.lua`; captures of the ball pocket, the PACK in a
+battle, its ball menu, the ball thrown and the two-Pokémon party. Snapshots saved at those moments.
 
 - **The ball pocket.** Route 31's item ball at (19,15), faced and pressed: "A found POKé BALL!", "A put the POKé BALL in the
   BALL POCKET.", and wNumBalls (01:D8D7) read `01 05 01 FF` (from `00 FF`). POKé BALL's name is `54 7F 81 80 8B 8B 50`
@@ -498,7 +489,7 @@ Snapshots `route31_got_ball`, `route31_balls6`, `route31_wild_bellsprout`, `batt
   under it for as long as the menu waited (249 times), as under the PACK's list out of a battle — so under a menu the
   count no longer makes a box wait.
 - **The throw.** USE printed "A used the POKé BALL." and the ball shook on the opponent's side; the ball pocket read 5.
-  Replayed from `battle_ball_use_menu` with 3, 9, 17, 29 and 41 frames before USE: "Aww! It appeared to be caught!",
+  Replayed from the ball's USE menu with 3, 9, 17, 29 and 41 frames before USE: "Aww! It appeared to be caught!",
   "Shoot! It was so close too!" twice, "Aargh! Almost had it!", and at 41 "Gotcha! BELLSPROUT was caught!", then "Give a
   nickname to BELLSPROUT?" with YES / NO, still in the battle (wBattleMode 1); NO ended it.
 - **The second party slot.** wPartyCount 2, the species list at 01:DCD8 `9B 45 FF`, and 0x30 bytes after the first
@@ -513,10 +504,9 @@ Snapshots `route31_got_ball`, `route31_balls6`, `route31_wild_bellsprout`, `batt
 ### A warp written while a trainer's script runs; the switch question and the nickname question in a battle (2026-09-17)
 
 **Vanilla V1.0, Route 30 (26.1), Bug Catcher Don, with CYNDAQUIL (L5, 10/19) and BELLSPROUT (L5, 20/20) in the party**, from
-`session_end_route31`. `observe` through the autoplay tools, then `probes/autoplay_text_probe.lua` (`logs/autoplay_text_7871_20260917_031530.log`);
-captures `autoplay_scn_warp_mid_approach`, `_after_a`, `_after_a2`, `autoplay_scn_party_menu_after_yes`, `autoplay_switch_question`,
-`autoplay_nickname_question` (gitignored). Snapshots `route30_don_battle_start_2party`, `battle_don_party_menu_after_yes`,
-`battle_don_switch_question`, `battle_nickname_question`.
+the snapshot that ended the previous session on Route 31. `observe` through the autoplay tools, then
+`probes/autoplay_text_probe.lua`; captures of the warp mid-approach and after A twice, the party menu after YES, the switch
+question and the nickname question. Snapshots saved at those moments.
 
 - **A warp during Don's words.** After `walk` answered `spotted`, with "Instead of a bug / POKéMON, I found" waiting and
   wScriptRunning 1, the `warp` cheat's writes (26.1 at (1,11)) left wMapStatus at 1 and the map did not load: 900 frames
@@ -536,7 +526,7 @@ captures `autoplay_scn_warp_mid_approach`, `_after_a`, `_after_a2`, `autoplay_sc
   change this in options, set/shift i think) so now you either have to B/cancel/go back. or pick another pokemon"*.
   `select` CANCEL went back into the battle, CYNDAQUIL still in, and Don sent out his second CATERPIE.
 - **Answered NO.** With the reader, `battle` stopped `needs_choice` on the question without pressing; answering NO, from
-  `battle_don_switch_question` it pressed Down and A, logged `chose NO` with the question, and played Don's second
+  a snapshot at the switch question it pressed Down and A, logged `chose NO` with the question, and played Don's second
   CATERPIE to `ended` (3107 frames, `outcome_raw` 0, ₽3048), CYNDAQUIL in throughout.
 - **The nickname question.** From the snapshot at "Gotcha! BELLSPROUT was caught!", 40 frames on the box read "Give a
   nickname to" / "BELLSPROUT?" and a YES/NO was framed at rows 7-11, columns 14-19: first row 8, column 15 (14 before the
@@ -550,7 +540,7 @@ captures `autoplay_scn_warp_mid_approach`, `_after_a`, `_after_a2`, `autoplay_sc
 ### A house's mat, a trainer before it loads, and `goto` ridden (2026-09-17)
 
 **Vanilla V1.0: New Bark Town (24.4), houses 24.9 and 24.6, Route 30 (26.1).** The autoplay tools' answers, with
-`probes/autoplay_map_probe.lua` for the map-object records (`logs/autoplay_map_7871_20260917_032920.log`).
+`probes/autoplay_map_probe.lua` for the map-object records.
 
 - **Warp tiles' collision bytes.** New Bark's four doors read 0x71 (the formula `local_map` uses); the mats inside 24.9 at
   (2,7) and (3,7), and inside 24.6 at (6,7) and (7,7), read 0x70; 24.6's third warp, at (9,0) to 24.7, read 0x7A (not
@@ -568,7 +558,7 @@ captures `autoplay_scn_warp_mid_approach`, `_after_a`, `_after_a2`, `autoplay_sc
   facing up; 8 for Route 31's trainer at (21,13), facing left. No 9 was seen on screen.
 - **`goto` ridden, from snapshots.** From (11,14) below 24.9's door to 24.6's door at (13,5): 13 tiles, 3 turns, `map_changed`
   standing on 24.6's mat at (6,7), 258 frames. From (6,5) in 24.6 to its mat (7,7): onto the mat, down held, `map_changed`
-  with `entered` (7,7), standing in town on (13,6), 122 frames. From `route30_warped` (1,13), with Don not loaded: to (2,6)
+  with `entered` (7,7), standing in town on (13,6), 122 frames. From just after the warp (1,13), Don not loaded: to (2,6)
   in 172 frames, 10 tiles, 2 turns, up the grass column beside his line and never into it; to (5,4), 15 tiles, 252 frames;
   from (1,11) to (1,9), in his line, over three grass tiles rather than one line tile, `spotted` at (1,9) with map object 4
   two tiles away and Don named in `route_in_sight` (74 frames). From (2,6) toward (1,10) the first step, into grass,
@@ -579,11 +569,10 @@ captures `autoplay_scn_warp_mid_approach`, `_after_a`, `_after_a2`, `autoplay_sc
 
 ### The party's moves, PP, item and status, the POKéMON menu, a heal, and a defeat flag cleared in a trainer's line (2026-09-17)
 
-**Vanilla V1.0, from `session_end_route31` (CYNDAQUIL L5 10/19, BELLSPROUT L5 20/20), and Route 30.**
-`probes/autoplay_battle_probe.lua`'s party lines and `probes/autoplay_text_probe.lua` (`logs/autoplay_battle_7871_20260917_033339.log`,
-`logs/autoplay_text_7871_20260917_033339.log`), read against captures `autoplay_party_menu`, `autoplay_party_submenu`,
-`autoplay_summary_p1`, `_p3`, `autoplay_summary_bellsprout`, `autoplay_party_menu_healed`, `autoplay_summary_healed_moves`,
-`autoplay_scn_flag_cleared_in_sight` (gitignored).
+**Vanilla V1.0, from the snapshot that ended the Route 31 session (CYNDAQUIL L5 10/19, BELLSPROUT L5 20/20), and
+Route 30.** `probes/autoplay_battle_probe.lua`'s party lines and `probes/autoplay_text_probe.lua`, read against captures
+of the POKéMON menu and its submenu, the summary's pages 1 and 3, BELLSPROUT's summary, the menu and moves after the
+heal, and Don's line with his flag cleared.
 
 - **A party slot's bytes against the summary.** CYNDAQUIL's 0x30 bytes: `9B AD 21 2B 00 00 86 FB 00 00 9E …` with `1F 1E 00 00` at
   +0x17 and `05 00 00 00 0A 00 13` from +0x1F. The summary's pages drew ITEM BERRY (+0x01 0xAD; the item names' 173rd
@@ -598,7 +587,7 @@ captures `autoplay_scn_warp_mid_approach`, `_after_a`, `_after_a2`, `autoplay_sc
   opened STATS / SWITCH / MOVE / ITEM / CANCEL, read as a menu as drawn. On the summary, one 4-frame Right left the first page
   as it was 40 frames later and a second brought up the moves page; two 8-frame Rights also reached the moves page. B
   went back to the list with the ▶ on the Pokémon last shown.
-- **`heal`.** Written from `session_end_route31`: HP from +0x24/+0x25 into +0x22/+0x23, PP from the move table's +0x05
+- **`heal`.** Written from Route 31's last snapshot: HP from +0x24/+0x25 into +0x22/+0x23, PP from the move table's +0x05
   into +0x17-+0x1A, and 0 into +0x20. The POKéMON menu then drew CYNDAQUIL 19/ 19 (10/ 19 before), and the summary TACKLE PP
   35/35 (31/35 before).
 - **A defeat flag cleared in a trainer's line.** A scenario run ended with Don beaten at (1,9), where he had walked, and the
@@ -606,7 +595,7 @@ captures `autoplay_scn_warp_mid_approach`, `_after_a`, `_after_a2`, `autoplay_sc
   refused with wScriptRunning 1, and the screen showed "Instead of a bug / POKéMON, I found" with Don still at (1,9). No
   step had been taken: the game's sight check found the player standing one tile into his line.
 - **The scenario, replayed** (`autoplay/games/crystal/scenarios/trainer_sight_range.json`, its setup reordered to warp, heal,
-  then clear the flag; run logs `autoplay/runs/2026-09-17_034156.929329.ndjson` and the two broken runs after it, gitignored):
+  then clear the flag; its run logs, the two broken runs among them, 2026-09-17):
   3 of 3 passed (1m24s, 1m26s, 1m09s), each run starting where the last ended, Don beaten at (1,9) beside the player -- the
   warp's map load put him back on (1,7) every time, and his cleared flag had him come at three tiles again. Broken on purpose
   from copies: `tiles_away` 4 failed at the walk with "trainer.tiles_away: want 4, got 3"; his flag SET in the setup, with
@@ -617,9 +606,8 @@ captures `autoplay_scn_warp_mid_approach`, `_after_a`, `_after_a2`, `autoplay_sc
 
 **Vanilla V1.0, Route 30, the chat's save (no badges).** START, the player's name ("A"), A: the trainer card's second page
 numbered eight gym leaders' faces 1-4 on the top row and 5-8 below, with no badge drawn, while wJohtoBadges (01:D857 in
-our build's `.sym`) read 0. Captures `autoplay_trainer_card_p2`, `autoplay_trainer_card_badge1`, `autoplay_trainer_card_badges148_a`
-and `_b`, and the enlarged comparisons `autoplay_badge1_compare`, `autoplay_badges148_b_zoom` (gitignored); each capture
-compared to the no-badge one pixel by pixel.
+our build's `.sym`) read 0. Captures of the second page with no badge, with badge 1 and twice with badges 1, 4 and 8,
+and enlarged comparisons of badge 1 and of badges 1, 4 and 8; each capture compared to the no-badge one pixel by pixel.
 
 - **Bit 0.** Written to 1 (`set_badge` 1) in the overworld, then the card reopened: the only pixels that changed were at x
   22-26, y 89-103, a badge drawn beside leader 1 -- thin, as if turned edge-on.
@@ -633,9 +621,7 @@ compared to the no-badge one pixel by pixel.
 ### The key item pocket, and riding the BICYCLE (2026-09-17)
 
 **Vanilla V1.0, Route 30 and New Bark Town.** `probes/autoplay_bag_probe.lua`, `probes/autoplay_text_probe.lua` and
-`probes/autoplay_state_probe.lua` (`logs/autoplay_bag_7871_20260917_035248.log`, `logs/autoplay_text_7871_20260917_035248.log`,
-`logs/autoplay_state_7871_20260917_035340.log`); captures `autoplay_pack_key_items`, `autoplay_pack_bicycle_menu`,
-`autoplay_on_bicycle` (gitignored).
+`probes/autoplay_state_probe.lua`; captures of the key item pocket, the BICYCLE's menu and the player on the BICYCLE.
 
 - **Which items are key items.** The game's attribute table (01:67C1, 7 bytes an item) read +0x05 02 for 22 ids, among them
   BICYCLE (7), COIN CASE (54), ITEMFINDER (55) and OLD ROD (58); 04 for 57 ids from TM01 (191); 01 for 164 and 03 for 12. Read
@@ -662,9 +648,7 @@ compared to the no-badge one pixel by pixel.
 ### The TM/HM pocket, and a list that redraws for 11 frames (2026-09-17)
 
 **Vanilla V1.0, New Bark Town.** `probes/autoplay_bag_probe.lua` and `probes/autoplay_text_probe.lua`
-(`logs/autoplay_bag_7871_20260917_035825.log`, `logs/autoplay_text_7871_20260917_035825.log`, and
-`logs/autoplay_text_7871_20260917_040112.log` for the scroll-up selects); captures `autoplay_pack_tms`, `autoplay_pack_tms_scrolled`,
-`autoplay_pack_tms_hm07` (gitignored).
+(a second text probe run for the scroll-up selects); captures of the TM/HM pocket, scrolled, and at HM07.
 
 - **Which items.** The attribute table files 57 ids under 04, in id order TM01 (191) to TM50 (242) and HM01 (243) to HM07
   (249); two ids between them (195, 220) file elsewhere. wTMsHMs (01:D859) is 57 bytes in our build's `.sym`.
@@ -688,10 +672,9 @@ compared to the no-badge one pixel by pixel.
 ### Surfing, and a poisoned party on foot (2026-09-17)
 
 **Vanilla V1.0, New Bark Town's pond (x 18-19, y 6-9).** The autoplay tools' answers, `probes/autoplay_text_probe.lua`,
-`probes/autoplay_state_probe.lua` (`logs/autoplay_state_7871_20260917_040949.log`) and `probes/autoplay_battle_probe.lua`'s
-party lines (`logs/autoplay_battle_7871_20260917_041644.log`, `logs/autoplay_state_7871_20260917_041644.log`); captures
-`autoplay_water_no_badge`, `autoplay_bellsprout_field_menu`, `autoplay_surf_no_badge`, `autoplay_surfing`, `autoplay_surf_landed`,
-`autoplay_party_poisoned`, `autoplay_party_healed_from_psn`, `autoplay_poison_hp0` (gitignored).
+`probes/autoplay_state_probe.lua` (two runs) and `probes/autoplay_battle_probe.lua`'s party lines; captures of the water
+with no badge, BELLSPROUT's field menu, SURF with no badge, surfing, landed, the party poisoned and healed, and poison at
+HP 0.
 
 - **SURF on a party Pokémon.** `set_move` wrote SURF (57) into BELLSPROUT's second slot with PP 15; its party menu then listed
   SURF above STATS / SWITCH / MOVE / ITEM / CANCEL.
@@ -721,10 +704,9 @@ party lines (`logs/autoplay_battle_7871_20260917_041644.log`, `logs/autoplay_sta
 
 ### Type matchups and the same-type bonus (2026-09-17)
 
-**Vanilla V1.0, from `battle_menu` (CYNDAQUIL L5 against a wild PIDGEY L3, on the move menu), then Route 29.**
-`probes/autoplay_battle_probe.lua` (its earlier `logs/autoplay_battle_7871_20260917_013116.log` for the type bytes) and
-`probes/autoplay_move_write_probe.lua` (`logs/autoplay_move_write_7871_20260917_042309.log`), with `battle strongest` and, for the
-no-effect replay, single presses; capture `autoplay_type_ground_vs_pidgey` (gitignored).
+**Vanilla V1.0, from a snapshot at the battle's move menu (CYNDAQUIL L5 against a wild PIDGEY L3), then Route 29.**
+`probes/autoplay_battle_probe.lua` (its earlier run for the type bytes) and `probes/autoplay_move_write_probe.lua`, with
+`battle strongest` and, for the no-effect replay, single presses; a capture of a GROUND move against PIDGEY.
 
 - **A battler's types.** +0x1E/+0x1F of the battler block: PIDGEY read 00 02 and CYNDAQUIL 14 14; the type names' pointer table
   (14:497B, measured with TACKLE's NORMAL) names 0 NORMAL, 1 FIGHTING, 2 FLYING, 4 GROUND, 20 FIRE, 22 GRASS, 23 ELECTRIC, and the
@@ -732,7 +714,7 @@ no-effect replay, single presses; capture `autoplay_type_ground_vs_pidgey` (giti
 - **The table.** 0D:4BB1 (TypeMatchups in our build's `.sym`), read from our identical `.gbc`: three bytes an entry (attacking
   type, defending type, a multiplier byte), one FE between two runs of entries, FF after the last; 111 entries.
 - **Replays of one TACKLE with its type byte held** (+0x03 of the player's move struct, every frame while the struct held TACKLE),
-  each from `battle_menu`, first turn:
+  each from the move menu's snapshot, first turn:
 
   | Type written | Table against PIDGEY | Message | wCurDamage | PIDGEY's HP |
   | --- | --- | --- | --- | --- |
@@ -753,9 +735,8 @@ no-effect replay, single presses; capture `autoplay_type_ground_vs_pidgey` (giti
 ### Which stats a move's damage uses, and where the stats are (2026-09-17)
 
 **Vanilla V1.0.** The summary's stats page against `probes/autoplay_battle_probe.lua`'s party lines, then replays from
-`battle_menu` (CYNDAQUIL L5 against a wild PIDGEY L3) with `probes/autoplay_move_write_probe.lua` holding bytes
-(`logs/autoplay_move_write_7871_20260917_*.log` from 04:31 on); captures `autoplay_summary_page3`, `autoplay_summary_stats_bellsprout`
-(gitignored).
+a snapshot at the battle's move menu (CYNDAQUIL L5 against a wild PIDGEY L3) with `probes/autoplay_move_write_probe.lua`
+holding bytes (its runs from 04:31 on); captures of the summary's third page and BELLSPROUT's stats.
 
 - **The stats' order.** The summary's third page drew CYNDAQUIL ATTACK 11, DEFENSE 10, SPCL.ATK 12, SPCL.DEF 11, SPEED 12 and
   BELLSPROUT ATTACK 13, DEFENSE 9, SPCL.ATK 12, SPCL.DEF 8, SPEED 9. Their party slots from +0x26, two bytes each, read 11, 10,
@@ -777,8 +758,8 @@ no-effect replay, single presses; capture `autoplay_type_ground_vs_pidgey` (giti
 
 ### The lead fainted: "Use next POKéMON?" and the party list in a battle (2026-09-17)
 
-**Vanilla V1.0, Route 31, from `session_end_route31`.** The autoplay tools' answers; captures `autoplay_lead_fainted_question`,
-`autoplay_use_next_no`, `autoplay_use_next_yes` (gitignored). Snapshots `route31_cyndaquil_hp3`, `battle_use_next_question`.
+**Vanilla V1.0, Route 31, from the snapshot that ended the Route 31 session.** The autoplay tools' answers; captures of
+the question after the lead fainted, and of NO and YES chosen. Snapshots saved at those moments.
 
 - **Making it.** CYNDAQUIL healed, poisoned (`set_status`) and walked back and forth on row 14 until its HP read 3 (two HP a
   round of 8 steps), cured, then walked into the grass: a wild PIDGEY L4.

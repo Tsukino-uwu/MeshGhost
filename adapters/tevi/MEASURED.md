@@ -95,8 +95,7 @@ build 14778703.
 ### 2026-09-17 — The save list's cursor, and a new game started through it by injected input
 
 **Evidence**: autoplay's TEVI driver on the Steam build, `observe` reading `HUDSaveMenu.Instance`'s `page` and
-`selected` beside screenshots of the same moments (`dev-scripts/shots/tevi/autoplay_save_list_slot39.png`, gitignored),
-presses through the driver's Rewired injection; run log `autoplay/runs/2026-09-17_121000.061030.ndjson`.
+`selected` beside screenshots of the same moments, presses through the driver's Rewired injection, one autoplay session.
 
 - **The list is 4 rows a page, and the drawn number is page times 4 plus the row**: page 9, row 3 read slot 39, and
   the picture showed the row "39" highlighted.
@@ -137,7 +136,7 @@ by the driver, and the corner text drawn during the fade-in.
 ### 2026-09-17 — A new game reads its slot back from `tevisystem.sav`; a vanilla Cakewalk new game in slot 39
 
 **Evidence**: the game's own `Player.log` for two starts on the Steam build with the Randomizer disabled, and autoplay's
-driver (`observe`, events) around them; run log `autoplay/runs/2026-09-17_121000.061030.ndjson`, segments 3 and 4.
+driver (`observe`, events) around them, the same session.
 
 - **Starting a new game writes the recent-slot pointer, then reads it back from the file**: `[GemaNewGame] Try to start game
   at saveslot 39`, `Save recent manual save slot : 39` twice, then after the scene reload `Load recent auto or manual save
@@ -174,7 +173,7 @@ waits; `ReInput.configuration.ignoreInputWhenAppNotInFocus` and `Application.isF
 ### 2026-09-17 — The collision grid, the camera's view and the map's elements, against a picture of the cell
 
 **Evidence**: autoplay's driver `observe` beside a screenshot of the same moment in the Bandit Base cell (area `BASE`, room
-12,11; `dev-scripts/shots/tevi/autoplay_layer1_cell.png`, gitignored), the player at x 16688, y -9072.
+12,11), the player at x 16688, y -9072.
 
 - **The camera's view** (`CameraScript.GetEdgeLeft/Right/Top/Bottom`): 16048 to 17328 and -8564 to -9284, 1280 by 720 world
   units for the 1280 by 720 picture, the player's x at the centre. So a screen pixel is a world unit here.
@@ -191,8 +190,8 @@ waits; `ReInput.configuration.ignoreInputWhenAppNotInFocus` and `Application.isF
 
 ### 2026-09-17 — Teleport, restore and the cell's right wall
 
-**Evidence**: autoplay's driver in the cell above; run log `autoplay/runs/2026-09-17_121000.061030.ndjson` (segment 5) and the
-scenario runs `2026-09-17_130522.657707.ndjson` (3 of 3 passed) and `2026-09-17_130541.142367.ndjson` (a broken copy, failed).
+**Evidence**: autoplay's driver in the cell above, the same session, and the tracked scenario
+`autoplay/games/tevi/scenarios/cell_right_wall.json` run twice: 3 of 3 passed, and a deliberately broken copy failed.
 
 - **A snapshot** is `SaveManager.SaveGame` with the slot set to 39, which stores the area and the player's x and y: 3,924
   bytes, written into the save guard's shadow. **A restore** copies it back, sets the recent slot and calls
@@ -211,7 +210,7 @@ scenario runs `2026-09-17_130522.657707.ndjson` (3 of 3 passed) and `2026-09-17_
 
 **Evidence**: autoplay's TEVI driver on the Steam build, a prefix and postfix on `CharacterBase.BulletHurtPlayer` (named from the
 assembly; the decompilation read as a map showed every hit on a character calling it) and a per-frame read of the player's
-`health`, through the Cakewalk game walked out of the cell; run log `autoplay/runs/2026-09-17_131747.151516.ndjson`, segment 3.
+`health`, through the Cakewalk game walked out of the cell (walked, one autoplay session).
 
 - **A hit on the player**: `GH_Member_Cat` (35 HP) twice, `damage_taken` with `bullet_type` `ENEMY_HURTBOX` (contact, the cat 25.7
   units off) and `INVISIBLE` (its attack, 67.4 off), each 1 HP (`final_damage_raw` 1), `logic` `PLAYERDAMAGE`; the per-frame read
@@ -224,10 +223,9 @@ assembly; the decompilation read as a map showed every hit on a character callin
 
 ### 2026-09-17 — The instruction banner, the item box and a tutorial window, as text
 
-**Evidence**: the same driver and run log; `ControlTips.Instance` (private `lastkeyword`, `text`, `targetalpha`),
+**Evidence**: the same driver and session; `ControlTips.Instance` (private `lastkeyword`, `text`, `targetalpha`),
 `HUDObtainedItem.Instance` (`isDisplaying`, private `gotitem`, `itemname`, `itemdesc`) and every active `TMP_Text`, beside
-screenshots of the same moments (`dev-scripts/shots/tevi/autoplay_upper_corridor.png`, `autoplay_switch_hit.png`,
-`autoplay_slope3.png`, `autoplay_up_right.png`, `autoplay_after_dagger.png`; gitignored).
+screenshots of the same moments (the upper corridor, a switch hit, a slope, up-right, after the dagger).
 
 - **The banner**: walking from the cell drew, in turn, the quickdrop line ("Hold ... + [Z] while in the air to quickdrop, which can
   break locked ventilation ducts"), "When a bubble prompt appears, press ... to interact", "Press [X] for ranged orbitar attacks,
@@ -241,20 +239,20 @@ screenshots of the same moments (`dev-scripts/shots/tevi/autoplay_upper_corridor
 
 ### 2026-09-17 — A restore lets outside input in again; a teleport into a new room starts an autosave
 
-**Evidence**: the user; the driver's `extras.input_focus` and log (`autoplay/runs/driver_bepinex_tevi_7872.log`), same session.
+**Evidence**: the user; the driver's `extras.input_focus` and its own log, same session.
 
 - After a `restore` (`SaveManager.ReloadToGame`), the pause menu opened on its Items tab during a 19-frame hold of `XAxis+`, closed,
   and opened again. The user: *"its grabbing inputs from outside the game when a save is reloaded i think ? i need to manually press
   the game and focus it, then unfocus. and then it will stop reading inputs again"*. `application_focused_raw` read false.
-- With the driver dropping real input while unfocused (`real_input_muted` true), a `restore` of `tevi_first_enemy`, a 100-frame
-  `sequence` and 300 frames with no input read `mode` `play` and `any_pause_raw` false throughout (run log segment 4). Whether any
+- With the driver dropping real input while unfocused (`real_input_muted` true), a `restore` of a snapshot at the first enemy, a
+  100-frame `sequence` and 300 frames with no input read `mode` `play` and `any_pause_raw` false throughout. Whether any
   outside input was typed during it is not known, so this shows no leak, not that one was stopped.
 - A teleport from the cell (room 12,11) to x 17800 (room 13,11) logged `HELD an autosave (SaveManager.ReallyDoAutoSave skipped)`
   one frame before the teleport's answer.
 
 ### 2026-09-17 — Jump height by how long Jump is held (partial)
 
-**Evidence**: the driver's `press` and `sequence` answers in the same run log. The user: *"you should be able to jump short/high
+**Evidence**: the driver's `press` and `sequence` answers in the same session. The user: *"you should be able to jump short/high
 depending on how long the jump button is held"*.
 
 - From standing on flat floor: Jump held 15 frames rose from y -9072 to -8896.5 (175.5 units) by its last frame; held 16 frames,
@@ -265,7 +263,7 @@ depending on how long the jump button is held"*.
 ### 2026-09-17 — A trail of a jump: run speed, a ceiling that caps the arc, and a pass-through platform
 
 **Evidence**: autoplay's TEVI driver recording the player's position every frame (`observe`'s `trail`), in Bandit Base below the
-second ventilation duct; run log `autoplay/runs/2026-09-17_131747.151516.ndjson`, segment 5. The user, watching: *"think you hit
+second ventilation duct, the session walked out of the cell. The user, watching: *"think you hit
 your head at the roof/celing"* and *"try to jump below the platform/just a bit to the side of the platform"*.
 
 - **Running moves 6.33 units a frame** (19 units every 3 frames, level and on the slope alike); the slope there drops 1 unit
@@ -279,8 +277,8 @@ your head at the roof/celing"* and *"try to jump below the platform/just a bit t
 ### 2026-09-17 — Fighting at game speed: the fight reflex against five kinds, and blastorbs
 
 **Evidence**: the driver's `reflex` `fight` (each frame: face the nearest enemy, hold toward it outside 110 units, tap Attack
-inside it, jump or shoot when it is above), its answers and events, same run log, segment 5; `observe`'s `nearby` and
-`projectiles`; a screenshot of the blastvines (`dev-scripts/shots/tevi/autoplay_energyballs.png`, gitignored). The user: *"these
+inside it, jump or shoot when it is above), its answers and events, the same session; `observe`'s `nearby` and
+`projectiles`; a screenshot of the blastvines. The user: *"these
 things are bombs you can attack/push towards things to break them, not enemies"* and, of the Clean Staff, *"you can't reach that
 enemy from here / with your current items"*.
 
@@ -300,7 +298,7 @@ enemy from here / with your current items"*.
 
 **Evidence**: the driver reading `EnterTips.Instance` (active, a private `fadeout` above 0, its sprite against the private
 `entersprite`, `talksprite`, `actionsprite`), `HUDPopupMessage.Instance` (private `timer`, `targetTitleText`, `targetPopupText`)
-and every `TMP_Text`; screenshots `autoplay_menu1.png`, `autoplay_sigils.png` (gitignored); same run log. The user: *"there will
+and every `TMP_Text`; screenshots of the menu and the sigils; the same session. The user: *"there will
 be an icon above the player head, when you can use the up arrow to interact with things"*.
 
 - **The bubble**: walking to the artifact room's red switch, `interact` read `action` from the frame she stood beside it (a
@@ -316,8 +314,8 @@ be an icon above the player head, when you can use the up arrow to interact with
 
 ### 2026-09-17 — Into the Sewerways: a grate that broke on a falling quickdrop, the move list, and the first save point
 
-**Evidence**: the same driver and run log (segment 5), `trail`, `screen_text`, `menu`, `save.guard`, and screenshots
-`autoplay_shaft_down.png`, `autoplay_map2.png`, `autoplay_toward_save.png` (gitignored); the real save folder hashed against its
+**Evidence**: the same driver and session, `trail`, `screen_text`, `menu`, `save.guard`, and screenshots down the shaft,
+of the map and toward the save point; the real save folder hashed against its
 backup afterwards. The user: *"normal enemies are never required to defeat, only bosses"*, and *"you can equip sigils directly when
 picking them up, without having to go to the menu. if you have enought EP to do so"* (not tried yet).
 
@@ -343,8 +341,8 @@ picking them up, without having to go to the menu. if you have enought EP to do 
 ### 2026-09-17 — Holding the clock: what a timeScale of 0 stops, stepping, and input while held
 
 **Evidence**: autoplay's driver with a postfix on `GameSystem.TimeScale` (which sets `Time.timeScale` every frame: 0 while paused or in
-the game's own short stops, the game speed otherwise; read as a map) setting 0 while the clock is held; `observe`'s `trail`, run log
-`autoplay/runs/2026-09-17_131747.151516.ndjson`, segment 6, at the Sewerways' save point room, the player jumping in place.
+the game's own short stops, the game speed otherwise; read as a map) setting 0 while the clock is held; `observe`'s `trail`, the same session,
+at the Sewerways' save point room, the player jumping in place.
 
 - **Held, the player stops mid-air**: 8 frames into a jump she stayed at y -12857.4 for 150 frames, `Time.timeScale` reading 0 each.
 - **Input while held moves nothing and is not kept**: 30 frames of `XAxis+` and an `Attack` tap while held, then a step, showed
@@ -360,8 +358,8 @@ the game's own short stops, the game speed otherwise; read as a map) setting 0 w
 ### 2026-09-17 — The game's hitbox drawing in a frame capture, and what the flight recorder costs
 
 **Evidence**: autoplay's driver (`Annotate.cs`, `Recorder.cs`) on the Steam build, at the Sewerways save point room and in Ribauld's
-arena; screenshots `autoplay_l5_plain.png`, `autoplay_l5_annotated.png`, `autoplay_l5_plain_after.png`, `autoplay_sewer_right2.png`
-(gitignored), pixels counted by a script; run log `autoplay/runs/2026-09-17_150941.595165.ndjson`.
+arena; screenshots plain, annotated and plain again of one frame, and one of the sewer's right side, pixels counted by a
+script, one autoplay session.
 
 - **`BulletManager.showHitBox(true)` draws into the captured frame**: 456 cyan pixels in a box at the player's feet (her
   `BREAK_STAND` bullet, 32 by 56) in the annotated shot, 0 in plain shots taken before and 10 frames after it; the switch was
@@ -376,7 +374,7 @@ arena; screenshots `autoplay_l5_plain.png`, `autoplay_l5_annotated.png`, `autopl
 
 **Evidence**: the flight recorder (`recent`, every frame) on the save point block and in Ribauld's arena; `observe`'s
 `player.hurtbox` (Bodybox and `GameSystem.hitboxDisplay`, named from the assembly) and `projectiles` with boxes, stepped with the
-clock held; same run log.
+clock held; the same session.
 
 - **Rise per frame from the ground**: Jump held 24 frames 16.9, 32.9, 48.2, 62.8 ... peak 191.3 on frame 23, landing after 46
   frames; held 3 frames peak 89.7 on frame 12, landing after 27. Let go, the rise shrinks by about a quarter a frame; falling
@@ -390,7 +388,7 @@ clock held; same run log.
 ### 2026-09-17 — Ribauld's attacks: lasers, blastorbs, the arena's edges, and the states before each attack
 
 **Evidence**: the flight recorder with boxes, owners, and nearby characters' animation, logic state and hitstun; `damage_taken`
-events; `observe`'s `lasers`; Cakewalk, Sewerways, from snapshot `tevi_ribauld_start` (it restores at the save point, x 20671.7, not
+events; `observe`'s `lasers`; Cakewalk, Sewerways, from a snapshot before Ribauld (it restores at the save point, x 20671.7, not
 where it was taken); read as a map beside it, `Ribauld`, `EnergyBall`, `LaserController2D` and `GemaPoolManager.CreateLaser`.
 
 - **The fight**: a conversation (`chapter0_mainstory2-1`, 11 lines), then the Quickdrop tutorial window; at about 181-194 HP the line
@@ -411,8 +409,8 @@ where it was taken); read as a map beside it, `Ribauld`, `EnergyBall`, `LaserCon
 
 ### 2026-09-17 — Fighting Ribauld with the dodge: hits per try
 
-**Evidence**: `reflex` `fight` and `evade` answers and `damage_taken` events, each try from `tevi_ribauld_start` (reached), Cakewalk;
-same run log. The fight replays closely: the first charge hit landed about 1,890-1,900 frames after the restore in two tries.
+**Evidence**: `reflex` `fight` and `evade` answers and `damage_taken` events, each try from that snapshot (reached), Cakewalk;
+the same session. The fight replays closely: the first charge hit landed about 1,890-1,900 frames after the restore in two tries.
 
 | Try | Phase one | Hits | Ribauld's HP after |
 | --- | --- | --- | --- |
@@ -433,8 +431,8 @@ same run log. The fight replays closely: the first charge hit landed about 1,890
 ### 2026-09-17 — Infernal BBQ: what a normal enemy's hit costs, a death, and the play time to the first save point
 
 **Evidence**: a new game in slot 40 started at Infernal BBQ from the title's difficulty list (the HUD read "Infernal BBQ"); `reflex` answers,
-`damage_taken` events and the flight recorder; the saves' own `playtime` and `damageTakenTime` read from the snapshots
-`tevi_first_savepoint` (Cakewalk, the first run) and `tevi_inf_first_savepoint`; run log `autoplay/runs/2026-09-17_150941.595165.ndjson`.
+`damage_taken` events and the flight recorder; the saves' own `playtime` and `damageTakenTime` read from snapshots at
+the first save point of each (Cakewalk, the first run, and Infernal BBQ), the same session.
 
 - **A hit from a normal enemy**: a mouse 26 and 35 HP, a cat 33, a Clean Staff's and a bot's sweep (`INVISIBLE`, 80 by 75) 39; the
   Clean Staff's sweep came 40 frames into its `ATTACK1`, 50 units ahead of it. On Cakewalk the same hits cost 1.
@@ -452,7 +450,7 @@ same run log. The fight replays closely: the first charge hit landed about 1,890
 
 **Evidence**: autoplay's flight recorder (`recent`, read every frame where stated, otherwise every 3rd), `reflex` `fight` answers with
 their `orb_log`, and the fight's damage events; Steam build, slot 40 (a new game started at Infernal BBQ), each try walked from the
-Sewerways save point after restoring snapshot `tevi_inf_first_savepoint`; run log `autoplay/runs/2026-09-17_174242.917353.ndjson`.
+Sewerways save point after restoring a snapshot taken there (reached), one autoplay session.
 
 - **Ribauld has 807 HP** (480 on Cakewalk). The phase-two line (`chapter0_point3`) came at 328 to 379 HP, then the Charged Shot window.
   Beaten once, in 8,324 frames of fighting with one hit taken (30 HP); afterwards the conversations `chapter0_mainstory2-2` to `2-13`.
@@ -486,7 +484,7 @@ Sewerways save point after restoring snapshot `tevi_inf_first_savepoint`; run lo
 ### 2026-09-17 — Achievements: what TEVI calls to unlock one, and a load re-applying them
 
 **Evidence**: the Steam build's assemblies read for names (PowerShell reflection); autoplay's achievement guard, its log line and
-`observe`'s `save.achievement_guard` counter, around a `restore` of `tevi_inf_first_savepoint`.
+`observe`'s `save.achievement_guard` counter, around a `restore` of a snapshot at Infernal BBQ's first save point.
 
 - **The Steam library is Facepunch.Steamworks** (`Facepunch.Steamworks.Win64.dll`); the game's own entry points are
   `GemaSteamAPIAchievements.UnlockAchievement` and `GemaSteamAPIAccess.TrySyncAchievements`.
