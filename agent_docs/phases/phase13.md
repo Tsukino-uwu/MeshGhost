@@ -44,6 +44,7 @@ here adds its heading as one line under "The plan and the shared core".**
 - 2026-09-17 (the Emerald chat, the story to Dewford) — `battle`'s `manual`; `talk` keeps trying a pacing character
 - 2026-09-17 (the Emerald chat, Route 110) — `goto` carries the player's level: ground at two levels meets through 0
 - 2026-09-17 (the Emerald chat, Phase 3) — the knowledge store, goals, skills and the session loop built; the first unattended attempt stopped in a loop
+- 2026-09-18 — gitignored evidence is described, never cited: run logs, snapshots, captures and probe logs out of the docs
 
 **Emerald (vanilla), before its own log** -- from 2026-09-17 in [autoplay/emerald.md](autoplay/emerald.md)
 - 2026-09-16 (later still) — Phase 1 step 2: a live driver in vanilla Emerald, from boot to walking
@@ -1658,3 +1659,27 @@ only the knowledge store did, so 82 to 75 is the store's alone. `story_heat_badg
 **Open:** `battle run_wild` answered `stuck` after "Got away safely!" when the battle began from `advance_text`'s
 `battle_started` (a ROCK SMASH rock's GEODUDE); a trip from 0.26 to 0.13 ended "unreachable" inside cave 24.4 (the route
 entered it, not looked at); the driver still does not reconnect after a core stops (target `none` and back, five times).
+
+## 2026-09-18 — gitignored evidence is described, never cited: run logs, snapshots, captures and probe logs out of the docs
+
+**What the user said.** Asked whether `route.md` and `game.md` should treat run logs as permanent: *"its probly fine to use
+them as historical"*; then *"applies to all the autoplay things, logs or saves/states are not permanent in the repo"*; then,
+of the log name in a stretch, *"not pointing towards the exact file, but at least mentioning when it was done/found and
+how"*; and that it should be the standard everywhere, not only in Emerald's files.
+
+**The rule** (`agent_docs/licensing.md`, "Name what is tracked; describe what is not"): a probe script, test or scenario
+is named, since it is tracked and can be re-run; a probe log, capture, run log or savestate is gitignored and local to one
+machine, so an entry says what was done, what it read and the date, and how (walked, reached, read through `exec`, the
+user). Written into `CLAUDE.md` (the evidence line), `adapters/_template/MEASURED.md`, the `write-a-probe` skill,
+`autoplay/README.md` ("The knowledge store", "What stays out of the repo") and `autoplay/session/distill.md`, which no
+longer hands the distilling model the run log's name (`RunLog` dropped from the prompt's fields).
+
+**What was changed** (`4411f37b`, `e1c99ff6`, `394ed88a`, `a0a6e211`): Emerald's `route.md`, `game.md` and three skills
+(stretches read "Walked 2026-09-17", "the third walk"; tool behaviour cites `skills/trip.json` and
+`drivers/bizhawk/route.lua`, not a run); `trip.json`'s note lost the scratch `trip.py`; the `MEASURED.md` of TEVI, Emerald
+and Crystal (Crystal's by an agent, checked after) with every value, frame and address kept, and two entries now naming
+their tracked scenarios (`cell_right_wall.json`, `mud_slope.json`). Preflight clean, autoplay tests green, pushed at the
+user's word; all seven CI workflows green on `a0a6e211`.
+
+**Left as they are:** `VERIFIED.md` (append-only) and the phase files, this one included, which are dated history and
+still name logs and snapshots. Two leftover processes (`meshghost-server`, `meshghost-fakeadapter`) closed, no game running.
