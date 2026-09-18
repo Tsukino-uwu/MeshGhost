@@ -20,7 +20,7 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
 ## Moving
 
 - **`trip` {map, x, y}**: `goto` running, `battle effective` with `forget strong_variety` on a trainer's `spotted` or a
-  wild battle, `advance_text` on a message; it stops on a whiteout (run log `2026-09-17_131645.118278`).
+  wild battle, `advance_text` on a message; it stops on a whiteout (`skills/trip.json`).
 - **When `goto` fails, look at the ground before trying again** (emerald.md, 2026-09-17): "no way on foot" on Route 110
   was two ground levels meeting only through tiles of 0, and "no route to WATTSON" was a floor switch on the only path.
   Both were found by printing the map's grid through `exec`, not by more attempts. The header, event and tile bytes to
@@ -31,7 +31,7 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
   answers `unreachable` (MEASURED.md, "A mud slope on 0.26"). The user: a MACH BIKE goes up them.
 - **A warp tile of behaviour 101** (cave exits, the cable car stations) is left by stepping onto it, then `walk` Down
   and `press B` 60. After any door or warp, `press B` 60 before the next call: `goto`/`talk` answer "needs the overworld"
-  during the fade (run log `2026-09-17_181542.300302.ndjson`).
+  during the fade (`drivers/bizhawk/route.lua` refuses outside the overworld; seen 2026-09-17).
 - **A smashed rock is back after a whiteout**: a trip answered "no way on foot" at 0.26 (19,101) until (19,100) was
   smashed again. **A trip reading the same message every try** (0.26's sandstorm) stops `no_rule` after three: go a
   different way. A call repeating at one place is marked `loop` (README, The run log).

@@ -1,6 +1,7 @@
 # Emerald (vanilla): the way through, as it was walked
 
-**Only what a session walked**: each stretch names its run log (gitignored `autoplay/runs/`) and date. Maps are
+**Only what a session walked**: each stretch names the run it was walked in and the date, as history only (the logs are
+gitignored and local; README, The knowledge store). Maps are
 `group.number`, as `observe`'s `location.map` names them; a tile is (x,y) on that map. A trip is `run_skill trip` with
 that map and tile. **Nothing past the last stretch is known here**: a session that walks further adds the stretch, in
 the same form, when it ends. Kept under 8 KB: replace a stretch that is walked better, never add a second copy.

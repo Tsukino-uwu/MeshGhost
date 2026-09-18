@@ -192,7 +192,10 @@ far, and reads its text straight off the screen's tile buffer, with no hooks:
 What a session learned, for the next one to read: `games/<game>/` (tracked), beside `scenarios/`. **Measured or observed
 only**: every fact names its run log or record and date, and what a model knows of a game from anywhere else is where to
 look, never a fact (`agent_docs/licensing.md`). Each file is kept under about 8 KB and consolidated in place, never
-appended to as a diary. No snapshot is named in any of it: snapshots stay in the gitignored `states/`.
+appended to as a diary. No snapshot is named in any of it: snapshots stay in the gitignored `states/`. **A run log is
+not permanent either** (gitignored `runs/`, local to one machine): its name dates a fact as history, "walked in this
+run", never a reference to go and read, so the fact itself is written out. How a tool behaves cites its code or this
+README, never a run.
 
 - **`game.md`** — how to play the game with these tools, and the user's dated guidance. It points to the adapter's
   `MEASURED.md` and this README rather than repeating them.
@@ -479,5 +482,5 @@ each run's `setup` and `steps` as their own segments, walked or reached.
 
 ## What stays out of the repo
 
-`runs/` and `states/` are gitignored. A savestate carries game data and never enters the repo: a
-scenario builds its state with cheats. Every capture goes to `dev-scripts/shots/<game>/`.
+`runs/` and `states/` are gitignored, so nothing tracked depends on a file in them still existing (The knowledge
+store). A savestate carries game data and never enters the repo: a scenario builds its state with cheats. Every capture goes to `dev-scripts/shots/<game>/`.
