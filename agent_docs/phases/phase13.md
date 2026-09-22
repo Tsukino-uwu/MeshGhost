@@ -1735,6 +1735,6 @@ than the exe's"*, and correct: a static scan judges the file, and the stripped G
 than the exe. Recorded in `security-design.md`'s code-signing section and in the `ideas.md` entry; the
 antivirus motive for the DLL is gone as measured, the design stays parked. The user asked for the two
 isolations anyway: with the exe's version resource 4 of 70, unstripped 4 of 71, Elastic and McAfee on
-both; and the deployed exe as a same-day control, 1 of 71 (Microsoft only, Bkav gone on this build);
+both; and the deployed exe as a same-day control, 1 of 71 (Microsoft only; the user: every earlier exe upload had Bkav too, this is the first without);
 recorded in the same two places. The per-game release layout
 was sketched in chat and waits for the user's reaction. Docs only; no `.go` change; nothing pushed.

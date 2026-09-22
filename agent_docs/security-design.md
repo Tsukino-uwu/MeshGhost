@@ -1226,9 +1226,10 @@ stayed on both**, beyond the exe's Bkav-plus-Microsoft pair, so what those two r
 library shape itself, not the missing metadata or the stripping. **The exe, same day, for a same-day
 control:** the user uploaded the client deployed in the Pseudoregalia install, byte-identical to the
 root `meshghost.exe` (a local unstripped build of 2026-09-18 with the version resource, 12,531,712
-bytes): **1 of 71, Microsoft `Wacatac.C!ml` only** -- Bkav absent, where the 2026-09-06 build had it.
-Bkav's generic Go hit comes and goes per build, so the exe's floor is the `!ml` verdict alone, and
-the DLL sits three to four engines above it. Signing and prevalence remain the levers this section
+bytes): **1 of 71, Microsoft `Wacatac.C!ml` only**. The user's record: every earlier upload of a
+client or server exe showed Bkav plus Microsoft, and this is the first without Bkav; whether the
+vendor changed or this build differs is unknown. The exe's floor is the `!ml` verdict, and the DLL
+sits three to four engines above it. Signing and prevalence remain the levers this section
 already names.
 
 ## Replay files: one entry point for remote state (2026-09-03)
