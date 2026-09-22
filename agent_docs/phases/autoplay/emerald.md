@@ -634,3 +634,26 @@ BAG, the same shape) is the next one to write.
 **To pick up:** the open items in `../phase13.md` (`run_wild` answering `stuck` after an escape begun from
 `battle_started`, a trip ending "unreachable" in cave 24.4, the driver not reconnecting after a core stops, TEVI's own
 `goto` without a loop check); then the next goal past the HEAT BADGE.
+
+## 2026-09-23 (the Emerald chat) — the driver reconnects, `run_wild` ends after a ROCK SMASH escape, the cave case not found
+
+**The driver** (`799d192b`): killing a core partway through a command left the driver on a dead link, three kills out of three,
+with the VPN on and again with it off. BizHawk's `receive` kept answering `timeout`; only a `send` saw `closed`, and `send` only
+logged it. Now any send error but `timeout` brings the link down, and a ready link sends `{"type":"ping"}` once a second
+(the core drops it silently; `TestPingsAreDroppedSilently` fails without that). Live: three kills, three reconnects, each
+seen within about a second.
+
+**`run_wild`'s `stuck`** (`83606bc0`, emerald `MEASURED.md` "The field controls lock"): reproduced from a snapshot at the
+GEODUDE's `battle_started` on 0.26. After "Got away safely!" the script context stayed 1 while the player walked freely,
+so `battle` waited for a script that was not holding anything. Emerald's `scriptRunning` (and `talk`'s `talkStarted`)
+now also need the field controls lock, 0x03000f2c. `run_wild` ended `ended` 4 of 4; RICK's and MAY's (Route 110) battles
+still end after their words; the three Emerald scenarios pass 3 of 3. The module is at Lua's 200-local limit: the first
+edit failed to load for that reason, and the address is written inline.
+
+**The cave 24.4 "unreachable"**: not in any session's play log on disk. The `unreachable` answers they do hold are a `heal`
+trip to 5.0 (the Center is 5.4), the gym planner case in `route.md`, and a tile off a map's edge. From 0.26 with both rocks
+smashed, `trip` to 0.13 (14,8) hit the recorded sandstorm message instead, and the loop check stopped it at 8 calls.
+Dropped as an open item until a run shows it again.
+
+**Left as it is:** EmuHawk on vanilla Emerald, the driver loaded; the game on Route 110 after MAY's battle. New snapshots:
+`rs_below_rock_0_26`, `rs_battle_started`, `rs_both_rocks_smashed`.

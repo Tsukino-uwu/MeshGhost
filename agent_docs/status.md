@@ -11,7 +11,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 ## Open now
 
 - 2026-09-23 — **Sort each adapter's older code-level entries out of `UNVERIFIED.md`/`VERIFIED.md` into `MEASURED.md`**, and give every `UNVERIFIED.md` (and `_template`) a full index. Another chat.
-- 2026-09-23 — **Autoplay, Emerald: Phase 3 accepted** (the HEAT BADGE, 2026-09-17); open: `run_wild`'s `stuck`, a cave "unreachable", driver reconnect. `phase13.md`.
+- 2026-09-23 — **Autoplay, Emerald: Phase 3 accepted** (the HEAT BADGE); `run_wild`'s `stuck` and driver reconnect fixed 2026-09-23; open: the next goal past the HEAT BADGE. `phase13.md`.
 - 2026-09-23 — **Autoplay, Crystal: paused** (the user), with `goto`, the PACK, the POKéMON menu, badges, bike, surf and scoring behind `effective` done on V1.0; next the whiteout. `phases/autoplay/crystal.md`.
 - 2026-09-23 — **Autoplay, TEVI: Ribauld beaten on Infernal BBQ, once hitless (115.4 s)**; open: the bomb ring in the air, orbs against hugging, normal enemies hitless, `exec`. `phases/autoplay/tevi.md`.
 - 2026-09-23 — **Vision: a pixel-side instrument, Phase 0 next** — window capture + OpenCV, a PAINTED ghost vs the PLAYER, the pairing no OAM read or screenshot can answer. `plans/vision-plan.md` (untracked).

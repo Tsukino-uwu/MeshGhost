@@ -1757,3 +1757,10 @@ branding sketch closed in the `ideas.md` entry. The user closed this chat and op
 unstripped file. Recorded in `security-design.md`'s code-signing section with the day's table; what to
 do with the flags and the pre-release text is the user's call, asked at the end of the session. The per-game release layout
 was sketched in chat and waits for the user's reaction. Docs only; no `.go` change; nothing pushed.
+
+## 2026-09-23 (the Emerald chat) — the driver reconnects, `run_wild` ends after a ROCK SMASH escape, the cave case not found
+
+A killed core left the BizHawk driver on a dead link (`receive` never saw it): a failed send now closes the link and a ready
+link pings once a second (`799d192b`, a Go test). Emerald's "a script is running" now also needs the field controls lock,
+so `battle run_wild` ends after a ROCK SMASH escape (`83606bc0`). The cave 24.4 "unreachable" is in no play log on disk and
+did not reproduce; dropped until a run shows it. Detail: [autoplay/emerald.md](autoplay/emerald.md), same date.
