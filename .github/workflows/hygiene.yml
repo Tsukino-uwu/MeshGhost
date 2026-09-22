@@ -115,7 +115,8 @@ jobs:
           LICENSE
           README.md
           go.mod
-          go.sum'
+          go.sum
+          nuget.config'  # nuget.config: the NuGet feeds every .csproj restores from (2026-09-22)
           status=0
           for f in $(git ls-files | grep -v /); do
             if ! printf '%s\n' "$ROOT_ALLOW" | sed 's/^ *//' | grep -qxF "$f"; then

@@ -375,7 +375,7 @@ Section "Stray files: nothing at the root but the allowlist, nothing marked loca
 #      is refused. That is a file telling us what it is; the gate makes the sentence mean something.
 #
 # .githooks/pre-commit refuses both at commit time; hygiene.yml re-checks the tree on every push.
-$rootAllow = @('.gitattributes', '.gitignore', '.gitmodules', 'CLAUDE.md', 'LICENSE', 'README.md', 'go.mod', 'go.sum')
+$rootAllow = @('.gitattributes', '.gitignore', '.gitmodules', 'CLAUDE.md', 'LICENSE', 'README.md', 'go.mod', 'go.sum', 'nuget.config')  # nuget.config: the NuGet feeds every .csproj restores from (2026-09-22)
 $rootTracked = @(& git ls-files | Where-Object { $_ -notmatch '/' })
 $rootStray = @($rootTracked | Where-Object { $rootAllow -notcontains $_ })
 if ($rootStray.Count -gt 0) {

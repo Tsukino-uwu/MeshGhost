@@ -71,7 +71,8 @@ BINKEEP='^(packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/(d
 #      the legitimate set is tiny; a real new root file is one entry here, with a reason;
 #   2. a staged file whose first ten lines say "deliberately untracked" or "do not commit" is
 #      refused -- the file is telling us what it is.
-ROOT_ALLOW='^(\.gitattributes|\.gitignore|\.gitmodules|CLAUDE\.md|LICENSE|README\.md|go\.mod|go\.sum)$'
+# nuget.config: the NuGet feeds every .csproj restores from (2026-09-22).
+ROOT_ALLOW='^(\.gitattributes|\.gitignore|\.gitmodules|CLAUDE\.md|LICENSE|README\.md|go\.mod|go\.sum|nuget\.config)$'
 strays=''
 for f in $(git diff --cached --name-only --diff-filter=A); do
 	case "$f" in */*) ;; *)
