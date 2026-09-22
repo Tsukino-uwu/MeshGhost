@@ -368,7 +368,11 @@ function M.battle(h, p)
 	if policy == "run_wild" and not (h.battleKind and h.effectiveMove) then
 		return nil, 'battle policy "run_wild" needs the battle kind and a type chart, which this game module does not read'
 	end
-	local function running() return policy == "run" or (policy == "run_wild" and h.battleKind() == "wild") end
+	-- A RUN answered by the action menu again, the battle still on, was refused: "Wild TRAPINCH prevents escape with ARENA
+	-- TRAP!" came back to the menu, and `run_wild` chose RUN until its frame limit (2026-09-23, 0.26's desert). From then on
+	-- `run_wild` fights that battle as "effective"; "run" stops, the choice the caller's.
+	local ranOnce, refused = false, false
+	local function running() return not refused and (policy == "run" or (policy == "run_wild" and h.battleKind() == "wild")) end
 	local outside = 0
 	local machine = M.machine(h, function(asking)
 		-- "manual": every action menu is the caller's (a ball thrown before a wild ABRA's first turn, the user, 2026-09-17).
@@ -380,7 +384,15 @@ function M.battle(h, p)
 					return nil, string.format("HP %d of %d is below stop_hp_below", hp, max)
 				end
 			end
-			if running() then return h.actionIndex.run, "RUN" end
+			if running() and ranOnce then
+				refused = true
+				if policy == "run" then return nil, "RUN was refused: the action menu came back" end
+			end
+			if running() then
+				ranOnce = true
+				return h.actionIndex.run, "RUN"
+			end
+			if refused then return h.actionIndex.fight, "FIGHT (RUN was refused)" end
 			return h.actionIndex.fight, "FIGHT"
 		end
 		if running() then return nil, "on the move menu with policy " .. policy end

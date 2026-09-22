@@ -1310,3 +1310,9 @@ an unattended session", both from autoplay's Phase 3 acceptance (`phase13.md`); 
 The wall-clock section's "Not seen" list described the unmeasured case as a bare stretch of hours; it now
 reads "once the game clock has advanced past 24 hours", which names something measurable. Nothing was
 measured or changed about the game: [phase12.md](phase12.md), 2026-09-18 (later).
+
+## 2026-09-23 (the Emerald autoplay chat) — measurements for autoplay, recorded in the adapter's MEASURED.md
+
+The field controls lock after a ROCK SMASH escape; ledges hopped right (0x38); a RUN refused by ARENA TRAP; a battler's
+ability and WONDER GUARD (the user). All in `adapters/emulator/pokemon/emerald/MEASURED.md`, same date; the autoplay side
+in [autoplay/emerald.md](autoplay/emerald.md).

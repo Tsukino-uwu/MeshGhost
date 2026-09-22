@@ -722,7 +722,7 @@ local function readLocalMap(warps, objects)
 	end
 	for beh, ch in pairs(letters) do
 		legend[#legend + 1] = string.format("%s behaviour 0x%02X%s", ch, beh,
-			beh == 0x3B and " (a ledge: walked into going down, it hopped two tiles)" or "")
+			(beh >= 0x38 and beh <= 0x3B) and " (a ledge: hopped two tiles walking into it its one way)" or "")
 	end
 	for e = 0, 15 do
 		local ch = string.format("%X", e)
@@ -1359,7 +1359,10 @@ local function readBattle()
 		battlers[#battlers + 1] = { battler = i, position = pos, side = (pos == 0 and "player") or (pos == 1 and "opponent") or nil,
 			species_id = u16of(b, 1), species = nameAt(SPECIES_NAMES, SPECIES_LEN, SPECIES_COUNT, u16of(b, 1)),
 			nickname = decode(b, 49, last), level = b[43], hp = u16of(b, 41), max_hp = u16of(b, 45), types = types,
-			moves = #moves > 0 and moves or nil }
+			moves = #moves > 0 and moves or nil,
+			-- The ability, +0x20; its name from the table the build's .sym names gAbilityNames, 13 bytes a name (inline: this
+			-- chunk is at Lua's 200-local limit).
+			ability_id = b[0x21], ability = nameAt(0x0831b6db, 13, 256, b[0x21]) }
 	end
 	-- The type flags read 0x04 in four wild battles and 0x0C against a trainer (one battle).
 	local flags = r32(BATTLE_TYPE_FLAGS)
@@ -1870,10 +1873,13 @@ function STEP.idle() return r8(GPLAYERAVATAR + 2) == 0 end
 -- water (0x15, collision clear, elevation 1) refused a step on foot; a character on the tile and a collision tile refused
 -- as `walk` measured them. The cause for a refused tile, from what describeTile read on it: `npc_in_way`, `one_way_edge`,
 -- `missing_ability` (with the ability), `solid`, `off_map`, or `unknown` for anything else (another elevation not measured).
+-- A ledge's one way, by behaviour: 0x3B down (above); 0x38 right, hopped from 0.27 (9,50) to (11,50) walking right and
+-- refused walking left, collision set at elevation 0 (2026-09-23). 0x39 left and 0x3A up are the same family, not walked.
+STEP.LEDGES = { [0x38] = "right", [0x39] = "left", [0x3A] = "up", [0x3B] = "down" }
 function STEP.cause(t)
 	if t.outside_map then return "off_map" end
 	if t.character then return "npc_in_way" end
-	if t.behaviour == 0x3B then return "one_way_edge" end
+	if STEP.LEDGES[t.behaviour] then return "one_way_edge" end
 	if t.behaviour == 0x15 and t.elevation == 1 and t.collision == 0 then return "missing_ability", "surf" end
 	if t.collision ~= 0 then return "solid" end
 	return "unknown"
@@ -2122,7 +2128,7 @@ local function routeGrid(fromX, fromY, toX, toY)
 			-- A mud slope (0xD0) slid the player back on foot (MUD SLOPE, above): closed.
 			if behaviour == 0xD0 then return nil end
 			-- A ledge reads collision set, and hopped moving down: two steps, onto it and past it (WHY A STEP WAS REFUSED).
-			if behaviour == 0x3B then return true, false, seen[y * mapW + x], "down" end
+			if STEP.LEDGES[behaviour] then return true, false, seen[y * mapW + x], STEP.LEDGES[behaviour] end
 			if (v & 0x0C00) ~= 0 then return nil end
 			return true, behaviour == 0x02, seen[y * mapW + x]
 		end,
@@ -2279,7 +2285,7 @@ routeHooks.playerElevation = function() return r8(playerObject() + 0x0B) & 0x0F 
 routeHooks.mapTile = function(name, x, y)
 	local collision, elevation, behaviour = routeHooks.mapTileRaw(name, x, y)
 	if not collision then return nil end
-	if behaviour == 0x3B then return elevation, "down" end
+	if STEP.LEDGES[behaviour] then return elevation, STEP.LEDGES[behaviour] end
 	if collision ~= 0 or (elevation == 1 and behaviour == 0x15) or behaviour == 0xD0 then return nil end
 	return elevation
 end
@@ -2344,6 +2350,9 @@ function TYPE_CHART.effectiveMove()
 	-- The user, 2026-09-17, after MUD SHOT at x0.5 (scored above TACKLE) lost to MAY's TREECKO: "its bad to use ineffective
 	-- moves, they deal less damage". So a move the foe resists (multiplier below 1) is chosen only when no unresisted move
 	-- scores above 0.
+	-- The user, 2026-09-23: a foe with WONDER GUARD "can only be damaged by super effective moves and nothing else", so
+	-- against one every other move scores 0. Not met in a battle yet; the ability's name is read as `battle` reads it.
+	local wonderGuard = nameAt(0x0831b6db, 13, 256, mons[foe + 0x21]) == "WONDER GUARD"
 	local best, bestScore, weighed, bestResisted = nil, nil, {}, true
 	for k = 0, 3 do
 		local id, pp = u16of(mons, 13 + k * 2), mons[37 + k]
@@ -2352,6 +2361,7 @@ function TYPE_CHART.effectiveMove()
 			local same = info.type_id == own1 or info.type_id == own2
 			local multiplier = info.type_id and TYPE_CHART.multiplier(info.type_id, foe1, foe2) or 1
 			local score = (info.power or 0) * (info.accuracy or 0) * (same and TYPE_CHART.sameTypeBonus or 1) * multiplier
+			if wonderGuard and multiplier <= 1 then score = 0 end
 			weighed[#weighed + 1] = { move = nameAt(MOVE_NAMES, MOVE_LEN, MOVE_COUNT, id), type = info.type, power = info.power,
 				accuracy = info.accuracy, same_type = same or nil, multiplier = multiplier, score = score }
 			local resisted = multiplier < 1 or score <= 0
@@ -2363,7 +2373,8 @@ function TYPE_CHART.effectiveMove()
 	if best == nil then return nil, "no move has PP left" end
 	local foeTypes = { TYPE_CHART.name(foe1) }
 	if foe2 ~= foe1 then foeTypes[2] = TYPE_CHART.name(foe2) end
-	return best, nameAt(MOVE_NAMES, MOVE_LEN, MOVE_COUNT, u16of(mons, 13 + best * 2)), { weighed = weighed, against = foeTypes }
+	return best, nameAt(MOVE_NAMES, MOVE_LEN, MOVE_COUNT, u16of(mons, 13 + best * 2)),
+		{ weighed = weighed, against = foeTypes, wonder_guard = wonderGuard or nil }
 end
 
 local textHooks = {

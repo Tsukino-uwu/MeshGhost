@@ -77,6 +77,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - A mud slope on 0.26: onto it and slid back (2026-09-17)
 - Map headers, events and behaviours read by an unattended session (2026-09-17)
 - The field controls lock, and a script context left waiting after a ROCK SMASH escape (2026-09-23)
+- A ledge hopped right, a RUN refused by ARENA TRAP, and a battler's ability (2026-09-23)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -1082,6 +1083,25 @@ the byte-identical build's `.sym` names sLockFieldControls, its meaning what the
   trainer battle"): from `story_before_may_route110`, 19 frames' wait, `walk up` 1, `advance_text`, `battle effective`
   won and read her words after ("...train a lot harder for the next time.") and answered `ended` in 10355 frames; the
   read straight after was context 2, lock 0, so `battle` had not ended before her script. Two earlier offsets whited out.
+
+### A ledge hopped right, a RUN refused by ARENA TRAP, and a battler's ability (2026-09-23)
+
+**Vanilla ROM**, autoplay tools and `exec` reads through `mcpcall`; the ability table's address is the one the
+byte-identical build's `.sym` names gAbilityNames, the ability's offset the decomp's map, both confirmed by the names read.
+
+- **Route 112 (0.27) from ROM tiles**: columns of behaviour 0x38 at x=10, 13, 15 and 17 (rows 43-53) between the
+  Jagged Pass exit (6,46) and the rest of the route; `goto` found no way east while only 0x3B was a ledge.
+- **0x38 is a ledge hopped moving right**: from (9,50) `walk right` 1 moved the player to (11,50); `walk left` 1 from
+  there was refused, the tile (10,50) reading collision 1, elevation 0. 0x39 and 0x3A were not walked.
+- **ARENA TRAP**: a wild TRAPINCH Lv 21 on 0.26 (15,45), the desert. RUN confirmed at the action menu printed "Wild
+  TRAPINCH prevents escape with ARENA TRAP!" and the action menu came back (a screenshot). `battle run_wild` chose RUN
+  until its 36000-frame limit; choosing FIGHT once a RUN was refused, it ended the battle in 1202 frames, 3 of 3
+  (WATER GUN, super effective, TRAPINCH fainted). The GEODUDE escape still ended `ended`.
+- **The ability**: byte +0x20 of a battler's 0x58-byte record; names 13 bytes apart from 0x0831b6db. Read: SWAMPERT
+  67 TORRENT, TRAPINCH 71 ARENA TRAP, GEODUDE 69 ROCK HEAD; id 25 decoded WONDER GUARD.
+- **WONDER GUARD** (the user: only super-effective moves damage it) was not met: with the TRAPINCH's byte written to
+  25, `effectiveMove` scored ROCK SMASH, MUD SHOT and TAKE DOWN 0 and chose WATER GUN (x2). What the game does with it
+  is not measured.
 
 ## Not measured yet
 
