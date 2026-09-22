@@ -3478,7 +3478,8 @@ entry point. So the DLL is not an escape from the false positives, and the case 
 "one file fewer" plus the signable-CI-artifact point below, neither of which a player would notice.
 The two cheap isolations were built and uploaded the same day: with the exe's version resource, 4 of
 70; unstripped, 4 of 71; Elastic and McAfee on both, beyond the exe's pair (`security-design.md`). The
-library shape is what they react to, so no build flag rescues it.
+library shape is what they react to, so no build flag rescues it. The exe itself, uploaded the same
+day as a control: 1 of 71, Microsoft only.
 
 **Measurement 2, the game thread.** Per-call latency from the game thread into the DLL under the load
 `verified.md` records for 2026-09-06: 344 ghosts, a 171 Hz sender, the core answering with about
