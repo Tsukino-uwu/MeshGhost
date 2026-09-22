@@ -74,6 +74,7 @@ is USED, that project is checked and recorded there first.
 - Crystal: a peer's OWN SPRITE PIXELS over the wire -- custom outfits, a run pose on a cartridge that has none -- deferred behind the colour-only version (the user's call, 2026-09-09)
 - Re-anchor the clock at a relay drop, instead of rewinding or freezing it (review O1, filed 2026-09-12)
 - Autoplay reading replay and input ghosts as a map of what to do and where to go (the user's idea, filed 2026-09-17)
+- Autoplay: a learned plan-picker over the TEVI dodge candidates -- what MCP and distillation cannot do, and SemIf, Brain's Doom sample, NEAT and MarI/O as the reads (filed 2026-09-22)
 
 ---
 
@@ -3365,3 +3366,51 @@ played/what i did"* -- the user plays a stretch with recording on, and autoplay 
 moves the user chose there. *"my path is never perfect/TAS, just a hint/suggestion on what to do"*: the recording is a hint,
 never a path to reproduce frame for frame, and autoplay may do better than it. It stays a map, not a script: the agent still plays through its own tools and the game runs the mechanism, and
 what it learns from the guide is checked against the game the way everything in autoplay's knowledge store is.
+
+## Autoplay: a learned plan-picker over the TEVI dodge candidates (filed 2026-09-22)
+
+**The question** (the user, 2026-09-22): *"i'm just trying to think about solving/doing things we can't just do with
+mcp/distill"*, and *"i just figured close to instant 20-80ms vs 8-9sec would make sense for realtime/playing a game reaction
+wise"*. Four reads were brought, none checked in `licensing.md` (this file's exemption; checked before anything is USED):
+
+- **SemIf** (github.com/TheoLeeCJ/SemIf, MIT): a "semantic if" -- unstructured state, a criterion and typed options in, one
+  forward pass, a probability per option out, no text generated. Qwen3.5-4B baseline on a 3090-class GPU; about 20 decisions a
+  second in its shared-state mode.
+- **Brain's Doom sample** (github.com/swedishembedded/brain, `samples/decision/doom`; its Doom fork
+  github.com/mkschreder/restful-doom): from the author's post as the user pasted it -- a frozen MiniLM-L6-v2 encoder, a trainable
+  head scoring each option's [CLS] row, softmax over however many options exist that step (no fixed output layer); state rendered
+  as prose (health, bearings, clearance, exit distance, recent events); filtered behaviour cloning from a scripted teacher, then
+  PPO, then count-based exploration; Doom in lockstep over HTTP at 85x realtime; 58 ms a decision; Banking77 25% on unseen
+  intents against 10% chance. An early release by its own account.
+- **NEAT** (Stanley & Miikkulainen 2002, nn.cs.utexas.edu/downloads/papers/stanley.ec02.pdf): the implementation source if a
+  network is ever built here.
+- **MarI/O** (gist.github.com/SethBling/598639f8d5e8afb5453a0b9519be51ff; header "feel free to use this code, but please do not
+  redistribute it", no licence file): NEAT in BizHawk Lua over memory reads, a 13x13 tile grid, a savestate reload per genome,
+  fitness rightward progress minus time. Read only, as proof the shape runs in BizHawk: never copied, ported or derived from.
+
+**Where autoplay already stands.** The model-1 / model-2 split exists: `reflex` runs a hand-written per-frame program in the
+TEVI driver (`autoplay/drivers/bepinex/tevi/Reflexes.cs`, `Threats.cs`, `Dodge.cs`) and `clock` holds game time while the
+model thinks, so the MCP loop never makes a per-frame decision. A Jev-style head would change how that System One is MADE,
+not where it sits; the MCP loop, the core and the run log stay as they are. SemIf's niche does not apply: `observe` is already
+typed, the design goal is zero model (skills and scenarios), and 20 decisions a second is a third of frame rate. Distillation
+by repeating runs covers Emerald and Crystal fully: readable, rule-shaped, text to read, no scalar fitness to climb.
+
+**The one class MCP and distillation cannot cover**: a decision faster than a model turn where nobody can write the rule --
+TEVI dodging, and the reflexes' generalisation gap (the user, on the orb reflex: *"how would this account for future/different
+beams ? variying sizes/speed/spacing ?"*, `phases/autoplay/tevi.md`). The pieces are there: `clock` (lockstep), `observe` and
+`recent` (structured state), `damage_taken` and `enemy_defeated` (reward), the `fight` and `evade` reflexes (a scripted
+teacher), and "double jumps as dodge plans" (a variable-arity candidate set). It would sit UNDER `reflex`, choosing which
+Dodge.cs plan, with Dodge.cs staying the frame-exact executor so the movement stays a player's. NEAT fits the stack better
+than the Doom recipe: a net of dozens of nodes evaluates in microseconds, a per-frame reflex in C# or Lua with no Python, GPU
+or gradients, its inputs what Threats.cs already computes; it starts from nothing, so a hand-built genome encoding the current
+reflex could seed the population. The Doom recipe's first stage (cloning the reflexes) is cheaper per episode but needs a
+gradient library. A per-frame button network plays like MarI/O, twitchy: fine for a dev harness, wrong for anything meant to
+look like a player.
+
+**What stops it today.** Episode throughput: TEVI is bound to wall-clock time, and `Time.timeScale` is measured for holding
+only. The first measurement, useful for every reflex test regardless: whether the clock hook can run time faster with physics
+and animation intact, and whether a boss phase resets from a snapshot without a scene reload. The bar is hitless, and a
+95% dodger is a bandage. A trained weight file is neither a measurement nor a scenario, so it lives gitignored beside
+`states/`; Python or Torch would be dev-only, never a release dependency. The cheap entry point if this is picked up: log
+decision tuples from the existing reflexes (the state seen, the candidate plans, the one chosen, whether damage followed)
+into the run log -- a dataset for free, and on its own a table of where the hand-written rules lose.
