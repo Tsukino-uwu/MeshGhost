@@ -76,6 +76,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - The live grid against the ROM's layout: a gym's barriers opened by its switches (2026-09-17)
 - A mud slope on 0.26: onto it and slid back (2026-09-17)
 - Map headers, events and behaviours read by an unattended session (2026-09-17)
+- The field controls lock, and a script context left waiting after a ROCK SMASH escape (2026-09-23)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -1060,6 +1061,27 @@ checked against the session's own play stream afterwards; each layout below is w
   (10,18), where a step threw the player to 4.1, standing one tile right. Standing on one after arriving did nothing.
 - **Not measured**: the other connection directions, whether 0x3B rows are one-way there, and why `observe`'s `nearby`
   left out characters beyond about 10 tiles.
+
+### The field controls lock, and a script context left waiting after a ROCK SMASH escape (2026-09-23)
+
+**Vanilla ROM**, autoplay `exec` reads through `mcpcall`, the game driven by autoplay tools; the address is the one
+the byte-identical build's `.sym` names sLockFieldControls, its meaning what the reads below showed.
+
+- **The rock.** 0.26 (18,102) facing the rock at (18,101): A, YES; one frame offset in six brought a wild GEODUDE
+  (`advance_text` answered `battle_started`), the others `closed` with the rock smashed. `battle run_wild` from there
+  chose RUN, read "Got away safely!", and the mode went back to overworld.
+- **0x03000e38 (the script context status) stayed 1 after that escape**, 600 frames later and after the player had
+  walked a tile up; the player walked freely (a screenshot, and `walk up` 1 answered `done`). Before the rock it read 2.
+- **0x03000f2c read 1 while a script held the player**: at the rock's YES/NO and in the battle (both context 1),
+  and **0 once the player walked**: after the escape (context 1) and before the rock (context 2). Three runs from one
+  snapshot, the same each time.
+- **What `battle` did with it**: waiting out "a script running" by the context alone, it ended `stuck` after the
+  escape (1784 frames); gated on this byte too, it ended `ended` (1296 frames), 4 of 4 from the same snapshot. RICK's
+  battle from `rick_battle_start` still ended `ended`, and the three Emerald scenarios passed 3 of 3.
+- **MAY on Route 110** (the context had read 0-1 for 1044 frames after her first battle, above, "A new game to the first
+  trainer battle"): from `story_before_may_route110`, 19 frames' wait, `walk up` 1, `advance_text`, `battle effective`
+  won and read her words after ("...train a lot harder for the next time.") and answered `ended` in 10355 frames; the
+  read straight after was context 2, lock 0, so `battle` had not ended before her script. Two earlier offsets whited out.
 
 ## Not measured yet
 

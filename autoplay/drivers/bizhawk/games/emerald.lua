@@ -69,6 +69,10 @@ local SMENU = 0x0203cd90
 -- (trainer_approach_probe.lua, 2026-09-17, three approaches and one whole battle). Other scripts -- a
 -- character spoken to, a sign -- are not measured.
 local SCRIPT_CONTEXT_STATUS, SCRIPT_CONTEXT_OFF = 0x03000e38, 2
+-- The player's field controls locked, 0x03000f2c (written inline in textHooks.scriptRunning: this chunk is at Lua's
+-- 200-local limit): 1 while a script holds the player (a message, a battle begun by one), 0 once
+-- they walk. After escaping a ROCK SMASH rock's wild battle the context above stayed 1 with the player walking freely,
+-- and `battle` waited it out and ended stuck; this byte read 0 there (2026-09-23, 0.26 (18,101), three runs).
 -- Font 1 with no extra line spacing: the second line of a message box and the NO of a YES/NO sat 16px
 -- below the first.
 local LINE_ADVANCE = 16
@@ -2374,7 +2378,7 @@ local textHooks = {
 		if not asking then return nil end
 		return asking, { cursor = r8(asking == "action" and ACTION_CURSOR or MOVE_CURSOR), columns = 2 }
 	end,
-	scriptRunning = function() return r8(SCRIPT_CONTEXT_STATUS) ~= SCRIPT_CONTEXT_OFF end,
+	scriptRunning = function() return r8(SCRIPT_CONTEXT_STATUS) ~= SCRIPT_CONTEXT_OFF and r8(0x03000f2c) ~= 0 end,
 	inOverworld = inOverworld,
 	-- The starter bag has no window: advance_text stops menu_open on it, for select.
 	-- The bag's list too: `battle` on the bag opened from a battle answered `stuck` without it (2026-09-17).
@@ -2462,7 +2466,7 @@ routeHooks.talkAcross = function(x, y)
 	return t.behaviour == 0x80
 end
 routeHooks.talkStarted = function()
-	return r8(SCRIPT_CONTEXT_STATUS) ~= SCRIPT_CONTEXT_OFF or readDialogue() ~= nil
+	return textHooks.scriptRunning() or readDialogue() ~= nil
 end
 game.programs.talk = function(p)
 	if not isVanilla then return nil, "talk is measured on the vanilla ROM only" end
