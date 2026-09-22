@@ -1,11 +1,17 @@
 # Chaser contact damage (Pseudoregalia), closing the ghost-attack leaks, freezing during dialogue
 
-Planned 2026-09-15. **Status as of 2026-09-18 (late): Part D DONE (`e546d38c`, ADR 0068). Part A's
-LEAK MECHANISM IS FOUND but the fix is not yet built. Part B's DAMAGE FACTS are measured but the
-call mechanism to trigger damage artificially is still unresolved after four dead-end attempts. Part
-E is BUILT (session_policy parsing, capsule overlap, hurt/kill call sites) but produces no gameplay
-effect because it is blocked on Part B. Part C (dialogue freeze) is NOT started. Full account:
-`agent_docs/phases/phase7.md`, 2026-09-18 entry. This file is deleted when the last part lands.**
+Planned 2026-09-15. **Status as of 2026-09-23: Part B FOUND (`BPI_TryDamage`) and Part E WORKS on
+screen: `hurt` user-confirmed (a touch hurts and knocks back), `kill` kills through the game's own
+death, and a 3 s respawn hold (the user: timing "about right") stops the respawn death loop. The
+chasers now also hold while seated (user-confirmed) and, built and awaiting the user, while talking or
+reading (`controlState`, Part C). Part D DONE (`e546d38c`, ADR 0068). Part A (the attack leaks) is
+still NOT fixed. Facts: `adapters/pseudoregalia/MEASURED.md` (2026-09-23, three entries). This file
+is deleted when the last part lands.**
+
+**Decided with the user, 2026-09-23:** after a death the pack pauses briefly rather than resetting
+(*"a small pause/freeze for them, or small iframe when respawning"*); sitting holds the pack (*"so you
+can catch your breath and heal up"*). Open for the user: whether the hurt amount (5, an enemy touch)
+becomes a setting; knockback/sword-drop kinds stay out (DamageType 2 with a chaser crashes).
 
 ## Context
 
@@ -89,8 +95,9 @@ HP involved. Not yet fixed: whether that flash was ever mistaken for real ghost-
 `ST_HitboxData` deals the damage** (75 → 70, i-frames on, the user saw a normal hit). The struct's fields,
 what a body touch carries, the entry points and what is still unread are in
 `adapters/pseudoregalia/MEASURED.md` (2026-09-23). `Damage` is the HP cost, so an amount is one field.
-Next: a chaser as `Attacker` with a struct built from those values (`probes/probe_hitlist/Scripts/
-chaser_hit_sweep.lua`, written, not yet run); whether `DamageType` 2 or 0 changes the reaction. The
+**Then, the same day, with a chaser as `Attacker` and the struct built from a table: DamageType 5 at
+Damage 20 took exactly 20 HP (the user saw the hit); DamageType 2 CRASHED the game** (MEASURED.md,
+"(later)"). So the shipped hurt is DamageType 5 with a chaser as Attacker; never 2 with a ghost. The
 2026-09-18 account below is kept as the record of the four calls that did not work and why.
 
 **DAMAGE FACTS MEASURED, 2026-09-18. The CALL MECHANISM to trigger it artificially is UNRESOLVED after

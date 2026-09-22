@@ -2337,6 +2337,18 @@ namespace MeshGhostPseudo
     // is the line that matters.
     constexpr bool MIRROR_DEATH_FADE = true;
 
+    // **What a chaser's `hurt` touch costs: an enemy body touch's own Damage.** Every body touch
+    // read on 2026-09-23 (three enemy kinds, `MEASURED.md`) carried Damage 5.0 and cost 5 HP, and
+    // ADR 0068 defines `hurt` as exactly what an enemy's touch does. `Damage` IS the HP cost, so a
+    // different amount is this one number -- a config setting for it is the user's call, not made.
+    constexpr double CHASER_HURT_DAMAGE = 5.0;
+
+    // **How long the chaser pack holds after the player respawns from a death, contact on.** A
+    // starting value for the user to judge (*"a small pause/freeze"*, 2026-09-23): it covers the
+    // ~2.5 s after a reload in which the first chaser reached the respawn point in that session's
+    // `kill` loop, plus a moment to move off it.
+    constexpr std::chrono::milliseconds CHASER_RESPAWN_HOLD{3000};
+
     // **What actually changes on the player's model through a death. Probe, 2026-08-27.**
     //
     // The user: *"the whole model is supposed to go invisible/white ish for a brief moment"*, on
@@ -8276,6 +8288,141 @@ namespace MeshGhostPseudo
                 return false;
             }
             hitable->ProcessEvent(function, params_buffer.data());
+            return true;
+        }
+
+        // **Chaser contact through the game's own damage event, 2026-09-23 -- the call that WORKS.**
+        // `BPI_TryDamage(Attacker, HitboxInfo, ForwardVector, QueryLocation)` on the player's own
+        // `BP_HpHitable`, with an `ST_HitboxData` filled the way an enemy's body touch fills it
+        // (`MEASURED.md`, 2026-09-23: 14 real hits read back; one call with a real enemy's values
+        // took 5 HP, then with a CHASER as Attacker and this struct built from scratch Damage 20
+        // took exactly 20). The four calls above (`BPI_TouchHazard` and the rest) left these inputs
+        // empty and moved nothing.
+        //
+        // **DamageType is always 5, the body-touch kind.** DamageType 2 with a chaser as Attacker
+        // crashed the game (same entry, "(later)"); nothing else here is ever passed.
+        //
+        // Every field is found by reflection on the parameter's own struct and matched by its
+        // short name (the part before `_<n>_<guid>`), with its property class checked before the
+        // write -- never an offset from memory. The buffer starts zeroed, so `HitType` stays false
+        // (what every real touch carried) without touching a bitfield.
+        struct TryDamageLayout
+        {
+            UFunction* function{nullptr};
+            FProperty* attacker{nullptr};
+            FProperty* hitbox{nullptr};
+            FProperty* forward{nullptr};
+            FProperty* query{nullptr};
+            FProperty* damage{nullptr};
+            FProperty* hit_stop{nullptr};
+            FProperty* sound{nullptr};
+            FProperty* socket{nullptr};
+            FProperty* extent{nullptr};
+            FProperty* damage_type{nullptr};
+            bool ok{false};
+        };
+
+        auto resolve_try_damage_layout(UObject* hitable) -> TryDamageLayout
+        {
+            TryDamageLayout layout;
+            layout.function = hitable ? hitable->GetFunctionByNameInChain(STR("BPI_TryDamage")) : nullptr;
+            if (!layout.function)
+            {
+                return layout;
+            }
+            for (FProperty* param : TFieldRange<FProperty>(layout.function, EFieldIterationFlags::None))
+            {
+                if (!param)
+                {
+                    continue;
+                }
+                const StringType name = param->GetName();
+                const StringType cls = param->GetClass().GetName();
+                if (name == STR("Attacker") && cls == STR("ObjectProperty")) layout.attacker = param;
+                else if (name == STR("HitboxInfo") && cls == STR("StructProperty")) layout.hitbox = param;
+                else if (name == STR("ForwardVector") && cls == STR("StructProperty")) layout.forward = param;
+                else if (name == STR("QueryLocation") && cls == STR("StructProperty")) layout.query = param;
+            }
+            UScriptStruct* info_struct = layout.hitbox ? static_cast<FStructProperty*>(layout.hitbox)->GetStruct() : nullptr;
+            if (!info_struct)
+            {
+                return layout;
+            }
+            auto short_is = [](const StringType& full, const wchar_t* short_name) {
+                const StringType prefix = StringType(short_name) + STR("_");
+                return full.size() > prefix.size() && full.compare(0, prefix.size(), prefix) == 0 &&
+                       ::iswdigit(full[prefix.size()]);
+            };
+            for (FProperty* field : TFieldRange<FProperty>(info_struct, EFieldIterationFlags::None))
+            {
+                if (!field)
+                {
+                    continue;
+                }
+                const StringType name = field->GetName();
+                const StringType cls = field->GetClass().GetName();
+                if (short_is(name, STR("Damage")) && cls == STR("DoubleProperty")) layout.damage = field;
+                else if (short_is(name, STR("HitStopDuration")) && cls == STR("DoubleProperty")) layout.hit_stop = field;
+                else if (short_is(name, STR("HitSound")) && cls == STR("ObjectProperty")) layout.sound = field;
+                else if (short_is(name, STR("hitboxSocketName")) && cls == STR("NameProperty")) layout.socket = field;
+                else if (short_is(name, STR("lengthRadiusHalfHeight")) && cls == STR("StructProperty")) layout.extent = field;
+                else if (short_is(name, STR("DamageType")) && cls == STR("ByteProperty")) layout.damage_type = field;
+            }
+            layout.ok = layout.attacker && layout.hitbox && layout.forward && layout.query && layout.damage &&
+                        layout.hit_stop && layout.sound && layout.socket && layout.extent && layout.damage_type;
+            return layout;
+        }
+
+        auto call_try_damage(UObject* hitable, UObject* attacker, double damage, const FVector& forward,
+                             const FVector& query) -> bool
+        {
+            if (!hitable || !attacker)
+            {
+                return false;
+            }
+            // The class is the same for every player pawn, so the layout is resolved once per class
+            // (a respawn makes a new component of the same class; a different class re-resolves).
+            static UClass* layout_class = nullptr;
+            static TryDamageLayout layout;
+            UClass* hitable_class = hitable->GetClassPrivate();
+            if (hitable_class != layout_class)
+            {
+                layout_class = hitable_class;
+                layout = resolve_try_damage_layout(hitable);
+                Output::send(layout.ok
+                                 ? STR("[MeshGhostPseudo] CHASER_CONTACT: BPI_TryDamage and all ST_HitboxData fields resolved.\n")
+                                 : STR("[MeshGhostPseudo] WARNING: CHASER_CONTACT: BPI_TryDamage or an ST_HitboxData field did not resolve -- contact will not hurt.\n"));
+            }
+            if (!layout.ok)
+            {
+                return false;
+            }
+            // The body touch's sound, looked up once; a touch before it is loaded is silent rather
+            // than refused (every real touch carried it, measured 2026-09-23).
+            static UObject* contact_cue = nullptr;
+            if (!contact_cue)
+            {
+                contact_cue = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Game/Audio/Sounds/Actions/Cue_contact.Cue_contact"));
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(layout.function->GetPropertiesSize()), 0);
+            uint8_t* base = params_buffer.data();
+            uint8_t* info = base + layout.hitbox->GetOffset_Internal();
+            *std::bit_cast<UObject**>(base + layout.attacker->GetOffset_Internal()) = attacker;
+            *std::bit_cast<double*>(info + layout.damage->GetOffset_Internal()) = damage;
+            *std::bit_cast<double*>(info + layout.hit_stop->GetOffset_Internal()) = 0.2;
+            *std::bit_cast<UObject**>(info + layout.sound->GetOffset_Internal()) = contact_cue;
+            *std::bit_cast<FName*>(info + layout.socket->GetOffset_Internal()) = FName(STR("handSlot_RSocket"), FNAME_Add);
+            *(info + layout.damage_type->GetOffset_Internal()) = 5;
+            const bool vectors_written =
+                write_struct_triple(info, resolve_struct_triple(layout.extent, FName(STR("X"), FNAME_Find), FName(STR("Y"), FNAME_Find), FName(STR("Z"), FNAME_Find)),
+                                    120.0, 80.0, 80.0) &&
+                write_vector_param(base, layout.forward, forward) &&
+                write_vector_param(base, layout.query, query);
+            if (!vectors_written)
+            {
+                return false;
+            }
+            hitable->ProcessEvent(layout.function, base);
             return true;
         }
 
@@ -19792,6 +19939,9 @@ namespace MeshGhostPseudo
             {
                 bool frozen = false;
                 bool resolved = false;
+                bool pauser_set = false;
+                bool seated = false;
+                bool in_dialogue = false;
                 if (UWorld* world = pause_controller->GetWorld())
                 {
                     if (UObject** level = mg_property_value<UObject*>(world, STR("PersistentLevel")); level && *level)
@@ -19801,7 +19951,39 @@ namespace MeshGhostPseudo
                             if (UObject** pauser = mg_property_value<UObject*>(*settings, STR("PauserPlayerState")))
                             {
                                 resolved = true;
-                                frozen = *pauser != nullptr;
+                                pauser_set = *pauser != nullptr;
+                                // The respawn hold (set where a new world is noticed) rides the
+                                // same edge: a pause menu or a hold, either one freezes the pack.
+                                // **So does sitting (the user, 2026-09-23: *"sitting should freeze
+                                // them, so you can catch your breath and heal up"*).** `moveState` 8
+                                // is seated, measured on the player and the driven ghost 2026-09-09
+                                // (`probes/probe_pawndiff/Scripts/sit_watch.lua`, standup_hunt.lua).
+                                const uint8_t* move_state = pause_pawn ? mg_property_value<uint8_t>(pause_pawn, STR("moveState")) : nullptr;
+                                seated = move_state && *move_state == 8;
+                                // **And talking or reading (chaser-planning.md Part C, 2026-09-23).**
+                                // `controlState` on the player's pawn is 0 in play and non-zero while
+                                // the game holds control for a conversation or a book: 1 and 2 across
+                                // two NPC talks and two books, back to 0 at each end; the chair and the
+                                // pause menu leave it 0 (`probes/probe_inputnodes/Scripts/
+                                // controlstate_watch.lua`, found by a full-pawn `probe_dump` diff, book
+                                // open vs closed). Read only as a one-byte property -- its reflected
+                                // class is checked once, never assumed.
+                                FProperty* control_prop = pause_pawn ? mg_cached_property(pause_pawn, STR("controlState")) : nullptr;
+                                const bool control_prop_ok = control_prop && control_prop->GetSize() == 1 &&
+                                    (control_prop->GetClass().GetName() == STR("ByteProperty") ||
+                                     control_prop->GetClass().GetName() == STR("EnumProperty"));
+                                if (control_prop && !control_prop_ok)
+                                {
+                                    static bool warned = false;
+                                    if (!warned)
+                                    {
+                                        warned = true;
+                                        Output::send(STR("[MeshGhostPseudo] WARNING: 'controlState' is not a one-byte property on this build -- talking and reading will not hold the chasers.\n"));
+                                    }
+                                }
+                                const uint8_t* control_state = control_prop_ok ? mg_property_value<uint8_t>(pause_pawn, STR("controlState")) : nullptr;
+                                in_dialogue = control_state && *control_state != 0;
+                                frozen = pauser_set || seated || in_dialogue || std::chrono::steady_clock::now() < respawn_hold_until;
                             }
                         }
                     }
@@ -19822,8 +20004,11 @@ namespace MeshGhostPseudo
                     if (sent)
                     {
                         player_frozen_sent = frozen;
-                        Output::send(STR("[MeshGhostPseudo] PLAYER_FROZEN: {} (WorldSettings.PauserPlayerState {}).\n"),
-                                     frozen ? STR("frozen") : STR("resumed"), frozen ? STR("set") : STR("cleared"));
+                        Output::send(STR("[MeshGhostPseudo] PLAYER_FROZEN: {} (WorldSettings.PauserPlayerState {}, seated {}, talking/reading {}, respawn hold {}).\n"),
+                                     frozen ? STR("frozen") : STR("resumed"), pauser_set ? STR("set") : STR("cleared"),
+                                     seated ? STR("yes") : STR("no"),
+                                     in_dialogue ? STR("yes") : STR("no"),
+                                     std::chrono::steady_clock::now() < respawn_hold_until ? STR("on") : STR("off"));
                     }
                     // A failed send is deliberately not logged: while the socket is refusing,
                     // this runs once per frame. The change is still pending -- the latch was not
@@ -20170,6 +20355,24 @@ namespace MeshGhostPseudo
                              pawn->GetFullName(),
                              static_cast<void*>(current_world));
                 last_logged_world = current_world;
+                // **The respawn hold (chaser contact, 2026-09-23).** A death reloads the level, and
+                // the chaser pack follows the recording through the jump to the respawn point, so
+                // the first chaser landed on a player still standing there: with `kill` that was
+                // five deaths in ~25 s. The user: *"there should be a small pause/freeze for them,
+                // or small iframe when respawning"*. A new world after a death holds the pack for
+                // CHASER_RESPAWN_HOLD through the same `player_frozen` the pause menu uses: the
+                // chaser clock stands still, and contact already never fires while it is sent.
+                // Only while contact is on -- with it off, a respawn changes nothing it did not.
+                if (local_death_count > respawn_hold_death_count)
+                {
+                    respawn_hold_death_count = local_death_count;
+                    if (!g_chaser_contact_mode.empty())
+                    {
+                        respawn_hold_until = std::chrono::steady_clock::now() + CHASER_RESPAWN_HOLD;
+                        Output::send(STR("[MeshGhostPseudo] CHASER_CONTACT: respawn after a death -- holding the pack for {} ms.\n"),
+                                     std::chrono::duration_cast<std::chrono::milliseconds>(CHASER_RESPAWN_HOLD).count());
+                    }
+                }
             }
 
 
@@ -25971,77 +26174,36 @@ namespace MeshGhostPseudo
                 const bool overlapping = !player_frozen_sent &&
                     chaser_capsules_overlap(static_cast<AActor*>(pawn_obj), remote.ghost);
 
-                if (g_chaser_contact_mode == "hurt")
+                // **Both modes are one body touch through `call_try_damage` (2026-09-23), a chaser
+                // as the Attacker.** `hurt` carries an enemy touch's own Damage (5); `kill` carries
+                // the player's whole CurrentHp, so the game runs its own death path rather than a
+                // death this file stages. Neither fires while the game's own i-frame flag
+                // `intangible?` is set (on after every hit, measured 2026-09-23) -- whether
+                // `BPI_TryDamage` checks it itself is unmeasured, and an enemy's touch never lands
+                // inside it, so the flag the game sets is the gate, not a cooldown invented here.
+                if (overlapping && (g_chaser_contact_mode == "hurt" || g_chaser_contact_mode == "kill"))
                 {
-                    // Continuous, not edge-triggered -- see chaser_capsules_overlap's own comment
-                    // for why the game's own i-frame gate is trusted to throttle this rather than a
-                    // second cooldown invented here.
-                    if (overlapping)
+                    UObject** hitable = mg_property_value<UObject*>(pawn_obj, STR("BP_HpHitable"));
+                    double* own_hp = (hitable && *hitable) ? mg_property_value<double>(*hitable, STR("CurrentHp")) : nullptr;
+                    const bool intangible = (hitable && *hitable) ? mg_read_bool(*hitable, STR("intangible?"), true) : true;
+                    if (own_hp && *own_hp > 0.0 && !intangible)
                     {
-                        UObject** hitable = mg_property_value<UObject*>(pawn_obj, STR("BP_HpHitable"));
-                        double hp_before = 0.0;
-                        const bool have_before = read_shared_current_hp(pawn_obj, hp_before);
-                        // `BPI_TouchHazard(Location)`, not `BPI_ContactDamageResponse` -- see
-                        // call_touch_hazard's own comment. The player's own current location, since
-                        // a hazard's Location is presumably where THEY touched it, not the chaser.
-                        const FVector player_loc = static_cast<AActor*>(pawn_obj)->K2_GetActorLocation();
-                        static bool logged_hurt_call = false;
-                        const bool called = hitable && *hitable && call_touch_hazard(*hitable, player_loc);
-                        if (!logged_hurt_call)
-                        {
-                            logged_hurt_call = true;
-                            Output::send(called
-                                             ? STR("[MeshGhostPseudo] CHASER_CONTACT: hurt -- running the player's own 'BPI_TouchHazard'.\n")
-                                             : STR("[MeshGhostPseudo] WARNING: CHASER_CONTACT hurt -- 'BPI_TouchHazard' did not resolve or the player's BP_HpHitable is missing.\n"));
-                        }
-                        // **First live test (2026-09-18) called this and produced no visible effect
-                        // on screen** -- logged every time (not just once) until that is understood,
-                        // so a HP move that only happens sometimes is not hidden by the one-shot log
-                        // above.
-                        if (called && have_before)
-                        {
-                            double hp_after = 0.0;
-                            if (read_shared_current_hp(pawn_obj, hp_after))
-                            {
-                                Output::send(STR("[MeshGhostPseudo] CHASER_CONTACT: hurt -- CurrentHp {} -> {} across the call.\n"),
-                                             hp_before, hp_after);
-                            }
-                        }
-                    }
-                }
-                else if (g_chaser_contact_mode == "kill")
-                {
-                    // **Latched on the PAWN'S OWN IDENTITY, not the overlap edge.** The geometric
-                    // edge-latch alone re-fired dozens of times a second in the first live test
-                    // (2026-09-18): a cluster of chasers near a stationary player produced enough
-                    // position jitter (interpolation) that `overlapping` flickered false/true
-                    // between ticks, and each flicker was a fresh "edge". A player has exactly ONE
-                    // life at a time, so "already killed this pawn" is the correct gate -- it
-                    // survives jitter by construction and clears itself for free on the next
-                    // respawn, which the mod already measured makes an entirely new pawn object.
-                    static UObject* last_killed_pawn = nullptr;
-                    if (overlapping && !remote.chaser_contact_overlapping && pawn_obj != last_killed_pawn)
-                    {
-                        last_killed_pawn = pawn_obj;
-                        UObject** hitable = mg_property_value<UObject*>(pawn_obj, STR("BP_HpHitable"));
-                        double hp_before = 0.0;
-                        const bool have_before = read_shared_current_hp(pawn_obj, hp_before);
-                        const bool called = hitable && *hitable && call_combat_death(*hitable, 0.0);
-                        Output::send(called
-                                         ? STR("[MeshGhostPseudo] CHASER_CONTACT: kill -- running the player's own 'BPI_CombatDeath'.\n")
-                                         : STR("[MeshGhostPseudo] WARNING: CHASER_CONTACT kill -- 'BPI_CombatDeath' did not resolve or the player's BP_HpHitable is missing.\n"));
-                        // **Unverified question, answered live the first time this fires:** does
-                        // this also zero CurrentHp, or only play the dissolve/respawn while HP
-                        // stays wherever it was? Logged, not assumed -- `UNVERIFIED.md` records it.
-                        if (called && have_before)
-                        {
-                            double hp_after = 0.0;
-                            if (read_shared_current_hp(pawn_obj, hp_after))
-                            {
-                                Output::send(STR("[MeshGhostPseudo] CHASER_CONTACT: kill -- CurrentHp {} -> {} across the call.\n"),
-                                             hp_before, hp_after);
-                            }
-                        }
+                        const bool kill = g_chaser_contact_mode == "kill";
+                        const double hp_before = *own_hp;
+                        const double damage = kill ? hp_before : CHASER_HURT_DAMAGE;
+                        AActor* player_actor = static_cast<AActor*>(pawn_obj);
+                        const FVector player_loc = player_actor->K2_GetActorLocation();
+                        const FVector chaser_loc = static_cast<AActor*>(remote.ghost)->K2_GetActorLocation();
+                        // The chaser-to-player direction, flat: a real touch's ForwardVector was a
+                        // horizontal unit vector (MEASURED.md, 2026-09-23).
+                        double dx = player_loc.X() - chaser_loc.X();
+                        double dy = player_loc.Y() - chaser_loc.Y();
+                        const double len = std::sqrt(dx * dx + dy * dy);
+                        if (len > 0.001) { dx /= len; dy /= len; } else { dx = 1.0; dy = 0.0; }
+                        const bool called = call_try_damage(*hitable, remote.ghost, damage, FVector(dx, dy, 0.0), player_loc);
+                        // Read back through the component, never the value just passed.
+                        Output::send(STR("[MeshGhostPseudo] CHASER_CONTACT: {} by {} -- BPI_TryDamage called={} Damage={} CurrentHp {} -> {}\n"),
+                                     kill ? STR("kill") : STR("hurt"), to_wide_ascii(id), called, damage, hp_before, *own_hp);
                     }
                 }
                 remote.chaser_contact_overlapping = overlapping;

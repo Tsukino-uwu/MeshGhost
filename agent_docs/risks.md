@@ -153,6 +153,12 @@
   flags are `-trimpath` with no `-s -w` from v1.3.1; Bkav follows the server binary, why unmeasured;
   a c-shared DLL of the core scores three to four engines WORSE than the exe. The user's ruling:
   Microsoft's false-positive submission is for big or mod-site releases only, until signing.
+  **2026-09-23: a verdict also changes OVER TIME on the same file.** A local `meshghost.exe` build
+  (hash prefix `764CA19E`) ran cleanly from a Pseudoregalia install at 01:02, 01:17 and 01:22, then
+  Defender quarantined it at 01:32 as `Trojan:Script/Wacatac.C!ml`, killing the running core
+  mid-session, and blocked the repo-root copy too (`Get-MpThreatDetection`). The mod then logged
+  "meshghost.exe was not found" and did not retry. So a clean first run proves nothing about the
+  next hour.
 - **Autostart makes the antivirus false positives more likely, not less** (added 2026-08-16 with
   the autostart ADR). The shipped exes already draw false-positive trojan flags, and a game mod
   silently starting a hidden, unsigned executable is the literal shape of a dropper — a materially

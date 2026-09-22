@@ -45,6 +45,8 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 ## Index
 
 - 2026-09-23 — how an enemy hurts the player: `BPI_TryDamage` and `ST_HitboxData`
+- 2026-09-23 (later) — a chaser as the attacker: DamageType 5 works, DamageType 2 crashes
+- 2026-09-23 (night) — what marks talking, reading and sitting on the player
 
 ## Measured
 
@@ -81,6 +83,52 @@ Steam install, the build of that date; `main.dll` built from the tree at this en
 - **What it cannot say:** the sword-dropping knockback costs 0 HP (2026-09-18), and the capture fires
   on an HP drop, so that hit's struct is unread. Whether `DamageType` or `HitType` selects the reaction
   is unmeasured, and so is whether `BPI_TryDamage` accepts a non-enemy `Attacker`.
+
+### 2026-09-23 (later) — a chaser as the attacker: DamageType 5 works, DamageType 2 crashes
+
+Same install and build. `probes/probe_hitlist/Scripts/chaser_hit_sweep.lua`: `BPI_TryDamage` on the
+player, `Attacker` = the nearest chaser pawn (`BP_PlayerGoatMain_C`, 151 units away), `ST_HitboxData`
+built from a Lua table with the body-touch values above (sound resolved by `StaticFindObject`), the
+chaser-to-player direction as `ForwardVector`, the player's location as `QueryLocation`.
+
+- **Step 1, Damage 20, DamageType 5:** CurrentHp 80 → 60 inside the call, `intangible?` true at +0 and
+  +500 ms. The user: *"yes i did take damage"*. So the amount follows `Damage`, and a ghost is
+  accepted as `Attacker` for this kind.
+- **Step 2, Damage 5, DamageType 2, another chaser 310 units away:** the game crashed inside the call
+  (UE4SS "Fatal Error!" dump; the fault is in `VCRUNTIME140.dll+0x1C460`, the crashed thread's stack
+  unattributable by `dev-scripts/read-minidump.py --stack`). A real `BP_Enemy_Maid_C` hit with
+  DamageType 2 did not crash (the entry above), and `BPI_PerformDamageResponse(2)` with no attacker
+  crashed on 2026-09-18. What DamageType 2 reads from its attacker is unmeasured; a ghost's
+  `BP_HpHitable` reference is cleared at spawn (the decouple), which is one difference.
+- **Step 3 (DamageType 0) never ran.** Nothing here says what knockback or the sword drop are driven by.
+
+### 2026-09-23 (night) — what marks talking, reading and sitting on the player
+
+Same install. Found by widening, one instrument at a time, each read-only and hot-loaded through the
+scratch slot:
+
+- **`dialogue_watch.lua`** (`probes/probe_inputnodes/Scripts/`), on the pawn, camera and controller
+  across a whole NPC conversation: the only field that moved was `Interaction Target` (→ `BP_NPC_C_2` at
+  the start), and it stayed set after the end. It does not mark "talking now". `DialogueCam.bIsActive`
+  read `true` at rest.
+- **`widget_watch.lua`**, a census of every `UserWidget` by class and `Visibility`: a conversation creates
+  a `UI_DialoguePrompt_C` (owned by `MV_GameInstance_C`) with a `BP_ExpressiveTextWidget_C`, and one was
+  removed at a conversation's end (01:40:37). But finished prompts also linger and vanish together later
+  (01:42:39, two at once, no conversation boundary): garbage collection. A widget existing does not
+  mark a conversation.
+- **`probe_dump`** of `MV_GameInstance_C` with a book open vs at rest: only `activeRoom` differed. Of the
+  player pawn's 389 properties, book open vs closed: **`controlState` 2 vs 0** (the rest were an
+  animation track and two uptime timers).
+- **`controlstate_watch.lua`**, on change, across the user's sequence: `controlState` 1 (01:46:26–29,
+  01:46:56–59) and 2 (01:46:39–41, 01:47:06–08) for two NPC conversations and two books, 0 between; a
+  chair gave `moveState` 8 with `controlState` 0; the pause menu left both 0 (it sets
+  `WorldSettings.PauserPlayerState`). Which of 1 and 2 is the NPC and which the book is not pinned: the
+  book alone read 2 in the dump.
+- **The respawn loop, from the adapter's own log, contact `kill`:** the first chaser killed a freshly
+  respawned player ~2.5 s after `LoadMap PRE` (01:25:41.6 → 01:25:44.2), then again at +0.3 s and so on,
+  five deaths in ~25 s.
+- **`intangible?` stays set ~1.86 s** per hit, from the spacing of the adapter's gated `hurt` calls
+  (01:23:17.5, 19.4, 21.2, 23.1, 25.0, 26.8).
 
 ## Not measured yet
 

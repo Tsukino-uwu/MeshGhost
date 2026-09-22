@@ -3865,3 +3865,37 @@ tool, not a modified `hurt`.
 Next session: either the untried `Attacker`-pointer write, or step back from per-function guessing
 entirely and probe what a REAL hazard/enemy actor's own overlap does before it calls into the victim,
 so the full calling convention is copied rather than guessed one field at a time.
+
+## 2026-09-23 — Chaser contact works: the game's own damage event, a respawn hold, holds for sitting and talking
+
+**How the damage call was found, after four dead ends on 2026-09-18.** The last session had read
+`EntryPoint=15` (on every real hit, player and enemy alike) as a dead end. It was one, but the wrong
+conclusion was drawn from it: enemies carry the same `BP_HpHitable` class, so one value both ways
+was expected. The class's own bytecode (a C++ one-shot reading each Blueprint event stub's script)
+named every event's entry point, and none is 15: it is a resume point. The event nobody had tried,
+`BPI_TryDamage(Attacker, HitboxInfo, ForwardVector, QueryLocation)`, has component properties of the
+same names, so a read-only capture of 14 real hits read back what the game passes: a body touch is
+`ST_HitboxData` with Damage 5, DamageType 5. One call with those values took 5 HP; then, with a chaser
+as `Attacker` and the struct built from scratch, Damage 20 took 20. **What to reach for first next
+time:** when a bare interface call "does nothing", read what a real caller leaves behind on the
+callee before guessing more signatures. DamageType 2 with a chaser crashed the game, so only 5 ships.
+
+**What the user confirmed on screen:** `hurt` (*"im taking damage and getting knocked back"*), `kill`
+(*"yes it insta killed"*), the 3 s respawn hold (*"felt about right time wise"*), the chasers holding
+on a chair and while talking or reading. The first `kill` build looped: the pack follows the recording
+through the jump to the respawn point, so the first chaser landed on a player still standing there,
+five deaths in ~25 s. The user chose a short pause over a pack reset.
+
+**How the talking signal was found:** a pawn/camera/controller watcher saw only `Interaction Target`,
+which never clears; a widget census saw the dialogue prompt come and go, but finished prompts are
+garbage-collected on their own schedule; a game-instance dump diff saw nothing; a full player-pawn
+dump diff (book open vs closed) named `controlState`, and an on-change watcher confirmed it across two
+NPCs and two books, with the chair and the pause menu as controls. Each step widened the subsystem
+rather than deepening the last instrument.
+
+**Also this session:** the "Fatal world leaks detected" crash on restart-last-save, right after the
+chasers went invisible post-death (`MIRROR_DEATH_FADE` runs `dieFade(true)` on a chaser replaying the
+death, and nothing un-fades it); the user's wall-kick VFX report and the world-spawned VFX audit
+request; Defender quarantining `meshghost.exe` mid-session, a verdict that changed on the same file
+(`risks.md`). All logged in `adapters/pseudoregalia/UNVERIFIED.md`. Records: `MEASURED.md` (three
+2026-09-23 entries), `VERIFIED.md` (two), `chaser-planning.md`. Still open: Part A (the attack leaks).

@@ -206,6 +206,8 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-07 — TCP_NODELAY fixed the Linux tester's stuttery ghosts: their cadence now matches Windows
 - 2026-09-08 — the recording indicator as a screen-space widget: stays drawn behind geometry, does not move with the field of view, pixel-aligned (user-confirmed)
 - 2026-09-11 — the three C++ ports the user had seen but not spoken for: the camera-rig leak fix, the input history read-back, the screen-space recording indicator (user-confirmed)
+- 2026-09-23 — chaser contact "hurt": a chaser's touch hurts and knocks the player back through the game's own damage event (user-confirmed)
+- 2026-09-23 — chaser contact "kill", the 3 s respawn hold, and the pack holding while seated, talking or reading (user-confirmed)
 - Pseudoregalia: 300ms interp at the 15Hz relay on the 60/25/2/2 proxy, on the fixed relay (2026-09-02)
 - Pseudoregalia: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
 ## Confirmed facts
@@ -5391,3 +5393,44 @@ the root set while shown. Seen in the user's 15:16 screenshot on 2026-09-08; now
 history), both installs. Scope: this game, this build pair. Still OPEN and NOT covered by this
 entry — the indicator drifting from its corner during a move that changes speed or FOV
 (2026-09-06), which is a separate observation in `UNVERIFIED.md`.
+
+## 2026-09-23 — chaser contact "hurt": a chaser's touch hurts and knocks the player back through the game's own damage event (user-confirmed)
+
+**What the user saw, 2026-09-23:** with `chaser.contact` set to `"hurt"`, the chaser pack caught up
+with a standing player and each touch hurt: *"it works, im taking damage and getting knocked
+back"*. The log read the same run back through the player's own `BP_HpHitable`: chaser 1 took 5 HP
+per touch (80 → 75 → 70 → 65 → 60 → 55 → 50), one touch every ~1.86 s, never inside the game's own
+i-frame flag.
+
+**The mechanism** (`Plugin.cpp`, `call_try_damage`): the adapter calls the game's own
+`BPI_TryDamage` on the player's `BP_HpHitable`, the chaser as `Attacker`, with an `ST_HitboxData`
+filled the way an enemy's body touch fills it (Damage 5, DamageType 5, the contact sound). The
+measurements behind every value are `MEASURED.md`, 2026-09-23.
+
+**Scope:** this game, the build of that date (Steam install), `hurt` only. Not covered: `kill`, the
+grace windows after a chaser spawns and after the player respawns (not built), and a chaser touch
+inside the dialogue or note states (`chaser-planning.md`, Part C).
+
+## 2026-09-23 — chaser contact "kill", the 3 s respawn hold, and the pack holding while seated, talking or reading (user-confirmed)
+
+**What the user saw, 2026-09-23, same session as the entry above:**
+
+- **`kill`:** a chaser's touch killed through the game's own death and reload: *"yes it insta
+  killed"*. The log: `CurrentHp 75 -> 0` inside the `BPI_TryDamage` call, `LoadMap PRE` 3 s later.
+  The first build had no respawn hold and looped (five deaths in ~25 s); see the next point.
+- **The respawn hold:** after a death, contact on, the adapter reports `player_frozen` for 3 s
+  (`CHASER_RESPAWN_HOLD`), so the pack holds and cannot touch. The user asked for it (*"a small
+  pause/freeze for them, or small iframe when respawning"*) and judged the built one: *"felt about
+  right time wise"*. The log: kill 01:35:39.97, reload 01:35:42.96, hold 01:35:43.21 to 01:35:46.21, no
+  second kill.
+- **Seated:** `moveState` 8 now holds the pack like the pause menu: *"yes paused while on a chair"*,
+  *"chair worked"*.
+- **Talking or reading:** `controlState` non-zero holds the pack: *"they work"*, across one NPC
+  conversation and one book (holds of 2.0 s and 2.5 s, 01:53:56 and 01:54:09).
+
+**The measurements behind each signal:** `MEASURED.md`, 2026-09-23 (night).
+
+**Scope:** this game, the Steam install, the build of that date. Not covered: a long conversation (the
+ones judged held 2-3 s; an earlier one's dialogue box stayed up 28 s and was never timed against
+`controlState`), and which of `controlState` 1 and 2 is the NPC and which the book. The attack leaks
+(`chaser-planning.md`, Part A) are still open.
