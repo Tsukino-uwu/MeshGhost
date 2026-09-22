@@ -1745,6 +1745,8 @@ with what scored zero. **Changed:** `release.yml` and `stage-release.ps1` build 
 `-s -w`; `reviewing.md`'s recipe and `antivirus.md` follow; `preflight.ps1` allowlists the VirusTotal
 host. **Pushed and cut the same evening on the user's word:** every workflow green on `24393ba0`, then
 `release.ps1` dispatched **v1.3.1 as a pre-release** (run 35765724253, all four jobs green). The two
-CI-built exes in its zip are the confirmation, uploaded by the user. All four links and the table are
-in `security-design.md`'s code-signing section. The per-game release layout
+CI-built exes in its zip were uploaded by the user: **client 1 of 70 (Microsoft), server 2 of 71 (Bkav
+and Microsoft)**. The confirmation failed: the flags are not a lever on Defender, and Bkav hit an
+unstripped file. Recorded in `security-design.md`'s code-signing section with the day's table; what to
+do with the flags and the pre-release text is the user's call, asked at the end of the session. The per-game release layout
 was sketched in chat and waits for the user's reaction. Docs only; no `.go` change; nothing pushed.

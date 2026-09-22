@@ -1259,10 +1259,16 @@ ruling: Defender is the one a player runs, so go with what scored zero.** `relea
 script had also lacked `-trimpath`); `docs/reviewing.md`'s byte-identical recipe and
 `docs/antivirus.md` follow. Measured on the client: 8,730,112 -> 12,503,040 bytes on disk, 3.3 MB ->
 6.4 MB zipped; nothing at runtime. One 0/70 on one
-file is not proof against an intermittent verdict: the next release's CI-built assets go to
-VirusTotal as the confirmation, and if Microsoft returns on them the next lever is the
-false-positive submission. The DLL sits three to four engines above the exe on every flag
-combination. Signing and prevalence remain the levers this section
+file is not proof against an intermittent verdict, and **the confirmation FAILED the same evening.**
+v1.3.1 was cut as a pre-release on the new flags and the user uploaded its two CI-built exes:
+client `935179fa…` **1 of 70, Microsoft**; server `a2a9bb94…` **2 of 71, Bkav and Microsoft**
+(links: `virustotal.com/gui/file/<sha256>`). Both are unstripped and path-trimmed (checked with
+`strings`: no build paths, symbols present). So neither half of the day's story held on a different
+machine's build: Microsoft's `!ml` verdict is per file and follows no flag, and Bkav can hit an
+unstripped binary too. The 0/70 was one file's luck. What stands: the DLL sits three to four engines
+above the exe on every flag combination, the build flags are not a lever on Defender, and the
+levers remain the ones this section names, signing and prevalence, plus the per-release
+false-positive submission to Microsoft, which nobody has tried yet. Signing and prevalence remain the levers this section
 already names.
 
 ## Replay files: one entry point for remote state (2026-09-03)
