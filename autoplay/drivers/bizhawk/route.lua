@@ -82,8 +82,10 @@ local DIRECTIONS = {
 --     other way; `route_in_sight` names each one the last plan had to cross. 100 until 2026-09-17, then 1000, about 125
 --     tiles of grass (the user: skip trainers as much as possible -- a trainer battle cannot be run from and is several
 --     Pokémon in a row, a wild one can be);
---   * a bump ends the ride at rest, marks the refused tile closed, and plans again (at most REPLANS times).
-local TURN_COST, GRASS_COST, SIGHT_COST, REPLANS = 2, 8, 1000, 8
+--   * a bump ends the ride at rest, marks the refused tile closed, and plans again (at most REPLANS times);
+--   * OBSTACLE_COST more for a tile the module says an action clears (a rock ROCK SMASH breaks): the walk stops in front
+--     of it and answers `obstacle` (the user, 2026-09-23: smash the rocks down 0.26 rather than go round the desert).
+local TURN_COST, GRASS_COST, SIGHT_COST, REPLANS, OBSTACLE_COST = 2, 8, 1000, 8, 20
 
 -- NO PROGRESS (2026-09-17, Emerald): a route never needs to stand on one tile many times, but a tile that sends the player
 -- back does exactly that -- two unattended sessions' trips walked up 0.26's mud slope and slid back onto (17,38) for minutes,
@@ -105,9 +107,9 @@ function M.plan(h, fromX, fromY, toX, toY, closed, crossGrass)
 	-- nil when a tile is closed to a step moving `d` (nil: to stand on); otherwise the extra cost of stepping onto it.
 	local function open(x, y, d)
 		if x < 0 or y < 0 or x >= mapW or y >= mapH or closed[y * mapW + x] then return nil end
-		local ok, grass, trainer, oneWay = tile(x, y)
+		local ok, grass, trainer, oneWay, obstacle = tile(x, y)
 		if not ok or (oneWay and DIRECTIONS[oneWay] ~= d) then return nil end
-		return ((grass and not crossGrass) and GRASS_COST or 0) + (trainer and SIGHT_COST or 0)
+		return ((grass and not crossGrass) and GRASS_COST or 0) + (trainer and SIGHT_COST or 0) + (obstacle and OBSTACLE_COST or 0)
 	end
 	if not open(toX, toY) then
 		return nil, string.format("(%d,%d) is not an open tile%s", toX, toY, where)
@@ -192,8 +194,14 @@ function M.plan(h, fromX, fromY, toX, toY, closed, crossGrass)
 		table.insert(steps, 1, order[(key // 16) % 4 + 1])
 		key = prev[key]
 	end
-	local legs, x, y, inSight, named = {}, fromX, fromY, {}, {}
+	local legs, x, y, inSight, named, obstacle = {}, fromX, fromY, {}, {}, nil
 	for _, d in ipairs(steps) do
+		-- An obstacle cleared by an action (a rock to smash): the legs end in front of it, and the goto answers `obstacle`.
+		local _, _, _, _, what = tile(x + d.dx, y + d.dy)
+		if what then
+			obstacle = { kind = what, x = x + d.dx, y = y + d.dy, from = { x = x, y = y }, facing = d.button }
+			break
+		end
 		x, y = x + d.dx, y + d.dy
 		local _, _, t = tile(x, y)
 		if t and not named[t] then
@@ -208,7 +216,7 @@ function M.plan(h, fromX, fromY, toX, toY, closed, crossGrass)
 			legs[#legs + 1] = { d = d, len = 1, endX = x, endY = y }
 		end
 	end
-	return legs, inSight, mapW
+	return legs, inSight, mapW, obstacle
 end
 
 -- goto {x, y, run, cross_grass}: to a tile on this map by a planned route of straight legs, holding each leg's direction
@@ -226,7 +234,7 @@ function M.go(h, p)
 	local run, crossGrass = p.run == true, p.cross_grass == true
 	local phase, frames, idle, moved, replans = "rest", 0, 0, 0, 0
 	local startMap, lastX, lastY, legs, li, ride, width = nil, 0, 0, nil, 1, nil, 0
-	local closed, towardWarp, legsTaken, inSight, entries = {}, false, 0, {}, {}
+	local closed, towardWarp, legsTaken, inSight, entries, stopAt = {}, false, 0, {}, {}, nil
 	local stops = h.watch()
 	local arriving, arrivingFor = h.arriving and h.arriving(), 0
 	local function finish(outcome, extra)
@@ -293,14 +301,18 @@ function M.go(h, p)
 				return nil, false
 			end
 			if x == toX and y == toY and not enter then return finish("done") end
+			-- Standing in front of an obstacle the plan ran into: planned again, so it is still there or gone.
+			stopAt = nil
 			if x == toX and y == toY then
 				phase, frames = "enter", 0
 				return { [enter.button] = true }, false
 			end
 			-- A warp stepped onto ends the goto with map_changed; anything else still plans to stand on it.
 			ride = h.ride(run)
-			local planned, why, w = M.plan(h, x, y, toX, toY, closed, crossGrass)
+			local planned, why, w, obstacle = M.plan(h, x, y, toX, toY, closed, crossGrass)
 			if not planned then return finish(replans > 0 and "blocked" or "unreachable", { reason = why }) end
+			if obstacle and #planned == 0 then return finish("obstacle", { obstacle = obstacle }) end
+			stopAt = obstacle and obstacle.from or nil
 			inSight, width = why, w
 			legs, li, phase, frames, idle, lastX, lastY = planned, 1, "hold", 0, 0, x, y
 			towardWarp = warpAhead(x, y, legs[1].d)
@@ -346,7 +358,7 @@ function M.go(h, p)
 			moved = moved + math.abs(x - lastX) + math.abs(y - lastY)
 			lastX, lastY, frames, idle = x, y, 0, 0
 			if looping(x, y) then return finish("no_progress", { tile = { x = x, y = y }, entries = entries[x .. "," .. y] }) end
-			if x == toX and y == toY then
+			if (x == toX and y == toY) or (stopAt and x == stopAt.x and y == stopAt.y) then
 				phase = "coasting"
 				return nil, false
 			end

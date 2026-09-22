@@ -1051,3 +1051,19 @@ func TestEventsTool(t *testing.T) {
 		t.Fatalf("events = %s (error %v)", text, isErr)
 	}
 }
+
+func TestClearObstacleForwards(t *testing.T) {
+	h := newHarness(t)
+	got := make(chan string, 1)
+	h.startDriver(t, []string{"clear_obstacle"}, func(verb string, payload json.RawMessage) (string, any) {
+		got <- verb
+		return "result", map[string]any{"outcome": "menu_open", "verb": verb}
+	})
+	text, isErr := h.call(t, "clear_obstacle", map[string]any{})
+	if isErr || !strings.Contains(text, `"outcome":"menu_open"`) {
+		t.Fatalf("clear_obstacle = %s (error %v)", text, isErr)
+	}
+	if verb := <-got; verb != "clear_obstacle" {
+		t.Fatalf("the driver received %q", verb)
+	}
+}

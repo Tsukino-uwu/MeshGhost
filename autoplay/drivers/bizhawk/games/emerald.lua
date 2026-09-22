@@ -1393,7 +1393,7 @@ local game = {
 	variant = isVanilla and "vanilla" or "unverified",
 	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "cheat:warp", "cheat:set_flag",
 		"cheat:give_item", "cheat:register_item", "select", "walk", "goto", "battle", "advance_text", "type_text",
-		"set_clock", "cheat:noclip", "talk" },
+		"set_clock", "cheat:noclip", "talk", "clear_obstacle" },
 	-- The START menu and a YES/NO: Down moved the cursor one entry per press and A chose it; in a battle
 	-- menu Left and Right moved between its two columns (2026-09-16).
 	menuButtons = { prev = "Up", next = "Down", left = "Left", right = "Right", confirm = "A" },
@@ -2103,7 +2103,15 @@ local function routeGrid(fromX, fromY, toX, toY)
 	-- The player's level, the low nibble of the player object's +0x0B; each step's level is routeHooks.elevationStep's (LEVELS).
 	local elevation = r8(playerObject() + 0x0B) & 0x0F
 	local blocked, objects = {}, readObjects()
-	for _, o in ipairs(objects) do blocked[o.y * mapW + o.x] = "character" end
+	-- A ROCK SMASH rock (graphics 86: the two on 0.26 at (18,101) and (19,100) that A, YES broke, 2026-09-17 and 09-23)
+	-- is an obstacle, not a wall, while the party knows ROCK SMASH: the walk stops in front of it and `smash` breaks it.
+	local smashes = false
+	for _, mon in ipairs(readParty() or {}) do
+		for _, m in ipairs(mon.moves or {}) do if m.name == "ROCK SMASH" then smashes = true end end
+	end
+	for _, o in ipairs(objects) do
+		blocked[o.y * mapW + o.x] = (smashes and o.graphics_id == 86) and "smash" or "character"
+	end
 	local trainers = unbeatenTrainers(objects)
 	for _, t in ipairs(trainers) do
 		if not t.loaded then blocked[t.y * mapW + t.x] = blocked[t.y * mapW + t.x] or "trainer" end
@@ -2119,6 +2127,7 @@ local function routeGrid(fromX, fromY, toX, toY)
 			return (grid[i] | (grid[i + 1] << 8)) >> 12
 		end,
 		tile = function(x, y)
+			if blocked[y * mapW + x] == "smash" then return true, false, nil, nil, "smash" end
 			if blocked[y * mapW + x] then return nil end
 			local i = ((x + MAP_OFFSET) + gw * (y + MAP_OFFSET)) * 2 + 1
 			local v = grid[i] | (grid[i + 1] << 8)
@@ -2288,6 +2297,18 @@ routeHooks.mapTile = function(name, x, y)
 	if STEP.LEDGES[behaviour] then return elevation, STEP.LEDGES[behaviour] end
 	if collision ~= 0 or (elevation == 1 and behaviour == 0x15) or behaviour == 0xD0 then return nil end
 	return elevation
+end
+
+-- clear_obstacle {}: the ROCK SMASH rock beside the player (the one a goto answered `obstacle` in front of) faced, A, and its
+-- text to the YES/NO, by `talk`'s own walk-face-tap; `select` YES and `advance_text` then break it (route.md, 0.26).
+game.programs.clear_obstacle = function()
+	local _, x, y = routeHooks.position()
+	for _, o in ipairs(readObjects()) do
+		if o.graphics_id == 86 and math.abs(o.x - x) + math.abs(o.y - y) == 1 then
+			return game.programs.talk({ local_id = o.local_id })
+		end
+	end
+	return nil, "no ROCK SMASH rock (graphics 86) beside the player"
 end
 
 -- goto {x, y, run, cross_grass}: to a tile on this map by a planned route (`../route.lua`).

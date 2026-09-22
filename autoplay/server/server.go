@@ -146,6 +146,13 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 	}, logged(t, "talk", nil, t.talk))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name: "clear_obstacle",
+		Description: "Clear the obstacle beside the player that a goto stopped in front of (goto answers obstacle, " +
+			"naming its kind, e.g. a rock to smash): the driver faces it and uses what clears it, pressing through " +
+			"the text. Ends as advance_text does (closed, menu_open for a YES/NO to answer with select, battle_started).",
+	}, logged(t, "clear_obstacle", nil, t.clearObstacle))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name: "type_text",
 		Description: "Type text on the on-screen keyboard the game shows (a naming screen): the driver clears what " +
 			"is typed, then for each character changes page, moves the game's own cursor to its key one step at a " +
@@ -582,6 +589,11 @@ func (t *tools) talk(ctx context.Context, _ *mcp.CallToolRequest, in TalkIn) (*m
 		return nil, nil, fmt.Errorf("local_id must be 0 to 65535, got %d", *in.LocalID)
 	}
 	raw, err := t.forward(ctx, "talk", "talk", in, GotoTimeout+3*time.Minute)
+	return nil, raw, err
+}
+
+func (t *tools) clearObstacle(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+	raw, err := t.forward(ctx, "clear_obstacle", "clear_obstacle", struct{}{}, GotoTimeout+3*time.Minute)
 	return nil, raw, err
 }
 
