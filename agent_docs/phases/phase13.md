@@ -1743,6 +1743,8 @@ the untrimmed builds carrying the home directory and the clone path, the trimmed
 Microsoft's verdict followed the paths. **The user's ruling:** Defender is the one a player runs, go
 with what scored zero. **Changed:** `release.yml` and `stage-release.ps1` build with `-trimpath` and no
 `-s -w`; `reviewing.md`'s recipe and `antivirus.md` follow; `preflight.ps1` allowlists the VirusTotal
-host. The next release's CI assets are the confirmation. All four links and the table are in
-`security-design.md`'s code-signing section. The per-game release layout
+host. **Pushed and cut the same evening on the user's word:** every workflow green on `24393ba0`, then
+`release.ps1` dispatched **v1.3.1 as a pre-release** (run 35765724253, all four jobs green). The two
+CI-built exes in its zip are the confirmation, uploaded by the user. All four links and the table are
+in `security-design.md`'s code-signing section. The per-game release layout
 was sketched in chat and waits for the user's reaction. Docs only; no `.go` change; nothing pushed.
