@@ -3481,6 +3481,18 @@ The two cheap isolations were built and uploaded the same day: with the exe's ve
 library shape is what they react to, so no build flag rescues it. The exe itself, uploaded the same
 day as a control: 1 of 71, Microsoft only.
 
+**The better motive, the user's, filed the same evening: channels that cannot carry an exe.** A
+Steam Workshop item, a recomp's mod folder (Ship of Harkinian, the N64 recomps with built-in mod
+support), a mod manager's package: each delivers files the host loads and launches nothing, so
+today they could only ever ship half of MeshGhost and point at the releases page for the rest.
+Whether the Workshop refuses exes, and what each recomp's loader accepts, are facts to read from
+their own rules before designing around them; unchecked. On today's numbers the Go DLL is the wrong
+vehicle for that motive (worse on VirusTotal than the exe, and a stub with one export is itself an
+odd shape). The alternative the contract already permits is a client in the host's language: a C#
+client on the tcp transport (TLS, newline JSON, the OPAQUE PAKE) inside a BepInEx mod, a managed
+assembly like the ones scoring 0/71, TCP-only since QUIC is out of reach in Mono, and a second core
+to keep in step. A different product, worth it only once a specific channel is wanted.
+
 **Measurement 2, the game thread.** Per-call latency from the game thread into the DLL under the load
 `verified.md` records for 2026-09-06: 344 ghosts, a 171 Hz sender, the core answering with about
 59,000 lines a second. A histogram of the push and poll calls (never a mean), judged beside what is on
