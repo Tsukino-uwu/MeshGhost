@@ -3520,7 +3520,16 @@ and encrypt with the Steam session, answering the peer-to-peer worry. Costs: the
 either the Go core takes on cgo for the socket or the mod owns it and speaks the relay protocol, which
 adapters never do; peers learn each other's Steam account instead of nothing; and the relay's
 structural defence (re-marshalling from the validated struct, `security-design.md`) would run inside
-one player's process. Licences unchecked, nothing read, nothing adopted.
+one player's process. Licences unchecked, nothing read, nothing adopted. **The user's follow-up, the
+same evening: server and client baked into one DLL, with an in-game menu for host/join, address and
+room code, no files dropped.** That is (2) with its costs spelled out: a friend's PC is behind a
+router, so hosting from a mod needs port forwarding or a NAT-traversal service, and the free one a
+mod can reach is Steam's, so this route exists only WITH Steam networking, native games only; the
+host's IP is exposed to joiners unless Valve's relays carry the traffic, a change in what a player
+trusts friends with that goes in the docs first; the menu is UI built per engine per game and
+judged on screen, out of reach in BizHawk beyond an overlay; settings the player enters live in the
+mod's own config beside it (allowed, not a save), so "no files" means no NEW files; and the relay's
+structural defences then run on one friend's PC. Same vehicle question as above.
 
 **Branding.** The code is already the platform-plus-mods shape the question describes; what says
 otherwise is the single full zip. The root README leads with ghosts and keeps client-and-server
