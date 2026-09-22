@@ -78,9 +78,12 @@ end
 
 local sock, partial, state = nil, "", "down"
 local nextTry = 0 -- os.time() at or after which to try connecting again
+local nextPing = 0 -- os.time() at or after which a ready link sends its next ping
 local queue = {}
 local hold = nil
 local lastDiff = nil
+
+local close -- below; a failed send closes the link
 
 local function send(msg)
 	if not sock then return false end
@@ -91,13 +94,19 @@ local function send(msg)
 	end
 	local ok, err = sock:send(line .. "\n")
 	if not ok then
-		log("send failed: " .. tostring(err))
+		-- A dead link must come down here: after its core was killed, receive kept answering "timeout" and
+		-- only this send saw "closed", and a driver that logged it and kept the socket never reconnected (2026-09-23).
+		if err ~= "timeout" then
+			close("send failed: " .. tostring(err))
+		else
+			log("send failed: timeout")
+		end
 		return false
 	end
 	return true
 end
 
-local function close(why, backoff)
+function close(why, backoff)
 	if sock then pcall(function() sock:close() end) end
 	sock, partial, state, queue, hold = nil, "", "down", {}, nil
 	nextTry = os.time() + (backoff or RETRY_SECONDS)
@@ -568,6 +577,13 @@ MESHGHOST_DEV_TICK = function()
 	end
 	drain()
 	if not sock then return end
+	-- A killed core is seen only on a send: receive kept answering "timeout" (2026-09-23), so an idle game with nothing
+	-- to report would hold a dead link forever. One ping a second, by the wall clock.
+	if state == "ready" and os.time() >= nextPing then
+		nextPing = os.time() + RETRY_SECONDS
+		send({ type = "ping" })
+		if not sock then return end
+	end
 
 	if hold then
 		if hold.program then

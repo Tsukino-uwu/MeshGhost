@@ -12,6 +12,7 @@
 //	core -> driver  {"id":N,"type":"<verb>","payload":{...}}         a request
 //	driver -> core  {"id":N,"type":"result","payload":{...}}         or {"id":N,"type":"error","payload":{"message":"..."}}
 //	driver -> core  {"type":"event","payload":{"kind":"...",...}}    unsolicited, buffered by the hub
+//	driver -> core  {"type":"ping"}                                  once a second, ignored: a dead link is only seen on a send
 //
 // A hello's "persisting", and a cheat's answer carrying the same field, list the cheats still in effect
 // in the game (a noclip left on): the only payload field the core reads, so a run segment begun while
@@ -338,6 +339,7 @@ func (h *Hub) handle(nc net.Conn) {
 			h.deliver(e)
 		case "event":
 			h.record(e.Payload)
+		case "ping":
 		default:
 			h.log.Printf("driver: ignoring a line of type %q", e.Type)
 		}

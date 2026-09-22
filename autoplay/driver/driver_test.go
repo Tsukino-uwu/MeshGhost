@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -313,5 +315,59 @@ func TestKindsReadAnEmptyObjectAsNoKinds(t *testing.T) {
 	d.send(map[string]any{"type": "hello", "payload": json.RawMessage(`{"protocol":1,"host":"bizhawk","game":"g","capabilities":["observe"],"persisting":{}}`)})
 	if e := d.read(); e.Type != "welcome" {
 		t.Fatalf("a hello with persisting {} got %q, want welcome", e.Type)
+	}
+}
+
+// lockedBuf is a log sink the test reads while the hub writes.
+type lockedBuf struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *lockedBuf) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuf) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+// A ping is the driver's once-a-second liveness send: it is neither logged nor buffered as an event.
+func TestPingsAreDroppedSilently(t *testing.T) {
+	var buf lockedBuf
+	h, err := Listen("127.0.0.1:0", log.New(&buf, "", 0))
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go h.Serve(ctx)
+	d := dial(t, h, goodHello())
+	d.read()
+	waitConnected(t, h, true)
+
+	for i := 0; i < 3; i++ {
+		d.send(map[string]any{"type": "ping"})
+	}
+	d.send(map[string]any{"type": "event", "payload": map[string]any{"kind": "tick"}})
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, newest := h.EventsSince(0); newest > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the event never arrived")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if _, newest := h.EventsSince(0); newest != 1 {
+		t.Fatalf("pings were buffered: newest event is %d, want 1", newest)
+	}
+	if strings.Contains(buf.String(), "ping") {
+		t.Fatalf("a ping reached the log:\n%s", buf.String())
 	}
 }
