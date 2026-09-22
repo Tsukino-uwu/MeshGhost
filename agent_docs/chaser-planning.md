@@ -85,6 +85,14 @@ HP involved. Not yet fixed: whether that flash was ever mistaken for real ghost-
 
 ## Part B: find how the game hurts and kills the player
 
+**FOUND 2026-09-23: `BPI_TryDamage(Attacker, HitboxInfo, ForwardVector, QueryLocation)` with a real
+`ST_HitboxData` deals the damage** (75 → 70, i-frames on, the user saw a normal hit). The struct's fields,
+what a body touch carries, the entry points and what is still unread are in
+`adapters/pseudoregalia/MEASURED.md` (2026-09-23). `Damage` is the HP cost, so an amount is one field.
+Next: a chaser as `Attacker` with a struct built from those values (`probes/probe_hitlist/Scripts/
+chaser_hit_sweep.lua`, written, not yet run); whether `DamageType` 2 or 0 changes the reaction. The
+2026-09-18 account below is kept as the record of the four calls that did not work and why.
+
 **DAMAGE FACTS MEASURED, 2026-09-18. The CALL MECHANISM to trigger it artificially is UNRESOLVED after
 four attempts — read this before trying a fifth.**
 

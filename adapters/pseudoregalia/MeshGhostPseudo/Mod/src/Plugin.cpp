@@ -4096,6 +4096,95 @@ namespace MeshGhostPseudo
                          tag, label, found);
         }
 
+        // **Which event an ubergraph EntryPoint IS, read from the class's own bytecode (2026-09-23).**
+        // `log_damage_fns.txt` sees only `ExecuteUbergraph_BP_HpHitable` on a real hit, EntryPoint 15
+        // on the player's component AND on an enemy's -- one class, so one event in both directions,
+        // which names nothing until 15 is tied to an event. Each Blueprint event stub's own script
+        // calls the ubergraph with its entry point as an int constant right after the function
+        // pointer (`EX_IntConst` = 0x1D, `RE-UE4SS/deps/first/Unreal/include/Unreal/Script.hpp`).
+        // The pointer is only COMPARED against the ubergraph's own address, never dereferenced.
+        // Prints every function's script size, the decoded entry point where the pattern is found,
+        // and the raw bytes of short scripts so a stub the pattern misses is still readable.
+        auto dump_ubergraph_entry_points(UObject* object, const wchar_t* ubergraph_name) -> void
+        {
+            UClass* object_class = object ? object->GetClassPrivate() : nullptr;
+            if (!object_class)
+            {
+                Output::send(STR("[MeshGhostPseudo] UBERGRAPH_ENTRY: no class, nothing to read.\n"));
+                return;
+            }
+            UFunction* ubergraph = nullptr;
+            for (UFunction* function : TFieldRange<UFunction>(object_class, EFieldIterationFlags::Default))
+            {
+                if (function && function->GetName() == ubergraph_name)
+                {
+                    ubergraph = function;
+                    break;
+                }
+            }
+            Output::send(STR("[MeshGhostPseudo] UBERGRAPH_ENTRY: '{}' at {} on class {}\n"), ubergraph_name,
+                         reinterpret_cast<uintptr_t>(ubergraph), object_class->GetName());
+            if (!ubergraph)
+            {
+                return;
+            }
+            const uintptr_t target = reinterpret_cast<uintptr_t>(ubergraph);
+            int functions = 0;
+            int decoded = 0;
+            for (UFunction* function : TFieldRange<UFunction>(object_class, EFieldIterationFlags::Default))
+            {
+                if (!function)
+                {
+                    continue;
+                }
+                ++functions;
+                const uint8_t* bytes = nullptr;
+                int32_t size = 0;
+                try
+                {
+                    auto& script = function->GetScript();
+                    bytes = script.GetData();
+                    size = script.Num();
+                }
+                catch (const std::exception&)
+                {
+                    Output::send(STR("[MeshGhostPseudo] UBERGRAPH_ENTRY: UStruct::Script has no offset on this engine version -- nothing readable.\n"));
+                    return;
+                }
+                std::wstring entries;
+                for (int32_t i = 0; bytes && i + 8 + 1 + 4 <= size; ++i)
+                {
+                    uintptr_t pointer = 0;
+                    std::memcpy(&pointer, bytes + i, sizeof(pointer));
+                    if (pointer == target && bytes[i + 8] == 0x1D)
+                    {
+                        int32_t entry = 0;
+                        std::memcpy(&entry, bytes + i + 9, sizeof(entry));
+                        entries += (entries.empty() ? STR("") : STR(",")) + std::to_wstring(entry);
+                    }
+                }
+                if (!entries.empty())
+                {
+                    ++decoded;
+                }
+                std::wstring hex;
+                if (bytes && size <= 96)
+                {
+                    static const wchar_t* const DIGITS = STR("0123456789abcdef");
+                    for (int32_t i = 0; i < size; ++i)
+                    {
+                        hex += DIGITS[bytes[i] >> 4];
+                        hex += DIGITS[bytes[i] & 0xF];
+                    }
+                }
+                Output::send(STR("[MeshGhostPseudo] UBERGRAPH_ENTRY: '{}' script={}B entry={} bytes={}\n"),
+                             function->GetName(), size, entries.empty() ? STR("-") : entries,
+                             hex.empty() ? STR("(long or empty)") : hex);
+            }
+            Output::send(STR("[MeshGhostPseudo] UBERGRAPH_ENTRY: end -- {} function(s), {} with a decoded entry point.\n"),
+                         functions, decoded);
+        }
+
         // Every component-valued property one actor holds, with the shadow-shaped ones called out
         // and remembered for the per-interval trace. Run on the ghost AND the local pawn at the
         // same moment, into the same log, so the two are read side by side -- the comparison is the
@@ -19885,6 +19974,7 @@ namespace MeshGhostPseudo
                     Output::send(STR("[MeshGhostPseudo] HPHITABLE_DUMP: starting -- {}\n"), (*hitable)->GetFullName());
                     census_named_fields(*hitable, STR("player's BP_HpHitable"), matches_everything,
                                         STR("HPHITABLE_DUMP"));
+                    dump_ubergraph_entry_points(*hitable, STR("ExecuteUbergraph_BP_HpHitable"));
                 }
                 else
                 {
