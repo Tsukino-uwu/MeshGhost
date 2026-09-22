@@ -145,10 +145,10 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -e
-          # -s -w as in the Windows job below: same size saving, same unchanged stack traces.
+          # Not stripped, as in the Windows job below (2026-09-22): the comment there says why.
           build() { # build <goos> <goarch> <label> <staging dir>
-            GOOS=$1 GOARCH=$2 go build -trimpath -ldflags="-s -w" -o "$4/meshghost-$3" ./cmd/meshghost
-            GOOS=$1 GOARCH=$2 go build -trimpath -ldflags="-s -w" -o "$4/meshghost-server-$3" ./cmd/meshghost-relay
+            GOOS=$1 GOARCH=$2 go build -trimpath -o "$4/meshghost-$3" ./cmd/meshghost
+            GOOS=$1 GOARCH=$2 go build -trimpath -o "$4/meshghost-server-$3" ./cmd/meshghost-relay
           }
 
           mkdir -p stage/linux stage/macos
@@ -240,14 +240,15 @@ jobs:
             exit 1
           }
 
-      # -ldflags="-s -w" drops the symbol table and DWARF debug info. It does NOT touch the
-      # runtime tables Go builds stack traces from, so a panic in a shipped binary still prints
-      # function names, files and line numbers -- verified 2026-08-18 by building the same
-      # program both ways and comparing the traces, which were identical. What is lost is
-      # attaching a debugger to a user's copy, which nobody does.
-      #
-      # Worth it because this binary is shipped several times over (root, plus whatever a user
-      # copies beside a mod): 9.4 MB -> 6.5 MB on disk, and 5.1 MB -> 2.6 MB inside the zip.
+      # NOT stripped, since 2026-09-22. Until then -ldflags="-s -w" dropped the symbol table and
+      # DWARF debug info (stack traces unaffected, verified 2026-08-18; 9.4 MB -> 6.5 MB on disk
+      # at the time). Four VirusTotal uploads of the same source on 2026-09-22 settled it the
+      # other way: the stripped builds drew Bkav and Elastic, the unstripped builds did not, and
+      # an unstripped build with -trimpath scored 0/70 -- the stripped bytes were what those
+      # engines reacted to, and the missing -trimpath (this machine's paths in the binary) was
+      # what Microsoft's !ml verdict followed. Measured on the client the same day: 8.7 MB -> 12.5 MB
+      # on disk, 3.3 MB -> 6.4 MB zipped; nothing at runtime. agent_docs/security-design.md,
+      # code-signing section, has the table.
       #
       # -trimpath (2026-09-02) strips the runner's filesystem paths from the binary, which is the
       # last thing that varied between two builds of the same tag. With it, anyone can check out
@@ -292,12 +293,12 @@ jobs:
       - name: Build meshghost.exe
         env:
           CGO_ENABLED: "0"
-        run: go build -trimpath -ldflags="-s -w" -o meshghost.exe ./cmd/meshghost
+        run: go build -trimpath -o meshghost.exe ./cmd/meshghost
 
       - name: Build meshghost-server.exe
         env:
           CGO_ENABLED: "0"
-        run: go build -trimpath -ldflags="-s -w" -o meshghost-server.exe ./cmd/meshghost-relay
+        run: go build -trimpath -o meshghost-server.exe ./cmd/meshghost-relay
 
 
       - name: Verify the committed TEVI plugin isn't stale

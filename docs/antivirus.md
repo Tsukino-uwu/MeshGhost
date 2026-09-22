@@ -35,6 +35,11 @@ The heuristic isn't being stupid; it just can't tell the difference yet.
   [troubleshooting.md](troubleshooting.md)'s "Running the client yourself instead" walks through it. (The older `MESHGHOST_NO_AUTOSTART` environment variable still counts
   as "no" if you already have it set.)
 
+**One thing changed on the build side (2026-09-22):** the binaries are no longer stripped of their
+symbol table. Four uploads of the same source to VirusTotal that day showed the stripped builds
+drawing two engines the unstripped ones did not, and an unstripped build with the build machine's
+paths trimmed out scoring zero. The files are about 4 MB larger on disk for it and run the same.
+
 **What we intend to do about it:** get the binaries code-signed, via SignPath's free offering for
 open-source projects. [code-signing.md](code-signing.md) is the policy that programme requires and
 says where the application stands (declined 2026-09-09 on visibility grounds, reapplication

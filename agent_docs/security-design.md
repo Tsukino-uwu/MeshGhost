@@ -1238,9 +1238,31 @@ So Bkav and Elastic react to stripping (every release exe is stripped, which is 
 always had Bkav), while Microsoft's `!ml` verdict tracks no build flag: it hit both unstripped builds
 today, skipped the stripped one today, and hit stripped release builds before. Defender is the one
 engine on that list a player actually runs, so the counts cannot rank the two shapes for what a
-player sees, and shipping unstripped (about 4 MB more per binary) would drop two engines no
-consumer PC runs while leaving the one that matters where it was. Not changed. The DLL sits three to
-four engines above the exe on every flag combination. Signing and prevalence remain the levers this section
+player sees. **Then the fourth upload, unstripped WITH `-trimpath`, deployed to the Pseudoregalia
+install, 12,503,040 bytes
+([VirusTotal](https://www.virustotal.com/gui/file/d7ab42b0bf5c8ef93a0cceeeabbd8cef5efd228ae31a37508440b87036526f51)):
+0 of 70.** The four exe uploads in one table:
+
+| Build | Stripped | `-trimpath` | Result |
+| --- | --- | --- | --- |
+| 2026-09-18 local | no | no | Microsoft |
+| 2026-09-22, plain rebuild | no | no | Microsoft |
+| 2026-09-22, release flags | yes | yes | Bkav, Elastic |
+| 2026-09-22, `-trimpath` only | no | yes | none |
+
+Bkav and Elastic follow stripping; Microsoft follows the untrimmed paths. Measured the same day with
+mingw64 `strings`: the untrimmed build carries 265 strings naming the home directory (Go's module
+cache lives under it) and 53 naming the clone, the trimmed build none of either, which is a
+plausible "built on somebody's PC" feature for a model trained on home-made malware. **The user's
+ruling: Defender is the one a player runs, so go with what scored zero.** `release.yml` and
+`dev-scripts/stage-release.ps1` build with `-trimpath` and no `-s -w` from 2026-09-22 (the stage
+script had also lacked `-trimpath`); `docs/reviewing.md`'s byte-identical recipe and
+`docs/antivirus.md` follow. Measured on the client: 8,730,112 -> 12,503,040 bytes on disk, 3.3 MB ->
+6.4 MB zipped; nothing at runtime. One 0/70 on one
+file is not proof against an intermittent verdict: the next release's CI-built assets go to
+VirusTotal as the confirmation, and if Microsoft returns on them the next lever is the
+false-positive submission. The DLL sits three to four engines above the exe on every flag
+combination. Signing and prevalence remain the levers this section
 already names.
 
 ## Replay files: one entry point for remote state (2026-09-03)

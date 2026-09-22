@@ -44,13 +44,13 @@ Set-Location $repo
 
 if (-not $NoBuild) {
     Write-Host '== Building the client and server (release flags) =='
-    # The same -ldflags release.yml uses. Without them a local dry run stages binaries a few MB
-    # larger than the shipped ones, which is a difference worth not having when the thing being
-    # tested is the release.
-    go build -ldflags="-s -w" -o meshghost.exe ./cmd/meshghost
+    # The same flags release.yml uses: -trimpath, and NOT stripped since 2026-09-22 (the comment
+    # in release.yml says why), so a local dry run stages the same shape of binary the release
+    # ships.
+    go build -trimpath -o meshghost.exe ./cmd/meshghost
     if ($LASTEXITCODE -ne 0) { throw 'go build ./cmd/meshghost failed' }
     # Renamed on the way in: one program, two names. packaging\README.md has the why.
-    go build -ldflags="-s -w" -o meshghost-server.exe ./cmd/meshghost-relay
+    go build -trimpath -o meshghost-server.exe ./cmd/meshghost-relay
     if ($LASTEXITCODE -ne 0) { throw 'go build ./cmd/meshghost-relay failed' }
 }
 

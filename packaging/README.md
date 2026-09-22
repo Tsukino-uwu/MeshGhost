@@ -129,7 +129,7 @@ adapter:
   either way; the exe stays a one-time manual copy, as above.
 
 Shipping a client copy per mod was the obvious alternative and was rejected: it grows the
-download by ~2.6 MB (stripped, compressed) per game forever, and the other option — a
+download by ~6.4 MB (compressed; unstripped since 2026-09-22) per game forever, and the other option — a
 `%LOCALAPPDATA%` breadcrumb pointing at one shared client — is machinery this project would have to
 own, going stale when the folder moves and silently picking the wrong one when two installs exist.
 Copying a file is something a user already understands and that cannot rot. The cost is a forgotten

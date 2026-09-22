@@ -1738,6 +1738,11 @@ isolations anyway: with the exe's version resource 4 of 70, unstripped 4 of 71, 
 both; and the deployed exe as a same-day control, 1 of 71 (Microsoft only; the user: every earlier exe upload had Bkav too, this is the first without).
 The user asked for a rebuild and redeploy to the Pseudoregalia install to retest: 1 of 69, Microsoft
 only again; then the same source with the release flags: Bkav and Elastic, no Microsoft. Stripping is
-what Bkav and Elastic react to; Defender's verdict tracks no flag. Release flags unchanged. All three
-links and the reasoning are in `security-design.md`'s code-signing section. The per-game release layout
+what Bkav and Elastic react to. A fourth, unstripped with `-trimpath`: **0 of 70**, and `strings` showed
+the untrimmed builds carrying the home directory and the clone path, the trimmed one neither -- so
+Microsoft's verdict followed the paths. **The user's ruling:** Defender is the one a player runs, go
+with what scored zero. **Changed:** `release.yml` and `stage-release.ps1` build with `-trimpath` and no
+`-s -w`; `reviewing.md`'s recipe and `antivirus.md` follow; `preflight.ps1` allowlists the VirusTotal
+host. The next release's CI assets are the confirmation. All four links and the table are in
+`security-design.md`'s code-signing section. The per-game release layout
 was sketched in chat and waits for the user's reaction. Docs only; no `.go` change; nothing pushed.
