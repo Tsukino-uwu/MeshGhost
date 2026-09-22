@@ -3,8 +3,8 @@
 Planned 2026-09-15. **Status as of 2026-09-23: Part B FOUND (`BPI_TryDamage`) and Part E WORKS on
 screen: `hurt` user-confirmed (a touch hurts and knocks back), `kill` kills through the game's own
 death, and a 3 s respawn hold (the user: timing "about right") stops the respawn death loop. The
-chasers now also hold while seated (user-confirmed) and, built and awaiting the user, while talking or
-reading (`controlState`, Part C). Part D DONE (`e546d38c`, ADR 0068). Part A (the attack leaks) is
+chasers now also hold while seated and while talking or reading (`controlState`, Part C), both
+user-confirmed. Part D DONE (`e546d38c`, ADR 0068). Part A (the attack leaks) is
 still NOT fixed. Facts: `adapters/pseudoregalia/MEASURED.md` (2026-09-23, three entries). This file
 is deleted when the last part lands.**
 
