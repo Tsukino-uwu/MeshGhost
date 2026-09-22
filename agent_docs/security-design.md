@@ -1275,7 +1275,12 @@ both stripped files and one of the six unstripped (the CI server); Microsoft hit
 and five of the six unstripped, and follows no flag. **So the unstripped release flags stay**: they
 cost 4 MB per binary and remove the two engines that were reachable. **The user's ruling on the
 Microsoft false-positive submission (2026-09-22): not a step for every release** -- something they
-will do for a big release or one going to a mod site, until signing exists. What stands: the DLL sits three to four engines
+will do for a big release or one going to a mod site, until signing exists. **The server draws Bkav
+where the client does not (2026-09-22, two of two):** a local server build with the release flags,
+differing from v1.3.1's only in the embedded revision (`8dcdaeed…`, 12,459,008 bytes), scored 2 of
+70, Bkav and Microsoft, the same pair as the CI server. Six unstripped client files: Bkav on none.
+Why the relay's code reads differently to Bkav's generic verdict is unmeasured; its labels are
+per-sample (`W32.Malware.<8 hex>`), so it is a model-style verdict, not a rule about our code. What stands: the DLL sits three to four engines
 above the exe on every flag combination, the build flags are not a lever on Defender, and the
 levers remain the ones this section names, signing and prevalence, plus the per-release
 false-positive submission to Microsoft, which nobody has tried yet. Signing and prevalence remain the levers this section

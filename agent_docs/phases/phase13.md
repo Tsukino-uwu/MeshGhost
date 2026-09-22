@@ -1749,7 +1749,8 @@ CI-built exes in its zip were uploaded by the user: **client 1 of 70 (Microsoft)
 and Microsoft)**, and a same-flags local rebuild differing only in the embedded git revision: 1 of 70,
 Microsoft, where its predecessor had scored 0. By engine, though, the flags did remove Elastic everywhere and Bkav on five of six unstripped files
 (the user's reading), so the flags stay. **The user's ruling:** the Microsoft false-positive submission
-is not a per-release step; for big releases or a mod-site release, until signing. The 0/70 confirmation failed: the flags are not a lever on Defender, and Bkav hit an
+is not a per-release step; for big releases or a mod-site release, until signing. A second server build, uploaded by the user: Bkav and Microsoft again, so Bkav follows the server
+(two of two) and not the client (none of six); why is unmeasured. The 0/70 confirmation failed: the flags are not a lever on Defender, and Bkav hit an
 unstripped file. Recorded in `security-design.md`'s code-signing section with the day's table; what to
 do with the flags and the pre-release text is the user's call, asked at the end of the session. The per-game release layout
 was sketched in chat and waits for the user's reaction. Docs only; no `.go` change; nothing pushed.
