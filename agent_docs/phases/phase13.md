@@ -1729,8 +1729,9 @@ for the two native games only if both measurements clear"; and whether the separ
 thread count, answered no, the process boundary is about the game thread never entering the Go
 runtime, which is measurement 2 in the entry. **Measured today:** a throwaway c-shared build of the real
 core (3,998,208 bytes, Go 1.26.8, mingw64 gcc, release flags) scans clean on this machine's Defender,
-and so does the root exe the same minute, so the local engine ranks nothing; the VirusTotal upload was
-handed to the user (the file in the session scratch folder, hash `c4577f1c…38a3ae`) and its result
-goes to `security-design.md`'s code-signing section, where the local scan is already noted. The
-per-game release layout was sketched in chat and waits for the user's reaction. Docs only; no `.go`
-change; nothing pushed.
+and so does the root exe the same minute, so the local engine ranks nothing. **The user uploaded it to
+VirusTotal: 5 of 69**, worse than the exe's 2 of 70 (2026-09-06) -- the user's own read, *"actually worse
+than the exe's"*, and correct: a static scan judges the file, and the stripped Go library reads worse
+than the exe. Recorded in `security-design.md`'s code-signing section and in the `ideas.md` entry; the
+antivirus motive for the DLL is gone as measured, the design stays parked. The per-game release layout
+was sketched in chat and waits for the user's reaction. Docs only; no `.go` change; nothing pushed.

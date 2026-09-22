@@ -3458,7 +3458,8 @@ and the exe stays the default everywhere. The core code is shared; the new code 
   from the game thread enters the Go runtime and can wait on a garbage-collector stop-the-world pause.
   Unmeasured, and "usually sub-millisecond" is not a number this repo writes down.
 
-**Measurement 1, antivirus: built 2026-09-22, scan pending.** The reason to want the DLL at all. The
+**Measurement 1, antivirus: MEASURED 2026-09-22, and it went the other way.** The reason to want the
+DLL at all, and the result removes it. The
 2026-09-06 VirusTotal numbers (`security-design.md`, code-signing section) were client exe 2/70, the
 TEVI mod DLL 0/71, and `risks.md` records that a mod SPAWNING the exe is the dropper shape Defender's
 `!ml` model weighs. A DLL loaded by the mod loader removes that signal: nothing spawned, nothing
@@ -3468,9 +3469,15 @@ real core (Go 1.26.8, mingw64 gcc, `-trimpath -ldflags="-s -w"`, one exported st
 `protocol` and `transport` confirmed linked by their package paths in the binary) came out at
 3,998,208 bytes; this machine's Defender (engine 1.1.26080.3, signatures 1.459.333.0) found no threat
 in it, and none in the root `meshghost.exe` the same minute, so the local engine cannot tell the two
-apart and settles nothing. The VirusTotal upload is the user's (it publishes the file to every vendor
-there), and its result goes beside the 2026-09-06 numbers in `security-design.md`. A clean scan on a
-scratch build with no prevalence does not close the question on its own.
+apart and settles nothing. **The user's VirusTotal upload: 5 of 69** (Bkav, Microsoft
+`Trojan:Win32/Wacatac.C!ml`, Elastic at high confidence, DeepInstinct, McAfee on the hash), against
+the exe's 2 of 70 on 2026-09-06; the detail is in `security-design.md`'s code-signing section. The
+dropper-shape reasoning was about behaviour and prevalence; a static scan judges the file, and a
+stripped Go library with one export and no version resource reads worse than an exe with an ordinary
+entry point. So the DLL is not an escape from the false positives, and the case for it shrinks to
+"one file fewer" plus the signable-CI-artifact point below, neither of which a player would notice.
+Two cheap isolations remain unmeasured, if the idea is ever picked up: the same DLL carrying the
+version resource the exes have had since 2026-09-06, and one built without `-s -w`.
 
 **Measurement 2, the game thread.** Per-call latency from the game thread into the DLL under the load
 `verified.md` records for 2026-09-06: 344 ghosts, a 171 Hz sender, the core answering with about

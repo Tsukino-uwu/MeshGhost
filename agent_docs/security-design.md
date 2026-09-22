@@ -1206,13 +1206,21 @@ limited by the developer's country), a Certum open-source certificate (personal,
 purchase), or SignPath paid. The free lever meanwhile is the one `docs/antivirus.md` already names:
 report each release binary to the scanner vendor as a false positive, per build.
 
-**2026-09-22, a third file measured locally, VirusTotal pending.** A throwaway `-buildmode=c-shared` build
-of the real client core (the in-process-DLL idea, `ideas.md`, filed 2026-09-22: Go 1.26.8, mingw64 gcc,
-the release flags, one exported stub, 3,998,208 bytes) was scanned with this machine's Defender
-(engine 1.1.26080.3, signatures 1.459.333.0, `MpCmdRun -ScanType 3`): no threat found. The root
-`meshghost.exe` scanned the same minute: no threat found either, so the local engine does not
-reproduce the 2026-09-06 `!ml` verdict on the exe and cannot rank the two. The VirusTotal result for
-the DLL is the number that matters and is recorded here when the user has uploaded it.
+**2026-09-22, a Go DLL scores WORSE than the exe: 5/69.** A throwaway `-buildmode=c-shared` build of
+the real client core (the in-process-DLL idea, `ideas.md`, filed 2026-09-22: Go 1.26.8, mingw64 gcc,
+the release flags, one exported stub that is never called, no version resource, 3,998,208 bytes) was
+scanned with this machine's Defender first (engine 1.1.26080.3, signatures 1.459.333.0, `MpCmdRun
+-ScanType 3`): no threat found, and none in the root `meshghost.exe` the same minute, so the local
+engine ranks nothing. **The user's VirusTotal upload the same day: 5 of 69**, against the exe's 2 of 70
+on 2026-09-06 -- Bkav Pro (the generic Go hit), Microsoft `Trojan:Win32/Wacatac.C!ml`, Elastic
+"Malicious (high confidence)", DeepInstinct, and McAfee's threat-intelligence label on the hash; the
+"popular threat label" was trojan. **What it settles:** the dropper-shape argument (a mod spawning an
+exe) is about behaviour and prevalence, but a static scan judges the file alone, and a stripped Go
+library with one export and no metadata looks worse to the machine-learning engines than an exe with
+an ordinary entry point. Moving the core into a DLL is not a way out of the false positives; it is a
+way further in. Unmeasured, and the only cheap isolations left: the same DLL with the version resource
+the exes carry, and one built without `-s -w`. Signing and prevalence remain the levers this section
+already names.
 
 ## Replay files: one entry point for remote state (2026-09-03)
 
