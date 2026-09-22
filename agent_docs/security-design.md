@@ -1226,10 +1226,21 @@ stayed on both**, beyond the exe's Bkav-plus-Microsoft pair, so what those two r
 library shape itself, not the missing metadata or the stripping. **The exe, same day, for a same-day
 control:** the user uploaded the client deployed in the Pseudoregalia install, byte-identical to the
 root `meshghost.exe` (a local unstripped build of 2026-09-18 with the version resource, 12,531,712
-bytes): **1 of 71, Microsoft `Wacatac.C!ml` only**. The user's record: every earlier upload of a
-client or server exe showed Bkav plus Microsoft, and this is the first without Bkav; whether the
-vendor changed or this build differs is unknown. The exe's floor is the `!ml` verdict, and the DLL
-sits three to four engines above it. Signing and prevalence remain the levers this section
+bytes; [VirusTotal](https://www.virustotal.com/gui/file/d889c07ba3baa9968ff8a349d07f8f74692709151b976df5d1bdb3c3bc34d01d)):
+**1 of 71, Microsoft `Wacatac.C!ml` only**. The user's record: every earlier upload of a client or
+server exe showed Bkav plus Microsoft, and this was the first without Bkav. **Two more exe uploads the
+same day found the variable.** A fresh unstripped rebuild deployed to the Pseudoregalia install
+([VirusTotal](https://www.virustotal.com/gui/file/5a92f2819faa63fcc7226acafe74f5d67903d3ddf0929a4c0a086a14d56601a2)):
+1 of 69, Microsoft only, again. The same source built with the release flags, `-trimpath -ldflags="-s -w"`,
+8,730,112 bytes ([VirusTotal](https://www.virustotal.com/gui/file/44d35091148feca950993a5425c7af81da98c803f17ac03c68ac889529deb3e0)):
+**2 of 71, Bkav `W32.Malware.3BE28D93` and Elastic "Malicious (high confidence)", and NO Microsoft**.
+So Bkav and Elastic react to stripping (every release exe is stripped, which is why the user's history
+always had Bkav), while Microsoft's `!ml` verdict tracks no build flag: it hit both unstripped builds
+today, skipped the stripped one today, and hit stripped release builds before. Defender is the one
+engine on that list a player actually runs, so the counts cannot rank the two shapes for what a
+player sees, and shipping unstripped (about 4 MB more per binary) would drop two engines no
+consumer PC runs while leaving the one that matters where it was. Not changed. The DLL sits three to
+four engines above the exe on every flag combination. Signing and prevalence remain the levers this section
 already names.
 
 ## Replay files: one entry point for remote state (2026-09-03)
