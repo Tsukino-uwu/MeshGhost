@@ -59,7 +59,12 @@ so this file stays the dated record of versions and traps, and that one is the s
   present beside it) with Microsoft's installer, its SHA-512 compared against the 10.0 release list,
   and `dotnet run --project adapters/tevi/MeshGhostTevi.Tests` passed on it. At
   `C:\Program Files\dotnet\sdk`. Used for the TEVI adapter (Phase 6) — a `netstandard2.0` class
-  library targeting BepInEx 5.4, which the modern SDK builds fine via `dotnet build`.
+  library targeting BepInEx 5.4, which the modern SDK builds fine via `dotnet build`. **With a VPN
+  whose firewall drops IPv6 up (Mullvad, "Enable IPv6" off), every `dotnet restore` on this machine
+  fails with NU1301 "access a socket in a way forbidden"** — dotnet tries the feed's IPv6 address
+  first and does not fall back, while `curl` and `Test-NetConnection` on the same host succeed over
+  IPv4. `DOTNET_SYSTEM_NET_DISABLEIPV6=1` in the shell fixes it (measured 2026-09-22, the autoplay
+  driver and the adapter both); `build-tevi.bat` sets it, a bare `dotnet build` needs it set by hand.
 - CMake: **confirmed installed**, `4.0.2` (`cmake --version`, re-read 2026-09-10 — this said
   `4.4.2`, a version CMake has never released), via
   `winget install Kitware.CMake`, at `C:\Program Files\CMake\bin`.

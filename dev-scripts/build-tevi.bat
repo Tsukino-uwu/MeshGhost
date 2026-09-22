@@ -23,6 +23,11 @@ set SRC=%ROOT%\adapters\tevi\MeshGhostTevi
 set GAMEDIR=%ROOT%\packaging\release\games\tevi
 set DEST=%GAMEDIR%\MeshGhost
 
+rem NuGet restore over IPv4 only: a VPN whose firewall drops IPv6 (Mullvad with "Enable IPv6" off)
+rem fails the restore with NU1301 "access a socket in a way forbidden", because dotnet tries the
+rem feed's IPv6 address first and never falls back (agent_docs/environment.md, .NET SDK, 2026-09-22).
+set DOTNET_SYSTEM_NET_DISABLEIPV6=1
+
 echo Building MeshGhostTevi.dll (Release)...
 dotnet build "%SRC%" -c Release
 if errorlevel 1 (
