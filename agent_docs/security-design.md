@@ -1265,7 +1265,11 @@ client `935179fa…` **1 of 70, Microsoft**; server `a2a9bb94…` **2 of 71, Bka
 (links: `virustotal.com/gui/file/<sha256>`). Both are unstripped and path-trimmed (checked with
 `strings`: no build paths, symbols present). So neither half of the day's story held on a different
 machine's build: Microsoft's `!ml` verdict is per file and follows no flag, and Bkav can hit an
-unstripped binary too. The 0/70 was one file's luck. What stands: the DLL sits three to four engines
+unstripped binary too. The 0/70 was one file's luck, and the cleanest proof came last: the same
+source rebuilt on the same machine with the same flags, differing only in the git revision Go embeds
+in the build info (`ebbe8483…`, 12,503,040 bytes), scored **1 of 70, Microsoft** -- the file it
+replaced had scored 0. Two files, one byte-level difference that no scanner reasons about, two
+verdicts. What stands: the DLL sits three to four engines
 above the exe on every flag combination, the build flags are not a lever on Defender, and the
 levers remain the ones this section names, signing and prevalence, plus the per-release
 false-positive submission to Microsoft, which nobody has tried yet. Signing and prevalence remain the levers this section
