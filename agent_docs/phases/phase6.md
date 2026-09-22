@@ -893,3 +893,13 @@ bottom-left popup and menu tabs; and the Sewerways to the first save point.
 `Info.Location` is empty**, so a path built from it lands in the game's working folder rather than
 `BepInEx\scripts\` — build from `Paths.BepInExRootPath`. It cost a driver that found no config and
 knocked on another chat's core.
+
+## 2026-09-22 — pointer: NuGet feeds move to a root `nuget.config`; a VPN dropping IPv6 fails every restore
+
+Two build failures, neither in the adapter's code. `dotnet restore` failed with NU1301 "access a socket in a way
+forbidden" whenever the VPN was up: dotnet tries the feed's IPv6 address first and never falls back, and
+Mullvad drops IPv6 unless told otherwise (`environment.md`, .NET SDK entry; `build-tevi.bat` sets
+`DOTNET_SYSTEM_NET_DISABLEIPV6=1`, `7ba03893`). Then the dev cheats and the autoplay driver failed with NU1101
+"Unable to find package BepInEx.Core": only `MeshGhostTevi/` had the `nuget.config` naming the BepInEx feed. One
+root `nuget.config` now covers all four `.csproj`s and the adapter's copy is gone (`be517483`); all four
+force-restored with the VPN up.

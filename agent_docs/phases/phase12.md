@@ -734,3 +734,10 @@ tree clean afterwards. `status.md` holds the task (`hold to 2026-09-25`), `risks
 the done-test (an entry clears when preflight stops naming it), preflight's own message the pointer
 (`e903b30a`, `457aa398`). **The lesson is about records, not binaries: a findable record that reads
 as an open question gets re-derived by the next session that trips over it.**
+
+## 2026-09-22 — pointer: the CI image test, and the root allowlist gains `nuget.config`
+
+Two commits from 2026-09-18 this log never claimed: every Linux job moved to `ubuntu-26.04` as a test of the image
+before GitHub makes it `ubuntu-latest` (`41f16dd2`), and back to `ubuntu-latest` once 26.04 was known green
+(`41808a70`). Today the root allowlist in the hook, `preflight.ps1` and `hygiene.yml` gained `nuget.config`, the one
+file that names the NuGet feeds every `.csproj` restores from (`be517483`; the why is in `phase6.md`, same date).
