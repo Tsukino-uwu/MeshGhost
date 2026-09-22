@@ -10,8 +10,9 @@ is deleted when the last part lands.**
 
 **Decided with the user, 2026-09-23:** after a death the pack pauses briefly rather than resetting
 (*"a small pause/freeze for them, or small iframe when respawning"*); sitting holds the pack (*"so you
-can catch your breath and heal up"*). Open for the user: whether the hurt amount (5, an enemy touch)
-becomes a setting; knockback/sword-drop kinds stay out (DamageType 2 with a chaser crashes).
+can catch your breath and heal up"*). **No damage-amount setting** (the user: *"5 or just insta death
+is probly fine"*): `hurt` stays an enemy touch's 5, `kill` is the stronger option. Knockback and
+sword-drop kinds stay out (DamageType 2 with a chaser crashes).
 
 ## Context
 
