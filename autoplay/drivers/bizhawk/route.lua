@@ -92,6 +92,8 @@ local TURN_COST, GRASS_COST, SIGHT_COST, REPLANS, OBSTACLE_COST = 2, 8, 1000, 8,
 -- until `goto` ran out of frames or was stopped. A goto that enters one tile more than ENTRY_LIMIT times ends `no_progress`,
 -- naming the tile and its entries; the start tile counts as entered once. Across maps it ends the whole trip.
 local ENTRY_LIMIT = 3
+-- Frames after a mount's press before planning again: the MACH BIKE read mounted 60 frames after SELECT (2026-09-23).
+local MOUNT_FRAMES = 60
 
 -- The legs from one tile to another, or nil and why. `closed` holds tiles refused on this goto, keyed y * width + x.
 -- Also returns the tiles in a trainer's line the route crosses, and the width the keys use.
@@ -234,7 +236,7 @@ function M.go(h, p)
 	local run, crossGrass = p.run == true, p.cross_grass == true
 	local phase, frames, idle, moved, replans = "rest", 0, 0, 0, 0
 	local startMap, lastX, lastY, legs, li, ride, width = nil, 0, 0, nil, 1, nil, 0
-	local closed, towardWarp, legsTaken, inSight, entries, stopAt = {}, false, 0, {}, {}, nil
+	local closed, towardWarp, legsTaken, inSight, entries, stopAt, mounted = {}, false, 0, {}, {}, nil, false
 	local stops = h.watch()
 	local arriving, arrivingFor = h.arriving and h.arriving(), 0
 	local function finish(outcome, extra)
@@ -309,6 +311,11 @@ function M.go(h, p)
 			end
 			-- A warp stepped onto ends the goto with map_changed; anything else still plans to stand on it.
 			ride = h.ride(run)
+			-- A ride the module says to get on first (Emerald's MACH BIKE on SELECT): pressed once, at rest, then planned.
+			if ride.mount and not mounted then
+				mounted, phase, frames = true, "mount", 0
+				return { [ride.mount] = true }, false
+			end
 			local planned, why, w, obstacle = M.plan(h, x, y, toX, toY, closed, crossGrass)
 			if not planned then return finish(replans > 0 and "blocked" or "unreachable", { reason = why }) end
 			if obstacle and #planned == 0 then return finish("obstacle", { obstacle = obstacle }) end
@@ -329,6 +336,12 @@ function M.go(h, p)
 				return nil, false
 			end
 			if frames > L.step then return finish("not_at_rest") end
+			return nil, false
+		end
+
+		if phase == "mount" then
+			if frames < MOUNT_FRAMES then return nil, false end
+			phase, frames = "rest", 0
 			return nil, false
 		end
 

@@ -2170,7 +2170,14 @@ local routeHooks = {
 		local flags = r8(GPLAYERAVATAR)
 		local mach, onFoot = (flags & MACH_BIKE_FLAG) ~= 0, (flags & ON_FOOT_FLAG) ~= 0
 		-- B only on foot: on the Acro Bike it is the wheelie button.
-		return { buttons = { B = (run and onFoot) or nil }, coast = mach and STEP.machCoasts or nil, shortLeg = mach and 3 or nil }
+		-- MOUNTING (2026-09-23, Mauville): with the MACH BIKE (259) registered at SaveBlock1 +0x496, SELECT on 0.2 mounted it,
+		-- and in the bike shop 10.1 it printed "DAD's advice… there's a time and place for everything!". The map header's byte
+		-- +0x1A (gMapHeader's copy) read 0x0D on 0.2, 0.0, 0.16 and 0.27, 0x0F in cave 24.14, 0 in 10.1, 10.5 and 4.1: bit 0 set
+		-- where the bike went. So a run on foot mounts first where the bike is registered and bit 0 is set (the user: the
+		-- MACH BIKE is the preferred one, it goes faster).
+		local mount = run and onFoot and r16(r32(SB1PTR) + 0x496) == 259 and (r8(0x02037318 + 0x1A) & 1) == 1
+		return { buttons = { B = (run and onFoot) or nil }, coast = mach and STEP.machCoasts or nil, shortLeg = mach and 3 or nil,
+			mount = mount and "Select" or nil }
 	end,
 	routeGrid = routeGrid,
 	warps = readWarps,

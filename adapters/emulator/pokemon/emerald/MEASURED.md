@@ -78,6 +78,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - Map headers, events and behaviours read by an unattended session (2026-09-17)
 - The field controls lock, and a script context left waiting after a ROCK SMASH escape (2026-09-23)
 - A ledge hopped right, a RUN refused by ARENA TRAP, and a battler's ability (2026-09-23)
+- The MACH BIKE from RYDEL, SELECT to mount, and the map's cycling bit (2026-09-23)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -1102,6 +1103,21 @@ byte-identical build's `.sym` names gAbilityNames, the ability's offset the deco
 - **WONDER GUARD** (the user: only super-effective moves damage it) was not met: with the TRAPINCH's byte written to
   25, `effectiveMove` scored ROCK SMASH, MUD SHOT and TAKE DOWN 0 and chose WATER GUN (x2). What the game does with it
   is not measured.
+
+### The MACH BIKE from RYDEL, SELECT to mount, and the map's cycling bit (2026-09-23)
+
+**Vanilla ROM**, autoplay tools and `exec` reads through `mcpcall`; the header offset is the decomp map's field, its bit
+confirmed by the mounts below.
+
+- **RYDEL**: Mauville 0.2's door to 10.1 (35,5); `talk` local 1, YES to "Did you come from far away?", then MACH or ACRO:
+  MACH gave the MACH BIKE, id 259, in the KEY ITEMS pocket.
+- **SELECT** with 259 registered (SaveBlock1 +0x496, the `register_item` cheat): in 10.1 it printed "DAD's advice… A,
+  there's a time and place for everything!" and the player stayed on foot; on 0.2 (35,8) `observe` read `mach_bike` 60
+  frames later; SELECT again got off.
+- **The map header's byte +0x1A**: 0x0D on 0.2, 0.0, 0.16, 0.27; 0x0F in cave 24.14; 0x00 in 10.1, 10.5 and 4.1 (0x01 at
+  +0x1B there). Bit 0 set where the bike went, clear where SELECT refused (10.1); the cave's bit not tried on the bike.
+- **A trip riding**: `goto` run presses SELECT at rest when on foot, 259 registered and bit 0 set; Mauville (35,8) to
+  Petalburg (15,9) done in 9 calls, four wild battles, `mach_bike` read between them.
 
 ## Not measured yet
 
