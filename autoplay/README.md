@@ -226,6 +226,9 @@ carries a cost. From `autoplay/`, with the driver waiting and its port free:
   server (`--strict-mcp-config`, carrying on the same run log), `--permission-mode dontAsk`, only the game's tools and
   Read, Glob and Grep allowed, and Bash and PowerShell denied by name (dontAsk still ran read-only shell commands left off
   the allow list, 2026-09-17). Stopped, with the core it started, once it has made `-budget` model calls (default 400).
+  Named `autoplay-<game>-<port>` to the other Claude Code sessions on this machine (their `ListAgents`), so a chat can
+  ask for one notice when it goes idle; their messages are held, never delivered, so nothing a chat sends enters the
+  play (2026-09-22; `agent_docs/running-the-rig.md`, "Chats that share one tree").
 - **Distill**: the same session `--resume`d with `session/distill.md`, allowed to edit only `games/<game>/`, `-distill-budget`
   calls (default 40). The launcher never commits: the diff is read against "measured or observed only" first.
 - **After the model**: its own core closes the segment, checks the goal and reads where the game is.

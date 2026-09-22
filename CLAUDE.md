@@ -118,8 +118,8 @@ to one line per entry instead. The cases: `agent_docs/claude-md-cap.md`.
   nothing, and every cycle costs the user a game launch (2026-08-17, the slide pose).
 - **Test instructions use up/down/left/right, never compass points** (user preference; code may).
 - **Treat "access denied" as a question to research** (who gates it, how people get past), not a wall.
-- **One agent per BizHawk instance, never a game the user is at; savestate slot 1 is the user's on
-  every instance.** No worktree-isolated agents for testing: a worktree cannot share a running game.
+- **One agent per BizHawk instance, never a game the user is at; savestate slot 1 is the user's on every
+  instance.** No worktree agents: a worktree cannot share a running game. **A parallel chat is a PEER**: `ListAgents`, announce what you own, message it before touching its hunks (`running-the-rig.md`).
 - **Agent memory is for the USER, never the project.** Preferences and corrections may go there; an
   address, decision, status, risk or result goes in `agent_docs/` or the code, which the repo, the
   next session and a human all see.

@@ -45,6 +45,7 @@ here adds its heading as one line under "The plan and the shared core".**
 - 2026-09-17 (the Emerald chat, Route 110) — `goto` carries the player's level: ground at two levels meets through 0
 - 2026-09-17 (the Emerald chat, Phase 3) — the knowledge store, goals, skills and the session loop built; the first unattended attempt stopped in a loop
 - 2026-09-18 — gitignored evidence is described, never cited: run logs, snapshots, captures and probe logs out of the docs
+- 2026-09-22 — the SDK check, and chats as peers: go-sdk 1.8.0 stays, the Agent SDK is out, the headless session named and holding messages
 
 **Emerald (vanilla), before its own log** -- from 2026-09-17 in [autoplay/emerald.md](autoplay/emerald.md)
 - 2026-09-16 (later still) — Phase 1 step 2: a live driver in vanilla Emerald, from boot to walking
@@ -1683,3 +1684,31 @@ user's word; all seven CI workflows green on `a0a6e211`.
 
 **Left as they are:** `VERIFIED.md` (append-only) and the phase files, this one included, which are dated history and
 still name logs and snapshots. Two leftover processes (`meshghost-server`, `meshghost-fakeadapter`) closed, no game running.
+
+## 2026-09-22 — the SDK check, and chats as peers
+
+**Asked:** the user sent the MCP client best-practices page, the MCP SDK list, the go-sdk repository and Claude Code's
+cross-session messaging page, about the autoplay core and chats working on one tree, and whether SDKs would do anything
+better. Each fact below was read from its page on 2026-09-22.
+
+- **The core already uses the official Go MCP SDK** (`github.com/modelcontextprotocol/go-sdk`, Tier 1 on the SDK list),
+  and v1.8.0, the release in `autoplay/go.mod`, is its latest. It carries the 2026-07-28 revision. Claude Code's MCP page
+  says it negotiates that revision only with HTTP servers and claude.ai connectors, so a stdio core gets none of the
+  revision's client-facing additions (`server/discover`, `ttlMs` cache hints); the revision deprecates roots, sampling and
+  logging, which the core never used. **Nothing to change in the core.**
+- **The client best-practices page** (progressive discovery, code mode) is written for hosts with hundreds of tools. The
+  core exposes 25, about 2.6 KB of descriptions; Claude Code defers MCP tool loading itself. Nothing to adopt.
+- **The Claude Agent SDK is out**: Python and TypeScript only, and its overview says Anthropic does not allow claude.ai
+  login for agents built on it. The same page says a Go program drives the loop by running the CLI as a subprocess with
+  `-p`, which is what `cmd/session` does. The session loop stays as it is.
+- **Cross-session messaging is live on this machine**: `ListAgents` from this chat listed four other MeshGhost sessions by
+  name. A message is plain text, cannot approve anything, run a command or change settings; `notify_when_idle` gets one
+  notice when a same-machine session next goes idle. The docs give no same-tree coordination pattern: a warning channel,
+  not a lock. It answers the two recorded collisions (a driver knocking on another chat's core, 2026-09-17; one chat's
+  commit carrying another's edits, `autoplay/emerald.md`).
+
+**Built:** `cmd/session` passes `--name autoplay-<game>-<port>` and `--settings {"crossSessionInbound":"hold"}`, and the
+report records the name. `hold`, not the default: a `dontAsk` session counts as prompting, so with the default a chat's
+message would be delivered into the play as text the model acts on; with `refuse` no idle notice arrives either. A test
+fails without both flags. **Filed:** the peer protocol in `running-the-rig.md` ("Chats that share one tree and one
+machine"), pointed at from `CLAUDE.md` and the `play-game` skill without a line added to either.

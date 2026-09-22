@@ -113,7 +113,7 @@ type goalAnswer struct {
 func runSession(ctx context.Context, o options, stdout, stderr io.Writer) error {
 	started := time.Now()
 	dir := filepath.Join(o.out, started.Format("2006-01-02_150405"))
-	rep := session.Report{Started: started, Game: o.game, Goal: o.goal, Snapshot: o.snapshot, Model: o.model}
+	rep := session.Report{Started: started, Game: o.game, Goal: o.goal, Snapshot: o.snapshot, Model: o.model, Name: sessionName(o)}
 	coreLog := filepath.Join(o.runs, "core_session.log")
 	coreArgs := []string{"-listen", o.listen, "-log", coreLog, "-runs", o.runs, "-states", o.states, "-games", o.games}
 
@@ -306,13 +306,30 @@ func distillTools(game string) []string {
 	return []string{"Read", "Glob", "Grep", "Edit(" + k + ")", "Write(" + k + ")"}
 }
 
+// sessionName is what other Claude Code sessions on this machine see this run as (their ListAgents): the game and the
+// driver's port, so a chat can tell it from its own core and ask for one notice when it goes idle.
+func sessionName(o options) string {
+	_, port, err := net.SplitHostPort(o.listen)
+	if err != nil || port == "" {
+		port = o.listen
+	}
+	return "autoplay-" + o.game + "-" + port
+}
+
+// heldInbound is the session's --settings: a message from another session is held, never delivered, so nothing a chat
+// sends can land inside the play as text the model acts on; a chat's notify_when_idle still gets its notice
+// (crossSessionInbound hold; the alternative, refuse, answers no notice either).
+const heldInbound = `{"crossSessionInbound":"hold"}`
+
 // claudeArgs is a headless run: the prompt on stdin, stream-json out, this core as the only MCP server, tools not
-// allowed denied rather than asked about. Never --bare (it takes an API key only) and never a dollar budget.
+// allowed denied rather than asked about, named for other sessions and holding their messages. Never --bare (it takes
+// an API key only) and never a dollar budget.
 func claudeArgs(o options, mcpConfig, resume string, tools []string) []string {
 	// dontAsk still ran read-only shell commands the allow list left out (the first session's distill: `wc -c` in Bash, `git
 	// diff` in PowerShell, 2026-09-17), so the shells are denied by name.
 	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--strict-mcp-config", "--mcp-config", mcpConfig,
-		"--permission-mode", "dontAsk", "--allowedTools", strings.Join(tools, ","), "--disallowedTools", "Bash,PowerShell"}
+		"--permission-mode", "dontAsk", "--allowedTools", strings.Join(tools, ","), "--disallowedTools", "Bash,PowerShell",
+		"--name", sessionName(o), "--settings", heldInbound}
 	if o.model != "" {
 		args = append(args, "--model", o.model)
 	}

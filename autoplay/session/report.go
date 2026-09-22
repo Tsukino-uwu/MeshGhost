@@ -36,7 +36,9 @@ type Report struct {
 	Goal     string    `json:"goal"`
 	Snapshot string    `json:"snapshot"`
 	Model    string    `json:"model"`
-	RunLog   string    `json:"run_log"`
+	// Name is what other Claude Code sessions saw the run as (the launcher's --name; the CLI varies a taken name).
+	Name   string `json:"session_name"`
+	RunLog string `json:"run_log"`
 	// MetBefore and MetAfter are the launcher's own goal checks, with no model.
 	MetBefore bool       `json:"met_before"`
 	MetAfter  bool       `json:"met_after"`
@@ -74,6 +76,9 @@ func (r Report) Markdown() string {
 	fmt.Fprintf(&b, "# Session %s: %s\n\n", r.Started.Format("2006-01-02 15:04"), r.Goal)
 	fmt.Fprintf(&b, "- **Goal** `%s` from snapshot `%s`, %s %s, model %s: **%s**, checked by the launcher with no model.\n",
 		r.Goal, r.Snapshot, r.Game, r.Variant, orDefault(r.Model), result)
+	if r.Name != "" {
+		fmt.Fprintf(&b, "- **Session name** `%s` to the other Claude Code sessions on this machine; their messages were held.\n", r.Name)
+	}
 	if len(r.Failed) > 0 {
 		fmt.Fprintf(&b, "- **Not met because**: %s\n", strings.Join(r.Failed, "; "))
 	}

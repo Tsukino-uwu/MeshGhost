@@ -17,7 +17,7 @@ adapter's `CLAUDE.md` and `PROBES.md`.
 ## Whose instance, whose slot
 
 - **One agent per BizHawk instance, and never drive a game the user is at.** Your handoff names your
-  pid, control file, bridge port and the off-limits list (`agent_docs/running-the-rig.md`).
+  pid, control file, bridge port and the off-limits list; a parallel chat is a peer you announce them to (`agent_docs/running-the-rig.md`).
 - **On an instance you drive, a warp is a tool like any other**; the user's position while THEY play
   is theirs.
 - **Savestate slot 1 is the user's on every instance.** Rigs hold named states in other slots: read
