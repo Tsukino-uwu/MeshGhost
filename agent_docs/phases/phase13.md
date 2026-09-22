@@ -1712,3 +1712,25 @@ report records the name. `hold`, not the default: a `dontAsk` session counts as 
 message would be delivered into the play as text the model acts on; with `refuse` no idle notice arrives either. A test
 fails without both flags. **Checked live** (2026-09-22): a `claude -p` started with the two flags appeared in this chat's `ListAgents` under its name, a message sent to it was held (its stream recorded `peer_message_hold`, cause `explicit-setting`) and never reached its model, and the `notify_when_idle` notice arrived here when it went idle. **Filed:** the peer protocol in `running-the-rig.md` ("Chats that share one tree and one
 machine"), pointed at from `CLAUDE.md` and the `play-game` skill without a line added to either.
+
+
+## 2026-09-22 — brainstorm: the core as an in-process DLL, Steam as a way in, platform-plus-mods branding
+
+**The user asked** whether Steam (Networking Sockets, lobbies) should carry the online side, whether the
+client could be bundled inside the mod DLL so no exe ships, and whether MeshGhost should present itself
+as the server/client platform with the adapters as mods, Archipelago-style. A discussion, no decision
+asked for. **What was worked out** is filed as one `ideas.md` entry ("The core as an in-process DLL for
+the native games, and Steam as a way in", 2026-09-22): the DLL keeps the bridge line protocol as its
+ABI so the existing validation and tests cover it; two shapes forever because BizHawk cannot load a
+native library; the costs (cgo for one artifact, a panic now kills the game, no unload, a game-thread
+call can wait on the Go GC); Steam as discovery-only or host-as-relay, both native-games-only and
+parked; branding stays ghosts-first. **The user's two follow-ups:** default or option, answered "default
+for the two native games only if both measurements clear"; and whether the separate process was about
+thread count, answered no, the process boundary is about the game thread never entering the Go
+runtime, which is measurement 2 in the entry. **Measured today:** a throwaway c-shared build of the real
+core (3,998,208 bytes, Go 1.26.8, mingw64 gcc, release flags) scans clean on this machine's Defender,
+and so does the root exe the same minute, so the local engine ranks nothing; the VirusTotal upload was
+handed to the user (the file in the session scratch folder, hash `c4577f1c…38a3ae`) and its result
+goes to `security-design.md`'s code-signing section, where the local scan is already noted. The
+per-game release layout was sketched in chat and waits for the user's reaction. Docs only; no `.go`
+change; nothing pushed.

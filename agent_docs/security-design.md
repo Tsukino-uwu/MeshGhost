@@ -1206,6 +1206,14 @@ limited by the developer's country), a Certum open-source certificate (personal,
 purchase), or SignPath paid. The free lever meanwhile is the one `docs/antivirus.md` already names:
 report each release binary to the scanner vendor as a false positive, per build.
 
+**2026-09-22, a third file measured locally, VirusTotal pending.** A throwaway `-buildmode=c-shared` build
+of the real client core (the in-process-DLL idea, `ideas.md`, filed 2026-09-22: Go 1.26.8, mingw64 gcc,
+the release flags, one exported stub, 3,998,208 bytes) was scanned with this machine's Defender
+(engine 1.1.26080.3, signatures 1.459.333.0, `MpCmdRun -ScanType 3`): no threat found. The root
+`meshghost.exe` scanned the same minute: no threat found either, so the local engine does not
+reproduce the 2026-09-06 `!ml` verdict on the exe and cannot rank the two. The VirusTotal result for
+the DLL is the number that matters and is recorded here when the user has uploaded it.
+
 ## Replay files: one entry point for remote state (2026-09-03)
 
 **The user's requirement:** *"just want to avoid someone ever being able to share a malicious replay

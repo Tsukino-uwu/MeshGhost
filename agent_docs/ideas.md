@@ -3414,3 +3414,94 @@ and animation intact, and whether a boss phase resets from a snapshot without a 
 `states/`; Python or Torch would be dev-only, never a release dependency. The cheap entry point if this is picked up: log
 decision tuples from the existing reflexes (the state seen, the candidate plans, the one chosen, whether damage followed)
 into the run log -- a dataset for free, and on its own a table of where the hand-written rules lose.
+
+## The core as an in-process DLL for the native games, and Steam as a way in (filed 2026-09-22)
+
+**The user's question, three parts.** Whether the client could live INSIDE the mod DLL so TEVI and
+Pseudoregalia ship no exe at all; whether Steam (Networking Sockets, lobbies) could carry the online
+side so nobody hosts a server; and whether MeshGhost should present itself as the platform (relay,
+client, contract, tools) with the adapters as mods that use it, the way Archipelago is the server and
+the apworlds while the game connectors are their own things. A brainstorm, nothing decided; this
+entry records what was worked out and the two measurements that would decide it.
+
+**What the DLL would be.** `contract.md` (the "Two protocols" section) already reserves the slot: an
+in-process adapter replaces the bridge socket with direct function calls under the same invariant.
+The smallest shape keeps the bridge line protocol as the payload and swaps the pipe: a second command
+beside `cmd/meshghost`, built with `-buildmode=c-shared`, exporting start(config), push(line),
+poll(line) or a callback, and stop. The framed JSON lines that cross the localhost socket today cross
+a function call instead, so `bridge/` validation, `inputlimits.go` and every existing test cover the
+in-process path with no change, because the bytes are identical. The BepInEx plugin's bridge client
+swaps a TCP stream for two P/Invoke calls; the UE4SS C++ mod links the generated header. The core
+stays out of the game, and Steam-blind, exactly as it is today.
+
+**Two shapes forever, never one.** BizHawk's Lua cannot load a native library, so Emerald and Crystal
+keep the exe; so do Linux and macOS players, and anyone who sets `autostart` to false and runs the
+client themselves (the path `docs/troubleshooting.md` already supports). The DLL is a candidate
+DEFAULT for the two native games only if both measurements below clear; otherwise it is an option
+and the exe stays the default everywhere. The core code is shared; the new code is one export layer.
+
+**Costs, plainly.**
+
+- Cgo returns, for this one artifact: a C toolchain in CI (the local recipe is `testing.md`'s mingw64
+  step, 2026-08-18), and the pure-Go cross-compile is no longer true of the whole release. No external
+  C library, which was the heavier half of the 2026-09-15 GameNetworkingSockets objection
+  (`phases/phase10.md`).
+- The blast radius grows: today a core panic kills a side process and the game keeps running;
+  in-process it kills the game. The boundary would need a recover-and-report wrapper on every export
+  and a stricter no-panic bar than the exe has needed.
+- No unload: a Go c-shared library cannot be unloaded from its process. BepInEx does not unload
+  plugins, so this is a fact to record, but hot reload of the CORE is off the table in that shape.
+- Threads are not the issue; the scheduler boundary is. The DLL still runs the Go runtime on its own
+  OS threads, so a single-threaded game gains and loses no thread either way. What `game-shapes.md`
+  ("This is where MeshGhost's out-of-process core stops being merely tidy") credits to the process
+  boundary is that the game thread pays for a socket drain and nothing else. In-process, every call
+  from the game thread enters the Go runtime and can wait on a garbage-collector stop-the-world pause.
+  Unmeasured, and "usually sub-millisecond" is not a number this repo writes down.
+
+**Measurement 1, antivirus: built 2026-09-22, scan pending.** The reason to want the DLL at all. The
+2026-09-06 VirusTotal numbers (`security-design.md`, code-signing section) were client exe 2/70, the
+TEVI mod DLL 0/71, and `risks.md` records that a mod SPAWNING the exe is the dropper shape Defender's
+`!ml` model weighs. A DLL loaded by the mod loader removes that signal: nothing spawned, nothing
+dropped, and the process on the network is the game, which is Steam-signed with reputation. What it
+cannot remove is the Go PE layout the generic-Go engines trip on. A throwaway c-shared build of the
+real core (Go 1.26.8, mingw64 gcc, `-trimpath -ldflags="-s -w"`, one exported stub, `core`, `netx`,
+`protocol` and `transport` confirmed linked by their package paths in the binary) came out at
+3,998,208 bytes; this machine's Defender (engine 1.1.26080.3, signatures 1.459.333.0) found no threat
+in it, and none in the root `meshghost.exe` the same minute, so the local engine cannot tell the two
+apart and settles nothing. The VirusTotal upload is the user's (it publishes the file to every vendor
+there), and its result goes beside the 2026-09-06 numbers in `security-design.md`. A clean scan on a
+scratch build with no prevalence does not close the question on its own.
+
+**Measurement 2, the game thread.** Per-call latency from the game thread into the DLL under the load
+`verified.md` records for 2026-09-06: 344 ghosts, a 171 Hz sender, the core answering with about
+59,000 lines a second. A histogram of the push and poll calls (never a mean), judged beside what is on
+screen, on the netsim rig as for any rate verdict. Decision rule: if the worst call the histogram
+shows would be visible as a hitch at the game's frame budget, the exe stays the default for the native
+games and the DLL is an opt-in; if not, the DLL is the default for them and the exe the opt-out.
+
+**The gain nobody had listed.** The core DLL compiles from this repo alone, so CI can build it
+reproducibly, which makes it signable under a programme like SignPath; the two mod DLLs never can be,
+because they compile against the game's own assemblies (`docs/code-signing.md`). If signing ever comes
+through, the signed artifact would be the one that mattered to a player.
+
+**Steam, considered and parked.** Two shapes, both for the native games only: BizHawk has no Steam
+AppID, so the emulator adapters keep the relay whatever happens, and "use Steam" can only ever mean
+"a second way in", never "replace the relay". TEVI ships Facepunch.Steamworks (`adapters/tevi/
+MEASURED.md`), so its mod could reach Steam through the game's own binding; whether Pseudoregalia
+enabled the Steam online subsystem is unmeasured. (1) Discovery only: a lobby whose metadata carries
+the relay address and room code, a friend joins from the overlay, the mod starts the core with them.
+Wire, core and contract untouched; someone still hosts a relay. (2) Host-as-relay: one player's core
+embeds the relay and the transport is a Steam socket over Valve's relays, which hide IPs by default
+and encrypt with the Steam session, answering the peer-to-peer worry. Costs: the Steam API is C, so
+either the Go core takes on cgo for the socket or the mod owns it and speaks the relay protocol, which
+adapters never do; peers learn each other's Steam account instead of nothing; and the relay's
+structural defence (re-marshalling from the validated struct, `security-design.md`) would run inside
+one player's process. Licences unchecked, nothing read, nothing adopted.
+
+**Branding.** The code is already the platform-plus-mods shape the question describes; what says
+otherwise is the single full zip. The root README leads with ghosts and keeps client-and-server
+second, and stays so (a stranger arrives for their friend's ghost in TEVI, not for a relay). The
+release layout question, platform page plus one download per game with the server its own asset, was
+sketched in chat on 2026-09-22 and waits for the user's reaction before it is written here; the
+argument it would weaken is `packaging/README.md`'s "Why one zip", which was written when every game
+needed the exe.
