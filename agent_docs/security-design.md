@@ -1269,7 +1269,13 @@ unstripped binary too. The 0/70 was one file's luck, and the cleanest proof came
 source rebuilt on the same machine with the same flags, differing only in the git revision Go embeds
 in the build info (`ebbe8483…`, 12,503,040 bytes), scored **1 of 70, Microsoft** -- the file it
 replaced had scored 0. Two files, one byte-level difference that no scanner reasons about, two
-verdicts. What stands: the DLL sits three to four engines
+verdicts. **Counted by engine across the day's exe uploads, the flags did do something** (the user's
+reading, and correct): Elastic hit both stripped files and none of the six unstripped ones; Bkav hit
+both stripped files and one of the six unstripped (the CI server); Microsoft hit none of the stripped
+and five of the six unstripped, and follows no flag. **So the unstripped release flags stay**: they
+cost 4 MB per binary and remove the two engines that were reachable. **The user's ruling on the
+Microsoft false-positive submission (2026-09-22): not a step for every release** -- something they
+will do for a big release or one going to a mod site, until signing exists. What stands: the DLL sits three to four engines
 above the exe on every flag combination, the build flags are not a lever on Defender, and the
 levers remain the ones this section names, signing and prevalence, plus the per-release
 false-positive submission to Microsoft, which nobody has tried yet. Signing and prevalence remain the levers this section
