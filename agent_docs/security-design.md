@@ -1218,9 +1218,13 @@ on 2026-09-06 -- Bkav Pro (the generic Go hit), Microsoft `Trojan:Win32/Wacatac.
 exe) is about behaviour and prevalence, but a static scan judges the file alone, and a stripped Go
 library with one export and no metadata looks worse to the machine-learning engines than an exe with
 an ordinary entry point. Moving the core into a DLL is not a way out of the false positives; it is a
-way further in. Unmeasured, and the only cheap isolations left: the same DLL with the version resource
-the exes carry, and one built without `-s -w`. Signing and prevalence remain the levers this section
-already names.
+way further in. **The two cheap isolations, built and uploaded the same day:** the same DLL carrying the
+client exe's own version resource (its `rsrc_windows_amd64.syso` copied beside the stub; product,
+description and 1.1.7 read back from the file; 3,999,232 bytes) scored **4 of 70**, and one built
+without `-s -w` (8,527,160 bytes) scored **4 of 71**. Each dropped one engine; **Elastic and McAfee
+stayed on both**, beyond the exe's Bkav-plus-Microsoft pair, so what those two react to is the
+library shape itself, not the missing metadata or the stripping. Signing and prevalence remain the
+levers this section already names.
 
 ## Replay files: one entry point for remote state (2026-09-03)
 

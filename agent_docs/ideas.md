@@ -3476,8 +3476,9 @@ dropper-shape reasoning was about behaviour and prevalence; a static scan judges
 stripped Go library with one export and no version resource reads worse than an exe with an ordinary
 entry point. So the DLL is not an escape from the false positives, and the case for it shrinks to
 "one file fewer" plus the signable-CI-artifact point below, neither of which a player would notice.
-Two cheap isolations remain unmeasured, if the idea is ever picked up: the same DLL carrying the
-version resource the exes have had since 2026-09-06, and one built without `-s -w`.
+The two cheap isolations were built and uploaded the same day: with the exe's version resource, 4 of
+70; unstripped, 4 of 71; Elastic and McAfee on both, beyond the exe's pair (`security-design.md`). The
+library shape is what they react to, so no build flag rescues it.
 
 **Measurement 2, the game thread.** Per-call latency from the game thread into the DLL under the load
 `verified.md` records for 2026-09-06: 344 ghosts, a 171 Hz sender, the core answering with about
