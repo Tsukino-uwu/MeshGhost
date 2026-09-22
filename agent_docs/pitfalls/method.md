@@ -1744,3 +1744,31 @@ fill and not a handful of empty adds. Core under `-race` went 129s -> 79s locall
 **Reach for this first when** a package's total time creeps toward the limit with no hung test in
 the dump: rank the tests with `-json`, and read the top one's inner loop for a per-item cost that
 scales with the container.
+
+## A SCANNER VERDICT IS PER FILE: ONE ZERO IS LUCK, AND THE SAME SOURCE WITH A NEW COMMIT IS A NEW SAMPLE (release, 2026-09-22)
+
+**Symptom.** Chasing antivirus false positives on the shipped exes, four builds of the same source
+went to VirusTotal in one evening: the two untrimmed ones drew Microsoft's `!ml` verdict, the
+stripped one drew Bkav and Elastic, and an unstripped build with `-trimpath` scored 0/70. A tidy
+story wrote itself (Microsoft follows the embedded home-directory paths, Bkav and Elastic follow
+stripping), the release flags were changed on it, v1.3.1 was cut, and its CI-built exes scored 1/70
+and 2/71 -- Microsoft on both. A local rebuild differing from the 0/70 file only in the git revision
+Go embeds in the build info scored 1/70 too.
+
+**Cause.** A machine-learning verdict is a guess about one file, not a rule about the code. Two
+files that differ by a few bytes no scanner reasons about landed on opposite sides of its threshold.
+Reading one clean result as "the flag fixed it" was the same mistake as closing an intermittent
+fault on one good run: the evidence was one sample of a per-sample process. The story looked
+strong because every one of the four files fit it, and four files is nothing against a coin.
+
+**What held up, and only once counted BY ENGINE across every upload.** Elastic: on both stripped
+files, none of seven unstripped. Bkav: both stripped, one of seven unstripped clients, two of two
+servers. Microsoft: six of seven clients and both servers, following nothing. So the flag change
+was kept for what it did (Elastic, and Bkav on the client), the 0/70 claim was withdrawn from the
+release text, and Defender was recorded as unreachable from the build. The table is in
+`security-design.md`'s code-signing section.
+
+**Reach for this first when** a verdict, benchmark or flake is a per-run or per-file thing: get
+several samples of the SAME shape before naming a cause (a rebuild after any commit is a new
+sample for free), tally by category rather than by total, and hold the release text until the
+shipped artefact, not the local one, has been measured.

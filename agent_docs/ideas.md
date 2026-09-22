@@ -3511,6 +3511,6 @@ one player's process. Licences unchecked, nothing read, nothing adopted.
 otherwise is the single full zip. The root README leads with ghosts and keeps client-and-server
 second, and stays so (a stranger arrives for their friend's ghost in TEVI, not for a relay). The
 release layout question, platform page plus one download per game with the server its own asset, was
-sketched in chat on 2026-09-22 and waits for the user's reaction before it is written here; the
-argument it would weaken is `packaging/README.md`'s "Why one zip", which was written when every game
-needed the exe.
+sketched in chat on 2026-09-22 and drew no reaction; with the DLL measured worse than the exe, every
+game still needs the exe and `packaging/README.md`'s "Why one zip" stands unweakened. Closed unless
+raised again.

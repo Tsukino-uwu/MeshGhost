@@ -146,7 +146,13 @@
   download reputation, opens network connections, and now started by a game mod rather than a
   person. **Signing is expected to reduce this, not end it** — an ML verdict weighs reputation too,
   and a new certificate has none. Explained to users in `docs/antivirus.md` and
-  `packaging/release/README.txt`; the intended fix has its own entry in `ideas.md`.
+  `packaging/release/README.txt`; the intended fix has its own entry in `ideas.md`. **Measured
+  2026-09-22, fourteen VirusTotal uploads in one day** (`security-design.md`, code-signing section):
+  the `!ml` verdict is per file and follows no build flag (six of seven client builds, both
+  servers); shipping unstripped removed Elastic everywhere and Bkav on the client, so the release
+  flags are `-trimpath` with no `-s -w` from v1.3.1; Bkav follows the server binary, why unmeasured;
+  a c-shared DLL of the core scores three to four engines WORSE than the exe. The user's ruling:
+  Microsoft's false-positive submission is for big or mod-site releases only, until signing.
 - **Autostart makes the antivirus false positives more likely, not less** (added 2026-08-16 with
   the autostart ADR). The shipped exes already draw false-positive trojan flags, and a game mod
   silently starting a hidden, unsigned executable is the literal shape of a dropper — a materially

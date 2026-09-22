@@ -1262,7 +1262,7 @@ script had also lacked `-trimpath`); `docs/reviewing.md`'s byte-identical recipe
 file is not proof against an intermittent verdict, and **the confirmation FAILED the same evening.**
 v1.3.1 was cut as a pre-release on the new flags and the user uploaded its two CI-built exes:
 client `935179fa…` **1 of 70, Microsoft**; server `a2a9bb94…` **2 of 71, Bkav and Microsoft**
-(links: `virustotal.com/gui/file/<sha256>`). Both are unstripped and path-trimmed (checked with
+(each on its VirusTotal page by that hash, the same way the links above are formed). Both are unstripped and path-trimmed (checked with
 `strings`: no build paths, symbols present). So neither half of the day's story held on a different
 machine's build: Microsoft's `!ml` verdict is per file and follows no flag, and Bkav can hit an
 unstripped binary too. The 0/70 was one file's luck, and the cleanest proof came last: the same

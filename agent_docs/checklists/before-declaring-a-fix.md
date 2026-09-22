@@ -11,6 +11,7 @@ A fix is a claim. These are the ways a claim has looked true here while being fa
 ## Every lesson filed here
 
 - Diagnostic methodology — [method.md](../pitfalls/method.md)
+- A scanner verdict is per file: one zero is luck, and the same source with a new commit is a new sample (2026-09-22) — [method.md](../pitfalls/method.md)
 - A reference is not the thing — clearing a pointer removes nothing (2026-08-27) — [method.md](../pitfalls/method.md)
 - A deploy that reports success can deploy nothing — three ways, one loop (2026-08-28) — [method.md](../pitfalls/method.md)
 - Failure signatures — [method.md](../pitfalls/method.md)

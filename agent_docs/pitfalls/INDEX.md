@@ -45,6 +45,7 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - A corrective SECOND call must run in the POST hook, and rewriting the argument beats both (Pseudoregalia, 2026-09-04) [RULE: checklists/before-spawning-in-unreal.md]
 - An ordinary edit can rewrite a file's LINE ENDINGS, and every gate reads clean (2026-09-07) [CHECK: preflight.ps1 "CRLF-pinned batch files"]
 - "A file is not there" is a filesystem answer to a HISTORY question (2026-09-07) [RULE: checklists/before-declaring-a-fix.md]
+- A scanner verdict is per file: one zero is luck, and the same source with a new commit is a new sample (release, 2026-09-22) [RULE: checklists/before-declaring-a-fix.md]
 
 ## By host and subsystem — [by-host.md](by-host.md)
 
