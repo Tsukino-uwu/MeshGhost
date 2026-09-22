@@ -1710,5 +1710,5 @@ better. Each fact below was read from its page on 2026-09-22.
 **Built:** `cmd/session` passes `--name autoplay-<game>-<port>` and `--settings {"crossSessionInbound":"hold"}`, and the
 report records the name. `hold`, not the default: a `dontAsk` session counts as prompting, so with the default a chat's
 message would be delivered into the play as text the model acts on; with `refuse` no idle notice arrives either. A test
-fails without both flags. **Filed:** the peer protocol in `running-the-rig.md` ("Chats that share one tree and one
+fails without both flags. **Checked live** (2026-09-22): a `claude -p` started with the two flags appeared in this chat's `ListAgents` under its name, a message sent to it was held (its stream recorded `peer_message_hold`, cause `explicit-setting`) and never reached its model, and the `notify_when_idle` notice arrived here when it went idle. **Filed:** the peer protocol in `running-the-rig.md` ("Chats that share one tree and one
 machine"), pointed at from `CLAUDE.md` and the `play-game` skill without a line added to either.
