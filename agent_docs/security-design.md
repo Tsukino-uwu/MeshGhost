@@ -1278,7 +1278,8 @@ Microsoft false-positive submission (2026-09-22): not a step for every release**
 will do for a big release or one going to a mod site, until signing exists. **The server draws Bkav
 where the client does not (2026-09-22, two of two):** a local server build with the release flags,
 differing from v1.3.1's only in the embedded revision (`8dcdaeed…`, 12,459,008 bytes), scored 2 of
-70, Bkav and Microsoft, the same pair as the CI server. Six unstripped client files: Bkav on none.
+70, Bkav and Microsoft, the same pair as the CI server. Seven unstripped client files: Bkav on none
+(the seventh, `764ca19e…`, 1 of 69, Microsoft only, the same evening).
 Why the relay's code reads differently to Bkav's generic verdict is unmeasured; its labels are
 per-sample (`W32.Malware.<8 hex>`), so it is a model-style verdict, not a rule about our code. What stands: the DLL sits three to four engines
 above the exe on every flag combination, the build flags are not a lever on Defender, and the
