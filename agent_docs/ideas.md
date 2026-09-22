@@ -3481,7 +3481,10 @@ The two cheap isolations were built and uploaded the same day: with the exe's ve
 library shape is what they react to, so no build flag rescues it. The exe itself, uploaded the same
 day as a control: 1 of 71, Microsoft only.
 
-**The better motive, the user's, filed the same evening: channels that cannot carry an exe.** A
+**The better motive, the user's, filed the same evening: usability and friction.** One file that IS
+the mod, nothing beside it to download, explain or scan, and a client that feels native to the
+game rather than a program next to it (the user, 2026-09-22: *"easier usability & less friction,
+or making it more native"*). The sharpest case is channels that cannot carry an exe. A
 Steam Workshop item, a recomp's mod folder (Ship of Harkinian, the N64 recomps with built-in mod
 support), a mod manager's package: each delivers files the host loads and launches nothing, so
 today they could only ever ship half of MeshGhost and point at the releases page for the rest.
