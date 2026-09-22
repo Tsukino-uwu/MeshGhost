@@ -397,7 +397,7 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   core running, the driver retries once a second, which costs little (802.5 with no hooks).
 - **BepInEx (TEVI)** (`drivers/bepinex/`: `Link.cs`, the link for any BepInEx game; `tevi/`, the plugin), the plan's
   Phase 6 (`agent_docs/phases/autoplay/tevi.md`). A plugin of its own, never inside MeshGhost's adapter: build with
-  `dotnet restore --source <the local NuGet cache>` once, then `dotnet build -c Release --no-restore` in `tevi/` (it
+  `dotnet build -c Release` in `tevi/` (its `nuget.config` names the BepInEx feed the two packages live on; it
   references the Steam install's game assemblies; `-p:TeviManaged=<folder>` for another), copy
   `MeshGhostAutoplayTevi.dll` and `.pdb` into the install's `BepInEx\scripts\`, and put `meshghost-autoplay.txt` there
   with `port=<the core's>` and `repo=<this repo's root>` -- no file, no connection. ScriptEngine reloads it when the DLL
