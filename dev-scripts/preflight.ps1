@@ -293,6 +293,7 @@ $domainAllow = @{
     'filippo.io' = 'dependency (edwards25519/nistec, via the OPAQUE library, ADR 0067)'
     'api.nuget.org' = 'NuGet'; 'bepinex.dev' = 'BepInEx'; 'nuget.bepinex.dev' = 'BepInEx feed'
     'code.claude.com' = 'tooling'; 'signpath.org' = 'code signing'; 'signpath.io' = 'code signing'
+    'www.virustotal.com' = 'scan results linked from security-design.md (2026-09-22)'
     # Reference material cited by the adapters and the docs.
     'docs.unrealengine.com' = 'UE reference'; 'dev.epicgames.com' = 'UE reference'
     'epicgames.com' = 'UE reference'; 'docs.ue4ss.com' = 'UE4SS reference'
