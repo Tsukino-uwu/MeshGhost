@@ -684,9 +684,35 @@ end
 -- the values an NPC conversation and a book gave, MEASURED.md 2026-09-23; a mirror gave 2 the same day), tap
 -- MenuAdvance for 4 frames every `every` frames. Ends `closed` once `controlState` is back to 0 for 10 frames,
 -- `not_reading` if it was 0 from the start, or `stuck` after max_taps with no close.
+-- An upgrade's screen (UI_NewUpgradePrompt_C) pauses the game and its CONTINUE answered neither a posted key nor an
+-- injected action; the widget's own bound click handler is what a click on it runs (the Dream Breaker and the slide,
+-- 2026-09-23). Returns the upgrade prompt when one is on screen.
+local UPGRADE_CLICK = "BndEvt__UI_NewUpgradePrompt_UI_GenericButton_K2Node_ComponentBoundEvent_0_CommonButtonBaseClicked__DelegateSignature"
+local function upgradePrompt()
+	for _, w in ipairs(FindAllOf("UI_NewUpgradePrompt_C") or {}) do
+		if w:IsValid() and w:GetFullName():find("Transient", 1, true) then return w end
+	end
+	return nil
+end
+
 function M.programs.advance_text(p)
 	local every, maxTaps = tonumber(p.every) or 45, tonumber(p.max_taps) or 20
 	local o = M.observe(false)
+	if o.mode == "paused" then
+		local w = upgradePrompt()
+		if w then
+			local waited = 0
+			return function()
+				waited = waited + 1
+				if waited == 90 then w[UPGRADE_CLICK](w, w.UI_GenericButton) end -- let its screen finish fading in first
+				if waited > 90 and M.observe(false).mode == "play" then
+					return true, { outcome = "closed", upgrade_screen = true, frames = waited }
+				end
+				if waited > 600 then return true, { outcome = "stuck", upgrade_screen = true } end
+				return false
+			end
+		end
+	end
 	if not o.player or (o.player.control_state or 0) == 0 then return nil, "not reading or talking: controlState is 0" end
 	local taps, since, zero = 0, 0, 0
 	local okD, d0 = pcall(dialogue)
@@ -760,7 +786,7 @@ end
 -- evaluating a cell only when the search reaches it, so nothing is traced that the route never needs. The walk then
 -- steers to each cell of the route (the stick from the camera's yaw, as walk_to), holding Jump for 30 frames when the
 -- next cell is a rise and she is within 75 units of it. It plans again from where she stands when 90 frames pass with
--- no cell reached (twice, each with at most 2500 cells). Ends `arrived`, `no_route` (with how far the nearest reachable cell is), `stuck`, `hit`,
+-- no cell reached (twice). Ends `arrived`, `no_route` (with how far the nearest reachable cell is), `stuck`, `hit`,
 -- `map_changed`, or the frame limit.
 local CELL = 50
 local CAP_R, CAP_H = 20, 62 -- a little inside the capsule's 22/65, so brushing a wall does not close a route
@@ -1161,6 +1187,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 	local P = newPlan(s.pawn, s.x, s.y, s.z, tx, ty, maxCells)
 	P.tz = tz
 	local path, wp, lastProgress, replans, jumpLeft, flip, hopState, hang, jumpT, leap = nil, 2, 0, 0, 0, nil, nil, 0, 0, nil
+	local finishJump, fin = false, nil
 	local planned, planFrames, stats = 0, 0, {}
 	return function(count)
 		local st = playerAndCamera()
@@ -1181,6 +1208,10 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 			elseif r == "exhausted" and P.bestH <= radius + CELL then
 				-- The target itself is not standable (inside a wall), but a cell within reach of it is: go there.
 				path = pathOf(P, P.best)
+			elseif r == "exhausted" and P.bestH <= 500 and not a.plan_only then
+				-- Near enough to finish by eye: the route's end, then a run straight at the target with a jump near it -- the
+				-- step onto the Dream Breaker's stage from the water, which the search refused (2026-09-23).
+				path, finishJump = pathOf(P, P.best), true
 			elseif r == "exhausted" then
 				local best = P.cells[P.best]
 				return true, { outcome = "no_route", cells_searched = P.count,
@@ -1209,6 +1240,29 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 			stats.jumps, stats.flips = jumps, flips
 		end
 		local target = path[wp]
+		if not target and finishJump then
+			fin = fin or { t = 0 }
+			fin.t = fin.t + 1
+			local ms = o.player.move_state or 0
+			local dd = math.sqrt(dxT * dxT + dyT * dyT)
+			local rel = math.rad(math.deg(math.atan(dyT, dxT)) - st.yaw)
+			injectMove(math.sin(rel), math.cos(rel))
+			if not fin.jumped and dd < 220 and ms == 0 and (o.player.action_state or 0) ~= 18 then fin.jumped, fin.jt = true, 0 end
+			if fin.jumped then
+				fin.jt = fin.jt + 1
+				local vz = 0
+				pcall(function() vz = st.pawn:GetVelocity().Z end)
+				if (fin.jt <= 8 or vz > -250) and fin.jt < 100 and inputReady() then
+					subsystem:InjectInputVectorForAction(actions.IA_Jump, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {})
+				end
+				if ms == 0 and fin.jt > 20 then
+					return true, { outcome = dd <= radius and "arrived" or "finished_short", distance = dd, finish = "a jump at the target" }
+				end
+			end
+			if fin.t > 600 then return true, { outcome = "finished_short", distance = dd } end
+			lastProgress = count
+			return false
+		end
 		if not target then
 			-- The route is walked: the goal cell, or the nearest cell to an unstandable target. Answer once landed.
 			if (o.player.move_state or 0) == 0 then
@@ -1252,9 +1306,9 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 		if count - lastProgress > 90 then
 			if replans >= 2 then return true, { outcome = "stuck", at = { x = st.x, y = st.y, z = st.z }, route = stats, on = { x = target.x, y = target.y, z = target.z, edge = target.edge, wp = wp, of = #path } } end
 			replans = replans + 1
-			-- A re-plan stands still while it searches, so it gets a smaller budget: three full ones stood in place until
-			-- the frame limit (2026-09-23).
-			P = newPlan(st.pawn, st.x, st.y, st.z, tx, ty, math.min(maxCells, 2500))
+			-- A full search: the level's answers are cached per map, so a re-plan over ground already traced costs little. Capped
+			-- at 2500 cells, it answered no_route from the dungeon's hall with the stage 4357 away (2026-09-23).
+			P = newPlan(st.pawn, st.x, st.y, st.z, tx, ty, maxCells)
 			P.tz = tz
 			path, lastProgress = nil, count
 			return false
@@ -1367,6 +1421,10 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 				local ground = ms == 0 and ((td < 60 and along >= -4) or td < 8)
 				-- (Tried and reverted, 2026-09-23: jumping as late as coyote time allows on grab hops met the 2349 ledge
 				-- falling, 9 lower than the user's grab; their takeoff, at the edge, meets it at the top of the arc.)
+				-- A jump pressed in a skid (actionState 18: turning around at a run) comes out as a backflip; the user saw her
+				-- backflip "even for small things" after run-ups that turned her around (2026-09-23). Wait the skid out.
+				local skidding = (o.player.action_state or 0) == 18
+				if ground and skidding and not h.flip then ground = false end
 				if ground or coyote then hs.phase, hs.t = (h.flip and ms == 0) and "skid" or "air", 0 end
 				-- Past the takeoff, or off the edge: run at the landing. Steering back at a takeoff already passed slowed her
 				-- from 550 to 212 in coyote time and the jump fell short (2026-09-23).
@@ -1503,7 +1561,8 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 			local sx, sy = dx, dy
 			if leap.t <= leap.back then sx, sy = -leap.ux, -leap.uy end
 			local past = (st.x - leap.fx) * leap.ux + (st.y - leap.fy) * leap.uy
-			if not leap.jumped and leap.t > leap.back and (ms == 1 or past >= 20 or leap.t > leap.back + 240) then
+			local skidding = (o.player.action_state or 0) == 18 -- a jump in the skid is a backflip: wait it out
+			if not leap.jumped and leap.t > leap.back and (ms == 1 or ((past >= 20 or leap.t > leap.back + 240) and not skidding)) then
 				leap.jumped, jumpLeft, jumpT = true, 80, 0
 			end
 			local r2 = math.rad(math.deg(math.atan(sy, sx)) - st.yaw)
@@ -1527,7 +1586,9 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 		end
 		local rel = math.rad(math.deg(math.atan(dy, dx)) - st.yaw)
 		injectMove(math.sin(rel), math.cos(rel))
-		if jumpLeft > 0 then
+		if jumpLeft > 0 and jumpT == 0 and (o.player.action_state or 0) == 18 and (o.player.move_state or 0) == 0 then
+			-- not yet: a jump pressed in the skid would be a backflip
+		elseif jumpLeft > 0 then
 			jumpLeft = jumpLeft - 1
 			jumpT = jumpT + 1
 			-- Let go once she stops rising, never into the landing (a held Jump became a second jump on landing) -- but
@@ -1592,7 +1653,8 @@ end
 
 M.reflexes.reach = function(a) return M.programs.reach(a) end
 
--- fight {range (default 160), swing_every (default 24), stop_hp}: the nearest enemy in `things` (within 2500), followed
+-- fight {range (default 160), swing_every (default 24), stop_hp, kind (default enemy; breakable_wall, save_point...), name,
+-- swings (stop after this many, answered `swung`)}: the nearest thing of that kind in `things` (within 2500), followed
 -- on the ground by the stick from the camera's yaw; inside `range` it is faced and Attack tapped (4 frames) every
 -- `swing_every` frames. Ends `defeated` when the enemy actor is gone or being destroyed, `low_hp` below stop_hp, `lost`
 -- when none is within 2500, or the frame limit. Reports swings, hits taken and both HPs.
@@ -1602,11 +1664,13 @@ function M.reflexes.fight(a)
 	local stopHp = tonumber(a.stop_hp)
 	local o0 = M.observe(false)
 	if not o0.location or not o0.location.x then return nil, "no player" end
+	local wantKind, wantName = a.kind or "enemy", a.name
+	local maxSwings = tonumber(a.swings)
 	local targetName
 	for _, t in ipairs((things(o0.location.map, o0.location.x, o0.location.y, o0.location.z, 60))) do
-		if t.kind == "enemy" and t.distance < 2500 then targetName = t.name break end
+		if (wantName and t.name == wantName) or (not wantName and t.kind == wantKind and t.distance < 2500) then targetName = t.name break end
 	end
-	if not targetName then return nil, "no enemy within 2500" end
+	if not targetName then return nil, "no " .. tostring(wantName or wantKind) .. " within 2500" end
 	local actor
 	for _, e in ipairs(registry.list) do if e.name == targetName then actor = e.actor end end
 	local swings, since, hits, lastHp = 0, every, 0, o0.player.hp
@@ -1630,6 +1694,9 @@ function M.reflexes.fight(a)
 		local push = d > range * 0.6 and 1 or 0.25 -- close in, then hold a little pressure to keep facing it
 		injectMove(math.sin(rel) * push, math.cos(rel) * push)
 		since = since + 1
+		if maxSwings and swings >= maxSwings and since >= every then
+			return true, { outcome = "swung", target = targetName, swings = swings, hits_taken = hits, hp = o.player.hp }
+		end
 		if d <= range and since >= every then since, swings = 0, swings + 1 end
 		if since < 4 and swings > 0 and inputReady() then
 			subsystem:InjectInputVectorForAction(actions.IA_Attack, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {})

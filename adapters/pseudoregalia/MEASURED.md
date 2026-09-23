@@ -49,6 +49,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - 2026-09-23 (night) — what marks talking, reading and sitting on the player
 - 2026-09-23 (autoplay) — LuaSocket's received strings, injected input, the camera rig, the title's keys, File Select
 - 2026-09-23 (autoplay, later) — how she moves: frame rate, the capsule, jump heights, the backflip, the save slot
+- 2026-09-23 (autoplay, evening) — ledge grabs, climb poles, the float at a jump's top, coyote time, the slide, breakable walls
 
 ## Measured
 
@@ -199,6 +200,32 @@ Same install. Read by the autoplay driver's flight recorder (`recent`: one row a
   Every hit read `bStartPenetrating` true, which is not understood: the distances were plausible walls.
 - **What it cannot say:** coyote time's length and the ledge grab's reach are not measured (the user named both); a
   backflip from a standstill is not tried.
+
+### 2026-09-23 (autoplay, evening) — ledge grabs, climb poles, the float at a jump's top, coyote time, the slide, breakable walls
+
+Same install. From the autoplay driver's flight recorder (every 3rd frame kept for minutes) over two runs the user played
+from File 8 and over the driver's own attempts to repeat them.
+
+- **A ledge grab is `moveState` 3**: she hangs still (horizontal and vertical speed 0) 6-21 frames in the user's runs;
+  a Jump press then climbs (vertical speed ~860 at the start), and pushing toward the wall with it matters: taps with no
+  stick left her hanging. The grabs recorded lifted her floor by 178-328 over the takeoff. A fence (the hall's side, the
+  user) has no ledge: a backflip against it reached 265 and slid down with no grab.
+- **A climb pole is `moveState` 5** while on it (the user's: at (12237, -1527), climbing at up to 650 a second) **and 6 at
+  its top**, from where a Jump sets off (the user's rose 931, then a second jump at speed 600 toward the next floor). The
+  driver's hop code only climbed in state 5 and stayed in state 6 until it jumped from there too.
+- **Holding Jump through the top of a jump floats her**: the user's arc read vertical speed 36, 10, -27 over ~10 frames at
+  its top; the driver letting go at the apex read 24 then -100 three frames later. At the 2349 ledge the user grabbed at
+  z 2264; the let-go arc reached the same x at 2236-2255 and missed; held through the top, the grab worked.
+- **Coyote time**: in the user's runs a jump came 6-9 frames after leaving the ground (sampled every 3rd frame) and still
+  rose at 900+ a second -- the window is at least 9 frames.
+- **The slide** (after the upgrade; "Press Left Trigger/Q Key on the ground to Slide", Q mapped to `IA_Crouch`): an injected
+  Crouch while running gives `actionState` 1, the capsule's centre 43 lower, horizontal speed from 550 to ~1,160, easing back
+  to a run over ~90 frames.
+- **A breakable wall** (`BP_BreakableWall_C`) has its own `BP_HpHitable`: `maxHP` 100, about 7 per Dream Breaker hit (55 to 10
+  over six swings); at 0 the actor is destroyed. The save crystal (`BP_SavePoint_C`) saves when struck, not by Interact:
+  `Last Save Point Name` then named it and only File 8 changed.
+- **What it cannot say:** the exact coyote window and grab reach; whether the camera's direction changes any move (the
+  stick is recomputed from its yaw each frame, and no move measured differently for it).
 
 ## Not measured yet
 
