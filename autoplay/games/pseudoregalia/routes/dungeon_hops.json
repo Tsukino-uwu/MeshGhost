@@ -1,0 +1,293 @@
+{
+ "game": "pseudoregalia",
+ "variant": "vanilla",
+ "map": "ZONE_Dungeon",
+ "note": "Hops the user played on 2026-09-23 from the cage platform to the attack upgrade's room, with detours and mistakes on purpose (their words: 'so you have more data to compare against'). Each is a jump that worked: takeoff (x, y, floor z) where Jump started -- on the ground or within coyote time --, landing (x, y, floor z) where she next stood, grab when she hung on a ledge (moveState 3) on the way. Read from the driver's flight recorder, every 3rd frame at 144 frames a second. goto uses them as moves beside its own.",
+ "hops": [
+  {
+   "takeoff": [
+    460,
+    2175,
+    207
+   ],
+   "landing": [
+    546,
+    2411,
+    400
+   ],
+   "approach_from": [
+    441,
+    2125
+   ],
+   "grab": false,
+   "frames": 66,
+   "run_speed": 550
+  },
+  {
+   "takeoff": [
+    503,
+    2577,
+    414
+   ],
+   "landing": [
+    238,
+    2641,
+    600
+   ],
+   "approach_from": [
+    541,
+    2524
+   ],
+   "grab": false,
+   "frames": 72,
+   "run_speed": 550
+  },
+  {
+   "takeoff": [
+    -916,
+    3599,
+    821
+   ],
+   "landing": [
+    -992,
+    3203,
+    800
+   ],
+   "approach_from": [
+    -892,
+    3651
+   ],
+   "grab": false,
+   "frames": 105,
+   "run_speed": 550
+  },
+  {
+   "takeoff": [
+    -1031,
+    3315,
+    814
+   ],
+   "landing": [
+    -857,
+    3659,
+    800
+   ],
+   "approach_from": [
+    -1036,
+    3257
+   ],
+   "grab": false,
+   "frames": 108,
+   "run_speed": 550
+  },
+  {
+   "takeoff": [
+    -306,
+    2908,
+    622
+   ],
+   "landing": [
+    -967,
+    2895,
+    800
+   ],
+   "approach_from": [
+    -241,
+    2917
+   ],
+   "grab": true,
+   "frames": 249,
+   "run_speed": 550
+  },
+  {
+   "takeoff": [
+    -1227,
+    2911,
+    814
+   ],
+   "landing": [
+    -1507,
+    2955,
+    1100
+   ],
+   "approach_from": [
+    -1170,
+    2906
+   ],
+   "grab": true,
+   "frames": 207,
+   "run_speed": 550
+  },
+  {
+   "takeoff": [
+    -1699,
+    2986,
+    1107
+   ],
+   "landing": [
+    -2347,
+    3090,
+    900
+   ],
+   "approach_from": [
+    -1642,
+    2977
+   ],
+   "grab": false,
+   "frames": 171,
+   "run_speed": 550
+  },
+  {
+   "takeoff": [
+    -1763,
+    2690,
+    214
+   ],
+   "landing": [
+    -1357,
+    2623,
+    200
+   ],
+   "approach_from": [
+    -1815,
+    2713
+   ],
+   "grab": false,
+   "frames": 108,
+   "run_speed": 550
+  },
+  {
+   "takeoff": [
+    -1346,
+    2623,
+    207
+   ],
+   "landing": [
+    -938,
+    2627,
+    200
+   ],
+   "approach_from": [
+    -1403,
+    2623
+   ],
+   "grab": false,
+   "frames": 105,
+   "run_speed": 550
+  },
+  {
+   "takeoff": [
+    -811,
+    2578,
+    221
+   ],
+   "landing": [
+    -493,
+    2668,
+    400
+   ],
+   "approach_from": [
+    -865,
+    2594
+   ],
+   "grab": false,
+   "frames": 87,
+   "run_speed": 550
+  },
+  {
+   "takeoff": [
+    -394,
+    2740,
+    407
+   ],
+   "landing": [
+    -304,
+    2800,
+    600
+   ],
+   "approach_from": [
+    -438,
+    2704
+   ],
+   "grab": false,
+   "frames": 57,
+   "run_speed": 550
+  },
+  {
+   "takeoff": [
+    -362,
+    2858,
+    618
+   ],
+   "landing": [
+    -967,
+    2891,
+    800
+   ],
+   "approach_from": [
+    -270,
+    2856
+   ],
+   "grab": true,
+   "frames": 240,
+   "run_speed": 550
+  },
+  {
+   "takeoff": [
+    -1250,
+    2914,
+    819
+   ],
+   "landing": [
+    -1511,
+    2943,
+    1100
+   ],
+   "approach_from": [
+    -1170,
+    2909
+   ],
+   "grab": true,
+   "frames": 210,
+   "run_speed": 550
+  },
+  {
+   "takeoff": [
+    -1719,
+    2973,
+    1107
+   ],
+   "landing": [
+    -2357,
+    2951,
+    900
+   ],
+   "approach_from": [
+    -1654,
+    2964
+   ],
+   "grab": false,
+   "frames": 171,
+   "run_speed": 550
+  },
+  {
+   "takeoff": [
+    -2491,
+    2975,
+    921
+   ],
+   "landing": [
+    -3246,
+    3144,
+    -100
+   ],
+   "approach_from": [
+    -2436,
+    2957
+   ],
+   "grab": false,
+   "frames": 207,
+   "run_speed": 550
+  }
+ ]
+}
