@@ -94,6 +94,8 @@ are in MEASURED.md ("A Mart", "The bag inside a battle").
 - **HM helpers** (the user, 2026-09-23): an HM move is only taken off at one NPC, unlike a TM or level-up move, so HMs go
   on spare Pokémon caught for it and the main Pokémon keeps its battle moves. Birds (TAILLOW, WINGULL) learn FLY, water
   Pokémon SURF, grass Pokémon usually CUT, a ZIGZAGOON ROCK SMASH and STRENGTH. CUT (HM01) is an NPC's in Rustboro.
+- **Switching** (the user): a switch mid-fight costs the turn; the one offered after a foe faints ("Will A change
+  POKéMON?") is free, unless the battle style is SET, which turns that offer off. `battle` answers it NO for now.
 - **Party order**: the first two go out in a double battle (the user): keep the second strongest in slot 2. START, POKéMON,
   `select` the one to move, SWITCH, `press Down` to the other, `press A` (a `select` there only moved the cursor), B, EXIT.
 - **Two in the party means double battles** (the user; TWINS GINA & MIA, 2026-09-23), and the 7th gym is a double battle
