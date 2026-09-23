@@ -1,0 +1,110 @@
+{
+  "about": "Ribauld on Infernal BBQ from the first save point: the walk in, his dialogue, then the fight in 600-frame chunks with the clock held and fast on. The Quickdrop window (at the fight's start) and the Charged Shot window (partway through) pause the game, and each takes Confirm only once it has stood a while in real time, so on_paused repeats Confirm and 30 frames until the game is back in play (2026-09-23). The try recipe of agent_docs/phases/autoplay/tevi.md, 2026-09-17. Needs the local snapshot tevi_inf_first_savepoint (gitignored).",
+  "setup": [
+    {
+      "name": "clock",
+      "arguments": {
+        "action": "release"
+      }
+    },
+    {
+      "name": "restore",
+      "arguments": {
+        "label": "tevi_inf_first_savepoint"
+      }
+    },
+    {
+      "name": "clock",
+      "arguments": {
+        "action": "hold"
+      }
+    },
+    {
+      "name": "sequence",
+      "arguments": {
+        "steps": [
+          {
+            "buttons": [
+              "XAxis+"
+            ],
+            "from": 0,
+            "frames": 110
+          },
+          {
+            "buttons": [
+              "XAxis-"
+            ],
+            "from": 112,
+            "frames": 10
+          },
+          {
+            "buttons": [
+              "Jump"
+            ],
+            "from": 126,
+            "frames": 22
+          },
+          {
+            "buttons": [
+              "XAxis+"
+            ],
+            "from": 138,
+            "frames": 8
+          },
+          {
+            "buttons": [
+              "Jump"
+            ],
+            "from": 192,
+            "frames": 20
+          },
+          {
+            "buttons": [
+              "XAxis+"
+            ],
+            "from": 196,
+            "frames": 400
+          }
+        ],
+        "stop_on": [
+          "dialogue_changed",
+          "damage_taken"
+        ]
+      }
+    },
+    {
+      "name": "advance_text"
+    }
+  ],
+  "on_paused": [
+    {
+      "name": "press",
+      "arguments": {
+        "buttons": [
+          "Confirm"
+        ],
+        "frames": 3
+      }
+    },
+    {
+      "name": "clock",
+      "arguments": {
+        "action": "step",
+        "frames": 30
+      }
+    }
+  ],
+  "fight": {
+    "name": "reflex",
+    "arguments": {
+      "kind": "fight",
+      "frames": 600,
+      "args": {
+        "type": "Ribauld",
+        "no_progress_frames": 3000
+      }
+    }
+  },
+  "max_frames": 18000,
+  "fast": true
+}

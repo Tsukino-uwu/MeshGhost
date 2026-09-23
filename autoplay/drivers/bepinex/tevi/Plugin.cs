@@ -58,6 +58,7 @@ namespace MeshGhostAutoplay.Tevi
             Log(AchievementGuard.Install(new[] { "GemaSteamAPIAchievements.UnlockAchievement", "GemaSteamAPIAccess.TrySyncAchievements" }));
             Log(SaveGuard.Install(Application.persistentDataPath, repo == null ? null : repo + "/autoplay/states/" + GameName + "/shadow"));
             if (repo != null) Tells.TableFile = repo + "/autoplay/states/" + GameName + "/tells.json";
+            if (repo != null) Tells.EntriesFile = repo + "/autoplay/states/" + GameName + "/tells_entries.json";
             InputInjection.Install();
             Events.Install();
             Clock.Install();

@@ -42,21 +42,53 @@ namespace MeshGhostAutoplay.Tevi
         // How often each (type|state) was entered, and how often an attack followed while in it. A state an enemy rests in is a poor tell:
         // Ribauld's bomb ring was born after he went back to NORMAL, so every NORMAL predicted a ring 23 frames on and she stood idle
         // through it (the user, 2026-09-17: "there should also be a gap to get in some more attacks instead of just standing idle").
-        // A state is predicted only while an attack followed at least FollowShare of its last entries (after MinEntries).
+        // A state is predicted only while an attack followed at least FollowShare of its last entries (after MinEntries), and only while
+        // FilterUnreliable (a fight's `tell_filter` sets it for its own frames). The counts are kept like the table (AppDomain, then
+        // EntriesFile): held only in memory, a hot reload or a restart forgot them, and for the next three entries every state predicted
+        // again, the bomb ring's NORMAL among them.
         private const int MinEntries = 3, EntryWindow = 20;
         private const float FollowShare = 0.5f;
-        private static readonly Dictionary<string, Queue<bool>> Entries = new Dictionary<string, Queue<bool>>();
+        public static bool FilterUnreliable = true;
+        public static string EntriesFile; // autoplay/states/tevi/tells_entries.json, when the plugin knows the repo
+        private const string EntriesKey = "meshghost.autoplay.tells.entries";
+        private static Dictionary<string, List<bool>> entries;
+        private static int lastEntriesWrite = -1000;
+
+        private static Dictionary<string, List<bool>> Entries
+        {
+            get
+            {
+                if (entries != null) return entries;
+                entries = new Dictionary<string, List<bool>>();
+                string json = AppDomain.CurrentDomain.GetData(EntriesKey) as string;
+                if (json == null && EntriesFile != null && System.IO.File.Exists(EntriesFile))
+                {
+                    try { json = System.IO.File.ReadAllText(EntriesFile); } catch (Exception) { json = null; }
+                }
+                if (json != null)
+                {
+                    try { entries = JsonConvert.DeserializeObject<Dictionary<string, List<bool>>>(json) ?? entries; } catch (Exception) { }
+                }
+                return entries;
+            }
+        }
 
         private static void Close(string key, bool followed)
         {
-            if (!Entries.TryGetValue(key, out Queue<bool> q)) Entries[key] = q = new Queue<bool>();
-            q.Enqueue(followed);
-            while (q.Count > EntryWindow) q.Dequeue();
+            if (!Entries.TryGetValue(key, out List<bool> q)) Entries[key] = q = new List<bool>();
+            q.Add(followed);
+            if (q.Count > EntryWindow) q.RemoveRange(0, q.Count - EntryWindow);
+            string json = JsonConvert.SerializeObject(entries);
+            AppDomain.CurrentDomain.SetData(EntriesKey, json);
+            if (EntriesFile == null || Time.frameCount - lastEntriesWrite < 120) return;
+            lastEntriesWrite = Time.frameCount;
+            try { System.IO.File.WriteAllText(EntriesFile, json); } catch (Exception) { }
         }
 
         private static bool Reliable(string key)
         {
-            if (!Entries.TryGetValue(key, out Queue<bool> q) || q.Count < MinEntries) return true;
+            if (!FilterUnreliable) return true;
+            if (!Entries.TryGetValue(key, out List<bool> q) || q.Count < MinEntries) return true;
             int n = 0;
             foreach (bool b in q) if (b) n++;
             return n >= FollowShare * q.Count;

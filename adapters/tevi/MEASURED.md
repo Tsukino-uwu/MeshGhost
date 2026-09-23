@@ -68,6 +68,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - 2026-09-17 — Infernal BBQ: what a normal enemy's hit costs, a death, and the play time to the first save point
 - 2026-09-17 — Ribauld on Infernal BBQ: his HP, the laser curtain's warning, thrown orbs, and what makes a quickdrop a double jump
 - 2026-09-17 — Achievements: what TEVI calls to unlock one, and a load re-applying them
+- 2026-09-23 — Fast-forward: frames at 4.3 times real time, the same frames; dialogue and tutorial windows on real time
 - Not measured yet — backup slots and the chapter-reset slot
 - Not measured yet — what `mode: paused` reads from, and why the pause menu opened
 
@@ -491,6 +492,26 @@ Sewerways save point after restoring a snapshot taken there (reached), one autop
 - **Loading a save called `UnlockAchievement` 62 times** within the restore (counter 0 before, 62 after), all skipped by the guard.
 - During an autoplay fight before the guard existed, the user saw "Squeak By" unlock (beat a boss under 5% HP).
 - **Not measured**: which achievement each of the 62 calls named.
+
+### 2026-09-23 — Fast-forward: frames at 4.3 times real time, the same frames; dialogue and tutorial windows on real time
+
+**Evidence**: autoplay's driver, the clock's `fast` action (`Time.captureDeltaTime` 1/60 and `Application.targetFrameRate` -1, set
+each frame in the postfix on `GameSystem.TimeScale`; how to call them from Unity 2021.3's scripting reference), on the Steam build
+at Infernal BBQ's first save point; the flight recorder read every frame; `Player.log`. One session.
+
+- **The game's own settings** (`Player.log` at start): VSYNC 0, FPS limit 60, expected delta 0.01666667, `Time.maximumDeltaTime`
+  0.016667.
+- **Fast ran 257.7 and 262.7 frames a real second** (the clock's own count) against 60.0 at the game's pace: 4.3 times, on this
+  machine, with the MeshGhost adapter, UnityExplorer and the dev cheats loaded.
+- **Its frames are the game's frames**: the same restore and the same 6-step `sequence` (the walk to Ribauld) at the game's pace
+  and fast, 265 recorded frames each, compared row by row: position at most 0.1 apart (the recorder rounds to 0.1), the same
+  animation and logic each frame, and the same place at the end (22541.2, -12992.0). The player only; enemies not compared.
+- **Dialogue does not advance while fast**: Ribauld's conversation stopped on its third line, fully printed, through 12 Confirm
+  taps (`advance_text` `stuck`); with fast off the same conversation closed at once.
+- **A tutorial window takes no Confirm until it has stood a while in real time**: the Quickdrop window (at the fight's start) and
+  the Charged Shot window (partway into the fight, first seen this session) both stayed open through a Confirm pressed 45 frames
+  after they opened, over and over, and closed on a Confirm pressed after some seconds; `mode` reads `paused` under them. How long
+  is not measured.
 
 ## Not measured yet
 

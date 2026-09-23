@@ -214,7 +214,8 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 		Description: "Hold the game's clock while you think: action hold stops game time (the driver keeps running and answering, " +
 			"and observe still reads), step lets `frames` of game time pass and holds again, release lets it run. A fast game " +
 			"waits for the model this way. The hold stays until released, across calls. Returns whether it is held and the " +
-			"frames of game time stepped.",
+			"frames of game time stepped. Action fast with `on` runs the game faster than real time where the driver can, each " +
+			"frame still one frame of game time (a driver that cannot refuses it); off puts back the game's own pace.",
 	}, logged(t, "clock", nil, t.clock))
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -842,8 +843,9 @@ const CheatTimeout = CallTimeout + 30*time.Second
 
 // ClockIn is the clock tool's input.
 type ClockIn struct {
-	Action string `json:"action" jsonschema:"hold, step or release"`
+	Action string `json:"action" jsonschema:"hold, step, release or fast"`
 	Frames int    `json:"frames,omitempty" jsonschema:"for step: frames of game time to let pass, 1 to 600"`
+	On     *bool  `json:"on,omitempty" jsonschema:"for fast: true to run faster than real time, false for the game's own pace"`
 }
 
 func (t *tools) clock(ctx context.Context, _ *mcp.CallToolRequest, in ClockIn) (*mcp.CallToolResult, any, error) {
@@ -852,12 +854,19 @@ func (t *tools) clock(ctx context.Context, _ *mcp.CallToolRequest, in ClockIn) (
 		if in.Frames != 0 {
 			return nil, nil, fmt.Errorf("frames is for step only")
 		}
+	case "fast":
+		if in.Frames != 0 {
+			return nil, nil, fmt.Errorf("frames is for step only")
+		}
+		if in.On == nil {
+			return nil, nil, fmt.Errorf("fast needs on, true or false")
+		}
 	case "step":
 		if in.Frames < 1 || in.Frames > MaxPressFrames {
 			return nil, nil, fmt.Errorf("step frames must be 1 to %d, got %d", MaxPressFrames, in.Frames)
 		}
 	default:
-		return nil, nil, fmt.Errorf("action must be hold, step or release, got %q", in.Action)
+		return nil, nil, fmt.Errorf("action must be hold, step, release or fast, got %q", in.Action)
 	}
 	timeout := CallTimeout + time.Duration(in.Frames)*50*time.Millisecond
 	raw, err := t.forward(ctx, "clock", "clock", in, timeout)

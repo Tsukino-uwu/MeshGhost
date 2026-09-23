@@ -40,13 +40,8 @@ namespace MeshGhostAutoplay.Tevi
         // HopDropLeft/Right: a hop, then a quickdrop from its HopDropAt-th frame, so contact cannot hurt her from then on: the way past an
         // enemy's body on the ground (normal enemies are run past, the user, 2026-09-17; the Quickdrop tutorial: contact during it does no
         // damage). Carried out as a hop; in the air the Drop plans take over.
-        public enum Move { Stay, Left, Right, Hop, HopLeft, HopRight, Jump, JumpLeft, JumpRight, Drop, DropLeft, DropRight, HopDropLeft, HopDropRight, StepLeft, StepRight, StrideLeft, StrideRight }
+        public enum Move { Stay, Left, Right, Hop, HopLeft, HopRight, Jump, JumpLeft, JumpRight, Drop, DropLeft, DropRight, HopDropLeft, HopDropRight }
 
-        // StepLeft/Right and StrideLeft/Right: running StepFrames or StrideFrames, then standing. A run for the whole horizon toward a boss met a
-        // beam of his laser curtain, so the dodge stood or backed off though a safe gap lay nearer him (the user, 2026-09-17: "try to walk
-        // closer towards the boss during lasers", "always wanna try to stick as close to the boss as possible").
-        public const int StepFrames = 8, StrideFrames = 16;
-        public static bool IsStep(Move m) => m >= Move.StepLeft;
         public const int HopDropAt = 10;
         // Down is held this many frames before Jump is pressed (InputInjection.Quickdrop: pressed together they made a double jump), so
         // a drop begins that much later.
@@ -74,8 +69,8 @@ namespace MeshGhostAutoplay.Tevi
         {
             switch (m)
             {
-                case Move.Left: case Move.HopLeft: case Move.JumpLeft: case Move.DropLeft: case Move.HopDropLeft: case Move.StepLeft: case Move.StrideLeft: return -1;
-                case Move.Right: case Move.HopRight: case Move.JumpRight: case Move.DropRight: case Move.HopDropRight: case Move.StepRight: case Move.StrideRight: return 1;
+                case Move.Left: case Move.HopLeft: case Move.JumpLeft: case Move.DropLeft: case Move.HopDropLeft: return -1;
+                case Move.Right: case Move.HopRight: case Move.JumpRight: case Move.DropRight: case Move.HopDropRight: return 1;
                 default: return 0;
             }
         }
@@ -224,7 +219,6 @@ namespace MeshGhostAutoplay.Tevi
                         by = inside;
                     }
                 }
-                if (IsStep(m)) continue; // step plans are off: in four tries with them she ended against his body and took contact hits (2026-09-17)
                 // Room from the walls where the plan ends: a corner leaves no way out of the next attack (pinned twice, 2026-09-17).
                 Vector2 end = Position(s, m, Horizon);
                 float room = Math.Min(RoomCap, Math.Min(end.x - s.MinX, s.MaxX - end.x));
@@ -243,7 +237,7 @@ namespace MeshGhostAutoplay.Tevi
         // Where the player is `f` frames on under plan `m`.
         public static Vector2 Position(Start s, Move m, int f)
         {
-            float x = Mathf.Clamp(s.Pos.x + Dir(m) * Run * (IsStep(m) ? Math.Min(f, m == Move.StepLeft || m == Move.StepRight ? StepFrames : StrideFrames) : f), Math.Min(s.MinX, s.Pos.x), Math.Max(s.MaxX, s.Pos.x));
+            float x = Mathf.Clamp(s.Pos.x + Dir(m) * Run * f, Math.Min(s.MinX, s.Pos.x), Math.Max(s.MaxX, s.Pos.x));
             float y;
             if (s.OnGround)
             {
@@ -283,7 +277,10 @@ namespace MeshGhostAutoplay.Tevi
 
         // `imminent`: when given, the wanted plan stands unless it is hit within that many frames (movement: the user, 2026-09-17, "just
         // keep running, don't pause/quickdrop randomly"); a fight leaves it out and wants the whole horizon clear.
-        public static Plan Choose(List<Plan> plans, Move want, float? stickX = null, int? imminent = null)
+        // `hug`: how much ending nearer the target is worth against room and clearance (a fight's `hug` argument).
+        public const float DefaultHug = 3f;
+
+        public static Plan Choose(List<Plan> plans, Move want, float? stickX = null, int? imminent = null, float hug = DefaultHug)
         {
             Plan wanted = plans.Find(p => p.Move == want);
             float needed = stickX.HasValue ? StickClearance : WantedClearance;
@@ -298,7 +295,7 @@ namespace MeshGhostAutoplay.Tevi
                 // Hit either way: later is worth most (time to plan again: a roll hit in 3 frames was taken over one in 32, 2026-09-17),
                 // then fewest frames inside (out of a laser's beam, where every plan is hit at once).
                 int score = (p.FirstHit > Horizon ? 100000 : 0) + p.FirstHit * 1000 - p.HitFrames * 300 + (int)(Math.Max(0f, p.Room) * 2f);
-                if (stickX.HasValue) score += (int)(Math.Max(0f, 400f - Mathf.Abs(p.EndX - stickX.Value)) * 3f) + (int)Math.Min(p.Clearance, 40f);
+                if (stickX.HasValue) score += (int)(Math.Max(0f, 400f - Mathf.Abs(p.EndX - stickX.Value)) * hug) + (int)Math.Min(p.Clearance, 40f);
                 else score += (int)(p.Clearance * 2f);
                 if (Dir(p.Move) == Dir(want)) score += 30;
                 if (!IsJump(p.Move)) score += 20;

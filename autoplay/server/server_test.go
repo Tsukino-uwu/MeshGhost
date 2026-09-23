@@ -299,6 +299,21 @@ func TestClockValidatesAndForwards(t *testing.T) {
 	if in := <-got; in.Action != "step" || in.Frames != 4 {
 		t.Fatalf("the driver received %+v", in)
 	}
+	// fast needs on, and never frames; false is a value, not a missing one.
+	for _, bad := range []map[string]any{
+		{"action": "fast"},
+		{"action": "fast", "on": true, "frames": 2},
+	} {
+		if text, isErr := h.call(t, "clock", bad); !isErr {
+			t.Errorf("clock %v = %s, want a refusal", bad, text)
+		}
+	}
+	if text, isErr := h.call(t, "clock", map[string]any{"action": "fast", "on": false}); isErr {
+		t.Fatalf("clock fast off = %s", text)
+	}
+	if in := <-got; in.Action != "fast" || in.On == nil || *in.On {
+		t.Fatalf("the driver received %+v", in)
+	}
 }
 
 func TestRecentValidatesAndForwards(t *testing.T) {

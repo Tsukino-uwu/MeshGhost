@@ -14,9 +14,26 @@ namespace MeshGhostAutoplay.Tevi
     // The hold survives a core going away (mcpcall starts a core per call, and a hold that ended with each call would hold nothing)
     // and a hot reload: the patch goes with the plugin, but whether the clock is held is kept in the AppDomain's data, which the next
     // copy reads as it installs (a reload that let go of the clock in the middle of a boss fight let the boss act, 2026-09-17).
+    //
+    // FAST: the game run faster than real time with every frame still one frame of game time. Time.captureDeltaTime makes Time.time
+    // advance by it each frame "regardless of real time and the duration of a frame", scaled by timeScale, and targetFrameRate -1 renders
+    // "as fast as possible" on desktop while vSyncCount is 0 (Unity 2021.3's scripting reference, Time.captureDeltaTime and
+    // Application.targetFrameRate; TEVI is 2021.3.25f1 and its log sets VSYNC 0, FPS limit 60, expected delta 0.01666667). Set every frame
+    // in the same postfix, since the game's own settings may set the frame rate again; off puts back the frame rate it found. Whether a
+    // fast frame is the same frame as a real-time one is measured, not assumed (adapters/tevi/MEASURED.md).
     public static class Clock
     {
         public const string HarmonyId = "dev.meshghost.autoplay.clock";
+        private const string KeyFast = "meshghost.autoplay.clock.fast";
+        public static bool Fast
+        {
+            get => AppDomain.CurrentDomain.GetData(KeyFast) is bool b && b;
+            private set => AppDomain.CurrentDomain.SetData(KeyFast, value);
+        }
+        private const string KeyFoundRate = "meshghost.autoplay.clock.found_rate";
+        private static float rateSince = -1f;
+        private static int rateFrames;
+        private static double measuredFps;
 
         private static Harmony harmony;
         private const string KeyHeld = "meshghost.autoplay.clock.held";
@@ -64,6 +81,21 @@ namespace MeshGhostAutoplay.Tevi
 
         private static void TimeScalePostfix()
         {
+            if (Fast)
+            {
+                Time.captureDeltaTime = 1f / 60f;
+                Application.targetFrameRate = -1;
+            }
+            // Frames a real second, for the answer's `fps`.
+            float now = Time.realtimeSinceStartup;
+            if (rateSince < 0f) rateSince = now;
+            rateFrames++;
+            if (now - rateSince >= 1f)
+            {
+                measuredFps = rateFrames / (now - rateSince);
+                rateSince = now;
+                rateFrames = 0;
+            }
             if (!Held || letRun) return;
             if (stepLeft > 0)
             {
@@ -76,7 +108,7 @@ namespace MeshGhostAutoplay.Tevi
 
         public static JObject Report()
         {
-            return new JObject { ["held"] = Held, ["step_left"] = stepLeft, ["time_scale_raw"] = Math.Round(Time.timeScale, 3) };
+            return new JObject { ["held"] = Held, ["step_left"] = stepLeft, ["time_scale_raw"] = Math.Round(Time.timeScale, 3), ["fast"] = Fast, ["fps"] = Math.Round(measuredFps, 1), ["target_frame_rate_raw"] = Application.targetFrameRate, ["capture_delta_raw"] = Math.Round(Time.captureDeltaTime, 5) };
         }
 
         // CLOCK {action, frames}: hold and release answer at once; step answers once its frames have passed and it holds again.
@@ -111,8 +143,18 @@ namespace MeshGhostAutoplay.Tevi
                         // The last stepped frame runs after the count reaches 0: answer once it has.
                         return Time.frameCount > done ? Answer(action, start, observe) : null;
                     };
+                case "fast":
+                    bool on = (bool?)p["on"] ?? throw new Exception("fast needs on");
+                    if (on && !Fast) AppDomain.CurrentDomain.SetData(KeyFoundRate, Application.targetFrameRate);
+                    if (!on && Fast)
+                    {
+                        Time.captureDeltaTime = 0f;
+                        Application.targetFrameRate = AppDomain.CurrentDomain.GetData(KeyFoundRate) is int r ? r : 60;
+                    }
+                    Fast = on;
+                    return () => Time.frameCount > start ? Answer(action, start, observe) : null;
                 default:
-                    throw new Exception("clock action must be hold, step or release");
+                    throw new Exception("clock action must be hold, step, release or fast");
             }
         }
 
