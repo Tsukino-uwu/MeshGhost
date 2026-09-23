@@ -2926,6 +2926,9 @@ local function openFlyMap()
 	return {
 		closeAll(), tap("Start"), waitFor(menuHas("POKéMON"), 60, "the START menu"), choose("POKéMON"),
 		waitFor(partyMenuUp, 120, "the party menu"), waitFor(function() return partyCursor() == 0 end, 30, "the party cursor"),
+		-- The screen takes no A while it fades in (swap's 30 frames): with the flyer in slot 0 (RAYQUAZA, 2026-09-23) no Down
+		-- came first and the A was lost.
+		function() local n = 0; return function() n = n + 1; return nil, n >= 30 end end,
 		function()
 			local n = 0
 			return function()

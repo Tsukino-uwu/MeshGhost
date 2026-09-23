@@ -208,3 +208,14 @@ Walked 2026-09-23.
   ride` legs down to y10, right to x12, down to y12, left to x3, up to y4, right to x5 -- it coasted onto (7,4) and
   dropped into 24.81's middle. A 2-tile run-up into a crack fell. RAYQUAZA (Lv70) at 24.85 (14,6): `talk`, BAG, the
   MASTER BALL, caught first throw.
+
+## Victory Road to the League, walked 2026-09-23
+
+- Ever Grande 0.8: WATERFALL (TENTACOOL) at (20,60) from (20,68); Center 16.12 (27,48); Victory Road 24.43 (18,41).
+- `goto` finds no way through: the floors join only past boulders, rocks and B2F's water. Found by a search over the
+  three floors' grids (elevation, bridges at 15, ladders at 0; warps paired by their destination index from the map's
+  event table): 1F (9,14) to B1F (8,3); push (4,7) left and (9,10) right and smash rocks to B1F (30,25); B2F (dark, no
+  FLASH) surfed to (19,12); B1F (17,16): smash (20,25), push (20,26) down, up the column x22 to (20,21); 1F (21,32) up
+  to (39,5), then Down on that tile leaves to 0.8 (18,27). A trainer that walks can end up standing on the planned path.
+- League entrance 16.10: nurse local 1, the Mart (local 2) sells ULTRA BALL, HYPER/MAX POTION, FULL RESTORE, FULL HEAL,
+  REVIVE, MAX REPEL.

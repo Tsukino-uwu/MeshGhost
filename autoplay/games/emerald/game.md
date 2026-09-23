@@ -75,6 +75,8 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
   ULTRA BALLs and still fail. Before one, buy 40-50+ ULTRA BALLs and plenty of potions: the catch means tanking many
   hits. Bring it to low HP (1 HP if possible) and give it sleep or paralysis, never poison -- for any catch, legendaries
   above all. The MASTER BALL needs none of it: it always catches, even at full HP.
+- **The PC in a Center** deposits and withdraws Pokémon (the user, 2026-09-23): drop one no longer wanted, or take one out
+  when a catch went to the box because the party held six.
 - **Heal only when the next hit would faint, then attack**; potions work best when they heal more than a hit takes
   (the user, 2026-09-17). `battle stop_hp_below` stops at the action menu for BAG, POTION, USE, the Pokémon's name.
   Gym leaders heal mid-fight too.
