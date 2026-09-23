@@ -742,3 +742,23 @@ boulders, rocks and water across maps, cracked floors, ledges any way.
 
 **Left as it is:** EmuHawk on vanilla Emerald with the driver loaded, the credits rolling; snapshot `champion_won`
 (WALLACE beaten). KYOGRE and GROUDON are not caught; money went on the League, so the ULTRA BALL stock comes first.
+
+## 2026-09-23 (the Emerald chat, continued) — a second run, following the user's speedrun route 1:1
+
+The user asked for a faster run and then for a speedrun route (an Any% Glitchless TORCHIC route document they supplied,
+kept outside the repo) to be followed 1:1: its fights, items, REPELs, move teaches and shopping exactly, no extra
+trainers or wild battles. **Where it stands:** five badges (BALANCE, SURF), COMBUSKEN Lv32, MARILL (Huge Power), SWABLU;
+both route RARE CANDIES from the desert and Petalburg; snapshot `r5_balance` and later `r5_*` labels (gitignored states).
+
+**How:** the starter by RNG manipulation (the route's TORCHIC reproduced exactly: an in-game save, a soft reset, the RNG
+read at the YES prompt as a position in the LCRNG from seed 0, and the frame computed so CreateMon's draws land on position
+1855 -- Bashful, 6/24/18/26/31/27, the route's own); a Huge Power MARILL by a frame search from a snapshot beside the grass
+(the wild PID's low bit). Turning trainers passed with `reflex ride`'s `wait` (a facing, a list of them, `fresh`), and
+the rest by planning on the map's grid with every sight line blocked; hidden items read from the map's bg events.
+
+**What went wrong on the way:** deviations the user caught -- an extra trainer (WINSTON), a wild battle fought, the PC
+POTION skipped (a whiteout on Route 102 followed), RICK skipped (EXP short for EMBER), my scripts pressing a move every
+turn where the route said once, a TM errand teaching the wrong HM (the TMs pocket by name picks the wrong row; by index
+works), the poison running out before the desert candy (the route's "heal a bit" step skipped). Each was rewound to a
+snapshot and replayed as written. `trip`'s `run_wild` fought wild battles (the battle kind is not readable on the first
+frames) -- not fixed in the driver yet; scratch scripts RUN only once the kind reads `wild`.
