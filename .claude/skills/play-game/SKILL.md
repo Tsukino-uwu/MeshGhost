@@ -44,7 +44,8 @@ probes that write (`references/bizhawk.md`). If a state can be reached, forced, 
 a tool you have, use it; involve the user for a JUDGEMENT, never for labour. **The tell: a message
 asking the user to do something in the game that no human hand was needed for.** Script, in rough
 order of demand: reaching a state, holding it steady while measuring, repeating it exactly after a
-change, returning to a checkpoint.
+change, returning to a checkpoint. **A demo the user plays is for you to redo** (user, 2026-09-23, every
+game): watch how they do it, restore to where it began, do it yourself — never carry on from their end.
 
 ## The loop: look, check, act, verify
 
@@ -98,9 +99,8 @@ it and move on. **Never a third attempt on inputs** (`references/navigation.md`)
 - **Write down what you pass through** — battles, menus, cutscenes, warps — not only what you came
   for: untested states are where adapter bugs live. A recipe that worked goes into
   `references/building-a-state.md`, dated.
-- **The decomp is a map** of where to look and what a script checks, never evidence
-  (`agent_docs/licensing.md`). Perfect information is not cheating.
-- **Finishing is optional**: a state reached is a state banked.
+- **The decomp is a map** of where to look, never evidence (`agent_docs/licensing.md`); perfect
+  information is not cheating. **Finishing is optional**: a state reached is a state banked.
 
 ## Report
 

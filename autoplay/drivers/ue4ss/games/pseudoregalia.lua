@@ -1201,6 +1201,11 @@ local function planStep(P)
 								if not sweep(P.pawn, ax, ay, low, bx, by, low, SLIDE_H) then kind, ok = "slide", true end
 							end
 						end
+						-- debug_at {x, y}: every move considered from cells within 80 of it, for reading a refusal.
+						if P.debugAt and math.abs(ax - P.debugAt[1]) < 80 and math.abs(ay - P.debugAt[2]) < 80 and #P.dbg < 60 then
+							P.dbg[#P.dbg + 1] = string.format("from %.0f,%.0f,%.0f to %d,%d nz %.0f dz %.0f %s %s", ax, ay, c.z, bx, by,
+								nz, dz, tostring(kind), tostring(ok))
+						end
 						if ok then
 							local step = (d[1] ~= 0 and d[2] ~= 0) and CELL * 1.4142 or CELL
 							local cost = P.g[cur.k] + step + (kind == "jump" and 80 or 0) + (kind == "flip" and 200 or 0) + (kind == "grab" and 150 or 0) + (kind == "flipgrab" and 300 or 0) + (kind == "drop" and 20 or 0) + (kind == "slide" and 40 or 0)
@@ -1322,6 +1327,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 	local tz = tonumber(a.z) -- a floor height: the goal is the cell on that floor (x, y alone met the floor 1200 below)
 	local P = newPlan(s.pawn, s.x, s.y, s.z, tx, ty, maxCells)
 	P.tz = tz
+	if a.debug_x then P.debugAt, P.dbg = { tonumber(a.debug_x), tonumber(a.debug_y) }, {} end
 	local path, wp, lastProgress, replans, jumpLeft, flip, hopState, hang, jumpT, leap = nil, 2, 0, 0, 0, nil, nil, 0, 0, nil
 	local finishJump, fin = false, nil
 	local slideTap = 0
@@ -1359,7 +1365,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 				path, finishJump = pathOf(P, P.best), true
 			elseif r == "exhausted" then
 				local best = P.cells[P.best]
-				return true, { outcome = "no_route", cells_searched = P.count,
+				return true, { outcome = "no_route", cells_searched = P.count, debug = P.dbg,
 					nearest = { x = best.ix * CELL, y = best.iy * CELL, z = best.z, distance_to_target = math.floor(P.bestH + 0.5) } }
 			end
 			if not path then return false end
