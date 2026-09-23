@@ -3034,7 +3034,20 @@ local function ride(p)
 	end
 	local i, still, last = 1, 0, nil
 	local startMap = (routeHooks.position())
+	-- wait {local_id, facing_raw}: nothing is pressed until that character's facing nibble reads facing_raw, so a
+	-- trainer that turns is passed while it looks away (2026-09-23, Petalburg Woods: a poll a model turn apart was a
+	-- second late and the BUG CATCHER had turned back).
+	local wait = type(p.wait) == "table" and p.wait or nil
 	return function()
+		if wait then
+			for _, o in ipairs(readObjects()) do
+				if o.local_id == wait.local_id then
+					local raw = r8(GOBJECTEVENTS + o.slot * OBJ_SIZE + 24) & 0x0F
+					if raw ~= wait.facing_raw then return nil, false end
+				end
+			end
+			wait = nil
+		end
 		local map, x, y = routeHooks.position()
 		if map ~= startMap then return nil, true, { map = map, x = x, y = y, legs_done = i - 1, fell = true } end
 		local key = x .. "," .. y

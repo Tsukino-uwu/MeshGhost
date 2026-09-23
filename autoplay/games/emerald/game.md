@@ -80,6 +80,14 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
 - **Only the strong fight in the League** (the user, 2026-09-23): the rest are sacrifices for a safe turn -- switch a
   low-level one in to take the hit, heal or REVIVE, switch back. Set up first where the lead survives it (BULK UP or X
   items, one or two, then sweep), and run low on PP with a TM's new move. WAILORD's BLIZZARD did ~180 to RAYQUAZA a turn.
+- **A speedrun route is followed 1:1** (the user, 2026-09-23): its damage calcs assume its exact levels, items and
+  fights, so an extra trainer, a wild battle fought, a skipped item or an X item at another turn all break later steps;
+  a snapshot before each risky fight is the reset. Wild battles are RUN from (REPELs as the route places them); trainers
+  are dodged unless the route names them. RNG manipulation is frame-exact here: from a snapshot, wait N frames, act, read
+  the result (the starter's personality, a wild encounter's species and ability bit), keep the frame that matches.
+- **Turning trainers** (the user, 2026-09-23) turn to face a running or biking player: walk past, while they look away
+  (`reflex ride` with `wait`); the START menu freezes them for timing. Some items lie hidden on the ground or in objects:
+  the map's background events list them (face the tile with a one-frame tap, then A).
 - **The PC in a Center** deposits and withdraws Pokémon (the user, 2026-09-23): drop one no longer wanted, or take one out
   when a catch went to the box because the party held six.
 - **Heal only when the next hit would faint, then attack**; potions work best when they heal more than a hit takes
