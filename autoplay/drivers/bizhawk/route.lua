@@ -763,4 +763,89 @@ function M.talk(h, p, advance)
 	end, nil, 36000
 end
 
+-- SEARCH (2026-09-23, Emerald, WINONA's gym): a way to a tile found by trying steps in the game itself, for a map the plan
+-- cannot model -- rotating gates turned by a push, whose rules live in the game's code. Breadth first over the player's tile
+-- and the module's `puzzleKey()` (Emerald: the gates' eight orientation bytes): from each state kept in memory
+-- (memorysavestate, BizHawk's), each direction is held until the player stands on another tile or the step is refused,
+-- the result read, and the state rewound. Found, the start is loaded again and the moves are walked from it as ordinary
+-- input, so what the game shows is a walk. Hooks: position, atRest, refused, inOverworld, puzzleKey (optional).
+-- SEARCH_NODES bounds the search; states are freed as they are expanded. NOT PROVEN: its one run (WINONA's gym, 2026-09-23)
+-- was stopped after 4 minutes unfinished -- every rewind showed on screen as a jump back, and the user solved the gates by
+-- hand instead (route.md). Try it before trusting it.
+local SEARCH_NODES, SEARCH_STEP_FRAMES = 4000, 48
+function M.search(h, p)
+	local toX, toY = math.tointeger(p.x), math.tointeger(p.y)
+	if not toX or not toY then return nil, "search needs x and y" end
+	if not memorysavestate then return nil, "search needs memorysavestate" end
+	local key = function(x, y) return x .. "," .. y .. "|" .. (h.puzzleKey and h.puzzleKey() or "") end
+	local _, sx, sy = h.position()
+	local root = memorysavestate.savecorestate()
+	local seen, queue, qi, nodes = { [key(sx, sy)] = true }, { { id = root, x = sx, y = sy, path = {} } }, 1, 1
+	local order = { "up", "down", "left", "right" }
+	local node, di, frames, phase, found, replay, ri, total = nil, 0, 0, "next", nil, nil, 0, 0
+	local function finish(outcome, extra)
+		for i = qi, #queue do if queue[i].id ~= root then pcall(memorysavestate.removestate, queue[i].id) end end
+		if node and node.id ~= root then pcall(memorysavestate.removestate, node.id) end
+		pcall(memorysavestate.removestate, root)
+		local r = { outcome = outcome, nodes = nodes, frames = total }
+		for k, v in pairs(extra or {}) do r[k] = v end
+		return nil, true, r
+	end
+	return function()
+		total = total + 1
+		if phase == "replay" then
+			-- Each move held until the player stands on another tile at rest, or its frames run out.
+			local _, x, y = h.position()
+			if not h.inOverworld() then return finish("left_overworld", { path = found, walked = ri }) end
+			if replay and (x ~= replay.x or y ~= replay.y) and h.atRest() then replay = nil end
+			if not replay then
+				ri = ri + 1
+				if ri > #found then return finish("done", { path = found }) end
+				replay = { x = x, y = y, frames = 0 }
+			end
+			replay.frames = replay.frames + 1
+			if replay.frames > SEARCH_STEP_FRAMES * 2 then return finish("blocked", { path = found, walked = ri - 1 }) end
+			return { [DIRECTIONS[found[ri]].button] = true }, false
+		end
+		if phase == "next" then
+			if di == 0 or di >= #order then
+				if node and node.id ~= root then memorysavestate.removestate(node.id) end
+				node = queue[qi]
+				if not node then return finish("unreachable", { reason = "every state reachable was tried" }) end
+				qi, di = qi + 1, 0
+				if nodes > SEARCH_NODES then return finish("unreachable", { reason = "more than " .. SEARCH_NODES .. " states" }) end
+			end
+			di = di + 1
+			memorysavestate.loadcorestate(node.id)
+			phase, frames = "step", 0
+			return nil, false
+		end
+		-- phase "step": hold the direction until the tile changes at rest, or it is refused or times out.
+		frames = frames + 1
+		local _, x, y = h.position()
+		local moved = (x ~= node.x or y ~= node.y)
+		if (moved and h.atRest()) or frames > SEARCH_STEP_FRAMES or (not moved and frames > 8 and h.refused()) then
+			phase = "next"
+			if moved and h.inOverworld() then
+				local k = key(x, y)
+				if not seen[k] then
+					seen[k], nodes = true, nodes + 1
+					local path = {}
+					for i, d in ipairs(node.path) do path[i] = d end
+					path[#path + 1] = order[di]
+					if x == toX and y == toY then
+						found = path
+						memorysavestate.loadcorestate(root)
+						phase, ri, replay = "replay", 0, nil
+						return nil, false
+					end
+					queue[#queue + 1] = { id = memorysavestate.savecorestate(), x = x, y = y, path = path }
+				end
+			end
+			return nil, false
+		end
+		return { [DIRECTIONS[order[di]].button] = true }, false
+	end, nil, 400000
+end
+
 return M

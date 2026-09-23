@@ -1427,7 +1427,7 @@ local game = {
 	variant = isVanilla and "vanilla" or "unverified",
 	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "cheat:warp", "cheat:set_flag",
 		"cheat:give_item", "cheat:register_item", "select", "walk", "goto", "battle", "advance_text", "type_text",
-		"set_clock", "cheat:noclip", "talk", "clear_obstacle" },
+		"set_clock", "cheat:noclip", "talk", "clear_obstacle", "search" },
 	-- The START menu and a YES/NO: Down moved the cursor one entry per press and A chose it; in a battle
 	-- menu Left and Right moved between its two columns (2026-09-16).
 	menuButtons = { prev = "Up", next = "Down", left = "Left", right = "Right", confirm = "A" },
@@ -2414,6 +2414,16 @@ game.programs.clear_obstacle = function()
 	end
 	return nil, "no ROCK SMASH rock (graphics 86) or water to SURF beside the player"
 end
+
+-- ROTATING GATES (2026-09-23, WINONA's gym 12.1): the eight bytes at SaveBlock1 +0x139C (the build's vars, VAR_TEMP_0 first)
+-- read 1,2,1,1,0,0,0,2 at the gym's door -- the orientations the decomp's Fortree table lists for its eight gates -- and three
+-- of them had changed after a walk through. They are the search's puzzle key (`../route.lua`, SEARCH).
+routeHooks.puzzleKey = function()
+	local b = memory.read_bytes_as_array(r32(SB1PTR) + 0x139C, 8, BUS)
+	return table.concat(b, ",")
+end
+-- search {x, y}: a way found by trying steps in the game (`../route.lua`, SEARCH).
+game.programs.search = function(p) return lib.route.search(routeHooks, p) end
 
 -- goto {x, y, run, cross_grass}: to a tile on this map by a planned route (`../route.lua`).
 game.programs["goto"] = function(p)
