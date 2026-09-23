@@ -96,6 +96,9 @@ are in MEASURED.md ("A Mart", "The bag inside a battle").
   Pokémon SURF, grass Pokémon usually CUT, a ZIGZAGOON ROCK SMASH and STRENGTH. CUT (HM01) is an NPC's in Rustboro.
 - **Switching** (the user): a switch mid-fight costs the turn; the one offered after a foe faints ("Will A change
   POKéMON?") is free, unless the battle style is SET, which turns that offer off. `battle` answers it NO for now.
+- **Heal before a fight, outside it** (the user, 2026-09-23): check the party's HP before any trainer and after every battle,
+  and use items in the field; a battle turn spent on a potion hands the foe a free hit (SWAMPERT, healed mid-fight, fell to
+  TROPIUS's SOLARBEAM). A fainted Pokémon comes back with a REVIVE after switching to another (the user).
 - **Party order**: the first two go out in a double battle (the user): keep the second strongest in slot 2. START, POKéMON,
   `select` the one to move, SWITCH, `press Down` to the other, `press A` (a `select` there only moved the cursor), B, EXIT.
 - **Two in the party means double battles** (the user; TWINS GINA & MIA, 2026-09-23), and the 7th gym is a double battle
