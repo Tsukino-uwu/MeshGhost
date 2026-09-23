@@ -555,7 +555,14 @@ end
 -- Not measured: whether a wall or a character between them blocks a trainer's view (taken as not), a
 -- +0x07 other than 1 (taken to see every way, never beaten), and what a template's +0x14 does.
 local FACING = { [1] = "down", [2] = "up", [4] = "right" }
-local TURNS = { [7] = { "up" }, [8] = { "down" }, [0x12] = { "down", "right" } }
+-- 2026-09-23 (Weather Institute 2F, Routes 118 and 120): +0x06 9 read left only over 4500 frames (+0x18 3, the grunt at
+-- 19,6), 0x0A right (the grunt at 15,6), 0x0D down and up (the grunt at 10,8, crossed while it faced up), 0x0E left and
+-- right (120's at 5,22), 0x10 up and right (118's at 56,7), 0x11 left and down (121's at 22,5, 12 reads), 0x17 all four
+-- (120's rotator at 16,6). So +0x18's 3 is left too (`turnFacing`). A walking trainer (0x1A, 121's at 11,6, on rows 7-10)
+-- moves its line and is not timed: crossed above it while it walked down, away (by hand).
+local TURNS = { [7] = { "up" }, [8] = { "down" }, [9] = { "left" }, [0x0A] = { "right" }, [0x0D] = { "down", "up" },
+	[0x0E] = { "left", "right" }, [0x10] = { "up", "right" }, [0x11] = { "down", "left" }, [0x12] = { "down", "right" },
+	[0x17] = { "up", "down", "left", "right" } }
 local EVERY_WAY = { "up", "down", "left", "right" }
 local SIGHT_STEP = { up = { 0, -1 }, down = { 0, 1 }, left = { -1, 0 }, right = { 1, 0 } }
 
@@ -576,6 +583,8 @@ end
 -- What a trainer is: `beaten` (nil when its flag cannot be read), `range`, and `sees`, the ways it looks.
 local function trainerOf(sb1, trainerType, range, movement, script)
 	local t = { range = range, sees = (trainerType == 1 and TURNS[movement]) or EVERY_WAY }
+	-- A trainer that turns (more than one way, by a movement measured in TURNS): its line can be timed (sightTiles).
+	t.turns = trainerType == 1 and TURNS[movement] ~= nil and #TURNS[movement] > 1
 	if trainerType ~= 1 then t.trainer_type_raw = trainerType end
 	if trainerType == 1 and inRom(script) and r8(script) == 0x5C then
 		t.flag = 0x500 + r16(script + 2)
@@ -627,28 +636,36 @@ local function unbeatenTrainers(objects)
 			local info = o and o.trainer or trainerOf(sb1, t.trainer_type, t.range, t.movement, t.script)
 			if not info.beaten then
 				out[#out + 1] = { local_id = t.local_id, x = o and o.x or t.x, y = o and o.y or t.y, range = info.range,
-					sees = info.sees, loaded = o ~= nil }
+					sees = info.sees, turns = info.turns, loaded = o ~= nil, slot = o and o.slot or nil }
 			end
 		end
 	end
 	return out
 end
 
--- The tiles unbeaten trainers can see, keyed y * width + x, each naming the first trainer found.
+-- The tiles unbeaten trainers can see, keyed y * width + x, each naming the first trainer found. Also `timed`: the tiles
+-- only ONE trainer sees, one that is loaded and turns, each with that trainer and the way it faces to see the tile --
+-- a line `goto` crosses by waiting beside it for the trainer to turn away (TURNING TRAINERS, route.lua).
 local function sightTiles(trainers, mapW, mapH)
-	local seen = {}
+	local seen, count, timed = {}, {}, {}
 	for _, t in ipairs(trainers) do
 		for _, way in ipairs(t.sees) do
 			local step = SIGHT_STEP[way]
 			for k = 1, math.min(t.range, 15) do
 				local x, y = t.x + step[1] * k, t.y + step[2] * k
 				if x >= 0 and y >= 0 and x < mapW and y < mapH then
-					seen[y * mapW + x] = seen[y * mapW + x] or t
+					local key = y * mapW + x
+					seen[key] = seen[key] or t
+					count[key] = (count[key] or 0) + 1
+					if t.slot and t.turns then timed[key] = { trainer = t, way = way } end
 				end
 			end
 		end
 	end
-	return seen
+	for key in pairs(timed) do
+		if count[key] > 1 then timed[key] = nil end
+	end
+	return seen, timed
 end
 
 -- Rows of characters centred on the player, and a legend for the symbols that appear.
@@ -2160,7 +2177,7 @@ local function routeGrid(fromX, fromY, toX, toY)
 	for _, t in ipairs(trainers) do
 		if not t.loaded then blocked[t.y * mapW + t.x] = blocked[t.y * mapW + t.x] or "trainer" end
 	end
-	local seen = sightTiles(trainers, mapW, mapH)
+	local seen, timed = sightTiles(trainers, mapW, mapH)
 	for _, w in ipairs(readWarps()) do
 		if not (w.x == toX and w.y == toY) then blocked[w.y * mapW + w.x] = blocked[w.y * mapW + w.x] or "warp" end
 	end
@@ -2182,16 +2199,16 @@ local function routeGrid(fromX, fromY, toX, toY)
 			local behaviour = behaviourOf(v & 0x3FF)
 			-- Water (0x15 at elevation 1) is not walked onto (WHY A STEP WAS REFUSED); a step's level is elevationStep's.
 			if behaviour == 0x15 and (v >> 12) == 1 then
-				if surfing then return true, false, seen[y * mapW + x] end
-				if surfs then return true, false, seen[y * mapW + x], nil, "surf" end
+				if surfing then return true, false, seen[y * mapW + x], nil, nil, timed[y * mapW + x] end
+				if surfs then return true, false, seen[y * mapW + x], nil, "surf", timed[y * mapW + x] end
 				return nil
 			end
 			-- A mud slope (0xD0) slid the player back on foot (MUD SLOPE, above): closed.
 			if behaviour == 0xD0 then return nil end
 			-- A ledge reads collision set, and hopped moving down: two steps, onto it and past it (WHY A STEP WAS REFUSED).
-			if STEP.LEDGES[behaviour] then return true, false, seen[y * mapW + x], STEP.LEDGES[behaviour] end
+			if STEP.LEDGES[behaviour] then return true, false, seen[y * mapW + x], STEP.LEDGES[behaviour], nil, timed[y * mapW + x] end
 			if (v & 0x0C00) ~= 0 then return nil end
-			return true, behaviour == 0x02, seen[y * mapW + x]
+			return true, behaviour == 0x02, seen[y * mapW + x], nil, nil, timed[y * mapW + x]
 		end,
 	}
 end
@@ -2216,6 +2233,10 @@ local routeHooks = {
 		end
 	end,
 	atRest = atRest,
+	-- The way a loaded trainer faces now, from its object slot's +0x18 low nibble (FACING, and 3 left: TURNS' note).
+	turnFacing = function(slot)
+		return ({ [1] = "down", [2] = "up", [3] = "left", [4] = "right" })[r8(GOBJECTEVENTS + slot * OBJ_SIZE + 0x18) & 0x0F]
+	end,
 	refused = STEP.refused,
 	idle = STEP.idle,
 	ride = function(run)
@@ -3051,6 +3072,9 @@ local function ride(p)
 						-- (Route 114's ANGELINA turned back within a tile when the wait began mid-facing, 2026-09-23).
 						if w.fresh and raw ~= w.facing_raw then w.seen_other = true end
 						if raw ~= w.facing_raw or (w.fresh and not w.seen_other) then return nil, false end
+						-- x and/or y: also where it stands, for a trainer that walks a loop (Aqua Hideout 1F's grunt
+						-- lapped x7-20, rows 4-9, in about 600 frames; a poll from outside read him 250 frames apart).
+						if (w.x and o.x ~= w.x) or (w.y and o.y ~= w.y) then return nil, false end
 					end
 				end
 			end

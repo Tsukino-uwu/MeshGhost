@@ -88,6 +88,13 @@ local DIRECTIONS = {
 --   * OBSTACLE_COST more for a tile the module says an action clears (a rock ROCK SMASH breaks): the walk stops in front
 --     of it and answers `obstacle` (the user, 2026-09-23: smash the rocks down 0.26 rather than go round the desert).
 local TURN_COST, GRASS_COST, SIGHT_COST, REPLANS, OBSTACLE_COST = 2, 8, 1000, 8, 20
+-- TURNING TRAINERS (the user, 2026-09-23: "stop 1 tile before a trainer's sight, wait until you can walk past"; "be 1 tile
+-- outside of its sight before trying to cross, instead of trying to cross it from afar"; for any/all spinners). A tile
+-- only one loaded, turning trainer sees (the module's `timed`, grid.tile's sixth value) costs TIMED_COST, not SIGHT_COST:
+-- the route's legs end on the tile before that line, `goto` stands there until the trainer turns to a way that sees none
+-- of the line's tiles ahead -- a fresh turn, so the most frames are left -- and then crosses. TURN_LIMIT frames of waiting
+-- without one ends it `turn_wait`.
+local TIMED_COST, TURN_LIMIT = 40, 3600
 
 -- NO PROGRESS (2026-09-17, Emerald): a route never needs to stand on one tile many times, but a tile that sends the player
 -- back does exactly that -- two unattended sessions' trips walked up 0.26's mud slope and slid back onto (17,38) for minutes,
@@ -99,7 +106,10 @@ local MOUNT_FRAMES = 60
 
 -- The legs from one tile to another, or nil and why. `closed` holds tiles refused on this goto, keyed y * width + x.
 -- Also returns the tiles in a trainer's line the route crosses, and the width the keys use.
-function M.plan(h, fromX, fromY, toX, toY, closed, crossGrass)
+-- With `crossNow`, a turning trainer's line the route begins in is crossed (the wait for it is over); any other line
+-- ends the legs before it, and `turn` (the fifth return) names the trainer, the tile to wait on and the ways that see the
+-- line's tiles ahead.
+function M.plan(h, fromX, fromY, toX, toY, closed, crossGrass, crossNow)
 	local grid, why = h.routeGrid(fromX, fromY, toX, toY)
 	if not grid then return nil, why end
 	local mapW, mapH = grid.width, grid.height
@@ -111,9 +121,10 @@ function M.plan(h, fromX, fromY, toX, toY, closed, crossGrass)
 	-- nil when a tile is closed to a step moving `d` (nil: to stand on); otherwise the extra cost of stepping onto it.
 	local function open(x, y, d)
 		if x < 0 or y < 0 or x >= mapW or y >= mapH or closed[y * mapW + x] then return nil end
-		local ok, grass, trainer, oneWay, obstacle = tile(x, y)
+		local ok, grass, trainer, oneWay, obstacle, timed = tile(x, y)
 		if not ok or (oneWay and DIRECTIONS[oneWay] ~= d) then return nil end
-		return ((grass and not crossGrass) and GRASS_COST or 0) + (trainer and SIGHT_COST or 0) + (obstacle and OBSTACLE_COST or 0)
+		return ((grass and not crossGrass) and GRASS_COST or 0) + (trainer and (timed and TIMED_COST or SIGHT_COST) or 0)
+			+ (obstacle and OBSTACLE_COST or 0)
 	end
 	if not open(toX, toY) then
 		return nil, string.format("(%d,%d) is not an open tile%s", toX, toY, where)
@@ -200,12 +211,26 @@ function M.plan(h, fromX, fromY, toX, toY, closed, crossGrass)
 		table.insert(steps, 1, order[(key // 16) % 4 + 1])
 		key = prev[key]
 	end
-	local legs, x, y, inSight, named, obstacle = {}, fromX, fromY, {}, {}, nil
-	for _, d in ipairs(steps) do
+	local legs, x, y, inSight, named, obstacle, turn = {}, fromX, fromY, {}, {}, nil, nil
+	local allow = crossNow
+	for si, d in ipairs(steps) do
 		-- An obstacle cleared by an action (a rock to smash): the legs end in front of it, and the goto answers `obstacle`.
-		local _, _, _, _, what = tile(x + d.dx, y + d.dy)
+		local _, _, _, _, what, timed = tile(x + d.dx, y + d.dy)
 		if what then
 			obstacle = { kind = what, x = x + d.dx, y = y + d.dy, from = { x = x, y = y }, facing = d.button }
+			break
+		end
+		if not timed then allow = false end
+		if timed and not allow then
+			-- The ways that see this line's tiles ahead, while the route stays in it.
+			local ways, tx, ty = {}, x, y
+			for sj = si, #steps do
+				tx, ty = tx + steps[sj].dx, ty + steps[sj].dy
+				local _, _, _, _, _, tm = tile(tx, ty)
+				if not tm or tm.trainer ~= timed.trainer then break end
+				ways[tm.way] = true
+			end
+			turn = { trainer = timed.trainer, ways = ways, from = { x = x, y = y } }
 			break
 		end
 		x, y = x + d.dx, y + d.dy
@@ -222,7 +247,7 @@ function M.plan(h, fromX, fromY, toX, toY, closed, crossGrass)
 			legs[#legs + 1] = { d = d, len = 1, endX = x, endY = y }
 		end
 	end
-	return legs, inSight, mapW, obstacle
+	return legs, inSight, mapW, obstacle, turn
 end
 
 -- goto {x, y, run, cross_grass}: to a tile on this map by a planned route of straight legs, holding each leg's direction
@@ -246,6 +271,7 @@ function M.go(h, p)
 	local stops = h.watch()
 	local arriving, arrivingFor = h.arriving and h.arriving(), 0
 	local busyFor = 0
+	local crossNow, waiting, waitFacing = false, nil, nil
 	local function finish(outcome, extra)
 		local _, x, y = h.position()
 		local r = { target = { x = toX, y = toY }, at = { x = x, y = y }, outcome = outcome, moved = moved,
@@ -337,10 +363,16 @@ function M.go(h, p)
 				mounted, phase, frames = true, "mount", 0
 				return { [ride.mount] = true }, false
 			end
-			local planned, why, w, obstacle = M.plan(h, x, y, toX, toY, closed, crossGrass)
+			local planned, why, w, obstacle, turn = M.plan(h, x, y, toX, toY, closed, crossGrass, crossNow)
+			crossNow = false
 			if not planned then return finish(replans > 0 and "blocked" or "unreachable", { reason = why }) end
 			if obstacle and #planned == 0 then return finish("obstacle", { obstacle = obstacle }) end
-			stopAt = obstacle and obstacle.from or nil
+			-- On the tile before a turning trainer's line: wait there for it to turn away (TURNING TRAINERS).
+			if turn and #planned == 0 and h.turnFacing then
+				waiting, waitFacing, phase, frames = turn, h.turnFacing(turn.trainer.slot), "turnwait", 0
+				return nil, false
+			end
+			stopAt = (obstacle and obstacle.from) or (turn and turn.from) or nil
 			inSight, width = why, w
 			legs, li, phase, frames, idle, lastX, lastY = planned, 1, "hold", 0, 0, x, y
 			towardWarp = warpAhead(x, y, legs[1].d)
@@ -357,6 +389,20 @@ function M.go(h, p)
 				return nil, false
 			end
 			if frames > L.step then return finish("not_at_rest") end
+			return nil, false
+		end
+
+		if phase == "turnwait" then
+			local f = h.turnFacing(waiting.trainer.slot)
+			if f ~= waitFacing and f and not waiting.ways[f] then
+				crossNow, waiting, phase, frames = true, nil, "rest", 0
+				return nil, false
+			end
+			waitFacing = f
+			if frames > TURN_LIMIT then
+				return finish("turn_wait", { trainer_local_id = waiting.trainer.local_id,
+					trainer_at = { x = waiting.trainer.x, y = waiting.trainer.y } })
+			end
 			return nil, false
 		end
 
@@ -428,7 +474,7 @@ function M.go(h, p)
 			return finish("no_response")
 		end
 		return hold(), false
-	end, nil, 7200
+	end, nil, 14400
 end
 
 -- GOTO ACROSS MAPS (2026-09-17, Emerald). The maps between are planned breadth-first, fewest maps first, over the parts

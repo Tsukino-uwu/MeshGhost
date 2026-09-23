@@ -86,7 +86,8 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
   are dodged unless the route names them. RNG manipulation is frame-exact here: from a snapshot, wait N frames, act, read
   the result (the starter's personality, a wild encounter's species and ability bit), keep the frame that matches.
 - **Turning trainers** (the user, 2026-09-23) turn to face a running or biking player: walk past, while they look away
-  (`reflex ride` with `wait`); the START menu freezes them for timing. Some items lie hidden on the ground or in objects:
+  (`reflex ride` with `wait`); the START menu freezes them for timing. For EVERY spinner, first stop one tile outside
+  its sight, then cross when it faces away (START-menu manip or `wait`), never from afar (the user, 2026-09-23). Some items lie hidden on the ground or in objects:
   the map's background events list them (face the tile with a one-frame tap, then A).
 - **The PC in a Center** deposits and withdraws Pokémon (the user, 2026-09-23): drop one no longer wanted, or take one out
   when a catch went to the box because the party held six.
