@@ -2,14 +2,17 @@
 
 Planned 2026-09-15. **Status as of 2026-09-23: Part B FOUND (`BPI_TryDamage`) and Part E WORKS on
 screen: `hurt` user-confirmed (a touch hurts and knocks back), `kill` kills through the game's own
-death, and a 3 s respawn hold (the user: timing "about right") stops the respawn death loop. The
+death. A death now starts the pack over (`chaser_reset`, ADR 0072, user-confirmed); it
+replaced a 3 s respawn hold the user had judged "about right" the same night. The
 chasers now also hold while seated and while talking or reading (`controlState`, Part C), both
 user-confirmed. Part D DONE (`e546d38c`, ADR 0068). Part A (the attack leaks) is
 still NOT fixed. Facts: `adapters/pseudoregalia/MEASURED.md` (2026-09-23, three entries). This file
 is deleted when the last part lands.**
 
-**Decided with the user, 2026-09-23:** after a death the pack pauses briefly rather than resetting
-(*"a small pause/freeze for them, or small iframe when respawning"*); sitting holds the pack (*"so you
+**Decided with the user, 2026-09-23:** after a death the pack starts over (*"chaser ghosts should
+just despawn, then a bit after spawn in fresh/new again as if you just started playing"*), which
+replaced the brief pause chosen earlier that night; other players' ghosts and replay ghosts are left
+as they are (they do not follow the player). Sitting holds the pack (*"so you
 can catch your breath and heal up"*). **No damage-amount setting** (the user: *"5 or just insta death
 is probly fine"*): `hurt` stays an enemy touch's 5, `kill` is the stronger option. Knockback and
 sword-drop kinds stay out (DamageType 2 with a chaser crashes). **The default stays `"off"`** (asked

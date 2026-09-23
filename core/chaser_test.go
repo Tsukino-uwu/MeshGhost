@@ -541,3 +541,108 @@ func TestChaserTapThinsTheAdapterFrameRate(t *testing.T) {
 		t.Fatalf("the tap wrote %d samples after 500 frames 2ms apart; want ~100 (one per 10ms)", got)
 	}
 }
+
+// TestChaserResetStartsThePackOver (ADR 0072): chaser_reset drops the chaser
+// now, and the fresh pack waits for the player to move again before anything
+// reappears -- a death and its reload in Pseudoregalia sent the old pack, which
+// follows the recording through the jump to the respawn point, onto a player
+// still standing there (2026-09-23: five deaths in ~25 s with contact "kill").
+// Without the handler the message is ignored, the chaser never despawns, and
+// the first wait fails.
+func TestChaserResetStartsThePackOver(t *testing.T) {
+	c, _, fa := startLocalPeerCore(t)
+	c.mu.Lock()
+	c.ChaserEnabled = true
+	c.ChaserDelay = 100 * time.Millisecond
+	c.ChaserSpawnDelay = 50 * time.Millisecond
+	c.mu.Unlock()
+	if n := c.StartChasers(); n != 1 {
+		t.Fatalf("StartChasers = %d, want 1", n)
+	}
+	const id = "chaser:1"
+	lastRender := func() int64 {
+		fa.mu.Lock()
+		defer fa.mu.Unlock()
+		return fa.lastRenderTs[id]
+	}
+	despawns := func() int {
+		fa.mu.Lock()
+		defer fa.mu.Unlock()
+		return fa.despawnCount[id]
+	}
+	// Move until the chaser is on screen.
+	start := time.Now()
+	var x float64
+	deadline := time.Now().Add(testTimeout)
+	for time.Now().Before(deadline) {
+		x = float64(time.Since(start) / (10 * time.Millisecond))
+		fa.frame(&protocol.State{AreaID: "a", Position: []float64{x, 0}})
+		time.Sleep(10 * time.Millisecond)
+		if _, ok := fa.rendersOf(id); ok && x > 30 {
+			break
+		}
+	}
+	if _, ok := fa.rendersOf(id); !ok {
+		t.Fatal("chaser never appeared")
+	}
+	before := despawns()
+
+	env, _ := json.Marshal(bridge.Envelope{Type: bridge.TypeChaserReset, Payload: json.RawMessage("{}")})
+	if err := fa.conn.Send(env); err != nil {
+		t.Fatalf("send chaser_reset: %v", err)
+	}
+	// The ghost goes, while the player keeps standing where they are.
+	held := x
+	deadline = time.Now().Add(testTimeout)
+	for time.Now().Before(deadline) && despawns() == before {
+		fa.frame(&protocol.State{AreaID: "a", Position: []float64{held, 0}})
+		time.Sleep(10 * time.Millisecond)
+	}
+	if despawns() == before {
+		t.Fatal("chaser_reset did not despawn the chaser")
+	}
+	// Standing still for four times the delay: the fresh pack must NOT appear
+	// -- it waits for movement, exactly like a pack at the start of play.
+	stamp := lastRender()
+	until := time.Now().Add(400 * time.Millisecond)
+	for time.Now().Before(until) {
+		fa.frame(&protocol.State{AreaID: "a", Position: []float64{held, 0}})
+		time.Sleep(10 * time.Millisecond)
+	}
+	if lastRender() != stamp {
+		t.Fatal("the fresh pack rendered a chaser before the player moved again")
+	}
+	// Moving again brings a chaser back.
+	moveStart := time.Now()
+	deadline = time.Now().Add(testTimeout)
+	for time.Now().Before(deadline) && lastRender() == stamp {
+		fa.frame(&protocol.State{AreaID: "a", Position: []float64{held + float64(time.Since(moveStart)/(10*time.Millisecond)), 0}})
+		time.Sleep(10 * time.Millisecond)
+	}
+	if lastRender() == stamp {
+		t.Fatal("no chaser came back after the player moved again")
+	}
+}
+
+// TestChaserResetIsBoundedAndNeedsAPack: a reset with no pack running starts
+// nothing, and a second reset inside chaserResetMinGap is ignored, so an
+// adapter sending one per frame cannot rebuild the history every frame.
+func TestChaserResetIsBoundedAndNeedsAPack(t *testing.T) {
+	c, _, _ := startLocalPeerCore(t)
+	if n, ok := c.ResetChasers(); ok || n != 0 {
+		t.Fatalf("ResetChasers with no pack = (%d, %v), want (0, false)", n, ok)
+	}
+	c.mu.Lock()
+	c.ChaserEnabled = true
+	c.ChaserDelay = 100 * time.Millisecond
+	c.mu.Unlock()
+	if n := c.StartChasers(); n != 1 {
+		t.Fatalf("StartChasers = %d, want 1", n)
+	}
+	if n, ok := c.ResetChasers(); !ok || n != 1 {
+		t.Fatalf("first ResetChasers = (%d, %v), want (1, true)", n, ok)
+	}
+	if _, ok := c.ResetChasers(); ok {
+		t.Fatal("a second ResetChasers inside chaserResetMinGap acted, want ignored")
+	}
+}

@@ -369,6 +369,14 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 				return
 			}
 			c.SetPlayerFrozen(msg.Frozen)
+		case bridge.TypeChaserReset:
+			// Logged either way, like replay_control: the adapter gets no
+			// reply, so this line is where a reset is seen to have landed.
+			if n, ok := c.ResetChasers(); ok {
+				log.Printf("core: chaser_reset from the adapter: the pack starts over (%d ghost(s))", n)
+			} else {
+				log.Printf("core: chaser_reset from the adapter: ignored (no pack running, or one just started over)")
+			}
 		case bridge.TypeInputSample:
 			var msg bridge.InputSample
 			if err := json.Unmarshal(env.Payload, &msg); err != nil {

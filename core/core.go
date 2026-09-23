@@ -977,6 +977,9 @@ type Core struct {
 	// read by every chaser at its own offset (core/chaser.go). Built by
 	// StartChasers, released by StopChasers, nil whenever no pack exists.
 	chaserHist *chaserHistory
+	// chaserResetAtMs is when ResetChasers last started the pack over (0 =
+	// never); guarded by chaserMu. See chaserResetMinGap.
+	chaserResetAtMs int64
 	// The chaser's GAMEPLAY clock (ADR 0053): wall time minus every span the
 	// adapter reported the player frozen. frozenSince is the wall instant the
 	// current freeze began (0 when not frozen); frozenTotalMs is every finished

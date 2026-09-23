@@ -160,6 +160,13 @@ it is set, so a pause costs the chaser no delay and it never converges onto a pl
 move. The recorder, replay ghosts and the wire never see it. What counts as frozen is the
 adapter's per-game fact, found by measurement, never a heuristic on the sample stream.
 
+**`chaser_reset` (adapter -> core, added 2026-09-23, ADR 0072)** is optional and has no payload:
+start the chaser pack over as at the start of play. The ghosts go now, the history they follow is
+replaced, and a fresh pack appears only once the player has been moving for the spawn delay again.
+Sent where the game restarts the player (a death and its reload, in Pseudoregalia), so the pack never
+follows the player through it. Ignored while no pack runs and within a second of the last reset.
+Why it was sent is the adapter's per-game fact; the core learns nothing from it.
+
 **`input_sample` (adapter -> core, added 2026-09-08, ADR 0056)** is what the player PRESSED, as a
 track of its own beside the state recording. It is a SECOND track and never a field on state: inputs
 change at frame rate, a 15Hz sample of them would be a lie, and the state plane does not grow new

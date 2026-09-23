@@ -444,6 +444,21 @@ replay ghosts are untouched. **What "frozen" is must be the game's own fact**, f
 a while", which fires on a wall-hug and fires late. An adapter that never sends this keeps the
 old behaviour; a repeat of the current value is harmless.
 
+## Chaser reset (optional, adapter -> core, 2026-09-23)
+
+When your game restarts the player -- a death and its reload, a respawn at a checkpoint -- tell
+the core to start the chaser pack over:
+
+```json
+{"type":"chaser_reset","payload":{}}
+```
+
+The ghosts go now, and a fresh pack appears only once the player has been moving for the spawn
+delay again, exactly as at the start of play (ADR 0072). Without it the pack follows the player's
+recording THROUGH the restart and lands on them at the respawn point. Send it once per restart, on
+the game's own signal (Pseudoregalia: the health reaching zero), and retry until the send lands --
+it is an edge, never restated. A second reset within a second is ignored.
+
 ## The tick loop (the part every real adapter gets wrong the first time)
 
 ```text

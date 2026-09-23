@@ -208,6 +208,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-11 — the three C++ ports the user had seen but not spoken for: the camera-rig leak fix, the input history read-back, the screen-space recording indicator (user-confirmed)
 - 2026-09-23 — chaser contact "hurt": a chaser's touch hurts and knocks the player back through the game's own damage event (user-confirmed)
 - 2026-09-23 — chaser contact "kill", the 3 s respawn hold, and the pack holding while seated, talking or reading (user-confirmed)
+- 2026-09-23 — a death starts the chaser pack over (`chaser_reset`, ADR 0072): the chasers vanish at the death and return fresh after the respawn (user-confirmed)
 - Pseudoregalia: 300ms interp at the 15Hz relay on the 60/25/2/2 proxy, on the fixed relay (2026-09-02)
 - Pseudoregalia: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
 ## Confirmed facts
@@ -5434,3 +5435,19 @@ inside the dialogue or note states (`chaser-planning.md`, Part C).
 ones judged held 2-3 s; an earlier one's dialogue box stayed up 28 s and was never timed against
 `controlState`), and which of `controlState` 1 and 2 is the NPC and which the book. The attack leaks
 (`chaser-planning.md`, Part A) are still open.
+
+## 2026-09-23 — a death starts the chaser pack over (`chaser_reset`, ADR 0072): the chasers vanish at the death and return fresh after the respawn (user-confirmed)
+
+**What the user saw, 2026-09-23:** with contact `kill`, dying to a chaser made the pack vanish, and
+after the respawn it came back fresh behind the player: *"yee it works"*. The user had asked for
+exactly this shape: *"chaser ghosts should just despawn, then a bit after spawn in fresh/new again as
+if you just started playing"*.
+
+**The log, same run:** kill at 02:17:23.914, `CHASER_RESET: sent after death #1` at .918, the core's
+`chaser_reset from the adapter: the pack starts over (5 ghost(s))`, the reload at 02:17:26.9, and the
+first fresh chaser at 02:17:34.2. A second death at 02:17:40 repeated it exactly.
+
+**Supersedes** the 3 s respawn hold in the entry above: the hold was removed from the adapter in the
+same change (ADR 0072 says why). **Also closes the chaser half** of the 2026-09-18 "invisible chasers
+after a death" report: a reset pack never replays the death fade. Not covered: another player's ghost
+after that player's own death.

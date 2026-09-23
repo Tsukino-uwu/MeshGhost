@@ -406,6 +406,34 @@ func (c *Core) StartChasers() int {
 	return count
 }
 
+// chaserResetMinGap is how close together two chaser_resets may land and both
+// act. A reset rebuilds the pack's shared history, so an adapter sending one
+// per frame -- a bug, or a stuck edge -- would otherwise rebuild it every
+// frame; a real restart of the player (a death and its reload) is seconds
+// apart.
+const chaserResetMinGap = time.Second
+
+// ResetChasers is the bridge's chaser_reset (ADR 0072): the running pack
+// starts over as if play had just begun -- StartChasers already is exactly
+// that (the ghosts dropped, the history replaced, the spawn window waiting for
+// movement again). It reports the new pack's size and whether it acted: a pack
+// that is not running stays not running, and a reset inside chaserResetMinGap
+// of the last is ignored.
+func (c *Core) ResetChasers() (int, bool) {
+	now := c.nowMs()
+	c.chaserMu.Lock()
+	running := len(c.chasers) > 0
+	recent := c.chaserResetAtMs != 0 && now-c.chaserResetAtMs < chaserResetMinGap.Milliseconds()
+	if running && !recent {
+		c.chaserResetAtMs = now
+	}
+	c.chaserMu.Unlock()
+	if !running || recent {
+		return 0, false
+	}
+	return c.StartChasers(), true
+}
+
 // StopChasers halts the pack and drops its ghosts.
 func (c *Core) StopChasers() {
 	c.chaserMu.Lock()

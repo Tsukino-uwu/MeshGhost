@@ -7,7 +7,6 @@
 // not from memory. No pseudoregalia-archipelago source was read to write this.
 
 #include <atomic>
-#include <chrono>
 #include <deque>
 #include <map>
 #include <memory>
@@ -1327,10 +1326,8 @@ namespace MeshGhostPseudo
         int local_death_count{0};
         double local_last_seen_hp{-1.0}; // -1 = no baseline; first read only primes, never compares
         bool local_was_dead{false};
-        // The chaser respawn hold (Plugin.cpp, CHASER_RESPAWN_HOLD): the death count a hold was last
-        // armed for, so one death arms one hold, and when the current hold ends.
-        int respawn_hold_death_count{0};
-        std::chrono::steady_clock::time_point respawn_hold_until{};
+        // The death count a `chaser_reset` was last sent for (ADR 0072), so one death sends one.
+        int chaser_reset_death_count{0};
 
         // Camera fight-back state (Phase 7.6), mirrors Lua's lastKnownGoodViewTarget/anyGhostSpawned.
         // No pending/deferred fields needed -- the RegisterPreHook design rewrites the engine's own

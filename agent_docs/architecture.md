@@ -18,9 +18,9 @@ are a record, and a record is capped by splitting it, not by refusing entries
              |  plus the opt-in planes event/lease/lease_state/escrow/escrow_state/
              |  world/world_state (protocol/protocol.go is the list)
         Core (core, cmd/meshghost)
-             |  adapter bridge: NDJSON/TCP, localhost-only. 20 types:
+             |  adapter bridge: NDJSON/TCP, localhost-only. 21 types:
              |  hello/bridge_ready/reject/session_policy/local_state/render_remote/
-             |  despawn_remote/remote_name/replay_control/player_frozen/recording_state/
+             |  despawn_remote/remote_name/replay_control/player_frozen/chaser_reset/recording_state/
              |  input_sample/remote_input,
              |  plus the same opt-in planes (bridge/bridge.go is the list)
      [ Adapter contract ]
@@ -234,6 +234,7 @@ or if a number is duplicated — an unindexed ADR is one nobody will find.
 - [2026-09-15 — A fifth render knob: a correction slides instead of jumping (`correction`, ships off)](adr/0069-2026-09-15-a-fifth-render-knob-corrections-slide-instead-of-jumping.md) — step A3 of `prediction-planning.md`; not a contract revision
 - [2026-09-16 — A room code on one side only is a mismatch: a client with a code refuses a relay that asks for none](adr/0070-2026-09-16-a-room-code-on-one-side-only-is-a-mismatch.md) — a contract revision; revises one line of 0067
 - [2026-09-16 — Autoplay is a second Go module that never ships](adr/0071-2026-09-16-autoplay-is-a-second-go-module-that-never-ships.md) — dev tooling, not a contract revision
+- [2026-09-23 — A death starts the chaser pack over: `chaser_reset`, adapter → core](adr/0072-2026-09-23-a-death-starts-the-chaser-pack-over.md) — a contract revision; a new optional message beside 0053's `player_frozen`
 
 ## Prior art
 

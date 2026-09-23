@@ -87,6 +87,17 @@ const (
 	// recordings/replay ghosts"). Optional: an adapter that never sends it keeps
 	// today's behaviour exactly.
 	TypePlayerFrozen MessageType = "player_frozen"
+	// TypeChaserReset is adapter -> core, added 2026-09-23 (ADR 0072), with no
+	// payload: start the chaser pack over as if play had just begun. The
+	// ghosts go now, the recording they follow is dropped, and a fresh pack
+	// appears only once the player has been moving for the spawn delay again.
+	// The adapter sends it where its game restarts the player -- in
+	// Pseudoregalia a death, which reloads the level -- because a pack that
+	// follows the recording through that restart lands on a player standing
+	// at the respawn point. WHY it was sent is the adapter's per-game fact; the
+	// core learns nothing from it. Optional: an adapter that never sends it
+	// keeps today's behaviour exactly.
+	TypeChaserReset MessageType = "chaser_reset"
 	// TypeInputSample is adapter -> core, added 2026-09-08 (ADR 0056): what the
 	// player PRESSED, as a track of its own beside the state recording. It is a
 	// SECOND track, never a field on state -- inputs change at frame rate and a

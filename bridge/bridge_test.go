@@ -47,6 +47,7 @@ var wireNames = map[MessageType]string{
 	TypeReject:         "reject",
 	TypeReplayControl:  "replay_control",
 	TypePlayerFrozen:   "player_frozen",
+	TypeChaserReset:    "chaser_reset",
 	TypeInputSample:    "input_sample",
 	TypeRemoteInput:    "remote_input",
 	TypeSessionPolicy:  "session_policy",

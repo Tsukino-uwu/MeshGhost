@@ -2343,12 +2343,6 @@ namespace MeshGhostPseudo
     // different amount is this one number -- a config setting for it is the user's call, not made.
     constexpr double CHASER_HURT_DAMAGE = 5.0;
 
-    // **How long the chaser pack holds after the player respawns from a death, contact on.** A
-    // starting value for the user to judge (*"a small pause/freeze"*, 2026-09-23): it covers the
-    // ~2.5 s after a reload in which the first chaser reached the respawn point in that session's
-    // `kill` loop, plus a moment to move off it.
-    constexpr std::chrono::milliseconds CHASER_RESPAWN_HOLD{3000};
-
     // **What actually changes on the player's model through a death. Probe, 2026-08-27.**
     //
     // The user: *"the whole model is supposed to go invisible/white ish for a brief moment"*, on
@@ -19983,7 +19977,7 @@ namespace MeshGhostPseudo
                                 }
                                 const uint8_t* control_state = control_prop_ok ? mg_property_value<uint8_t>(pause_pawn, STR("controlState")) : nullptr;
                                 in_dialogue = control_state && *control_state != 0;
-                                frozen = pauser_set || seated || in_dialogue || std::chrono::steady_clock::now() < respawn_hold_until;
+                                frozen = pauser_set || seated || in_dialogue;
                             }
                         }
                     }
@@ -20004,11 +19998,10 @@ namespace MeshGhostPseudo
                     if (sent)
                     {
                         player_frozen_sent = frozen;
-                        Output::send(STR("[MeshGhostPseudo] PLAYER_FROZEN: {} (WorldSettings.PauserPlayerState {}, seated {}, talking/reading {}, respawn hold {}).\n"),
+                        Output::send(STR("[MeshGhostPseudo] PLAYER_FROZEN: {} (WorldSettings.PauserPlayerState {}, seated {}, talking/reading {}).\n"),
                                      frozen ? STR("frozen") : STR("resumed"), pauser_set ? STR("set") : STR("cleared"),
                                      seated ? STR("yes") : STR("no"),
-                                     in_dialogue ? STR("yes") : STR("no"),
-                                     std::chrono::steady_clock::now() < respawn_hold_until ? STR("on") : STR("off"));
+                                     in_dialogue ? STR("yes") : STR("no"));
                     }
                     // A failed send is deliberately not logged: while the socket is refusing,
                     // this runs once per frame. The change is still pending -- the latch was not
@@ -20355,24 +20348,6 @@ namespace MeshGhostPseudo
                              pawn->GetFullName(),
                              static_cast<void*>(current_world));
                 last_logged_world = current_world;
-                // **The respawn hold (chaser contact, 2026-09-23).** A death reloads the level, and
-                // the chaser pack follows the recording through the jump to the respawn point, so
-                // the first chaser landed on a player still standing there: with `kill` that was
-                // five deaths in ~25 s. The user: *"there should be a small pause/freeze for them,
-                // or small iframe when respawning"*. A new world after a death holds the pack for
-                // CHASER_RESPAWN_HOLD through the same `player_frozen` the pause menu uses: the
-                // chaser clock stands still, and contact already never fires while it is sent.
-                // Only while contact is on -- with it off, a respawn changes nothing it did not.
-                if (local_death_count > respawn_hold_death_count)
-                {
-                    respawn_hold_death_count = local_death_count;
-                    if (!g_chaser_contact_mode.empty())
-                    {
-                        respawn_hold_until = std::chrono::steady_clock::now() + CHASER_RESPAWN_HOLD;
-                        Output::send(STR("[MeshGhostPseudo] CHASER_CONTACT: respawn after a death -- holding the pack for {} ms.\n"),
-                                     std::chrono::duration_cast<std::chrono::milliseconds>(CHASER_RESPAWN_HOLD).count());
-                    }
-                }
             }
 
 
@@ -20519,6 +20494,24 @@ namespace MeshGhostPseudo
                         local_was_dead = dead_now;
                     }
                 }
+            }
+
+            // **A death starts the chaser pack over (ADR 0072, the user 2026-09-23: *"if you
+            // die/respawn, chaser ghosts should just despawn, then a bit after spawn in fresh/new
+            // again as if you just started playing"*).** The pack follows the recording through the
+            // death's reload and the jump to the respawn point, so without this the first chaser
+            // landed on a player still standing there (five `kill` deaths in ~25 s), and a chaser
+            // replaying the death ran `dieFade` and stayed a shadow. `chaser_reset` makes the core
+            // drop the pack now; a fresh one appears once the player has been moving for the spawn
+            // delay after the reload. It replaces a 3 s respawn hold that shipped for part of the
+            // same evening. LATCHED ONLY ON A CONFIRMED SEND, like `player_frozen`: an edge that is
+            // never restated must be retried until it lands.
+            if (local_death_count > chaser_reset_death_count && bridge &&
+                bridge->send_edge_line(R"({"type":"chaser_reset","payload":{}})"))
+            {
+                chaser_reset_death_count = local_death_count;
+                Output::send(STR("[MeshGhostPseudo] CHASER_RESET: sent after death #{} -- the pack starts over.\n"),
+                             local_death_count);
             }
 
             // See OUTLINE_HUNT. Everything rendering custom depth, by actor, on change.
