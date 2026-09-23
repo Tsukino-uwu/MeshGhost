@@ -74,6 +74,12 @@
       "description": "NORMAN's BALANCE BADGE, in Petalburg's gym (8.1), and HM03 after it",
       "done_when": [{"path": "badges", "contains": 5}],
       "hints": "route.md: The HEAT BADGE to the BALANCE BADGE"
+    },
+    {
+      "id": "story_feather_badge",
+      "description": "WINONA's FEATHER BADGE, in Fortree's gym (12.1), past the rotating gates",
+      "done_when": [{"path": "badges", "contains": 6}],
+      "hints": "route.md: The BALANCE BADGE to the FEATHER BADGE"
     }
   ]
 }

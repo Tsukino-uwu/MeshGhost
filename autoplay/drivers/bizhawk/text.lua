@@ -363,6 +363,7 @@ function M.battle(h, p)
 	if policy ~= "strongest" and policy ~= "effective" and policy ~= "run" and policy ~= "run_wild" and policy ~= "manual" then
 		return nil, 'battle policy is "strongest", "effective", "run", "run_wild" or "manual"'
 	end
+	if p.switch ~= nil and p.switch ~= "ask" then return nil, 'battle switch is "ask" or absent' end
 	if p.forget ~= nil and p.forget ~= "strong_variety" then
 		return nil, 'battle forget is "strong_variety" or absent'
 	end
@@ -440,7 +441,9 @@ function M.battle(h, p)
 		end
 		return nil
 	end, function(question)
-		-- Both policies keep the Pokémon that is in: a switch is a choice neither makes.
+		-- Both policies keep the Pokémon that is in, unless `switch` "ask" hands the free switch after a faint to the caller
+		-- (the user, 2026-09-23: that switch costs no turn; WINONA's TROPIUS wanted CASTFORM in, not SWAMPERT).
+		if question.kind == "switch" and p.switch == "ask" then return nil, "the free switch: the caller chooses" end
 		if question.kind == "switch" and question.no then return question.no, "NO" end
 		local learning = question.kind == "learn_move" or question.kind == "forget_move" or question.kind == "stop_learning"
 		if learning and not p.forget then

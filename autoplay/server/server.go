@@ -153,6 +153,14 @@ func New(hub *driver.Hub, version string, opts Options) *mcp.Server {
 	}, logged(t, "clear_obstacle", nil, t.clearObstacle))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name: "search",
+		Description: "Find a way to a tile on this map by trying steps in the game itself -- for a map goto cannot plan, " +
+			"such as gates that turn when pushed: the driver keeps states in memory, tries each direction from each, and " +
+			"rewinds, then walks the way it found from the start. Slow; use it only after goto answers unreachable or blocked " +
+			"there. Ends done (with the path), unreachable, blocked or left_overworld.",
+	}, logged(t, "search", nil, t.search))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name: "type_text",
 		Description: "Type text on the on-screen keyboard the game shows (a naming screen): the driver clears what " +
 			"is typed, then for each character changes page, moves the game's own cursor to its key one step at a " +
@@ -554,6 +562,7 @@ type BattleIn struct {
 	Policy      string  `json:"policy,omitempty" jsonschema:"strongest (default), effective, run, run_wild (run from a wild battle, effective in a trainer's), or manual (stop needs_choice at every action menu)"`
 	Forget      string  `json:"forget,omitempty" jsonschema:"strong_variety answers a learn-a-move question; absent stops needs_choice there"`
 	StopHPBelow float64 `json:"stop_hp_below,omitempty" jsonschema:"stop needs_choice at the action menu while the player's HP share is below this (0-1], to heal through the BAG"`
+	Switch      string  `json:"switch,omitempty" jsonschema:"ask stops needs_choice at the free switch offered after a foe faints (the message names the foe's next Pokemon), for the caller to answer; absent answers it NO"`
 }
 
 func (t *tools) battle(ctx context.Context, _ *mcp.CallToolRequest, in BattleIn) (*mcp.CallToolResult, any, error) {
@@ -566,6 +575,9 @@ func (t *tools) battle(ctx context.Context, _ *mcp.CallToolRequest, in BattleIn)
 	case "", "strong_variety":
 	default:
 		return nil, nil, fmt.Errorf(`forget must be "strong_variety" or absent, got %q`, in.Forget)
+	}
+	if in.Switch != "" && in.Switch != "ask" {
+		return nil, nil, fmt.Errorf(`switch must be "ask" or absent, got %q`, in.Switch)
 	}
 	if in.StopHPBelow < 0 || in.StopHPBelow > 1 {
 		return nil, nil, fmt.Errorf("stop_hp_below must be above 0 and at most 1, got %v", in.StopHPBelow)
@@ -594,6 +606,23 @@ func (t *tools) talk(ctx context.Context, _ *mcp.CallToolRequest, in TalkIn) (*m
 
 func (t *tools) clearObstacle(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 	raw, err := t.forward(ctx, "clear_obstacle", "clear_obstacle", struct{}{}, GotoTimeout+3*time.Minute)
+	return nil, raw, err
+}
+
+// SearchIn is the search tool's input.
+type SearchIn struct {
+	X int `json:"x" jsonschema:"the target tile's x on this map"`
+	Y int `json:"y" jsonschema:"the target tile's y on this map"`
+}
+
+// SearchTimeout allows a search of thousands of states, each a few dozen frames.
+const SearchTimeout = 30 * time.Minute
+
+func (t *tools) search(ctx context.Context, _ *mcp.CallToolRequest, in SearchIn) (*mcp.CallToolResult, any, error) {
+	if in.X < 0 || in.Y < 0 || in.X > 0xFFFF || in.Y > 0xFFFF {
+		return nil, nil, fmt.Errorf("x and y must be 0 to 65535, got %d,%d", in.X, in.Y)
+	}
+	raw, err := t.forward(ctx, "search", "search", in, SearchTimeout)
 	return nil, raw, err
 }
 

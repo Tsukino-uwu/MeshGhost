@@ -766,6 +766,16 @@ func TestBattleValidatesAndForwards(t *testing.T) {
 	if in := <-got; in.Forget != "strong_variety" {
 		t.Fatalf("the driver received %+v", in)
 	}
+	if text, isErr := h.call(t, "battle", map[string]any{"switch": "yes"}); !isErr {
+		t.Errorf("battle with switch yes = %s, want a refusal", text)
+	}
+	text, isErr = h.call(t, "battle", map[string]any{"policy": "effective", "switch": "ask"})
+	if isErr || !strings.Contains(text, `"outcome":"ended"`) {
+		t.Fatalf("battle switch ask = %s (error %v)", text, isErr)
+	}
+	if in := <-got; in.Switch != "ask" {
+		t.Fatalf("the driver received %+v", in)
+	}
 	if text, isErr := h.call(t, "battle", map[string]any{"stop_hp_below": 1.5}); !isErr {
 		t.Errorf("battle with stop_hp_below 1.5 = %s, want a refusal", text)
 	}
@@ -1065,5 +1075,26 @@ func TestClearObstacleForwards(t *testing.T) {
 	}
 	if verb := <-got; verb != "clear_obstacle" {
 		t.Fatalf("the driver received %q", verb)
+	}
+}
+
+func TestSearchValidatesAndForwards(t *testing.T) {
+	h := newHarness(t)
+	got := make(chan SearchIn, 1)
+	h.startDriver(t, []string{"search"}, func(verb string, payload json.RawMessage) (string, any) {
+		var in SearchIn
+		json.Unmarshal(payload, &in)
+		got <- in
+		return "result", map[string]any{"outcome": "done", "verb": verb}
+	})
+	if text, isErr := h.call(t, "search", map[string]any{"x": -1, "y": 2}); !isErr {
+		t.Errorf("search at -1 = %s, want a refusal", text)
+	}
+	text, isErr := h.call(t, "search", map[string]any{"x": 15, "y": 3})
+	if isErr || !strings.Contains(text, `"outcome":"done"`) {
+		t.Fatalf("search = %s (error %v)", text, isErr)
+	}
+	if in := <-got; in.X != 15 || in.Y != 3 {
+		t.Fatalf("the driver received %+v", in)
 	}
 }

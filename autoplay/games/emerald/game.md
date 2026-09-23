@@ -99,6 +99,10 @@ are in MEASURED.md ("A Mart", "The bag inside a battle").
 - **Heal before a fight, outside it** (the user, 2026-09-23): check the party's HP before any trainer and after every battle,
   and use items in the field; a battle turn spent on a potion hands the foe a free hit (SWAMPERT, healed mid-fight, fell to
   TROPIUS's SOLARBEAM). A fainted Pokémon comes back with a REVIVE after switching to another (the user).
+- **A sacrifice is a real tactic** (the user): send in a weak Pokémon to take the hits while a SUPER POTION or REVIVE goes on
+  the strong one on the bench; when it faints the strong one comes back in free (WINONA's TROPIUS, 2026-09-23).
+- **Recoil and confusion hurt the user** (the user): TAKE DOWN's recoil and a confused Pokémon hitting itself; SWAMPERT ended
+  WINONA's battle on 1 HP, too close. `effective` does not weigh recoil yet.
 - **Party order**: the first two go out in a double battle (the user): keep the second strongest in slot 2. START, POKéMON,
   `select` the one to move, SWITCH, `press Down` to the other, `press A` (a `select` there only moved the cursor), B, EXIT.
 - **Two in the party means double battles** (the user; TWINS GINA & MIA, 2026-09-23), and the 7th gym is a double battle

@@ -101,3 +101,22 @@ Walked 2026-09-23.
   SLAKING's COUNTER after MUD SHOT. SLAKING's TRUANT loafed every other turn: MUD SHOT on its loafing turns, a battle SUPER
   POTION on its others (FACADE, 34 a hit), four rounds. BALANCE BADGE, TM42, and HM03 from WALLY's father.
 
+## The BALANCE BADGE to the FEATHER BADGE
+
+Walked 2026-09-23.
+- SURF taught to SWAMPERT over MUDDY WATER (the TMs & HMs pocket, SURF by index). Trip 0.33 (17,10) (Mauville's east, 0.2's
+  right edge); the river is crossed with `clear_obstacle` and YES. Route 119 (0.34) is walked (long grass refuses the bike).
+- The Weather Institute 32.0, door 0.34 (6,32): every grunt on 32.0 and 32.1 is `talk`, `battle effective` (heal between);
+  CASTFORM from the scientist (NO to a nickname), put in slot 2 (game.md, Party order).
+- Trip 0.4 (10,4), Fortree. Center 12.2. The gym door (22,11) is blocked by an invisible KECLEON at (25,8): trip 0.35
+  (8,7), `talk` local 31 (STEVEN) at (13,15), YES, KECLEON fought, the DEVON SCOPE. Back at (25,7), `talk` local 7, YES:
+  it fled.
+- The gym 12.1's rotating gates (the user walked them; eight bytes at SaveBlock1 +0x139C name each gate's turn, MEASURED.md):
+  from the door `goto` (13,22), then walk: left 9, up 1, left 1, up 2, left 1, down 2, right 2, up 3, right 3, up 4, right 2,
+  up 2, left 2, down 2, right 1, down 1, left 1, up 1, right 2, up 4, left 2, up 1, left 2, up 1, left 3, up 1, left 1, up 1,
+  right 1, down 2, right 3, up 4, left 1, up 2, left 2, down 6, right 4, down 1, left 1, up 5, right 10, up 1: (15,3), below
+  WINONA (local 1). Replayed once; two trainers stop it on the way (fight, heal in the field, finish the move).
+- WINONA: SWABLU, TROPIUS, PELIPPER, SKARMORY, ALTARIA. TROPIUS's SOLARBEAM (after SUNNY DAY) takes most of SWAMPERT;
+  CASTFORM's POWDER SNOW took it to 7 before a HYPER POTION. What won: TAILLOW sent in as a sacrifice, SUPER POTION on
+  SWAMPERT from the bench, SWAMPERT back at 93 finished the rest. FEATHER BADGE, TM40.
+
