@@ -13,7 +13,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 - 2026-09-23 — **Sort each adapter's older code-level entries out of `UNVERIFIED.md`/`VERIFIED.md` into `MEASURED.md`**, and give every `UNVERIFIED.md` (and `_template`) a full index. Another chat.
 - 2026-09-23 — **Autoplay, Emerald: Phase 3 accepted** (the HEAT BADGE); `run_wild`'s `stuck` and driver reconnect fixed 2026-09-23; open: the next goal past the HEAT BADGE. `phase13.md`.
 - 2026-09-23 — **Autoplay, Crystal: paused** (the user), with `goto`, the PACK, the POKéMON menu, badges, bike, surf and scoring behind `effective` done on V1.0; next the whiteout. `phases/autoplay/crystal.md`.
-- 2026-09-23 — **Autoplay, TEVI: Ribauld beaten on Infernal BBQ, once hitless (115.4 s)**; open: the bomb ring in the air, orbs against hugging, normal enemies hitless, `exec`. `phases/autoplay/tevi.md`.
+- 2026-09-23 — **Autoplay, TEVI: distilling the fight** — every rule a switch (default build C), `cmd/trials` at 4.3x fast-forward; baseline 3 of 5, median 146.6 s; the one-at-a-time ladder and the move catalog open. `phases/autoplay/tevi.md`.
 - 2026-09-23 — **Vision: a pixel-side instrument, Phase 0 next** — window capture + OpenCV, a PAINTED ghost vs the PLAYER, the pairing no OAM read or screenshot can answer. `plans/vision-plan.md` (untracked).
 - 2026-09-23 — **Prediction: A3 LANDED (ADR 0069, ships off), SCREEN VERDICT OPEN; A2.0 MEASURED** (worst-case transit p99 310–320ms; the dry tail is the 1 s blackouts); A2 undecided. `prediction-planning.md`.
 - 2026-09-23 — **Chaser contact: `hurt`, `kill`, the respawn hold and the seated/talking holds WORK (user-confirmed); open: Part A's attack leaks, the world-leak crash on reload.** `chaser-planning.md`.

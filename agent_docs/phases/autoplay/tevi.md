@@ -508,3 +508,45 @@ and the quickdrop rule above. Measure them first.
 **Open**: F's orb rule over five tries; the bomb ring while she is in the air; double jumps as dodge plans, their air time counted against them;
 what a quickdrop onto an orb does; the Charged Shot; a hitless run through a room of normal enemies; hold-Attack combos; `exec` through the
 game's Quantum Console; and the hardest difficulty once Infernal is clean.
+
+## 2026-09-23 — distill, not pile on: every rule a switch, a runner, and fast-forward
+
+**The user's question**: keep adding reflexes, or start again and distill? Build A was hitless once but slow, and the hits came
+with the push for aggression (builds D-F). The answer taken: neither. Keep the foundation (observation, tell and laser learning,
+the dodge simulator, the chain guard, the Down-first quickdrop, goto). Put every rule that came from one incident behind a
+per-call switch defaulting to build C, the last build with 3 of 5. Then add them back one at a time, five tries each, keeping
+only what is faster with no more hits. The user added: split it by the player's MOVES (jump, double jump, quickdrop, slide,
+melee, air attack, Orbitars, combos, and the moves unlocked mid-fight), and *"is it possible to run the game at a faster
+speed/clock?"*; later: new moves announce at the bottom left, even mid-fight, and the pause menu lists them afterwards; and the
+dialogue can be skipped.
+
+**What was built** (commits cb9acd4c, 30ea1982, a4e69317):
+- **`clock` `fast`**: Time.captureDeltaTime 1/60 and an uncapped frame rate. 257.7 frames a second against 60. The walk to
+  Ribauld matches normal speed frame by frame, and Ribauld's tell delays re-learned under fast match the old ones (charge 17,
+  ring 23, orb 26-27, speeddown 34/66/98). Dialogue and tutorial windows run on real time, so the runner is fast only in
+  the fight (`adapters/tevi/MEASURED.md`, 2026-09-23).
+- **`cmd/trials`** with `games/tevi/trials/ribauld_infernal.json`: N tries, each scored by win, game time, hits with what hit,
+  and unlock popups. A try's real time is about 1m15s for a 125-150 s fight.
+- **The fight's switches**: `orb_mode`, `root_frames`/`combo_root_frames`, `prefer_drop`, `beam_gate`, `incoming_orb_gate`,
+  `armor_gate`, `air_swing`, `unknown_ranged`, `hug`, `tell_filter`. The step plans were deleted.
+- **Tells' follow counts persist**: `states/tevi/tells_entries.json`.
+
+**Traps met on the way:**
+- **The tutorial windows take no Confirm until they have stood a while in real time.** The Quickdrop window at the start
+  and the Charged Shot window partway through each ate every early Confirm, and the first runner gave up on them.
+  `on_paused` now repeats Confirm plus 30 frames until the game is in play.
+- **After a loss a restore refuses** ("save and setting managers are not loaded") until the game over has run; the runner
+  waits and retries.
+- **TEVI froze twice at the title**: not responding, 0 CPU, with no call running. The user: it hangs when not focused while
+  starting, and restarted it. Maybe a click in BepInEx's console (QuickEdit blocks every write to it). Not confirmed.
+- **Build C cannot be reproduced on today's learned table.** `Ribauld|NORMAL` now holds bomb-ring samples, so without
+  `tell_filter` she dodged rings that never came: 516 dodge frames and 0 attacks in one chunk, and 807 to 368 HP in
+  6600 frames before dying. The baseline is therefore C plus `tell_filter`.
+
+**Baseline, C plus `tell_filter`, 5 tries, fast**: 3 of 5, won in 125.6 / 146.6 / 148.1 s, 9 hits, one win hitless. Hits by:
+the bomb ring 4 (16-27), an orb's blast 3 (48-52; both of one death), his charge 1 (45), a swing 1 (30). Slower than C's
+111-136 s of 2026-09-17. The follow counts show `Ribauld|ATTACK1` (the orb throw) followed only 1 of 10 times, so the filter
+also silences the orb throw's tell. That is a lead for the orb hits.
+
+**The game's actions** (Rewired, `observe`'s `input_actions`) include ones the fight never presses: `Dash`, `Boost`,
+`Backflip`, `AreaBomb`, `Burst`, `Taunt`. What each does on this save is to measure, for the move catalog.
