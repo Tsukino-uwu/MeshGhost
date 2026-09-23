@@ -75,6 +75,7 @@ is USED, that project is checked and recorded there first.
 - Re-anchor the clock at a relay drop, instead of rewinding or freezing it (review O1, filed 2026-09-12)
 - Autoplay reading replay and input ghosts as a map of what to do and where to go (the user's idea, filed 2026-09-17)
 - Autoplay: a learned plan-picker over the TEVI dodge candidates -- what MCP and distillation cannot do, and SemIf, Brain's Doom sample, NEAT and MarI/O as the reads (filed 2026-09-22)
+- Autoplay: fast-forward in every game, each proved frame-identical before it is trusted (the user's idea, filed 2026-09-23)
 
 ---
 
@@ -3538,3 +3539,25 @@ release layout question, platform page plus one download per game with the serve
 sketched in chat on 2026-09-22 and drew no reaction; with the DLL measured worse than the exe, every
 game still needs the exe and `packaging/README.md`'s "Why one zip" stands unweakened. Closed unless
 raised again.
+
+## Autoplay: fast-forward in every game, each proved frame-identical before it is trusted (the user's idea, filed 2026-09-23)
+
+The user, after TEVI's fast-forward: *"we should probly make this into a general autoplay thing, see if any game can run faster to
+speed up dev/testing etc"*.
+
+**What exists (2026-09-23):** the core's `clock` tool has a game-blind `fast` action (`on` true or false), and a driver that
+cannot do it refuses it. TEVI's driver implements it: 4.3 times real time, and the walk to Ribauld the same frame by frame
+(`adapters/tevi/MEASURED.md`, 2026-09-23). `cmd/trials` turns it on only for the fight, because TEVI's dialogue and tutorial
+windows run on real time.
+
+**What "general" would take:**
+- **A driver per host.** BizHawk already runs unthrottled (`client.speedmode`; about 818 frames a second on Emerald without
+  execute hooks, `emerald/MEASURED.md`, 2026-09-16), so there `fast` maps onto what exists. An Unreal game (Pseudoregalia,
+  UE4SS) would need its own mechanism found and cited before use.
+- **The same check for each one, as a scenario**: one restore, one scripted `sequence` at the game's pace and again fast, and the
+  flight recorder's positions compared row by row. A host that differs is refused, not trusted.
+- **Per game, what runs on real time**: dialogue, tutorial windows, loads. TEVI's list is measured; each new game gets its own.
+  A recipe runs fast only between those.
+- **A measured speed-up per host**, reported by the driver (TEVI's clock answers `fps`), so a tries-per-hour estimate is a
+  reading, not a guess.
+
