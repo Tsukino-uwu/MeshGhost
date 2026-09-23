@@ -458,7 +458,7 @@ answer *whether the project wants to carry it*, and that second question is the 
 Fleshed out with the user across one conversation (the Rain World zone question, then Carrion as a
 "share everything" case, then the lobby, then the `private/` precedent). Recorded so the next
 session starts from these decisions rather than re-deriving them. **The user's bar is unchanged:
-built with the first shared-world adapter, not before**, and Carrion is still an unopened candidate
+built with the first shared-world adapter, not before**, and Carrion was parked 2026-09-24 as tier 7
 (`candidate-games.md`).
 
 **1. A lobby is a wait, not a role.** Whoever arrives first already creates the room and fixes its

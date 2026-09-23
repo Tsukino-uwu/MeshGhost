@@ -10,7 +10,7 @@ exempts this file, and the moment an adapter for one of these starts, `/new-adap
 ## Index
 
 - Super Mario Sunshine (GameCube, Dolphin) — candidate adapter, nothing checked yet
-- Carrion (MonoGame, PC) — candidate adapter, and possibly this project's first tier-1 game
+- Carrion (MonoGame, PC) — PARKED 2026-09-24: native AOT build, sandboxed Lua, so tier 7
 - Super Metroid (SNES): a starting memory map, filed 2026-08-18
 - osu! — online co-op, "tag co-op without the tag", filed 2026-08-19
 - Dark Souls 3 / Elden Ring — full online sync, filed 2026-08-19
@@ -108,11 +108,42 @@ the game**, or you end up with an adapter that can read perfectly and cannot sho
 adapter is ever built, the emulator is chosen first and the game second — and `access-models.md`
 argues Dolphin is the strongest candidate of the emulators surveyed.
 
-## Carrion (MonoGame, PC) — candidate adapter, and possibly this project's first tier-1 game
+## Carrion (MonoGame, PC) — parked 2026-09-24: tier 7, not tier 1
+
+**PARKED on the user's call, 2026-09-24: *"if its tier7, i think il rather just park it"*.** The
+binary checks below put it at tier 7. What follows the findings is the 2026-08-17 entry. It was
+written before anything had been inspected, and the findings overturn its tier-3 fallback.
+
+### What the installed files showed, 2026-09-24 (static inspection only, the game was not run)
+
+- **`Carrion.exe` is ahead-of-time compiled native code, not a managed assembly.** Its PE CLR
+  data directory is empty (RVA 0). It carries the AOT runtime's `Rhp*` helpers and
+  `System.Private.TypeLoader` / `System.Private.Reflection.Execution`. `Carrion.runtimeconfig.json`
+  targets `netcoreapp3.1`, and no `Carrion.dll` exists on disk. The game's own `Licenses.txt`
+  credits **CoreRT**. So ILSpy has nothing to read and BepInEx has nothing to load into, which
+  rules out the TEVI shape.
+- **The embedded Lua is sandboxed.** The exe binds Lua 5.4 through KeraLua (`InitLua`,
+  `LoadLuaScript`, a `LuaSource` property). The only standard libraries it names are
+  `luaopen_base`, `_math`, `_string`, `_table` and `_utf`. `lua54.dll` also exports `_package`,
+  `_io`, `_os` and `_debug`, and the exe names none of them. Without `package` there is no
+  `require` and so no LuaSocket, and without `io` there is no file output either. The Lua has no
+  path to the bridge. No shipped `Content` file mentions Lua.
+- **The official mod support only loads content.** `.cgs` files are level-logic circuit graphs
+  (`switch -> AND -> door`) plus console lines (`General/autoexec.cgs` is `LoadMenu();`).
+- **Dev Tools ships managed DLLs with `.pdb`s**: `SharedTypes`, `SharedMonogameTypes` and
+  `CarrionJson`. These are the same assemblies the exe embeds. They would give data type names
+  and no game logic. They were not opened.
+- **What is left is native injection** (a proxy DLL beside the exe), with position found by static
+  RE or scanning. That is tier 7 in `access-models.md`, and it is why the game is parked.
+- **Unresolved, and small:** the exe also names `luaL_openlibs`, which is probably just KeraLua's
+  binding table. A live probe could settle whether it is ever called. It is not worth doing unless
+  Carrion is picked up again.
+
+### The 2026-08-17 entry
 
 **Status: surfaced 2026-08-17 as a side-track while scoping Crystal, parked immediately.** Two
 public sources were read (the wiki's modding guide and the Workshop item below); the game itself
-has **not** been opened, no binary inspected, and nothing here is a runtime finding.
+had **not** been opened, no binary inspected, and nothing here is a runtime finding.
 
 **Why it stands out: it appears to have real, first-party mod support.** Per
 <https://carrion.wiki.gg/wiki/Guide:Modding>, Carrion ships a **Mod Loader** driven by project
