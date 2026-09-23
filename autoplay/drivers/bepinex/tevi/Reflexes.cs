@@ -43,6 +43,7 @@ namespace MeshGhostAutoplay.Tevi
         private const int RootFrames = 18;
         private const float MeleeReach = 139.5f, MeleeHalfHeight = 34f;
         private const int ComboRootFrames = 32;
+        private const int DirLead = 2; // frames a direction is held before a Spiral or Upper Slash's Attack
         private const int ChargeTravel = 5; // frames a charge box took from its birth to reach her beside him (the flight recorder, 2026-09-17)
 
         public static Func<JToken> Fight(JObject args, int frameLimit, Func<CharacterBase> player, Func<string> mode, Func<bool, JObject> observe)
@@ -93,6 +94,14 @@ namespace MeshGhostAutoplay.Tevi
             float hug = (float?)args["hug"] ?? Dodge.DefaultHug; // how much the dodge prefers ending near the target
             // `tell_filter`: predict from a state only while an attack followed at least half its recent entries (Tells.cs; not in C).
             bool tellFilter = (bool?)args["tell_filter"] ?? false;
+            // Moves the game teaches in Ribauld's fight (its bottom-left popups, 2026-09-23), off until five tries say they help:
+            // `spiral_slash`, Down + Attack in the air (TEVI_WEAK_AIR_DOWN, measured; the user: "down + C, while in the air"), taken
+            // in the air with the target in her swing and not above her; `upper_slash`, Up + Attack on the ground (the move list,
+            // 2026-09-17), taken with the target in her swing's reach across but above her.
+            bool spiralSlash = (bool?)args["spiral_slash"] ?? false;
+            bool upperSlash = (bool?)args["upper_slash"] ?? false;
+            int spirals = 0, uppers = 0, dirFrames = 0;
+            string dirHeld = null;
             int pushes = 0, orbFrames = 0;
             var orbLog = new JArray(); // a sample of the orb decisions, every OrbLogEvery frames spent on an orb
             JObject orbNote = null;
@@ -140,6 +149,8 @@ namespace MeshGhostAutoplay.Tevi
                     ["jumps"] = jumps,
                     ["dodges"] = guard.Dodges,
                     ["orb_pushes"] = pushes,
+                    ["spiral_slashes"] = spirals,
+                    ["upper_slashes"] = uppers,
                     ["orb_frames"] = orbFrames,
                     ["orb_log"] = orbLog,
                     ["last_dodge"] = guard.LastDodge,
@@ -202,6 +213,7 @@ namespace MeshGhostAutoplay.Tevi
                 Dodge.Move want = Dodge.Move.Stay;
                 string tap = null;
                 bool turn = false;
+                string dirHold = null; // a direction held with the swing: it makes it Spiral Slash or Upper Slash
                 bool facingIt = (dx >= 0) == (p.direction.ToString() == "RIGHT");
                 // Her ground swing reaches 139.5 ahead and 34 above and below her (a box 189 by 67.5 centred 45 ahead, MEASURED.md); it
                 // lands when that box meets the target's own.
@@ -228,6 +240,8 @@ namespace MeshGhostAutoplay.Tevi
                     else
                     {
                         tap = inRangeTap;
+                        if (tap == "Attack" && spiralSlash && !onGround && dy <= 20f) dirHold = "YAxis-";
+                        else if (tap == "Attack" && upperSlash && onGround && dy > 60f) dirHold = "YAxis+";
                         // Standing to swing is not safe but a jump is: swing from the air instead of doing nothing.
                         if (airSwing && onGround && dodge && !guard.StandingSafe(rootFrames) && guard.Safe(Dodge.Move.Jump)) want = Dodge.Move.Jump;
                     }
@@ -374,8 +388,25 @@ namespace MeshGhostAutoplay.Tevi
                     // Never at an orb flying at her: her Orbitar shot met one Ribauld had knocked toward her 199 units off, and its blast took
                     // all 100 HP (2026-09-17, Infernal BBQ).
                     if (incomingOrbGate && tap != null && IncomingOrb(p, IncomingOrbReach)) tap = null;
+                    // A direction swing: the direction is held first and the swing pressed once it has been held DirLead frames (the probe
+                    // held Down 2 frames before Attack, 2026-09-23); a quickdrop needs Jump, so Down alone is safe to hold in the air.
+                    bool directed = tap == "Attack" && dirHold != null && orb == null;
+                    if (directed)
+                    {
+                        InputInjection.Keep(dirHold);
+                        dirFrames = dirHeld == dirHold ? dirFrames + 1 : 1;
+                        dirHeld = dirHold;
+                        if (dirFrames < DirLead) tap = null;
+                    }
+                    else
+                    {
+                        dirHeld = null;
+                        dirFrames = 0;
+                    }
                     if (tap != null && InputInjection.Tap(tap, 4))
                     {
+                        if (directed && dirHold == "YAxis-") spirals++;
+                        else if (directed) uppers++;
                         if (tap == "Attack") attacks++;
                         else ranged++;
                         if (orb != null) pushes++;

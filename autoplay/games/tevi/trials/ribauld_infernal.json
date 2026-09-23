@@ -1,5 +1,5 @@
 {
-  "about": "Ribauld on Infernal BBQ from the first save point: the walk in, his dialogue skipped by the game's own hold-Start skip (about 150 frames against 846 line by line, 2026-09-23), then the fight in 600-frame chunks with the clock held and fast on. The Quickdrop window (at the fight's start) and the Charged Shot window (partway through) pause the game, and each takes Confirm only once it has stood a while in real time, so on_paused repeats Confirm and 30 frames until the game is back in play (2026-09-23). The try recipe of agent_docs/phases/autoplay/tevi.md, 2026-09-17. Needs the local snapshot tevi_inf_first_savepoint (gitignored).",
+  "about": "Ribauld on Infernal BBQ from the first save point: the walk in, his dialogue skipped by the game's own hold-Start skip (about 150 frames against 846 line by line, 2026-09-23), the walk run fast (the same frames as at the game's pace, MEASURED.md 2026-09-23), then the fight in 600-frame chunks with the clock held and fast on. The Quickdrop window (at the fight's start) and the Charged Shot window (partway through) pause the game, and each takes Confirm only once it has stood a while in real time, so on_paused repeats Confirm and 30 frames until the game is back in play (2026-09-23). The try recipe of agent_docs/phases/autoplay/tevi.md, 2026-09-17. Needs the local snapshot tevi_inf_first_savepoint (gitignored).",
   "setup": [
     {
       "name": "clock",
@@ -17,6 +17,13 @@
       "name": "clock",
       "arguments": {
         "action": "hold"
+      }
+    },
+    {
+      "name": "clock",
+      "arguments": {
+        "action": "fast",
+        "on": true
       }
     },
     {
@@ -70,6 +77,13 @@
           "dialogue_changed",
           "damage_taken"
         ]
+      }
+    },
+    {
+      "name": "clock",
+      "arguments": {
+        "action": "fast",
+        "on": false
       }
     },
     {
