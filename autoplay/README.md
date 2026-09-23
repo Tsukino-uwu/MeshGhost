@@ -30,7 +30,7 @@ Claude Code --MCP (stdio)--> autoplay core --JSON lines (127.0.0.1)--> driver in
 | `observe` | The driver's snapshot of the game |
 | `press` | Hold buttons for 1-600 frames, then report what changed — the escape hatch, not the default |
 | `sequence` | A timeline of holds in one call, frame-exact: each step `{buttons, from, frames}` holds from its own frame, and steps overlap (run right while Jump is held partway), so a player's continuous movement is one call, never stutter steps. `stop_on` names event kinds (`damage_taken`, `enemy_defeated`, ...): the first one ends it, what is held let go on the next frame. At most 64 steps over 1800 frames. Returns `frames_run`, what changed and `stopped_by`. TEVI |
-| `clock` | Hold the game's clock while the model thinks: `action` `hold` stops game time (the driver still answers and `observe` still reads), `step` lets `frames` (1-600) of game time pass and holds again, `release` lets it run. The hold lasts until released, across calls. While held, a request that carries input (`press`, `sequence`, `reflex`, `advance_text`) runs game time for exactly its own frames, as an emulator's frame advance with input does; `wait` does not. TEVI |
+| `clock` | Hold the game's clock while the model thinks: `action` `hold` stops game time (the driver still answers and `observe` still reads), `step` lets `frames` (1-600) of game time pass and holds again, `release` lets it run. The hold lasts until released, across calls. While held, a request that carries input (`press`, `sequence`, `reflex`, `advance_text`) runs game time for exactly its own frames, as an emulator's frame advance with input does; `wait` does not. `fast` with `on` runs the game faster than real time, each frame still one frame of game time (TEVI: 4.3 times, the walk to Ribauld the same frame by frame; its dialogue and tutorial windows take no Confirm while fast, `adapters/tevi/MEASURED.md`, 2026-09-23). TEVI |
 | `reflex` | A program the driver runs at game speed, reading the game every frame and choosing the next frame's input, for what a model turn is too slow to steer: a kind the driver announced as `reflex:<kind>`, its `args`, at most `frames` (default 600, up to 3600). It ends on the game's state and says why. Ordinary input: the segment stays as it was. TEVI's `fight` and `evade` |
 | `wait` | Let 1-3600 frames pass with NO input, then report what changed. Never hold a button to wait |
 | `select` | Choose an entry in the open menu by its text (`item`) or 0-based `index`: the driver presses toward it until the game's own cursor is on it, then holds confirm until the menu responds, letting go and pressing again after 15 frames with no answer, 3 presses in all (`confirm: false` stops on it). On a grid menu (a battle's) it reaches the column first. Every leg ends on the game's state, never a frame count |
@@ -408,7 +408,7 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   room and position, `player`, the save list's `menu` by page, row and slot, and `save`), `wait`, `press` (the game's
   own Rewired actions by name, an axis with a sign: `Confirm`, `XAxis+`), `sequence`, `advance_text` (a conversation line by line:
   Confirm tapped once a line has stood 30 frames unchanged, the item box logged and confirmed the same way; ends `closed`,
-  `window_open` -- a tutorial window, its words in `screen_text` --, or `stuck` after 6 taps with no change; a `log` of each
+  `window_open` -- a tutorial window, its words in `screen_text` --, or `stuck` after 12 taps with no change; a `log` of each
   line), `reflex` `fight` (below), `clock` (a postfix on the game's own per-frame `GameSystem.TimeScale` setting 0 while held;
   `extras.clock`; a hold survives a hot reload), `screenshot` (the game's own frame; `annotate`), `recent`.
   **`reflex` `fight`** `{type?, range?, stop_hp?}`: the nearest living enemy in view (never one with 99999 HP: a blastorb, which
@@ -418,10 +418,10 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   `no_progress` (its HP unchanged for 300 frames),
   `low_hp`, `mode_changed` or `timeout`; reports hits taken, attacks, jumps and both HPs. Its other `args`: `attack` `auto` (default:
   melee whenever the swing reaches, from a jump when standing is not safe, Orbitars out of reach), `melee` or `ranged` (with `range` and
-  `min_range`); `dodge` (default true); `push_orbs`; `no_progress_frames` (300; a boss needs thousands). **The dodge** (`Dodge.cs`)
+  `min_range`); `dodge` (default true); `push_orbs`; `no_progress_frames` (300; a boss needs thousands); and one switch per rule added after a single incident (`orb_mode`, `root_frames`, `prefer_drop`, `beam_gate`, `hug`, `tell_filter` and more, listed in `Reflexes.cs`), each defaulting to build C's behaviour, so `cmd/trials` can try one without a rebuild. **The dodge** (`Dodge.cs`)
   checks each frame's move against every box that can hurt her as the game tests a hit (`Threats.cs`: bullets, lasers, a blastorb as
   its blast) and the boxes an enemy is winding up, learned from the state it was in before each attack (`Tells.cs`, kept across hot
-  reloads), over 12 plans and 45 frames, and takes the nearest safe one: it keeps her close to a fight's target, quickdrops instead of
+  reloads), over 14 plans and 45 frames, and takes the nearest safe one: it keeps her close to a fight's target, quickdrops instead of
   falling, and lets a swing go only while standing stays safe for its 18 frames. **`reflex` `evade`** `{stop_on_hit?, home_x?, stop_hp?}`:
   the dodge alone, drifting back to `home_x`. Answers carry `dodges` and `last_dodge` with every plan's numbers.
   **`reflex` `goto`** `{tile_x, tile_y}` or `{x, y}` (`Navigate.cs`): a route over the collision grid's standing tiles -- steps, stairs,
@@ -480,6 +480,10 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   `-core <dir>/autoplay.exe`: `go run` compiles on every invocation.
 - **Scenarios**: `go run ./cmd/scenario <files or folders>` (from `autoplay/`), with the driver's port free:
   the runner listens on it itself (`-listen` for another). `-repeat N` overrides the file's count.
+- **Trials**: `go run ./cmd/trials -recipe <file> -n 5 -set <arg>=<value>` (from `autoplay/`, `-listen`/`-core`/`-log` as
+  for `mcpcall`): one fight recipe played N times, each try scored by won, game time, hits and what hit, and the popups
+  shown, into `runs/trials/<time>.ndjson` with a summary line. `-set` changes one of the fight reflex's arguments, so a
+  rule is tried with no rebuild. TEVI's: `games/tevi/trials/ribauld_infernal.json` (needs the local snapshot it names).
 - **CI**: `.github/workflows/autoplay.yml` — build, vet, race tests, `govulncheck`, inside this module.
 
 ## What stays out of the repo
