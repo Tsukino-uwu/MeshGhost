@@ -1764,3 +1764,8 @@ A killed core left the BizHawk driver on a dead link (`receive` never saw it): a
 link pings once a second (`799d192b`, a Go test). Emerald's "a script is running" now also needs the field controls lock,
 so `battle run_wild` ends after a ROCK SMASH escape (`83606bc0`). The cave 24.4 "unreachable" is in no play log on disk and
 did not reproduce; dropped until a run shows it. Detail: [autoplay/emerald.md](autoplay/emerald.md), same date.
+
+## 2026-09-23 (the Emerald chat, the long session) — two badges, both team hideouts, many driver capabilities
+
+From the HEAT BADGE to Mossdeep's gym door (6 badges), the user watching and steering; what was built, the scratch helpers
+to rebuild, and where it stopped: [autoplay/emerald.md](autoplay/emerald.md), same date.

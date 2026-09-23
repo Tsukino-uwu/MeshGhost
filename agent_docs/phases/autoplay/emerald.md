@@ -657,3 +657,41 @@ Dropped as an open item until a run shows it again.
 
 **Left as it is:** EmuHawk on vanilla Emerald, the driver loaded; the game on Route 110 after MAY's battle. New snapshots:
 `rs_below_rock_0_26`, `rs_battle_started`, `rs_both_rocks_smashed`.
+
+## 2026-09-23 (the Emerald chat, the long session) — HEAT BADGE to Mossdeep: two badges, both team hideouts, the MASTER BALL
+
+**Played** (the story in `autoplay/games/emerald/route.md`, three new sections; the user's advice in `game.md`): the GO-GOGGLES,
+the MACH BIKE, NORMAN's BALANCE BADGE, SURF, the Weather Institute, WINONA's FEATHER BADGE, MAY in Lilycove, MT. PYRE, the
+Magma hideout (MAXIE), the Slateport harbour scene, TEAM AQUA's hideout (MATT; the MASTER BALL; an ELECTRODE caught with an
+ULTRA BALL), then Mossdeep. One whiteout (a lone low SWAMPERT, wild TORKOAL, no REPEL). The user watched the whole run and
+steered it throughout; most of `game.md`'s new rules are theirs, with dates.
+
+**Built** (each commit's message has the measurement; the bytes in the Emerald adapter's `MEASURED.md`, 2026-09-23 sections):
+the driver reconnects after a core dies (`799d192b`); scripts hold the player only while field controls are locked
+(`83606bc0`); ledges hopped any way; a refused RUN fights (ARENA TRAP); the foe's ability and WONDER GUARD; ROCK SMASH rocks
+and SURF water as obstacles with `clear_obstacle`; the MACH BIKE mounted by `goto`, not on maps with long grass; HM/TM
+compatibility per species; double battles (each battler's menus, a foe aimed at, partner-hitting moves scored 0); the
+switch question and `battle switch "ask"`; recoil scored down at low HP; an in-game rewind `search` (unproven: stopped
+unfinished, its rewinds show on screen and the user disliked it).
+
+**Scratch helpers this session drove the game with** (not in the repo; rebuild what is needed, better as driver programs):
+- field heal / field use (START, BAG, pocket by Left until it reads, item, USE, party cursor by Down, A; close menus until the
+  overworld reads clear) and the repel counter (SaveBlock1 +0x13DE): keep a MAX REPEL running before every trip.
+- FLY: party menu, the bird, FLY; from the top-left corner (Up 20, Left 30) step and read the place name at [0x0203a148]+12;
+  cache each town's Down/Right count (LAVARIDGE 3,5 known). Should be a `fly {town}` program.
+- the pad search: flood each landing's floor with the live grid's tile rule, a pad reachable when it borders the flood,
+  landings from the map's warp table; then `goto` onto each pad. Should become the planner's own support for warps that land
+  on the same map (TEAM AQUA's floors, this gym).
+- a read-only recorder (tile, facing, gate bytes per change) the user walked WINONA's gates under; the shortest path through
+  the moves they made became the recipe. Worth keeping as a probe for any puzzle the user solves.
+- a battle loop: `battle effective` with `switch "ask"` and `stop_hp_below`, switching at the free switch by the next foe's
+  name, a SUPER POTION or REVIVE on the bench when the lead is low (the user's sacrifice tactic).
+
+**Left as it is:** EmuHawk on vanilla Emerald, the driver loaded, no core running. The player at the Mossdeep gym's door,
+14.0 (6,35), healed: SWAMPERT 51, ELECTRODE 30 (slot 2 for doubles), TAILLOW 6 (FLY), CASTFORM 27; bag 13 SUPER POTION, 4
+REVIVE, 5 HYPER POTION, 7 MAX REPEL, 3 ULTRA BALL, the MASTER BALL (for RAYQUAZA only). Snapshot `mossdeep_gym_entry`.
+
+**To pick up:** the 7th gym (TATE & LIZA, a double battle): statues, spinning arrow tiles and four switches the planner does
+not know. The user was offered to walk it under the recorder, as with WINONA, or to have it worked out; not yet answered.
+ELECTRODE is under-levelled for it (the user: train the second Pokémon; surfing meets higher levels). Then Sootopolis, the
+8th gym, Victory Road, the Elite Four (X items as a plan, the user).
