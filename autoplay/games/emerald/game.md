@@ -107,6 +107,10 @@ are in MEASURED.md ("A Mart", "The bag inside a battle").
   WINONA's battle on 1 HP, too close. `effective` does not weigh recoil yet.
 - **FLY** (the user): travel at once to any town already visited. **Pick fighters by stats** (the user): species are not
   equal in battle; prefer the ones with high stats.
+- **FLY** (walked 2026-09-23, MT. PYRE to Lavaridge): START, POKéMON, the bird (`press Down` to it, `press A`), `select` FLY; on
+  the map the cursor's place name is game text at [0x0203a148]+12 (the FLY map's data, the build's .sym; 213 and blank off
+  land). From the top-left corner (Up 20, Left 30) LAVARIDGE TOWN was Down 3, Right 5; step and read the name each press
+  (the cursor stops at the map's edges), then `press A`: the player lands outside that town's Center.
 - **Party order**: the first two go out in a double battle (the user): keep the second strongest in slot 2. START, POKéMON,
   `select` the one to move, SWITCH, `press Down` to the other, `press A` (a `select` there only moved the cursor), B, EXIT.
 - **Two in the party means double battles** (the user; TWINS GINA & MIA, 2026-09-23), and the 7th gym is a double battle
