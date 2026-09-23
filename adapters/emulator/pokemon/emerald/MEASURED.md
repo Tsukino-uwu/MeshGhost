@@ -80,6 +80,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - A ledge hopped right, a RUN refused by ARENA TRAP, and a battler's ability (2026-09-23)
 - The MACH BIKE from RYDEL, SELECT to mount, and the map's cycling bit (2026-09-23)
 - TM and HM compatibility, a double battle's menus and target, and a move's target byte (2026-09-23)
+- SURF: the question, the avatar byte, and stepping off onto land (2026-09-23)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -1140,6 +1141,21 @@ what each byte means as read below.
   ENERGY; 32 for EARTHQUAKE, SELFDESTRUCT, EXPLOSION and MAGNITUDE (the user: these hit the partner too).
 - **`battle effective`** in it, after the fixes: each battler's own moves, aimed at a foe standing (target 1, then 3),
   both foes fainted, `ended`.
+
+### SURF: the question, the avatar byte, and stepping off onto land (2026-09-23)
+
+**Vanilla ROM**, autoplay tools and `exec` reads through `mcpcall`.
+
+- **The question**: on 0.33 (17,10), on the MACH BIKE, facing right onto (18,10) (behaviour 0x15, elevation 1), A printed
+  "The water is dyed a deep blue… Would you like to SURF?" with YES/NO; YES, "SWAMPERT used SURF!", and the player stood
+  on (18,10). The same from (31,10) facing left, on foot.
+- **The avatar byte** (gPlayerAvatar +0): 0x08 on the water, 0x01 on foot, 0x02 on the MACH BIKE.
+- **Off the water**: `walk right` 13 from (18,10) crossed 0.33's river and stopped on (31,10), elevation 3 land, on foot;
+  a water level of 1 onto land of 3 was taken.
+- **Elevation-1 behaviours by map** (ROM tiles): 0.33 all 0x15; 0.25 0x15, 0x70, 0x0C and 0x00; 0.19 0x15, 0x10, 0x0C and
+  0x00; Dewford's gym 3.3 0x00 only. Only 0x15 was surfed.
+- **A trip across**: from (17,10) to (33,10), `goto` answered `obstacle` at the bank, `clear_obstacle` the question, YES,
+  `goto` done: 5 calls.
 
 ## Not measured yet
 

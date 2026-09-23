@@ -167,8 +167,9 @@ function M.plan(h, fromX, fromY, toX, toY, closed, crossGrass)
 				goal = key
 				break
 			end
-			-- A one-way tile (a ledge) is left only the way it was entered.
-			local _, _, _, oneWay = tile(x, y)
+			-- A one-way tile (a ledge) is left only the way it was entered. An obstacle's cost is paid once, stepping onto the
+			-- first of a stretch (water to SURF: each tile of it after the first is a step).
+			local _, _, _, oneWay, fromObstacle = tile(x, y)
 			for ni = 1, 4 do
 				local d = order[ni]
 				local nx, ny = x + d.dx, y + d.dy
@@ -181,6 +182,7 @@ function M.plan(h, fromX, fromY, toX, toY, closed, crossGrass)
 				if extra then
 					local nkey = ((ny * mapW + nx) * 4 + ni - 1) * 16 + nlevel
 					local ncost = cost + 1 + extra + ((ni ~= di and cost > 0) and TURN_COST or 0)
+					if fromObstacle and select(5, tile(nx, ny)) then ncost = ncost - OBSTACLE_COST end
 					if dist[nkey] == nil or ncost < dist[nkey] then
 						dist[nkey], prev[nkey] = ncost, key
 						push(ncost, nkey)

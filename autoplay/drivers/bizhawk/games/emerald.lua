@@ -2139,10 +2139,19 @@ local function routeGrid(fromX, fromY, toX, toY)
 	local blocked, objects = {}, readObjects()
 	-- A ROCK SMASH rock (graphics 86: the two on 0.26 at (18,101) and (19,100) that A, YES broke, 2026-09-17 and 09-23)
 	-- is an obstacle, not a wall, while the party knows ROCK SMASH: the walk stops in front of it and `smash` breaks it.
-	local smashes = false
+	local smashes, surfs = false, false
 	for _, mon in ipairs(readParty() or {}) do
-		for _, m in ipairs(mon.moves or {}) do if m.name == "ROCK SMASH" then smashes = true end end
+		for _, m in ipairs(mon.moves or {}) do
+			if m.name == "ROCK SMASH" then smashes = true end
+			if m.name == "SURF" then surfs = true end
+		end
 	end
+	-- SURFING (2026-09-23, 0.33's river, from (17,10)): facing water (behaviour 0x15, elevation 1), A asked "The water is dyed a
+	-- deep blue… Would you like to SURF?", YES moved the player onto (18,10) with the avatar byte 0x08 (0x01 on foot, 0x02 on
+	-- the MACH BIKE, which it was begun from); `walk right` 13 crossed to (31,10), land at elevation 3, and stepped off on foot.
+	-- So while surfing water is open and so is the step onto land; on land, with SURF known, water is an obstacle
+	-- `clear_obstacle` answers. Water reads level 0 in the plan, so both steps pass the level rule. Only 0x15 is surfed.
+	local surfing = (r8(GPLAYERAVATAR) & 0x08) ~= 0
 	for _, o in ipairs(objects) do
 		blocked[o.y * mapW + o.x] = (smashes and o.graphics_id == 86) and "smash" or "character"
 	end
@@ -2158,7 +2167,9 @@ local function routeGrid(fromX, fromY, toX, toY)
 		width = mapW, height = mapH, where = "from elevation " .. elevation, elevation = elevation,
 		elevationAt = function(x, y)
 			local i = ((x + MAP_OFFSET) + gw * (y + MAP_OFFSET)) * 2 + 1
-			return (grid[i] | (grid[i + 1] << 8)) >> 12
+			local v = grid[i] | (grid[i + 1] << 8)
+			if (surfs or surfing) and behaviourOf(v & 0x3FF) == 0x15 and (v >> 12) == 1 then return 0 end
+			return v >> 12
 		end,
 		tile = function(x, y)
 			if blocked[y * mapW + x] == "smash" then return true, false, nil, nil, "smash" end
@@ -2167,7 +2178,11 @@ local function routeGrid(fromX, fromY, toX, toY)
 			local v = grid[i] | (grid[i + 1] << 8)
 			local behaviour = behaviourOf(v & 0x3FF)
 			-- Water (0x15 at elevation 1) is not walked onto (WHY A STEP WAS REFUSED); a step's level is elevationStep's.
-			if behaviour == 0x15 and (v >> 12) == 1 then return nil end
+			if behaviour == 0x15 and (v >> 12) == 1 then
+				if surfing then return true, false, seen[y * mapW + x] end
+				if surfs then return true, false, seen[y * mapW + x], nil, "surf" end
+				return nil
+			end
 			-- A mud slope (0xD0) slid the player back on foot (MUD SLOPE, above): closed.
 			if behaviour == 0xD0 then return nil end
 			-- A ledge reads collision set, and hopped moving down: two steps, onto it and past it (WHY A STEP WAS REFUSED).
@@ -2336,6 +2351,8 @@ routeHooks.mapTile = function(name, x, y)
 	local collision, elevation, behaviour = routeHooks.mapTileRaw(name, x, y)
 	if not collision then return nil end
 	if STEP.LEDGES[behaviour] then return elevation, STEP.LEDGES[behaviour] end
+	-- Water (SURFING, above): open to the plan across maps when the party knows SURF, at level 0.
+	if collision == 0 and elevation == 1 and behaviour == 0x15 and routeHooks.surfs then return 0 end
 	if collision ~= 0 or (elevation == 1 and behaviour == 0x15) or behaviour == 0xD0 then return nil end
 	return elevation
 end
@@ -2349,12 +2366,44 @@ game.programs.clear_obstacle = function()
 			return game.programs.talk({ local_id = o.local_id })
 		end
 	end
-	return nil, "no ROCK SMASH rock (graphics 86) beside the player"
+	-- Water beside the player (SURFING): face it, A, and its question.
+	local dirs = { up = { 0, -1 }, down = { 0, 1 }, left = { -1, 0 }, right = { 1, 0 } }
+	local order = { routeHooks.facing(), "up", "down", "left", "right" }
+	for _, name in ipairs(order) do
+		local d = dirs[name]
+		local c, e, b = routeHooks.mapTileRaw((routeHooks.position()), x + d[1], y + d[2])
+		if c == 0 and e == 1 and b == 0x15 then
+			local frames, advance, tapped = 0, nil, nil
+			return function()
+				frames = frames + 1
+				if advance then return advance() end
+				if routeHooks.facing() ~= name then
+					if frames > 60 then return nil, true, nil, "could not face the water " .. name end
+					return { [({ up = "Up", down = "Down", left = "Left", right = "Right" })[name]] = true }, false
+				end
+				-- One tapped A, then the text machine reads to the YES/NO.
+				if not tapped then
+					tapped = frames
+					return { A = true }, false
+				end
+				if frames - tapped < 4 then return { A = true }, false end
+				if frames - tapped < 10 then return nil, false end
+				advance = game.programs.advance_text()
+				return nil, false
+			end, nil, 3600
+		end
+	end
+	return nil, "no ROCK SMASH rock (graphics 86) or water to SURF beside the player"
 end
 
 -- goto {x, y, run, cross_grass}: to a tile on this map by a planned route (`../route.lua`).
 game.programs["goto"] = function(p)
 	if not isVanilla then return nil, "goto is measured on the vanilla ROM only" end
+	-- The plan across maps opens water where SURF is known (SURFING).
+	routeHooks.surfs = (r8(GPLAYERAVATAR) & 0x08) ~= 0
+	for _, mon in ipairs(readParty() or {}) do
+		for _, m in ipairs(mon.moves or {}) do if m.name == "SURF" then routeHooks.surfs = true end end
+	end
 	if p.map ~= nil and p.map ~= (routeHooks.position()) then return lib.route.travel(routeHooks, p) end
 	return lib.route.go(routeHooks, p)
 end

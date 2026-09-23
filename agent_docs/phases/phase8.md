@@ -1314,5 +1314,5 @@ measured or changed about the game: [phase12.md](phase12.md), 2026-09-18 (later)
 ## 2026-09-23 (the Emerald autoplay chat) — measurements for autoplay, recorded in the adapter's MEASURED.md
 
 The field controls lock after a ROCK SMASH escape; ledges hopped right (0x38); a RUN refused by ARENA TRAP; a battler's
-ability and WONDER GUARD (the user); the MACH BIKE, SELECT to mount, and the map header's cycling bit; TM/HM compatibility, a double battle's menus and target step, a move's target byte. All in `adapters/emulator/pokemon/emerald/MEASURED.md`, same date; the autoplay side
+ability and WONDER GUARD (the user); the MACH BIKE, SELECT to mount, and the map header's cycling bit; TM/HM compatibility, a double battle's menus and target step, a move's target byte; SURF's question, the surfing avatar byte and stepping off. All in `adapters/emulator/pokemon/emerald/MEASURED.md`, same date; the autoplay side
 in [autoplay/emerald.md](autoplay/emerald.md).
