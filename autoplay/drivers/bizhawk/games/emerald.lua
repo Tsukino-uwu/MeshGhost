@@ -2544,6 +2544,9 @@ function TYPE_CHART.effectiveMove()
 				if (info.effect == 48 or info.effect == 198) and u16of(mons, me + 0x29) < 0.4 * u16of(mons, me + 0x2D) then
 					score = score / 4
 				end
+				-- The user faints itself (2026-09-23: SELFDESTRUCT scored 200 power, ELECTRODE used it on ARCHIE's CROBAT and
+				-- fainted): the effect byte read 7 for SELFDESTRUCT and EXPLOSION through `exec`. Scored 0, a last resort.
+				if info.effect == 7 then score = 0 end
 				weighed[#weighed + 1] = { move = nameAt(MOVE_NAMES, MOVE_LEN, MOVE_COUNT, id), type = info.type, power = info.power,
 					accuracy = info.accuracy, same_type = same or nil, multiplier = multiplier, score = score,
 					foe = #foes > 1 and fi or nil }

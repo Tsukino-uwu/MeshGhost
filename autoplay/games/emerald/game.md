@@ -29,6 +29,8 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
   collision tile: a neighbour from the grid went. `observe`'s `nearby` lists characters within about 10 tiles only.
 - **A mud slope (behaviour 0xD0) is not walked up on foot**: the player slides back, and `goto` plans round it or
   answers `unreachable` (MEASURED.md, "A mud slope on 0.26"). The user: a MACH BIKE goes up them.
+- **FLY does not work inside a cave** (the user, 2026-09-23; `fly` opened the party menu in the Cave of Origin and failed
+  "waited for the fly map"): walk out first, or an ESCAPE ROPE / DIG, which put you outside the cave's entrance. Keep ropes.
 - **A warp tile of behaviour 101** (cave exits, the cable car stations) is left by stepping onto it, then `walk` Down
   and `press B` 60. After any door or warp, `press B` 60 before the next call: `goto`/`talk` answer "needs the overworld"
   during the fade (`drivers/bizhawk/route.lua` refuses outside the overworld; seen 2026-09-17).
@@ -68,6 +70,11 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
   SWAMPERT -- a whiteout inside a trip.
 - **A party of one hits a wall against a type it is weak to** (emerald.md, 2026-09-17): a second Pokémon is the answer.
   Only wild Pokémon can be caught; one at low HP or with a status is easier; never faint it (the user).
+- **Legendaries are caught, never fainted** (the user, 2026-09-23, for every game): ULTRA BALLs, fainting it only if they
+  run out; the MASTER BALL for the best/highest-level one (RAYQUAZA here; HO-OH/LUGIA in Crystal), which can take 60-100
+  ULTRA BALLs and still fail. Before one, buy 40-50+ ULTRA BALLs and plenty of potions: the catch means tanking many
+  hits. Bring it to low HP (1 HP if possible) and give it sleep or paralysis, never poison -- for any catch, legendaries
+  above all. The MASTER BALL needs none of it: it always catches, even at full HP.
 - **Heal only when the next hit would faint, then attack**; potions work best when they heal more than a hit takes
   (the user, 2026-09-17). `battle stop_hp_below` stops at the action menu for BAG, POTION, USE, the Pokémon's name.
   Gym leaders heal mid-fight too.
