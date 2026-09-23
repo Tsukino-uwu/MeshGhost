@@ -11,7 +11,7 @@ local log = host.log
 local M = {
 	game = "pseudoregalia",
 	variant = "vanilla",
-	capabilities = { "wait", "press", "sequence", "screenshot", "snapshot", "restore", "advance_text", "cheat:teleport", "reflex:walk_to", "reflex:look" },
+	capabilities = { "wait", "press", "sequence", "screenshot", "snapshot", "restore", "advance_text", "recent", "cheat:teleport", "reflex:walk_to", "reflex:look" },
 	-- The user's save files 1-7 are never written; File 8 is autoplay's (the user, 2026-09-23).
 	protected_slots = { 1, 2, 3, 4, 5, 6, 7 },
 }
@@ -100,10 +100,44 @@ function M.onConnect()
 	end
 end
 
+-- THE FLIGHT RECORDER: one row a frame of the player's position, speed, states and the camera's yaw, the last
+-- RECORD_FRAMES frames, recorded whether or not a core is connected, for `recent`.
+local RECORD_FRAMES = 600
+local rec = {}
+local function record(frame, pc, pawn)
+	local ok, row = pcall(function()
+		local l = pawn:K2_GetActorLocation()
+		local v = pawn:GetVelocity()
+		local r = { f = frame, x = math.floor(l.X + 0.5), y = math.floor(l.Y + 0.5), z = math.floor(l.Z + 0.5),
+			vz = math.floor(v.Z + 0.5), hs = math.floor(math.sqrt(v.X * v.X + v.Y * v.Y) + 0.5),
+			ms = num(pawn.moveState), as = num(pawn.actionState), cs = num(pawn.controlState) }
+		local cm = pc.PlayerCameraManager
+		if cm and cm:IsValid() then r.cam = math.floor(cm:GetCameraRotation().Yaw + 0.5) end
+		return r
+	end)
+	if ok then
+		rec[frame % RECORD_FRAMES] = row
+	end
+end
+
+function M.recent(p)
+	local newest = host.frame()
+	local untilF = tonumber(p.until_frame) or newest
+	local n, every = tonumber(p.frames) or 120, tonumber(p.every) or 1
+	local rows = {}
+	for f = untilF - n + 1, untilF, every do
+		local r = rec[f % RECORD_FRAMES]
+		if r and r.f == f then rows[#rows + 1] = r end
+	end
+	return { rows = rows, newest = newest,
+		columns = "f frame, x y z position, vz vertical speed, hs horizontal speed, ms moveState, as actionState, cs controlState, cam camera yaw" }
+end
+
 function M.tick(frame)
-	if not guard.armed or frame % 10 ~= 0 then return end
 	local pc = controller()
 	local pawn = pawnOf(pc)
+	if pawn then record(frame, pc, pawn) end
+	if not guard.armed or frame % 10 ~= 0 then return end
 	if not pawn then return end
 	local level = levelName(pc)
 	if level and level:find("TitleScreen", 1, true) then return end

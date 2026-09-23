@@ -180,6 +180,11 @@ local function begin(req)
 		if ok then reply(req.id, o) else fail(req.id, "observe: " .. tostring(o)) end
 		return
 	end
+	if verb == "recent" and game.recent then
+		local ok, r = pcall(game.recent, p)
+		if ok then reply(req.id, r) else fail(req.id, "recent: " .. tostring(r)) end
+		return
+	end
 	if verb == "exec" then
 		local answer, err = execCode(p)
 		log(answer and "exec" or ("exec failed: " .. tostring(err)))
