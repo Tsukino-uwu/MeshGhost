@@ -280,6 +280,22 @@ local function underAxe(axes, x, y, z)
 end
 M.axes_on = axesOn
 
+-- ENEMIES where they stand now, from the registry (paths found again, never kept objects). goto routes around them
+-- and jumps past one ahead, never fighting (the user, 2026-09-23: "ignore the enemies, no need to attack them, just
+-- navigate around them while jumping"; walking into one knocked her into a castle pit).
+local function enemiesOn(map)
+	if registry.map ~= map or host.frame() - registry.at > 300 then refreshRegistry(map) end
+	local list = {}
+	for _, e in ipairs(registry.list) do
+		if e.kind == "enemy" then
+			local a = actorOf(e)
+			if a then pcall(function() local l = a.RootComponent.RelativeLocation list[#list + 1] = { x = l.X, y = l.Y, z = l.Z } end) end
+		end
+	end
+	return list
+end
+M.enemies_on = enemiesOn
+
 local function things(map, px, py, pz, limit)
 	if registry.map ~= map or host.frame() - registry.at > 300 then refreshRegistry(map) end
 	local out = {}
@@ -1010,6 +1026,7 @@ local function newPlan(pawn, sx, sy, sz, tx, ty, maxCells)
 	pcall(function() P.hops = M.hops_for(M.observe(false).location.map) or nil end) -- defined further down
 	pcall(function() P.trail = M.trail_for(M.observe(false).location.map) or nil end)
 	pcall(function() P.slide = pawn["obtainedSlide?"] == true end) -- slide edges only once she has it
+	pcall(function() P.enemies = enemiesOn(M.observe(false).location.map) end)
 	local function cellOf(x, y) return math.floor(x / CELL + 0.5), math.floor(y / CELL + 0.5) end
 	P.cellOf = cellOf
 	local six, siy = cellOf(sx, sy)
@@ -1120,6 +1137,20 @@ M.near_trail = nearTrail
 -- and each re-plan ate most of a reflex's 3600 frames (2026-09-23). Routes come out at most H_WEIGHT times the best.
 local H_WEIGHT = 1.5
 
+-- Near an enemy, hard: the castle's pit platforms each hold one, and a landing 86 from it put her into it and off the
+-- platform (2026-09-23); the platforms are large enough to land clear of it.
+local function enemyCost(P, x, y, z)
+	local c = 0
+	for _, e in ipairs(P.enemies or {}) do
+		local ex, ey = x - e.x, y - e.y
+		local e2 = ex * ex + ey * ey
+		if math.abs(e.z - z) < 400 then
+			if e2 < 200 * 200 then c = c + 1500 elseif e2 < 300 * 300 then c = c + 300 end
+		end
+	end
+	return c
+end
+
 local NEIGHBOURS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 }, { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 } }
 
 -- How close a landing is to its platform's edge: of the cells around it up to two out, how many are lower by more than a
@@ -1193,6 +1224,15 @@ local function planStep(P)
 							-- low passage and a false wall closed the route (2026-09-23).
 							local top = math.max(ca, cb) + 3
 							ok = not sweep(P.pawn, ax, ay, top, bx, by, top)
+							-- A sill between two cells of one height: the game steps her over anything up to MaxStepHeight, so
+							-- the capsule lifted by STEP_UP; taller, a jump over it (150 up). A doorway's sill fenced the castle's
+							-- map room from its save crystal, both floors at -825 (2026-09-23).
+							if not ok and not sweep(P.pawn, ax, ay, top + STEP_UP, bx, by, top + STEP_UP) then
+								ok = true
+							elseif not ok and not sweep(P.pawn, ax, ay, ca + 2, ax, ay, top + 150)
+								and not sweep(P.pawn, ax, ay, top + 150, bx, by, top + 150) then
+								kind, ok = "jump", true
+							end
 							-- Too low to walk, low enough to slide: the slide's capsule (centre 24 over the floor, measured
 							-- 2226-2224 from 2267 standing) swept at SLIDE_H. The passage under the slide room's corridor
 							-- (2026-09-23) is one.
@@ -1211,6 +1251,7 @@ local function planStep(P)
 							local cost = P.g[cur.k] + step + (kind == "jump" and 80 or 0) + (kind == "flip" and 200 or 0) + (kind == "grab" and 150 or 0) + (kind == "flipgrab" and 300 or 0) + (kind == "drop" and 20 or 0) + (kind == "slide" and 40 or 0)
 							if kind == "jump" or kind == "flip" or kind == "grab" or kind == "flipgrab" then cost = cost + LAND_EDGE_COST * edgeCells(P, nix, niy, nz) end
 							if P.trail and not nearTrail(P.trail, bx, by, nz) then cost = cost + step * 0.8 end
+							cost = cost + enemyCost(P, bx, by, nz)
 							if P.g[nk] == nil or cost < P.g[nk] then
 								P.g[nk], P.came[nk], P.edge[nk] = cost, cur.k, kind
 								local gx, gy = (P.gix - nix) * CELL, (P.giy - niy) * CELL
@@ -1257,7 +1298,11 @@ local function planStep(P)
 				for dx = -LEAP_CELLS, LEAP_CELLS do
 					for dy = -LEAP_CELLS, LEAP_CELLS do
 						local k = math.max(math.abs(dx), math.abs(dy))
-						if k >= 2 then
+						-- Counted by distance, not cells: a diagonal of 11 cells is 778 long, and she was sent at one from the
+						-- castle pit's edge and fell in (2026-09-23). k is the reach in cells either way.
+						local reach = math.sqrt(dx * dx + dy * dy) * CELL
+						if reach > LEAP_CELLS * CELL then k = 0 else k = math.max(k, math.ceil(reach / CELL - 0.01)) end
+						if k >= 2 and k <= LEAP_CELLS then
 							local nix, niy = c.ix + dx, c.iy + dy
 							local bx, by = nix * CELL, niy * CELL
 							local nz = probe(P, nix, niy, c.z + JUMP_UP + FEET)
@@ -1285,6 +1330,7 @@ local function planStep(P)
 											-- Long leaps are risky (a 500-wide diagonal one fell short, 2026-09-23): past 250
 											-- each unit costs double, so a shorter straight one wins when there is one.
 											local cost = P.g[cur.k] + dist + 100 + math.max(0, dist - 250) * 2 + LAND_EDGE_COST * edgeCells(P, nix, niy, nz)
+											cost = cost + enemyCost(P, nix * CELL, niy * CELL, nz) -- a leap's landing too: the castle's pit
 											if P.g[nk] == nil or cost < P.g[nk] then
 												P.cells[nk] = P.cells[nk] or { ix = nix, iy = niy, z = nz }
 												P.g[nk], P.came[nk], P.edge[nk] = cost, cur.k, "leap"
@@ -1781,6 +1827,25 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 		end
 		local rel = math.rad(math.deg(math.atan(dy, dx)) - st.yaw)
 		injectMove(math.sin(rel), math.cos(rel))
+		-- An enemy within 200 ahead on her way, and she on the ground: jump past it (checked every 10 frames).
+		if count % 10 == 0 and jumpLeft == 0 and (o.player.move_state or 0) == 0 then
+			local ux, uy = dx / math.max(d, 1), dy / math.max(d, 1)
+			for _, e in ipairs(enemiesOn(o.location.map)) do
+				local ex, ey = e.x - st.x, e.y - st.y
+				local along = ex * ux + ey * uy
+				if along > 0 and along < 200 and math.abs(ex * uy - ey * ux) < 120 and math.abs(e.z - st.z) < 250 then
+					-- Only where a jump is safe: the next cells plain walks and floor at her height 300 on. Unchecked, it
+					-- jumped her off a pit platform's far side toward an enemy 700 from the next floor (2026-09-23).
+					local safe = true
+					for i = wp, math.min(#path, wp + 5) do
+						if path[i].edge ~= "walk" then safe = false end
+					end
+					local fz = safe and floorProbe(st.pawn, st.x + ux * 300, st.y + uy * 300, feetZ + 150, 0.6)
+					if safe and fz and math.abs(fz - feetZ) < 45 then jumpLeft = 80 end
+					break
+				end
+			end
+		end
 		-- A slide edge: a Crouch tap on the ground at a run starts the slide (actionState 1); tapped again only once it has
 		-- ended, 4 frames each. Crouch held while standing still crouches her in place (moveState 2) and she does not move.
 		-- Crouched (moveState 2) counts as on the ground: a slide that ends under the low ceiling leaves her crouched there.

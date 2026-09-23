@@ -77,6 +77,12 @@ known about Pseudoregalia from anywhere else is only where to look. What the dri
   ledge the user grabbed 9-30 lower. **Coyote time**: the user jumped 6-9 frames after leaving an edge for more
   distance, and lands in the middle of a platform so there is room to jump again (the user's rules, 2026-09-23).
 
+## Enemies
+
+- **Ignore them, never fight them, except the few the game makes you beat** (the user, 2026-09-23): the dungeon's
+  mini boss (the Keeper, for a key), 2-4 rooms that lock her in a fight, and the last boss. Everywhere else route
+  around them and jump past: `goto` does both. The Keeper fell to `fight` style `circle` (the user's way).
+
 ## Talking and reading
 
 - Walk within range (a sign's `in_range`), `press` Interact 5 frames, then `advance_text` until `closed`.

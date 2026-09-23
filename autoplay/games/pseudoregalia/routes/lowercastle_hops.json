@@ -2,7 +2,7 @@
  "game": "pseudoregalia",
  "variant": "vanilla",
  "map": "ZONE_LowerCastle",
- "note": "Hops for ZONE_LowerCastle, as in dungeon_hops.json. Run 4 (2026-09-23, the user, from the save crystal 1 room across the pit -- a running jump from the middle of the -870 platform's south edge into a ledge grab -- up a second grab to the map upgrade, and back). by: autoplay = measured with the driver's traces, not played.",
+ "note": "Hops for ZONE_LowerCastle, as in dungeon_hops.json. Run 4 (2026-09-23, the user, from the save crystal 1 room across the pit -- a running jump from the middle of the -870 platform's south edge into a ledge grab -- up a second grab to the map upgrade, and back). by: autoplay = measured with the driver's traces, not played. Run 5 (2026-09-23, the user, across the pit south of save crystal 1 by its two platforms, each with an enemy walking on it, to the floor before upgrade 2).",
  "hops": [
   {
    "takeoff": [
@@ -463,6 +463,178 @@
     ]
    ],
    "run": 4
+  },
+  {
+   "takeoff": [
+    4959,
+    6242,
+    -500
+   ],
+   "landing": [
+    5439,
+    5842,
+    -600
+   ],
+   "approach_from": [
+    4950,
+    6249
+   ],
+   "grab": false,
+   "frames": 162,
+   "run_speed": 550,
+   "runup": [
+    4834,
+    6454
+   ],
+   "runup_path": 260,
+   "approach": [
+    [
+     4834,
+     6454
+    ],
+    [
+     4836,
+     6386
+    ],
+    [
+     4868,
+     6330
+    ],
+    [
+     4915,
+     6279
+    ]
+   ],
+   "run": 5
+  },
+  {
+   "takeoff": [
+    5518,
+    5408,
+    -600
+   ],
+   "landing": [
+    5346,
+    4962,
+    -600
+   ],
+   "approach_from": [
+    5524,
+    5418
+   ],
+   "grab": false,
+   "frames": 126,
+   "run_speed": 550,
+   "runup": [
+    5532,
+    5659
+   ],
+   "runup_path": 261,
+   "approach": [
+    [
+     5532,
+     5659
+    ],
+    [
+     5549,
+     5592
+    ],
+    [
+     5555,
+     5527
+    ],
+    [
+     5542,
+     5460
+    ]
+   ],
+   "run": 5
+  },
+  {
+   "takeoff": [
+    5142,
+    4762,
+    -600
+   ],
+   "landing": [
+    4791,
+    4419,
+    -500
+   ],
+   "approach_from": [
+    5151,
+    4769
+   ],
+   "grab": false,
+   "frames": 129,
+   "run_speed": 550,
+   "runup": [
+    5326,
+    4935
+   ],
+   "runup_path": 253,
+   "approach": [
+    [
+     5326,
+     4935
+    ],
+    [
+     5276,
+     4887
+    ],
+    [
+     5228,
+     4838
+    ],
+    [
+     5178,
+     4791
+    ]
+   ],
+   "run": 5
+  },
+  {
+   "takeoff": [
+    4787,
+    4002,
+    -500
+   ],
+   "landing": [
+    4893,
+    3383,
+    -600
+   ],
+   "approach_from": [
+    4786,
+    4013
+   ],
+   "grab": false,
+   "frames": 162,
+   "run_speed": 550,
+   "runup": [
+    4767,
+    4261
+   ],
+   "runup_path": 260,
+   "approach": [
+    [
+     4767,
+     4261
+    ],
+    [
+     4768,
+     4195
+    ],
+    [
+     4772,
+     4127
+    ],
+    [
+     4780,
+     4058
+    ]
+   ],
+   "run": 5
   }
  ],
  "trail": [
@@ -660,6 +832,136 @@
    6637,
    8560,
    -825
+  ],
+  [
+   5015,
+   7115,
+   -500
+  ],
+  [
+   4962,
+   7019,
+   -500
+  ],
+  [
+   4924,
+   6924,
+   -500
+  ],
+  [
+   4895,
+   6827,
+   -500
+  ],
+  [
+   4873,
+   6727,
+   -500
+  ],
+  [
+   4854,
+   6625,
+   -500
+  ],
+  [
+   4841,
+   6523,
+   -500
+  ],
+  [
+   4831,
+   6420,
+   -500
+  ],
+  [
+   4876,
+   6321,
+   -500
+  ],
+  [
+   4950,
+   6249,
+   -500
+  ],
+  [
+   5439,
+   5842,
+   -600
+  ],
+  [
+   5494,
+   5754,
+   -600
+  ],
+  [
+   5532,
+   5659,
+   -600
+  ],
+  [
+   5554,
+   5561,
+   -600
+  ],
+  [
+   5542,
+   5460,
+   -600
+  ],
+  [
+   5346,
+   4962,
+   -600
+  ],
+  [
+   5276,
+   4887,
+   -600
+  ],
+  [
+   5203,
+   4814,
+   -600
+  ],
+  [
+   4791,
+   4419,
+   -500
+  ],
+  [
+   4770,
+   4318,
+   -500
+  ],
+  [
+   4768,
+   4207,
+   -500
+  ],
+  [
+   4774,
+   4104,
+   -500
+  ],
+  [
+   4787,
+   4002,
+   -500
+  ],
+  [
+   4893,
+   3383,
+   -600
+  ],
+  [
+   4923,
+   3284,
+   -600
+  ],
+  [
+   4954,
+   3186,
+   -600
   ]
  ]
 }
