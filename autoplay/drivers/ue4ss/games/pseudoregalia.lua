@@ -1718,13 +1718,30 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 			-- 2026-09-23), and remember the takeoff cell: on the ground the jump comes once she has run past it.
 			leap = { t = 0, ux = dx / math.max(d, 1), uy = dy / math.max(d, 1), back = math.max(30, math.min(80, d / 6)),
 				fx = from and from.x or st.x, fy = from and from.y or st.y }
+			-- The run-up by distance, not frames: two reversals (each a skid) in an 80-frame back-off left her at 340 at
+			-- the edge of the gap before exit 1, and she fell to the start (2026-09-23). Arriving at a run toward the
+			-- landing already, no back-off; else back up to 300, only as far as the floor goes.
+			local vx, vy = 0, 0
+			pcall(function() local v = st.pawn:GetVelocity(); vx, vy = v.X, v.Y end)
+			if vx * leap.ux + vy * leap.uy >= 450 then
+				leap.back, leap.backDist = 0, 0
+			else
+				local fz, okd = feetZ, 0
+				for dd = 25, 300, 25 do
+					local z = floorProbe(st.pawn, leap.fx - leap.ux * dd, leap.fy - leap.uy * dd, fz + 150, 0.6)
+					if not z or math.abs(z - fz) > 40 then break end
+					okd = dd
+				end
+				leap.backDist, leap.back = math.max(0, okd - 25), 400
+			end
 		end
 		if leap then
 			leap.t = leap.t + 1
 			local ms = o.player.move_state or 0
 			local sx, sy = dx, dy
-			if leap.t <= leap.back then sx, sy = -leap.ux, -leap.uy end
 			local past = (st.x - leap.fx) * leap.ux + (st.y - leap.fy) * leap.uy
+			if leap.backDist and leap.t <= leap.back and past <= -leap.backDist then leap.back = leap.t - 1 end
+			if leap.t <= leap.back then sx, sy = -leap.ux, -leap.uy end
 			local skidding = (o.player.action_state or 0) == 18 -- a jump in the skid is a backflip: wait it out
 			if not leap.jumped and leap.t > leap.back and (ms == 1 or ((past >= 20 or leap.t > leap.back + 240) and not skidding)) then
 				leap.jumped, jumpLeft, jumpT = true, 80, 0
