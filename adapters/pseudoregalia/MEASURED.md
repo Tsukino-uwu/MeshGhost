@@ -227,6 +227,21 @@ from File 8 and over the driver's own attempts to repeat them.
 - **What it cannot say:** the exact coyote window and grab reach; whether the camera's direction changes any move (the
   stick is recomputed from its yaw each frame, and no move measured differently for it).
 
+### 2026-09-23 (autoplay, night) — the Keeper, a pit's cost, a bubble's boost, the castle's exits
+
+Same install, File 8. From the flight recorder, which also recorded the Keeper beside her, and from reads by name.
+
+- **The Keeper** (`BP_Enemy_Keeper_C`, spawned when she walks into its arena): `BP_HpHitable` 640 of 640. The user's win
+  landed 42 hits of 15 over 96 s from 108-314 away (median 233); its attacks were short moves of ~0.1 s at 1000-1700,
+  and its two 10-damage hits on the user came ~410 away as one ended. At 0 its HP read -20 and the key was free.
+- **Breakable wall `_0`** (dungeon, 9150, -2900): `CurrentHp` 200, `maxHP` 40; swings and a slide left it at 200.
+- **A pit fall costs 5 HP** and the game puts her back at a spot on the room's side (a jump of ~2000 in one sample).
+- **A bubble** holds her at `moveState` 7; the stick did not move her in it; Jump with the stick held threw her at 700
+  along it, rising then falling.
+- **Exits** (`BP_TransitionZone_C`) name their far side in `startTag` (`Level Name` read None): the castle's `_7` at
+  (6350, -11450) reads `libraryWest`, `_8` `theatreEast`, `_0` `theatreSouthEast`, `_4`/`_5`/`_6` `upper...`.
+- **Reading every simple property on the Keeper by name crashed the game** in UE4SS; names alone (ForEachProperty) did not.
+
 ## Not measured yet
 
 &lt;None yet.&gt;
