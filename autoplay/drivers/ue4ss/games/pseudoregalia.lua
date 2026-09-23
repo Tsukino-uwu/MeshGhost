@@ -16,15 +16,23 @@ local M = {
 	protected_slots = { 1, 2, 3, 4, 5, 6, 7 },
 }
 
--- A player controller, re-found when the one held stops being valid. FindFirstOf walks the object array, so it
--- runs only when the cached one is gone, never per frame while it is live.
-local pcCache = nil
+-- A player controller, kept by its PATH and found again each frame by StaticFindObject (a hash lookup): an object held
+-- across frames can outlive what it names, and IsValid on it then reads freed memory (the registry's crashes, below).
+-- FindFirstOf walks the object array, so it runs only when the path finds nothing.
+local pcPath = nil
 local function controller()
-	if pcCache and pcCache:IsValid() then return pcCache end
-	pcCache = nil
+	if pcPath then
+		local pc = StaticFindObject(pcPath)
+		if pc and pc:IsValid() then return pc end
+		pcPath = nil
+	end
 	local ok, pc = pcall(FindFirstOf, "PlayerController")
-	if ok and pc and pc:IsValid() then pcCache = pc end
-	return pcCache
+	if ok and pc and pc:IsValid() then
+		local full = pc:GetFullName()
+		pcPath = full:sub((full:find(" ", 1, true) or 0) + 1)
+		return pc
+	end
+	return nil
 end
 
 local function pawnOf(pc)
@@ -167,8 +175,10 @@ end
 
 -- THINGS: the actors a player meets, by class, from a census of ZONE_Dungeon's 840 actors (2026-09-23). The list is
 -- rebuilt from one FindAllOf("Actor") walk when the map changes or 300 frames have passed (a walk costs about a
--- millisecond, CLAUDE.md), never per frame; each entry is re-checked with IsValid before it is read, and its position is
--- its root component's RelativeLocation -- a named read, no UFunction called on an object FindAllOf handed back.
+-- millisecond, CLAUDE.md), never per frame. An entry keeps the actor's PATH, never the object: each read finds it again
+-- by StaticFindObject. A kept object outlived its actor -- a broken wall, the whole level after a restore -- and IsValid
+-- on it read freed memory: the game crashed in UE4SS three times (2026-09-23, 16:43 after a restore, 16:57 after walls
+-- broke). Its position is its root component's RelativeLocation -- a named read, no UFunction called on it.
 local KIND_BY_CLASS = {
 	BP_NPC_C = "npc", BP_NPC_Child_C = "npc", BP_SavePoint_C = "save_point", BP_UpgradeBase_C = "upgrade",
 	BP_HealthPiece_C = "health_piece", BP_GenericKey_C = "key", BP_LockDoor_C = "locked_door",
@@ -191,18 +201,28 @@ local function refreshRegistry(map)
 		local ok, class = pcall(function() return a:GetClass():GetFName():ToString() end)
 		local kind = ok and kindOf(class)
 		if kind and a:GetFullName():find(map, 1, true) then
-			list[#list + 1] = { actor = a, class = class, kind = kind, name = a:GetFName():ToString() }
+			local full = a:GetFullName()
+			list[#list + 1] = { path = full:sub((full:find(" ", 1, true) or 0) + 1), class = class, kind = kind,
+				name = a:GetFName():ToString() }
 		end
 	end
 	registry = { map = map, at = host.frame(), list = list }
 end
 
+-- The live actor behind a registry entry, or nil once it is gone.
+local function actorOf(e)
+	local a = StaticFindObject(e.path)
+	if a and a:IsValid() and not a.bActorIsBeingDestroyed then return a end
+	return nil
+end
+M.actor_of = actorOf
+
 local function things(map, px, py, pz, limit)
 	if registry.map ~= map or host.frame() - registry.at > 300 then refreshRegistry(map) end
 	local out = {}
 	for _, e in ipairs(registry.list) do
-		local a = e.actor
-		if a:IsValid() and not a.bActorIsBeingDestroyed then
+		local a = actorOf(e)
+		if a then
 			local ok, x, y, z = pcall(function()
 				local l = a.RootComponent.RelativeLocation
 				return l.X, l.Y, l.Z
@@ -1001,6 +1021,11 @@ M.hops_for = function(map) return hopsFor(map) end -- for exec, to check what th
 M.trail_for = function(map) return trailFor(map) end
 M.near_trail = nearTrail
 
+-- The search is weighted A*: the distance still to go counts H_WEIGHT times. At 1 (plain A*) the route's penalties (jumps,
+-- edges, cells off the user's trail) made it flood the level: 22691 cells and 2515 frames to find no route to the slide,
+-- and each re-plan ate most of a reflex's 3600 frames (2026-09-23). Routes come out at most H_WEIGHT times the best.
+local H_WEIGHT = 1.5
+
 local NEIGHBOURS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 }, { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 } }
 
 -- How close a landing is to its platform's edge: of the cells around it up to two out, how many are lower by more than a
@@ -1074,7 +1099,7 @@ local function planStep(P)
 							if P.g[nk] == nil or cost < P.g[nk] then
 								P.g[nk], P.came[nk], P.edge[nk] = cost, cur.k, kind
 								local gx, gy = (P.gix - nix) * CELL, (P.giy - niy) * CELL
-								heapPush(P.open, { k = nk, f = cost + math.sqrt(gx * gx + gy * gy) })
+								heapPush(P.open, { k = nk, f = cost + H_WEIGHT * math.sqrt(gx * gx + gy * gy) })
 							end
 						end
 					end
@@ -1096,7 +1121,7 @@ local function planStep(P)
 							if P.g[nk] == nil or cost < P.g[nk] then
 								P.g[nk], P.came[nk], P.edge[nk], P.hopOf[nk] = cost, cur.k, "hop", hi
 								local gx, gy = (P.gix - nix) * CELL, (P.giy - niy) * CELL
-								heapPush(P.open, { k = nk, f = cost + math.sqrt(gx * gx + gy * gy) })
+								heapPush(P.open, { k = nk, f = cost + H_WEIGHT * math.sqrt(gx * gx + gy * gy) })
 							end
 						end
 					end
@@ -1148,7 +1173,7 @@ local function planStep(P)
 												P.cells[nk] = P.cells[nk] or { ix = nix, iy = niy, z = nz }
 												P.g[nk], P.came[nk], P.edge[nk] = cost, cur.k, "leap"
 												local gx, gy = (P.gix - nix) * CELL, (P.giy - niy) * CELL
-												heapPush(P.open, { k = nk, f = cost + math.sqrt(gx * gx + gy * gy) })
+												heapPush(P.open, { k = nk, f = cost + H_WEIGHT * math.sqrt(gx * gx + gy * gy) })
 											end
 										end
 									end
@@ -1225,8 +1250,19 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 					if c.edge == "hop" then hopsN = hopsN + 1 end
 				end
 				local last = path[#path]
+				local steps
+				if a.dump then
+					-- The route itself, one line per move that is not a walk (and the walk before it), for reading a plan.
+					steps = {}
+					for i, c in ipairs(path) do
+						local nx = path[i + 1]
+						if c.edge ~= "walk" or (nx and nx.edge ~= "walk") then
+							steps[#steps + 1] = string.format("%d %s %.0f,%.0f,%.0f", i, tostring(c.edge), c.x, c.y, c.z)
+						end
+					end
+				end
 				return true, { outcome = "planned", cells_searched = P.count, path_cells = #path, jumps = jumps, hops = hopsN,
-					ends = { x = last.x, y = last.y, z = last.z } }
+					ends = { x = last.x, y = last.y, z = last.z }, steps = steps }
 			end
 			planned = planned + P.count
 			wp, lastProgress = 2, count
@@ -1252,7 +1288,8 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 				fin.jt = fin.jt + 1
 				local vz = 0
 				pcall(function() vz = st.pawn:GetVelocity().Z end)
-				if (fin.jt <= 8 or vz > -250) and fin.jt < 100 and inputReady() then
+				if fin.jt > 8 and ms == 0 then fin.held = true end -- landed: let go (a held Jump jumps again)
+				if not fin.held and (fin.jt <= 8 or vz > -250) and fin.jt < 100 and inputReady() then
 					subsystem:InjectInputVectorForAction(actions.IA_Jump, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {})
 				end
 				if ms == 0 and fin.jt > 20 then
@@ -1304,6 +1341,9 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 			return false -- never plan again mid-air: the start would be taken at the height of the jump (2026-09-23)
 		end
 		if count - lastProgress > 90 then
+			-- An upgrade's screen pauses her and controlState stays 0: she stood on the Dream Breaker's stage under its screen
+			-- and re-planned until "stuck" (2026-09-23). Checked only here: FindAllOf walks every object.
+			if upgradePrompt() then return true, { outcome = "upgrade_screen", at = { x = st.x, y = st.y, z = st.z } } end
 			if replans >= 2 then return true, { outcome = "stuck", at = { x = st.x, y = st.y, z = st.z }, route = stats, on = { x = target.x, y = target.y, z = target.z, edge = target.edge, wp = wp, of = #path } } end
 			replans = replans + 1
 			-- A full search: the level's answers are cached per map, so a re-plan over ground already traced costs little. Capped
@@ -1452,6 +1492,9 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 				-- Held through the apex: holding floats her at the top (the user's arc: vertical speed 36, 10, -27 over ~10
 				-- frames), and letting go at the apex dropped her at once (24 to -100), 9-30 lower at a ledge they grabbed.
 				-- Let go only once clearly falling, which still keeps it off the landing.
+				-- Never on the ground after the takeoff: there vz is 0, and landing on the 400 block after hop 1 with Jump still
+				-- held, she jumped again, off its far side (2026-09-23).
+				if hs.t > 8 and ms == 0 then hs.released = true end
 				if not hs.released and (hs.t <= 8 or vz > -250) and hs.t <= 120 and inputReady() then
 					subsystem:InjectInputVectorForAction(actions.IA_Jump, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {})
 				elseif hs.t > 8 then
@@ -1571,7 +1614,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 				jumpLeft, jumpT = jumpLeft - 1, jumpT + 1
 				local vz = 0
 				pcall(function() vz = st.pawn:GetVelocity().Z end)
-				if jumpT > 8 and vz <= -250 then jumpLeft = 0 end
+				if jumpT > 8 and (vz <= -250 or ms == 0) then jumpLeft = 0 end -- landed: on the ground vz is 0, and a held Jump jumps again
 				if jumpLeft > 0 and inputReady() then subsystem:InjectInputVectorForAction(actions.IA_Jump, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {}) end
 			end
 			if leap.jumped and ms == 0 and leap.t > 40 and jumpLeft == 0 then leap = nil end
@@ -1596,7 +1639,9 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 			-- go on its first frame and never happened (2026-09-23).
 			local vz = 0
 			pcall(function() vz = st.pawn:GetVelocity().Z end)
-			if jumpT > 8 and vz <= -250 then jumpLeft = 0 end -- through the apex (it floats her), off before landing
+			-- Through the apex (it floats her), off before landing; and off once landed, where vz is 0: onto a ledge higher than
+			-- the fall's start, a held Jump jumped her again and off the block's far side (2026-09-23).
+			if jumpT > 8 and (vz <= -250 or (o.player.move_state or 0) == 0) then jumpLeft = 0 end
 			if jumpLeft == 0 then jumpT = 0 end
 			if jumpLeft > 0 and inputReady() then subsystem:InjectInputVectorForAction(actions.IA_Jump, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {}) end
 		end
@@ -1671,8 +1716,8 @@ function M.reflexes.fight(a)
 		if (wantName and t.name == wantName) or (not wantName and t.kind == wantKind and t.distance < 2500) then targetName = t.name break end
 	end
 	if not targetName then return nil, "no " .. tostring(wantName or wantKind) .. " within 2500" end
-	local actor
-	for _, e in ipairs(registry.list) do if e.name == targetName then actor = e.actor end end
+	local entry
+	for _, e in ipairs(registry.list) do if e.name == targetName then entry = e end end
 	local swings, since, hits, lastHp = 0, every, 0, o0.player.hp
 	return function()
 		local st = playerAndCamera()
@@ -1681,7 +1726,8 @@ function M.reflexes.fight(a)
 		if o.player.hp and lastHp and o.player.hp < lastHp then hits = hits + 1 end
 		lastHp = o.player.hp
 		if stopHp and o.player.hp and o.player.hp < stopHp then return true, { outcome = "low_hp", hp = o.player.hp, hits_taken = hits, swings = swings } end
-		if not actor or not actor:IsValid() or actor.bActorIsBeingDestroyed then
+		local actor = entry and actorOf(entry) -- found again each frame: a kept object outlives the wall it broke
+		if not actor then
 			return true, { outcome = "defeated", enemy = targetName, swings = swings, hits_taken = hits, hp = o.player.hp }
 		end
 		local ex, ey, ez

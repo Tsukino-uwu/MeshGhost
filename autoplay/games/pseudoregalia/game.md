@@ -76,3 +76,7 @@ known about Pseudoregalia from anywhere else is only where to look. What the dri
 - They read raw keys, not the injected actions: a key posted to the game's window works (Space advanced PRESS START).
   File Select follows the mouse, not the arrow keys; `hoveredFile` on `UI_FileSelect_C` is what the X-hold delete reads.
   Not yet a driver tool.
+- Back into File 8 after a relaunch (Steam app 2365810; 2230650 is TEVI's): a posted Space passes PRESS START; the main
+  menu's FILE SELECT ignored a posted Space and Enter even with focus, and opened by its own bound handler
+  (`BndEvt__UI_MainMenu_newgameButton_..._5_...`, passed the button); `onSaveClicked(UI_FileSlot_7)` loads File 8.
+  Never call into a widget while the title hands over to the main menu: a probe there crashed the game (2026-09-23).
