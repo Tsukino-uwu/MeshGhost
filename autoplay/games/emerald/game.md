@@ -80,7 +80,7 @@ Walked in four runs on 2026-09-17; the bytes
 are in MEASURED.md ("A Mart", "The bag inside a battle").
 
 - **A Mart**: `talk` the clerk, BUY, `select` the item; in the quantity box `press Right` then `press Down` twice asked
-  for 8; `press A`, `advance_text`, YES, `advance_text`; leave with CANCEL, then QUIT. SUPER POTIONs heal more and cost
+  for 8 on 2026-09-17 and for 9 in Mauville on 2026-09-23 (the clerk says the count; read it before YES); `press A`, `advance_text`, YES, `advance_text`; leave with CANCEL, then QUIT. SUPER POTIONs heal more and cost
   more; selling raises money, with no buying back; REPELs keep weaker wild Pokémon away (the user, 2026-09-17).
 - **The BAG opens on the pocket last used** and `press Left`/`Right` change pocket one press each (no `sequence`):
   ITEMS, POKé BALLS, TMs & HMs. A TM or HM is `select`ed by index, never by name (its entry carries control codes).
