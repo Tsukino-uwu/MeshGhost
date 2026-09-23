@@ -351,7 +351,7 @@ func targetTimeline(ctx context.Context, s *mcp.ClientSession, frames int) []map
 // trimChunk keeps a chunk's score and drops what makes it large (the observation after it).
 func trimChunk(res map[string]any) map[string]any {
 	keep := map[string]any{}
-	for _, k := range []string{"outcome", "frames", "hits_taken", "attacks", "ranged", "jumps", "dodges", "orb_pushes", "orb_frames", "hp_start", "hp_end", "target"} {
+	for _, k := range []string{"outcome", "frames", "hits_taken", "attacks", "ranged", "jumps", "dodges", "orb_pushes", "orb_frames", "spiral_slashes", "upper_slashes", "break_launches", "hp_start", "hp_end", "target"} {
 		if v, ok := res[k]; ok {
 			keep[k] = v
 		}

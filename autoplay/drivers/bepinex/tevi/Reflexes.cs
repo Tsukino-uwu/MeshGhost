@@ -100,7 +100,12 @@ namespace MeshGhostAutoplay.Tevi
             // 2026-09-17), taken with the target in her swing's reach across but above her.
             bool spiralSlash = (bool?)args["spiral_slash"] ?? false;
             bool upperSlash = (bool?)args["upper_slash"] ?? false;
-            int spirals = 0, uppers = 0, dirFrames = 0;
+            // `break_launch`: while the target's armor is broken and refilling (the red outline) and she is on the ground with it in her
+            // swing, the swing is Upper Slash, whatever the height. Ribauld's armor broke at a ground combo's hit and refilled over about
+            // 480 frames, in which the armor gate left her dealing 14 HP (the trials timeline, 2026-09-23); the user: moves that "get
+            // them up into the air after breaking them" make a stunlock easier.
+            bool breakLaunch = (bool?)args["break_launch"] ?? false;
+            int spirals = 0, uppers = 0, dirFrames = 0, launches = 0;
             string dirHeld = null;
             int pushes = 0, orbFrames = 0;
             var orbLog = new JArray(); // a sample of the orb decisions, every OrbLogEvery frames spent on an orb
@@ -151,6 +156,7 @@ namespace MeshGhostAutoplay.Tevi
                     ["orb_pushes"] = pushes,
                     ["spiral_slashes"] = spirals,
                     ["upper_slashes"] = uppers,
+                    ["break_launches"] = launches,
                     ["orb_frames"] = orbFrames,
                     ["orb_log"] = orbLog,
                     ["last_dodge"] = guard.LastDodge,
@@ -242,6 +248,7 @@ namespace MeshGhostAutoplay.Tevi
                         tap = inRangeTap;
                         if (tap == "Attack" && spiralSlash && !onGround && dy <= 20f) dirHold = "YAxis-";
                         else if (tap == "Attack" && upperSlash && onGround && dy > 60f) dirHold = "YAxis+";
+                        else if (tap == "Attack" && breakLaunch && onGround && ArmorRecovering(target)) dirHold = "YAxis+";
                         // Standing to swing is not safe but a jump is: swing from the air instead of doing nothing.
                         if (airSwing && onGround && dodge && !guard.StandingSafe(rootFrames) && guard.Safe(Dodge.Move.Jump)) want = Dodge.Move.Jump;
                     }
@@ -407,6 +414,7 @@ namespace MeshGhostAutoplay.Tevi
                     {
                         if (directed && dirHold == "YAxis-") spirals++;
                         else if (directed) uppers++;
+                        if (directed && dirHold == "YAxis+" && ArmorRecovering(target)) launches++;
                         if (tap == "Attack") attacks++;
                         else ranged++;
                         if (orb != null) pushes++;
