@@ -204,3 +204,32 @@ pillar; flip-into-grab edges (to 350) added 6 cells. A leap I added across a "ga
 see from inside (reverted). **Open:** how the dungeon continues from here -- the cage chain to save crystal `_3` and hit
 switch `_2` in the locked door's room (a +253 hop onto a cage top), poles `_2`-`_4`, and wall `_0`. Snapshots (local):
 `pr_has_slide2`, `pr_past_slide_gap`, `pr_ledge2550`, `pr_crystal1`, `pr_upper_3525`, `pr_lockroom`.
+
+## 2026-09-23 (same session) — demos redone, the Keeper, out of the dungeon, Castle Sansa to Indignation
+
+**The user's rule for demos, every game:** *"i demo, you see how i do things, you do it yourself"* -- restore to where
+the demo began and redo it; never carry on from their end (now in the `play-game` skill). I had continued from the end
+of their map demo once; the map was then retaken on her own.
+
+**Their other guidance:** use coyote time off a cage (the jump came too early on the top itself); only 3-5 enemies must
+be beaten (the dungeon's mini boss, 2-4 rooms that lock you in a fight, the last boss) -- ignore every other, route
+around it and jump past; the locked door opens with the sword; the map is right of the next crystal's room; missing
+the gap before the dungeon's exit drops you to the start; "look for the library"; bubbles are in `documentation.md`.
+
+**Walked on her own:** the hanging-cage climb and switch `_2` (their third run); **the Keeper** (640 HP, 15 a hit),
+beaten with 20 of 30 HP left by `fight` style `circle` built from their recorded fight (the recorder now watches an
+enemy beside her: their hits landed from 108-314, its attacks are 0.1 s dashes at 1000-1700 speed) after face-tanking
+lost; key `_1`, the locked door, crystal `_3`, the gap (the leap's run-up is now a distance: two skids had left her at
+340); `ZONE_LowerCastle`; the map and **Indignation** after the user's fourth and fifth runs, the pit crossing first try.
+
+**What broke and why:** planner refusals at thin sills (a walk now retries lifted by the step height, or as a jump);
+diagonal leaps counted in cells reached 850 (now capped by distance, 600); landings beside enemies on pit platforms
+(an enemy cost, leaps too); my jump-past-enemy fired at a pit edge and she fell (now only where the floor continues);
+retries after a pit fall walked the same line (goto now ends `fell`); goto reported pit falls as `hit` (a pit costs 5).
+Crashes: one more, from reading every property on the Keeper -- read only named properties. A heal "stuck" on after
+the user opened the pause menu cleared on their save reload; cause not found.
+
+**Open:** the library exit (`_7`, `libraryWest`) -- the long route across the castle fell in pits twice; `goto` does not
+use bubbles or climb poles by itself; the autoplay mod stays installed in the game's `ue4ss\Mods` (its save guard arms
+only when a core connects). Snapshots (local): `pr_before_miniboss`, `pr_has_key1`, `pr_door_open`, `pr_castle_arrive`,
+`pr_castle_crystal1_map`, `pr_castle_past_pit`, `pr_castle_indignation`.

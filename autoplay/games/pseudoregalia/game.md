@@ -8,7 +8,7 @@ known about Pseudoregalia from anywhere else is only where to look. What the dri
 ## A session
 
 - The driver is `ue4ss\Mods\MeshGhostAutoplay` in the install, core on **7874**. It loads from the repo: an edit is live
-  after a `probe_reloader` restart of `MeshGhostAutoplay`, and the game needs no relaunch.
+  after `reload_game()` through `exec` (never `RestartMod`: it crashed the game twice), no relaunch.
 - **File 8 is autoplay's; Files 1-7 are the user's and never written** (the user, 2026-09-23). The driver's save guard
   holds the game's save slot on File 8 from the first core connection until the game exits: check `observe`'s
   `save.slot` reads `File 8` before a snapshot. The save folder is Steam Cloud-synced.
@@ -46,36 +46,23 @@ known about Pseudoregalia from anywhere else is only where to look. What the dri
 - `moveState` 0 on the ground, 1 in the air, 2 crouched, 3 hanging on a ledge; `actionState` 18 is the skid a backflip starts from, 17 the
   crouch hop. `controlState` 1 or 2 while reading or talking.
 
-## The route so far (walked 2026-09-23)
+## The route (walked 2026-09-23; hops the user played are in `routes/<map>_hops.json`, and `goto` uses them)
 
-- Start room -> its raised doorway -> the corridor -> the hall's 200 ledge -> the strip -> the cage platform.
-- **To the Dream Breaker (attack)**: from the cage platform up the 400 and 600 blocks, west along y ~2900 across two gaps
-  caught by ledge grabs (800, then 1100), a long jump down to the 900 platform, and off it west into the weapon room
-  (-3246, 3144); a jump onto the stage takes the orb. The user played this way once (`routes/dungeon_hops.json`); `goto`
-  uses those hops. The upgrade screen's CONTINUE takes no key or injected action: its widget's bound click handler
-  (`UI_NewUpgradePrompt_C`) was called.
-- **Then, per the user: break walls, reach the save crystal.** Breakable walls (`BP_BreakableWall_C`) have their own
-  `BP_HpHitable` (100 HP, about 7 a hit): `_5` (weapon room south), `_3` (under-roof room, east end) and `_1` (on the 500
-  block) opened the way; **the save crystal (`BP_SavePoint_C_2`, at 550, -3450) saves when struck**, not by Interact.
-
-- **To the slide** (the user's second run, "the one i usually take", 2026-09-23): from below NPC_6, a backflip onto a
-  cage (their shortcut), four ledge grabs up to the 2349 ledge, down and across to the 2000 corridor, breakable wall `_2`
-  at (7450, -2350), east along it and over a gap, **a climb pole** at (12237, -1527) (jump onto it, climb, jump from its
-  top), east over the axes' corridor and north to the slide at (16650, 2600) on a pedestal. `goto` walks all of it from
-  `pr_before_crawler` with the hops and the trail in `routes/dungeon_hops.json`.
-- **The slide taken**: its pickup sits ~175 over the floor on a pedestal the floor traces do not see; run at it and jump.
-  `obtainedSlide?` on the pawn turns true (`observe` lists `abilities`). **Past it** (2026-09-23): out of the slide room
-  through a slide-only gap under a beam at (16550, -650) (`goto` plans `slide` edges), and north over the axes' shelf,
-  sliding under the swinging axes (x 14500, y -2800..-2400: walking, they hit 5 at a time and knock her off).
-- **What is reachable now** (`reach` flooded to the end, 30684 cells, 2026-09-23): NPCs `_1`, `_2`, `_6`, `_8`, the save
-  crystals `_1`/`_2`, pole `_1`, breakable wall `_0` (9150, -2900) -- 200 HP that neither swings nor a slide lower. Not:
-  all three exits, upgrades `_3`/`_8`, both keys, the locked door's room beyond its gate block (reached only by dropping
-  off the gate's top at 4250, 1300, 3525), save crystal `_3`, hit switches, poles `_2`-`_4`. Key `_2` is up a smooth
-  shaft; upgrade `_3` on an 850 pillar. **The height maps' `.` is ambiguous**: a trace that starts inside a wall finds
-  nothing, and one wall read as an open gap (2026-09-23).
-- **Hold Jump through the top of a jump**: it floats her there; letting go at the apex drops her at once and she met a
-  ledge the user grabbed 9-30 lower. **Coyote time**: the user jumped 6-9 frames after leaving an edge for more
-  distance, and lands in the middle of a platform so there is room to jump again (the user's rules, 2026-09-23).
+- **Dungeon**: start -> cage platform -> ledge grabs west -> weapon room: a jump onto the stage takes the Dream Breaker.
+  Walls `_5`, `_3`, `_1` (100 HP, ~7 a hit) -> save crystal `_2` (550, -3450; **a crystal saves and heals when struck**).
+  The user's second run: backflip onto a cage, grabs to the 2349 ledge, wall `_2`, pole `_1` (jump on, climb, jump
+  from its top), the axes' corridor -> the slide on a pedestal at (16650, 2600) (run at it and jump). Out through a
+  slide-only gap under a beam (16550, -650), sliding under the axes. Their third run: grab the **hanging cages** (they
+  have a ledge; leave one in coyote time), hit switch `_2`, north to **the Keeper** (key `_1`, beaten circling), the
+  locked door opened **with the sword**, the leap before exit `_1` (miss it and she falls to the start).
+- **Castle Sansa** (`ZONE_LowerCastle`): crystal `_1` (5017, 8027); the map is east over a pit (the user's grab from the
+  middle of the -870 platform's south edge); south across a pit on two platforms, each with an enemy on it (land clear
+  of it), Indignation at (5400, 2100). Upgrade `_1`'s actor (-2300, 3100) has no pickup in its room (the user). A pit fall
+  costs 5 HP and puts her back. Exits carry their destination in `startTag`: `_7` (6350, -11450) is `libraryWest`,
+  the user's next hint ("look for the library"); unreached, breakable wall `_2` (6300, -6938) on the way.
+- **Bubbles** (moveState 7): the stick does not move one; Jump boosts out at 700 along the stick (`adapters/pseudoregalia/
+  documentation.md`, "Bubble"). `goto` does not use them yet.
+- **Hold Jump through the apex** (it floats her); **coyote time** 6-9 frames off an edge; land mid-platform (the user).
 
 ## Enemies
 
