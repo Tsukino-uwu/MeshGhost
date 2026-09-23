@@ -1263,7 +1263,8 @@ function LEARN.question()
 		end
 		-- "Will A change POKéMON?" before a trainer's next Pokémon (2026-09-23, GUITARIST DALTON on 0.33, the first time the
 		-- party held two): not read, a nudge's A answered YES and opened the party screen. Read by its message, its YES/NO
-		-- cursor taken to be the nickname question's: NOT yet met again since this was written (2026-09-23).
+		-- cursor taken to be the nickname question's: MAY's battle in Lilycove read it before GROVYLE, SLUGMA and PELIPPER
+		-- ("PKMN TRAINER MAY is about to use GROVYLE."), and `select` YES and NO each did what they say (2026-09-23).
 		local d = readDialogue()
 		if d and d.box and d.box:find("change", 1, true) and d.box:find("POK", 1, true) and d.box:sub(-1) == "?" then
 			return { kind = "switch", text = d.box, menu = { items = { "YES", "NO" }, cursor = r8(LEARN.cursorAt) }, no = 1 }
