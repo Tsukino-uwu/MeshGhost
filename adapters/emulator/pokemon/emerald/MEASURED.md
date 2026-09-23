@@ -81,6 +81,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - The MACH BIKE from RYDEL, SELECT to mount, and the map's cycling bit (2026-09-23)
 - TM and HM compatibility, a double battle's menus and target, and a move's target byte (2026-09-23)
 - SURF: the question, the avatar byte, and stepping off onto land (2026-09-23)
+- Long grass (0x03) refuses the MACH BIKE (2026-09-23)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -1156,6 +1157,15 @@ what each byte means as read below.
   0x00; Dewford's gym 3.3 0x00 only. Only 0x15 was surfed.
 - **A trip across**: from (17,10) to (33,10), `goto` answered `obstacle` at the bank, `clear_obstacle` the question, YES,
   `goto` done: 5 calls.
+
+### Long grass (0x03) refuses the MACH BIKE (2026-09-23)
+
+**Vanilla ROM**, autoplay tools and `exec` reads through `mcpcall`.
+
+- 0.34 (Route 119) read 765 tiles of behaviour 0x03 among its 40 by 140 (ROM tiles); rows 128-131 of its south end.
+- Standing on (16,130) (behaviour 0x03), SELECT with the MACH BIKE registered printed "DAD's advice… A, …" and the
+  player stayed on foot (a screenshot); the avatar byte read 0x21 there, 0x01 on plain ground.
+- `goto` with `run` onto 0.34 went on foot (movement `on_foot` after it), the map holding 0x03.
 
 ## Not measured yet
 

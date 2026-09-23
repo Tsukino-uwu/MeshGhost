@@ -2225,6 +2225,23 @@ local routeHooks = {
 		-- where the bike went. So a run on foot mounts first where the bike is registered and bit 0 is set (the user: the
 		-- MACH BIKE is the preferred one, it goes faster).
 		local mount = run and onFoot and r16(r32(SB1PTR) + 0x496) == 259 and (r8(0x02037318 + 0x1A) & 1) == 1
+		-- LONG GRASS (the user, 2026-09-23: tall grass on Route 119 cannot be crossed on a bike, the player has to walk):
+		-- behaviour 0x03, 765 tiles of 0.34 read from the ROM. A map holding any is walked: no mount, and off the bike first.
+		local layout = r32(GMAPHEADER)
+		if STEP.longGrassLayout ~= layout then
+			STEP.longGrassLayout, STEP.longGrass = layout, false
+			local gw, gh, gp = r32(GBACKUPMAPLAYOUT), r32(GBACKUPMAPLAYOUT + 4), r32(GBACKUPMAPLAYOUT + 8)
+			if gw * gh <= 262144 then
+				local grid = memory.read_bytes_as_array(gp, gw * gh * 2, BUS)
+				for i = 1, gw * gh * 2, 2 do
+					if behaviourOf((grid[i] | (grid[i + 1] << 8)) & 0x3FF) == 0x03 then
+						STEP.longGrass = true
+						break
+					end
+				end
+			end
+		end
+		if STEP.longGrass then mount = mach end
 		return { buttons = { B = (run and onFoot) or nil }, coast = mach and STEP.machCoasts or nil, shortLeg = mach and 3 or nil,
 			mount = mount and "Select" or nil }
 	end,
