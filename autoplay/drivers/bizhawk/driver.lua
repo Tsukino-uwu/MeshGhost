@@ -67,13 +67,16 @@ end
 local socket = openSocket()
 
 local game = nil
+-- The library a game module is handed; `select` joins it below, once defined, for a module's programs to chain.
+local shared = nil
 if gameName and gameName:match("^[%w_]+$") then
 	-- A game module is called with the shared library as its argument (`local lib = ...`): `text` is the
 	-- text-and-battle machine both games' advance_text and battle run on, `route` the planner and ride `goto` runs
 	-- on. By path, never by the module's own folder, which a dofile'd chunk cannot resolve
 	-- (adapters/emulator/CLAUDE.md).
 	local chunk = assert(loadfile(DIR .. "/games/" .. gameName .. ".lua"))
-	game = chunk({ text = dofile(DIR .. "/text.lua"), route = dofile(DIR .. "/route.lua") })
+	shared = { text = dofile(DIR .. "/text.lua"), route = dofile(DIR .. "/route.lua") }
+	game = chunk(shared)
 end
 
 local sock, partial, state = nil, "", "down"
@@ -329,6 +332,8 @@ local function selectProgram(p)
 		return { [keys.confirm] = true }, false
 	end
 end
+
+if shared then shared.select = selectProgram end
 
 -- Start carrying out one request. Returns true when it answered at once.
 local function begin(req)

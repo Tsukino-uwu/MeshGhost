@@ -1428,7 +1428,7 @@ local game = {
 	variant = isVanilla and "vanilla" or "unverified",
 	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "cheat:warp", "cheat:set_flag",
 		"cheat:give_item", "cheat:register_item", "select", "walk", "goto", "battle", "advance_text", "type_text",
-		"set_clock", "cheat:noclip", "talk", "clear_obstacle", "search" },
+		"set_clock", "cheat:noclip", "talk", "clear_obstacle", "search", "reflex", "reflex:use_item", "reflex:fly", "reflex:fly_scan", "reflex:swap" },
 	-- The START menu and a YES/NO: Down moved the cursor one entry per press and A chose it; in a battle
 	-- menu Left and Right moved between its two columns (2026-09-16).
 	menuButtons = { prev = "Up", next = "Down", left = "Left", right = "Right", confirm = "A" },
@@ -2288,6 +2288,11 @@ local routeHooks = {
 }
 -- A connection's direction byte: 1 south, 2 north, 3 west, 4 east (the adapter's seams, 2026-08-20).
 routeHooks.connectionDirections = { [1] = "down", [2] = "up", [3] = "left", [4] = "right" }
+-- A script running holds the player: a Mossdeep gym floor switch's script turned a planned step into a refusal and the
+-- exit was set aside (2026-09-23). The script context's status as the text machine reads it (textHooks.scriptRunning).
+routeHooks.busy = function() return r8(SCRIPT_CONTEXT_STATUS) ~= SCRIPT_CONTEXT_OFF and r8(0x03000f2c) ~= 0 end
+-- For `exec`: the planner's hooks, to read any map as `goto` sees it.
+game.routeHooks = routeHooks
 routeHooks.mapExits = function(name)
 	if routeHooks.maps[name] ~= nil then return routeHooks.maps[name] or nil end
 	local hdr, _, w, h = routeHooks.mapHeader(name)
@@ -2434,7 +2439,8 @@ game.programs["goto"] = function(p)
 	for _, mon in ipairs(readParty() or {}) do
 		for _, m in ipairs(mon.moves or {}) do if m.name == "SURF" then routeHooks.surfs = true end end
 	end
-	if p.map ~= nil and p.map ~= (routeHooks.position()) then return lib.route.travel(routeHooks, p) end
+	-- With `map`, even this one: a part of this map behind a warp pad is planned as across maps (2026-09-23).
+	if p.map ~= nil then return lib.route.travel(routeHooks, p) end
 	return lib.route.go(routeHooks, p)
 end
 
@@ -2514,14 +2520,22 @@ function TYPE_CHART.effectiveMove()
 		local foe1, foe2 = mons[foe + 0x22], mons[foe + 0x23]
 		-- The user, 2026-09-23: a foe with WONDER GUARD "can only be damaged by super effective moves and nothing else", so
 		-- against one every other move scores 0. Not met in a battle yet; the ability's name is read as `battle` reads it.
-		local wonderGuard = nameAt(0x0831b6db, 13, 256, mons[foe + 0x21]) == "WONDER GUARD"
+		local foeAbility = nameAt(0x0831b6db, 13, 256, mons[foe + 0x21])
+		local wonderGuard = foeAbility == "WONDER GUARD"
 		for k = 0, 3 do
 			local id, pp = u16of(mons, me + 13 + k * 2), mons[me + 37 + k]
 			if id ~= 0 and pp > 0 then
 				local info = moveInfo(id)
 				local same = info.type_id == own1 or info.type_id == own2
 				local multiplier = info.type_id and TYPE_CHART.multiplier(info.type_id, foe1, foe2) or 1
-				local score = (info.power or 0) * (info.accuracy or 0) * (same and TYPE_CHART.sameTypeBonus or 1) * multiplier
+				-- LEVITATE (2026-09-23, TATE & LIZA's LUNATONE and SOLROCK, the ability read as `battle` reads it): "makes GROUND
+				-- moves miss with LEVITATE", EARTHQUAKE chosen twice against it; a GROUND move is taken as doing nothing.
+				if foeAbility == "LEVITATE" and info.type == "GROUND" then multiplier = 0 end
+				-- A damaging move whose accuracy byte reads 0 never misses (SHOCK WAVE, "never misses" on its summary, scored 0
+				-- and SPARK was chosen over it, 2026-09-23): taken as 100.
+				local acc = info.accuracy or 0
+				if acc == 0 and (info.power or 0) > 1 then acc = 100 end
+				local score = (info.power or 0) * acc * (same and TYPE_CHART.sameTypeBonus or 1) * multiplier
 				if wonderGuard and multiplier <= 1 then score = 0 end
 				if partnerUp and info.target == 0x20 then score = 0 end
 				-- RECOIL (the user, 2026-09-23: TAKE DOWN hurts the user; SWAMPERT ended WINONA's battle on 1 HP): the effect
@@ -2659,6 +2673,357 @@ game.programs.talk = function(p)
 	if #hookNames == 0 then return nil, "talk reads messages through the text hooks, which are off (AUTOPLAY_TEXT=0)" end
 	return lib.route.talk(routeHooks, p, function() return lib.text.advanceText(textHooks) end)
 end
+
+-- The field errands live in their own function: the module's main chunk is at Lua's 200-local limit.
+game.programs.reflex = (function()
+-- CHAINS (2026-09-23): a field errand is a run of small programs one after another -- a tap, a wait on the game's state,
+-- the driver's own `select` (lib.select), advance_text. chain() runs each factory's program to its end, handing on to the
+-- next; the first error ends it. A factory may return nil for "nothing to do".
+local function chain(steps, finish)
+	local i, cur, log = 1, nil, {}
+	return function()
+		for _ = 1, 8 do
+			if not cur then
+				local s = steps[i]
+				if not s then return nil, true, finish and finish(log) or { log = log } end
+				local prog, err = s(log)
+				if err then return nil, true, nil, string.format("step %d: %s", i, err) end
+				if not prog then i = i + 1 else cur = prog end
+			end
+			if cur then
+				local pad, done, res, err = cur()
+				if err then return nil, true, nil, string.format("step %d: %s", i, err) end
+				if not done then return pad, false end
+				if res ~= nil then log[#log + 1] = res end
+				cur, i = nil, i + 1
+				return pad, false
+			end
+		end
+		return nil, false
+	end
+end
+-- A tap: held 3 frames, let go 6.
+local function tap(button)
+	return function()
+		local n = 0
+		return function()
+			n = n + 1
+			if n <= 3 then return { [button] = true }, false end
+			return nil, n >= 9
+		end
+	end
+end
+-- Nothing pressed until pred() holds, at most limit frames.
+local function waitFor(pred, limit, what)
+	return function()
+		local n = 0
+		return function()
+			n = n + 1
+			if pred() then return nil, true end
+			if n > limit then return nil, true, nil, "waited " .. limit .. " frames for " .. what end
+			return nil, false
+		end
+	end
+end
+local function menuHas(item)
+	return function()
+		local m = game.menu()
+		if type(m) ~= "table" or type(m.items) ~= "table" then return false end
+		for _, it in ipairs(m.items) do if it == item then return true end end
+		return false
+	end
+end
+local function choose(item)
+	return function() return lib.select({ item = item }) end
+end
+-- The overworld with no script, message or menu: what every errand ends on.
+local function fieldClear()
+	return inOverworld() and r8(SCRIPT_CONTEXT_STATUS) == SCRIPT_CONTEXT_OFF and readDialogue() == nil and game.menu() == nil
+end
+-- B until the field is clear again.
+local function closeAll()
+	return function()
+		local n = 0
+		return function()
+			n = n + 1
+			if fieldClear() then return nil, true end
+			if n > 400 then return nil, true, nil, "the field did not clear after B for 400 frames" end
+			if n % 12 < 3 then return { B = true }, false end
+			return nil, false
+		end
+	end
+end
+local function sb1Key() return r32(SB1PTR), r32(r32(SB2PTR) + 0xAC) end
+
+-- A menu of `kind` walked to entry `target` by taps, one each 12 frames, then A: `select`'s held Down ran on past the
+-- Pokémon in the field party list, and on the summary's move list a held Down was not taken (TM34 from the BAG, 2026-09-23).
+local function tapTo(kind, target)
+	local k, tapped = 0, false
+	return function()
+		k = k + 1
+		local pm = game.menu()
+		if not pm or pm.kind ~= kind then return nil, true end
+		if k > 600 then return nil, true, nil, string.format("the %s cursor did not reach %d", kind, target) end
+		if k % 12 >= 3 then return nil, false end
+		if pm.cursor == target then
+			if tapped and k % 48 >= 3 then return nil, false end
+			tapped = true
+			return { A = true }, false
+		end
+		return { [pm.cursor < target and "Down" or "Up"] = true }, false
+	end
+end
+
+-- use_item {item, on, forget}: B until the field is clear, START, BAG, the item's pocket by Right until the bag shows it, the item, USE, then on the party list
+-- the Pokémon named `on` (a nickname or its slot, 0-based), and the messages to their end; then B until the field is clear.
+-- The repel counter (SaveBlock1 +0x13DE, VAR_REPEL_STEP_COUNT; 250 after a MAX REPEL, 2026-09-23) is reported.
+local function useItem(p)
+	if not isVanilla then return nil, "use_item is measured on the vanilla ROM only" end
+	local want = tostring(p.item or "")
+	local sb1, key = sb1Key()
+	-- The pocket and the item's place in it: the list shows a pocket in the bag's own order (ITEMS read so, and TMs & HMs,
+	-- whose entries print the machine's number and move with formatting codes, so they are chosen by place, 2026-09-23).
+	local pocket, place
+	for idx, pk in ipairs(POCKETS) do
+		for i, it in ipairs(readBag(sb1, key)[pk.name] or {}) do
+			if it.item == want then pocket, place = idx - 1, i - 1 end
+		end
+	end
+	if not pocket then return nil, "the bag holds no " .. want end
+	local target = p.on
+	if type(target) == "string" then
+		for i, mon in ipairs(readParty() or {}) do if mon.nickname == target then target = i - 1 end end
+		if type(target) == "string" then return nil, "no Pokémon in the party is named " .. p.on end
+	end
+	local steps = {
+		closeAll(), tap("Start"), waitFor(menuHas("BAG"), 60, "the START menu"), choose("BAG"),
+		waitFor(function() local m = game.menu(); return m and m.list and m.pocket end, 120, "the bag's list"),
+		function()
+			local n = 0
+			return function()
+				n = n + 1
+				local m = game.menu()
+				if r8(BAG_POSITION + 5) == pocket and m and m.list and #m.items > place then return nil, true end
+				if n > 300 then return nil, true, nil, "the pocket did not come round" end
+				if n % 20 < 3 then return { Right = true }, false end
+				return nil, false
+			end
+		end,
+		-- A pocket just turned to takes no Up or Down while it slides in: 30 frames first.
+		function() local n = 0; return function() n = n + 1; return nil, n >= 30 end end,
+		function() return lib.select({ index = place }) end, waitFor(menuHas("USE"), 60, "USE"), choose("USE"),
+		-- What the item asks, answered until the bag's list is back or the field is clear: the party list (`on`), a YES/NO
+		-- (YES), a TM's learn-a-move questions (`forget` names the move to give up; without it the move is not learned),
+		-- and every message read through.
+		function()
+			local n, sub, quiet = 0, nil, 0
+			return function()
+				n = n + 1
+				if sub then
+					local pad, done, _, err = sub()
+					if err then return nil, true, nil, err end
+					if done then sub = nil end
+					return pad, false
+				end
+				if n > 3000 then return nil, true, nil, "the item's questions did not end" end
+				local m, d = game.menu(), readDialogue()
+				local answer
+				if m and m.kind == "party" then
+					if target == nil then return nil, true, nil, "the item asks for a Pokémon: name one with `on`" end
+					sub = tapTo("party", target)
+				elseif m and m.kind == "forget_move" then
+					if not p.forget then return nil, true, nil, "the move asks what to forget: name it with `forget`" end
+					local at
+					for i, it in ipairs(m.items) do if it == p.forget then at = i - 1 end end
+					if not at then return nil, true, nil, "no move " .. p.forget .. " to forget: " .. table.concat(m.items, ", ") end
+					sub = tapTo("forget_move", at)
+				elseif m and (m.kind == "learn_move") then
+					answer = p.forget and "YES" or "NO"
+				elseif m and m.kind == "stop_learning" then
+					answer = "YES"
+				elseif m and menuHas("YES")() then
+					answer = "YES"
+				elseif m and m.list then
+					if n > 30 then return nil, true end
+				elseif d then
+					sub = game.programs.advance_text()
+				elseif fieldClear() then
+					return nil, true
+				end
+				if answer then sub = lib.select({ item = answer }) end
+				return nil, false
+			end
+		end,
+		closeAll(),
+	}
+	return chain(steps, function(log)
+		local s1 = r32(SB1PTR)
+		return { used = want, on = p.on, repel_steps = r16(s1 + 0x13DE), log = log }
+	end), nil, 2400
+end
+
+-- THE FLY MAP (2026-09-23, from MOSSDEEP CITY 0.6): while it was up, [0x0203a148] pointed at a struct whose +0x0C held the
+-- place name under the cursor ("MOSSDEEP CITY", then "ROUTE 125" a Down later), +0x08 a byte that changed with it (0x0d,
+-- then 0x2a), and +0x5C/+0x5E the cursor's column and row (25,7 on MOSSDEEP CITY; Right made 26,7 and Down 26,8).
+-- FLY_SPOTS: a cell of each town, read by `fly_scan` over rows 2-16 and columns 1-28 (2026-09-23, vanilla, from MOSSDEEP
+-- CITY 0.6; the cursor moved only inside those); `fly` to a town not in it needs a scan first.
+local FLY_MAP_PTR = 0x0203a148
+local FLY_SPOTS = {
+	["LITTLEROOT TOWN"] = { x = 5, y = 13 }, ["OLDALE TOWN"] = { x = 5, y = 11 }, ["PETALBURG CITY"] = { x = 2, y = 11 },
+	["RUSTBORO CITY"] = { x = 1, y = 7 }, ["DEWFORD TOWN"] = { x = 3, y = 16 }, ["SLATEPORT CITY"] = { x = 9, y = 12 },
+	["MAUVILLE CITY"] = { x = 9, y = 8 }, ["VERDANTURF TOWN"] = { x = 5, y = 8 }, ["FALLARBOR TOWN"] = { x = 4, y = 2 },
+	["LAVARIDGE TOWN"] = { x = 6, y = 5 }, ["FORTREE CITY"] = { x = 13, y = 2 }, ["LILYCOVE CITY"] = { x = 20, y = 5 },
+	["MOSSDEEP CITY"] = { x = 26, y = 7 }, ["SOOTOPOLIS CITY"] = { x = 22, y = 9 }, ["PACIFIDLOG TOWN"] = { x = 18, y = 12 },
+	["EVER GRANDE CITY"] = { x = 28, y = 10 }, ["BATTLE FRONTIER"] = { x = 23, y = 14 }, ["SOUTHERN ISLAND"] = { x = 13, y = 16 },
+}
+local function flyMap()
+	local p = r32(FLY_MAP_PTR)
+	if not inEwram(p) then return nil end
+	local b = readString(p + 12)
+	-- The name is padded with spaces to its field's width.
+	return { name = decode(b, 1, #b):match("^(.-)%s*$"), x = r16(p + 0x5C), y = r16(p + 0x5E) }
+end
+-- The party menu: gMain.callback2 on its routine and its cursor byte (LEARN.partyMenu), 0 on opening from START.
+local function partyMenuUp() return (r32(GMAIN_CB2) & 0xFFFFFFFE) == LEARN.partyMenu.cb2 end
+local function partyCursor() return memory.read_s8(LEARN.partyMenu.at + 9, BUS) end
+-- The cursor to cell (x, y), one tapped direction at a time, each waiting until the cell reads changed.
+-- `soft` (the scan): a direction the cursor does not take ends it quietly, at the map's edge.
+local function flyCursorTo(x, y, soft)
+	return function()
+		local n, held, from = 0, 0, nil
+		return function()
+			n = n + 1
+			local m = flyMap()
+			if not m then return nil, true, nil, "the fly map is not up" end
+			if n > 1200 then return nil, true, nil, string.format("the cursor is at %d,%d, not %d,%d", m.x, m.y, x, y) end
+			if held > 0 then
+				held = held + 1
+				if held <= 3 then return { [from.dir] = true }, false end
+				if (m.x ~= from.x or m.y ~= from.y) and held > 6 then held = 0 end
+				if held > 40 then
+					if soft then return nil, true end
+					held = 0
+				end
+				return nil, false
+			end
+			if m.x == x and m.y == y then return nil, true, { at = m.name, x = x, y = y } end
+			local dir = (m.x < x and "Right") or (m.x > x and "Left") or (m.y < y and "Down") or "Up"
+			from, held = { x = m.x, y = m.y, dir = dir }, 1
+			return { [dir] = true }, false
+		end
+	end
+end
+-- START, POKéMON, the first Pokémon knowing FLY by Down, A, FLY: the fly map up.
+local function openFlyMap()
+	local slot
+	for i, mon in ipairs(readParty() or {}) do
+		for _, mv in ipairs(mon.moves or {}) do if mv.name == "FLY" and not slot then slot = i - 1 end end
+	end
+	if not slot then return nil, "no Pokémon in the party knows FLY" end
+	return {
+		closeAll(), tap("Start"), waitFor(menuHas("POKéMON"), 60, "the START menu"), choose("POKéMON"),
+		waitFor(partyMenuUp, 120, "the party menu"), waitFor(function() return partyCursor() == 0 end, 30, "the party cursor"),
+		function()
+			local n = 0
+			return function()
+				n = n + 1
+				if partyCursor() == slot then return nil, true end
+				if n > 200 then return nil, true, nil, "the party cursor did not reach slot " .. slot end
+				if n % 12 < 3 then return { Down = true }, false end
+				return nil, false
+			end
+		end,
+		tap("A"), waitFor(menuHas("FLY"), 60, "the Pokémon's menu"), choose("FLY"),
+		waitFor(function() local m = flyMap(); return m and m.name ~= "" end, 180, "the fly map"),
+	}
+end
+local function append(a, b) for _, s in ipairs(b) do a[#a + 1] = s end return a end
+
+-- fly_scan {from, to}: opens the fly map and walks the cursor over rows `from` to `to` (2-16), columns 1-28, reading each
+-- cell's name; returns the first cell of each name. What it read goes into FLY_SPOTS for this session.
+local function flyScan(p)
+	local steps, err = openFlyMap()
+	if not steps then return nil, err end
+	local found = {}
+	for y = math.tointeger(p.from) or 2, math.tointeger(p.to) or 5 do
+		for xi = 1, 28 do
+			local x = (y % 2 == 0) and xi or (29 - xi)
+			steps[#steps + 1] = flyCursorTo(x, y, true)
+			steps[#steps + 1] = function()
+				local m = flyMap()
+				if m and m.x == x and m.y == y and m.name ~= "" and not found[m.name] then
+					found[m.name] = { x = x, y = y }
+					FLY_SPOTS[m.name] = { x = x, y = y }
+				end
+			end
+		end
+	end
+	steps[#steps + 1] = closeAll()
+	return chain(steps, function() return { spots = found } end), nil, 3600
+end
+
+-- fly {town}: the fly map, the cursor onto the town's cell, A, and the flight to its end (the field clear on another map).
+local function fly(p)
+	local town = tostring(p.town or ""):upper()
+	local spot = FLY_SPOTS[town]
+	if not spot then return nil, "no cell known for " .. town .. " (fly_scan reads them)" end
+	local steps, err = openFlyMap()
+	if not steps then return nil, err end
+	local fromMap
+	append(steps, {
+		function() fromMap = r16(r32(SB1PTR) + 4) end,
+		flyCursorTo(spot.x, spot.y), tap("A"),
+		waitFor(function() return fieldClear() and r16(r32(SB1PTR) + 4) ~= fromMap end, 900, "the landing"),
+	})
+	return chain(steps, function(log) return { flew_to = town, log = log } end), nil, 3600
+end
+
+-- The party cursor to `slot` by taps, one each 12 frames (the START menu's party screen). While SWITCH picks the second
+-- Pokémon the cursor that moves is the next byte (LEARN.partyMenu.at + 10: Down from slot 0 read 0 then 1 there while +9
+-- stayed 0, 2026-09-23); 7 is CANCEL.
+local function partyTapTo(slot, second)
+	local at = LEARN.partyMenu.at + (second and 10 or 9)
+	return function()
+		local k = 0
+		return function()
+			k = k + 1
+			local c = memory.read_s8(at, BUS)
+			if c == slot then return nil, true end
+			if k > 400 then return nil, true, nil, "the party cursor did not reach slot " .. slot end
+			if k % 12 >= 3 then return nil, false end
+			return { [(c < slot) and "Down" or "Up"] = true }, false
+		end
+	end
+end
+-- swap {a, b}: party slots a and b (0-based) change places: START, POKéMON, a, A, SWITCH, b, A; the party read back.
+local function swap(p)
+	local a, b = math.tointeger(p.a), math.tointeger(p.b)
+	local party = readParty() or {}
+	if not a or not b or a == b or a < 0 or b < 0 or a >= #party or b >= #party then return nil, "swap needs two party slots" end
+	local was = party[a + 1].nickname
+	return chain({
+		closeAll(), tap("Start"), waitFor(menuHas("POKéMON"), 60, "the START menu"), choose("POKéMON"),
+		waitFor(partyMenuUp, 120, "the party menu"), waitFor(function() return partyCursor() == 0 end, 30, "the party cursor"),
+		-- The screen takes no A while it fades in: 30 frames first.
+		function() local n = 0; return function() n = n + 1; return nil, n >= 30 end end,
+		partyTapTo(a), tap("A"), waitFor(menuHas("SWITCH"), 60, "the Pokémon's menu"), choose("SWITCH"),
+		partyTapTo(b, true), tap("A"),
+		waitFor(function() local now = readParty() or {}; return now[b + 1] and now[b + 1].nickname == was end, 240, "the swap"),
+		closeAll(),
+	}, function() local out = {}; for _, m in ipairs(readParty() or {}) do out[#out + 1] = m.nickname end; return { party = out } end),
+		nil, 2400
+end
+
+-- reflex {kind, args}: the field errands above, each a program by kind.
+local ERRANDS = { use_item = useItem, fly = fly, fly_scan = flyScan, swap = swap }
+return function(p)
+	local make = ERRANDS[p.kind]
+	if not make then return nil, "no reflex " .. tostring(p.kind) end
+	local prog, err, limit = make(type(p.args) == "table" and p.args or {})
+	if not prog then return nil, err end
+	return prog, nil, math.max(limit or 0, math.tointeger(p.frames) or 0)
+end
+end)()
 
 -- type_text {text, confirm}: types on the naming keyboard (THE NAMING KEYBOARD, above) the way a player does. B until
 -- nothing is typed; then for each character Select until a page holding it shows, a direction one step at a time until

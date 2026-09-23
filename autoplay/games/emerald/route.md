@@ -140,3 +140,26 @@ Walked 2026-09-23.
   caught with an ULTRA BALL. MATT (local 1) is in 24.25's dock room, entered by the pad at 24.25 (8,8), whose room is
   reached from 24.24's (12,1) stairs, and that block from 24.25's (3,3) stairs, reached by the pad at 24.25 (31,8).
 
+
+## Mossdeep's gym (TATE & LIZA), walked 2026-09-23
+
+- Gym 14.0, door (6,35) from Mossdeep 0.6 (38,9). Rooms joined by warp pads (behaviour 0x0e) landing on the same map:
+  (3,28)→(1,23), (7,18)↔(8,12), (11,3)↔(11,35), (13,32)↔(21,10), (1,33)↔(20,24). `goto` with `map` "14.0" plans over them.
+- Coloured floor switches move every character standing on that colour's arrows one tile round its loop (the gym's
+  trainers ride them): yellow (2,21) and (3,30), blue (8,10) and (6,7), red (8,6), green (15,34), purple (23,24), (23,21).
+  Step off and back on to press again. `exec` with the map's metatiles (0x250 + 8 per colour) and the characters shows
+  each loop; its state was worked out by hand from that.
+- The way walked: entrance → (3,28) pad; yellow ×3 at (2,21), row 20 right to (8,18), pad (7,18) → (8,12). Blue at (8,10)
+  until the right loop's two sit on (9,8),(10,8); for red, cross left when the left loop's two are on (6,8),(6,9)
+  ((7,9),(7,8),(7,7)), press blue once at (6,7), down (6,8) to (4,8), up to (4,4), right to (8,4), red ×3 at (8,6) (the right
+  loop's two on (12,5),(12,6)); back the same way to (7,7), blue ×3 at (6,7), down to (8,9), blue once at (8,10), right
+  along row 9 and up x=11 to the pad (11,3) → (11,35). Its pocket needs green ×2 at (15,34) first (the loop's free tile
+  on (12,34)), reached from the entrance's pad (1,33) → (20,24). Then (12,35),(12,34),(13,34) up to the pad (13,32) →
+  (21,10), the leaders at (23,7) and (24,7); (21,6) warps back to the entrance.
+- Trainers on the way: 5 double and single psychic fights, all won by SWAMPERT's SURF/EARTHQUAKE.
+- First try at TATE & LIZA (CLAYDOL, XATU, LUNATONE, SOLROCK, a double battle, lv 41-42) lost: SWAMPERT went in with 2
+  SURF PP left, ELECTRODE fell to CLAYDOL's EARTHQUAKE, EARTHQUAKE was chosen twice into LEVITATE, SOLROCK's SUNNY DAY
+  then SOLARBEAM. Restore PP at a Center before a leader.
+- Second try, same day, full PP: ELECTRODE fell to CLAYDOL's EARTHQUAKE again; CASTFORM sent in used RAIN DANCE and
+  SWAMPERT's SURF took all four. The MIND BADGE (DIVE outside battle) and TM04 (CALM MIND). The gym's run from the Center
+  (green, yellow, blue, red and blue presses counted live) is a script in the session, not in the repo yet.

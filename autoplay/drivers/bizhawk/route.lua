@@ -46,6 +46,8 @@
 --                                       all before a held direction is `no_response`; the same toward a warp or while
 --                                       entering one; a coast or a last step finishing
 --   optional:
+--   busy()               -> boolean     a script holds the player (a floor switch's): nothing is held, and the route is
+--                                       planned again once it lets go; `busy` after BUSY_LIMIT frames of it
 --   arriving()           -> function    called once per goto; the function it returns is called first every frame and
 --                                       returns true while a warp or a map change is still under way, and nothing is
 --                                       held then; the map is compared once it returns false, and after `limits.door`
@@ -230,6 +232,8 @@ end
 -- fewer is reached by stopping at its corner first (after a turn at speed the Mach Bike's first tile coasted three).
 -- It stops for the same reasons `walk` does (the module's `watch`), and a warp or an edge that changes the map ends it
 -- too. Returns (program, error, frame limit) like any program.
+local BUSY_LIMIT = 900
+
 function M.go(h, p)
 	local toX, toY = math.tointeger(p.x), math.tointeger(p.y)
 	if not toX or not toY then return nil, "goto needs x and y, a tile on this map" end
@@ -241,6 +245,7 @@ function M.go(h, p)
 	local closed, towardWarp, legsTaken, inSight, entries, stopAt, mounted = {}, false, 0, {}, {}, nil, false
 	local stops = h.watch()
 	local arriving, arrivingFor = h.arriving and h.arriving(), 0
+	local busyFor = 0
 	local function finish(outcome, extra)
 		local _, x, y = h.position()
 		local r = { target = { x = toX, y = toY }, at = { x = x, y = y }, outcome = outcome, moved = moved,
@@ -295,9 +300,23 @@ function M.go(h, p)
 		end
 		if map ~= startMap and enter then return finish("map_changed", { map = map, entered = { x = warpX, y = warpY } }) end
 		if map ~= startMap then return finish("map_changed", { map = map }) end
-		if not h.inOverworld() then return finish("left_overworld") end
+		if not h.inOverworld() then
+			-- A warp that lands on this same map (Emerald's warp pads, 2026-09-23): the overworld left while the player
+			-- stands on a warp tile is a warp taken, answered as a map change so `travel` plans again from the landing.
+			if warpAhead(x, y, { dx = 0, dy = 0 }) then return finish("map_changed", { map = map, warped = { x = x, y = y } }) end
+			return finish("left_overworld")
+		end
 		local stop, fields = stops()
 		if stop then return finish(stop, fields) end
+		-- A script holding the player (a floor switch stepped on, Emerald's Mossdeep gym, 2026-09-23): nothing held until
+		-- it lets go, then planned again from where the player stands, so a step refused meanwhile is not taken as a wall.
+		if h.busy and h.busy() then
+			busyFor = busyFor + 1
+			if busyFor > BUSY_LIMIT then return finish("busy") end
+			phase, frames = "rest", 0
+			return nil, false
+		end
+		busyFor = 0
 
 		if phase == "rest" then
 			if not h.atRest() then
@@ -577,13 +596,16 @@ function M.travel(h, p)
 		local map, x, y = h.position()
 
 		if phase == "settle" then
-			if not (h.inOverworld() and h.atRest()) then
+			if not (h.inOverworld() and h.atRest()) or (h.busy and h.busy()) then
 				if frames > SETTLE_FRAMES then return finish("left_overworld") end
 				return nil, false
 			end
 			if maps[#maps] ~= map then maps[#maps + 1] = map end
 			local why
-			if map == toMap then
+			-- On the target map, straight there only where a walk from here reaches it; a part of the map behind a warp that
+			-- lands on this same map (warp pads) is planned as any other map is.
+			local here = h.mapExits(map)
+			if map == toMap and flood(map, here, x, y, h.playerElevation and h.playerElevation() or nil)[toY * here.width + toX] then
 				inner, why = M.go(h, { x = toX, y = toY, run = sub.run, cross_grass = sub.cross_grass })
 				if not inner then return finish("unreachable", { reason = why }) end
 				phase = "last"

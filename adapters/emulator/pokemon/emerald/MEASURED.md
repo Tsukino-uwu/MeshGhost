@@ -83,6 +83,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - SURF: the question, the avatar byte, and stepping off onto land (2026-09-23)
 - Long grass (0x03) refuses the MACH BIKE (2026-09-23)
 - The repel step counter, the FLY map's place name, and rotating gate bytes (2026-09-23)
+- The FLY map's cursor, the party screen's cursors, and Mossdeep's rotating statues (2026-09-23)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -1181,6 +1182,31 @@ the decomp's var list (VAR_REPEL_STEP_COUNT 0x4021, vars at SaveBlock1 +0x139C),
 - **Rotating gates** (WINONA's gym 12.1): the eight bytes at SaveBlock1 +0x139C (VAR_TEMP_0 on) read 1,2,1,1,0,0,0,2 at the
   door, the decomp's starting table; each changed by one as the player pushed through its gate (a read-only recorder of
   tile and bytes, the user walking), and the recorded moves replayed from the door reached (15,3) with 2,3,2,1,0,3,1,3.
+
+### The FLY map's cursor, the party screen's cursors, and Mossdeep's rotating statues (2026-09-23)
+
+**Vanilla ROM**, autoplay tools and `exec` reads through `mcpcall`; the rotating puzzle's routine from the decomp as the map
+(which colour moves on a switch, arrows one step), what moved read below.
+
+- **FLY map cursor**: with the map up from MOSSDEEP CITY 0.6, the u16s at [0x0203a148] +0x5C and +0x5E read 25 and 7 on
+  "MOSSDEEP CITY"; Right made 26,7 (+8 from 0x0d to the same, still MOSSDEEP CITY) and Down 26,8 ("ROUTE 125", +8 0x2a).
+  A walk of the cursor over every cell (the driver's `fly_scan`) moved it only over columns 1-28 and rows 2-16; each
+  town's first cell read so is the table in `autoplay/drivers/bizhawk/games/emerald.lua` (FLY_SPOTS). `fly` to LILYCOVE
+  CITY by it landed on 0.5 (24,15) in 501 frames, and back to MOSSDEEP CITY on 0.6 (28,17) in 517.
+- **Party screen cursors** (the START menu's POKéMON): the s8 at 0x0203cec8 +9 read 0 on opening and followed Down;
+  after SWITCH the cursor that moved was +10 (Down from slot 0: 0, then 1, while +9 stayed 0), CANCEL 7. A held Down
+  through `select` ran past the Pokémon there, and on the summary's forget-a-move list a held Down was not taken; taps
+  12 frames apart were taken on both.
+- **The bag's TMs & HMs list** printed each entry as formatting codes, the number and the move ("{F9}Ë34{FC}ÙÊSHOCK WAVE"),
+  in the bag's own order (TM08 ... HM06), so it is chosen by place. A pocket just turned to took no Up for 30 frames.
+- **Mossdeep's gym 14.0, the statues**: the metatile ids on the gym floor read 0x250 upward in rows of 8 per colour
+  (yellow, blue, green, purple, red; the first four of a row arrows right, down, left, up, the fifth the switch).
+  Stepping onto the blue switch (8,10) moved the four characters on blue arrows one tile each: 6 (7,8) to (6,8), 15
+  (6,8) to (6,9), 16 (9,9) to (10,9), 17 (10,9) to (10,8); a later press, and every red, green and yellow press after,
+  moved its colour's characters along the same loops as predicted from the arrows (13 presses in all). The characters
+  are the gym's trainers and statues; the switches are step-on events (none reads in the tile's behaviour byte).
+- **A warp pad** (behaviour 0x0e) landed on the same map: (3,28) on (1,23), (8,12) on (7,18), (11,3) on (11,35), (13,32)
+  on (21,10), (1,33) on (20,24), matching the map's warp table.
 
 ## Not measured yet
 

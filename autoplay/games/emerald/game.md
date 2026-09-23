@@ -101,6 +101,9 @@ are in MEASURED.md ("A Mart", "The bag inside a battle").
 - **Heal before a fight, outside it** (the user, 2026-09-23): check the party's HP before any trainer and after every battle,
   and use items in the field; a battle turn spent on a potion hands the foe a free hit (SWAMPERT, healed mid-fight, fell to
   TROPIUS's SOLARBEAM). A fainted Pokémon comes back with a REVIVE after switching to another (the user).
+- **Weather for a double battle** (the user, 2026-09-23): CASTFORM's RAIN DANCE powers SWAMPERT's SURF (and answers a
+  foe's SUNNY DAY); a spare Pokémon (TAILLOW) can take a turn's hits while a REVIVE goes on a fainted one. TATE & LIZA fell
+  on the second try so: CASTFORM in for ELECTRODE, RAIN DANCE, then SURF three times.
 - **A sacrifice is a real tactic** (the user): send in a weak Pokémon to take the hits while a SUPER POTION or REVIVE goes on
   the strong one on the bench; when it faints the strong one comes back in free (WINONA's TROPIUS, 2026-09-23).
 - **Recoil and confusion hurt the user** (the user): TAKE DOWN's recoil and a confused Pokémon hitting itself; SWAMPERT ended
@@ -123,6 +126,13 @@ are in MEASURED.md ("A Mart", "The bag inside a battle").
   (the user): train a second Pokémon to fight before it.
 - **Training** (the user): surfing and the SUPER ROD meet higher-level wild Pokémon, as later areas do; a legendary
   caught later comes at a high level and is worth using.
+- **Level up on the fight itself** (the user, 2026-09-23): wild Pokémon give little experience and trainers more; a
+  lost fight still pays its experience, so retrying a gym is the grind, rather than wild battles.
+- **The strongest leads; a weak one trains by opening and switching out** (the user, 2026-09-23): the highest level
+  stays in slot 1. To level a weak Pokémon, it goes first and SWAMPERT is switched in on turn one, so it shares the
+  experience without taking the hits (ELECTRODE led alone on Route 124 and fainted in its first wild fight).
+  Only when it cannot fight that foe itself (the user, same day): one that can stays in and fights -- ELECTRODE
+  against a Lv24 WINGULL, whose type takes electric moves at four times.
 - **X items are a plan, not a reflex** (the user): against a team out-levelling yours (the Elite Four), open with two or
   three X ATTACKs, then knock each foe out in one hit; never used at random.
   Use them on a safe turn (the foe using a status move such as GROWL, or a weak Pokémon out); X SPEED against a faster
