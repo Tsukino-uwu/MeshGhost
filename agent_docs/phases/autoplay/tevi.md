@@ -647,3 +647,28 @@ combat map and the ladder scripts are in the chat's scratch folder only.
 
 **The ladder, as run**: `cmd/trials` with `-n 10` and `-set` per rung, from a queue file, one rung at a time. Deploy only while
 a hold file keeps the next rung from starting. A deploy that raced a rung's start cut one rung (R7's first run) short.
+
+## 2026-09-23 (evening) — past Ribauld into the story: the sewers, the desert base, Thanatara Canyon, the oasis home
+
+The user: *"continue with the story instead of stopping at the first boss fight"*. Infernal BBQ first, then, at the user's word, the
+Cakewalk save (`tevi_ribauld_start`) after normal enemies on Infernal took 26 to 42 of her ~100 HP a hit with no healing found.
+
+**Walked** (goto legs, fights, the user's demo redone): Ribauld on Cakewalk; the sewer's shoot-chain wall (a charged shot is Ranged
+tapped at MP 100, fired level with the blocks); the Cross Bomb (Down + Attack on the ground, a vertical and horizontal line, one
+column a bomb); out through the Golden Hands Desert Base into Thanatara Canyon; the canyon's climb from the user's demo; Health Plus
+(+10% max HP, 101 to 111 read); the oasis home's scene, which completes "A Journey Begins". Snapshots `tevi_cw_*` (gitignored).
+
+**What was learned:**
+- **`goto` does the moving; hand-timed jumps were the struggle** (the user: *"we shouldn't be struggling this hard"*). Where `goto`
+  stalls, the user's demo showed a **running jump** (full speed sideways the whole arc); a chain of `goto` legs between the demo's
+  landings, plus that jump at three points, redid the whole climb.
+- **`unknown_ranged` defaults on** and fights every enemy kind without a learned tell with Orbitars only; the user: melee does far
+  more. `unknown_ranged:false` per call for now; making it the default is open.
+- **`fight` chases a target it cannot reach** (a bot on the platform above, through the floor; ten no-progress runs undid a climb).
+  The loop now only fights enemies within 120 units of her height.
+- **The game runs between calls**: standing near enemies while reading cost a death on Infernal. Hold the clock near enemies.
+- **The difficulty read Infernal BBQ after the home scene** on a save that read Cakewalk up to the door; set back by
+  `cheat:difficulty`. Cause not measured.
+- **The flight recorder holds 60 s**: a demo longer than that loses its start; mark the start frame and keep demos short.
+- **Left open:** an EP pickup behind chain-bomb blocks in the sewer shaft room; an `explore` reflex (choose where to go) instead of
+  the chat's scratch loop.
