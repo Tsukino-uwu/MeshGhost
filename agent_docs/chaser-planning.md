@@ -12,7 +12,8 @@ is deleted when the last part lands.**
 (*"a small pause/freeze for them, or small iframe when respawning"*); sitting holds the pack (*"so you
 can catch your breath and heal up"*). **No damage-amount setting** (the user: *"5 or just insta death
 is probly fine"*): `hurt` stays an enemy touch's 5, `kill` is the stronger option. Knockback and
-sword-drop kinds stay out (DamageType 2 with a chaser crashes).
+sword-drop kinds stay out (DamageType 2 with a chaser crashes). **The default stays `"off"`** (asked
+whether `kill` should be the default, the user: *"I guess keep it off then"*; ADR 0068 unchanged).
 
 ## Context
 
