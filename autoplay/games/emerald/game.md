@@ -75,6 +75,11 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
   ULTRA BALLs and still fail. Before one, buy 40-50+ ULTRA BALLs and plenty of potions: the catch means tanking many
   hits. Bring it to low HP (1 HP if possible) and give it sleep or paralysis, never poison -- for any catch, legendaries
   above all. The MASTER BALL needs none of it: it always catches, even at full HP.
+- **Status** (the user, 2026-09-23): frozen, asleep, paralysed and the like keep a Pokémon from attacking; a FULL RESTORE
+  heals and cures at once, a FULL HEAL or the matching heal cures, a POTION of any kind only heals; or wait it out.
+- **Only the strong fight in the League** (the user, 2026-09-23): the rest are sacrifices for a safe turn -- switch a
+  low-level one in to take the hit, heal or REVIVE, switch back. Set up first where the lead survives it (BULK UP or X
+  items, one or two, then sweep), and run low on PP with a TM's new move. WAILORD's BLIZZARD did ~180 to RAYQUAZA a turn.
 - **The PC in a Center** deposits and withdraws Pokémon (the user, 2026-09-23): drop one no longer wanted, or take one out
   when a catch went to the box because the party held six.
 - **Heal only when the next hit would faint, then attack**; potions work best when they heal more than a hit takes

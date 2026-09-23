@@ -719,3 +719,26 @@ TENTACOOL 7 (DIVE); 7 badges.
 **To pick up:** 24.35 to 24.36 (5,4) and TEAM AQUA's leader, then Sootopolis and the 8th gym. `goto` should learn ledges
 facing right, left and up, currents, and not to take a warp that drops back (24.31 (10,15)). The gym and catch loops ran
 as scratch scripts; worth making driver programs as the errands were.
+
+## 2026-09-23 (the Emerald chat, continued) — ARCHIE, RAYQUAZA, the RAIN BADGE, the Elite Four: the game beaten
+
+**Played** (route.md's last three sections): the Seafloor Cavern's boulder room (solved over the room's tiles) and
+ARCHIE; the sea by edges to Route 126, DIVE into Sootopolis; STEVEN, WALLACE, the SKY PILLAR (RAYQUAZA woke); JUAN's
+three ice rooms (paths found by search) and the RAIN BADGE; back up the SKY PILLAR over cracked floors on the MACH BIKE,
+RAYQUAZA (Lv70) caught with the MASTER BALL; Ever Grande's waterfall; Victory Road (three floors searched together:
+boulders, rocks, B2F's water); SIDNEY, PHOEBE, GLACIA, DRAKE and WALLACE, RAYQUAZA leading with BULK UP and AERIAL ACE
+taught for PP. Hall of Fame at 29:56 game time; the credits rolled.
+
+**The user, this session** (game.md): catch legendaries with ULTRA BALLs at low HP and asleep/paralysed, the MASTER BALL
+for the best one; stock 40-50+ ULTRA BALLs and potions first; FLY does not work in caves (ESCAPE ROPE, DIG); the PC
+deposits and withdraws; status and FULL RESTORE; low-level Pokémon as sacrifices for a safe item turn; X items or a
+set-up move then sweep; a TM for PP. The user caught me stepping one tile at a time where no push needed it.
+
+**Built**: SELFDESTRUCT/EXPLOSION scored 0 (`bf5f6c4b`); `reflex ride` for the MACH BIKE (`ddea9cc6`); FLY waits the
+party screen's fade (`bffc14d3`). Scratch, not in the repo: a map dump over `exec` (elevation, behaviours, the event
+tables' objects and warps with their destination index), a surf path search, an ice-room path search, and a push-aware
+search over several floors -- Victory Road's needed all three at once. These should become the planner's own:
+boulders, rocks and water across maps, cracked floors, ledges any way.
+
+**Left as it is:** EmuHawk on vanilla Emerald with the driver loaded, the credits rolling; snapshot `champion_won`
+(WALLACE beaten). KYOGRE and GROUDON are not caught; money went on the League, so the ULTRA BALL stock comes first.
