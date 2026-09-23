@@ -751,3 +751,11 @@ CI run 35802463324 (`7190c051`) failed one test on the Windows shipping-target j
 `TestConformanceTheRejectStillArrivesAfterCloseGracefully/quic` (`netx`, untouched that day); it passed
 40 of 40 locally and on the nine runs before. Treated as a flake under runner load; the next push's
 run is the retest before `release.ps1`. The user: *"if everything passes, make a v1.3.2 release"*.
+
+**The release run itself (35803754908) then failed one different test**, on the Linux `unix-binaries`
+job: `TestADeadAdapterSocketFreesTheCoreForTheReconnect` (`core`, the 512-chaser dead-adapter test,
+"the core never gave up writing", its 20 s guard). It passed in CI's own `-race` core job the same
+evening and 5 of 5 locally, and flaked under a loaded runner once before (2026-09-08, `phase10.md`).
+The new `chaser_reset` path is not on it (the test never sends one; `StartChasers` is unchanged). The
+failed job was re-run. **Two timing-sensitive tests red in one evening, each on a busy runner:** worth
+a look at both guards under load before the next release, not a verdict that either is fine.
