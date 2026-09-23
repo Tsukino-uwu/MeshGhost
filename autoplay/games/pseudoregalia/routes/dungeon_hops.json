@@ -2,7 +2,7 @@
  "game": "pseudoregalia",
  "variant": "vanilla",
  "map": "ZONE_Dungeon",
- "note": "Hops the user played on 2026-09-23 from the cage platform to the attack upgrade's room, with detours and mistakes on purpose (their words: 'so you have more data to compare against'). Each is a jump that worked: takeoff (x, y, floor z) where Jump started -- on the ground or within coyote time --, landing (x, y, floor z) where she next stood, grab when she hung on a ledge (moveState 3) on the way. Read from the driver's flight recorder, every 3rd frame at 144 frames a second. goto uses them as moves beside its own. A second run (2026-09-23, the user, from below the WheelCrawler's ledge to beside the slide upgrade) added hops marked flip (a backflip: Jump in the skid, actionState 18) and pole (moveState 5 on a climb pole, 6 leaving it, from_z to to_z). Each hop also carries runup (where the user was 250 units of running before the takeoff, less where their run was shorter) and approach (their path from there to the takeoff, a point every 60 units): places they walked. The trail: the user's ground positions along both runs, a point every 100 units (x, y, floor z), which goto prefers to walk along.",
+ "note": "Hops the user played on 2026-09-23 from the cage platform to the attack upgrade's room, with detours and mistakes on purpose (their words: 'so you have more data to compare against'). Each is a jump that worked: takeoff (x, y, floor z) where Jump started -- on the ground or within coyote time --, landing (x, y, floor z) where she next stood, grab when she hung on a ledge (moveState 3) on the way. Read from the driver's flight recorder, every 3rd frame at 144 frames a second. goto uses them as moves beside its own. A second run (2026-09-23, the user, from below the WheelCrawler's ledge to beside the slide upgrade) added hops marked flip (a backflip: Jump in the skid, actionState 18) and pole (moveState 5 on a climb pole, 6 leaving it, from_z to to_z). Each hop also carries runup (where the user was 250 units of running before the takeoff, less where their run was shorter) and approach (their path from there to the takeoff, a point every 60 units): places they walked. The trail: the user's ground positions along both runs, a point every 100 units (x, y, floor z), which goto prefers to walk along. A third run (2026-09-23, the user, from the locked door's room to before the mini boss guarding a key): hops marked run 3 -- up the stone block, a ledge grab on a hanging cage (cages hanging on chains can be grabbed), a second grab to the 3900 ledge, over save crystal 3's platform, down to hit switch 2's ledge (struck), and north. coyote on a hop: run off the edge and jump in coyote time, never on the top itself -- the user of the run 3 jumps off the stone block and the hanging cage: 'use coyotee time, jumping to early when jumping off from the cage'.",
  "hops": [
   {
    "takeoff": [
@@ -1168,6 +1168,281 @@
      456
     ]
    ]
+  },
+  {
+   "takeoff": [
+    2849,
+    139,
+    3100
+   ],
+   "landing": [
+    2919,
+    -72,
+    3296
+   ],
+   "approach_from": [
+    2846,
+    150
+   ],
+   "grab": false,
+   "frames": 60,
+   "run_speed": 550,
+   "runup": [
+    2791,
+    291
+   ],
+   "runup_path": 164,
+   "approach": [
+    [
+     2791,
+     291
+    ],
+    [
+     2816,
+     233
+    ],
+    [
+     2838,
+     172
+    ]
+   ],
+   "run": 3
+  },
+  {
+   "takeoff": [
+    2896,
+    -92,
+    3296
+   ],
+   "landing": [
+    2654,
+    -201,
+    3599
+   ],
+   "approach_from": [
+    2901,
+    -88
+   ],
+   "grab": true,
+   "frames": 240,
+   "run_speed": 311,
+   "runup": [
+    2919,
+    -72
+   ],
+   "runup_path": 38,
+   "approach": [
+    [
+     2919,
+     -72
+    ]
+   ],
+   "run": 3,
+   "coyote": true
+  },
+  {
+   "takeoff": [
+    2673,
+    -199,
+    3599
+   ],
+   "landing": [
+    3131,
+    56,
+    3900
+   ],
+   "approach_from": [
+    2668,
+    -199
+   ],
+   "grab": true,
+   "frames": 240,
+   "run_speed": 244,
+   "runup": [
+    2654,
+    -201
+   ],
+   "runup_path": 19,
+   "approach": [
+    [
+     2654,
+     -201
+    ]
+   ],
+   "run": 3,
+   "coyote": true
+  },
+  {
+   "takeoff": [
+    3057,
+    355,
+    3900
+   ],
+   "landing": [
+    2946,
+    938,
+    3850
+   ],
+   "approach_from": [
+    3060,
+    344
+   ],
+   "grab": false,
+   "frames": 153,
+   "run_speed": 550,
+   "runup": [
+    3125,
+    113
+   ],
+   "runup_path": 252,
+   "approach": [
+    [
+     3125,
+     113
+    ],
+    [
+     3108,
+     180
+    ],
+    [
+     3088,
+     245
+    ],
+    [
+     3069,
+     311
+    ]
+   ],
+   "run": 3
+  },
+  {
+   "takeoff": [
+    2959,
+    1708,
+    3850
+   ],
+   "landing": [
+    3092,
+    1920,
+    3600
+   ],
+   "approach_from": [
+    2958,
+    1697
+   ],
+   "grab": false,
+   "frames": 78,
+   "run_speed": 550,
+   "runup": [
+    2934,
+    1449
+   ],
+   "runup_path": 261,
+   "approach": [
+    [
+     2934,
+     1449
+    ],
+    [
+     2937,
+     1518
+    ],
+    [
+     2942,
+     1587
+    ],
+    [
+     2949,
+     1652
+    ]
+   ],
+   "run": 3
+  },
+  {
+   "takeoff": [
+    3013,
+    2559,
+    3600
+   ],
+   "landing": [
+    2859,
+    2932,
+    3100
+   ],
+   "approach_from": [
+    3013,
+    2548
+   ],
+   "grab": false,
+   "frames": 108,
+   "run_speed": 550,
+   "runup": [
+    3064,
+    2318
+   ],
+   "runup_path": 250,
+   "approach": [
+    [
+     3064,
+     2318
+    ],
+    [
+     3043,
+     2383
+    ],
+    [
+     3017,
+     2446
+    ],
+    [
+     3013,
+     2513
+    ]
+   ],
+   "run": 3
+  },
+  {
+   "takeoff": [
+    2284,
+    2974,
+    3100
+   ],
+   "landing": [
+    1964,
+    2972,
+    2800
+   ],
+   "approach_from": [
+    2295,
+    2974
+   ],
+   "grab": false,
+   "frames": 81,
+   "run_speed": 550,
+   "runup": [
+    2536,
+    2975
+   ],
+   "runup_path": 252,
+   "approach": [
+    [
+     2536,
+     2975
+    ],
+    [
+     2467,
+     2975
+    ],
+    [
+     2398,
+     2975
+    ],
+    [
+     2329,
+     2974
+    ]
+   ],
+   "run": 3
   }
  ],
  "trail": [
@@ -2165,6 +2440,326 @@
    16541,
    1871,
    2200
+  ],
+  [
+   2791,
+   291,
+   3100
+  ],
+  [
+   2831,
+   193,
+   3100
+  ],
+  [
+   2919,
+   -72,
+   3296
+  ],
+  [
+   2654,
+   -201,
+   3599
+  ],
+  [
+   3131,
+   56,
+   3900
+  ],
+  [
+   3115,
+   158,
+   3900
+  ],
+  [
+   3084,
+   256,
+   3900
+  ],
+  [
+   3057,
+   355,
+   3900
+  ],
+  [
+   2946,
+   938,
+   3850
+  ],
+  [
+   2936,
+   1040,
+   3850
+  ],
+  [
+   2930,
+   1140,
+   3850
+  ],
+  [
+   2929,
+   1243,
+   3850
+  ],
+  [
+   2930,
+   1346,
+   3850
+  ],
+  [
+   2934,
+   1449,
+   3850
+  ],
+  [
+   2939,
+   1552,
+   3850
+  ],
+  [
+   2949,
+   1652,
+   3850
+  ],
+  [
+   3092,
+   1920,
+   3600
+  ],
+  [
+   3095,
+   2022,
+   3600
+  ],
+  [
+   3090,
+   2125,
+   3600
+  ],
+  [
+   3078,
+   2227,
+   3600
+  ],
+  [
+   3062,
+   2329,
+   3600
+  ],
+  [
+   3023,
+   2424,
+   3600
+  ],
+  [
+   3013,
+   2525,
+   3600
+  ],
+  [
+   2859,
+   2932,
+   3100
+  ],
+  [
+   2753,
+   2963,
+   3100
+  ],
+  [
+   2650,
+   2972,
+   3100
+  ],
+  [
+   2547,
+   2975,
+   3100
+  ],
+  [
+   2444,
+   2975,
+   3100
+  ],
+  [
+   2341,
+   2974,
+   3100
+  ],
+  [
+   1964,
+   2972,
+   2800
+  ],
+  [
+   1861,
+   2972,
+   2800
+  ],
+  [
+   1758,
+   2972,
+   2800
+  ],
+  [
+   1656,
+   2974,
+   2800
+  ],
+  [
+   1553,
+   2980,
+   2800
+  ],
+  [
+   1450,
+   2991,
+   2800
+  ],
+  [
+   1349,
+   3007,
+   2800
+  ],
+  [
+   1249,
+   3031,
+   2800
+  ],
+  [
+   1147,
+   3023,
+   2800
+  ],
+  [
+   1049,
+   3068,
+   2800
+  ],
+  [
+   996,
+   3156,
+   2800
+  ],
+  [
+   926,
+   3231,
+   2800
+  ],
+  [
+   899,
+   3330,
+   2800
+  ],
+  [
+   892,
+   3441,
+   2800
+  ],
+  [
+   894,
+   3544,
+   2800
+  ],
+  [
+   861,
+   3641,
+   2800
+  ],
+  [
+   856,
+   3744,
+   2800
+  ],
+  [
+   856,
+   3847,
+   2800
+  ],
+  [
+   856,
+   3950,
+   2800
+  ],
+  [
+   857,
+   4052,
+   2800
+  ],
+  [
+   857,
+   4155,
+   2800
+  ],
+  [
+   859,
+   4258,
+   2800
+  ],
+  [
+   860,
+   4362,
+   2800
+  ],
+  [
+   861,
+   4465,
+   2803
+  ],
+  [
+   861,
+   4565,
+   2803
+  ],
+  [
+   861,
+   4668,
+   2803
+  ],
+  [
+   861,
+   4771,
+   2803
+  ],
+  [
+   860,
+   4875,
+   2800
+  ],
+  [
+   858,
+   4978,
+   2800
+  ],
+  [
+   856,
+   5078,
+   2800
+  ],
+  [
+   853,
+   5181,
+   2800
+  ],
+  [
+   850,
+   5284,
+   2800
+  ],
+  [
+   846,
+   5387,
+   2800
+  ],
+  [
+   843,
+   5490,
+   2800
+  ],
+  [
+   840,
+   5593,
+   2800
   ]
  ]
 }

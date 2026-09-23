@@ -133,6 +133,32 @@ local function record(frame, pc, pawn)
 	if ok then
 		rec[frame % RECORD_FRAMES] = row
 		if frame % 3 == 0 then
+			-- A watched enemy beside her on the long trail (M.watch_class, set through exec): its path is found once a
+			-- second until it exists, then read by StaticFindObject -- never a kept object (the registry's crashes).
+			-- For reading a fight the user plays (the Keeper, 2026-09-23).
+			if M.watch_class then
+				if not M.watch_path and frame % 144 == 0 then
+					local a = FindFirstOf(M.watch_class)
+					if a and a:IsValid() then
+						local full = a:GetFullName()
+						M.watch_path = full:sub((full:find(" ", 1, true) or 0) + 1)
+					end
+				end
+				if M.watch_path then
+					local a = StaticFindObject(M.watch_path)
+					if a and a:IsValid() then
+						pcall(function()
+							local l = a:K2_GetActorLocation()
+							row.ex, row.ey, row.ez = math.floor(l.X + 0.5), math.floor(l.Y + 0.5), math.floor(l.Z + 0.5)
+							row.eyaw = math.floor(a:K2_GetActorRotation().Yaw + 0.5)
+							row.ehp = num(a.BP_HpHitable.CurrentHp)
+						end)
+					else
+						M.watch_path = nil
+					end
+				end
+				pcall(function() row.hp = num(pawn.BP_HpHitable.CurrentHp) end)
+			end
 			trailN = trailN + 1
 			trail[trailN % TRAIL_ROWS] = row
 		end
@@ -1545,6 +1571,13 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 				-- the edge (2026-09-23).
 				local coyote = ms == 1 and td < 250 and along >= -60 and (along >= -4 or hs.off >= 8)
 				local ground = ms == 0 and ((td < 60 and along >= -4) or td < 8)
+				-- A coyote hop leaves a small top: never jump on it, run off its edge at the landing and jump in coyote time,
+				-- 6 frames off (the user: "use coyotee time, jumping to early when jumping off from the cage", 2026-09-23).
+				if h.coyote then
+					ground = false
+					coyote = ms == 1 and (hs.off or 0) >= 6 and td < 300
+					if along >= -30 then gx, gy = h.landing[1] - st.x, h.landing[2] - st.y end
+				end
 				-- (Tried and reverted, 2026-09-23: jumping as late as coyote time allows on grab hops met the 2349 ledge
 				-- falling, 9 lower than the user's grab; their takeoff, at the edge, meets it at the top of the arc.)
 				-- A jump pressed in a skid (actionState 18: turning around at a run) comes out as a backflip; the user saw her
@@ -1862,7 +1895,9 @@ M.reflexes.reach = function(a) return M.programs.reach(a) end
 -- swings (stop after this many, answered `swung`)}: the nearest thing of that kind in `things` (within 2500), followed
 -- on the ground by the stick from the camera's yaw; inside `range` it is faced and Attack tapped (4 frames) every
 -- `swing_every` frames. Ends `defeated` when the enemy actor is gone or being destroyed, `low_hp` below stop_hp, `lost`
--- when none is within 2500, or the frame limit. Reports swings, hits taken and both HPs.
+-- when none is within 2500, or the frame limit. Reports swings, hits taken and both HPs. style "circle" fights as the user
+-- fought the Keeper: round it at ~230 swinging, sliding across its line when it moves fast; heal_at (HP) runs off and
+-- holds Power to heal to heal_to.
 function M.reflexes.fight(a)
 	local range = tonumber(a.range) or 160
 	local every = tonumber(a.swing_every) or 24
@@ -1879,6 +1914,9 @@ function M.reflexes.fight(a)
 	local entry
 	for _, e in ipairs(registry.list) do if e.name == targetName then entry = e end end
 	local swings, since, hits, lastHp = 0, every, 0, o0.player.hp
+	local circle = a.style == "circle"
+	local healAt, healTo = tonumber(a.heal_at), tonumber(a.heal_to) or 25
+	local lastE, spin, heal, slideTap, slideCd, flipT = nil, 1, nil, 0, 0, 0
 	return function()
 		local st = playerAndCamera()
 		if not st then return true, { outcome = "no_player" } end
@@ -1896,6 +1934,62 @@ function M.reflexes.fight(a)
 		local dx, dy = ex - st.x, ey - st.y
 		local d = math.sqrt(dx * dx + dy * dy)
 		if d > 2500 then return true, { outcome = "lost", distance = d } end
+		if circle then
+			-- CIRCLE, as the user fought the Keeper (2026-09-23, recorded with the Keeper beside her): ~230 away, always
+			-- running round it and swinging (42 hits of 15 landed from 108-314, median 233); its attacks are short fast
+			-- moves (0.1 s at 1000-1700) and both 10-damage hits came as one ended ~410 away with her not sliding. So:
+			-- a slide across its line the moment it moves fast (the slide's i-frames), and, low, away to heal (the user:
+			-- "go away to a safe spot and heal up during fights. but its better to avoid getting hurt").
+			local ksp = lastE and math.sqrt((ex - lastE[1]) ^ 2 + (ey - lastE[2]) ^ 2) * 144 or 0
+			lastE = { ex, ey }
+			local ux, uy = dx / math.max(d, 1), dy / math.max(d, 1)
+			local tx, ty = -uy * spin, ux * spin
+			local ms, as = o.player.move_state or 0, o.player.action_state or 0
+			local hp = o.player.hp or 0
+			if heal == nil and healAt and hp <= healAt then heal = { t = 0, hp = hp } end
+			local mx, my
+			if heal then
+				heal.t = heal.t + 1
+				-- Away and round: straight away pinned her to the arena's wall, where it walked up and hit her (2026-09-23).
+				if d < 700 and heal.t < 600 then
+					mx, my = -ux * 0.6 + tx, -uy * 0.6 + ty
+				else
+					heal.hold = (heal.hold or 0) + 1
+					mx, my = 0, 0
+					if inputReady() then subsystem:InjectInputVectorForAction(actions.IA_Power, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {}) end
+					-- done when healed past healTo, when it has not risen in 240 frames of holding, or it closes in
+					if hp >= healTo or (heal.hold > 240 and hp <= heal.hp) or d < 500 then heal = false end
+				end
+			else
+				-- In range most of the time: with a gentle pull (radial /120 against a 0.9 circle) she spent the round
+				-- beyond 330 and swung 4 times (2026-09-23).
+				local radial = math.max(-1, math.min(1, (d - 220) / 50))
+				local round = d > 400 and 0.2 or 0.7
+				mx, my = ux * radial + tx * round, uy * radial + ty * round
+				slideCd = (slideCd or 0) - 1
+				if ksp > 450 and ms == 0 and as ~= 1 and slideCd <= 0 then slideTap, slideCd = 4, 70 end
+				if slideTap and slideTap > 0 then
+					slideTap = slideTap - 1
+					mx, my = tx, ty -- across its line
+					if inputReady() then subsystem:InjectInputVectorForAction(actions.IA_Crouch, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {}) end
+				end
+				-- round the other way now and then, as the user changed direction
+				flipT = (flipT or 0) + 1
+				if flipT > 500 then flipT, spin = 0, -spin end
+			end
+			if heal == false then heal = nil end
+			local ml = math.sqrt(mx * mx + my * my)
+			if ml > 0.01 then
+				local relm = math.rad(math.deg(math.atan(my, mx)) - st.yaw)
+				injectMove(math.sin(relm), math.cos(relm))
+			end
+			since = since + 1
+			if not (heal) and d <= 330 and since >= 12 then since, swings = 0, swings + 1 end
+			if since < 4 and swings > 0 and not heal and inputReady() then
+				subsystem:InjectInputVectorForAction(actions.IA_Attack, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {})
+			end
+			return false
+		end
 		local rel = math.rad(math.deg(math.atan(dy, dx)) - st.yaw)
 		local push = d > range * 0.6 and 1 or 0.25 -- close in, then hold a little pressure to keep facing it
 		injectMove(math.sin(rel) * push, math.cos(rel) * push)
