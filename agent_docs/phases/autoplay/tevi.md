@@ -615,3 +615,35 @@ on; the switches as `cmd/trials -set`):
 - **Combo** (the user: a constant high combo that never drops looks cool): the fight now reports `max_combo` and `combo_drops`,
   and the trials summary reports the mean max combo and drops a minute. `combo_keep` (an Orbitar shot to renew the combo) is
   queued.
+
+| Rung | Change on `hug` 5 + `armor_gate` off | Won | Median win | Hits | Hitless wins | Mean max combo | Drops a minute |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| R7 | `spiral_slash` | 6 | 128.9 s | 13 | 1 | 52.5 | 4.1 |
+| R15 | `recover_ranged`, `combo_keep` | 6 | 102.3 s | 18 | 2 | 67 | 2.7 |
+
+- **`spiral_slash` took the fewest hits of any rung** (1.3 a try) at its base's speed: a lean keep, to be tried on `recover_ranged`.
+- **`combo_keep` raised the combo** (max 67 against 52.5, drops 2.7 a minute against 4.1) at `recover_ranged`'s speed, with a
+  few more hits, most of them his swing (10 of 18). The keep shots may hold her still at the wrong moment. R13's repeat was
+  cut off before it finished, so there is no second base run to compare them against yet.
+
+**End of the session (the user stopped it).** The best build measured is `tell_filter`, `hug` 5, `armor_gate` off and
+`recover_ranged`: 7 of 10, median 103.2 s, 1.5 hits a try (R13), against 8 of 10, about 143 s and 1.7 a try for build C plus the
+filter. The driver deployed has every switch off by default (build C's behaviour), so a plain `fight` still plays C. The best
+build is passed as arguments.
+
+**Left as it is:** TEVI (Steam) is running, in Ribauld's arena, from the rung stopped mid-fight. The clock is released, fast is
+off, the frame rate is at the game's own 60, and nothing is held. No core, runner or ladder is running. The save guard and the
+achievement guard are armed until the game exits (61 and more unlock calls skipped). The real save folder is untouched. The
+combat map and the ladder scripts are in the chat's scratch folder only.
+
+**To pick up:**
+1. Run R13 again (`recover_ranged` on `hug` 5 + `armor_gate` off) as the base.
+2. Try `spiral_slash` and `combo_keep` on it, then `backflip_dodge`: check its `backflips` count first, since the map says it
+   needs a melee hit within 0.333 s and an item the save may not have.
+3. Try `upper_slash`, `root_frames` 22/40, `orb_mode` active and the `prefer_drop` variants.
+4. Make the winning switches the defaults and delete the losing code (`break_launch`, `bar_punish` for this boss).
+5. Measure what the map says before relying on it: the dodge meter's value and the backflip's dodge, what an ARMORCRIT move
+   does against 0 armor, and whether her melee is weaker during her own invulnerability after a hit.
+
+**The ladder, as run**: `cmd/trials` with `-n 10` and `-set` per rung, from a queue file, one rung at a time. Deploy only while
+a hold file keeps the next rung from starting. A deploy that raced a rung's start cut one rung (R7's first run) short.
