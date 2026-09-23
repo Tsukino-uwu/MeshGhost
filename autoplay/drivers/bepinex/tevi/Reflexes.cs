@@ -43,6 +43,7 @@ namespace MeshGhostAutoplay.Tevi
         private const int RootFrames = 18;
         private const float MeleeReach = 139.5f, MeleeHalfHeight = 34f;
         private const int ComboRootFrames = 32;
+        private const int BackflipWindow = 12; // frames: the dodge state a Backflip holds is about 15 (the game's code, read as a map)
         private const int DirLead = 2; // frames a direction is held before a Spiral or Upper Slash's Attack
         private const int ChargeTravel = 5; // frames a charge box took from its birth to reach her beside him (the flight recorder, 2026-09-17)
 
@@ -111,6 +112,15 @@ namespace MeshGhostAutoplay.Tevi
             // 2026-09-23; the user: a bar going purple leaves a moment to juggle) -- the swing gates stand aside and a ground swing is
             // Upper Slash. The dodge still vetoes a move that would be hit.
             bool barPunish = (bool?)args["bar_punish"] ?? false;
+            // `recover_ranged`: while the target's armor refills (the red outline) a swing becomes an Orbitar shot. Ribauld's hits in the
+            // red outline took 2-4 HP with no hitstun (the trials timeline, 2026-09-23); the game's code, read as a map, says a blocked
+            // melee hit keeps the armor from refilling and an Orbitar shot is not blocked. To measure, not assumed.
+            bool recoverRanged = (bool?)args["recover_ranged"] ?? false;
+            // `backflip_dodge`: when the dodge's chosen plan is still hit within BackflipWindow frames and the dodge meter is full
+            // (playerc_perfer.HaveDodge() at 1 or more), Backflip is pressed. Read as a map: a hit during a backflip with a full meter
+            // is dodged and followed by invulnerability. To measure, not assumed.
+            bool backflipDodge = (bool?)args["backflip_dodge"] ?? false;
+            int backflips = 0;
             int punishFrames = 0;
             int spirals = 0, uppers = 0, dirFrames = 0, launches = 0;
             string dirHeld = null;
@@ -167,6 +177,7 @@ namespace MeshGhostAutoplay.Tevi
                     ["upper_slashes"] = uppers,
                     ["break_launches"] = launches,
                     ["punish_frames"] = punishFrames,
+                    ["backflips"] = backflips,
                     ["orb_frames"] = orbFrames,
                     ["orb_log"] = orbLog,
                     ["last_dodge"] = guard.LastDodge,
@@ -262,6 +273,11 @@ namespace MeshGhostAutoplay.Tevi
                         else if (tap == "Attack" && upperSlash && onGround && dy > 60f) dirHold = "YAxis+";
                         else if (tap == "Attack" && breakLaunch && onGround && ArmorRecovering(target)) dirHold = "YAxis+";
                         else if (tap == "Attack" && punish && onGround) dirHold = "YAxis+";
+                        if (tap == "Attack" && recoverRanged && ArmorRecovering(target))
+                        {
+                            tap = "Ranged";
+                            dirHold = null;
+                        }
                         // Standing to swing is not safe but a jump is: swing from the air instead of doing nothing.
                         if (airSwing && onGround && dodge && !guard.StandingSafe(rootFrames) && guard.Safe(Dodge.Move.Jump)) want = Dodge.Move.Jump;
                     }
@@ -365,6 +381,11 @@ namespace MeshGhostAutoplay.Tevi
                 }
 
                 Dodge.Move move = dodge ? guard.Check(p, want, groundY) : want;
+                if (backflipDodge && dodge && guard.ChosenHitIn <= BackflipWindow && p.playerc_perfer != null && p.playerc_perfer.HaveDodge() >= 1f
+                    && InputInjection.Tap("Backflip", 4))
+                {
+                    backflips++;
+                }
                 if (orbNote != null)
                 {
                     orbNote["took"] = move.ToString();
@@ -584,10 +605,12 @@ namespace MeshGhostAutoplay.Tevi
             public bool PreferDrop = true; // falling, want a quickdrop (movement only: a fight leaves the fall alone)
             public int? Imminent; // movement: step in only for a hit this close (Dodge.Choose)
             public float Hug = Dodge.DefaultHug; // a fight's `hug`
+            public int ChosenHitIn = int.MaxValue; // the plan Check took this frame: its first hit, or MaxValue when none is near
 
             public Dodge.Move Check(CharacterBase p, Dodge.Move want, float groundY)
             {
                 Look(p, groundY);
+                ChosenHitIn = int.MaxValue;
                 bool onGround = p.onGround();
                 // Falling, a quickdrop is wanted instead: the user, 2026-09-17, "prefer always using quickdrop instead of normally falling
                 // down. as its faster/makes it easier to react to attacks from enemies". The dodge still takes the plain fall when the drop
@@ -614,6 +637,7 @@ namespace MeshGhostAutoplay.Tevi
                     int i = plans.FindIndex(x => x.Move == committed);
                     if (i >= 0 && (plans[i].FirstHit > Dodge.Horizon || plans[i].FirstHit >= chosen.FirstHit)) chosen = plans[i];
                 }
+                ChosenHitIn = chosen.FirstHit > Dodge.Horizon ? int.MaxValue : chosen.FirstHit;
                 if (chosen.Move != want && chosen.Move != committed)
                 {
                     committed = chosen.Move;
