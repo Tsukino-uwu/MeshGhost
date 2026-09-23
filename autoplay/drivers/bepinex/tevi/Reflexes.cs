@@ -106,6 +106,12 @@ namespace MeshGhostAutoplay.Tevi
             // 480 frames, in which the armor gate left her dealing 14 HP (the trials timeline, 2026-09-23); the user: moves that "get
             // them up into the air after breaking them" make a stunlock easier.
             bool breakLaunch = (bool?)args["break_launch"] ?? false;
+            // `bar_punish`: while the target plays its DAMAGE animation with no hitstun -- the stagger when a boss's health bar empties
+            // (Ribauld at 438-443 HP, whatever attack he was in, for about 60-160 frames, in every try; the trials timeline,
+            // 2026-09-23; the user: a bar going purple leaves a moment to juggle) -- the swing gates stand aside and a ground swing is
+            // Upper Slash. The dodge still vetoes a move that would be hit.
+            bool barPunish = (bool?)args["bar_punish"] ?? false;
+            int punishFrames = 0;
             int spirals = 0, uppers = 0, dirFrames = 0, launches = 0;
             string dirHeld = null;
             int pushes = 0, orbFrames = 0;
@@ -160,6 +166,7 @@ namespace MeshGhostAutoplay.Tevi
                     ["spiral_slashes"] = spirals,
                     ["upper_slashes"] = uppers,
                     ["break_launches"] = launches,
+                    ["punish_frames"] = punishFrames,
                     ["orb_frames"] = orbFrames,
                     ["orb_log"] = orbLog,
                     ["last_dodge"] = guard.LastDodge,
@@ -211,6 +218,8 @@ namespace MeshGhostAutoplay.Tevi
                         minRange = (float?)args["min_range"] ?? 0f;
                     }
                 }
+                bool punish = barPunish && target.aniStatus.ToString() == "DAMAGE" && target.GetHitStun() <= 0f;
+                if (punish) punishFrames++;
                 Dodge.Move towardMove = dx >= 0 ? Dodge.Move.Right : Dodge.Move.Left;
                 bool onGround = p.onGround();
                 if (onGround) groundY = me3.y;
@@ -252,6 +261,7 @@ namespace MeshGhostAutoplay.Tevi
                         if (tap == "Attack" && spiralSlash && !onGround && dy <= 20f) dirHold = "YAxis-";
                         else if (tap == "Attack" && upperSlash && onGround && dy > 60f) dirHold = "YAxis+";
                         else if (tap == "Attack" && breakLaunch && onGround && ArmorRecovering(target)) dirHold = "YAxis+";
+                        else if (tap == "Attack" && punish && onGround) dirHold = "YAxis+";
                         // Standing to swing is not safe but a jump is: swing from the air instead of doing nothing.
                         if (airSwing && onGround && dodge && !guard.StandingSafe(rootFrames) && guard.Safe(Dodge.Move.Jump)) want = Dodge.Move.Jump;
                     }
@@ -377,6 +387,7 @@ namespace MeshGhostAutoplay.Tevi
                     // mix both ground/air to attack as much as possible whenever possible. while prioritizing never getting hit".
                     // A swing that carries a combo on to its second and third hits holds her longer: after the third her Jump was not taken
                     // for 22 frames while bombs fell on her (2026-09-17).
+                    string tapUngated = tap;
                     int root = tap == "Attack" && (p.logicStatus.ToString().Contains("NORMAL1") || p.logicStatus.ToString().Contains("NORMAL2")) ? comboRootFrames : rootFrames;
                     if (tap != null && dodge && !guard.StandingSafe(root)) tap = null;
                     // No chaining when a combo locks her longer than the target's fastest learned tell: an air swing carried on as the air combo
@@ -397,6 +408,7 @@ namespace MeshGhostAutoplay.Tevi
                     if (armorGate && tap == "Attack" && orb == null && dodge && ArmorRecovering(target) && !guard.StandingSafe(Dodge.Horizon)) tap = null;
                     // Never at an orb flying at her: her Orbitar shot met one Ribauld had knocked toward her 199 units off, and its blast took
                     // all 100 HP (2026-09-17, Infernal BBQ).
+                    if (punish && tapUngated != null) tap = tapUngated;
                     if (incomingOrbGate && tap != null && IncomingOrb(p, IncomingOrbReach)) tap = null;
                     // A direction swing: the direction is held first and the swing pressed once it has been held DirLead frames (the probe
                     // held Down 2 frames before Attack, 2026-09-23); a quickdrop needs Jump, so Down alone is safe to hold in the air.
