@@ -183,3 +183,28 @@ Walked 2026-09-23.
   next tile is not open): from (14,16) down, up, left, then up six to (4,2), found by simulating the slides over the
   room's tiles; (4,1) to 24.30 (4,15). Short presses did not step there; `walk` one tile did.
 - 24.30: (4,15) right to (6,15), up the left column to (8,1): 24.35 (5,12). One AQUA grunt on the way.
+
+## ARCHIE to RAYQUAZA and the RAIN BADGE, walked 2026-09-23
+
+- 24.35: eight boulders; STRENGTH (face one, A, YES), then from (5,8): up, left, up, right, up, left, up, down, right, right,
+  up, left, up (worked out over the room's tiles; a push is taken only when already facing the boulder, so one press per
+  step, checked by position). Not on the bike: a boulder is not pushed from it. 24.36 (17,42): ARCHIE (MIGHTYENA, CROBAT,
+  SHARPEDO); STRENGTH and ELECTRODE's SPARK won. Then KYOGRE wakes and the player is put on Route 128.
+- The sea by edges: Mossdeep 0.6 west is Route 124 0.39, south 127 0.42, 128 0.43, 129 0.44, then west 130 0.45, 131 0.46.
+  Route 126 0.41 (south of 124): deep water (0x12) round Sootopolis; DIVE at (55,19), underwater 0.51's (45,65) to 24.5,
+  B and YES surfaces in Sootopolis 0.7. Route 128's right edge leads to Ever Grande 0.8 (its waterfall 0x13 at x15-26).
+- Sootopolis: STEVEN (local 7) walks the player to the CAVE OF ORIGIN 24.37; WALLACE is inside 24.42 (not in `nearby`;
+  `talk` found him); answer SKY PILLAR. SKY PILLAR: 0.46 (36,6) from the water at (36,9). First visit, stairs by
+  highest map: 24.77 (14,4), 24.78 (14,5) (WALLACE), 24.79, 24.80, 24.81 (11,1); on 24.82 the left stairs (3,1) are
+  reached only from 24.81's middle stairs (7,1): drop through 24.82's cracked floor (0xD2) at (6,4) on foot. 24.84
+  (10,1) to the top 24.85: RAYQUAZA wakes and leaves.
+- FLY to Sootopolis then plays the RAYQUAZA scene; MAXIE, ARCHIE, STEVEN and WALLACE stand by the gym. The gym 15.0: three
+  cracked-ice rooms (0x26), each tile stepped once, the stairs (0x47) open when a room is done; paths found by search:
+  from (8,20) up left up right right up left up; from (8,15) up left left left up up right right down right right down
+  right right up up left left left up; from (8,10) up left left up left down left left up up up right down right right
+  up right down right down right down right up up right down right down right up up up left left left left left up. JUAN
+  (KINGDRA last) fell to SWAMPERT's EARTHQUAKE. Walking back over the ice drops to 15.1; its stairs lead out.
+- HM07 WATERFALL was in the bag by then. The second SKY PILLAR visit has more cracks: on 24.82, MACH BIKE with `reflex
+  ride` legs down to y10, right to x12, down to y12, left to x3, up to y4, right to x5 -- it coasted onto (7,4) and
+  dropped into 24.81's middle. A 2-tile run-up into a crack fell. RAYQUAZA (Lv70) at 24.85 (14,6): `talk`, BAG, the
+  MASTER BALL, caught first throw.

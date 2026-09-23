@@ -1428,7 +1428,7 @@ local game = {
 	variant = isVanilla and "vanilla" or "unverified",
 	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "cheat:warp", "cheat:set_flag",
 		"cheat:give_item", "cheat:register_item", "select", "walk", "goto", "battle", "advance_text", "type_text",
-		"set_clock", "cheat:noclip", "talk", "clear_obstacle", "search", "reflex", "reflex:use_item", "reflex:fly", "reflex:fly_scan", "reflex:swap" },
+		"set_clock", "cheat:noclip", "talk", "clear_obstacle", "search", "reflex", "reflex:use_item", "reflex:fly", "reflex:fly_scan", "reflex:swap", "reflex:ride" },
 	-- The START menu and a YES/NO: Down moved the cursor one entry per press and A chose it; in a battle
 	-- menu Left and Right moved between its two columns (2026-09-16).
 	menuButtons = { prev = "Up", next = "Down", left = "Left", right = "Right", confirm = "A" },
@@ -3017,8 +3017,38 @@ local function swap(p)
 		nil, 2400
 end
 
+-- ride {legs = {{dir, to}, ...}}: one continuous hold, never let go between legs, for the MACH BIKE over the SKY PILLAR's
+-- cracked floor (2026-09-23: a crack entered on the second tile from a standstill dropped the player; a walk per leg stops
+-- the bike). Each leg holds `dir` until the player's tile reaches `to` on that axis (the tile changes when a step begins),
+-- then the next leg's direction is held; after the last, nothing is pressed until the tile has not changed for 30 frames.
+-- Answers where it stopped, and `map` (a fall through a crack changes it).
+local function ride(p)
+	local legs = type(p.legs) == "table" and p.legs or {}
+	if #legs == 0 then return nil, "ride needs legs" end
+	local BUTTON = { up = "Up", down = "Down", left = "Left", right = "Right" }
+	for _, l in ipairs(legs) do
+		if not BUTTON[l.dir] or math.tointeger(l.to) == nil then return nil, "each leg needs dir (up/down/left/right) and to" end
+	end
+	local i, still, last = 1, 0, nil
+	local startMap = (routeHooks.position())
+	return function()
+		local map, x, y = routeHooks.position()
+		if map ~= startMap then return nil, true, { map = map, x = x, y = y, legs_done = i - 1, fell = true } end
+		local key = x .. "," .. y
+		if i <= #legs then
+			local l = legs[i]
+			local at = (l.dir == "left" or l.dir == "right") and x or y
+			if at == l.to then i = i + 1; return (i <= #legs) and { [BUTTON[legs[i].dir]] = true } or nil, false end
+			return { [BUTTON[l.dir]] = true }, false
+		end
+		if key == last then still = still + 1 else still, last = 0, key end
+		if still >= 30 then return nil, true, { map = map, x = x, y = y, legs_done = #legs } end
+		return nil, false
+	end, nil, 1800
+end
+
 -- reflex {kind, args}: the field errands above, each a program by kind.
-local ERRANDS = { use_item = useItem, fly = fly, fly_scan = flyScan, swap = swap }
+local ERRANDS = { use_item = useItem, fly = fly, fly_scan = flyScan, swap = swap, ride = ride }
 return function(p)
 	local make = ERRANDS[p.kind]
 	if not make then return nil, "no reflex " .. tostring(p.kind) end
