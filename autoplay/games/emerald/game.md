@@ -115,6 +115,8 @@ are in MEASURED.md ("A Mart", "The bag inside a battle").
   0 when none runs). A lone low-HP SWAMPERT whited out to a wild TORKOAL in the Magma hideout without one (2026-09-23).
 - **The MASTER BALL** (the user): TEAM AQUA's hideout holds one (a sure catch); keep it for RAYQUAZA, and catch KYOGRE and
   GROUDON with ULTRA BALLs. There is only one in the whole game (the user); never on a random or weak Pokémon.
+- **Catch with ULTRA BALLs whenever there are some** (the user). A wild ELECTRODE blew itself up after one missed POKé BALL
+  (TEAM AQUA's hideout, 2026-09-23): throw the best ball first.
 - **Party order**: the first two go out in a double battle (the user): keep the second strongest in slot 2. START, POKéMON,
   `select` the one to move, SWITCH, `press Down` to the other, `press A` (a `select` there only moved the cursor), B, EXIT.
 - **Two in the party means double battles** (the user; TWINS GINA & MIA, 2026-09-23), and the 7th gym is a double battle
