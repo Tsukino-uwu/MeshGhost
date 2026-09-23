@@ -79,6 +79,8 @@ driver reads and what each tool does: `autoplay/README.md`. The bytes behind the
 Walked in four runs on 2026-09-17; the bytes
 are in MEASURED.md ("A Mart", "The bag inside a battle").
 
+- **Buying N**: in the quantity box `press Up` N-1 times from 1 (5 each of REVIVE, HYPER POTION and ULTRA BALL, read back by the
+  clerk, 2026-09-23). Lilycove's store 13.16 (door (27,6)): 2F (13.17) sells REVIVE, HYPER POTION, ULTRA BALL.
 - **A Mart**: `talk` the clerk, BUY, `select` the item; in the quantity box `press Right` then `press Down` twice asked
   for 8 on 2026-09-17 and for 9 in Mauville on 2026-09-23 (the clerk says the count; read it before YES); `press A`, `advance_text`, YES, `advance_text`; leave with CANCEL, then QUIT. SUPER POTIONs heal more and cost
   more; selling raises money, with no buying back; REPELs keep weaker wild Pokémon away (the user, 2026-09-17).
