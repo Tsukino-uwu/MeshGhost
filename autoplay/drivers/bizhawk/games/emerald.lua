@@ -1956,7 +1956,7 @@ function STEP.cause(t)
 	if t.outside_map then return "off_map" end
 	if t.character then return "npc_in_way" end
 	if STEP.LEDGES[t.behaviour] then return "one_way_edge" end
-	if t.behaviour == 0x15 and t.elevation == 1 and t.collision == 0 then return "missing_ability", "surf" end
+	if STEP.SURF[t.behaviour] and t.elevation == 1 and t.collision == 0 then return "missing_ability", "surf" end
 	if t.collision ~= 0 then return "solid" end
 	return "unknown"
 end
@@ -2169,6 +2169,10 @@ local WARP_PRESS = { [0x62] = "right", [0x64] = "up", [0x65] = "down" }
 -- on it until stopped. The user: "you need a mach bike to go up the mud slides". Moving down one, and the bike on one, are
 -- not measured: the plan on foot closes 0xD0 both ways.
 
+-- Surfed water: 0x15 (sea, 0.33 first), 0x10 (a pond: Route 120's at (0-8,80-87), Sootopolis's basin) and 0x12 (deep
+-- water: Routes 128 and 126, surfed and dived from, 2026-09-24).
+STEP.SURF = { [0x15] = true, [0x10] = true, [0x12] = true }
+
 local function routeGrid(fromX, fromY, toX, toY)
 	local layout = r32(GMAPHEADER)
 	if not inRom(layout) then return nil, "no map layout" end
@@ -2212,7 +2216,7 @@ local function routeGrid(fromX, fromY, toX, toY)
 			local v = grid[i] | (grid[i + 1] << 8)
 			-- Water is entered only from level 3: on 0.34 (25,47), at level 4 on a 0x0C ledge facing water, A gave no SURF
 			-- question (2026-09-23), where from level 3 on 0.33 it did; the decomp's check wants the default level (the map).
-			if (surfs or surfing) and behaviourOf(v & 0x3FF) == 0x15 and (v >> 12) == 1 then return surfing and 0 or 3 end
+			if (surfs or surfing) and STEP.SURF[behaviourOf(v & 0x3FF)] and (v >> 12) == 1 then return surfing and 0 or 3 end
 			return v >> 12
 		end,
 		tile = function(x, y)
@@ -2222,7 +2226,7 @@ local function routeGrid(fromX, fromY, toX, toY)
 			local v = grid[i] | (grid[i + 1] << 8)
 			local behaviour = behaviourOf(v & 0x3FF)
 			-- Water (0x15 at elevation 1) is not walked onto (WHY A STEP WAS REFUSED); a step's level is elevationStep's.
-			if behaviour == 0x15 and (v >> 12) == 1 then
+			if STEP.SURF[behaviour] and (v >> 12) == 1 then
 				if surfing then return true, false, seen[y * mapW + x], nil, nil, timed[y * mapW + x] end
 				if surfs then return true, false, seen[y * mapW + x], nil, "surf", timed[y * mapW + x] end
 				return nil
@@ -2422,8 +2426,8 @@ routeHooks.mapTile = function(name, x, y)
 	if not collision then return nil end
 	if STEP.LEDGES[behaviour] then return elevation, STEP.LEDGES[behaviour] end
 	-- Water (SURFING, above): open to the plan across maps when the party knows SURF, at level 0.
-	if collision == 0 and elevation == 1 and behaviour == 0x15 and routeHooks.surfs then return 0 end
-	if collision ~= 0 or (elevation == 1 and behaviour == 0x15) or behaviour == 0xD0 then return nil end
+	if collision == 0 and elevation == 1 and STEP.SURF[behaviour] and routeHooks.surfs then return 0 end
+	if collision ~= 0 or (elevation == 1 and STEP.SURF[behaviour]) or behaviour == 0xD0 then return nil end
 	return elevation
 end
 
@@ -2442,7 +2446,7 @@ game.programs.clear_obstacle = function()
 	for _, name in ipairs(order) do
 		local d = dirs[name]
 		local c, e, b = routeHooks.mapTileRaw((routeHooks.position()), x + d[1], y + d[2])
-		if c == 0 and e == 1 and b == 0x15 then
+		if c == 0 and e == 1 and STEP.SURF[b] then
 			local frames, advance, tapped = 0, nil, nil
 			return function()
 				frames = frames + 1
