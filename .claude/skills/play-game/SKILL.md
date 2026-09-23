@@ -51,7 +51,7 @@ game): watch how they do it, restore to where it began, do it yourself — never
 
 1. **Look first** — a screenshot on arriving anywhere new, before deciding anything.
 2. **Check what this SAVE has** — party, bag, badges — before planning around an ability.
-3. **Somewhere unfamiliar, talk to NPCs and read signs**: they usually say where to go and why not.
+3. **Read everything the game hands you, every line from the start** (story, NPCs, signs, tips, popups; the user, 2026-09-23, every game): that is where to go and what to do. Skimming it is playing blind.
 4. **Act. Menus are cursor-then-confirm**: move the selection, THEN confirm. **A** activates whatever
    is highlighted; **B** cancels, declines and advances dialogue; **START** often means OK on entry
    screens. **TAP** confirm, never hold it (a held A answered the menu under it), and never press blind.
