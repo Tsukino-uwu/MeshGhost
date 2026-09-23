@@ -67,6 +67,8 @@ type try struct {
 	Unlocks  []string         `json:"unlocks,omitempty"`  // popup_shown title and text: a new move announced mid-fight
 	Timeline []map[string]any `json:"timeline,omitempty"` // the target's changes, frame by frame, from the flight recorder
 	BossHP   any              `json:"boss_hp_end"`
+	MaxCombo int              `json:"max_combo"`   // the highest combo count a chunk reported
+	Drops    int              `json:"combo_drops"` // times the combo count fell, over the chunks
 	Chunks   []map[string]any `json:"chunks"`
 	Error    string           `json:"error,omitempty"`
 	Duration string           `json:"wall_time"`
@@ -82,6 +84,8 @@ type summary struct {
 	Hits          int            `json:"hits"`
 	HitlessWins   int            `json:"hitless_wins"`
 	HitsBy        map[string]int `json:"hits_by"`
+	MeanMaxCombo  float64        `json:"mean_max_combo"`
+	DropsPerMin   float64        `json:"combo_drops_per_minute"`
 }
 
 type setFlags map[string]any
@@ -235,6 +239,10 @@ func runTry(ctx context.Context, s *mcp.ClientSession, r recipe, n int) try {
 		}
 		t.Frames += intOf(res["frames"])
 		t.Hits += intOf(res["hits_taken"])
+		t.Drops += intOf(res["combo_drops"])
+		if mc := intOf(res["max_combo"]); mc > t.MaxCombo {
+			t.MaxCombo = mc
+		}
 		if tg, ok := res["target"].(map[string]any); ok {
 			t.BossHP = tg["hp_end"]
 		}
@@ -351,7 +359,7 @@ func targetTimeline(ctx context.Context, s *mcp.ClientSession, frames int) []map
 // trimChunk keeps a chunk's score and drops what makes it large (the observation after it).
 func trimChunk(res map[string]any) map[string]any {
 	keep := map[string]any{}
-	for _, k := range []string{"outcome", "frames", "hits_taken", "attacks", "ranged", "jumps", "dodges", "orb_pushes", "orb_frames", "spiral_slashes", "upper_slashes", "break_launches", "punish_frames", "backflips", "hp_start", "hp_end", "target"} {
+	for _, k := range []string{"outcome", "frames", "hits_taken", "attacks", "ranged", "jumps", "dodges", "orb_pushes", "orb_frames", "spiral_slashes", "upper_slashes", "break_launches", "punish_frames", "backflips", "max_combo", "combo_drops", "combo_keep_shots", "hp_start", "hp_end", "target"} {
 		if v, ok := res[k]; ok {
 			keep[k] = v
 		}
@@ -383,6 +391,19 @@ func summarize(label string, sets setFlags, tries []try) summary {
 		}
 	}
 	s.MedianWinSecs = median(winSecs)
+	var secs float64
+	drops := 0
+	for _, t := range tries {
+		s.MeanMaxCombo += float64(t.MaxCombo)
+		secs += t.Seconds
+		drops += t.Drops
+	}
+	if len(tries) > 0 {
+		s.MeanMaxCombo /= float64(len(tries))
+	}
+	if secs > 0 {
+		s.DropsPerMin = float64(drops) / (secs / 60)
+	}
 	return s
 }
 

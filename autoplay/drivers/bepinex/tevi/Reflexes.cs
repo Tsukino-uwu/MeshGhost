@@ -43,6 +43,7 @@ namespace MeshGhostAutoplay.Tevi
         private const int RootFrames = 18;
         private const float MeleeReach = 139.5f, MeleeHalfHeight = 34f;
         private const int ComboRootFrames = 32;
+        private const int ComboKeepAfter = 75; // frames since the combo last rose: the game's timer is 1.75 s (105 frames)
         private const int BackflipWindow = 12; // frames: the dodge state a Backflip holds is about 15 (the game's code, read as a map)
         private const int DirLead = 2; // frames a direction is held before a Spiral or Upper Slash's Attack
         private const int ChargeTravel = 5; // frames a charge box took from its birth to reach her beside him (the flight recorder, 2026-09-17)
@@ -120,6 +121,12 @@ namespace MeshGhostAutoplay.Tevi
             // (playerc_perfer.HaveDodge() at 1 or more), Backflip is pressed. Read as a map: a hit during a backflip with a full meter
             // is dodged and followed by invulnerability. To measure, not assumed.
             bool backflipDodge = (bool?)args["backflip_dodge"] ?? false;
+            // The combo counter (ComboSystem.GetCombo; the game's code, read as a map, says it ends 1.75 s after the last hit and that
+            // every hit of hers counts, Orbitar shots included). The user, 2026-09-23: a constant, high combo that never drops looks
+            // cool. Reported as max_combo and combo_drops (a count that fell), and `combo_keep`: once ComboKeepAfter frames have passed
+            // since it last rose and no swing is going out, an Orbitar shot at the target to renew it.
+            bool comboKeep = (bool?)args["combo_keep"] ?? false;
+            int maxCombo = 0, comboDrops = 0, lastCombo = 0, comboRoseAt = Time.frameCount, keepShots = 0;
             int backflips = 0;
             int punishFrames = 0;
             int spirals = 0, uppers = 0, dirFrames = 0, launches = 0;
@@ -178,6 +185,9 @@ namespace MeshGhostAutoplay.Tevi
                     ["break_launches"] = launches,
                     ["punish_frames"] = punishFrames,
                     ["backflips"] = backflips,
+                    ["max_combo"] = maxCombo,
+                    ["combo_drops"] = comboDrops,
+                    ["combo_keep_shots"] = keepShots,
                     ["orb_frames"] = orbFrames,
                     ["orb_log"] = orbLog,
                     ["last_dodge"] = guard.LastDodge,
@@ -229,6 +239,11 @@ namespace MeshGhostAutoplay.Tevi
                         minRange = (float?)args["min_range"] ?? 0f;
                     }
                 }
+                int combo = ComboSystem.Instance != null ? ComboSystem.Instance.GetCombo() : 0;
+                if (combo > lastCombo) comboRoseAt = Time.frameCount;
+                else if (combo < lastCombo && lastCombo >= 2) comboDrops++;
+                lastCombo = combo;
+                if (combo > maxCombo) maxCombo = combo;
                 bool punish = barPunish && target.aniStatus.ToString() == "DAMAGE" && target.GetHitStun() <= 0f;
                 if (punish) punishFrames++;
                 Dodge.Move towardMove = dx >= 0 ? Dodge.Move.Right : Dodge.Move.Left;
@@ -408,6 +423,11 @@ namespace MeshGhostAutoplay.Tevi
                     // mix both ground/air to attack as much as possible whenever possible. while prioritizing never getting hit".
                     // A swing that carries a combo on to its second and third hits holds her longer: after the third her Jump was not taken
                     // for 22 frames while bombs fell on her (2026-09-17).
+                    if (comboKeep && tap == null && combo >= 2 && Time.frameCount - comboRoseAt >= ComboKeepAfter && facingIt && Mathf.Abs(dy) <= 90f)
+                    {
+                        tap = "Ranged";
+                        keepShots++;
+                    }
                     string tapUngated = tap;
                     int root = tap == "Attack" && (p.logicStatus.ToString().Contains("NORMAL1") || p.logicStatus.ToString().Contains("NORMAL2")) ? comboRootFrames : rootFrames;
                     if (tap != null && dodge && !guard.StandingSafe(root)) tap = null;
