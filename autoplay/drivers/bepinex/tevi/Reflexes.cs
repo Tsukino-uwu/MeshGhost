@@ -94,6 +94,7 @@ namespace MeshGhostAutoplay.Tevi
             float hug = (float?)args["hug"] ?? Dodge.DefaultHug; // how much the dodge prefers ending near the target
             // `tell_filter`: predict from a state only while an attack followed at least half its recent entries (Tells.cs; not in C).
             bool tellFilter = (bool?)args["tell_filter"] ?? false;
+            bool keepSpawnTells = (bool?)args["keep_spawn_tells"] ?? false; // with tell_filter: thrown-explosive tells kept (Tells.KeepSpawns)
             // Moves the game teaches in Ribauld's fight (its bottom-left popups, 2026-09-23), off until five tries say they help:
             // `spiral_slash`, Down + Attack in the air (TEVI_WEAK_AIR_DOWN, measured; the user: "down + C, while in the air"), taken
             // in the air with the target in her swing and not above her; `upper_slash`, Up + Attack on the ground (the move list,
@@ -130,10 +131,12 @@ namespace MeshGhostAutoplay.Tevi
             var guard = new Guard(me) { Hug = hug };
             int targetId = target.ID;
             Tells.FilterUnreliable = tellFilter;
+            Tells.KeepSpawns = keepSpawnTells;
 
             JObject Done(string outcome)
             {
                 Tells.FilterUnreliable = true;
+                Tells.KeepSpawns = false;
                 CharacterBase p = player();
                 return new JObject
                 {

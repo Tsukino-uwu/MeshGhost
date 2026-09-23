@@ -49,6 +49,10 @@ namespace MeshGhostAutoplay.Tevi
         private const int MinEntries = 3, EntryWindow = 20;
         private const float FollowShare = 0.5f;
         public static bool FilterUnreliable = true;
+        // A state whose samples include a thrown explosive is predicted even when the filter would drop it: Ribauld's ATTACK1 (his
+        // orb throw) counted as followed 2 times in 20 while every one of its samples is a throw at frame 26-27, and orb blasts
+        // became the most common hit once the filter was on (the trials, 2026-09-23). A fight's `keep_spawn_tells` sets it.
+        public static bool KeepSpawns = false;
         public static string EntriesFile; // autoplay/states/tevi/tells_entries.json, when the plugin knows the repo
         private const string EntriesKey = "meshghost.autoplay.tells.entries";
         private static Dictionary<string, List<bool>> entries;
@@ -330,7 +334,8 @@ namespace MeshGhostAutoplay.Tevi
             {
                 if (c == null || c == p || c.t == null || !c.gameObject.activeInHierarchy || c.health <= 0) continue;
                 if (!States.TryGetValue(c.GetInstanceID(), out Seen s)) continue;
-                if (!Table.TryGetValue(c.type + "|" + s.State, out List<Sample> list) || !Reliable(c.type + "|" + s.State)) continue;
+                if (!Table.TryGetValue(c.type + "|" + s.State, out List<Sample> list)) continue;
+                if (!Reliable(c.type + "|" + s.State) && !(KeepSpawns && list.Exists(x => x.Type != null && x.Type.StartsWith("SPAWN_")))) continue;
                 int inState = f - s.Since, facing = Facing(c);
                 foreach (Sample x in list)
                 {
