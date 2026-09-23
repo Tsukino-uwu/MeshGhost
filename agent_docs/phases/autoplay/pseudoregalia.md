@@ -173,3 +173,34 @@ per frame and probes and sweeps cached per map (132 on a first plan, 143 on the 
 and the gap → the pole → the slide, and **the SLIDE taken** ("Press Left Trigger/Q Key on the ground to Slide"; Q is
 `IA_Crouch`; its screen's CONTINUE through the widget's handler, reached). Snapshots (local): `pr_2000_before_grab`,
 `pr_2349_ledge`, `pr_wall2_broken`, `pr_before_pole`, `pr_after_pole`, `pr_has_slide`.
+
+## 2026-09-23 (same session) — the replay check to the slide, the slide used, and the dungeon's reachable edge
+
+**The user:** *"option2 first, and then option3 (this current area is to teach you how to use slide)"*; mid-run *"its
+using backflip instead of normal jumps a lot, even for small things that don't require them"*; then, going away, *"keep
+going and don't stop, reach slide + proceed beyond that. try to beat the whole game"*.
+
+**Option 2, the replay check** (a scratch script runs goto/fight/advance_text stage by stage from `pr_dungeon_start`):
+reached the slide with no help, a stage failing at most once and passing on a retry. What it took, each from the flight
+recorder or the long trail: the accidental backflips were Jump pressed during a run-up's turn-around skid (actionState
+18) -- every non-flip jump now waits the skid out; a held Jump on landing onto a higher block jumped her again and off its
+far side (vz is 0 on the ground, so "hold while vz > -250" held it) -- every hold lets go once landed; a re-plan capped at
+2500 cells answered no_route mid-route; plain A* flooded the level on long routes (22691 cells, 2515 frames) -- now
+weighted (1.5): 799 cells, 122 frames; goto now ends on an upgrade screen (controlState stays 0 under one).
+
+**Four game crashes, two causes** (UE4SS access violations, crash reports read): the actor registry and `fight` kept
+UObjects across frames, and IsValid on a broken wall's freed actor crashed it -- now kept by path and found again by
+StaticFindObject; and twice within seconds of a `RestartMod` self-reload -- the driver now re-runs the game module in
+place (`reload_game()` through exec). A probe calling into the title widget as it handed over to the main menu crashed it
+once more. Relaunching the game: `steam://rungameid/2365810` (I first launched TEVI's id by mistake and closed it; the
+user said so).
+
+**Option 3, past the slide:** the slide room's way out is a slide-only passage under a beam the floor probe read as a
+150 rise (a second, low probe finds the floor under it; `slide` edges); the axes' shelf is crossed sliding under the
+swinging axes (hit 5 at a time walking). `reach` became an even, resumable flood that lists what it reached: the whole
+connected dungeon (30684 cells) reaches NPCs, two save crystals, pole `_1` and wall `_0`, and none of the exits, upgrades
+or keys. Wall `_0` (200 HP) took no damage from swings or a slide; key `_2` is up a smooth shaft; upgrade `_3` is on an 850
+pillar; flip-into-grab edges (to 350) added 6 cells. A leap I added across a "gap" was a wall the Visibility traces do not
+see from inside (reverted). **Open:** how the dungeon continues from here -- the cage chain to save crystal `_3` and hit
+switch `_2` in the locked door's room (a +253 hop onto a cage top), poles `_2`-`_4`, and wall `_0`. Snapshots (local):
+`pr_has_slide2`, `pr_past_slide_gap`, `pr_ledge2550`, `pr_crystal1`, `pr_upper_3525`, `pr_lockroom`.

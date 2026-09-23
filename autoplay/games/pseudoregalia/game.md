@@ -63,6 +63,16 @@ known about Pseudoregalia from anywhere else is only where to look. What the dri
   at (7450, -2350), east along it and over a gap, **a climb pole** at (12237, -1527) (jump onto it, climb, jump from its
   top), east over the axes' corridor and north to the slide at (16650, 2600) on a pedestal. `goto` walks all of it from
   `pr_before_crawler` with the hops and the trail in `routes/dungeon_hops.json`.
+- **The slide taken**: its pickup sits ~175 over the floor on a pedestal the floor traces do not see; run at it and jump.
+  `obtainedSlide?` on the pawn turns true (`observe` lists `abilities`). **Past it** (2026-09-23): out of the slide room
+  through a slide-only gap under a beam at (16550, -650) (`goto` plans `slide` edges), and north over the axes' shelf,
+  sliding under the swinging axes (x 14500, y -2800..-2400: walking, they hit 5 at a time and knock her off).
+- **What is reachable now** (`reach` flooded to the end, 30684 cells, 2026-09-23): NPCs `_1`, `_2`, `_6`, `_8`, the save
+  crystals `_1`/`_2`, pole `_1`, breakable wall `_0` (9150, -2900) -- 200 HP that neither swings nor a slide lower. Not:
+  all three exits, upgrades `_3`/`_8`, both keys, the locked door's room beyond its gate block (reached only by dropping
+  off the gate's top at 4250, 1300, 3525), save crystal `_3`, hit switches, poles `_2`-`_4`. Key `_2` is up a smooth
+  shaft; upgrade `_3` on an 850 pillar. **The height maps' `.` is ambiguous**: a trace that starts inside a wall finds
+  nothing, and one wall read as an open gap (2026-09-23).
 - **Hold Jump through the top of a jump**: it floats her there; letting go at the apex drops her at once and she met a
   ledge the user grabbed 9-30 lower. **Coyote time**: the user jumped 6-9 frames after leaving an edge for more
   distance, and lands in the middle of a platform so there is room to jump again (the user's rules, 2026-09-23).

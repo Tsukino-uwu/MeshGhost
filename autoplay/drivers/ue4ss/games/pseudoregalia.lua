@@ -870,6 +870,10 @@ local FLIP_UP = 250
 -- GRAB_UP: a rise a running jump reaches by catching the ledge (moveState 3) and climbing; the user's run climbed 286
 -- that way (2026-09-23). The flip stays for rises a grab cannot use (a fence has no ledge: the user, same day).
 local GRAB_UP = 320
+-- FLIPGRAB_UP: a backflip (peak 265 against a jump's 206) into a ledge grab: a jump grabbed ledges 80-94 over its apex, so
+-- a flip should catch ~350. The rises just past GRAB_UP (320-324) were the smallest the dungeon's full flood refused
+-- (2026-09-23). Executed as a flip; the hang handler climbs.
+local FLIPGRAB_UP = 350
 -- A leap across a gap of k cells may land at most this much higher. The user's run (2026-09-23) jumped from the cage
 -- platform onto a block 200 higher ~240 units away; a full jump rises 206.
 local LEAP_UP = { [2] = 200, [3] = 200, [4] = 200, [5] = 200 }
@@ -1131,8 +1135,8 @@ local function planStep(P)
 				local nz = probe(P, nix, niy, c.z + JUMP_UP + FEET)
 				-- A ledge taller than a jump starts above that probe: look again from a grab's height, and keep what it
 				-- finds only when it is such a ledge (from that high, most probes meet overhangs).
-				local hz = probe(P, nix, niy, c.z + GRAB_UP + 40)
-				if hz and hz > c.z + JUMP_UP and hz <= c.z + GRAB_UP and (not nz or nz < hz - 100) then nz = hz end
+				local hz = probe(P, nix, niy, c.z + FLIPGRAB_UP + 40)
+				if hz and hz > c.z + JUMP_UP and hz <= c.z + FLIPGRAB_UP and (not nz or nz < hz - 100) then nz = hz end
 				-- And, with the slide, the floor under a low beam: probed from above, the passage under the slide room's
 				-- corridor read as the beam's top 150 up, its underside 100 over the real floor (2026-09-23).
 				local cands = { nz }
@@ -1149,10 +1153,10 @@ local function planStep(P)
 						local dz = nz - c.z
 						local kind, ok = nil, false
 						local ca, cb = c.z + FEET, nz + FEET
-						if dz > GRAB_UP or dz < -DROP then
+						if dz > FLIPGRAB_UP or dz < -DROP then
 							ok = false
 						elseif dz > STEP_UP then
-							kind = dz > FLIP_UP and "grab" or (dz > JUMP_UP and "flip" or "jump")
+							kind = dz > GRAB_UP and "flipgrab" or (dz > FLIP_UP and "grab" or (dz > JUMP_UP and "flip" or "jump"))
 							ok = not sweep(P.pawn, ax, ay, ca + 2, ax, ay, cb + 8) and not sweep(P.pawn, ax, ay, cb + 8, bx, by, cb + 8)
 						elseif dz < -STEP_UP then
 							kind = "drop"
@@ -1173,13 +1177,13 @@ local function planStep(P)
 						end
 						if ok then
 							local step = (d[1] ~= 0 and d[2] ~= 0) and CELL * 1.4142 or CELL
-							local cost = P.g[cur.k] + step + (kind == "jump" and 80 or 0) + (kind == "flip" and 200 or 0) + (kind == "grab" and 150 or 0) + (kind == "drop" and 20 or 0) + (kind == "slide" and 40 or 0)
-							if kind == "jump" or kind == "flip" or kind == "grab" then cost = cost + LAND_EDGE_COST * edgeCells(P, nix, niy, nz) end
+							local cost = P.g[cur.k] + step + (kind == "jump" and 80 or 0) + (kind == "flip" and 200 or 0) + (kind == "grab" and 150 or 0) + (kind == "flipgrab" and 300 or 0) + (kind == "drop" and 20 or 0) + (kind == "slide" and 40 or 0)
+							if kind == "jump" or kind == "flip" or kind == "grab" or kind == "flipgrab" then cost = cost + LAND_EDGE_COST * edgeCells(P, nix, niy, nz) end
 							if P.trail and not nearTrail(P.trail, bx, by, nz) then cost = cost + step * 0.8 end
 							if P.g[nk] == nil or cost < P.g[nk] then
 								P.g[nk], P.came[nk], P.edge[nk] = cost, cur.k, kind
 								local gx, gy = (P.gix - nix) * CELL, (P.giy - niy) * CELL
-								heapPush(P.open, { k = nk, f = cost + H_WEIGHT * math.sqrt(gx * gx + gy * gy) })
+								heapPush(P.open, { k = nk, f = cost + (P.flood and 0 or H_WEIGHT) * math.sqrt(gx * gx + gy * gy) })
 							end
 						end
 					end
@@ -1202,7 +1206,7 @@ local function planStep(P)
 							if P.g[nk] == nil or cost < P.g[nk] then
 								P.g[nk], P.came[nk], P.edge[nk], P.hopOf[nk] = cost, cur.k, "hop", hi
 								local gx, gy = (P.gix - nix) * CELL, (P.giy - niy) * CELL
-								heapPush(P.open, { k = nk, f = cost + H_WEIGHT * math.sqrt(gx * gx + gy * gy) })
+								heapPush(P.open, { k = nk, f = cost + (P.flood and 0 or H_WEIGHT) * math.sqrt(gx * gx + gy * gy) })
 							end
 						end
 					end
@@ -1254,7 +1258,7 @@ local function planStep(P)
 												P.cells[nk] = P.cells[nk] or { ix = nix, iy = niy, z = nz }
 												P.g[nk], P.came[nk], P.edge[nk] = cost, cur.k, "leap"
 												local gx, gy = (P.gix - nix) * CELL, (P.giy - niy) * CELL
-												heapPush(P.open, { k = nk, f = cost + H_WEIGHT * math.sqrt(gx * gx + gy * gy) })
+												heapPush(P.open, { k = nk, f = cost + (P.flood and 0 or H_WEIGHT) * math.sqrt(gx * gx + gy * gy) })
 											end
 										end
 									end
@@ -1633,7 +1637,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 			return false
 		end
 		-- A flip: 4 frames of stick away from the ledge (the skid), Jump from the 3rd held 80, then the stick back at it.
-		if target.edge == "flip" and d < 70 and (o.player.move_state or 0) == 0 and not flip then
+		if (target.edge == "flip" or target.edge == "flipgrab") and d < 70 and (o.player.move_state or 0) == 0 and not flip then
 			flip = { t = 0, ux = dx / d, uy = dy / d }
 		end
 		if flip then
@@ -1768,10 +1772,20 @@ function M.programs.reach(p)
 	local s = playerAndCamera()
 	if not s then return nil, "no player" end
 	local maxCells = tonumber(p.max_cells) or 8000
-	-- A target no cell can be nearer to than the start, so the search only ever floods.
-	local P = newPlan(s.pawn, s.x, s.y, s.z, s.x + 1e7, s.y + 1e7, maxCells)
-	P.tooHigh = {}
-	local origJump = GRAB_UP
+	-- A target no cell can be nearer to than the start, so the search only ever floods; P.flood orders it by cost alone,
+	-- evenly outward (ordered toward that far target, a capped flood ran off one way). `continue` carries on the last
+	-- flood with max_cells more, across reflex calls: the whole dungeon did not fit in one call's 3600 frames.
+	local P
+	if p.continue and M.lastReach then
+		P = M.lastReach
+		P.maxCells = P.count + maxCells
+	else
+		P = newPlan(s.pawn, s.x, s.y, s.z, s.x + 1e7, s.y + 1e7, maxCells)
+		P.flood = true
+		P.tooHigh = {}
+		M.lastReach = P
+	end
+	local origJump = FLIPGRAB_UP
 	return function()
 		local r = planStep(P)
 		if not r then return false end
@@ -1800,11 +1814,45 @@ function M.programs.reach(p)
 		end
 		table.sort(tops, function(a, b) return a.z > b.z end)
 		for i = #tops, 11, -1 do tops[i] = nil end
+		-- The things worth going to, and whether a reached cell stands within 250 of one (at most 600 under it: a thing's
+		-- position is its pivot, above the floor it stands on).
+		local byBucket = {}
+		for k in pairs(P.closed) do
+			local c = P.cells[k]
+			local bk = math.floor(c.ix * CELL / 250) .. "," .. math.floor(c.iy * CELL / 250)
+			byBucket[bk] = byBucket[bk] or {}
+			table.insert(byBucket[bk], c)
+		end
+		local want = { exit = true, upgrade = true, key = true, npc = true, save_point = true, switch = true,
+			breakable_wall = true, health_piece = true, locked_door = true, pole = true }
+		local reached, unreached = {}, {}
+		local map = M.observe(false).location.map
+		if registry.map ~= map or host.frame() - registry.at > 300 then refreshRegistry(map) end
+		for _, e in ipairs(registry.list) do
+			if want[e.kind] then
+				local a = actorOf(e)
+				local ok, tx, ty, tz = pcall(function() local l = a.RootComponent.RelativeLocation return l.X, l.Y, l.Z end)
+				if a and ok and tx then
+					local best = math.huge
+					local bx0, by0 = math.floor(tx / 250), math.floor(ty / 250)
+					for ox = -1, 1 do for oy = -1, 1 do
+						for _, c in ipairs(byBucket[(bx0 + ox) .. "," .. (by0 + oy)] or {}) do
+							local dx, dy = c.ix * CELL - tx, c.iy * CELL - ty
+							local d = math.sqrt(dx * dx + dy * dy)
+							if tz - c.z > -100 and tz - c.z < 600 and d < best then best = d end
+						end
+					end end
+					local row = string.format("%s %s (%.0f,%.0f,%.0f)", e.kind, e.name, tx, ty, tz)
+					if best <= 250 then reached[#reached + 1] = row else unreached[#unreached + 1] = row end
+				end
+			end
+		end
 		table.sort(P.tooHigh, function(a, b) return a.rise < b.rise end)
 		local th = {}
 		for i = 1, math.min(15, #P.tooHigh) do th[i] = P.tooHigh[i] end
 		return true, { outcome = r == "exhausted" and "flooded" or r, cells = n, capped = n >= maxCells,
-			box = { x = { minx, maxx }, y = { miny, maxy } }, highest = tops, too_high = th, too_high_total = #P.tooHigh }
+			box = { x = { minx, maxx }, y = { miny, maxy } }, highest = tops, too_high = th, too_high_total = #P.tooHigh,
+			reached = reached, unreached = unreached, open = #P.open }
 	end
 end
 
