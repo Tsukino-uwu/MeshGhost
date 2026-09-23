@@ -2,7 +2,7 @@
  "game": "pseudoregalia",
  "variant": "vanilla",
  "map": "ZONE_Dungeon",
- "note": "Hops the user played on 2026-09-23 from the cage platform to the attack upgrade's room, with detours and mistakes on purpose (their words: 'so you have more data to compare against'). Each is a jump that worked: takeoff (x, y, floor z) where Jump started -- on the ground or within coyote time --, landing (x, y, floor z) where she next stood, grab when she hung on a ledge (moveState 3) on the way. Read from the driver's flight recorder, every 3rd frame at 144 frames a second. goto uses them as moves beside its own. A second run (2026-09-23, the user, from below the WheelCrawler's ledge to beside the slide upgrade) added hops marked flip (a backflip: Jump in the skid, actionState 18) and pole (moveState 5 on a climb pole, 6 leaving it, from_z to to_z).",
+ "note": "Hops the user played on 2026-09-23 from the cage platform to the attack upgrade's room, with detours and mistakes on purpose (their words: 'so you have more data to compare against'). Each is a jump that worked: takeoff (x, y, floor z) where Jump started -- on the ground or within coyote time --, landing (x, y, floor z) where she next stood, grab when she hung on a ledge (moveState 3) on the way. Read from the driver's flight recorder, every 3rd frame at 144 frames a second. goto uses them as moves beside its own. A second run (2026-09-23, the user, from below the WheelCrawler's ledge to beside the slide upgrade) added hops marked flip (a backflip: Jump in the skid, actionState 18) and pole (moveState 5 on a climb pole, 6 leaving it, from_z to to_z). Each hop also carries runup: where the user was 250 units of running before the takeoff (less where their run was shorter), a place they walked.",
  "hops": [
   {
    "takeoff": [
@@ -21,7 +21,12 @@
    ],
    "grab": false,
    "frames": 66,
-   "run_speed": 550
+   "run_speed": 550,
+   "runup": [
+    311,
+    2139
+   ],
+   "runup_path": 250
   },
   {
    "takeoff": [
@@ -40,7 +45,12 @@
    ],
    "grab": false,
    "frames": 72,
-   "run_speed": 550
+   "run_speed": 550,
+   "runup": [
+    533,
+    2367
+   ],
+   "runup_path": 227
   },
   {
    "takeoff": [
@@ -59,7 +69,12 @@
    ],
    "grab": false,
    "frames": 105,
-   "run_speed": 550
+   "run_speed": 550,
+   "runup": [
+    -710,
+    3735
+   ],
+   "runup_path": 260
   },
   {
    "takeoff": [
@@ -78,7 +93,12 @@
    ],
    "grab": false,
    "frames": 108,
-   "run_speed": 550
+   "run_speed": 550,
+   "runup": [
+    -1080,
+    3071
+   ],
+   "runup_path": 251
   },
   {
    "takeoff": [
@@ -97,7 +117,12 @@
    ],
    "grab": true,
    "frames": 249,
-   "run_speed": 550
+   "run_speed": 550,
+   "runup": [
+    -124,
+    3052
+   ],
+   "runup_path": 260
   },
   {
    "takeoff": [
@@ -116,7 +141,12 @@
    ],
    "grab": true,
    "frames": 207,
-   "run_speed": 550
+   "run_speed": 550,
+   "runup": [
+    -967,
+    2895
+   ],
+   "runup_path": 261
   },
   {
    "takeoff": [
@@ -135,7 +165,12 @@
    ],
    "grab": false,
    "frames": 171,
-   "run_speed": 550
+   "run_speed": 550,
+   "runup": [
+    -1491,
+    2946
+   ],
+   "runup_path": 214
   },
   {
    "takeoff": [
@@ -154,7 +189,12 @@
    ],
    "grab": false,
    "frames": 108,
-   "run_speed": 550
+   "run_speed": 550,
+   "runup": [
+    -1955,
+    2848
+   ],
+   "runup_path": 252
   },
   {
    "takeoff": [
@@ -173,7 +213,12 @@
    ],
    "grab": false,
    "frames": 105,
-   "run_speed": 550
+   "run_speed": 550,
+   "runup": [
+    -1604,
+    2637
+   ],
+   "runup_path": 260
   },
   {
    "takeoff": [
@@ -192,7 +237,12 @@
    ],
    "grab": false,
    "frames": 87,
-   "run_speed": 550
+   "run_speed": 550,
+   "runup": [
+    -1060,
+    2621
+   ],
+   "runup_path": 260
   },
   {
    "takeoff": [
@@ -211,7 +261,12 @@
    ],
    "grab": false,
    "frames": 57,
-   "run_speed": 550
+   "run_speed": 550,
+   "runup": [
+    -613,
+    2631
+   ],
+   "runup_path": 249
   },
   {
    "takeoff": [
@@ -230,7 +285,12 @@
    ],
    "grab": true,
    "frames": 240,
-   "run_speed": 550
+   "run_speed": 550,
+   "runup": [
+    -109,
+    2850
+   ],
+   "runup_path": 253
   },
   {
    "takeoff": [
@@ -249,7 +309,12 @@
    ],
    "grab": true,
    "frames": 210,
-   "run_speed": 550
+   "run_speed": 550,
+   "runup": [
+    -990,
+    2893
+   ],
+   "runup_path": 261
   },
   {
    "takeoff": [
@@ -268,7 +333,12 @@
    ],
    "grab": false,
    "frames": 171,
-   "run_speed": 550
+   "run_speed": 550,
+   "runup": [
+    -1486,
+    2937
+   ],
+   "runup_path": 238
   },
   {
    "takeoff": [
@@ -287,7 +357,12 @@
    ],
    "grab": false,
    "frames": 207,
-   "run_speed": 550
+   "run_speed": 550,
+   "runup": [
+    -2253,
+    2998
+   ],
+   "runup_path": 252
   },
   {
    "takeoff": [
@@ -307,7 +382,12 @@
    "grab": true,
    "frames": 165,
    "run_speed": 308,
-   "flip": true
+   "flip": true,
+   "runup": [
+    5096,
+    -3277
+   ],
+   "runup_path": 257
   },
   {
    "takeoff": [
@@ -326,7 +406,12 @@
    ],
    "grab": false,
    "frames": 78,
-   "run_speed": 274
+   "run_speed": 274,
+   "runup": [
+    4894,
+    -2976
+   ],
+   "runup_path": 62
   },
   {
    "takeoff": [
@@ -345,7 +430,12 @@
    ],
    "grab": true,
    "frames": 159,
-   "run_speed": 550
+   "run_speed": 550,
+   "runup": [
+    4808,
+    -2831
+   ],
+   "runup_path": 218
   },
   {
    "takeoff": [
@@ -364,7 +454,12 @@
    ],
    "grab": true,
    "frames": 171,
-   "run_speed": 550
+   "run_speed": 550,
+   "runup": [
+    4548,
+    -2339
+   ],
+   "runup_path": 251
   },
   {
    "takeoff": [
@@ -383,7 +478,12 @@
    ],
    "grab": true,
    "frames": 261,
-   "run_speed": 550
+   "run_speed": 550,
+   "runup": [
+    5175,
+    -2250
+   ],
+   "runup_path": 251
   },
   {
    "takeoff": [
@@ -402,7 +502,12 @@
    ],
    "grab": false,
    "frames": 144,
-   "run_speed": 218
+   "run_speed": 218,
+   "runup": [
+    5770,
+    -2378
+   ],
+   "runup_path": 76
   },
   {
    "takeoff": [
@@ -421,7 +526,12 @@
    ],
    "grab": false,
    "frames": 129,
-   "run_speed": 550
+   "run_speed": 550,
+   "runup": [
+    5926,
+    -2731
+   ],
+   "runup_path": 251
   },
   {
    "takeoff": [
@@ -440,7 +550,12 @@
    ],
    "grab": false,
    "frames": 108,
-   "run_speed": 550
+   "run_speed": 550,
+   "runup": [
+    6427,
+    -2842
+   ],
+   "runup_path": 250
   },
   {
    "takeoff": [
@@ -459,7 +574,12 @@
    ],
    "grab": false,
    "frames": 144,
-   "run_speed": 550
+   "run_speed": 550,
+   "runup": [
+    10253,
+    -2562
+   ],
+   "runup_path": 251
   },
   {
    "takeoff": [
@@ -486,7 +606,12 @@
     ],
     "from_z": 2196,
     "to_z": 2677
-   }
+   },
+   "runup": [
+    12045,
+    -1965
+   ],
+   "runup_path": 260
   },
   {
    "takeoff": [
@@ -505,7 +630,12 @@
    ],
    "grab": false,
    "frames": 84,
-   "run_speed": 550
+   "run_speed": 550,
+   "runup": [
+    14639,
+    -39
+   ],
+   "runup_path": 260
   },
   {
    "takeoff": [
@@ -524,7 +654,12 @@
    ],
    "grab": false,
    "frames": 105,
-   "run_speed": 550
+   "run_speed": 550,
+   "runup": [
+    15059,
+    -50
+   ],
+   "runup_path": 241
   },
   {
    "takeoff": [
@@ -543,7 +678,12 @@
    ],
    "grab": false,
    "frames": 198,
-   "run_speed": 550
+   "run_speed": 550,
+   "runup": [
+    16160,
+    262
+   ],
+   "runup_path": 261
   }
  ]
 }

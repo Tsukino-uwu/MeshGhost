@@ -656,6 +656,7 @@ function M.programs.restore(p)
 	if guardSlot(pawn) ~= AUTOPLAY_SLOT then return nil, "the save slot is not " .. AUTOPLAY_SLOT .. "; not loading" end
 	local ok, err = writeAll(AUTOPLAY_FILE, data)
 	if not ok then return nil, "cannot write " .. AUTOPLAY_FILE .. ": " .. tostring(err) end
+	M.clear_geo()
 	gameInstance(pawn):reloadAndRespawn()
 	local old, settled, phase = pawn, 0, "reloading"
 	return function(count)
@@ -780,9 +781,40 @@ local LEAP_UP = { [2] = 200, [3] = 200, [4] = 200, [5] = 200 }
 -- Further, a leap lands only by catching the ledge: the user's grab hops rose 178 across 661 and 286 across 283.
 for k = 6, 12 do LEAP_UP[k] = 280 end
 local LEAP_CELLS = 12
-local EXPAND_PER_FRAME = 30
+local EXPAND_PER_FRAME = 60 -- a ceiling; the trace budget below is what bounds a frame
 
-local function sweep(pawn, x1, y1, z1, x2, y2, z2)
+-- Traces cast by the planner this frame: the search stops for the frame at TRACE_BUDGET. Thirty cells a frame
+-- (~500 traces) took the game from 144 to ~89 frames a second while a plan was made (2026-09-23; the user asked
+-- whether the drop could be fixed).
+local TRACE_BUDGET = 200
+local tracesThisFrame, traceFrame = 0, -1
+local function countTrace()
+	local f = host.frame()
+	if f ~= traceFrame then traceFrame, tracesThisFrame = f, 0 end
+	tracesThisFrame = tracesThisFrame + 1
+end
+-- And by time: the Lua around the traces (a leap's candidate cells) cost as much as the traces, and a trace budget alone
+-- still left ~90 frames a second while planning, against 142 idle (2026-09-23). os.clock is wall time under MSVC.
+local PLAN_MS = 1.5
+local planStart, planFrame = 0, -1
+local function overBudget()
+	local f = host.frame()
+	if f ~= planFrame then planFrame, planStart = f, os.clock() end
+	if (os.clock() - planStart) * 1000 >= PLAN_MS then return true end
+	return traceFrame == f and tracesThisFrame >= TRACE_BUDGET
+end
+
+-- The level's answers, kept for the map: the same probe or sweep asked again (a re-plan, a later route through known
+-- ground) is not traced again. Cleared on a restore and when the map changes (a broken wall changes the level).
+local geoCache = { map = nil, probes = {}, sweeps = {} }
+local function geo(map)
+	if geoCache.map ~= map then geoCache = { map = map, probes = {}, sweeps = {} } end
+	return geoCache
+end
+M.clear_geo = function() geoCache = { map = nil, probes = {}, sweeps = {} } end
+
+local function sweepRaw(pawn, x1, y1, z1, x2, y2, z2)
+	countTrace()
 	if not ksl or not ksl:IsValid() then ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary") end
 	local hit = {}
 	local r = ksl:CapsuleTraceSingle(pawn, { X = x1, Y = y1, Z = z1 }, { X = x2, Y = y2, Z = z2 }, CAP_R, CAP_H, 0, false,
@@ -790,7 +822,19 @@ local function sweep(pawn, x1, y1, z1, x2, y2, z2)
 	return r == true
 end
 
+local function sweep(pawn, x1, y1, z1, x2, y2, z2)
+	local k = string.format("%.0f,%.0f,%.0f>%.0f,%.0f,%.0f", x1, y1, z1, x2, y2, z2)
+	local c = geoCache.sweeps
+	local v = c[k]
+	if v == nil then
+		v = sweepRaw(pawn, x1, y1, z1, x2, y2, z2)
+		c[k] = v
+	end
+	return v
+end
+
 local function floorProbe(pawn, x, y, fromZ, walkableZ)
+	countTrace()
 	if not ksl or not ksl:IsValid() then ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary") end
 	local hit = {}
 	local r = ksl:LineTraceSingle(pawn, { X = x, Y = y, Z = fromZ }, { X = x, Y = y, Z = fromZ - 1400 }, 0, false, {}, 0, hit,
@@ -809,7 +853,7 @@ local function probe(P, ix, iy, fromZ)
 	local k = ix .. "," .. iy .. "@" .. math.floor(fromZ / 100)
 	local v = P.probes[k]
 	if v == nil then
-		v = floorProbe(P.pawn, ix * CELL, iy * CELL, fromZ, P.walkableZ) or false
+		v = floorProbe(P.pawn, ix * CELL, iy * CELL, math.floor(fromZ / 100) * 100 + 50, P.walkableZ) or false
 		P.probes[k] = v
 	end
 	return v or nil
@@ -821,7 +865,8 @@ local function newPlan(pawn, sx, sy, sz, tx, ty, maxCells)
 	-- `cells` are the search's nodes, keyed by cell AND level (nodeKey): keyed by cell alone, a hop landing on a floor at
 	-- 1700 merged with the floor at 800 beneath it and the route lost its thread (2026-09-23). `probes` caches floor traces
 	-- per cell and the height they were cast from.
-	local P = { pawn = pawn, cells = {}, probes = {}, open = {}, closed = {}, came = {}, g = {}, edge = {}, count = 0,
+	local g = geo(M.observe(false).location.map)
+	local P = { pawn = pawn, cells = {}, probes = g.probes, open = {}, closed = {}, came = {}, g = {}, edge = {}, count = 0,
 		maxCells = maxCells, walkableZ = walkableZ, tx = tx, ty = ty, hopOf = {} }
 	pcall(function() P.hops = M.hops_for(M.observe(false).location.map) or nil end) -- defined further down
 	local function cellOf(x, y) return math.floor(x / CELL + 0.5), math.floor(y / CELL + 0.5) end
@@ -908,6 +953,7 @@ end
 -- Runs up to EXPAND_PER_FRAME expansions. Returns "found", "exhausted" or nil (still searching).
 local function planStep(P)
 	for _ = 1, EXPAND_PER_FRAME do
+		if overBudget() then return nil end
 		if #P.open == 0 then return "exhausted" end
 		local cur = heapPop(P.open)
 		if not P.closed[cur.k] then
@@ -1179,6 +1225,9 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 				ul = math.sqrt(ux * ux + uy * uy)
 				ux, uy = ux / ul, uy / ul
 				local rx, ry = h.takeoff[1] - ux * 250, h.takeoff[2] - uy * 250
+				-- The user's own run-up where recorded: 250 straight back fell inside a wall where they had come around a
+				-- corner, and she stood pushing into it (2026-09-23).
+				if h.runup then rx, ry = h.runup[1], h.runup[2] end
 				local vx, vy = h.takeoff[1] - st.x, h.takeoff[2] - st.y
 				local vl = math.sqrt(vx * vx + vy * vy)
 				local off = vl > 1 and (vx * ux + vy * uy) / vl < 0.5
@@ -1196,7 +1245,29 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 				gx, gy = h.takeoff[1] - st.x, h.takeoff[2] - st.y
 				local td = math.sqrt(gx * gx + gy * gy)
 				-- At the takeoff, or off its edge near it: the jump in coyote time the user used (2026-09-23).
-				if td < 25 or (ms == 1 and td < 150) then hs.phase, hs.t = (h.flip and ms == 0) and "skid" or "air", 0 end
+				-- Jump where the user did: when she reaches or passes the takeoff along the hop's direction. Within 25 of it
+				-- was 25 early at a run, her arc met the ledge lower than theirs and missed the grab they made (2026-09-23).
+				local hx, hy = h.landing[1] - h.takeoff[1], h.landing[2] - h.takeoff[2]
+				local hl = math.max(1, math.sqrt(hx * hx + hy * hy))
+				local along = ((st.x - h.takeoff[1]) * hx + (st.y - h.takeoff[2]) * hy) / hl
+				-- Off the edge before the takeoff (the user's coyote-time jumps came 6-9 frames after leaving the ground, each a
+				-- full jump, 2026-09-23): keep running and jump over their takeoff point, or at the 8th frame in the air.
+				if ms == 1 then hs.off = (hs.off or 0) + 1 else hs.off = 0 end
+				-- Near the takeoff only: a seam in the floor 115 before one left her in the air for 12 frames and was taken for
+				-- the edge (2026-09-23).
+				local coyote = ms == 1 and td < 250 and along >= -60 and (along >= -4 or hs.off >= 8)
+				local ground = ms == 0 and ((td < 60 and along >= -4) or td < 8)
+				-- A grab hop or a long one: as late as coyote time allows, for the most reach at the far side (the user: "use
+				-- it as a map but feel free to improve upon it"; recorded takeoffs left her 30 short of their grab height).
+				local hx2 = math.sqrt((h.landing[1] - h.takeoff[1]) ^ 2 + (h.landing[2] - h.takeoff[2]) ^ 2)
+				if (h.grab or hx2 > 350) and not h.flip then
+					coyote = ms == 1 and td < 250 and along >= -60 and hs.off >= 7
+					ground = ms == 0 and td < 80 and along >= 30
+				end
+				if ground or coyote then hs.phase, hs.t = (h.flip and ms == 0) and "skid" or "air", 0 end
+				-- Past the takeoff, or off the edge: run at the landing. Steering back at a takeoff already passed slowed her
+				-- from 550 to 212 in coyote time and the jump fell short (2026-09-23).
+				if along >= 0 or ms == 1 then gx, gy = h.landing[1] - st.x, h.landing[2] - st.y end
 			end
 			-- A flip hop (the user's backflip, actionState 18 before the takeoff): 5 frames of stick away from the landing,
 			-- Jump from the 3rd, then on at the landing as any hop.
