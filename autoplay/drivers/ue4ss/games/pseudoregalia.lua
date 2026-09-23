@@ -11,7 +11,7 @@ local log = host.log
 local M = {
 	game = "pseudoregalia",
 	variant = "vanilla",
-	capabilities = { "wait", "press", "sequence", "screenshot", "reflex:walk_to", "reflex:look" },
+	capabilities = { "wait", "press", "sequence", "screenshot", "snapshot", "restore", "cheat:teleport", "reflex:walk_to", "reflex:look" },
 	-- The user's save files 1-7 are never written; File 8 is autoplay's (the user, 2026-09-23).
 	protected_slots = { 1, 2, 3, 4, 5, 6, 7 },
 }
@@ -63,6 +63,107 @@ end
 
 function M.build()
 	return "steam"
+end
+
+-- THE SAVE GUARD. The game writes its save to the game instance's `activeSaveSlotName`, and after File 8 was started
+-- as a new game through File Select that read "File 5", one of the user's (2026-09-23; File 5 was still identical to
+-- the backup). From the moment a core first connects until the game exits, every tenth frame in play puts it back to
+-- AUTOPLAY_SLOT and logs each correction. The user's files 1-7 are never autoplay's (the user, 2026-09-23). A game
+-- started without a core ever connecting is not guarded, so the user's own play saves where it always does.
+local AUTOPLAY_SLOT = "File 8"
+local guard = { armed = false, corrections = 0, last_from = nil }
+
+local function gameInstance(pawn)
+	local gi = pawn and pawn["As MV Game Instance Ref"]
+	if gi and gi:IsValid() then return gi end
+	return nil
+end
+
+local function guardSlot(pawn)
+	local gi = gameInstance(pawn)
+	if not gi then return nil end
+	local slot = gi.activeSaveSlotName:ToString()
+	if slot ~= AUTOPLAY_SLOT then
+		gi.activeSaveSlotName = AUTOPLAY_SLOT
+		guard.corrections = guard.corrections + 1
+		guard.last_from = slot
+		log(string.format("save guard: activeSaveSlotName was %q, set to %q (now %q)", slot, AUTOPLAY_SLOT,
+			gi.activeSaveSlotName:ToString()))
+	end
+	return gi.activeSaveSlotName:ToString()
+end
+
+function M.onConnect()
+	if not guard.armed then
+		guard.armed = true
+		log("save guard armed: the game's save slot is held on " .. AUTOPLAY_SLOT .. " until the game exits")
+	end
+end
+
+function M.tick(frame)
+	if not guard.armed or frame % 10 ~= 0 then return end
+	local pc = controller()
+	local pawn = pawnOf(pc)
+	if not pawn then return end
+	local level = levelName(pc)
+	if level and level:find("TitleScreen", 1, true) then return end
+	guardSlot(pawn)
+end
+
+-- THINGS: the actors a player meets, by class, from a census of ZONE_Dungeon's 840 actors (2026-09-23). The list is
+-- rebuilt from one FindAllOf("Actor") walk when the map changes or 300 frames have passed (a walk costs about a
+-- millisecond, CLAUDE.md), never per frame; each entry is re-checked with IsValid before it is read, and its position is
+-- its root component's RelativeLocation -- a named read, no UFunction called on an object FindAllOf handed back.
+local KIND_BY_CLASS = {
+	BP_NPC_C = "npc", BP_NPC_Child_C = "npc", BP_SavePoint_C = "save_point", BP_UpgradeBase_C = "upgrade",
+	BP_HealthPiece_C = "health_piece", BP_GenericKey_C = "key", BP_LockDoor_C = "locked_door",
+	BP_TransitionZone_C = "exit", BP_BreakableWall_C = "breakable_wall", BP_ClimbPole_C = "pole",
+	BP_HitSwitch_C = "switch", BP_ExamineTextPopup_C = "sign", BP_HazardAxe_C = "hazard", BP_HazardZone_C = "hazard",
+	BP_Stalactite_C = "hazard", BP_BounceHitter_C = "bouncer", BP_TimeTrial_C = "time_trial", BP_TrialGate_C = "trial_gate",
+	BP_CutAndDropPlatform_C = "platform",
+}
+local function kindOf(class)
+	local k = KIND_BY_CLASS[class]
+	if k then return k end
+	if class:find("^BP_Enemy") or class:find("^BP_hazemy") then return "enemy" end
+	return nil
+end
+
+local registry = { map = nil, at = -1e9, list = {} }
+local function refreshRegistry(map)
+	local list = {}
+	for _, a in ipairs(FindAllOf("Actor") or {}) do
+		local ok, class = pcall(function() return a:GetClass():GetFName():ToString() end)
+		local kind = ok and kindOf(class)
+		if kind and a:GetFullName():find(map, 1, true) then
+			list[#list + 1] = { actor = a, class = class, kind = kind, name = a:GetFName():ToString() }
+		end
+	end
+	registry = { map = map, at = host.frame(), list = list }
+end
+
+local function things(map, px, py, pz, limit)
+	if registry.map ~= map or host.frame() - registry.at > 300 then refreshRegistry(map) end
+	local out = {}
+	for _, e in ipairs(registry.list) do
+		local a = e.actor
+		if a:IsValid() and not a.bActorIsBeingDestroyed then
+			local ok, x, y, z = pcall(function()
+				local l = a.RootComponent.RelativeLocation
+				return l.X, l.Y, l.Z
+			end)
+			if ok and x then
+				local dx, dy, dz = x - px, y - py, z - pz
+				out[#out + 1] = { kind = e.kind, class = e.class, name = e.name, x = math.floor(x + 0.5), y = math.floor(y + 0.5),
+					z = math.floor(z + 0.5), distance = math.floor(math.sqrt(dx * dx + dy * dy + dz * dz) + 0.5),
+					bearing = math.floor(math.deg(math.atan(dy, dx)) + 0.5) }
+			end
+		end
+	end
+	table.sort(out, function(a, b) return a.distance < b.distance end)
+	local n = #out
+	for i = n, (limit or 25) + 1, -1 do out[i] = nil end
+	return out, n
 end
 
 function M.observe(full)
@@ -120,7 +221,23 @@ function M.observe(full)
 			end
 		end)
 	end
-	if full then o.level = level end
+	if full then
+		o.level = level
+		local s = { guard_armed = guard.armed, corrections = guard.corrections, corrected_from = guard.last_from }
+		pcall(function()
+			local gi = gameInstance(pawn)
+			if gi then
+				s.slot = gi.activeSaveSlotName:ToString()
+				s.zone = gi["Last Saved Zone Spawn In"]:ToString()
+				s.save_point = gi["Last Save Point Name"]:ToString()
+			end
+		end)
+		o.save = s
+		if pawn and o.location.x and o.mode ~= "title" then
+			local ok, list, n = pcall(things, o.location.map, o.location.x, o.location.y, o.location.z, 25)
+			if ok then o.things, o.things_total = list, n else o.things_error = tostring(list) end
+		end
+	end
 	return o
 end
 
@@ -321,6 +438,105 @@ function M.programs.screenshot(p)
 	end
 end
 
+-- SNAPSHOTS. The game keeps no position in its save (a load spawns at the save point or the zone's spawn tag), so a
+-- snapshot is two files: the game's own save of File 8 (`instSaveGameToSlot`, with the guard's slot checked first),
+-- copied to the core's .State path, and `<path>.json` beside it with the map, position and camera. A restore copies the
+-- save back over File 8, calls the game's own `reloadAndRespawn` (it put the player back on the new game's spawn,
+-- 2026-09-23), waits for play, and teleports to the recorded spot on the same map.
+local SAVE_DIR = (os.getenv("LOCALAPPDATA") or "") .. "\\pseudoregalia\\Saved\\SaveGames\\"
+local AUTOPLAY_FILE = SAVE_DIR .. AUTOPLAY_SLOT .. ".sav"
+
+local function readAll(path)
+	local f = io.open(path, "rb")
+	if not f then return nil end
+	local d = f:read("a")
+	f:close()
+	return d
+end
+
+local function writeAll(path, data)
+	local f, err = io.open(path, "wb")
+	if not f then return false, err end
+	f:write(data)
+	f:close()
+	return true
+end
+
+local function teleport(pawn, x, y, z, yaw)
+	pawn:K2_SetActorLocation({ X = x, Y = y, Z = z }, false, {}, true)
+	if yaw then pawn:K2_SetActorRotation({ Pitch = 0, Yaw = yaw, Roll = 0 }, true) end
+	local l = pawn:K2_GetActorLocation()
+	return { x = l.X, y = l.Y, z = l.Z }
+end
+
+function M.programs.snapshot(p)
+	local pc = controller()
+	local pawn = pawnOf(pc)
+	if not pawn then return nil, "no player to snapshot" end
+	if guardSlot(pawn) ~= AUTOPLAY_SLOT then return nil, "the save slot is not " .. AUTOPLAY_SLOT .. "; not saving" end
+	local o = M.observe(false)
+	if o.mode ~= "play" then return nil, "snapshot only in play, not " .. tostring(o.mode) end
+	local before = readAll(AUTOPLAY_FILE)
+	gameInstance(pawn):instSaveGameToSlot()
+	local path = p.path
+	return function(count)
+		local now = readAll(AUTOPLAY_FILE)
+		-- The save is synchronous here (File 8 changed inside the call, 2026-09-23); wait a few frames for the OS
+		-- anyway, and accept an unchanged file after 30 (nothing in the save changed since the last one).
+		if not now or (now == before and count < 30) then return false end
+		local ok, err = writeAll(path, now)
+		if not ok then return true, nil, "cannot write " .. path .. ": " .. tostring(err) end
+		local side = { map = o.location.map, x = o.location.x, y = o.location.y, z = o.location.z,
+			yaw = o.location.yaw, camera = o.camera, save_bytes = #now }
+		writeAll(path .. ".json", host.json.encode(side))
+		return true, { saved = AUTOPLAY_SLOT, bytes = #now, position = side }
+	end
+end
+
+function M.programs.restore(p)
+	local path = p.path
+	local data = readAll(path)
+	if not data then return nil, "no snapshot at " .. tostring(path) end
+	local sideRaw = readAll(path .. ".json")
+	local side = sideRaw and host.json.decode(sideRaw) or nil
+	local pc = controller()
+	local pawn = pawnOf(pc)
+	if not pawn then return nil, "no player: restore from play" end
+	if guardSlot(pawn) ~= AUTOPLAY_SLOT then return nil, "the save slot is not " .. AUTOPLAY_SLOT .. "; not loading" end
+	local ok, err = writeAll(AUTOPLAY_FILE, data)
+	if not ok then return nil, "cannot write " .. AUTOPLAY_FILE .. ": " .. tostring(err) end
+	gameInstance(pawn):reloadAndRespawn()
+	local old, settled, phase = pawn, 0, "reloading"
+	return function(count)
+		local np = pawnOf(controller())
+		local o = M.observe(false)
+		if phase == "reloading" then
+			if np and o.mode == "play" and o.player and o.player.control_state == 0 then settled = settled + 1 else settled = 0 end
+			if settled < 30 then
+				if count > 1800 then return true, nil, "no play within 1800 frames of the reload" end
+				return false
+			end
+			guardSlot(np)
+			if side and side.map == o.location.map and side.x then
+				local at = teleport(np, side.x, side.y, side.z, side.yaw)
+				return true, { restored = AUTOPLAY_SLOT, new_pawn = np ~= old, teleported = at, map = o.location.map }
+			end
+			return true, { restored = AUTOPLAY_SLOT, new_pawn = np ~= old, map = o.location.map,
+				note = side and ("the snapshot was on " .. tostring(side.map) .. "; left at the save's spawn") or "no position file" }
+		end
+		return true
+	end
+end
+
+M.cheats = M.cheats or {}
+M.cheats.teleport = function(a)
+	local x, y, z = tonumber(a.x), tonumber(a.y), tonumber(a.z)
+	if not (x and y and z) then return nil, "teleport needs x, y and z" end
+	local pawn = pawnOf(controller())
+	if not pawn then return nil, "no player" end
+	return { held = teleport(pawn, x, y, z) }
+end
+
 M.reflexes = {}
 
 -- walk_to {x, y, radius (default 50), stuck_frames (default 60), jump (list of frames to tap Jump on, optional)}:
@@ -387,8 +603,6 @@ function M.reflexes.look(a)
 		return false
 	end
 end
-
-M.cheats = {}
 
 function M.start()
 	return "pseudoregalia module ready"

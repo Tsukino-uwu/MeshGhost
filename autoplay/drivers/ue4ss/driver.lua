@@ -233,6 +233,10 @@ local function handle(line)
 	if msg.type == "welcome" then
 		state = "ready"
 		log("welcomed by the core on port " .. port)
+		if game.onConnect then
+			local ok, err = pcall(game.onConnect)
+			if not ok then log("game.onConnect: " .. tostring(err)) end
+		end
 	elseif msg.type == "reject" then
 		local reason = type(msg.payload) == "table" and msg.payload.reason or "?"
 		close("rejected: " .. tostring(reason), REJECT_BACKOFF_SECONDS)
