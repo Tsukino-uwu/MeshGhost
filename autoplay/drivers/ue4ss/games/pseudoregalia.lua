@@ -64,6 +64,11 @@ local function mapOf(level)
 	return level:match("/([^/%.]+)%.[^/]*:PersistentLevel") or level
 end
 
+local ABILITY_FLAGS = { "obtainedAttack?", "obtainedAirKick?", "obtainedSlide?", "obtainedPlunge?", "obtainedWallRide?",
+	"obtainedLight?", "obtainedProjectile?", "obtainedSprint?", "obtainedPowerBoost?", "obtainedGuard?", "obtainedSlideJump",
+	"obtainedJump?", "obtainedChargeAttack?", "obtainedMap?", "hasSuperLight", "hasGroundPound", "hasDoubleJump", "hasWallJump",
+	"hasBubbleChargedJump" }
+
 local function num(v)
 	if type(v) == "number" then return v end
 	return nil
@@ -216,6 +221,38 @@ local function actorOf(e)
 	return nil
 end
 M.actor_of = actorOf
+
+-- AXES: the swinging axes (BP_HazardAxe_C), from the registry. Each swings +-45 degrees in the x-z plane about its pivot
+-- (the actor's position, 3250 over the axes' corridor floor at 2550); the long one's blade (Box) came down to ~2660 at the
+-- bottom of its arc, into a standing player (top 2682) and over a sliding one (~2596) (sampled 2026-09-23). A cell
+-- under one is where goto slides.
+local axeCache = { map = nil, at = -1e9, list = {} }
+local function axesOn(map)
+	if axeCache.map == map and host.frame() - axeCache.at < 600 then return axeCache.list end
+	if registry.map ~= map or host.frame() - registry.at > 300 then refreshRegistry(map) end
+	local list = {}
+	for _, e in ipairs(registry.list) do
+		if e.class == "BP_HazardAxe_C" then
+			local a = actorOf(e)
+			if a then
+				pcall(function()
+					local l = a.RootComponent.RelativeLocation
+					list[#list + 1] = { x = l.X, y = l.Y, z = l.Z }
+				end)
+			end
+		end
+	end
+	axeCache = { map = map, at = host.frame(), list = list }
+	return list
+end
+local function underAxe(axes, x, y, z)
+	for _, a in ipairs(axes) do
+		-- the swing's reach across x (sin 45 of a ~600 arm, and her capsule) and along its plane's thickness in y
+		if math.abs(y - a.y) < 70 and math.abs(x - a.x) < 480 and a.z - z < 900 and a.z > z then return true end
+	end
+	return false
+end
+M.axes_on = axesOn
 
 local function things(map, px, py, pz, limit)
 	if registry.map ~= map or host.frame() - registry.at > 300 then refreshRegistry(map) end
@@ -373,6 +410,15 @@ function M.observe(full)
 				p.velocity = { x = v.X, y = v.Y, z = v.Z }
 			end)
 			pcall(function() p.class = pawn:GetClass():GetFName():ToString() end)
+			-- What she has: the pawn's own obtained/has flags (BP_PlayerGoatMain_C, read by name 2026-09-23: obtainedSlide?
+			-- turned true with the slide's screen).
+			pcall(function()
+				local have = {}
+				for _, n in ipairs(ABILITY_FLAGS) do
+					if pawn[n] == true then have[#have + 1] = (n:gsub("^obtained", ""):gsub("^has", ""):gsub("%?$", "")) end
+				end
+				p.abilities = have
+			end)
 		end
 		o.player = p
 		-- The camera, from the camera manager: IA_Look orbits the game's own camera rig around the player and leaves the
@@ -811,6 +857,9 @@ end
 local CELL = 50
 local CAP_R, CAP_H = 20, 62 -- a little inside the capsule's 22/65, so brushing a wall does not close a route
 local FEET = 67 -- the capsule's centre above the floor: z -332.85 over a floor traced at -400
+-- The slide (actionState 1, speed about 1100 for ~85 frames after a Crouch tap at a run, 2026-09-23): the capsule's
+-- centre drops from 2267 to 2224 over a floor at 2200, and CrouchedHalfHeight reads 20. Swept a little inside, as CAP_H.
+local SLIDE_Z, SLIDE_H = 26, 21
 -- JUMP_UP: a ledge 200 over the hall's floor in ZONE_Dungeon was climbed by a running jump with Jump held 80 frames
 -- (2026-09-23); the highest free jump measured was 206.
 local STEP_UP, JUMP_UP, DROP = 45, 200, 600
@@ -841,7 +890,9 @@ local function countTrace()
 end
 -- And by time: the Lua around the traces (a leap's candidate cells) cost as much as the traces, and a trace budget alone
 -- still left ~90 frames a second while planning, against 142 idle (2026-09-23). os.clock is wall time under MSVC.
-local PLAN_MS = 1.5
+-- Raised to 4 when routes grew past the slide: at 1.5 a plan to the dungeon's east exit (30000 cells) outran a reflex's
+-- 3600 frames, and every plan is made standing still, where a lower frame rate costs the least (2026-09-23).
+local PLAN_MS = 4
 local planStart, planFrame = 0, -1
 local function overBudget()
 	local f = host.frame()
@@ -859,21 +910,21 @@ local function geo(map)
 end
 M.clear_geo = function() geoCache = { map = nil, probes = {}, sweeps = {} } end
 
-local function sweepRaw(pawn, x1, y1, z1, x2, y2, z2)
+local function sweepRaw(pawn, x1, y1, z1, x2, y2, z2, h)
 	countTrace()
 	if not ksl or not ksl:IsValid() then ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary") end
 	local hit = {}
-	local r = ksl:CapsuleTraceSingle(pawn, { X = x1, Y = y1, Z = z1 }, { X = x2, Y = y2, Z = z2 }, CAP_R, CAP_H, 0, false,
+	local r = ksl:CapsuleTraceSingle(pawn, { X = x1, Y = y1, Z = z1 }, { X = x2, Y = y2, Z = z2 }, CAP_R, h or CAP_H, 0, false,
 		{}, 0, hit, true, { R = 1, G = 0, B = 0, A = 1 }, { R = 0, G = 1, B = 0, A = 1 }, 0)
 	return r == true
 end
 
-local function sweep(pawn, x1, y1, z1, x2, y2, z2)
-	local k = string.format("%.0f,%.0f,%.0f>%.0f,%.0f,%.0f", x1, y1, z1, x2, y2, z2)
+local function sweep(pawn, x1, y1, z1, x2, y2, z2, h)
+	local k = string.format("%.0f,%.0f,%.0f>%.0f,%.0f,%.0f/%d", x1, y1, z1, x2, y2, z2, h or CAP_H)
 	local c = geoCache.sweeps
 	local v = c[k]
 	if v == nil then
-		v = sweepRaw(pawn, x1, y1, z1, x2, y2, z2)
+		v = sweepRaw(pawn, x1, y1, z1, x2, y2, z2, h)
 		c[k] = v
 	end
 	return v
@@ -905,6 +956,18 @@ local function probe(P, ix, iy, fromZ)
 	return v or nil
 end
 
+-- The floor just under her own floor's height at a cell, traced from 50 above it: under a beam lower than a standing
+-- capsule, where probe's higher start meets the beam's top. Cached per 20 of height.
+local function lowProbe(P, ix, iy, z)
+	local k = ix .. "," .. iy .. "L" .. math.floor(z / 20)
+	local v = P.probes[k]
+	if v == nil then
+		v = floorProbe(P.pawn, ix * CELL, iy * CELL, z + 50, P.walkableZ) or false
+		P.probes[k] = v
+	end
+	return v or nil
+end
+
 local function newPlan(pawn, sx, sy, sz, tx, ty, maxCells)
 	local walkableZ = 0.64
 	pcall(function() walkableZ = pawn.CharacterMovement.WalkableFloorZ end)
@@ -916,6 +979,7 @@ local function newPlan(pawn, sx, sy, sz, tx, ty, maxCells)
 		maxCells = maxCells, walkableZ = walkableZ, tx = tx, ty = ty, hopOf = {} }
 	pcall(function() P.hops = M.hops_for(M.observe(false).location.map) or nil end) -- defined further down
 	pcall(function() P.trail = M.trail_for(M.observe(false).location.map) or nil end)
+	pcall(function() P.slide = pawn["obtainedSlide?"] == true end) -- slide edges only once she has it
 	local function cellOf(x, y) return math.floor(x / CELL + 0.5), math.floor(y / CELL + 0.5) end
 	P.cellOf = cellOf
 	local six, siy = cellOf(sx, sy)
@@ -1069,8 +1133,17 @@ local function planStep(P)
 				-- finds only when it is such a ledge (from that high, most probes meet overhangs).
 				local hz = probe(P, nix, niy, c.z + GRAB_UP + 40)
 				if hz and hz > c.z + JUMP_UP and hz <= c.z + GRAB_UP and (not nz or nz < hz - 100) then nz = hz end
-				local nk = nz and nodeKey(nix, niy, nz)
-				if nz and not P.closed[nk] then
+				-- And, with the slide, the floor under a low beam: probed from above, the passage under the slide room's
+				-- corridor read as the beam's top 150 up, its underside 100 over the real floor (2026-09-23).
+				local cands = { nz }
+				if P.slide then
+					local lz = lowProbe(P, nix, niy, c.z)
+					if lz and math.abs(lz - c.z) <= STEP_UP and (not nz or math.abs(nz - lz) > 40) then cands[#cands + 1] = lz end
+				end
+				for ci = 1, #cands do
+				local nz = cands[ci]
+				local nk = nodeKey(nix, niy, nz)
+				if not P.closed[nk] then
 					P.cells[nk] = P.cells[nk] or { ix = nix, iy = niy, z = nz }
 					do
 						local dz = nz - c.z
@@ -1090,10 +1163,17 @@ local function planStep(P)
 							-- low passage and a false wall closed the route (2026-09-23).
 							local top = math.max(ca, cb) + 3
 							ok = not sweep(P.pawn, ax, ay, top, bx, by, top)
+							-- Too low to walk, low enough to slide: the slide's capsule (centre 24 over the floor, measured
+							-- 2226-2224 from 2267 standing) swept at SLIDE_H. The passage under the slide room's corridor
+							-- (2026-09-23) is one.
+							if not ok and P.slide then
+								local low = math.max(ca, cb) - FEET + SLIDE_Z
+								if not sweep(P.pawn, ax, ay, low, bx, by, low, SLIDE_H) then kind, ok = "slide", true end
+							end
 						end
 						if ok then
 							local step = (d[1] ~= 0 and d[2] ~= 0) and CELL * 1.4142 or CELL
-							local cost = P.g[cur.k] + step + (kind == "jump" and 80 or 0) + (kind == "flip" and 200 or 0) + (kind == "grab" and 150 or 0) + (kind == "drop" and 20 or 0)
+							local cost = P.g[cur.k] + step + (kind == "jump" and 80 or 0) + (kind == "flip" and 200 or 0) + (kind == "grab" and 150 or 0) + (kind == "drop" and 20 or 0) + (kind == "slide" and 40 or 0)
 							if kind == "jump" or kind == "flip" or kind == "grab" then cost = cost + LAND_EDGE_COST * edgeCells(P, nix, niy, nz) end
 							if P.trail and not nearTrail(P.trail, bx, by, nz) then cost = cost + step * 0.8 end
 							if P.g[nk] == nil or cost < P.g[nk] then
@@ -1103,6 +1183,7 @@ local function planStep(P)
 							end
 						end
 					end
+				end
 				end
 			end
 			if P.hops then
@@ -1213,6 +1294,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 	P.tz = tz
 	local path, wp, lastProgress, replans, jumpLeft, flip, hopState, hang, jumpT, leap = nil, 2, 0, 0, 0, nil, nil, 0, 0, nil
 	local finishJump, fin = false, nil
+	local slideTap = 0
 	local planned, planFrames, stats = 0, 0, {}
 	return function(count)
 		local st = playerAndCamera()
@@ -1571,7 +1653,9 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 		-- ended in a climb 6-21 frames in (2026-09-23).
 		if (o.player.move_state or 0) == 3 then
 			hang = hang + 1
-			local rel = math.rad(math.deg(math.atan(dy, dx)) - st.yaw)
+			-- Pushed the way she faces (the wall she hangs on), as the hops do: pushed at a grab's target cell 25 away, the
+			-- stick ran along the ledge and she hung there until the frame limit (2026-09-23, the 2550 ledge).
+			local rel = math.rad((o.location.yaw or st.yaw) - st.yaw)
 			injectMove(math.sin(rel), math.cos(rel))
 			if hang > 5 and hang % 20 < 5 and inputReady() then
 				subsystem:InjectInputVectorForAction(actions.IA_Jump, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {})
@@ -1629,6 +1713,34 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 		end
 		local rel = math.rad(math.deg(math.atan(dy, dx)) - st.yaw)
 		injectMove(math.sin(rel), math.cos(rel))
+		-- A slide edge: a Crouch tap on the ground at a run starts the slide (actionState 1); tapped again only once it has
+		-- ended, 4 frames each. Crouch held while standing still crouches her in place (moveState 2) and she does not move.
+		-- Crouched (moveState 2) counts as on the ground: a slide that ends under the low ceiling leaves her crouched there.
+		-- Under the swinging axes: slide through, as the corridor teaches -- walking, she was hit 5 at a time and knocked off
+		-- the shelf (2026-09-23). Tapped when a cell up to 4 ahead is under one and she is within 200 of it.
+		local axeAhead = false
+		do
+			local axes = axesOn(o.location.map)
+			if #axes > 0 then
+				for i = wp, math.min(#path, wp + 4) do
+					local c = path[i]
+					if underAxe(axes, c.x, c.y, c.z) then
+						local ex, ey = c.x - st.x, c.y - st.y
+						if ex * ex + ey * ey < 200 * 200 then axeAhead = true end
+						break
+					end
+				end
+			end
+		end
+		if (target.edge == "slide" or axeAhead) and (o.player.action_state or 0) ~= 1 and ((o.player.move_state or 0) == 0 or o.player.move_state == 2) then
+			slideTap = (slideTap or 0) + 1
+			if slideTap <= 4 and inputReady() then
+				subsystem:InjectInputVectorForAction(actions.IA_Crouch, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {})
+			end
+			if slideTap > 30 then slideTap = 0 end
+		else
+			slideTap = 0
+		end
 		if jumpLeft > 0 and jumpT == 0 and (o.player.action_state or 0) == 18 and (o.player.move_state or 0) == 0 then
 			-- not yet: a jump pressed in the skid would be a backflip
 		elseif jumpLeft > 0 then

@@ -52,6 +52,22 @@ if not chunk then
 end
 local game = chunk(host)
 
+-- A soft reload: the game module read and run again inside this Lua state, the link and its socket left alone. UE4SS's
+-- RestartMod tore the whole state down under a live game loop, and the game crashed in UE4SS within seconds of it twice
+-- (2026-09-23, 16:43 and 17:11, one stack). Reached from exec as reload_game(); answers the error, or nil.
+local connectedOnce = false
+local function reloadGame()
+	local c, e = loadfile(ROOT .. "/autoplay/drivers/ue4ss/games/" .. A.game .. ".lua")
+	if not c then return "reload: " .. tostring(e) end
+	local ok, g = pcall(c, host)
+	if not ok or type(g) ~= "table" then return "reload: " .. tostring(g) end
+	if game.release then pcall(game.release) end
+	game = g
+	if connectedOnce and game.onConnect then pcall(game.onConnect) end -- the save guard arms on a connection
+	log(string.format("reloaded the %s module in place", game.game))
+	return nil
+end
+
 local sock, state = nil, "down"
 local pieces, piecesBytes = {}, 0 -- a line being received, in pieces (drain)
 local nextTry, nextPing = 0, 0
@@ -137,6 +153,7 @@ local function execCode(p)
 	local env = setmetatable({
 		game = game,
 		host = host,
+		reload_game = reloadGame,
 		print = function(...)
 			if #output >= EXEC_OUTPUT_LINES then return end
 			local parts = {}
@@ -238,6 +255,7 @@ local function handle(line)
 	if msg.type == "welcome" then
 		state = "ready"
 		log("welcomed by the core on port " .. port)
+		connectedOnce = true
 		if game.onConnect then
 			local ok, err = pcall(game.onConnect)
 			if not ok then log("game.onConnect: " .. tostring(err)) end
