@@ -103,9 +103,13 @@ namespace MeshGhostAutoplay.Tevi
                 }
             nextSide:;
             }
-            // Jumps: up 0..JumpRows rows, across 0..JumpCols columns (0 across only when going up, through a platform).
+            // Jumps: up 0..JumpRows rows, across 0..JumpCols columns (0 across only when going up, through a platform). A jump for
+            // height takes off from level ground only, never from a slope's tile or one over a slope: a take-off low on a slope
+            // falls short of what the same jump reaches from the top (the user, 2026-09-23: "make sure you are at a leveled ground").
+            bool level = !Slope(x, y) && !Slope(x, y + 1);
             for (int up = 0; up <= JumpRows; up++)
             {
+                if (up > 0 && !level) break;
                 // straight up from the take-off tile, one row above the target row for her head
                 bool clear = true;
                 for (int r = 1; r <= up + 1 && clear; r++) clear = Open(x, y - r);
