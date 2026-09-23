@@ -78,8 +78,8 @@ it and move on. **Never a third attempt on inputs** (`references/navigation.md`)
   in your report. A savestate is not an in-game save (`agent_docs/environment.md`).
 - **A run that ends badly is still a result** (stuck, softlocked): report it, never rewind out of it quietly.
 - **Move as a player does, never in stutter steps** — one continuous `sequence` (overlapping holds) or a
-  one-call program (`walk`, `goto`, `battle`, `advance_text`). **Jump for height from level ground at the highest
-  spot reachable, never off a slope or from low down** (the user, 2026-09-23). A loop stops within seconds of no change.
+  one-call program (`walk`, `goto`, `battle`, `advance_text`). **Jump for height from the spot that gives the most
+  height toward the target, with headroom** (a slope's top, never its foot; the user, 2026-09-23). A loop stops within seconds of no change.
 - **Combat's bar, in every game: a boss beaten fast and hitless** — close in, the game's strongest attacks,
   never idle; a goal, not a requirement (the user, 2026-09-17; `playing-rationale.md`, "Combat").
 

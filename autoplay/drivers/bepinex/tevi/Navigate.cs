@@ -29,6 +29,7 @@ namespace MeshGhostAutoplay.Tevi
     // 2026-09-17). `dodge` false turns it off; hits are counted, and `stop_on_damage` ends the walk on the first.
     public static class Navigate
     {
+        private const int UpCost = 20; // a row of a jump's rise, above two steps (9 each): walk higher before jumping
         private const int JumpRows = 3, JumpCols = 5, FallRows = 24, Replan = 20, Margin = 60, MaxNodes = 20000; // a full jump carries about 5 tiles across (46 frames at 6.33)
         private const float JumpAim = 14f, Run = 6.33f;
 
@@ -103,13 +104,12 @@ namespace MeshGhostAutoplay.Tevi
                 }
             nextSide:;
             }
-            // Jumps: up 0..JumpRows rows, across 0..JumpCols columns (0 across only when going up, through a platform). A jump for
-            // height takes off from level ground only, never from a slope's tile or one over a slope: a take-off low on a slope
-            // falls short of what the same jump reaches from the top (the user, 2026-09-23: "make sure you are at a leveled ground").
-            bool level = !Slope(x, y) && !Slope(x, y + 1);
+            // Jumps: up 0..JumpRows rows, across 0..JumpCols columns (0 across only when going up, through a platform). Each row of
+            // rise is priced above two steps (UpCost), so the route walks as high as it can first -- up a slope to its top -- and
+            // jumps from the spot that leaves the least to climb (the user, 2026-09-23: "jump from the spot that gives you the most
+            // height towards where you are trying to go"; a jump from a slope's foot fell short, and level ground was too far).
             for (int up = 0; up <= JumpRows; up++)
             {
-                if (up > 0 && !level) break;
                 // straight up from the take-off tile, one row above the target row for her head
                 bool clear = true;
                 for (int r = 1; r <= up + 1 && clear; r++) clear = Open(x, y - r);
@@ -126,7 +126,7 @@ namespace MeshGhostAutoplay.Tevi
                         if (!Stand(tx, ty) || (across <= 1 && up == 0)) continue;
                         // Climbing and crossing far in one jump leaves little time above the target's floor: priced up (a 2-up, 5-across
                         // jump fell short into a shaft, 2026-09-17, where climbing one more platform and crossing level would do).
-                        yield return new Edge { To = Key(tx, ty), Cost = 30 + 9 * across + 4 * up + 12 * up * Math.Max(0, across - 2), Kind = 2, Rows = up };
+                        yield return new Edge { To = Key(tx, ty), Cost = 30 + 9 * across + UpCost * up + 12 * up * Math.Max(0, across - 2), Kind = 2, Rows = up };
                     }
                 }
             }
