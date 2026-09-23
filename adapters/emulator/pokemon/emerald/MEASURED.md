@@ -82,6 +82,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - TM and HM compatibility, a double battle's menus and target, and a move's target byte (2026-09-23)
 - SURF: the question, the avatar byte, and stepping off onto land (2026-09-23)
 - Long grass (0x03) refuses the MACH BIKE (2026-09-23)
+- The repel step counter, the FLY map's place name, and rotating gate bytes (2026-09-23)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -1166,6 +1167,20 @@ what each byte means as read below.
 - Standing on (16,130) (behaviour 0x03), SELECT with the MACH BIKE registered printed "DAD's advice… A, …" and the
   player stayed on foot (a screenshot); the avatar byte read 0x21 there, 0x01 on plain ground.
 - `goto` with `run` onto 0.34 went on foot (movement `on_foot` after it), the map holding 0x03.
+
+### The repel step counter, the FLY map's place name, and rotating gate bytes (2026-09-23)
+
+**Vanilla ROM**, autoplay tools and `exec` reads through `mcpcall`; addresses from the byte-identical build's `.sym` and
+the decomp's var list (VAR_REPEL_STEP_COUNT 0x4021, vars at SaveBlock1 +0x139C), meanings as read below.
+
+- **Repel**: the u16 at SaveBlock1 +0x13DE read 0, then 250 after a MAX REPEL was used from the field BAG in Lilycove's
+  store 13.17 (the bag's MAX REPEL count 8 to 7).
+- **FLY**: [0x0203a148] held 0x02000010 with the FLY map up; +8 read 213 with a blank name off land, 31 with "ROUTE 1??",
+  5 with "VERDANTURF TOWN"; +12 is the place name as game text. With LAVARIDGE TOWN and LILYCOVE CITY named there, A flew
+  the player outside that town's Center (0.12 (9,7), 0.5 (24,15)).
+- **Rotating gates** (WINONA's gym 12.1): the eight bytes at SaveBlock1 +0x139C (VAR_TEMP_0 on) read 1,2,1,1,0,0,0,2 at the
+  door, the decomp's starting table; each changed by one as the player pushed through its gate (a read-only recorder of
+  tile and bytes, the user walking), and the recorded moves replayed from the door reached (15,3) with 2,3,2,1,0,3,1,3.
 
 ## Not measured yet
 
