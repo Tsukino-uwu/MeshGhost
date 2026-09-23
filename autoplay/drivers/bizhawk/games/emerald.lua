@@ -1215,7 +1215,8 @@ local LEARN = { stateAt = 0x02024474 + 0x1F, cursorAt = 0x02024332 + 1, commands
 	learnCmd = 0x0804e038, stopCmd = 0x0804e3c8, summaryCB2 = 0x081bfab4, summaryPtr = 0x0203cf1c, replaceInput = 0x081c174c,
 	evoCB2 = 0x0813e3a4, evoLoadCB2 = 0x0813dd7c, evoTask = 0x0813e570, speciesInfo = 0x083203cc,
 	-- The routine the build names Cmd_trygivecaughtmonnick: "Give a nickname to the captured X?" after a catch, its YES/NO
-	-- waiting while gBattleCommunication +0 reads 1 -- the decomp as the map only: NOT measured, no catch made yet (2026-09-17).
+	-- waiting while gBattleCommunication +0 reads 1 -- the decomp as the map; read live after a TAILLOW caught on 0.19, and NO
+	-- through `select` went on to the end of the battle (2026-09-23).
 	nicknameCmd = 0x08056bec }
 
 -- The evolution scene's task data, or nil.
@@ -1259,6 +1260,13 @@ function LEARN.question()
 		if handler == LEARN.nicknameCmd and r8(LEARN.cursorAt - 1) == 1 then
 			local d = readDialogue()
 			return { kind = "nickname", text = d and d.box, menu = { items = { "YES", "NO" }, cursor = r8(LEARN.cursorAt) }, no = 1 }
+		end
+		-- "Will A change POKéMON?" before a trainer's next Pokémon (2026-09-23, GUITARIST DALTON on 0.33, the first time the
+		-- party held two): not read, a nudge's A answered YES and opened the party screen. Read by its message, its YES/NO
+		-- cursor taken to be the nickname question's: NOT yet met again since this was written (2026-09-23).
+		local d = readDialogue()
+		if d and d.box and d.box:find("change", 1, true) and d.box:find("POK", 1, true) and d.box:sub(-1) == "?" then
+			return { kind = "switch", text = d.box, menu = { items = { "YES", "NO" }, cursor = r8(LEARN.cursorAt) }, no = 1 }
 		end
 		if r8(LEARN.stateAt) ~= 1 then return nil end
 		kind = (handler == LEARN.learnCmd and "learn_move") or (handler == LEARN.stopCmd and "stop_learning") or nil

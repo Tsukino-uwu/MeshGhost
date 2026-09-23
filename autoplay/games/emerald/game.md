@@ -94,6 +94,10 @@ are in MEASURED.md ("A Mart", "The bag inside a battle").
 - **HM helpers** (the user, 2026-09-23): an HM move is only taken off at one NPC, unlike a TM or level-up move, so HMs go
   on spare Pokémon caught for it and the main Pokémon keeps its battle moves. Birds (TAILLOW, WINGULL) learn FLY, water
   Pokémon SURF, grass Pokémon usually CUT, a ZIGZAGOON ROCK SMASH and STRENGTH. CUT (HM01) is an NPC's in Rustboro.
+- **Two in the party means double battles** (the user; TWINS GINA & MIA, 2026-09-23), and the 7th gym is a double battle
+  (the user): train a second Pokémon to fight before it.
+- **Training** (the user): surfing and the SUPER ROD meet higher-level wild Pokémon, as later areas do; a legendary
+  caught later comes at a high level and is worth using.
 
 ## Not built yet
 
