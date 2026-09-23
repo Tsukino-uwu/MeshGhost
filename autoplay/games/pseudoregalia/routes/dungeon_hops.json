@@ -2,7 +2,7 @@
  "game": "pseudoregalia",
  "variant": "vanilla",
  "map": "ZONE_Dungeon",
- "note": "Hops the user played on 2026-09-23 from the cage platform to the attack upgrade's room, with detours and mistakes on purpose (their words: 'so you have more data to compare against'). Each is a jump that worked: takeoff (x, y, floor z) where Jump started -- on the ground or within coyote time --, landing (x, y, floor z) where she next stood, grab when she hung on a ledge (moveState 3) on the way. Read from the driver's flight recorder, every 3rd frame at 144 frames a second. goto uses them as moves beside its own.",
+ "note": "Hops the user played on 2026-09-23 from the cage platform to the attack upgrade's room, with detours and mistakes on purpose (their words: 'so you have more data to compare against'). Each is a jump that worked: takeoff (x, y, floor z) where Jump started -- on the ground or within coyote time --, landing (x, y, floor z) where she next stood, grab when she hung on a ledge (moveState 3) on the way. Read from the driver's flight recorder, every 3rd frame at 144 frames a second. goto uses them as moves beside its own. A second run (2026-09-23, the user, from below the WheelCrawler's ledge to beside the slide upgrade) added hops marked flip (a backflip: Jump in the skid, actionState 18) and pole (moveState 5 on a climb pole, 6 leaving it, from_z to to_z).",
  "hops": [
   {
    "takeoff": [
@@ -287,6 +287,262 @@
    ],
    "grab": false,
    "frames": 207,
+   "run_speed": 550
+  },
+  {
+   "takeoff": [
+    4962,
+    -3058,
+    807
+   ],
+   "landing": [
+    4925,
+    -2979,
+    1199
+   ],
+   "approach_from": [
+    4979,
+    -3087
+   ],
+   "grab": true,
+   "frames": 165,
+   "run_speed": 308,
+   "flip": true
+  },
+  {
+   "takeoff": [
+    4913,
+    -2956,
+    1206
+   ],
+   "landing": [
+    4812,
+    -2741,
+    1400
+   ],
+   "approach_from": [
+    4924,
+    -2973
+   ],
+   "grab": false,
+   "frames": 78,
+   "run_speed": 274
+  },
+  {
+   "takeoff": [
+    4725,
+    -2653,
+    1421
+   ],
+   "landing": [
+    4535,
+    -2430,
+    1700
+   ],
+   "approach_from": [
+    4773,
+    -2686
+   ],
+   "grab": true,
+   "frames": 159,
+   "run_speed": 550
+  },
+  {
+   "takeoff": [
+    4737,
+    -2217,
+    1707
+   ],
+   "landing": [
+    5065,
+    -2233,
+    2000
+   ],
+   "approach_from": [
+    4680,
+    -2223
+   ],
+   "grab": true,
+   "frames": 171,
+   "run_speed": 550
+  },
+  {
+   "takeoff": [
+    5420,
+    -2305,
+    2021
+   ],
+   "landing": [
+    5828,
+    -2393,
+    2349
+   ],
+   "approach_from": [
+    5365,
+    -2292
+   ],
+   "grab": true,
+   "frames": 261,
+   "run_speed": 550
+  },
+  {
+   "takeoff": [
+    5832,
+    -2408,
+    2356
+   ],
+   "landing": [
+    6034,
+    -2863,
+    2100
+   ],
+   "approach_from": [
+    5828,
+    -2394
+   ],
+   "grab": false,
+   "frames": 144,
+   "run_speed": 218
+  },
+  {
+   "takeoff": [
+    6102,
+    -2866,
+    2107
+   ],
+   "landing": [
+    6553,
+    -2825,
+    2047
+   ],
+   "approach_from": [
+    6045,
+    -2865
+   ],
+   "grab": false,
+   "frames": 129,
+   "run_speed": 550
+  },
+  {
+   "takeoff": [
+    6666,
+    -2777,
+    1999
+   ],
+   "landing": [
+    7019,
+    -2564,
+    2000
+   ],
+   "approach_from": [
+    6606,
+    -2805
+   ],
+   "grab": false,
+   "frames": 108,
+   "run_speed": 550
+  },
+  {
+   "takeoff": [
+    10503,
+    -2549,
+    2010
+   ],
+   "landing": [
+    11058,
+    -2491,
+    2000
+   ],
+   "approach_from": [
+    10446,
+    -2552
+   ],
+   "grab": false,
+   "frames": 144,
+   "run_speed": 550
+  },
+  {
+   "takeoff": [
+    12149,
+    -1727,
+    2020
+   ],
+   "landing": [
+    12445,
+    -956,
+    2600
+   ],
+   "approach_from": [
+    12122,
+    -1786
+   ],
+   "grab": false,
+   "frames": 381,
+   "run_speed": 550,
+   "pole": {
+    "at": [
+     12237,
+     -1527
+    ],
+    "from_z": 2196,
+    "to_z": 2677
+   }
+  },
+  {
+   "takeoff": [
+    14899,
+    -46,
+    2584
+   ],
+   "landing": [
+    15220,
+    -52,
+    2700
+   ],
+   "approach_from": [
+    14834,
+    -44
+   ],
+   "grab": false,
+   "frames": 84,
+   "run_speed": 550
+  },
+  {
+   "takeoff": [
+    15300,
+    -51,
+    2707
+   ],
+   "landing": [
+    15708,
+    -34,
+    2703
+   ],
+   "approach_from": [
+    15242,
+    -52
+   ],
+   "grab": false,
+   "frames": 105,
+   "run_speed": 550
+  },
+  {
+   "takeoff": [
+    16242,
+    509,
+    2729
+   ],
+   "landing": [
+    16412,
+    1254,
+    2200
+   ],
+   "approach_from": [
+    16225,
+    445
+   ],
+   "grab": false,
+   "frames": 198,
    "run_speed": 550
   }
  ]

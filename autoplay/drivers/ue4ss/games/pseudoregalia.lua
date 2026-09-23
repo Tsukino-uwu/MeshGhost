@@ -780,7 +780,7 @@ local LEAP_UP = { [2] = 200, [3] = 200, [4] = 200, [5] = 200 }
 -- Further, a leap lands only by catching the ledge: the user's grab hops rose 178 across 661 and 286 across 283.
 for k = 6, 12 do LEAP_UP[k] = 280 end
 local LEAP_CELLS = 12
-local EXPAND_PER_FRAME = 12
+local EXPAND_PER_FRAME = 30
 
 local function sweep(pawn, x1, y1, z1, x2, y2, z2)
 	if not ksl or not ksl:IsValid() then ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary") end
@@ -800,17 +800,35 @@ local function floorProbe(pawn, x, y, fromZ, walkableZ)
 	return hit.Location.Z
 end
 
+local function nodeKey(ix, iy, z)
+	return ix .. "," .. iy .. "#" .. math.floor(z / 40 + 0.5)
+end
+
+-- The floor under a cell, traced down from fromZ (cached per 100 of height): nil where there is none.
+local function probe(P, ix, iy, fromZ)
+	local k = ix .. "," .. iy .. "@" .. math.floor(fromZ / 100)
+	local v = P.probes[k]
+	if v == nil then
+		v = floorProbe(P.pawn, ix * CELL, iy * CELL, fromZ, P.walkableZ) or false
+		P.probes[k] = v
+	end
+	return v or nil
+end
+
 local function newPlan(pawn, sx, sy, sz, tx, ty, maxCells)
 	local walkableZ = 0.64
 	pcall(function() walkableZ = pawn.CharacterMovement.WalkableFloorZ end)
-	local P = { pawn = pawn, cells = {}, open = {}, closed = {}, came = {}, g = {}, edge = {}, count = 0,
+	-- `cells` are the search's nodes, keyed by cell AND level (nodeKey): keyed by cell alone, a hop landing on a floor at
+	-- 1700 merged with the floor at 800 beneath it and the route lost its thread (2026-09-23). `probes` caches floor traces
+	-- per cell and the height they were cast from.
+	local P = { pawn = pawn, cells = {}, probes = {}, open = {}, closed = {}, came = {}, g = {}, edge = {}, count = 0,
 		maxCells = maxCells, walkableZ = walkableZ, tx = tx, ty = ty, hopOf = {} }
 	pcall(function() P.hops = M.hops_for(M.observe(false).location.map) or nil end) -- defined further down
 	local function cellOf(x, y) return math.floor(x / CELL + 0.5), math.floor(y / CELL + 0.5) end
 	P.cellOf = cellOf
 	local six, siy = cellOf(sx, sy)
 	P.gix, P.giy = cellOf(tx, ty)
-	local startKey = six .. "," .. siy
+	local startKey = nodeKey(six, siy, sz - FEET)
 	-- The start cell's sweeps begin where she stands, not at the grid point: pressed to a wall, the grid point was
 	-- inside it and every move from it was refused (no_route after 1 cell, 2026-09-23).
 	P.cells[startKey] = { ix = six, iy = siy, z = sz - FEET, px = sx, py = sy }
@@ -879,14 +897,8 @@ local function edgeCells(P, ix, iy, z)
 	for ox = -2, 2 do
 		for oy = -2, 2 do
 			if ox ~= 0 or oy ~= 0 then
-				local k = (ix + ox) .. "," .. (iy + oy)
-				local m = P.cells[k]
-				if m == nil then
-					local mz = floorProbe(P.pawn, (ix + ox) * CELL, (iy + oy) * CELL, z + JUMP_UP + FEET, P.walkableZ)
-					m = { ix = ix + ox, iy = iy + oy, z = mz or false }
-					P.cells[k] = m
-				end
-				if not m.z or m.z < z - STEP_UP then n = n + 1 end
+				local mz = probe(P, ix + ox, iy + oy, z + JUMP_UP + FEET)
+				if not mz or mz < z - STEP_UP then n = n + 1 end
 			end
 		end
 	end
@@ -910,19 +922,16 @@ local function planStep(P)
 			local ax, ay = c.px or c.ix * CELL, c.py or c.iy * CELL
 			for _, d in ipairs(NEIGHBOURS) do
 				local nix, niy = c.ix + d[1], c.iy + d[2]
-				local nk = nix .. "," .. niy
-				if not P.closed[nk] then
-					local bx, by = nix * CELL, niy * CELL
-					local nz = P.cells[nk] and P.cells[nk].z
-					if nz == nil and P.cells[nk] == nil then
-						nz = floorProbe(P.pawn, bx, by, c.z + JUMP_UP + FEET, P.walkableZ)
-						-- A ledge taller than a jump starts above that probe: look again from a grab's height, and keep
-						-- what it finds only when it is such a ledge (from that high, most probes meet overhangs).
-						local hz = floorProbe(P.pawn, bx, by, c.z + GRAB_UP + 40, P.walkableZ)
-						if hz and hz > c.z + JUMP_UP and hz <= c.z + GRAB_UP and (not nz or nz < hz - 100) then nz = hz end
-						P.cells[nk] = { ix = nix, iy = niy, z = nz or false }
-					end
-					if nz then
+				local bx, by = nix * CELL, niy * CELL
+				local nz = probe(P, nix, niy, c.z + JUMP_UP + FEET)
+				-- A ledge taller than a jump starts above that probe: look again from a grab's height, and keep what it
+				-- finds only when it is such a ledge (from that high, most probes meet overhangs).
+				local hz = probe(P, nix, niy, c.z + GRAB_UP + 40)
+				if hz and hz > c.z + JUMP_UP and hz <= c.z + GRAB_UP and (not nz or nz < hz - 100) then nz = hz end
+				local nk = nz and nodeKey(nix, niy, nz)
+				if nz and not P.closed[nk] then
+					P.cells[nk] = P.cells[nk] or { ix = nix, iy = niy, z = nz }
+					do
 						local dz = nz - c.z
 						local kind, ok = nil, false
 						local ca, cb = c.z + FEET, nz + FEET
@@ -962,9 +971,9 @@ local function planStep(P)
 					if ddx * ddx + ddy * ddy <= 80 * 80 and math.abs(t[3] - c.z) <= 40 then
 						local l = h.landing
 						local nix, niy = P.cellOf(l[1], l[2])
-						local nk = nix .. "," .. niy
+						local nk = nodeKey(nix, niy, l[3])
 						if not P.closed[nk] then
-							if P.cells[nk] == nil or not P.cells[nk].z then P.cells[nk] = { ix = nix, iy = niy, z = l[3] } end
+							P.cells[nk] = P.cells[nk] or { ix = nix, iy = niy, z = l[3] }
 							local dist = math.sqrt((l[1] - t[1]) ^ 2 + (l[2] - t[2]) ^ 2)
 							local cost = P.g[cur.k] + dist + 150
 							if P.g[nk] == nil or cost < P.g[nk] then
@@ -983,8 +992,8 @@ local function planStep(P)
 			-- the takeoff and across the air above both ends.
 			local edge = false
 			for _, d in ipairs(NEIGHBOURS) do
-				local m = P.cells[(c.ix + d[1]) .. "," .. (c.iy + d[2])]
-				if m and (not m.z or m.z < c.z - STEP_UP) then edge = true break end
+				local mz = probe(P, c.ix + d[1], c.iy + d[2], c.z + JUMP_UP + FEET)
+				if not mz or mz < c.z - STEP_UP then edge = true break end
 			end
 			if edge then
 				for dx = -LEAP_CELLS, LEAP_CELLS do
@@ -992,28 +1001,18 @@ local function planStep(P)
 						local k = math.max(math.abs(dx), math.abs(dy))
 						if k >= 2 then
 							local nix, niy = c.ix + dx, c.iy + dy
-							local nk = nix .. "," .. niy
-							if not P.closed[nk] then
-								local bx, by = nix * CELL, niy * CELL
-								local nz = P.cells[nk] and P.cells[nk].z
-								if nz == nil and P.cells[nk] == nil then
-									nz = floorProbe(P.pawn, bx, by, c.z + JUMP_UP + FEET, P.walkableZ)
-									P.cells[nk] = { ix = nix, iy = niy, z = nz or false }
-								end
-								if nz and nz - c.z <= LEAP_UP[k] and nz - c.z >= -300 then
+							local bx, by = nix * CELL, niy * CELL
+							local nz = probe(P, nix, niy, c.z + JUMP_UP + FEET)
+							local nk = nz and nodeKey(nix, niy, nz)
+							if nz and not P.closed[nk] then
+								if nz - c.z <= LEAP_UP[k] and nz - c.z >= -300 then
 									local low = math.min(c.z, nz) - STEP_UP
 									local gap, steps = true, k * 2
 									for t = 1, steps - 1 do
 										local mx = math.floor(c.ix + dx * t / steps + 0.5)
 										local my = math.floor(c.iy + dy * t / steps + 0.5)
 										if not (mx == c.ix and my == c.iy) and not (mx == nix and my == niy) then
-											local mk = mx .. "," .. my
-											local m = P.cells[mk]
-											if m == nil then
-												local mz = floorProbe(P.pawn, mx * CELL, my * CELL, c.z + JUMP_UP + FEET, P.walkableZ)
-												m = { ix = mx, iy = my, z = mz or false }
-												P.cells[mk] = m
-											end
+											local m = { z = probe(P, mx, my, c.z + JUMP_UP + FEET) or false }
 											-- Part of the takeoff or the landing platform, not the gap: its own edge cells lay
 											-- under the line, and every leap onto a block was refused (2026-09-23).
 											local own = m.z and ((t * 2 <= steps and math.abs(m.z - c.z) < 20) or (t * 2 >= steps and math.abs(m.z - nz) < 20))
@@ -1029,6 +1028,7 @@ local function planStep(P)
 											-- each unit costs double, so a shorter straight one wins when there is one.
 											local cost = P.g[cur.k] + dist + 100 + math.max(0, dist - 250) * 2 + LAND_EDGE_COST * edgeCells(P, nix, niy, nz)
 											if P.g[nk] == nil or cost < P.g[nk] then
+												P.cells[nk] = P.cells[nk] or { ix = nix, iy = niy, z = nz }
 												P.g[nk], P.came[nk], P.edge[nk] = cost, cur.k, "leap"
 												local gx, gy = (P.gix - nix) * CELL, (P.giy - niy) * CELL
 												heapPush(P.open, { k = nk, f = cost + math.sqrt(gx * gx + gy * gy) })
@@ -1169,18 +1169,49 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 		-- anywhere else, the route is planned again.
 		if target.edge == "hop" and target.hop then
 			local h = target.hop
-			hopState = hopState or { phase = "run", t = 0, air = 0 }
+			-- The run-up: 250 behind the takeoff along the user's own approach. A flip hop always starts there (a backflip
+			-- needs the run the skid carries on, and arriving from the landing's side there was no skid at all,
+			-- 2026-09-23); any hop does when she would otherwise reach the takeoff from more than 60 degrees off.
+			if not hopState then
+				local ux, uy = h.takeoff[1] - h.approach_from[1], h.takeoff[2] - h.approach_from[2]
+				local ul = math.sqrt(ux * ux + uy * uy)
+				if ul < 1 then ux, uy, ul = h.landing[1] - h.takeoff[1], h.landing[2] - h.takeoff[2], 1 end
+				ul = math.sqrt(ux * ux + uy * uy)
+				ux, uy = ux / ul, uy / ul
+				local rx, ry = h.takeoff[1] - ux * 250, h.takeoff[2] - uy * 250
+				local vx, vy = h.takeoff[1] - st.x, h.takeoff[2] - st.y
+				local vl = math.sqrt(vx * vx + vy * vy)
+				local off = vl > 1 and (vx * ux + vy * uy) / vl < 0.5
+				hopState = { phase = (h.flip or off) and "runup" or "run", t = 0, air = 0, rx = rx, ry = ry }
+			end
 			local hs = hopState
 			hs.t = hs.t + 1
 			local ms = o.player.move_state or 0
 			local gx, gy
+			if hs.phase == "runup" then
+				gx, gy = hs.rx - st.x, hs.ry - st.y
+				if math.sqrt(gx * gx + gy * gy) < 40 or hs.t > 400 then hs.phase, hs.t = "run", 0 end
+			end
 			if hs.phase == "run" then
 				gx, gy = h.takeoff[1] - st.x, h.takeoff[2] - st.y
 				local td = math.sqrt(gx * gx + gy * gy)
 				-- At the takeoff, or off its edge near it: the jump in coyote time the user used (2026-09-23).
-				if td < 25 or (ms == 1 and td < 150) then hs.phase, hs.t = "air", 0 end
+				if td < 25 or (ms == 1 and td < 150) then hs.phase, hs.t = (h.flip and ms == 0) and "skid" or "air", 0 end
 			end
-			if hs.phase ~= "run" then
+			-- A flip hop (the user's backflip, actionState 18 before the takeoff): 5 frames of stick away from the landing,
+			-- Jump from the 3rd, then on at the landing as any hop.
+			if hs.phase == "skid" then
+				local ax, ay = h.landing[1] - st.x, h.landing[2] - st.y
+				local r2 = math.rad(math.deg(math.atan(-ay, -ax)) - st.yaw)
+				injectMove(math.sin(r2), math.cos(r2))
+				if hs.t >= 3 and inputReady() then
+					subsystem:InjectInputVectorForAction(actions.IA_Jump, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {})
+				end
+				if hs.t >= 5 then hs.phase, hs.t = "air", 3 end
+				lastProgress = count
+				return false
+			end
+			if hs.phase == "air" then
 				gx, gy = h.landing[1] - st.x, h.landing[2] - st.y
 				-- Jump held until she stops rising (a full jump), then let go: held on into the landing, the game took it
 				-- as a new jump the moment she landed (2026-09-23).
@@ -1191,6 +1222,21 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 				elseif hs.t > 8 then
 					hs.released = true
 				end
+				-- On a climb pole (moveState 5, the user's run 2026-09-23): push up until at the height they left it, then
+				-- jump off at the landing (moveState 6 while leaving).
+				if ms == 5 and h.pole then
+					hs.pole = (hs.pole or 0) + 1
+					if (st.z - FEET) < (h.pole.to_z or h.pole.from_z) - 10 and hs.pole < 600 then
+						injectMove(0, 1)
+					else
+						hs.poleJump = 30
+					end
+				end
+				if hs.poleJump and hs.poleJump > 0 then
+					hs.poleJump = hs.poleJump - 1
+					if inputReady() then subsystem:InjectInputVectorForAction(actions.IA_Jump, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {}) end
+				end
+				if ms == 5 and h.pole and not (hs.poleJump and hs.poleJump > 0) then lastProgress = count return false end
 				if ms == 3 then
 					hs.hang = (hs.hang or 0) + 1
 					if hs.hang > 5 and hs.hang % 20 < 5 and inputReady() then
@@ -1330,16 +1376,15 @@ function M.programs.reach(p)
 			-- ranked highest before this, 2026-09-23).
 			local level = 0
 			for _, d in ipairs(NEIGHBOURS) do
-				local nk = (c.ix + d[1]) .. "," .. (c.iy + d[2])
-				local nc = P.cells[nk]
-				if P.closed[nk] and nc and nc.z and math.abs(nc.z - c.z) < 20 then level = level + 1 end
+				local mz = probe(P, c.ix + d[1], c.iy + d[2], c.z + JUMP_UP + FEET)
+				if mz and math.abs(mz - c.z) < 20 and P.closed[nodeKey(c.ix + d[1], c.iy + d[2], mz)] then level = level + 1 end
 			end
 			if level >= 5 then tops[#tops + 1] = { x = x, y = y, z = math.floor(c.z + 0.5) } end
 			-- refused rises: a neighbour whose floor is known and more than a jump above
 			for _, d in ipairs(NEIGHBOURS) do
-				local nc = P.cells[(c.ix + d[1]) .. "," .. (c.iy + d[2])]
-				if nc and nc.z and nc.z - c.z > origJump and nc.z - c.z <= 1000 then
-					P.tooHigh[#P.tooHigh + 1] = { x = x, y = y, z = math.floor(c.z + 0.5), rise = math.floor(nc.z - c.z + 0.5) }
+				local nz = probe(P, c.ix + d[1], c.iy + d[2], c.z + 1000 + FEET)
+				if nz and nz - c.z > origJump and nz - c.z <= 1000 then
+					P.tooHigh[#P.tooHigh + 1] = { x = x, y = y, z = math.floor(c.z + 0.5), rise = math.floor(nz - c.z + 0.5) }
 				end
 			end
 		end
