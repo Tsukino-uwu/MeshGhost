@@ -695,3 +695,27 @@ REVIVE, 5 HYPER POTION, 7 MAX REPEL, 3 ULTRA BALL, the MASTER BALL (for RAYQUAZA
 not know. The user was offered to walk it under the recorder, as with WINONA, or to have it worked out; not yet answered.
 ELECTRODE is under-levelled for it (the user: train the second Pokémon; surfing meets higher levels). Then Sootopolis, the
 8th gym, Victory Road, the Elite Four (X items as a plan, the user).
+
+## 2026-09-23 (the Emerald chat, continued) — the MIND BADGE, the Space Center, DIVE, into the Seafloor Cavern
+
+**Played** (route.md's last two sections): TATE & LIZA's gym solved without the user (the switches' loops read from
+the metatiles and characters, each colour pressed until its loop cleared the way); lost the first try (2 SURF PP,
+EARTHQUAKE into LEVITATE), won the second (CASTFORM's RAIN DANCE, SURF). The Space Center (MAXIE and TABITHA with
+STEVEN), HM08 DIVE onto a caught TENTACOOL, Route 128's dive, and the Seafloor Cavern's boulders, ledges and currents
+as far as 24.35.
+
+**The user, this session** (game.md): the strongest leads; a weak Pokémon trains by opening and switching out, and only
+when it cannot fight the foe itself; retrying a hard fight is the grind, not wild battles (a loss still pays); RAIN
+DANCE for SURF; a spare Pokémon can take hits while a REVIVE goes on; Lilycove's Move Deleter forgets HMs (not when it
+is the only one knowing it).
+
+**Built** (`0b2e4497` and this session's second commit): field errands (`use_item`, `fly`, `swap`, `fly_scan`), warp
+pads in `goto`, the planner waiting while a script holds the player, LEVITATE and never-miss scoring.
+
+**Left as it is:** EmuHawk on vanilla Emerald, the driver loaded, no core running, the player in the Seafloor Cavern
+24.35 at (5,12), overworld. Snapshot `seafloor_room8`. Party SWAMPERT 55, ELECTRODE 33, TAILLOW 11, CASTFORM 28,
+TENTACOOL 7 (DIVE); 7 badges.
+
+**To pick up:** 24.35 to 24.36 (5,4) and TEAM AQUA's leader, then Sootopolis and the 8th gym. `goto` should learn ledges
+facing right, left and up, currents, and not to take a warp that drops back (24.31 (10,15)). The gym and catch loops ran
+as scratch scripts; worth making driver programs as the errands were.

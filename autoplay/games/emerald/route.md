@@ -163,3 +163,23 @@ Walked 2026-09-23.
 - Second try, same day, full PP: ELECTRODE fell to CLAYDOL's EARTHQUAKE again; CASTFORM sent in used RAIN DANCE and
   SWAMPERT's SURF took all four. The MIND BADGE (DIVE outside battle) and TM04 (CALM MIND). The gym's run from the Center
   (green, yellow, blue, red and blue presses counted live) is a script in the session, not in the repo yet.
+
+## The Space Center to the Seafloor Cavern, walked 2026-09-23
+
+- Space Center 14.9 (Mossdeep 0.6 (64,15)): four MAGMA grunts on 1F (locals 6-9, 9 on the stairs (13,2)); on 2F 14.10
+  three more in a row after YES, then MAXIE and TABITHA with STEVEN as partner (YES; choose three and CONFIRM). STEVEN's
+  house 14.7 (0.6 (19,10)): HM08 DIVE. SWAMPERT's four were all HMs but EARTHQUAKE ("HM moves can't be forgotten"), so
+  DIVE went on a TENTACOOL caught on Route 124 0.39 (Lv7, an ULTRA BALL).
+- Route 128 0.43: the deep water (behaviour 0x12) at (38,27), south of the ring island; A, DIVE, YES: 0.53 (38,27); up
+  one into 24.26; B at (6,5): "Light is filtering down", YES: the cavern 24.27.
+- 24.28 from (5,18): ROCK SMASH (5,10) from (4,10); STRENGTH on (5,11) from (5,12), pushed up; along row 11, (12,11)
+  pushed right. Its (6,2) leads to 24.29's right side, a dead end; its (17,13) to 24.32 (4,1).
+- 24.32: (11,7) pushed right twice, (12,8) down, ROCK SMASH (13,8); (15,12) leads to 24.31 (4,1), a pocket with a
+  ledge down (0x3b) to its left part. There, the ledges at (10,5)/(10,6) and (7,11)/(7,12) hop right (0x38; `goto` takes
+  ledges down only): walk right from (9,5), then (13,1) to 24.29's left side at (4,10). 24.31 (10,15) drops to 24.27, and
+  leaving a room puts its boulders back (the planner took it once and 24.28 had to be done again).
+- 24.29 left: (4,8) pushed up twice, then right from (3,6), (4,5) pushed up three times, (6,1) to 24.33.
+- 24.33 is surfed water with currents (0x50 east, 0x51 west, 0x52 north, 0x53 south; a step onto one slides until the
+  next tile is not open): from (14,16) down, up, left, then up six to (4,2), found by simulating the slides over the
+  room's tiles; (4,1) to 24.30 (4,15). Short presses did not step there; `walk` one tile did.
+- 24.30: (4,15) right to (6,15), up the left column to (8,1): 24.35 (5,12). One AQUA grunt on the way.
