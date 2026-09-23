@@ -11,7 +11,7 @@ local log = host.log
 local M = {
 	game = "pseudoregalia",
 	variant = "vanilla",
-	capabilities = { "wait", "press", "sequence", "screenshot", "snapshot", "restore", "cheat:teleport", "reflex:walk_to", "reflex:look" },
+	capabilities = { "wait", "press", "sequence", "screenshot", "snapshot", "restore", "advance_text", "cheat:teleport", "reflex:walk_to", "reflex:look" },
 	-- The user's save files 1-7 are never written; File 8 is autoplay's (the user, 2026-09-23).
 	protected_slots = { 1, 2, 3, 4, 5, 6, 7 },
 }
@@ -154,9 +154,21 @@ local function things(map, px, py, pz, limit)
 			end)
 			if ok and x then
 				local dx, dy, dz = x - px, y - py, z - pz
-				out[#out + 1] = { kind = e.kind, class = e.class, name = e.name, x = math.floor(x + 0.5), y = math.floor(y + 0.5),
+				local t = { kind = e.kind, class = e.class, name = e.name, x = math.floor(x + 0.5), y = math.floor(y + 0.5),
 					z = math.floor(z + 0.5), distance = math.floor(math.sqrt(dx * dx + dy * dy + dz * dz) + 0.5),
 					bearing = math.floor(math.deg(math.atan(dy, dx)) + 0.5) }
+				-- A sign's own words, its prompt (EXAMINE, REFLECT) and whether the player stands where Interact reads it
+				-- (BP_ExamineTextPopup_C's textWindows, popupPrompt and overlappingPlayer?, by name, 2026-09-23).
+				if e.kind == "sign" and t.distance < 3000 then
+					pcall(function()
+						t.prompt = a.popupPrompt:ToString()
+						t.in_range = a["overlappingPlayer?"]
+						local lines = {}
+						a.textWindows:ForEach(function(_, el) lines[#lines + 1] = el:get():ToString() end)
+						t.text = table.concat(lines, " / ")
+					end)
+				end
+				out[#out + 1] = t
 			end
 		end
 	end
@@ -164,6 +176,52 @@ local function things(map, px, py, pz, limit)
 	local n = #out
 	for i = n, (limit or 25) + 1, -1 do out[i] = nil end
 	return out, n
+end
+
+-- SURROUNDINGS: what the level's collision says around the player, by the engine's own line traces
+-- (KismetSystemLibrary:LineTraceSingle on trace channel 0, which stopped at the room's walls and at a cage beside her,
+-- 2026-09-23). `walls`: the distance to the first hit along 16 bearings (0, 22.5, ... degrees, world yaw; 0 is +x),
+-- capped at WALL_RANGE. `floor`: along 8 bearings, the floor's height at 150, 400 and 800 units out, relative to the
+-- floor under her (0 level, negative a drop, positive a step or ledge up), nil where nothing is found within 3000 below
+-- (a pit), "wall" where the wall on that bearing is nearer. `ceiling`: the distance straight up. Each trace ignores the player.
+local WALL_RANGE = 2000
+local ksl = nil
+local function trace(pawn, x1, y1, z1, x2, y2, z2)
+	if not ksl or not ksl:IsValid() then ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary") end
+	local hit = {}
+	local r = ksl:LineTraceSingle(pawn, { X = x1, Y = y1, Z = z1 }, { X = x2, Y = y2, Z = z2 }, 0, false, {}, 0, hit, true,
+		{ R = 1, G = 0, B = 0, A = 1 }, { R = 0, G = 1, B = 0, A = 1 }, 0)
+	if r and hit.Location then return hit.Distance, hit.Location.Z end
+	return nil
+end
+
+local function surroundings(pawn, x, y, z)
+	local s = { walls = {}, floor = {} }
+	local _, floorZ = trace(pawn, x, y, z, x, y, z - 3000)
+	s.floor_z = floorZ and math.floor(floorZ + 0.5)
+	local up = trace(pawn, x, y, z, x, y, z + 3000)
+	s.ceiling = up and math.floor(up + 0.5)
+	for i = 0, 15 do
+		local r = math.rad(i * 22.5)
+		local d = trace(pawn, x, y, z, x + WALL_RANGE * math.cos(r), y + WALL_RANGE * math.sin(r), z)
+		s.walls[i + 1] = d and math.floor(d + 0.5) or WALL_RANGE
+	end
+	for i = 0, 7 do
+		local r = math.rad(i * 45)
+		local row = {}
+		for j, dist in ipairs({ 150, 400, 800 }) do
+			local fx, fy = x + dist * math.cos(r), y + dist * math.sin(r)
+			local _, hz = trace(pawn, fx, fy, z + 150, fx, fy, z - 3000)
+			if dist >= s.walls[2 * i + 1] then
+				row[j] = "wall" -- past the wall on this bearing: what lies there is not reachable in a line
+			else
+				row[j] = (hz and floorZ) and math.floor(hz - floorZ + 0.5) or host.json.null
+			end
+		end
+		s.floor[i + 1] = row
+	end
+	s.bearings = "walls: 16 at 22.5-degree steps from 0 (+x); floor: 8 at 45-degree steps, at 150/400/800 out"
+	return s
 end
 
 function M.observe(full)
@@ -236,6 +294,8 @@ function M.observe(full)
 		if pawn and o.location.x and o.mode ~= "title" then
 			local ok, list, n = pcall(things, o.location.map, o.location.x, o.location.y, o.location.z, 25)
 			if ok then o.things, o.things_total = list, n else o.things_error = tostring(list) end
+			local ok2, sur = pcall(surroundings, pawn, o.location.x, o.location.y, o.location.z)
+			if ok2 then o.surroundings = sur else o.surroundings_error = tostring(sur) end
 		end
 	end
 	return o
@@ -525,6 +585,32 @@ function M.programs.restore(p)
 				note = side and ("the snapshot was on " .. tostring(side.map) .. "; left at the save's spawn") or "no position file" }
 		end
 		return true
+	end
+end
+
+-- advance_text {every (default 45), max_taps (default 20)}: while the player reads or talks (`controlState` 1 or 2,
+-- the values an NPC conversation and a book gave, MEASURED.md 2026-09-23; a mirror gave 2 the same day), tap
+-- MenuAdvance for 4 frames every `every` frames. Ends `closed` once `controlState` is back to 0 for 10 frames,
+-- `not_reading` if it was 0 from the start, or `stuck` after max_taps with no close.
+function M.programs.advance_text(p)
+	local every, maxTaps = tonumber(p.every) or 45, tonumber(p.max_taps) or 20
+	local o = M.observe(false)
+	if not o.player or (o.player.control_state or 0) == 0 then return nil, "not reading or talking: controlState is 0" end
+	local taps, since, zero = 0, 0, 0
+	return function()
+		local cs = M.observe(false).player.control_state or 0
+		if cs == 0 then zero = zero + 1 else zero = 0 end
+		if zero >= 10 then return true, { outcome = "closed", taps = taps } end
+		since = since + 1
+		if cs ~= 0 and since >= every then
+			if taps >= maxTaps then return true, { outcome = "stuck", taps = taps, control_state = cs } end
+			taps, since = taps + 1, 0
+		end
+		if cs ~= 0 and since < 4 and taps > 0 then
+			local e = inject({ "MenuAdvance" })
+			if e then return true, nil, e end
+		end
+		return false
 	end
 end
 
