@@ -558,12 +558,17 @@ local FACING = { [1] = "down", [2] = "up", [4] = "right" }
 -- 2026-09-23 (Weather Institute 2F, Routes 118 and 120): +0x06 9 read left only over 4500 frames (+0x18 3, the grunt at
 -- 19,6), 0x0A right (the grunt at 15,6), 0x0D down and up (the grunt at 10,8, crossed while it faced up), 0x0E left and
 -- right (120's at 5,22), 0x10 up and right (118's at 56,7), 0x11 left and down (121's at 22,5, 12 reads), 0x17 all four
--- (120's rotator at 16,6). So +0x18's 3 is left too (`turnFacing`). A walking trainer (0x1A, 121's at 11,6, on rows 7-10)
+-- (120's rotator at 16,6), 0x18 the same clockwise (129's at 35,9 read down, right, up in 10 reads). So +0x18's 3 is left too (`turnFacing`). A walking trainer (0x1A, 121's at 11,6, on rows 7-10)
 -- moves its line and is not timed: crossed above it while it walked down, away (by hand).
 local TURNS = { [7] = { "up" }, [8] = { "down" }, [9] = { "left" }, [0x0A] = { "right" }, [0x0D] = { "down", "up" },
 	[0x0E] = { "left", "right" }, [0x10] = { "up", "right" }, [0x11] = { "down", "left" }, [0x12] = { "down", "right" },
-	[0x17] = { "up", "down", "left", "right" } }
+	[0x17] = { "up", "down", "left", "right" }, [0x18] = { "up", "down", "left", "right" } }
 local EVERY_WAY = { "up", "down", "left", "right" }
+-- A trainer that walks (2026-09-23/24: 121's at 11,6 lapped rows 7-10; 108's at 52,13 x49-52 rows 10-13; the Aqua
+-- Hideout 1F's at 20,4 x7-20 rows 4-9) stays inside a box round its template tile: the template's +0x0A, low nibble
+-- the x range and high nibble the y range (read 0x55, 0x05, 0x31 on 128 for a loop, a left-right and up-down walkers,
+-- matching those laps). Its sight is taken from every tile of that box, every way: never timed, just avoided.
+-- Wandering (0x02-0x06), walking back and forth (0x19-0x1C) and walk sequences (0x1D-0x34) walk.
 local SIGHT_STEP = { up = { 0, -1 }, down = { 0, 1 }, left = { -1, 0 }, right = { 1, 0 } }
 
 local function readTemplates()
@@ -574,6 +579,7 @@ local function readTemplates()
 	for i = 0, math.min(n, 64) - 1 do
 		local e = memory.read_bytes_as_array(list + i * 24, 24, BUS)
 		out[#out + 1] = { local_id = e[1], x = e[5] | (e[6] << 8), y = e[7] | (e[8] << 8), movement = e[10],
+			range_x = e[11] & 0x0F, range_y = e[11] >> 4,
 			trainer_type = e[13] | (e[14] << 8), range = e[15] | (e[16] << 8),
 			script = e[17] | (e[18] << 8) | (e[19] << 16) | (e[20] << 24) }
 	end
@@ -636,7 +642,8 @@ local function unbeatenTrainers(objects)
 			local info = o and o.trainer or trainerOf(sb1, t.trainer_type, t.range, t.movement, t.script)
 			if not info.beaten then
 				out[#out + 1] = { local_id = t.local_id, x = o and o.x or t.x, y = o and o.y or t.y, range = info.range,
-					sees = info.sees, turns = info.turns, loaded = o ~= nil, slot = o and o.slot or nil }
+					sees = info.sees, turns = info.turns, loaded = o ~= nil, slot = o and o.slot or nil,
+					walks = ((t.movement >= 0x02 and t.movement <= 0x06) or (t.movement >= 0x19 and t.movement <= 0x34)) and { x = t.x, y = t.y, rx = t.range_x, ry = t.range_y } or nil }
 			end
 		end
 	end
@@ -649,6 +656,23 @@ end
 local function sightTiles(trainers, mapW, mapH)
 	local seen, count, timed = {}, {}, {}
 	for _, t in ipairs(trainers) do
+		if t.walks then
+			local w = t.walks
+			for py = w.y - w.ry, w.y + w.ry do
+				for px = w.x - w.rx, w.x + w.rx do
+					for _, step in pairs(SIGHT_STEP) do
+						for k = 0, math.min(t.range, 15) do
+							local x, y = px + step[1] * k, py + step[2] * k
+							if x >= 0 and y >= 0 and x < mapW and y < mapH then
+								local key = y * mapW + x
+								seen[key] = seen[key] or t
+								count[key] = (count[key] or 0) + 2
+							end
+						end
+					end
+				end
+			end
+		end
 		for _, way in ipairs(t.sees) do
 			local step = SIGHT_STEP[way]
 			for k = 1, math.min(t.range, 15) do
