@@ -1048,3 +1048,8 @@ planning; the Go side is fully specified and the adapter parts each begin with a
 Pointer: the fifth adversarial review gave local ghosts their own share of the roster bound (a
 512-clip zip hid every later arrival) and bounded how much of a clip is read (blank lines cost
 nothing). Detail and tests in `phase10.md`'s entry of the same date.
+
+## 2026-09-23 — pointer: `chaser_reset` (ADR 0072)
+
+A new optional bridge message, adapter -> core: a death starts the chaser pack over (`ResetChasers`,
+`core/chaser.go`; `TestChaserResetStartsThePackOver`). The whole account is `phase7.md`, same date.

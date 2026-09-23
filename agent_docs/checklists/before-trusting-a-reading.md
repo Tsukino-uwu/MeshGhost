@@ -45,3 +45,5 @@ The instrument is the first suspect. When a person sees what the numbers deny, t
 - Membership is not visibility (Crystal, 2026-08-27) — [by-lesson.md](../pitfalls/by-lesson.md)
 - A PowerShell identifier check is case-insensitive unless you say otherwise -- and reported a bug that did not exist (2026-09-02) — [by-lesson.md](../pitfalls/by-lesson.md)
 - **A headless session's distill is checked claim by claim against its play stream's tool answers before commit** -- four Emerald distills wrote the model's narration, screenshot reads and compass guesses as fact ([by-lesson.md](../pitfalls/by-lesson.md))
+- **An ubergraph `EntryPoint` from a `ProcessEvent` hook names an entry, not an event** -- 15 was a latent resume point; map entries from the event stubs' bytecode first ([pitfalls/by-lesson.md](../pitfalls/by-lesson.md), Pseudoregalia, 2026-09-23).
+- **A UI widget existing is not it being on screen** -- finished dialogue prompts lingered until garbage collection took two at once mid-play; a full-object dump diff between the two states named the real flag ([pitfalls/by-lesson.md](../pitfalls/by-lesson.md), Pseudoregalia, 2026-09-23).

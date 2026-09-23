@@ -2824,3 +2824,8 @@ than lasting until restart. Both in ADR 0070 (`06c71edd`, `dfcc11b2`), each with
 failing first; run-gotests and run-gotests-race green, client redeployed to the four installs.
 Emerald's ghost doors stay as a WIP in its `UNVERIFIED.md`; Crystal's `lastPortable` is kept.
 Nothing pushed, so CI has not seen any of today's commits.
+
+## 2026-09-23 — pointer: `chaser_reset` (ADR 0072)
+
+A new optional bridge message, adapter -> core: a death starts the chaser pack over (`ResetChasers`,
+`core/chaser.go`; `TestChaserResetStartsThePackOver`). The whole account is `phase7.md`, same date.

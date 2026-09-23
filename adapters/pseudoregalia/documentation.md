@@ -261,17 +261,26 @@ Leaving a pole moves to `moveState 1` / `MovementMode 3`. A brief
 
 ## Health, and the HUD that shows it
 
-> **Fields** `CurrentHp` on the **GameInstance**, not on the pawn · `UI_HudRef` on the pawn
+> **Fields** `CurrentHp` on the **GameInstance** · `CurrentHp`, `maxHP`, `intangible?` on the pawn's
+> `BP_HpHitable` component · `UI_HudRef` on the pawn
 > **We read it at** `Plugin.cpp`, the shared-health reader behind the death and hurt counters
 
-**No current health lives on the character.** A full reflection dump of the pawn returns only
+**Health lives in two places, and they move together on a hit.** The pawn's own properties hold only
 *config* — `healAmountPerDing`, `HPpiecesNeededForHeart`, `hitsToFill`, `healUpgrades`,
 `healMoveSpeed` — and the damage constants `lightAttackDamage` (15), `heavyAttackDamage` (50) and
-`projectileFullDamage` (45). None of them is state.
+`projectileFullDamage` (45). The live values are:
 
-The live value is `CurrentHp`, a double on the object the pawn holds as `As MV Game Instance Ref`.
-**A UE GameInstance is one object for the whole running game**, so there is exactly one health value
-in existence no matter how many characters are on screen.
+- `CurrentHp`, a double on the object the pawn holds as `As MV Game Instance Ref`. **A UE
+  GameInstance is one object for the whole running game**, so this one survives deaths, reloads and
+  save swaps.
+- `CurrentHp` and `maxHP` (80) on the pawn's **`BP_HpHitable` component**, the thing enemies hit.
+  Enemies carry the same component class.
+
+On a hit both move inside the same 25 ms sample, so which writes first cannot be told at that
+resolution; on a respawn the GameInstance's moved alone for one sample (0 → 80 with the component
+still 0). *Confidence: high for both locations and the hit, measured 2026-09-18 (`enemy_hit_watch.lua`,
+~15 real hits) and 2026-09-23 (`MEASURED.md`); the first version of this section, 2026-08-27, found
+only the GameInstance's.*
 
 | | Value |
 | --- | --- |
@@ -307,9 +316,11 @@ health-shaped here:
 
 ## Taking damage, hits, and death
 
-> **Functions** `BPI_PerformDamageResponse(DamageType, attackDirection)` · `dieFade(DieNotRez)`
-> **Fields** `hitActorsArray` on the attacking pawn · `LastHitBy`
-> **We read it at** `Plugin.cpp`, the hurt and death mirrors
+> **Functions** `BPI_TryDamage(Attacker, HitboxInfo, ForwardVector, QueryLocation)` on the victim's
+> `BP_HpHitable` · `BPI_PerformDamageResponse(DamageType, attackDirection)` · `dieFade(DieNotRez)`
+> **Fields** `hitActorsArray` on the attacking pawn · `LastHitBy` · on `BP_HpHitable`: `Attacker`,
+> `incomingHitboxInfo`, `Forward Vector`, `Query Location`, `intangible?`
+> **We read it at** `Plugin.cpp`, the hurt and death mirrors and chaser contact (`call_try_damage`)
 
 **This game does not use Unreal's damage path at all.** `ApplyDamage` and its two siblings were
 hooked and **armed on 3 of 3, and never fired once** across attacks that demonstrably did damage;
@@ -322,9 +333,35 @@ of them ever reached.*
 1. an attack montage's notifies run the attack code on the attacking pawn;
 2. that code queries **outward** for victims — the attacker's own collision is not involved;
 3. each victim found is appended to the **attacker's own `hitActorsArray`**;
-4. the attacker then calls `BPI_PerformDamageResponse(DamageType, attackDirection)` on the victim,
-   carrying a damage **TYPE, not an amount** — the victim decides what it costs;
-5. the victim's cost is applied to the single shared `CurrentHp` above.
+4. the victim's `BP_HpHitable` receives `BPI_TryDamage(Attacker, HitboxInfo, ForwardVector,
+   QueryLocation)`, and keeps the four as its own properties (`Attacker`, `incomingHitboxInfo`,
+   `Forward Vector`, `Query Location`), where they can be read back after the hit;
+5. the hit costs `HitboxInfo`'s **`Damage`** from both health locations above, and turns on the
+   victim's **`intangible?`**: the i-frames, during which nothing lands.
+
+*Confidence for 4-5: high — 14 real enemy hits read back, then one `BPI_TryDamage` call with the same
+values took 5 HP with `intangible?` on (user-confirmed as a normal hit), 2026-09-23 (`MEASURED.md`).
+The first version of this list, 2026-08-27, had the attacker calling `BPI_PerformDamageResponse` with
+"a type, not an amount"; that call is the REACTION (below), and the amount is in the hit data.*
+
+**What a hit carries: `ST_HitboxData`.** Its fields are `Damage` (the HP cost), `HitStopDuration`,
+`HitType`, `HitSound`, `hitboxSocketName`, `lengthRadiusHalfHeight` and `DamageType`. Measured
+2026-09-23 from real hits:
+
+| Hit | Damage | DamageType | HitStopDuration | Sound |
+| --- | --- | --- | --- | --- |
+| an enemy's body touch (three enemy kinds alike) | 5 | 5 | 0.2 | `Cue_contact` |
+| the maid's heavier attack | 10 | 2 | 0.25 | none |
+| a hazard, a heavy projectile | 5 | 0 | 0.1 | none |
+
+**`intangible?` stays on about 1.9 s after a hit** (touches gated on it landed 1.86 s apart). A hit
+that knocks the sword loose costs 0 HP (2026-09-18), and which field chooses that reaction is not
+measured. **A death reloads the level**: health reaches 0, the level reloads about 3 s later, and
+the player comes back as an entirely new character object.
+
+**While the player talks or reads, `controlState` on the character is non-zero** (1 or 2 across two
+conversations and two books, 0 in play; a chair and the pause menu leave it 0). **Seated, `moveState`
+is 8.** *Measured 2026-09-23 and 2026-09-09.*
 
 **`hitActorsArray` is not cleared between swings.** It is the game's own already-hit list, and a
 target already in it is not hit again — which is why a given attacker only ever lands its *first*

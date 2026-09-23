@@ -2497,3 +2497,31 @@ for any whole entry byte-for-byte in RAM. Fifteen specific bytes do not match by
 the stock build first**, where a byte-identical build's `.sym` knows the answer; a probe that
 reproduces that is a measurement on the patched one. `crystal/probes/tileset_header_probe.lua` found
 the loaded tileset header this way (vanilla `$11D9`, Archipelago `$11E0`), one match on each build.
+
+## Map a Blueprint graph's entry points from the event stubs' bytecode (Pseudoregalia, 2026-09-23)
+
+A `ProcessEvent` hook on a Blueprint component sees `ExecuteUbergraph_<Class>` with an `EntryPoint`,
+never the named event: BP-to-BP calls run in the script VM, and what does reach `ProcessEvent` can be the
+engine resuming a latent action. To know which event an entry point is, read each event stub's own
+script in C++ (`UStruct::GetScript()`, RE-UE4SS): the stub calls the ubergraph with its entry point as an
+`EX_IntConst` (0x1D, `RE-UE4SS/deps/first/Unreal/include/Unreal/Script.hpp`) right after the function
+pointer. Find the ubergraph's address, scan each stub for that pointer followed by 0x1D, read the int32;
+compare the pointer, never dereference it. The worked example is `dump_ubergraph_entry_points` in
+`adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp`. Lua cannot read a function's script.
+
+## Read what a real caller left on the callee, then make the same call (Pseudoregalia, 2026-09-23)
+
+When a game function "does nothing" called bare, let the game make the real call once (an enemy hit,
+an interaction) and read back the target object's properties that are named like that function's
+parameters, on the event you can see (an HP drop), in a window after it. The game has filled them with
+exactly what it passed. Then call the function with those values, first copied whole
+(`try_damage_once.lua` passes the stored struct wrapper; UE4SS copies it with `CopyCompleteValue`), then
+built from a table by field name. `probes/probe_hitlist/Scripts/hitbox_capture.lua` and
+`chaser_hit_sweep.lua` are the pair.
+
+## When targeted watchers see nothing, diff a full dump of the object in both states (Pseudoregalia, 2026-09-23)
+
+`probes/probe_dump/` writes every reflected property of one object to JSON without touching a pointee.
+Take one dump in each state (a book open, then closed) and diff the two: of 389 player-pawn properties,
+one state field differed (`controlState`), after three targeted watchers had missed it. Then confirm it
+with an on-change watcher across every case and a control (`controlstate_watch.lua`).

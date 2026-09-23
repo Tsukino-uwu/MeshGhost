@@ -556,6 +556,14 @@ Nothing outstanding is a ghost failing to do something the player can do.
     state reaches it -- the first time this adapter reads a render's timestamp -- then draws the
     result on a second panel of the same code, on the other side. A restart or a loop clears it
     with the ghost. Seen filling beside the ghost across seven restarts of a 22 s recording.
+71. **Chaser contact: a touch that hurts or kills (2026-09-23).** With `chaser.contact` set to
+    `"hurt"` or `"kill"`, touching a chaser goes through the game's own damage event,
+    `BPI_TryDamage`, with the chaser as the attacker and the same hit data an enemy's body touch
+    carries. Four simpler calls had done nothing; letting real enemies hit the player and reading
+    back what they left on the player's health component showed the full call. The game's own
+    i-frames pace it; the pack holds while the player is paused, seated, talking or reading, and a
+    death starts the pack over, so nothing waits at the respawn point. User-confirmed on screen:
+    [VERIFIED.md](VERIFIED.md) 2026-09-23; the facts behind it are in [MEASURED.md](MEASURED.md).
 
 ## Dev tools
 

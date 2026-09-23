@@ -372,3 +372,7 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - Emerald autoplay: two unattended attempts walked up a mud slope until stopped, and a written warning could not stop the third (2026-09-17) [CHECK: autoplay/games/emerald/scenarios/mud_slope.json, autoplay server TestARepeatedAnswerCarriesTheLoopAndRestoreClearsIt]
 - Autoplay harness: the first loop check keyed on place alone and marked menus walked at one tile (2026-09-17) [CHECK: autoplay server TestLoopWatchLeavesAloneWhatDiffers]
 - Autoplay sessions: a distill writes the model's narration, screenshots and guesses as fact (2026-09-17) [RULE: checklists/before-trusting-a-reading.md]
+- Pseudoregalia: four bare damage-interface calls did nothing; the one that works needed what a real caller passes, read back off the callee (2026-09-23) [RULE: checklists/before-a-probe.md]
+- Pseudoregalia: an ubergraph EntryPoint seen in ProcessEvent was a resume point, not the event; the stubs' bytecode names each event's entry (2026-09-23) [RULE: checklists/before-trusting-a-reading.md]
+- Pseudoregalia: talking to an NPC changed none of the watched fields; a full-pawn dump diff named controlState, and a widget existing meant nothing (2026-09-23) [RULE: checklists/before-trusting-a-reading.md]
+- Pseudoregalia: a chaser pack that follows the recording through a death lands on the respawn point (2026-09-23) [CHECK: core TestChaserResetStartsThePackOver]

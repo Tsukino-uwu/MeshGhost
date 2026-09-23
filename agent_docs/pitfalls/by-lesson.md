@@ -7731,3 +7731,76 @@ read-only agent did the longest one claim by claim with block numbers.
 **Fix.** No distill is committed before that check; what fails is dropped or narrowed to what was shown, and dropped
 reviewed facts are restored. **The rule this adds:** a session's own words, pictures and notes are where to look, never a
 fact for the store.
+
+## Pseudoregalia: four bare damage-interface calls did nothing; the one that works needed what a real caller passes, read back off the callee (2026-09-23)
+
+**Symptom.** Chaser contact needed the game to hurt or kill the player. `BPI_PerformDamageResponse`,
+`BPI_ContactDamageResponse`, `BPI_CombatDeath` and `BPI_TouchHazard`, each called correctly on the
+player's `BP_HpHitable` (2026-09-18), moved no HP and showed nothing.
+
+**Diagnosis.** The component carries properties named like one event's parameters (`Attacker`,
+`incomingHitboxInfo`, `Forward Vector`, `Query Location`). A read-only probe let 14 real enemy hits land
+and read those properties back after each HP drop (`probes/probe_hitlist/Scripts/hitbox_capture.lua`):
+the game had filled them with the enemy, an `ST_HitboxData` (Damage 5, DamageType 5 for a body touch)
+and the hit geometry. `BPI_TryDamage(Attacker, HitboxInfo, ForwardVector, QueryLocation)`, the one event
+nobody had tried, takes exactly those.
+
+**Cause.** The bare calls were the REACTIONS and hazards, and each ran with the context a real attacker
+sets left null. The event that deducts HP needs the full calling convention.
+
+**Fix.** `call_try_damage` (`Plugin.cpp`) builds `ST_HitboxData` by reflection from the measured values,
+with a chaser as `Attacker`; user-confirmed. DamageType 2 with a ghost attacker crashed the game, so only
+the body-touch kind ships (`adapters/pseudoregalia/MEASURED.md`, 2026-09-23). **What to reach for first:**
+when an interface call "does nothing" called bare, let the game make the real call once and read what it
+left on the callee, before guessing a fifth signature.
+
+## Pseudoregalia: an ubergraph EntryPoint seen in ProcessEvent was a resume point, not the event; the stubs' bytecode names each event's entry (2026-09-23)
+
+**Symptom.** A `ProcessEvent` hook watching a real hit saw only `ExecuteUbergraph_BP_HpHitable`, with
+`EntryPoint=15` on the player's component AND on enemies' (2026-09-18). It was filed as a dead end
+because one value fired "in both directions".
+
+**Diagnosis.** Enemies carry the same class, so one value both ways was expected, not suspicious. A
+C++ one-shot read each Blueprint event stub's script (`UStruct::GetScript()`): every stub calls the
+ubergraph with its entry point as an `EX_IntConst` right after the function pointer. No event enters at
+15; the events sit at 174-181, 475, 603 and 2536.
+
+**Cause.** BP-to-BP interface calls run in the script VM and never pass through `ProcessEvent`; what
+does pass is the engine resuming a latent action inside the graph, at an internal entry point.
+
+**Fix.** The entry-point map is in `MEASURED.md`; the method is in `_template/probes.md`. **What to reach
+for first:** an `EntryPoint` from a `ProcessEvent` hook names an entry, not an event; map it from the
+stubs' bytecode before drawing any conclusion from it.
+
+## Pseudoregalia: talking to an NPC changed none of the watched fields; a full-pawn dump diff named controlState, and a widget existing meant nothing (2026-09-23)
+
+**Symptom.** The chaser pack had to hold while the player talks or reads. A watcher on the pawn,
+camera and controller (`dialogue_watch.lua`) saw only `Interaction Target` change across a whole
+conversation, and it never cleared afterwards.
+
+**Diagnosis, by widening.** A census of every `UserWidget` (`widget_watch.lua`) saw the dialogue prompt
+appear at the start and vanish at the end, then saw two old prompts vanish together mid-play: garbage
+collection, so a widget existing is not the dialogue being open. A game-instance dump diff showed
+nothing. A full `probe_dump` of the player pawn with a book open vs closed differed in one state field:
+`controlState` 2 vs 0. An on-change watcher then confirmed 1 or 2 across two NPCs and two books, with
+the chair and the pause menu as controls leaving it 0.
+
+**Fix.** `controlState` non-zero joins the pause menu and seated on the `player_frozen` edge;
+user-confirmed. **What to reach for first:** when targeted watchers see nothing, dump the whole object in
+both states and diff; do not trust a UI object's lifetime as its on-screen state.
+
+## Pseudoregalia: a chaser pack that follows the recording through a death lands on the respawn point (2026-09-23)
+
+**Symptom.** With chaser contact `kill`, dying to a chaser was followed by dying again at the respawn
+point, five deaths in ~25 s; separately, chasers came back as shadows after a death (2026-09-18, again
+2026-09-23).
+
+**Cause.** The pack replays the player's recording a few seconds behind, THROUGH the death, the reload
+and the jump to the respawn point, so the first chaser lands on a player still standing there; and a
+chaser replaying the death runs the game's death fade with nothing to undo it.
+
+**Fix.** A 3 s `player_frozen` hold after a respawn stopped the loop but only delayed the arrival; the
+user chose a reset instead: `chaser_reset` (ADR 0072), adapter -> core, restarts the pack as at the start
+of play. The pack never follows the player through a death. `TestChaserResetStartsThePackOver` fails
+without it; user-confirmed. **What to reach for first:** anything that replays the player's own path must
+be cut where the game restarts the player.

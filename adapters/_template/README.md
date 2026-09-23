@@ -2181,9 +2181,17 @@ rule is that a cosmetic ghost is a picture -- never solid, blocking, damageable 
 whatever `session_policy.ghost_collision` says. The contact half (a chaser that hurts or kills on
 touch, `session_policy.chaser_contact` = `"hurt"` or `"kill"`, ADR 0068) is per game: it needs this
 adapter's own ADR and the user's on-screen confirmation before a line of it is written, it goes
-through the game's own damage path and never a health write, and no shipped adapter has either. An
+through the game's own damage path and never a health write. Pseudoregalia's is the worked example
+(2026-09-23: `call_try_damage` in its `Plugin.cpp`, facts in its `MEASURED.md`). An
 in-game key for the replay actions is optional (`replay_control`, `PROTOCOL.md`); do not register
 the chord the core already owns, because the core registered first and yours will fail.
+
+**If this game honours chaser contact, send `chaser_reset` where the game restarts the player** (a
+death and its reload, a checkpoint respawn; ADR 0072, `PROTOCOL.md`). The pack replays the player's
+path a few seconds behind; without a reset it follows them through the restart and lands on them at
+the respawn point (Pseudoregalia, 2026-09-23: five deaths in ~25 s with `kill`). And hold the pack
+through every state that takes control away (`player_frozen`: a pause, a chair, a conversation), each
+found by measurement.
 
 ## A driven ghost: the starting recipe (2026-09-09, from Pseudoregalia's rig; ADR 0057)
 
