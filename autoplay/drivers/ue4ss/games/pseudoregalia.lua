@@ -11,7 +11,7 @@ local log = host.log
 local M = {
 	game = "pseudoregalia",
 	variant = "vanilla",
-	capabilities = { "wait", "press", "sequence", "screenshot", "snapshot", "restore", "advance_text", "recent", "cheat:teleport", "reflex:walk_to", "reflex:look" },
+	capabilities = { "wait", "press", "sequence", "screenshot", "snapshot", "restore", "advance_text", "recent", "cheat:teleport", "reflex:walk_to", "reflex:goto", "reflex:look" },
 	-- The user's save files 1-7 are never written; File 8 is autoplay's (the user, 2026-09-23).
 	protected_slots = { 1, 2, 3, 4, 5, 6, 7 },
 }
@@ -687,6 +687,233 @@ function M.reflexes.walk_to(a)
 		local rel = math.rad(math.deg(math.atan(dy, dx)) - s.yaw)
 		local e = injectMove(math.sin(rel), math.cos(rel))
 		if e then return true, nil, e end
+		return false
+	end
+end
+
+-- goto {x, y, z (optional), radius (default 60), max_cells (default 6000)}: a route over the level's own collision,
+-- then walked. The floor is 50-unit cells, each one's height found by a downward trace (LineTraceSingle, channel 0) and
+-- kept only where the surface is walkable (ImpactNormal.Z at least the movement component's WalkableFloorZ, 0.643);
+-- a move between cells is allowed when the player's own capsule (radius 22, half-height 65, read 2026-09-23), swept
+-- by CapsuleTraceSingle along it, hits nothing: level or within MaxStepHeight (45) it is walked, a rise of 45-170 is
+-- jumped (the highest jump measured was 206), a drop of up to 600 is stepped off. A* runs a batch of cells a frame,
+-- evaluating a cell only when the search reaches it, so nothing is traced that the route never needs. The walk then
+-- steers to each cell of the route (the stick from the camera's yaw, as walk_to), holding Jump for 30 frames when the
+-- next cell is a rise and she is within 75 units of it. It plans again from where she stands when 90 frames pass with
+-- no cell reached (3 times). Ends `arrived`, `no_route` (with how far the nearest reachable cell is), `stuck`, `hit`,
+-- `map_changed`, or the frame limit.
+local CELL = 50
+local CAP_R, CAP_H = 20, 62 -- a little inside the capsule's 22/65, so brushing a wall does not close a route
+local FEET = 67 -- the capsule's centre above the floor: z -332.85 over a floor traced at -400
+local STEP_UP, JUMP_UP, DROP = 45, 170, 600
+local EXPAND_PER_FRAME = 12
+
+local function sweep(pawn, x1, y1, z1, x2, y2, z2)
+	if not ksl or not ksl:IsValid() then ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary") end
+	local hit = {}
+	local r = ksl:CapsuleTraceSingle(pawn, { X = x1, Y = y1, Z = z1 }, { X = x2, Y = y2, Z = z2 }, CAP_R, CAP_H, 0, false,
+		{}, 0, hit, true, { R = 1, G = 0, B = 0, A = 1 }, { R = 0, G = 1, B = 0, A = 1 }, 0)
+	return r == true
+end
+
+local function floorProbe(pawn, x, y, fromZ, walkableZ)
+	if not ksl or not ksl:IsValid() then ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary") end
+	local hit = {}
+	local r = ksl:LineTraceSingle(pawn, { X = x, Y = y, Z = fromZ }, { X = x, Y = y, Z = fromZ - 1400 }, 0, false, {}, 0, hit,
+		true, { R = 1, G = 0, B = 0, A = 1 }, { R = 0, G = 1, B = 0, A = 1 }, 0)
+	if not r or not hit.Location then return nil end
+	if hit.ImpactNormal and hit.ImpactNormal.Z < walkableZ then return nil end
+	return hit.Location.Z
+end
+
+local function newPlan(pawn, sx, sy, sz, tx, ty, maxCells)
+	local walkableZ = 0.64
+	pcall(function() walkableZ = pawn.CharacterMovement.WalkableFloorZ end)
+	local P = { pawn = pawn, cells = {}, open = {}, closed = {}, came = {}, g = {}, edge = {}, count = 0,
+		maxCells = maxCells, walkableZ = walkableZ, tx = tx, ty = ty }
+	local function cellOf(x, y) return math.floor(x / CELL + 0.5), math.floor(y / CELL + 0.5) end
+	P.cellOf = cellOf
+	local six, siy = cellOf(sx, sy)
+	P.gix, P.giy = cellOf(tx, ty)
+	local startKey = six .. "," .. siy
+	P.cells[startKey] = { ix = six, iy = siy, z = sz - FEET }
+	P.g[startKey] = 0
+	P.open = { { k = startKey, f = 0 } }
+	P.best, P.bestH = startKey, math.huge
+	return P
+end
+
+local function heapPush(h, item)
+	h[#h + 1] = item
+	local i = #h
+	while i > 1 do
+		local p = i // 2
+		if h[p].f <= h[i].f then break end
+		h[p], h[i] = h[i], h[p]
+		i = p
+	end
+end
+
+local function heapPop(h)
+	local top = h[1]
+	local last = table.remove(h)
+	if #h > 0 then
+		h[1] = last
+		local i = 1
+		while true do
+			local l, r, s = 2 * i, 2 * i + 1, i
+			if l <= #h and h[l].f < h[s].f then s = l end
+			if r <= #h and h[r].f < h[s].f then s = r end
+			if s == i then break end
+			h[s], h[i] = h[i], h[s]
+			i = s
+		end
+	end
+	return top
+end
+
+local NEIGHBOURS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 }, { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 } }
+
+-- Runs up to EXPAND_PER_FRAME expansions. Returns "found", "exhausted" or nil (still searching).
+local function planStep(P)
+	for _ = 1, EXPAND_PER_FRAME do
+		if #P.open == 0 then return "exhausted" end
+		local cur = heapPop(P.open)
+		if not P.closed[cur.k] then
+			P.closed[cur.k] = true
+			P.count = P.count + 1
+			local c = P.cells[cur.k]
+			local hx, hy = (P.gix - c.ix) * CELL, (P.giy - c.iy) * CELL
+			local h = math.sqrt(hx * hx + hy * hy)
+			if h < P.bestH then P.best, P.bestH = cur.k, h end
+			if c.ix == P.gix and c.iy == P.giy then P.goal = cur.k return "found" end
+			if P.count >= P.maxCells then return "exhausted" end
+			local ax, ay = c.ix * CELL, c.iy * CELL
+			for _, d in ipairs(NEIGHBOURS) do
+				local nix, niy = c.ix + d[1], c.iy + d[2]
+				local nk = nix .. "," .. niy
+				if not P.closed[nk] then
+					local bx, by = nix * CELL, niy * CELL
+					local nz = P.cells[nk] and P.cells[nk].z
+					if nz == nil and P.cells[nk] == nil then
+						nz = floorProbe(P.pawn, bx, by, c.z + JUMP_UP + FEET, P.walkableZ)
+						P.cells[nk] = { ix = nix, iy = niy, z = nz or false }
+					end
+					if nz then
+						local dz = nz - c.z
+						local kind, ok = nil, false
+						local ca, cb = c.z + FEET, nz + FEET
+						if dz > JUMP_UP or dz < -DROP then
+							ok = false
+						elseif dz > STEP_UP then
+							kind = "jump"
+							ok = not sweep(P.pawn, ax, ay, ca + 2, ax, ay, cb + 8) and not sweep(P.pawn, ax, ay, cb + 8, bx, by, cb + 8)
+						elseif dz < -STEP_UP then
+							kind = "drop"
+							ok = not sweep(P.pawn, ax, ay, ca + 2, bx, by, ca + 2)
+						else
+							kind = "walk"
+							local top = math.max(ca, cb) + STEP_UP
+							ok = not sweep(P.pawn, ax, ay, top, bx, by, top)
+						end
+						if ok then
+							local step = (d[1] ~= 0 and d[2] ~= 0) and CELL * 1.4142 or CELL
+							local cost = P.g[cur.k] + step + (kind == "jump" and 80 or 0) + (kind == "drop" and 20 or 0)
+							if P.g[nk] == nil or cost < P.g[nk] then
+								P.g[nk], P.came[nk], P.edge[nk] = cost, cur.k, kind
+								local gx, gy = (P.gix - nix) * CELL, (P.giy - niy) * CELL
+								heapPush(P.open, { k = nk, f = cost + math.sqrt(gx * gx + gy * gy) })
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+	return nil
+end
+
+local function pathOf(P, key)
+	local path = {}
+	while key do
+		local c = P.cells[key]
+		table.insert(path, 1, { x = c.ix * CELL, y = c.iy * CELL, z = c.z, edge = P.edge[key] })
+		key = P.came[key]
+	end
+	return path
+end
+
+M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its string key
+	local tx, ty = tonumber(a.x), tonumber(a.y)
+	if not tx or not ty then return nil, "goto needs x and y" end
+	local radius = tonumber(a.radius) or 60
+	local maxCells = tonumber(a.max_cells) or 6000
+	local s = playerAndCamera()
+	if not s then return nil, "no player" end
+	local o0 = M.observe(false)
+	local map0, hp0 = o0.location.map, o0.player.hp
+	local P = newPlan(s.pawn, s.x, s.y, s.z, tx, ty, maxCells)
+	local path, wp, lastProgress, replans, jumpLeft = nil, 2, 0, 0, 0
+	local planned, planFrames, stats = 0, 0, {}
+	return function(count)
+		local st = playerAndCamera()
+		if not st then return true, { outcome = "no_player" } end
+		local o = M.observe(false)
+		if o.location.map ~= map0 then return true, { outcome = "map_changed" } end
+		if hp0 and o.player.hp and o.player.hp < hp0 then return true, { outcome = "hit", hp = o.player.hp } end
+		local dxT, dyT = tx - st.x, ty - st.y
+		-- Arrived only once landed: the check is horizontal, and it had ended mid-jump at z -155 over a floor at -300.
+		if math.sqrt(dxT * dxT + dyT * dyT) <= radius and (o.player.move_state or 0) == 0 then
+			return true, { outcome = "arrived", distance = math.sqrt(dxT * dxT + dyT * dyT), cells_searched = planned, replans = replans }
+		end
+		if not path then
+			planFrames = planFrames + 1
+			local r = planStep(P)
+			if r == "found" then
+				path = pathOf(P, P.goal)
+			elseif r == "exhausted" then
+				local best = P.cells[P.best]
+				return true, { outcome = "no_route", cells_searched = P.count,
+					nearest = { x = best.ix * CELL, y = best.iy * CELL, z = best.z, distance_to_target = math.floor(P.bestH + 0.5) } }
+			else
+				return false
+			end
+			planned = planned + P.count
+			wp, lastProgress = 2, count
+			stats.path_cells = #path
+			local jumps = 0
+			for _, c in ipairs(path) do if c.edge == "jump" then jumps = jumps + 1 end end
+			stats.jumps = jumps
+		end
+		local target = path[wp]
+		if not target then
+			-- The route ended at the goal cell but not within radius (the target is off the cell grid): finish in a line.
+			local rel = math.rad(math.deg(math.atan(dyT, dxT)) - st.yaw)
+			injectMove(math.sin(rel), math.cos(rel))
+			if count - lastProgress > 90 then return true, { outcome = "stuck", at = { x = st.x, y = st.y, z = st.z } } end
+			return false
+		end
+		local dx, dy = target.x - st.x, target.y - st.y
+		local d = math.sqrt(dx * dx + dy * dy)
+		local feetZ = st.z - FEET
+		if d < 30 and math.abs(feetZ - target.z) < 60 then
+			wp, lastProgress = wp + 1, count
+			return false
+		end
+		if count - lastProgress > 90 then
+			if replans >= 3 then return true, { outcome = "stuck", at = { x = st.x, y = st.y, z = st.z }, route = stats } end
+			replans = replans + 1
+			P = newPlan(st.pawn, st.x, st.y, st.z, tx, ty, maxCells)
+			path, lastProgress = nil, count
+			return false
+		end
+		if target.edge == "jump" and d < 75 and (o.player.move_state or 0) == 0 and jumpLeft == 0 then jumpLeft = 30 end
+		local rel = math.rad(math.deg(math.atan(dy, dx)) - st.yaw)
+		injectMove(math.sin(rel), math.cos(rel))
+		if jumpLeft > 0 then
+			jumpLeft = jumpLeft - 1
+			if inputReady() then subsystem:InjectInputVectorForAction(actions.IA_Jump, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {}) end
+		end
 		return false
 	end
 end
