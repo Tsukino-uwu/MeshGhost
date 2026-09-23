@@ -93,3 +93,35 @@ props. Both are open.
 
 **Open:** the ledge grab and coyote time unmeasured; the upgrade at (-3350, -4300, 850) near the first room not yet
 reached; menus still by a scratch key poster.
+
+## 2026-09-23 (same session) — the user shows the way; the Dream Breaker, three walls and the save crystal walked
+
+**The user steered.** *"you need to find your weapon, then hit some walls, and then you can reach the save crystal"*; the
+weapon *"is the only one you can logically reach right with what you have right now"*; of a wall I tried to climb, *"this
+is a fence, not something with a ledge you can grab"*; of a corridor, *"this is the wrong direction, you come out here
+after getting the sword"*; then *"you need to jump up onto the platforms"*, *"make use of coyotee time if needed. make sure
+to ledge grab if you need as well"*, and the offer: *"want me to show a path, then you redoing it afterwards ?"* -- played
+*"with some intentional mistakes ... so you have more data to compare against"*.
+
+**Learning from their run.** A long trail (every 3rd frame, ~7 minutes; `game.trail_since`) recorded their play from the
+cage platform to the weapon room: 15 hops (takeoff, landing, ledge grab or not), kept in
+`autoplay/games/pseudoregalia/routes/dungeon_hops.json` and offered to `goto`'s search as moves beside its own. It showed
+the ledge grab as `moveState` 3 (hanging still 6-21 frames, then a climb at ~860 up), and takeoffs in coyote time.
+
+**goto grew** (each fault from a run it failed): leaps across a gap in any direction onto a floor up to 200 higher (a
+250-wide jump onto a block), up to 600 across onto a ledge 280 higher caught by a grab; grabs on rises of 200-320
+(a second floor probe from a grab's height finds the ledge); run straight at a hop's takeoff at full speed and jump off its
+edge in coyote time (threading grid cells slowed her and she slid off); let go of Jump at the top (held into a landing, it
+became a second jump); climb from any hang with a Jump press (measured: a grab on a 300 ledge, then Jump, then on top);
+a leap's gap test no longer counts the platforms' own edge cells (every leap onto a block had been refused).
+
+**Walked**, `goto` doing the moving: the cage platform to the weapon room (two block jumps, two ledge grabs, the long jump
+and the drop); a jump onto the stage took the **Dream Breaker** (the game's upgrade screen; its CONTINUE button answered
+neither keys nor injected actions, so the widget's own bound click handler was called: **reached**). A swing reads
+`actionState` 2. Then three breakable walls (100 HP each in their own `BP_HpHitable`, ~7 a hit) -- `_5`, `_3`, `_1` --
+and the **save crystal**, which saved when struck (not by Interact): `Last Save Point Name` BP_SavePoint_C_2, File 8
+changed, Files 1-7 identical by hash. Snapshots (local): `pr_has_weapon`, `pr_wall5_broken`, `pr_wall3_broken`,
+`pr_wall1_broken`, `pr_weapon_room`, `pr_upper_1100`.
+
+**Open:** why the planner missed the ledge next to the 500 block from the floor (the grab edge was right; the probe or
+sweeps refused it); menus still by the scratch poster and direct calls; combat (the WalkinEgg) untried.

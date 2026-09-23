@@ -771,9 +771,15 @@ local STEP_UP, JUMP_UP, DROP = 45, 200, 600
 -- description, confirmed on screen 2026-09-23) peaked 265 over its takeoff, about 40 units past it, rising nearly
 -- straight; Jump pressed 1 to 16 frames into the skid gave the same peak.
 local FLIP_UP = 250
+-- GRAB_UP: a rise a running jump reaches by catching the ledge (moveState 3) and climbing; the user's run climbed 286
+-- that way (2026-09-23). The flip stays for rises a grab cannot use (a fence has no ledge: the user, same day).
+local GRAB_UP = 320
 -- A leap across a gap of k cells may land at most this much higher. The user's run (2026-09-23) jumped from the cage
 -- platform onto a block 200 higher ~240 units away; a full jump rises 206.
-local LEAP_UP = { [2] = 200, [3] = 200, [4] = 200, [5] = 190 }
+local LEAP_UP = { [2] = 200, [3] = 200, [4] = 200, [5] = 200 }
+-- Further, a leap lands only by catching the ledge: the user's grab hops rose 178 across 661 and 286 across 283.
+for k = 6, 12 do LEAP_UP[k] = 280 end
+local LEAP_CELLS = 12
 local EXPAND_PER_FRAME = 12
 
 local function sweep(pawn, x1, y1, z1, x2, y2, z2)
@@ -887,16 +893,20 @@ local function planStep(P)
 					local nz = P.cells[nk] and P.cells[nk].z
 					if nz == nil and P.cells[nk] == nil then
 						nz = floorProbe(P.pawn, bx, by, c.z + JUMP_UP + FEET, P.walkableZ)
+						-- A ledge taller than a jump starts above that probe: look again from a grab's height, and keep
+						-- what it finds only when it is such a ledge (from that high, most probes meet overhangs).
+						local hz = floorProbe(P.pawn, bx, by, c.z + GRAB_UP + 40, P.walkableZ)
+						if hz and hz > c.z + JUMP_UP and hz <= c.z + GRAB_UP and (not nz or nz < hz - 100) then nz = hz end
 						P.cells[nk] = { ix = nix, iy = niy, z = nz or false }
 					end
 					if nz then
 						local dz = nz - c.z
 						local kind, ok = nil, false
 						local ca, cb = c.z + FEET, nz + FEET
-						if dz > FLIP_UP or dz < -DROP then
+						if dz > GRAB_UP or dz < -DROP then
 							ok = false
 						elseif dz > STEP_UP then
-							kind = dz > JUMP_UP and "flip" or "jump"
+							kind = dz > FLIP_UP and "grab" or (dz > JUMP_UP and "flip" or "jump")
 							ok = not sweep(P.pawn, ax, ay, ca + 2, ax, ay, cb + 8) and not sweep(P.pawn, ax, ay, cb + 8, bx, by, cb + 8)
 						elseif dz < -STEP_UP then
 							kind = "drop"
@@ -910,7 +920,7 @@ local function planStep(P)
 						end
 						if ok then
 							local step = (d[1] ~= 0 and d[2] ~= 0) and CELL * 1.4142 or CELL
-							local cost = P.g[cur.k] + step + (kind == "jump" and 80 or 0) + (kind == "flip" and 200 or 0) + (kind == "drop" and 20 or 0)
+							local cost = P.g[cur.k] + step + (kind == "jump" and 80 or 0) + (kind == "flip" and 200 or 0) + (kind == "grab" and 150 or 0) + (kind == "drop" and 20 or 0)
 							if P.g[nk] == nil or cost < P.g[nk] then
 								P.g[nk], P.came[nk], P.edge[nk] = cost, cur.k, kind
 								local gx, gy = (P.gix - nix) * CELL, (P.giy - niy) * CELL
@@ -953,8 +963,8 @@ local function planStep(P)
 				if m and (not m.z or m.z < c.z - STEP_UP) then edge = true break end
 			end
 			if edge then
-				for dx = -5, 5 do
-					for dy = -5, 5 do
+				for dx = -LEAP_CELLS, LEAP_CELLS do
+					for dy = -LEAP_CELLS, LEAP_CELLS do
 						local k = math.max(math.abs(dx), math.abs(dy))
 						if k >= 2 then
 							local nix, niy = c.ix + dx, c.iy + dy
@@ -980,7 +990,10 @@ local function planStep(P)
 												m = { ix = mx, iy = my, z = mz or false }
 												P.cells[mk] = m
 											end
-											if m.z and m.z > low then gap = false break end
+											-- Part of the takeoff or the landing platform, not the gap: its own edge cells lay
+											-- under the line, and every leap onto a block was refused (2026-09-23).
+											local own = m.z and ((t * 2 <= steps and math.abs(m.z - c.z) < 20) or (t * 2 >= steps and math.abs(m.z - nz) < 20))
+											if m.z and m.z > low and not own then gap = false break end
 										end
 									end
 									if gap then
@@ -1028,7 +1041,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 	local o0 = M.observe(false)
 	local map0, hp0 = o0.location.map, o0.player.hp
 	local P = newPlan(s.pawn, s.x, s.y, s.z, tx, ty, maxCells)
-	local path, wp, lastProgress, replans, jumpLeft, flip, hopState = nil, 2, 0, 0, 0, nil, nil
+	local path, wp, lastProgress, replans, jumpLeft, flip, hopState, hang = nil, 2, 0, 0, 0, nil, nil, 0
 	local planned, planFrames, stats = 0, 0, {}
 	return function(count)
 		local st = playerAndCamera()
@@ -1171,6 +1184,20 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 			if flip and flip.t > 240 then flip = nil end
 			return false
 		end
+		-- Hanging on a ledge (moveState 3), from any move: push at the target and tap Jump to climb, as the user's hangs
+		-- ended in a climb 6-21 frames in (2026-09-23).
+		if (o.player.move_state or 0) == 3 then
+			hang = hang + 1
+			local rel = math.rad(math.deg(math.atan(dy, dx)) - st.yaw)
+			injectMove(math.sin(rel), math.cos(rel))
+			if hang > 5 and hang % 20 < 5 and inputReady() then
+				subsystem:InjectInputVectorForAction(actions.IA_Jump, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {})
+			end
+			lastProgress = count
+			return false
+		end
+		hang = 0
+		if target.edge == "grab" and d < 90 and (o.player.move_state or 0) == 0 and jumpLeft == 0 then jumpLeft = 80 end
 		if target.edge == "leap" and (o.player.move_state or 0) == 0 and jumpLeft == 0 then
 			jumpLeft = 80 -- at the takeoff cell already: the route only reaches a leap's far end from its near one
 		end
@@ -1203,7 +1230,7 @@ function M.programs.reach(p)
 	-- A target no cell can be nearer to than the start, so the search only ever floods.
 	local P = newPlan(s.pawn, s.x, s.y, s.z, s.x + 1e7, s.y + 1e7, maxCells)
 	P.tooHigh = {}
-	local origJump = FLIP_UP
+	local origJump = GRAB_UP
 	return function()
 		local r = planStep(P)
 		if not r then return false end

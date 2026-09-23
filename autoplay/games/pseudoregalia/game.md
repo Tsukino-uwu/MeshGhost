@@ -41,8 +41,22 @@ known about Pseudoregalia from anywhere else is only where to look. What the dri
   the takeoff; the user saw it done right. **Normal jumps are preferred when a backflip is not needed: lower and
   faster** (the user); `goto` only flips on rises over 200. Crouch then Jump is a different move: a low backward hop
   (40 high, ~300 long).
-- `moveState` 0 on the ground, 1 in the air, 2 crouched; `actionState` 18 is the skid a backflip starts from, 17 the
+- **A ledge grab** is `moveState` 3 (hanging, still); a Jump press climbs (measured on a 300 ledge). `goto` climbs any
+  hang, and plans grabs for rises of 200-320 and leaps across gaps onto ledges up to 280 higher.
+- `moveState` 0 on the ground, 1 in the air, 2 crouched, 3 hanging on a ledge; `actionState` 18 is the skid a backflip starts from, 17 the
   crouch hop. `controlState` 1 or 2 while reading or talking.
+
+## The route so far (walked 2026-09-23)
+
+- Start room -> its raised doorway -> the corridor -> the hall's 200 ledge -> the strip -> the cage platform.
+- **To the Dream Breaker (attack)**: from the cage platform up the 400 and 600 blocks, west along y ~2900 across two gaps
+  caught by ledge grabs (800, then 1100), a long jump down to the 900 platform, and off it west into the weapon room
+  (-3246, 3144); a jump onto the stage takes the orb. The user played this way once (`routes/dungeon_hops.json`); `goto`
+  uses those hops. The upgrade screen's CONTINUE takes no key or injected action: its widget's bound click handler
+  (`UI_NewUpgradePrompt_C`) was called.
+- **Then, per the user: break walls, reach the save crystal.** Breakable walls (`BP_BreakableWall_C`) have their own
+  `BP_HpHitable` (100 HP, about 7 a hit): `_5` (weapon room south), `_3` (under-roof room, east end) and `_1` (on the 500
+  block) opened the way; **the save crystal (`BP_SavePoint_C_2`, at 550, -3450) saves when struck**, not by Interact.
 
 ## Talking and reading
 
