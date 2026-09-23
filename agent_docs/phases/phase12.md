@@ -741,3 +741,13 @@ Two commits from 2026-09-18 this log never claimed: every Linux job moved to `ub
 before GitHub makes it `ubuntu-latest` (`41f16dd2`), and back to `ubuntu-latest` once 26.04 was known green
 (`41808a70`). Today the root allowlist in the hook, `preflight.ps1` and `hygiene.yml` gained `nuget.config`, the one
 file that names the NuGet feeds every `.csproj` restores from (`be517483`; the why is in `phase6.md`, same date).
+
+## 2026-09-23 — toward v1.3.2: the config doc, one CI flake, the version question
+
+The user asked whether to promote the v1.3.1 pre-release (`24393ba0`, 2026-09-22) or cut v1.3.2: the
+pre-release is 32 commits behind and misses the chaser-contact work, so v1.3.2 (a published tag is
+never moved). `docs/config.md` said no shipped mod honours chaser contact; Pseudoregalia does now.
+CI run 35802463324 (`7190c051`) failed one test on the Windows shipping-target job:
+`TestConformanceTheRejectStillArrivesAfterCloseGracefully/quic` (`netx`, untouched that day); it passed
+40 of 40 locally and on the nine runs before. Treated as a flake under runner load; the next push's
+run is the retest before `release.ps1`. The user: *"if everything passes, make a v1.3.2 release"*.
