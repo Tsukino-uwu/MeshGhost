@@ -597,3 +597,21 @@ on; the switches as `cmd/trials -set`):
   ATTACK5 (the second phase) follows at 437. The fight dealt him about 2 HP in that window. That is `bar_punish`.
 - **Orb blasts became the most common hit** once `tell_filter` was on (8 of 19 in R9r). `keep_spawn_tells` keeps the orb throw's
   tell through the filter.
+
+| Rung | Change on `hug` 5 + `armor_gate` off | Won | Median win | Hits | Hitless wins |
+| --- | --- | --- | --- | --- | --- |
+| R11 | `keep_spawn_tells` | 6 | 138.0 s | 15 | 2 |
+| R12 | `bar_punish` | 5 | 137.4 s | 19 | 0 |
+| R13 | `recover_ranged` | 7 | **103.2 s** | 15 | 3 |
+
+- **`recover_ranged` is the largest gain so far**: about 28 s faster than its base, with fewer hits. The lead came from reading
+  the game's code as a map (a melee hit on a target whose armor is at 0 is blocked for a fraction of the damage and keeps its
+  armor from refilling, and an Orbitar shot is never blocked), and ten tries measured it. A repeat run is queued.
+- **`bar_punish` does nothing on this Ribauld**: the ~441 HP moment is his phase change's slow motion, not a stun (the map), and
+  ten tries showed no gain.
+- **The combat map** (Ribauld's pattern, armor, break, Tevi's moves, the dodge meter) is a scratch file outside the repo, read
+  from the game's decompiled code. It is a list of what to measure. Only what trials or probes measured is written here or in
+  `adapters/tevi/MEASURED.md`.
+- **Combo** (the user: a constant high combo that never drops looks cool): the fight now reports `max_combo` and `combo_drops`,
+  and the trials summary reports the mean max combo and drops a minute. `combo_keep` (an Orbitar shot to renew the combo) is
+  queued.
