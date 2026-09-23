@@ -3037,13 +3037,18 @@ local function ride(p)
 	-- wait {local_id, facing_raw}: nothing is pressed until that character's facing nibble reads facing_raw, so a
 	-- trainer that turns is passed while it looks away (2026-09-23, Petalburg Woods: a poll a model turn apart was a
 	-- second late and the BUG CATCHER had turned back).
+	-- A list of such conditions waits for all of them at once (Route 112's pair looking along one column, 2026-09-23).
 	local wait = type(p.wait) == "table" and p.wait or nil
+	if wait and wait.local_id then wait = { wait } end
 	return function()
 		if wait then
-			for _, o in ipairs(readObjects()) do
-				if o.local_id == wait.local_id then
-					local raw = r8(GOBJECTEVENTS + o.slot * OBJ_SIZE + 24) & 0x0F
-					if raw ~= wait.facing_raw then return nil, false end
+			local objects = readObjects()
+			for _, w in ipairs(wait) do
+				for _, o in ipairs(objects) do
+					if o.local_id == w.local_id then
+						local raw = r8(GOBJECTEVENTS + o.slot * OBJ_SIZE + 24) & 0x0F
+						if raw ~= w.facing_raw then return nil, false end
+					end
 				end
 			end
 			wait = nil
