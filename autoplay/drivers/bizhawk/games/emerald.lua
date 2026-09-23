@@ -865,6 +865,22 @@ local function blockOfKind(residue, kind)
 	end
 end
 
+-- TM AND HM COMPATIBILITY (2026-09-23): 8 bytes a species from the table the build's .sym names gTMHMLearnsets
+-- (0x0831e898, 0xCE0 bytes), bit i for the move at entry i of sTMHMMoves (0x08616040, 58 u16 move ids): the 50 TMs, then
+-- the 8 HMs. Returns the names of the moves the species can learn, the HMs' only with `hmOnly` (the user: catch spare
+-- Pokémon for the HMs still needed, chosen by what each can learn). A global: this chunk is at Lua's local limit.
+EMERALD_TMHM = { learnset = 0x0831e898, moves = 0x08616040 }
+function EMERALD_TMHM.canLearn(species, hmOnly)
+	if not species or species < 1 or species >= SPECIES_COUNT then return nil end
+	local out = {}
+	for i = hmOnly and 50 or 0, 57 do
+		if (r8(EMERALD_TMHM.learnset + species * 8 + (i >> 3)) >> (i & 7)) & 1 == 1 then
+			out[#out + 1] = nameAt(MOVE_NAMES, MOVE_LEN, MOVE_COUNT, r16(EMERALD_TMHM.moves + i * 2))
+		end
+	end
+	return out
+end
+
 local function readParty()
 	local n = r8(PARTY_COUNT)
 	if n > 6 then return nil end
@@ -895,6 +911,7 @@ local function readParty()
 			local g, a = blockOfKind(pers % 24, 0) * 3, blockOfKind(pers % 24, 1) * 3
 			mon.species_id = words[g] & 0xFFFF
 			mon.species = nameAt(SPECIES_NAMES, SPECIES_LEN, SPECIES_COUNT, mon.species_id)
+			mon.hm_moves = EMERALD_TMHM.canLearn(mon.species_id, true)
 			local held = words[g] >> 16
 			if held ~= 0 then mon.held_item = itemName(held) or string.format("item %d", held) end
 			mon.exp = words[g + 1]
@@ -1362,7 +1379,7 @@ local function readBattle()
 			moves = #moves > 0 and moves or nil,
 			-- The ability, +0x20; its name from the table the build's .sym names gAbilityNames, 13 bytes a name (inline: this
 			-- chunk is at Lua's 200-local limit).
-			ability_id = b[0x21], ability = nameAt(0x0831b6db, 13, 256, b[0x21]) }
+			ability_id = b[0x21], ability = nameAt(0x0831b6db, 13, 256, b[0x21]), hm_moves = EMERALD_TMHM.canLearn(u16of(b, 1), true) }
 	end
 	-- The type flags read 0x04 in four wild battles and 0x0C against a trainer (one battle).
 	local flags = r32(BATTLE_TYPE_FLAGS)
