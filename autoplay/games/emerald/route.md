@@ -120,3 +120,17 @@ Walked 2026-09-23.
   CASTFORM's POWDER SNOW took it to 7 before a HYPER POTION. What won: TAILLOW sent in as a sacrifice, SUPER POTION on
   SWAMPERT from the bench, SWAMPERT back at 93 finished the rest. FEATHER BADGE, TM40.
 
+## The FEATHER BADGE to TEAM AQUA's hideout
+
+Walked 2026-09-23.
+- Route 120, 121 to Lilycove 0.5 (Center 13.6, door (24,14)). MAY at the store door (27,7): `talk` local 17, YES; her
+  GROVYLE is the one to switch for (`battle` switch "ask"). The store 13.16 (door (27,6)), 2F 13.17: REVIVE, HYPER POTION,
+  MAX REPEL (clerk local 4), ULTRA BALL (local 5).
+- MT. PYRE: Route 122 0.37 (22,29) into 24.15, up to 24.22's summit (three grunts); the old woman (local 2): the MAGMA EMBLEM.
+- FLY to Lavaridge; the cable car (route.md, MT. CHIMNEY) and down Jagged Pass 24.13 to (16,19), `walk up`: TEAM MAGMA's
+  hideout 24.86. Three STRENGTH boulders at (5,22), (7,22), (6,23): from (8,22) STRENGTH on (7,22), then down, left, left,
+  left, up, left (to (5,22)); the corridor goes up from (5,21). Leaving the map puts them back. MAXIE in 24.91 at (16,21).
+- TEAM AQUA's hideout 24.23 is a water door, 0.5 (70,5) surfed up into; its exit is (13,27), then down. Its guards block
+  it until the Slateport harbour scene: Slateport 0.1, `talk` through the crowd at the harbour 9.9 door (28,12) (locals 10,
+  11, 9 in turn), `talk` ARCHIE (local 7): the submarine is taken. Then back to the hideout.
+
