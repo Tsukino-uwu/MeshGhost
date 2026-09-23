@@ -129,13 +129,34 @@ func TestADeadAdapterSocketFreesTheCoreForTheReconnect(t *testing.T) {
 		}
 	}()
 
-	// The core's write deadline fires once A's receive buffer is full; the
-	// core closes the socket and A's next write fails.
-	select {
-	case err := <-aDead:
-		t.Logf("A's write failed: %v", err)
-	case <-time.After(20 * time.Second):
-		t.Fatal("the core never gave up writing to an adapter that stopped reading")
+	// The core's write deadline fires once A's receive buffer is full, and the
+	// core closes the socket. WATCH THE CORE, not only A: the 2026-09-23 release
+	// run (Linux, unix-binaries) logged the core's failed write and close one
+	// second in, yet A saw no non-timeout error for the remaining 19 s and the
+	// guard below fired on a core that had done its part. How A's kernel reports
+	// the close is not the property under test. "Closed but still attached" is:
+	// it is the exact window the original bug refused the reconnect in, so B
+	// dials the moment it opens. A's error is kept as a second signal.
+	deadline := time.After(20 * time.Second)
+	poll := time.NewTicker(5 * time.Millisecond)
+	defer poll.Stop()
+wait:
+	for {
+		select {
+		case err := <-aDead:
+			t.Logf("A's write failed: %v", err)
+			break wait
+		case <-poll.C:
+			c.mu.Lock()
+			incumbent := c.attachedAdapter
+			c.mu.Unlock()
+			if incumbent == nil || transportIsClosed(incumbent) {
+				t.Logf("the core closed A's socket (still attached: %v)", incumbent != nil)
+				break wait
+			}
+		case <-deadline:
+			t.Fatal("the core never gave up writing to an adapter that stopped reading")
+		}
 	}
 
 	// Adapter B reconnects at once, the way the game does. Without the fix

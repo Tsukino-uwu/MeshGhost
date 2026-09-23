@@ -759,3 +759,23 @@ evening and 5 of 5 locally, and flaked under a loaded runner once before (2026-0
 The new `chaser_reset` path is not on it (the test never sends one; `StartChasers` is unchanged). The
 failed job was re-run. **Two timing-sensitive tests red in one evening, each on a busy runner:** worth
 a look at both guards under load before the next release, not a verdict that either is fine.
+
+## 2026-09-23 — both release-night flakes looked at: one was a real quic defect, one a test watching the wrong end
+
+**`TestConformanceTheRejectStillArrivesAfterCloseGracefully/quic` was a product bug.** `quicconn.Close`
+tore the connection down a fixed 250 ms (`closeLinger`) after closing the stream, and CONNECTION_CLOSE
+discards unacknowledged data -- so one lost packet whose retransmission backed off past the window lost
+the last message for good: the relay's Reject, the core's goodbye. A busy Windows runner dropping
+loopback UDP did that; the netsim rig's 1 s blackouts do it on a real connection. New
+`TestAWriteBeforeCloseSurvivesABlackout` (a UDP proxy blacks out server-to-client for 2 s) failed 3 of 3
+before. Fix: the linger now ends at the PEER's close (its transport reads our FIN and closes) or at a 5 s
+bound; quic-go v0.62 has no public "stream data acknowledged" signal, read in its `send_stream.go`. 5 of 5
+after. Cost: a peer that never answers holds a closed quic connection for 5 s instead of 250 ms.
+
+**`TestADeadAdapterSocketFreesTheCoreForTheReconnect`: the core had done its part.** The failing log
+shows the core's write failing and the socket closed 1 s in; the test waited instead for fake adapter A
+to see a non-timeout write error, which it did not for the remaining 19 s on that Linux runner (why
+is unknown, and I had no Linux here to find out). The test now also watches the core: it dials B the
+moment the attached socket reports `IsClosed`, the exact closed-but-attached window the original bug
+lived in. With the fix disabled it still fails 6 of 10; with it, 50 of 50 and 20 of 20 under `-race`.
+Both gotests scripts green, `./netx/... -count=10` green. CI (Linux) is the real retest.

@@ -426,10 +426,20 @@ func (c *Conn) writeDeadlineNow() time.Time {
 // before a deliberate leave. Found 2026-08-17 by the goodbye going missing on
 // quic while working perfectly on tcp.
 //
-// 250ms is chosen to be far longer than a loopback or LAN round trip and short
-// enough to be invisible: Close() itself does not wait, so nothing blocks on
-// this — only the connection object survives a moment longer.
-const closeLinger = 250 * time.Millisecond
+// **It is an UPPER BOUND, not a fixed wait** (2026-09-23). It was a fixed 250 ms,
+// "far longer than a loopback round trip" -- which holds only while nothing is
+// lost. CONNECTION_CLOSE discards whatever is still unacknowledged, and once a
+// packet is lost the retransmission backs off (on loopback roughly 30, 60, 120
+// ... ms, so the probe after a 2 s blackout goes out near 3.8 s). A Windows CI
+// run lost the Reject this way (TestAWriteBeforeCloseSurvivesABlackout
+// reproduces it every time), and the netsim rig's 1 s blackouts are the same
+// case on a real connection. quic-go has no public "the stream's data was
+// acknowledged" signal, so closeWith waits for the one the PEER gives: its
+// transport reads our FIN, closes, and its CONNECTION_CLOSE ends ours. A
+// well-behaved peer therefore ends the linger within a round trip; only a peer
+// that never answers holds a closed connection this long, and Close() still
+// never blocks on it.
+const closeLinger = 5 * time.Second
 
 // CloseWrite half-closes this connection: the stream sends its FIN, so the peer
 // knows the line just written was the last one, while the quic connection stays
@@ -465,10 +475,19 @@ func (c *Conn) closeWith(reason error) error {
 		_ = c.stream.Close()
 		// The connection teardown is deferred rather than skipped: a QUIC
 		// connection left open forever would leak, and a peer that has already
-		// gone will simply never read the data. Deferred with AfterFunc rather
-		// than a sleep so Close stays non-blocking — it is called from read
+		// gone will simply never read the data. It ends at the peer's own close
+		// or at closeLinger, whichever is first (see closeLinger). A goroutine,
+		// not a sleep, so Close stays non-blocking — it is called from read
 		// loops and from error paths that must not stall.
-		time.AfterFunc(closeLinger, func() { _ = c.qc.CloseWithError(0, "") })
+		go func() {
+			linger := time.NewTimer(closeLinger)
+			defer linger.Stop()
+			select {
+			case <-c.qc.Context().Done():
+			case <-linger.C:
+			}
+			_ = c.qc.CloseWithError(0, "")
+		}()
 	})
 	return nil
 }
