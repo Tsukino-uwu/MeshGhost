@@ -844,7 +844,7 @@ local function moveInfo(id)
 	if m == nil and id >= 1 and id < MOVE_COUNT then
 		local e = memory.read_bytes_as_array(BATTLE_MOVES + id * BATTLE_MOVE_SIZE, BATTLE_MOVE_SIZE, BUS)
 		local desc = readString(r32(MOVE_DESCRIPTIONS + (id - 1) * 4))
-		m = { type = TYPE_CHART.name(e[3]), type_id = e[3], power = e[2], accuracy = e[4], base_pp = e[5], target = e[7],
+		m = { type = TYPE_CHART.name(e[3]), type_id = e[3], power = e[2], accuracy = e[4], base_pp = e[5], target = e[7], effect = e[1],
 			description = #desc > 0 and decode(desc, 1, #desc) or nil }
 		moveCache[id] = m
 	end
@@ -2523,6 +2523,12 @@ function TYPE_CHART.effectiveMove()
 				local score = (info.power or 0) * (info.accuracy or 0) * (same and TYPE_CHART.sameTypeBonus or 1) * multiplier
 				if wonderGuard and multiplier <= 1 then score = 0 end
 				if partnerUp and info.target == 0x20 then score = 0 end
+				-- RECOIL (the user, 2026-09-23: TAKE DOWN hurts the user; SWAMPERT ended WINONA's battle on 1 HP): the effect
+				-- byte read 48 for TAKE DOWN and SUBMISSION, 198 for DOUBLE-EDGE, 0 for plain damage. Below 40% HP such a move
+				-- scores a quarter.
+				if (info.effect == 48 or info.effect == 198) and u16of(mons, me + 0x29) < 0.4 * u16of(mons, me + 0x2D) then
+					score = score / 4
+				end
 				weighed[#weighed + 1] = { move = nameAt(MOVE_NAMES, MOVE_LEN, MOVE_COUNT, id), type = info.type, power = info.power,
 					accuracy = info.accuracy, same_type = same or nil, multiplier = multiplier, score = score,
 					foe = #foes > 1 and fi or nil }
