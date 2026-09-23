@@ -550,3 +550,26 @@ also silences the orb throw's tell. That is a lead for the orb hits.
 
 **The game's actions** (Rewired, `observe`'s `input_actions`) include ones the fight never presses: `Dash`, `Boost`,
 `Backflip`, `AreaBomb`, `Burst`, `Taunt`. What each does on this save is to measure, for the move catalog.
+
+**The ladder, 2026-09-23** (Ribauld, Infernal BBQ, fast, from `tevi_inf_first_savepoint`; each rung against the base, `tell_filter`
+on; the switches as `cmd/trials -set`):
+
+| Rung | Change | Tries | Won | Median win | Hits | Hitless wins |
+| --- | --- | --- | --- | --- | --- | --- |
+| base | C + `tell_filter` (two runs of 5) | 10 | 8 | about 143 s | 17 | 1 |
+| R1 | `root_frames` 22, `combo_root_frames` 40 | 5 | 4 | 141.3 s | 10 | 0 |
+| R2 | `hug` 5 (a run of 5, then 10) | 15 | 9 | 130.3 / 134.6 s | 28 | 2 |
+
+- **Five tries cannot separate builds**: the same base scored 3 of 5 and then 5 of 5. Rungs are ten tries from R2 on.
+- **Hug 5 is out**: about 6 s faster, but fewer wins and more hits.
+- **Try 4 repeated itself across rungs**: the base's and R2's first try 4 took the same two orb blasts (52, then 48) and died at
+  39.1 and 38.1 s. Some of Ribauld's randomness follows from the restore. If what sets it can be found, builds can be compared on
+  identical fights.
+- **What a break is** (the trials timeline): the armor meter starts at 1. A ground combo's hit took it from 0.6 to -0.4, and
+  it refilled over about 480 frames with `armor_recovering` on (the red outline). He attacked through it (two `ATTACK1`, no
+  hitstun), and under the armor gate she dealt 14 HP in the whole window. An orb that went off on him took 85 HP at once. The
+  user: moves that get an enemy up into the air after breaking it make a stunlock easier. That is `break_launch` (Upper Slash
+  while the armor refills), tried with the armor gate off.
+- **Moves the fight teaches** (bottom-left popups, every try): Upper Slash, Spiral Slash, Basic Air Combo III, and the Charged
+  Shot window. Spiral Slash is Down + Attack in the air (the user; measured as `TEVI_WEAK_AIR_DOWN`). Up + Attack in the air
+  started nothing. None of the three is in the move list of the `tevi_inf_ribauld_beaten` save.
