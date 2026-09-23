@@ -98,6 +98,10 @@ are in MEASURED.md ("A Mart", "The bag inside a battle").
   (the user): train a second Pokémon to fight before it.
 - **Training** (the user): surfing and the SUPER ROD meet higher-level wild Pokémon, as later areas do; a legendary
   caught later comes at a high level and is worth using.
+- **X items are a plan, not a reflex** (the user): against a team out-levelling yours (the Elite Four), open with two or
+  three X ATTACKs, then knock each foe out in one hit; never used at random.
+  Use them on a safe turn (the foe using a status move such as GROWL, or a weak Pokémon out); X SPEED against a faster
+  foe, X ACCURACY for a low-accuracy move. How much one raises a stat here is not measured.
 
 ## Not built yet
 

@@ -2168,7 +2168,9 @@ local function routeGrid(fromX, fromY, toX, toY)
 		elevationAt = function(x, y)
 			local i = ((x + MAP_OFFSET) + gw * (y + MAP_OFFSET)) * 2 + 1
 			local v = grid[i] | (grid[i + 1] << 8)
-			if (surfs or surfing) and behaviourOf(v & 0x3FF) == 0x15 and (v >> 12) == 1 then return 0 end
+			-- Water is entered only from level 3: on 0.34 (25,47), at level 4 on a 0x0C ledge facing water, A gave no SURF
+			-- question (2026-09-23), where from level 3 on 0.33 it did; the decomp's check wants the default level (the map).
+			if (surfs or surfing) and behaviourOf(v & 0x3FF) == 0x15 and (v >> 12) == 1 then return surfing and 0 or 3 end
 			return v >> 12
 		end,
 		tile = function(x, y)
