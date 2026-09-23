@@ -63,7 +63,7 @@ type try struct {
 	Hits     int              `json:"hits"`
 	Damage   float64          `json:"damage"`
 	HitList  []hit            `json:"hit_list"`
-	Unlocks  []string         `json:"unlocks,omitempty"` // popup_shown titles: a new move announced mid-fight
+	Unlocks  []string         `json:"unlocks,omitempty"` // popup_shown title and text: a new move announced mid-fight
 	BossHP   any              `json:"boss_hp_end"`
 	Chunks   []map[string]any `json:"chunks"`
 	Error    string           `json:"error,omitempty"`
@@ -378,8 +378,10 @@ func hitsSince(ctx context.Context, s *mcp.ClientSession, since float64) ([]hit,
 			hits = append(hits, h)
 		}
 		if k, _ := p["kind"].(string); k == "popup_shown" {
+			// The title is the kind ("NEW MOVE"); the text names the move and how to use it.
 			title, _ := p["title"].(string)
-			unlocks = append(unlocks, title)
+			text, _ := p["text"].(string)
+			unlocks = append(unlocks, strings.TrimSpace(title+": "+text))
 		}
 	}
 	return hits, unlocks
