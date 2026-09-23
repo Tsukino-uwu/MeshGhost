@@ -68,6 +68,18 @@
       "description": "FLANNERY's HEAT BADGE, in Lavaridge's gym (4.1 and 4.2)",
       "done_when": [{"path": "badges", "contains": 4}],
       "hints": "route.md: MT. CHIMNEY to the HEAT BADGE"
+    },
+    {
+      "id": "story_mach_bike",
+      "description": "The MACH BIKE from RYDEL in Mauville (10.1), the user's preferred bike",
+      "done_when": [{"path": "badges", "contains": 4}],
+      "hints": "route.md: The HEAT BADGE to the BALANCE BADGE"
+    },
+    {
+      "id": "story_balance_badge",
+      "description": "NORMAN's BALANCE BADGE, in Petalburg's gym (8.1), and HM03 after it",
+      "done_when": [{"path": "badges", "contains": 5}],
+      "hints": "route.md: The HEAT BADGE to the BALANCE BADGE"
     }
   ]
 }

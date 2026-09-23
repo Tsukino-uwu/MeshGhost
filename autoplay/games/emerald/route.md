@@ -85,3 +85,19 @@ Walked three times 2026-09-17.
   (0,10) from (0,11) throws the player back up; leave it sideways.
 - FLANNERY: NUMEL, SLUGMA, CAMERUPT, TORKOAL, beaten by SWAMPERT Lv 37-38 with `battle effective` (WATER GUN, MUD SHOT)
   taking no damage, all three runs (the first learned MUDDY WATER, WATER GUN forgotten); HEAT BADGE, TM50.
+
+## The HEAT BADGE to the BALANCE BADGE
+
+Walked 2026-09-23.
+- Out of FLANNERY's gym, MAY's scene on 0.12 (`advance_text`): the GO-GOGGLES.
+- Trip 0.0 (15,9) from 0.12 (25 calls): Route 112's right-hop ledges, both 0.26 rocks smashed on the way (`clear_obstacle`,
+  YES), wild battles and a trainer.
+- MACH BIKE: trip 0.2 (35,8), `walk up` into 10.1, `talk` local 1 (RYDEL), YES, `select` MACH, `advance_text`; register it
+  (`register_item`); a `goto` with `run` then mounts it. Mauville to Petalburg riding: 9 calls.
+- `run_skill heal` 8.4. The gym 8.1 is rooms on one map: at each door (behaviour 0x8D) `press Up`, `press A`, `advance_text`,
+  YES, `advance_text`; `talk` the room's unbeaten trainer and `battle effective`. Any door leads up (the user: the path only
+  picks the trainers). NORMAN is local 1 in the GYM LEADER'S ROOM.
+- NORMAN: SPINDA, VIGOROTH, LINOONE, SLAKING. Go in at full HP (two field SUPER POTIONs): a SWAMPERT at 85/143 fainted to
+  SLAKING's COUNTER after MUD SHOT. SLAKING's TRUANT loafed every other turn: MUD SHOT on its loafing turns, a battle SUPER
+  POTION on its others (FACADE, 34 a hit), four rounds. BALANCE BADGE, TM42, and HM03 from WALLY's father.
+
