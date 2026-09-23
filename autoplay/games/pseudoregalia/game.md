@@ -58,6 +58,15 @@ known about Pseudoregalia from anywhere else is only where to look. What the dri
   `BP_HpHitable` (100 HP, about 7 a hit): `_5` (weapon room south), `_3` (under-roof room, east end) and `_1` (on the 500
   block) opened the way; **the save crystal (`BP_SavePoint_C_2`, at 550, -3450) saves when struck**, not by Interact.
 
+- **To the slide** (the user's second run, "the one i usually take", 2026-09-23): from below NPC_6, a backflip onto a
+  cage (their shortcut), four ledge grabs up to the 2349 ledge, down and across to the 2000 corridor, breakable wall `_2`
+  at (7450, -2350), east along it and over a gap, **a climb pole** at (12237, -1527) (jump onto it, climb, jump from its
+  top), east over the axes' corridor and north to the slide at (16650, 2600) on a pedestal. `goto` walks all of it from
+  `pr_before_crawler` with the hops and the trail in `routes/dungeon_hops.json`.
+- **Hold Jump through the top of a jump**: it floats her there; letting go at the apex drops her at once and she met a
+  ledge the user grabbed 9-30 lower. **Coyote time**: the user jumped 6-9 frames after leaving an edge for more
+  distance, and lands in the middle of a platform so there is room to jump again (the user's rules, 2026-09-23).
+
 ## Talking and reading
 
 - Walk within range (a sign's `in_range`), `press` Interact 5 frames, then `advance_text` until `closed`.

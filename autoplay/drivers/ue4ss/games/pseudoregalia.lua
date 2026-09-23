@@ -869,6 +869,7 @@ local function newPlan(pawn, sx, sy, sz, tx, ty, maxCells)
 	local P = { pawn = pawn, cells = {}, probes = g.probes, open = {}, closed = {}, came = {}, g = {}, edge = {}, count = 0,
 		maxCells = maxCells, walkableZ = walkableZ, tx = tx, ty = ty, hopOf = {} }
 	pcall(function() P.hops = M.hops_for(M.observe(false).location.map) or nil end) -- defined further down
+	pcall(function() P.trail = M.trail_for(M.observe(false).location.map) or nil end)
 	local function cellOf(x, y) return math.floor(x / CELL + 0.5), math.floor(y / CELL + 0.5) end
 	P.cellOf = cellOf
 	local six, siy = cellOf(sx, sy)
@@ -929,7 +930,50 @@ local function hopsFor(map)
 	return list
 end
 
+-- The user's ground path from the same file, bucketed by 100 units: a cell within reach of it costs less, so goto walks
+-- their line between hops unless it has reason not to (between two hops it had found its own line down a slope into a
+-- hollow where they had stayed on the level floor, 2026-09-23).
+local trailCache = {}
+local function trailFor(map)
+	if trailCache[map] ~= nil then return trailCache[map] end
+	local name = map and map:gsub("^ZONE_", ""):lower() or ""
+	local f = io.open(host.root .. "/autoplay/games/pseudoregalia/routes/" .. name .. "_hops.json", "r")
+	local grid = false
+	if f then
+		local ok, doc = pcall(host.json.decode, f:read("a"))
+		f:close()
+		if ok and type(doc) == "table" and doc.trail then
+			grid = {}
+			for _, p in ipairs(doc.trail) do
+				local k = math.floor(p[1] / 100) .. "," .. math.floor(p[2] / 100)
+				grid[k] = grid[k] or {}
+				table.insert(grid[k], p)
+			end
+		end
+	end
+	trailCache[map] = grid
+	return grid
+end
+
+local function nearTrail(grid, x, y, z)
+	if not grid then return false end
+	local bx, by = math.floor(x / 100), math.floor(y / 100)
+	for ox = -1, 1 do
+		for oy = -1, 1 do
+			local b = grid[(bx + ox) .. "," .. (by + oy)]
+			if b then
+				for _, p in ipairs(b) do
+					if math.abs(p[1] - x) < 80 and math.abs(p[2] - y) < 80 and math.abs(p[3] - z) < 60 then return true end
+				end
+			end
+		end
+	end
+	return false
+end
+
 M.hops_for = function(map) return hopsFor(map) end -- for exec, to check what the search is offered
+M.trail_for = function(map) return trailFor(map) end
+M.near_trail = nearTrail
 
 local NEIGHBOURS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 }, { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 } }
 
@@ -1000,6 +1044,7 @@ local function planStep(P)
 							local step = (d[1] ~= 0 and d[2] ~= 0) and CELL * 1.4142 or CELL
 							local cost = P.g[cur.k] + step + (kind == "jump" and 80 or 0) + (kind == "flip" and 200 or 0) + (kind == "grab" and 150 or 0) + (kind == "drop" and 20 or 0)
 							if kind == "jump" or kind == "flip" or kind == "grab" then cost = cost + LAND_EDGE_COST * edgeCells(P, nix, niy, nz) end
+							if P.trail and not nearTrail(P.trail, bx, by, nz) then cost = cost + step * 0.8 end
 							if P.g[nk] == nil or cost < P.g[nk] then
 								P.g[nk], P.came[nk], P.edge[nk] = cost, cur.k, kind
 								local gx, gy = (P.gix - nix) * CELL, (P.giy - niy) * CELL
@@ -1232,14 +1277,59 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 				-- The user's own run-up where recorded: 250 straight back fell inside a wall where they had come around a
 				-- corner, and she stood pushing into it (2026-09-23).
 				if h.runup then rx, ry = h.runup[1], h.runup[2] end
+				-- Only as far back as the floor at the takeoff's height goes: a recorded run-up can lie in the air (the user's
+				-- momentum from the previous landing), and she ran off the back of the platform (2026-09-23).
+				do
+					local bx, by = rx - h.takeoff[1], ry - h.takeoff[2]
+					local bl = math.sqrt(bx * bx + by * by)
+					if bl > 1 then
+						local okx, oky = h.takeoff[1], h.takeoff[2]
+						for dd = 25, bl, 25 do
+							local px, py = h.takeoff[1] + bx / bl * dd, h.takeoff[2] + by / bl * dd
+							local fz = floorProbe(st.pawn, px, py, h.takeoff[3] + 150, 0.6)
+							if not fz or math.abs(fz - h.takeoff[3]) > 40 then break end
+							okx, oky = px, py
+						end
+						-- and 30 short of that edge
+						local kx, ky = okx - h.takeoff[1], oky - h.takeoff[2]
+						local kl = math.sqrt(kx * kx + ky * ky)
+						if kl > 60 then okx, oky = h.takeoff[1] + kx / kl * (kl - 30), h.takeoff[2] + ky / kl * (kl - 30) end
+						rx, ry = okx, oky
+					end
+				end
 				local vx, vy = h.takeoff[1] - st.x, h.takeoff[2] - st.y
 				local vl = math.sqrt(vx * vx + vy * vy)
 				local off = vl > 1 and (vx * ux + vy * uy) / vl < 0.5
-				hopState = { phase = (h.flip or off) and "runup" or "run", t = 0, air = 0, rx = rx, ry = ry }
+				-- Slow and nearer the takeoff than the user's run: take the run-up too. Landed 70 before a 450-wide hop's
+				-- takeoff, she jumped at speed 59 against their 550 and fell short (2026-09-23).
+				local speed = 0
+				pcall(function() local v = st.pawn:GetVelocity(); speed = math.sqrt(v.X * v.X + v.Y * v.Y) end)
+				local short = h.runup_path and vl < 0.6 * h.runup_path and speed < 400 and (h.run_speed or 0) > 400
+				hopState = { phase = (h.flip or off or short) and "runup" or "run", t = 0, air = 0, rx = rx, ry = ry }
 			end
 			local hs = hopState
 			hs.t = hs.t + 1
 			local ms = o.player.move_state or 0
+			-- Hanging in any phase (a run-up ran her off an edge onto a ledge, where she hung until the time ran out):
+			-- climb, then plan again from wherever she stands.
+			if ms == 3 then
+				hs.hangAny = (hs.hangAny or 0) + 1
+				-- Push toward the wall she faces while hanging: every climb that worked pushed at it; taps alone did not.
+				local fy = o.location.yaw or st.yaw
+				local r3 = math.rad(fy - st.yaw)
+				injectMove(math.sin(r3), math.cos(r3))
+				if hs.hangAny > 5 and hs.hangAny % 20 < 5 and inputReady() then
+					subsystem:InjectInputVectorForAction(actions.IA_Jump, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {})
+				end
+				if hs.phase ~= "air" then hs.phase, hs.replan = "climb", true end
+				lastProgress = count
+				return false
+			end
+			if hs.phase == "climb" and ms == 0 then
+				hopState, lastProgress = nil, count - 1000 -- climbed out: plan again from here
+				return false
+			end
+			if hs.phase == "climb" then lastProgress = count return false end
 			local gx, gy
 			if hs.phase == "runup" then
 				gx, gy = hs.rx - st.x, hs.ry - st.y
@@ -1324,6 +1414,14 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 					if inputReady() then subsystem:InjectInputVectorForAction(actions.IA_Jump, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {}) end
 				end
 				if ms == 5 and h.pole and not (hs.poleJump and hs.poleJump > 0) then lastProgress = count return false end
+				-- At the pole's top (moveState 6), where she stayed: the user jumped from there toward the landing, a second
+				-- jump at speed 600 (2026-09-23). Steer at the landing and tap Jump after 10 frames in the state.
+				if ms == 6 then
+					hs.top = (hs.top or 0) + 1
+					if hs.top > 10 and hs.top % 30 < 12 and inputReady() then
+						subsystem:InjectInputVectorForAction(actions.IA_Jump, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {})
+					end
+				end
 				if ms == 3 then
 					hs.hang = (hs.hang or 0) + 1
 					if hs.hang > 5 and hs.hang % 20 < 5 and inputReady() then
@@ -1394,14 +1492,20 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 				path, lastProgress = nil, count
 				return false
 			end
-			leap = { t = 0, ux = dx / math.max(d, 1), uy = dy / math.max(d, 1) }
+			-- Back up in proportion to the leap (30 frames and a jump at 120 regardless took a 450-wide one at speed 59,
+			-- 2026-09-23), and remember the takeoff cell: on the ground the jump comes once she has run past it.
+			leap = { t = 0, ux = dx / math.max(d, 1), uy = dy / math.max(d, 1), back = math.max(30, math.min(80, d / 6)),
+				fx = from and from.x or st.x, fy = from and from.y or st.y }
 		end
 		if leap then
 			leap.t = leap.t + 1
 			local ms = o.player.move_state or 0
 			local sx, sy = dx, dy
-			if leap.t <= 30 then sx, sy = -leap.ux, -leap.uy end
-			if not leap.jumped and leap.t > 30 and (ms == 1 or leap.t > 120) then leap.jumped, jumpLeft, jumpT = true, 80, 0 end
+			if leap.t <= leap.back then sx, sy = -leap.ux, -leap.uy end
+			local past = (st.x - leap.fx) * leap.ux + (st.y - leap.fy) * leap.uy
+			if not leap.jumped and leap.t > leap.back and (ms == 1 or past >= 20 or leap.t > leap.back + 240) then
+				leap.jumped, jumpLeft, jumpT = true, 80, 0
+			end
 			local r2 = math.rad(math.deg(math.atan(sy, sx)) - st.yaw)
 			injectMove(math.sin(r2), math.cos(r2))
 			if jumpLeft > 0 then

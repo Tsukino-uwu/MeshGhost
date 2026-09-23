@@ -144,3 +144,32 @@ short -- leaps back up 30 frames, run at the landing and jump off the edge in co
 its takeoff's height; long leaps cost double past 250, so the short straight one wins; landings next to drops cost more
 (the user's rule: room to stand and jump again). The file-trigger reloader stalled once; the driver restarts itself
 through `exec` (`RestartMod`).
+
+## 2026-09-23 (same session) — a second demo run, and the slide walked with goto
+
+**The user's second run**, from below NPC_6 to the slide upgrade: *"not a perfect path this time either, but the one i
+usually take when getting to the slide ability"*; *"i did take a shortcut with the backflip to get up onto a cage vs the
+intended path"*, *"and some coyotee time to have enought distance to make a jump afterwards"*; then while I replayed it:
+*"didn't use coyotee time to reach the next cage/ledge"*, *"coyotee time allows you to delay the jump a bit & get a longer
+distance"*, *"i didn't do it perfectly, just use it as a map but feel free to improve upon it"*, *"you are not turning the
+camera around the way i did while playing. not sure if that affects the angle/movement at all ?"* (it does not: the stick
+is recomputed from the camera's yaw every frame), and of the backflip hop *"it only did a jump, not the backflip"*, then
+*"now it worked"*. They also asked whether the frame-rate drop could be fixed.
+
+**New from the recording:** a climb pole is `moveState` 5 (climbing, up to 650 a second) and 6 at its top, from where they
+jumped on; coyote-time jumps came 6-9 frames after leaving the ground. 13 hops, now marked `flip` and `pole`; every hop
+carries the user's run-up and approach path; the file keeps their ground trail, which `goto` prefers to walk.
+
+**What each failure taught** (all from the flight recorder against their run): planner nodes need a level (a landing at
+1700 merged with the floor at 800 beneath); a flip hop needs the run-up the skid carries on; a straight run-up clipped a
+corner they ran around; a seam in the floor was taken for an edge; steering back at a passed takeoff killed the run
+speed; **holding Jump through the apex floats her** -- letting go at the apex had her meet the 2349 ledge 9-30 lower
+than their grab, and the grab then worked; a late-coyote "improvement" was worse there and was reverted; a recorded
+run-up can lie in the air and must stop at the floor's edge; a hang during a run-up needs a climb pushing at the wall;
+the pole's top (state 6) needs its own jump. Planning cost: 142 fps idle, ~89 while planning; now a 1.5 ms time budget
+per frame and probes and sweeps cached per map (132 on a first plan, 143 on the same plan again).
+
+**Walked:** `pr_before_crawler` → backflip onto the cage → the grabs → the 2349 ledge → wall `_2` broken → the corridor
+and the gap → the pole → the slide, and **the SLIDE taken** ("Press Left Trigger/Q Key on the ground to Slide"; Q is
+`IA_Crouch`; its screen's CONTINUE through the widget's handler, reached). Snapshots (local): `pr_2000_before_grab`,
+`pr_2349_ledge`, `pr_wall2_broken`, `pr_before_pole`, `pr_after_pole`, `pr_has_slide`.
