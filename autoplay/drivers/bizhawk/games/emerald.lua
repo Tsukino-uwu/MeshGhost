@@ -3047,7 +3047,10 @@ local function ride(p)
 				for _, o in ipairs(objects) do
 					if o.local_id == w.local_id then
 						local raw = r8(GOBJECTEVENTS + o.slot * OBJ_SIZE + 24) & 0x0F
-						if raw ~= w.facing_raw then return nil, false end
+						-- fresh: only a turn INTO the facing counts, so the whole of that facing is left to walk in
+						-- (Route 114's ANGELINA turned back within a tile when the wait began mid-facing, 2026-09-23).
+						if w.fresh and raw ~= w.facing_raw then w.seen_other = true end
+						if raw ~= w.facing_raw or (w.fresh and not w.seen_other) then return nil, false end
 					end
 				end
 			end
