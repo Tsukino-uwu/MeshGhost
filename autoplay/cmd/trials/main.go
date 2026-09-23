@@ -43,6 +43,7 @@ type recipe struct {
 	Fight     call   `json:"fight"`
 	OnPaused  []call `json:"on_paused"`
 	Fast      bool   `json:"fast"`
+	Timeline  bool   `json:"timeline"`
 	MaxFrames int    `json:"max_frames"`
 }
 
@@ -63,7 +64,8 @@ type try struct {
 	Hits     int              `json:"hits"`
 	Damage   float64          `json:"damage"`
 	HitList  []hit            `json:"hit_list"`
-	Unlocks  []string         `json:"unlocks,omitempty"` // popup_shown title and text: a new move announced mid-fight
+	Unlocks  []string         `json:"unlocks,omitempty"`  // popup_shown title and text: a new move announced mid-fight
+	Timeline []map[string]any `json:"timeline,omitempty"` // the target's changes, frame by frame, from the flight recorder
 	BossHP   any              `json:"boss_hp_end"`
 	Chunks   []map[string]any `json:"chunks"`
 	Error    string           `json:"error,omitempty"`
@@ -228,6 +230,9 @@ func runTry(ctx context.Context, s *mcp.ClientSession, r recipe, n int) try {
 			break
 		}
 		t.Chunks = append(t.Chunks, trimChunk(res))
+		if r.Timeline {
+			t.Timeline = append(t.Timeline, targetTimeline(ctx, s, intOf(res["frames"]))...)
+		}
 		t.Frames += intOf(res["frames"])
 		t.Hits += intOf(res["hits_taken"])
 		if tg, ok := res["target"].(map[string]any); ok {
@@ -272,6 +277,75 @@ func modeOf(res map[string]any) string {
 	after, _ := res["after"].(map[string]any)
 	m, _ := after["mode"].(string)
 	return m
+}
+
+// targetTimeline reads the flight recorder over a chunk's frames and keeps each frame where the nearest enemy (the fight's
+// target: a boss fight has one) changed logic state, animation, armor state or whether it is in hitstun, and every 50 HP
+// it lost: what a break looks like, and what the player was doing, without keeping 600 rows a chunk.
+func targetTimeline(ctx context.Context, s *mcp.ClientSession, frames int) []map[string]any {
+	if frames < 1 {
+		return nil
+	}
+	if frames > 600 {
+		frames = 600
+	}
+	m, err := callJSON(ctx, s, call{Name: "recent", Arguments: map[string]any{"frames": frames, "every": 1}})
+	if err != nil {
+		return nil
+	}
+	cols, _ := m["columns"].([]any)
+	ncols, _ := m["near_columns"].([]any)
+	types, _ := m["types"].([]any)
+	rows, _ := m["rows"].([]any)
+	idx := func(list []any, name string) int {
+		for i, c := range list {
+			if c == name {
+				return i
+			}
+		}
+		return -1
+	}
+	name := func(v any) any {
+		if i, ok := v.(float64); ok && int(i) >= 0 && int(i) < len(types) {
+			return types[int(i)]
+		}
+		return v
+	}
+	cNear, cFrame, cLogic, cAnim, cHP := idx(cols, "near"), idx(cols, "frame"), idx(cols, "logic"), idx(cols, "anim"), idx(cols, "hp")
+	nHP, nAnim, nLogic, nStun, nArmor, nRec := idx(ncols, "hp"), idx(ncols, "anim"), idx(ncols, "logic"), idx(ncols, "hitstun_raw"), idx(ncols, "armor"), idx(ncols, "armor_recovering")
+	if cNear < 0 || nHP < 0 {
+		return nil
+	}
+	var out []map[string]any
+	var last string
+	lastHP := -1.0
+	for _, rv := range rows {
+		row, _ := rv.([]any)
+		if len(row) <= cNear {
+			continue
+		}
+		near, _ := row[cNear].([]any)
+		if len(near) == 0 {
+			continue
+		}
+		e, _ := near[0].([]any)
+		if len(e) <= nRec {
+			continue
+		}
+		hp, _ := e[nHP].(float64)
+		stun, _ := e[nStun].(float64)
+		key := fmt.Sprint(name(e[nLogic]), "|", name(e[nAnim]), "|", e[nRec], "|", stun > 0)
+		if key == last && (lastHP < 0 || lastHP-hp < 50) {
+			continue
+		}
+		last, lastHP = key, hp
+		out = append(out, map[string]any{
+			"frame": row[cFrame], "hp": hp, "logic": name(e[nLogic]), "anim": name(e[nAnim]), "hitstun": stun,
+			"armor": e[nArmor], "recovering": e[nRec],
+			"her": fmt.Sprint(name(row[cLogic]), "|", name(row[cAnim]), "|", row[cHP]),
+		})
+	}
+	return out
 }
 
 // trimChunk keeps a chunk's score and drops what makes it large (the observation after it).

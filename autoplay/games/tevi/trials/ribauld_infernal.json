@@ -133,5 +133,6 @@
     }
   },
   "max_frames": 18000,
-  "fast": true
+  "fast": true,
+  "timeline": true
 }
