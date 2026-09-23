@@ -672,3 +672,29 @@ column a bomb); out through the Golden Hands Desert Base into Thanatara Canyon; 
 - **The flight recorder holds 60 s**: a demo longer than that loses its start; mark the start frame and keep demos short.
 - **Left open:** an EP pickup behind chain-bomb blocks in the sewer shaft room; an `explore` reflex (choose where to go) instead of
   the chat's scratch loop.
+
+## 2026-09-23 (late) to 2026-09-24 — Morose, Vena, Ian's shop, Celia's intel, into the Travoll Mines
+
+**Walked** (Cakewalk; the user's demos redone from where each began): the aetherlith to Morose; the Wafflehouse (Mia: no
+waffles); the user's route to Vena, beaten (Scarlet Resistance); Ian's shop (City Sleuth: an Astral Gear in the western deserts);
+CC's shop (Bag Expander, Cherry Bunny Potion; Running Boots from Ian); Celia's intel ("Raiders of the Lost Ruins", "Wasteland
+Wanderers", "Excavation Investigation"); west into the Travoll Mines, over the first boulders. Snapshots `tevi_cw_*` (gitignored).
+
+**What was learned (the user's rulings, most now in `play-game`):**
+- **Read everything the game hands you, every line from the start** (story, tips, popups): where to go is in it. `talk.sh` logs
+  each line to the chat's `story.log`.
+- **Never carry on from the user's demo**: restore where it began and redo it. A demo longer than 60 s needs the recorder saved
+  on a loop (every 8 s, overlapping).
+- **Jump for height from the spot that gives the most height toward the target** (`goto`: a row of rise costs more than two
+  steps, commit 748d5f01).
+- **Interact standing on or hugging the thing, facing it**; a shop NPC too.
+- **Explore everything reachable; it is a metroidvania** (roundabout paths, backtracking, the game says when a way is closed).
+  A hint like "top/left" is a direction to explore, not a route.
+- **Shops**: scroll every entry before buying; each town stocks different things; buying a lot gives crafting materials.
+- **A break window is for juggling** (Vena's first break): keep hitting, never idle or knock the boss away.
+
+**Open:**
+- **The Travoll Mines hold solid objects the tile grid does not** (boulders, a raised floor over a gap): `goto` plans through
+  them and sticks. Stopped at snapshot `tevi_cw_mines_boulder`, above the objective marker, with no way down found.
+- `fight` fights friendly NPCs unless filtered (`role` NPC); the chat's loop filters them now, the reflex does not.
+- The explore loop's target picker skips stair tiles.
