@@ -1325,6 +1325,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 	local path, wp, lastProgress, replans, jumpLeft, flip, hopState, hang, jumpT, leap = nil, 2, 0, 0, 0, nil, nil, 0, 0, nil
 	local finishJump, fin = false, nil
 	local slideTap = 0
+	local lastPos = nil
 	local planned, planFrames, stats = 0, 0, {}
 	return function(count)
 		local st = playerAndCamera()
@@ -1332,6 +1333,13 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 		local o = M.observe(false)
 		if o.location.map ~= map0 then return true, { outcome = "map_changed" } end
 		if hp0 and o.player.hp and o.player.hp < hp0 then return true, { outcome = "hit", hp = o.player.hp } end
+		-- Put back by the game after a fall into a pit (a jump of 2000 in a frame, three times over one call at the castle's
+		-- pit, 2026-09-23, and the user saw her "fell multiple times"): stop and say so rather than try the same jump again.
+		if lastPos and (st.x - lastPos[1]) ^ 2 + (st.y - lastPos[2]) ^ 2 > 800 * 800 then
+			return true, { outcome = "fell", from = { x = lastPos[1], y = lastPos[2], z = lastPos[3] }, to = { x = st.x, y = st.y, z = st.z },
+				on = path and path[wp] and { x = path[wp].x, y = path[wp].y, z = path[wp].z, edge = path[wp].edge } or nil }
+		end
+		lastPos = { st.x, st.y, st.z }
 		local dxT, dyT = tx - st.x, ty - st.y
 		-- Arrived only once landed: the check is horizontal, and it had ended mid-jump at z -155 over a floor at -300.
 		if math.sqrt(dxT * dxT + dyT * dyT) <= radius and (o.player.move_state or 0) == 0 and (not tz or math.abs(st.z - FEET - tz) < 60) then
