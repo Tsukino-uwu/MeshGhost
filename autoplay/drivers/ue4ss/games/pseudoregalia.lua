@@ -870,6 +870,29 @@ M.hops_for = function(map) return hopsFor(map) end -- for exec, to check what th
 
 local NEIGHBOURS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 }, { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 } }
 
+-- How close a landing is to its platform's edge: of the cells around it up to two out, how many are lower by more than a
+-- step or have no floor. The user (2026-09-23): land on the middle of a platform, not its lip, so there is room to stand
+-- and take the next jump. Each such cell adds LAND_EDGE_COST to a jump, grab, flip or leap landing there.
+local LAND_EDGE_COST = 25
+local function edgeCells(P, ix, iy, z)
+	local n = 0
+	for ox = -2, 2 do
+		for oy = -2, 2 do
+			if ox ~= 0 or oy ~= 0 then
+				local k = (ix + ox) .. "," .. (iy + oy)
+				local m = P.cells[k]
+				if m == nil then
+					local mz = floorProbe(P.pawn, (ix + ox) * CELL, (iy + oy) * CELL, z + JUMP_UP + FEET, P.walkableZ)
+					m = { ix = ix + ox, iy = iy + oy, z = mz or false }
+					P.cells[k] = m
+				end
+				if not m.z or m.z < z - STEP_UP then n = n + 1 end
+			end
+		end
+	end
+	return n
+end
+
 -- Runs up to EXPAND_PER_FRAME expansions. Returns "found", "exhausted" or nil (still searching).
 local function planStep(P)
 	for _ = 1, EXPAND_PER_FRAME do
@@ -921,6 +944,7 @@ local function planStep(P)
 						if ok then
 							local step = (d[1] ~= 0 and d[2] ~= 0) and CELL * 1.4142 or CELL
 							local cost = P.g[cur.k] + step + (kind == "jump" and 80 or 0) + (kind == "flip" and 200 or 0) + (kind == "grab" and 150 or 0) + (kind == "drop" and 20 or 0)
+							if kind == "jump" or kind == "flip" or kind == "grab" then cost = cost + LAND_EDGE_COST * edgeCells(P, nix, niy, nz) end
 							if P.g[nk] == nil or cost < P.g[nk] then
 								P.g[nk], P.came[nk], P.edge[nk] = cost, cur.k, kind
 								local gx, gy = (P.gix - nix) * CELL, (P.giy - niy) * CELL
@@ -1001,7 +1025,9 @@ local function planStep(P)
 										local top = math.max(ca, cb) + 40
 										if not sweep(P.pawn, ax, ay, ca + 2, ax, ay, top) and not sweep(P.pawn, ax, ay, top, bx, by, top) then
 											local dist = math.sqrt(dx * dx + dy * dy) * CELL
-											local cost = P.g[cur.k] + dist + 100
+											-- Long leaps are risky (a 500-wide diagonal one fell short, 2026-09-23): past 250
+											-- each unit costs double, so a shorter straight one wins when there is one.
+											local cost = P.g[cur.k] + dist + 100 + math.max(0, dist - 250) * 2 + LAND_EDGE_COST * edgeCells(P, nix, niy, nz)
 											if P.g[nk] == nil or cost < P.g[nk] then
 												P.g[nk], P.came[nk], P.edge[nk] = cost, cur.k, "leap"
 												local gx, gy = (P.gix - nix) * CELL, (P.giy - niy) * CELL
@@ -1041,7 +1067,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 	local o0 = M.observe(false)
 	local map0, hp0 = o0.location.map, o0.player.hp
 	local P = newPlan(s.pawn, s.x, s.y, s.z, tx, ty, maxCells)
-	local path, wp, lastProgress, replans, jumpLeft, flip, hopState, hang, jumpT = nil, 2, 0, 0, 0, nil, nil, 0, 0
+	local path, wp, lastProgress, replans, jumpLeft, flip, hopState, hang, jumpT, leap = nil, 2, 0, 0, 0, nil, nil, 0, 0, nil
 	local planned, planFrames, stats = 0, 0, {}
 	return function(count)
 		local st = playerAndCamera()
@@ -1110,9 +1136,24 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 		local dx, dy = target.x - st.x, target.y - st.y
 		local d = math.sqrt(dx * dx + dy * dy)
 		local feetZ = st.z - FEET
-		if d < 30 and math.abs(feetZ - target.z) < 60 then
+		-- Reached only when standing: counted mid-climb, she steered at the next leap's landing in the air and sailed
+		-- over the ledge she had just caught (2026-09-23).
+		if d < 30 and math.abs(feetZ - target.z) < 60 and (o.player.move_state or 0) == 0 then
 			wp, lastProgress = wp + 1, count
 			return false
+		end
+		-- Moved off the route (the user moved her, to see what it does, 2026-09-23): plan again from here, once standing.
+		local pv = path[wp - 1]
+		if not leap and not hopState and not flip and (o.player.move_state or 0) == 0 and pv then
+			local px, py = pv.x - st.x, pv.y - st.y
+			if d > 300 and math.sqrt(px * px + py * py) > 300 then
+				P = newPlan(st.pawn, st.x, st.y, st.z, tx, ty, maxCells)
+				path, lastProgress = nil, count
+				return false
+			end
+		end
+		if count - lastProgress > 90 and (o.player.move_state or 0) ~= 0 and (o.player.move_state or 0) ~= 2 then
+			return false -- never plan again mid-air: the start would be taken at the height of the jump (2026-09-23)
 		end
 		if count - lastProgress > 90 then
 			if replans >= 2 then return true, { outcome = "stuck", at = { x = st.x, y = st.y, z = st.z }, route = stats, on = { x = target.x, y = target.y, z = target.z, edge = target.edge, wp = wp, of = #path } } end
@@ -1208,8 +1249,38 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 		end
 		hang = 0
 		if target.edge == "grab" and d < 90 and (o.player.move_state or 0) == 0 and jumpLeft == 0 then jumpLeft = 80 end
-		if target.edge == "leap" and (o.player.move_state or 0) == 0 and jumpLeft == 0 then
-			jumpLeft = 80 -- at the takeoff cell already: the route only reaches a leap's far end from its near one
+		-- A leap: jumped from a standstill at the takeoff cell, a 350-wide one fell short into the gap (2026-09-23). So,
+		-- as the user took theirs: back away from the landing for 30 frames, run at it, and jump when she runs off the
+		-- edge (coyote time) -- or after 90 frames of running if no edge comes.
+		if target.edge == "leap" and not leap and (o.player.move_state or 0) == 0 and jumpLeft == 0 then
+			local from = path[wp - 1]
+			if from and math.abs(feetZ - from.z) > 40 then
+				-- Not at the takeoff's height (she fell into the gap): a leap from here is not the planned one.
+				P = newPlan(st.pawn, st.x, st.y, st.z, tx, ty, maxCells)
+				path, lastProgress = nil, count
+				return false
+			end
+			leap = { t = 0, ux = dx / math.max(d, 1), uy = dy / math.max(d, 1) }
+		end
+		if leap then
+			leap.t = leap.t + 1
+			local ms = o.player.move_state or 0
+			local sx, sy = dx, dy
+			if leap.t <= 30 then sx, sy = -leap.ux, -leap.uy end
+			if not leap.jumped and leap.t > 30 and (ms == 1 or leap.t > 120) then leap.jumped, jumpLeft, jumpT = true, 80, 0 end
+			local r2 = math.rad(math.deg(math.atan(sy, sx)) - st.yaw)
+			injectMove(math.sin(r2), math.cos(r2))
+			if jumpLeft > 0 then
+				jumpLeft, jumpT = jumpLeft - 1, jumpT + 1
+				local vz = 0
+				pcall(function() vz = st.pawn:GetVelocity().Z end)
+				if jumpT > 8 and vz <= 20 then jumpLeft = 0 end
+				if jumpLeft > 0 and inputReady() then subsystem:InjectInputVectorForAction(actions.IA_Jump, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {}) end
+			end
+			if leap.jumped and ms == 0 and leap.t > 40 and jumpLeft == 0 then leap = nil end
+			if leap and leap.t > 400 then leap = nil end
+			lastProgress = count
+			return false
 		end
 		if target.edge == "jump" and d < 75 and (o.player.move_state or 0) == 0 and jumpLeft == 0 then
 			-- A tall rise needs the full jump: height follows the hold (3 frames 85, 30 frames 180, 80 frames 206).

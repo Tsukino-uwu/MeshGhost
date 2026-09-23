@@ -125,3 +125,22 @@ changed, Files 1-7 identical by hash. Snapshots (local): `pr_has_weapon`, `pr_wa
 
 **Open:** why the planner missed the ledge next to the 500 block from the floor (the grab edge was right; the probe or
 sweeps refused it); menus still by the scratch poster and direct calls; combat (the WalkinEgg) untried.
+
+## 2026-09-23 (same session) — the first fight, and goto made robust from its failures
+
+**Walked:** the WalkinEgg fought and **defeated** by `reflex fight` (13 swings, one hit taken, HP 25 of 30; the magic
+gauge filled a little, as the upgrade screen said). Then east past the save crystal to the 800 floor at (3446, -2143)
+(snapshot `pr_east_800`, local): 1,342 cells, no re-plans, once the fixes below were in.
+
+**The user**, while watching: *"i moved you away a bit"* (to see what goto does); *"its fine to get onto the center of a
+platform, instead of just barely at the edge of one. so you actually have time to jump when you get on top of it"*, and
+*"you should at least account for getting on top of it + having time to jump while on it afterwards"*.
+
+**goto, each change from a failure seen in the flight recorder:** a 30-frame jump was let go on its first frame (the
+let-go-at-the-top rule saw no rising before takeoff) -- now after 8 frames; a re-plan mid-air took the jump's height as
+the start -- re-plans wait for the ground; a step counted as reached mid-climb sent her over the ledge she had just caught
+-- steps count only when standing; moved 300 off the route (the user), it plans again; a leap from a standstill fell
+short -- leaps back up 30 frames, run at the landing and jump off the edge in coyote time, and a leap is only begun from
+its takeoff's height; long leaps cost double past 250, so the short straight one wins; landings next to drops cost more
+(the user's rule: room to stand and jump again). The file-trigger reloader stalled once; the driver restarts itself
+through `exec` (`RestartMod`).
