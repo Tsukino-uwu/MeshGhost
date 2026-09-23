@@ -133,4 +133,10 @@ Walked 2026-09-23.
 - TEAM AQUA's hideout 24.23 is a water door, 0.5 (70,5) surfed up into; its exit is (13,27), then down. Its guards block
   it until the Slateport harbour scene: Slateport 0.1, `talk` through the crowd at the harbour 9.9 door (28,12) (locals 10,
   11, 9 in turn), `talk` ARCHIE (local 7): the submarine is taken. Then back to the hideout.
+- Back in the hideout (the guards gone). 24.24 and 24.25 are floors of warp pads that land on the same floor; the planner
+  does not take those, so each leg was a pad search over the map's own warp table (a flood of each landing's floor, a pad
+  counted when it borders it) and `goto` onto each pad in turn. The four balls on 24.24 at (15..16, 9..10): from (17,10)
+  `talk` local 8 (an ELECTRODE: fought), local 7 (NUGGET), local 5 (the MASTER BALL); local 6 is the second ELECTRODE,
+  caught with an ULTRA BALL. MATT (local 1) is in 24.25's dock room, entered by the pad at 24.25 (8,8), whose room is
+  reached from 24.24's (12,1) stairs, and that block from 24.25's (3,3) stairs, reached by the pad at 24.25 (31,8).
 
