@@ -13,7 +13,7 @@ core plus a thin driver per host, for any game, through whatever dev channel its
 
 **This file is autoplay's plan and shared core; each game logs in its own file** (the user, 2026-09-17, as more games
 join and two chats appended here at once). From 2026-09-17 a game's autoplay entries go to `autoplay/<game>.md` beside
-this file -- [autoplay/emerald.md](autoplay/emerald.md), [autoplay/crystal.md](autoplay/crystal.md), [autoplay/tevi.md](autoplay/tevi.md) -- and this file takes
+this file -- [autoplay/emerald.md](autoplay/emerald.md), [autoplay/crystal.md](autoplay/crystal.md), [autoplay/tevi.md](autoplay/tevi.md), [autoplay/pseudoregalia.md](autoplay/pseudoregalia.md) -- and this file takes
 entries whose subject is the plan, the core, a tool or a shared driver file (`driver.lua`, `text.lua`, `route.lua`). A
 change to shared Lua made in a game's chat gets its entry here, with a pointer line in the game's file. Nothing moved:
 every entry written before the split stays below, listed by game in the index. **Keep the `Index` below: a new entry

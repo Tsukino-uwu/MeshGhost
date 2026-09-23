@@ -14,6 +14,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 - 2026-09-23 — **Autoplay, Emerald: 6 badges, at the Mossdeep gym's door** (TATE & LIZA's puzzle next); rebuild the session's scratch helpers as programs. `phases/autoplay/emerald.md`.
 - 2026-09-23 — **Autoplay, Crystal: paused** (the user), with `goto`, the PACK, the POKéMON menu, badges, bike, surf and scoring behind `effective` done on V1.0; next the whiteout. `phases/autoplay/crystal.md`.
 - 2026-09-23 — **Autoplay, TEVI: distilling the fight** — best build (`hug` 5, `armor_gate` off, `recover_ranged`) 7 of 10 at 103.2 s vs build C's ~143 s; next: repeat it, then the rest of the ladder and make winners default. `phases/autoplay/tevi.md`.
+- 2026-09-23 — **Autoplay, Pseudoregalia: opened** — UE4SS driver, File 8 a new game, walking and camera by injected input; next menu keys, snapshots. `phases/autoplay/pseudoregalia.md`.
 - 2026-09-23 — **Vision: a pixel-side instrument, Phase 0 next** — window capture + OpenCV, a PAINTED ghost vs the PLAYER, the pairing no OAM read or screenshot can answer. `plans/vision-plan.md` (untracked).
 - 2026-09-23 — **Prediction: A3 LANDED (ADR 0069, ships off), SCREEN VERDICT OPEN; A2.0 MEASURED** (worst-case transit p99 310–320ms; the dry tail is the 1 s blackouts); A2 undecided. `prediction-planning.md`.
 - 2026-09-23 — **Chaser contact: `hurt`, `kill`, the respawn hold and the seated/talking holds WORK (user-confirmed); open: Part A's attack leaks, the world-leak crash on reload.** `chaser-planning.md`.

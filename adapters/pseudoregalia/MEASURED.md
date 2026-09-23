@@ -47,6 +47,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - 2026-09-23 — how an enemy hurts the player: `BPI_TryDamage` and `ST_HitboxData`
 - 2026-09-23 (later) — a chaser as the attacker: DamageType 5 works, DamageType 2 crashes
 - 2026-09-23 (night) — what marks talking, reading and sitting on the player
+- 2026-09-23 (autoplay) — LuaSocket's received strings, injected input, the camera rig, the title's keys, File Select
 
 ## Measured
 
@@ -129,6 +130,44 @@ scratch slot:
   five deaths in ~25 s.
 - **`intangible?` stays set ~1.86 s** per hit, from the spacing of the adapter's gated `hurt` calls
   (01:23:17.5, 19.4, 21.2, 23.1, 25.0, 26.8).
+
+### 2026-09-23 (autoplay) — LuaSocket's received strings, injected input, the camera rig, the title's keys, File Select
+
+Steam install (buildid 13615456, the title reads ver. 1.272), UE4SS v3.0.1 `733e5969` (`UE4SS.log` header). Measured by the
+autoplay driver (`autoplay/drivers/ue4ss/`) through its `exec`, each read back from the game, not from the value written.
+
+- **A string the vendored LuaSocket creates reads as empty in UE4SS's Lua once it is longer than 40 bytes.** An in-game
+  loopback self-test (a socket pair in one Lua state, the same bytes received four ways): a 43-byte line read `#` 43 but
+  `string.byte` returned nothing and concatenation gave `""`; the same 43 bytes as a `receive(43)` the same; a 13-byte line
+  and 43 one-byte receives joined in UE4SS's own runtime read right. UE4SS.dll exports no `lua_`/`luaL_` symbol (0 of 4,087
+  exports), so LuaSocket cannot be bound to UE4SS's runtime. The 98% corrupt lines of Phase 7.5 fit this: most bridge lines
+  were longer than 40. Receiving in pieces of at most 40 carried a 30,000-byte line whole.
+- **`InjectInputVectorForAction` exists on `/Script/EnhancedInput.EnhancedInputSubsystemInterface`** (params `Action`,
+  `Value` struct, `Modifiers`, `Triggers`; the `InjectInputForAction` beside it too; not on the local-player subsystem class
+  itself), called on the one `EnhancedInputLocalPlayerSubsystem`. The 15 `InputAction`s: IA_Attack, Crouch, Guard, Interact,
+  Jump, LockOn, Look, MenuAdvance, Move, Pause, PerspectiveToggle, Power, QuickMap, Throw, WallRide. `IMC_Default` and
+  `IMC_Reference` map them (keyboard: Move W/A/S/D, Jump and MenuAdvance SpaceBar, MenuAdvance and Interact E, Pause Escape).
+- **In play, injected `IA_Move` walks the player relative to the camera**: 60 frames of (0, 1) moved her ~133 units; 30
+  frames headed -104.94 degrees with the camera's yaw -104.94 (read from `PlayerCameraManager:GetCameraRotation`); 20 frames of
+  (1, 0) headed -14.94, yaw + 90.
+- **The camera is a rig, not the controller's rotation.** 60 frames of injected `IA_Look` (1, 0) moved the camera manager's
+  location from (-2067, -3565) to (-2323, -3177) around the player while `PlayerController.ControlRotation` stayed at yaw 130,
+  pitch 0. (1, 0) raises the camera's yaw: 10 frames took it from -105 to -91. A positive Y raises the camera's pitch: a look aimed at
+  pitch -30 with Y positive drove it from 0 to 50 and stopped there; with Y negative it came to -28.
+- **The title applies no mapping context**: `HasMappingContext` false for `IMC_Default` and `IMC_Reference` on the title, and an
+  injected `IA_MenuAdvance` left PRESS START on screen. `UI_TitleScreen_C` has `OnKeyDown`. A `WM_KEYDOWN`/`WM_KEYUP` for Space
+  (VK 0x20, scan 0x39) posted to the game's main window while another window had focus turned PRESS START into the main menu.
+- **File Select** (`UI_FileSelect_C`, owned by the game instance; slots `UI_FileSlot` to `UI_FileSlot_7` read `SlotName` "File 1"
+  to "File 8"): `hoveredFile` stayed empty through posted Down, Right and Left; the slot's `OnButtonBaseHovered_Event` did not set
+  it either. With it written to File 8's slot, a posted X held 2.6 s ran the delete: `attemptingDelete` true and
+  `deleteHeldTime` 1.57 at 1.2 s, then `SlotIs Valid?` false and `File 8.sav` gone (`deleteHoldTime` reads 2.0). The screen's
+  `onSaveClicked(slot)` on the empty slot wrote a new `File 8.sav`; a posted Space then loaded `ZONE_Dungeon`.
+- **A new game**: `controlState` 2 through the opening camera shot, then 0; HP 30 of 30 (a read of 20 of 80 during the load
+  was not the new game's).
+- **`shot showui`** (through `KismetSystemLibrary:ExecuteConsoleCommand`) writes `Saved\Screenshots\Windows\ScreenShot<NNNNN>.png`
+  (1920x1080 here) with the UI; `HighResShot 1` writes `HighresScreenshot<NNNNN>.png` without it.
+- **What it cannot say:** the injection's timing against a real pad (one frame late or not); whether a posted key works with
+  the game minimized; what `moveState` and `actionState` values mean.
 
 ## Not measured yet
 

@@ -463,6 +463,18 @@ each run's `setup` and `steps` as their own segments, walked or reached.
   While the guard is armed and TEVI's window is not focused, the keyboard, mouse and pads reach the game as nothing and only
   the driver's holds do (`extras.input_focus.real_input_muted`): a restore reloads the game, and it took typing from other
   windows again until focused (the user, 2026-09-17). Focus the window to play yourself.
+- **UE4SS (Pseudoregalia)** (`drivers/ue4ss/`: `driver.lua` for any UE4SS game, `games/pseudoregalia.lua`), logged in
+  `agent_docs/phases/autoplay/pseudoregalia.md`. Copy `mod/Scripts/main.lua` into the install's `ue4ss\Mods\MeshGhostAutoplay\Scripts\`
+  with an `enabled.txt` and a `meshghost-autoplay.txt` (`repo=`, `port=`, `game=`) beside `Scripts\`: it loads the driver from
+  the repo, so an edit is live on the next `probe_reloader` restart of `MeshGhostAutoplay`. It runs a frame at a time on the game
+  thread (`LoopInGameThreadAfterFrames`), logs to `runs/driver_ue4ss_<game>_<port>.log`, and **receives in pieces of at most 40
+  bytes**: a longer string made by the vendored LuaSocket reads as empty in UE4SS's Lua (`pseudoregalia/MEASURED.md`,
+  2026-09-23). Tools: `observe` (`mode`, `location` with the map, `player` states and HP, `camera` yaw, pitch and position),
+  `exec`, `wait`, `press` and `sequence` (Enhanced Input actions injected every held frame: `Jump`, `Attack`, ... and
+  `MoveUp`/`MoveDown`/`MoveLeft`/`MoveRight`, `LookUp`/...; the stick is relative to the camera), `screenshot` (`shot showui`,
+  the frame with its UI), and `reflex` `walk_to` `{x, y, radius}` (the stick steered to a world point from the camera's yaw each
+  frame: `arrived`, `stuck`, `hit`, `map_changed`) and `look` `{yaw, pitch}`. Injection needs an applied mapping context, and
+  the title and its menus have none: they read raw keys, which reach the game as window messages (not yet in the driver).
 
 ## Running it
 
