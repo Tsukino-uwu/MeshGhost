@@ -2,7 +2,7 @@
  "game": "pseudoregalia",
  "variant": "vanilla",
  "map": "ZONE_Dungeon",
- "note": "Hops the user played on 2026-09-23 from the cage platform to the attack upgrade's room, with detours and mistakes on purpose (their words: 'so you have more data to compare against'). Each is a jump that worked: takeoff (x, y, floor z) where Jump started -- on the ground or within coyote time --, landing (x, y, floor z) where she next stood, grab when she hung on a ledge (moveState 3) on the way. Read from the driver's flight recorder, every 3rd frame at 144 frames a second. goto uses them as moves beside its own. A second run (2026-09-23, the user, from below the WheelCrawler's ledge to beside the slide upgrade) added hops marked flip (a backflip: Jump in the skid, actionState 18) and pole (moveState 5 on a climb pole, 6 leaving it, from_z to to_z). Each hop also carries runup: where the user was 250 units of running before the takeoff (less where their run was shorter), a place they walked.",
+ "note": "Hops the user played on 2026-09-23 from the cage platform to the attack upgrade's room, with detours and mistakes on purpose (their words: 'so you have more data to compare against'). Each is a jump that worked: takeoff (x, y, floor z) where Jump started -- on the ground or within coyote time --, landing (x, y, floor z) where she next stood, grab when she hung on a ledge (moveState 3) on the way. Read from the driver's flight recorder, every 3rd frame at 144 frames a second. goto uses them as moves beside its own. A second run (2026-09-23, the user, from below the WheelCrawler's ledge to beside the slide upgrade) added hops marked flip (a backflip: Jump in the skid, actionState 18) and pole (moveState 5 on a climb pole, 6 leaving it, from_z to to_z). Each hop also carries runup (where the user was 250 units of running before the takeoff, less where their run was shorter) and approach (their path from there to the takeoff, a point every 60 units): places they walked.",
  "hops": [
   {
    "takeoff": [
@@ -26,7 +26,25 @@
     311,
     2139
    ],
-   "runup_path": 250
+   "runup_path": 250,
+   "approach": [
+    [
+     311,
+     2139
+    ],
+    [
+     353,
+     2093
+    ],
+    [
+     412,
+     2072
+    ],
+    [
+     441,
+     2125
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -50,7 +68,25 @@
     533,
     2367
    ],
-   "runup_path": 227
+   "runup_path": 227,
+   "approach": [
+    [
+     533,
+     2367
+    ],
+    [
+     550,
+     2434
+    ],
+    [
+     547,
+     2502
+    ],
+    [
+     520,
+     2561
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -74,7 +110,25 @@
     -710,
     3735
    ],
-   "runup_path": 260
+   "runup_path": 260,
+   "approach": [
+    [
+     -710,
+     3735
+    ],
+    [
+     -773,
+     3716
+    ],
+    [
+     -836,
+     3689
+    ],
+    [
+     -892,
+     3651
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -98,7 +152,25 @@
     -1080,
     3071
    ],
-   "runup_path": 251
+   "runup_path": 251,
+   "approach": [
+    [
+     -1080,
+     3071
+    ],
+    [
+     -1054,
+     3133
+    ],
+    [
+     -1042,
+     3200
+    ],
+    [
+     -1035,
+     3269
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -122,7 +194,25 @@
     -124,
     3052
    ],
-   "runup_path": 260
+   "runup_path": 260,
+   "approach": [
+    [
+     -124,
+     3052
+    ],
+    [
+     -142,
+     2985
+    ],
+    [
+     -188,
+     2937
+    ],
+    [
+     -252,
+     2914
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -146,7 +236,25 @@
     -967,
     2895
    ],
-   "runup_path": 261
+   "runup_path": 261,
+   "approach": [
+    [
+     -967,
+     2895
+    ],
+    [
+     -1036,
+     2898
+    ],
+    [
+     -1112,
+     2902
+    ],
+    [
+     -1181,
+     2907
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -170,7 +278,25 @@
     -1491,
     2946
    ],
-   "runup_path": 214
+   "runup_path": 214,
+   "approach": [
+    [
+     -1491,
+     2946
+    ],
+    [
+     -1552,
+     2963
+    ],
+    [
+     -1620,
+     2974
+    ],
+    [
+     -1688,
+     2985
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -194,7 +320,25 @@
     -1955,
     2848
    ],
-   "runup_path": 252
+   "runup_path": 252,
+   "approach": [
+    [
+     -1955,
+     2848
+    ],
+    [
+     -1907,
+     2799
+    ],
+    [
+     -1857,
+     2752
+    ],
+    [
+     -1806,
+     2706
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -218,7 +362,25 @@
     -1604,
     2637
    ],
-   "runup_path": 260
+   "runup_path": 260,
+   "approach": [
+    [
+     -1604,
+     2637
+    ],
+    [
+     -1529,
+     2622
+    ],
+    [
+     -1461,
+     2622
+    ],
+    [
+     -1392,
+     2623
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -242,7 +404,25 @@
     -1060,
     2621
    ],
-   "runup_path": 260
+   "runup_path": 260,
+   "approach": [
+    [
+     -1060,
+     2621
+    ],
+    [
+     -983,
+     2628
+    ],
+    [
+     -916,
+     2619
+    ],
+    [
+     -855,
+     2589
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -266,7 +446,25 @@
     -613,
     2631
    ],
-   "runup_path": 249
+   "runup_path": 249,
+   "approach": [
+    [
+     -613,
+     2631
+    ],
+    [
+     -546,
+     2646
+    ],
+    [
+     -483,
+     2674
+    ],
+    [
+     -429,
+     2711
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -290,7 +488,25 @@
     -109,
     2850
    ],
-   "runup_path": 253
+   "runup_path": 253,
+   "approach": [
+    [
+     -109,
+     2850
+    ],
+    [
+     -178,
+     2853
+    ],
+    [
+     -247,
+     2855
+    ],
+    [
+     -316,
+     2857
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -314,7 +530,25 @@
     -990,
     2893
    ],
-   "runup_path": 261
+   "runup_path": 261,
+   "approach": [
+    [
+     -990,
+     2893
+    ],
+    [
+     -1058,
+     2900
+    ],
+    [
+     -1126,
+     2906
+    ],
+    [
+     -1193,
+     2911
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -338,7 +572,25 @@
     -1486,
     2937
    ],
-   "runup_path": 238
+   "runup_path": 238,
+   "approach": [
+    [
+     -1486,
+     2937
+    ],
+    [
+     -1546,
+     2949
+    ],
+    [
+     -1609,
+     2958
+    ],
+    [
+     -1674,
+     2967
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -362,7 +614,25 @@
     -2253,
     2998
    ],
-   "runup_path": 252
+   "runup_path": 252,
+   "approach": [
+    [
+     -2253,
+     2998
+    ],
+    [
+     -2315,
+     2969
+    ],
+    [
+     -2380,
+     2948
+    ],
+    [
+     -2447,
+     2961
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -387,7 +657,25 @@
     5096,
     -3277
    ],
-   "runup_path": 257
+   "runup_path": 257,
+   "approach": [
+    [
+     5096,
+     -3277
+    ],
+    [
+     5056,
+     -3219
+    ],
+    [
+     5021,
+     -3160
+    ],
+    [
+     4988,
+     -3103
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -411,7 +699,13 @@
     4894,
     -2976
    ],
-   "runup_path": 62
+   "runup_path": 62,
+   "approach": [
+    [
+     4894,
+     -2976
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -435,7 +729,25 @@
     4808,
     -2831
    ],
-   "runup_path": 218
+   "runup_path": 218,
+   "approach": [
+    [
+     4808,
+     -2831
+    ],
+    [
+     4817,
+     -2763
+    ],
+    [
+     4789,
+     -2702
+    ],
+    [
+     4735,
+     -2659
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -459,7 +771,25 @@
     4548,
     -2339
    ],
-   "runup_path": 251
+   "runup_path": 251,
+   "approach": [
+    [
+     4548,
+     -2339
+    ],
+    [
+     4569,
+     -2275
+    ],
+    [
+     4625,
+     -2237
+    ],
+    [
+     4691,
+     -2221
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -483,7 +813,25 @@
     5175,
     -2250
    ],
-   "runup_path": 251
+   "runup_path": 251,
+   "approach": [
+    [
+     5175,
+     -2250
+    ],
+    [
+     5242,
+     -2263
+    ],
+    [
+     5309,
+     -2278
+    ],
+    [
+     5376,
+     -2295
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -507,7 +855,17 @@
     5770,
     -2378
    ],
-   "runup_path": 76
+   "runup_path": 76,
+   "approach": [
+    [
+     5770,
+     -2378
+    ],
+    [
+     5828,
+     -2394
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -531,7 +889,25 @@
     5926,
     -2731
    ],
-   "runup_path": 251
+   "runup_path": 251,
+   "approach": [
+    [
+     5926,
+     -2731
+    ],
+    [
+     5951,
+     -2795
+    ],
+    [
+     5991,
+     -2849
+    ],
+    [
+     6056,
+     -2865
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -555,7 +931,25 @@
     6427,
     -2842
    ],
-   "runup_path": 250
+   "runup_path": 250,
+   "approach": [
+    [
+     6427,
+     -2842
+    ],
+    [
+     6497,
+     -2836
+    ],
+    [
+     6564,
+     -2821
+    ],
+    [
+     6627,
+     -2795
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -579,7 +973,25 @@
     10253,
     -2562
    ],
-   "runup_path": 251
+   "runup_path": 251,
+   "approach": [
+    [
+     10253,
+     -2562
+    ],
+    [
+     10320,
+     -2559
+    ],
+    [
+     10389,
+     -2555
+    ],
+    [
+     10457,
+     -2551
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -611,7 +1023,25 @@
     12045,
     -1965
    ],
-   "runup_path": 260
+   "runup_path": 260,
+   "approach": [
+    [
+     12045,
+     -1965
+    ],
+    [
+     12072,
+     -1902
+    ],
+    [
+     12100,
+     -1839
+    ],
+    [
+     12130,
+     -1769
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -635,7 +1065,25 @@
     14639,
     -39
    ],
-   "runup_path": 260
+   "runup_path": 260,
+   "approach": [
+    [
+     14639,
+     -39
+    ],
+    [
+     14708,
+     -41
+    ],
+    [
+     14776,
+     -43
+    ],
+    [
+     14845,
+     -45
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -659,7 +1107,25 @@
     15059,
     -50
    ],
-   "runup_path": 241
+   "runup_path": 241,
+   "approach": [
+    [
+     15059,
+     -50
+    ],
+    [
+     15128,
+     -51
+    ],
+    [
+     15197,
+     -52
+    ],
+    [
+     15265,
+     -51
+    ]
+   ]
   },
   {
    "takeoff": [
@@ -683,7 +1149,25 @@
     16160,
     262
    ],
-   "runup_path": 261
+   "runup_path": 261,
+   "approach": [
+    [
+     16160,
+     262
+    ],
+    [
+     16187,
+     325
+    ],
+    [
+     16209,
+     390
+    ],
+    [
+     16228,
+     456
+    ]
+   ]
   }
  ]
 }

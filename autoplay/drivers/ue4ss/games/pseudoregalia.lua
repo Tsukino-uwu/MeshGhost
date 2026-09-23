@@ -961,9 +961,9 @@ local function planStep(P)
 			P.count = P.count + 1
 			local c = P.cells[cur.k]
 			local hx, hy = (P.gix - c.ix) * CELL, (P.giy - c.iy) * CELL
-			local h = math.sqrt(hx * hx + hy * hy)
+			local h = math.sqrt(hx * hx + hy * hy) + (P.tz and math.abs(c.z - P.tz) or 0)
 			if h < P.bestH then P.best, P.bestH = cur.k, h end
-			if c.ix == P.gix and c.iy == P.giy then P.goal = cur.k return "found" end
+			if c.ix == P.gix and c.iy == P.giy and (not P.tz or math.abs(c.z - P.tz) < 60) then P.goal = cur.k return "found" end
 			if P.count >= P.maxCells then return "exhausted" end
 			local ax, ay = c.px or c.ix * CELL, c.py or c.iy * CELL
 			for _, d in ipairs(NEIGHBOURS) do
@@ -1112,7 +1112,9 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 	if not s then return nil, "no player" end
 	local o0 = M.observe(false)
 	local map0, hp0 = o0.location.map, o0.player.hp
+	local tz = tonumber(a.z) -- a floor height: the goal is the cell on that floor (x, y alone met the floor 1200 below)
 	local P = newPlan(s.pawn, s.x, s.y, s.z, tx, ty, maxCells)
+	P.tz = tz
 	local path, wp, lastProgress, replans, jumpLeft, flip, hopState, hang, jumpT, leap = nil, 2, 0, 0, 0, nil, nil, 0, 0, nil
 	local planned, planFrames, stats = 0, 0, {}
 	return function(count)
@@ -1123,7 +1125,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 		if hp0 and o.player.hp and o.player.hp < hp0 then return true, { outcome = "hit", hp = o.player.hp } end
 		local dxT, dyT = tx - st.x, ty - st.y
 		-- Arrived only once landed: the check is horizontal, and it had ended mid-jump at z -155 over a floor at -300.
-		if math.sqrt(dxT * dxT + dyT * dyT) <= radius and (o.player.move_state or 0) == 0 then
+		if math.sqrt(dxT * dxT + dyT * dyT) <= radius and (o.player.move_state or 0) == 0 and (not tz or math.abs(st.z - FEET - tz) < 60) then
 			return true, { outcome = "arrived", distance = math.sqrt(dxT * dxT + dyT * dyT), cells_searched = planned, replans = replans }
 		end
 		if not path then
@@ -1194,6 +1196,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 			local px, py = pv.x - st.x, pv.y - st.y
 			if d > 300 and math.sqrt(px * px + py * py) > 300 then
 				P = newPlan(st.pawn, st.x, st.y, st.z, tx, ty, maxCells)
+				P.tz = tz
 				path, lastProgress = nil, count
 				return false
 			end
@@ -1207,6 +1210,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 			-- A re-plan stands still while it searches, so it gets a smaller budget: three full ones stood in place until
 			-- the frame limit (2026-09-23).
 			P = newPlan(st.pawn, st.x, st.y, st.z, tx, ty, math.min(maxCells, 2500))
+			P.tz = tz
 			path, lastProgress = nil, count
 			return false
 		end
@@ -1244,6 +1248,20 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 			if hs.phase == "run" then
 				gx, gy = h.takeoff[1] - st.x, h.takeoff[2] - st.y
 				local td = math.sqrt(gx * gx + gy * gy)
+				-- Along the user's own approach from the run-up, not a straight line: a straight one clipped a corner they
+				-- had run around and she stopped against it (2026-09-23).
+				if h.approach then
+					hs.ai = hs.ai or 1
+					while hs.ai <= #h.approach do
+						local q = h.approach[hs.ai]
+						local qx, qy = q[1] - st.x, q[2] - st.y
+						local qd = math.sqrt(qx * qx + qy * qy)
+						-- passed when within 40, or when the next point (or the takeoff) is nearer
+						local nq = h.approach[hs.ai + 1] or { h.takeoff[1], h.takeoff[2] }
+						local nd = math.sqrt((nq[1] - st.x) ^ 2 + (nq[2] - st.y) ^ 2)
+						if qd < 40 or nd < qd then hs.ai = hs.ai + 1 else gx, gy = qx, qy break end
+					end
+				end
 				-- At the takeoff, or off its edge near it: the jump in coyote time the user used (2026-09-23).
 				-- Jump where the user did: when she reaches or passes the takeoff along the hop's direction. Within 25 of it
 				-- was 25 early at a run, her arc met the ledge lower than theirs and missed the grab they made (2026-09-23).
@@ -1257,13 +1275,8 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 				-- the edge (2026-09-23).
 				local coyote = ms == 1 and td < 250 and along >= -60 and (along >= -4 or hs.off >= 8)
 				local ground = ms == 0 and ((td < 60 and along >= -4) or td < 8)
-				-- A grab hop or a long one: as late as coyote time allows, for the most reach at the far side (the user: "use
-				-- it as a map but feel free to improve upon it"; recorded takeoffs left her 30 short of their grab height).
-				local hx2 = math.sqrt((h.landing[1] - h.takeoff[1]) ^ 2 + (h.landing[2] - h.takeoff[2]) ^ 2)
-				if (h.grab or hx2 > 350) and not h.flip then
-					coyote = ms == 1 and td < 250 and along >= -60 and hs.off >= 7
-					ground = ms == 0 and td < 80 and along >= 30
-				end
+				-- (Tried and reverted, 2026-09-23: jumping as late as coyote time allows on grab hops met the 2349 ledge
+				-- falling, 9 lower than the user's grab; their takeoff, at the edge, meets it at the top of the arc.)
 				if ground or coyote then hs.phase, hs.t = (h.flip and ms == 0) and "skid" or "air", 0 end
 				-- Past the takeoff, or off the edge: run at the landing. Steering back at a takeoff already passed slowed her
 				-- from 550 to 212 in coyote time and the jump fell short (2026-09-23).
@@ -1288,7 +1301,10 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 				-- as a new jump the moment she landed (2026-09-23).
 				local vz = 0
 				pcall(function() vz = st.pawn:GetVelocity().Z end)
-				if not hs.released and (hs.t <= 8 or vz > 20) and hs.t <= 80 and inputReady() then
+				-- Held through the apex: holding floats her at the top (the user's arc: vertical speed 36, 10, -27 over ~10
+				-- frames), and letting go at the apex dropped her at once (24 to -100), 9-30 lower at a ledge they grabbed.
+				-- Let go only once clearly falling, which still keeps it off the landing.
+				if not hs.released and (hs.t <= 8 or vz > -250) and hs.t <= 120 and inputReady() then
 					subsystem:InjectInputVectorForAction(actions.IA_Jump, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {})
 				elseif hs.t > 8 then
 					hs.released = true
@@ -1374,6 +1390,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 			if from and math.abs(feetZ - from.z) > 40 then
 				-- Not at the takeoff's height (she fell into the gap): a leap from here is not the planned one.
 				P = newPlan(st.pawn, st.x, st.y, st.z, tx, ty, maxCells)
+				P.tz = tz
 				path, lastProgress = nil, count
 				return false
 			end
@@ -1391,7 +1408,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 				jumpLeft, jumpT = jumpLeft - 1, jumpT + 1
 				local vz = 0
 				pcall(function() vz = st.pawn:GetVelocity().Z end)
-				if jumpT > 8 and vz <= 20 then jumpLeft = 0 end
+				if jumpT > 8 and vz <= -250 then jumpLeft = 0 end
 				if jumpLeft > 0 and inputReady() then subsystem:InjectInputVectorForAction(actions.IA_Jump, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {}) end
 			end
 			if leap.jumped and ms == 0 and leap.t > 40 and jumpLeft == 0 then leap = nil end
@@ -1414,7 +1431,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 			-- go on its first frame and never happened (2026-09-23).
 			local vz = 0
 			pcall(function() vz = st.pawn:GetVelocity().Z end)
-			if jumpT > 8 and vz <= 20 then jumpLeft = 0 end
+			if jumpT > 8 and vz <= -250 then jumpLeft = 0 end -- through the apex (it floats her), off before landing
 			if jumpLeft == 0 then jumpT = 0 end
 			if jumpLeft > 0 and inputReady() then subsystem:InjectInputVectorForAction(actions.IA_Jump, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {}) end
 		end
