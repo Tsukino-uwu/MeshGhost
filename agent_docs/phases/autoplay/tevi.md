@@ -573,3 +573,27 @@ on; the switches as `cmd/trials -set`):
 - **Moves the fight teaches** (bottom-left popups, every try): Upper Slash, Spiral Slash, Basic Air Combo III, and the Charged
   Shot window. Spiral Slash is Down + Attack in the air (the user; measured as `TEVI_WEAK_AIR_DOWN`). Up + Attack in the air
   started nothing. None of the three is in the move list of the `tevi_inf_ribauld_beaten` save.
+
+**The ladder, continued** (10 tries a rung):
+
+| Rung | Change on the base | Won | Median win | Hits | Hitless wins |
+| --- | --- | --- | --- | --- | --- |
+| R9 | `hug` 5, `armor_gate` off | 9 | 130.3 s | 16 | 2 |
+| R9r | the same again | 6 | 132.6 s | 19 | 1 |
+| R9b | `armor_gate` off alone | 4 | 150.0 s | 25 | 1 |
+| R10 | `armor_gate` off, `break_launch` | 4 | 138.1 s | 21 | 0 |
+| R10h | `hug` 5, `armor_gate` off, `break_launch` | 3 | 111.6 s | 25 | 0 |
+
+- **Hug 5 and the armor gate off only help together**: 15 of 20 wins, about 131 s, 1.75 hits a try, against the base's 8 of 10,
+  about 143 s, 1.7 a try. That is about 12 s faster at the same hit rate. The first 9 of 10 was partly luck. Hug 5 alone and the
+  gate off alone were each worse than the base. This is the lesson "A alone, B alone never says A+B".
+- **The red outline is a guard window, not a launch window**: during it Ribauld's hitstun stays 0, a hit takes 2-4 HP, and his
+  animation stays IDLE through Upper Slash, so `break_launch` is out. The damage lands before it: one ground combo on a stunned,
+  armored Ribauld took 40 HP.
+- **The fights are not replays**: every try opens with six ATTACK2 and two ATTACK1, then splits within a few attacks on what she
+  does. The repeated try 4 was chance.
+- **The bar break** (the user: the bar goes purple and leaves a moment to juggle, when a health bar or crystal empties): Ribauld has
+  two bars. At 438-443 HP he plays DAMAGE for about 60-160 frames with no hitstun, whatever attack he was in, in every try, and
+  ATTACK5 (the second phase) follows at 437. The fight dealt him about 2 HP in that window. That is `bar_punish`.
+- **Orb blasts became the most common hit** once `tell_filter` was on (8 of 19 in R9r). `keep_spawn_tells` keeps the orb throw's
+  tell through the filter.
