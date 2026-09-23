@@ -91,6 +91,9 @@ are in MEASURED.md ("A Mart", "The bag inside a battle").
   by `stop_hp_below`, the same through `select` BAG, then `battle` again. CLOSE BAG failed on a two-entry list; `press
   B` twice closed it.
 - **A whiteout costs money** (7357 to 1910) and the walk back.
+- **HM helpers** (the user, 2026-09-23): an HM move is only taken off at one NPC, unlike a TM or level-up move, so HMs go
+  on spare Pokémon caught for it and the main Pokémon keeps its battle moves. Birds (TAILLOW, WINGULL) learn FLY, water
+  Pokémon SURF, grass Pokémon usually CUT, a ZIGZAGOON ROCK SMASH and STRENGTH. CUT (HM01) is an NPC's in Rustboro.
 
 ## Not built yet
 
