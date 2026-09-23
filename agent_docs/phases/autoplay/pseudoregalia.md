@@ -62,3 +62,34 @@ direct call.
 **Open:** menu keys come from a PowerShell one-liner (scratch), not the driver; the File Select click and hover are
 direct calls. Next: a key helper the driver can drive, snapshots of File 8, what `moveState`/`actionState` mean for
 jumps and ledges, and the first room walked.
+
+## 2026-09-23 (same session) — the save slot guarded, snapshots, sight by traces, goto with jumps and backflips
+
+**The save slot was the user's File 5.** Reading the game instance before trying its own save: `activeSaveSlotName` read
+"File 5" while running File 8's new game -- a save would have gone over the user's file. File 5 was still identical to
+the backup. It was set to File 8, and the driver now holds it there from the first core connection until the game exits
+(the save guard, `observe`'s `save`).
+
+**Built** (the driver's Pseudoregalia module; the Go core unchanged): snapshots (the game's `instSaveGameToSlot` copied
+out with the position beside it; a restore copies back, calls `reloadAndRespawn` and returns to the spot, to the unit);
+`cheat:teleport`; `observe`'s `things` (the actors a player meets, by class, from one `FindAllOf` walk per map or 300
+frames, positions by named reads; signs with their own words) and `surroundings` (line traces); `advance_text` (the
+mirror and the NPC child read to the end by injected Interact and MenuAdvance); `recent`, the flight recorder;
+`reflex goto` (A* over 50-unit floor cells found by traces, each move a sweep of the player's capsule; jumps on rises to
+200, backflips to 250) and `reflex reach` (the same search with no target).
+
+**The user's guidance on moving**, while watching: *"you can duck, jump, ledge grab, backflip. even without having
+unlocked any items/abilities"*, *"there is also coyotee time when walking of a ledge"*; the backflip is *"going forward,
+suddenly stopping, then jumping backwards"*, and *"forward, reverse, jump, then forward again to gain a lot of height"*;
+*"normal jumps are still prefered if a backflip is not needed, as they are lower/faster"*; *"the backflip can be useful to
+reach certain places"*. Of the measured one: *"yes you did a proper backflip there"*. Of a climb: *"you did an accidental
+ledge grab there"*, *"it worked out"*. Recorded in `autoplay/games/pseudoregalia/game.md`.
+
+**Walked** (snapshots `pr_dungeon_start`, `pr_doorway`, `pr_cage_platform`, local): from the first room by its raised
+doorway (46 cells, one jump), the corridor, up the hall's 200 ledge with a full jump, along the strip behind the tall wall,
+to the raised platform by a hanging cage (1,122 cells, no re-plans). A `goto` onto the top of a small prop 248 up (the
+"highest cell" `reach` gave) timed out re-planning in place: re-planning stands still for seconds, and `reach` ranks
+props. Both are open.
+
+**Open:** the ledge grab and coyote time unmeasured; the upgrade at (-3350, -4300, 850) near the first room not yet
+reached; menus still by a scratch key poster.

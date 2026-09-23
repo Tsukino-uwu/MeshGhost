@@ -48,6 +48,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - 2026-09-23 (later) — a chaser as the attacker: DamageType 5 works, DamageType 2 crashes
 - 2026-09-23 (night) — what marks talking, reading and sitting on the player
 - 2026-09-23 (autoplay) — LuaSocket's received strings, injected input, the camera rig, the title's keys, File Select
+- 2026-09-23 (autoplay, later) — how she moves: frame rate, the capsule, jump heights, the backflip, the save slot
 
 ## Measured
 
@@ -168,6 +169,36 @@ autoplay driver (`autoplay/drivers/ue4ss/`) through its `exec`, each read back f
   (1920x1080 here) with the UI; `HighResShot 1` writes `HighresScreenshot<NNNNN>.png` without it.
 - **What it cannot say:** the injection's timing against a real pad (one frame late or not); whether a posted key works with
   the game minimized; what `moveState` and `actionState` values mean.
+
+### 2026-09-23 (autoplay, later) — how she moves: frame rate, the capsule, jump heights, the backflip, the save slot
+
+Same install. Read by the autoplay driver's flight recorder (`recent`: one row a frame of position, velocity, `moveState`,
+`actionState`, `controlState`) around injected inputs, and by named reads through `exec`.
+
+- **144 frames a second**: `GetWorldDeltaSeconds` 0.00694; 418 driver frames in 2.94 s of `GetTimeSeconds`. The game
+  instance's `Frame Rate Limit` reads 144.
+- **The capsule and movement component**: `CapsuleRadius` 22, `CapsuleHalfHeight` 65 (the centre reads 67 over a floor
+  traced at -400); `CharacterMovement`: `MaxStepHeight` 45, `WalkableFloorZ` 0.643, `MaxWalkSpeed` 550, `JumpZVelocity`
+  900, `GravityScale` 2.
+- **A jump's height follows the hold**: Jump held 3 frames rose 85 units, 30 frames 180, 80 frames 206 (205 in two more
+  tries). Air time 93, ~116 and 139 frames. `moveState` 1 in the air, 0 on the ground, 2 crouched (the capsule's centre
+  43 lower). A ledge 200 over the floor (ZONE_Dungeon's hall, x ~ -2000) was climbed by a running jump held 80 frames.
+- **The backflip**: 40 frames of MoveUp, then MoveDown (the ground state `actionState` 18 while it is held), Jump held
+  80 frames starting 1 to 16 frames into the reverse, then MoveUp again: peak 265-266 over the takeoff in all six tries.
+  With MoveUp held again from 2 frames after the Jump, she drifted back ~24 units, stalled at ~120 up, then went forward:
+  200 up about level with the takeoff, the peak ~40 units past it. The user saw it on screen: *"yes you did a proper
+  backflip there"*.
+- **Crouch then Jump** (Crouch held, Jump 20 or 70 frames in) is a different move: `actionState` 17, a hop backward from
+  the facing, 40 high, ~290-320 long at horizontal speed 500.
+- **The save slot**: `MV_GameInstance_C.activeSaveSlotName` read "File 5" while the game ran the new game started in File 8
+  through File Select; written "File 8" and read back through a fresh lookup. The game's own `instSaveGameToSlot()` then
+  changed File 8.sav only (the other seven identical by hash); `reloadAndRespawn()` put the player back on the zone's spawn
+  (-2300, -3650) with the slot still File 8. `Last Save Point Name` read "None" and `activeSpawnTag` "gameStart".
+- **Line traces**: `KismetSystemLibrary:LineTraceSingle` channel 0 stopped at walls and at the cages; `CapsuleTraceSingle`
+  takes the same arguments plus radius and half-height. A downward trace that starts inside solid geometry found no floor.
+  Every hit read `bStartPenetrating` true, which is not understood: the distances were plausible walls.
+- **What it cannot say:** coyote time's length and the ledge grab's reach are not measured (the user named both); a
+  backflip from a standstill is not tried.
 
 ## Not measured yet
 

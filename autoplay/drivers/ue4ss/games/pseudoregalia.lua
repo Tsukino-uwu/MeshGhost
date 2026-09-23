@@ -11,7 +11,7 @@ local log = host.log
 local M = {
 	game = "pseudoregalia",
 	variant = "vanilla",
-	capabilities = { "wait", "press", "sequence", "screenshot", "snapshot", "restore", "advance_text", "recent", "cheat:teleport", "reflex:walk_to", "reflex:goto", "reflex:look" },
+	capabilities = { "wait", "press", "sequence", "screenshot", "snapshot", "restore", "advance_text", "recent", "cheat:teleport", "reflex:walk_to", "reflex:goto", "reflex:reach", "reflex:look" },
 	-- The user's save files 1-7 are never written; File 8 is autoplay's (the user, 2026-09-23).
 	protected_slots = { 1, 2, 3, 4, 5, 6, 7 },
 }
@@ -696,7 +696,7 @@ end
 -- kept only where the surface is walkable (ImpactNormal.Z at least the movement component's WalkableFloorZ, 0.643);
 -- a move between cells is allowed when the player's own capsule (radius 22, half-height 65, read 2026-09-23), swept
 -- by CapsuleTraceSingle along it, hits nothing: level or within MaxStepHeight (45) it is walked, a rise of 45-170 is
--- jumped (the highest jump measured was 206), a drop of up to 600 is stepped off. A* runs a batch of cells a frame,
+-- jumped (a 200 ledge was climbed; the highest jump measured was 206), a drop of up to 600 is stepped off. A* runs a batch of cells a frame,
 -- evaluating a cell only when the search reaches it, so nothing is traced that the route never needs. The walk then
 -- steers to each cell of the route (the stick from the camera's yaw, as walk_to), holding Jump for 30 frames when the
 -- next cell is a rise and she is within 75 units of it. It plans again from where she stands when 90 frames pass with
@@ -705,7 +705,13 @@ end
 local CELL = 50
 local CAP_R, CAP_H = 20, 62 -- a little inside the capsule's 22/65, so brushing a wall does not close a route
 local FEET = 67 -- the capsule's centre above the floor: z -332.85 over a floor traced at -400
-local STEP_UP, JUMP_UP, DROP = 45, 170, 600
+-- JUMP_UP: a ledge 200 over the hall's floor in ZONE_Dungeon was climbed by a running jump with Jump held 80 frames
+-- (2026-09-23); the highest free jump measured was 206.
+local STEP_UP, JUMP_UP, DROP = 45, 200, 600
+-- FLIP_UP: the backflip (forward, reverse, Jump during the skid -- actionState 18 --, forward again; the user's
+-- description, confirmed on screen 2026-09-23) peaked 265 over its takeoff, about 40 units past it, rising nearly
+-- straight; Jump pressed 1 to 16 frames into the skid gave the same peak.
+local FLIP_UP = 250
 local EXPAND_PER_FRAME = 12
 
 local function sweep(pawn, x1, y1, z1, x2, y2, z2)
@@ -736,7 +742,9 @@ local function newPlan(pawn, sx, sy, sz, tx, ty, maxCells)
 	local six, siy = cellOf(sx, sy)
 	P.gix, P.giy = cellOf(tx, ty)
 	local startKey = six .. "," .. siy
-	P.cells[startKey] = { ix = six, iy = siy, z = sz - FEET }
+	-- The start cell's sweeps begin where she stands, not at the grid point: pressed to a wall, the grid point was
+	-- inside it and every move from it was refused (no_route after 1 cell, 2026-09-23).
+	P.cells[startKey] = { ix = six, iy = siy, z = sz - FEET, px = sx, py = sy }
 	P.g[startKey] = 0
 	P.open = { { k = startKey, f = 0 } }
 	P.best, P.bestH = startKey, math.huge
@@ -788,7 +796,7 @@ local function planStep(P)
 			if h < P.bestH then P.best, P.bestH = cur.k, h end
 			if c.ix == P.gix and c.iy == P.giy then P.goal = cur.k return "found" end
 			if P.count >= P.maxCells then return "exhausted" end
-			local ax, ay = c.ix * CELL, c.iy * CELL
+			local ax, ay = c.px or c.ix * CELL, c.py or c.iy * CELL
 			for _, d in ipairs(NEIGHBOURS) do
 				local nix, niy = c.ix + d[1], c.iy + d[2]
 				local nk = nix .. "," .. niy
@@ -803,10 +811,10 @@ local function planStep(P)
 						local dz = nz - c.z
 						local kind, ok = nil, false
 						local ca, cb = c.z + FEET, nz + FEET
-						if dz > JUMP_UP or dz < -DROP then
+						if dz > FLIP_UP or dz < -DROP then
 							ok = false
 						elseif dz > STEP_UP then
-							kind = "jump"
+							kind = dz > JUMP_UP and "flip" or "jump"
 							ok = not sweep(P.pawn, ax, ay, ca + 2, ax, ay, cb + 8) and not sweep(P.pawn, ax, ay, cb + 8, bx, by, cb + 8)
 						elseif dz < -STEP_UP then
 							kind = "drop"
@@ -818,7 +826,7 @@ local function planStep(P)
 						end
 						if ok then
 							local step = (d[1] ~= 0 and d[2] ~= 0) and CELL * 1.4142 or CELL
-							local cost = P.g[cur.k] + step + (kind == "jump" and 80 or 0) + (kind == "drop" and 20 or 0)
+							local cost = P.g[cur.k] + step + (kind == "jump" and 80 or 0) + (kind == "flip" and 200 or 0) + (kind == "drop" and 20 or 0)
 							if P.g[nk] == nil or cost < P.g[nk] then
 								P.g[nk], P.came[nk], P.edge[nk] = cost, cur.k, kind
 								local gx, gy = (P.gix - nix) * CELL, (P.giy - niy) * CELL
@@ -853,7 +861,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 	local o0 = M.observe(false)
 	local map0, hp0 = o0.location.map, o0.player.hp
 	local P = newPlan(s.pawn, s.x, s.y, s.z, tx, ty, maxCells)
-	local path, wp, lastProgress, replans, jumpLeft = nil, 2, 0, 0, 0
+	local path, wp, lastProgress, replans, jumpLeft, flip = nil, 2, 0, 0, 0, nil
 	local planned, planFrames, stats = 0, 0, {}
 	return function(count)
 		local st = playerAndCamera()
@@ -871,26 +879,33 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 			local r = planStep(P)
 			if r == "found" then
 				path = pathOf(P, P.goal)
+			elseif r == "exhausted" and P.bestH <= radius + CELL then
+				-- The target itself is not standable (inside a wall), but a cell within reach of it is: go there.
+				path = pathOf(P, P.best)
 			elseif r == "exhausted" then
 				local best = P.cells[P.best]
 				return true, { outcome = "no_route", cells_searched = P.count,
 					nearest = { x = best.ix * CELL, y = best.iy * CELL, z = best.z, distance_to_target = math.floor(P.bestH + 0.5) } }
-			else
-				return false
 			end
+			if not path then return false end
 			planned = planned + P.count
 			wp, lastProgress = 2, count
 			stats.path_cells = #path
 			local jumps = 0
-			for _, c in ipairs(path) do if c.edge == "jump" then jumps = jumps + 1 end end
-			stats.jumps = jumps
+			local flips = 0
+			for _, c in ipairs(path) do
+				if c.edge == "jump" then jumps = jumps + 1 end
+				if c.edge == "flip" then flips = flips + 1 end
+			end
+			stats.jumps, stats.flips = jumps, flips
 		end
 		local target = path[wp]
 		if not target then
-			-- The route ended at the goal cell but not within radius (the target is off the cell grid): finish in a line.
-			local rel = math.rad(math.deg(math.atan(dyT, dxT)) - st.yaw)
-			injectMove(math.sin(rel), math.cos(rel))
-			if count - lastProgress > 90 then return true, { outcome = "stuck", at = { x = st.x, y = st.y, z = st.z } } end
+			-- The route is walked: the goal cell, or the nearest cell to an unstandable target. Answer once landed.
+			if (o.player.move_state or 0) == 0 then
+				return true, { outcome = "arrived", distance = math.sqrt(dxT * dxT + dyT * dyT), cells_searched = planned,
+					replans = replans, note = "the end of the route; the target point itself was not reached" }
+			end
 			return false
 		end
 		local dx, dy = target.x - st.x, target.y - st.y
@@ -907,7 +922,28 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 			path, lastProgress = nil, count
 			return false
 		end
-		if target.edge == "jump" and d < 75 and (o.player.move_state or 0) == 0 and jumpLeft == 0 then jumpLeft = 30 end
+		-- A flip: 4 frames of stick away from the ledge (the skid), Jump from the 3rd held 80, then the stick back at it.
+		if target.edge == "flip" and d < 70 and (o.player.move_state or 0) == 0 and not flip then
+			flip = { t = 0, ux = dx / d, uy = dy / d }
+		end
+		if flip then
+			flip.t = flip.t + 1
+			local sx, sy = flip.ux, flip.uy
+			if flip.t <= 4 then sx, sy = -sx, -sy end
+			local rel = math.rad(math.deg(math.atan(sy, sx)) - st.yaw)
+			injectMove(math.sin(rel), math.cos(rel))
+			if flip.t >= 3 and flip.t < 83 and inputReady() then
+				subsystem:InjectInputVectorForAction(actions.IA_Jump, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {})
+			end
+			if flip.t > 20 and (o.player.move_state or 0) == 0 then flip = nil end
+			if flip and flip.t > 240 then flip = nil end
+			return false
+		end
+		if target.edge == "jump" and d < 75 and (o.player.move_state or 0) == 0 and jumpLeft == 0 then
+			-- A tall rise needs the full jump: height follows the hold (3 frames 85, 30 frames 180, 80 frames 206).
+			local prev = path[wp - 1]
+			jumpLeft = (prev and target.z - prev.z > 140) and 80 or 30
+		end
 		local rel = math.rad(math.deg(math.atan(dy, dx)) - st.yaw)
 		injectMove(math.sin(rel), math.cos(rel))
 		if jumpLeft > 0 then
@@ -917,6 +953,48 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 		return false
 	end
 end
+
+-- reach {max_cells (default 8000)}: goto's search with no target, flooding every cell she can get to from here by
+-- goto's rules. Answers the count, the box they span, the highest cells, and `too_high`: every refused rise from a
+-- reached cell (taller than a jump, up to 1000), strongest first -- where a better move than a jump is needed.
+function M.programs.reach(p)
+	local s = playerAndCamera()
+	if not s then return nil, "no player" end
+	local maxCells = tonumber(p.max_cells) or 8000
+	-- A target no cell can be nearer to than the start, so the search only ever floods.
+	local P = newPlan(s.pawn, s.x, s.y, s.z, s.x + 1e7, s.y + 1e7, maxCells)
+	P.tooHigh = {}
+	local origJump = FLIP_UP
+	return function()
+		local r = planStep(P)
+		if not r then return false end
+		local minx, maxx, miny, maxy, n = math.huge, -math.huge, math.huge, -math.huge, 0
+		local tops = {}
+		for k in pairs(P.closed) do
+			local c = P.cells[k]
+			n = n + 1
+			local x, y = c.ix * CELL, c.iy * CELL
+			minx, maxx, miny, maxy = math.min(minx, x), math.max(maxx, x), math.min(miny, y), math.max(maxy, y)
+			tops[#tops + 1] = { x = x, y = y, z = math.floor(c.z + 0.5) }
+			-- refused rises: a neighbour whose floor is known and more than a jump above
+			for _, d in ipairs(NEIGHBOURS) do
+				local nc = P.cells[(c.ix + d[1]) .. "," .. (c.iy + d[2])]
+				if nc and nc.z and nc.z - c.z > origJump and nc.z - c.z <= 1000 then
+					P.tooHigh[#P.tooHigh + 1] = { x = x, y = y, z = math.floor(c.z + 0.5), rise = math.floor(nc.z - c.z + 0.5) }
+				end
+			end
+		end
+		table.sort(tops, function(a, b) return a.z > b.z end)
+		for i = #tops, 11, -1 do tops[i] = nil end
+		table.sort(P.tooHigh, function(a, b) return a.rise < b.rise end)
+		local th = {}
+		for i = 1, math.min(15, #P.tooHigh) do th[i] = P.tooHigh[i] end
+		return true, { outcome = r == "exhausted" and "flooded" or r, cells = n, capped = n >= maxCells,
+			box = { x = { minx, maxx }, y = { miny, maxy } }, highest = tops, too_high = th, too_high_total = #P.tooHigh }
+	end
+end
+
+M.reflexes.reach = function(a) return M.programs.reach(a) end
 
 -- look {yaw, pitch (optional), tolerance (default 2)}: the camera turned with IA_Look, slowing as it nears, until
 -- its yaw (and pitch, if asked) is within tolerance degrees. Ends `done`, or `stuck` after 30 frames with no turn.

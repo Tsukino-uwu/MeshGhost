@@ -3912,3 +3912,10 @@ Decided along the way: no damage-amount setting (`hurt` stays 5), and the contac
 the install's contact is back to `off`; the scratch slot holds the stub. Next, in the user's order
 of offer: retry restart-last-save after a death (the world-leak crash may have gone with the
 invisible chasers), Part A (the attack leaks), the peer-death fade with two clients.
+
+## 2026-09-23 (the autoplay chat) — pointer: MEASURED.md's autoplay entries
+
+Two entries in `adapters/pseudoregalia/MEASURED.md` from the autoplay driver's session (LuaSocket's received strings
+over 40 bytes read empty in UE4SS's Lua -- Phase 7.5's corrupt lines --, injected input, the camera rig, File Select,
+jump heights, the backflip, and `activeSaveSlotName` reading the user's File 5 in a File 8 game). The session:
+`phases/autoplay/pseudoregalia.md`.
