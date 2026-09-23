@@ -11,7 +11,7 @@ local log = host.log
 local M = {
 	game = "pseudoregalia",
 	variant = "vanilla",
-	capabilities = { "wait", "press", "sequence", "screenshot", "snapshot", "restore", "advance_text", "recent", "cheat:teleport", "reflex:walk_to", "reflex:goto", "reflex:reach", "reflex:look" },
+	capabilities = { "wait", "press", "sequence", "screenshot", "snapshot", "restore", "advance_text", "recent", "cheat:teleport", "reflex:walk_to", "reflex:goto", "reflex:reach", "reflex:fight", "reflex:look" },
 	-- The user's save files 1-7 are never written; File 8 is autoplay's (the user, 2026-09-23).
 	protected_slots = { 1, 2, 3, 4, 5, 6, 7 },
 }
@@ -750,7 +750,7 @@ function M.reflexes.walk_to(a)
 	end
 end
 
--- goto {x, y, z (optional), radius (default 60), max_cells (default 6000)}: a route over the level's own collision,
+-- goto {x, y, z (optional), radius (default 60), max_cells (default 6000), plan_only}: a route over the level's own collision,
 -- then walked. The floor is 50-unit cells, each one's height found by a downward trace (LineTraceSingle, channel 0) and
 -- kept only where the surface is walkable (ImpactNormal.Z at least the movement component's WalkableFloorZ, 0.643);
 -- a move between cells is allowed when the player's own capsule (radius 22, half-height 65, read 2026-09-23), swept
@@ -1041,7 +1041,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 	local o0 = M.observe(false)
 	local map0, hp0 = o0.location.map, o0.player.hp
 	local P = newPlan(s.pawn, s.x, s.y, s.z, tx, ty, maxCells)
-	local path, wp, lastProgress, replans, jumpLeft, flip, hopState, hang = nil, 2, 0, 0, 0, nil, nil, 0
+	local path, wp, lastProgress, replans, jumpLeft, flip, hopState, hang, jumpT = nil, 2, 0, 0, 0, nil, nil, 0, 0
 	local planned, planFrames, stats = 0, 0, {}
 	return function(count)
 		local st = playerAndCamera()
@@ -1068,6 +1068,16 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 					nearest = { x = best.ix * CELL, y = best.iy * CELL, z = best.z, distance_to_target = math.floor(P.bestH + 0.5) } }
 			end
 			if not path then return false end
+			if a.plan_only then
+				local jumps, hopsN = 0, 0
+				for _, c in ipairs(path) do
+					if c.edge == "jump" or c.edge == "leap" or c.edge == "grab" or c.edge == "flip" then jumps = jumps + 1 end
+					if c.edge == "hop" then hopsN = hopsN + 1 end
+				end
+				local last = path[#path]
+				return true, { outcome = "planned", cells_searched = P.count, path_cells = #path, jumps = jumps, hops = hopsN,
+					ends = { x = last.x, y = last.y, z = last.z } }
+			end
 			planned = planned + P.count
 			wp, lastProgress = 2, count
 			stats.path_cells = #path
@@ -1105,7 +1115,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 			return false
 		end
 		if count - lastProgress > 90 then
-			if replans >= 2 then return true, { outcome = "stuck", at = { x = st.x, y = st.y, z = st.z }, route = stats } end
+			if replans >= 2 then return true, { outcome = "stuck", at = { x = st.x, y = st.y, z = st.z }, route = stats, on = { x = target.x, y = target.y, z = target.z, edge = target.edge, wp = wp, of = #path } } end
 			replans = replans + 1
 			-- A re-plan stands still while it searches, so it gets a smaller budget: three full ones stood in place until
 			-- the frame limit (2026-09-23).
@@ -1210,10 +1220,14 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 		injectMove(math.sin(rel), math.cos(rel))
 		if jumpLeft > 0 then
 			jumpLeft = jumpLeft - 1
-			-- Let go once she stops rising, never into the landing (a held Jump became a second jump on landing).
+			jumpT = jumpT + 1
+			-- Let go once she stops rising, never into the landing (a held Jump became a second jump on landing) -- but
+			-- not in the first 8 frames: before she leaves the ground she is not rising either, and a 30-frame jump was let
+			-- go on its first frame and never happened (2026-09-23).
 			local vz = 0
 			pcall(function() vz = st.pawn:GetVelocity().Z end)
-			if jumpLeft < 72 and vz <= 20 then jumpLeft = 0 end
+			if jumpT > 8 and vz <= 20 then jumpLeft = 0 end
+			if jumpLeft == 0 then jumpT = 0 end
 			if jumpLeft > 0 and inputReady() then subsystem:InjectInputVectorForAction(actions.IA_Jump, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {}) end
 		end
 		return false
@@ -1269,6 +1283,52 @@ function M.programs.reach(p)
 end
 
 M.reflexes.reach = function(a) return M.programs.reach(a) end
+
+-- fight {range (default 160), swing_every (default 24), stop_hp}: the nearest enemy in `things` (within 2500), followed
+-- on the ground by the stick from the camera's yaw; inside `range` it is faced and Attack tapped (4 frames) every
+-- `swing_every` frames. Ends `defeated` when the enemy actor is gone or being destroyed, `low_hp` below stop_hp, `lost`
+-- when none is within 2500, or the frame limit. Reports swings, hits taken and both HPs.
+function M.reflexes.fight(a)
+	local range = tonumber(a.range) or 160
+	local every = tonumber(a.swing_every) or 24
+	local stopHp = tonumber(a.stop_hp)
+	local o0 = M.observe(false)
+	if not o0.location or not o0.location.x then return nil, "no player" end
+	local targetName
+	for _, t in ipairs((things(o0.location.map, o0.location.x, o0.location.y, o0.location.z, 60))) do
+		if t.kind == "enemy" and t.distance < 2500 then targetName = t.name break end
+	end
+	if not targetName then return nil, "no enemy within 2500" end
+	local actor
+	for _, e in ipairs(registry.list) do if e.name == targetName then actor = e.actor end end
+	local swings, since, hits, lastHp = 0, every, 0, o0.player.hp
+	return function()
+		local st = playerAndCamera()
+		if not st then return true, { outcome = "no_player" } end
+		local o = M.observe(false)
+		if o.player.hp and lastHp and o.player.hp < lastHp then hits = hits + 1 end
+		lastHp = o.player.hp
+		if stopHp and o.player.hp and o.player.hp < stopHp then return true, { outcome = "low_hp", hp = o.player.hp, hits_taken = hits, swings = swings } end
+		if not actor or not actor:IsValid() or actor.bActorIsBeingDestroyed then
+			return true, { outcome = "defeated", enemy = targetName, swings = swings, hits_taken = hits, hp = o.player.hp }
+		end
+		local ex, ey, ez
+		local ok = pcall(function() local l = actor:K2_GetActorLocation(); ex, ey, ez = l.X, l.Y, l.Z end)
+		if not ok then return true, { outcome = "defeated", enemy = targetName, swings = swings, hits_taken = hits, hp = o.player.hp } end
+		local dx, dy = ex - st.x, ey - st.y
+		local d = math.sqrt(dx * dx + dy * dy)
+		if d > 2500 then return true, { outcome = "lost", distance = d } end
+		local rel = math.rad(math.deg(math.atan(dy, dx)) - st.yaw)
+		local push = d > range * 0.6 and 1 or 0.25 -- close in, then hold a little pressure to keep facing it
+		injectMove(math.sin(rel) * push, math.cos(rel) * push)
+		since = since + 1
+		if d <= range and since >= every then since, swings = 0, swings + 1 end
+		if since < 4 and swings > 0 and inputReady() then
+			subsystem:InjectInputVectorForAction(actions.IA_Attack, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {})
+		end
+		return false
+	end
+end
 
 -- look {yaw, pitch (optional), tolerance (default 2)}: the camera turned with IA_Look, slowing as it nears, until
 -- its yaw (and pitch, if asked) is within tolerance degrees. Ends `done`, or `stuck` after 30 frames with no turn.
