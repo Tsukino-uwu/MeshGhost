@@ -844,7 +844,7 @@ local function moveInfo(id)
 	if m == nil and id >= 1 and id < MOVE_COUNT then
 		local e = memory.read_bytes_as_array(BATTLE_MOVES + id * BATTLE_MOVE_SIZE, BATTLE_MOVE_SIZE, BUS)
 		local desc = readString(r32(MOVE_DESCRIPTIONS + (id - 1) * 4))
-		m = { type = TYPE_CHART.name(e[3]), type_id = e[3], power = e[2], accuracy = e[4], base_pp = e[5],
+		m = { type = TYPE_CHART.name(e[3]), type_id = e[3], power = e[2], accuracy = e[4], base_pp = e[5], target = e[7],
 			description = #desc > 0 and decode(desc, 1, #desc) or nil }
 		moveCache[id] = m
 	end
@@ -1181,7 +1181,7 @@ local LEVEL_UP_BOX_WAITING = { [6] = "page 1", [8] = "page 2" }
 -- routine is one of those; a wait for a button not measured yet is taken as work too, and is nudged after text.lua's longer
 -- wait. One table, as the module is at Lua's local ceiling.
 local BATTLE_BUSY = { anim = 0x020383fd, execFlags = 0x02024068,
-	inputWaits = { [0x080597b4] = true, [CHOOSE_ACTION] = true, [CHOOSE_MOVE] = true } }
+	inputWaits = { [0x080597b4] = true, [CHOOSE_ACTION] = true, [CHOOSE_MOVE] = true, [0x08057824] = true } }
 
 function BATTLE_BUSY.playing()
 	if r8(BATTLE_BUSY.anim) ~= 0 then return true end
@@ -1336,10 +1336,18 @@ local function inBattle()
 end
 
 -- What battler 0's controller waits for: "action", "move", or nil for anything else.
+-- A DOUBLE BATTLE (2026-09-23, TWINS GINA & MIA on 0.19, type flags 0x0D, battlers at positions 0-3): the player's second
+-- Pokémon is battler 2, its menus run by its own routine (gBattlerControllerFuncs[2]) with its own cursors (the action and
+-- move cursors are one byte a battler). After a move the target was chosen on the same screen, battler 0's routine the one
+-- the build's .sym names HandleInputChooseTarget (0x08057824), gMultiUsePlayerCursor (0x03005d74) reading the targeted
+-- battler (1, SEEDOT); A took it and "What will TAILLOW do?" followed. Returns what is asked and which battler asks.
 local function battleAsking()
-	local f = r32(CONTROLLER_FUNCS) & 0xFFFFFFFE
-	if f == CHOOSE_ACTION then return "action" end
-	if f == CHOOSE_MOVE then return "move" end
+	for _, i in ipairs({ 0, 2 }) do
+		local f = r32(CONTROLLER_FUNCS + i * 4) & 0xFFFFFFFE
+		if f == CHOOSE_ACTION then return "action", i end
+		if f == CHOOSE_MOVE then return "move", i end
+		if f == 0x08057824 then return "target", i end
+	end
 	return nil
 end
 
@@ -1387,19 +1395,20 @@ local function readBattle()
 		type_flags_raw = flags, outcome_raw = r8(BATTLE_OUTCOME) }
 end
 
--- The menu battler 0 is choosing from, as `select` reads a menu: `columns` 2, cursor order row by row.
+-- The menu the asking battler is choosing from (battler 2 in a double battle, DOUBLE BATTLE below), as `select` reads a
+-- menu: `columns` 2, cursor order row by row.
 local function battleMenu()
-	local asking = battleAsking()
+	local asking, battler = battleAsking()
 	if asking == "action" then
-		return { window = "battle_action", items = BATTLE_ACTIONS, cursor = r8(ACTION_CURSOR), columns = 2 }
+		return { window = "battle_action", items = BATTLE_ACTIONS, cursor = r8(ACTION_CURSOR + battler), columns = 2 }
 	elseif asking == "move" then
 		-- The four move slots as the move menu drew them, "-" for an empty one.
 		local items = {}
 		for k = 0, 3 do
-			local id = r16(BATTLE_MONS + 0x0C + k * 2)
+			local id = r16(BATTLE_MONS + battler * BATTLE_MON_SIZE + 0x0C + k * 2)
 			items[#items + 1] = id ~= 0 and (nameAt(MOVE_NAMES, MOVE_LEN, MOVE_COUNT, id) or string.format("move %d", id)) or "-"
 		end
-		return { window = "battle_move", items = items, cursor = r8(MOVE_CURSOR), columns = 2 }
+		return { window = "battle_move", items = items, cursor = r8(MOVE_CURSOR + battler), columns = 2 }
 	end
 	return nil
 end
@@ -2386,40 +2395,65 @@ end
 -- move weighed, for the battle's log.
 function TYPE_CHART.effectiveMove()
 	local mons = memory.read_bytes_as_array(BATTLE_MONS, BATTLE_MON_SIZE * 4, BUS)
-	local positions, foe = memory.read_bytes_as_array(BATTLER_POSITIONS, 4, BUS), nil
-	for i = 0, math.min(r8(BATTLERS_COUNT), 4) - 1 do
-		if positions[i + 1] == 1 then foe = i * BATTLE_MON_SIZE end
+	local positions = memory.read_bytes_as_array(BATTLER_POSITIONS, 4, BUS)
+	-- DOUBLE BATTLE (above): the moves of the battler whose menu is up, weighed against each foe standing (positions 1
+	-- and 3); the best pair wins and its foe is the aim `battle` takes at the target step. A move that also hits the
+	-- partner (the move's target byte 0x20) scores 0 while the partner stands (the user, 2026-09-23: attack the two foes,
+	-- not your own Pokémon); SURF and GROWL read 8 (both foes), PECK and MUD SHOT 0 (one), self moves 16.
+	local _, meBattler = battleAsking()
+	meBattler = meBattler or 0
+	local me = meBattler * BATTLE_MON_SIZE
+	local count = math.min(r8(BATTLERS_COUNT), 4)
+	local foes, partnerUp = {}, false
+	for i = 0, count - 1 do
+		local hp = u16of(mons, i * BATTLE_MON_SIZE + 0x29)
+		if positions[i + 1] % 2 == 1 and (hp > 0 or #foes == 0) then foes[#foes + 1] = i end
+		if positions[i + 1] % 2 == 0 and i ~= meBattler and hp > 0 then partnerUp = true end
 	end
-	if not foe then return nil, "no battler at the opponent's position" end
-	local own1, own2, foe1, foe2 = mons[0x22], mons[0x23], mons[foe + 0x22], mons[foe + 0x23]
+	if #foes == 0 then return nil, "no battler at the opponent's position" end
+	-- A foe at 0 HP is kept only when it is the only one read (a single battle's foe between turns).
+	if #foes > 1 then
+		local up = {}
+		for _, i in ipairs(foes) do if u16of(mons, i * BATTLE_MON_SIZE + 0x29) > 0 then up[#up + 1] = i end end
+		if #up > 0 then foes = up end
+	end
+	local own1, own2 = mons[me + 0x22], mons[me + 0x23]
 	-- The user, 2026-09-17, after MUD SHOT at x0.5 (scored above TACKLE) lost to MAY's TREECKO: "its bad to use ineffective
 	-- moves, they deal less damage". So a move the foe resists (multiplier below 1) is chosen only when no unresisted move
 	-- scores above 0.
-	-- The user, 2026-09-23: a foe with WONDER GUARD "can only be damaged by super effective moves and nothing else", so
-	-- against one every other move scores 0. Not met in a battle yet; the ability's name is read as `battle` reads it.
-	local wonderGuard = nameAt(0x0831b6db, 13, 256, mons[foe + 0x21]) == "WONDER GUARD"
-	local best, bestScore, weighed, bestResisted = nil, nil, {}, true
-	for k = 0, 3 do
-		local id, pp = u16of(mons, 13 + k * 2), mons[37 + k]
-		if id ~= 0 and pp > 0 then
-			local info = moveInfo(id)
-			local same = info.type_id == own1 or info.type_id == own2
-			local multiplier = info.type_id and TYPE_CHART.multiplier(info.type_id, foe1, foe2) or 1
-			local score = (info.power or 0) * (info.accuracy or 0) * (same and TYPE_CHART.sameTypeBonus or 1) * multiplier
-			if wonderGuard and multiplier <= 1 then score = 0 end
-			weighed[#weighed + 1] = { move = nameAt(MOVE_NAMES, MOVE_LEN, MOVE_COUNT, id), type = info.type, power = info.power,
-				accuracy = info.accuracy, same_type = same or nil, multiplier = multiplier, score = score }
-			local resisted = multiplier < 1 or score <= 0
-			if best == nil or (bestResisted and not resisted) or (resisted == bestResisted and score > bestScore) then
-				best, bestScore, bestResisted = k, score, resisted
+	local best, bestScore, bestResisted, bestFoe, weighed, against, guard = nil, nil, true, nil, {}, nil, nil
+	for _, fi in ipairs(foes) do
+		local foe = fi * BATTLE_MON_SIZE
+		local foe1, foe2 = mons[foe + 0x22], mons[foe + 0x23]
+		-- The user, 2026-09-23: a foe with WONDER GUARD "can only be damaged by super effective moves and nothing else", so
+		-- against one every other move scores 0. Not met in a battle yet; the ability's name is read as `battle` reads it.
+		local wonderGuard = nameAt(0x0831b6db, 13, 256, mons[foe + 0x21]) == "WONDER GUARD"
+		for k = 0, 3 do
+			local id, pp = u16of(mons, me + 13 + k * 2), mons[me + 37 + k]
+			if id ~= 0 and pp > 0 then
+				local info = moveInfo(id)
+				local same = info.type_id == own1 or info.type_id == own2
+				local multiplier = info.type_id and TYPE_CHART.multiplier(info.type_id, foe1, foe2) or 1
+				local score = (info.power or 0) * (info.accuracy or 0) * (same and TYPE_CHART.sameTypeBonus or 1) * multiplier
+				if wonderGuard and multiplier <= 1 then score = 0 end
+				if partnerUp and info.target == 0x20 then score = 0 end
+				weighed[#weighed + 1] = { move = nameAt(MOVE_NAMES, MOVE_LEN, MOVE_COUNT, id), type = info.type, power = info.power,
+					accuracy = info.accuracy, same_type = same or nil, multiplier = multiplier, score = score,
+					foe = #foes > 1 and fi or nil }
+				local resisted = multiplier < 1 or score <= 0
+				if best == nil or (bestResisted and not resisted) or (resisted == bestResisted and score > bestScore) then
+					best, bestScore, bestResisted, bestFoe = k, score, resisted, fi
+					against = { TYPE_CHART.name(foe1) }
+					if foe2 ~= foe1 then against[2] = TYPE_CHART.name(foe2) end
+					guard = wonderGuard or nil
+				end
 			end
 		end
 	end
 	if best == nil then return nil, "no move has PP left" end
-	local foeTypes = { TYPE_CHART.name(foe1) }
-	if foe2 ~= foe1 then foeTypes[2] = TYPE_CHART.name(foe2) end
-	return best, nameAt(MOVE_NAMES, MOVE_LEN, MOVE_COUNT, u16of(mons, 13 + best * 2)),
-		{ weighed = weighed, against = foeTypes, wonder_guard = wonderGuard or nil }
+	BATTLE_BUSY.aim = bestFoe
+	return best, nameAt(MOVE_NAMES, MOVE_LEN, MOVE_COUNT, u16of(mons, me + 13 + best * 2)),
+		{ weighed = weighed, against = against, wonder_guard = guard, aim = #foes > 1 and bestFoe or nil }
 end
 
 local textHooks = {
@@ -2430,10 +2464,13 @@ local textHooks = {
 	inBattle = inBattle,
 	-- Both battle menus are grids of two columns, their cursors at ACTION_CURSOR and MOVE_CURSOR.
 	battleMenu = function()
-		local asking = battleAsking()
+		local asking, battler = battleAsking()
 		if not asking then return nil end
-		return asking, { cursor = r8(asking == "action" and ACTION_CURSOR or MOVE_CURSOR), columns = 2 }
+		if asking == "target" then return asking, { cursor = r8(0x03005d74), battler = battler } end
+		return asking, { cursor = r8((asking == "action" and ACTION_CURSOR or MOVE_CURSOR) + battler), columns = 2, battler = battler }
 	end,
+	-- The foe the last effectiveMove weighed best (DOUBLE BATTLE), for the target step.
+	effectiveTarget = function() return BATTLE_BUSY.aim end,
 	scriptRunning = function() return r8(SCRIPT_CONTEXT_STATUS) ~= SCRIPT_CONTEXT_OFF and r8(0x03000f2c) ~= 0 end,
 	inOverworld = inOverworld,
 	-- The starter bag has no window: advance_text stops menu_open on it, for select.

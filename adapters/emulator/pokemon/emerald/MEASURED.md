@@ -79,6 +79,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - The field controls lock, and a script context left waiting after a ROCK SMASH escape (2026-09-23)
 - A ledge hopped right, a RUN refused by ARENA TRAP, and a battler's ability (2026-09-23)
 - The MACH BIKE from RYDEL, SELECT to mount, and the map's cycling bit (2026-09-23)
+- TM and HM compatibility, a double battle's menus and target, and a move's target byte (2026-09-23)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -1118,6 +1119,27 @@ confirmed by the mounts below.
   +0x1B there). Bit 0 set where the bike went, clear where SELECT refused (10.1); the cave's bit not tried on the bike.
 - **A trip riding**: `goto` run presses SELECT at rest when on foot, 259 registered and bit 0 set; Mauville (35,8) to
   Petalburg (15,9) done in 9 calls, four wild battles, `mach_bike` read between them.
+
+### TM and HM compatibility, a double battle's menus and target, and a move's target byte (2026-09-23)
+
+**Vanilla ROM**, autoplay tools and `exec` reads through `mcpcall`; addresses are the byte-identical build's `.sym`,
+what each byte means as read below.
+
+- **TM and HM compatibility**: 8 bytes a species at gTMHMLearnsets (0x0831e898), bit i for entry i of sTMHMMoves
+  (0x08616040, 58 move ids). HM bits read: SWAMPERT SURF, STRENGTH, ROCK SMASH, WATERFALL, DIVE (SURF and ROCK SMASH
+  it learned from the HMs); TAILLOW FLY.
+- **A double battle**: TWINS GINA & MIA on 0.19 (28,16), with SWAMPERT and TAILLOW in the party. Type flags 0x0D;
+  battlers at positions 0 SWAMPERT, 1 SEEDOT, 2 TAILLOW, 3 LOTAD. "What will TAILLOW do?" came with
+  gBattlerControllerFuncs[2] on the action and move routines while [0] was not; the action and move cursors are one
+  byte a battler (gActionSelectionCursor, gMoveSelectionCursor + battler).
+- **The target step**: after a single-target move the move menu stayed drawn and battler 0's routine read
+  HandleInputChooseTarget (0x08057824); gMultiUsePlayerCursor (0x03005d74) read the aimed battler, 1 first. Right went
+  1 to 0 (the player's own SWAMPERT), Down 0 to 3, Left 3 to 0, Up 0 to 1. A confirmed it.
+- **A move's target byte** (+6 of its 12-byte entry): 0 for ROCK SMASH, MUD SHOT, TAKE DOWN, PECK, ASTONISH; 8 for
+  SURF and GROWL (GROWL lowered both SWAMPERT's and TAILLOW's ATTACK when LOTAD used it); 16 for BIDE, HARDEN, FOCUS
+  ENERGY; 32 for EARTHQUAKE, SELFDESTRUCT, EXPLOSION and MAGNITUDE (the user: these hit the partner too).
+- **`battle effective`** in it, after the fixes: each battler's own moves, aimed at a foe standing (target 1, then 3),
+  both foes fainted, `ended`.
 
 ## Not measured yet
 

@@ -157,6 +157,23 @@ function M.machine(h, choose, stopWhen, answer)
 		-- A battle menu waiting: move its cursor to the choice, then confirm.
 		local asking, menu = nil, nil
 		if battle then asking, menu = h.battleMenu() end
+		-- A double battle's target step (Emerald, 2026-09-23): the module's aim, reached by Right (the cursor steps through
+		-- every battler, the player's own too) and confirmed; without an aim the cursor's own choice is confirmed.
+		if asking == "target" then
+			local aim = h.effectiveTarget and h.effectiveTarget() or menu.cursor
+			if menu.cursor ~= aim then
+				local from = menu.cursor
+				pressing = { what = "target cursor Right", pad = { Right = true },
+					done = function()
+						local a, m = h.battleMenu()
+						return a ~= "target" or not m or m.cursor ~= from
+					end }
+				return pressing.pad, false
+			end
+			note({ chose = "target " .. tostring(aim), from = asking })
+			pressing = { what = "confirm target", pad = { A = true }, done = function() return (h.battleMenu()) ~= "target" end }
+			return pressing.pad, false
+		end
 		if asking then
 			local target, label, detail = choose(asking)
 			if target == nil then return finish("needs_choice", { asking = asking, reason = label }) end
