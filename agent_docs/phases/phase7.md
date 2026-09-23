@@ -3899,3 +3899,16 @@ death, and nothing un-fades it); the user's wall-kick VFX report and the world-s
 request; Defender quarantining `meshghost.exe` mid-session, a verdict that changed on the same file
 (`risks.md`). All logged in `adapters/pseudoregalia/UNVERIFIED.md`. Records: `MEASURED.md` (three
 2026-09-23 entries), `VERIFIED.md` (two), `chaser-planning.md`. Still open: Part A (the attack leaks).
+
+**Later the same night: the respawn hold became a reset (ADR 0072, `5ed38544`).** The user changed
+the call after the hold was confirmed: *"if you die/respawn, chaser ghosts should just despawn, then
+a bit after spawn in fresh/new again as if you just started playing"*. A new bridge message,
+`chaser_reset` (adapter -> core, no payload), makes the core run `StartChasers` again; Pseudoregalia
+sends it on the death counter's edge, and the hold is gone. User-confirmed: *"yee it works"*. Asked
+about other ghosts: other players' ghosts and replay ghosts do not follow the player, so they are left
+alone; whether ANOTHER player's ghost comes back after its own death fade is open (two clients).
+Decided along the way: no damage-amount setting (`hurt` stays 5), and the contact default stays
+`off`. **Session end:** the user stopped here. Relay stopped; the game was left for the user to close;
+the install's contact is back to `off`; the scratch slot holds the stub. Next, in the user's order
+of offer: retry restart-last-save after a death (the world-leak crash may have gone with the
+invisible chasers), Part A (the attack leaks), the peer-death fade with two clients.
