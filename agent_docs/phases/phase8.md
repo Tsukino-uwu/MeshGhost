@@ -1316,3 +1316,7 @@ measured or changed about the game: [phase12.md](phase12.md), 2026-09-18 (later)
 The field controls lock after a ROCK SMASH escape; ledges hopped right (0x38); a RUN refused by ARENA TRAP; a battler's
 ability and WONDER GUARD (the user); the MACH BIKE, SELECT to mount, and the map header's cycling bit; TM/HM compatibility, a double battle's menus and target step, a move's target byte; SURF's question, the surfing avatar byte and stepping off; long grass and the bike; the repel counter, the FLY map's name, the gate bytes. All in `adapters/emulator/pokemon/emerald/MEASURED.md`, same date; the autoplay side
 in [autoplay/emerald.md](autoplay/emerald.md).
+
+**2026-09-24 (Emerald, autoplay):** boulders, STRENGTH's flag, hide flags, currents, waterfalls, cracks on the MACH BIKE
+and DIVE; then which badge each field move needs, from the party menu (48 trials). Both in
+`adapters/emulator/pokemon/emerald/MEASURED.md`, same date; the autoplay side in [autoplay/emerald.md](autoplay/emerald.md).

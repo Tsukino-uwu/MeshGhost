@@ -825,3 +825,22 @@ planned twice over one crack would find a hole the second time (not seen yet).
 
 **Left as it is:** EmuHawk on vanilla Emerald with the driver loaded, no core running; restored to `r5_champion_done`
 (the Hall of Fame), where the session began.
+
+## 2026-09-24 (the Emerald chat, continued) — the state planner, step 2 begun: what the badges allow
+
+**Measured** (`MEASURED.md`, "Which badge each field move needs", 2026-09-24): 48 trials from `r5_evergrande`, one badge
+flag cleared at a time, each of the six known field moves chosen from the party menu. Each move was refused by exactly
+one badge: ROCK SMASH 3, STRENGTH 4, SURF 5, FLY 6, DIVE 7, WATERFALL 8. The instrument is a new errand, `reflex`
+`field_move` {move}, which also serves any field move used from the menu.
+
+**Found on the way:** the planner's `can` (route.lua, OBSTACLES) and `goto`'s `surfs` take "a Pokémon knows the move" as
+"the move can be used", so a save that knows SURF before badge 5 would plan across water the game refuses. The
+Archipelago rule sits in a block of the patched ROM (`MEASURED.md`'s last section: read from files, not yet from a
+running seed), and the whole autoplay driver reads vanilla addresses, so step 2 on a seed needs that port first.
+
+**Next:** the capability reader itself (badges, the field moves usable = known and allowed, HMs held that a party member
+could learn, key items, and the obstacles each opens), `can`/`surfs` fed from it; the overworld's own checks (facing
+water, a rock, a waterfall with the badge missing); CUT trees, which the planner does not know yet.
+
+**Left as it is:** EmuHawk on vanilla Emerald with the driver loaded, no core running; restored to `r5_champion_done`.
+The user closed the session here.

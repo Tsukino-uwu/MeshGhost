@@ -85,6 +85,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - The repel step counter, the FLY map's place name, and rotating gate bytes (2026-09-23)
 - The FLY map's cursor, the party screen's cursors, and Mossdeep's rotating statues (2026-09-23)
 - Boulders and STRENGTH, hide flags, currents, waterfalls, cracked floors on the MACH BIKE, and DIVE (2026-09-24)
+- Which badge each field move needs, from the party menu (2026-09-24)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -1244,6 +1245,19 @@ the obstacle planner (`autoplay/drivers/bizhawk/route.lua`, OBSTACLES, and the E
   where 0.43 is deep water. The underwater cave 24.26 has no connection: surfacing from (6,5) there ended on 24.27 (10,17)
   (the route run's state with "MARILL used DIVE." up, its text read on).
 
+### Which badge each field move needs, from the party menu (2026-09-24)
+
+**Vanilla ROM.** Made situation: the route run's `r5_evergrande` (0.8, surfing, eight badges; the party knowing FLY,
+SURF, STRENGTH, ROCK SMASH, DIVE and WATERFALL, none knowing CUT or FLASH). For each of those six moves and each badge
+flag 0x867-0x86E: restored, that one flag cleared with `set_flag`, the move chosen through the autoplay `field_move`
+errand (START, POKéMON, the first Pokémon knowing it, A, the move), and the lines the screen showed read back. 48 trials.
+"This can't be used until a new BADGE is obtained." came in exactly one per move: **FLY with 0x86C (badge 6) cleared,
+SURF 0x86B (5), STRENGTH 0x86A (4), ROCK SMASH 0x869 (3), DIVE 0x86D (7), WATERFALL 0x86E (8)**. With any other flag
+cleared each move gave its own answer: FLY's map ("FLY to where?"), "You're already SURFING.", or "Can't use that here."
+With all eight set FLY's map came up (the control). CUT and FLASH are not measured (no Pokémon knew them); neither is
+the overworld's own check (facing water, a rock, a waterfall with a badge missing), which the planner's actions go
+through.
+
 ## Not measured yet
 
 ### The rest of the text printer (from 2026-09-16)
@@ -1290,3 +1304,11 @@ battle, each paired with captures.
 - The FC codes seen but not measured: whether FC 09 and FC 0A draw anything (neither takes an argument:
   "A trainer's sight and defeat flag", 2026-09-17), and the one that begins "Got away safely!".
 - What move bytes +0, +5, +6 and +8 mean (the decomp names effect, secondary chance, target and flags).
+
+### Field-move badges on an Archipelago seed (from 2026-09-24)
+
+- Where an Archipelago seed keeps its field-move rule. Its world's `rom.py` writes four bits per field move at +0x14 of
+  a block its data names `gArchipelagoOptions` (a badge count 0-8, or 0xF for "these badges", a bitfield per move from
+  +0x18). Both local seeds (ROM name "pokemon emerald version / AP 5") read `ff ff 0f ff` then `01 02 04 08 10 20 40 80`
+  at file offset 0x59f584, which would mean FLY with no badge and the rest as vanilla. Not measured in a running seed.
+  The autoplay driver's reads are vanilla addresses throughout, and the party is listed 0x30 further on there.

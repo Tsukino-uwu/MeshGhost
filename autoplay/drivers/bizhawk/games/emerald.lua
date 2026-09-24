@@ -1469,7 +1469,7 @@ local game = {
 	variant = isVanilla and "vanilla" or "unverified",
 	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "cheat:warp", "cheat:set_flag",
 		"cheat:give_item", "cheat:register_item", "select", "walk", "goto", "battle", "advance_text", "type_text",
-		"set_clock", "cheat:noclip", "talk", "clear_obstacle", "search", "reflex", "reflex:use_item", "reflex:fly", "reflex:fly_scan", "reflex:swap", "reflex:ride" },
+		"set_clock", "cheat:noclip", "talk", "clear_obstacle", "search", "reflex", "reflex:use_item", "reflex:fly", "reflex:fly_scan", "reflex:swap", "reflex:ride", "reflex:field_move" },
 	-- The START menu and a YES/NO: Down moved the cursor one entry per press and A chose it; in a battle
 	-- menu Left and Right moved between its two columns (2026-09-16).
 	menuButtons = { prev = "Up", next = "Down", left = "Left", right = "Right", confirm = "A" },
@@ -3404,7 +3404,43 @@ routeHooks.act = function(kind, a)
 	return nil, "no field move " .. tostring(kind)
 end
 
-local ERRANDS = { use_item = useItem, fly = fly, fly_scan = flyScan, swap = swap, ride = ride }
+-- field_move {move}: a field move chosen from the party menu, as the player does: START, POKéMON, the first Pokémon knowing
+-- it, A, the move. Answers the lines the screen showed in the 120 frames after (the game's refusal when it has one, a
+-- badge missing or not the place; FLY's map says nothing) and leaves the screen as it is, for the caller to read and close.
+local function partyFieldMove(p)
+	local move = tostring(p.move or ""):upper()
+	local slot
+	for i, mon in ipairs(readParty() or {}) do
+		for _, mv in ipairs(mon.moves or {}) do if mv.name == move and not slot then slot = i - 1 end end
+	end
+	if not slot then return nil, "no Pokémon in the party knows " .. move end
+	local said, seen = {}, {}
+	return chain({
+		closeAll(), tap("Start"), waitFor(menuHas("POKéMON"), 60, "the START menu"), choose("POKéMON"),
+		waitFor(partyMenuUp, 120, "the party menu"), waitFor(function() return partyCursor() == 0 end, 30, "the party cursor"),
+		function() local n = 0; return function() n = n + 1; return nil, n >= 30 end end,
+		partyTapTo(slot), tap("A"), waitFor(menuHas(move), 60, "the Pokémon's menu"),
+		-- What the party screen already shows is not an answer.
+		function()
+			for _, w in ipairs(readScreenText()) do for _, l in ipairs(w.lines) do seen[l] = true end end
+		end,
+		choose(move),
+		function()
+			local n = 0
+			return function()
+				n = n + 1
+				for _, w in ipairs(readScreenText()) do
+					for _, l in ipairs(w.lines) do
+						if not seen[l] then seen[l], said[#said + 1] = true, l end
+					end
+				end
+				return nil, n >= 120
+			end
+		end,
+	}, function() return { move = move, slot = slot, said = said } end), nil, 1200
+end
+
+local ERRANDS = { use_item = useItem, fly = fly, fly_scan = flyScan, swap = swap, ride = ride, field_move = partyFieldMove }
 return function(p)
 	local make = ERRANDS[p.kind]
 	if not make then return nil, "no reflex " .. tostring(p.kind) end
