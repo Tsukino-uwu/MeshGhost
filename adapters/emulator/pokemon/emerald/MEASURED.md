@@ -84,6 +84,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - Long grass (0x03) refuses the MACH BIKE (2026-09-23)
 - The repel step counter, the FLY map's place name, and rotating gate bytes (2026-09-23)
 - The FLY map's cursor, the party screen's cursors, and Mossdeep's rotating statues (2026-09-23)
+- Boulders and STRENGTH, hide flags, currents, waterfalls, cracked floors on the MACH BIKE, and DIVE (2026-09-24)
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
@@ -1207,6 +1208,41 @@ the decomp's var list (VAR_REPEL_STEP_COUNT 0x4021, vars at SaveBlock1 +0x139C),
   are the gym's trainers and statues; the switches are step-on events (none reads in the tile's behaviour byte).
 - **A warp pad** (behaviour 0x0e) landed on the same map: (3,28) on (1,23), (8,12) on (7,18), (11,3) on (11,35), (13,32)
   on (21,10), (1,33) on (20,24), matching the map's warp table.
+
+### Boulders and STRENGTH, hide flags, currents, waterfalls, cracked floors on the MACH BIKE, and DIVE (2026-09-24)
+
+**Vanilla ROM**, autoplay tools and `exec` reads through `mcpcall`, from states the route run saved on the way; used by
+the obstacle planner (`autoplay/drivers/bizhawk/route.lua`, OBSTACLES, and the Emerald module's THE ROOM).
+
+- **STRENGTH**: on 24.35 (5,8) facing the boulder at (5,7), A printed "It's a big boulder, but a POKéMON may be able to
+  push it aside. / Would you like to use STRENGTH?"; YES, "SWAMPERT used STRENGTH! … made it possible to move boulders
+  around!". Of SaveBlock1's flag bytes (+0x1270, 0x130 bytes) only flag 0x889 changed, 0 to 1.
+- **A push**: Up held 8 frames from (5,8) moved the boulder (graphics 87, local 2) from (5,7) to (5,6), read on the
+  press's last frame; the player stayed on (5,8). 24.35 holds 12 boulders (templates 1-12), four of them beyond
+  `observe`'s radius. The planner's trips crossed 24.35 (9 pushes), 24.28 and Victory Road B1F (24.44), pushing as
+  planned.
+- **Hide flags**: a template's u16 at +0x14 is its flag. On 24.43 the two templates with a flag set (0x35A, 0x2EF, both
+  graphics 135) were the only ones with no live character; the boulders' and rocks' flags on 24.35, 24.28 and 24.44 are
+  0x11-0x1F, all clear, and a room left and entered again has its boulders back (route.md, 24.28). SaveBlock1 +0xC70 holds
+  a copy of the room's templates (24.35's twelve in order) that kept the pushed boulder at (5,7).
+- **Currents and waterfalls** (ROM tiles): 24.33's currents read collision 0, elevation 1, behaviours 0x50-0x53 (108
+  tiles); Ever Grande 0.8 rows 60-67 and Victory Road B2F 24.45 read waterfalls as 0x13, collision 0, elevation 1.
+  Surfed by the planner: 24.33's slides, B2F's east fall climbed with WATERFALL and its west fall come down.
+- **Cracked floor on the MACH BIKE** (24.82 (11,2), the second visit, `ride`'s per-tile speed byte, avatar +0x0B as each
+  step began): held from rest down column 11 the steps read 0, 1, 3, 3…; the cracks (0xD2) at rows 5-7 entered at 3 held;
+  let go on row 10, the bike coasted rows 11 and 12 reading 2 and 1, the crack at 11 held and the one at 12 dropped the
+  player onto 24.81 (11,12). Let go on row 7 instead: rows 8, 9 and 10 read 2, 1, 0 and it stopped on 10; the crossed
+  cracks then read behaviour 0x66, and walking onto (11,7) dropped the player onto 24.81 (11,7). On foot, a step onto
+  (11,5) from (11,4) landed on 24.81 (11,5). No connection in 24.82's header names 24.81.
+- **A ride stopped on a crack** (24.82 (6,4)): the bike stood there past `ride`'s 30 still frames before the player
+  dropped onto 24.81 (6,4); after the map load the overworld was back with the field controls lock (0x03000f2c) at 1 and
+  the script context off for about 50 frames, and a held direction was not taken until it cleared.
+- **DIVE**: surfing on 0.43 (38,27), deep water 0x12, A printed "The sea is deep here. Would you
+  like to use DIVE?"; YES, "MARILL used DIVE.", and the player stood on 0.53 (38,27), the avatar byte 0x30. There B printed
+  "Light is filtering down from above. Would you like to use DIVE?"; YES: 0.43 (38,27), the avatar byte 0x28. 0.43's
+  header lists 0.53 as a connection of kind 5 and 0.53 lists 0.43 as kind 6; 0.53 reads open (collision 0, level 3)
+  where 0.43 is deep water. The underwater cave 24.26 has no connection: surfacing from (6,5) there ended on 24.27 (10,17)
+  (the route run's state with "MARILL used DIVE." up, its text read on).
 
 ## Not measured yet
 

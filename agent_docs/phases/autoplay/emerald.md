@@ -786,3 +786,42 @@ ROCK SMASH over REST once; rewound). Measured movements: 0x09-0x11, 0x17, 0x18 (
 (Mossdeep 5 to 7); boulder rooms and walker timing were worked out by scratch searches and `ride` waits, not the
 planner; the route's "bag manip" was done as a facing wait. The user asked (2026-09-24) for a fight predictor from the
 ROM's own tables (parties, stats, damage) as the generic next step, not per-route scripts.
+
+## 2026-09-24 (the Emerald chat, continued) — the state planner, step 1: obstacles in `goto`
+
+**Built** (`autoplay-state-planner.md` step 1; `route.lua` OBSTACLES, the Emerald module's THE ROOM and FIELD MOVES): `goto`
+plans a room over where its boulders stand and clears what is in the way with the game's own input -- STRENGTH asked for
+and boulders pushed, rocks broken with ROCK SMASH, SURF, currents slid on, waterfalls climbed and come down, cracks
+crossed on the MACH BIKE at speed (a ride's legs found by search) or fallen through on purpose, DIVE and surfacing
+between maps. Across maps the search stays optimistic (objects ignored) and each room's exact plan runs on arrival; an
+exit it cannot reach is set aside as before. Measurements in the adapter's `MEASURED.md` (2026-09-24 section).
+
+**Timed against the route run** (frames, snapshot to snapshot; ours include the harness's pauses between calls, the route
+run's include the game running while it was worked out by hand; the repel counter was written to 250 for ours, standing
+in for the MAX REPEL the route run kept running):
+
+| Stretch | Route run | `goto` |
+|---|---|---|
+| Seafloor Cavern, entrance (24.26, surfaced) to ARCHIE's tile | 141,154 | ~15,500 |
+| Route 128's surface to ARCHIE's tile, DIVE included | 149,253 | 25,768 (ARCHIE's first words included) |
+| Victory Road, after WALLY to Ever Grande's north side (0.8 (18,28)), four trainers fought | 130,193 | 31,760 |
+| SKY PILLAR, second visit, 4F (11,2) to the top (24.85 (16,15)) | 13,624 | 1,915 |
+
+**How it got there, the wrong turns:** a search over the whole state (tile, boulders, rocks) hit `exec`'s instruction cap
+on 24.35's twelve boulders; split into a walk flood and a search over boulder positions it solved in 2.6 s (9 pushes; the
+route run's recipe was 13 moves), 0.9 s once the search looked at states nearer the stairs first. Victory Road B1F took 8.9 s once, searching every order of breaking seven rocks; rocks
+became a cost inside the walk (breaking one only opens a tile), and a flood with everything removed now answers a target
+that cannot be reached at once. A `x and y or z` let a refused level step through (B2F planned across a level change the
+game refuses). B2F's two lakes join only down a waterfall, now carried down like a current. SKY PILLAR: the solver found
+the route run's own trick, a ride that coasts onto a crack and falls to the floor below; the fall came after `ride`'s 30
+still frames, and the landing held the controls for about 50 frames with no script, so the trip now waits for `locked`.
+
+**Open:** 24.35's plan takes 0.9 s with the estimate (more than `exec` allows, fine as a program); Route 120's bridge answers "no open
+route from elevation 4" at (13,16), as the plain `goto` did before (the route run crossed it with scratch work); `run_wild`
+still fights (known); the `effective` policy lost RAYQUAZA to WALLY (confusion, LEECH SEED: step 4's fight predictor); a
+SUPER REPEL used while a REPEL runs is taken as used by `use_item` but did nothing; falls and a cave's surfacing are
+listed per map as measured (24.82 to 24.81, 24.26 to 24.27); surfacing onto deep water is measured at one tile; a ride
+planned twice over one crack would find a hole the second time (not seen yet).
+
+**Left as it is:** EmuHawk on vanilla Emerald with the driver loaded, no core running; restored to `r5_champion_done`
+(the Hall of Fame), where the session began.

@@ -35,6 +35,8 @@ the program itself. The same engine plays without them, and faster with them.
 1. **Obstacles in the planner**: boulders, rocks, waterfalls, currents, cracked floors, ledges either way, deep water,
    across maps. The scratch searches from the route run (boulder pushes over several floors, the current simulation,
    the elevation-aware BFS) move into the driver. Timed against the route run's Victory Road and Seafloor Cavern.
+   Built 2026-09-24: Seafloor Cavern, Victory Road and SKY PILLAR replayed by `goto` alone, 4-9 times fewer frames than
+   the route run (`phases/autoplay/emerald.md`, 2026-09-24, with what is still open).
 2. **The capability reader**: what the save holds and which obstacles that clears, on vanilla and on an Archipelago
    save.
 3. **The goal chooser**: the reachable set and a ranked next goal. First real test: an Archipelago seed.

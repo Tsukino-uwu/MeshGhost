@@ -2172,6 +2172,24 @@ local WARP_PRESS = { [0x62] = "right", [0x64] = "up", [0x65] = "down" }
 -- Surfed water: 0x15 (sea, 0.33 first), 0x10 (a pond: Route 120's at (0-8,80-87), Sootopolis's basin) and 0x12 (deep
 -- water: Routes 128 and 126, surfed and dived from, 2026-09-24).
 STEP.SURF = { [0x15] = true, [0x10] = true, [0x12] = true }
+-- Currents, surfed: collision clear, elevation 1 (24.33's 108 tiles, read from the ROM 2026-09-24); 0x50 carries right, 0x51
+-- left, 0x52 up and 0x53 down (route.md, 24.33: the path found by simulating the slides so was walked, 2026-09-23). A
+-- waterfall (0x13, collision clear, elevation 1: Ever Grande 0.8 rows 60-67) is climbed with WATERFALL from the water below.
+STEP.CURRENTS = { [0x50] = "right", [0x51] = "left", [0x52] = "up", [0x53] = "down" }
+STEP.WATERFALL = 0x13
+-- CRACKED FLOOR (0xD2): stepped onto on foot, the player falls to the floor below onto the same tile -- 24.82 (11,5) from
+-- (11,4) to 24.81 (11,5), 2026-09-24 (MEASURED.md) -- and no connection in the map's header names that floor, so it is
+-- listed here per map as measured. On a map not listed a crack is closed. On the MACH BIKE (`ride`'s tiles, the speed byte
+-- as each step began, 2026-09-24 on 24.82 column 11): held from rest the steps read 0, 1, then 3; the cracks entered at 3
+-- held, one entered at 2 while coasting held, one at 1 dropped the player; after letting go at 3 the bike coasted three
+-- tiles reading 2, 1, 0. A crack crossed became behaviour 0x66, a hole: walked onto, the player fell (24.82 (11,7) to
+-- 24.81 (11,7)).
+STEP.CRACKED, STEP.HOLE = 0xD2, 0x66
+STEP.FALLS = { ["24.82"] = "24.81" }
+-- Surfacing where no connection names the map above (an underwater cave): the landing, as measured. From 24.26 (6,5) the
+-- surfacing ended on 24.27 (10,17) (MEASURED.md, 2026-09-24); B was pressed on 24.26's
+-- floor, behaviour 0x12 (route.md).
+STEP.EMERGE = { ["24.26"] = { to = "24.27", x = 10, y = 17 } }
 
 local function routeGrid(fromX, fromY, toX, toY)
 	local layout = r32(GMAPHEADER)
@@ -2208,6 +2226,7 @@ local function routeGrid(fromX, fromY, toX, toY)
 	local seen, timed = sightTiles(trainers, mapW, mapH)
 	for _, w in ipairs(readWarps()) do
 		if not (w.x == toX and w.y == toY) then blocked[w.y * mapW + w.x] = blocked[w.y * mapW + w.x] or "warp" end
+
 	end
 	return {
 		width = mapW, height = mapH, where = "from elevation " .. elevation, elevation = elevation,
@@ -2231,8 +2250,11 @@ local function routeGrid(fromX, fromY, toX, toY)
 				if surfs then return true, false, seen[y * mapW + x], nil, "surf", timed[y * mapW + x] end
 				return nil
 			end
-			-- A mud slope (0xD0) slid the player back on foot (MUD SLOPE, above): closed.
-			if behaviour == 0xD0 then return nil end
+			-- A mud slope (0xD0) slid the player back on foot (MUD SLOPE, above): closed. A current or a waterfall is not
+			-- walked or surfed as a tile: `goto` takes it as an action of the room's plan (route.lua, OBSTACLES).
+			if behaviour == 0xD0 or STEP.CURRENTS[behaviour] or behaviour == STEP.WATERFALL then return nil end
+			-- A cracked floor drops the player (CRACKED FLOOR): stepped onto only as the target, to fall on purpose.
+			if (behaviour == STEP.CRACKED or behaviour == STEP.HOLE) and not (x == toX and y == toY) then return nil end
 			-- A ledge reads collision set, and hopped moving down: two steps, onto it and past it (WHY A STEP WAS REFUSED).
 			if STEP.LEDGES[behaviour] then return true, false, seen[y * mapW + x], STEP.LEDGES[behaviour], nil, timed[y * mapW + x] end
 			if (v & 0x0C00) ~= 0 then return nil end
@@ -2340,8 +2362,13 @@ routeHooks.connectionDirections = { [1] = "down", [2] = "up", [3] = "left", [4] 
 -- A script running holds the player: a Mossdeep gym floor switch's script turned a planned step into a refusal and the
 -- exit was set aside (2026-09-23). The script context's status as the text machine reads it (textHooks.scriptRunning).
 routeHooks.busy = function() return r8(SCRIPT_CONTEXT_STATUS) ~= SCRIPT_CONTEXT_OFF and r8(0x03000f2c) ~= 0 end
--- For `exec`: the planner's hooks, to read any map as `goto` sees it.
+-- Field controls locked with no script: after a fall through a crack the overworld was back with the lock set and the
+-- script context off for about 50 frames, the landing, and held input did nothing (24.81, 2026-09-24). A trip waits it out
+-- before it plans.
+routeHooks.locked = function() return r8(0x03000f2c) ~= 0 end
+-- For `exec`: the planner's hooks, to read any map as `goto` sees it, and the planner itself (M.solve on any room).
 game.routeHooks = routeHooks
+game.routeLib = lib.route
 routeHooks.mapExits = function(name)
 	if routeHooks.maps[name] ~= nil then return routeHooks.maps[name] or nil end
 	local hdr, _, w, h = routeHooks.mapHeader(name)
@@ -2361,6 +2388,16 @@ routeHooks.mapExits = function(name)
 				exits[#exits + 1] = { kind = "edge", direction = dir, offset = memory.read_s32_le(e + 4, BUS), to = to,
 					key = "edge " .. dir .. " to " .. to }
 			end
+			-- DIVE (2026-09-24, MEASURED.md): kind 5 is the map below, 6 the one above. Surfing on 0.43 (38,27), deep
+			-- water (0x12), A asked "The sea is deep here. Would you like to use DIVE?", YES: 0.53 (38,27), the same tile, the
+			-- avatar byte 0x30; there B asked "Light is filtering down from above…", YES: 0.43 (38,27) again. Underwater 0.53 is
+			-- open (collision 0, level 3) where 0.43 above is deep water. A dive is planned from deep water onto an open tile
+			-- below; surfacing onto deep water above (measured at that one tile).
+			local deep = ({ [5] = "dive", [6] = "emerge" })[r8(e)]
+			if deep and inRom(list) then
+				local to = string.format("%d.%d", r8(e + 8), r8(e + 9))
+				exits[#exits + 1] = { kind = deep, to = to, key = deep .. " to " .. to }
+			end
 		end
 	end
 	-- A warp's +5 is the destination's warp number, from 0: through 0.10's Center door (+5 0) the player arrived on 2.2's
@@ -2377,6 +2414,12 @@ routeHooks.mapExits = function(name)
 			key = string.format("warp (%d,%d) to %s", x, y, to) }
 		exits[#exits + 1] = warps[#warps]
 	end
+	if STEP.EMERGE[name] then
+		local e = STEP.EMERGE[name]
+		exits[#exits + 1] = { kind = "emerge", to = e.to, arrive = { x = e.x, y = e.y }, key = "emerge to " .. e.to }
+	end
+	-- A cracked floor on a map whose floor below is measured: an exit landing on the same tile there (CRACKED FLOOR).
+	for _, f in ipairs(routeHooks.falls(name)) do exits[#exits + 1] = f end
 	routeHooks.maps[name] = { width = w, height = h, exits = exits, warps = warps }
 	return routeHooks.maps[name]
 end
@@ -2421,14 +2464,127 @@ routeHooks.playerElevation = function() return r8(playerObject() + 0x0B) & 0x0F 
 -- 0x15 at elevation 1) closed (WHY A STEP WAS REFUSED); otherwise its elevation. Every elevation-1 tile was closed until
 -- 2026-09-17, when Route 110 (0.25) and DEWFORD's gym floor, both walked, read elevation 1 on land and `goto` found no way
 -- across them. Water of other behaviours is not measured.
+-- Deep water (DIVE, above): a tile a dive is planned from, or surfacing onto.
+routeHooks.deepWater = function(name, x, y)
+	local c, e, b = routeHooks.mapTileRaw(name, x, y)
+	return c == 0 and e == 1 and b == 0x12
+end
+-- Where surfacing to a measured landing (STEP.EMERGE) is tried: the cave's floor of behaviour 0x12.
+routeHooks.surfaceSpot = function(name, x, y)
+	local c, _, b = routeHooks.mapTileRaw(name, x, y)
+	return c == 0 and b == 0x12
+end
+-- The cracked floors of a map whose floor below is measured, as exits (CRACKED FLOOR): { kind = "fall", x, y, to, key }.
+routeHooks.falls = function(name)
+	local below, out = STEP.FALLS[name], {}
+	if not below then return out end
+	local _, _, w, h = routeHooks.mapHeader(name)
+	for y = 0, (h or 0) - 1 do
+		for x = 0, w - 1 do
+			local c, _, b = routeHooks.mapTileRaw(name, x, y)
+			if c == 0 and (b == STEP.CRACKED or b == STEP.HOLE) then
+				out[#out + 1] = { kind = "fall", x = x, y = y, to = below, key = string.format("fall (%d,%d) to %s", x, y, below),
+					crack = b == STEP.CRACKED }
+			end
+		end
+	end
+	return out
+end
 routeHooks.mapTile = function(name, x, y)
 	local collision, elevation, behaviour = routeHooks.mapTileRaw(name, x, y)
 	if not collision then return nil end
 	if STEP.LEDGES[behaviour] then return elevation, STEP.LEDGES[behaviour] end
 	-- Water (SURFING, above): open to the plan across maps when the party knows SURF, at level 0.
 	if collision == 0 and elevation == 1 and STEP.SURF[behaviour] and routeHooks.surfs then return 0 end
-	if collision ~= 0 or (elevation == 1 and STEP.SURF[behaviour]) or behaviour == 0xD0 then return nil end
+	-- Currents and a waterfall: open to this plan, which is the optimistic one; the room's plan decides (OBSTACLES).
+	if collision == 0 and (STEP.CURRENTS[behaviour] or behaviour == STEP.WATERFALL) and routeHooks.surfs then return 0 end
+	if collision ~= 0 or (elevation == 1 and STEP.SURF[behaviour]) or behaviour == 0xD0 or STEP.CURRENTS[behaviour]
+		or behaviour == STEP.WATERFALL then return nil end
 	return elevation
+end
+
+-- THE ROOM for the obstacle plan (route.lua, OBSTACLES; 2026-09-24): any map from the ROM, the one stood on from the live
+-- grid and characters. Its characters: a boulder is graphics 87 (24.35's twelve; one pushed with STRENGTH, 2026-09-24), a
+-- ROCK SMASH rock 86 (above), anything else solid where it stands. Another map's come from its templates (24 bytes each:
+-- local id +0, graphics +1, x +4, y +6, hide flag +0x14): one whose flag is set is not there -- on 24.43 the two with their
+-- flag set (0x35A, 0x2EF) were the only templates with no live character (2026-09-24) -- and a flag below 0x20 (every
+-- boulder's and rock's, 0x11-0x1F on 24.35, 24.28 and 24.44) is cleared on entry, so that room holds them all again.
+-- STRENGTH in use is flag 0x889: the only flag that changed across "SWAMPERT used STRENGTH!" (24.35, 2026-09-24), and
+-- the route run lost it on every room change (route.md). What the party can clear is the moves it knows.
+routeHooks.room = function(name)
+	local ex, hdr = routeHooks.mapExits(name), routeHooks.mapHeader(name)
+	if not ex or not hdr then return nil end
+	local W, H = ex.width, ex.height
+	local here, px, py = routeHooks.position()
+	local live = name == here
+	local warpAt, tiles = {}, {}
+	for _, w in ipairs(ex.warps) do warpAt[w.y * W + w.x] = true end
+	-- Cracks and holes are exits (a fall); a crack is crossed on the MACH BIKE at speed (room.crack, room.bike).
+	local cracks, anyCrack = {}, false
+	for _, f in ipairs(routeHooks.falls(name)) do
+		warpAt[f.y * W + f.x] = true
+		cracks[f.y * W + f.x] = f.crack and "crack" or "hole"
+		anyCrack = anyCrack or f.crack
+	end
+	local function cell(x, y)
+		local key = y * W + x
+		local t = tiles[key]
+		if t == nil then
+			local c, e, b = routeHooks.mapTileRaw(name, x, y)
+			t = false
+			if c and STEP.LEDGES[b] then t = { "ledge", e, STEP.LEDGES[b] }
+			elseif c == 0 and e == 1 and STEP.SURF[b] then t = { "water", 0 }
+			elseif c == 0 and STEP.CURRENTS[b] then t = { "current", 0, STEP.CURRENTS[b] }
+			elseif c == 0 and b == STEP.WATERFALL then t = { "waterfall", 0 }
+			elseif c == 0 and (b == STEP.CRACKED or b == STEP.HOLE) and not STEP.FALLS[name] then t = false
+			elseif c == 0 and b ~= 0xD0 then t = { "land", e, nil, b == 0x02 } end
+			tiles[key] = t
+		end
+		if not t then return nil end
+		return t[1], t[2], t[3], t[4]
+	end
+	local sb1, objects, can = r32(SB1PTR), {}, {}
+	local kinds = { [87] = "boulder", [86] = "rock" }
+	local sight, loaded = nil, {}
+	if live then
+		-- The room stood in: a loaded character where it stands now (a pushed boulder included), the rest as below with
+		-- their flags as they are (a broken rock's is set). Only characters near the screen are loaded (`talk`, above).
+		local objs = readObjects()
+		for _, o in ipairs(objs) do
+			loaded[o.local_id] = true
+			objects[#objects + 1] = { x = o.x, y = o.y, kind = kinds[o.graphics_id] or "solid" }
+		end
+		local seen, timed = sightTiles(unbeatenTrainers(objs), W, H)
+		sight = function(x, y) return seen[y * W + x], timed[y * W + x] ~= nil end
+	end
+	local events = r32(hdr + 4)
+	local list = r32(events + 4)
+	for i = 0, math.min(r8(events), 64) - 1 do
+		if not inRom(list) then break end
+		local e = list + i * 24
+		local flag = r16(e + 0x14)
+		local hidden = flag ~= 0 and flag <= FLAG_MAX and (live or flag >= 0x20) and flagGet(sb1, flag)
+		if not loaded[r8(e)] and not hidden then
+			objects[#objects + 1] = { x = r16(e + 4), y = r16(e + 6), kind = kinds[r8(e + 1)] or "solid" }
+		end
+	end
+	for _, mon in ipairs(readParty() or {}) do
+		for _, m in ipairs(mon.moves or {}) do
+			if m.name == "SURF" then can.surf = true end
+			if m.name == "STRENGTH" then can.strength = true end
+			if m.name == "ROCK SMASH" then can.smash = true end
+			if m.name == "WATERFALL" then can.waterfall = true end
+		end
+	end
+	local surfing = (r8(GPLAYERAVATAR) & 0x08) ~= 0
+	-- The MACH BIKE rides here when it is registered and the map's header allows a bike (MOUNTING, below: header +0x1A bit
+	-- 0, read from the ROM's header, which reads the same as the live copy).
+	local bike = anyCrack and r16(sb1 + 0x496) == 259 and (r8(hdr + 0x1A) & 1) == 1
+	return { width = W, height = H, cell = cell, objects = objects, can = can, sight = sight, bike = bike,
+		crack = function(x, y) return cracks[y * W + x] end,
+		warp = function(x, y) return warpAt[y * W + x] == true end,
+		start = live and { x = px, y = py, surf = surfing, level = surfing and 0 or routeHooks.playerElevation(),
+			strength = flagGet(sb1, 0x889) } or nil }
 end
 
 -- clear_obstacle {}: the ROCK SMASH rock beside the player (the one a goto answered `obstacle` in front of) faced, A, and its
@@ -2490,7 +2646,8 @@ game.programs["goto"] = function(p)
 	end
 	-- With `map`, even this one: a part of this map behind a warp pad is planned as across maps (2026-09-23).
 	if p.map ~= nil then return lib.route.travel(routeHooks, p) end
-	return lib.route.go(routeHooks, p)
+	-- On this map by the room's plan, which clears boulders, rocks, water and currents on the way (route.lua, OBSTACLES).
+	return lib.route.reach(routeHooks, p)
 end
 
 -- TEXT AND BATTLES AS ONE CALL: the machine that decides when to press is shared (`../text.lua`, moved out of this
@@ -3092,6 +3249,9 @@ local function ride(p)
 	end
 	local i, still, last = 1, 0, nil
 	local startMap = (routeHooks.position())
+	-- Each tile entered, with the MACH BIKE's speed byte (avatar +0x0B, `walk`'s coast rule) as it began: `tiles` in the
+	-- answer, to read where a crack held and where the bike was too slow.
+	local trace, tx, ty = {}, nil, nil
 	-- wait {local_id, facing_raw}: nothing is pressed until that character's facing nibble reads facing_raw, so a
 	-- trainer that turns is passed while it looks away (2026-09-23, Petalburg Woods: a poll a model turn apart was a
 	-- second late and the BUG CATCHER had turned back).
@@ -3118,7 +3278,11 @@ local function ride(p)
 			wait = nil
 		end
 		local map, x, y = routeHooks.position()
-		if map ~= startMap then return nil, true, { map = map, x = x, y = y, legs_done = i - 1, fell = true } end
+		if map ~= startMap then return nil, true, { map = map, x = x, y = y, legs_done = i - 1, fell = true, tiles = trace } end
+		if x ~= tx or y ~= ty then
+			tx, ty = x, y
+			trace[#trace + 1] = { x = x, y = y, speed = r8(GPLAYERAVATAR + 0x0B) }
+		end
 		local key = x .. "," .. y
 		if i <= #legs then
 			local l = legs[i]
@@ -3127,12 +3291,119 @@ local function ride(p)
 			return { [BUTTON[l.dir]] = true }, false
 		end
 		if key == last then still = still + 1 else still, last = 0, key end
-		if still >= 30 then return nil, true, { map = map, x = x, y = y, legs_done = #legs } end
+		if still >= 30 then return nil, true, { map = map, x = x, y = y, legs_done = #legs, tiles = trace } end
 		return nil, false
 	end, nil, 1800
 end
 
 -- reflex {kind, args}: the field errands above, each a program by kind.
+-- FIELD MOVES FOR THE ROOM PLAN (route.lua, OBSTACLES; 2026-09-24), each ending with the field clear and the player at rest:
+--   surf, smash, climb: the player turned to face the tile (the direction held until they face it: water, a rock or a
+--   waterfall ahead, which a step does not enter), one A, the text to its YES/NO, YES, the text to its end. Each question
+--   was read before: ROCK SMASH's (0.26, 2026-09-17), SURF's (0.33, 2026-09-23), STRENGTH's (24.35, 2026-09-24), WATERFALL's
+--   (0.8, route.md).
+--   push: STRENGTH's question first while flag 0x889 is clear (THE ROOM, above), facing the boulder; then the direction
+--   held until the boulder has left its tile, and nothing held until it and the player are at rest.
+--   slide: the direction held until the player leaves the tile, then nothing until they have been at rest 8 frames.
+local function faceTo(d)
+	return function()
+		local n = 0
+		return function()
+			n = n + 1
+			if routeHooks.facing() == d then return nil, atRest() end
+			if n > 90 then return nil, true, nil, "could not face " .. d end
+			return { [DIRECTIONS[d].button] = true }, false
+		end
+	end
+end
+local function settled(what)
+	return function()
+		local n = 0
+		return function()
+			n = n + 1
+			if inBattle() then return nil, true, nil, "a battle started" end
+			if fieldClear() and atRest() then return nil, true end
+			if n > 900 then return nil, true, nil, "waited 900 frames for the field after " .. what end
+			return nil, false
+		end
+	end
+end
+local function fieldMove(d, what)
+	return { faceTo(d), tap("A"), waitFor(routeHooks.talkStarted, 120, "an answer to A"),
+		function() return game.programs.advance_text() end, choose("YES"),
+		function() return game.programs.advance_text() end, settled(what) }
+end
+local function objectAt(x, y)
+	for _, o in ipairs(readObjects()) do
+		if o.x == x and o.y == y then return o end
+	end
+end
+routeHooks.act = function(kind, a)
+	local d = DIRECTIONS[a.d]
+	if not d and kind ~= "dive" and kind ~= "emerge" then return nil, "no direction " .. tostring(a.d) end
+	if kind == "surf" or kind == "smash" or kind == "climb" then return chain(fieldMove(a.d, kind)) end
+	if kind == "push" then
+		local steps = {}
+		if not flagGet(r32(SB1PTR), 0x889) then steps = fieldMove(a.d, "STRENGTH") end
+		steps[#steps + 1] = function()
+			local n = 0
+			return function()
+				n = n + 1
+				if not objectAt(a.bx, a.by) then return nil, true end
+				if n > 120 then return nil, true, nil, "the boulder at " .. a.bx .. "," .. a.by .. " did not move" end
+				return { [d.button] = true }, false
+			end
+		end
+		steps[#steps + 1] = waitFor(function()
+			local o = objectAt(a.bx + d.dx, a.by + d.dy)
+			if not o then return false end
+			local b = memory.read_bytes_as_array(GOBJECTEVENTS + o.slot * OBJ_SIZE + 0x10, 8, BUS)
+			return b[1] == b[5] and b[2] == b[6] and b[3] == b[7] and b[4] == b[8] and atRest()
+		end, 120, "the boulder to stop")
+		return chain(steps)
+	end
+	if kind == "dive" or kind == "emerge" then
+		-- A (dive) or B (surface) where the player floats, the question, YES, the text, then the map change (DIVE, above).
+		local from = (routeHooks.position())
+		return chain({ tap(kind == "dive" and "A" or "B"), waitFor(routeHooks.talkStarted, 120, "an answer to " .. kind),
+			function() return game.programs.advance_text() end, choose("YES"),
+			function() return game.programs.advance_text() end,
+			waitFor(function() return (routeHooks.position()) ~= from and inOverworld() end, 600, "the " .. kind) })
+	end
+	if kind == "ride" then
+		-- On the MACH BIKE (SELECT, then held until the avatar reads it), then `ride`'s legs.
+		local steps = {}
+		if (r8(GPLAYERAVATAR) & MACH_BIKE_FLAG) == 0 then
+			steps[1] = tap("Select")
+			steps[2] = waitFor(function() return (r8(GPLAYERAVATAR) & MACH_BIKE_FLAG) ~= 0 and atRest() end, 120, "the MACH BIKE")
+		end
+		steps[#steps + 1] = function() return ride({ legs = a.legs }) end
+		-- A ride planned to end falling through a crack: the drop came after the bike had stood still on it for more than
+		-- `ride`'s 30 frames (24.82 (6,4), 2026-09-24), so the map change is waited for.
+		if a.fall then
+			local from = (routeHooks.position())
+			steps[#steps + 1] = waitFor(function() return (routeHooks.position()) ~= from end, 300, "the fall through the crack")
+		end
+		return chain(steps)
+	end
+	if kind == "slide" then
+		local _, sx, sy = routeHooks.position()
+		local n, still = 0, 0
+		return function()
+			n = n + 1
+			local _, x, y = routeHooks.position()
+			if n > 1200 then return nil, true, nil, "the current did not let go" end
+			if x == sx and y == sy then
+				if n > 60 then return nil, true, nil, "the step onto the current was not taken" end
+				return { [d.button] = true }, false
+			end
+			still = atRest() and still + 1 or 0
+			return nil, still >= 8
+		end
+	end
+	return nil, "no field move " .. tostring(kind)
+end
+
 local ERRANDS = { use_item = useItem, fly = fly, fly_scan = flyScan, swap = swap, ride = ride }
 return function(p)
 	local make = ERRANDS[p.kind]
