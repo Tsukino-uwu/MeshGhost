@@ -56,7 +56,7 @@ of the documentation, written for people *using* MeshGhost, is [`../docs/`](../d
 - [security-design.md](security-design.md) — the unscheduled security design behind `docs/security.md`'s posture (moved out of `ideas.md` 2026-09-02).
 - [chaser-planning.md](chaser-planning.md) — planned 2026-09-15: chaser contact damage in Pseudoregalia, closing the ghost-attack leaks, freezing during dialogue.
 - [prediction-planning.md](prediction-planning.md) — parked 2026-09-14: prediction without floor-sink or left/right snap; not scheduled, the reasoning kept.
-- [plans/autoplay-state-planner.md](plans/autoplay-state-planner.md) — planned 2026-09-24: autoplay plays from the save's state (capabilities, reachability, goals, a fight predictor), routes only as advice.
+- [autoplay-state-planner.md](autoplay-state-planner.md) — planned 2026-09-24: autoplay plays from the save's state (capabilities, reachability, goals, a fight predictor), routes only as advice.
 - [candidate-games.md](candidate-games.md) — games that might get an adapter and prior-art reads; nothing checked (moved out of `ideas.md` 2026-09-02).
 
 ## Rules that load themselves, and the skills
