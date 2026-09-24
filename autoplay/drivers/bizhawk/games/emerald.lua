@@ -2835,9 +2835,18 @@ local function useItem(p)
 	local sb1, key = sb1Key()
 	-- The pocket and the item's place in it: the list shows a pocket in the bag's own order (ITEMS read so, and TMs & HMs,
 	-- whose entries print the machine's number and move with formatting codes, so they are chosen by place, 2026-09-23).
+	-- The TMs & HMs pocket is shown sorted by item id, not in its stored order: HM07 added after HM08 was stored after it,
+	-- and its stored place chose HM06 ROCK SMASH in the list (2026-09-24), so that pocket's places come from a sorted copy.
 	local pocket, place
 	for idx, pk in ipairs(POCKETS) do
-		for i, it in ipairs(readBag(sb1, key)[pk.name] or {}) do
+		local list = readBag(sb1, key)[pk.name] or {}
+		if pk.name == "tms_hms" then
+			local sorted = {}
+			for _, it in ipairs(list) do sorted[#sorted + 1] = it end
+			table.sort(sorted, function(a, b) return a.id < b.id end)
+			list = sorted
+		end
+		for i, it in ipairs(list) do
 			if it.item == want then pocket, place = idx - 1, i - 1 end
 		end
 	end

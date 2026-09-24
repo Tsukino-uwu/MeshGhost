@@ -762,3 +762,27 @@ turn where the route said once, a TM errand teaching the wrong HM (the TMs pocke
 works), the poison running out before the desert candy (the route's "heal a bit" step skipped). Each was rewound to a
 snapshot and replayed as written. `trip`'s `run_wild` fought wild battles (the battle kind is not readable on the first
 frames) -- not fixed in the driver yet; scratch scripts RUN only once the kind reads `wild`.
+
+## 2026-09-24 (the Emerald chat, continued) — the 1:1 route run beats the League
+
+**Where it stands:** CHAMPION WALLACE beaten on the route run; the Hall of Fame's "LEAGUE CHAMPION!" box on screen, the
+in-game clock 23:33. Snapshot `r5_champion_done` (and `r5_*` along the way, gitignored). RAYQUAZA (MASTER BALL, Lv73)
+carried the Elite Four as the route plans; BLAZIKEN Lv46 did the rest.
+
+**Off the route, said plainly:** COMBUSKEN reached the Weather Institute 245 EXP short of the route's Lv33 (cause not
+found), so SHELLY was fought as COMBUSKEN (an ENERGY ROOT first; the first try fainted at 7 HP) and the RARE CANDIES went
+in after, one level behind the route until the Space Center. A SKARMORY miss, a GOLBAT confusion and a MAXIE Swagger
+each needed a rewind to a different frame; TATE & LIZA's SOLROCK needed an offset search (the first "win" was a whiteout
+to Petalburg -- read the map, not the outcome). The rock RARE CANDY on Route 108 needed the harbor's Aqua scene, which
+walking out of STERN's talk had skipped (the Aqua Hideout's entrance grunts stayed; rewound).
+
+**Built (all driver, committed):** `goto` crosses a turning trainer's line timed, stopping one tile outside it and
+waiting for a fresh turn away (the user's rule, `3ab32129`); `ride`'s `wait` can require a position, for a trainer
+walking a loop; a walking trainer's sight covers its template movement box (`ff33ed55`, after four catches by walkers);
+0x10 ponds and 0x12 deep water are surfed (`1e43caa1`); the TMs & HMs pocket is chosen by its sorted order (HM07 taught
+ROCK SMASH over REST once; rewound). Measured movements: 0x09-0x11, 0x17, 0x18 (`TURNS`' note).
+
+**Still open:** `goto` across maps gave up on long plans that short hops over the same level-0 stairs finished
+(Mossdeep 5 to 7); boulder rooms and walker timing were worked out by scratch searches and `ride` waits, not the
+planner; the route's "bag manip" was done as a facing wait. The user asked (2026-09-24) for a fight predictor from the
+ROM's own tables (parties, stats, damage) as the generic next step, not per-route scripts.
