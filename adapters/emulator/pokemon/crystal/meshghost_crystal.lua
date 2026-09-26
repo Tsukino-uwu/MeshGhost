@@ -1110,7 +1110,9 @@ local function classifyRom()
 	-- top of one shared base recompile. Emerald's adapter relies on the same property for its own
 	-- Archipelago addresses; if a future world update recompiles that base, the measured addresses
 	-- move and the fingerprint check below is what notices.
-	if title:sub(1, 3) == "AP_" then
+	-- The exact title every Archipelago seed here has read (VERIFIED.md); a prefix would also claim
+	-- another game's AP_ ROM.
+	if title == "AP_CRYSTAL" then
 		-- The apworld patches a V1.0 or a V1.1 base with one shared address table of its own,
 		-- and stamps the base's revision into header byte $14C. Named in the log because every
 		-- Archipelago session before 2026-09-09 ran on a V1.0 base; the table is the same either
