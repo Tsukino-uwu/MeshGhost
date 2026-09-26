@@ -1120,6 +1120,12 @@ local function classifyRom()
 		return "archipelago", string.format("ROM title %q — Archipelago's Crystal patch on a V1.%d base",
 			title, u8(0x14C, ROM_DOMAIN) or 0), "archipelago"
 	end
+	-- Another AP_ title: most likely a renamed Archipelago build, whose layout is far closer to the
+	-- measured Archipelago set than to vanilla's (user's call, 2026-09-26). Said loudly, never silently.
+	if title:sub(1, 3) == "AP_" then
+		return "archipelago", string.format("UNRECOGNISED Archipelago title %q (expected \"AP_CRYSTAL\") — "
+			.. "assuming Archipelago's layout; ghosts may draw wrong if this build moved its RAM", title), "archipelago"
+	end
 	-- Speedchoice keeps vanilla's title and changes the manufacturer code ($13F-$142, "KAPB" for
 	-- "BYTE"), the mask-ROM version ($14C = 6) and the checksum. v8.1 is the one whose source was
 	-- built byte-identical (SHA1 5ffa7ad8...); another version gets its own row or the fallback.

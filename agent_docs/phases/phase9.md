@@ -1577,3 +1577,13 @@ weighing the game's own type table, the same-type bonus, and attack against defe
 
 What touched this adapter's records: `crystal/MEASURED.md`, `PROBES.md`, and one new probe,
 `probes/autoplay_move_write_probe.lua`.
+
+## 2026-09-26 — Crystal: the Archipelago ROM check by its exact title, with an `AP_` fallback
+
+Prompted by the user relaying advice about telling an Archipelago Crystal ROM apart: check the header title,
+though its memory can shift between versions. `classifyRom()` now takes the exact title `AP_CRYSTAL` (the one
+every Archipelago seed here has read, `crystal/VERIFIED.md`) as Archipelago, where it took any `AP_` prefix
+(`fe066914`). Then, on the user's call, another `AP_` title falls back to the Archipelago address set with an
+"UNRECOGNISED Archipelago title" warning on the first log line, instead of vanilla's set. Neither is seen in
+BizHawk yet; the file parses. Still open, and said to the user: nothing detects an Archipelago update that moves
+RAM under the same title; runtime address discovery from the ROM's code was scoped and set aside.
