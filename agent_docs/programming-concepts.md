@@ -47,8 +47,11 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
   run the game's method".
 - **Reference ("points to"):** like a desktop shortcut. The variable holds *where* the object is, not the object:
   two variables can point to the same one, and `null` is a shortcut to nothing. (Not about code running elsewhere.)
-- **Memory:** the computer's working space (RAM), holding everything the game has *right now*: variables, objects,
-  the map. Gone when the game closes. Saves and files live on the **disk** and are loaded into memory to be used.
+- **Memory:** the computer's working space, **RAM** (Random Access Memory): very fast, temporary, emptied when the
+  power goes off. It holds everything the game has *right now*: variables, objects, the map. Saves and files live on
+  the **disk** and are loaded into memory to be used. RAM is one enormously long street of bytes, each with a house
+  number, its **address** (`0x02024284` is the byte at that number, in hex); a reference is really an address.
+  *Random access* means jumping straight to any address, instead of reading from the start like a tape.
 - **Dots and brackets:** `.` means "go inside" (`MainManager.instance.flags`: in MainManager, its instance, its
   flags), like slashes in a folder path. `()` calls a function, parameters inside. `[]` picks one item of a list by
   number (`flags[699]`). `{}` wraps a block of code.
@@ -59,6 +62,8 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
   whole time it runs, not only its start. *Build* is compiling plus packaging the result.
 - **State machine:** something that is always in exactly one state from a fixed list, with rules for moving between
   them: a game's title screen, overworld, battle and menu; a boss's attack pattern. A coroutine is turned into one.
+- **Game state:** everything describing the game at this moment: which map, the player's position, HP, berries,
+  story flags, what is open. Flags are part of it; a save file is a snapshot of part of it.
 - **Garbage collector:** frees memory nothing uses any more, automatically, so nothing is "forgotten". Two catches:
   holding on to things still leaks (a list that only grows), and a collection takes time, which can show as a stutter.
 - **Throwing an exception:** an error that **stops the current code on the spot** and jumps out until something
@@ -77,6 +82,9 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
 
 **Languages**
 
+- **CPU** (Central Processing Unit): the chip that runs a program's instructions, billions a second, built from
+  billions of tiny on/off switches (*transistors*). The **GPU** (Graphics Processing Unit) has thousands of small
+  cores to work out many pixels at once.
 - **Machine code:** the CPU's own instructions, just numbers. Nobody writes it by hand. Not the same as
   **binary**, which only means "not text": a .NET DLL is a binary file, yet it holds IL, not machine code.
 - **C:** low level, close to the machine; you manage memory yourself. Very fast and in full control, but easy to crash
@@ -160,6 +168,10 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
 
 **Game words**
 
+- **Frame:** one full screen, drawn. **Frame time** is how long one takes; **frame rate** (FPS) is how many per
+  second (at 60 FPS each frame has about 16.7 ms).
+- **Rendering:** the process of drawing a frame: the game says where models, lights and the camera are, and the
+  engine and GPU work out every pixel's colour.
 - **`Update()`:** the method Unity calls on every object once per frame (see the frame loop). Not "change a value".
 - **`Time.timeScale`:** Unity's game clock: 1 normal, 2 double speed, 0 paused. Tying game speed to the *frame rate*
   is bad practice (faster PCs run the game faster); the good way multiplies movement by each frame's time, and then
@@ -173,6 +185,8 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
 make a **byte**, 256 combinations, the numbers 0 to 255. **Hexadecimal** ("hex": Greek *hexa*, six, plus *decimal*, ten, so sixteen; often written with `0x`) is a shorter
 way for people to *write* the same bits: it counts in 16s (`0-9`, then `A-F` for 10 to 15), and one hex digit is
 exactly 4 bits, so two are exactly one byte. That's why memory and addresses (a GBA's `0x02024284`) are shown in hex.
+Its letters aren't there because *numbers* run out but because *digits* do: normal counting has ten single digits,
+hex needs sixteen, so it borrows A-F. In hex they are digits, not letters.
 
 | Binary | Hex | Decimal |
 |---|---|---|
@@ -187,6 +201,11 @@ programs count 1,024 instead of 1,000, which is why a "1 TB" drive shows as abou
 *bits*, small **b** (100 Mbps), file sizes in *bytes*, big **B** (12 MB), so 100 Mbps downloads about 12.5 MB a second.
 
 Loosely, a "binary file" means one whose bytes aren't meant as letters. A text file is 1s and 0s too.
+
+**Encoding** is the agreement for turning something into bytes and back (not compressing: compression is one kind of
+encoding, meant to shrink). For text: **Unicode** gives every character in every language a number (`A` 65, `é`
+233, `あ` 12354, `😀` 128512), and **UTF-8** (Unicode Transformation Format, 8-bit) stores those numbers as bytes,
+1 for plain English letters, 2 to 4 for others. The wrong encoding is why `é` sometimes shows as `Ã©`.
 
 **Every file is bytes underneath**, numbers from 0 to 255, a `.txt` included. A text file's bytes are *letter
 codes* (in the usual encoding, UTF-8, 65 is `A`), so any editor shows them as letters; a DLL's bytes are structured
@@ -282,7 +301,11 @@ tweaks values while building levels; private ones don't unless marked. So many U
 make most fields public, which is part of why they are easy to mod.
 
 **Not the same as Rust's memory safety.** Rust's ownership and borrowing are about *when memory is freed* (no use
-after it's gone); C# has a garbage collector for that. Private fields are about *which code may touch a value*: how
+after it's gone); C# has a garbage collector for that. **Ownership:** every value has exactly one owner, and when
+the owner goes away the memory is freed right then, no collector needed. **Borrowing:** other code may use a value
+for a while without owning it, either many readers at once or exactly one writer, never both. Like owning a car:
+friends may look at it together or one may drive it, never both, and it can't be scrapped while lent out. Neither
+is about private or public. Private fields are about *which code may touch a value*: how
 the program is organised ("program handling", as the TEVI randomizer's developer put it). Rust has private fields
 too: a struct's fields are private unless marked `pub`, the same idea with the safer default. What the two share is
 that the compiler checks them before the program runs.
