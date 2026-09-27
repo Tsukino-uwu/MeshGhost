@@ -5,6 +5,7 @@ The concepts, not this project's decisions; the examples come from Unity games m
 the author's Bug Fables Archipelago mod), because that is where they came up (2026-09-27). Game names below are field
 and class names read from the game's own assembly, never its code.
 
+- [Words the rest leans on](#words-the-rest-leans-on)
 - [Fields, and public versus private](#fields-and-public-versus-private)
 - [Reflection: reaching a private field by name](#reflection-reaching-a-private-field-by-name)
 - [Class and object](#class-and-object)
@@ -15,6 +16,22 @@ and class names read from the game's own assembly, never its code.
 - [Threads: why received things wait for a safe moment](#threads-why-received-things-wait-for-a-safe-moment)
 - [Null: nothing is there](#null-nothing-is-there)
 - [Magic numbers](#magic-numbers)
+
+## Words the rest leans on
+
+- **Method:** a function that belongs to a class and works on that object's fields. `PlayerControl.DoJump()` makes
+  *this* player jump.
+- **Compile:** translating the code we write into what the computer runs (C# into the mod's `.dll`), checking it on
+  the way. That check is where "private" is enforced and a misspelled public name fails. *Build* is compiling plus
+  packaging the result.
+- **State machine:** something that is always in exactly one state from a fixed list, with rules for moving between
+  them: a game's title screen, overworld, battle and menu; a boss's attack pattern. A coroutine is turned into one.
+- **Garbage collector:** frees memory nothing uses any more, automatically, so nothing is "forgotten". Two catches:
+  holding on to things still leaks (a list that only grows), and a collection takes time, which can show as a stutter.
+- **Throwing an exception:** an error that **stops the current code on the spot** and jumps out until something
+  catches it (`try`/`catch`); nothing after it in that method runs. Unity logs it and carries on next frame, so it
+  *looks* like "log and continue", but the work was left half done. One thrown every frame means that work never
+  finishes.
 
 ## Fields, and public versus private
 
