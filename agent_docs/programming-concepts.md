@@ -7,6 +7,7 @@ and class names read from the game's own assembly, never its code.
 
 - [Class and object](#class-and-object)
 - [Words the rest leans on](#words-the-rest-leans-on)
+- [DLLs: how one is made, what's inside, how it runs](#dlls-how-one-is-made-whats-inside-how-it-runs)
 - [Fields, and public versus private](#fields-and-public-versus-private)
 - [Reflection: reaching a private field by name](#reflection-reaching-a-private-field-by-name)
 - [Static: one shared copy](#static-one-shared-copy)
@@ -140,6 +141,33 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
   `timeScale` speeds everything evenly.
 - **Trigger:** an invisible area in the world that fires something when the player walks into it; how a cutscene
   starts.
+
+## DLLs: how one is made, what's inside, how it runs
+
+**Readable, obfuscated, native.** A normal .NET DLL (Bug Fables', a BepInEx mod's) is readable by nature: IL keeps
+the names and structure, so ILSpy shows near-original C#. An **obfuscated** one had a tool run over it on purpose:
+everything renamed to `a`, `b`, `c`, junk added, parts sometimes encrypted; it still works, it is just miserable to
+read. A **native** DLL (C, C++, IL2CPP) isn't scrambled, only machine code, with the names and structure never kept.
+
+**Made:** `.cs` files (plain text) go through the **compiler**, which checks them (types, private access, names),
+translates them into IL and writes one `.dll`. Inside it: a header (the same Windows container a `.exe` uses),
+**metadata** (tables of every class, method and field with names and types, and which other DLLs it needs; a
+Bug Fables mod lists `Assembly-CSharp`, BepInEx and Harmony), and each method's IL.
+
+**Run, for a BepInEx mod:**
+
+1. **Load:** BepInEx asks Mono to load the mod's DLL into the running game.
+2. **Link:** the mod's code mentions `MainManager.instance`, but its DLL holds only a note: "the field `instance` of
+   class `MainManager`, in `Assembly-CSharp`". Mono matches the note to the real thing already loaded. That is the
+   *link* in Dynamic Link Library, done at runtime.
+3. **Start:** BepInEx finds the plugin class (marked `[BepInPlugin]`), creates it, and its setup code runs.
+4. **Run:** the first time a method runs, Mono translates its IL to machine code and runs it.
+
+After that the mod's code and the game's live in one running program and call each other directly, as if built
+together.
+
+**Why DLLs exist:** sharing (many programs, one library), updating one part without rebuilding everything, and
+plugins: adding code to a program after it was built, which is exactly what a mod is.
 
 ## Fields, and public versus private
 
