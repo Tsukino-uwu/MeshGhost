@@ -180,6 +180,12 @@ exactly 4 bits, so two are exactly one byte. That's why memory and addresses (a 
 | `0100 0001` | `41` | 65, the letter `A` |
 | `0100 1101 0101 1010` | `4D 5A` | the letters `MZ`, the start of every `.exe` and `.dll` |
 
+**Bit versus byte:** a bit is one 1 or 0, two possibilities; a byte is 8 bits, 256 possibilities (one letter, one
+small number, one hex pair). Computers work in bytes: each has its own address in memory, and sizes count them.
+A kilobyte (KB) is about a thousand bytes, a megabyte (MB) about a million, a gigabyte (GB) about a billion (some
+programs count 1,024 instead of 1,000, which is why a "1 TB" drive shows as about 931 GB). Internet speeds are in
+*bits*, small **b** (100 Mbps), file sizes in *bytes*, big **B** (12 MB), so 100 Mbps downloads about 12.5 MB a second.
+
 Loosely, a "binary file" means one whose bytes aren't meant as letters. A text file is 1s and 0s too.
 
 **Every file is bytes underneath**, numbers from 0 to 255, a `.txt` included. A text file's bytes are *letter
