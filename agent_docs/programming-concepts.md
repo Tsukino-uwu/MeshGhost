@@ -22,8 +22,8 @@ and class names read from the game's own assembly, never its code.
 ## Class and object
 
 A **class** is the blueprint (`PlayerControl`); an **object**, or instance, is one real thing built from it (the
-player walking around right now). Fields belong to each object: two enemies built from the same class each have their
-own HP. A class is also a **type**, one the programmer defines: built from fields (each with its own type) plus
+player walking around right now). Fields belong to each object (except *static* ones, below): two enemies built from the same class each
+have their own HP. A class is also a **type**, one the programmer defines: built from fields (each with its own type) plus
 the methods that work on them, where `int` is built into the language. Almost everything below builds on this.
 
 ## Words the rest leans on
@@ -38,11 +38,13 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
   decimals (`2.5f`); `bool` true or false; `string` text (`"Kabbu"`); an **enum** one option from a fixed, named
   list (`enum Weather { Sunny, Rain, Snow }`), a readable name for a number underneath, so code says `Weather.Rain`
   instead of a magic `1`. `var` is not a type: it means "work the type out yourself" (`var speed = 5;` is an `int`).
-  `[]` after a type makes a list of it: `bool[] flags` is a list of true/false, `flags[699]` item 699. A class name is
+  `[]` after a type makes an **array**, a fixed-length list: `bool[] flags` holds true/false values, `flags[699]` is
+  item 699 (counting from 0). A class name is
   a type too: `PlayerControl player` holds (a reference to) a player.
 - **Function:** a named piece of code that does something. A **method** is a function that belongs to a class and
   works on that object's fields: `PlayerControl.DoJump()` makes *this* player jump.
-- **Parameter:** an *input* given to a function inside its brackets: `Jump(5)` passes 5 as the height. (Not a limit.)
+- **Parameter:** an *input* given to a function inside its brackets: Bug Fables' `Jump(5f)` passes 5 as the upward
+  speed the jump starts with. (Not a limit.)
 - **Return:** the result a function hands back to whoever called it. A prefix returning `false` hands back "don't
   run the game's method".
 - **Reference ("points to"):** like a desktop shortcut. The variable holds *where* the object is, not the object:
@@ -50,11 +52,12 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
 - **Memory:** the computer's working space, **RAM** (Random Access Memory): very fast, temporary, emptied when the
   power goes off. It holds everything the game has *right now*: variables, objects, the map. Saves and files live on
   the **disk** and are loaded into memory to be used. RAM is one enormously long street of bytes, each with a house
-  number, its **address** (`0x02024284` is the byte at that number, in hex); a reference is really an address.
+  number, its **address** (`0x02024284` is the byte at that number, in hex); a reference works, in effect, as an
+  address.
   *Random access* means jumping straight to any address, instead of reading from the start like a tape.
 - **Dots and brackets:** `.` means "go inside" (`MainManager.instance.flags`: in MainManager, its instance, its
   flags), like slashes in a folder path. `()` calls a function, parameters inside. `[]` picks one item of a list by
-  number (`flags[699]`). `{}` wraps a block of code.
+  number (`flags[699]`). `{}` wraps a block of code, or a list of items (as in the enum above).
 - **Library:** mostly *code*, not data: ready-made functions and classes other programs use, like a toolbox.
 - **Sharing:** many things using one thing (many programs, one library).
 - **Compile:** translating the code we write into what the computer runs, checking it on the way. That check is where
@@ -76,9 +79,10 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
   so structs are what it uses.
 - **Property:** in C#, looks like a field from outside but runs a little code when read or written. In Unreal,
   "properties" just means an object's fields.
-- **`typeof`:** the class itself as a thing to pass around: `typeof(StartMenu)` tells Harmony which class to look in.
-- **`IEnumerator`:** not related to enums. An *enumerator* hands things out one at a time ("next… next…"), and C#
-  reuses it for coroutines: each `MoveNext` runs to the next `yield`. An **enum** is a named list of options.
+- **`typeof`:** a value *describing* a class (or any type) that can be passed around: `typeof(StartMenu)` tells
+  Harmony which class to look in.
+- **`IEnumerator`:** not related to enums. An *enumerator* hands things out one at a time ("next… next…"), and Unity
+  reuses C#'s enumerators for coroutines: each `MoveNext` runs to the next `yield`. An **enum** is a named list of options.
 
 **Languages**
 
@@ -86,25 +90,27 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
   billions of tiny on/off switches (*transistors*). The **GPU** (Graphics Processing Unit) takes work off it, of a
   different kind: a CPU has a few powerful cores for complicated step-by-step work (game logic, loading); a GPU has
   thousands of simple ones doing the *same* small task on lots of data at once (one colour sum for ~2 million pixels),
-  which is also why GPUs do video encoding and AI. One expert versus a stadium of people with calculators.
+  which is also why GPUs are used for AI. One expert versus a stadium of people with calculators.
 - **Transistor:** a microscopic switch that lets electricity flow or stops it, switched by electricity itself: a small
   voltage on its control connection (literally called the *gate*) decides whether current flows between the other
   two, so one transistor can switch the next. Transistors make **logic gates** (AND: on only if both inputs are; OR:
-  if either is; NOT: flips it), gates make adders and one-bit memory cells, and those make a CPU. Every 1 or 0 is, in
-  the end, one of these switches on or off.
-- **Machine code:** the CPU's own instructions, just numbers. Nobody writes it by hand. Not the same as
-  **binary**, which only means "not text": a .NET DLL is a binary file, yet it holds IL, not machine code.
+  if either is; NOT: flips it), gates make adders and one-bit memory cells, and those make a CPU. Inside a CPU every
+  1 or 0 is one of these switches on or off; storage keeps bits other ways (a tiny electric charge in RAM, magnetism
+  on a hard drive, trapped charge in an SSD).
+- **Machine code:** the CPU's own instructions, just numbers; hardly anyone writes it by hand. Not the same as a
+  **binary file** (loosely, "not text"; see bits and bytes below): a .NET DLL is a binary file, yet it holds IL, not
+  machine code.
 - **C:** low level, close to the machine; you manage memory yourself. Very fast and in full control, but easy to crash
-  or leak. Compiles straight to machine code, so decompiling it gives back little.
+  or leak. Compiles straight to machine code, so a decompiler gives back only a rough C-like version, most names gone.
 - **C#:** high level, with a garbage collector and safety checks: easier and safer, a little more overhead. Compiles
   to a middle step, **IL**, which keeps names and structure; that's why a C# game decompiles back to nearly its source.
 - **IL (Intermediate Language):** instructions for an imaginary computer rather than a real CPU. Building turns C#
   into IL, stored in the `.dll`; when the game runs, the runtime (Mono) turns the IL into machine code for the actual
-  CPU just before each piece runs. So one `.dll` runs on any machine, and because IL keeps class names, field names,
+  CPU just before each piece runs. So one `.dll` runs on any machine that has a runtime, and because IL keeps class names, field names,
   types and each method's structure, ILSpy can turn it back into nearly the original C#. Machine code keeps almost
   none of that, which is IL2CPP's situation. It reads like `ldfld basespeed` ("read the field basespeed").
 - **Lua:** a small *scripting language*, built to be embedded in other programs so they can be scripted without
-  rebuilding them; the program reads a script and runs it directly, no compile step. Not an acronym: Portuguese for
+  rebuilding them; no separate build step: the program compiles the script itself as it loads it, then runs it. Not an acronym: Portuguese for
   "moon", written Lua, not LUA (lua.org, checked 2026-09-27; created at PUC-Rio, Brazil, in 1993). MeshGhost meets it
   in BizHawk (the Emerald and Crystal adapters) and in UE4SS (Pseudoregalia).
 - **The others, by two questions** (what the code becomes; who cleans up memory):
@@ -117,8 +123,8 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
   | Java | bytecode (like IL) | garbage collector | Android, Minecraft |
   | Go | machine code | garbage collector | MeshGhost's relay and core |
   | Rust | machine code | its compile-time rules | speed with safety |
-  | Python | nothing: read and run line by line | garbage collector | Archipelago and its worlds |
-  | Lua | nothing: read and run | garbage collector | BizHawk, UE4SS |
+  | Python | bytecode, made as it loads, run by the interpreter | garbage collector | Archipelago and its worlds |
+  | Lua | bytecode, made as it loads, run by the interpreter | garbage collector | BizHawk, UE4SS |
 
 **Tools and engines**
 
@@ -131,13 +137,14 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
 - **.NET:** a whole *platform* rather than just a framework: the languages (C# mostly) that compile to IL, a
   *runtime* that runs IL (turns it into machine code, collects garbage, throws exceptions), and a big standard library
   (lists, text, files, networking). The names: **.NET Framework** is Microsoft's original, Windows-only, ending at
-  4.8; **.NET** (5 and later, once ".NET Core") is the modern cross-platform one; **Mono** is an independent,
-  open-source runtime, the one Unity uses; **.NET Standard** runs nothing, it is a list of library features all of
+  4.8.1; **.NET** (5 and later, once ".NET Core") is the modern cross-platform one; **Mono** is a separate,
+  open-source runtime, the one Unity uses (its own copy); **.NET Standard** runs nothing, it is a list of library features all of
   them promise (`netstandard2.0` is version 2.0 of that list, not a version of one framework). A BepInEx 5 mod
-  targeting it (Bug Fables' does) uses only those, so its DLL loads in Unity's Mono: C# → IL in the mod's DLL →
+  targeting it (Bug Fables' does) uses only those, so its DLL loads in any Mono that supports the list, as Bug Fables'
+  does: C# → IL in the mod's DLL →
   loaded by BepInEx → run by Mono.
 - **Unity / Unreal:** game engines: rendering, physics, sound, input and an editor, so a game writes only its own
-  logic on top. Unity games are written in C#, Unreal games in C++. Unity itself is C++, running the game's C# on
+  logic on top. Unity games are written in C#, Unreal games in C++ and Blueprints (Unreal's visual scripting). Unity itself is C++, running the game's C# on
   Mono, which is why a Unity game has an `Assembly-CSharp.dll`.
 - **Inspector:** the Unity editor's panel showing the selected object's fields as boxes to edit.
 - **DLL (Dynamic Link Library):** a file of *compiled* code that a program loads while it runs: a *library* of
@@ -147,15 +154,15 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
   gibberish, and renaming a text file to `.dll` makes nothing loadable, because only a compiler produces the format.
   The extension is only a label: a **.NET DLL** (C#) holds IL and reads back cleanly; a **native DLL** (C, C++,
   IL2CPP's `GameAssembly.dll`) holds machine code.
-- **Assembly:** a compiled .NET package; in practice, the `.dll` itself. (Unrelated to *assembly language*, a text
+- **Assembly:** a compiled .NET package: the `.dll` (or `.exe`) itself. (Unrelated to *assembly language*, a text
   form of machine code.)
 - **Mono:** the *runtime* that runs C# while the game plays, turning IL into machine code as it goes. A Mono game
   keeps its code as IL in `Assembly-CSharp.dll`, which is why it reads so cleanly. Nothing is scrambled.
 - **IL2CPP:** Unity's other option: the IL is turned into C++ and compiled to machine code (`GameAssembly.dll`),
-  mainly for speed and platforms like consoles, not to hide anything. The logic is no longer readable; the names
-  survive in `global-metadata.dat` ([access-models.md](access-models.md)).
+  mainly for speed and platforms like consoles, not to hide anything. The logic is only machine code now (a native
+  decompiler gives a rough C-like version, far harder to read); the names survive in `global-metadata.dat` ([access-models.md](access-models.md)).
 - **BepInEx:** a *mod loader*: it gets itself loaded when a Unity game starts, then loads mods into it and gives them
-  settings and a log. It doesn't read or change DLL files.
+  settings and a log. A normal mod through it never edits the game's DLL files.
 - **Harmony:** changes the game's *methods while it runs* (prefix and postfix), in memory, never the DLL file.
   BepInEx gets a mod in; Harmony lets it change the game.
 - **UE4SS:** roughly Unreal's BepInEx: a mod loader and toolkit, with Lua scripting and reflection, hooking the
@@ -179,17 +186,17 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
   second (at 60 FPS each frame has about 16.7 ms).
 - **Rendering:** the process of drawing a frame: the game says where models, lights and the camera are, and the
   engine and GPU work out every pixel's colour.
-- **`Update()`:** the method Unity calls on every object once per frame (see the frame loop). Not "change a value".
+- **`Update()`:** the method Unity calls once per frame on every active script that has one (see the frame loop). Not "change a value".
 - **`Time.timeScale`:** Unity's game clock: 1 normal, 2 double speed, 0 paused. Tying game speed to the *frame rate*
   is bad practice (faster PCs run the game faster); the good way multiplies movement by each frame's time, and then
   `timeScale` speeds everything evenly.
-- **Trigger:** an invisible area in the world that fires something when the player walks into it; how a cutscene
-  starts.
+- **Trigger:** an invisible area in the world that fires something when the player walks into it; a common way a
+  cutscene starts (others: talking to someone, entering a map).
 
 ## Files: bytes, text and formats
 
-**Bits, bytes and hex.** Everything is **bits**, each 1 or 0 (a tiny on/off switch): **binary**, strictly. Eight bits
-make a **byte**, 256 combinations, the numbers 0 to 255. **Hexadecimal** ("hex": Greek *hexa*, six, plus *decimal*, ten, so sixteen; often written with `0x`) is a shorter
+**Bits, bytes and hex.** Everything is **bits**, each 1 or 0 (in a CPU, a tiny on/off switch): **binary**, strictly. Eight bits
+make a **byte**, 256 combinations, the numbers 0 to 255. **Hexadecimal** ("hex": Greek *hexa*, six, plus *decimal*, from Latin for ten, so sixteen; often written with `0x`) is a shorter
 way for people to *write* the same bits: it counts in 16s (`0-9`, then `A-F` for 10 to 15), and one hex digit is
 exactly 4 bits, so two are exactly one byte. That's why memory and addresses (a GBA's `0x02024284`) are shown in hex.
 Its letters aren't there because *numbers* run out but because *digits* do: normal counting has ten single digits,
@@ -199,13 +206,13 @@ hex needs sixteen, so it borrows A-F. In hex they are digits, not letters.
 |---|---|---|
 | `1110 0110` | `E6` | 230 |
 | `0100 0001` | `41` | 65, the letter `A` |
-| `0100 1101 0101 1010` | `4D 5A` | the letters `MZ`, the start of every `.exe` and `.dll` |
+| `0100 1101 0101 1010` | `4D 5A` | the letters `MZ`, the start of every Windows `.exe` and `.dll` |
 
 **Bit versus byte:** a bit is one 1 or 0, two possibilities; a byte is 8 bits, 256 possibilities (one letter, one
 small number, one hex pair). Computers work in bytes: each has its own address in memory, and sizes count them.
 A kilobyte (KB) is about a thousand bytes, a megabyte (MB) about a million, a gigabyte (GB) about a billion (some
 programs count 1,024 instead of 1,000, which is why a "1 TB" drive shows as about 931 GB). Internet speeds are in
-*bits*, small **b** (100 Mbps), file sizes in *bytes*, big **B** (12 MB), so 100 Mbps downloads about 12.5 MB a second.
+*bits*, small **b** (100 Mbps), file sizes in *bytes*, big **B** (12 MB), so 100 Mbps downloads at most about 12.5 MB a second.
 
 Loosely, a "binary file" means one whose bytes aren't meant as letters. A text file is 1s and 0s too.
 
@@ -224,7 +231,7 @@ The disk stores bytes; a **file** is a named run of them; a **format** is the ag
 MP3, DLL), and the extension only hints which agreement to use. That's why renaming changes nothing inside.
 
 - **Header:** the start of a file, saying what it is and how to read the rest: its type, the CPU it's for, where
-  each part begins. Many formats open with fixed *magic bytes* as an ID badge: every `.exe` and `.dll` starts `MZ`.
+  each part begins. Many formats open with fixed *magic bytes* as an ID badge: every Windows `.exe` and `.dll` starts `MZ`.
 - **Metadata:** data *about* the data. A photo's is its date and camera, the pixels being the data; a DLL's is the
   list of classes, names and types, the IL being the content.
 
@@ -236,7 +243,7 @@ which is called **parsing**. Archipelago's messages and `slot_data` are JSON, as
 without shrinking anything; `.tar.gz` is that bundle compressed with gzip; `.zip` does both in one format.
 
 **Programs on other systems:** not just an EXE with another header. Each system has its own container (Windows PE,
-magic `MZ`; Linux ELF, magic `0x7F` then `ELF`, usually no extension; macOS Mach-O, inside a `.app` folder), the machine code
+magic `MZ`; Linux ELF, magic `0x7F` then `ELF`, usually no extension; macOS Mach-O, an app's inside a `.app` folder), the machine code
 must suit the CPU (an Intel/AMD PC and an Apple Silicon Mac differ), and each system is asked for files, windows and
 the network its own way. So a program is built once per system and CPU, one download each; Go builds them all from
 the same code. A .NET DLL is the exception: IL runs wherever a runtime does. On Linux a file runs if it is *marked*
@@ -247,13 +254,14 @@ runnable (a permission), which a `.tar` keeps and a plain zip can lose.
 **Readable, obfuscated, native.** A normal .NET DLL (Bug Fables', a BepInEx mod's) is readable by nature: IL keeps
 the names and structure, so ILSpy shows near-original C#. An **obfuscated** one had a tool run over it on purpose:
 everything renamed to `a`, `b`, `c`, junk added, parts sometimes encrypted; it still works, it is just miserable to
-read. A **native** DLL (C, C++, IL2CPP) isn't scrambled, only machine code, with the names and structure never kept.
+read. A **native** DLL (C, C++, IL2CPP) isn't scrambled, only machine code, with most names and all the structure gone
+(only the functions it offers to others keep theirs).
 
 **Made:** `.cs` files (plain text) go through the **compiler**, which checks them (types, private access, names),
 translates them into IL and writes one `.dll`. The IL becomes machine code only later, while the game runs. Inside it,
 organised like a book whose header is the table of contents: a header (the same Windows container a `.exe` uses),
 **metadata** (tables of every class, method and field with names and types, and which other DLLs it needs; a
-Bug Fables mod lists `Assembly-CSharp`, BepInEx and Harmony), and each method's IL.
+Bug Fables mod lists `Assembly-CSharp`, BepInEx and Harmony among others), and each method's IL.
 
 **Run, for a BepInEx mod:**
 
@@ -304,8 +312,8 @@ HP. Those are public on purpose. The usual habit is **private by default, public
 need**, like a console's buttons (public) and its circuits (private).
 
 **Why Unity games are often mostly public:** in Unity's editor, public fields show in the Inspector, where a developer
-tweaks values while building levels; private ones don't unless marked. So many Unity games, Bug Fables among them,
-make most fields public, which is part of why they are easy to mod.
+tweaks values while building levels; private ones don't unless marked. That is likely why many Unity games, Bug Fables
+among them, make most fields public, which is part of why they are easy to mod.
 
 **Not the same as Rust's memory safety.** Rust's ownership and borrowing are about *when memory is freed* (no use
 after it's gone); C# has a garbage collector for that. **Ownership:** every value has exactly one owner, and when
@@ -314,7 +322,7 @@ for a while without owning it, either many readers at once or exactly one writer
 friends may look at it together or one may drive it, never both, and it can't be scrapped while lent out. Neither
 is about private or public. Private fields are about *which code may touch a value*: how
 the program is organised ("program handling", as the TEVI randomizer's developer put it). Rust has private fields
-too: a struct's fields are private unless marked `pub`, the same idea with the safer default. What the two share is
+too: a struct's fields are private to their module unless marked `pub`, the same idea with the safer default. What the two share is
 that the compiler checks them before the program runs.
 
 **Private is not hidden.** A Mono game's `Assembly-CSharp.dll` keeps every field's name and type, private ones
@@ -343,8 +351,8 @@ A `static` field belongs to the class itself, not to any object, so there is exa
 
 ## The frame loop
 
-A game is a loop. Every frame (60 or more times a second) Unity calls each object's `Update()`: read the input, move
-things, draw. That's why speeds are multiplied by the frame's time, so movement doesn't depend on the frame rate, and
+A game is a loop. Every frame (often 60 times a second, but it varies) Unity calls each active script's `Update()`:
+read the input, move things, draw. That's why well-made games multiply speeds by the frame's time, so movement doesn't depend on the frame rate, and
 why a scene can be sped up by making each frame count for more time (`Time.timeScale`).
 
 ## Coroutines: code that pauses
@@ -374,8 +382,8 @@ IEnumerator Cutscene()
 scene, second fight, scene" is one coroutine pausing at each fight. Kabbu's horn slash waits a few frames for a
 second tap before it becomes a dash (`DoActionTap`), and ending the dash waits a quarter second (`StopDash`).
 
-**Think of it as a scene's script**, acted out line by line. Walking into an invisible trigger on the map makes the
-game *start* that scene's coroutine; it moves characters, shows text and waits for a button, starts a battle and
+**Think of it as a scene's script**, acted out line by line. Something makes the game *start* that scene's coroutine
+(often walking into an invisible trigger); it moves characters, shows text and waits for a button, starts a battle and
 waits for it to end, sets story flags and gives items, then stops by itself. So it does two kinds of things: what you
 *watch* (walking, text, a bridge falling), and what *changes the game* (flags, items, party members), which the rest
 of the game checks later (a door opens only once a flag is set).
@@ -412,15 +420,15 @@ two.
 
 ## Threads: why received things wait for a safe moment
 
-A **thread** is code running at the same time as other code. A network connection (Archipelago's, or MeshGhost's
-bridge) receives on its own thread, but Unity allows its objects to be touched only from the main game thread. So
+A **thread** is code running at the same time as other code. A network connection often works on threads of its own
+(the Bug Fables mod's Archipelago connection does), but most of Unity may be touched only from the main game thread. So
 whatever arrives is queued, and the game's own loop hands it out later, one at a time, when nothing else is happening
 (no map change, menu or cutscene).
 
 ## Null: nothing is there
 
 A field that points to an object can be `null`: no battle running, no menu open, the player not spawned yet. Using it
-anyway throws `NullReferenceException`, the most common error there is. Much of a mod's checking is "is this actually
+anyway throws `NullReferenceException`, one of the most common errors there is. Much of a mod's checking is "is this actually
 there right now?"
 
 ## Magic numbers
