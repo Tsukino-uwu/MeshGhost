@@ -6,10 +6,12 @@ more than 2 days before this file's last commit fails preflight** — at this pr
 already not current on 2026-09-02 (user's call). At the start of a session re-date what is still current and move the rest to `plans.md`,
 `ideas.md`, the adapter's `UNVERIFIED.md` or `risks.md`; a quiet repo does not go red, because age is
 measured against this file's own last commit. It lists tasks: what is running is not one (`running-the-rig.md`, the user's call 2026-09-16). Records are never listed here — `verified.md`, the phase
-files and each `VERIFIED.md` hold them. Why two lines and a date, not a total cap: [claude-md-cap.md](claude-md-cap.md). **An item may say `hold to <date>`** when the user has scheduled it past the two days: preflight ages it by its newest date, so it stays until then, and only the user's call sets that date.
+files and each `VERIFIED.md` hold them. Why two lines and a date, not a total cap: [claude-md-cap.md](claude-md-cap.md). **An item may say `hold to <date>`** when the user has scheduled it past the two days: preflight ages it by its newest date, so it stays until then, and only the user's call sets that date. **An item marked `PINNED`** never ages out: a priority the user has said must
+not expire (2026-09-27), kept at the top until the user unpins it.
 
 ## Open now
 
+- 2026-09-27 — **PINNED, priority 1 (the user): strip the build paths out of the four shipped DLLs** (one holds the username); its hold to 2026-09-25 passed undone. `risks.md`.
 - 2026-09-27 (re-checked) — **Sort each adapter's older code-level entries out of `UNVERIFIED.md`/`VERIFIED.md` into `MEASURED.md`**, and give every `UNVERIFIED.md` (and `_template`) a full index. Another chat.
 - 2026-09-27 (re-checked) — **Autoplay, Emerald: the League beaten** (the 1:1 route run); the state planner's step 2 begun, badge rules measured; next the capability reader. `phases/autoplay/emerald.md`.
 - 2026-09-27 (re-checked) — **Autoplay, Crystal: paused** (the user); `goto`, the PACK, POKéMON menu, badges, bike, surf and `effective` scoring done on V1.0; next the whiteout. `phases/autoplay/crystal.md`.
@@ -19,7 +21,6 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 - 2026-09-27 (re-checked) — **Prediction: A3 LANDED (ADR 0069, ships off), SCREEN VERDICT OPEN; A2.0 MEASURED** (transit p99 310–320ms; the dry tail is the 1 s blackouts); A2 undecided. `prediction-planning.md`.
 - 2026-09-27 (re-checked) — **Chaser contact: `hurt`, `kill`, the respawn and seated/talking holds WORK (user-confirmed); open: Part A's attack leaks, the world-leak crash on reload.** `chaser-planning.md`.
 - 2026-09-27 (re-checked) — **Every adapter README's "roughly in order" build story: a stale sweep** -- it drifts despite the checks (the user); Pseudoregalia likely skips steps 70-71. Fact-check against the code.
-- 2026-09-27 (re-checked; hold to 2026-09-25 passed) — **Strip the build paths out of the four shipped DLLs** (one holds the username); `UE4SS.dll` needs a rebuild and a user-judged reload. `risks.md`.
 - 2026-09-27 (re-checked) — **netsim: ADR 0046's 450 ms has never been judged on the correlated-loss model** (`-loss-burst`, opt-in since 2026-09-11). `phases/phase10.md`.
 
 **Trimmed 2026-09-15**: records of finished work were dropped and items already queued in an

@@ -2078,7 +2078,7 @@ if (-not (Test-Path -LiteralPath $statusPath)) {
         $refDate = if ($ts) { ([DateTimeOffset]::FromUnixTimeSeconds([int64]$ts)).LocalDateTime.Date } else { (Get-Date).Date }
     }
     $sLines = @(Get-Content -LiteralPath $statusPath)
-    $undated = @(); $stale = @(); $items = 0
+    $undated = @(); $stale = @(); $items = 0; $statusPinned = 0
     for ($i = 0; $i -lt $sLines.Count; $i++) {
         $l = $sLines[$i]
         if ($l -notmatch '^- ') { continue }
@@ -2087,7 +2087,10 @@ if (-not (Test-Path -LiteralPath $statusPath)) {
         if (-not $dates) { $undated += "$($i + 1): $($l.Substring(0, [math]::Min(70, $l.Length)))"; continue }
         $newest = ($dates | Sort-Object | Select-Object -Last 1)
         $age = ($refDate - [datetime]::ParseExact($newest, 'yyyy-MM-dd', $null)).TotalDays
-        if ($age -gt $statusMaxAgeDays) { $stale += "$($i + 1): $newest ($([int]$age) days) $($l.Substring(0, [math]::Min(60, $l.Length)))" }
+        # PINNED (the user's call, 2026-09-27): a priority item that must not expire unnoticed, as the DLL paths'
+        # hold did on 2026-09-25. It keeps its place until the user unpins it; only the age check skips it.
+        if ($l -cmatch '\bPINNED\b') { $statusPinned++ }
+        elseif ($age -gt $statusMaxAgeDays) { $stale += "$($i + 1): $newest ($([int]$age) days) $($l.Substring(0, [math]::Min(60, $l.Length)))" }
         if ($l.Length -gt $statusMaxItemChars) {
             $statusLong += "$($i + 1): $($l.Length) chars (~$([math]::Round($l.Length / 105.0)) lines) $($l.Substring(0, [math]::Min(50, $l.Length)))"
         }
@@ -2115,7 +2118,7 @@ if (-not (Test-Path -LiteralPath $statusPath)) {
         $stale | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
     }
     if ($items -gt 0 -and $undated.Count -eq 0 -and $stale.Count -eq 0) {
-        Report-Pass "$items status item(s), all dated within $statusMaxAgeDays days of $($refDate.ToString('yyyy-MM-dd'))"
+        Report-Pass "$items status item(s), all dated within $statusMaxAgeDays days of $($refDate.ToString('yyyy-MM-dd')) ($statusPinned pinned)"
     }
 }
 

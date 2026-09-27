@@ -1322,3 +1322,5 @@ and DIVE; then which badge each field move needs, from the party menu (48 trials
 `adapters/emulator/pokemon/emerald/MEASURED.md`, same date; the autoplay side in [autoplay/emerald.md](autoplay/emerald.md).
 
 ## 2026-09-24 — pointer: autoplay's Emerald work (`goto` clearing obstacles, the `field_move` errand, each field move's badge) is logged in [autoplay/emerald.md](autoplay/emerald.md)
+
+## 2026-09-27 — pointer: MEASURED.md's "Field-move badges on an Archipelago seed" got its missing index line, for the docs check; no Emerald work (the user is on Bug Fables)

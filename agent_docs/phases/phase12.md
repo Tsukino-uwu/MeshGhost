@@ -779,3 +779,12 @@ is unknown, and I had no Linux here to find out). The test now also watches the 
 moment the attached socket reports `IsClosed`, the exact closed-but-attached window the original bug
 lived in. With the fix disabled it still fails 6 of 10; with it, 50 of 50 and 20 of 20 under `-race`.
 Both gotests scripts green, `./netx/... -count=10` green. CI (Linux) is the real retest.
+
+## 2026-09-27 — status.md's PINNED items: a priority that cannot age out
+
+The build-paths item (strip the paths and the username out of the four shipped DLLs) was on `hold to 2026-09-25`
+and passed that date undone, noticed only at a re-check on 2026-09-27. The user asked for it as priority 1 that
+"can't expire". `preflight.ps1`'s status section now skips the age check for an item carrying `PINNED` (matched case
+sensitively, as a word, so an ordinary "pinned" doesn't exempt anything); the length limit still applies, and the
+pass line counts the pinned items. status.md's header states the rule next to `hold to <date>`; the item sits first
+under "Open now". Unpinning is the user's call.
