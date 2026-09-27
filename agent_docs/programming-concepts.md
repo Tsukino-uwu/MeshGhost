@@ -81,6 +81,10 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
   CPU just before each piece runs. So one `.dll` runs on any machine, and because IL keeps class names, field names,
   types and each method's structure, ILSpy can turn it back into nearly the original C#. Machine code keeps almost
   none of that, which is IL2CPP's situation. It reads like `ldfld basespeed` ("read the field basespeed").
+- **Lua:** a small *scripting language*, built to be embedded in other programs so they can be scripted without
+  rebuilding them; the program reads a script and runs it directly, no compile step. Not an acronym: Portuguese for
+  "moon", written Lua, not LUA (lua.org, checked 2026-09-27; created at PUC-Rio, Brazil, in 1993). MeshGhost meets it
+  in BizHawk (the Emerald and Crystal adapters) and in UE4SS (Pseudoregalia).
 
 **Tools and engines**
 
