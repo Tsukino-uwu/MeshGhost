@@ -87,6 +87,13 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
 - **Unity / Unreal:** game engines: rendering, physics, sound, input and an editor, so a game writes only its own
   logic on top. Unity games are written in C#, Unreal games in C++.
 - **Inspector:** the Unity editor's panel showing the selected object's fields as boxes to edit.
+- **DLL (Dynamic Link Library):** a file of *compiled* code that a program loads while it runs: a *library* of
+  ready-made functions and classes, *linked* in when needed rather than baked in. It can't run by itself; an `.exe`
+  loads it (so BepInEx can get a game to load a mod's DLL beside its own `Assembly-CSharp.dll`). Unlike `.txt`,
+  `.md` or `.bat`, which are all plain text (a `.bat` is commands read line by line), a DLL is binary: Notepad shows
+  gibberish, and renaming a text file to `.dll` makes nothing loadable, because only a compiler produces the format.
+  The extension is only a label: a **.NET DLL** (C#) holds IL and reads back cleanly; a **native DLL** (C, C++,
+  IL2CPP's `GameAssembly.dll`) holds machine code.
 - **Assembly:** a compiled .NET package; in practice, the `.dll` itself. (Unrelated to *assembly language*, a text
   form of machine code.)
 - **Mono:** the *runtime* that runs C# while the game plays, turning IL into machine code as it goes. A Mono game
