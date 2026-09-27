@@ -7,6 +7,7 @@ and class names read from the game's own assembly, never its code.
 
 - [Class and object](#class-and-object)
 - [Words the rest leans on](#words-the-rest-leans-on)
+- [Files: bytes, text and formats](#files-bytes-text-and-formats)
 - [DLLs: how one is made, what's inside, how it runs](#dlls-how-one-is-made-whats-inside-how-it-runs)
 - [Fields, and public versus private](#fields-and-public-versus-private)
 - [Reflection: reaching a private field by name](#reflection-reaching-a-private-field-by-name)
@@ -22,7 +23,8 @@ and class names read from the game's own assembly, never its code.
 
 A **class** is the blueprint (`PlayerControl`); an **object**, or instance, is one real thing built from it (the
 player walking around right now). Fields belong to each object: two enemies built from the same class each have their
-own HP. Almost everything below builds on this.
+own HP. A class is also a **type**, one the programmer defines: built from fields (each with its own type) plus
+the methods that work on them, where `int` is built into the language. Almost everything below builds on this.
 
 ## Words the rest leans on
 
@@ -50,8 +52,11 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
 - **Dots and brackets:** `.` means "go inside" (`MainManager.instance.flags`: in MainManager, its instance, its
   flags), like slashes in a folder path. `()` calls a function, parameters inside. `[]` picks one item of a list by
   number (`flags[699]`). `{}` wraps a block of code.
+- **Library:** mostly *code*, not data: ready-made functions and classes other programs use, like a toolbox.
+- **Sharing:** many things using one thing (many programs, one library).
 - **Compile:** translating the code we write into what the computer runs, checking it on the way. That check is where
-  "private" is enforced and a misspelled public name fails. *Build* is compiling plus packaging the result.
+  "private" is enforced and a misspelled public name fails. *Compile time* is while it's built; *runtime* is the
+  whole time it runs, not only its start. *Build* is compiling plus packaging the result.
 - **State machine:** something that is always in exactly one state from a fixed list, with rules for moving between
   them: a game's title screen, overworld, battle and menu; a boss's attack pattern. A coroutine is turned into one.
 - **Garbage collector:** frees memory nothing uses any more, automatically, so nothing is "forgotten". Two catches:
@@ -72,7 +77,8 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
 
 **Languages**
 
-- **Machine code (binary):** the CPU's own instructions, just numbers. Nobody writes it by hand.
+- **Machine code:** the CPU's own instructions, just numbers. Nobody writes it by hand. Not the same as
+  **binary**, which only means "not text": a .NET DLL is a binary file, yet it holds IL, not machine code.
 - **C:** low level, close to the machine; you manage memory yourself. Very fast and in full control, but easy to crash
   or leak. Compiles straight to machine code, so decompiling it gives back little.
 - **C#:** high level, with a garbage collector and safety checks: easier and safer, a little more overhead. Compiles
@@ -86,6 +92,18 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
   rebuilding them; the program reads a script and runs it directly, no compile step. Not an acronym: Portuguese for
   "moon", written Lua, not LUA (lua.org, checked 2026-09-27; created at PUC-Rio, Brazil, in 1993). MeshGhost meets it
   in BizHawk (the Emerald and Crystal adapters) and in UE4SS (Pseudoregalia).
+- **The others, by two questions** (what the code becomes; who cleans up memory):
+
+  | Language | Becomes | Memory | Where you meet it |
+  |---|---|---|---|
+  | C | machine code | by hand | systems, speed |
+  | C++ | machine code | by hand, with helpers | Unreal; Unity's engine core |
+  | C# | IL, run by a runtime | garbage collector | Unity games, BepInEx mods |
+  | Java | bytecode (like IL) | garbage collector | Android, Minecraft |
+  | Go | machine code | garbage collector | MeshGhost's relay and core |
+  | Rust | machine code | its compile-time rules | speed with safety |
+  | Python | nothing: read and run line by line | garbage collector | Archipelago and its worlds |
+  | Lua | nothing: read and run | garbage collector | BizHawk, UE4SS |
 
 **Tools and engines**
 
@@ -100,7 +118,8 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
   (lists, text, files, networking). The names: **.NET Framework** is Microsoft's original, Windows-only, ending at
   4.8; **.NET** (5 and later, once ".NET Core") is the modern cross-platform one; **Mono** is an independent,
   open-source runtime, the one Unity uses; **.NET Standard** runs nothing, it is a list of library features all of
-  them promise. A BepInEx 5 mod targeting `netstandard2.0` (Bug Fables' does) uses only those, so its DLL loads in
+  them promise (`netstandard2.0` is version 2.0 of that list, not a version of one framework). A BepInEx 5 mod
+  targeting it (Bug Fables' does) uses only those, so its DLL loads in
   Unity's Mono: C# → IL in the mod's DLL → loaded by BepInEx → run by Mono.
 - **Unity / Unreal:** game engines: rendering, physics, sound, input and an editor, so a game writes only its own
   logic on top. Unity games are written in C#, Unreal games in C++. Unity itself is C++, running the game's C# on
@@ -126,6 +145,12 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
   BepInEx gets a mod in; Harmony lets it change the game.
 - **UE4SS:** roughly Unreal's BepInEx: a mod loader and toolkit, with Lua scripting and reflection, hooking the
   game's executable (an Unreal game has no C# DLL).
+- **Obfuscation:** making code hard to read *on purpose* (everything renamed `a`, `b`, `c`, junk added), to slow
+  down cheaters, crackers or copiers. Not real encryption: the code still runs as it is, so it can still be worked
+  out. Security by obscurity: a speed bump, not a lock.
+- **Plugin:** an add-on loaded into a program *while it runs*, not built into it: usually a DLL, sometimes a
+  script. Programs are usually designed to take them; Bug Fables wasn't, so BepInEx adds that, and a mod is a
+  "BepInEx plugin".
 - **Decompile:** turn compiled code back into readable source, approximately.
 - **ILSpy:** a *tool* (a program used) rather than a framework (code built on): it opens .NET DLLs and shows them as C#.
 - **Patch:** a change applied on top of something. In Harmony, a prefix or postfix attached to a game method.
@@ -142,6 +167,22 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
 - **Trigger:** an invisible area in the world that fires something when the player walks into it; how a cutscene
   starts.
 
+## Files: bytes, text and formats
+
+**Every file is bytes underneath**, numbers from 0 to 255, a `.txt` included. A text file's bytes are *letter
+codes* (in the usual encoding, UTF-8, 65 is `A`), so any editor shows them as letters; a DLL's bytes are structured
+numbers that aren't letter codes, so Notepad's attempt at letters is gibberish. "Text" versus "binary" is only
+whether the bytes are meant as letters. A `.cs` file is text: source code that does nothing until a compiler reads
+it.
+
+The disk stores bytes; a **file** is a named run of them; a **format** is the agreement on what they mean (PNG,
+MP3, DLL), and the extension only hints which agreement to use. That's why renaming changes nothing inside.
+
+- **Header:** the start of a file, saying what it is and how to read the rest: its type, the CPU it's for, where
+  each part begins. Many formats open with fixed *magic bytes* as an ID badge: every `.exe` and `.dll` starts `MZ`.
+- **Metadata:** data *about* the data. A photo's is its date and camera, the pixels being the data; a DLL's is the
+  list of classes, names and types, the IL being the content.
+
 ## DLLs: how one is made, what's inside, how it runs
 
 **Readable, obfuscated, native.** A normal .NET DLL (Bug Fables', a BepInEx mod's) is readable by nature: IL keeps
@@ -150,7 +191,8 @@ everything renamed to `a`, `b`, `c`, junk added, parts sometimes encrypted; it s
 read. A **native** DLL (C, C++, IL2CPP) isn't scrambled, only machine code, with the names and structure never kept.
 
 **Made:** `.cs` files (plain text) go through the **compiler**, which checks them (types, private access, names),
-translates them into IL and writes one `.dll`. Inside it: a header (the same Windows container a `.exe` uses),
+translates them into IL and writes one `.dll`. The IL becomes machine code only later, while the game runs. Inside it,
+organised like a book whose header is the table of contents: a header (the same Windows container a `.exe` uses),
 **metadata** (tables of every class, method and field with names and types, and which other DLLs it needs; a
 Bug Fables mod lists `Assembly-CSharp`, BepInEx and Harmony), and each method's IL.
 
@@ -159,12 +201,19 @@ Bug Fables mod lists `Assembly-CSharp`, BepInEx and Harmony), and each method's 
 1. **Load:** BepInEx asks Mono to load the mod's DLL into the running game.
 2. **Link:** the mod's code mentions `MainManager.instance`, but its DLL holds only a note: "the field `instance` of
    class `MainManager`, in `Assembly-CSharp`". Mono matches the note to the real thing already loaded. That is the
-   *link* in Dynamic Link Library, done at runtime.
+   *link* in Dynamic Link Library, done at runtime. (*Static* linking would copy the library's code into the program
+   at build time instead: one big file, fixed forever.)
 3. **Start:** BepInEx finds the plugin class (marked `[BepInPlugin]`), creates it, and its setup code runs.
 4. **Run:** the first time a method runs, Mono translates its IL to machine code and runs it.
 
 After that the mod's code and the game's live in one running program and call each other directly, as if built
 together.
+
+**An EXE** (*executable*) is the same container with an **entry point**, "start here", so Windows can start it: it
+reads the header, loads the file and the DLLs it needs, and jumps to the entry point. A native `.exe` holds machine
+code; a .NET one holds IL and a small starter for the runtime. A Unity game's `.exe` is mostly a launcher: it loads
+Unity's engine DLL, which starts Mono, which runs `Assembly-CSharp.dll`. It is compiled like a DLL, only marked as
+runnable.
 
 **Why DLLs exist:** sharing (many programs, one library), updating one part without rebuilding everything, and
 plugins: adding code to a program after it was built, which is exactly what a mod is.
