@@ -903,3 +903,5 @@ Mullvad drops IPv6 unless told otherwise (`environment.md`, .NET SDK entry; `bui
 "Unable to find package BepInEx.Core": only `MeshGhostTevi/` had the `nuget.config` naming the BepInEx feed. One
 root `nuget.config` now covers all four `.csproj`s and the adapter's copy is gone (`be517483`); all four
 force-restored with the VPN up.
+
+## 2026-09-23 — pointer: autoplay's TEVI work (fast-forward, the fight rules as switches, the trials runner) is logged in [autoplay/tevi.md](autoplay/tevi.md)

@@ -1320,3 +1320,5 @@ in [autoplay/emerald.md](autoplay/emerald.md).
 **2026-09-24 (Emerald, autoplay):** boulders, STRENGTH's flag, hide flags, currents, waterfalls, cracks on the MACH BIKE
 and DIVE; then which badge each field move needs, from the party menu (48 trials). Both in
 `adapters/emulator/pokemon/emerald/MEASURED.md`, same date; the autoplay side in [autoplay/emerald.md](autoplay/emerald.md).
+
+## 2026-09-24 — pointer: autoplay's Emerald work (`goto` clearing obstacles, the `field_move` errand, each field move's badge) is logged in [autoplay/emerald.md](autoplay/emerald.md)

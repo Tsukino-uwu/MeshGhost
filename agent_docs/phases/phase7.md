@@ -3919,3 +3919,5 @@ Two entries in `adapters/pseudoregalia/MEASURED.md` from the autoplay driver's s
 over 40 bytes read empty in UE4SS's Lua -- Phase 7.5's corrupt lines --, injected input, the camera rig, File Select,
 jump heights, the backflip, and `activeSaveSlotName` reading the user's File 5 in a File 8 game). The session:
 `phases/autoplay/pseudoregalia.md`.
+
+## 2026-09-27 — pointer: MEASURED.md's 2026-09-23 night entry (the Keeper, a pit's cost) got its missing index line, for the docs check; no Pseudoregalia work (the user is on Bug Fables)

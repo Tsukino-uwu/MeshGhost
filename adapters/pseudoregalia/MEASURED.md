@@ -50,6 +50,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - 2026-09-23 (autoplay) — LuaSocket's received strings, injected input, the camera rig, the title's keys, File Select
 - 2026-09-23 (autoplay, later) — how she moves: frame rate, the capsule, jump heights, the backflip, the save slot
 - 2026-09-23 (autoplay, evening) — ledge grabs, climb poles, the float at a jump's top, coyote time, the slide, breakable walls
+- 2026-09-23 (autoplay, night) — the Keeper, a pit's cost, a bubble's boost, the castle's exits
 
 ## Measured
 

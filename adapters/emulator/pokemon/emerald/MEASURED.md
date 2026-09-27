@@ -90,6 +90,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
 - Not measured yet: The rest of a battle (from 2026-09-16)
+- Not measured yet: Field-move badges on an Archipelago seed (from 2026-09-24)
 
 ## Measured
 
