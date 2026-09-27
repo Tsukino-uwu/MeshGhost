@@ -158,8 +158,8 @@ A `static` field belongs to the class itself, not to any object, so there is exa
 Each field has an access level:
 
 - **public:** any code may read and change it.
-- **private:** only the class's own code may. Anyone else writing it gets an error when the code is built (see
-  compiling, part 3).
+- **private:** only the class's own code may. Any other code that even mentions it, to read or to change it, gets an
+  error when the code is built (see compiling, part 3).
 
 It is not about what kind of data a field holds. The programmer chooses per field, as a promise the compiler then
 enforces. Bug Fables, one class (`PlayerControl`):
@@ -218,7 +218,8 @@ that the compiler checks them before the program runs.
 - **Lua:** a small *scripting language*, built to be embedded in other programs so they can be scripted without
   rebuilding them; no separate build step: the program compiles the script itself as it loads it, then runs it. Not an
   acronym: Portuguese for "moon", written Lua, not LUA (lua.org, checked 2026-09-27; created at PUC-Rio, Brazil, in
-  1993). MeshGhost meets it in BizHawk (the Emerald and Crystal adapters) and in UE4SS (Pseudoregalia).
+  1993). MeshGhost meets it in BizHawk (the Emerald and Crystal adapters) and in UE4SS (Pseudoregalia's probes; that adapter
+  itself is C++).
 
 The others, by two questions (what the code becomes; who cleans up memory):
 
@@ -360,7 +361,7 @@ A game is a loop. Every frame (often 60 times a second, but it varies) Unity cal
 script that has one (read the input, move things), then draws the frame. (`Update()` is that method's name, not "change a value".)
 Tying game speed to the frame rate is bad practice (faster PCs run the game faster), so well-made games multiply
 speeds by the frame's time. **`Time.timeScale`** is Unity's game clock: 1 normal, 2 double speed, 0 frozen (`Update()`
-still runs, but no time passes); it changes how much time each frame counts for, which is how a scene can be sped up evenly.
+still runs, but no time passes, and timed waits like `WaitForSeconds` stop); it changes how much time each frame counts for, which is how a scene can be sped up evenly.
 
 ### Game state
 
@@ -415,12 +416,13 @@ then come back to the *next* step, not the first (that's `MoveNext`), and ice it
 - **Speed up: let the script play in full, faster.** Every step still happens the game's own way; the mod runs time
   at 8x and answers the text boxes. Safe for a complicated scene, because the mod never has to repeat what it does.
 
-Hence the Bug Fables rule: only dialogue is skipped; anything that happens is sped up.
+Hence the rule the Bug Fables mod is moving to (planned, not built yet, 2026-09-27): a scene that only talks is
+skipped, a scene where something happens is sped up, and tutorials and scripted fights are always cut.
 
 **Under the hood** each `yield` splits the coroutine into numbered steps, a small state machine (part 2) that
-`MoveNext` ("run the next step") advances. So a mod can hook the very first step: the Bug Fables mod gates the attack
-items that way (pressing attack starts a short coroutine, `DoActionTap`; without the item, its first step ends it and
-the attack never happens). Jump is a plain method, gated with a plain prefix (part 5).
+`MoveNext` ("run the next step") advances. So a mod can hook the very first step: the Bug Fables mod locks the field
+attacks that way until their items arrive (pressing attack starts a short coroutine, `DoActionTap`; without the item,
+its first step ends it and the attack never happens). Jump is a plain method, gated with a plain prefix (part 5).
 
 ### Threads: why received things wait for a safe moment
 
