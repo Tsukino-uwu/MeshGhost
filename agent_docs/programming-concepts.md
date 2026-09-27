@@ -138,6 +138,11 @@ waits for it to end, sets story flags and gives items, then stops by itself. So 
 *watch* (walking, text, a bridge falling), and what *changes the game* (flags, items, party members), which the rest
 of the game checks later (a door opens only once a flag is set).
 
+**Not a queue.** A queue is a line of separate things waiting their turn (received items wait in one until play is
+safe). A coroutine is *one* job spread out over time: code that has started, is paused partway, and remembers where.
+Like a recipe: mix the dough, put it in the oven and go do other things for 20 minutes (the game keeps running),
+then come back to the *next* step, not the first (that's `MoveNext`), and ice it.
+
 **That's why a mod has two ways to shorten a scene:**
 
 - **Skip: never start the script.** Nothing plays, and nothing in it happens either, so the mod must make its game
