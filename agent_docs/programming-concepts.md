@@ -5,10 +5,10 @@ The concepts, not this project's decisions; the examples come from Unity games m
 the author's Bug Fables Archipelago mod), because that is where they came up (2026-09-27). Game names below are field
 and class names read from the game's own assembly, never its code.
 
+- [Class and object](#class-and-object)
 - [Words the rest leans on](#words-the-rest-leans-on)
 - [Fields, and public versus private](#fields-and-public-versus-private)
 - [Reflection: reaching a private field by name](#reflection-reaching-a-private-field-by-name)
-- [Class and object](#class-and-object)
 - [Static: one shared copy](#static-one-shared-copy)
 - [The frame loop](#the-frame-loop)
 - [Coroutines: code that pauses](#coroutines-code-that-pauses)
@@ -17,21 +17,93 @@ and class names read from the game's own assembly, never its code.
 - [Null: nothing is there](#null-nothing-is-there)
 - [Magic numbers](#magic-numbers)
 
+## Class and object
+
+A **class** is the blueprint (`PlayerControl`); an **object**, or instance, is one real thing built from it (the
+player walking around right now). Fields belong to each object: two enemies built from the same class each have their
+own HP. Almost everything below builds on this.
+
 ## Words the rest leans on
 
-- **Method:** a function that belongs to a class and works on that object's fields. `PlayerControl.DoJump()` makes
-  *this* player jump.
-- **Compile:** translating the code we write into what the computer runs (C# into the mod's `.dll`), checking it on
-  the way. That check is where "private" is enforced and a misspelled public name fails. *Build* is compiling plus
-  packaging the result.
+Each of these came up as a question (2026-09-27); where the first guess was close, the difference is kept.
+
+**Code in general**
+
+- **Variable:** a named box holding a value. `int` is the *kind* (type) of value it holds: in `int speed = 5;`,
+  `speed` is the variable, `int` its type, `5` its value. A **field** is a variable that belongs to a class.
+- **Function:** a named piece of code that does something. A **method** is a function that belongs to a class and
+  works on that object's fields: `PlayerControl.DoJump()` makes *this* player jump.
+- **Parameter:** an *input* given to a function inside its brackets: `Jump(5)` passes 5 as the height. (Not a limit.)
+- **Return:** the result a function hands back to whoever called it. A prefix returning `false` hands back "don't
+  run the game's method".
+- **Reference ("points to"):** like a desktop shortcut. The variable holds *where* the object is, not the object:
+  two variables can point to the same one, and `null` is a shortcut to nothing. (Not about code running elsewhere.)
+- **Memory:** the computer's working space (RAM), holding everything the game has *right now*: variables, objects,
+  the map. Gone when the game closes. Saves and files live on the **disk** and are loaded into memory to be used.
+- **Dots and brackets:** `.` means "go inside" (`MainManager.instance.flags`: in MainManager, its instance, its
+  flags), like slashes in a folder path. `()` calls a function, parameters inside. `[]` picks one item of a list by
+  number (`flags[699]`). `{}` wraps a block of code.
+- **Compile:** translating the code we write into what the computer runs, checking it on the way. That check is where
+  "private" is enforced and a misspelled public name fails. *Build* is compiling plus packaging the result.
 - **State machine:** something that is always in exactly one state from a fixed list, with rules for moving between
   them: a game's title screen, overworld, battle and menu; a boss's attack pattern. A coroutine is turned into one.
 - **Garbage collector:** frees memory nothing uses any more, automatically, so nothing is "forgotten". Two catches:
   holding on to things still leaks (a list that only grows), and a collection takes time, which can show as a stutter.
 - **Throwing an exception:** an error that **stops the current code on the spot** and jumps out until something
-  catches it (`try`/`catch`); nothing after it in that method runs. Unity logs it and carries on next frame, so it
-  *looks* like "log and continue", but the work was left half done. One thrown every frame means that work never
-  finishes.
+  catches it; nothing after it in that method runs. Unity logs it and carries on next frame, so it *looks* like "log
+  and continue", but the work was left half done. One thrown every frame means that work never finishes.
+- **`try` / `catch`:** `try` runs some code; if an exception is thrown inside, it lands in `catch` instead of
+  crashing out, and the code decides what happens (log it, fall back). It catches the error afterwards; it doesn't
+  prevent it.
+- **Struct:** a bundle of fields grouped together, like a small class (a position is `x, y, z`). Rust has no classes,
+  so structs are what it uses.
+- **Property:** in C#, looks like a field from outside but runs a little code when read or written. In Unreal,
+  "properties" just means an object's fields.
+- **`typeof`:** the class itself as a thing to pass around: `typeof(StartMenu)` tells Harmony which class to look in.
+- **`IEnumerator`:** not related to enums. An *enumerator* hands things out one at a time ("next… next…"), and C#
+  reuses it for coroutines: each `MoveNext` runs to the next `yield`. An **enum** is a named list of options.
+
+**Languages**
+
+- **Machine code (binary):** the CPU's own instructions, just numbers. Nobody writes it by hand.
+- **C:** low level, close to the machine; you manage memory yourself. Very fast and in full control, but easy to crash
+  or leak. Compiles straight to machine code, so decompiling it gives back little.
+- **C#:** high level, with a garbage collector and safety checks: easier and safer, a little more overhead. Compiles
+  to a middle step, **IL**, which keeps names and structure; that's why a C# game decompiles back to nearly its source.
+
+**Tools and engines**
+
+- **Unity / Unreal:** game engines: rendering, physics, sound, input and an editor, so a game writes only its own
+  logic on top. Unity games are written in C#, Unreal games in C++.
+- **Inspector:** the Unity editor's panel showing the selected object's fields as boxes to edit.
+- **Assembly:** a compiled .NET package; in practice, the `.dll` itself. (Unrelated to *assembly language*, a text
+  form of machine code.)
+- **Mono:** the *runtime* that runs C# while the game plays, turning IL into machine code as it goes. A Mono game
+  keeps its code as IL in `Assembly-CSharp.dll`, which is why it reads so cleanly. Nothing is scrambled.
+- **IL2CPP:** Unity's other option: the IL is turned into C++ and compiled to machine code (`GameAssembly.dll`),
+  mainly for speed and platforms like consoles, not to hide anything. The logic is no longer readable; the names
+  survive in `global-metadata.dat` ([access-models.md](access-models.md)).
+- **BepInEx:** a *mod loader*: it gets itself loaded when a Unity game starts, then loads mods into it and gives them
+  settings and a log. It doesn't read or change DLL files.
+- **Harmony:** changes the game's *methods while it runs* (prefix and postfix), in memory, never the DLL file.
+  BepInEx gets a mod in; Harmony lets it change the game.
+- **UE4SS:** roughly Unreal's BepInEx: a mod loader and toolkit, with Lua scripting and reflection, hooking the
+  game's executable (an Unreal game has no C# DLL).
+- **Decompile:** turn compiled code back into readable source, approximately.
+- **ILSpy:** a *tool* (a program used) rather than a framework (code built on): it opens .NET DLLs and shows them as C#.
+- **Patch:** a change applied on top of something. In Harmony, a prefix or postfix attached to a game method.
+- **Adapter:** in MeshGhost, the per-game piece connecting one game to it: it reads the player from the game and
+  shows the ghosts there. The word is general programming vocabulary: something that translates between two sides,
+  like a travel plug adapter. `core` and `relay` are the shared client and the server.
+
+**Game words**
+
+- **`Update()`:** the method Unity calls on every object once per frame (see the frame loop). Not "change a value".
+- **`Time.timeScale`:** Unity's game clock: 1 normal, 2 double speed, 0 paused. Tying game speed to the *frame rate*
+  is bad practice (faster PCs run the game faster); the good way multiplies movement by each frame's time, and then
+  `timeScale` speeds everything evenly.
+- **Trigger:** an invisible area in the world that fires something when the player walks into it; how a cutscene
+  starts.
 
 ## Fields, and public versus private
 
@@ -86,12 +158,6 @@ needs (TEVI's randomizer, by its developer's account, is the same).
 The word means something bigger on a game with no readable code: Pseudoregalia's adapter (Unreal, UE4SS) asks the
 running game which classes and properties exist at all, with nothing to check the answers against
 ([access-models.md](access-models.md), approach 5).
-
-## Class and object
-
-A **class** is the blueprint (`PlayerControl`); an **object**, or instance, is one real thing built from it (the
-player walking around right now). Fields belong to each object: two enemies built from the same class each have their
-own HP.
 
 ## Static: one shared copy
 
