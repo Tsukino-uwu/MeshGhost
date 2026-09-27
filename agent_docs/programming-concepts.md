@@ -35,7 +35,8 @@ for AI. One expert versus a stadium of people with calculators.
 
 ### Bits, bytes and hex
 
-Everything is **bits**, each 1 or 0: **binary**, strictly. Inside a CPU every bit is a transistor switch on or off;
+Everything is **bits**, each 1 or 0: **binary**, strictly. Inside a CPU a bit is a voltage, high or low, held by a
+tiny circuit of a few transistors;
 storage keeps bits other ways (a tiny electric charge in RAM, magnetism on a hard drive, trapped charge in an SSD).
 
 **Bit versus byte:** a bit is one 1 or 0, two possibilities; a **byte** is 8 bits, 256 possibilities, the numbers 0
@@ -191,8 +192,8 @@ that the compiler checks them before the program runs.
 ### When things go wrong: exceptions
 
 - **Throwing an exception:** an error that **stops the current code on the spot** and jumps out until something
-  catches it; nothing after it in that method runs (apart from `finally` blocks, cleanup code written to run
-  whatever happens). Unity logs it and carries on next frame, so it *looks* like "log
+  catches it; nothing after it runs until a `catch` is reached (only `finally` blocks, cleanup code written to
+  run whatever happens, run on the way). Unity logs it and carries on next frame, so it *looks* like "log
   and continue", but the work was left half done. One thrown every frame means that work never finishes.
 - **`try` / `catch`:** `try` runs some code; if an exception is thrown inside, it lands in `catch` instead of
   crashing out, and the code decides what happens (log it, fall back). It catches the error afterwards; it doesn't
@@ -288,11 +289,12 @@ of every class, method and field with names and types, and which other DLLs it n
 After that the mod's code and the game's live in one running program and call each other directly, as if built
 together.
 
-**An EXE** (*executable*) is the same container with an **entry point**, "start here", so Windows can start it: it
+**An EXE** (*executable*) is the same container, marked in its header as a program rather than a library, with an
+**entry point**, "start here", so Windows can start it: it
 reads the header, loads the file and the DLLs it needs, and jumps to the entry point. A native `.exe` holds machine
 code; a .NET one holds IL and a small starter for the runtime. A Unity game's `.exe` is mostly a launcher: it loads
 Unity's engine DLL, which starts Mono, which runs `Assembly-CSharp.dll`. It is compiled like a DLL, only marked as
-runnable.
+runnable. (A DLL can have an entry point too, code run when it loads; the header's mark is what makes a program.)
 
 **Why DLLs exist:** sharing (many programs, one library), updating one part without rebuilding everything, and
 **plugins**: add-ons loaded into a program *while it runs*, not built into it, usually a DLL, sometimes a script.
