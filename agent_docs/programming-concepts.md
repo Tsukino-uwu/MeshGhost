@@ -132,10 +132,26 @@ IEnumerator Cutscene()
 scene, second fight, scene" is one coroutine pausing at each fight. Kabbu's horn slash waits a few frames for a
 second tap before it becomes a dash (`DoActionTap`), and ending the dash waits a quarter second (`StopDash`).
 
-**What a mod does with them:** skipping a scene stops its coroutine from starting; speeding one up lets it run with
-shorter waits. Under the hood each `yield` splits the coroutine into numbered steps, a small state machine that
-`MoveNext` ("run the next step") advances, which is why a mod can hook the very first step (the Bug Fables mod's
-Jump gate: `MoveNext` at step 0).
+**Think of it as a scene's script**, acted out line by line. Walking into an invisible trigger on the map makes the
+game *start* that scene's coroutine; it moves characters, shows text and waits for a button, starts a battle and
+waits for it to end, sets story flags and gives items, then stops by itself. So it does two kinds of things: what you
+*watch* (walking, text, a bridge falling), and what *changes the game* (flags, items, party members), which the rest
+of the game checks later (a door opens only once a flag is set).
+
+**That's why a mod has two ways to shorten a scene:**
+
+- **Skip: never start the script.** Nothing plays, and nothing in it happens either, so the mod must make its game
+  changes itself ("set flag 11, as the scene would have"). Safe only for a simple scene, talk and a flag or two.
+  Where the script itself does the work (the bridge falling), a skip would leave the bridge standing.
+- **Speed up: let the script play in full, faster.** Every step still happens the game's own way; the mod runs time
+  at 8x and answers the text boxes. Safe for a complicated scene, because the mod never has to repeat what it does.
+
+Hence the Bug Fables rule: only dialogue is skipped; anything that happens is sped up.
+
+**Under the hood** each `yield` splits the coroutine into numbered steps, a small state machine that `MoveNext`
+("run the next step") advances. So a mod can hook the very first step: the Bug Fables mod gates the attack items
+that way (pressing attack starts a short coroutine, `DoActionTap`; without the item, its first step ends it and the
+attack never happens). Jump is a plain method, gated with a plain prefix.
 
 ## Hooks: prefix and postfix
 
