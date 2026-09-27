@@ -372,8 +372,9 @@ game offers. Half an hour of checking beats guessing, and every answer is a cita
    mod folder or workshop integration. Best possible answer and the cheapest to check.
 2. **What kind of binary is it?** Look in the install folder. `Assembly-CSharp.dll` means managed
    Mono (decompilable — TEVI). `GameAssembly.dll` means Unity IL2CPP (native; needs interop
-   assemblies, today BepInEx 6's Il2CppInterop) — and **check whether `global-metadata.dat` is intact**, because that is what decides the tier:
-   with metadata, names and a compile-time check survive; stripped, it drops to pattern scanning
+   assemblies, today BepInEx 6's Il2CppInterop) — and **check whether `global-metadata.dat` is
+   intact**, because that is what decides the tier: with metadata, names and a compile-time check
+   survive; stripped, it drops to pattern scanning
    ([IL2CPP](#il2cpp--the-same-engine-a-different-tier-and-not-the-one-the-cons-line-implies)).
    `*-Win64-Shipping.exe` plus `.pak` files means Unreal. A `.jar` means Java. This single detail
    largely determines everything else.
