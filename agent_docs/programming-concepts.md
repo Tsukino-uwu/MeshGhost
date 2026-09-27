@@ -88,8 +88,16 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
 
 **Tools and engines**
 
+- **.NET:** a whole *platform* rather than just a framework: the languages (C# mostly) that compile to IL, a
+  *runtime* that runs IL (turns it into machine code, collects garbage, throws exceptions), and a big standard library
+  (lists, text, files, networking). The names: **.NET Framework** is Microsoft's original, Windows-only, ending at
+  4.8; **.NET** (5 and later, once ".NET Core") is the modern cross-platform one; **Mono** is an independent,
+  open-source runtime, the one Unity uses; **.NET Standard** runs nothing, it is a list of library features all of
+  them promise. A BepInEx 5 mod targeting `netstandard2.0` (Bug Fables' does) uses only those, so its DLL loads in
+  Unity's Mono: C# → IL in the mod's DLL → loaded by BepInEx → run by Mono.
 - **Unity / Unreal:** game engines: rendering, physics, sound, input and an editor, so a game writes only its own
-  logic on top. Unity games are written in C#, Unreal games in C++.
+  logic on top. Unity games are written in C#, Unreal games in C++. Unity itself is C++, running the game's C# on
+  Mono, which is why a Unity game has an `Assembly-CSharp.dll`.
 - **Inspector:** the Unity editor's panel showing the selected object's fields as boxes to edit.
 - **DLL (Dynamic Link Library):** a file of *compiled* code that a program loads while it runs: a *library* of
   ready-made functions and classes, *linked* in when needed rather than baked in. It can't run by itself; an `.exe`
