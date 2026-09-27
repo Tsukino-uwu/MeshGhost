@@ -119,8 +119,8 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
   4.8; **.NET** (5 and later, once ".NET Core") is the modern cross-platform one; **Mono** is an independent,
   open-source runtime, the one Unity uses; **.NET Standard** runs nothing, it is a list of library features all of
   them promise (`netstandard2.0` is version 2.0 of that list, not a version of one framework). A BepInEx 5 mod
-  targeting it (Bug Fables' does) uses only those, so its DLL loads in
-  Unity's Mono: C# → IL in the mod's DLL → loaded by BepInEx → run by Mono.
+  targeting it (Bug Fables' does) uses only those, so its DLL loads in Unity's Mono: C# → IL in the mod's DLL →
+  loaded by BepInEx → run by Mono.
 - **Unity / Unreal:** game engines: rendering, physics, sound, input and an editor, so a game writes only its own
   logic on top. Unity games are written in C#, Unreal games in C++. Unity itself is C++, running the game's C# on
   Mono, which is why a Unity game has an `Assembly-CSharp.dll`.
@@ -170,7 +170,7 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
 ## Files: bytes, text and formats
 
 **Bits, bytes and hex.** Everything is **bits**, each 1 or 0 (a tiny on/off switch): **binary**, strictly. Eight bits
-make a **byte**, 256 combinations, the numbers 0 to 255. **Hexadecimal** ("hex", often written with `0x`) is a shorter
+make a **byte**, 256 combinations, the numbers 0 to 255. **Hexadecimal** ("hex": Greek *hexa*, six, plus *decimal*, ten, so sixteen; often written with `0x`) is a shorter
 way for people to *write* the same bits: it counts in 16s (`0-9`, then `A-F` for 10 to 15), and one hex digit is
 exactly 4 bits, so two are exactly one byte. That's why memory and addresses (a GBA's `0x02024284`) are shown in hex.
 
@@ -204,7 +204,7 @@ which is called **parsing**. Archipelago's messages and `slot_data` are JSON, as
 without shrinking anything; `.tar.gz` is that bundle compressed with gzip; `.zip` does both in one format.
 
 **Programs on other systems:** not just an EXE with another header. Each system has its own container (Windows PE,
-magic `MZ`; Linux ELF, magic `ELF`, usually no extension; macOS Mach-O, inside a `.app` folder), the machine code
+magic `MZ`; Linux ELF, magic `0x7F` then `ELF`, usually no extension; macOS Mach-O, inside a `.app` folder), the machine code
 must suit the CPU (an Intel/AMD PC and an Apple Silicon Mac differ), and each system is asked for files, windows and
 the network its own way. So a program is built once per system and CPU, one download each; Go builds them all from
 the same code. A .NET DLL is the exception: IL runs wherever a runtime does. On Linux a file runs if it is *marked*
