@@ -183,6 +183,20 @@ MP3, DLL), and the extension only hints which agreement to use. That's why renam
 - **Metadata:** data *about* the data. A photo's is its date and camera, the pixels being the data; a DLL's is the
   list of classes, names and types, the IL being the content.
 
+**Text formats:** `.json`, `.md`, `.yaml`, `.csv`, `.html` and `.cs` are all text underneath, like `.txt`; each only
+adds rules. JSON's (`{"name": "Kabbu", "hp": 7}`: braces, quotes, commas) let a program read it reliably as *data*,
+which is called **parsing**. Archipelago's messages and `slot_data` are JSON, as is MeshGhost's `config.json`.
+
+**Archives:** a `.tar` ("tape archive") bundles many files into one, keeping each one's name, size and permissions,
+without shrinking anything; `.tar.gz` is that bundle compressed with gzip; `.zip` does both in one format.
+
+**Programs on other systems:** not just an EXE with another header. Each system has its own container (Windows PE,
+magic `MZ`; Linux ELF, magic `ELF`, usually no extension; macOS Mach-O, inside a `.app` folder), the machine code
+must suit the CPU (an Intel/AMD PC and an Apple Silicon Mac differ), and each system is asked for files, windows and
+the network its own way. So a program is built once per system and CPU, one download each; Go builds them all from
+the same code. A .NET DLL is the exception: IL runs wherever a runtime does. On Linux a file runs if it is *marked*
+runnable (a permission), which a `.tar` keeps and a plain zip can lose.
+
 ## DLLs: how one is made, what's inside, how it runs
 
 **Readable, obfuscated, native.** A normal .NET DLL (Bug Fables', a BepInEx mod's) is readable by nature: IL keeps
