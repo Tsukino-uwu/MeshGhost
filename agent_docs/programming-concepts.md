@@ -83,8 +83,10 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
 **Languages**
 
 - **CPU** (Central Processing Unit): the chip that runs a program's instructions, billions a second, built from
-  billions of tiny on/off switches (*transistors*). The **GPU** (Graphics Processing Unit) has thousands of small
-  cores to work out many pixels at once.
+  billions of tiny on/off switches (*transistors*). The **GPU** (Graphics Processing Unit) takes work off it, of a
+  different kind: a CPU has a few powerful cores for complicated step-by-step work (game logic, loading); a GPU has
+  thousands of simple ones doing the *same* small task on lots of data at once (one colour sum for ~2 million pixels),
+  which is also why GPUs do video encoding and AI. One expert versus a stadium of people with calculators.
 - **Machine code:** the CPU's own instructions, just numbers. Nobody writes it by hand. Not the same as
   **binary**, which only means "not text": a .NET DLL is a binary file, yet it holds IL, not machine code.
 - **C:** low level, close to the machine; you manage memory yourself. Very fast and in full control, but easy to crash
