@@ -5,8 +5,8 @@ The concepts, not this project's decisions; the examples come from Unity games m
 the author's Bug Fables Archipelago mod), because that is where they came up (2026-09-27). Game names below are field
 and class names read from the game's own assembly, never its code.
 
-**Read it in order.** It goes from the ground up, and each part uses only words explained in the parts before it:
-the machine, then code, then how code becomes a running program, then how a game runs, then how a mod changes one.
+**Read it in order.** It goes from the ground up, and each part mostly uses words explained before it (where it
+can't, it points ahead): the machine, then code, then how code becomes a running program, then how a game runs, then how a mod changes one.
 
 1. [The machine](#part-1-the-machine): transistors, CPU and GPU, bits and bytes, memory, files
 2. [Code](#part-2-code): variables and types, functions, class and object, references, static, public and private,
@@ -45,7 +45,7 @@ billion (some programs count 1,024 instead of 1,000, which is why a "1 TB" drive
 speeds are in *bits*, small **b** (100 Mbps), file sizes in *bytes*, big **B** (12 MB), so 100 Mbps downloads at most
 about 12.5 MB a second.
 
-**Hexadecimal** ("hex": Greek *hexa*, six, plus *decimal*, from Latin for ten, so sixteen; often written with `0x`)
+**Hexadecimal** ("hex": Greek *hexa*, six, plus *decimal*, from Latin *decem*, ten, so sixteen; often written with `0x`)
 is a shorter way for people to *write* the same bits: it counts in 16s (`0-9`, then `A-F` for 10 to 15), and one hex
 digit is exactly 4 bits, so two are exactly one byte. That's why memory and addresses (a GBA's `0x02024284`) are shown
 in hex. Its letters aren't there because *numbers* run out but because *digits* do: normal counting has ten single
@@ -87,8 +87,8 @@ which is called **parsing**. Archipelago's messages and `slot_data` are JSON, as
 - **Header:** the start of a file, saying what it is and how to read the rest: its type, the CPU it's for, where
   each part begins. Many formats open with fixed *magic bytes* as an ID badge: every Windows `.exe` and `.dll` starts
   `MZ`.
-- **Metadata:** data *about* the data. A photo's is its date and camera, the pixels being the data; a DLL's is the
-  list of classes, names and types, the code being the content.
+- **Metadata:** data *about* the data. A photo's is its date and camera, the pixels being the data; a .NET DLL's is
+  the list of classes, names and types, the code being the content.
 - **Archives:** a `.tar` ("tape archive") bundles many files into one, keeping each one's name, size and permissions,
   without shrinking anything; `.tar.gz` is that bundle compressed with gzip; `.zip` does both in one format.
 
@@ -116,7 +116,9 @@ A **function** is a named piece of code that does something.
 - **Return:** the result a function hands back to whoever called it.
 - **Dots and brackets:** `.` means "go inside" (`MainManager.instance.flags`: in MainManager, its instance, its
   flags), like slashes in a folder path. `()` calls a function, parameters inside. `[]` picks one item of a list by
-  number (`flags[699]`). `{}` wraps a block of code, or a list of items (as in the enum above).
+  number (`flags[699]`); but on a line of its own above a class or method, like `[BepInPlugin(...)]`, it is a
+  *label* (an **attribute**) that other code can look for. `{}` wraps a block of code, or a list of items (as in the
+  enum above).
 
 ### Class and object
 
@@ -166,7 +168,7 @@ enforces. Bug Fables, one class (`PlayerControl`):
 | `basespeed` | movement speed | public |
 | `dashing` | is the leader dashing | public |
 | `dashtarget` | where the dash is steering | private |
-| `idletime` | how long the player has stood still | private |
+| `idletime` | how long the player has stood still with no key pressed (it drops the HUD down) | private |
 
 **Why not everything public?** Then anything could change anything. If `dashtarget` were public, a cutscene or a
 menu could change it by mistake mid-dash, and the bug could come from anywhere in the game. Private means "only this
@@ -189,7 +191,8 @@ that the compiler checks them before the program runs.
 ### When things go wrong: exceptions
 
 - **Throwing an exception:** an error that **stops the current code on the spot** and jumps out until something
-  catches it; nothing after it in that method runs. Unity logs it and carries on next frame, so it *looks* like "log
+  catches it; nothing after it in that method runs (apart from `finally` blocks, cleanup code written to run
+  whatever happens). Unity logs it and carries on next frame, so it *looks* like "log
   and continue", but the work was left half done. One thrown every frame means that work never finishes.
 - **`try` / `catch`:** `try` runs some code; if an exception is thrown inside, it lands in `catch` instead of
   crashing out, and the code decides what happens (log it, fall back). It catches the error afterwards; it doesn't
@@ -204,11 +207,12 @@ that the compiler checks them before the program runs.
 - **C:** low level, close to the machine; you manage memory yourself. Very fast and in full control, but easy to crash
   or leak. Compiles straight to machine code, so a decompiler gives back only a rough C-like version, most names gone.
 - **C#:** high level, with a garbage collector and safety checks: easier and safer, a little more overhead. Compiles
-  to a middle step, **IL**, which keeps names and structure; that's why a C# game decompiles back to nearly its source.
+  to a middle step, **IL**, which keeps names and structure; that's why a C# game decompiles back to nearly its source
+  (not its comments, nor the names of variables inside a method: ILSpy invents those, like `num` in Bug Fables).
 - **IL (Intermediate Language):** instructions for an imaginary computer rather than a real CPU. Building turns C#
   into IL, stored in the `.dll`; when the game runs, the runtime (below) turns the IL into machine code for the actual
-  CPU just before each piece runs. So one `.dll` runs on any machine that has a runtime, and because IL keeps class
-  names, field names, types and each method's structure, it can be turned back into nearly the original C#. Machine
+  CPU just before each piece runs. So one `.dll` runs on any machine that has a runtime, and because IL keeps class,
+  method and field names, types and each method's structure, it can be turned back into nearly the original C#. Machine
   code keeps almost none of that. It reads like `ldfld basespeed` ("read the field basespeed").
 - **Lua:** a small *scripting language*, built to be embedded in other programs so they can be scripted without
   rebuilding them; no separate build step: the program compiles the script itself as it loads it, then runs it. Not an
@@ -306,7 +310,7 @@ used) rather than a framework (code built on): it opens .NET DLLs and shows them
   sometimes encrypted), to slow down cheaters, crackers or copiers. Not real encryption: the code still runs as it is,
   so it can still be worked out. Security by obscurity: a speed bump, not a lock.
 - **Native:** a native DLL (C, C++, IL2CPP) isn't scrambled, only machine code, with most names and all the structure
-  gone (only the functions it offers to others keep theirs).
+  gone (only the functions it offers to others keep theirs, unless the developer shipped debug symbols with it).
 - **IL2CPP:** Unity's other option: the IL is turned into C++ and compiled to machine code (`GameAssembly.dll`),
   mainly for speed and platforms like consoles, not to hide anything. The logic is only machine code now (a native
   decompiler gives a rough C-like version, far harder to read); the names survive in `global-metadata.dat`
@@ -351,10 +355,10 @@ second (at 60 FPS each frame has about 16.7 ms). **Rendering** is the process of
 models, lights and the camera are, and the engine and GPU work out every pixel's colour.
 
 A game is a loop. Every frame (often 60 times a second, but it varies) Unity calls **`Update()`** on every active
-script that has one: read the input, move things, draw. (`Update()` is that method's name, not "change a value".)
+script that has one (read the input, move things), then draws the frame. (`Update()` is that method's name, not "change a value".)
 Tying game speed to the frame rate is bad practice (faster PCs run the game faster), so well-made games multiply
-speeds by the frame's time. **`Time.timeScale`** is Unity's game clock: 1 normal, 2 double speed, 0 paused; it
-changes how much time each frame counts for, which is how a scene can be sped up evenly.
+speeds by the frame's time. **`Time.timeScale`** is Unity's game clock: 1 normal, 2 double speed, 0 frozen (`Update()`
+still runs, but no time passes); it changes how much time each frame counts for, which is how a scene can be sped up evenly.
 
 ### Game state
 
