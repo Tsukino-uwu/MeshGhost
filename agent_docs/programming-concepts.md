@@ -88,6 +88,12 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
 
 **Tools and engines**
 
+- **Runtime:** two meanings. (1) *The time the program is running*, the opposite of compile time: a wrong public
+  name fails at compile time, a wrong private name looked up by reflection only at runtime. (2) *A runtime*: the
+  software a program needs underneath it, as a music file needs a player. A .NET DLL is IL, not machine code, so a
+  runtime translates it for the CPU, manages memory (the garbage collector), handles exceptions and loads DLLs.
+  "Install the .NET runtime" or "the Visual C++ Redistributable" is this meaning. Mono is Bug Fables' runtime, shipped
+  with the game: Unity starts Mono, and Mono runs `Assembly-CSharp.dll` and, through BepInEx, the mod.
 - **.NET:** a whole *platform* rather than just a framework: the languages (C# mostly) that compile to IL, a
   *runtime* that runs IL (turns it into machine code, collects garbage, throws exceptions), and a big standard library
   (lists, text, files, networking). The names: **.NET Framework** is Microsoft's original, Windows-only, ending at
