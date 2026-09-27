@@ -31,6 +31,12 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
 
 - **Variable:** a named box holding a value. `int` is the *kind* (type) of value it holds: in `int speed = 5;`,
   `speed` is the variable, `int` its type, `5` its value. A **field** is a variable that belongs to a class.
+- **Types:** what *kind* of value a variable holds. `int` a whole number (`5`, `699`); `float` a number with
+  decimals (`2.5f`); `bool` true or false; `string` text (`"Kabbu"`); an **enum** one option from a fixed, named
+  list (`enum Weather { Sunny, Rain, Snow }`), a readable name for a number underneath, so code says `Weather.Rain`
+  instead of a magic `1`. `var` is not a type: it means "work the type out yourself" (`var speed = 5;` is an `int`).
+  `[]` after a type makes a list of it: `bool[] flags` is a list of true/false, `flags[699]` item 699. A class name is
+  a type too: `PlayerControl player` holds (a reference to) a player.
 - **Function:** a named piece of code that does something. A **method** is a function that belongs to a class and
   works on that object's fields: `PlayerControl.DoJump()` makes *this* player jump.
 - **Parameter:** an *input* given to a function inside its brackets: `Jump(5)` passes 5 as the height. (Not a limit.)
@@ -70,6 +76,11 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
   or leak. Compiles straight to machine code, so decompiling it gives back little.
 - **C#:** high level, with a garbage collector and safety checks: easier and safer, a little more overhead. Compiles
   to a middle step, **IL**, which keeps names and structure; that's why a C# game decompiles back to nearly its source.
+- **IL (Intermediate Language):** instructions for an imaginary computer rather than a real CPU. Building turns C#
+  into IL, stored in the `.dll`; when the game runs, the runtime (Mono) turns the IL into machine code for the actual
+  CPU just before each piece runs. So one `.dll` runs on any machine, and because IL keeps class names, field names,
+  types and each method's structure, ILSpy can turn it back into nearly the original C#. Machine code keeps almost
+  none of that, which is IL2CPP's situation. It reads like `ldfld basespeed` ("read the field basespeed").
 
 **Tools and engines**
 
