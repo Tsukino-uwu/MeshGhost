@@ -148,6 +148,16 @@ staleness gate. No carve-out, and nothing new to decide.
 knowledge in the sense the provenance note at the top of the range table means, and the
 loader's actual capabilities are a thing to check on a specific game rather than inherit here.
 
+**The tools, as of 2026-09-27** (the repos' READMEs and `gh api`; none used here yet). BepInEx's IL2CPP route is
+[Il2CppInterop](https://github.com/BepInEx/Il2CppInterop) (LGPL-3.0, v1.5.3 of 2026-06-20), which "started out as
+fork of knah/Il2CppAssemblyUnhollower" and generates the interop assemblies above, bridging IL2CPP and .NET's CoreCLR
+at runtime. BepInEx's IL2CPP support is **BepInEx 6 only, still pre-release**: its README says "Currently only Unity Mono has stable
+releases"; the newest tagged 6.x is v6.0.0-pre.2 (2024-08-27), newer IL2CPP builds are "Bleeding Edge" from their
+build server, and the stable line is 5.4.x (v5.4.23.5, 2026-02-08). So the named, compile-checked route above is
+maintained tooling today, which makes IL2CPP easier than it was, but it means a pre-release loader and a different
+runtime from every Mono adapter here, on top of the lost logic above: still clearly harder than Mono (the user,
+2026-09-27).
+
 - **Approved pattern.** Decompiling the user's own local copy to read names, and referencing that
   local DLL via a gitignored `HintPath`, is fine and is how TEVI was built. Neither the DLL nor the
   decompiled output is committed; only our own code is. The one consequence to accept going in is
@@ -361,8 +371,8 @@ game offers. Half an hour of checking beats guessing, and every answer is a cita
 1. **Does it have official mod support?** The game's own docs, its store page, whether it ships a
    mod folder or workshop integration. Best possible answer and the cheapest to check.
 2. **What kind of binary is it?** Look in the install folder. `Assembly-CSharp.dll` means managed
-   Mono (decompilable — TEVI). `GameAssembly.dll` means Unity IL2CPP (native; needs unhollowing) —
-   and **check whether `global-metadata.dat` is intact**, because that is what decides the tier:
+   Mono (decompilable — TEVI). `GameAssembly.dll` means Unity IL2CPP (native; needs interop
+   assemblies, today BepInEx 6's Il2CppInterop) — and **check whether `global-metadata.dat` is intact**, because that is what decides the tier:
    with metadata, names and a compile-time check survive; stripped, it drops to pattern scanning
    ([IL2CPP](#il2cpp--the-same-engine-a-different-tier-and-not-the-one-the-cons-line-implies)).
    `*-Win64-Shipping.exe` plus `.pak` files means Unreal. A `.jar` means Java. This single detail
