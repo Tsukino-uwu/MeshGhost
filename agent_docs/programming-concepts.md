@@ -169,6 +169,19 @@ Each of these came up as a question (2026-09-27); where the first guess was clos
 
 ## Files: bytes, text and formats
 
+**Bits, bytes and hex.** Everything is **bits**, each 1 or 0 (a tiny on/off switch): **binary**, strictly. Eight bits
+make a **byte**, 256 combinations, the numbers 0 to 255. **Hexadecimal** ("hex", often written with `0x`) is a shorter
+way for people to *write* the same bits: it counts in 16s (`0-9`, then `A-F` for 10 to 15), and one hex digit is
+exactly 4 bits, so two are exactly one byte. That's why memory and addresses (a GBA's `0x02024284`) are shown in hex.
+
+| Binary | Hex | Decimal |
+|---|---|---|
+| `1110 0110` | `E6` | 230 |
+| `0100 0001` | `41` | 65, the letter `A` |
+| `0100 1101 0101 1010` | `4D 5A` | the letters `MZ`, the start of every `.exe` and `.dll` |
+
+Loosely, a "binary file" means one whose bytes aren't meant as letters. A text file is 1s and 0s too.
+
 **Every file is bytes underneath**, numbers from 0 to 255, a `.txt` included. A text file's bytes are *letter
 codes* (in the usual encoding, UTF-8, 65 is `A`), so any editor shows them as letters; a DLL's bytes are structured
 numbers that aren't letter codes, so Notepad's attempt at letters is gibberish. "Text" versus "binary" is only
