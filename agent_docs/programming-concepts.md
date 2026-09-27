@@ -107,9 +107,35 @@ why a scene can be sped up by making each frame count for more time (`Time.timeS
 
 ## Coroutines: code that pauses
 
-A cutscene is a function that runs a little, waits (`yield return`) for a text box or a few seconds, and carries on
-next frame. Unity calls these **coroutines**. Under the hood each is a small state machine the engine advances one
-step at a time (`MoveNext`), which is why a mod can hook a coroutine's very first step.
+A **coroutine** is a function that can pause partway and pick up where it left off later, while the game keeps
+running.
+
+**Why games need them:** a normal method runs start to finish within one frame. A cutscene written that way ("show
+text, wait for a button, walk over there, wait 2 seconds") would freeze the whole game while it waits: nothing
+drawn, no input read. So a coroutine says "pause me here" with `yield return`:
+
+```csharp
+IEnumerator Cutscene()
+{
+    ShowText("Vi: Let's go!");
+    yield return WaitForButton();          // pause; the game keeps running
+    WalkTo(kabbu, door);
+    yield return new WaitForSeconds(2f);   // pause 2 seconds
+    OpenDoor();
+}
+```
+
+(An illustration, not the game's code.) Each frame Unity checks whether the coroutine may go on, runs it to the next
+`yield`, and gets back to the rest of the game.
+
+**In Bug Fables:** every cutscene is one. The spider scene is `IEnumerator Event6()`, and "scene, scripted fight,
+scene, second fight, scene" is one coroutine pausing at each fight. Kabbu's horn slash waits a few frames for a
+second tap before it becomes a dash (`DoActionTap`), and ending the dash waits a quarter second (`StopDash`).
+
+**What a mod does with them:** skipping a scene stops its coroutine from starting; speeding one up lets it run with
+shorter waits. Under the hood each `yield` splits the coroutine into numbered steps, a small state machine that
+`MoveNext` ("run the next step") advances, which is why a mod can hook the very first step (the Bug Fables mod's
+Jump gate: `MoveNext` at step 0).
 
 ## Hooks: prefix and postfix
 
