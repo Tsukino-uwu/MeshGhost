@@ -2,19 +2,25 @@
 
 Written for the project's author, to learn the ideas an agent uses when it builds or explains an adapter or a mod.
 The concepts, not this project's decisions; the examples come from Unity games modded with BepInEx (TEVI here, and
-the author's Bug Fables Archipelago mod), because that is where they came up (2026-09-27). Game names below are field
-and class names read from the game's own assembly, never its code.
+the author's Bug Fables Archipelago mod), because that is where they came up (2026-09-27; the author's second round
+of words and questions, each one met while working on Bug Fables or simply wondered about, added 2026-09-29). Game
+names below are field and class names read from the game's own assembly, never its code.
 
 **Read it in order.** It goes from the ground up, and each part mostly uses words explained before it (where it
-can't, it points ahead): the machine, then code, then how code becomes a running program, then how a game runs, then how a mod changes one.
+can't, it points ahead): the machine, then code, then how code becomes a running program, then how a game runs, then
+how a mod changes one, then the tools around the code, then how to read and judge it.
 
-1. [The machine](#part-1-the-machine): transistors, CPU and GPU, bits and bytes, memory, files
-2. [Code](#part-2-code): variables and types, functions, class and object, references, static, public and private,
-   exceptions
+1. [The machine](#part-1-the-machine): transistors, CPU and GPU, bits and bytes, memory, files, invisible characters
+2. [Code](#part-2-code): variables and types, strings, decisions, functions, class and object, references, static,
+   public and private, logs, namespaces, exceptions, algorithms and the data around them
 3. [From code to a running program](#part-3-from-code-to-a-running-program): languages, compiling, the runtime, DLLs
-   and EXEs, reading compiled code, other systems
-4. [How a game runs](#part-4-how-a-game-runs): engines, frames, game state, coroutines, threads
+   and EXEs, packages, reading compiled code, other systems, ROMs and ISOs
+4. [How a game runs](#part-4-how-a-game-runs): engines, frames, game state, positions and maths, coroutines, threads
 5. [Modding it](#part-5-modding-it): BepInEx, Harmony, reflection, magic numbers, UE4SS and adapters
+6. [Around the code](#part-6-around-the-code-scripts-git-and-checks): scripts, sed and its relatives, heredocs, git
+   under the hood, checks and tests, CI and releases
+7. [Reading and judging code](#part-7-reading-and-judging-code): whose name it is, what makes code good or bad,
+   AI-written code, styles
 
 ## Part 1: The machine
 
@@ -66,6 +72,12 @@ the **disk** and are loaded into memory to be used. RAM is one enormously long s
 number, its **address** (`0x02024284` is the byte at that number, in hex). *Random access* means jumping straight to
 any address, instead of reading from the start like a tape.
 
+**Alignment and padding:** a CPU reads a number fastest when its address is a multiple of its size (a 4-byte number
+at an address divisible by 4), and some CPUs can't read it any other way. So a compiler places each field on such a
+boundary and fills the gap before it with unused bytes, **padding**: a 1-byte value followed by a 4-byte number
+usually takes 8 bytes, not 5 (Wikipedia, "Data structure alignment", checked 2026-09-29). Reading a game's memory
+from outside means knowing where those gaps fall. (Padding text out to a width is part 2.)
+
 ### Files, text and encoding
 
 **Every file is bytes underneath**, a `.txt` included. The disk stores bytes; a **file** is a named run of them; a
@@ -93,6 +105,40 @@ which is called **parsing**. Archipelago's messages and `slot_data` are JSON, as
 - **Archives:** a `.tar` ("tape archive") bundles many files into one, keeping each one's name, size and permissions,
   without shrinking anything; `.tar.gz` is that bundle compressed with gzip; `.zip` does both in one format.
 
+**Encode and decode:** to *encode* is to put something into an agreed form, to *decode* is to take it back out. The Bug
+Fables mod's scripts do both: `json.dumps(table, indent=1)` encodes a table of door connections as JSON text before
+`door-graph.py` writes it to a file, and the commit-message hook's `.decode('utf-8')` turns the bytes it is handed back into letters, so it
+can count characters rather than bytes (`é` is one character but two bytes).
+
+### Invisible characters: whitespace and line endings
+
+**Whitespace** is every character that shows as empty space: the space (byte 32), the tab (9) and the line break.
+Invisible, but still bytes. Most languages don't care how much of it there is; Python does, because its indentation
+*is* its structure (how far a line is pushed in says which `if` it belongs to). Spaces left at the end of a line
+("trailing whitespace") do nothing but show up as changes in git, so the Bug Fables repo's `.editorconfig`, a file
+most editors read, has them removed on save (`trim_trailing_whitespace = true`).
+
+**Line endings (EOL, "end of line"):** a line break is itself one or two bytes, and systems disagree which. Linux and
+macOS use **LF** ("line feed", byte 10, written `\n`); Windows uses **CRLF**, **CR** ("carriage return", byte 13,
+`\r`) then LF. The names are from typewriters and teleprinters: return the carriage to the left edge, then feed the
+paper up one line (Wikipedia, "Newline", checked 2026-09-29). Usually harmless, until a program reads the `\r` as
+part of the text: MeshGhost's `.gitattributes` records both directions.
+
+- A bash script (part 6) must be LF: on a Linux machine, a CRLF copy fails with `$'\r': command not found`. Git
+  Bash on Windows tolerates CRLF (checked 2026-08-16, and again 2026-09-29), so a broken script looks healthy
+  locally and fails only on the Linux machine that runs the checks.
+- A Windows `.bat` must be CRLF: `cmd` misreads its labels in an LF file, and one of MeshGhost's ran straight past its
+  own checks (2026-08-25). On 2026-09-07 a one-word sed edit (part 6) to a comment in that file rewrote every line
+  ending in it, which is why the rule is now pinned.
+
+Git can convert endings as files go in and out, per file type: `.gitattributes` holds the rules. The Bug Fables repo's
+says `* text=auto` (git decides which files are text and normalises their endings) and `.githooks/* text eol=lf`
+(the hooks are shell scripts, so always LF). Relatives worth knowing: a **BOM** ("byte order mark"), three invisible bytes
+some Windows programs put at the start of a UTF-8 file, which some other programs then read as part of the first line;
+**tabs versus spaces** for indenting (a tab is one byte that each editor shows at its own width); and **control
+characters**, the codes below 32, which have no business in a text file except tab, LF and CR (MeshGhost's preflight
+refuses the rest).
+
 ## Part 2: Code
 
 ### Variables and types
@@ -107,6 +153,76 @@ A **variable** is a named box holding a value. Its **type** is the *kind* of val
 - `var` is not a type: it means "work the type out yourself" (`var speed = 5;` is an `int`).
 - `[]` after a type makes an **array**, a fixed-length list: `bool[] flags` holds true/false values, `flags[699]` is
   item 699 (counting from 0).
+- `void` is not a kind of value but the lack of one: a function marked `void` hands nothing back (the mod's
+  `internal static void Init(ManualLogSource logger)` only stores the logger it is given).
+- **`const` and `readonly`** both say "this never changes", which is also a note to the reader. A `const` is fixed
+  when the code is built, a compile-time constant: `internal const int MaxLength = 100;`, the most characters the mod
+  keeps of any text a server sends. A `readonly` field is set once while the program runs, where it is declared or in
+  the constructor (below), and can't be replaced after (Microsoft's C# reference, checked 2026-09-29).
+- **Case** is capital versus small letters. C# and Python are *case-sensitive*: `MainManager` and `mainmanager` are two
+  different names. Naming styles are named after how they look: `PascalCase` (C# classes and methods), `camelCase`
+  (C# local variables and parameters), `snake_case` (Python), `UPPER_CASE` (Python constants, like the apworld's
+  `CLASSIFICATIONS`). Conventions, not rules: the compiler takes any (part 7). The `case` of a `switch` is another
+  word, below.
+
+### Strings: text in code
+
+A **string** is text, written between quotes. Four things happen to strings all the time:
+
+- **Interpolated** strings, with a `$` in front, have holes in `{}` that are filled with values: the mod's log line
+  `$"[moves] {Name(id)} pressed without its item: refused (buzzer)"` prints the field move's real name where
+  `{Name(id)}` stands. (Python's version is the f-string, `f"..."`.)
+- **Escapes and verbatim strings:** inside quotes, `\` starts an *escape*, a code for a character that can't be typed
+  there as it is: `\n` a line break, `\"` a quote mark. A **verbatim** string, with `@` in front, switches that off and
+  keeps every `\` as written. The mod's check for "a colon and one to five digits at the end" (a port number after a
+  server address) is `@":\d{1,5}$"`; without the `@` it would have to be `":\\d{1,5}$"`. That pattern language is the
+  *regular expression* (part 6).
+- **Padding and alignment:** filling text out to a fixed width so things line up. `.PadLeft(2, '0')` turns `3` into
+  `03` for the medals screen's two-digit attack number; `'{0,6}  {1}: {2}' -f ...` in the apworld's test script
+  right-aligns each count in 6 characters, and a negative width would align it left (.NET's composite formatting,
+  checked 2026-09-29).
+- **Parsing** (part 1) turns text into a value. JSON's keys are always text, so the seed's per-location tables arrive
+  keyed by strings like `"1234"`, which `long.Parse(p.Name)` turns back into numbers. `Parse` throws an exception
+  (below) on text that isn't a number; `int.TryParse` returns false instead, and hands the number back through `out`
+  (under functions), as the mod's shop code does with a price.
+
+### Deciding: if, else, switch, not in
+
+- **`if` / `else`:** `if (condition) { ... } else if (other) { ... } else { ... }` runs the first block whose condition
+  is true. Python writes `elif` for "else if": `elif choice == StartingPartyMember.option_all_three:` (the apworld,
+  choosing the starting party).
+- **Conditions** combine with `&&` (and), `||` (or) and `!` (not) in C#, spelled `and`, `or` and `not` in Python. `==`
+  asks "equal?" and `!=` "not equal?"; a single `=` *sets* a value instead. Python's `in` asks "is it in this
+  collection?": `if loc.category not in SHOP_CATEGORIES:` followed by `continue` on the next line skips every
+  location that isn't a shop's.
+- **`switch` / `case`:** one value compared against a list of cases, neater than a chain of `else if`: `switch
+  (gameId)`, then `case 4: return "Progressive Dash";` gives the item's name for the game's ability 4.
+- **Short forms:** `c ? a : b` is "a if c, otherwise b", as a value; `x?.y` is "x's y, or null if x is null" instead of
+  a crash; `x ?? y` is "x, or y when x is null".
+- **Loops** repeat: `for` counts, `foreach` takes each item of a list in turn, `while` goes on while a condition holds;
+  `break` leaves the loop, `continue` skips to its next round.
+
+**Precedence levels** decide which operator runs first when one line has several, like "multiplication before
+addition" in maths (`2 + 2 * 2` is 6). C#'s order, highest first, shortened (Microsoft's operator reference, checked
+2026-09-29):
+
+| Level | Operators |
+|---|---|
+| 1 | `x.y`, `f(x)`, `a[i]`, `x?.y`, `new`, `typeof`, `nameof` |
+| 2 | `!x`, `-x`, a cast `(int)x` |
+| 3 | `*`, `/`, `%` (remainder) |
+| 4 | `+`, `-` |
+| 5 | `<`, `>`, `<=`, `>=` |
+| 6 | `==`, `!=` |
+| 7 | `&&` |
+| 8 | `\|\|` |
+| 9 | `??` |
+| 10 | `c ? a : b` |
+| 11 | `=`, `+=` and the other assignments |
+
+So the mod's `op == OpCodes.Ldc_I4 || op == OpCodes.Ldc_I4_S ? Convert.ToInt32(operand) : (int?)null` does both `==`
+first, then the `||`, then the `? :`: "if this instruction is either kind of number, that number, otherwise nothing".
+Brackets always go first, and they tell the reader too: when in doubt, add them.
 
 ### Functions
 
@@ -120,6 +236,23 @@ A **function** is a named piece of code that does something.
   number (`flags[699]`); but on a line of its own above a class or method, like `[BepInPlugin(...)]`, it is a
   *label* (an **attribute**) that other code can look for. `{}` wraps a block of code, or a list of items (as in the
   enum above).
+- **Signature:** a function's name plus its parameters' types, which is what tells it apart from others. **Overloads**
+  are functions sharing a name but taking different parameters; the compiler picks the one that fits what is passed.
+  The game has two `MainManager.ChangeParty`, one taking a list of ids and one true/false, one taking a list and two,
+  so the mod's patch names the second by its types: `typeof(int[]), typeof(bool), typeof(bool)`. Unity's
+  `Material.GetColor` likewise takes a shader property (such as a glow colour) either by its name, as text, or by an ID
+  number, and the mod asks for the one that takes a `string` (`new[] { typeof(string) }`).
+- **`out`:** a parameter the function fills in, a second way of handing a result back:
+  `slotData.TryGetValue(key, out object raw)` returns whether the key was there, and puts its value in `raw`.
+- **`ref`:** a parameter that is the caller's own box rather than a copy, so the function can change the caller's value
+  (part 5 shows why a patch needs it).
+- **`typeof` and `nameof`:** `typeof(X)` is a value describing the class `X` (part 5). `nameof(InputIO.ReadFile)` is
+  just the text `"ReadFile"`, but "evaluated at compile time" (Microsoft's reference): misspell it and the build fails,
+  where a name typed in quotes fails only in the game (reflection, part 5). It works only on names the code may use
+  from where it stands: the mod's own, private ones included, and the game's public ones. `InputIO` itself is one of the game's own classes, not a
+  programming word: its methods read the keyboard and controller (`GetKey`, `JoyStick`) and read and write the game's
+  files (`ReadFile`, `CreateFile`, `Save`). **IO**, "input/output", is the general word for anything a program takes in
+  or puts out: files, the network, the keys.
 
 ### Class and object
 
@@ -137,6 +270,10 @@ that work on them, where `int` is built into the language: `PlayerControl player
   "properties" just means an object's fields.
 - **State machine:** something that is always in exactly one state from a fixed list, with rules for moving between
   them: a game's title screen, overworld, battle and menu; a boss's attack pattern.
+- **Constructor:** the code that runs once as an object is made, filling in its fields. In C# it carries the class's
+  own name and no return type: `internal SeedData(Dictionary<string, object> data, int ownSlot)` builds the mod's
+  record of a seed from what the server sent, and `new SeedData(...)` is what runs it. (Inside a compiled DLL an
+  object's constructor is named `.ctor`, and a class's static one, which sets up its static fields, `.cctor`.)
 
 ### References and null
 
@@ -153,6 +290,20 @@ A `static` field belongs to the class itself, not to any object, so there is exa
 "everything" object in a static field, like Bug Fables' `MainManager.instance`, so any code can reach
 `MainManager.instance.flags`. That pattern is a **singleton**, and it is how a mod reaches most game state.
 
+A method can be static too: `Hooks.Init(...)` is called on the class itself, with no object, so it can use only static
+fields (and a patch on a static method gets no `__instance`, part 5).
+
+**`private static readonly`, word by word**, as in the mod's connection code, `private static readonly int[]
+RetrySeconds = { 2, 4, 8, 15, 30 };`:
+
+- `private`: only this class's own code may use it (next section).
+- `static`: one copy, belonging to the class, made once before the class is first used; not one per connection.
+- `readonly`: never replaced by a different list after that. It guards the box, not what's in it: the numbers inside
+  a `readonly` array could still be changed (Microsoft's C# reference, checked 2026-09-29).
+- `int[]`: an array of whole numbers, the seconds to wait before each new attempt to reconnect, growing each time.
+
+So static and private are separate choices: static says *how many copies* there are, private says *who may touch it*.
+
 ### Fields: public versus private
 
 Each field has an access level:
@@ -160,6 +311,10 @@ Each field has an access level:
 - **public:** any code may read and change it.
 - **private:** only the class's own code may. Any other code that even mentions it, to read or to change it, gets an
   error when the code is built (see compiling, part 3).
+- **internal:** any code in the same assembly, the same DLL (part 3), and none outside it (Microsoft's C# reference,
+  checked 2026-09-29). The Bug Fables mod marks almost everything `internal`, classes too (`internal sealed class
+  SeedData`): its own files share freely, while the game and other mods can't reach in, short of reflection (part 5).
+  `sealed` means no other class may be built on this one.
 
 It is not about what kind of data a field holds. The programmer chooses per field, as a promise the compiler then
 enforces. Bug Fables, one class (`PlayerControl`):
@@ -189,6 +344,26 @@ organised ("program handling", as the TEVI randomizer's developer put it). Rust 
 fields are private to their module unless marked `pub`, the same idea with the safer default. What the two share is
 that the compiler checks them before the program runs.
 
+### Logs and loggers
+
+A **log** is a program's running diary: lines of text it writes as it goes, saying what it did and decided, so that
+someone can read afterwards what happened. A **logger** is the object code writes those lines through; it marks each
+line with where it came from and how serious it is, and sends it on, to a file or a console window. The Bug Fables mod gets one from
+BepInEx (a `ManualLogSource`, kept in a field named `log`) and writes three levels of line: `log.LogInfo(...)` for
+what happened, `log.LogWarning(...)` for something off, `log.LogError(...)` for something broken. BepInEx collects
+every mod's lines in `BepInEx/LogOutput.log`, the first file to read when something goes wrong. The `[moves]` or
+`[boost]` at the start of each of the mod's lines is its own habit, so one feature's lines can be searched for at
+once.
+
+### Namespaces and using
+
+A **namespace** is a family name for classes, so two libraries can each have a `Logger` without a clash: the mod's
+classes sit in `namespace BugFablesAP`, and BepInEx's logger's full name is `BepInEx.Logging.ManualLogSource`. A
+`using BepInEx.Logging;` line at the top of a file says "by `ManualLogSource` I mean that one", so the file needn't
+spell out the family name every time; the top of any of the mod's files is a short list of them (`using System;`,
+`using HarmonyLib;`). Python's `import` does the same job. (A `using (...) { }` *inside* code is unrelated: it makes
+sure something, like an open file, is closed when the block ends.)
+
 ### When things go wrong: exceptions
 
 - **Throwing an exception:** an error that **stops the current code on the spot** and jumps out until something
@@ -198,6 +373,34 @@ that the compiler checks them before the program runs.
 - **`try` / `catch`:** `try` runs some code; if an exception is thrown inside, it lands in `catch` instead of
   crashing out, and the code decides what happens (log it, fall back). It catches the error afterwards; it doesn't
   prevent it.
+
+### Algorithms, and the data around them
+
+- **Algorithm:** a recipe, a fixed list of steps that solves a kind of problem whatever the input: sorting a list,
+  finding a path, or Archipelago's **fill**, which places every item in some location so that the seed can be
+  finished. The algorithm is the method; code is one way of writing it down.
+- **Table:** data laid out in rows and looked up by a key, instead of written as logic. The apworld's
+  `CLASSIFICATIONS = {` maps the words its item list uses (`"progression"`, `"filler"`) to Archipelago's own values,
+  and the mod reads tables built from the same apworld, so both sides agree. Adding a row is adding data, not code.
+  (Python calls one a *dict*, C# a *Dictionary*.)
+- **Hash:** a short fingerprint computed from any amount of bytes. The same bytes always give the same hash; one bit
+  changed gives a completely different one; and the bytes can't be rebuilt from it. **SHA-256** (64 hex digits) is the
+  usual one: the mod's release script builds the DLL again and compares its hash with the committed one's, and
+  `copy-dev.ps1` prints the start of the copied DLL's, so "same hash" means "same file" without comparing every byte.
+  Git names everything by its hash (part 6).
+- **Seed:** a computer can't roll dice, so a *pseudo-random* generator makes numbers that only look random, worked out
+  from a starting number, the **seed**: the same seed gives the same numbers in the same order. Archipelago starts its
+  generator from the seed and gives each world a generator of its own drawn from it (`self.random`, in its
+  `AutoWorld.py`), so the same seed, options and versions generate the same multiworld; the apworld's
+  `self.random.randrange(len(items.MEMBERS))` picks a random starting party member that way. CI generates with
+  `--seed 1`, `2` and `3`, the same games every run, so a failure can be repeated. In Archipelago talk, "a seed" also
+  means the generated game itself.
+- **Cache:** a kept copy of something slow to get, so the next time is fast: a field looked up by name (part 5) once
+  and kept, instead of every frame; CI's `cache: pip`, which keeps downloaded Python packages between runs; the
+  Archipelago client library keeping each game's data package on disk (the mod's `CachePaths.cs` keeps those files'
+  names safe).
+  "Cached" means served from the copy. The classic cache bug is a **stale** one: the copy no longer matches the real
+  thing, and nothing notices, because everything reads the copy.
 
 ## Part 3: From code to a running program
 
@@ -214,7 +417,10 @@ that the compiler checks them before the program runs.
   into IL, stored in the `.dll`; when the game runs, the runtime (below) turns the IL into machine code for the actual
   CPU just before each piece runs. So one `.dll` runs on any machine that has a runtime, and because IL keeps class,
   method and field names, types and each method's structure, it can be turned back into nearly the original C#. Machine
-  code keeps almost none of that. It reads like `ldfld basespeed` ("read the field basespeed").
+  code keeps almost none of that. It reads like `ldfld basespeed` ("read the field basespeed"). Each instruction is
+  an **opcode** ("operation code": the number meaning *read a field*, *call*, *add*) plus, for some, an **operand**,
+  what it works on (here `basespeed`). A transpiler (part 5) edits these: the mod's `code[read].opcode =
+  OpCodes.Call;` turns one instruction into a call, and the line after it sets the operand, the method to call.
 - **Lua:** a small *scripting language*, built to be embedded in other programs so they can be scripted without
   rebuilding them; no separate build step: the program compiles the script itself as it loads it, then runs it. Not an
   acronym: Portuguese for "moon", written Lua, not LUA (lua.org, checked 2026-09-27; created at PUC-Rio, Brazil, in
@@ -301,6 +507,24 @@ runnable. (A DLL can have an entry point too, code run when it loads; the header
 **plugins**: add-ons loaded into a program *while it runs*, not built into it, usually a DLL, sometimes a script.
 Programs are usually designed to take them. A mod is exactly that.
 
+**Native imports:** a native program's header lists the functions it needs from other DLLs, its **import table**, and
+Windows finds each of them as it loads the file. A .NET DLL like the mod's carries exactly one, `_CorDllMain` in
+`mscoree.dll`, the
+starter that hands it over to the runtime; everything else it calls is in its metadata and linked by the runtime
+(step 2 above). So the Bug Fables mod's preflight (part 6) checks that its built DLL imports that one function and
+nothing else: any other *native import* would mean code outside .NET. C# can call native code on purpose, with
+`[DllImport]` ("P/Invoke"); the mod never does, and its preflight refuses a file that tries.
+
+### Packages, NuGet and restore
+
+A **package** is a library bundled for sharing: its DLLs plus a name, a version and a list of the other packages it
+needs. A **package manager** fetches them: **NuGet** for .NET, **pip** for Python, Go's modules for Go. The Bug Fables
+mod's project file lists what it needs, `<PackageReference Include="BepInEx.Core" Version="5.4.21" />`, and a
+**restore** downloads each listed package, and the ones those need, before a build. Its **lock file**,
+`packages.lock.json`, records the exact version and a hash of each package the restore picked, and the mod restores in
+*locked mode*, which fails rather than quietly take anything different (NuGet's documentation, checked 2026-09-29).
+Updating a package is a deliberate act, with the lock file committed alongside.
+
 ### Reading compiled code
 
 To **decompile** is to turn compiled code back into readable source, approximately. **ILSpy** is a *tool* (a program
@@ -318,6 +542,14 @@ used) rather than a framework (code built on): it opens .NET DLLs and shows them
   mainly for speed and platforms like consoles, not to hide anything. The logic is only machine code now (a native
   decompiler gives a rough C-like version, far harder to read); the names survive in `global-metadata.dat`
   ([access-models.md](access-models.md)).
+- **Synthesized (compiler-made) code:** the compiler also writes code nobody typed. A coroutine becomes a hidden class
+  whose `MoveNext` method runs its steps (part 4); a short inline function (a *lambda*, like `p => long.Parse(p.Name)`)
+  becomes a method with a name like `<Run>b__3_0`, in a class named `<>c`; constructors are `.ctor` and `.cctor`. Names
+  with `<` and `>` can't be written in C#, so they never clash with a real one. ILSpy folds them back into the code
+  they came from, which is why the decompiled game shows each cutscene as one ordinary method (seen 2026-09-29). The
+  Bug Fables mod's preflight checks that every name in its built DLL comes from a source file or is one of these (its
+  `dll_synthesized_members` list). Outside code, *synthesize* is plain English for "make from parts": a test that
+  "synthesizes a walk" makes one up instead of recording one.
 
 **Private is not hidden.** A Mono game's `Assembly-CSharp.dll` keeps every field's name and type, private ones
 included, so ILSpy shows them all. Private only stops *our* code from naming them directly.
@@ -330,6 +562,36 @@ the CPU (an Intel/AMD PC and an Apple Silicon Mac differ), and each system is as
 its own way. So a program is built once per system and CPU, one download each; Go builds them all from the same code.
 A .NET DLL is the exception: IL runs wherever a runtime does. On Linux a file runs if it is *marked* runnable (a
 permission), which a `.tar` keeps and a plain zip can lose.
+
+### ROMs, ISOs and dumps
+
+**ROM** is Read-Only Memory: a chip whose bytes were fixed at the factory, like the one inside a Game Boy cartridge. A
+**ROM file** (`.gba`, `.gbc`) is those bytes copied off the chip into a file, byte for byte. Copying them off is
+**dumping** the chip, and the file is a *dump*.
+
+**How one is built:** like any program, compiled to machine code, but for one fixed machine. The game's code becomes
+machine code for the console's CPU (an ARM chip, in the Game Boy Advance), then it is joined with the graphics, sound
+and text into one image, each piece at the address where the game will look for it. There is no loading step: the
+cartridge is wired in *as memory*, and the CPU reads the game straight off the chip. At its start sits a header that
+the console checks before running anything; on the GBA, a copy of the Nintendo logo and a checksum, and the cartridge
+won't start if either is wrong (GBATEK, checked 2026-09-29). The pret projects rebuild these games from reconstructed
+source, and a correct build comes out byte-identical to the original: MeshGhost's Emerald build passed `make
+compare`, which checks the result's SHA-1 hash against the original's ([environment.md](environment.md), 2026-08-11).
+
+**An ISO** is a disc image: every sector of a CD or DVD in one file, *including the disc's file system*. The name comes
+from ISO 9660, the standard file system of CDs, named after the International Organization for Standardization
+(Wikipedia, "Optical disc image", checked 2026-09-29). So a disc game isn't one flat image like a cartridge but a file
+system full of files, a program and its data, which the console loads into RAM, much as a PC loads a game from its
+drive. An emulator treats a ROM file as the chip and an ISO as the disc.
+
+**Archipelago and ROMs:** a ROM can't be handed out, so for a ROM game Archipelago gives each player a **patch** file
+instead (`.apemerald` for Emerald): only the differences, which Archipelago's launcher applies to the player's own
+ROM to make that seed's game.
+
+**Other dumps:** any raw copy written out to look at. A *memory dump* is a program's RAM at one moment, a *crash dump*
+its memory at the moment it crashed. The Bug Fables mod has dev dumps of its own (`EntityDump`, `MapDump` and others),
+which write what the game holds, every entity in a room or every map, as a table (a `.tsv` file) that a script like
+`door-graph.py` then reads to work out how the rooms connect.
 
 ## Part 4: How a game runs
 
@@ -367,6 +629,25 @@ still runs, but no time passes, and timed waits like `WaitForSeconds` stop); it 
 
 **Game state** is everything describing the game at this moment: which map, the player's position, HP, berries,
 story flags, what is open. Flags are part of it; a save file is a snapshot of part of it.
+
+### Positions and maths: vectors, Rect, Mathf
+
+A **vector** in Unity is a few numbers treated as one: **`Vector3`** is x, y and z, a point in the 3D world or a
+movement (a direction and a distance); **`Vector2`** is x and y. The mod lines the party up behind the leader with
+`at + new Vector3(-0.6f * i, 0f, 0.1f * i)`: the leader's position, shifted a little further for each member (-0.6 on
+x, 0.1 on z). (In C++, a `vector` is something else entirely: a list that can grow.)
+
+A **`Rect`** is a rectangle: x, y, width and height. The mod's menus use one right beside a vector:
+`Sprite.Create(pixel, new Rect(0f, 0f, 1f, 1f), new Vector2(0.5f, 0.5f))` makes a sprite out of the 1-by-1 square of a
+one-pixel texture (the Rect, counted in the texture's pixels), with its **pivot**, the point it is placed and turned
+by, in the middle (the Vector2, where `0, 0` is the bottom left and `1, 1` the top right). And the dev console draws
+its box with `GUI.Box(new Rect(10, Screen.height - 70, Screen.width - 20, 60), ...)`: 10 pixels from the left, its top
+70 pixels above the bottom edge, as wide as the screen less 20, and 60 tall, because on-screen GUI counts down from
+the top left (Unity's scripting reference and manual, checked 2026-09-29).
+
+**`Mathf`** is Unity's box of maths functions: `Mathf.Clamp(value, min, max)` keeps a number inside a range, so the
+shop's `mm.money = Mathf.Clamp(mm.money - price, 0, 999);` can never take the berries below 0 or above 999. The mod
+also uses `Mathf.Max` (the larger of two) and `Mathf.RoundToInt`. Plain .NET's own is `Math`.
 
 ### Coroutines: code that pauses
 
@@ -452,6 +733,40 @@ change is a **patch**:
 `__instance` in a patch is the object the method was called on. Nearly every feature of a Unity mod is one of these
 two.
 
+**Hook** is the general word for attaching your own code to run when something else happens: every Harmony patch is a
+hook (the Bug Fables mod installs its patches through a file called `Hooks.cs`), and so are git's hooks (part 6). A
+**wrapper** is code whose job is mostly to call other code, adding a little around it: the game's `InputIO.ReadFile`
+and its siblings each take a file name and do the file work, which is why the mod's save redirect patches those few
+instead of every place that loads a save. A prefix plus a postfix *wrap* a method.
+
+**The third kind of patch: the transpiler.** A prefix or a postfix is code that runs every time the method is called.
+A **transpiler** runs once, when the patch goes in (and again whenever another transpiler is added to the same
+method): Harmony hands it the method's IL instructions (the opcodes of part
+3) as a list, and the list it hands back *becomes* the method from then on ("codes in, do something, codes out", in
+Harmony's documentation, checked 2026-09-29). It can change one step in the middle of a method, where no prefix or
+postfix reaches: the mod's `GlowGuard` swaps each colour read in the game's light code for a guarded one, so a light
+without a glow colour stops logging an error, and its frame-rate work edits timings that way. The most powerful kind
+and the most fragile: it finds its spot by matching instructions, so a game update that moves them breaks it, and two
+mods rewriting the same method can clash.
+
+**Two ways to install patches.** Most of the mod's patches are *declared* with attributes (part 2):
+`[HarmonyPatch(typeof(NPCControl), "SetUp")]` names the target (in quotes, because `SetUp` is private), and
+`[HarmonyPrefix]`, or simply naming the method `Prefix`, says which kind: "Harmony will find them by their name", or
+by the attribute (its documentation). The mod then hands Harmony a whole class at a time to install. The other way is
+**imperative**, giving the commands yourself, in order: `harmony.Patch(method, transpiler: new
+HarmonyMethod(typeof(FrameSites), nameof(Transpile)))`, for targets known only once the game runs, like a list of
+methods worked out at start-up, or a coroutine's compiler-made `MoveNext` (part 3), which the mod finds with
+`AccessTools.EnumeratorMoveNext`. *Imperative* is a grammar word too, for a command, which is why commit subjects are
+asked to be imperative: "Add the attack boost", not "Added".
+
+**Patch parameters are matched by name.** Harmony fills a patch's parameters from the original method's parameters of
+the same name, besides its special ones (`__instance`, `__result`, `___field`). So **`basevalue`** in the mod's attack
+boost is not a programming word but *the game's own parameter name*: its private `BattleControl.CalculateBaseDamage`,
+which runs for each hit, takes an `int basevalue`, the number that hit's damage is worked out from. The mod's prefix
+declares `ref int basevalue`, and its `basevalue++` adds 1 to the game's own number before the method goes on with it.
+The `ref` (part 2) is what lets the change reach the game; without it the prefix would only change its own copy
+(Harmony's documentation, checked 2026-09-29).
+
 ### Reflection: reaching a private field by name
 
 A mod can't compile `player.dashtarget` when the field is private, so it asks for the field **by its name, as text,
@@ -485,3 +800,275 @@ with its evidence, never guessed (each adapter's `VERIFIED.md`; Bug Fables' `MEA
 
 **If you keep two:** hooks (prefix and postfix) and the frame loop. Together they explain most of how a mod changes a
 game.
+
+## Part 6: Around the code: scripts, git and checks
+
+### Scripts and shells
+
+A **script** is a text file of commands that an **interpreter** runs as it reads them, with no separate build: change
+it and run it again. A **shell** is the program that reads the commands you type, or a script holds: **PowerShell** on
+Windows (its scripts end `.ps1`, like the Bug Fables mod's `copy-dev.ps1`, `build-release.ps1` and
+`test-apworld.ps1`), the older **cmd** (`.bat`), and **bash** on Linux and macOS, on Windows too as Git Bash (`.sh`;
+git's hooks are written for `sh`, bash's plainer ancestor, which bash also runs). Python files (`.py`) are scripts as well, run by Python, and that is where the heavier checks live
+(the mod's `preflight.py`). The agent's two shell tools are exactly these: Bash and PowerShell.
+
+### sed and its relatives
+
+**sed** is a program, not anything in our code: the *stream editor*, a standard Unix tool (Git for Windows ships GNU
+sed 4.9), which reads text line by line and applies editing rules to it. Its best-known rule is find-and-replace,
+`s/old/new/`. By default it prints the edited text and leaves the file alone; `-i` edits the file **in place** (sed's
+own `--help`).
+
+A **sed edit**, or any **scripted edit**, is a file changed by running such a rule instead of by opening it: fast
+across many files, but blind to what it touches, so the result must be read back. Two real ones:
+
+- On 2026-09-24 the agent tried `sed -i` to add `EntityDump = true` to the Bug Fables mod's settings file inside the
+  game folder. Claude Code refused it as "irreversible local destruction", and the project's rules now send every change
+  in the game folder through `copy-dev.ps1`, which backs up what it replaces.
+- In daily use, the Bug Fables commit-message hook finds a message's subject with
+  `grep -v '^#' "$msg_file" | sed -n '1p'`: grep keeps every line that doesn't start with `#` (git's comment lines),
+  and `sed -n '1p'` prints only the first of them (`-n` stops it printing everything, `1p` prints line 1).
+
+That `|` is a **pipe**: one program's output becomes the next one's input. Its relatives are small programs that each
+do one job on text, built to be chained that way:
+
+| Program | Does |
+|---|---|
+| `grep`, and the faster `rg` (ripgrep) | prints the lines that match a pattern |
+| `awk` | splits lines into columns and works with them |
+| `head` / `tail` | the first or last lines |
+| `wc -l` | counts lines (the Bug Fables `CLAUDE.md`'s line cap is checked with it) |
+| `find` | lists files by name, size or date |
+| `diff` | shows what changed between two files |
+| `jq` | reads and edits JSON |
+| `curl` | fetches a web address |
+
+PowerShell has its own, longer-named versions (`Select-String` for grep, `Get-Content` for reading a file,
+`Measure-Object -Line` for `wc -l`), which pass objects along instead of text. The pattern language grep and sed
+share is the **regular expression** (*regex*), the same kind as the port check `@":\d{1,5}$"` in part 2.
+
+### Heredocs
+
+A **heredoc** ("here document") puts several lines of text straight into a shell command, up to a marker word of your
+choice. This is how the agent writes a commit message from bash:
+
+```bash
+git commit -F - <<'EOF'
+Add the attack boost
+
+Why it was added, in a line or two.
+EOF
+```
+
+Everything between `<<'EOF'` and the line `EOF` is handed to `git commit` as if typed into it (`-F -` means "read the
+message from there"). The quotes around the first `EOF` mean "take it as written": no `$variables` are filled in. The
+Bug Fables preflight's test lists a commit of this shape among the commands the agent must stay free to run, while
+`git commit --no-verify` is refused. PowerShell's version is the **here-string**, `@'` on one line and `'@` at the very start of
+the closing line.
+
+### Git under the hood
+
+Git is, underneath, a store of **objects**, each saved under the hash (part 2) of its own content in `.git/objects`:
+"a content-addressable filesystem", as git's own book puts it. Three kinds matter:
+
+- a **blob** is one file's content: just the bytes, no name;
+- a **tree** is one folder: a list of names, each pointing to a blob (a file) or another tree (a folder) by its hash;
+- a **commit** is a short note: "the project looked like *this tree*; before me came *this commit*; who, when, and
+  why".
+
+MeshGhost's latest commit, read with `git cat-file -p HEAD` on 2026-09-29 (the names, email addresses and times
+replaced, the message cut):
+
+```text
+tree d44ce8649b24ef3b4d560c8ebee858349d3992c1
+parent 0a07025e808f831289b0fdf0a8105397f32a95f4
+author <name> <email> <time>
+committer <name> <email> <time>
+
+status.md: PINNED items never age out; ...
+```
+
+and three lines of the tree it points to (`git cat-file -p 'HEAD^{tree}'`; `100644` is an ordinary file, `040000` a
+folder):
+
+```text
+100644 blob 4d38e26eb20416f2aeb557d06330ccec71c1c40a    .gitattributes
+040000 tree 715b8a33d7f3f58d0b07f7a20ae463dbef2b5f31    .githooks
+100644 blob 756e41a1512bdf9b6ada97fe1e803a4c72f4f515    CLAUDE.md
+```
+
+**What a commit does, step by step.** `git add` stores each changed file as a blob and notes it in the **index**
+(also called the staging area: the list of files the next commit will hold). `git commit` then writes a tree for each
+folder from the index, then a commit pointing at the top tree and at the commit before it, its **parent**, and
+finally moves the branch to the new commit. From that:
+
+- **A commit is a snapshot, not a list of changes.** A diff is worked out when you ask for one, by comparing two
+  trees. An unchanged file costs nothing: its hash is the same, so the new tree simply points at the same blob.
+- **A branch is a small file holding one commit's hash** (`.git/refs/heads/master`), and **HEAD** is a file naming the
+  branch you're on (MeshGhost's reads `ref: refs/heads/master`). Committing writes the new hash into the branch file;
+  that is all "moving the branch" means.
+- **History is the chain of parents.** Each commit holds its parent's hash, and its own hash covers that, so changing
+  any old commit changes every hash after it: history can't be quietly edited.
+- **Merge:** a commit with two parents, joining two lines of work. When one side has nothing new of its own, git just
+  moves the branch forward instead, a **fast-forward** (MeshGhost's rule `git merge --ff-only` allows only that).
+- **Push and pull:** push sends the other side the objects it lacks, then moves its branch; pull fetches theirs and
+  merges it into yours.
+- **Storage:** each object is compressed (zlib, per git's book), and git later packs objects together into
+  **packfiles**, storing similar files as differences from each other. MeshGhost on 2026-09-29: 886 loose objects
+  and about 29,400 packed into 4 packs (`git count-objects -v`).
+
+### Checks: lint, hooks, preflight, tests
+
+- **Lint:** a **linter** reads code without running it and flags what looks wrong or breaks the style: an unused
+  variable, an `import` in the wrong place. It is named after the fluff a clothes dryer's lint trap catches; the first
+  was a 1978 Unix tool for C (Wikipedia, "Lint (software)", checked 2026-09-29). Python has ruff and flake8, C# has
+  analyzers in its compiler. A line can silence one rule on purpose: `import dotnet_metadata  # noqa: E402` in the Bug
+  Fables preflight says "yes, this import isn't at the top of the file (rule E402), and that's deliberate": it has to
+  come after the line that tells Python where to find it.
+- **Git hooks** are scripts git runs at fixed moments, and if one fails, git stops. The Bug Fables repo's
+  `.githooks/pre-commit` runs its preflight before every commit, and `commit-msg` checks the message; MeshGhost's
+  `pre-commit` runs a scan of its own, for home paths and stray files. A clone runs them only once told where they live
+  (`git config core.hooksPath .githooks`), and `--no-verify` would skip them, which both projects forbid.
+- **Preflight** is borrowed from pilots: the checklist before take-off. In both projects it is a script (the mod's
+  `preflight.py`, MeshGhost's `preflight.ps1`) that refuses what must never be committed or released: a home path, a
+  private name, a game's file, and more. Both run it in CI and before a release; the Bug Fables repo also runs it from
+  its hooks.
+- **Tests** are code that runs your code and checks its answers. An **assert** is one check: an apworld test's
+  `self.assertEqual(self.world.fill_slot_data()["start"], {})` fails the test, and says so, if the two sides differ.
+- A **fixture** is the prepared thing a test runs on (a known input, a sample file, a starting state), so every run
+  starts the same. The Bug Fables preflight has a test of its own with 76 fixtures on 2026-09-29, most of them a known
+  violation planted in a scratch copy of the repo, and it checks that preflight answers each one as expected (71 must
+  fail it outright).
+- A **harness** is the machinery around tests: it sets them up, runs each one and collects the results (in that same
+  test, a class named `Harness` keeps the tally). The word is used for anything that runs something and controls its
+  surroundings: the program that runs an AI agent, with its tools and permissions, is called its harness too.
+- **Fuzzing** is testing with a flood of random input, to find the rare case nobody thought to write a test for. The
+  Bug Fables apworld goes through the Archipelago fuzzer, which generates 10,000 seeds from random options on every
+  test run and in CI (`test-apworld.ps1`); MeshGhost's Go code is fuzzed in CI, and a failing input comes back as an
+  artifact (below) to be turned into a test.
+
+### CI, artifacts and releases
+
+**CI** (continuous integration) is a server that builds and tests every push, so a mistake is caught when it lands
+rather than whenever someone next runs the tests. Both projects use GitHub Actions: each **workflow** is a `.yml` file
+in `.github/workflows/`, a list of jobs and their steps, run on GitHub's machines. The Bug Fables repo has three:
+`ci.yml` (the apworld's tests on three Python versions, a build of the apworld, the fuzzer), `preflight.yml`
+(preflight over the commit and the whole history) and `release.yml` (builds, checks and publishes a release). A run
+ends **green**, every job passed, or **red**.
+
+An **artifact** is a file a run produces and keeps for download: the built apworld (`actions/upload-artifact`), or
+the fuzzer's failures. `release.yml` downloads the apworld that CI built rather than building it again, so what is
+released is exactly what was tested.
+
+A **provenance attestation**: *provenance* is where something came from, an *attestation* a signed statement about
+it. At release, GitHub signs a record that says "this file, with this hash, was built by this workflow, in this
+repository, from this commit", signed through Sigstore so it can't be forged (GitHub's documentation, checked
+2026-09-29). Anyone can then check a downloaded apworld with `gh attestation verify`: a file changed after the build,
+or built anywhere else, fails.
+
+**Merge** outside git means the same joining: `dict(json.loads(manifest), **BUILDER_FIELDS)` in the release check
+merges two tables into one, the second one's values winning where both have the same key.
+
+## Part 7: Reading and judging code
+
+### Whose name is it?
+
+Reading code starts with knowing where each word comes from. One line of the Bug Fables mod can hold five owners:
+
+| Kind | Examples | Who decided it |
+|---|---|---|
+| The language's keywords | `private`, `static`, `void`, `if`, `return` | C#; fixed, and coloured by the editor |
+| A library's names | Harmony's `Prefix`, `Postfix`, `__instance`, `AccessTools`; Unity's `Update`, `Vector3`, `Mathf` | the library; spelled exactly its way |
+| The game's names | `MainManager`, `BattleControl.CalculateBaseDamage`, `basevalue` | the game's developer; read from its DLL |
+| Our names | `SeedData`, `AttackBoost`, `RetrySeconds`, `BeforeBaseDamage` | us; could have been anything |
+| Programs, not code | `sed`, `git`, `grep`, `dotnet`, `python` | separate programs, run from a shell |
+
+So `Postfix` isn't a name the mod made up: a method named `Postfix` in a patch class is found by Harmony *because* of
+that name, and a method named anything else can be marked `[HarmonyPostfix]` instead (the attack boost's prefix is
+called `BeforeBaseDamage`). And `sed` is in no `.cs` file at all: it is a program, like `git`.
+
+### Does it matter if it works?
+
+Yes, though not for the computer's sake: it runs messy code as happily as clean code. It matters for the next person
+to change it, often yourself: "code is read much more often than it is written" (Guido van Rossum, quoted in Python's
+style guide, PEP 8). Bad code works *today*; its cost shows up at the next change: a fix in one place breaks another,
+the same bug lives on in three copies, nobody can tell what a number means or whether a check is still needed. For a
+mod, the next change often isn't chosen: the game updates, Archipelago updates, and the code must be understood again,
+quickly.
+
+It matters least for a throwaway script run once, or a probe deleted after one measurement; most for code others build
+on, and for code where a mistake is expensive, like anything that writes a save.
+
+### Spotting trouble at a glance
+
+None of these proves a problem; each is a reason to look closer.
+
+- **Names that say nothing:** `data2`, `temp`, `flag`, `DoStuff`. A good name makes a comment unnecessary.
+- **A function doing many things:** long, with blank lines between its "phases"; each phase wants to be a function.
+- **The same code pasted twice:** the next fix reaches one copy and not the other.
+- **Deep nesting:** an `if` in a `for` in an `if` in a `try`. An early `return` often flattens it: the mod's patches
+  check their conditions first and `return` straight away when one fails.
+- **Magic numbers** (part 5) with no name: `windowid != 2` says nothing, where the mod's `windowid != MedalsWindow`,
+  with a one-line comment on the constant, says which screen.
+- **Comments that narrate the code** (`// add 1 to i`) instead of saying *why*; old code left commented out.
+- **Errors swallowed:** an empty `catch { }`, or catching every exception, so a failure vanishes instead of being
+  logged.
+- **Checks for things that can't happen**, piled up "just in case", hiding the ones that matter.
+- **Mixed styles** in one file, and **clever one-liners** that take a minute to decode.
+
+**Efficiency** at a glance is about *where* code runs more than *how*: a line costs nothing once at start-up and a lot
+60 times a second in `Update()`, or once for each of thousands of items. The warning signs: looking something up by
+name (reflection, part 5) every frame instead of once, and keeping it in a cache (part 2); new lists or strings every
+frame, which the garbage collector (part 3) must clean up, sometimes with a stutter; a loop inside a loop over big
+lists. And measure before speeding anything up: most code is not where the time goes.
+
+### What modders look for
+
+- **It touches only what it must:** a postfix that adjusts one result rather than a prefix that replaces a whole
+  method (a prefix returning `false` skips the game's method for every mod patching it; in HarmonyX, the Harmony that
+  BepInEx ships, the other prefixes still run, where original Harmony would skip those too: HarmonyX's wiki, checked
+  2026-09-29).
+- **It fails safely when the game changes:** each target is looked up, and when one is missing the feature logs what
+  it lost and switches itself off instead of crashing the game (the mod's `[boost] NOT installed ...` lines).
+- **It plays well with other mods,** and costs little per frame: nothing heavy in `Update()` or in patches on methods
+  the game calls constantly.
+- **It logs what it decided,** not only what happened, so a player's log can be read.
+- **It never ships the game's code or files,** and says honestly what it changes.
+
+### Judging code written by an AI
+
+AI-written code goes wrong in its own recognisable ways, because a language model writes what *looks* right:
+
+- **Invented names:** a method, parameter or setting that sounds exactly right and doesn't exist, or exists only in
+  another version. The most common failure, and the reason both projects' rules say no name, address or API from
+  memory: each one traces to a file or a documentation page.
+- **Confident explanations of wrong code:** the prose sounds as sure when it is wrong as when it is right.
+- **Fixing the symptom:** hiding an error message, a `try`/`catch` around the crash, a special case for the one input
+  that failed, instead of finding the cause.
+- **Over-defending and over-explaining:** checks and fallbacks for things that can't happen; a comment on every line.
+- **Not reading the room:** a new helper written when the project already has one; a style unlike the file around it.
+- **Tests that prove nothing:** a test that checks the code does what it does rather than what it should, or one that
+  would pass without the fix.
+
+**How to check it** is the same as for any code, only never skipped: does it build; does a test fail without the
+change and pass with it; does every name trace to a source; and read the diff, every line, asking why about any line
+you can't explain. For a mod, the last check is always the game on screen: "it ran without errors" isn't evidence,
+because a wrong hook fails silently.
+
+### One right way?
+
+No. There are many correct ways to write the same thing, and people who know what they are doing disagree: tabs or
+spaces, where braces go, one long function or five short ones. What exists instead:
+
+- **Language conventions** most code follows: in C#, `PascalCase` for classes and methods and `camelCase` for local
+  variables (Microsoft's naming conventions, which add that "the compiler doesn't enforce them"); in Python, PEP 8
+  (`snake_case`, four-space indents).
+- **Tools that end the argument:** a **formatter** rewrites code into one standard layout. Go goes furthest: `gofmt`
+  lays out all Go code the same way, so no one debates it ("formatting issues are the most contentious but the least
+  consequential", *Effective Go*), and MeshGhost's CI fails Go code that isn't in that shape.
+- **Project rules:** Archipelago's `style.md` for its worlds; the Bug Fables mod's "comments are lean".
+
+And the one that outranks the rest: **match the code around you.** PEP 8 puts it in order: consistency with the guide
+matters, "consistency within a project is more important", and "consistency within one module or function is the
+most important". A file in one consistent style, even one you wouldn't have chosen, reads better than a file in two
+good ones.
