@@ -7948,3 +7948,143 @@ sat beside each rule, moved word for word where it could be; the dates inside ar
 - **ScriptEngine and focus.** Autoplay's driver found no config and knocked on another chat's core, and
   the dev cheats read their toggles from the game root (2026-09-17); the focus trap is the user's
   report, 2026-09-17.
+
+## The stories behind the gates, moved out of preflight.ps1 (2026-09-30)
+
+On 2026-09-30 `dev-scripts/preflight.ps1` was cut to one comment line per section plus a few one-line whys (its
+code tokens proved unchanged). The history those comments carried is below, word for word, where the repo did not
+already record it elsewhere; the dates inside are when each was found.
+
+### Preamble (param -TreeOnly)
+
+- Run ONLY the checks that a bare checkout can answer, skipping everything that needs a working copy (built binaries, deployed DLLs, installed toolchains, running processes). This is what .github/workflows/docs.yml runs on every push touching a .md file, because until 2026-08-27 nothing in CI ran any of the doc gates at all -- they held only when somebody remembered this script, and commit b77b2cf shipped _template/probes.md four lines over its own declared cap, trimmed back two commits later, which is what that looks like.
+
+### Preamble (Report-GrepGate)
+
+- Both grep gates below are three-way, and used not to be. `git grep` exits 0 for "matches found", 1 for "none", and >1 for "I could not run" -- and `if ($LASTEXITCODE -eq 0 -and $hits)` sent that third case straight to the PASS branch. A gate that reports clean when it could not run is the "check that lists no files passes every time" failure, twice over, and it is why this lives in one function rather than being written out at each call site.
+
+### Preamble (missing tracked files)
+
+- A file git tracks but the working tree does not have kills every loop below, because $ErrorActionPreference = "Stop" turns Get-Content's "path not found" into a terminating error -- so the script dies mid-run with a raw .NET stack and no section summary, and deleting one doc made preflight LESS informative than leaving it broken. Found 2026-08-25 while testing that the adapter-file-set check could actually fail; it crashed in three separate loops in turn. Reported once here and filtered out, rather than guarded at each of the three call sites -- one home, like every other rule in this repo.
+
+### Go source hygiene
+
+- TRACKED AND UNTRACKED BOTH, since 2026-08-27. `git ls-files` lists only what git already knows about, so a brand-new .go file -- which is exactly what adding a test looks like -- was invisible to this check until it was staged. It happened the same day this comment was written: a new test file was written, this check was run and reported clean, and the file went into the commit unformatted. CI's own gofmt step caught nothing either, for the same reason it caught nothing here: it runs after the add. Same shape as "a check that lists no files passes every time", one step earlier in the process.
+
+### Public-repo leak check
+
+- IS THE HOOK EVEN ON? The scan below finds a leak that is already in the working tree; the hook is what stops one entering HISTORY, where it cannot be taken back. Hooks are not carried by `git clone`, so a fresh clone has this switched off and nothing says so -- which is exactly the state in which the 2026-08-23 leak was committed. A WORKING-COPY question, not a tree one, so -TreeOnly skips it: hooks are per-clone git config, a CI runner has none and never commits, and failing there would say nothing about the code. The leak GREP below is the tree half and runs everywhere. Split 2026-08-27, on the first run of .github/workflows/docs.yml -- which failed on exactly this and nothing else, which is the gate doing its job on the person who wrote it.
+- This script excludes ITSELF, for the same reason CLAUDE.md and pitfalls.md are excluded: the patterns are written out literally on this line, so git grep finds them here every time. Without the exclusion the check reported FAIL on a perfectly clean tree -- a checker that always fails is as useless as one that never can, and gets ignored just as fast.
+- An IP ADDRESS out of someone else's log. Added 2026-09-11, the day a tester's LAN address reached a committed file: it was pasted in from their `meshghost.log` to illustrate the SHAPE of a disconnect message, and every scanner above was blind to it because there is no username and no path in an address. The one that leaked was RFC1918 and therefore harmless -- it routes nowhere and identifies nobody. The user's point, which is the right one: *"would have been bad if it was a public ip and not a local one"*, and the gate cannot tell the lucky case from the unlucky one after the fact.
+- A HOSTNAME out of someone else's log, which is the same leak as the address above wearing a friendlier face -- and the one that would actually have happened here. The tester's relay in the logs read 2026-09-11 was a hostname, not an IP; it never reached a tracked file, but nothing would have stopped it, and a hostname is WORSE than an address: it usually contains a person's chosen name, it resolves from anywhere, and it survives them changing ISP.
+
+### Invented durations
+
+- WHY THIS IS A GREP AND NOT A RULE. The rule existed and was broken four times: three on 2026-08-16, and again on 2026-08-21 with "for <months>" written about a rule two <days> old. The last one is the reason this check exists, because of HOW it happened -- the duration was not a claim anyone believed, it was an intensifier that filled a slot in a sentence wanting emphasis, and was never examined. A rule against writing durations only catches someone who notices they are writing one. A grep does not need anyone to notice.
+- If a hit is genuinely about an EXTERNAL project's history ("rgbds has shipped for <years>"), rewrite it with a date or a version rather than silencing the check -- a date is better writing there too. Four such hits were reworded when this check was added; none of them lost anything by it.
+- TWO GATES, because the units divide cleanly and only one of them can be judged by grep alone. The first is repo-wide and covers what is IMPOSSIBLE here; the second covers everything else but only on lines being added. `pitfalls.md` is no longer excluded from the first: it was, and that is where 2026-08-23's "for <days>" landed unchallenged.
+- verified.md AND the per-adapter VERIFIED.md files (split out of it 2026-08-25) are excluded because they are APPEND-ONLY: correcting a phrase inside an entry there is a rewrite of the record, which is the one thing that file forbids. It holds one known bad duration ("long<->standing 1-2 image density gap", 2026-08-21, now in adapters/pseudoregalia/VERIFIED.md) and one legitimate external reference. A future entry that invents a duration will therefore NOT be caught here -- so watch it by hand.
+- TWO SHAPES ADDED 2026-09-10, both found by a duration this check let through. A build-story beat said the relay change mattered "that <week>"; the grep matched neither "for a <week>" nor "<weeks> later", so it passed. The user's call on finding it: "preflight is better at catching mistakes than any rules" -- so the pattern grew rather than the prose. 1. THE DEMONSTRATIVE FORM -- "that <week>", "this <month>". Deliberately NOT "that day" or "this hour": 50 tracked lines use "that day" anchored to a date already in the sentence ("confirmed that day", "12:21 and 12:22 that day"), which is good writing, and a check that flags 50 good lines to catch one bad one is the cry-wolf failure this file warns about two checks up. Week and longer have no such anchored use here -- all three hits were real and were fixed. 2. "<unit>s of" WITHOUT a preceding "for" -- "<months> of clean-loopback testing", which was false on arrival (this repo began 2026-08-11). Restricted to month/year/decade for the same reason: "<hours> of" is nearly always a real figure ("336 hours of samples", "six hours of play") or an honest account of a session, and both tracked month/year hits were false.
+- GATE THREE, added 2026-09-10: an unmeasured span of effort, written as "<units> of <work>". The user's rule, and the reason this one is worth its own gate: the ONLY real work-duration figures in this repo are three the user wrote by hand, all in adapter READMEs -- about 10 hours for the server/client plus Emerald, about 1 hour for TEVI, and 15-20 for Pseudoregalia. "anything else can be considered made up durations basically". They are approximations -- the user does not claim to have timed them -- and that is fine: what makes them legitimate is that somebody who did the work wrote them, not their precision. An agent has no such standing and should write no work-duration at all. Three invented ones were removed the day this gate landed (~3 hours for a tier, ~2 hours for another, ~3-5 for pre-planning); none of them was ever measured, each was an intensifier filling a slot in a sentence.
+- THE DISCRIMINATOR IS A NUMBER, which is also what the pass message above asks for. "336 hours of samples", "six hours of play", "Four hours of adapter-side probes" are figures somebody computed or counted and they stay. "<hours> of measurement", "<hours> of inference", "<months> of clean-loopback testing" are rhetoric -- eight such lines existed and all eight were reworded, losing nothing. So: fire only when NO number precedes the unit. A digit, a "~n", or a written number one..twelve all count as measured.
+- A LOOKBEHIND, so each OCCURRENCE is judged, not the line. The first version of this filter exempted any line holding one numbered mention, so "after <hours> of measurement, and 6 hours of play" passed -- a good figure laundering a bad one beside it. Found by trying to fool it.
+
+### Reading budgets
+
+- (Get-Content).Count, NOT Measure-Object -Line: the latter counts only NON-EMPTY lines, so it reported 288 for a 300-line file and would have passed a CLAUDE.md sitting 12+ lines over the cap. The rules are stated in terms of `wc -l`, and this must measure the same thing they do.
+
+### Probe scripts: blind reflection walks
+
+- **The gate behind the rule, added after the rule alone failed to hold (2026-08-29).** A probe crashed a live game three times in one day, twice by calling a UFunction on everything FindAllOf returned, then once more by walking ForEachProperty and stringifying every property it named -- an object-valued one hands back a pointer, and touching it dereferences whatever that was. A Lua pcall does not catch an access violation in native code, so the probe cannot defend itself and neither can the reviewer who reads it afterwards. The user's call after the third: make it so new probes cannot do this again.
+
+### Committed mod DLLs vs their source
+
+- THE THIRD STALENESS GATE, added 2026-09-10. release.yml runs three; this script reproduced two, so a UE4SS runtime staged from one submodule commit and left behind by a bump was invisible until somebody dispatched a release. The shape differs from the two above -- the recorded hashes are of the SHIPPED DLLs rather than of sources, plus the submodule commit they were built from -- so it does not fit Check-BuiltFrom and is written out here.
+
+### No reproduced expression in documentation.md
+
+- NOTHING WAS CHECKING IT, and three violations reached master before a person read the file: a sixteen-entry jump-arc table, a sprite template's assembly line, and a script's command sequence, all in Crystal's, all added 2026-08-26 while writing up work that had just been confirmed. Every one of them is a case where the fact and the source's own FORM look identical -- writing out a table you also measured feels like recording a measurement.
+
+### Stray control bytes from a mangled escape
+
+- A scripted edit that writes a Windows path through something treating backslash sequences as escapes leaves the ESCAPE'S BYTE in the file: \t becomes a tab, \b a backspace, \a a bell, \0 a NUL. The file still parses, still compiles, still ships -- and the path or string inside it is silently wrong. Three instances by 2026-09-03: - 2026-08-25: two probes had never parsed, mangled by an edit where \a \b \n inside a path were eaten as escapes (the reason lua.yml exists at all). - 2026-09-03: packaging/release/README.txt told players to drop a clip into "replay<BEL>ctive" -- a folder name with a control character in it, for a folder that did not exist either. - 2026-09-03: dev-scripts/tevi-hotreload.ps1 looked for the built pdb at 'adapters<TAB>evi\MeshGhostTevi<BS>in\Release\...', so Test-Path never matched and the hot-reload loop silently lost its pdb fallback -- which ScriptEngine needs or the plugin never loads (MeshGhostTevi.csproj).
+
+### LF-pinned sources
+
+- .gitattributes pins these to eol=lf because the release gate hashes them on a Windows runner. A scripted edit that writes CRLF makes the gate fail claiming the DLL is stale when it is fresh, and rebuilding "to fix it" re-bakes the same wrong hash. Found live twice.
+
+### Deployed copies in the live game installs
+
+- The repo's staging copy being fresh does NOT mean the game is running it. A full cleanup pass once rebuilt both DLLs, verified the in-repo gates, and never copied them out -- which would have had a loopback test across three games silently exercising pre-cleanup code.
+
+### Markdown link integrity
+
+- Every relative link must resolve -- to a file OR a folder, of any extension -- and every `#anchor` on a .md target must name a heading that file actually has. Four broken .md links sat in the tree unnoticed until 2026-08-25 (rule text copied between files without adjusting the link depth; one pointed at a deleted folder). Widened 2026-09-06 after a sweep found what the .md-only version could not: a folder link left behind by the probes/ move, and five anchors still naming a section that had moved from pitfalls.md to pitfalls/method.md. A broken link fails silently in every markdown viewer, so nothing else surfaces it.
+
+### _template back-port freshness
+
+- One day of slack: the rule is "back-port in the SAME pass", so a sub-day gap is almost always this session's own commits, and a check that cries wolf every session is a check nobody reads -- which is exactly how the pitfalls.md taxonomy stopped being maintained.
+
+### VERIFIED index coverage
+
+- The verified records are append-only and only grow: 3,654 and 3,685 lines for Pseudoregalia and Emerald as of 2026-08-25. They cannot be capped -- capping a record means deleting evidence in order to add evidence -- and splitting them by period does not work yet, because every entry in every one of them is dated 2026-08 (the repo began 2026-08-11). So the control is an index: reading it costs ~150 lines instead of ~3,700, and adding an entry costs one line.
+- -notlike '*UNVERIFIED.md' is load-bearing, and PowerShell's case-INSENSITIVE -like is why: both "UNVERIFIED.md" and "agent_docs/unverified.md" match '*VERIFIED.md', so the first version of this check demanded an index on all three queue files. A queue is the opposite case -- it DRAINS, its size is how much the user has not confirmed yet, and indexing a list that is meant to reach zero is work for nothing.
+
+### Adapter file set
+
+- _template/README.md's folder-convention table has mandated a file set per adapter since it was written, and nothing checked it. That is a rule enforced by whoever remembers it, which is the same as unenforced: TEVI and Pseudoregalia had no UNVERIFIED.md and nobody noticed, and Pseudoregalia's three probe directories went unindexed from the day they were created.
+- UNVERIFIED.md IS mandated, since 2026-08-27 and on the user's call. It used to be exempt "because a queue with nothing pending should not exist", and TEVI and Pseudoregalia had none for that reason -- while status.md carried unwatched items for both. The exemption was protecting exactly the two adapters that needed the file, and the premise behind it was never true. A queue is created with the adapter now.
+- Extension test FIRST, and $pd captured immediately: every -match writes $Matches, so testing the extension after the directory match overwrites the captured group with the file extension. It did, and the check reported ".../lua (46 scripts)".
+
+### status.md is current
+
+- TWO MORE THINGS, added 2026-09-11, both found by hand because nothing was looking. The age check above answered "when does an item LEAVE"; nothing answered "how big may an item GET", so the two-lines-per-item rule was prose -- and on 2026-09-11 it was broken by 36 of 37 items, the worst at roughly eighteen wrapped lines. A rule broken by 97% of the file it governs is not being enforced by anything. $statusMaxItemChars -- two wrapped lines at this file's ~105-column width, plus slack. The rule is in claude-md-cap.md and the overflow has a defined home: the adapter's UNVERIFIED.md, ideas.md, plans.md or risks.md. The CARRIED marker -- an item whose own text says it was re-checked or re-dated "unchanged" more than once has, by its own admission, outlived short-term memory. status.md is 2-day memory and not a progress log (user's call, 2026-09-11); a thing that keeps being true belongs in the file that tracks it, with status.md holding at most a pointer.
+- WHAT NEITHER OF THESE CAN SEE, so it stays a human read: whether an item's CLAIM matches the record it cites. On 2026-09-11 one item opened "all CONFIRMED on screen" over a list that mixed four screen confirmations with three agent measurements whose numbers lived in UNVERIFIED.md. No grep tells you that; reading the item beside the file it points at does.
+
+### Phase log freshness
+
+- The user's call, 2026-09-02: a phase file holds ALL the history of its adapter, as a running log appended every session -- not a catch-up summary written <days> later, which is what every live phase file had become ("Catch-up record, written 2026-09-01 -- the active phase's missing week"; phase7.md got 6 commits in the fortnight the Pseudoregalia queue got 54). The rule lives in agent_docs/phases/README.md; this makes it mechanical the way "_template back-port freshness" does: for each live phase, count the commits that touched its adapter since the last commit that touched the phase file. Three or more is a session's worth of work with no log line. FAIL, not WARN: a warning here was the state of affairs the rule replaces.
+
+### Phase log coverage
+
+- @(...) is load-bearing: a one-key hashtable unrolls to a SCALAR, so [0] on it returns the first CHARACTER ('2'), which compares below the floor and silently widens the scope to every date since 2026-09-02. Found 2026-09-11 the first time a file had exactly one dated heading.
+- No dated heading at all falls back to the file's CREATION date, never to "skip". Skipping was the first version and it is a dodge: a phase file that simply never gains a dated heading would never be covered, which is the exact failure this gate exists for. A log created today still has nothing before today to answer for, so the fallback costs a new file nothing.
+- "00:00" is load-bearing. git parses a BARE --since=YYYY-MM-DD as that day at the CURRENT time of day, so every commit earlier in the start date is silently dropped -- 0 commits returned where "$start 00:00" returns 5. A gate that quietly narrows its own window reads as clean.
+
+### Bridge constants agree across the four adapters
+
+- TEVI JOINED THIS COMPARISON 2026-08-27, when it grew a port walk -- see the note that used to sit below this check, which said it should be deleted on exactly that day. Its two constants live in two different files (the base port is a BepInEx config default in Plugin.cs, the walk count is in BridgeClient.cs), so an adapter may name several sources and they are concatenated.
+- All four adapters are in this comparison as of 2026-08-27. Until then TEVI was deliberately absent -- fixed port from BepInEx config, no walk -- stated in the pass message rather than silently skipped, with a note saying this carve-out was what to delete when TEVI grew one. It did.
+
+### Bridge message coverage in the adapter template
+
+- _template/PROTOCOL.md is what a new adapter is BUILT FROM, and it had never heard of session_policy or remote_name -- so every adapter written from it handled four bridge messages and silently ignored two. That is the whole reason ghost_collision does nothing in any game and nametags reach one adapter of four (agent_docs/plans.md, "Settings: defined once, honoured everywhere"). The standing rule is that _template/ may never lag, but nothing CHECKED it: a message could be added to bridge/bridge.go and the template never told, which is exactly what happened. This is the mechanical half of that rule -- it cannot tell whether an explanation went stale, only that a message exists which the template has never heard of. Added 2026-08-30.
+
+### RemoteGhost pointer fields are cleared at release (Pseudoregalia)
+
+- Word-boundary match, not substring: "nametag_plate" must not be satisfied by "nametag_plate_mid" -- the first negative test of this check passed when it should have failed for exactly that reason.
+
+### FindAllOf ratchet (Pseudoregalia)
+
+- Added 2026-09-01 with the write-time performance checklist (_template/README.md): whole-world and class-scoped enumerations are the shape that took the game from 144fps to 30 at four peers, added one cheap-looking site at a time. This does not judge any site -- most of the 46 are one-shot or edge-triggered instruments, which are fine -- it only forces the NEXT one to be a conscious decision: a new call site fails here until its author names its cadence (per the checklist) and bumps the expected count on the line below. Same force-the-look philosophy as the RemoteGhost release check above. Count updated 2026-09-10 (47).
+
+### No hard-coded adapter or game counts in living docs
+
+- WHY THIS EXISTS. "All four adapters", "the four shipped games": true the day it is written and false the day the fifth game lands, with nothing to flag it -- the user's call, 2026-09-02: "good hygiene, and it prevents things from going stale". Say "every shipped adapter". Covers the people-facing docs and the template (which every new adapter copies from); a line carrying a date is a record of that day and is skipped, the same rule as every other dated fact here.
+
+### Every adapter has its own path-filtered workflow
+
+- THE RULE (user, 2026-09-04): "if we add more adapters in the future, i only want them to get tested whenever anything changes. so think this is just good hygiene to setup properly now."
+
+### The scratch probe slot is EMPTY
+
+- Behaviour, not size: a stub may grow comments freely, and none of them can execute. These are the verbs a probe needs to DO anything -- read the world, run per frame, touch the game thread. COMMENTS ARE STRIPPED FIRST, and that is not a nicety: the stub's own header explains what a probe would use this slot for, so it NAMES these verbs -- a raw text match fails on the exact file this check exists to protect. Caught by running it, 2026-09-04.
+
+### Leftover scaffolding
+
+- Leaving a relay alive is how a later run silently binds the wrong port. meshghost-server is the RELAY'S SHIPPED NAME -- one program, two names, per packaging/README.md. It was missing here until 2026-08-28, so a relay left running from a staged release (which is exactly what a release dry run leaves behind) reported "no MeshGhost processes left running". The check that exists to stop a stale relay silently binding the port was blind to the only name a player ever sees.
+
+### .githooks/pre-commit
+
+- The CLONE path gets its own pass, over SCRIPTS AND BINARIES ONLY -- never prose. There is no username in `<drive>:\dev\MeshGhost` for the patterns above to catch, so it needs its own; but the rule text legitimately QUOTES it (CLAUDE.md, brief.md, claude-md-cap.md and ideas.md all say "ask before touching anything outside <clone>"), so scanning prose refuses a commit to a perfectly correct document. That is not hypothetical: adding these patterns to the scan above on 2026-09-07 made this hook refuse an ordinary edit to agent_docs/ideas.md on 2026-09-08, over a sentence stating the rule. dev-scripts/preflight.ps1's clone-path check has been scripts-only from the start and says why; this now matches it, which is the point -- three copies of a rule that disagree is how the pitfalls/ split broke CI on 2026-08-25. What breaks on another machine is a SCRIPT that hardcodes the path, or a BINARY that had it baked in by a toolchain. Prose naming the boundary is the rule working.
+- A chat has no end event. Nothing fires when one is closed, so "write the entry before the session ends" depends on a human remembering to hint and an agent choosing to act on the hint. This moves the moment to the one event that always happens and always has the context still loaded: the commit that does the work.

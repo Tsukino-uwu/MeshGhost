@@ -1,44 +1,17 @@
 [CmdletBinding()]
 param(
-    # Run ONLY the checks that a bare checkout can answer, skipping everything that needs a
-    # working copy (built binaries, deployed DLLs, installed toolchains, running processes).
-    # This is what .github/workflows/docs.yml runs on every push touching a .md file, because
-    # until 2026-08-27 nothing in CI ran any of the doc gates at all -- they held only when
-    # somebody remembered this script, and commit b77b2cf shipped _template/probes.md four lines
-    # over its own declared cap, trimmed back two commits later, which is what that looks like.
+    # Run only the checks a bare checkout can answer; skip what needs built binaries, deployed DLLs or processes.
     [switch]$TreeOnly
 )
 
-# MeshGhost -- run this BEFORE handing the user a game to test.
-#
-# Every check here exists because the thing it checks actually went wrong and cost a live test.
-# A live cycle costs the user a real game launch and a replayed save, so the cheapest possible
-# minute is the one spent proving the artifacts are the ones we think they are.
-#
-# Read-only: it inspects and reports, and changes nothing. It never builds, never deploys and
-# never commits, so it is safe to run at any point.
-#
-# Exit code 0 = everything fresh. 1 = at least one FAIL. Warnings do not fail the run.
-#
-# Optional environment variables, for the deployed-copy check. They are env vars rather than
-# literals on purpose: install paths are machine-specific and this is a public repo.
-#   MESHGHOST_TEVI_DLL        full path to the deployed MeshGhostTevi.dll
-#   MESHGHOST_TEVI_DLL_ALT    a second TEVI install (the dual-instance one, if you have it)
-#   MESHGHOST_PSEUDO_DLL      full path to the deployed MeshGhostPseudo main.dll
+# MeshGhost preflight: a read-only check run before handing over a game to test; it builds, deploys and commits nothing.
+# Exit 0 when clean, 1 when any check fails; warnings do not fail the run.
+# -TreeOnly skips every check that needs a working copy rather than just the tree.
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
-# BOTH, and the second is load-bearing. Set-Location moves PowerShell's location; it does NOT move
-# the .NET process working directory, and four sections here read files through [IO.File] with a
-# RELATIVE path -- the binary leak scan, the control-byte scan and both line-ending scans. Started
-# from any other directory, those four resolved their paths against wherever the process began:
-# `Test-Path` (PowerShell's location) said the file was there, `[IO.File]::ReadAllBytes` then read
-# the SAME relative path out of a different tree, and the section reported on files it was never
-# pointed at. Found 2026-09-11 by dev-scripts/negative-test-preflight.ps1, whose scratch worktree
-# is the first time this script was ever run from somewhere that is not the repo root: a planted
-# username sat in a tracked .dll and the gate said "no NEW tracked binary embeds a
-# machine-identifying path", because it had just read the clean copy of that same .dll next door.
+# Also sets the .NET working directory: the [IO.File] reads below resolve relative paths against it, not Set-Location.
 [Environment]::CurrentDirectory = $root
 
 $script:failures = 0
@@ -50,7 +23,6 @@ function Report-Warn($msg) { Write-Host "  WARN  $msg" -ForegroundColor Yellow; 
 function Section($name)    { Write-Host ""; Write-Host "== $name ==" }
 function Report-Skip($msg) { Write-Host "  SKIP  $msg" -ForegroundColor DarkGray }
 
-# The lists shared with .githooks/pre-commit and hygiene.yml: entry -> reason, in file order, for [$name].
 function Read-GateList([string]$name) {
     $entries = [ordered]@{}
     $on = $false
@@ -69,11 +41,7 @@ $gateHome = @((Read-GateList 'home-patterns').Keys)
 $gateClone = @((Read-GateList 'clone-patterns').Keys)
 function Grep-Patterns($patterns) { $patterns | ForEach-Object { '-e'; $_ } }
 
-# Both grep gates below are three-way, and used not to be. `git grep` exits 0 for "matches found",
-# 1 for "none", and >1 for "I could not run" -- and `if ($LASTEXITCODE -eq 0 -and $hits)` sent that
-# third case straight to the PASS branch. A gate that reports clean when it could not run is the
-# "check that lists no files passes every time" failure, twice over, and it is why this lives in one
-# function rather than being written out at each call site.
+# git grep exits 0 on matches, 1 on none, and above 1 when it could not run, which must never read as clean.
 function Report-GrepGate($exitCode, $hits, $failMsg, $passMsg) {
     if ($exitCode -eq 0 -and $hits) {
         Report-Fail $failMsg
@@ -85,25 +53,13 @@ function Report-GrepGate($exitCode, $hits, $failMsg, $passMsg) {
     }
 }
 
-# Tracked markdown, listed WITHOUT a git pathspec glob. `git ls-files '*.md'` cannot be trusted
-# here: PowerShell resolves `git` to the devkitPro/MSYS2 copy on this machine, whose runtime
-# glob-expands `*.md` against the top-level directory BEFORE git sees it -- so it returned the 2
-# root-level files instead of all 70, and both doc checks below "passed" while a deliberately
-# broken link sat in the tree. (`*.lua` escapes this only by luck: nothing matches at top level,
-# so the pattern reaches git intact.) Fourth appearance of the wrong-install-on-PATH trap --
-# CLAUDE.md and pitfalls.md carry the other three.
+# Filtered in PowerShell, not by a '*.md' pathspec: an MSYS2 git found first glob-expands that against the root.
 $trackedMd = @(& git ls-files | Where-Object { $_ -like '*.md' })
 if ($trackedMd.Count -lt 40) {
     Report-Fail "only $($trackedMd.Count) tracked .md file(s) found -- the listing is broken, so the doc checks below would pass vacuously. Not a clean result."
 }
 
-# A file git tracks but the working tree does not have kills every loop below, because
-# $ErrorActionPreference = "Stop" turns Get-Content's "path not found" into a terminating error --
-# so the script dies mid-run with a raw .NET stack and no section summary, and deleting one doc
-# made preflight LESS informative than leaving it broken. Found 2026-08-25 while testing that the
-# adapter-file-set check could actually fail; it crashed in three separate loops in turn.
-# Reported once here and filtered out, rather than guarded at each of the three call sites --
-# one home, like every other rule in this repo.
+# Under Stop, one tracked-but-deleted file would make Get-Content end the run, so it is reported once and dropped.
 $missingTracked = @($trackedMd | Where-Object { -not (Test-Path -LiteralPath $_) })
 if ($missingTracked.Count -gt 0) {
     Report-Fail "$($missingTracked.Count) file(s) tracked by git but missing from the working tree:"
@@ -112,17 +68,11 @@ if ($missingTracked.Count -gt 0) {
 }
 
 
-# ---------------------------------------------------------------------------
+# Refuses a tracked or untracked .go file that is not gofmt-clean.
 Section "Go source hygiene"
 if ($TreeOnly) { Report-Skip "needs a working copy, not just the tree" } else {
 
-# TRACKED AND UNTRACKED BOTH, since 2026-08-27. `git ls-files` lists only what git already
-# knows about, so a brand-new .go file -- which is exactly what adding a test looks like -- was
-# invisible to this check until it was staged. It happened the same day this comment was written:
-# a new test file was written, this check was run and reported clean, and the file went into the
-# commit unformatted. CI's own gofmt step caught nothing either, for the same reason it caught
-# nothing here: it runs after the add. Same shape as "a check that lists no files passes every
-# time", one step earlier in the process.
+# Untracked files too: a new .go file is invisible to git ls-files until it is staged.
 $goFiles = @(& git ls-files '*.go')
 $goFiles += @(& git status --porcelain --untracked-files=all |
               Where-Object { $_ -like '?? *.go' -or $_ -like '?? *' -and $_ -match '\.go$' } |
@@ -136,18 +86,9 @@ if ($unformatted) {
 }
 }
 
-# ---------------------------------------------------------------------------
+# Refuses an unarmed pre-commit hook, and a home path, clone path, public IP or unlisted hostname in a tracked file.
 Section "Public-repo leak check"
 
-# IS THE HOOK EVEN ON? The scan below finds a leak that is already in the working tree; the hook
-# is what stops one entering HISTORY, where it cannot be taken back. Hooks are not carried by
-# `git clone`, so a fresh clone has this switched off and nothing says so -- which is exactly the
-# state in which the 2026-08-23 leak was committed.
-# A WORKING-COPY question, not a tree one, so -TreeOnly skips it: hooks are per-clone git config,
-# a CI runner has none and never commits, and failing there would say nothing about the code. The
-# leak GREP below is the tree half and runs everywhere. Split 2026-08-27, on the first run of
-# .github/workflows/docs.yml -- which failed on exactly this and nothing else, which is the gate
-# doing its job on the person who wrote it.
 if ($TreeOnly) {
     Report-Skip "hook arming is per-clone git config -- nothing a runner can answer"
 } else {
@@ -160,61 +101,15 @@ if ($TreeOnly) {
 }
 
 
-# Both slash directions. A backslash-only check ran clean for days while a forward-slash path sat
-# leaking in master -- see agent_docs/pitfalls.md, "A verification rule that reports clean while
-# the thing it checks is broken".
-# This script excludes ITSELF, for the same reason CLAUDE.md and pitfalls.md are excluded: the
-# patterns are written out literally on this line, so git grep finds them here every time. Without
-# the exclusion the check reported FAIL on a perfectly clean tree -- a checker that always fails is
-# as useless as one that never can, and gets ignored just as fast.
-# dev-scripts/negative-test-preflight.ps1 is excluded here and in the three greps below on the
-# same grounds and nowhere else: it plants these exact violations into a scratch worktree to prove
-# these gates can still fail, so it necessarily spells each pattern out. Every fixture there reads
-# the file back after planting, which is the check on the checker's checker.
 $leaks = & git grep -inIF @(Grep-Patterns $gateHome) -- . @gateExempt
 Report-GrepGate $LASTEXITCODE $leaks "machine-identifying path in a tracked file:" `
     "no username or home-directory path in tracked files"
 
-# An absolute path to the CLONE, which every scanner in this repo was blind to. All four --
-# .githooks/pre-commit, ci.yml, release.yml and the grep above -- match home-directory forms only,
-# so dev-scripts/zoom.ps1 shipped a hardcoded `<drive>:\dev\MeshGhost\dev-scripts\shots\...`
-# default parameter and passed all of them (found 2026-09-07). It names where one developer keeps
-# the repo and it only ran on that machine, which is machine-identifying in exactly the sense the
-# rule means -- there is simply no username in it for anything to catch.
-#
-# SCRIPTS ONLY, deliberately. The rule text itself legitimately quotes this path -- CLAUDE.md,
-# brief.md, claude-md-cap.md and ideas.md all say "ask before touching anything outside
-# <clone>" -- so scanning prose would fail on a clean tree, which is the failure mode
-# documented at the top of this file. What breaks on another machine is a SCRIPT that hardcodes
-# it; prose naming the boundary is the rule working.
+# Scripts only: prose legitimately quotes the clone path when it states the ask-before-touching boundary.
 $clonePaths = & git grep -inIF @(Grep-Patterns $gateClone) -- '*.ps1' '*.bat' '*.sh' '*.lua' '*.go' '*.cs' '*.cpp' '*.hpp' @gateExempt
 Report-GrepGate $LASTEXITCODE $clonePaths "hardcoded clone path in a tracked script -- use `$PSScriptRoot, debug.getinfo, or a path relative to the script:" `
     "no script hardcodes an absolute path to the clone"
 
-# An IP ADDRESS out of someone else's log. Added 2026-09-11, the day a tester's LAN address
-# reached a committed file: it was pasted in from their `meshghost.log` to illustrate the SHAPE
-# of a disconnect message, and every scanner above was blind to it because there is no username
-# and no path in an address. The one that leaked was RFC1918 and therefore harmless -- it routes
-# nowhere and identifies nobody. The user's point, which is the right one: *"would have been bad
-# if it was a public ip and not a local one"*, and the gate cannot tell the lucky case from the
-# unlucky one after the fact.
-#
-# TWO SEVERITIES, because the two classes are not the same risk:
-#
-#   FAIL -- a PUBLIC address. It names a real host on the internet: someone's relay, their home
-#           connection, their server. This is the case worth blocking a commit over.
-#   WARN -- a PRIVATE/RFC1918 one. Usually legitimate in a doc ("your LAN address looks like
-#           192.168.1.10") and never routable, but it is also exactly what leaked, so it gets a
-#           look rather than a pass.
-#
-# Loopback, the wildcard bind and the RFC 5737 documentation ranges are silent: they are the
-# CORRECT things to write, and warning on them would train everyone to ignore this section.
-#
-# AN ALLOWLIST, NOT A HEURISTIC. Four-part dotted numbers that are not addresses exist in tracked
-# prose -- `BepInEx 5.4.23.3` is the live example -- and every rule for telling a version from an
-# address by context is a rule that fails silently in one direction or the other. A literal list
-# cannot: a new one trips this section exactly once, and the fix is one line here WITH A REASON,
-# which is the moment someone actually looks at it. That is the check doing its job, not friction.
 $ipAllow = @{
     '0.0.0.0'      = 'wildcard bind'
     '1.2.3.4'      = 'placeholder address in docs and tests'
@@ -226,30 +121,14 @@ $ipAllow = @{
     '5.4.23.5'     = 'NOT AN ADDRESS: BepInEx version (the standalone TEVI build)'
 }
 
-# (?<![\d.]) / (?![\d.]) so a longer dotted run is not mined for a 4-part substring: UE4SS reports
-# `3.0.1.0.0`, whose first four parts look like an address and are not one.
+# The lookarounds stop a longer dotted run (UE4SS's 3.0.1.0.0) being mined for a four-part address.
 $ipPattern = '(?<![\d.])(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?![\d.])'
 
-# -I skips binaries: a compiled .exe or .dll contains byte sequences that read as addresses and
-# nothing can be done about them in source. This file is excluded because the allowlist above
-# writes every address out literally, the same reason the path greps exclude it.
-# git grep is POSIX ERE and REJECTS the lookarounds in $ipPattern outright (exit 128, "Invalid
-# preceding regular expression"). The first draft of this section passed it anyway and the failure
-# was invisible: no files came back, the loop ran zero times, and it reported PASS on a tree with a
-# planted public address in it. Caught 2026-09-11 by the user asking for the negative test --
-# exactly the shape this file warns about at the top, "a verification rule that reports clean while
-# the thing it checks is broken". So: a DUMB ERE picks the candidate files, and the precise pattern
-# does the real matching in .NET below, where lookarounds actually work.
-# NO BRACES IN THIS PATTERN. PowerShell mangles `{1,3}` on its way to a native command -- the
-# argument arrived at git as `[0-9]1.[0-9]1.[0-9]1.[0-9]3`, which git then tried to resolve as a
-# REVISION (exit 128). `+` is over-broad as a candidate filter and that is fine: the .NET regex
-# below is what decides, and a file listed here that holds no address simply yields no hits.
+# A coarse ERE picks files: git grep rejects lookarounds and PowerShell mangles {1,3}; .NET does the real match.
 $ipFiles = & git grep -lIE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' -- . ':!dev-scripts/preflight.ps1' ':!dev-scripts/negative-test-preflight.ps1' ':!.githooks/'
 $ipGrepExit = $LASTEXITCODE
 $publicHits = @()
 $privateHits = @()
-# 0 = matches, 1 = none. ANYTHING ELSE IS THE GREP ITSELF FAILING, and must never be read as a
-# clean tree -- that is the bug above.
 if ($ipGrepExit -gt 1) {
     Report-Fail "the IP scan's git grep failed (exit $ipGrepExit) -- this section proved nothing; fix the grep rather than trusting the PASS"
 } elseif ($ipGrepExit -le 1) {
@@ -262,8 +141,6 @@ if ($ipGrepExit -gt 1) {
                 if ($ipAllow.ContainsKey($ip)) { continue }
                 $o = $ip.Split('.') | ForEach-Object { [int]$_ }
                 if ($o[0] -gt 255 -or $o[1] -gt 255 -or $o[2] -gt 255 -or $o[3] -gt 255) { continue }
-                # Silent: loopback, link-local, multicast/reserved, and the RFC 5737 ranges that
-                # exist precisely so documentation has addresses it is allowed to print.
                 if ($o[0] -eq 127) { continue }
                 if ($o[0] -eq 169 -and $o[1] -eq 254) { continue }
                 if ($o[0] -ge 224) { continue }
@@ -291,29 +168,13 @@ if ($publicHits.Count -eq 0 -and $privateHits.Count -eq 0 -and $ipGrepExit -le 1
     Report-Pass "no IP address in a tracked file outside the allowlist, loopback and the RFC 5737 doc ranges"
 }
 
-# A HOSTNAME out of someone else's log, which is the same leak as the address above wearing a
-# friendlier face -- and the one that would actually have happened here. The tester's relay in the
-# logs read 2026-09-11 was a hostname, not an IP; it never reached a tracked file, but nothing
-# would have stopped it, and a hostname is WORSE than an address: it usually contains a person's
-# chosen name, it resolves from anywhere, and it survives them changing ISP.
-#
-# AN ALLOWLIST, for the same reason as the IP section, plus a sharper one: a hostname is not
-# distinguishable from a dotted code identifier by shape. `System.IO`, `System.Net` and a prose
-# "ref. no" all read as domains to any regex that would catch `relay.example.eu`. There is no
-# heuristic here that is not a coin flip, so the list is explicit and every entry says what it is.
-#
-# ADDING TO IT IS THE POINT, not a chore: a new entry is a moment where someone states, in writing,
-# that a domain belongs in a public repo forever. That is the question CLAUDE.md asks about
-# everything else that goes in.
 $domainAllow = @{
-    # Where this project's code, docs and dependencies actually live.
     'github.com' = 'source links'; 'golang.org' = 'Go docs'; 'pkg.go.dev' = 'Go package docs'
     'go.dev' = 'Go docs'; 'go.uber.org' = 'dependency'; 'nuget.org' = 'NuGet'
     'filippo.io' = 'dependency (edwards25519/nistec, via the OPAQUE library, ADR 0067)'
     'api.nuget.org' = 'NuGet'; 'bepinex.dev' = 'BepInEx'; 'nuget.bepinex.dev' = 'BepInEx feed'
     'code.claude.com' = 'tooling'; 'signpath.org' = 'code signing'; 'signpath.io' = 'code signing'
     'www.virustotal.com' = 'scan results linked from security-design.md (2026-09-22)'
-    # Reference material cited by the adapters and the docs.
     'docs.unrealengine.com' = 'UE reference'; 'dev.epicgames.com' = 'UE reference'
     'epicgames.com' = 'UE reference'; 'docs.ue4ss.com' = 'UE4SS reference'
     'learn.microsoft.com' = 'Win32/.NET reference'; 'www.khronos.org' = 'graphics reference'
@@ -326,19 +187,13 @@ $domainAllow = @{
     'demki.github.io' = 'reference'; 'kittypboxx.github.io' = 'reference'
     'carrion.wiki.gg' = 'game wiki'; 'warcraft.wiki.gg' = 'game wiki'
     'wiki.guildwars2.com' = 'game wiki'; 'ffxiv.fandom.com' = 'game wiki'
-    # RFC 2606 reserves this one so documentation has a domain it may print.
     'example.com' = 'RFC 2606 documentation domain'
-    # NOT DOMAINS. Dotted identifiers and prose that this pattern cannot tell from a hostname.
     'system.io' = 'NOT A DOMAIN: C# namespace System.IO'
     'system.net' = 'NOT A DOMAIN: C# namespace System.Net'
     'microsoft.net' = 'NOT A DOMAIN: .NET framework name'
     'unicode.me' = 'NOT A DOMAIN: prose'; 'unicode.co' = 'NOT A DOMAIN: prose'
     'ref.no' = 'NOT A DOMAIN: prose'; 'e.info' = 'NOT A DOMAIN: prose'
     'env.io' = 'NOT A DOMAIN: Lua sandbox field env.io'
-    # autoplay's drivers, 2026-09-18. The Lua ones are field accesses whose key happens to be a
-    # TLD -- `.no` (a YES/NO question's NO index) and `.info` (a route step's info table); this
-    # section's whole purpose is that the pattern cannot tell those from a host. Steamworks.NET is
-    # the C# Steam binding AchievementGuard names, a library, and its site is a real reference.
     'q.no' = 'NOT A DOMAIN: Lua field, a question table''s `no`'
     'question.no' = 'NOT A DOMAIN: Lua field, a question table''s `no`'
     's.info' = 'NOT A DOMAIN: Lua field, a route step''s `info`'
@@ -346,8 +201,6 @@ $domainAllow = @{
     'blizzardwatch.com' = 'reference article (kill-credit.md)'
 }
 
-# A curated TLD set, not a full one: these are what a leaked relay or personal host realistically
-# ends in, and a wider list buys nothing but more prose collisions to allowlist.
 $domainPattern = '(?i)\b[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)*\.(com|net|org|eu|io|dev|de|uk|co|me|xyz|info|gg|tv|app|cloud|site|online|ru|fr|nl|se|no|fi|pl|it|es)\b'
 $domFiles = & git grep -lIEi '[a-z0-9]\.(com|net|org|eu|io|dev|de|uk|co|me|xyz|info|gg|tv|app|cloud|site|online|ru|fr|nl|se|no|fi|pl|it|es)' -- . ':!dev-scripts/preflight.ps1' ':!dev-scripts/negative-test-preflight.ps1' ':!.githooks/'
 $domGrepExit = $LASTEXITCODE
@@ -362,8 +215,6 @@ if ($domGrepExit -gt 1) {
             foreach ($m in [regex]::Matches($line, $domainPattern)) {
                 $host_ = $m.Value.ToLower()
                 if ($domainAllow.ContainsKey($host_)) { continue }
-                # A subdomain of something allowlisted is allowlisted: docs move under a host, and
-                # re-listing every path a project invents is noise with no security value.
                 $parent = $false
                 foreach ($k in $domainAllow.Keys) {
                     if ($host_.EndsWith(".$k")) { $parent = $true; break }
@@ -380,21 +231,9 @@ if ($domainHits.Count -gt 0) {
     Report-Pass "every hostname in a tracked file is an allowlisted reference, not somebody's machine"
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a root file outside the allowlist, and a tracked file whose own header says it must not be committed.
 Section "Stray files: nothing at the root but the allowlist, nothing marked local-only"
 
-# A working checklist whose FIRST LINE said "deliberately untracked" was committed on 2026-09-08
-# and sat on the public repo until 2026-09-09. The header was prose, and prose is not a gate --
-# the only scanners in the repo looked for paths, and the file had none. Two rules, both cheap and
-# both narrow enough to touch nothing else:
-#
-#   1. The repo ROOT is an allowlist. A stray file lands at the root far more often than in a
-#      subtree (a scratch note, a findings list, a pasted log), and the root's legitimate set is
-#      tiny and changes rarely. Adding a real root file is one line here, with a reason.
-#   2. Any tracked TEXT file whose first ten lines say "deliberately untracked" or "do not commit"
-#      is refused. That is a file telling us what it is; the gate makes the sentence mean something.
-#
-# .githooks/pre-commit refuses both at commit time; hygiene.yml re-checks the tree on every push.
 $rootAllow = @((Read-GateList 'root-allow').Keys)
 $rootTracked = @(& git ls-files | Where-Object { $_ -notmatch '/' })
 $rootStray = @($rootTracked | Where-Object { $rootAllow -notcontains $_ })
@@ -417,38 +256,12 @@ if ($localOnly.Count -gt 0) {
     Report-Pass "no tracked file declares itself local-only in its first ten lines"
 }
 
+# Refuses a tracked binary that embeds a home-directory or clone path, unless it is a listed known leak.
 Section "Machine-identifying strings inside tracked BINARIES"
 
-# THE GAP THAT MADE EVERY CHECK ABOVE REPORT CLEAN ON A LEAKING TREE (found 2026-09-07).
-#
-# All three scanners in this repo -- the two greps above, .githooks/pre-commit and ci.yml -- pass
-# -I to git grep / grep, which is DEFINED as "treat a binary file as containing no match". So the
-# one file type that a user path reaches without anybody typing it (a compiler embeds the build
-# directory in a PDB reference, and a Rust toolchain embeds the cargo registry in panic strings)
-# was the one file type nothing could see. `preflight.ps1 -TreeOnly` printed
-# "PASS no username or home-directory path in tracked files" while a tracked, SHIPPED UE4SS.dll
-# carried the maintainer's Windows username 86 times.
-#
-# This is the same shape as the zoom.ps1 case above and gets the same answer: scan the thing that
-# was excluded. Reading bytes as Latin-1 keeps every byte a character, so an ASCII path inside an
-# arbitrary binary matches without any encoding guesswork. GetEncoding(28591) rather than
-# [Encoding]::Latin1, which does not exist in Windows PowerShell 5.1 -- the edition this repo runs.
 $binaryPatterns = @($gateHome + $gateClone)
-# Extensions only -- a tracked binary in this repo is always one of these, and enumerating by
-# extension avoids reading every .md in the tree as bytes.
 $binaryFiles = & git ls-files -- '*.dll' '*.exe' '*.so' '*.dylib' '*.pdb' '*.lib' '*.a' '*.bin' '*.node'
 
-# Known offenders, with what has to happen to each. They are listed rather than excluded so the
-# gate keeps naming them on every run: an allowlist that silences a real violation is the failure
-# this whole section exists to fix. Anything NOT on this list is a FAIL -- a new leak is blocked
-# even while these four are outstanding. Delete an entry as its build is fixed; when the list is
-# empty, delete the list.
-#
-# SCHEDULED for the week of 2026-09-21 (2026-09-18, the user): all four at once. None is worth a
-# rebuild on its own, which is why they sat here -- but it is a one-time fix that keeps the tree
-# clean afterwards, and this report is the done-test: an entry clears when its rebuild stops
-# matching. agent_docs/risks.md carries the sizing and status.md the task -- read them there rather
-# than re-deriving from the binaries, which is how this came back a second time.
 $knownBinaryLeaks = Read-GateList 'known-binary-leaks'
 
 $newBinaryLeaks = @()
@@ -456,6 +269,7 @@ $knownStillLeaking = @()
 foreach ($bf in $binaryFiles) {
     if (-not (Test-Path -LiteralPath $bf)) { continue }
     $bytes = [System.IO.File]::ReadAllBytes($bf)
+    # GetEncoding(28591): [Encoding]::Latin1 does not exist in 5.1; Latin-1 keeps every byte a character.
     $text = [System.Text.Encoding]::GetEncoding(28591).GetString($bytes)
     $found = @()
     foreach ($p in $binaryPatterns) {
@@ -482,81 +296,18 @@ foreach ($h in $knownStillLeaking) {
     Report-Warn "known, not yet rebuilt: $h"
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a vague duration, or an unnumbered "<units> of" span of effort, in a tracked file.
 Section "Invented durations"
 
-# CLAUDE.md says "cite dates, not durations", and this repo's first commit is 2026-08-11 -- so any
-# phrase claiming months or years about our own work is false on arrival and gets worse with age.
-#
-# WHY THIS IS A GREP AND NOT A RULE. The rule existed and was broken four times: three on
-# 2026-08-16, and again on 2026-08-21 with "for months" written about a rule two days old. The last
-# one is the reason this check exists, because of HOW it happened -- the duration was not a claim
-# anyone believed, it was an intensifier that filled a slot in a sentence wanting emphasis, and was
-# never examined. A rule against writing durations only catches someone who notices they are
-# writing one. A grep does not need anyone to notice.
-#
-# The same shape as the leak check above, and excluded the same way: this file and CLAUDE.md both
-# spell the patterns out, so they would match themselves forever.
-#
-# If a hit is genuinely about an EXTERNAL project's history ("rgbds has shipped for years"), rewrite
-# it with a date or a version rather than silencing the check -- a date is better writing there too.
-# Four such hits were reworded when this check was added; none of them lost anything by it.
-#
-# TWO GATES, because the units divide cleanly and only one of them can be judged by grep alone.
-# The first is repo-wide and covers what is IMPOSSIBLE here; the second covers everything else but
-# only on lines being added. `pitfalls.md` is no longer excluded from the first: it was, and that is
-# where 2026-08-23's "for days" landed unchallenged.
-#
-# verified.md AND the per-adapter VERIFIED.md files (split out of it 2026-08-25) are excluded
-# because they are APPEND-ONLY: correcting a phrase inside an entry there is a
-# rewrite of the record, which is the one thing that file forbids. It holds one known bad duration
-# ("long-standing 1-2 image density gap", 2026-08-21, now in adapters/pseudoregalia/VERIFIED.md)
-# and one legitimate external reference. A
-# future entry that invents a duration will therefore NOT be caught here -- so watch it by hand.
-# `licensing.md` and `access-models.md` are excluded for the opposite reason: both are ABOUT the
-# outside world (licences, emulator projects, hardware), so external dates are their subject matter.
-#
-# TWO SHAPES ADDED 2026-09-10, both found by a duration this check let through. A build-story beat
-# said the relay change mattered "that week"; the grep matched neither "for a week" nor "weeks
-# later", so it passed. The user's call on finding it: "preflight is better at catching mistakes
-# than any rules" -- so the pattern grew rather than the prose.
-#   1. THE DEMONSTRATIVE FORM -- "that week", "this month". Deliberately NOT "that day" or "this
-#      hour": 50 tracked lines use "that day" anchored to a date already in the sentence ("confirmed
-#      that day", "12:21 and 12:22 that day"), which is good writing, and a check that flags 50
-#      good lines to catch one bad one is the cry-wolf failure this file warns about two checks up.
-#      Week and longer have no such anchored use here -- all three hits were real and were fixed.
-#   2. "<unit>s of" WITHOUT a preceding "for" -- "months of clean-loopback testing", which was false
-#      on arrival (this repo began 2026-08-11). Restricted to month/year/decade for the same reason:
-#      "hours of" is nearly always a real figure ("336 hours of samples", "six hours of play") or an
-#      honest account of a session, and both tracked month/year hits were false.
+# The append-only verification records are excluded: a hit there cannot be reworded without rewriting the record.
 $durations = & git grep -inIE -e 'for (a |an |the last |the past )?(hour|day|week|month|year|decade)s?\b' -e '(hour|day|week|month|year|decade)s? (ago|later|earlier|old|behind)\b' -e '\b(that|this) (week|month|year|decade)s?\b' -e 'long-?standing' -e 'long time' -e '\bdecades\b' -e 'over the years' -- . ':!CLAUDE.md' ':!dev-scripts/preflight.ps1' ':!dev-scripts/negative-test-preflight.ps1' ':!agent_docs/verified.md' ':!adapters/**/VERIFIED.md'
 Report-GrepGate $LASTEXITCODE $durations `
     "vague duration in a tracked file -- cite a date, or a measured figure with a number:" `
     "no vague durations in tracked files"
 
-# GATE THREE, added 2026-09-10: an unmeasured span of effort, written as "<units> of <work>".
-#
-# The user's rule, and the reason this one is worth its own gate: the ONLY real work-duration
-# figures in this repo are three the user wrote by hand, all in adapter READMEs -- about 10 hours
-# for the server/client plus Emerald, about 1 hour for TEVI, and 15-20 for Pseudoregalia.
-# "anything else can be considered made up durations basically". They are approximations -- the user
-# does not claim to have timed them -- and that is fine: what makes them legitimate is that somebody
-# who did the work wrote them, not their precision. An agent has no such standing and should write
-# no work-duration at all. Three invented ones were removed
-# the day this gate landed (~3 hours for a tier, ~2 hours for another, ~3-5 for pre-planning);
-# none of them was ever measured, each was an intensifier filling a slot in a sentence.
-#
-# THE DISCRIMINATOR IS A NUMBER, which is also what the pass message above asks for. "336 hours of
-# samples", "six hours of play", "Four hours of adapter-side probes" are figures somebody computed
-# or counted and they stay. "hours of measurement", "hours of inference", "months of clean-loopback
-# testing" are rhetoric -- eight such lines existed and all eight were reworded, losing nothing.
-# So: fire only when NO number precedes the unit. A digit, a "~n", or a written number one..twelve
-# all count as measured.
 $unitOf = @(& git grep -inIE '\b(hour|day|week|month|year|decade)s of\b' -- . ':!CLAUDE.md' ':!dev-scripts/preflight.ps1' ':!dev-scripts/negative-test-preflight.ps1' ':!agent_docs/verified.md' ':!adapters/**/VERIFIED.md')
 $unitOfCode = $LASTEXITCODE
-# A LOOKBEHIND, so each OCCURRENCE is judged, not the line. The first version of this filter
-# exempted any line holding one numbered mention, so "after hours of measurement, and 6 hours
-# of play" passed -- a good figure laundering a bad one beside it. Found by trying to fool it.
+# A lookbehind, so each occurrence is judged: one numbered figure on a line must not excuse an unnumbered one.
 $unnumbered = '(?<!([0-9]|~[0-9]|\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve))\s{1,3})\b(hour|day|week|month|year|decade)s of\b'
 if ($unitOfCode -gt 1) {
     Report-Fail "the '<units> of' duration grep did not run, so this is NOT a clean result (exit $unitOfCode)"
@@ -570,31 +321,9 @@ if ($unitOfCode -gt 1) {
     }
 }
 
-# ---------------------------------------------------------------------------
+# Refuses an instruction file or session stack over its line cap, and a line-cap header on any other file.
 Section "Reading budgets"
 
-# RULE 0's 200-line cap (300 until 2026-09-06) on CLAUDE.md holds BECAUSE this script checks it. Prose alone does not
-# hold a budget -- status.md went from 50 to 628 lines with a cap nominally in force.
-#
-# SCOPE, narrowed 2026-09-02 on the user's call. A cap is a budget on an agent's INSTRUCTION load,
-# so it applies to the files that load as instructions without being asked -- the root CLAUDE.md,
-# the nested CLAUDE.md files, and the skills -- and to nothing else. From 2026-08-25 to 2026-09-02
-# every tracked .md had to declare a cap or an exemption. The result: ten files pinned at exactly
-# 100% of their number (a reference doc has nothing removable, so growth was met by RAISING the
-# number -- scaling.md went 800 -> 900 -> 1000 in one day), and a header on ~90 files serving a
-# check that mattered for seven. Records, references and people-facing docs are now uncapped;
-# indexes and queues are held to ONE LINE PER ENTRY by the section below instead -- "cap the
-# thing that actually grows", applied. agent_docs/claude-md-cap.md carries the argument and the
-# reversal.
-#
-# The budgeted set is THIS LIST, not whoever happens to carry a header. Each file still declares
-# its own number in its header (<!-- line-cap: N -->); a listed file without one is a FAIL, and a
-# header on any OTHER tracked .md is a FAIL too -- it is a leftover of the repo-wide rule and
-# tells the reader a budget is being enforced when none is.
-#
-# (Get-Content).Count, NOT Measure-Object -Line: the latter counts only NON-EMPTY lines, so it
-# reported 288 for a 300-line file and would have passed a CLAUDE.md sitting 12+ lines over the
-# cap. The rules are stated in terms of `wc -l`, and this must measure the same thing they do.
 $budgeted = @(
     'CLAUDE.md',
     'adapters/CLAUDE.md',
@@ -614,6 +343,7 @@ foreach ($md in $budgeted) {
     $decl = $head | Select-String -Pattern '<!--\s*line-cap:\s*(\d+)' | Select-Object -First 1
     if (-not $decl) { Report-Fail "$md is in the budgeted set but declares no <!-- line-cap: N --> in its first 15 lines"; continue }
     $cap = [int]$decl.Matches[0].Groups[1].Value
+    # (Get-Content).Count, not Measure-Object -Line, which skips empty lines and would undercount against wc -l.
     $n = @(Get-Content -LiteralPath $md).Count
     $lineCount[$md] = $n
     if ($n -gt $cap) {
@@ -639,14 +369,7 @@ if ($strayCaps.Count -gt 0) {
     Report-Pass "no line-cap header outside the $($budgeted.Count) budgeted files"
 }
 
-# THE STACK. The research the cap rests on (150-200 followable instructions, degradation uniform
-# past that) is about what a model carries at once, and a session in an adapter folder carries
-# the root CLAUDE.md, adapters/CLAUDE.md AND that host's file together. Per-file caps let the
-# stack reach 787 lines for an emulator session (2026-09-02) with every file individually green.
-# So the stack has its own number, and it FAILS: the pitfalls funnel (2026-09-02) trimmed every
-# rule file by turning stories into dates and pointers and by dropping lines whose lesson is now a
-# preflight check, so a stack over budget after that is a regression, not a backlog.
-$stackCap = 650   # 700 until 2026-09-06; lowered with the root cap (300 -> 200), see claude-md-cap.md, the seventh case
+$stackCap = 650
 $stacks = [ordered]@{
     'emulator'      = @('CLAUDE.md', 'adapters/CLAUDE.md', 'adapters/emulator/CLAUDE.md')
     'tevi'          = @('CLAUDE.md', 'adapters/CLAUDE.md', 'adapters/tevi/CLAUDE.md')
@@ -662,20 +385,9 @@ foreach ($k in $stacks.Keys) {
 }
 if ($stacksOk -eq $stacks.Count) { Report-Pass "all $($stacks.Count) session stacks within the $stackCap-line stack budget" }
 
-# ---------------------------------------------------------------------------
+# Refuses an index or queue entry that runs past one line.
 Section "One-line entries"
 
-# The control that fits a LIST. For an index or a queue the thing that grows is the number of
-# entries -- real signal -- and what must NOT grow is the size of each one. status.md proved it
-# 2026-08-14..16: a flat 50-line cap was defeated by items averaging three lines each (peak 628),
-# and the fix that held was "two lines per item". This is that rule made mechanical, at one line:
-# a bullet in one of these blocks may not be followed by an indented continuation line. Files join
-# this list as they are re-cut to comply. In as of 2026-09-02: the VERIFIED index blocks,
-# pitfalls/INDEX.md, every checklists/ page's lesson list, status.md, the queues' "This run" blocks
-# and agent_docs/README.md's file list -- an index grows by entries, never by verbosity.
-#   Path  -- the file
-#   From  -- regex for the heading that opens the block ('' = whole file)
-#   To    -- regex for the heading that closes it ('' = end of file)
 $oneLine = @(
     @{ Path = 'agent_docs/verified.md';                        From = '^## Index'; To = '^## ' }
     @{ Path = 'adapters/tevi/VERIFIED.md';                     From = '^## Index'; To = '^## ' }
@@ -725,17 +437,15 @@ if ($oneLineBullets -eq 0) {
     Report-Pass "$oneLineBullets index/queue entries across $($oneLine.Count) block(s) are one line each"
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a root meshghost*.exe that is older than the newest non-test .go file.
 Section "Root binaries vs Go source"
 if ($TreeOnly) { Report-Skip "needs a working copy, not just the tree" } else {
 
-# dev-scripts/*.bat launch these exact named binaries. go build/vet/test do NOT refresh them, so a
-# bug repro can run against binaries a full day stale -- found live 2026-08-14.
 $newestGo = Get-ChildItem -Recurse -Filter *.go |
     Where-Object {
         $_.FullName -notmatch '\\build\\_deps\\' -and
         $_.FullName -notmatch '\\RE-UE4SS\\' -and
-        # autoplay/ is its own Go module that none of these binaries contain (ADR 0071).
+        # autoplay/ is its own Go module, and none of these binaries contain it.
         $_.FullName -notmatch '\\autoplay\\' -and
         $_.Name -notlike '*_test.go'
     } |
@@ -755,39 +465,20 @@ foreach ($exe in @("meshghost.exe", "meshghost-relay.exe", "meshghost-fakeadapte
 }
 }
 
-# ---------------------------------------------------------------------------
+# Refuses an armed probe script that walks reflection blindly, and any change in the disarmed-walk count.
 Section "Probe scripts: blind reflection walks"
 
-# **The gate behind the rule, added after the rule alone failed to hold (2026-08-29).**
-#
-# A probe crashed a live game three times in one day, twice by calling a UFunction on everything
-# FindAllOf returned, then once more by walking ForEachProperty and stringifying every property it
-# named -- an object-valued one hands back a pointer, and touching it dereferences whatever that
-# was. A Lua pcall does not catch an access violation in native code, so the probe cannot defend
-# itself and neither can the reviewer who reads it afterwards. The user's call after the third:
-# make it so new probes cannot do this again.
-#
-# So this refuses the enumerators themselves in any probe script. Reading a NAMED property is fine
-# and is what every probe here actually needs; enumerating what an object happens to HOLD is what
-# is banned. Grow a written list between runs instead -- adapters/pseudoregalia/CLAUDE.md.
 $blindWalkers = @('ForEachProperty', 'ForEachFunction', 'ForEachFunctionInChain', 'ForEachPropertyInChain')
 $probeScripts = @(Get-ChildItem -Path 'adapters' -Recurse -Filter '*.lua' -ErrorAction SilentlyContinue |
                   Where-Object { $_.FullName -like '*probe*' })
-# **Armed is the line, not merely present.** UE4SS loads a probe folder because it carries an
-# enabled.txt, so a disarmed probe cannot reach a running game whatever it contains -- and a
-# finished probe that keeps its enabled.txt is a probe that logs through somebody else's test.
-# An armed offender FAILS; a disarmed one is a RATCHET (2026-09-16): the withdrawn probes that
-# still carry a walk were 23 entries of WARN printed on every run, which is the "warning everyone
-# scrolls past" shape. Now the count is recorded, and only a CHANGE is reported -- a new disarmed
-# walk lists every entry so the new one can be found, a cut lowers the floor.
 $ratchetDisarmedWalks = 23
 $offenders = @()
 $disarmed = @()
 foreach ($script in $probeScripts) {
+    # UE4SS loads a mod folder only when it holds enabled.txt, so a probe without one cannot reach a running game.
     $armed = Test-Path (Join-Path $script.Directory.Parent.FullName 'enabled.txt')
     foreach ($walker in $blindWalkers) {
-        # Commented lines are how the withdrawn stage documents itself, and a warning about a
-        # comment would train everyone to ignore this check.
+        # Commented-out lines are how a withdrawn probe documents itself, so they are not counted as calls.
         $hits = @(Get-Content $script.FullName | Where-Object { $_ -match [regex]::Escape($walker) -and $_ -notmatch '^\s*--' })
         if ($hits.Count -gt 0) {
             $rel = $script.FullName -replace [regex]::Escape($PWD.Path + [IO.Path]::DirectorySeparatorChar), ''
@@ -808,21 +499,17 @@ if ($disarmed.Count -gt $ratchetDisarmedWalks) {
     Report-Pass "$($disarmed.Count) disarmed probe script(s) still carry a blind reflection walk, at the recorded floor -- arming one is the FAIL above"
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a committed mod DLL or staged UE4SS runtime whose recorded hashes no longer match the tree.
 Section "Committed mod DLLs vs their source"
 if ($TreeOnly) { Report-Skip "needs a working copy, not just the tree" } else {
 
-# Reproduces .github/workflows/release.yml's staleness gate locally. CI cannot build these (a
-# proprietary game DLL and a private UE4SS dependency), which is exactly why they are committed --
-# and exactly why they go stale silently. Both were stale on 2026-08-18.
 function Check-BuiltFrom($label, $builtFromPath, $sourceDir) {
     if (-not (Test-Path $builtFromPath)) { Report-Warn "$label -- no built-from.txt at $builtFromPath"; return }
     $stale = @()
     foreach ($line in Get-Content $builtFromPath) {
         if ($line -match '^\s*#' -or $line -notmatch '^(?<file>[^:]+):\s*(?<hash>[0-9a-fA-F]{64})\s*$') { continue }
         $file = $Matches['file']; $recorded = $Matches['hash'].ToLower()
-        # Skipped here and checked separately below: it sits one directory up from the sources,
-        # so Join-Path would look for it in the wrong place and report a fresh DLL as stale.
+        # CMakeLists.txt sits one directory above the sources, so it is checked separately below.
         if ($file -eq 'CMakeLists.txt') { continue }
         $src = Join-Path $sourceDir $file
         if (-not (Test-Path $src)) { $stale += "$file (recorded, but the file is gone)"; continue }
@@ -839,11 +526,6 @@ function Check-BuiltFrom($label, $builtFromPath, $sourceDir) {
 Check-BuiltFrom "TEVI" "packaging\release\games\tevi\built-from.txt" "adapters\tevi\MeshGhostTevi"
 Check-BuiltFrom "Pseudoregalia" "packaging\release\games\pseudoregalia\MeshGhostPseudo-built-from.txt" "adapters\pseudoregalia\MeshGhostPseudo\Mod\src"
 
-# THE THIRD STALENESS GATE, added 2026-09-10. release.yml runs three; this script reproduced two,
-# so a UE4SS runtime staged from one submodule commit and left behind by a bump was invisible until
-# somebody dispatched a release. The shape differs from the two above -- the recorded hashes are of
-# the SHIPPED DLLs rather than of sources, plus the submodule commit they were built from -- so it
-# does not fit Check-BuiltFrom and is written out here.
 $ue4ssBuiltFrom = "packaging\release\games\pseudoregalia\ue4ss-runtime-built-from.txt"
 $ue4ssBin = "packaging\release\games\pseudoregalia\pseudoregalia\Binaries\Win64"
 if (-not (Test-Path $ue4ssBuiltFrom)) {
@@ -857,8 +539,7 @@ if (-not (Test-Path $ue4ssBuiltFrom)) {
         $actual = (Get-FileHash $pair.Path -Algorithm SHA256).Hash.ToLower()
         if ($ue4ssText -notmatch [regex]::Escape($actual)) { $ue4ssStale += $pair.Name }
     }
-    # The submodule pin: a bump without re-staging is the case this exists for, and it is the half
-    # that a hash comparison alone cannot see -- both DLLs still match themselves.
+    # The submodule pin catches a bump without re-staging, which the DLLs' own hashes cannot see.
     $pinned = $null
     if ($ue4ssText -match 're-ue4ss-submodule-commit:\s*([0-9a-f]{40})') { $pinned = $Matches[1] }
     $submodule = (& git -C "adapters\pseudoregalia\MeshGhostPseudo\RE-UE4SS" rev-parse HEAD 2>$null)
@@ -874,7 +555,6 @@ if (-not (Test-Path $ue4ssBuiltFrom)) {
     }
 }
 
-# CMakeLists.txt lives one level up from Mod\src, so it is checked separately.
 $cmake = "adapters\pseudoregalia\MeshGhostPseudo\Mod\CMakeLists.txt"
 $pseudoBuiltFrom = "packaging\release\games\pseudoregalia\MeshGhostPseudo-built-from.txt"
 if ((Test-Path $cmake) -and (Test-Path $pseudoBuiltFrom)) {
@@ -888,42 +568,24 @@ if ((Test-Path $cmake) -and (Test-Path $pseudoBuiltFrom)) {
 }
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a tracked text line shaped like reproduced decompiled source: a typed declaration or struct pointer.
 Section "No reproduced expression ANYWHERE, not just documentation.md"
 
-# The section below this one watches fenced blocks in documentation.md. That is where three
-# violations landed in August -- and it is not where the next one landed. On 2026-09-13 three
-# verbatim lines of decompiled C went into a Lua COMMENT in the adapter, quoting a subpriority
-# formula, and every check in this file passed: the shape was right (a comment), the file was not
-# documentation.md, and there was no fence. The user caught it by asking.
-#
-# So this looks for the SHAPE OF REPRODUCED SOURCE anywhere in tracked text: a typed declaration in
-# the decomp's own style (`u8 x = `, `EWRAM_DATA u16 y = `, `static u8 t[128] = `) or a pointer-typed
-# struct (`struct Sprite *`). Deliberately NARROW -- a bare `->` is how this repo's prose writes an
-# arrow ("spawn -> OAM -> drawn") and flagging it would bury the real thing in noise. Measured over
-# the whole tree when this was written: the narrow form finds 5 lines, 4 of them real.
-#
-# WHY IT IS A FAIL AND NOT A WARN. Licensing is the one rule in CLAUDE.md with no judgement call in
-# it -- expression never enters the repo, and a permissive licence is not an exception. A yellow
-# line that shipped anyway is how the fenced-block check spent weeks being ignored.
-#
-# THE ALLOWLIST IS FOR FALSE POSITIVES ONLY -- prose that happens to match -- never for "this quote
-# is short enough". Each entry names the file and what makes it prose.
+# False positives only (prose that happens to match), never a quote judged short enough.
 $exprAllow = @{
     'adapters/emulator/pokemon/crystal/VERIFIED.md' = 1   # prose: "the player's struct for *placement*"
 }
+# Narrow on purpose: a bare -> is how this repo's prose writes an arrow.
 $exprDecl = '\b(?:EWRAM_DATA|COMMON_DATA|IWRAM_DATA|static\s+)?\b(?:u8|u16|u32|s8|s16|s32|bool8)\s+[A-Za-z_]\w*\s*(?:\[[^\]]*\])?\s*='
 $exprPtr  = '\bstruct\s+\w+\s*\*\s*\w'
-# Filtered from the plain listing, NOT `git ls-files '*.md' ...`: PowerShell's `git` here is the
-# MSYS2 copy, which glob-expands `*.md` to the two root files first (see $trackedMd near the top).
-# This section was written with the glob on 2026-09-13 and scanned 2 markdown files of 184 locally
-# until the next session measured it; CI, on Linux, was never affected.
+# Filtered in PowerShell, not by a git glob: the MSYS2 git on PATH expands *.md to the root files first.
 $exprFiles = @(& git ls-files | Where-Object { $_ -match '\.(md|lua|go|ps1|bat|txt)$' })
 $exprHits = @()
 foreach ($f in $exprFiles) {
     if (-not (Test-Path $f)) { continue }
     $norm = ($f -replace '\\', '/')
-    if ($norm -eq 'dev-scripts/preflight.ps1' -or $norm -eq 'dev-scripts/negative-test-preflight.ps1') { continue }   # one names the patterns, the other plants them
+    # Both skipped: one names the patterns, the other plants them.
+    if ($norm -eq 'dev-scripts/preflight.ps1' -or $norm -eq 'dev-scripts/negative-test-preflight.ps1') { continue }
     $n = @(Select-String -Path $f -Pattern $exprDecl, $exprPtr -AllMatches).Count
     $allowed = if ($exprAllow.ContainsKey($norm)) { $exprAllow[$norm] } else { 0 }
     if ($n -gt $allowed) { $exprHits += "${norm}: $n line(s), $allowed accepted as prose" }
@@ -939,12 +601,9 @@ if ($exprFiles.Count -eq 0) {
     Report-Pass "no reproduced C declaration in $($exprFiles.Count) tracked text file(s)"
 }
 
+# Refuses a fenced C block in tracked markdown: the repo writes no C, so such a fence can only be quoted source.
 Section "No fenced C block in tracked markdown"
 
-# 2026-09-16: the audit found a ```c block quoting a decompiled routine in an adapter's VERIFIED.md,
-# and the expression check above walked past it -- an `if (...)` line and two assignments carry no
-# typed declaration. A C fence in this repo's markdown has one origin, because the repo writes no
-# C: it is quoted source. Our own code is fenced as cpp, csharp, go, lua or ps1 and is not matched.
 $cFenceHits = @()
 foreach ($f in $trackedMd) {
     if (-not (Test-Path $f)) { continue }
@@ -959,16 +618,9 @@ if ($cFenceHits.Count -gt 0) {
     Report-Pass "no fenced C block in $($trackedMd.Count) tracked markdown file(s)"
 }
 
+# Refuses a count of decompilation file citations in adapter Lua that moved off its recorded floor.
 Section "Decompilation citations in adapter Lua: a ratchet"
 
-# 2026-09-16: the audit's second sweep reached the Lua. A decompilation citation in a code comment
-# is a pointer to where the source places the mechanism the code imitates -- both adapters' headers
-# say so -- and never the evidence; a NEW one is a new borrowed claim. Ratchets like
-# documentation.md's below: a count that grows fails, a count that shrinks asks for the floor to be
-# lowered. The per-site audit ran the same day (the user's call): the two shipped adapters went to
-# zero -- every source-only mechanism is a question in that adapter's UNVERIFIED.md (MEASURED.md's
-# "Not measured yet" since 2026-09-16) -- and the probes
-# kept their "where to look" pointers with copied source text, tables and layouts removed.
 $luaCiteC = '\b(src|include|data|constants)/[A-Za-z0-9_/]+\.(c|h|inc)\b|\.(c|h):[0-9]'
 $luaCiteAsm = '\b(engine|home|data|constants|ram|gfx|maps)/[A-Za-z0-9_/]+\.(asm|inc)\b|\.asm:[0-9]'
 $luaCiteRatchet = @(
@@ -997,21 +649,9 @@ if ($luaCiteProblems.Count -gt 0) {
     Report-Pass "decompilation citations in adapter Lua at their recorded floors (4 ratchets)"
 }
 
+# Refuses the retired [from the decomp] label, or source-file citations in documentation.md, off their recorded floors.
 Section "Measured or observed only: no NEW source-derived claims (ratchet)"
 
-# CLAUDE.md "MEASURED OR OBSERVED ONLY -- NOTHING BORROWED", the user's rule of 2026-09-13
-# (agent_docs/licensing.md has the reasoning and the cases). A claim is a fact only when it names OUR
-# evidence; a decompilation is where to look, and what it says waits as a question in the adapter's
-# MEASURED.md, last section (UNVERIFIED.md until 2026-09-16).
-#
-# Two counts, both RATCHETS recorded the day the rule landed, because the tree written before it still
-# carries source-derived content and the audit that removes it is queued (agent_docs/status.md):
-#   * the retired `[from the decomp]` LABEL anywhere in tracked text (a backticked mention -- the rule
-#     naming the label -- is not a use);
-#   * source-file CITATIONS in any adapter's documentation.md (engine/..asm, src/..c and the like),
-#     which is the shape a decomp-derived claim takes when it carries no label at all.
-# A count that GROWS is a new borrowed claim: measure it, or move it to MEASURED.md's Not measured yet.
-# A count that SHRINKS is the audit working: lower the recorded number so the floor holds.
 $ratchetDecompLabel = 0
 $ratchetDecompCites = @{
     'adapters/emulator/pokemon/crystal/documentation.md' = 0
@@ -1020,6 +660,7 @@ $ratchetDecompCites = @{
 $labelHits = 0
 foreach ($f in @(& git ls-files | Where-Object { $_ -match '\.(md|lua|go|cs|cpp|h)$' })) {
     if (-not (Test-Path $f)) { continue }
+    # The lookbehind skips a backticked mention: the rule naming the label is not a use of it.
     $labelHits += @(Select-String -LiteralPath $f -Pattern '(?<!`)\[from the decomp' -AllMatches | ForEach-Object { $_.Matches }).Count
 }
 if ($labelHits -gt $ratchetDecompLabel) {
@@ -1045,31 +686,11 @@ if ($citeProblems.Count -gt 0) {
     Report-Pass "source-file citations in documentation.md at their recorded floor (the audit lowers them)"
 }
 
+# Warns on a fenced block in an adapter's documentation.md beyond the count accepted as our own probe output.
 Section "No reproduced expression in documentation.md"
 
-# Each adapter's documentation.md records HOW THE GAME WORKS, under a header rule of its own:
-# facts may be explained, expression may never be reproduced -- no source text, no disassembly,
-# no data tables copied wholesale. CLAUDE.md's licensing rule is where that comes from.
-#
-# NOTHING WAS CHECKING IT, and three violations reached master before a person read the file:
-# a sixteen-entry jump-arc table, a sprite template's assembly line, and a script's command
-# sequence, all in Crystal's, all added 2026-08-26 while writing up work that had just been
-# confirmed. Every one of them is a case where the fact and the source's own FORM look identical
-# -- writing out a table you also measured feels like recording a measurement.
-#
-# So this greps for the shape rather than the content: a fenced block inside documentation.md.
-# A fence is not automatically a violation -- probe OUTPUT we produced ourselves is a measurement
-# and is allowed, which is why this WARNS and never fails. It exists to put a human's eye back on
-# the one construct all three violations shared.
-# A RATCHET, not a standing warning, since 2026-09-11. One accepted block -- Emerald's, four lines
-# of our own probe output, measured live on 2026-08-21 -- made this section WARN on every clean run
-# it ever had, which is the same defect as a check that cannot fail: a line that is always there is
-# a line nobody reads, and a NEW fence would have arrived as the same yellow text as yesterday's.
-# So each file's accepted count is recorded here, and only a block ABOVE it is reported. Raising an
-# entry is a deliberate edit, which is the moment someone states that the block is a measurement we
-# took and not expression we copied.
 $fenceAllow = @{
-    'adapters/emulator/pokemon/emerald/documentation.md' = 1   # probe output we produced, 2026-08-21 (the surf-jump trace)
+    'adapters/emulator/pokemon/emerald/documentation.md' = 1   # probe output we produced (the surf-jump trace)
 }
 $docFiles = @(& git ls-files '*documentation.md')
 $fenced = @()
@@ -1094,24 +715,9 @@ if ($staleAllow.Count -gt 0) {
     Report-Warn ("`$fenceAllow accepts more blocks than exist -- lower it so a new one is still caught: " + ($staleAllow -join ", "))
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a tracked text file holding a control byte other than tab, newline or carriage return.
 Section "Stray control bytes from a mangled escape"
 
-# A scripted edit that writes a Windows path through something treating backslash sequences as
-# escapes leaves the ESCAPE'S BYTE in the file: \t becomes a tab, \b a backspace, \a a bell,
-# \0 a NUL. The file still parses, still compiles, still ships -- and the path or string inside it
-# is silently wrong. Three instances by 2026-09-03:
-#
-#   - 2026-08-25: two probes had never parsed, mangled by an edit where \a \b \n inside a path
-#     were eaten as escapes (the reason lua.yml exists at all).
-#   - 2026-09-03: packaging/release/README.txt told players to drop a clip into "replay<BEL>ctive"
-#     -- a folder name with a control character in it, for a folder that did not exist either.
-#   - 2026-09-03: dev-scripts/tevi-hotreload.ps1 looked for the built pdb at
-#     'adapters<TAB>evi\MeshGhostTevi<BS>in\Release\...', so Test-Path never matched and the
-#     hot-reload loop silently lost its pdb fallback -- which ScriptEngine needs or the plugin
-#     never loads (MeshGhostTevi.csproj).
-#
-# Tab, newline and carriage return are the only C0 bytes any of these files should hold.
 $ctrlExt = @('*.md', '*.txt', '*.go', '*.lua', '*.ps1', '*.bat', '*.py', '*.yml', '*.yaml', '*.json', '*.cs', '*.cpp', '*.hpp', '*.sh')
 $ctrlFiles = @(& git ls-files -- $ctrlExt)
 $ctrlHits = @()
@@ -1137,22 +743,11 @@ if ($ctrlFiles.Count -eq 0) {
     Report-Pass "no stray control bytes in $($ctrlFiles.Count) tracked text file(s)"
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a tracked .lua file that does not compile under luac -p.
 Section "Lua parses"
 if ($TreeOnly) { Report-Skip "needs a working copy, not just the tree" } else {
 
-# Every adapter and probe is Lua, and nothing else in this repo checks that it COMPILES.
-# BizHawk embeds Lua 5.4, so a syntax error does not fail loudly -- the script simply never
-# loads, which from the outside looks like "the ghost did not appear" and costs a live cycle
-# to diagnose. Two tracked probes were found on 2026-08-25 that had NEVER parsed.
-#
-# luac -p compiles without running, so nothing here touches a game. It also catches Lua's
-# 200-local-per-chunk ceiling, which is a compile-time error and has bitten this project
-# three times, each time discovered by an adapter silently failing to load in a live session.
-#
-# Absolute path on purpose: `lua` is not on PATH, and CLAUDE.md's rule about PATH shadowing
-# (cmake, cmd, gcc) applies to interpreters most of all. Install with:
-#   C:/msys64/usr/bin/pacman.exe -S mingw-w64-x86_64-lua
+# Absolute path on purpose: lua is not on PATH, and a bare name can resolve to the wrong install.
 $luac = "C:/msys64/mingw64/bin/luac.exe"
 if (-not (Test-Path $luac)) {
     Report-Warn "luac not found at $luac -- skipping the Lua parse check (see environment.md)"
@@ -1171,20 +766,10 @@ if (-not (Test-Path $luac)) {
 }
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a Lua file that reaches a name through _ENV while also declaring it local: a use above its local.
 Section "Lua globals resolve"
 if ($TreeOnly) { Report-Skip "needs luac, a working copy" } else {
 
-# The fifth-occurrence lesson (pitfalls: "A local declared BELOW a function, and a bare name that
-# becomes a global"; "Lua: a use above its local is a silent nil"; "A local declared below its use,
-# inside one function"). A name used above its `local` compiles as a GLOBAL read, so the file parses,
-# loads, and hands back nil on the first frame that path runs -- and the dev loader then unloads the
-# whole adapter, which reads as a networking fault. `luac -p` cannot see it; `luac -l -l` can: it
-# lists every function's locals and every `_ENV "name"` access. A name that appears in BOTH sets is
-# the bug, exactly -- no allowlist needed, which matters because both adapters deliberately declare
-# functions as globals to stay under the 200-local ceiling. Zero hits across 212 tracked files when
-# this was written (2026-09-02); dev-scripts/lua-forward-refs.py checked file scope only and nothing
-# ran it. Negative-tested against a planted use-above-local before it was trusted.
 if (-not (Test-Path $luac)) {
     Report-Warn "luac not found at $luac -- skipping the Lua globals check"
 } else {
@@ -1193,9 +778,7 @@ if (-not (Test-Path $luac)) {
     foreach ($f in $luaFiles) {
         $listing = & $luac -l -l -p $f 2>$null
         if ($LASTEXITCODE -ne 0) { continue }   # "Lua parses" already reports this file
-        # Case-SENSITIVE on purpose: Lua names are, and PowerShell's @{} keys and -match are not --
-        # the first run of this check paired a probe's `local IO` (the GBA register base) with the
-        # global `io` and reported a bug that did not exist. Ordinal sets, or the check lies.
+        # Case-sensitive sets on purpose: Lua names are, and PowerShell's @{} keys and -match are not.
         $locals = New-Object 'System.Collections.Generic.HashSet[string]'
         $env = New-Object 'System.Collections.Generic.HashSet[string]'
         $inLocals = $false
@@ -1219,24 +802,9 @@ if (-not (Test-Path $luac)) {
 }
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a SCRIPT_DIR concatenation in Crystal whose literal does not open with a path separator.
 Section "SCRIPT_DIR concatenations carry a separator (Crystal)"
 
-# Emerald's SCRIPT_DIR ends with a trailing "\\"; Crystal's does NOT, and that file has carried a
-# comment saying so since it was written -- "NOTE THE EXPLICIT '/' -- unlike Emerald's, this file's
-# SCRIPT_DIR carries no trailing separator, which every other path expression here also spells out."
-# Two later blocks did not spell it out, and a prose note is a rule enforced by whoever remembers
-# reading it. Both built paths like "...\pokemon\crystalconfig.json", which simply never opens:
-#
-#   - the AUTOSTART scan fell through all three candidates every time, so "autostart": false had
-#     never once worked in Crystal (shipped 2026-09-03, found 2026-09-10);
-#   - the probe choosing the spawned core's working directory never saw this game's own config, so
-#     every Crystal core read the release root instead and a player's per-game settings were
-#     silently ignored.
-#
-# Neither failed loudly: a missing file is indistinguishable from "no config here", which is a
-# supported state. luac -p cannot see it -- both spellings are valid Lua. So it is checked here.
-# Negative-tested against a planted `SCRIPT_DIR .. "config.json"` before being trusted.
 $crystal = 'adapters/emulator/pokemon/crystal/meshghost_crystal.lua'
 if (-not (Test-Path $crystal)) {
     Report-Fail "$crystal is missing -- the separator check would pass vacuously"
@@ -1246,7 +814,6 @@ if (-not (Test-Path $crystal)) {
     for ($i = 0; $i -lt $lines.Count; $i++) {
         $l = $lines[$i]
         if ($l -match '^\s*--') { continue }
-        # Every SCRIPT_DIR .. "<literal>" in this file must open its literal with / or \.
         foreach ($m in [regex]::Matches($l, 'SCRIPT_DIR\s*\.\.\s*"([^"]*)"')) {
             if ($m.Groups[1].Value -notmatch '^[/\\]') {
                 $bad += "$crystal`:$($i + 1)  SCRIPT_DIR .. `"$($m.Groups[1].Value)`""
@@ -1261,16 +828,9 @@ if (-not (Test-Path $crystal)) {
     }
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a raw GetValuePtrByPropertyNameInChain<bool> read in Pseudoregalia that lacks a bitfield-safe: note.
 Section "Reflected bools use the property mask (Pseudoregalia)"
 
-# UE packs many UPROPERTY bools as bitfields sharing a byte, and RE-UE4SS's
-# GetValuePtrByPropertyNameInChain<bool> hands back the containing BYTE -- so seven flags read true
-# when one is set, and a census whose bools all agree is not measuring them. Three cases by
-# 2026-09-01 (pitfalls: "A bitfield bool read through a plain byte pointer"; "the bitfield bool,
-# third case"). Every read in Mod/src goes through FBoolProperty::GetPropertyValueInContainer now;
-# this is the ratchet that keeps it so. A raw <bool> read is a FAIL unless the line says why it is
-# safe with a `bitfield-safe:` note. Comment lines are skipped -- the lesson is allowed to name it.
 $boolFiles = @(& git ls-files -- 'adapters/pseudoregalia/MeshGhostPseudo/Mod/src/*.cpp' 'adapters/pseudoregalia/MeshGhostPseudo/Mod/src/*.hpp')
 $rawBool = @()
 foreach ($f in $boolFiles) {
@@ -1292,27 +852,11 @@ if ($boolFiles.Count -eq 0) {
     Report-Pass "no raw GetValuePtrByPropertyNameInChain<bool> read in $($boolFiles.Count) Pseudoregalia source file(s)"
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a bare time.* call in core that neither goes through c.clk() nor carries a wall-clock: note.
 Section "The core's clock is injectable, and stays that way"
 
-# core reads an injectable clock for LOGIC (core/clock.go) so a test can advance time instead of
-# spending it. The hazard is not getting it wrong once; it is getting it right and then losing it one
-# call at a time, because a MIXED clock fails silently: a value stored on the virtual clock and read
-# with time.Since computes wallNow - virtualStored, which is either an enormous positive or a
-# negative depending on the fake's epoch. A rate limiter that never limits, or one that never sends,
-# and nothing crashes.
-#
-# So every bare time.* in core/*.go must either go through c.clk() or say on its own line why it
-# stays on the wall clock, with a `wall-clock:` note. Those are real and there are many of them --
-# socket deadlines, dial backoff, the ping pairing that MEASURES the network, the shutdown joins
-# where a virtual clock would turn a leak into a hang, and the artefact timestamps written into
-# replay files. The marker is what separates "deliberate" from "missed".
-#
-# _test.go is excluded: tests legitimately sleep, poll and measure real elapsed time by the hundred.
-# The exclusion runs BEFORE the vacuity guard, so an over-eager filter cannot make this pass on an
-# empty set -- which is the failure mode that would make this check worthless exactly when it
-# matters most.
 $clockPattern = 'time\.(Now|Since|Sleep|After|NewTicker|NewTimer|Tick)\('
+# Tests are excluded before the vacuity guard, so an over-eager filter still fails on an empty set.
 $clockFiles = @(& git ls-files -- 'core/*.go' | Where-Object { $_ -notlike '*_test.go' -and $_ -ne 'core/clock.go' })
 $clockBare = @()
 foreach ($f in $clockFiles) {
@@ -1320,8 +864,8 @@ foreach ($f in $clockFiles) {
     for ($i = 0; $i -lt $lines.Count; $i++) {
         $l = $lines[$i]
         if ($l -notmatch $clockPattern) { continue }
-        if ($l -match '^\s*//') { continue }          # a comment naming the trap is allowed
-        if ($l -match 'wall-clock:') { continue }      # deliberate, and it says why
+        if ($l -match '^\s*//') { continue }
+        if ($l -match 'wall-clock:') { continue }
         $clockBare += "$f`:$($i + 1)"
     }
 }
@@ -1334,14 +878,9 @@ if ($clockFiles.Count -eq 0) {
     Report-Pass "every time.* in $($clockFiles.Count) core file(s) is either injectable or marked wall-clock:"
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a dev-scripts line that invokes cmd, cmake, lua or luac by bare name instead of a resolved path.
 Section "No bare interpreter on PATH in dev-scripts"
 
-# The wrong-install-on-PATH trap, four times live (cmake 2026-08-13, git 2026-08-15, cmd 2026-08-17
-# and again 2026-09-01 -- exit 0, empty output, nothing ran). CLAUDE.md's rule covers an agent's own
-# tool calls, which nothing can check; this covers the scripts, which can be. A dev-script line that
-# invokes cmd, cmake, lua or luac by bare name -- rather than $env:ComSpec, an absolute path, or a
-# variable holding one -- is a FAIL. Comment lines and `echo` text are skipped.
 $scriptFiles = @(& git ls-files -- 'dev-scripts/*.ps1' 'dev-scripts/*.bat')
 $bareCalls = @()
 foreach ($f in $scriptFiles) {
@@ -1349,7 +888,6 @@ foreach ($f in $scriptFiles) {
     for ($i = 0; $i -lt $lines.Count; $i++) {
         $l = $lines[$i]
         if ($l -match '^\s*(#|::|rem\s|echo\s)' ) { continue }
-        # bare name at the start of a command: line start, after `&`, `|`, `;`, `(`, or `call `
         if ($l -match '(^|[&|;(]\s*|\bcall\s+)(cmd|cmake|lua|luac)(\.exe)?(\s|$)') {
             $bareCalls += "$f`:$($i + 1): $($l.Trim())"
         }
@@ -1364,13 +902,10 @@ if ($scriptFiles.Count -eq 0) {
     Report-Pass "no bare cmd/cmake/lua/luac invocation across $($scriptFiles.Count) dev-scripts"
 }
 
-# ---------------------------------------------------------------------------
+# Refuses CRLF in an LF-pinned adapter source, which the release gate would hash as a stale DLL.
 Section "LF-pinned sources"
 if ($TreeOnly) { Report-Skip "needs a working copy, not just the tree" } else {
 
-# .gitattributes pins these to eol=lf because the release gate hashes them on a Windows runner.
-# A scripted edit that writes CRLF makes the gate fail claiming the DLL is stale when it is fresh,
-# and rebuilding "to fix it" re-bakes the same wrong hash. Found live twice.
 $pinned = @(& git ls-files 'adapters/tevi/MeshGhostTevi/*.cs' 'adapters/tevi/MeshGhostTevi/*.csproj' `
     'adapters/pseudoregalia/MeshGhostPseudo/Mod/src/*.cpp' 'adapters/pseudoregalia/MeshGhostPseudo/Mod/src/*.hpp' `
     'adapters/pseudoregalia/MeshGhostPseudo/Mod/CMakeLists.txt')
@@ -1389,24 +924,13 @@ if ($crlf.Count -gt 0) {
 }
 }
 
-# ---------------------------------------------------------------------------
-# The mirror of the check above, and it exists because the property it guards was held by nothing.
-#
-# dev-scripts/run-core.bat's own header says cmd.exe mis-parses labels and `goto` in an LF-only
-# .bat, and that the first draft "ran straight past its own argument validation and launched a core
-# with an empty -game". Nothing enforced it: .gitattributes had no *.bat rule, so the endings lived
-# in whichever bytes were in each blob. On 2026-09-07 a one-word sed edit to a COMMENT in that file
-# rewrote all of them and stored it as LF -- one line of content diff, tree green, nothing to see.
-#
-# This checks the ATTRIBUTE rather than only the bytes, deliberately. Bytes on this machine say
-# nothing about what a Linux runner or a core.autocrlf=false clone will check out; the attribute is
-# what makes the answer the same everywhere. The byte check is kept as the second half, for the
-# working copy actually in front of you.
+# Refuses a tracked .bat that is not pinned eol=crlf, or one checked out LF in this working copy.
 Section "CRLF-pinned batch files"
 $batFiles = @(& git ls-files '*.bat')
 if ($batFiles.Count -lt 5) {
     Report-Fail "expected to find tracked .bat files and found $($batFiles.Count) -- this check did not run, so it is NOT a clean result"
 } else {
+    # The attribute, not only the bytes: it decides what every clone checks out, whatever this machine holds.
     $unpinned = @()
     foreach ($f in $batFiles) {
         $attr = (& git check-attr eol -- $f) -replace '^.*: eol: ', ''
@@ -1441,13 +965,10 @@ if ($batFiles.Count -lt 5) {
     }
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a mod DLL deployed into a live game install that differs from the staged build.
 Section "Deployed copies in the live game installs"
 if ($TreeOnly) { Report-Skip "needs a working copy, not just the tree" } else {
 
-# The repo's staging copy being fresh does NOT mean the game is running it. A full cleanup pass
-# once rebuilt both DLLs, verified the in-repo gates, and never copied them out -- which would have
-# had a loopback test across three games silently exercising pre-cleanup code.
 function Check-Deployed($label, $stagedPath, $envName) {
     $deployed = [Environment]::GetEnvironmentVariable($envName)
     if (-not $deployed) { Report-Warn "$label -- set $envName to also check the deployed copy"; return }
@@ -1467,46 +988,11 @@ Check-Deployed "TEVI (alt install)" "packaging\release\games\tevi\MeshGhost\Mesh
 Check-Deployed "Pseudoregalia" "packaging\release\games\pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo\dlls\main.dll" "MESHGHOST_PSEUDO_DLL"
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a relative markdown link that does not resolve, climbs out of the repo, or names a missing heading.
 Section "Markdown link integrity"
 
-
-# Every relative link must resolve -- to a file OR a folder, of any extension -- and every
-# `#anchor` on a .md target must name a heading that file actually has. Four broken .md links sat
-# in the tree unnoticed until 2026-08-25 (rule text copied between files without adjusting the
-# link depth; one pointed at a deleted folder). Widened 2026-09-06 after a sweep found what the
-# .md-only version could not: a folder link left behind by the probes/ move, and five anchors
-# still naming a section that had moved from pitfalls.md to pitfalls/method.md. A broken link
-# fails silently in every markdown viewer, so nothing else surfaces it.
-#
-# ONE deliberate exemption, down from two on 2026-09-10. `#L123`-style anchors are line
-# references, not headings. Fenced code blocks are skipped: a link inside one is an example.
-#
-# THE EXEMPTION THAT WAS REMOVED, because it hid a live bug the user hit. A target climbing above
-# the repo root used to be waved through as "a GitHub route": the site resolves a relative link
-# against /<owner>/<repo>/blob/<branch>/<path>, so from a ROOT file `../../releases` lands on
-# /<owner>/<repo>/releases and works, while no file on disk could ever satisfy it. All true -- and
-# only true at that one depth. The same text in docs/getting-started.md is one level deeper, stops
-# at /<owner>/<repo>/blob/releases, and renders "Error loading page"; it needs THREE `../`. So the
-# exemption was written for README.md and applied to every file, and the form it protects is one
-# whose correctness depends on where the file sits -- meaning a link copied between two files
-# breaks while looking character-for-character identical, and nothing surfaces it until a reader
-# clicks. A GitHub feature page (releases, issues, wiki) is therefore linked ABSOLUTELY, the way
-# docs/antivirus.md and docs/reviewing.md already did. Negative-tested against the real defect.
-#
-# GitHub's heading slug: lowercase, inline markup stripped, everything but word characters, spaces
-# and hyphens removed, spaces to hyphens, and a `-1`, `-2` suffix for a repeated heading.
 $rootFull = (Resolve-Path -LiteralPath $root).Path
 $slugCache = @{}
-# -Encoding UTF8 ON EVERY RAW READ, added 2026-09-08. Windows PowerShell 5.1 -- the edition this
-# script runs under -- defaults Get-Content to the system ANSI codepage, so a UTF-8 em dash in a
-# heading came back as three mojibake characters, two of which .NET counts as word characters. The
-# slug for "IL2CPP -- the same engine..." became "il2cpp-a-the-same-engine..." and the check
-# reported a CORRECT anchor as broken (agent_docs/access-models.md, found by this file failing on
-# somebody else's commit). It fails in the noisy direction here, but the same mangling would just
-# as happily hide a real break in a heading that contains any non-ASCII character -- and this
-# repo's prose is full of them. Every raw read in this file was patched, not only the one that
-# happened to be caught.
 function Get-HeadingSlugs($mdPath) {
     if ($slugCache.ContainsKey($mdPath)) { return $slugCache[$mdPath] }
     $body = (Get-Content -Raw -Encoding UTF8 -LiteralPath $mdPath) -replace '(?s)```.*?```', ''
@@ -1547,7 +1033,7 @@ foreach ($md in $trackedMd) {
             $linkCount++
             $full = [System.IO.Path]::GetFullPath((Join-Path $rootFull $targetPath))
             if (-not $full.StartsWith($rootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
-                $escapedLinks += "$md -> $target"   # depth-dependent, see above
+                $escapedLinks += "$md -> $target"
                 continue
             }
             if (-not (Test-Path -LiteralPath $targetPath)) { $badLinks += "$md -> $target"; continue }
@@ -1582,17 +1068,6 @@ if ($badAnchors.Count -gt 0) {
     Report-Pass "every markdown #anchor names a heading in its target"
 }
 
-# EVERY tracked .md under .github/, not one filename. GitHub gives these files their own surfaces
-# -- the Security tab for SECURITY.md, the contributing panel and the community profile for
-# CONTRIBUTING.md -- and on them it resolves a relative link WITHOUT the branch segment, so
-# `../docs/security.md` becomes /blob/docs/security.md and 404s while the same line reads fine in
-# the ordinary file view. Absolute URLs are the only form that works in both places.
-#
-# THIS CHECK WAS WRITTEN FOR THE SECURITY TAB ON 2026-09-06 AND SCOPED TO THAT ONE FILE, and on
-# 2026-09-11 the user clicked both links in .github/CONTRIBUTING.md and got
-# /blob/CLAUDE.md and /blob/agent_docs/README.md -- the identical defect, in the sibling file, on
-# a gate that had already been built for it. The lesson is the scope, not the rule: a surface
-# quirk belongs to the FOLDER GitHub treats specially, and naming one file gates one file.
 $ghMd = @(& git ls-files -- '.github/*.md' '.github/**/*.md' | Sort-Object -Unique)
 $ghRel = @()
 foreach ($g in $ghMd) {
@@ -1614,22 +1089,14 @@ if ($ghMd.Count -eq 0) {
     Report-Pass "every link in $($ghMd.Count) .github/ markdown file(s) is absolute (those surfaces drop the branch from relative ones)"
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a registered multiply-stated rule restated without a nearby link to its home file.
 Section "Canonical source for multiply-stated rules"
 
-# A rule stated in many files drifts, and prose asking people not to let it drift does not stop
-# it: on 2026-08-25 the bandage register said "seven after-the-fact tells" in two files and
-# "eight" in three more, while ALL of them listed seven. The canonical list has eight. Nobody
-# noticed because nothing checked.
-#
-# The rule enforced here: a file may STATE one of these rules only if it is the rule's home, or
-# it links to the home. A copy that links cannot silently drift free of its source -- the reader
-# always has one hop to the version that is maintained.
 $canon = @(
     @{ Name = "a flag flip is not a revert"
        Pattern = 'flag flip is not a revert'
        Home = 'agent_docs/pitfalls/method.md'
-       LinkTo = 'pitfalls' }   # the index (pitfalls.md) or the record (pitfalls/method.md) -- either is one hop from the home
+       LinkTo = 'pitfalls' }   # matches both the pitfalls index and its record, each one hop from the home
     @{ Name = "the eight after-the-fact bandage tells"
        Pattern = 'tells that only show up later'
        Home = 'adapters/_template/BANDAGES.md'
@@ -1665,15 +1132,11 @@ foreach ($rule in $canon) {
         Report-Fail "'$($rule.Name)' is registered as living in $($rule.Home), but that file does not state it"
         continue
     }
-# The pointer must sit NEAR the statement, not merely somewhere in the same file. A whole-file
-# match is satisfied by an unrelated mention -- status.md cites pitfalls.md in its own link
-# footer, which would vouch for a drifted copy of the rule pasted anywhere above it. This is the
-# same defect as licensing.md's unanchored provenance grep, found in this very check while
-# negative-testing it on 2026-08-25. Write the check, then try to fool it.
+    # The pointer must sit within four lines of the statement: a whole-file match is vouched for by any link.
     $strays = @()
     foreach ($md in $trackedMd) {
         if ($md -eq $rule.Home) { continue }
-        if ($md -eq 'agent_docs/doc-history.md') { continue }  # the restructuring record QUOTES these rules
+        if ($md -eq 'agent_docs/doc-history.md') { continue }  # the restructuring record quotes these rules
         $lines = @(Get-Content -LiteralPath $md)
         for ($i = 0; $i -lt $lines.Count; $i++) {
             if ($lines[$i] -notmatch $rule.Pattern) { continue }
@@ -1691,16 +1154,10 @@ foreach ($rule in $canon) {
     }
 }
 
-# ---------------------------------------------------------------------------
+# Warns, never fails, when a _template file was last committed over a day before an adapter's counterpart.
 Section "_template back-port freshness"
 
-# CLAUDE.md requires _template/ never to lag a shipped adapter: a rule, file or trap added to a
-# real adapter is back-ported in the SAME pass. That was prose only, and _template/documentation.md
-# sat untouched from 2026-08-18 through the whole Crystal phase.
-#
-# Commit dates, not file mtimes -- mtime is when the file was checked out, which says nothing.
-# A WARN, not a FAIL: an adapter register gaining one game-specific entry is not a template gap.
-# It is here to make the gap visible, which is the part that was missing.
+# Commit dates, not mtimes: an mtime is only when the file was checked out.
 function Git-LastCommit($path) {
     if (-not (Test-Path $path)) { return $null }
     $ts = & git log -1 --format=%ct -- $path
@@ -1716,9 +1173,7 @@ foreach ($name in @("README.md", "FLAGS.md", "BANDAGES.md", "documentation.md", 
     if (-not $tplTime) { continue }
     foreach ($a in $adapters) {
         $aTime = Git-LastCommit "$a/$name"
-        # One day of slack: the rule is "back-port in the SAME pass", so a sub-day gap is almost
-        # always this session's own commits, and a check that cries wolf every session is a check
-        # nobody reads -- which is exactly how the pitfalls.md taxonomy stopped being maintained.
+        # One day of slack: a sub-day gap is almost always this session's own back-port commits.
         if ($aTime -and ($aTime - $tplTime) -gt 86400) {
             $days = [math]::Round(($aTime - $tplTime) / 86400.0, 1)
             $lagging += "_template/$name is $days day(s) behind $a/$name"
@@ -1732,21 +1187,9 @@ if ($lagging.Count -gt 0) {
     Report-Pass "_template is no older than any shipped adapter's counterpart"
 }
 
-# ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
+# Refuses a pitfalls heading missing from the index, an index line with no outcome tag, or a missing checklist.
 Section "pitfalls index coverage"
 
-# The pitfalls record lives in agent_docs/pitfalls/{method,by-host,by-lesson}.md, its index in
-# agent_docs/pitfalls/INDEX.md, and its READING PATH in agent_docs/checklists/ (one page per
-# moment). Reworked 2026-09-02: the index used to live in agent_docs/pitfalls.md and carried no
-# outcome per lesson, and 14 of 226 titles admitted to being repeats -- every lesson that stopped
-# recurring had a mechanical check, every one that recurred three times was only a title. Now every
-# index line ends in its outcome: [CHECK: ...] (a check enforces it), [RULE: <file>] (one line where
-# the mistake is made), or [RECORD] (no transferable rule yet; a repeat forces promotion).
-#
-# Three things are checked: every '## ' heading in a body file appears in INDEX.md (an entry nobody
-# can find is an entry nobody reads); every index line carries a tag (an outcome nobody decided is
-# RECORD by accident); and every [RULE: checklists/<page>] names a page that exists.
 $pitIndex = "agent_docs/pitfalls/INDEX.md"
 $pitBodies = @(Get-ChildItem -LiteralPath "agent_docs/pitfalls" -Filter '*.md' | Where-Object { $_.Name -ne 'INDEX.md' } | Sort-Object Name)
 if (-not (Test-Path -LiteralPath $pitIndex)) {
@@ -1781,8 +1224,7 @@ if (-not (Test-Path -LiteralPath $pitIndex)) {
         $lines = @(Get-Content -LiteralPath $b.FullName)
         for ($i = 0; $i -lt $lines.Count; $i++) {
             $l = $lines[$i]
-            # Entry-level only: a '### ' under a '## ' entry is part of that entry. by-host.md's
-            # grouped section is the one place '### ' headings are entries; they were indexed by hand.
+            # Entry level only: a '### ' belongs to its '## ' entry; the few '### ' entries were indexed by hand.
             if ($l -notmatch '^## ') { continue }
             $title = ($l -replace '^## ', '').Trim()
             if (-not $indexed.ContainsKey($title)) { $missing += "$($b.Name):$($i+1): $title" }
@@ -1808,26 +1250,10 @@ if (-not (Test-Path -LiteralPath $pitIndex)) {
     }
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a VERIFIED or MEASURED entry that is missing from its own file's index.
 Section "VERIFIED index coverage"
 
-# The verified records are append-only and only grow: 3,654 and 3,685 lines for Pseudoregalia and
-# Emerald as of 2026-08-25. They cannot be capped -- capping a record means deleting evidence in
-# order to add evidence -- and splitting them by period does not work yet, because every entry in
-# every one of them is dated 2026-08 (the repo began 2026-08-11). So the control is an index:
-# reading it costs ~150 lines instead of ~3,700, and adding an entry costs one line.
-#
-# Same shape as the pitfalls check above, and the same reasoning: nothing can mechanically verify
-# that an entry is filed under the right theme, but anything can verify that it is listed.
-#
-# Entries sit at BOTH ## and ### -- the earliest are ### under "Confirmed facts", later ones are ##
-# -- and both are indexed. The levels are historical and deliberately not normalised, because
-# rewriting an entry's heading is a rewrite of an append-only record.
-# -notlike '*UNVERIFIED.md' is load-bearing, and PowerShell's case-INSENSITIVE -like is why: both
-# "UNVERIFIED.md" and "agent_docs/unverified.md" match '*VERIFIED.md', so the first version of this
-# check demanded an index on all three queue files. A queue is the opposite case -- it DRAINS, its
-# size is how much the user has not confirmed yet, and indexing a list that is meant to reach zero
-# is work for nothing.
+# -like ignores case, so '*VERIFIED.md' also matches the UNVERIFIED queues, which drain and need no index.
 $verifiedFiles = @(& git ls-files | Where-Object {
     ($_ -like '*VERIFIED.md' -or $_ -eq 'agent_docs/verified.md') -and $_ -notlike '*UNVERIFIED.md'
 })
@@ -1848,7 +1274,7 @@ if ($verifiedFiles.Count -eq 0) {
         }
         $indexed = @{}
         for ($i = $idxAt; $i -lt $lines.Count; $i++) {
-            if ($lines[$i] -match '^## ') { break }          # the index ends at the next ## section
+            if ($lines[$i] -match '^## ') { break }
             if ($lines[$i] -match '^- (.+)$') { $indexed[$Matches[1].Trim()] = $true }
         }
         $vIndexed += $indexed.Count
@@ -1869,9 +1295,6 @@ if ($verifiedFiles.Count -eq 0) {
     }
 }
 
-# MEASURED.md (2026-09-16) only grows, like VERIFIED.md, and the user asked for its index from the day
-# it began: "these files have the habit of growing pretty fast". Every ### entry, measured or in
-# "Not measured yet" (listed with that prefix), needs its line under ## Index.
 $measuredFiles = @(& git ls-files -- '*MEASURED.md' | Where-Object { $_ -notlike 'adapters/_template/*' })
 $mMissing = @()
 $mChecked = 0
@@ -1902,18 +1325,9 @@ if ($mMissing.Count -gt 0) {
     Report-Pass "every MEASURED.md entry across $mChecked file(s) appears in its own index"
 }
 
-# ---------------------------------------------------------------------------
+# Refuses an adapter missing a mandated file, or holding a probe folder of 3+ scripts with no root probe index.
 Section "Adapter file set"
 
-# _template/README.md's folder-convention table has mandated a file set per adapter since it was
-# written, and nothing checked it. That is a rule enforced by whoever remembers it, which is the
-# same as unenforced: TEVI and Pseudoregalia had no UNVERIFIED.md and nobody noticed, and
-# Pseudoregalia's three probe directories went unindexed from the day they were created.
-#
-# An adapter is any directory holding a documentation.md (the one file every adapter must have
-# from the moment its folder exists), excluding _template itself.
-# MEASURED.md joined 2026-09-16 (the user's call): code-level facts the agent measured, apart from
-# the two records of what the user judges on screen.
 $mandated = @('README.md', 'documentation.md', 'BANDAGES.md', 'FLAGS.md', 'SYNCED.md', 'VERIFIED.md', 'UNVERIFIED.md', 'MEASURED.md')
 $adapterDirs = @(& git ls-files | Where-Object { $_ -like '*/documentation.md' } |
                  ForEach-Object { Split-Path $_ -Parent } |
@@ -1929,27 +1343,11 @@ if ($adapterDirs.Count -eq 0) {
         }
     }
 
-    # UNVERIFIED.md IS mandated, since 2026-08-27 and on the user's call. It used to be exempt
-    # "because a queue with nothing pending should not exist", and TEVI and Pseudoregalia had none
-    # for that reason -- while status.md carried unwatched items for both. The exemption was
-    # protecting exactly the two adapters that needed the file, and the premise behind it was
-    # never true. A queue is created with the adapter now.
-    #
-    # Probe indexes ARE checked, because an unindexed probe folder hides writing tools -- see
-    # _template/probes-README.md (the template for <adapter>/PROBES.md; it cannot be named PROBES.md
-    # itself because probes.md, the method, sits beside it on a case-insensitive filesystem). A probe
-    # directory is one whose name starts with "probe"; an adapter holding one with more than two
-    # scripts needs a PROBES.md at ITS ROOT -- one name for every adapter (the user's call,
-    # 2026-09-02; Emerald and Crystal used probes/README.md until then). Root-level is the only
-    # shape that works everywhere: UE4SS forces one mod directory per probe, so Pseudoregalia has
-    # no probes/ folder to index from the inside.
     $unindexed = @()
     foreach ($d in $adapterDirs) {
         $probeScripts = @{}
         foreach ($f in @(& git ls-files -- "$d")) {
-            # Extension test FIRST, and $pd captured immediately: every -match writes $Matches, so
-            # testing the extension after the directory match overwrites the captured group with
-            # the file extension. It did, and the check reported ".../lua (46 scripts)".
+            # Extension test first: every -match overwrites $Matches, so the directory capture must be the last match.
             if ($f -notmatch '\.(lua|py|cs|cpp)$') { continue }
             $rel = ($f -replace '\\', '/').Substring($d.Length + 1)
             if ($rel -notmatch '^(probe[^/]*)/') { continue }
@@ -1978,32 +1376,9 @@ if ($adapterDirs.Count -eq 0) {
     }
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a living doc whose whole-set adapter/game count no longer matches the number of adapters.
 Section "Adapter/game counts in living docs"
 
-# "the four shipped adapters" goes stale the day a fifth arrives, and nothing checked it. The user
-# found one by reading (2026-09-07, Pseudoregalia's README: "the largest and hardest of the four"):
-# "that will go stale really really fast once we add more adapters/games. think preflight catch most
-# of these already?" It did not.
-#
-# WHY THIS IS NARROW ON PURPOSE, and the narrowness is the whole design. A naive "a number next to
-# the word adapters" scan over living docs finds 40+ hits and ONE of them is actually stale -- the
-# rest are dated observations ("Found live 2026-09-07 on three adapters at once"), scenarios ("two
-# adapters on the same game_id"), or correct subsets ("three of the four adapter READMEs"). A gate
-# with that signal-to-noise gets ignored, which is the failure mode `pitfalls.md` records for
-# scanners that cry wolf. So this matches only the ONE shape that is a present-tense claim about the
-# project's WHOLE set, and exempts the two shapes that legitimately carry a different number:
-#
-#   matches   "the|all <number> [shipped|real|live|current|existing] adapters|games"
-#             -- the definite article is what makes it a claim about *the* set
-#   exempt    a line carrying a four-digit year or "at the time" -- a dated fact is true as of its
-#             date (CLAUDE.md), and rewriting one would falsify the record
-#   exempt    a restrictive clause right after the noun (that/which/furthest/...) -- "the two games
-#             THAT feel like one" and "the two adapters FURTHEST from a confirmation" are subsets
-#
-# It will miss stale counts written in other shapes. That is the trade for a gate that is worth
-# reading when it fires. Records are out of scope entirely (VERIFIED/UNVERIFIED, phases, pitfalls,
-# the ADRs, doc-history) for the same reason the dated-line exemption exists.
 $countWords = @{ 'one' = 1; 'two' = 2; 'three' = 3; 'four' = 4; 'five' = 5; 'six' = 6; 'seven' = 7; 'eight' = 8; 'nine' = 9; 'ten' = 10 }
 $trueCount = $adapterDirs.Count
 $countScope = @($trackedMd | Where-Object {
@@ -2044,44 +1419,19 @@ if ($countScope.Count -eq 0 -or $trueCount -eq 0) {
     Report-Pass "$countChecked whole-set adapter/game count claim(s) across $($countScope.Count) living doc(s) all say $trueCount"
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a status item that is undated, stale, over two lines, or re-dated unchanged more than once.
 Section "status.md is current"
 
-# status.md is an index of what is open, and it has failed as one twice: 50 -> 628 lines under a flat
-# cap (2026-08-14), then 296 lines / 105 items with 54 undated and six open since before 2026-08-20
-# under a two-lines-per-item rule with nothing checking when an item LEAVES (2026-09-02). The user's
-# diagnosis: it worked while it was enforced, and it never was. So, mechanically: every item carries
-# the date it was last re-checked, and an item more than two days older than this file's own last
-# commit fails -- at this project's pace, two days ago is not current (user's call, 2026-09-02). Age
-# is measured against the file's last commit (or now, if it has uncommitted changes), never against
-# the wall clock, so a quiet repo does not go red on its own; re-dating an item at the start of a
-# session IS the re-check, and moving the rest out is the triage.
 $statusPath = "agent_docs/status.md"
 $statusMaxAgeDays = 2
-# TWO MORE THINGS, added 2026-09-11, both found by hand because nothing was looking. The age check
-# above answered "when does an item LEAVE"; nothing answered "how big may an item GET", so the
-# two-lines-per-item rule was prose -- and on 2026-09-11 it was broken by 36 of 37 items, the worst
-# at roughly eighteen wrapped lines. A rule broken by 97% of the file it governs is not being
-# enforced by anything.
-#
-#   $statusMaxItemChars -- two wrapped lines at this file's ~105-column width, plus slack. The rule
-#     is in claude-md-cap.md and the overflow has a defined home: the adapter's UNVERIFIED.md,
-#     ideas.md, plans.md or risks.md.
-#   The CARRIED marker -- an item whose own text says it was re-checked or re-dated "unchanged" more
-#     than once has, by its own admission, outlived short-term memory. status.md is 2-day memory and
-#     not a progress log (user's call, 2026-09-11); a thing that keeps being true belongs in the file
-#     that tracks it, with status.md holding at most a pointer.
-#
-# WHAT NEITHER OF THESE CAN SEE, so it stays a human read: whether an item's CLAIM matches the record
-# it cites. On 2026-09-11 one item opened "all CONFIRMED on screen" over a list that mixed four
-# screen confirmations with three agent measurements whose numbers lived in UNVERIFIED.md. No grep
-# tells you that; reading the item beside the file it points at does.
+# Two wrapped lines at this file's ~105-column width, plus slack.
 $statusMaxItemChars = 215
 $statusCarried = @()
 $statusLong = @()
 if (-not (Test-Path -LiteralPath $statusPath)) {
     Report-Fail "$statusPath is missing"
 } else {
+    # Age is measured against this file's last commit (or now, if uncommitted), so a quiet repo never goes red.
     $dirty = @(& git status --porcelain -- $statusPath)
     if ($dirty.Count -gt 0) { $refDate = (Get-Date).Date } else {
         $ts = & git log -1 --format=%ct -- $statusPath
@@ -2097,8 +1447,7 @@ if (-not (Test-Path -LiteralPath $statusPath)) {
         if (-not $dates) { $undated += "$($i + 1): $($l.Substring(0, [math]::Min(70, $l.Length)))"; continue }
         $newest = ($dates | Sort-Object | Select-Object -Last 1)
         $age = ($refDate - [datetime]::ParseExact($newest, 'yyyy-MM-dd', $null)).TotalDays
-        # PINNED (the user's call, 2026-09-27): a priority item that must not expire unnoticed, as the DLL paths'
-        # hold did on 2026-09-25. It keeps its place until the user unpins it; only the age check skips it.
+        # A PINNED item skips only the age check; the length limit still applies.
         if ($l -cmatch '\bPINNED\b') { $statusPinned++ }
         elseif ($age -gt $statusMaxAgeDays) { $stale += "$($i + 1): $newest ($([int]$age) days) $($l.Substring(0, [math]::Min(60, $l.Length)))" }
         if ($l.Length -gt $statusMaxItemChars) {
@@ -2132,15 +1481,9 @@ if (-not (Test-Path -LiteralPath $statusPath)) {
     }
 }
 
-# ---------------------------------------------------------------------------
+# Refuses an UNVERIFIED queue entry with no [READY]/[OPEN]/[DONE] state, or a queue with no 'This run' block.
 Section "UNVERIFIED entries carry a state"
 
-# A queue that holds both "built, waiting for the user's eyes" and "not fixed, parked" is doing two
-# jobs and draining neither: Crystal's held 132 entries / 2,694 lines, larger than its VERIFIED
-# record, with no head saying what to watch first (2026-09-02, the user's own observation that some
-# entries were already fixed and only their confirmation was unclear). Every '## ' entry now carries
-# [READY], [OPEN] or [DONE], and a "This run -- watch these first" block lists at most ten READY
-# entries. The rule's home is adapters/_template/UNVERIFIED.md.
 $queueFiles = @(& git ls-files -- 'adapters/*/UNVERIFIED.md' 'adapters/emulator/pokemon/*/UNVERIFIED.md') | Where-Object { $_ -notlike 'adapters/_template/*' }
 $untaggedQ = @(); $noHead = @(); $qEntries = 0
 foreach ($q in $queueFiles) {
@@ -2168,20 +1511,9 @@ if ($queueFiles.Count -lt 4) {
     Report-Pass "$qEntries UNVERIFIED entries across $($queueFiles.Count) queues carry a state, every queue has a 'This run' block"
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a live phase log that trails its adapter by lag-max commits or more since its last entry.
 Section "Phase log freshness"
 
-# The user's call, 2026-09-02: a phase file holds ALL the history of its adapter, as a running log
-# appended every session -- not a catch-up summary written days later, which is what every live
-# phase file had become ("Catch-up record, written 2026-09-01 -- the active phase's missing week";
-# phase7.md got 6 commits in the fortnight the Pseudoregalia queue got 54). The rule lives in
-# agent_docs/phases/README.md; this makes it mechanical the way "_template back-port freshness"
-# does: for each live phase, count the commits that touched its adapter since the last commit that
-# touched the phase file. Three or more is a session's worth of work with no log line. FAIL, not
-# WARN: a warning here was the state of affairs the rule replaces.
-# The map and the threshold moved to dev-scripts/phase-map.txt on 2026-09-18, when .githooks/
-# pre-commit became a second reader of them. Written twice, the two would drift; this repo has
-# already been bitten by a gate disagreeing with the rule it enforces.
 $phaseMapFile = Join-Path $PSScriptRoot 'phase-map.txt'
 if (-not (Test-Path -LiteralPath $phaseMapFile)) { Report-Fail "dev-scripts/phase-map.txt is missing -- the phase-log gate and the pre-commit hook both read it" }
 $phaseMap = [ordered]@{}
@@ -2212,32 +1544,9 @@ if ($phaseStale.Count -gt 0) {
     Report-Pass "every live phase log is within $phaseLagMax adapter commits of its last entry"
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a date on which a phase log's tree changed but no dated section heading claims the day.
 Section "Phase log coverage"
 
-# The SECOND axis, added 2026-09-11. Freshness above counts commits since the phase file was last
-# touched, which is a BACKLOG -- and a backlog can be cleared by writing about something else. A
-# one-commit day never reaches $phaseLagMax on its own, and the counter resets the moment the file
-# is touched for any other reason, so that day becomes permanently invisible. Every gap the
-# 2026-09-11 audit found was a one- or two-commit day, and SIX of them postdated the freshness
-# gate. Freshness catches "you have stopped writing"; this catches "this specific day was never
-# written".
-#
-# Granularity is per-DATE, not per-commit, because that is the rule the repo actually has: a
-# session is roughly a day. Measured before choosing it -- only 21-29% of adapter commits touch
-# their phase file in the same commit, so a per-commit gate would fail three quarters of commits
-# and be WRONG to, since most commits are intermediate steps in one result.
-#
-# A date is covered when it appears IN A SECTION HEADING, in full (2026-MM-DD). A date mentioned
-# only in a body is reachable by reading the file and by nothing else, which is exactly how Fly
-# came to look absent from Emerald's own phase file while being documented inside it. The range
-# form "2026-08-19/20" counts for both days.
-#
-# EXEMPTION, and it is load-bearing: sections that carry their dates inline rather than in the
-# heading -- a "## Tasks" checklist, an early phase's topic sections -- are legitimate and predate
-# this convention. Rather than special-case headings, this only checks dates from $phaseCoverFrom
-# onward, the day the complete-running-log rule was set (2026-09-02, the user's call). Founding
-# work in a Tasks section is older than the rule and is not retro-failed by it.
 $phaseCoverFloor = '2026-09-02'
 $phaseUncovered = @()
 foreach ($pf in $phaseMap.Keys) {
@@ -2251,39 +1560,21 @@ foreach ($pf in $phaseMap.Keys) {
             if ($m.Groups[4].Success) { $covered["$($m.Groups[1].Value)-$($m.Groups[2].Value)-$($m.Groups[4].Value)"] = $true }
         }
     }
-    # START from this file's FIRST dated heading, floored at the day the rule was set. A component
-    # log opens with a "Backfill" bullet list compressing everything before it existed (phase10 and
-    # phase12 both do), and that is the correct form for pre-creation history -- so requiring dated
-    # headings there would fail a file for obeying its own convention. The first dated heading is
-    # exactly the line where the file starts being a running log, and it needs no maintenance.
-    # @(...) is load-bearing: a one-key hashtable unrolls to a SCALAR, so [0] on it returns the
-    # first CHARACTER ('2'), which compares below the floor and silently widens the scope to every
-    # date since 2026-09-02. Found 2026-09-11 the first time a file had exactly one dated heading.
-    #
-    # No dated heading at all falls back to the file's CREATION date, never to "skip". Skipping
-    # was the first version and it is a dodge: a phase file that simply never gains a dated heading
-    # would never be covered, which is the exact failure this gate exists for. A log created today
-    # still has nothing before today to answer for, so the fallback costs a new file nothing.
+    # Start at the first dated heading: a component log's earlier history is a backfill list, by design.
     if ($covered.Count -gt 0) {
+        # @(...) matters: a one-key hashtable's keys unroll to a string, and [0] would return its first character.
         $start = @($covered.Keys | Sort-Object)[0]
     } else {
         $start = @(& git log --diff-filter=A --format=%ad --date=short -- $pf)[-1]
         if (-not $start) { continue }
     }
     if ([string]::Compare($start, $phaseCoverFloor) -lt 0) { $start = $phaseCoverFloor }
-    # "00:00" is load-bearing. git parses a BARE --since=YYYY-MM-DD as that day at the CURRENT time
-    # of day, so every commit earlier in the start date is silently dropped -- 0 commits returned
-    # where "$start 00:00" returns 5. A gate that quietly narrows its own window reads as clean.
+    # git reads a bare --since date as that day at the current time of day, dropping that day's earlier commits.
     $dateArgs = @('log', '--no-merges', '--date=short', '--format=%ad', "--since=$start 00:00") +
                 @('--') + $phaseMap[$pf]
     $dates = @(& git @dateArgs | Sort-Object -Unique)
     foreach ($d in $dates) {
         if ($covered.ContainsKey($d)) { continue }
-        # Name the sibling: the dominant cause is ONE commit touching several trees while only one
-        # phase file gets written, so the fix is nearly always a pointer line copied from the file
-        # that DID get the entry. Handing over which file that is turns archaeology into a paste.
-        # It must be a file that shares the actual COMMITS -- "was also touched that day" names an
-        # unrelated file and sends the reader somewhere useless.
         $mine = @(& git @(@('log', '--no-merges', '--format=%H', "--since=$d 00:00", "--until=$d 23:59", '--') + $phaseMap[$pf]))
         $sibling = ''
         foreach ($other in $phaseMap.Keys) {
@@ -2291,7 +1582,7 @@ foreach ($pf in $phaseMap.Keys) {
             $theirs = @(& git @(@('log', '--no-merges', '--format=%H', "--since=$d 00:00", "--until=$d 23:59", '--') + $phaseMap[$other]))
             $shared = @($mine | Where-Object { $theirs -contains $_ })
             if ($shared.Count -eq 0) { continue }
-            # ...and that file must actually CLAIM the day, or it is no better off than this one.
+            # The sibling must itself claim the day, or it is no better off than this one.
             $otherText = [IO.File]::ReadAllText((Join-Path $root $other))
             if (($otherText -split "`r?`n" | Where-Object { $_ -match '^#{2,3}\s' -and $_ -match [regex]::Escape($d) }).Count -gt 0) {
                 $sibling = " -- $($shared.Count) of those commit(s) are logged in $(Split-Path $other -Leaf); a pointer line is enough"
@@ -2308,15 +1599,9 @@ if ($phaseUncovered.Count -gt 0) {
     Report-Pass "every date since $phaseCoverFloor on which a live phase file's tree changed is claimed by a dated heading ($($phaseMap.Count) log(s))"
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a GitHub repo cited in a living doc that the licensing register does not list.
 Section "Licensing gate"
 
-# licensing.md's standing rule: a project not listed there has not had its licence checked, and is
-# not used until it has. That was prose, and 2026-09-02 found 16 repos cited in the repo's own docs
-# and absent from the table -- all of them in ideas.md, where the user ruled that brainstorm
-# citations need no check. So the gate covers LIVING docs and exempts the three brainstorm files and
-# the records: every github.com/<owner>/<repo> cited in scope must appear (owner/repo,
-# case-insensitive) in licensing.md.
 $licText = Get-Content -Raw -Encoding UTF8 -LiteralPath 'agent_docs/licensing.md'
 $licExempt = @('agent_docs/ideas.md', 'agent_docs/candidate-games.md', 'agent_docs/security-design.md', 'agent_docs/doc-history.md')
 $licScope = @($trackedMd | Where-Object {
@@ -2329,7 +1614,7 @@ foreach ($md in $licScope) {
     $t = Get-Content -Raw -Encoding UTF8 -LiteralPath $md
     foreach ($m in [regex]::Matches($t, 'github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)')) {
         $repo = $m.Groups[1].Value -replace '\.git$', ''
-        if ($repo -match '/MeshGhost$') { continue }   # this project's own URL is not a third party
+        if ($repo -match '/MeshGhost$') { continue }
         $cited++
         if ($licText -notmatch [regex]::Escape($repo)) { $unlicensed += "$md -- $repo" }
     }
@@ -2343,16 +1628,9 @@ if ($licScope.Count -eq 0) {
     Report-Pass "every repo cited in $($licScope.Count) living doc(s) ($cited citation(s)) is recorded in licensing.md"
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a compile-time flag in adapter source that the adapter's flag register does not name.
 Section "FLAGS.md completeness"
 
-# CLAUDE.md: "when a flag's comment and its value disagree, the register and the value win." That
-# points the wrong way when the register is INCOMPLETE -- Pseudoregalia's code held 19 flags the
-# register never heard of (all dev traces) on 2026-09-02. So: every compile-time switch in an
-# adapter's source must be named in its FLAGS.md. Pseudoregalia: `constexpr bool NAME`; TEVI:
-# `const bool` / `static readonly bool NAME`; the Lua adapters: a file-scope `local NAME = true|false`
-# or bare `NAME = true|false` in the adapter script itself (column 0 -- per-frame scratch globals set
-# inside functions are not flags).
 $flagSets = @(
     @{ Adapter = 'adapters/pseudoregalia'; Register = 'adapters/pseudoregalia/FLAGS.md'
        Files = @('adapters/pseudoregalia/MeshGhostPseudo/Mod/src/*.cpp', 'adapters/pseudoregalia/MeshGhostPseudo/Mod/src/*.hpp')
@@ -2360,6 +1638,7 @@ $flagSets = @(
     @{ Adapter = 'adapters/tevi'; Register = 'adapters/tevi/FLAGS.md'
        Files = @('adapters/tevi/MeshGhostTevi/*.cs')
        Pattern = '(?:const|static\s+readonly)\s+bool\s+([A-Za-z_][A-Za-z0-9_]*)' }
+    # Lua flags sit at column 0: scratch globals set inside functions are not flags.
     @{ Adapter = 'adapters/emulator/pokemon/emerald'; Register = 'adapters/emulator/pokemon/emerald/FLAGS.md'
        Files = @('adapters/emulator/pokemon/emerald/meshghost_emerald.lua')
        Pattern = '^(?:local\s+)?([A-Z][A-Z0-9_]{3,})\s*=\s*(?:true|false)\b' }
@@ -2390,18 +1669,9 @@ if ($flagsSeen -eq 0) {
     Report-Pass "$flagsSeen compile-time flag(s) across four adapters are all named in their FLAGS.md"
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a synced-keys page whose keys differ from the send code, or whose check cells are empty or off the ratchet.
 Section "SYNCED.md matches the send code"
 
-# Each adapter's SYNCED.md lists every extras key it sends and, per key, how the receiving game
-# checks it -- which makes it the guard checklist as well as a player-facing page (the user,
-# 2026-09-13). A hand-kept list drifts the moment a key is added in code, so:
-#   * the extras keys in the send code == the backticked keys in the page's Key tables, both ways;
-#   * every group lists the same keys in its summary table and its details table;
-#   * no "Checked on arrival" cell is empty;
-#   * the count of "not checked yet" cells is a RATCHET per adapter: a fixed gap must lower the
-#     number here, and a new unguarded key cannot ship without raising it on purpose.
-# Keys are read from adapters/ source only -- packaging/release/ holds staged copies of the Lua.
 $syncedSets = @(
     @{ Doc = 'adapters/pseudoregalia/SYNCED.md'; Src = 'adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp'
        Start = 'std::string local_state = std::format\('; End = 'json_escape\(area_id\)'
@@ -2422,7 +1692,6 @@ foreach ($ss in $syncedSets) {
     if (-not (Test-Path -LiteralPath $ss.Doc)) { $syncedProblems += "$($ss.Doc) is missing"; continue }
     if (-not (Test-Path -LiteralPath $ss.Src)) { $syncedProblems += "$($ss.Src) is missing -- update this section's table"; continue }
 
-    # The send code: the first block from Start to End, keys matched inside it.
     $codeKeys = @{}; $inBlock = $false; $blockDone = $false
     foreach ($line in (Get-Content -LiteralPath $ss.Src)) {
         if ($blockDone) { break }
@@ -2441,8 +1710,6 @@ foreach ($ss in $syncedSets) {
     }
     $syncedKeysSeen += $codeKeys.Count
 
-    # The page: walk its tables. A table's first row is its header; "Key" tables name keys, a
-    # "Checked on arrival" column is the checklist.
     $docKeys = @{}; $unchecked = 0; $section = ''; $groups = [ordered]@{}
     $header = $null; $checkCol = -1; $isKeyTable = $false; $isDetails = $false; $lineNo = 0
     foreach ($line in (Get-Content -Encoding UTF8 -LiteralPath $ss.Doc)) {
@@ -2494,34 +1761,15 @@ if ($syncedProblems.Count -gt 0) {
     Report-Pass "$syncedKeysSeen extras key(s) across $($syncedSets.Count) adapters match their SYNCED.md, every one with a check cell"
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a Go fuzz target with no CI step (or declared opt-out), or with no row in the testing roster.
 Section "Fuzz census: every target has a CI step and a roster row"
 
-# THE CENSUS IS MAINTAINED BY HAND, AND HAS BEEN WRONG FIVE TIMES.
-#
-# docs/reviewing.md says so in as many words -- "the census is maintained by hand" -- in a
-# paragraph that was itself wrong about which of two targets runs its seeds. A fuzz target with no
-# CI step is a target that never runs; a target missing from agent_docs/testing.md's roster is one
-# the next reviewer does not know exists. Both fail silently, which is the whole problem: a green
-# tick means the steps that EXIST passed.
-#
-# dev-scripts/ci-fuzz.sh already catches the opposite direction -- a step naming a target that is
-# gone -- so this closes the pair. Found by the instrument-integrity cell of the 2026-09-12
-# adversarial review (X2-5), which is the cell whose whole job is auditing the instruments.
-#
-# Deliberately NOT checked here: whether a target is any good. That is a reading job, and the same
-# review found targets with a step, a row, and no reach into the code they name.
-#
-# Keyed by PACKAGE and name, never by bare name, and matched against a real step line
-# ("./<package> <Target> <time>"), never a substring of the whole file (pass 5 of the adversarial
-# review, 2026-09-16, X2-2): two packages both declare FuzzEnvelopeUnmarshalNeverPanics, so a
-# bare-name table kept one and deleting the other's step still passed; and a target whose name
-# merely appeared in a ci.yml COMMENT passed with no step at all.
 $fuzzTargets = @{}
 foreach ($f in @(Get-ChildItem -Recurse -File -Filter '*_test.go' | Where-Object { $_.FullName -notmatch '\\(\.git|node_modules)\\' })) {
     $rel = (Resolve-Path -Relative $f.FullName) -replace '^\.[\\/]', '' -replace '\\', '/'
     $pkgDir = './' + ($rel -replace '/[^/]+$', '')
     foreach ($m in [regex]::Matches((Get-Content -LiteralPath $f.FullName -Raw), '(?m)^func\s+(Fuzz\w+)\s*\(')) {
+        # Keyed by package too: two packages declare the same Fuzz target name.
         $fuzzTargets["$pkgDir $($m.Groups[1].Value)"] = $rel
     }
 }
@@ -2533,22 +1781,14 @@ if ($fuzzTargets.Count -eq 0) {
     $rosterText = ''
     if (Test-Path -LiteralPath 'agent_docs/testing.md') { $rosterText = Get-Content -LiteralPath 'agent_docs/testing.md' -Raw }
 
-    # A target may be deliberately un-campaigned -- the two socket-bound schedule fuzzers are,
-    # because each stands up real relay sockets and a continuous campaign is port-bound long
-    # before it is idea-bound. That opt-out has to be DECLARED, in the target's own file, as
-    #
-    #     // fuzz-census: no-ci-step -- <reason>
-    #
-    # rather than inferred. A first draft of this gate inferred it from an env-var guard, which
-    # silently exempted whichever targets happened to have one and missed FuzzSchedule, which has
-    # no guard and no step -- the exact hand-maintenance failure this gate exists to end. An
-    # opt-out still needs a ROSTER row: not running is a fact a reviewer must be able to find.
     $noStep = @()
     $noRow  = @()
     foreach ($key in ($fuzzTargets.Keys | Sort-Object)) {
         $pkgDir, $name = $key -split ' ', 2
         $src = Get-Content -LiteralPath $fuzzTargets[$key] -Raw
+        # An opt-out is declared above the func as "// fuzz-census: no-ci-step -- <reason>", never inferred.
         $optOut = $src -match ('(?m)^//\s*fuzz-census:\s*no-ci-step\b.*\r?\n(?:.*\r?\n)??func\s+' + [regex]::Escape($name) + '\s*\(')
+        # A real step line, not a substring: a target named only in a ci.yml comment has no step.
         $stepLine = '(?m)^[ \t]*' + [regex]::Escape($pkgDir) + '[ \t]+' + [regex]::Escape($name) + '[ \t]+\d+[smh]\b'
         if (-not $optOut -and $ciText -notmatch $stepLine) { $noStep += "$name ($($fuzzTargets[$key]))" }
         if ($rosterText -notmatch [regex]::Escape($name)) { $noRow += "$name ($($fuzzTargets[$key]))" }
@@ -2564,18 +1804,9 @@ if ($fuzzTargets.Count -eq 0) {
     }
 }
 
+# Refuses an ADR file the architecture index does not link, or an ADR sequence number used twice.
 Section "ADR index coverage"
 
-# The decision log was split out of architecture.md on 2026-08-25 -- 2,332 of its 2,501 lines --
-# into one file per ADR under agent_docs/adr/. The index stayed in architecture.md, because every
-# citation in this repo says "the <date> ADR in architecture.md" and there are many; moving the
-# index would have broken all of them at once for no gain.
-#
-# That makes the index the single point of failure: an ADR file nobody links is an ADR nobody
-# finds, and it fails silently -- exactly the shape of the pitfalls index problem above. Two
-# things are checked: every file in adr/ is linked from the index, and no sequence number is used
-# twice (numbers are how a new ADR picks its next value, so a duplicate quietly overwrites the
-# ordering).
 $adrDir = "agent_docs/adr"
 $archFile = "agent_docs/architecture.md"
 if (-not (Test-Path -LiteralPath $adrDir)) {
@@ -2591,12 +1822,10 @@ if (-not (Test-Path -LiteralPath $adrDir)) {
             if ($archText -notmatch [regex]::Escape("adr/$($f.Name)")) { $unlinked += $f.Name }
         }
 
-        # Sequence numbers: the NNNN- prefix. prior-art-celestenet.md carries none by design --
-        # it is research, not a decision -- so files without a numeric prefix are skipped here
-        # rather than failed. They still have to be linked, which the check above covers.
         $seen = @{}
         $dupes = @()
         foreach ($f in $adrFiles) {
+            # Unnumbered files are research, not decisions: skipped here, though they must still be linked.
             if ($f.Name -notmatch '^(\d{4})-') { continue }
             $n = $Matches[1]
             if ($seen.ContainsKey($n)) { $dupes += "$n used by $($seen[$n]) and $($f.Name)" }
@@ -2617,29 +1846,9 @@ if (-not (Test-Path -LiteralPath $adrDir)) {
     }
 }
 
-# ---------------------------------------------------------------------------
+# Refuses bridge port, port-walk or busy-port cooldown constants that differ between adapters.
 Section "Bridge constants agree across the four adapters"
 
-# The bridge client is implemented FOUR times, in THREE languages that share no
-# code -- Lua (Emerald, Crystal), C++ (Pseudoregalia), C# (TEVI). Until now the
-# only thing keeping their constants in step was a comment: BridgeClient.hpp says
-# in as many words that its reconnect interval "matches the shape of TEVI's own
-# BridgeClient.cs ReconnectInterval (2s), a different language but the same
-# problem". A comment cannot fail a build, and four hand-maintained copies of one
-# number is the same shape as the four VERIFIED.md preambles that drifted.
-#
-# Compared in REAL UNITS, not literals, because each language states them its own
-# way: 600 frames at 60fps, 10000ms, and "10s" are the same cooldown. That is also
-# why this cannot be a plain grep for a shared string.
-#
-# A value found nowhere is reported rather than silently passing -- a renamed
-# constant would otherwise make its adapter drop out of the comparison and leave
-# the remaining ones agreeing with each other.
-#
-# TEVI JOINED THIS COMPARISON 2026-08-27, when it grew a port walk -- see the note that used to sit
-# below this check, which said it should be deleted on exactly that day. Its two constants live in
-# two different files (the base port is a BepInEx config default in Plugin.cs, the walk count is in
-# BridgeClient.cs), so an adapter may name several sources and they are concatenated.
 $bridgeSources = @{
     'Emerald (Lua)'         = @('adapters/emulator/pokemon/emerald/meshghost_emerald.lua')
     'Crystal (Lua)'         = @('adapters/emulator/pokemon/crystal/meshghost_crystal.lua')
@@ -2660,7 +1869,6 @@ foreach ($name in $bridgeSources.Keys) {
     }
     $text = ($bridgeSources[$name] | ForEach-Object { Get-Content -Raw -Encoding UTF8 -LiteralPath $_ }) -join "`n"
 
-    # C# spells these BridgePortCount / DefaultBridgePort; the others use the SCREAMING form.
     if ($text -match 'BRIDGE_BASE_PORT\s*(?:=|\s)\s*(\d+)') { $basePorts[$name] = [int]$Matches[1] }
     elseif ($text -match 'DefaultBridgePort\s*=\s*(\d+)') { $basePorts[$name] = [int]$Matches[1] }
     else { $bridgeProblems += "$name -- no bridge base port found (renamed?)" }
@@ -2669,13 +1877,12 @@ foreach ($name in $bridgeSources.Keys) {
     elseif ($text -match 'BridgePortCount\s*=\s*(\d+)') { $portCounts[$name] = [int]$Matches[1] }
     else { $bridgeProblems += "$name -- no bridge port-walk count found (renamed?)" }
 
-    # Frames at 60fps for the emulator adapters, milliseconds for C++.
+    # Units differ by language (frames at 60fps, milliseconds, seconds), so all are compared in seconds.
     if ($text -match 'BUSY_PORT_COOLDOWN_FRAMES\s*=\s*(\d+)') {
         $cooldownSeconds[$name] = [int]$Matches[1] / 60
     } elseif ($text -match 'BUSY_PORT_COOLDOWN\s*\{\s*(\d+)\s*\}') {
         $cooldownSeconds[$name] = [int]$Matches[1] / 1000
     } elseif ($text -match 'BusyPortCooldown\s*=\s*TimeSpan\.FromSeconds\((\d+)\)') {
-        # C# states it in seconds outright, which is the whole reason this compares real units.
         $cooldownSeconds[$name] = [int]$Matches[1]
     } else {
         $bridgeProblems += "$name -- no busy-port cooldown found (renamed?)"
@@ -2701,9 +1908,6 @@ if ($p) { $bridgeProblems += $p }
 $p = Assert-Agree 'busy-port cooldown (seconds)' $cooldownSeconds 10
 if ($p) { $bridgeProblems += $p }
 
-# All four adapters are in this comparison as of 2026-08-27. Until then TEVI was deliberately
-# absent -- fixed port from BepInEx config, no walk -- stated in the pass message rather than
-# silently skipped, with a note saying this carve-out was what to delete when TEVI grew one. It did.
 if ($bridgeProblems.Count -gt 0) {
     Report-Fail "the four bridge clients have drifted apart:"
     $bridgeProblems | ForEach-Object { Write-Host "          $_" }
@@ -2711,29 +1915,21 @@ if ($bridgeProblems.Count -gt 0) {
     Report-Pass "bridge constants agree across all $($basePorts.Count) adapters (port 7778, 8-port walk, 10s cooldown)"
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a phase file that no row of the phase index links.
 Section "Phase index coverage"
 
-# Phase files were the ONE required-reading class with no index and no check. ADRs, pitfalls
-# entries and VERIFIED entries all have both; CLAUDE.md routes evidence into phases/phaseN.md by
-# name, and agent_docs/README.md links the phases/ DIRECTORY but no file inside it. So a phase
-# file could be added and referenced from nowhere -- including the 1,904-line phase7.md and the
-# in-progress phase9.md, neither of which was reachable from the doc index. Index added
-# 2026-08-25 with this check, on the same reasoning as the three above it.
 $phaseDir = "agent_docs/phases"
 $phaseIndex = "agent_docs/phases/README.md"
 if (-not (Test-Path -LiteralPath $phaseIndex)) {
     Report-Fail "$phaseIndex does not exist -- the phase index is supposed to live there"
 } else {
     $phaseText = Get-Content -LiteralPath $phaseIndex -Raw
-    # -Recurse since 2026-09-17: autoplay logs one file per game under phases/autoplay/ (the user's call), and a
-    # file there that no row links is as unreachable as a top-level one. A row links it by its path relative to
-    # phases/, with forward slashes: (autoplay/emerald.md).
     $phaseDirFull = (Resolve-Path -LiteralPath $phaseDir).Path
     $phaseFiles = @(Get-ChildItem -LiteralPath $phaseDir -Filter '*.md' -Recurse |
         Where-Object { $_.Name -ne 'README.md' } | Sort-Object FullName)
     $unlinkedPhases = @()
     foreach ($f in $phaseFiles) {
+        # A row links a file by its path relative to phases/, with forward slashes.
         $rel = $f.FullName.Substring($phaseDirFull.Length).TrimStart('\', '/').Replace('\', '/')
         if ($phaseText -notmatch [regex]::Escape("($rel)")) { $unlinkedPhases += $rel }
     }
@@ -2745,17 +1941,9 @@ if (-not (Test-Path -LiteralPath $phaseIndex)) {
     }
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a bridge message type that the adapter template's protocol page never names.
 Section "Bridge message coverage in the adapter template"
 
-# _template/PROTOCOL.md is what a new adapter is BUILT FROM, and it had never heard of
-# session_policy or remote_name -- so every adapter written from it handled four bridge messages
-# and silently ignored two. That is the whole reason ghost_collision does nothing in any game and
-# nametags reach one adapter of four (agent_docs/plans.md, "Settings: defined once, honoured
-# everywhere"). The standing rule is that _template/ may never lag, but nothing CHECKED it: a
-# message could be added to bridge/bridge.go and the template never told, which is exactly what
-# happened. This is the mechanical half of that rule -- it cannot tell whether an explanation went
-# stale, only that a message exists which the template has never heard of. Added 2026-08-30.
 $bridgeGo = "bridge/bridge.go"
 $protoDoc = "adapters/_template/PROTOCOL.md"
 if (-not (Test-Path -LiteralPath $bridgeGo)) {
@@ -2767,11 +1955,9 @@ if (-not (Test-Path -LiteralPath $bridgeGo)) {
     $wireNames = @([regex]::Matches(
         (Get-Content -LiteralPath $bridgeGo -Raw),
         'MessageType\s*=\s*"([a-z_]+)"') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
-    # DELIMITED match only -- backticked or quoted. A bare substring would let ordinary prose
-    # satisfy this: "world" occurs 16 times in that file and only once as the message name, so a
-    # loose test would report a permanently green check for a message nobody had documented.
-    $tick  = [char]0x60   # backtick and double quote built from char codes rather than escaped:
-    $quote = [char]0x22   # both are punishing to quote correctly inside a PowerShell string.
+    # Delimited match only: a bare substring lets ordinary prose (the word "world") pass as documentation.
+    $tick  = [char]0x60   # built from char codes: both are punishing to quote inside a PowerShell string
+    $quote = [char]0x22
     $undocumented = @($wireNames | Where-Object {
         $n = [regex]::Escape($_)
         ($protoText -notmatch ($tick + $n + $tick)) -and ($protoText -notmatch ($quote + $n + $quote))
@@ -2786,16 +1972,9 @@ if (-not (Test-Path -LiteralPath $bridgeGo)) {
     }
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a tracked dev-script that the dev-scripts readme does not name.
 Section "dev-scripts README coverage"
 
-# Same failure shape one folder over: dev-scripts/README.md documents the launchers, and six
-# tracked scripts were missing from it on 2026-08-25 (bizhawk-hitch-meter.lua, the two Crystal
-# launchers, the pseudoregalia udp/quic launchers, run-relay-loopback-shipped.bat). An undocumented
-# launcher is one nobody reaches for, which is how a rig gets rebuilt by hand instead.
-#
-# Only tracked .bat/.ps1/.lua/.sh in dev-scripts/ itself are checked -- not subfolders, and not
-# the per-machine *.local.bat, which are gitignored and therefore never tracked anyway.
 $devIndex = "dev-scripts/README.md"
 if (-not (Test-Path -LiteralPath $devIndex)) {
     Report-Fail "$devIndex does not exist"
@@ -2816,18 +1995,9 @@ if (-not (Test-Path -LiteralPath $devIndex)) {
     }
 }
 
-# ---------------------------------------------------------------------------
+# Refuses a RemoteGhost pointer field that either release path does not mention.
 Section "RemoteGhost pointer fields are cleared at release (Pseudoregalia)"
 
-# Added 2026-09-01, after the FOURTH member of one bug family: a raw pointer field added to
-# RemoteGhost that no release path cleared (the thrown prop, the VFX map, the projectile actor,
-# then the nametag trio -- the last one shipped as an intermittent use-after-free crash that
-# consumed two sessions; pitfalls/by-lesson.md, "The reset-to-save crash"). The release-path
-# comment predicting exactly this existed the whole time, which is the point: a comment cannot
-# fail a build, and this family has proven it needs a check that can. Every `RC::Unreal::T*`
-# field declared in the RemoteGhost struct must be MENTIONED in BOTH release_all_ghosts and
-# release_ghost -- mention is the proxy (assignment styles differ between the two), and a field
-# that is deliberately safe to keep still earns its line as a comment naming it there.
 $rgHpp = "adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.hpp"
 $rgCpp = "adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp"
 if ((Test-Path $rgHpp) -and (Test-Path $rgCpp)) {
@@ -2855,9 +2025,7 @@ if ((Test-Path $rgHpp) -and (Test-Path $rgCpp)) {
             $unreleased = @()
             foreach ($f in $fields) {
                 foreach ($fn in $bodies.Keys) {
-                    # Word-boundary match, not substring: "nametag_plate" must not be satisfied
-                    # by "nametag_plate_mid" -- the first negative test of this check passed when
-                    # it should have failed for exactly that reason.
+                    # Word boundary, not substring: nametag_plate must not be satisfied by nametag_plate_mid.
                     if ($bodies[$fn] -notmatch "\b$([regex]::Escape($f))\b") { $unreleased += "$f (missing from $fn)" }
                 }
             }
@@ -2872,15 +2040,9 @@ if ((Test-Path $rgHpp) -and (Test-Path $rgCpp)) {
     Report-Skip "Pseudoregalia sources not present"
 }
 
+# Refuses a change in the FindAllOf call-site count until the recorded count is updated.
 Section "FindAllOf ratchet (Pseudoregalia)"
 
-# Added 2026-09-01 with the write-time performance checklist (_template/README.md): whole-world
-# and class-scoped enumerations are the shape that took the game from 144fps to 30 at four peers,
-# added one cheap-looking site at a time. This does not judge any site -- most of the 46 are
-# one-shot or edge-triggered instruments, which are fine -- it only forces the NEXT one to be a
-# conscious decision: a new call site fails here until its author names its cadence (per the
-# checklist) and bumps the expected count on the line below. Same force-the-look philosophy as
-# the RemoteGhost release check above. Count updated 2026-09-10 (47).
 $expectedFindAllOf = 47
 $faCount = (Select-String -LiteralPath "adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp" -Pattern 'UObjectGlobals::FindAllOf\(' -AllMatches | ForEach-Object { $_.Matches.Count } | Measure-Object -Sum).Sum
 if ($null -eq $faCount) { $faCount = 0 }
@@ -2892,20 +2054,9 @@ if ($faCount -eq $expectedFindAllOf) {
     Report-Fail "FindAllOf call sites shrank: $faCount vs recorded $expectedFindAllOf -- good news, probably; update `$expectedFindAllOf in this file so the ratchet holds at the new floor"
 }
 
+# Refuses a file-scope raw UObject/AActor cache without a stale-safe: annotation above it.
 Section "Raw-pointer caches must say why they cannot dangle (Pseudoregalia)"
 
-# Added 2026-09-01, at the user's request ("its not the first time this happens"), after the
-# SECOND cached-raw-UObject* crash in three days: the nametag residue (2026-08-30) and the
-# projectile pool (2026-09-01) both held a raw pointer to something the engine freed, and both
-# crashed a live session. The teardown hooks only cover LEVEL teardown -- an actor the game
-# destroys MID-level (a projectile dies on impact) has no hook, and the only safe hold is the
-# engine's own FWeakObjectPtr, whose Get() re-validates per use.
-#
-# So: every file-scope raw UObject*/AActor* cache in Plugin.cpp must carry a "stale-safe:"
-# comment within the six lines above it, naming why it cannot dangle (hook-cleared and never
-# freed mid-level, or per-use validated). FWeakObjectPtr holds need no annotation -- they are
-# the answer. This cannot see struct members or locals; it forces the look on the shape that
-# has actually crashed twice.
 $pluginPath = "adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp"
 $pluginLines = Get-Content -LiteralPath $pluginPath
 $cachePattern = '^\s*(static\s+)?(std::vector<\s*(UObject|AActor)\s*\*\s*>|(UObject|AActor)\s*\*)\s+g_\w+\s*[={;]'
@@ -2925,26 +2076,16 @@ if ($unannotated.Count -eq 0) {
     Report-Fail ("raw-pointer cache(s) with no stale-safe: annotation -- say why it cannot dangle (hook-cleared and never freed mid-level, or per-use validated), or hold FWeakObjectPtr instead: " + ($unannotated -join "; "))
 }
 
+# Refuses a ghost-drop site that keeps a handle to a component attached to the dropped ghost.
 Section "Dropping a ghost must drop every component attached to it (Pseudoregalia)"
 
-# Added 2026-09-10, after a tester's crash dump: EXCEPTION_ACCESS_VIOLATION in
-# tick_remote_mirrored_vfx -> GetFunctionByNameInChain, 5.7s after the redraw loop's
-# "ghost is no longer valid -- releasing stale reference" branch ran for a chaser. That branch
-# replaced the ghost without clearing `remote.vfx_components`, so the map still named a Niagara
-# component of the DESTROYED actor and the next tick that wanted that effect stopped called
-# Deactivate on freed memory. release_ghost and release_all_ghosts had cleared it since
-# 2026-08-27; the two redraw-loop paths never got the line.
-#
-# The section above cannot see this shape -- it says so itself: it matches file-scope caches, and
-# these are STRUCT MEMBERS of RemoteGhost. So: every site that drops `.ghost` must also drop the
-# handles to things ATTACHED to that ghost, which the actor's destruction has already freed. The
-# window checked is from the previous drop site to this one, so each site answers for itself.
 $ghostDropTokens = @('vfx_components.clear()', 'weapon_fly_component = nullptr', 'recall_glow_component = nullptr')
 $dropLines = @()
 for ($i = 0; $i -lt $pluginLines.Count; $i++) {
     if ($pluginLines[$i] -match '\.ghost = nullptr;') { $dropLines += $i }
 }
 $dropFails = @()
+# Each drop site is checked over the lines since the previous one, so each site answers for itself.
 $prev = 0
 foreach ($d in $dropLines) {
     $window = $pluginLines[$prev..$d] -join "`n"
@@ -2962,13 +2103,9 @@ if ($dropLines.Count -eq 0) {
     Report-Fail ("a ghost was dropped while a handle to something attached to it was kept -- clear it in the same breath: " + ($dropFails -join "; "))
 }
 
+# Refuses an undated line in a living doc that counts the adapters or games.
 Section "No hard-coded adapter or game counts in living docs"
 
-# WHY THIS EXISTS. "All four adapters", "the four shipped games": true the day it is written and
-# false the day the fifth game lands, with nothing to flag it -- the user's call, 2026-09-02:
-# "good hygiene, and it prevents things from going stale". Say "every shipped adapter". Covers the
-# people-facing docs and the template (which every new adapter copies from); a line carrying a
-# date is a record of that day and is skipped, the same rule as every other dated fact here.
 $countFiles = @(Get-ChildItem -LiteralPath (Join-Path $root "docs") -Filter *.md) +
     @(Get-ChildItem -LiteralPath (Join-Path $root "adapters\_template") -Filter *.md) +
     @(Get-Item -LiteralPath (Join-Path $root "README.md"))
@@ -2977,6 +2114,7 @@ foreach ($f in $countFiles) {
     $n = 0
     foreach ($line in Get-Content -LiteralPath $f.FullName) {
         $n++
+        # A dated line is a record of that day, not a living claim.
         if ($line -match '20\d\d-\d\d-\d\d') { continue }
         if ($line -match '(?i)\b(all|the|our|these) (three|four|five|six|seven|eight|3|4|5|6|7|8) (shipped |existing |current )?(adapters|games|mods)\b|\b(three|four|five|six|seven|eight) shipped (adapters|games|mods)\b') {
             $countHits += "$($f.FullName.Substring($root.Length + 1)):$n"
@@ -2990,18 +2128,9 @@ if ($countHits.Count -eq 0) {
     $countHits | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
 }
 
+# Refuses a GitHub Action pinned to different major versions across workflows.
 Section "GitHub Action versions agree across workflows"
 
-# WHY THIS EXISTS. On 2026-08-17 every workflow was moved off the Node 20 runtime, because GitHub
-# removes it from the runners "later in the fall of 2026" -- a warning with a deadline. On
-# 2026-08-25 a NEW workflow (lua.yml) was added carrying actions/checkout@v4, and the deprecation
-# warning came back on 2026-08-26. Nothing had regressed; a new file was simply written with the
-# old pattern, and no check existed to notice.
-#
-# The rule is SELF-MAINTAINING on purpose: no version is hardcoded here, because a hardcoded one
-# goes stale and this file would then be the thing that is wrong. Instead, every workflow must use
-# the same major version of a given action as every other workflow. Bump one and this demands the
-# rest -- which is exactly the failure mode above, caught at the commit rather than at the run.
 $wfDir = Join-Path $root ".github\workflows"
 if (Test-Path $wfDir) {
     $uses = @{}
@@ -3030,27 +2159,9 @@ if (Test-Path $wfDir) {
         Report-Pass "every action used in $((Get-ChildItem -LiteralPath $wfDir -Filter *.yml).Count) workflow(s) is at one version"
     }
 }
-# ---------------------------------------------------------------------------
+# Refuses an adapter with no path-filtered workflow, or an adapter gate filtering beyond adapters/.
 Section "Every adapter has its own path-filtered workflow"
 
-# THE RULE (user, 2026-09-04): "if we add more adapters in the future, i only want them to get
-# tested whenever anything changes. so think this is just good hygiene to setup properly now."
-#
-# WHY A CHECK AND NOT A LINE IN _template/README.md. This exact rule was already true in spirit and
-# already broken in fact: lua.yml was path-filtered on '**.lua', which is right for the SYNTAX gate
-# it keeps and wrong for the bridge-decoder fuzz job it also held. Of the tracked .lua files, 22 are
-# Pseudoregalia PROBES and ~28 are dev-scripts, so editing a Pseudoregalia probe -- that adapter's
-# normal way of asking the game a question -- ran the POKEMON decoder fuzzers. Nobody noticed,
-# because an over-firing filter looks exactly like a passing one.
-#
-# Two directions, and the second is the one that would have caught the above:
-#   * every adapter must be COVERED by some adapter gate, so a new adapter cannot arrive untested;
-#   * an adapter gate may filter ONLY on adapters/** and its own workflow file, so a gate cannot
-#     silently widen into other adapters' trees.
-#
-# A LANGUAGE gate (lua.yml's luac pass, ci.yml's Go suite) is deliberately not an adapter gate and
-# is not checked here: it filters on a file extension, names no adapters/ path, and is repo-wide on
-# purpose.
 $wfDir2 = Join-Path $root ".github\workflows"
 $adapterDirs2 = @(& git ls-files | Where-Object { $_ -like 'adapters/*/documentation.md' -or $_ -like 'adapters/*/*/documentation.md' -or $_ -like 'adapters/*/*/*/documentation.md' } |
                   ForEach-Object { $_ -replace '/documentation\.md$', '' } |
@@ -3062,6 +2173,7 @@ if (-not (Test-Path $wfDir2) -or $adapterDirs2.Count -eq 0) {
     foreach ($wf in Get-ChildItem -LiteralPath $wfDir2 -Filter *.yml) {
         $raw = Get-Content -Raw -Encoding UTF8 -LiteralPath $wf.FullName
         $paths = @([regex]::Matches($raw, "(?m)^\s+-\s+'([^']+)'\s*$") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+        # Only a workflow naming an adapters/ path is an adapter gate; language gates are repo-wide on purpose.
         if (@($paths | Where-Object { $_ -like 'adapters/*' }).Count -gt 0) { $gates[$wf.Name] = $paths }
     }
     $probs = @()
@@ -3089,27 +2201,13 @@ if (-not (Test-Path $wfDir2) -or $adapterDirs2.Count -eq 0) {
     }
 }
 
-
-# ---------------------------------------------------------------------------
+# Refuses a scratch probe slot, in the repo or the deployed copy, that still holds a probe.
 Section "The scratch probe slot is EMPTY"
-# probe_scratch/ is a permanently ENABLED, deliberately empty UE4SS mod, so a brand-new probe can
-# be hot-loaded at all (UE4SS only knows mods enabled at launch -- RestartMod cannot see a folder
-# created since, measured live 2026-09-04). The cost of that convenience is that whatever sits in
-# the slot loads at every launch under a NAME THAT DESCRIBES NOTHING, which is the worst version of
-# "a loaded probe is a suspect in every later report".
-#
-# So the "restore the stub when you are done" instruction is a CHECK rather than a sentence in a
-# rules file -- the user's call, 2026-09-04, made in the same breath as asking for the slot: a
-# lesson that can be enforced does not need to spend a line of anyone's context.
 $scratch = Join-Path $root "adapters\pseudoregalia\probes\probe_scratch\Scripts\main.lua"
 if (-not (Test-Path $scratch)) {
     Report-Fail "adapters\pseudoregalia\probes\probe_scratch\Scripts\main.lua is missing -- the scratch slot's pristine stub is what a session restores to; recreate it (see PROBES.md)"
 } else {
-    # Behaviour, not size: a stub may grow comments freely, and none of them can execute. These are
-    # the verbs a probe needs to DO anything -- read the world, run per frame, touch the game thread.
-    # COMMENTS ARE STRIPPED FIRST, and that is not a nicety: the stub's own header explains what a
-    # probe would use this slot for, so it NAMES these verbs -- a raw text match fails on the exact
-    # file this check exists to protect. Caught by running it, 2026-09-04.
+    # Comments are stripped first: the stub's own header names these verbs.
     $body = (Get-Content $scratch -Raw) -replace '(?s)--\[\[.*?\]\]', '' -replace '(?m)--.*$', ''
     $verbs = @("LoopAsync", "FindAllOf", "ExecuteInGameThread", "StaticFindObject", "RegisterHook", "ForEachProperty", "LoadAsset")
     $found = $verbs | Where-Object { $body -match [regex]::Escape($_) }
@@ -3120,8 +2218,7 @@ if (-not (Test-Path $scratch)) {
     }
 }
 
-# The DEPLOYED slot is the one that actually loads, and its path is machine-specific, so it is
-# opt-in exactly like the deployed-DLL checks above rather than hard-coded into a public repo.
+# The deployed slot's path is machine-specific, so it is checked only when the variable is set.
 $deployedScratch = $env:MESHGHOST_PSEUDO_SCRATCH
 if ($deployedScratch) {
     if (-not (Test-Path $deployedScratch)) {
@@ -3140,15 +2237,11 @@ if ($deployedScratch) {
     Report-Warn "Pseudoregalia -- set MESHGHOST_PSEUDO_SCRATCH to also check the DEPLOYED scratch slot (the one that actually loads)"
 }
 
+# Warns about MeshGhost processes or dev-script launcher shells left running from an earlier run.
 Section "Leftover scaffolding"
 if ($TreeOnly) { Report-Skip "needs a working copy, not just the tree" } else {
 
-# Leaving a relay alive is how a later run silently binds the wrong port.
-# meshghost-server is the RELAY'S SHIPPED NAME -- one program, two names, per packaging/README.md.
-# It was missing here until 2026-08-28, so a relay left running from a staged release (which is
-# exactly what a release dry run leaves behind) reported "no MeshGhost processes left running".
-# The check that exists to stop a stale relay silently binding the port was blind to the only name
-# a player ever sees.
+# meshghost-server is the relay's shipped name: one program, two names.
 $strays = Get-Process -Name "meshghost", "meshghost-relay", "meshghost-server", "meshghost-fakeadapter", "meshghost-netsim" -ErrorAction SilentlyContinue
 if ($strays) {
     Report-Warn "MeshGhost processes are already running -- close them before a clean test:"
@@ -3157,13 +2250,7 @@ if ($strays) {
     Report-Pass "no MeshGhost processes left running"
 }
 
-# The launcher SHELL outlives the binary it started. Every run-*.bat ends at a `pause`, so killing
-# meshghost.exe/meshghost-relay.exe leaves its cmd.exe sitting there forever -- holding no port, so
-# the check above passes and reports the tree clean. Found 2026-08-25: this said "no MeshGhost
-# processes left running" while two shells from an hour-old session were still open, and eight more
-# accumulated over one four-adapter test pass. Harmless individually; the reason to catch them is
-# that they are indistinguishable from a rig someone is still USING, so the next session cannot tell
-# what it is allowed to kill.
+# Every run-*.bat ends at a pause, so its cmd.exe outlives the binary and holds no port.
 $shells = Get-CimInstance Win32_Process -Filter "Name='cmd.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.CommandLine -like "*dev-scripts*" }
 if ($shells) {
@@ -3174,7 +2261,6 @@ if ($shells) {
 }
 }
 
-# ---------------------------------------------------------------------------
 Write-Host ""
 if ($script:failures -gt 0) {
     Write-Host "PREFLIGHT FAILED: $($script:failures) problem(s), $($script:warnings) warning(s)." -ForegroundColor Red
@@ -3186,8 +2272,7 @@ if ($script:failures -gt 0) {
     exit 1
 }
 if ($TreeOnly) {
-    # Deliberately does NOT say "safe to hand over a game": this mode skipped every check that
-    # could tell you whether the artifacts a game would load are the ones we think they are.
+    # Not "safe to hand over a game": this mode skipped the checks on what a game would load.
     Write-Host "Tree checks clean ($($script:warnings) warning(s)). Run without -TreeOnly before handing over a game." -ForegroundColor Green
 } else {
     Write-Host "Preflight clean ($($script:warnings) warning(s)). Safe to hand over a game." -ForegroundColor Green

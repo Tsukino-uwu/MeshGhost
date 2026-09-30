@@ -1,30 +1,8 @@
 #!/bin/sh
-# MeshGhost — refuse a commit that would put a machine-specific path into the repo.
-#
-# WHY THIS EXISTS, and why the rule in CLAUDE.md was not enough on its own.
-#
-# That rule is already as strong as prose gets: bold, with the exact grep command, a note that both
-# slash directions are load-bearing, and three dated live cases. It was read and broken anyway
-# (2026-08-23) -- a probe was drafted in a scratchpad with a placeholder, `sed` substituted the real
-# absolute path into that copy, and the SUBSTITUTED copy was the one committed.
-#
-# The failure was not ignorance of the rule; it was checking the WORKING TREE after committing
-# instead of the STAGED CONTENT before. So this hook checks exactly what is about to be recorded,
-# at the only moment where refusing still costs nothing.
-#
-# INSTALL (once per clone -- hooks are not carried by `git clone`):
-#     git config core.hooksPath .githooks
-# `dev-scripts/preflight.ps1` checks that this is set. `.github/workflows/hygiene.yml` re-runs the
-# same scan over the whole tree, so a commit made with --no-verify, or on a clone that never ran the
-# line above, still gets caught before it can be released -- it just gets caught later and more
-# expensively.
-#
-# That sentence was FALSE until 2026-09-07 and is worth knowing why: the scan lived in ci.yml, which
-# triggers only on '**.go', so the file types most likely to hardcode a path -- .ps1, .bat, and any
-# binary -- were covered by nothing. hygiene.yml exists to carry no path filter at all.
-#
-# To commit a deliberate exception, add the file to [exempt] in dev-scripts/gate-lists.txt with a
-# reason. Do not use --no-verify: that leaves no record of the decision.
+# Refuses a commit that stages a home or clone path, a stray root file or a self-declared local-only file, or
+# that would leave a phase log lag-max commits behind. It reads the staged blobs, not the working tree.
+# Arm once per clone: git config core.hooksPath .githooks. An exception is an [exempt] entry in
+# dev-scripts/gate-lists.txt with its reason, never --no-verify.
 
 # Every list here comes from dev-scripts/gate-lists.txt, which preflight.ps1 and hygiene.yml also read.
 LISTS="$(git rev-parse --show-toplevel)/dev-scripts/gate-lists.txt"
@@ -38,45 +16,14 @@ list home-patterns > "$tmp/home"
 list clone-patterns > "$tmp/clone"
 KEEP=$(regex exempt)
 
-# Both slash directions and a literal match, for the reason CLAUDE.md gives: a pattern that only
-# covers one direction passes cleanly on a file that leaks in the other. /Users/ and /home/ cover
-# macOS and Linux clones.
-#
-# -a, NOT -I. -I is defined as "treat a binary file as containing no match", and from this hook's
-# first day (2026-08-23) to 2026-09-07 that made the one file type nobody TYPES a path into -- a
-# compiled binary, where the toolchain embeds
-# the build directory in a PDB reference and a Rust toolchain embeds the cargo registry in panic
-# strings -- the one file type this hook could not see. A tracked, shipped UE4SS.dll carried the
-# maintainer's username 86 times while every scanner in the repo reported clean (found 2026-09-07).
+# -a, not -I: -I treats a binary as matching nothing, and toolchains embed build paths in binaries.
 
-# The CLONE path gets its own pass, over SCRIPTS AND BINARIES ONLY -- never prose. There is no
-# username in `<drive>:\dev\MeshGhost` for the patterns above to catch, so it needs its own; but
-# the rule text legitimately QUOTES it (CLAUDE.md, brief.md, claude-md-cap.md and ideas.md all say
-# "ask before touching anything outside <clone>"), so scanning prose refuses a commit to a
-# perfectly correct document. That is not hypothetical: adding these patterns to the scan above on
-# 2026-09-07 made this hook refuse an ordinary edit to agent_docs/ideas.md on 2026-09-08, over a
-# sentence stating the rule. dev-scripts/preflight.ps1's clone-path check has been scripts-only
-# from the start and says why; this now matches it, which is the point -- three copies of a rule
-# that disagree is how the pitfalls/ split broke CI on 2026-08-25.
-#
-# What breaks on another machine is a SCRIPT that hardcodes the path, or a BINARY that had it
-# baked in by a toolchain. Prose naming the boundary is the rule working.
+# The clone path is looked for in scripts and binaries only: prose legitimately quotes it.
 CLONE_FILES='\.(ps1|bat|sh|lua|go|cs|cpp|hpp|h|py|dll|exe|so|dylib|pdb|lib|a|bin|node)$'
 
-# The four binaries already in history that carry these strings. They are skipped so this hook can
-# still be used at all while they are outstanding; preflight names them, with the rebuild each one
-# needs, on EVERY run -- so they are visible rather than silenced. Delete an entry as its build is
-# fixed. Anything not listed here is still refused, so a NEW binary leak cannot be committed.
+# Known leaking binaries are skipped here; preflight names each one and its rebuild on every run.
 BINKEEP=$(regex known-binary-leaks)
 
-# STRAY FILES, since 2026-09-09. A working checklist whose first line said "deliberately
-# untracked" was committed on 2026-09-08 and sat on the public repo until 2026-09-09: its header was
-# prose, and every scanner here looked for paths. Two narrow rules, the same two as preflight's
-# "Stray files" section and hygiene.yml's step:
-#   1. the repo ROOT is an allowlist -- a stray lands there far more often than in a subtree, and
-#      the legitimate set is tiny; a real new root file is one entry here, with a reason;
-#   2. a staged file whose first ten lines say "deliberately untracked" or "do not commit" is
-#      refused -- the file is telling us what it is.
 ROOT_ALLOW=$(regex root-allow)
 strays=''
 for f in $(git diff --cached --name-only --diff-filter=A); do
@@ -106,8 +53,7 @@ staged=$(git diff --cached --name-only --diff-filter=ACMR | grep -Ev "$KEEP" | g
 
 hits=''
 for f in $staged; do
-	# The STAGED blob, not the file on disk -- they can differ, and the staged one is what is
-	# about to become history.
+	# The staged blob, not the file on disk: the staged one is what becomes history.
 	if git show ":$f" 2>/dev/null | grep -qaF -f "$tmp/home" 2>/dev/null; then
 		hits="$hits$f
 "
@@ -136,31 +82,7 @@ echo "because the safety lives in the placeholder and a copy is taken after it i
 exit 1
 fi
 
-# ---------------------------------------------------------------------------
-# Refuse a commit that would leave a phase log a session's work behind.
-#
-# WHY, and why preflight already checking it was not enough. `preflight.ps1` has counted commits
-# to an area since its phase file last changed for a while, and FAILs at three. That catches the
-# neglect -- LATER, in a batch, once the work is done. On 2026-09-18 three logs were found behind
-# by 12, 10 and 3 commits, and the chats that did the work had already been closed: what was tried,
-# what failed and what the user said was gone, and the entries had to be reconstructed from the
-# commit record and labelled as such.
-#
-# A chat has no end event. Nothing fires when one is closed, so "write the entry before the session
-# ends" depends on a human remembering to hint and an agent choosing to act on the hint. This moves
-# the moment to the one event that always happens and always has the context still loaded: the
-# commit that does the work.
-#
-# The threshold and the path map are NOT defined here -- dev-scripts/phase-map.txt holds both, and
-# preflight.ps1 reads the same file. Two copies of a rule drift, and this repo has already been
-# bitten by a gate disagreeing with the rule it enforces.
-#
-# This refuses the commit that WOULD reach the threshold, so preflight's copy should never fire
-# from accumulation again. If it does, something committed without this hook -- a clone that never
-# ran `git config core.hooksPath .githooks`, or --no-verify, which CLAUDE.md forbids.
-#
-# A ONE-LINE POINTER IS A COMPLETE ENTRY (agent_docs/phases/README.md). This is not asking for an
-# essay; it is asking that the line be written while the answer is still in the room.
+# Refuses the commit that would put a phase log lag-max commits behind; dev-scripts/phase-map.txt holds both.
 
 MAP="$(git rev-parse --show-toplevel)/dev-scripts/phase-map.txt"
 [ -f "$MAP" ] || { echo "COMMIT REFUSED: dev-scripts/phase-map.txt is missing -- this hook and preflight both read it." >&2; exit 1; }
@@ -168,8 +90,7 @@ MAP="$(git rev-parse --show-toplevel)/dev-scripts/phase-map.txt"
 lagmax=$(awk '$1=="lag-max"{print $2}' "$MAP")
 [ -n "$lagmax" ] || lagmax=3
 
-# Read from a FILE, never a pipe: a `while` on the right of a pipe runs in a subshell and every
-# line it accumulated is discarded at the end of the loop.
+# Read from a file, not a pipe: a while loop on a pipe runs in a subshell and loses what it collects.
 tmpmap=$(mktemp)
 awk '!/^[[:space:]]*#/ && NF && $1!="lag-max"' "$MAP" > "$tmpmap"
 
@@ -177,9 +98,8 @@ behind=''
 while IFS= read -r line; do
 	pf=${line%% *}
 	specs=${line#* }
-	# Staged changes to the phase file itself mean this commit IS the log line.
+	# Staged changes to the phase file itself mean this commit is the log line.
 	if printf '%s\n' "$staged" | grep -qxF "$pf"; then continue; fi
-	# Does this commit touch the area that phase file owns?
 	touches=''
 	for f in $staged; do
 		for spec in $specs; do
@@ -190,7 +110,6 @@ while IFS= read -r line; do
 	last=$(git log -1 --format=%H -- "$pf")
 	[ -n "$last" ] || continue
 	n=$(git rev-list --count "$last..HEAD" -- $specs)
-	# This commit is about to become the (n+1)th touching that area with no entry.
 	if [ $((n + 1)) -ge "$lagmax" ]; then
 		behind="$behind    $pf -- this would be commit $((n + 1)) with no entry
 "

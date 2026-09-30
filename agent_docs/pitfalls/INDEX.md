@@ -377,3 +377,4 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - Pseudoregalia: talking to an NPC changed none of the watched fields; a full-pawn dump diff named controlState, and a widget existing meant nothing (2026-09-23) [RULE: checklists/before-trusting-a-reading.md]
 - Pseudoregalia: a chaser pack that follows the recording through a death lands on the respawn point (2026-09-23) [CHECK: core TestChaserResetStartsThePackOver]
 - The stories behind the rule files, moved out of them (2026-09-30) [RULE: adapters/CLAUDE.md]
+- The stories behind the gates, moved out of preflight.ps1 (2026-09-30) [CHECK: dev-scripts/preflight.ps1]

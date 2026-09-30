@@ -12,7 +12,7 @@ not expire (2026-09-27), kept at the top until the user unpins it.
 ## Open now
 
 - 2026-09-30 (re-checked) — **PINNED, priority 1 (the user): strip the build paths out of the four shipped DLLs** (one holds the username); its hold to 2026-09-25 passed undone. `risks.md`.
-- 2026-09-30 — **Gates and docs from bug_fables_ap, Part A (A1–A7): A1–A2.3 done, A2.4 next**; the build-paths item above is A3. `phases/phase12.md`.
+- 2026-09-30 — **Gates and docs from bug_fables_ap, Part A (A1–A7): A1–A2.4 done, A2.5 next**; the build-paths item above is A3. `phases/phase12.md`.
 - 2026-09-30 (re-checked) — **Sort each adapter's older code-level entries out of `UNVERIFIED.md`/`VERIFIED.md` into `MEASURED.md`**, and give every `UNVERIFIED.md` (and `_template`) a full index. Another chat.
 - 2026-09-30 (re-checked) — **Autoplay, Emerald: the League beaten** (the 1:1 route run); the state planner's step 2 begun, badge rules measured; next the capability reader. `phases/autoplay/emerald.md`.
 - 2026-09-30 (re-checked) — **Autoplay, Crystal: paused** (the user); `goto`, the PACK, POKéMON menu, badges, bike, surf and `effective` scoring done on V1.0; next the whiteout. `phases/autoplay/crystal.md`.

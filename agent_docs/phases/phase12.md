@@ -850,3 +850,16 @@ gains the two Unix home-directory patterns, which `hygiene.yml` already used. Ch
 binaries named; the three `hygiene.yml` steps run under bash pass on the tree; in a scratch clone the hook refused
 a home path planted in `CLAUDE.md` and a stray root file, and passed an allowlisted root file; a new harness
 fixture drops `nuget.config` from the list and the stray gate fails.
+
+## 2026-10-01 — A2.4: the gates' prose cut to one line a section
+
+`dev-scripts/preflight.ps1` went from 3,195 to 2,280 lines: each section now opens with one comment line saying what
+it refuses (two only warn, and say so), and about 60 one-line whys stay on code that would otherwise mislead; the
+`# ---` separators are gone. `.githooks/pre-commit` went from 221 to 140 lines with a four-line header. Four
+subagents drafted a quarter of preflight each in a scratch copy; this session ran every proof. Code unchanged:
+preflight's PowerShell parser tokens minus comments are identical (15,678), and the hook's 111 non-comment lines
+are identical. History the comments carried went to `pitfalls/by-lesson.md`, "The stories behind the gates", word
+for word, only where the repo did not already record it (about 70 were already in the phases, pitfalls,
+`claude-md-cap.md` or `doc-history.md`). That section quotes the phrases the durations gate refuses, so their unit
+words are written in angle brackets there (`for <months>`) to keep the quotes without tripping the gate.
+Preflight is clean.
