@@ -824,3 +824,17 @@ this line before the commit); `autoplay/` → its README;
 characters refused and 72 passed (72 é passed too), attribution refused, gate plus code refused, TEVI and
 core changes without a doc refused, and passing with the doc, an ADR or the escape line; a probe-only
 and a markdown-only commit passed. Both hooks now carry the executable bit, which a Linux clone needs.
+
+## 2026-09-30 — A2.2: a pre-push hook, and a harness defect it found
+
+`.githooks/pre-push` makes a detached worktree of each pushed tip and runs `preflight.ps1 -TreeOnly` there,
+so the pushed commit is checked rather than the working copy; when the push changes `preflight.ps1`, its
+harness or `phase-map.txt`, it also runs `negative-test-preflight.ps1` from that worktree in six parallel
+shards. Tested three ways: A1's tip was refused for the two defects preflight had found in it (a two-line
+status item, two unclaimed phase days); the current tip passed; and a range touching `phase-map.txt` ran the
+harness, 58 of 59 fixtures passing. The one failure was the harness's own: `phase-log-behind` plants three
+commits in its scratch worktree, and `core.hooksPath` is clone-wide config, so the real pre-commit hook
+refused the third and the gate saw two. CI never sets hooksPath, so it only failed locally. Planted
+commits now run with hooks pointed at an empty path; the fixture passes. A lesson for the next harness run:
+the harness copies the working copy's `preflight.ps1` before every fixture, so editing it mid-run
+invalidates every later fixture (24 of 59 errored out that way today, all "gate-lists.txt not found").

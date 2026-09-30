@@ -140,7 +140,8 @@ function Plant-Remove($wt, $relPath) {
 function Plant-Commit($wt, $relPath, $line, $message) {
     Plant-TextLine $wt $relPath $line
     & git -C $wt add -- $relPath | Out-Null
-    & git -C $wt -c user.name=harness -c user.email=harness@example.com commit --quiet -m $message | Out-Null
+    # core.hooksPath is clone-wide config: without this, the real hooks refuse the violation being planted.
+    & git -C $wt -c core.hooksPath=.harness-no-hooks -c user.name=harness -c user.email=harness@example.com commit --quiet -m $message | Out-Null
     $touched = @(& git -C $wt show --name-only --format= HEAD)
     if ($touched -notcontains $relPath) { throw "the planted commit does not touch $relPath" }
 }

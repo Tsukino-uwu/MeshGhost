@@ -81,7 +81,8 @@ The repo root, one line each:
   [README.md](README.md) indexes it.
 - `.github/workflows/` — CI, the gates and the release pipeline; `.githooks/` — the pre-commit
   hook that refuses a machine-specific path, and commit-msg, which checks the subject and that code
-  arrives with its doc (`dev-scripts/doc-map.txt`).
+  arrives with its doc (`dev-scripts/doc-map.txt`), and pre-push, which runs preflight over the
+  pushed commit (and its harness when the push changes preflight).
 - `replay/`, `private/` — runtime folders the core writes (replay recordings; the relay's TLS
   identity). `private/` is untracked.
 - The root `meshghost*.exe` files are your local dev builds, refreshed with `go build -o`, and

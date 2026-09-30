@@ -3,7 +3,8 @@
 Two things before the first commit, both once per clone: `git config core.hooksPath .githooks`, so
 the hooks can refuse a machine-specific path before it reaches the public tree and check each commit
 message (a subject of at most 72 characters; code staged with its doc, per `dev-scripts/doc-map.txt`;
-they need Python 3.11 or newer, or `git config preflight.python <path>`), and a run
+they need Python 3.11 or newer, or `git config preflight.python <path>`) and run preflight over what
+each push sends (plus its negative-test harness when the push changes preflight), and a run
 of `dev-scripts/preflight.ps1`, which checks the docs, the adapter file sets and the built artifacts
 and says what a change is expected to keep true.
 
