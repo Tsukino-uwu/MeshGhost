@@ -838,3 +838,15 @@ refused the third and the gate saw two. CI never sets hooksPath, so it only fail
 commits now run with hooks pointed at an empty path; the fixture passes. A lesson for the next harness run:
 the harness copies the working copy's `preflight.ps1` before every fixture, so editing it mid-run
 invalidates every later fixture (24 of 59 errored out that way today, all "gate-lists.txt not found").
+
+## 2026-09-30 — A2.3: one file for the lists the leak and stray gates share
+
+`dev-scripts/gate-lists.txt` now holds the root allowlist, the home and clone patterns, the leak exemptions and the
+known leaking binaries (with the rebuild each needs); `.githooks/pre-commit`, `preflight.ps1` and `hygiene.yml`
+all read it, where each held its own copy before. The copies had drifted: the hook and `hygiene.yml` also exempted
+`CLAUDE.md`, `environment.md` and `pitfalls.md`, preflight did not. The shared list takes preflight's narrower
+set, which the tree already passes, so those three files are now scanned everywhere. The binary scan in preflight
+gains the two Unix home-directory patterns, which `hygiene.yml` already used. Checked: preflight clean with the same four known
+binaries named; the three `hygiene.yml` steps run under bash pass on the tree; in a scratch clone the hook refused
+a home path planted in `CLAUDE.md` and a stray root file, and passed an allowlisted root file; a new harness
+fixture drops `nuget.config` from the list and the stray gate fails.

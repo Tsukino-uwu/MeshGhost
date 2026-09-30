@@ -33,4 +33,4 @@ agent_docs/phases/phase11.md  core/replay.go core/replaycontrol.go core/replayin
 # session already logged in phase6/7/8/9, so it would count against two files and neither count
 # would mean anything (the same reasoning as phase11 vs phase10 above). These are the files that
 # only change when delivery itself changes.
-agent_docs/phases/phase12.md  .github/workflows .githooks dev-scripts/release.ps1 dev-scripts/stage-release.ps1 dev-scripts/preflight.ps1 dev-scripts/negative-test-preflight.ps1 dev-scripts/phase-map.txt dev-scripts/doc-map.txt docs
+agent_docs/phases/phase12.md  .github/workflows .githooks dev-scripts/release.ps1 dev-scripts/stage-release.ps1 dev-scripts/preflight.ps1 dev-scripts/negative-test-preflight.ps1 dev-scripts/phase-map.txt dev-scripts/doc-map.txt dev-scripts/gate-lists.txt docs

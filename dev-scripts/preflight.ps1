@@ -50,6 +50,25 @@ function Report-Warn($msg) { Write-Host "  WARN  $msg" -ForegroundColor Yellow; 
 function Section($name)    { Write-Host ""; Write-Host "== $name ==" }
 function Report-Skip($msg) { Write-Host "  SKIP  $msg" -ForegroundColor DarkGray }
 
+# The lists shared with .githooks/pre-commit and hygiene.yml: entry -> reason, in file order, for [$name].
+function Read-GateList([string]$name) {
+    $entries = [ordered]@{}
+    $on = $false
+    foreach ($line in [System.IO.File]::ReadAllLines((Join-Path $root 'dev-scripts\gate-lists.txt'))) {
+        if ($line -match '^\[(.+)\]') { $on = ($Matches[1] -eq $name); continue }
+        if (-not $on -or $line -match '^\s*(#|$)') { continue }
+        $parts = $line.Trim() -split '\s+', 2
+        $entries[$parts[0]] = if ($parts.Count -gt 1) { $parts[1] } else { '' }
+    }
+    if ($entries.Count -eq 0) { throw "dev-scripts/gate-lists.txt has no [$name] entries" }
+    return $entries
+}
+$gateExemptPaths = @((Read-GateList 'exempt').Keys)
+$gateExempt = @($gateExemptPaths | ForEach-Object { ":!$_" })
+$gateHome = @((Read-GateList 'home-patterns').Keys)
+$gateClone = @((Read-GateList 'clone-patterns').Keys)
+function Grep-Patterns($patterns) { $patterns | ForEach-Object { '-e'; $_ } }
+
 # Both grep gates below are three-way, and used not to be. `git grep` exits 0 for "matches found",
 # 1 for "none", and >1 for "I could not run" -- and `if ($LASTEXITCODE -eq 0 -and $hits)` sent that
 # third case straight to the PASS branch. A gate that reports clean when it could not run is the
@@ -152,7 +171,7 @@ if ($TreeOnly) {
 # same grounds and nowhere else: it plants these exact violations into a scratch worktree to prove
 # these gates can still fail, so it necessarily spells each pattern out. Every fixture there reads
 # the file back after planting, which is the check on the checker's checker.
-$leaks = & git grep -inIF -e 'C:\Users' -e 'C:/Users' -e '/home/' -e '/Users/' -- . ':!agent_docs/pitfalls/' ':!dev-scripts/preflight.ps1' ':!dev-scripts/negative-test-preflight.ps1' ':!.githooks/' ':!.github/workflows/'
+$leaks = & git grep -inIF @(Grep-Patterns $gateHome) -- . @gateExempt
 Report-GrepGate $LASTEXITCODE $leaks "machine-identifying path in a tracked file:" `
     "no username or home-directory path in tracked files"
 
@@ -168,7 +187,7 @@ Report-GrepGate $LASTEXITCODE $leaks "machine-identifying path in a tracked file
 # <clone>" -- so scanning prose would fail on a clean tree, which is the failure mode
 # documented at the top of this file. What breaks on another machine is a SCRIPT that hardcodes
 # it; prose naming the boundary is the rule working.
-$clonePaths = & git grep -inIF -e 'C:\dev\MeshGhost' -e 'C:/dev/MeshGhost' -- '*.ps1' '*.bat' '*.sh' '*.lua' '*.go' '*.cs' '*.cpp' '*.hpp' ':!dev-scripts/preflight.ps1' ':!dev-scripts/negative-test-preflight.ps1'
+$clonePaths = & git grep -inIF @(Grep-Patterns $gateClone) -- '*.ps1' '*.bat' '*.sh' '*.lua' '*.go' '*.cs' '*.cpp' '*.hpp' @gateExempt
 Report-GrepGate $LASTEXITCODE $clonePaths "hardcoded clone path in a tracked script -- use `$PSScriptRoot, debug.getinfo, or a path relative to the script:" `
     "no script hardcodes an absolute path to the clone"
 
@@ -376,7 +395,7 @@ Section "Stray files: nothing at the root but the allowlist, nothing marked loca
 #      is refused. That is a file telling us what it is; the gate makes the sentence mean something.
 #
 # .githooks/pre-commit refuses both at commit time; hygiene.yml re-checks the tree on every push.
-$rootAllow = @('.gitattributes', '.gitignore', '.gitmodules', 'CLAUDE.md', 'LICENSE', 'README.md', 'go.mod', 'go.sum', 'nuget.config')  # nuget.config: the NuGet feeds every .csproj restores from (2026-09-22)
+$rootAllow = @((Read-GateList 'root-allow').Keys)
 $rootTracked = @(& git ls-files | Where-Object { $_ -notmatch '/' })
 $rootStray = @($rootTracked | Where-Object { $rootAllow -notcontains $_ })
 if ($rootStray.Count -gt 0) {
@@ -388,7 +407,7 @@ if ($rootStray.Count -gt 0) {
 $localOnly = @()
 foreach ($f in @(& git ls-files)) {
     if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { continue }
-    if ($f -eq 'dev-scripts/preflight.ps1' -or $f -eq 'dev-scripts/negative-test-preflight.ps1' -or $f -eq '.githooks/pre-commit' -or $f -like '.github/workflows/*' -or $f -like 'agent_docs/pitfalls/*') { continue }
+    if (@($gateExemptPaths | Where-Object { $f -eq $_ -or ($_.EndsWith('/') -and $f.StartsWith($_)) }).Count -gt 0) { continue }
     $head = @(Get-Content -LiteralPath $f -TotalCount 10 -ErrorAction SilentlyContinue)
     if (($head -join "`n") -match '(?i)deliberately untracked|do not commit') { $localOnly += $f }
 }
@@ -414,7 +433,7 @@ Section "Machine-identifying strings inside tracked BINARIES"
 # was excluded. Reading bytes as Latin-1 keeps every byte a character, so an ASCII path inside an
 # arbitrary binary matches without any encoding guesswork. GetEncoding(28591) rather than
 # [Encoding]::Latin1, which does not exist in Windows PowerShell 5.1 -- the edition this repo runs.
-$binaryPatterns = @('C:\Users', 'C:/Users', 'C:\dev\MeshGhost', 'C:/dev/MeshGhost')
+$binaryPatterns = @($gateHome + $gateClone)
 # Extensions only -- a tracked binary in this repo is always one of these, and enumerating by
 # extension avoids reading every .md in the tree as bytes.
 $binaryFiles = & git ls-files -- '*.dll' '*.exe' '*.so' '*.dylib' '*.pdb' '*.lib' '*.a' '*.bin' '*.node'
@@ -430,16 +449,7 @@ $binaryFiles = & git ls-files -- '*.dll' '*.exe' '*.so' '*.dylib' '*.pdb' '*.lib
 # clean afterwards, and this report is the done-test: an entry clears when its rebuild stops
 # matching. agent_docs/risks.md carries the sizing and status.md the task -- read them there rather
 # than re-deriving from the binaries, which is how this came back a second time.
-$knownBinaryLeaks = @{
-    'packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/ue4ss/UE4SS.dll' =
-        'third-party build from the submodule; needs RUSTFLAGS=--remap-path-prefix (cargo panic paths) -- scheduled for the week of 2026-09-21; RUSTFLAGS forces a full from-scratch rebuild, then the runtime must be seen loading the game (risks.md)'
-    'packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/ue4ss/Mods/MeshGhostPseudo/dlls/main.dll' =
-        'MSVC PDB path; add /PDBALTPATH:%_PDB% to the link flags and rebuild'
-    'packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/dwmapi.dll' =
-        'MSVC PDB path; same fix as main.dll, same rebuild'
-    'packaging/release/games/tevi/MeshGhost/MeshGhostTevi.dll' =
-        'C# PDB path; set <PathMap> or <DebugType>none in MeshGhostTevi.csproj and rebuild'
-}
+$knownBinaryLeaks = Read-GateList 'known-binary-leaks'
 
 $newBinaryLeaks = @()
 $knownStillLeaking = @()
@@ -453,7 +463,7 @@ foreach ($bf in $binaryFiles) {
     }
     if ($found.Count -eq 0) { continue }
     $norm = ($bf -replace '\\', '/')
-    if ($knownBinaryLeaks.ContainsKey($norm)) {
+    if ($knownBinaryLeaks.Contains($norm)) {
         $knownStillLeaking += "$norm [$($found -join ', ')] -- $($knownBinaryLeaks[$norm])"
     } else {
         $newBinaryLeaks += "$norm [$($found -join ', ')]"

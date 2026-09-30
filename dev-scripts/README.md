@@ -683,6 +683,8 @@ Not launchers at all, and not strays — one of them CI calls by name.
 - `phase-map.txt` — which paths belong to which phase log; `.githooks/pre-commit` and `preflight.ps1`
   both read it.
 - `doc-map.txt` — which doc a code change updates in the same commit; `.githooks/commit-msg` reads it.
+- `gate-lists.txt` — the root allowlist, the home and clone patterns, the leak exemptions and the known leaking
+  binaries; `.githooks/pre-commit`, `preflight.ps1` and `hygiene.yml` all read it.
 
 ## BizHawk dev loader, screenshots and savestates
 

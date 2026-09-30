@@ -12,7 +12,7 @@ else
     echo "pre-push: no PowerShell found to run preflight; refusing rather than passing unchecked." >&2
     exit 1
 fi
-gate='^dev-scripts/(preflight\.ps1|negative-test-preflight\.ps1|phase-map\.txt)$'
+gate='^dev-scripts/(preflight\.ps1|negative-test-preflight\.ps1|phase-map\.txt|gate-lists\.txt)$'
 scratch="${TEMP:-${TMPDIR:-/tmp}}/meshghost-prepush-$$"
 
 zero=0000000000000000000000000000000000000000

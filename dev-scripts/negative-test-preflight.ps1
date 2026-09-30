@@ -208,6 +208,12 @@ $fixtures = @(
         Why = 'a scratch note committed at the repo root'
         Plant = { param($wt) Plant-NewFile $wt 'HARNESS-SCRATCH.md' "# Scratch`n`nplanted by the negative-test harness.`n" } },
 
+    @{  Name = 'root-allow-list-shrunk'
+        Section = 'Stray files: nothing at the root but the allowlist, nothing marked local-only'
+        Expect = 'FAIL'
+        Why = 'a root file dropped from gate-lists.txt: preflight reads its allowlist there, not a copy'
+        Plant = { param($wt) Plant-Replace $wt 'dev-scripts/gate-lists.txt' '(?m)^nuget\.config.*\r?\n' '' } },
+
     @{  Name = 'local-only-header'
         Section = 'Stray files: nothing at the root but the allowlist, nothing marked local-only'
         Expect = 'FAIL'

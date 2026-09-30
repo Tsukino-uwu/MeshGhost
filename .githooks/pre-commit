@@ -23,12 +23,20 @@
 # triggers only on '**.go', so the file types most likely to hardcode a path -- .ps1, .bat, and any
 # binary -- were covered by nothing. hygiene.yml exists to carry no path filter at all.
 #
-# To commit a deliberate exception, add the file to KEEP below with a reason. Do not use
-# --no-verify: that leaves no record of the decision.
+# To commit a deliberate exception, add the file to [exempt] in dev-scripts/gate-lists.txt with a
+# reason. Do not use --no-verify: that leaves no record of the decision.
 
-# Files that legitimately contain these strings -- rules ABOUT paths, and the tooling that finds
-# them. Kept identical to the exclusion list in CLAUDE.md's own grep.
-KEEP='^(CLAUDE\.md|agent_docs/environment\.md|agent_docs/pitfalls\.md|agent_docs/pitfalls/|dev-scripts/preflight\.ps1|dev-scripts/negative-test-preflight\.ps1|\.githooks/|\.github/workflows/)'
+# Every list here comes from dev-scripts/gate-lists.txt, which preflight.ps1 and hygiene.yml also read.
+LISTS="$(git rev-parse --show-toplevel)/dev-scripts/gate-lists.txt"
+[ -f "$LISTS" ] || { echo "COMMIT REFUSED: dev-scripts/gate-lists.txt is missing; this hook reads its lists there." >&2; exit 1; }
+list() { awk -v s="[$1]" '/^\[/ { on = ($1 == s); next } on && NF && $1 !~ /^#/ { print $1 }' "$LISTS"; }
+# One anchored regex from a list of paths: a trailing / is a folder prefix, anything else an exact file.
+regex() { list "$1" | awk '{ gsub(/[.]/, "[.]"); if ($0 ~ /\/$/) $0 = $0 ".*"; out = out (NR > 1 ? "|" : "") $0 } END { print "^(" out ")$" }'; }
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+list home-patterns > "$tmp/home"
+list clone-patterns > "$tmp/clone"
+KEEP=$(regex exempt)
 
 # Both slash directions and a literal match, for the reason CLAUDE.md gives: a pattern that only
 # covers one direction passes cleanly on a file that leaks in the other. /Users/ and /home/ cover
@@ -40,7 +48,6 @@ KEEP='^(CLAUDE\.md|agent_docs/environment\.md|agent_docs/pitfalls\.md|agent_docs
 # the build directory in a PDB reference and a Rust toolchain embeds the cargo registry in panic
 # strings -- the one file type this hook could not see. A tracked, shipped UE4SS.dll carried the
 # maintainer's username 86 times while every scanner in the repo reported clean (found 2026-09-07).
-PATTERNS='-e C:\Users -e C:/Users -e /home/ -e /Users/'
 
 # The CLONE path gets its own pass, over SCRIPTS AND BINARIES ONLY -- never prose. There is no
 # username in `<drive>:\dev\MeshGhost` for the patterns above to catch, so it needs its own; but
@@ -54,14 +61,13 @@ PATTERNS='-e C:\Users -e C:/Users -e /home/ -e /Users/'
 #
 # What breaks on another machine is a SCRIPT that hardcodes the path, or a BINARY that had it
 # baked in by a toolchain. Prose naming the boundary is the rule working.
-CLONE_PATTERNS='-e C:\dev\MeshGhost -e C:/dev/MeshGhost'
 CLONE_FILES='\.(ps1|bat|sh|lua|go|cs|cpp|hpp|h|py|dll|exe|so|dylib|pdb|lib|a|bin|node)$'
 
 # The four binaries already in history that carry these strings. They are skipped so this hook can
 # still be used at all while they are outstanding; preflight names them, with the rebuild each one
 # needs, on EVERY run -- so they are visible rather than silenced. Delete an entry as its build is
 # fixed. Anything not listed here is still refused, so a NEW binary leak cannot be committed.
-BINKEEP='^(packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/(dwmapi\.dll|ue4ss/UE4SS\.dll|ue4ss/Mods/MeshGhostPseudo/dlls/main\.dll)|packaging/release/games/tevi/MeshGhost/MeshGhostTevi\.dll)$'
+BINKEEP=$(regex known-binary-leaks)
 
 # STRAY FILES, since 2026-09-09. A working checklist whose first line said "deliberately
 # untracked" was committed on 2026-09-08 and sat on the public repo until 2026-09-09: its header was
@@ -71,8 +77,7 @@ BINKEEP='^(packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/(d
 #      the legitimate set is tiny; a real new root file is one entry here, with a reason;
 #   2. a staged file whose first ten lines say "deliberately untracked" or "do not commit" is
 #      refused -- the file is telling us what it is.
-# nuget.config: the NuGet feeds every .csproj restores from (2026-09-22).
-ROOT_ALLOW='^(\.gitattributes|\.gitignore|\.gitmodules|CLAUDE\.md|LICENSE|README\.md|go\.mod|go\.sum|nuget\.config)$'
+ROOT_ALLOW=$(regex root-allow)
 strays=''
 for f in $(git diff --cached --name-only --diff-filter=A); do
 	case "$f" in */*) ;; *)
@@ -80,7 +85,7 @@ for f in $(git diff --cached --name-only --diff-filter=A); do
 " ;;
 	esac
 done
-for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -Ev '^(\.githooks/|\.github/workflows/|dev-scripts/preflight\.ps1|dev-scripts/negative-test-preflight\.ps1|agent_docs/pitfalls/)'); do
+for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -Ev "$KEEP"); do
 	if git show ":$f" 2>/dev/null | head -n 10 | grep -qiE 'deliberately untracked|do not commit'; then
 		strays="$strays    $f  (its own header says it is not to be committed)
 "
@@ -92,8 +97,7 @@ if [ -n "$strays" ]; then
 	printf '%s' "$strays" >&2
 	echo >&2
 	echo "A local working file stays local: leave it unstaged and list it in .gitignore." >&2
-	echo "A real new root file goes into ROOT_ALLOW in this hook, preflight.ps1's rootAllow and" >&2
-	echo "hygiene.yml's ROOT_ALLOW, with a reason." >&2
+	echo "A real new root file goes into [root-allow] in dev-scripts/gate-lists.txt, with a reason." >&2
 	exit 1
 fi
 
@@ -104,11 +108,11 @@ hits=''
 for f in $staged; do
 	# The STAGED blob, not the file on disk -- they can differ, and the staged one is what is
 	# about to become history.
-	if git show ":$f" 2>/dev/null | grep -qaF $PATTERNS 2>/dev/null; then
+	if git show ":$f" 2>/dev/null | grep -qaF -f "$tmp/home" 2>/dev/null; then
 		hits="$hits$f
 "
 	elif printf '%s' "$f" | grep -qE "$CLONE_FILES" &&
-		git show ":$f" 2>/dev/null | grep -qaF $CLONE_PATTERNS 2>/dev/null; then
+		git show ":$f" 2>/dev/null | grep -qaF -f "$tmp/clone" 2>/dev/null; then
 		hits="$hits$f
 "
 	fi

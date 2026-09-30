@@ -1,0 +1,38 @@
+# The lists the leak and stray gates share: read by .githooks/pre-commit, dev-scripts/preflight.ps1 and
+# .github/workflows/hygiene.yml, so the three never disagree. One entry per line under its [section]; the first
+# word is the entry and the rest of the line is its reason. Blank lines and # comments are ignored.
+
+[root-allow]
+.gitattributes
+.gitignore
+.gitmodules
+CLAUDE.md
+LICENSE
+README.md
+go.mod
+go.sum
+nuget.config    the NuGet feeds every .csproj restores from
+
+[home-patterns]
+C:\Users
+C:/Users
+/home/
+/Users/
+
+[clone-patterns]
+C:\dev\MeshGhost
+C:/dev/MeshGhost
+
+[exempt]
+agent_docs/pitfalls/                        the record of past leaks quotes them
+dev-scripts/gate-lists.txt                  this file
+dev-scripts/preflight.ps1                   the gate spells out what it looks for
+dev-scripts/negative-test-preflight.ps1     the harness plants each violation
+.githooks/                                  the hooks spell out what they look for
+.github/workflows/                          hygiene.yml and release.yml spell out what they look for
+
+[known-binary-leaks]
+packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/ue4ss/UE4SS.dll    third-party build from the submodule; needs RUSTFLAGS=--remap-path-prefix (cargo panic paths); a full rebuild, then the runtime seen loading the game (risks.md)
+packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/ue4ss/Mods/MeshGhostPseudo/dlls/main.dll    MSVC PDB path; add /PDBALTPATH:%_PDB% to the link flags and rebuild
+packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/dwmapi.dll    MSVC PDB path; same fix as main.dll, same rebuild
+packaging/release/games/tevi/MeshGhost/MeshGhostTevi.dll    C# PDB path; set <PathMap> or <DebugType>none in MeshGhostTevi.csproj and rebuild

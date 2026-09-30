@@ -46,15 +46,12 @@ jobs:
           # Both slash directions AND -F, all three load-bearing: a pattern covering one
           # direction passes cleanly on a file that leaks in the other, and without -F the
           # backslashes are read as escapes. /Users/ and /home/ cover macOS and Linux.
-          # The exclusions are files that are ABOUT paths, plus the tooling that finds them;
-          # .githooks/pre-commit and dev-scripts/preflight.ps1 carry the same list.
-          if git grep -nIF \
-               -e 'C:\Users' -e 'C:/Users' -e '/home/' -e '/Users/' \
-               -- . \
-               ':!CLAUDE.md' ':!agent_docs/environment.md' \
-               ':!agent_docs/pitfalls.md' ':!agent_docs/pitfalls/' \
-               ':!dev-scripts/preflight.ps1' ':!dev-scripts/negative-test-preflight.ps1' \
-               ':!.githooks/' ':!.github/workflows/'; then
+          # The patterns and exemptions come from dev-scripts/gate-lists.txt, which the hook and
+          # preflight.ps1 also read.
+          list() { awk -v s="[$1]" '/^\[/ { on = ($1 == s); next } on && NF && $1 !~ /^#/ { print $1 }' dev-scripts/gate-lists.txt; }
+          list home-patterns > "$RUNNER_TEMP/home"
+          mapfile -t exempt < <(list exempt | sed 's/^/:!/')
+          if git grep -nIF -f "$RUNNER_TEMP/home" -- . "${exempt[@]}"; then
             echo
             echo "A machine-specific path is present in a tracked file (listed above)."
             echo "Make it relative, or let the script resolve its own directory."
@@ -71,22 +68,19 @@ jobs:
           # A tracked, SHIPPED UE4SS.dll carried the maintainer's Windows username 86 times
           # while every scanner in this repo reported clean (found 2026-09-07).
           #
-          # KNOWN carries the binaries already in history that leak, so this gate can be
-          # armed before they are rebuilt. They are not silenced: preflight.ps1 names each
-          # one and the rebuild it needs on every run. Anything NOT listed fails here, so a
-          # NEW binary leak still cannot land. Delete an entry as its build is fixed.
-          KNOWN='packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/dwmapi.dll
-          packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/ue4ss/UE4SS.dll
-          packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/ue4ss/Mods/MeshGhostPseudo/dlls/main.dll
-          packaging/release/games/tevi/MeshGhost/MeshGhostTevi.dll'
+          # [known-binary-leaks] in dev-scripts/gate-lists.txt carries the binaries already in
+          # history that leak, so this gate can be armed before they are rebuilt. preflight.ps1
+          # names each one and its rebuild on every run; anything not listed fails here.
+          list() { awk -v s="[$1]" '/^\[/ { on = ($1 == s); next } on && NF && $1 !~ /^#/ { print $1 }' dev-scripts/gate-lists.txt; }
+          { list home-patterns; list clone-patterns; } > "$RUNNER_TEMP/patterns"
+          list known-binary-leaks > "$RUNNER_TEMP/known"
 
           status=0
           for f in $(git ls-files -- '*.dll' '*.exe' '*.so' '*.dylib' '*.pdb' '*.lib' '*.a' '*.bin' '*.node'); do
-            if ! grep -qaF -e 'C:\Users' -e 'C:/Users' -e '/home/' -e '/Users/' \
-                           -e 'C:\dev\MeshGhost' -e 'C:/dev/MeshGhost' "$f"; then
+            if ! grep -qaF -f "$RUNNER_TEMP/patterns" "$f"; then
               continue
             fi
-            if printf '%s\n' "$KNOWN" | sed 's/^ *//' | grep -qxF "$f"; then
+            if grep -qxF "$f" "$RUNNER_TEMP/known"; then
               echo "known (pending rebuild, see preflight.ps1): $f"
               continue
             fi
@@ -107,24 +101,19 @@ jobs:
         run: |
           # A working checklist whose first line said "deliberately untracked" was committed on
           # 2026-09-08 and sat here until 2026-09-09: its header was prose and every scanner looked for
-          # paths. Same two rules as .githooks/pre-commit and preflight.ps1's "Stray files".
-          ROOT_ALLOW='.gitattributes
-          .gitignore
-          .gitmodules
-          CLAUDE.md
-          LICENSE
-          README.md
-          go.mod
-          go.sum
-          nuget.config'  # nuget.config: the NuGet feeds every .csproj restores from (2026-09-22)
+          # paths. Same two rules as .githooks/pre-commit and preflight.ps1's "Stray files", and the
+          # same lists (dev-scripts/gate-lists.txt).
+          list() { awk -v s="[$1]" '/^\[/ { on = ($1 == s); next } on && NF && $1 !~ /^#/ { print $1 }' dev-scripts/gate-lists.txt; }
+          list root-allow > "$RUNNER_TEMP/root"
+          mapfile -t exempt < <(list exempt | sed 's/^/:!/')
           status=0
           for f in $(git ls-files | grep -v /); do
-            if ! printf '%s\n' "$ROOT_ALLOW" | sed 's/^ *//' | grep -qxF "$f"; then
+            if ! grep -qxF "$f" "$RUNNER_TEMP/root"; then
               echo "STRAY: $f is tracked at the repo root and not in the root allowlist"
               status=1
             fi
           done
-          for f in $(git ls-files | grep -Ev '^(\.githooks/|\.github/workflows/|dev-scripts/preflight\.ps1|dev-scripts/negative-test-preflight\.ps1|agent_docs/pitfalls/)'); do
+          for f in $(git ls-files -- . "${exempt[@]}"); do
             [ -f "$f" ] || continue
             if head -n 10 "$f" | grep -qiE 'deliberately untracked|do not commit'; then
               echo "STRAY: $f says in its own header that it must not be committed"
