@@ -457,12 +457,9 @@ something it would have told you: UE4SS's Live Viewer ships with the loader this
 was unused until 2026-08-28; Unity's equivalent is a separate plugin. **These are for the USER's
 eyes** — an agent cannot read a GUI, so its equivalent is a probe writing to the log.
 
-**On a NEW host, the first question is WHERE THE ADAPTER RUNS.** An adapter that is its own
-process talking over IPC gets reload for free by construction -- kill it, start it again, the
-game never knew. One loaded INTO the game's process does not, and everything below is about
-buying back some of what that costs. **Prefer the out-of-process shape when the host gives you
-the choice.** (Stated in `adapters/CLAUDE.md` since it was written, and nowhere else until
-2026-09-10 -- the file that pointed here for the detail was the only file that had it.)
+**On a new host, ask where the adapter runs first**: the rule is in [../CLAUDE.md](../CLAUDE.md),
+"Build the live-reload loop before the first feature". An adapter loaded into the game's process
+has no free reload, and everything below is about buying back some of what that costs.
 
 **FIVE TRAPS, all of which reported success while doing nothing** (dated 2026-08-28, detail in
 [../../agent_docs/pitfalls.md](../../agent_docs/pitfalls.md)):
@@ -500,7 +497,7 @@ title from OUTSIDE the game, so nothing ships.
 
 ## An emulator adapter is Lua-only — never patch the ROM (moved)
 
-The rule and its full reasoning are in [../emulator/CLAUDE.md](../emulator/CLAUDE.md), which loads
+The rule is in [../emulator/CLAUDE.md](../emulator/CLAUDE.md), which loads
 itself when you touch a BizHawk adapter. The one-line version, which is also in the root
 `CLAUDE.md`: an emulator adapter never ships, generates or requires a patched ROM — that is what
 lets MeshGhost run on top of an Archipelago seed instead of fighting it.
@@ -828,7 +825,7 @@ the expensive way:
 Three habits from the existing adapters worth copying:
 
 - **Diagnostics are named constant flags, default off, left in the tree with what they found
-  written in the comment** (Emerald's `DIAG_STEP_CURVE`, TEVI's `DIAG_REDRAW_TRACE`,
+  written in the flag's `FLAGS.md` row**, never in the code comment (Emerald's `DIAG_STEP_CURVE`, TEVI's `DIAG_REDRAW_TRACE`,
   Pseudoregalia's `ANIM_PULSE_TRACE`). Throttle or edge-trigger every one of them — a per-frame
   log produced 7324 lines in a single TEVI session.
 - **Hash-diff the file actually deployed into the game directory against your repo copy before
@@ -989,7 +986,7 @@ Region variants, exact file names and hashes are a separate question and belong 
   that size and is why it has no "Dev tools" section at all. Either location satisfies this; no
   index does not.
 
-## Hard rules: player-capability parity, and reproducing the WHOLE effect — moved
+## Player-capability parity, and reproducing the whole effect — moved
 
 Both now live in [../CLAUDE.md](../CLAUDE.md), which loads itself whenever you touch anything
 under `adapters/`. In one line each: **anything the player can do, anything else should be able
@@ -1020,8 +1017,9 @@ existed the whole time. The bandage is what stopped anyone looking for it
 that must be tested now — early bring-up, or getting a camera usable so a different feature can be
 watched at all. When you take it:
 
-1. **Say it is temporary in the code**, in the comment, where the next person reads it. Not in a
-   commit message.
+1. **Say it is temporary in the code**: one comment line naming it a bandage, where the next person
+   reads it, not in a commit message. The why and the history go in its `BANDAGES.md` entry, which
+   names the file.
 2. **Record the measurement that would replace it.** A bandage with *no* measurement behind it is
    the expensive kind — there is nothing to build the real fix on.
 3. **Log it as an open item**, not a finished one, in this adapter's own
@@ -1509,7 +1507,7 @@ the two.
 Worked reasoning for a specific game, including why hardware-level tricks (sprite multiplexing)
 fix the wrong limit: `agent_docs/ideas.md`, "Spawn to the game's cap, then DRAW above it".
 
-## Hard rule: the adapter may not cost the game its frame rate — moved
+## The adapter may not cost the game its frame rate — moved
 
 In [../CLAUDE.md](../CLAUDE.md). One line: **frame rate is a shipping requirement, not a tuning
 concern** — and when anyone says "choppy", measure pacing, not rate.

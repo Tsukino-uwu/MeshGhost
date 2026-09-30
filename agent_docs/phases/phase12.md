@@ -788,3 +788,25 @@ and passed that date undone, noticed only at a re-check on 2026-09-27. The user 
 sensitively, as a word, so an ordinary "pinned" doesn't exempt anything); the length limit still applies, and the
 pass line counts the pinned items. status.md's header states the rule next to `hold to <date>`; the item sits first
 under "Open now". Unpinning is the user's call.
+
+## 2026-09-30 — the rule files cut to rules, and five rules taken from bug_fables_ap (A1)
+
+A read-only comparison with bug_fables_ap (started 2026-09-24 from this repo's `CLAUDE.md`) found its
+rules, comments and docs leaner and more current. The user approved a plan in seven steps (A1–A7:
+rules, gates, pinned builds, docs, lean comments, copied code, a capability list); this is A1. The
+plan's counts were re-checked against the tree first: unchanged since the audit (no commits after
+2026-09-29), with small method differences only (a 0x03005d8c literal count of 7 where the plan said
+6; 64 `scriptDir()` definitions where it said 63; the TEVI stack at 564 lines, below the 622–639 range).
+
+Added to the root: comments are lean; commit subjects imperative, 72 characters at most, no
+attribution, `Seen:` for what the user saw; a step's doc and **Status:** in the same commit or
+`docs: no process change`; never call another project bad in the repo; a fact about another project
+is read (license first) or asked. The `code-map.md` and `capabilities.md` rules land with those files
+(A4, A7), so no rule points at a file that does not exist yet. The nested files lost their stories
+(now `pitfalls/by-lesson.md`, "The stories behind the rule files") and the root its dated reasons
+(`claude-md-cap.md`, the eighth case). The "never restate" line kept once; hot reload, the 1:1 bar
+and log cost one home each; all-caps written as plain words or bold. Stacks 622–639 → 430–495 lines.
+`_template/README.md` in the same pass: diagnostics record findings in `FLAGS.md`, not a comment; a
+bandage's comment is one line; the out-of-process question points at `adapters/CLAUDE.md`. Preflight
+clean; a mechanical check of every old bold span against the new files found one dropped rule
+("ask what else the state owns"), restored.

@@ -11,17 +11,19 @@ not expire (2026-09-27), kept at the top until the user unpins it.
 
 ## Open now
 
-- 2026-09-27 — **PINNED, priority 1 (the user): strip the build paths out of the four shipped DLLs** (one holds the username); its hold to 2026-09-25 passed undone. `risks.md`.
-- 2026-09-27 (re-checked) — **Sort each adapter's older code-level entries out of `UNVERIFIED.md`/`VERIFIED.md` into `MEASURED.md`**, and give every `UNVERIFIED.md` (and `_template`) a full index. Another chat.
-- 2026-09-27 (re-checked) — **Autoplay, Emerald: the League beaten** (the 1:1 route run); the state planner's step 2 begun, badge rules measured; next the capability reader. `phases/autoplay/emerald.md`.
-- 2026-09-27 (re-checked) — **Autoplay, Crystal: paused** (the user); `goto`, the PACK, POKéMON menu, badges, bike, surf and `effective` scoring done on V1.0; next the whiteout. `phases/autoplay/crystal.md`.
-- 2026-09-27 (re-checked) — **Autoplay, TEVI: into the story, at the Travoll Mines**; the fight distilled (`hug` 5 build, 7 of 10 at 103.2 s). `phases/autoplay/tevi.md`.
-- 2026-09-27 (re-checked) — **Autoplay, Pseudoregalia: opened** — UE4SS driver, File 8 a new game, walking and camera by injected input; next menu keys, snapshots. `phases/autoplay/pseudoregalia.md`.
-- 2026-09-27 (re-checked) — **Vision: a pixel-side instrument, Phase 0 next** — window capture + OpenCV, a PAINTED ghost vs the PLAYER, beyond any OAM read or screenshot. `plans/vision-plan.md` (untracked).
-- 2026-09-27 (re-checked) — **Prediction: A3 LANDED (ADR 0069, ships off), SCREEN VERDICT OPEN; A2.0 MEASURED** (transit p99 310–320ms; the dry tail is the 1 s blackouts); A2 undecided. `prediction-planning.md`.
-- 2026-09-27 (re-checked) — **Chaser contact: `hurt`, `kill`, the respawn and seated/talking holds WORK (user-confirmed); open: Part A's attack leaks, the world-leak crash on reload.** `chaser-planning.md`.
-- 2026-09-27 (re-checked) — **Every adapter README's "roughly in order" build story: a stale sweep** -- it drifts despite the checks (the user); Pseudoregalia likely skips steps 70-71. Fact-check against the code.
-- 2026-09-27 (re-checked) — **netsim: ADR 0046's 450 ms has never been judged on the correlated-loss model** (`-loss-burst`, opt-in since 2026-09-11). `phases/phase10.md`.
+- 2026-09-30 (re-checked) — **PINNED, priority 1 (the user): strip the build paths out of the four shipped DLLs** (one holds the username); its hold to 2026-09-25 passed undone. `risks.md`.
+- 2026-09-30 — **Gates and docs from bug_fables_ap, Part A (A1–A7): A1, the rule files, done; A2 next** (commit-msg, pre-push, one
+  list source, lean gate prose, new preflight sections, an agent guard); the build-paths item above is A3. `phases/phase12.md`.
+- 2026-09-30 (re-checked) — **Sort each adapter's older code-level entries out of `UNVERIFIED.md`/`VERIFIED.md` into `MEASURED.md`**, and give every `UNVERIFIED.md` (and `_template`) a full index. Another chat.
+- 2026-09-30 (re-checked) — **Autoplay, Emerald: the League beaten** (the 1:1 route run); the state planner's step 2 begun, badge rules measured; next the capability reader. `phases/autoplay/emerald.md`.
+- 2026-09-30 (re-checked) — **Autoplay, Crystal: paused** (the user); `goto`, the PACK, POKéMON menu, badges, bike, surf and `effective` scoring done on V1.0; next the whiteout. `phases/autoplay/crystal.md`.
+- 2026-09-30 (re-checked) — **Autoplay, TEVI: into the story, at the Travoll Mines**; the fight distilled (`hug` 5 build, 7 of 10 at 103.2 s). `phases/autoplay/tevi.md`.
+- 2026-09-30 (re-checked) — **Autoplay, Pseudoregalia: opened** — UE4SS driver, File 8 a new game, walking and camera by injected input; next menu keys, snapshots. `phases/autoplay/pseudoregalia.md`.
+- 2026-09-30 (re-checked) — **Vision: a pixel-side instrument, Phase 0 next** — window capture + OpenCV, a PAINTED ghost vs the PLAYER, beyond any OAM read or screenshot. `plans/vision-plan.md` (untracked).
+- 2026-09-30 (re-checked) — **Prediction: A3 LANDED (ADR 0069, ships off), SCREEN VERDICT OPEN; A2.0 MEASURED** (transit p99 310–320ms; the dry tail is the 1 s blackouts); A2 undecided. `prediction-planning.md`.
+- 2026-09-30 (re-checked) — **Chaser contact: `hurt`, `kill`, the respawn and seated/talking holds WORK (user-confirmed); open: Part A's attack leaks, the world-leak crash on reload.** `chaser-planning.md`.
+- 2026-09-30 (re-checked) — **Every adapter README's "roughly in order" build story: a stale sweep** -- it drifts despite the checks (the user); Pseudoregalia likely skips steps 70-71. Fact-check against the code.
+- 2026-09-30 (re-checked) — **netsim: ADR 0046's 450 ms has never been judged on the correlated-loss model** (`-loss-burst`, opt-in since 2026-09-11). `phases/phase10.md`.
 
 **Trimmed 2026-09-15**: records of finished work were dropped and items already queued in an
 adapter's `UNVERIFIED.md` folded into one line per game; every pointer was checked against its

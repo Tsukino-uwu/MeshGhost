@@ -7804,3 +7804,147 @@ user chose a reset instead: `chaser_reset` (ADR 0072), adapter -> core, restarts
 of play. The pack never follows the player through a death. `TestChaserResetStartsThePackOver` fails
 without it; user-confirmed. **What to reach for first:** anything that replays the player's own path must
 be cut where the game restarts the player.
+
+## The stories behind the rule files, moved out of them (2026-09-30)
+
+On 2026-09-30 the four nested `CLAUDE.md` files were cut to their rules; the root file's moved reasons
+are in [../claude-md-cap.md](../claude-md-cap.md), the eighth case. What follows is the evidence that
+sat beside each rule, moved word for word where it could be; the dates inside are when each was found.
+
+### `adapters/CLAUDE.md`
+
+- **The folder layout.** Moved from `adapters/_template/README.md` on 2026-08-25; `_template/` keeps a
+  headed pointer at each site. The create-a-level-on-demand rule was set 2026-08-25.
+- **The live-reload loop.** User, 2026-08-28: *"this should probly be done before starting any
+  adapter, on any kind of engine. it speeds up development a lot"*. It is the difference between a
+  change costing a relaunch-and-navigate and costing seconds, compounded over every iteration.
+- **Player-capability parity.** User, 2026-08-19: *"anything the player can do, anything else should
+  be able to do"*, and, when told a piece of behaviour might not be reproducible: *"it is, we just have
+  to figure out how. the game is doing it on the player itself after all"*. The surf blob is the worked
+  example: `UpdateSurfBlobFieldEffect` looked hardcoded to the player and turned out to read an object
+  id out of its own sprite data, so pointing it at a ghost drives the whole effect for free. "The
+  painted one cannot do that" is not an acceptable resting place.
+- **The proper mechanism.** User, 2026-08-19: *"I prefer doing things the proper/intended way when
+  achieving 1:1, so we should not try to use bandages often/for everything"*, and *"we shouldn't use
+  bandage/temp fixes for things the game can actually already do properly due to us being lazy."* The
+  1:1 floor for a bandage, the same user on the same day: *"its probly a bandage then, but think thats
+  fine if we can get it to look identical to the player and spawned ghost. I want 1:1 after all."*
+- **The rig's own artefacts.** The compare rig offsets a painted ghost sideways by a couple of tiles,
+  which can put a surfer on grass; artefacts seen only there are the rig's, not the adapter's.
+- **The whole effect.** User, 2026-08-18, on a ghost given the surfing graphic: *"surfing is also
+  supposed to show a 'Blue thing you are riding on' not just the animation itself... we should do the
+  animation + extra things if there are any, not just the animation and miss extras/VFX"*. Every
+  special Emerald player state (both bikes, surfing, fishing) is a different `graphicsId`, so switching
+  the graphic looks like the whole job; surfing also spawns a separate sprite for the Pokémon being
+  ridden, attached through the object's own `fieldEffectSpriteId`, and the ghost rendered as a rider
+  sitting on nothing. Emerald, 2026-08-19: the blob was created only where a ghost is built from
+  scratch; a peer walking into water has its graphic patched in place, so the code never ran in the
+  case it existed for, and a blob left behind swims along under a peer on a road. The same blob spent a
+  day drawn a tile out of place because of one constructor-computed field.
+- **A recycled handle.** Learned twice in Emerald on 2026-08-21, the second time costing hours and a
+  black-screened game. The engine's underwater bob is a dummy sprite whose callback nudges another
+  sprite, named by index. Copying that structure worked exactly as long as the ghost it named stayed
+  alive; once the engine recycled that slot, our copy wrote into whatever landed there (during a dive,
+  the picture the game was busy showing), corrupting it and leaving an effect waiting forever for a
+  sprite that could no longer report itself finished. The bob was one number the peer already sent.
+  The loose sword repointed the watcher's `weaponRef` (2026-09-01). An intermediate version drove the
+  same bob from both the wire and our own code; the user saw it as the ghost *"moving really
+  fast/weird"*. Freeing tiles and immediately allocating them for the replacement gave Emerald a
+  scrambled ghost: the engine had not finished with them yet. The bisect that found it: adapter dropped
+  → fine; tier off → fine; tier on, effects off → fine; one effect on → broken. Four runs, no theory.
+- **Shared settings.** The log line is the only signal anyone gets. `session_policy`'s
+  `ghost_collision` is acted on by the two Pokémon adapters only (walk-through on `disabled`, since
+  2026-09-11); the two PC adapters ship no solid ghost and read it not at all. `render_remote.cosmetic`
+  is read by zero of four (2026-09-10): it holds only because no adapter ships ghosts solid.
+- **Frame rate.** User, 2026-08-20: *"i don't want to ship/release anything that can't even keep the
+  intended base fps"*; 2026-09-01, for all adapters: *"1:1 + performance should be good"*, a really high
+  priority. A ghost nobody can see because the game stutters is worth less than none. Emerald's control
+  dipped to 37fps on seam crossings with zero scripts loaded. The five costs (1-4 Emerald 2026-08-20,
+  5 Pseudoregalia 2026-08-30): respawning an object the engine just culled produced 217ms frames; one
+  console line a second cost 7fps on Emerald (50.7 vs 58.1 control) while the same line to a file cost
+  nothing, and the cost grows with what the console already holds; a second peer lands in the window
+  where our own claim is invisible to "is this free?"; scoping Pseudoregalia's scans to the ghost's
+  attach tree cut per-ghost cost 6283 → 309 us, and three toggle sweeps scanned in normal play with no
+  toggle file present, ~3300 us/frame for nothing (`pseudoregalia/VERIFIED.md` 2026-09-01). Enumeration
+  every frame, a string per object per frame, a file write per frame: each affordable alone, none
+  together.
+- **A shared script environment.** MeshGhost's dev loader shares one Lua environment across every
+  script it loads, so an A/B "with the trace off" ran with it on throughout. Second case, 2026-08-25: a
+  Crystal crowd benchmark measured the drawn tier while it was off, because the previous run's
+  `DRAW_OVERFLOW = "0"` outlived a flags file that merely omitted the line. Both times the log looked
+  right (it reported peers waiting for the tier, which is not drawn), and both times a person looking
+  at the screen caught it.
+- **Speed and units.** Crystal, 2026-08-23: a repayment of 1px per frame kept every frame within
+  walking speed and still looked wrong, because the model advances 2px on its beat and the correction
+  filled the gaps: a clean `2-0-2-0` cadence became `2-1-2-1`. Paying a saved-up correction in one go is
+  the fix that keeps getting reinvented and keeps being worse.
+- **The tier handover.** Crystal got each half wrong in turn on 2026-08-23. Its promotion placed the
+  engine object on the peer's current tile while the painted copy was still a full tile behind,
+  measured at exactly `-1,+0` every time, because promotion fires precisely as the peer leaves the tile
+  the painted copy stands on. A freshly created engine object is not in the sprite list until the engine
+  next builds one: measured at four frames in Crystal, twice what the one-frame overlap first written
+  assumed, so the blink survived its own fix (2026-08-25).
+- **The adapter files.** `documentation.md`'s scope: user, 2026-09-16; no working notes in user-facing
+  files: user, 2026-09-13.
+
+### `adapters/emulator/CLAUDE.md`
+
+- **No ROM patch.** Our own patch would have to be reconciled with the player's, which is not
+  something a player can do, so a patch trades a feature that works on every ROM for one that works on
+  one ROM.
+- **The log stall.** One `console.log` plus one `flush` measured at 63–83ms (four to five frames) on
+  the emulator's own thread (2026-08-21), and both Lua adapters shipped a per-second line.
+- **Write breakpoints.** The interesting window is a handful of frames. Tiles freed at despawn and
+  re-claimed in the same tick get the dead sprite's frame stamped over the new owner's load. The API
+  lessons are Emerald's, 2026-08-21.
+- **The 200-local ceiling.** Hit four times in one Crystal session (2026-08-21) and again 2026-08-26;
+  preflight's "Lua parses" made the cost a red check, not a cycle. Re-measured 2026-08-28: Crystal 200
+  of 200 (2026-09-02: `luac` refused a 201st; the tier switch rides on `COMPARE`), Emerald 199 of 200
+  (compiles with 1 added, fails with 2). A number nothing re-measures is a number that was true. The
+  `dofile` relative-path trap was paid for twice. The `LOAD FAILED` line is one line, and it scrolls away.
+- **The JSON fuzzer** found a 5000-level nesting acceptance and a `\uXXXX` substitution nothing else did
+  (2026-09-03).
+- **The dev loader.** Without it every edit costs a full relaunch, and each relaunch interrupts
+  whoever is holding the controller.
+
+### `adapters/pseudoregalia/CLAUDE.md`
+
+- **Lua first.** The 2026-08-28 nametag session iterated the C++ adapter and paid a relaunch per
+  experiment; 2026-08-29 re-ran the same investigation in Lua at ~5 rounds in one game session. User,
+  2026-09-04: *"try with lua first, so we actually test the fix before making it"*. Three reloads sent by
+  keybind landed nowhere on 2026-08-29 while the user was typing chat. The new-folder trap recurred from
+  before 2026-09-04. `EnableHotReloadSystem` sat at 0 through 2026-08-30: ~20 relaunches at ~4 minutes
+  each. The build and LF checks each caught a live miss (2026-08-14, 2026-08-15).
+- **`on_update()`** was found off the game thread 2026-08-13; **Blueprint hooks**: two took the game
+  down on 2026-08-15; **`FindAllOf` cost and the `ObjectRegistry`**: 2026-09-06; **Niagara hooks** hung
+  the game thread twice on 2026-09-06; **`FRotator` as `float`**: 2026-08-13.
+- **The unrendered actor** is the concrete case behind the root `CLAUDE.md`'s "a clean instrument plus
+  a symptom the user still sees means widen the subsystem".
+- **`K2_DestroyActor()`** silently no-opped on the ghost pawn on one build (reversed 2026-08-18, not a
+  constraint now); the rule stays because the shape recurs.
+- **The born-on visual.** Afterimage outline case, 2026-08-27; measured: `copyActor` is set after the
+  custom-depth enable.
+- **`FindAllOf` crashes.** Crashed a live session twice on 2026-08-29, and the `ForEachProperty` walk
+  cost a third crash the same day; `probes/probe_dump/` dates from 2026-09-06. A whole-world walk once
+  sat in a probe that only ever needed two pawns' components.
+- **Name containment.** Measured 2026-08-29: `TextRenderComponent` and `NiagaraComponent` on a ghost
+  matched 0 of 12 by outer while the user watched them on screen; `GHOST_HOLD_OUTLINE_OFF` has used
+  name containment since it was written and has always found its targets.
+
+### `adapters/tevi/CLAUDE.md`
+
+- **The file's size.** It is short because fewer host-level rules have been paid for on Unity than on
+  the emulator or Unreal hosts; it exists so the next one found has a home the moment it is found.
+- **The transient clone.** Found live 2026-08-14: a ghost cloned exactly as a zone-load finished
+  inherited `basesprite.enabled = false` and was invisible forever (alive, active, correctly
+  positioned, never destroyed), the Unity form of a stale reference. The first fix forced every sprite
+  renderer to `enabled = true` and `color = Color.white`, which cured the invisibility and broke the
+  outline (`outlinesprite` is deliberately not white); the log showed only `enabled` was wrong. The
+  boost shield (2026-09-10): the template sits inactive between uses, so its clone was born inactive
+  with every material null, and the template's renderer already held the material its own setup
+  stripped a shader keyword from, so the clone lost the bloom/fade effect.
+- **Configuration.** The shared keys moved to the game root's `config.json` on 2026-08-28 and
+  2026-09-03.
+- **ScriptEngine and focus.** Autoplay's driver found no config and knocked on another chat's core, and
+  the dev cheats read their toggles from the game root (2026-09-17); the focus trap is the user's
+  report, 2026-09-17.

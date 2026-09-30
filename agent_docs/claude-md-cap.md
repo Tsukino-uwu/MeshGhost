@@ -256,3 +256,41 @@ have no file trigger at all. HumanLayer's root is an orientation file: what, why
 This one is about nine-tenths behavioural corrections paid for by live incidents, a different kind of
 file. **The user chose 200** — 2026-09-06: *"i agree that the 200~ lines sound better than the 60~
 line change"* — and asked for the sketch to be kept here.
+
+## The eighth case: rules only, stories behind a pointer (2026-09-30)
+
+**What changed.** A comparison with bug_fables_ap, which started from this file on 2026-09-24,
+found its rules leaner and its docs current. The user's decisions: take its commit-subject rule, its
+same-commit docs rule with per-step **Status:** lines, and its lean comments, plus a rule against
+calling another project bad and one that a fact about another project is read or asked. The four
+nested files were cut to their rules; their stories went word for word to
+`pitfalls/by-lesson.md`, "The stories behind the rule files". The "never restate" line that five
+files carried is kept once, in the root. Hot reload, the 1:1 bar and the cost of logging each have
+one home. All-caps shouting became plain words or bold. The stacks went from 622–639 lines to
+430–495; the root went from 188 to 195 with five rules added. This supersedes "Dates and one found-live
+example earn their place" above: a rule keeps its imperative, its user attribution where it has one,
+and a pointer.
+
+**The reasons that left the root file**, with their dates, so nothing is re-derived:
+
+- The one ship-never-writes rule: "world custody is the worst temptation" (2026-08-18).
+- `-count=10` caught what 1 and 2 missed on 2026-08-16. The netsim worst case is the user's, 2026-09-02.
+- The vanilla `VERIFIED.md` gate dates from 2026-08-21; the split into `MEASURED.md` is the user's,
+  2026-09-16.
+- The 1:1 bar, user, 2026-08-19, both quotes: *"it looks exactly the same as the player doing it"*,
+  *"not sloppy/bandage/good enough"*; offering a rate, tick or architecture change "is an excuse for
+  the defect".
+- Reasoning from the code turned TEVI's pause-menu ghosts into a false regression (2026-08-18).
+- The decomp-as-a-map rule, 2026-08-23.
+- Never suggest stopping: 2026-08-17 ("pick it up fresh" was among the variations; offering it is
+  suggesting it).
+- The harness's "branch first" default produced the one violation of commit-to-master (2026-08-16).
+- Closing every process and watching the game process are the user's, 2026-08-16; monitors, loops,
+  hash and port checks stay the agent's, done silently. Hot reload as the default: user, 2026-08-31.
+- Three failed iterations then a table: 2026-08-17, the slide pose.
+- The CI rule exists because the user pushes and opens a fresh chat, so an unread red run is lost.
+- The diagnostic rule: 2026-08-16 and 08-23. Scripted edits: six replacements lost 2026-08-26. The
+  sustained-load rule: a risk closed on one round trip reopened the same day.
+- `PATH`: thrice live, a devkitPro/MSYS2 shadow each time (last 2026-09-01: exit 0, empty output,
+  nothing ran). Root binaries: 2026-08-14.
+- Reading `_template/README.md` to its last line: 2026-08-17, twice the answer sat further down.
