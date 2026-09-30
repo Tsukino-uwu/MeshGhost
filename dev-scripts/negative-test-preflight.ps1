@@ -526,7 +526,49 @@ $fixtures = @(
         Section = 'Every adapter has its own path-filtered workflow'
         Expect = 'FAIL'
         Why = 'an adapter gate filtering on a path outside its own tree'
-        Plant = { param($wt) Plant-TextLine $wt '.github/workflows/tevi.yml' '      - ''docs/**''' } }
+        Plant = { param($wt) Plant-TextLine $wt '.github/workflows/tevi.yml' '      - ''docs/**''' } },
+
+    @{  Name = 'doc-source-unmapped'
+        Section = 'Doc coverage'
+        Expect = 'FAIL'
+        Why = 'a new source file with no code-map row'
+        Plant = { param($wt) Plant-NewFile $wt 'core/harness_planted.go' "package core`n" } },
+
+    @{  Name = 'doc-config-key-undocumented'
+        Section = 'Doc coverage'
+        Expect = 'FAIL'
+        Why = 'a shipped config key the config page never names'
+        Plant = { param($wt) Plant-Replace $wt 'packaging/release/config.json' '"client": \{' '"client": { "harness_planted_key": 1,' } },
+
+    @{  Name = 'doc-step-without-status'
+        Section = 'Doc coverage'
+        Expect = 'FAIL'
+        Why = 'a new build step with no Status line'
+        Plant = { param($wt) Plant-Replace $wt 'adapters/tevi/README.md' '(?m)^1\. Purple box' "0. Planted by the negative-test harness.`n1. Purple box" } },
+
+    @{  Name = 'doc-contents-mismatch'
+        Section = 'Doc coverage'
+        Expect = 'FAIL'
+        Why = 'a Contents list that differs from its headings'
+        Plant = { param($wt) Plant-TextLine $wt 'docs/hosting.md' "## Contents`n`n- [Planted by the negative-test harness](#planted)" } },
+
+    @{  Name = 'comment-trace-date'
+        Section = 'Comment traces in code (ratchet)'
+        Expect = 'FAIL'
+        Why = 'a dated code comment added above the floor'
+        Plant = { param($wt) Plant-TextLine $wt $luaTarget '-- planted by the negative-test harness on 2026-01-01' } },
+
+    @{  Name = 'workflow-action-unpinned'
+        Section = 'Workflows pinned (ratchet)'
+        Expect = 'FAIL'
+        Why = 'a workflow action on a tag, not a SHA'
+        Plant = { param($wt) Plant-TextLine $wt '.github/workflows/lua.yml' '      - uses: actions/setup-go@v7' } },
+
+    @{  Name = 'dependency-floating'
+        Section = 'Dependencies pinned (ratchet)'
+        Expect = 'FAIL'
+        Why = 'a NuGet package on a floating version'
+        Plant = { param($wt) Plant-Replace $wt 'adapters/tevi/MeshGhostTevi/MeshGhostTevi.csproj' 'Version="2021\.3\.25"' 'Version="2021.*"' } }
 )
 
 # The full list is kept for the coverage tally: a shard or an -Only subset must not report the

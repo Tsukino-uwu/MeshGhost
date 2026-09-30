@@ -1,5 +1,5 @@
 #!/bin/sh
-# Every commit: a subject of at most 72 characters with no "(the user" attribution; gate files never mixed with
+# Every commit: a subject of at most 72 characters with no attribution; gate files never mixed with
 # code; and code under a path in dev-scripts/doc-map.txt staged with one of its docs, unless the message has the line
 #   docs: no process change
 

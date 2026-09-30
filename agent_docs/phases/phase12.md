@@ -863,3 +863,16 @@ for word, only where the repo did not already record it (about 70 were already i
 `claude-md-cap.md` or `doc-history.md`). That section quotes the phrases the durations gate refuses, so their unit
 words are written in angle brackets there (`for <months>`) to keep the quotes without tripping the gate.
 Preflight is clean.
+
+## 2026-10-01 — A2.5: four new preflight sections, three of them ratchets
+
+Doc coverage: a source file or probe folder with no `code-map.md` row, a shipped config key `docs/config.md` never
+names (a hard FAIL: all 77 are named), a build step with no **Status:** line, a Contents list that differs from its
+headings (hard, vacuous today: no file has one). Comment traces in code: dated comments, comments naming the user,
+review IDs (`PM-4`, `X2-3`, `review H18`, `pass-3`) and `.md` pointers, each on a floor that may only fall.
+Workflows pinned: actions on a SHA with a `# vN` comment, top-level `permissions: {}`. Dependencies pinned: exact
+NuGet versions, a restore lockfile and `<Deterministic>` per project, a root `global.json`, an exact Go toolchain
+line. Floors today: 158 unmapped files and folders, 167 steps without Status, 3,853 dated / 1,234 user / 157
+review / 1,777 `.md` comment lines, 32 unpinned actions, 11 workflows without `{}`, 18 build inputs. A4, A5 and A3
+bring them to 0, each floor lowered in the same commit, and a section at 0 then stays at 0. Seven new harness
+fixtures, one per rule; the commit-msg hook's own header lost its "(the user" wording (the ratchet counted it).

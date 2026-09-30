@@ -2237,6 +2237,195 @@ if ($deployedScratch) {
     Report-Warn "Pseudoregalia -- set MESHGHOST_PSEUDO_SCRATCH to also check the DEPLOYED scratch slot (the one that actually loads)"
 }
 
+# A ratchet: the count may only fall, and each fall is recorded here so it cannot creep back up.
+function Report-Ratchet([string]$what, [int]$count, [int]$floor, [string]$fix, $examples) {
+    if ($count -eq $floor) {
+        if ($floor -eq 0) { Report-Pass "no $what" } else { Report-Pass "$what`: $count, at the recorded floor" }
+    } elseif ($count -gt $floor) {
+        Report-Fail "$what`: $count, above the recorded floor of $floor -- $fix"
+        @($examples) | Select-Object -First 10 | ForEach-Object { Write-Host "          $_" }
+    } else {
+        Report-Fail "$what`: $count, below the recorded floor of $floor -- lower the floor in preflight.ps1 to $count"
+    }
+}
+
+# Refuses a source file with no code-map row, a shipped config key the config page omits, a build step with no
+# Status line, or a Contents list that differs from its file's headings.
+Section "Doc coverage"
+$floorNoCodeMapRow = 158
+$floorStepNoStatus = 167
+
+$codeMapText = if (Test-Path -LiteralPath 'agent_docs/code-map.md') { [System.IO.File]::ReadAllText((Join-Path $root 'agent_docs/code-map.md')) } else { '' }
+$mapped = @(& git ls-files -- '*.go' '*.cs' '*.cpp' '*.hpp' '*.lua' '*.py' | Where-Object {
+    $_ -notmatch '_test\.go$' -and $_ -notmatch '/testdata/' -and $_ -notmatch '(^|/)tests?/' -and
+    $_ -notmatch '\.Tests/' -and $_ -notmatch '/probes/' -and $_ -notmatch '^dev-scripts/' })
+# A probe gets one row per folder: the probes folder itself, or a probe's own folder under it.
+$mapped += @(& git ls-files | Where-Object { $_ -match '^(.+?/probes)/(([^/]+)/)?[^/]+$' } | ForEach-Object {
+    if ($Matches[3]) { "$($Matches[1])/$($Matches[3])" } else { $Matches[1] } } | Sort-Object -Unique)
+$noRow = @($mapped | Where-Object { -not $codeMapText.Contains($_) })
+Report-Ratchet 'source files and probe folders with no agent_docs/code-map.md row' $noRow.Count $floorNoCodeMapRow `
+    'give each a row in agent_docs/code-map.md' $noRow
+
+$configDoc = [System.IO.File]::ReadAllText((Join-Path $root 'docs/config.md'))
+$configKeys = New-Object System.Collections.Generic.List[string]
+function Add-ConfigKeys($node, [string]$prefix) {
+    foreach ($p in $node.PSObject.Properties) {
+        $configKeys.Add("$prefix$($p.Name)")
+        if ($p.Value -is [System.Management.Automation.PSCustomObject]) { Add-ConfigKeys $p.Value "$prefix$($p.Name)." }
+    }
+}
+Add-ConfigKeys ([System.IO.File]::ReadAllText((Join-Path $root 'packaging/release/config.json')) | ConvertFrom-Json) ''
+$undocumented = @($configKeys | Where-Object {
+    $leaf = ($_ -split '\.')[-1]
+    -not ($configDoc.Contains("``$leaf``") -or $configDoc.Contains("""$leaf""") -or $configDoc.Contains("``$_``")) })
+if ($configKeys.Count -eq 0) {
+    Report-Fail "packaging/release/config.json yielded no keys -- the reader is broken, not the docs"
+} elseif ($undocumented.Count -gt 0) {
+    Report-Fail "$($undocumented.Count) shipped config key(s) that docs/config.md never names: $($undocumented -join ', ')"
+} else {
+    Report-Pass "all $($configKeys.Count) keys in packaging/release/config.json are named in docs/config.md"
+}
+
+$noStatus = @()
+$stepCount = 0
+foreach ($readme in @('adapters/tevi/README.md', 'adapters/pseudoregalia/README.md',
+                      'adapters/emulator/pokemon/emerald/README.md', 'adapters/emulator/pokemon/crystal/README.md')) {
+    $inStory = $false
+    $step = $null
+    $text = ''
+    foreach ($line in [System.IO.File]::ReadAllLines((Join-Path $root $readme)) + @('## end')) {
+        if ($line -match '^## ') {
+            if ($step -and $text -notmatch '\*\*Status:\*\*') { $noStatus += "${readme}: step $step" }
+            $step = $null
+            $inStory = ($line -eq '## How this adapter was built')
+            continue
+        }
+        if (-not $inStory) { continue }
+        if ($line -match '^(\d+)\. ') {
+            if ($step -and $text -notmatch '\*\*Status:\*\*') { $noStatus += "${readme}: step $step" }
+            $step = $Matches[1]; $text = $line; $stepCount++
+        } elseif ($step) { $text += "`n$line" }
+    }
+}
+if ($stepCount -eq 0) { Report-Fail "no build steps found under '## How this adapter was built' -- the reader is broken" }
+Report-Ratchet 'adapter build steps with no **Status:** line' $noStatus.Count $floorStepNoStatus `
+    'end each build step with **Status:** <state> (date)' $noStatus
+
+$contentsBad = @()
+foreach ($md in @(& git ls-files -- '*.md')) {
+    $mdText = [System.IO.File]::ReadAllText((Join-Path $root $md))
+    if ($mdText -notmatch '(?m)^## Contents\s*$') { continue }
+    $prose = [regex]::Replace($mdText, '(?ms)^```.*?^```', '')
+    $wanted = @([regex]::Matches($prose, '(?m)^## (.+?)\s*$') | ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ -ne 'Contents' })
+    $block = ($prose -split '(?m)^## Contents\s*$', 2)[1]
+    $block = ($block -split '(?m)^## ', 2)[0]
+    $listed = @([regex]::Matches($block, '(?m)^\s*(?:[-*]|\d+\.) \[(.+?)\]\(#[^)]*\)') | ForEach-Object { $_.Groups[1].Value })
+    if (($wanted -join "`n") -ne ($listed -join "`n")) { $contentsBad += $md }
+}
+if ($contentsBad.Count -gt 0) {
+    Report-Fail "Contents list(s) that differ from their file's '## ' headings, in order: $($contentsBad -join ', ')"
+} else {
+    Report-Pass "every '## Contents' list matches its file's headings"
+}
+
+# Refuses more dates, "the user", review IDs or .md pointers in code comments than the recorded floors.
+Section "Comment traces in code (ratchet)"
+$floorTraceDate = 3853
+$floorTraceUser = 1234
+$floorTraceReview = 157
+$floorTraceMd = 1777
+
+# The comment text of each line: whole-line and trailing comments, and block comments, by the file's syntax.
+function Get-CommentTexts([string]$path) {
+    $ext = [System.IO.Path]::GetExtension($path).ToLowerInvariant()
+    $marker = switch ($ext) {
+        { $_ -in '.go', '.cs', '.cpp', '.hpp', '.h', '.c' } { '//' }
+        '.lua' { '--' }
+        { $_ -in '.ps1', '.py', '.sh', '.yml' } { '#' }
+        '.bat' { 'REM' }
+    }
+    $open = switch ($ext) { { $_ -in '.go', '.cs', '.cpp', '.hpp', '.h', '.c' } { '/*' } '.lua' { '--[[' } '.ps1' { '<#' } default { $null } }
+    $close = switch ($ext) { { $_ -in '.go', '.cs', '.cpp', '.hpp', '.h', '.c' } { '*/' } '.lua' { ']]' } '.ps1' { '#>' } default { $null } }
+    $inBlock = $false
+    foreach ($line in [System.IO.File]::ReadAllLines((Join-Path $root $path))) {
+        if ($inBlock) { $line; if ($line.Contains($close)) { $inBlock = $false }; continue }
+        $t = $line.Trim()
+        if ($open -and $t.StartsWith($open)) { $line; if (-not $t.Substring($open.Length).Contains($close)) { $inBlock = $true }; continue }
+        if ($ext -eq '.bat') { if ($t -match '^(@?rem\b|::)') { $line }; continue }
+        # Strings are blanked first, so a marker inside one is not a comment.
+        $code = [regex]::Replace($line, '"(?:[^"\\]|\\.)*"|''(?:[^''\\]|\\.)*''', '""')
+        if ($marker -eq '#') {
+            $m = [regex]::Match($code, '(^|\s)#(?!!)')
+            if ($m.Success) { $code.Substring($m.Index) }
+        } else {
+            $i = $code.IndexOf($marker)
+            if ($i -ge 0) { $code.Substring($i) }
+        }
+    }
+}
+$traceFiles = @(& git ls-files -- '*.go' '*.cs' '*.cpp' '*.hpp' '*.h' '*.c' '*.lua' '*.ps1' '*.py' '*.sh' '*.bat' '.github/workflows/*.yml' '.githooks/*')
+$traces = @{ Date = @(); User = @(); Review = @(); Md = @() }
+foreach ($f in $traceFiles) {
+    # A hook has no extension: it is shell, and only its whole-line comments are read.
+    $texts = if ($f -like '.githooks/*' -and -not [System.IO.Path]::GetExtension($f)) {
+        @([System.IO.File]::ReadAllLines((Join-Path $root $f)) | Where-Object { $_ -match '^\s*#(?!!)' })
+    } else { @(Get-CommentTexts $f) }
+    foreach ($c in $texts) {
+        if ($c -match '\b20\d\d-\d\d-\d\d\b') { $traces.Date += $f }
+        if ($c -match "(?i)\bthe user\b|\buser's\b|\(user\b") { $traces.User += $f }
+        if ($c -match '\b(PM|X\d)-\d+\b|\breview [A-Z]\d+\b|\bpass-\d') { $traces.Review += $f }
+        if ($c -match '(?i)\b[\w./-]*\w\.md\b') { $traces.Md += $f }
+    }
+}
+$traceFix = 'move it to agent_docs/ (a game fact to that adapter''s MEASURED.md) and keep one line of why, per CLAUDE.md'
+Report-Ratchet 'dated code comments' $traces.Date.Count $floorTraceDate $traceFix ($traces.Date | Group-Object | ForEach-Object { "$($_.Name) ($($_.Count))" })
+Report-Ratchet 'code comments naming the user' $traces.User.Count $floorTraceUser $traceFix ($traces.User | Group-Object | ForEach-Object { "$($_.Name) ($($_.Count))" })
+Report-Ratchet 'code comments carrying a review ID' $traces.Review.Count $floorTraceReview $traceFix ($traces.Review | Group-Object | ForEach-Object { "$($_.Name) ($($_.Count))" })
+Report-Ratchet 'code comments pointing at a .md file' $traces.Md.Count $floorTraceMd $traceFix ($traces.Md | Group-Object | ForEach-Object { "$($_.Name) ($($_.Count))" })
+
+# Refuses a workflow action not pinned to a full commit SHA with a version comment, or a workflow whose top-level
+# permissions are not {}.
+Section "Workflows pinned (ratchet)"
+$floorUnpinnedUses = 32
+$floorWorkflowPermissions = 11
+$unpinned = @()
+$openPermissions = @()
+foreach ($wf in @(& git ls-files -- '.github/workflows/*.yml')) {
+    $lines = [System.IO.File]::ReadAllLines((Join-Path $root $wf))
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match '^\s*(?:-\s*)?uses:\s*(\S+)(.*)$' -and $Matches[1] -notmatch '^\./') {
+            if ($Matches[1] -notmatch '@[0-9a-f]{40}$' -or $Matches[2] -notmatch '#\s*v\d') { $unpinned += "${wf}:$($i + 1): $($Matches[1])" }
+        }
+    }
+    if (-not ($lines -contains 'permissions: {}')) { $openPermissions += $wf }
+}
+Report-Ratchet 'workflow actions not pinned to a SHA with a # vN comment' $unpinned.Count $floorUnpinnedUses `
+    'pin it: uses: owner/repo@<40-hex SHA> # vN' $unpinned
+Report-Ratchet 'workflows whose top-level permissions are not {}' $openPermissions.Count $floorWorkflowPermissions `
+    'set top-level permissions: {} and grant each job only what it needs' $openPermissions
+
+# Refuses a floating NuGet version, a project without a restore lockfile or deterministic build, a missing SDK pin,
+# or a go.mod without an exact toolchain.
+Section "Dependencies pinned (ratchet)"
+$floorUnpinnedDeps = 18
+$unpinnedDeps = @()
+foreach ($proj in @(& git ls-files -- '*.csproj')) {
+    $xml = [System.IO.File]::ReadAllText((Join-Path $root $proj))
+    foreach ($m in [regex]::Matches($xml, '<PackageReference\s+Include="([^"]+)"\s+Version="([^"]+)"')) {
+        if ($m.Groups[2].Value -notmatch '^\d+(\.\d+)*$') { $unpinnedDeps += "${proj}: $($m.Groups[1].Value) $($m.Groups[2].Value) is not an exact version" }
+    }
+    if ($xml -notmatch '<RestorePackagesWithLockFile>\s*true') { $unpinnedDeps += "${proj}: no RestorePackagesWithLockFile" }
+    $lock = Join-Path (Split-Path $proj) 'packages.lock.json'
+    if (-not (@(& git ls-files -- ($lock -replace '\\', '/')).Count)) { $unpinnedDeps += "${proj}: no tracked packages.lock.json beside it" }
+    if ($xml -notmatch '<Deterministic>\s*true') { $unpinnedDeps += "${proj}: no <Deterministic>true" }
+}
+if (-not (@(& git ls-files -- 'global.json').Count)) { $unpinnedDeps += 'global.json: no tracked SDK pin at the root' }
+foreach ($mod in @(& git ls-files -- 'go.mod' '*/go.mod')) {
+    if (-not ([System.IO.File]::ReadAllText((Join-Path $root $mod)) -match '(?m)^toolchain go\d+\.\d+\.\d+\s*$')) { $unpinnedDeps += "${mod}: no exact toolchain line" }
+}
+Report-Ratchet 'unpinned or non-reproducible build inputs' $unpinnedDeps.Count $floorUnpinnedDeps `
+    'pin it exactly (a version, a lockfile, global.json, a toolchain line)' $unpinnedDeps
+
 # Warns about MeshGhost processes or dev-script launcher shells left running from an earlier run.
 Section "Leftover scaffolding"
 if ($TreeOnly) { Report-Skip "needs a working copy, not just the tree" } else {
