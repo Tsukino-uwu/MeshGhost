@@ -876,3 +876,14 @@ line. Floors today: 158 unmapped files and folders, 167 steps without Status, 3,
 review / 1,777 `.md` comment lines, 32 unpinned actions, 11 workflows without `{}`, 18 build inputs. A4, A5 and A3
 bring them to 0, each floor lowered in the same commit, and a section at 0 then stays at 0. Seven new harness
 fixtures, one per rule; the commit-msg hook's own header lost its "(the user" wording (the ratchet counted it).
+
+## 2026-10-01 — A2.6: an agent guard, ported from bug_fables_ap
+
+`.claude/hooks/agent-guard.py`, armed by a tracked `.claude/settings.json`, runs before every command, edit and
+page fetch Claude Code makes here. It denies `--no-verify` and `commit -n`, any change to `core.hooksPath` other
+than arming it, `commit-tree`/`update-ref`, git config set from the environment, and a GitHub read of a project
+with no `licensing.md` row (its licence file aside; this project's own owner is listed in `gate-lists.txt`). It
+asks before an edit to the gate data (`gate-lists.txt`, `doc-map.txt`, `phase-map.txt`), `docs/capabilities.md` or
+`.claude/`, and before a commit while any of those has uncommitted changes. The untracked `settings.local.json` is
+unchanged. Seventeen sample events behaved as intended, including a `--no-verify` written inside a heredoc commit
+message (allowed: prose runs nothing). `dev-scripts/README.md` now names A2.5's sections too.

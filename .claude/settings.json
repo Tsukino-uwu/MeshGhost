@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "ask": [
+      "Edit(/docs/capabilities.md)",
+      "Edit(/dev-scripts/gate-lists.txt)",
+      "Edit(/dev-scripts/doc-map.txt)",
+      "Edit(/dev-scripts/phase-map.txt)",
+      "Edit(/.claude/**)",
+      "Edit(/.git/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit|WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && if command -v py >/dev/null 2>&1; then py -3 -B .claude/hooks/agent-guard.py; else python3 -B .claude/hooks/agent-guard.py; fi || { echo \"agent-guard could not run (it needs py -3 or python3), so nothing was checked: refusing\" >&2; exit 2; }",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

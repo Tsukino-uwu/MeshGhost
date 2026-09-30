@@ -1,5 +1,5 @@
-# The lists the leak and stray gates share: read by .githooks/pre-commit, dev-scripts/preflight.ps1 and
-# .github/workflows/hygiene.yml, so the three never disagree. One entry per line under its [section]; the first
+# The lists the gates share: read by .githooks/pre-commit, dev-scripts/preflight.ps1, .claude/hooks/agent-guard.py and
+# .github/workflows/hygiene.yml, so they never disagree. One entry per line under its [section]; the first
 # word is the entry and the rest of the line is its reason. Blank lines and # comments are ignored.
 
 [root-allow]
@@ -36,3 +36,6 @@ packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/ue4ss/UE4SS.d
 packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/ue4ss/Mods/MeshGhostPseudo/dlls/main.dll    MSVC PDB path; add /PDBALTPATH:%_PDB% to the link flags and rebuild
 packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/dwmapi.dll    MSVC PDB path; same fix as main.dll, same rebuild
 packaging/release/games/tevi/MeshGhost/MeshGhostTevi.dll    C# PDB path; set <PathMap> or <DebugType>none in MeshGhostTevi.csproj and rebuild
+
+[own-github-owners]
+Tsukino-uwu    this project, whose reads need no licensing row

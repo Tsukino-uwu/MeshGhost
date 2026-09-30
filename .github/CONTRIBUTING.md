@@ -47,6 +47,7 @@ MeshGhost/
 ├── .github/              # CI on every push and the manual release button, under workflows/,
 │                         #   plus the contributing and security policies
 ├── .claude/skills/       # the task-scoped reading paths CLAUDE.md points at
+├── .claude/hooks/        # the guard Claude Code runs before each command or edit (settings.json arms it)
 ├── CLAUDE.md             # the rules this project is built under, for whoever works on it
 └── go.mod
 ```
