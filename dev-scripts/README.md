@@ -680,6 +680,9 @@ Not launchers at all, and not strays — one of them CI calls by name.
   it. Deliberately crude (it flags candidates, it does not parse Lua) and it understands forward
   declarations. Bit the Emerald adapter three times on 2026-08-18, each costing a live test.
 - `preflight.ps1` — documented above, with the Go test scripts.
+- `phase-map.txt` — which paths belong to which phase log; `.githooks/pre-commit` and `preflight.ps1`
+  both read it.
+- `doc-map.txt` — which doc a code change updates in the same commit; `.githooks/commit-msg` reads it.
 
 ## BizHawk dev loader, screenshots and savestates
 

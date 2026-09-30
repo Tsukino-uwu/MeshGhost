@@ -1,0 +1,12 @@
+# Which doc a code change updates in the same commit; read by .githooks/commit-msg.
+# Format: <pathspec> [<pathspec> ...] -> <doc> [<doc> ...]
+# A staged file under a pathspec needs one of its docs staged too (a folder doc means any file in it),
+# or the line "docs: no process change" in the message. Markdown files and probes/ folders never count.
+
+adapters/tevi -> adapters/tevi/README.md
+adapters/pseudoregalia -> adapters/pseudoregalia/README.md
+adapters/emulator/pokemon/emerald -> adapters/emulator/pokemon/emerald/README.md
+adapters/emulator/pokemon/crystal -> adapters/emulator/pokemon/crystal/README.md
+core relay transport bridge protocol netx cmd internal pake -> docs agent_docs/contract.md agent_docs/adr agent_docs/testing.md
+autoplay -> autoplay/README.md
+dev-scripts -> dev-scripts/README.md

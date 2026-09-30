@@ -1,7 +1,9 @@
 # Contributing
 
 Two things before the first commit, both once per clone: `git config core.hooksPath .githooks`, so
-the pre-commit hook can refuse a machine-specific path before it reaches the public tree, and a run
+the hooks can refuse a machine-specific path before it reaches the public tree and check each commit
+message (a subject of at most 72 characters; code staged with its doc, per `dev-scripts/doc-map.txt`;
+they need Python 3.11 or newer, or `git config preflight.python <path>`), and a run
 of `dev-scripts/preflight.ps1`, which checks the docs, the adapter file sets and the built artifacts
 and says what a change is expected to keep true.
 
@@ -40,7 +42,7 @@ MeshGhost/
 ├── dev-logs/             # where a dev session's logs land; gitignored, but the folder is
 │                         #   committed because probes cannot create it themselves
 ├── packaging/            # what goes in the release zip, and how it's assembled
-├── .githooks/            # the pre-commit leak check; point core.hooksPath here once per clone
+├── .githooks/            # the leak check and the commit-message check; point core.hooksPath here
 ├── .github/              # CI on every push and the manual release button, under workflows/,
 │                         #   plus the contributing and security policies
 ├── .claude/skills/       # the task-scoped reading paths CLAUDE.md points at

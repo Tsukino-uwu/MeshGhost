@@ -905,3 +905,7 @@ root `nuget.config` now covers all four `.csproj`s and the adapter's copy is gon
 force-restored with the VPN up.
 
 ## 2026-09-23 — pointer: autoplay's TEVI work (fast-forward, the fight rules as switches, the trials runner) is logged in [autoplay/tevi.md](autoplay/tevi.md)
+
+## 2026-09-30 — pointer: the host CLAUDE.md cut to its rules
+
+The stories moved to `pitfalls/by-lesson.md`, "The stories behind the rule files"; the record is [phase12.md](phase12.md), 2026-09-30.

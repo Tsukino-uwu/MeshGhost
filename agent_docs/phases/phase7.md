@@ -3921,3 +3921,7 @@ jump heights, the backflip, and `activeSaveSlotName` reading the user's File 5 i
 `phases/autoplay/pseudoregalia.md`.
 
 ## 2026-09-27 — pointer: MEASURED.md's 2026-09-23 night entry (the Keeper, a pit's cost) got its missing index line, for the docs check; no Pseudoregalia work (the user is on Bug Fables)
+
+## 2026-09-30 — pointer: the host CLAUDE.md cut to its rules
+
+The stories moved to `pitfalls/by-lesson.md`, "The stories behind the rule files"; the record is [phase12.md](phase12.md), 2026-09-30.

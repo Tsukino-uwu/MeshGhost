@@ -1,0 +1,72 @@
+#!/bin/sh
+# Every commit: a subject of at most 72 characters with no "(the user" attribution; gate files never mixed with
+# code; and code under a path in dev-scripts/doc-map.txt staged with one of its docs, unless the message has the line
+#   docs: no process change
+
+msg_file="$1"
+root=$(git rev-parse --show-toplevel) || exit 1
+. "$root/.githooks/python.sh"
+
+subject=$(grep -v '^#' "$msg_file" | sed -n '1p')
+# Characters, not bytes: "Pokémon" counts seven.
+length=$(printf '%s' "$subject" | run_python -c "import sys; print(len(sys.stdin.buffer.read().decode('utf-8')))")
+case "$length" in
+    ''|*[!0-9]*) echo "commit-msg: could not measure the subject ($length); refusing rather than passing unchecked." >&2
+        exit 1 ;;
+esac
+if [ "$length" -gt 72 ]; then
+    echo "commit-msg: the subject is $length characters; keep it to 72 (details go in the body)." >&2
+    exit 1
+fi
+if printf '%s' "$subject" | grep -qi '(the user'; then
+    echo "commit-msg: the subject names who decided; that goes in the body or the phase file." >&2
+    exit 1
+fi
+
+staged=$(git diff --cached --name-only)
+
+gate=$(printf '%s\n' "$staged" |
+    grep -E '^(\.githooks/|\.github/|\.claude/|dev-scripts/(preflight\.ps1|negative-test-preflight\.ps1|phase-map\.txt|doc-map\.txt)$)' | head -1)
+code=$(printf '%s\n' "$staged" | grep -Ev '\.md$' |
+    grep -E '^(adapters|autoplay|core|relay|transport|bridge|protocol|netx|cmd|internal|pake)/' | head -1)
+if [ -n "$gate" ] && [ -n "$code" ]; then
+    echo "commit-msg: $gate is part of the gate and $code is code; commit them apart, so a change to what is" >&2
+    echo "  checked is always a commit of its own." >&2
+    exit 1
+fi
+
+grep -qx 'docs: no process change' "$msg_file" && exit 0
+
+map="$root/dev-scripts/doc-map.txt"
+[ -f "$map" ] || { echo "commit-msg: dev-scripts/doc-map.txt is missing; refusing rather than passing unchecked." >&2; exit 1; }
+tmpmap=$(mktemp)
+grep -Ev '^[[:space:]]*(#|$)' "$map" > "$tmpmap"
+missing=''
+while IFS= read -r line; do
+    specs=${line%%->*}
+    docs=${line#*->}
+    needs=''
+    for f in $staged; do
+        case "$f" in *.md|*/probes/*) continue ;; esac
+        for spec in $specs; do
+            case "$f" in "$spec"/*) needs=$f ;; esac
+        done
+    done
+    [ -n "$needs" ] || continue
+    found=''
+    for f in $staged; do
+        for doc in $docs; do
+            case "$f" in "$doc"|"$doc"/*) found=1 ;; esac
+        done
+    done
+    [ -n "$found" ] || missing="$missing    $needs needs one of:$docs
+"
+done < "$tmpmap"
+rm -f "$tmpmap"
+[ -z "$missing" ] && exit 0
+
+echo "commit-msg: this commit changes code without the doc that describes it:" >&2
+printf '%s' "$missing" >&2
+echo "  Update the doc in this commit (an adapter's build step and its **Status:** line), or, only if nothing" >&2
+echo "  about how it works changed, add the line 'docs: no process change' to the message." >&2
+exit 1

@@ -810,3 +810,17 @@ and log cost one home each; all-caps written as plain words or bold. Stacks 622�
 bandage's comment is one line; the out-of-process question points at `adapters/CLAUDE.md`. Preflight
 clean; a mechanical check of every old bold span against the new files found one dropped rule
 ("ask what else the state owns"), restored.
+
+## 2026-09-30 — A2.1: a commit-msg hook, ported from bug_fables_ap
+
+`.githooks/commit-msg` (with `python.sh`, both from bug_fables_ap) refuses a subject over 72
+characters (counted in characters), `(the user` in the subject, gate files (hooks, workflows, `.claude/`,
+preflight and its harness, the two maps) staged with code, and code under a path in the new
+`dev-scripts/doc-map.txt` staged without one of its docs, unless the body carries
+`docs: no process change`. The map is the user's pick, as drafted: each adapter → its README; the Go
+side → any file in `docs/`, `contract.md`, `adr/` or `testing.md` (it lists every fuzz target; the user widened
+this line before the commit); `autoplay/` → its README;
+`dev-scripts/` → its README. Markdown and `probes/` never count. Exercised in a scratch clone: 73
+characters refused and 72 passed (72 é passed too), attribution refused, gate plus code refused, TEVI and
+core changes without a doc refused, and passing with the doc, an ADR or the escape line; a probe-only
+and a markdown-only commit passed. Both hooks now carry the executable bit, which a Linux clone needs.
