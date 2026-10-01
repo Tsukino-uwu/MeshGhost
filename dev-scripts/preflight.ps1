@@ -119,6 +119,7 @@ $ipAllow = @{
     '192.168.1.10' = 'documentation example of a LAN address'
     '5.4.23.3'     = 'NOT AN ADDRESS: BepInEx version'
     '5.4.23.5'     = 'NOT AN ADDRESS: BepInEx version (the standalone TEVI build)'
+    '21.12.13.1'   = 'NOT AN ADDRESS: MonoMod package version, in the BepInEx projects'' packages.lock.json'
 }
 
 # The lookarounds stop a longer dotted run (UE4SS's 3.0.1.0.0) being mined for a four-part address.
