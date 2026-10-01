@@ -958,3 +958,8 @@ With all four binaries clean, the known-leaks list had nothing left to excuse: `
 `gate-lists.txt`, and so is the code that read it in the pre-commit hook, preflight and `hygiene.yml`, so any home or
 clone path in any tracked binary now fails everywhere. The risk entry that sized this work said to delete itself at
 this point, and was. status.md's pinned item now waits only on the on-screen check.
+Open at the pause: the full harness on the workflow-pinning tip (`0c9a6c31`) failed one fixture,
+`action-version-split`: "GitHub Action versions agree across workflows" reads each action's version from an `@vN`
+tag, and every action is now on a SHA with its version in a `# vN.N.N` comment, so the check sees no versions and
+passes anything. Fix first next session: read the version from that comment (and keep the fixture), then re-run
+the full harness. Everything else in A3 is committed; the two games still need their on-screen check.
