@@ -51,15 +51,16 @@ on:
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   tree-checks:
+    permissions:
+      contents: read
     name: Documentation gates that need no working copy
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The _template back-port freshness check runs `git log -1 --format=%ct -- <path>`,
           # which needs history. With the default shallow clone it silently finds nothing for

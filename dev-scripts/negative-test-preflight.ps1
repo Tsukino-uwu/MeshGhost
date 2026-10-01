@@ -564,6 +564,12 @@ $fixtures = @(
         Why = 'a workflow action on a tag, not a SHA'
         Plant = { param($wt) Plant-TextLine $wt '.github/workflows/lua.yml' '      - uses: actions/setup-go@v7' } },
 
+    @{  Name = 'workflow-action-sha-without-version'
+        Section = 'Workflows pinned (ratchet)'
+        Expect = 'FAIL'
+        Why = 'a workflow action on a SHA with no # vN comment naming its version'
+        Plant = { param($wt) Plant-TextLine $wt '.github/workflows/lua.yml' '      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' } },
+
     @{  Name = 'dependency-floating'
         Section = 'Dependencies pinned (ratchet)'
         Expect = 'FAIL'

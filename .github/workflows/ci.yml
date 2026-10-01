@@ -51,8 +51,7 @@ on:
       - '.github/workflows/ci.yml'
   workflow_dispatch:
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   # The leak scan MOVED to .github/workflows/hygiene.yml on 2026-09-07, and is not
@@ -63,6 +62,8 @@ jobs:
   # filter and runs on every push, which is what that sentence always claimed.
 
   test:
+    permissions:
+      contents: read
     name: Build, vet, format
     # Linux, not Windows, specifically for the race detector: on Windows it
     # needs a working cgo C toolchain, and a machine can easily have a `gcc`
@@ -74,11 +75,11 @@ jobs:
     # actual shipping target.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
+          go-version-file: go.mod
           # Caching keys off go.sum, which this module has had since quic-go
           # was adopted (2026-08-16). It was off while the module had zero
           # dependencies and setup-go had nothing to key on.
@@ -130,6 +131,8 @@ jobs:
 
 
   race:
+    permissions:
+      contents: read
     name: Test (race) - ${{ matrix.name }}
     # Linux, not Windows, specifically for the race detector: on Windows it
     # needs a working cgo C toolchain, and a machine can easily have a `gcc`
@@ -169,17 +172,19 @@ jobs:
             # other two (pass 5 of the adversarial review, 2026-09-16, X2-13).
             packages: $(go list ./... | grep -v -x -E "$(go list -m)/(core|relay|internal/e2e)")
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
+          go-version-file: go.mod
           cache: true
 
       - name: Test with race detector
         run: go test -race -count=3 ${{ matrix.packages }}
 
   vuln:
+    permissions:
+      contents: read
     name: Known vulnerabilities in dependencies
     # govulncheck (2026-09-02) matches the module's dependency graph -- one direct dependency,
     # quic-go, plus its golang.org/x set and the standard library itself -- against the Go
@@ -190,10 +195,10 @@ jobs:
     # together, and pinning the tool would pin the question to an old answer.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
+          go-version-file: go.mod
           cache: true
       - name: govulncheck
         run: |
@@ -216,6 +221,8 @@ jobs:
           fi
 
   fuzz:
+    permissions:
+      contents: read
     name: Fuzz ${{ matrix.name }}
     runs-on: ubuntu-latest
     # Six shards in parallel instead of one job running all 29 targets end to end. The
@@ -383,11 +390,11 @@ jobs:
               ./relay FuzzRelaySurvivesArbitraryPostJoinMessages 45s
               ./relay FuzzHelloProtocolVersion 45s
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
+          go-version-file: go.mod
           # Caching keys off go.sum, which this module has had since quic-go
           # was adopted (2026-08-16). It was off while the module had zero
           # dependencies and setup-go had nothing to key on.
@@ -426,24 +433,26 @@ jobs:
       # One artifact per shard: two shards failing at once must not collide.
       - name: Upload the failing input
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: fuzz-failure-corpus-${{ strategy.job-index }}
           path: '**/testdata/fuzz/**'
           if-no-files-found: ignore
 
   windows:
+    permissions:
+      contents: read
     name: Build and test on the shipping target
     # The race detector doesn't run here (see the race job), but this is the
     # platform every user actually runs, and it's the one that would catch a
     # path-handling or line-ending assumption the Linux job can't.
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
+          go-version-file: go.mod
           # Caching keys off go.sum, which this module has had since quic-go
           # was adopted (2026-08-16). It was off while the module had zero
           # dependencies and setup-go had nothing to key on.

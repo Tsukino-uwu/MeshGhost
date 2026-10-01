@@ -926,3 +926,16 @@ from its README), `release.yml`'s TEVI staleness step also hashes `packages.lock
 `Directory.Build.props` and `nuget.config` (simulated locally: passes on the tree, and refused a one-byte change to
 `global.json`), and the floors fell to 3,852 dated / 1,233 user / 1,774 `.md` comment lines and 2 build inputs
 (the two `go.mod` toolchain lines).
+
+A3, the workflows: every action pinned to a full commit SHA with its release in a `# vN.N.N` comment (each tag
+resolved through the API: checkout v7.0.1, setup-go v7.0.0, setup-dotnet v5.4.0, upload-artifact v7.0.1,
+download-artifact v8.0.1; action-gh-release was already on v3.0.3's commit), every workflow at top-level
+`permissions: {}` with `contents: read` per job, and `setup-go` reading the toolchain from `go.mod` (its README:
+the `toolchain` directive wins when present). The release gains a `preflight` job (`-TreeOnly`, full history) that
+packaging waits on, and an `actions/attest` step (v4.2.2; `attest-build-provenance`'s own README now points new
+setups there, so it got a licensing row too) that signs provenance for both `.exe` files and all three release
+archives, in the one job that also holds `id-token`, `attestations` and `artifact-metadata` write. All eleven
+workflows parse. A bug in A2.5's pinning check surfaced on the first real pins: a second `-notmatch` overwrote
+`$Matches`, so every SHA-pinned line counted as unpinned (its fixture planted a tag, which took the other
+branch). Fixed with the regex's own groups, and a new fixture plants a SHA with no version comment. The pinning
+and dependency ratchets are at 0, so any new unpinned action, open permission or floating input now fails.

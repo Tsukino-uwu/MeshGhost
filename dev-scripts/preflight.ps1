@@ -2389,15 +2389,18 @@ Report-Ratchet 'code comments pointing at a .md file' $traces.Md.Count $floorTra
 # Refuses a workflow action not pinned to a full commit SHA with a version comment, or a workflow whose top-level
 # permissions are not {}.
 Section "Workflows pinned (ratchet)"
-$floorUnpinnedUses = 32
-$floorWorkflowPermissions = 11
+$floorUnpinnedUses = 0
+$floorWorkflowPermissions = 0
 $unpinned = @()
 $openPermissions = @()
 foreach ($wf in @(& git ls-files -- '.github/workflows/*.yml')) {
     $lines = [System.IO.File]::ReadAllLines((Join-Path $root $wf))
     for ($i = 0; $i -lt $lines.Count; $i++) {
-        if ($lines[$i] -match '^\s*(?:-\s*)?uses:\s*(\S+)(.*)$' -and $Matches[1] -notmatch '^\./') {
-            if ($Matches[1] -notmatch '@[0-9a-f]{40}$' -or $Matches[2] -notmatch '#\s*v\d') { $unpinned += "${wf}:$($i + 1): $($Matches[1])" }
+        $m = [regex]::Match($lines[$i], '^\s*(?:-\s*)?uses:\s*(\S+)(.*)$')
+        if ($m.Success -and $m.Groups[1].Value -notmatch '^\./') {
+            # Groups, not $Matches: each -match below would overwrite $Matches.
+            $ref = $m.Groups[1].Value
+            if ($ref -notmatch '@[0-9a-f]{40}$' -or $m.Groups[2].Value -notmatch '#\s*v\d') { $unpinned += "${wf}:$($i + 1): $ref" }
         }
     }
     if (-not ($lines -contains 'permissions: {}')) { $openPermissions += $wf }
@@ -2410,7 +2413,7 @@ Report-Ratchet 'workflows whose top-level permissions are not {}' $openPermissio
 # Refuses a floating NuGet version, a project without a restore lockfile or deterministic build, a missing SDK pin,
 # or a go.mod without an exact toolchain.
 Section "Dependencies pinned (ratchet)"
-$floorUnpinnedDeps = 2
+$floorUnpinnedDeps = 0
 $unpinnedDeps = @()
 foreach ($proj in @(& git ls-files -- '*.csproj')) {
     $xml = [System.IO.File]::ReadAllText((Join-Path $root $proj))

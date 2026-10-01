@@ -50,15 +50,16 @@ on:
       - '.github/workflows/lua.yml'
   workflow_dispatch:
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   parse:
+    permissions:
+      contents: read
     name: Every tracked .lua file compiles
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Lua 5.4 specifically, because that is what BizHawk embeds (confirmed by print(_VERSION)
       # in its own console -- agent_docs/environment.md). A 5.1 or LuaJIT build would accept and

@@ -22,8 +22,7 @@ on:
         type: string
         default: ''
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
   # Refuse to build anything if the release BODY would carry a machine-specific path.
@@ -43,9 +42,11 @@ jobs:
   # the moment the job finishes, and a leak there is worse than one in a tracked file because it
   # is what people read first.
   validate-release-notes:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Tags and history, so the commit-subject scan below has something to scan.
           fetch-depth: 0
@@ -121,15 +122,17 @@ jobs:
   # replacing a "now go run chmod" instruction, which is a bad first experience and the kind
   # of step that reads as "this is broken" rather than "this is Unix".
   unix-binaries:
+    permissions:
+      contents: read
     # Gate first: no build, no tag, no assets until the body is known clean.
     needs: validate-release-notes
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
+          go-version-file: go.mod
           cache: true
 
       # Same suite the Windows job runs. These are separate artifacts now, so nothing else
@@ -177,7 +180,7 @@ jobs:
           tar -czf "MeshGhost-linux-server-client-$VERSION.tar.gz" -C stage/linux .
           tar -czf "MeshGhost-macos-server-client-$VERSION.tar.gz" -C stage/macos .
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: unix-packages
           path: MeshGhost-*.tar.gz
@@ -203,14 +206,16 @@ jobs:
   # because parts of this suite have failed intermittently rather than
   # reliably (see CLAUDE.md).
   windows-tests:
+    permissions:
+      contents: read
     needs: validate-release-notes
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
+          go-version-file: go.mod
 
       - name: Vet
         run: go vet ./...
@@ -218,17 +223,38 @@ jobs:
       - name: Test
         run: go test -count=2 ./...
 
-  build-and-package:
-    needs: [unix-binaries, windows-tests]
+  # The tree checks a release is cut from: a commit that never had a green docs run still gets them.
+  preflight:
+    permissions:
+      contents: read
+    needs: validate-release-notes
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The phase-log and back-port checks read commit history.
+          fetch-depth: 0
+
+      - name: preflight -TreeOnly
+        shell: pwsh
+        run: ./dev-scripts/preflight.ps1 -TreeOnly
+
+  build-and-package:
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    needs: [unix-binaries, windows-tests, preflight]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: true
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
+          go-version-file: go.mod
 
       - name: Validate version input
         shell: pwsh
@@ -487,9 +513,20 @@ jobs:
           Compress-Archive -Path packaging\release\* -DestinationPath "MeshGhost-full-$env:VERSION.zip"
 
       - name: Collect the Linux and macOS packages
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: unix-packages
+
+      # A signed record that these files came from this workflow at this commit: gh attestation verify checks it.
+      - name: Attest the release's binaries and packages
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            meshghost.exe
+            meshghost-server.exe
+            MeshGhost-full-${{ inputs.version }}.zip
+            MeshGhost-linux-server-client-${{ inputs.version }}.tar.gz
+            MeshGhost-macos-server-client-${{ inputs.version }}.tar.gz
 
       # **PINNED TO A COMMIT, NOT A TAG (review J8, 2026-09-11).** This is the only
       # non-`actions/*` action in the tree and it runs in the one job that holds
