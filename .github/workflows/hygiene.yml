@@ -68,21 +68,12 @@ jobs:
           # a PDB reference, and a Rust toolchain embeds the cargo registry in panic strings.
           # A tracked, SHIPPED UE4SS.dll carried the maintainer's Windows username 86 times
           # while every scanner in this repo reported clean (found 2026-09-07).
-          #
-          # [known-binary-leaks] in dev-scripts/gate-lists.txt carries the binaries already in
-          # history that leak, so this gate can be armed before they are rebuilt. preflight.ps1
-          # names each one and its rebuild on every run; anything not listed fails here.
           list() { awk -v s="[$1]" '/^\[/ { on = ($1 == s); next } on && NF && $1 !~ /^#/ { print $1 }' dev-scripts/gate-lists.txt; }
           { list home-patterns; list clone-patterns; } > "$RUNNER_TEMP/patterns"
-          list known-binary-leaks > "$RUNNER_TEMP/known"
 
           status=0
           for f in $(git ls-files -- '*.dll' '*.exe' '*.so' '*.dylib' '*.pdb' '*.lib' '*.a' '*.bin' '*.node'); do
             if ! grep -qaF -f "$RUNNER_TEMP/patterns" "$f"; then
-              continue
-            fi
-            if grep -qxF "$f" "$RUNNER_TEMP/known"; then
-              echo "known (pending rebuild, see preflight.ps1): $f"
               continue
             fi
             echo "LEAK: $f embeds a machine-identifying path"
@@ -96,7 +87,7 @@ jobs:
             echo "  Rust  -> RUSTFLAGS=--remap-path-prefix"
             exit 1
           fi
-          echo "No NEW binary embeds a machine-identifying path."
+          echo "No tracked binary embeds a machine-identifying path."
 
       - name: Stray files (root allowlist, local-only headers)
         run: |

@@ -21,9 +21,6 @@ KEEP=$(regex exempt)
 # The clone path is looked for in scripts and binaries only: prose legitimately quotes it.
 CLONE_FILES='\.(ps1|bat|sh|lua|go|cs|cpp|hpp|h|py|dll|exe|so|dylib|pdb|lib|a|bin|node)$'
 
-# Known leaking binaries are skipped here; preflight names each one and its rebuild on every run.
-BINKEEP=$(regex known-binary-leaks)
-
 ROOT_ALLOW=$(regex root-allow)
 strays=''
 for f in $(git diff --cached --name-only --diff-filter=A); do
@@ -48,7 +45,7 @@ if [ -n "$strays" ]; then
 	exit 1
 fi
 
-staged=$(git diff --cached --name-only --diff-filter=ACMR | grep -Ev "$KEEP" | grep -Ev "$BINKEEP")
+staged=$(git diff --cached --name-only --diff-filter=ACMR | grep -Ev "$KEEP")
 [ -z "$staged" ] && exit 0
 
 hits=''

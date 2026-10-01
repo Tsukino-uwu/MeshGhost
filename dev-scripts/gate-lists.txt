@@ -33,11 +33,5 @@ dev-scripts/negative-test-preflight.ps1     the harness plants each violation
 .githooks/                                  the hooks spell out what they look for
 .github/workflows/                          hygiene.yml and release.yml spell out what they look for
 
-[known-binary-leaks]
-packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/ue4ss/UE4SS.dll    third-party build from the submodule; needs RUSTFLAGS=--remap-path-prefix (cargo panic paths); a full rebuild, then the runtime seen loading the game (risks.md)
-packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/ue4ss/Mods/MeshGhostPseudo/dlls/main.dll    MSVC PDB path; add /PDBALTPATH:%_PDB% to the link flags and rebuild
-packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/dwmapi.dll    MSVC PDB path; same fix as main.dll, same rebuild
-packaging/release/games/tevi/MeshGhost/MeshGhostTevi.dll    C# PDB path; set <PathMap> or <DebugType>none in MeshGhostTevi.csproj and rebuild
-
 [own-github-owners]
 Tsukino-uwu    this project, whose reads need no licensing row

@@ -954,3 +954,7 @@ hold no local path, the submodule pin is unchanged, and preflight reports no tra
 clone path. Deployed to both Pseudoregalia installs with `meshghost.exe` and the shipped config (backed up as
 `config.json.pre-2026-10-01`; the overwrite reset the Steam install's chaser count 5 / delay 5s / spacing 5s to the
 shipped 1 / 3s / 2s, and dropped three `ghost_range` keys from both). Not yet seen on screen.
+With all four binaries clean, the known-leaks list had nothing left to excuse: `[known-binary-leaks]` is gone from
+`gate-lists.txt`, and so is the code that read it in the pre-commit hook, preflight and `hygiene.yml`, so any home or
+clone path in any tracked binary now fails everywhere. The risk entry that sized this work said to delete itself at
+this point, and was. status.md's pinned item now waits only on the on-screen check.

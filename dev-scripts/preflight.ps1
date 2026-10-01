@@ -263,10 +263,7 @@ Section "Machine-identifying strings inside tracked BINARIES"
 $binaryPatterns = @($gateHome + $gateClone)
 $binaryFiles = & git ls-files -- '*.dll' '*.exe' '*.so' '*.dylib' '*.pdb' '*.lib' '*.a' '*.bin' '*.node'
 
-$knownBinaryLeaks = Read-GateList 'known-binary-leaks'
-
 $newBinaryLeaks = @()
-$knownStillLeaking = @()
 foreach ($bf in $binaryFiles) {
     if (-not (Test-Path -LiteralPath $bf)) { continue }
     $bytes = [System.IO.File]::ReadAllBytes($bf)
@@ -277,24 +274,14 @@ foreach ($bf in $binaryFiles) {
         if ($text.Contains($p)) { $found += $p }
     }
     if ($found.Count -eq 0) { continue }
-    $norm = ($bf -replace '\\', '/')
-    if ($knownBinaryLeaks.Contains($norm)) {
-        $knownStillLeaking += "$norm [$($found -join ', ')] -- $($knownBinaryLeaks[$norm])"
-    } else {
-        $newBinaryLeaks += "$norm [$($found -join ', ')]"
-    }
+    $newBinaryLeaks += "$(($bf -replace '\\', '/')) [$($found -join ', ')]"
 }
 
 if ($newBinaryLeaks.Count -gt 0) {
     Report-Fail "a tracked binary embeds a machine-identifying path (rebuild it with the build directory stripped -- /PDBALTPATH for MSVC, <PathMap> for C#, --remap-path-prefix for Rust):"
     foreach ($h in $newBinaryLeaks) { Write-Host "        $h" }
-} elseif ($knownStillLeaking.Count -eq 0) {
-    Report-Pass "no tracked binary embeds a username or a clone path"
 } else {
-    Report-Pass "no NEW tracked binary embeds a machine-identifying path"
-}
-foreach ($h in $knownStillLeaking) {
-    Report-Warn "known, not yet rebuilt: $h"
+    Report-Pass "no tracked binary embeds a username or a clone path"
 }
 
 # Refuses a vague duration, or an unnumbered "<units> of" span of effort, in a tracked file.

@@ -706,34 +706,6 @@ These sat in `status.md` with a pointer to code or to a decision record, and now
 now holds one dated line per item and drops anything older than two days, so a known gap that is not
 being worked belongs here, as a risk, until someone picks it up. Each keeps its original wording.
 
-- **The four tracked, SHIPPED DLLs carry the maintainer's paths and username** (carried here
-  2026-09-11). `UE4SS.dll` holds the username 86 times; `main.dll`, `dwmapi.dll` and
-  `MeshGhostTevi.dll` hold the clone path. Every one is in a release a stranger downloads. The
-  scanners could not see binaries at all until 2026-09-08 — preflight printed PASS on a leaking
-  tree — and `hygiene.yml` now runs a binary scan on every push with no path filter, so nothing
-  NEW can land. These four are grandfathered in `preflight.ps1`'s `$knownBinaryLeaks`, which names
-  the fix for each: `<PathMap>` or `<DebugType>none` for the C# one, `/PDBALTPATH:%_PDB%` for the
-  two MSVC ones, and `RUSTFLAGS=--remap-path-prefix` for UE4SS, whose rebuild is a third-party
-  concern best done at the next submodule bump. **Each needs a rebuild, not a code change**, which
-  is why it is a risk rather than a task: they clear the day someone rebuilds for another reason.
-  This entry existed ONLY in `status.md` and in the script's allowlist — it was the one item in
-  that file whose substance was recorded nowhere else.
-  **SCHEDULED 2026-09-18 for the week of 2026-09-21, the user's call: all four at once, small and
-  large — it is a one-time fix that keeps the tree clean afterwards, which is what makes it worth a
-  rebuild it would never be worth on its own.** `status.md` carries it as the open task; this entry
-  carries the sizing, re-derived from the binaries in a pre-push audit that reached them before it
-  reached this file. **The three clone-path DLLs: one build flag each** — `<PathMap>` (or
-  `<DebugType>none`) in `MeshGhostTevi.csproj` then `build-tevi.bat`; `/PDBALTPATH:%_PDB%` on the two
-  MSVC links then `build-pseudoregalia.bat`. The wrinkle is `dwmapi.dll`, which comes out of the
-  RE-UE4SS build tree rather than our own target, so the flag has to reach that target too. **`UE4SS.dll`
-  is the only one carrying the username, and the only expensive one**: `RUSTFLAGS=--remap-path-prefix`
-  (or a repo-local `CARGO_HOME`) is one variable to write, but it invalidates the whole cargo cache,
-  so it forces a from-scratch rebuild of a large third-party Rust + C++ tree — and then the rebuilt
-  runtime has to actually load Pseudoregalia, **which only the user can judge on screen**.
-  **How each one is confirmed fixed: preflight drops it from `$knownBinaryLeaks`'s report.** When all
-  four are gone the allowlist is deleted, and so is this entry. The published copies are not part of
-  the job and cannot be: no history rewrite reaches a release zip somebody already downloaded, so the
-  win is that every FUTURE release stops carrying them.
 - **Receive rate cap** — `max_receive_hz_per_player` never watched live; needs two clients at
   different caps. (The send side was confirmed on screen 2026-08-15.) `architecture.md` ADR.
 - **Transports: quic default confirmed with a real game attached** (2026-08-16, shared port, no
