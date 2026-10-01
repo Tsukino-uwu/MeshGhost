@@ -386,9 +386,12 @@ default silently drags every dev client back down, and a ghost updating at 15Hz 
   `BepInEx/config/dev.meshghost.tevi.cfg` needs its `BridgePort` set to match (7779), since
   Steam already owns the default. See
   [agent_docs/phases/phase6.md](../agent_docs/phases/phase6.md)'s 6.6 entry.
-- `build-tevi.bat` — not a launcher, a build step: compiles the TEVI BepInEx plugin and stages
-  the result into `packaging/release/games/tevi/` for the release zip. Re-run and commit the
-  result whenever `adapters/tevi/MeshGhostTevi/{Plugin.cs,BridgeClient.cs,*.csproj}` change —
+- `build-tevi.bat` (runs `build-tevi.ps1`) — not a launcher, a build step: builds the TEVI BepInEx plugin
+  from two clean clones of HEAD at different paths, refuses unless the two DLLs are byte-identical
+  (`PathMap` keeps the clone's path out; the pdb stays for ScriptEngine), and stages it into
+  `packaging/release/games/tevi/` with `built-from.txt` listing every build input's hash and the SDK.
+  It builds HEAD, so commit first. Re-run and commit the result whenever a source, the `.csproj`, its
+  `packages.lock.json`, `global.json`, `Directory.Build.props` or `nuget.config` change —
   see [packaging/README.md](../packaging/README.md)'s TEVI section for why this one output is
   committed at all.
 - `tevi-hotreload.ps1` — takes the relaunch out of TEVI's edit loop. Moves the adapter between

@@ -20,6 +20,9 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <DebugType>full</DebugType>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <Deterministic>true</Deterministic>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode>true</RestoreLockedMode>
     <TeviManaged Condition="'$(TeviManaged)' == ''">C:\Program Files (x86)\Steam\steamapps\common\TEVI\TEVI_Data\Managed</TeviManaged>
   </PropertyGroup>
 
@@ -30,7 +33,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="BepInEx.Core" Version="5.*" />
+    <PackageReference Include="BepInEx.Core" Version="5.4.21" />
     <PackageReference Include="UnityEngine.Modules" Version="2021.3.25" IncludeAssets="compile" />
   </ItemGroup>
 

@@ -69,7 +69,10 @@ start tracking again after a peer left and rejoined (2026-08-28, not investigate
 
 `dev-scripts/build-tevi.bat` builds the DLL — it needs `MeshGhostTevi/lib/Assembly-CSharp.dll`
 and `lib/Newtonsoft.Json.dll` copied in once from your own TEVI install (proprietary, gitignored,
-never committed — which is also why CI cannot build this adapter and the DLL is checked in).
+never committed — which is also why CI cannot build this adapter and the DLL is checked in). It
+builds the committed HEAD twice, from two clean clones at different paths, with the SDK `global.json`
+names and every package locked by `packages.lock.json`, and stages the DLL only if both builds are
+byte-identical, so the DLL holds no path from the machine that built it.
 After a rebuild, also copy the DLL to the live game install(s), not just `packaging/release/`.
 The mod looks for `meshghost.exe`, its `config.json`, `meshghost.log` and the `replay\` folder in
 the **game's root folder** (the one with `TEVI.exe`) and nowhere else, since 2026-09-05; a dev

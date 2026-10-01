@@ -33,12 +33,17 @@
     -->
     <DebugType>full</DebugType>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <Deterministic>true</Deterministic>
+    <!-- Every package pinned with its content hash; to update one on purpose: dotnet restore -p:RestoreLockedMode=false,
+         then commit packages.lock.json. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode>true</RestoreLockedMode>
   </PropertyGroup>
 
   <ItemGroup>
     <!-- BepInEx 5.4.x, matching this machine's confirmed-working TEVI install
          (agent_docs/environment.md). -->
-    <PackageReference Include="BepInEx.Core" Version="5.*" />
+    <PackageReference Include="BepInEx.Core" Version="5.4.21" />
     <!-- Unity API surface pinned to TEVI's actual confirmed Unity version (2021.3.25f1, read
          directly from UnityPlayer.dll, see agent_docs/environment.md), not the 2021.3.33 the
          randomizer's own project happens to reference. -->

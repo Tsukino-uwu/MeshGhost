@@ -909,3 +909,8 @@ force-restored with the VPN up.
 ## 2026-09-30 — pointer: the host CLAUDE.md cut to its rules
 
 The stories moved to `pitfalls/by-lesson.md`, "The stories behind the rule files"; the record is [phase12.md](phase12.md), 2026-09-30.
+
+## 2026-10-01 — pointer: pinned, reproducible TEVI builds
+
+BepInEx.Core pinned to 5.4.21, a restore lockfile per project, the SDK in `global.json`, and `build-tevi.bat` building
+HEAD from two clean clones; the record is [phase12.md](phase12.md), 2026-10-01 (A3).

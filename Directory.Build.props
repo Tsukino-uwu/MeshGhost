@@ -1,0 +1,14 @@
+<Project>
+  <!-- MSBuild looks for build files in every folder above a project and in per-user folders. This file ends that
+       search at the repo root and turns the rest off, so nothing outside the clone can join a build. -->
+  <PropertyGroup>
+    <ImportDirectoryBuildTargets>false</ImportDirectoryBuildTargets>
+    <ImportDirectoryPackagesProps>false</ImportDirectoryPackagesProps>
+    <ImportUserLocationsByWildcardBeforeMicrosoftCommonProps>false</ImportUserLocationsByWildcardBeforeMicrosoftCommonProps>
+    <ImportUserLocationsByWildcardAfterMicrosoftCommonProps>false</ImportUserLocationsByWildcardAfterMicrosoftCommonProps>
+    <ImportUserLocationsByWildcardBeforeMicrosoftCommonTargets>false</ImportUserLocationsByWildcardBeforeMicrosoftCommonTargets>
+    <ImportUserLocationsByWildcardAfterMicrosoftCommonTargets>false</ImportUserLocationsByWildcardAfterMicrosoftCommonTargets>
+    <ImportUserLocationsByWildcardBeforeMicrosoftCSharpTargets>false</ImportUserLocationsByWildcardBeforeMicrosoftCSharpTargets>
+    <ImportUserLocationsByWildcardAfterMicrosoftCSharpTargets>false</ImportUserLocationsByWildcardAfterMicrosoftCSharpTargets>
+  </PropertyGroup>
+</Project>

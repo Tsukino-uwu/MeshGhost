@@ -31,6 +31,9 @@
     <!-- The adapter targets netstandard2.0 and uses older C# idioms; none of that is an error. -->
     <NoWarn>$(NoWarn);CS0618;CS0649;CS0169;CS0414</NoWarn>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Deterministic>true</Deterministic>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode>true</RestoreLockedMode>
   </PropertyGroup>
 
   <ItemGroup>

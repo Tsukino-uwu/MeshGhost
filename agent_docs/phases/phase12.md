@@ -901,3 +901,18 @@ of the two SDKs installed (10.0.302, 10.0.401) the newer builds today. First gat
 `Directory.Build.props` join the root allowlist, and preflight's built-from check reads a recorded name with a
 slash as repo-relative, for build inputs outside the source folder. The seven GitHub Actions the workflows use got
 their licensing row (all MIT, each `LICENSE` read 2026-10-01) before their docs or tags were read.
+
+A3, the C# half. A ratchet below its floor now warns rather than fails: the floor sits in `preflight.ps1`, a gate
+file, and `commit-msg` keeps gate changes out of code commits, so a code commit that lowers a count could never also
+lower its floor. MonoMod's `21.12.13.1` joined the public-IP gate's allowlist (the lockfiles carry it). Then the
+build inputs: `global.json` (SDK 10.0.401, `latestPatch`, as in bug_fables_ap), a root `Directory.Build.props` (from
+bug_fables_ap) that stops MSBuild importing anything from outside the clone, and in all four C# projects
+`BepInEx.Core` 5.4.21 (what `5.*` resolved to), `<Deterministic>`, and a locked restore from a committed
+`packages.lock.json` (dotnet writes them CRLF; normalised to LF, and TEVI's is `eol=lf` with its other hashed inputs).
+`DebugType=none` was ruled out for TEVI: `tevi-hotreload.ps1` pairs the staged DLL with the in-tree pdb, because
+ScriptEngine will not load a plugin without matching symbols. Measured instead: with `-p:PathMap=<clone>=/_/` the
+DLL's one path becomes `/_/adapters/tevi/MeshGhostTevi/obj/Release/MeshGhostTevi.pdb`, and two clones at different
+paths build byte-identical DLLs. `build-tevi.bat` now runs `build-tevi.ps1`, which builds HEAD that way, refuses
+unless the two DLLs match and hold no local path, stages clone A's DLL, copies its DLL and pdb into the in-tree
+`bin\Release` for the dev loop, and records every build input's hash (from the clone, in committed form) plus the
+SDK in `built-from.txt`. The TEVI bridge fuzz harness passes on the locked restore.
