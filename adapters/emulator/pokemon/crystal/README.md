@@ -1,12 +1,13 @@
 # Pokémon Crystal
 
 **Status: shipping, and under active work — Phase 9.** `meshghost_crystal.lua` dials the bridge,
-reads each peer's sprite and gait off the cartridge, **paints** every peer over the emulator's
-output in step with the game's own camera, and ships in the release (`release.yml` runs
-`dev-scripts/stage-release.ps1`, which stages it into `games/pokemon/crystal/`). It can also
-**spawn a real in-game object event** for a peer and walk it with the game's own step mechanism —
-that was the shipped tier until 2026-09-02 and is a dev opt-in since (step 26). In that mode it
-**writes game RAM** — object RAM only, never a save; a painted peer takes no engine slot at all.
+reads each peer's sprite off the cartridge (or off the wire, for a run sprite this cartridge lacks),
+**paints** every peer over the emulator's output in step with the game's own camera, and ships in
+the release (`release.yml` runs `dev-scripts/stage-release.ps1`, which stages it into
+`games/pokemon/crystal/`). It can also **spawn a real in-game object event** for a peer and walk it
+with the game's own step mechanism — that was the shipped tier until 2026-09-02 and is a dev opt-in
+since (step 26). In that mode it **writes game RAM** — object RAM only, never a save; a painted peer
+takes no engine slot at all.
 
 **Three tiers, which is this adapter's headline structure — and only one of them ships.** A peer
 can be rendered **spawned** (a real object event the engine walks, animates and occludes for us),
@@ -17,15 +18,17 @@ user's call after watching the spawned ghost snap at a map seam where the painte
 opt-ins, kept as the comparison and the record of how the object system works. Everything below
 about the spawned tier describes that mode.
 
-**Last live confirmation 2026-09-10**, in a room of **four windows across five recognised builds**:
-a peer's clothing colour, their object palette, the rebuilt UI hide rule and the out-of-play hold all
-went in on 2026-09-09 and 2026-09-10. Before that, 2026-08-27: the first **mixed-build room** — one
-Archipelago client and one vanilla client, two emulators, two cores — where seven faults were found
-and fixed on screen; 2026-08-26: ledge hops, Dig/Escape Rope, fishing, the Fly landing, ice glides
-and the party-menu gate; movement itself — both gaits, both tiers, surf and the bike — 2026-08-25.
+**Last live confirmation 2026-09-13**, a vanilla + Archipelago room: a runner's own sprite over the
+wire, the turn in place, and no bike pixels left after a dismount. Before that, in a room of **four
+windows across five recognised builds**: a peer's clothing colour, their object palette, the rebuilt
+UI hide rule and the out-of-play hold all went in on 2026-09-09 and 2026-09-10. Before that,
+2026-08-27: a whole session in a **mixed-build room** — one Archipelago client and one vanilla client,
+two emulators, two cores, first in one room on 2026-08-18 — where seven faults were found and fixed; 2026-08-26: ledge hops,
+Dig/Escape Rope, fishing, the Fly landing, ice glides and the party-menu gate; movement itself —
+both gaits, both tiers, surf and the bike — 2026-08-25.
 **What is confirmed and what is not is [VERIFIED.md](VERIFIED.md) and
-[UNVERIFIED.md](UNVERIFIED.md)**, in that order: every confirmation before the mixed session is a
-loopback ghost on vanilla V1.0 at the dev rig's interpolation, and the hardware tier has never been
+[UNVERIFIED.md](UNVERIFIED.md)**, in that order: every confirmation before 2026-08-27 but the
+2026-08-18 room is a loopback ghost on vanilla V1.0 at the dev rig's interpolation, and the hardware tier has never been
 judged on screen at all.
 
 - Platform: Game Boy Color, played via BizHawk.
@@ -127,26 +130,34 @@ unwatched says so and is in [UNVERIFIED.md](UNVERIFIED.md).
 1. Checked the licences for the whole `pret` family before reading any of it — all of them carry
    no licence file, so the same facts-only posture already used for `pokeemerald` applies.
    ([agent_docs/licensing.md](../../../../agent_docs/licensing.md))
+   **Status:** resolved (2026-08-17).
 2. Built `pokecrystal` locally and confirmed the result is byte-identical both to the ROM being
    played and to the hash the decomp documents, which is what makes every address below
    authoritative rather than merely plausible. ([VERIFIED.md](VERIFIED.md))
+   **Status:** works, measured (2026-08-17).
 3. Pulled the player and map addresses out of the resulting `pokecrystal.sym`, including the four
    consecutive bytes `wMapGroup`/`wMapNumber`/`wYCoord`/`wXCoord` that later served as a
    fingerprint for identifying them in a live game.
+   **Status:** works, measured (2026-08-17).
 4. Confirmed live how to actually reach those addresses from BizHawk, which was the one thing the
    decomp could not answer — Game Boy WRAM is banked, so a bank-1 address needs the right domain.
    `System Bus` and `WRAM` both work and agree exactly. (`probes/domain_probe.lua`)
+   **Status:** works, measured (2026-08-17).
 5. Got a ghost to exist by borrowing the game's own machinery rather than drawing anything: a free
    map object plus a free object struct, copied from a real NPC the engine is already driving. It
-   walks with the game's own step animation and faces the right way, and this adapter draws,
-   animates and interpolates nothing. Confirmed on screen 2026-08-18; the long version, including
-   what a map load does to it, is in `agent_docs/phases/phase9.md`.
+   walks with the game's own step animation and faces the right way, and for that ghost this
+   adapter drew, animated and interpolated nothing. Confirmed on screen 2026-08-18; the long
+   version, including what a map load does to it, is in `agent_docs/phases/phase9.md`.
+   **Status:** superseded as shipped by step 26 (2026-09-02); a dev opt-in, seen on screen
+   2026-08-18.
 6. Made it work on an Archipelago-patched ROM, which needed every address measured again rather
-   than adjusted. The patch moves WRAM by different amounts in different places — seven addresses
+   than adjusted. The patch moves WRAM by different amounts in different places — eight addresses
    by +7, the object array by +6, the map-object table by −0x2A — so the adapter keeps one table
-   per ROM build, picked by the header title, and an unmeasured entry stays `nil` so it refuses to
-   run instead of writing somewhere plausible. A loopback ghost walked on that ROM the same day.
+   per ROM build, picked by the header title, and an unmeasured entry stays `nil` — a refusal to
+   run if the adapter must read or write it, a feature switched off otherwise — instead of writing
+   somewhere plausible. A loopback ghost walked on that ROM the same day.
    The measurement techniques are in `adapters/_template/probes.md`; the trap is in `pitfalls.md`.
+   **Status:** works, seen on screen (2026-08-18); both Archipelago bases again 2026-09-09.
 7. Measured how many ghosts the game can actually hold, then stopped dropping the rest. Nine on a
    map and ten characters on screen are the engine's and the hardware's own ceilings, and the
    user's call on seeing them was that nobody should pop in and out — so peers past the ceiling are
@@ -154,6 +165,7 @@ unwatched says so and is in [UNVERIFIED.md](UNVERIFIED.md).
    2026-08-19. That tier owes the engine's occlusion back by hand, which Crystal makes possible
    because it publishes where its UI rectangles are (step 20). Registered as a compensation in
    [BANDAGES.md](BANDAGES.md).
+   **Status:** works, seen on screen (2026-08-19); every peer is painted since step 26.
 8. Added the hardware (OAM) tier between the other two, on the user's request. A peer whose tiles
    are already resident in VRAM is written into the game's own sprite buffer, so it gets the
    engine's live palettes, day/night and fades for no per-pixel Lua. It allocates downward from
@@ -162,6 +174,8 @@ unwatched says so and is in [UNVERIFIED.md](UNVERIFIED.md).
    capacity, and does **not** get occlusion free — a text box is background tiles with the
    BG-to-OAM priority bit clear, so a sprite draws in front of it. Shipped OFF: nothing about how
    it looks has been confirmed on screen. [FLAGS.md](FLAGS.md), [UNVERIFIED.md](UNVERIFIED.md).
+   **Status:** built, not yet seen on screen (2026-08-21); off by default, and off on the
+   Archipelago table.
 9. Made the painted tier hold its position and its facing, which took a whole session and six
    attempts at the facing alone. Three of the faults were the same shape: a rule this file had
    already worked out — take the MINIMUM x across a character's four hardware sprite entries,
@@ -170,17 +184,21 @@ unwatched says so and is in [UNVERIFIED.md](UNVERIFIED.md).
    indistinguishable from them in the hardware's own sprite table, so the tier was learning the
    player's artwork from its own ghost. `pitfalls.md` has each; the method that found them all was
    one small trace, written after four fixes reasoned from the code had failed on screen.
+   **Status:** works, seen on screen (2026-08-22).
 10. Made the painted ghost actually WALK, which needed a fact about the game nobody had established:
     a sprite has six views, not three. Three standing, and three STEPPING that sit 0x80 higher in the
     character's own graphics — confirmed on the player and on an NPC at a different tile base, so it
     is relative rather than an absolute region. A guard added the previous day to stop the tier
     learning from the wrong character had capped the offset at 12, which discarded every stepping
     frame as foreign; it was right about the danger and wrong about the number.
+    **Status:** works, seen on screen (2026-08-22).
 11. Fixed the spawned ghost sliding off its tile, which turned out to be a step that covered 14px of
     a 16px tile. Found by re-anchoring a standing ghost to the tile it claims to be on and logging
     how far it had to move — the correction was 2px on essentially every step, which named the step
     length rather than the sprite writes that had been suspected. Two things were removed one at a
     time to get there, with a measurement after each and no third guess.
+    **Status:** superseded as shipped by step 26 (2026-09-02); spawned tier only, seen on screen
+    2026-08-22.
 12. Made the painted ghost move like the engine rather than like a position feed, which took a whole
     session and nine distinct defects across three layers — the world coordinate, the paint, and the
     walk cycle — each of which read clean on instruments built in its own frame while the layer under
@@ -189,6 +207,8 @@ unwatched says so and is in [UNVERIFIED.md](UNVERIFIED.md).
     decides only at tile boundaries, and advances on the frames the camera itself scrolls, copying
     its delta. Full chain in [pitfalls.md](../../../../agent_docs/pitfalls.md); the instruments,
     which outlast the fix, in [probes.md](../../../_template/probes.md).
+    **Status:** works, seen on screen (2026-08-23); open: the one-stride commit of 2026-09-13 is
+    measured, not yet judged.
 13. Made the seam between the tiers invisible, which is where the general rule came from: **a tier
     handover is a POSITION handover, and it needs an overlap.** An idle peer is demoted to the drawn
     tier and promoted back the moment it moves — so "starts walking after standing still" is a
@@ -196,23 +216,30 @@ unwatched says so and is in [UNVERIFIED.md](UNVERIFIED.md).
     disagreement in one frame, and dropping the painted copy on the same frame left a hole neither
     tier filled. Promote onto the tile the painted model is actually over, then hold both until the
     engine is seen drawing the new one.
+    **Status:** superseded as shipped by step 26 (2026-09-02): no handover without the spawned tier;
+    seen on screen 2026-08-23.
 14. Found that a drawn ghost outlived the server being shut down, from a repro the user proposed.
     `disconnect()` forgets every peer, which is enough for real engine objects and does nothing to
     pixels already painted — and because the overlay is in SCREEN space, the frozen last frame
     appeared to follow the player around. **A memory dump cannot see a rendering artefact**: two
     confident diagnoses were both wrong because both looked in WRAM. `pitfalls.md`.
+    **Status:** works, seen on screen (2026-08-23).
 15. Moved the ghost's sub-tile position out of `extras` and into `position`, which is the most
     expensive lesson of this phase and is not Crystal-specific. The core interpolates every
     component of `position` and passes `extras` through latest-wins, so a renderer mixing the two
     is combining terms that describe different instants — a stutter by construction, invisible at
     the dev rig's `-interp=0ms` and only real at the shipped delay, which was the one configuration
     nobody was testing. Back-ported to [_template/README.md](../../../_template/README.md).
+    **Status:** works, seen on screen (2026-09-02) at the then-shipped 250ms; the 2026-08-23 look
+    was at 0ms.
 16. Made surfing, the bike and ordinary walking 1:1 on both tiers — eleven fixes in one session,
     confirmed 2026-08-25 (*"moving perfect, surf working, bike working"*). A surfing peer had been
     drawn as a walking character standing on the sea because the drawn tier's decoded-tile cache
     was never invalidated at all, despite a comment claiming a map load cleared it — and a surf
     mount rewrites the player's tiles in place, with no map load. The bike needed the peer's gait
     carried on the wire as the engine's own group number rather than inferred from its speed.
+    **Status:** works, seen on screen (2026-08-25); bike and surf again on all five builds
+    2026-09-09.
 17. Replaced the bump special case with one rule for every in-place animation: read the peer's own
     action byte and let each tier honour it. That is what makes a whirlpool spin, and it is also
     what makes an **ice glide** correct — a gliding player reads "moving while STANDING", which is
@@ -220,67 +247,89 @@ unwatched says so and is in [UNVERIFIED.md](UNVERIFIED.md).
     the walk cycle entirely. Ice confirmed 2026-08-26; the whirlpool's spawned half is not, and
     the reason is in [UNVERIFIED.md](UNVERIFIED.md) — the game freezes every other object during
     the forced spin, so loopback cannot show the case at all.
+    **Status:** partial: ice seen on screen (2026-08-26); the whirlpool spin unwatched.
 18. Made a peer fish, which needed three things the wire was not carrying and one it was carrying
     wrongly. The pose was already there — `OBJECT_FACING` states it outright — but the ROD came
     from `FishingRodGFX`, which the game loads and then immediately overwrites with the real
     fishing sheet, so the drawn rod was somebody else's art. The bite's little shake is
     `OBJECT_SPRITE_Y_OFFSET`, now on the wire; the "!" is a separate map object, found by a scan
     and identified by matching the tiles the game loaded against the cartridge's own table, so
-    peers get every emote rather than that one. Confirmed on screen 2026-08-26.
+    peers on a hash-verified build can show every emote rather than that one. Confirmed on screen
+    2026-08-26.
+    **Status:** works, seen on screen (2026-08-26); open: only the "!" watched, and no rod or emotes
+    on an Archipelago receiver.
 19. Fixed a fault fishing only happened to expose: the drawn tier calibrated screen space against
     OAM entries 0-3 assuming they were the player's, but the engine emits by PRIORITY — so while
     any high-priority object was up (the "!" is one), every painted ghost sat a tile too high. The
     player's entries are now found by their tile block instead of by their position in the list.
     `agent_docs/pitfalls/by-lesson.md`.
+    **Status:** works, seen on screen (2026-08-26).
 20. Stopped painting a ghost over a full-screen menu, twice over. The game keeps ONE scratch slot
     for the menu rectangle, so a "can't use that here" box replacing the party menu left a single
     remembered rectangle protecting six rows of a screen that was entirely menu — the tier now
     keeps a list. And the gate itself became positive rather than a deny-list: `wSpriteUpdatesEnabled`
-    is the game's own "may a character be shown at all", cleared on the way into every full-screen
-    UI, which is one test instead of a list nobody can finish. Confirmed 2026-08-26.
+    is the game's own "may a character be shown at all" — clear on the fly map screen, set in the
+    overworld — which is one test instead of a list nobody can finish. Confirmed 2026-08-26.
+    **Status:** works, seen on screen (2026-08-26); open: the sprite-engine gate has no address on
+    the Archipelago table.
 21. Made a peer arrive by Fly as the POKEMON that carried them, descending on the engine's own
     decaying-cosine spiral read off the decompilation rather than tuned, and becoming the character
     as it lands. The species crosses the wire, latched with the map-entry byte because the party
     index moves the moment a menu opens. Confirmed same-town and cross-town 2026-08-26 — and it
     **retired a bandage the same day it was added**, a skyfall drop that stood in while the real
     landing was still unmeasured. [BANDAGES.md](BANDAGES.md).
+    **Status:** partial: seen on screen in loopback (2026-08-26); a real peer's Fly seen dragged, not
+    flown (2026-09-09).
 22. Made a ledge hop the engine's own jump, which produced the rule worth carrying to the next
     adapter: **send the QUESTION, not the engine's own byte.** Copying the peer's transmitted arc
     gave a frozen ghost; writing one step type instead gave both tiles, both halves of the arc and
     the right pace, generated on the receiver's clock. The wire carries "is this peer hopping?",
     because the player's own step type drives the camera and copying it would drag the view. Both
-    tiers get a shadow under the ghost. Confirmed 2026-08-26.
+    tiers get a shadow under the ghost (the painted one on a hash-verified build). Confirmed
+    2026-08-26.
+    **Status:** works, seen on screen (2026-08-26); open: loopback only, and no painted shadow on an
+    Archipelago receiver.
 23. Confirmed Dig and Escape Rope together, because they are one routine differing by a single
     byte — a counterclockwise spin in place on departure, spin-and-flicker on arrival, and no
     vertical movement at all. It needed no new code: the action byte was already on the wire and
     both tiers already honoured it. It also deleted a phrase from the source that had never been
     true — there is no Dig fall; Teleport is the class that raises the sprite, and it remains
     unmeasured. Confirmed 2026-08-26.
-24. Put an Archipelago client and a vanilla client in one room — the first mixed-build session this
-    project has run — and seven faults came out of it, each invisible to a same-build test. The
-    patched cartridge's camera is two *different* HRAM bytes, so the drawn tier's clock read dead
-    values and a standing peer painted itself gliding; it also has a **fourth gait** vanilla lacks,
-    which the camera's plausibility test rejected as a register rebase. The rest were one shape: a
-    peer's appearance learned from the LOCAL player, which says nothing about a peer on the other
-    build. Everything a build can move is now read off that cartridge rather than assumed.
+    **Status:** works, seen on screen (2026-08-26); Teleport still unbuilt.
+24. Put an Archipelago client and a vanilla client in one room for a whole session — they had first
+    seen each other on 2026-08-18 — and seven faults came out of it, each invisible to a same-build
+    test. The patched cartridge's camera is two *different* HRAM bytes, so the drawn tier's clock
+    read dead values and a standing peer painted itself gliding; it also has a **fourth gait**
+    vanilla lacks, which the camera's plausibility test rejected as a register rebase. The rest were
+    one shape: a peer's appearance learned from the LOCAL player, which says nothing about a peer on
+    the other build. Everything a build can move is now read off that cartridge rather than assumed.
+    **Status:** works, seen on screen (2026-08-27); the confirmations were never moved into the
+    verified record.
 25. **FEATURE COMPLETE, 2026-08-27.** The user's own line, added by hand and deliberately left
     without a description — **the scope of it has not been stated, and nothing here should invent
     one.** Read it against the open list directly below, which then had Teleport unbuilt and
     RUNNING's gait unmeasured on the Archipelago build (running came later, step 34); whether those sit inside or outside this
     call is the user's to say. `UNVERIFIED.md` carries the question.
+    **Status:** a milestone declared, not a test (2026-08-27); its scope is not stated.
 26. Made **drawn the only shipped tier** and the spawned ladder a dev opt-in — the user's call,
     2026-09-02, after watching both side by side: the spawned ghost snapped a little whenever IT
     crossed a map seam ahead of or behind the player, and the painted one walked the same seam
     clean; the painted tier also keeps a faster-cartridge peer at the right speed, never flaps
-    between tiers mid-walk, and has no engine slot to run out of. Cost decided nothing — 12
-    painted peers measure the same as an empty screen here, where on Emerald painting is the
+    between tiers mid-walk, and has no engine slot to run out of. Cost decided nothing — 16
+    painted peers measure the same as an idle screen here, where on Emerald painting is the
     expensive rung, which is why that adapter keeps spawned first. The spawned code stays as the
     comparison and the record. [FLAGS.md](FLAGS.md) `MESHGHOST_CRYSTAL_SPAWN_TIER`; the shipped
-    mode itself is still unwatched as shipped ([UNVERIFIED.md](UNVERIFIED.md)).
-27. Re-judged the interpolation delay on the worst-case link — NA↔EU ping plus bad wifi — and
-    450ms ships here like everywhere else (2026-09-02, ADR 0046), the user's explicit call for
-    this game from the other three. Also confirmed the same week: ghosts survive relay-side area
-    filtering, read from the release files themselves (2026-08-28). [VERIFIED.md](VERIFIED.md).
+    mode was watched as shipped the same day, on the bike at the then-shipped 250ms; the rest of its
+    checklist is open ([UNVERIFIED.md](UNVERIFIED.md)).
+    **Status:** works, seen on screen (2026-09-02); open: the rest of the as-shipped checklist (surf,
+    seam, ledge, door, crowd).
+27. Took the interpolation delay the other three games were judged at on the worst-case link —
+    NA↔EU ping plus bad wifi — so 450ms ships here like everywhere else (2026-09-02, ADR 0046), the
+    user's explicit call for this game from the other three, without a Crystal run on that link.
+    Also confirmed the same week: ghosts survive relay-side area filtering, run from the source
+    checkout, not the staged release (2026-08-28). [VERIFIED.md](VERIFIED.md).
+    **Status:** ships by decision (2026-09-02), carried from the other three games; no Crystal run
+    on that link.
 28. Built the loop that made everything after it cheap. The emulator host's dev loader is attached
     once and then loads, swaps or drops whatever script a one-line control file names, so a change
     costs a script reload instead of a full relaunch — and every relaunch interrupts whoever is
@@ -288,6 +337,7 @@ unwatched says so and is in [UNVERIFIED.md](UNVERIFIED.md).
     savestates and a scripted walk, which is how most of the faults below were found without anyone
     sitting at the keyboard. The loader is the host's and shared with Emerald, so it is described
     once, there: [../../CLAUDE.md](../../CLAUDE.md).
+    **Status:** works, measured (2026-08-18).
 29. Took ghosts across the map seam. The adapter reads the map-connection block on every map load
     and translates a peer's tile out of a neighbour's frame into ours, culling the peers too far to
     matter; it then declares `render_all_areas` in its hello so the core stops applying its own
@@ -296,24 +346,32 @@ unwatched says so and is in [UNVERIFIED.md](UNVERIFIED.md).
     filter rather than losing it with nothing to replace it. Confirmed on screen in all four
     directions, 2026-08-27 ([VERIFIED.md](VERIFIED.md)); the same session surfaced a pre-existing
     fault where three of the four facings drew mirrored, fixed alongside it.
+    **Status:** works, seen on screen (2026-08-27); open: off on the Archipelago table, whose
+    connection block is unmeasured.
 30. Taught the adapter which Crystal it is running on. Five recognised builds — vanilla V1.0 and
-    V1.1, Speedchoice v8.1, and Archipelago on either base — each carrying its own address table,
-    chosen from the ROM header's title, version byte and global checksum. An address a build does
-    not have is a **refusal to run, never a fallback**: a write aimed at a vanilla address on a
-    patched cartridge does not fail cleanly, it writes somewhere real. Confirmed across all five on
-    screen, 2026-09-09 ([VERIFIED.md](VERIFIED.md)).
+    V1.1, Speedchoice v8.1, and Archipelago on either base — on three address tables (V1.1 shares
+    V1.0's, both Archipelago bases share one), chosen from the ROM header's title, version byte and
+    global checksum. An address a recognised build must read or write and does not have is a
+    **refusal to run, never a fallback**: a write aimed at a vanilla address on a patched cartridge
+    does not fail cleanly, it writes somewhere real. Confirmed across all five on screen, 2026-09-09
+    ([VERIFIED.md](VERIFIED.md)).
+    **Status:** works, seen on screen (2026-09-09); open: the fallback for other `AP_` titles
+    (2026-09-26) is not yet seen.
 31. Stopped a player vanishing the moment they entered a battle, a menu or a fishing cast. The
     adapter holds the last in-play state and re-sends it while the player is out of play, with the
     transient extras cleared so a repeated arrival marker cannot keep every receiver stuck in
     arrival handling. Nothing is sent before the first in-play state, so the title screen still
     sends nothing. The user reported the symptom and chose the behaviour; confirmed 2026-09-09
     ([VERIFIED.md](VERIFIED.md)).
+    **Status:** works, seen on screen (2026-09-09).
 32. Rebuilt the rule for when the game's own UI hides a character, on what the tiles actually say.
     A text box defers to the tilemap's BG-priority bit; a menu rectangle hides unconditionally,
     because the tile test regressed the pause menu; and a rectangle counts as live only when its
     frame's corner tile is drawn, which replaced a guard that compared strings. Confirmed on all
     five builds, 2026-09-09 ([VERIFIED.md](VERIFIED.md)). The surprise underneath it is in
     [documentation.md](documentation.md): a text box does not hide characters at all.
+    **Status:** works, seen on screen (2026-09-09); hiding the bottom rows under a menu is a chosen
+    rule, not 1:1.
 33. Made a peer look like themselves rather than like the window watching them. A peer's object
     palette rides the wire, so a surfing peer keeps the colour their own game gives them; so does
     their clothing colour, read out of palette RAM rather than the cartridge's palette table, which
@@ -322,17 +380,23 @@ unwatched says so and is in [UNVERIFIED.md](UNVERIFIED.md).
     across four windows, 2026-09-09 and 2026-09-10 ([VERIFIED.md](VERIFIED.md)) — with one gap the
     record keeps: a real coloured Archipelago seed is still unwatched, and the mechanism was
     exercised with a probe instead.
+    **Status:** works, seen on screen (2026-09-10); open: a real coloured Archipelago seed is
+    unwatched.
 34. Showed running on a cartridge that has no running. An Archipelago player runs in a sprite of its
     own that vanilla and speedchoice do not have, so their clients drew the runner in whatever the
     watcher was wearing — a bike, if they were on one. The runner's client now sends that sprite's
-    pixels from its own cartridge, once, in small pieces the receiver checks and caches, and a ghost
-    with nothing to wear keeps its own last look instead of borrowing the watcher's. Confirmed on a
-    vanilla screen, 2026-09-13 ([VERIFIED.md](VERIFIED.md)).
+    pixels from its own cartridge in small pieces, for three seconds after it goes on or a new peer
+    appears, which the receiver checks and caches, and a ghost with nothing to wear keeps its own
+    last look instead of borrowing the watcher's. Confirmed on a vanilla screen, 2026-09-13
+    ([VERIFIED.md](VERIFIED.md)).
+    **Status:** works, seen on screen (2026-09-13); open: a speedchoice watcher, and a peer
+    repainting another's wire art (2026-09-16).
 35. Made a ghost turn on the spot the way the player does. A turn is a short animation — the new
     direction shows a stepping pose for a moment before it settles — and the ghost used to snap
     straight to standing. Every frame of it was already arriving; the ghost now draws the game's own
     pose byte while it stands still. Confirmed in both directions across builds, 2026-09-13
     ([VERIFIED.md](VERIFIED.md)).
+    **Status:** works, seen on screen (2026-09-13).
 
 
 ### Further work past "good enough"

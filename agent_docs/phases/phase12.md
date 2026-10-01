@@ -991,3 +991,19 @@ Pseudoregalia's `BridgeClient.hpp` says a silent core counts as accepting, where
 `bridge_ready`; its `CoreLauncher.hpp` names the mod folder in the config search, where the `.cpp` reads only the
 game's root. For a doc pass: the autoplay README's tools table lacks `clear_obstacle` and `search`, and
 `docs/networking.md` § 7 calls the relay's flood cap a tumbling window where `relay.go` runs a leaky bucket.
+
+## 2026-10-01 (later still) — A4: every build step carries its Status, and the four READMEs fact-checked
+
+Four subagents, one per adapter README, drafted a `**Status:**` line for every build step (167), each dated by the
+record that settles it (a `VERIFIED.md` entry, a measurement, the phase file), and fact-checked every present-tense
+claim in the steps against the code. The user approved all of it as drafted (Status lines, rewordings and top status
+lines); the optional notes on past-tense claims the records disagree with were left out. Each agent applied its own
+proposal to its own README; this session reviewed every diff and spot-checked one finding per file against the code
+(TEVI's six try/catch walls, Pseudoregalia's camera-hook reject condition, Emerald's painted tier hiding a peer the
+Fly bird carries, Crystal's three address tables for five builds). Present-tense claims fixed: TEVI 3 (the walls, a
+fourth trail input, an unsourced Steam two-instance claim), Pseudoregalia 16 (among them step 60's post-hook, which
+the DLL does as a pre-hook, and steps 68–71 moved out of "What is still open"), Emerald 16 (Fly confirmed only on the
+spawned tier; rails never built), Crystal 16 (the first mixed-build room was 2026-08-18, not 2026-08-27; three
+address tables, not five). Each top status line now says what is open today; TEVI's notes the 2026-10-01 rebuild is
+deployed and not yet seen. Steps without a Status: 167 → 0. The 51 work items on record with no step of their own
+(TEVI 11, Pseudoregalia 17, Emerald 17, Crystal 6) go to the user next as a yes/no/merge list per README.

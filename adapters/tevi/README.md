@@ -1,7 +1,9 @@
 # TEVI
 
-**Status: second target game (chosen 2026-08-11, replacing Ori: Will of the Wisps), shipped —
-Phase 6 fully done 2026-08-13.**
+**Status: shipping, and open like every adapter here** — the second game (chosen 2026-08-11,
+replacing Ori: Will of the Wisps). Ghosts, zones, the map marker, trails, warp devices, charged
+attacks, orbitars, core expansions and the shield are seen on screen; projectiles are partial.
+Last seen on screen 2026-09-10; the 2026-10-01 rebuild is deployed and not yet seen.
 
 - Unity, 2D movement-focused platformer/metroidvania — the genre where ghost co-op is most
   visually satisfying, which is the same reasoning the brief used for Ori, and why it took the
@@ -35,8 +37,8 @@ Phase 6 fully done 2026-08-13.**
   has `[UnityMono]`). BepInEx/Harmony tooling applies directly; no IL2CPP interop/unhollowing
   step needed. BepInEx 5.4.23.3 is already installed on this machine's TEVI copy and confirmed
   loading a third-party plugin.
-- Phase 6 is **fully done, confirmed 2026-08-13** (including 6.6, two real players, and 6.7,
-  the map marker) — see [agent_docs/plans.md](../../agent_docs/plans.md)'s Phase 6 entry and
+- Phase 6 reached a playable state, **confirmed 2026-08-13** (including 6.6, two real players,
+  and 6.7, the map marker), and stays open like every adapter — see [agent_docs/plans.md](../../agent_docs/plans.md)'s Phase 6 entry and
   [agent_docs/phases/phase6.md](../../agent_docs/phases/phase6.md). This adapter was built from
   the template Phase 5 extracted (`adapters/_template/`) — see
   [agent_docs/phases/phase5.md](../../agent_docs/phases/phase5.md).
@@ -94,41 +96,61 @@ Roughly in order. The narrative for each is in
 during review passes or later sessions, and say so where it matters:
 
 1. Purple box as proof of concept (same first step as Emerald).
+   **Status:** superseded by step 3: seen on screen 2026-08-12, removed from the code (2026-08-13).
 2. Cyan box following the player.
+   **Status:** superseded by step 3: seen on screen and replaced by the sprite clone the same day
+   (2026-08-12).
 3. Replaced the box with the actual sprite.
+   **Status:** works, seen on screen (2026-08-12).
 4. Added animations.
+   **Status:** works, seen on screen (2026-08-12).
 5. Wired up real networking; the first real test hit the relay's 120 msg/sec rate limit for
    real, since TEVI's `Update()` runs uncapped — fixed with a client-side send-rate cap in the
    core, not the adapter. (6.4/6.5)
-6. Hit a blocker testing with two players locally — Steam won't run two instances of the same
-   game at once — resolved by downloading a second, standalone build via `steamcmd`.
+   **Status:** works, seen on screen (2026-08-12).
+6. Hit a blocker testing with two players locally — a second copy of the game would not start
+   beside the first — resolved by downloading a second, standalone build via `steamcmd`.
+   **Status:** resolved (2026-08-13).
 7. Made ghosts hide when the peer is in a different zone (a real gap where remotes weren't
    filtered by area at all). (6.6)
+   **Status:** works, seen on screen (2026-08-13).
 8. Found and fixed a separate bug, later, during a cross-adapter review pass: a ghost
    recreated during a peer's own zone transition could go permanently invisible, because it
    inherited a disabled sprite-renderer field from the live character at clone time.
+   **Status:** works, seen on screen (2026-08-14); open: the fix forces all five sprite layers on,
+   though only one was measured (a registered bandage).
 9. Added a marker on TEVI's own pause-screen map showing where the other player is, gated by
    the local player's own fog-of-war so it doesn't leak undiscovered rooms. (6.7)
+   **Status:** works, seen on screen (2026-08-13); open: hiding a stale marker after 1s, and the
+   `map_markers` switch, are unwatched.
 10. Gave ghosts the afterimage trail — the blue one a quickdrop leaves. TEVI decides each frame
-    whether to trail, from three values it exposes publicly, so the adapter reads the same three
-    and mirrors that *decision* rather than listing moves; every move using the system works at
-    once. (2026-08-28)
+    whether to trail, from three values it exposes publicly and a timed trail any code can set, so
+    the adapter reads the same and mirrors that *decision* rather than listing moves; moves nobody
+    listed are covered at once. (2026-08-28)
+    **Status:** works, seen on screen (2026-08-28); open: the hover-over-dodge order and trail
+    density, fixed 2026-09-10, are unwatched.
 11. Made warp devices wake up for a ghost, the animation only. The game's own trigger would have
     done it for free, but it also autosaves and heals — so the visual is driven from the flag its
     `Update` reads instead, and nothing else fires. (2026-08-28)
+    **Status:** works, seen on screen (2026-08-28).
 12. Gave ghosts the charged attack's effects. Three name-guesses failed, so a probe was written
     that reports the prefab the game itself spawns; it named them immediately. The ghost also holds
     on the impact frame now, which needed the clip's PHASE synced, not just its name. (2026-08-28)
+    **Status:** works, seen on screen (2026-08-28); open: never compared side by side to settle
+    whether it is 1:1.
 13. Stopped sending what a ghost can derive for itself. The animation phase was the one field TEVI
     sent that changes every frame by construction — an idle is a looping clip — and it alone kept
     the core's unchanged-state suppression from ever firing here. It is now left out while the
     current clip loops (attacks and one-shots still carry it), so a standing player's states stop
     going out: 70% of them suppressed, upload down to a third, and the ghost looked identical to
     the user on the netsim rig (2026-08-28, [VERIFIED.md](VERIFIED.md)).
+    **Status:** works, seen on screen (2026-08-28): it looked identical, with 70% of states
+    suppressed, measured the same day.
 14. Made a portal settle once the last ghost standing in it disconnects. The per-frame mirror in
     step 11 kept a warp device on its "assembling" glow after the peer closed the game, until
     somebody walked on and off it; the disconnect now releases it, watched by the user with two
     real instances (2026-09-02, [VERIFIED.md](VERIFIED.md)).
+    **Status:** works, seen on screen (2026-09-02).
 15. Made the adapter reloadable inside a running game, so a test stopped costing a launch. The
     plugin can be moved out of BepInEx's normal `plugins\` slot into ScriptEngine's `scripts\`
     one, where a rebuild can be reloaded in place; a script toggles between the two and rebuilds
@@ -140,11 +162,14 @@ during review passes or later sessions, and say so where it matters:
     `GameObject`. Two faults it can never show you: anything that only goes wrong on a COLD start,
     and anything the old instance left parented into the scene — so the shipping layout is what a
     confirmation has to be made on (2026-08-28, [VERIFIED.md](VERIFIED.md)).
+    **Status:** works, seen on screen (2026-08-28).
 16. Ran two release instances against each other and left them alone. A cold launch brings up two
     cores on their own ports with no configuration and no port churn, and when the relay is stopped
     underneath them both ghosts come back without anyone touching anything (2026-08-28,
     [VERIFIED.md](VERIFIED.md)). This is the first check that used the release files rather than
     the dev scripts.
+    **Status:** works, seen on screen (2026-08-28); open: the 2026-09-02 fix for two copies launched
+    close together is unwatched.
 17. Chose the interpolation delay by climbing a ladder rather than guessing, twice in one night.
     On an ocean-tier link 300ms was the first rung with room for one lost sample at 15Hz — 175ms
     stuttered constantly, 250ms still had holes. Then the same ladder on the worst case a shipped
@@ -152,16 +177,20 @@ during review passes or later sessions, and say so where it matters:
     still stutters every few seconds, and **450ms is what ships — for every game, not just this
     one** (2026-09-02, ADR 0046). The rule that came out of it outlived the number: a rate or
     interpolation verdict is made on nothing milder than that rig ([VERIFIED.md](VERIFIED.md)).
+    **Status:** works, seen on screen (2026-09-02); 450ms ships for every game.
 18. Mirrored what a peer's character carries with it, in one evening and one piece at a time: the
     two orbitars wearing the peer's own look, their crystal trail, the dodge afterimage fade, core
     expansions (the summoned humanoid, its trail out and back), and the boost shield with its two
     platforms. Two lessons paid for the rest. A clone of a component the game parks INACTIVE is
     born with `Awake` unrun, so its first call threw and the exception aborted the whole ghost
-    update — pose, facing and trail with it — which is why **every cosmetic sub-feature is now
-    walled in its own try/catch**. And a shader keyword the game strips from its template meant the
-    barrier popped instead of blooming: the clone built its materials from the already-stripped
-    copy. The timing probe showing the fade starting on the peer's beat is what pointed away from
-    timing and at rendering (2026-09-10, [VERIFIED.md](VERIFIED.md)).
+    update — pose, facing and trail with it — which is why **the orbitars, core expansions, shield,
+    flashes and projectiles are each walled in their own try/catch**. And a shader keyword the game
+    strips from its template meant the barrier popped instead of blooming: the clone built its
+    materials from the already-stripped copy. The timing probe showing the fade starting on the
+    peer's beat is what pointed away from timing and at rendering (2026-09-10,
+    [VERIFIED.md](VERIFIED.md)).
+    **Status:** works, seen on screen (2026-09-10); open: the orbs' return glow and whatever a
+    summon fires are not mirrored.
 19. Gave a peer's projectiles to their ghost — a good state, not a finished one. Shots appear,
     travel, and die where the peer's died: a death is the frame the bullet **stops**, not the frame
     its pool slot frees, and it carries where it stopped; the watcher runs the game's own wall test
@@ -171,6 +200,8 @@ during review passes or later sessions, and say so where it matters:
     the wire now. Running the game's own bullet behaviour on a ghost is off for good: it damaged
     the watcher. Still unmirrored, and listed rather than claimed: several projectile types and
     their VFX ([UNVERIFIED.md](UNVERIFIED.md)) (2026-09-10, [VERIFIED.md](VERIFIED.md)).
+    **Status:** partial: shots fly, hit walls and wear the right colours; several shot types and
+    their effects are unmirrored, and the 2026-09-16 spawn fix is unwatched (2026-09-10).
 
 ### Further work past "good enough"
 
