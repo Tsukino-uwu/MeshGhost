@@ -5,13 +5,8 @@ import (
 	"testing"
 )
 
-// The two lines the Pseudoregalia adapter actually emits (Plugin.cpp,
-// input_track_drain_and_send, 2026-09-08), byte for byte as its std::format
-// calls shape them: the first batch after a hello carries the label table,
-// every later one only edges. Pinned here so a change on either side that
-// breaks the other is a red test and not a silently dropped track -- the core
-// drops a batch that fails ValidateInputSample and logs, and an adapter never
-// hears about it.
+// TestPseudoregaliaAdapterLinesAreAccepted pins the lines that adapter emits (Plugin.cpp, input_track_drain_and_send),
+// byte for byte: a refused batch is only logged by the core, and the adapter never hears about it.
 func TestPseudoregaliaAdapterLinesAreAccepted(t *testing.T) {
 	lines := []string{
 		`{"type":"input_sample","payload":{"labels":["jump","attack","crouch","wallride","throw","guard","interact","lockon","power","quickmap","perspective"],"axes":["move_x","move_y","look_x","look_y"],"source":"imc_keys+bound_axes","edges":[{"f":1041,"t":17350,"m":1,"ax":[0,0,0,0]}]}}`,

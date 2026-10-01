@@ -1,24 +1,5 @@
 package transport
 
-// Two gaps in this package's coverage, both found by the 2026-09-07 review and
-// closed here on 2026-09-08.
-//
-//  1. **WriteTimeout had no test at all.** DefaultWriteTimeout is what the whole
-//     slow-peer design turns on — relay.Room.Forward's doc comment names it as
-//     the reason one stalled room member cannot freeze delivery to the rest of
-//     the room — and it was implicated in the 2026-09-05 Linux-only
-//     TestRateLimitedClientReceivesRejectBeforeClose failure. The nearest
-//     existing test, TestFailedWritePoisonsConnection, drives a fake net.Conn
-//     that returns a synthetic timeout error, so it pins Send's REACTION to a
-//     failed write and never that a real deadline fires at all: delete the
-//     SetWriteDeadline calls from Send and that test still passes.
-//
-//  2. **Line limits were tested only at the no-delimiter extreme.**
-//     TestOversizedLineWithNoDelimiterClosesConnection writes 8192 bytes against
-//     a 1024-byte limit with no '\n' anywhere. Nothing exercised the boundary
-//     itself, so an off-by-one in either direction — refusing a legal line, or
-//     accepting one byte past the cap — was invisible.
-
 import (
 	"bytes"
 	"errors"
@@ -29,26 +10,12 @@ import (
 	"time"
 )
 
-// TestAPeerThatStopsReadingFailsTheWriteAtTheDeadline drives a real socket
-// whose peer accepts the connection and then never reads a byte, which is the
-// production shape of the problem: a game or relay that is alive at the TCP
-// level and stalled above it. Nothing hangs up, so there is no error to observe
-// except the deadline.
+// TestAPeerThatStopsReadingFailsTheWriteAtTheDeadline drives a real socket whose peer accepts and never reads, so only
+// the write deadline can end the Send; TestFailedWritePoisonsConnection fakes the timeout and passes with no deadline
+// set. The error must be a timeout, and the connection poisoned: IsClosed true and the next Send failing.
 //
-// Both ends' socket buffers are shrunk to 1 KiB first. Without that the amount
-// that has to be written before the kernel stops accepting is large and
-// platform-dependent (Windows loopback in particular buffers generously), and a
-// test that guesses at it is a slow test on a good day and a flake on a bad
-// one. With it, the fill is a handful of 64 KiB writes.
-//
-// What this pins, beyond "an error comes back": the error is a TIMEOUT (so it
-// is the deadline that produced it, not a hangup), and the connection is left
-// POISONED — IsClosed reports true and the next Send fails. That second half is
-// the 2026-09-01 150-peer lesson recorded in Send's own comment: a write that
-// expires mid-line leaves NDJSON unresynchronizable, so the socket must not
-// survive it. A refactor that returned the timeout while leaving the connection
-// open would pass a naive "Send errors" assertion and reintroduce the exact
-// stream corruption that cost that session.
+// Both socket buffers are shrunk to 1 KiB first; otherwise how much must be written before the kernel stops accepting
+// is large and platform-dependent (Windows loopback buffers generously), and the test is slow or flaky.
 func TestAPeerThatStopsReadingFailsTheWriteAtTheDeadline(t *testing.T) {
 	ln, addr := listen(t)
 
@@ -62,8 +29,7 @@ func TestAPeerThatStopsReadingFailsTheWriteAtTheDeadline(t *testing.T) {
 		if tc, ok := c.(*net.TCPConn); ok {
 			_ = tc.SetReadBuffer(1024)
 		}
-		// Deliberately never reads. Held open so the socket stays alive and
-		// only the deadline can end the write.
+		// Never reads, and stays open, so only the deadline can end the write.
 		accepted <- c
 	}()
 
@@ -83,17 +49,13 @@ func TestAPeerThatStopsReadingFailsTheWriteAtTheDeadline(t *testing.T) {
 	}
 	t.Cleanup(func() { peer.Close() })
 
-	// 250 ms rather than the shipped 10 s: this test is about whether the
-	// deadline fires, not about its production value.
+	// 250 ms: this tests that the deadline fires, not its shipped value.
 	conn := FromConnWithLimits(raw, 0, 0, 250*time.Millisecond)
 	t.Cleanup(func() { conn.Close() })
 
 	payload := bytes.Repeat([]byte("x"), 64*1024)
 	var sendErr error
-	// Bounded rather than open-ended so a kernel that absorbs everything fails
-	// this test with a clear message instead of hanging: 256 * 64 KiB is 16 MiB,
-	// far past any loopback buffer, and each attempt costs at most 250 ms only
-	// once the buffer is actually full.
+	// Bounded so a kernel that absorbs everything fails clearly instead of hanging: 16 MiB is past any loopback buffer.
 	for i := 0; i < 256; i++ {
 		if sendErr = conn.Send(payload); sendErr != nil {
 			t.Logf("the write deadline fired on send %d of at most 256 (64 KiB each)", i+1)
@@ -122,10 +84,8 @@ func TestAPeerThatStopsReadingFailsTheWriteAtTheDeadline(t *testing.T) {
 	}
 }
 
-// lineLimitPeer brings up a server whose read side is capped at maxLine and
-// returns a client to write into it, the lines the server delivered, and its
-// disconnect errors. It is the shared fixture for the three boundary tests
-// below.
+// lineLimitPeer brings up a server whose read side is capped at maxLine and returns a client to write into it, the
+// lines the server delivered, and its disconnect errors.
 func lineLimitPeer(t *testing.T, maxLine int) (client *NDJSONConn, lines chan []byte, disconnected chan error) {
 	t.Helper()
 	ln, addr := listen(t)
@@ -140,10 +100,7 @@ func lineLimitPeer(t *testing.T, maxLine int) (client *NDJSONConn, lines chan []
 			close(serverUp)
 			return
 		}
-		// FromConnWithLimits, not a field assignment after FromConn, for the
-		// reason TestOversizedLineWithNoDelimiterClosesConnection records:
-		// FromConn starts the read loop before returning, so a limit set
-		// afterwards races it and the default silently wins.
+		// FromConnWithLimits: a limit set after FromConn races the read loop, and the default may win.
 		server := FromConnWithLimits(conn, maxLine, 0, 0)
 		server.OnReceive(func(payload []byte) {
 			lines <- append([]byte(nil), payload...)
@@ -161,23 +118,9 @@ func lineLimitPeer(t *testing.T, maxLine int) (client *NDJSONConn, lines chan []
 	return client, lines, disconnected
 }
 
-// TestTheLargestAcceptedLineIsOneByteUnderMaxLineBytes pins the ACTUAL accepted
-// boundary, which is not the one the constant's name suggests, and this test
-// asserts what the code does rather than what the name implies.
-//
-// Measured 2026-09-08 against Go's bufio.Scanner: with Buffer(_, max), a payload
-// of max-1 bytes is delivered and a payload of exactly max bytes is refused with
-// ErrTooLong. The reason is structural, not an accident of this package: the
-// scanner's buffer can grow to max bytes and no further, and the DELIMITER has
-// to fit inside it alongside the token — a max-byte payload plus its '\n' is
-// max+1 bytes, so the buffer fills with no newline in sight and the scan dies.
-//
-// So the effective cap on a payload is MaxLineBytes-1, and every send-side check
-// in this repo that compares a marshalled line with `<= protocol.MaxLineBytes`
-// is one byte optimistic. That is a live off-by-one, not a hypothetical: it is
-// out of this package's hands (core/sending.go:334 and relay's welcome sizing
-// both own their own check), and pinning the transport's real behaviour here is
-// what makes it findable from the read side.
+// TestTheLargestAcceptedLineIsOneByteUnderMaxLineBytes pins the accepted boundary, which is not what the constant's
+// name suggests: bufio.Scanner's buffer grows to max bytes and the delimiter must fit in it beside the payload, so the
+// largest payload delivered is MaxLineBytes-1. protocol.MaxPayloadBytes is one under protocol.MaxLineBytes for this.
 func TestTheLargestAcceptedLineIsOneByteUnderMaxLineBytes(t *testing.T) {
 	const maxLine = 1024
 	client, lines, disconnected := lineLimitPeer(t, maxLine)
@@ -205,15 +148,8 @@ func TestTheLargestAcceptedLineIsOneByteUnderMaxLineBytes(t *testing.T) {
 	}
 }
 
-// TestALineOfExactlyMaxLineBytesIsRefusedBecauseItsDelimiterDoesNotFit is the
-// other side of the boundary above, written as an assertion on the behaviour
-// that actually exists rather than the one the constant's name promises.
-//
-// If this test ever fails because the line was ACCEPTED, that is not
-// automatically a regression — it means the effective cap moved by a byte, and
-// the send-side checks that compare with `<=` became correct. Read this comment
-// and TestTheLargestAcceptedLineIsOneByteUnderMaxLineBytes together before
-// changing either.
+// TestALineOfExactlyMaxLineBytesIsRefusedBecauseItsDelimiterDoesNotFit is the other side of that boundary. If it fails
+// because the line was accepted, the effective cap moved by a byte and protocol.MaxPayloadBytes needs re-reading.
 func TestALineOfExactlyMaxLineBytesIsRefusedBecauseItsDelimiterDoesNotFit(t *testing.T) {
 	const maxLine = 1024
 	client, lines, disconnected := lineLimitPeer(t, maxLine)
@@ -238,21 +174,9 @@ func TestALineOfExactlyMaxLineBytesIsRefusedBecauseItsDelimiterDoesNotFit(t *tes
 	}
 }
 
-// TestALineOverTheLimitWithItsDelimiterEndsTheConnectionWithNoResync covers the
-// case TestOversizedLineWithNoDelimiterClosesConnection does not: a line that is
-// too long but is properly terminated. The distinction is worth a test of its
-// own because the two reach ErrTooLong by different routes — the no-delimiter
-// case fills the buffer while the split function is still looking for a '\n',
-// this one has a perfectly well-formed line that is simply one byte too big —
-// and only this one could plausibly be "skipped and resynchronized from".
-//
-// It is not. The assertion is what the code does, not what a reader might hope:
-// the read loop closes the connection on ErrTooLong, so a well-formed short line
-// sent immediately afterwards is never delivered. That is deliberate (see
-// fail()'s comment: an oversized line never reaches a caller's OnReceive, so the
-// loop has to terminate the connection itself) and it is what the relay depends
-// on — an oversized line is a peer that has to reconnect, not one that gets
-// another try on the same socket.
+// TestALineOverTheLimitWithItsDelimiterEndsTheConnectionWithNoResync: a well-formed line one byte too long, the one
+// case that could look skippable, still ends the connection, so a short line sent after it is never delivered. The
+// relay depends on that: an oversized line means the peer reconnects.
 func TestALineOverTheLimitWithItsDelimiterEndsTheConnectionWithNoResync(t *testing.T) {
 	const maxLine = 1024
 	client, lines, disconnected := lineLimitPeer(t, maxLine)
@@ -266,9 +190,7 @@ func TestALineOverTheLimitWithItsDelimiterEndsTheConnectionWithNoResync(t *testi
 		if err == nil || !strings.Contains(err.Error(), "token too long") {
 			t.Fatalf("disconnected with %v, want a token-too-long error", err)
 		}
-		// The error names the offending line, which is the 2026-09-01 lesson
-		// recorded in readLoop: "token too long" alone says a line was
-		// oversized and nothing about WHICH.
+		// The error names the offending line: "token too long" alone does not say which.
 		if !strings.Contains(err.Error(), "line head:") {
 			t.Errorf("the oversized-line error does not carry the line head: %v", err)
 		}
@@ -279,10 +201,8 @@ func TestALineOverTheLimitWithItsDelimiterEndsTheConnectionWithNoResync(t *testi
 		t.Fatal("an oversized line with a delimiter neither closed the connection nor arrived")
 	}
 
-	// The connection is gone, so nothing after it is delivered. Send may or may
-	// not report the close on the first attempt (the local kernel accepts a
-	// write into a socket whose FIN/RST has not been processed yet), so the
-	// assertion is on delivery, which is unambiguous.
+	// Send may not report the close on the first attempt (the kernel accepts a write before it processes the FIN or
+	// RST), so the assertion is on delivery.
 	_ = client.Send([]byte(fmt.Sprintf("short-%d", maxLine)))
 	select {
 	case got := <-lines:

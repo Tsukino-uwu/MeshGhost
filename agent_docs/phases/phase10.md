@@ -2851,3 +2851,7 @@ record held went to [verified.md](../verified.md), same date; a doc pointer a co
 - `relay/` tests (33 files): comment lines 1,946 → 506. Stale claims fixed: tests citing helpers by names that moved
   (`startRelayOn`, "the test above"), udp called the shipped default transport (it is dev-tag only), and a stale seed
   said to correct itself within 50 ms (true only at the old 20 Hz).
+- `bridge/` and `transport/` (11 files): comment lines 1,481 → 391. Stale claims fixed: `DespawnRemote` is sent for any
+  ghost drawn earlier and no longer rendered, not only on a relay Leave; `SessionPolicy` waits for the room's policy (or
+  offline), not straight after `BridgeReady`; a negative transport timeout disables it rather than falling back to the
+  default; lines that arrive before `OnReceive` are held and flushed, so only an early disconnect can be missed.

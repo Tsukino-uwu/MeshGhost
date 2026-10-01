@@ -1,15 +1,8 @@
-// Package transport provides generic NDJSON framing over any net.Conn -
-// tcp, and udpconn/quicconn alike. It knows
-// nothing about protocol.Envelope or any other message shape — it moves
-// bytes, one JSON-line payload at a time. core and relay
-// both consume the Transport interface, for the relay connection and the
-// adapter bridge alike (see agent_docs/contract.md's "two protocols"
-// section — both use this same framing, over different sockets).
+// Package transport provides NDJSON framing over any net.Conn (tcp, udpconn and quicconn alike). It knows no message
+// shape and moves bytes, one JSON-line payload at a time. core and relay both use the Transport interface, for the
+// relay connection and the adapter bridge alike, over different sockets.
 //
 // This package has no internal dependencies.
-//
-// How this package fits the whole -- the life of a connection and of a state
-// message, traced across all of them -- is docs/networking.md.
 package transport
 
 import (
@@ -25,76 +18,43 @@ import (
 )
 
 const (
-	// DefaultMaxLineBytes bounds one NDJSON line accepted before its
-	// delimiter is found, enforced during the read itself via
-	// bufio.Scanner's max-token-size — not after the line is already fully
-	// buffered. The old bufio.Reader.ReadBytes approach grew its internal
-	// buffer without bound until it found a '\n', so a peer that streamed
-	// bytes with no newline could force unbounded memory growth in both the
-	// relay and the core; any length check performed on the delivered
-	// payload (e.g. protocol.MaxLineBytes) ran too late to prevent
-	// that. Found and fixed while scoping relay-safety hardening — see the
-	// room-code/version ADR in agent_docs/architecture.md.
-	//
-	// This default is generous above any legitimate message on either
-	// protocol this package carries. A tighter per-connection limit can
-	// still be set via NDJSONConn.MaxLineBytes — both the relay's accepted
-	// connections and the core's dialed one pass the smaller
-	// protocol.MaxLineBytes, so the limit stays in one place instead of
-	// duplicated as magic numbers. (This said "relay.MaxLineBytes" and "the
-	// relay's own value" until 2026-08-27; that identifier has never existed,
-	// and the constant is shared rather than the relay's own.)
+	// DefaultMaxLineBytes bounds one NDJSON line before its delimiter is found, enforced during the read by
+	// bufio.Scanner's max token size, so a peer streaming bytes with no newline cannot grow memory without bound. It is
+	// generous above any legitimate message; the relay's accepted connections and the core's dialed one pass the
+	// smaller protocol.MaxLineBytes.
 	DefaultMaxLineBytes = 64 * 1024
 
-	// overflowHeadBytes is how much of an oversized line is kept for the
-	// error message. See the split function in readLoop for why it is small.
+	// overflowHeadBytes is how much of an oversized line the error keeps: enough to name the message, and small
+	// because a relay logs it, quoted, before any hello.
 	overflowHeadBytes = 96
 
-	// DefaultIdleTimeout closes a connection that hasn't delivered a
-	// complete line within this long, refreshed after every line. Without
-	// this, a connection that never finishes a line — including one that
-	// never sends anything at all — is held open (a live goroutine and
-	// socket) forever.
+	// DefaultIdleTimeout closes a connection that has not delivered a complete line within this long, refreshed after
+	// every line, so one that never finishes a line is not held open forever.
 	DefaultIdleTimeout = 60 * time.Second
 
-	// DefaultWriteTimeout bounds one Send call. Without it, a peer that
-	// stops reading blocks the writer indefinitely; relay.Room.Forward
-	// depends on Send returning in bounded time so one stalled room member
-	// can't freeze delivery to the rest of the room (see Room.Forward's own
-	// doc comment for the other half of that fix).
+	// DefaultWriteTimeout bounds one Send, so a peer that stops reading cannot block the writer; relay.Room.Forward
+	// depends on it to keep one stalled member from freezing delivery to the rest of the room.
 	DefaultWriteTimeout = 10 * time.Second
 
-	// DefaultDialTimeout bounds the TCP connect in Dial. net.Dial alone has
-	// no timeout of its own.
+	// DefaultDialTimeout bounds the TCP connect in Dial; net.Dial has no timeout of its own.
 	DefaultDialTimeout = 10 * time.Second
 )
 
-// Transport is the swappable network boundary named in the brief: adapters
-// never implement or hold this directly (see bridge for their
-// side), but core and relay both depend on it.
+// Transport is the swappable network boundary core and relay depend on. Adapters never hold one; bridge is their side.
 type Transport interface {
-	// Send writes one payload as a single NDJSON line, reliably. Every
-	// transport guarantees delivery here, so a caller that knows nothing
-	// about SendUnreliable below is always correct.
+	// Send writes one payload as a single NDJSON line, reliably on every transport, so a caller that knows nothing of
+	// SendUnreliable is always correct.
 	Send(payload []byte) error
 
-	// SendUnreliable writes one payload with no delivery guarantee, for
-	// the lossy latest-wins state plane only. A transport with no
-	// unreliable mode (TCP) implements it as Send. See the NDJSONConn
-	// method for why reliability is opt-out rather than opt-in.
+	// SendUnreliable writes one payload with no delivery guarantee, for the lossy latest-wins state plane only. A
+	// transport with no unreliable mode (TCP) implements it as Send.
 	SendUnreliable(payload []byte) error
 
-	// OnReceive registers the callback invoked once per received line.
-	// Replaces any previously registered callback.
+	// OnReceive registers the callback invoked once per received line, replacing any earlier one.
 	OnReceive(func(payload []byte))
 
-	// OnDisconnect and OnError report connection lifecycle events the
-	// brief's original send/on_receive pair didn't cover. (An OnConnect
-	// existed here too until a review pass removed it: FromConn/Dial
-	// already start the read loop before returning, so it fired from a
-	// goroutine racing the caller's own registration of it — unusable as
-	// specified, and nothing in this codebase ever actually registered
-	// one.)
+	// OnDisconnect and OnError report the connection ending and its errors. There is no OnConnect: the read loop
+	// starts before Dial or FromConn returns, so it would race its own registration.
 	OnDisconnect(func(err error))
 	OnError(func(err error))
 
@@ -102,57 +62,28 @@ type Transport interface {
 	Close() error
 }
 
-// NDJSONConn is the concrete Transport implementation over any net.Conn
-// (tcp, udpconn, quicconn), newline-delimited JSON per line. Structurally satisfies
-// Transport; declared here as a compile-time check.
-//
-// Reconnect-with-backoff is not implemented here: this type wraps a single
-// already-established net.Conn (dialed or accepted), and only the dialing
-// side (the core, connecting to a relay) has anywhere to redial to. That
-// retry loop belongs with the core's Dial call, not in this dumb framer —
-// see agent_docs/contract.md's transport section.
-//
-// Heartbeat (ping/pong) is likewise not implemented here: transport moves
-// bytes, one line at a time, and does not know protocol.Envelope shapes
-// (see the package doc above). Ping/pong are protocol-level messages, so
-// that loop belongs in core and relay, not in this
-// package. core.Core.sendHeartbeats sends a Ping on an otherwise-
-// quiet connection and relay answers with a Pong. That is still not
-// liveness detection - a dead peer is found by the idle timeout, not by a
-// missing Pong - but the Pong is read back: core turns each one into an
-// RTT and a clock offset (core/online.go's clockSync). This package knows
-// nothing about any of it. See agent_docs/contract.md's Transport section.
+// NDJSONConn is the Transport over any net.Conn (tcp, udpconn, quicconn), one JSON payload per line. It wraps one
+// established connection and neither redials nor heartbeats: only the dialing core has anywhere to redial to, and
+// ping and pong are protocol messages that core and relay handle. A dead peer is found by the idle timeout.
 type NDJSONConn struct {
 	conn net.Conn
 
-	// MaxLineBytes, IdleTimeout, and WriteTimeout default to this package's
-	// Default* constants (set by Dial/FromConn) and may be overwritten by
-	// the caller immediately after Dial/FromConn returns — before any data
-	// could plausibly have been read yet — same registration-order caveat
-	// already documented for OnReceive et al. below. A value <= 0 falls
-	// back to the corresponding default at the start of readLoop/Send.
-	//
-	// That "immediately after" caveat is a real, if narrow, data race —
-	// found in a review pass: FromConn already starts the read goroutine
-	// before returning, so a caller setting these fields afterward (as
-	// relay used to do for MaxLineBytes) is racing that
-	// goroutine's own read of them in readLoop. Prefer
-	// FromConnWithLimits, which sets these before the goroutine starts.
+	// MaxLineBytes, IdleTimeout and WriteTimeout are the connection's limits: MaxLineBytes <= 0 or a zero timeout means
+	// the Default* value, and a negative timeout disables it. Set them through FromConnWithLimits or DialWithLimits:
+	// the read loop is already running when FromConn returns, so setting them afterwards races it.
 	MaxLineBytes int
 	IdleTimeout  time.Duration
 	WriteTimeout time.Duration
 
-	// drainUntil, when set, is the read deadline readLoop uses instead of the idle timeout:
-	// CloseGracefully has half-closed the socket and the loop is only draining what the peer
-	// already sent so the close arrives as a FIN, not a reset. Guarded by drainMu.
+	// drainUntil, when set, is the read deadline readLoop uses instead of the idle timeout: CloseGracefully has
+	// half-closed the socket and the loop only drains what the peer already sent, so the close arrives as a FIN, not a
+	// reset. Guarded by drainMu.
 	drainMu    sync.Mutex
 	drainUntil time.Time
 
 	writeMu sync.Mutex
-	// writeBuf is Send's scratch space for joining payload and '\n' into a
-	// single Write. Guarded by writeMu, reused across calls so the hot
-	// state path doesn't allocate per message. See Send for why one Write
-	// rather than two.
+	// writeBuf is Send's scratch space for joining payload and '\n' into one Write, guarded by writeMu and reused so
+	// the state path does not allocate per message.
 	writeBuf []byte
 
 	cbMu         sync.Mutex
@@ -160,62 +91,35 @@ type NDJSONConn struct {
 	onDisconnect func(err error)
 	onError      func(err error)
 
-	// deliverMu serializes actual callback delivery (not field access —
-	// that's cbMu) so a backlog flushed by OnReceive can't interleave with
-	// a payload readLoop is delivering concurrently. Held across the
-	// callback itself, which is safe because no callback re-registers
-	// OnReceive on its own connection.
+	// deliverMu serializes callback delivery (cbMu guards the fields) so a backlog flushed by OnReceive cannot
+	// interleave with a payload readLoop is delivering. Held across the callback, which is safe because no callback
+	// re-registers OnReceive on its own connection.
 	deliverMu sync.Mutex
-	// pending holds payloads that arrived before OnReceive was registered.
-	// FromConn starts readLoop before it returns, so every caller has a
-	// window between "connection exists" and "callback installed" — and a
-	// message landing in that window used to be dropped on the floor with
-	// no error anywhere. Found 2026-08-16 while isolating an intermittent
-	// test failure: `go test ./...` failed in ~9 of 12 runs, a different
-	// test each time, always a timeout waiting for a message that was sent
-	// but never delivered. Real-world reachable, not just a test artifact:
-	// the relay installs its callback after FromConnWithLimits, so a client
-	// whose Hello arrives fast enough would never be welcomed.
+	// pending holds payloads that arrived before OnReceive was registered: the read loop starts before FromConn
+	// returns, and the relay installs its callback after FromConnWithLimits, so a fast hello would otherwise be lost.
 	pending [][]byte
 
 	closeOnce sync.Once
-	// closed is set the moment this connection is closed for ANY reason --
-	// Close, CloseGracefully, a failed write, or the read loop ending. It
-	// exists because a closed socket is a fact a caller may need BEFORE the
-	// error from its own next call reaches it: the Core's bridge admission
-	// slot is freed by a disconnect callback that cannot run until the read
-	// loop notices, and a game that reconnects inside that window would
-	// otherwise be refused by a Core whose adapter socket is already dead
-	// (2026-09-06, a tester's 512-chaser session).
+	// closed is set the moment this connection closes for any reason (Close, CloseGracefully, a failed write, the read
+	// loop ending), so a caller sees a dead socket before the disconnect callback, which waits on the read loop.
 	closed atomic.Bool
 }
 
 var _ Transport = (*NDJSONConn)(nil)
 
-// bufferProbe, when set by a test, is told how many bytes the read loop's
-// scanner is holding each time it looks for a line. Nil in production, and
-// one atomic load per split call, which is the whole cost. It exists because
-// the fuzz target that guards the line limit asserted only on the payload it
-// was DELIVERED (fourth adversarial review, E6): a read loop that buffered far
-// past the limit before refusing would have run green forever. What bounds
-// the buffer is scanner.Buffer's max below; this is how a test measures it.
-// Atomic because the test sets and clears it while read loops from earlier
-// iterations may still be running -- the race detector said so on its first
-// run under -race (2026-09-15).
+// bufferProbe, when set by a test, is told how many bytes the read loop's scanner holds each time it looks for a line,
+// so a test can measure what bounds the buffer and not only what is delivered. Nil in production: one atomic load per
+// split call. Atomic because a test sets and clears it while earlier read loops may still be running.
 var bufferProbe atomic.Pointer[func(n int)]
 
-// Dial connects to addr over TCP (bounded by DefaultDialTimeout) and starts
-// the read loop immediately. Register callbacks (OnReceive etc.) right
-// after Dial returns and before calling Send — the read loop begins
-// delivering data as soon as the connection is up, and a callback
-// registered late can miss early lines.
+// Dial connects to addr over TCP, bounded by DefaultDialTimeout, and starts the read loop at once. Register callbacks
+// right after it returns: lines that arrive first are held for OnReceive, but a disconnect before OnDisconnect is
+// registered goes unreported.
 func Dial(addr string) (*NDJSONConn, error) {
 	return DialWithLimits(addr, DefaultMaxLineBytes, DefaultIdleTimeout, DefaultWriteTimeout)
 }
 
-// DialWithLimits is Dial's more general form — see FromConnWithLimits for
-// the same registration-order rationale and per-field zero-value
-// convention.
+// DialWithLimits is Dial with the limits set before the read loop starts, as in FromConnWithLimits.
 func DialWithLimits(addr string, maxLineBytes int, idleTimeout, writeTimeout time.Duration) (*NDJSONConn, error) {
 	conn, err := net.DialTimeout("tcp", addr, DefaultDialTimeout)
 	if err != nil {
@@ -224,26 +128,14 @@ func DialWithLimits(addr string, maxLineBytes int, idleTimeout, writeTimeout tim
 	return FromConnWithLimits(conn, maxLineBytes, idleTimeout, writeTimeout), nil
 }
 
-// FromConn wraps an already-established connection — typically one
-// returned by a net.Listener's Accept, on the relay/bridge-server side —
-// and starts its read loop, using this package's Default* limits. Same
-// callback-registration-order caveat as Dial applies to OnReceive et al.
-// For a non-default MaxLineBytes/IdleTimeout/WriteTimeout, use
-// FromConnWithLimits instead of setting the fields after this returns —
-// see MaxLineBytes's doc comment for why.
+// FromConn wraps an established connection, typically one from a listener's Accept, and starts its read loop with the
+// Default* limits. The same callback-registration caveat as Dial applies; for other limits use FromConnWithLimits.
 func FromConn(conn net.Conn) *NDJSONConn {
 	return FromConnWithLimits(conn, DefaultMaxLineBytes, DefaultIdleTimeout, DefaultWriteTimeout)
 }
 
-// FromConnWithLimits is FromConn's more general form: it sets
-// MaxLineBytes/IdleTimeout/WriteTimeout before starting the read loop,
-// closing the registration-order race FromConn's exported fields
-// otherwise have. Same per-field zero-value convention as setting the
-// fields directly: maxLineBytes <= 0 means "use DefaultMaxLineBytes";
-// idleTimeout/writeTimeout == 0 means "use the matching default", < 0
-// means "disabled" (see readLoop/Send). Added in a review pass after
-// finding relay set nd.MaxLineBytes on an already-running
-// connection.
+// FromConnWithLimits is FromConn with MaxLineBytes, IdleTimeout and WriteTimeout set before the read loop starts.
+// maxLineBytes <= 0 means DefaultMaxLineBytes; a zero timeout means its default and a negative one disables it.
 func FromConnWithLimits(conn net.Conn, maxLineBytes int, idleTimeout, writeTimeout time.Duration) *NDJSONConn {
 	c := &NDJSONConn{
 		conn:         conn,
@@ -273,11 +165,8 @@ func (c *NDJSONConn) readLoop() {
 		initial = 4096
 	}
 	scanner.Buffer(make([]byte, initial), maxLine)
-	// overflowHead captures the start of a line that is about to kill the scanner with
-	// ErrTooLong. scanner.Bytes() is only meaningful after a SUCCESSFUL Scan, so the error
-	// path below cannot recover the offending bytes on its own -- this split function sees
-	// the full buffer at the moment it is full with no delimiter, which is the last look
-	// anyone gets. One capture, bounded, only in the failure case.
+	// overflowHead keeps the start of a line about to fail with ErrTooLong: scanner.Bytes() means something only after
+	// a successful Scan, so the split function, which sees the full buffer, is the last look at those bytes.
 	var overflowHead []byte
 	scanner.Split(func(data []byte, atEOF bool) (int, []byte, error) {
 		if probe := bufferProbe.Load(); probe != nil {
@@ -285,32 +174,11 @@ func (c *NDJSONConn) readLoop() {
 		}
 		advance, token, err := bufio.ScanLines(data, atEOF)
 		if atEOF && err == nil && token != nil && bytes.IndexByte(data[:advance], '\n') < 0 {
-			// A TORN TAIL IS NOT A MESSAGE. bufio.ScanLines hands back whatever
-			// is left at EOF as a final "line" even when no newline ever
-			// arrived, and on this wire that leftover is always the front
-			// half of a message whose sender's write deadline expired
-			// mid-line -- Send above closes the connection on exactly that,
-			// so the bytes already in flight reach the peer with a FIN and
-			// no terminator. Delivered, they are a payload that decodes to
-			// "unexpected end of JSON input" at best, and at worst a prefix
-			// that happens to be valid JSON of the wrong shape. NDJSON's
-			// frame is the newline; a line without one was never sent.
-			//
-			// Found by the core's FuzzEverything on CI, 2026-09-08: a throttled
-			// adapter stalled the core's 100 ms bridge write, the core closed
-			// the pipe, and the adapter's reader was handed the half-line.
-			// Consuming the bytes with no token ends the scan cleanly at EOF;
-			// the read loop then reports the disconnect as it always has.
+			// A torn tail is not a message: bytes left at EOF with no newline are the front of a line whose sender's
+			// write deadline expired mid-line (Send closes on that), so they are consumed with no token.
 			return len(data), nil, nil
 		}
 		if advance == 0 && token == nil && err == nil && len(data) >= maxLine && overflowHead == nil {
-			// Enough to name the message type and its first field, and no
-			// more: this head goes into a log line, quoted, and a relay
-			// logs it pre-hello for anyone who connects. At the previous
-			// 16000-byte cap, 4 KB of NUL bytes became 16 KB of log per
-			// connection, unauthenticated -- a 4x disk amplifier (found by
-			// the 2026-09-02 adversarial review). 96 bytes still identifies
-			// the message the way the 2026-09-01 case needed.
 			n := len(data)
 			if n > overflowHeadBytes {
 				n = overflowHeadBytes
@@ -336,27 +204,18 @@ func (c *NDJSONConn) readLoop() {
 				err = io.EOF
 			}
 			if !drainUntil.IsZero() {
-				// A drain ending -- by the peer's FIN or by the drain deadline -- is the close
-				// CloseGracefully already decided on, not a failure to report.
+				// A drain ending, by the peer's FIN or the drain deadline, is the close CloseGracefully already chose.
 				err = io.EOF
 			}
 			if errors.Is(err, bufio.ErrTooLong) && overflowHead != nil {
-				// The head names the message -- without this, "token too long" says a line
-				// was oversized and nothing about WHICH, which on 2026-09-01 cost a live
-				// 150-peer session and a round of wrong theories. Captured by the split
-				// function above, because scanner.Bytes() is empty on this path.
+				// Without the head, "token too long" says a line was oversized but not which.
 				err = fmt.Errorf("%w (line head: %q)", err, overflowHead)
 			}
 			c.fail(err)
 			return
 		}
 
-		// Copy: scanner.Bytes() aliases an internal buffer that the next
-		// Scan call reuses, unlike the previous bufio.Reader.ReadBytes,
-		// which always returned a freshly allocated slice — callers
-		// (json.Unmarshal and friends) were written assuming that
-		// guarantee, so preserve it here rather than auditing every
-		// downstream consumer.
+		// Copy: scanner.Bytes() aliases a buffer the next Scan reuses, and callers may keep the payload.
 		payload := append([]byte(nil), bytes.TrimRight(scanner.Bytes(), "\r")...)
 
 		c.deliverMu.Lock()
@@ -366,59 +225,18 @@ func (c *NDJSONConn) readLoop() {
 		if onReceive != nil {
 			onReceive(payload)
 		} else {
-			// No callback yet — hold it for OnReceive to flush rather
-			// than dropping it. See the pending field's comment.
 			c.pending = append(c.pending, payload)
 		}
 		c.deliverMu.Unlock()
 	}
 }
 
-// fail reports a terminal read error (or EOF) through OnError (for non-EOF
-// causes) and OnDisconnect, then closes the connection. Closing here —
-// unlike the pre-hardening version, which left the socket for the caller to
-// clean up — matters now that this loop can itself decide to terminate a
-// connection (an oversized line, an idle timeout) with no offending message
-// ever reaching a caller's OnReceive to trigger its own Close() call.
+// fail reports a terminal read error through OnError (unless EOF) and OnDisconnect, then closes the connection, since
+// the read loop itself may end a connection (an oversized line, an idle timeout) that no caller would otherwise close.
 func (c *NDJSONConn) fail(err error) {
-	// net.ErrClosed is not a failure to report: it means THIS process closed the
-	// connection, never the peer and never the network. Every place that closes
-	// deliberately -- the relay answering a query_only transport-discovery
-	// hello, a rejected hello, a hello timeout, an oversized line, a rate-limit
-	// trip -- already logs its own reason, so passing this to OnError only ever
-	// adds a second, scarier-looking line about the close it just decided on.
-	//
-	// **That was a claim about tcp, applied to every transport, and it was false
-	// on two of the three until 2026-09-12.** On a datagram transport the peer
-	// cannot hang up -- so the terminal failures that DO exist there all end in
-	// a local close, and every one of them arrived here as net.ErrClosed and was
-	// swallowed: udp retry exhaustion, which is the only way that transport ever
-	// notices a vanished peer; a quic connection dying of an idle timeout or a
-	// broken path; and a quic peer tripping a 64 KiB line limit it had no way to
-	// learn existed. Every disconnect that was not a deliberate hangup looked
-	// exactly like one.
-	//
-	// SO THE TEST IS THE FLAG, NOT THE ERROR VALUE. c.closed is set before the
-	// socket is closed at every site that closes deliberately (see the field),
-	// so "did this side close it" is a fact this package already owns -- while
-	// the error value is a claim anything may make. quic-go's own connection
-	// errors answer errors.Is(err, net.ErrClosed) with true, deliberately, so
-	// that generic code treats them as a closed connection: no amount of naming
-	// causes down in netx could have got past a check on the identity alone.
-	// netx names them anyway, because a reported error still has to SAY
-	// something (see each package's closeReason), but this is the line that
-	// decides whether anyone hears it.
-	//
-	// Found by the transports cell of the third adversarial review (P1d-4).
-	//
-	// Found 2026-08-16 by reproducing it: a client on the shipped default
-	// transport (udp) made the relay log
-	// "connection error: read tcp ...: use of closed network connection"
-	// immediately before every successful join, because discovery closes the
-	// tcp connection while this read loop is parked in Scan(). Harmless, but
-	// it put an error line at the top of the log a remote tester is asked to
-	// send back. OnDisconnect still fires either way, so nothing that reacts
-	// to a connection ending is affected.
+	// A close this side made has logged its own reason, so it is not reported again. The test is the closed flag, not
+	// net.ErrClosed: a datagram peer cannot hang up, so every terminal failure there (udp retry exhaustion, a quic idle
+	// timeout) ends in a local close, and quic-go's errors match net.ErrClosed on purpose.
 	if err != io.EOF && !(errors.Is(err, net.ErrClosed) && c.closed.Load()) {
 		c.cbMu.Lock()
 		onError := c.onError
@@ -438,10 +256,8 @@ func (c *NDJSONConn) fail(err error) {
 	_ = c.Close()
 }
 
-// Send writes payload as a single NDJSON line, bounded by WriteTimeout so a
-// peer that stops reading cannot block the caller forever. payload must not
-// itself contain a newline — callers pass already-marshaled JSON, which
-// never does.
+// Send writes payload as a single NDJSON line, bounded by WriteTimeout so a peer that stops reading cannot block the
+// caller forever. payload must not contain a newline; marshalled JSON never does.
 func (c *NDJSONConn) Send(payload []byte) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
@@ -457,81 +273,32 @@ func (c *NDJSONConn) Send(payload []byte) error {
 		defer c.conn.SetWriteDeadline(time.Time{})
 	}
 
-	// One Write, not two. Over TCP the split was invisible — the kernel
-	// coalesces a byte stream either way — but a datagram transport turns
-	// "write payload, write '\n'" into two datagrams per message, which
-	// breaks framing outright and cannot be fixed downstream. Found while
-	// scoping selectable transports (agent_docs/architecture.md's transport
-	// ADR); see the one-Write regression test in transport_test.go.
+	// One Write, not two: a datagram transport would send the payload and its '\n' as two datagrams.
 	c.writeBuf = append(c.writeBuf[:0], payload...)
 	c.writeBuf = append(c.writeBuf, '\n')
 	_, err := c.conn.Write(c.writeBuf)
 	if err != nil && !writeNeverHappened(err) {
-		// **A failed write POISONS a stream connection, found live 2026-09-01 at 150 peers:**
-		// a write deadline can expire with the line HALF-WRITTEN, and NDJSON cannot
-		// resynchronize after that -- the peer's scanner sees a line that never ends, grows it
-		// until MaxLineBytes, and dies with "bufio.Scanner: token too long" (which is exactly
-		// what one synthetic core reported on the 150-peer ladder; the relay's per-writer
-		// queues meant only that one client's stream was mangled). Returning the error while
-		// leaving the conn open turned one timed-out write into a permanently mis-framed
-		// stream that LOOKED alive. Closing here makes the failure honest: the read loop ends,
-		// onDisconnect fires, and the caller's reconnect path takes over.
-		//
-		// IsClosed is set FIRST, and that order is load-bearing: the peer sees the close
-		// (a RESET) before this call even returns, so anything that asks "is this
-		// connection still alive?" between the close and the caller handling the error
-		// must be told the truth. See the closed field.
-		//
-		// THE EXCEPTION IS A WRITE THAT NEVER HAPPENED, and it is not a softening of
-		// the rule above -- it is that rule's own premise. Nothing is mis-framed if no
-		// byte reached the wire, so there is nothing to resynchronize and nothing to
-		// close. See writeNeverHappened.
+		// A deadline can expire with the line half-written, and NDJSON cannot resynchronize, so close. closed is set
+		// first because the peer sees the reset before this returns. A write that never happened put no byte on the
+		// wire, so nothing is mis-framed.
 		c.closed.Store(true)
 		_ = c.conn.Close()
 	}
 	return err
 }
 
-// writeNeverHappened reports whether err says the connection refused the
-// message outright, before putting any of it on the wire.
-//
-// The distinction is the difference between one skipped message and a dropped
-// player. udpconn's checkWritable refuses a payload too large for one datagram
-// BEFORE writing -- and a Welcome for a room of six players whose names contain
-// '&' is 1291 bytes against the 1181 one Send can carry, measured 2026-09-12, on
-// the SHIPPED DEFAULT transport and inside the relay's own default client cap of
-// 8. Closing on that turned "this one message will
-// not fit" into a hangup with no Reject, no reason, and nothing in the client's
-// log but a disconnect. Found by the transports cell of the third adversarial
-// review (P1d-3).
-//
-// A structural interface rather than an error value, for the same reason
-// unreliableWriter below is one: this package has no internal dependencies, so
-// it cannot import netx/udpconn to compare against a sentinel. A net.Conn that
-// has never heard of any of this still works -- its errors simply never claim
-// the exemption, which is the safe answer.
+// writeNeverHappened reports whether err says the connection refused the message before putting any of it on the
+// wire, as udpconn does with a payload too large for one datagram: one skipped message, not a dropped player. A
+// structural interface because this package cannot import netx; a net.Conn that never claims it gets the safe answer.
 func writeNeverHappened(err error) bool {
 	var nw interface{ NotWritten() bool }
 	return errors.As(err, &nw) && nw.NotWritten()
 }
 
-// SendUnreliable sends payload with no delivery guarantee, for the lossy
-// latest-wins state plane (agent_docs/contract.md: excess samples are
-// dropped, never queued, so a lost one is superseded rather than missed).
-//
-// Reliability is opt-*out* rather than opt-in on purpose: Send is reliable
-// on every transport, so a call site that never learns about this method
-// stays correct. Only the two state hot paths — the core's own send and the
-// relay's forward — give the guarantee up, and everything carrying
-// lifecycle meaning (hello/welcome/join/leave/reject/ping/pong) keeps it. A
-// dropped leave would strand a ghost on screen forever.
-//
-// Over TCP there is nothing to give up: the stream is reliable whether or
-// not anyone asks, so this is exactly Send. A datagram transport opts in by
-// having its net.Conn implement unreliableWriter, which is why this is a
-// type assertion rather than a field — transport must not import
-// netx (it has no internal dependencies at all, by design), and a
-// net.Conn that knows nothing about any of this still works.
+// SendUnreliable sends payload with no delivery guarantee, for the lossy latest-wins state plane, where a lost sample
+// is superseded rather than missed. Reliability is opt-out so a call site that never learns of this stays correct:
+// only the state hot paths give it up, since a dropped leave would strand a ghost. Over TCP it is Send; a datagram
+// net.Conn opts in by implementing unreliableWriter.
 func (c *NDJSONConn) SendUnreliable(payload []byte) error {
 	uw, ok := c.conn.(unreliableWriter)
 	if !ok {
@@ -558,19 +325,9 @@ func (c *NDJSONConn) SendUnreliable(payload []byte) error {
 	return err
 }
 
-// MaxPayloadBytes reports the largest payload one Send can carry on this
-// connection, or 0 when the underlying transport imposes no limit of its own
-// (tcp and quic both stream, so neither does).
-//
-// The '\n' Send appends is already deducted: this package adds that byte, so
-// this package is the one that has to account for it. A caller comparing a
-// marshalled message against this number is asking exactly the right question.
-//
-// Structural, like unreliableWriter below and for the same reason -- and 0 is
-// the safe answer for a net.Conn that says nothing, because a caller reads it
-// as "no transport limit" and falls back to whatever bound the protocol itself
-// imposes. Added 2026-09-12 with the P1d-3 fix, so the relay can size a Welcome
-// to the connection rather than discovering the limit as a failed write.
+// MaxPayloadBytes reports the largest payload one Send can carry on this connection, with the '\n' Send appends
+// already deducted, or 0 when the transport imposes no limit (tcp and quic stream). A net.Conn that says nothing also
+// gets 0, so a caller falls back to the protocol's own bound; the relay sizes a Welcome by it.
 func (c *NDJSONConn) MaxPayloadBytes() int {
 	m, ok := c.conn.(interface{ MaxPayloadBytes() int })
 	if !ok {
@@ -583,27 +340,20 @@ func (c *NDJSONConn) MaxPayloadBytes() int {
 	return n - 1
 }
 
-// unreliableWriter is the optional escape hatch a datagram-based net.Conn
-// implements to offer fire-and-forget delivery alongside the reliable Write
-// every net.Conn already has. Declared here rather than imported so this
-// package keeps its no-internal-dependencies property; netx/udpconn
-// and netx/quicconn satisfy it structurally.
+// unreliableWriter is what a datagram net.Conn implements to offer fire-and-forget delivery beside its reliable Write.
+// netx/udpconn and netx/quicconn satisfy it structurally, so this package keeps no internal dependencies.
 type unreliableWriter interface {
 	WriteUnreliable(p []byte) (int, error)
 }
 
-// OnReceive registers cb as this connection's message handler, then
-// delivers — in arrival order, before returning — anything that arrived
-// before it was registered. Without that flush, every message landing in
-// the window between FromConn/Dial starting the read loop and the caller
-// installing its callback was silently discarded; see the pending field.
+// OnReceive registers cb as this connection's message handler, then delivers, in arrival order and before returning,
+// anything that arrived before it was registered.
 func (c *NDJSONConn) OnReceive(cb func(payload []byte)) {
 	c.cbMu.Lock()
 	c.onReceive = cb
 	c.cbMu.Unlock()
 
-	// deliverMu (not cbMu) so readLoop can't interleave a newer payload
-	// into the middle of this backlog.
+	// deliverMu, not cbMu, so readLoop cannot interleave a newer payload into this backlog.
 	c.deliverMu.Lock()
 	defer c.deliverMu.Unlock()
 	backlog := c.pending
@@ -628,10 +378,8 @@ func (c *NDJSONConn) OnError(cb func(err error)) {
 	c.onError = cb
 }
 
-// Close closes the underlying connection. The read loop observes the
-// resulting error and fires OnDisconnect on its own; Close does not fire
-// it directly, so a locally-initiated close and a remote hangup are
-// reported through the same single path.
+// Close closes the underlying connection. The read loop sees the resulting error and fires OnDisconnect, so a local
+// close and a remote hangup report through one path.
 func (c *NDJSONConn) Close() error {
 	var err error
 	c.closeOnce.Do(func() {
@@ -641,28 +389,15 @@ func (c *NDJSONConn) Close() error {
 	return err
 }
 
-// IsClosed reports whether this connection has been closed, by either end and
-// for any reason. It is a fact about the socket, never about liveness: a peer
-// that has stopped reading but not hung up is still "not closed".
+// IsClosed reports whether this connection has been closed, by either end and for any reason. It is a fact about the
+// socket, never about liveness: a peer that has stopped reading but not hung up is not closed.
 func (c *NDJSONConn) IsClosed() bool { return c.closed.Load() }
 
-// CloseGracefully closes the connection so that whatever Send wrote last still
-// reaches the peer. Close() alone does not promise that over TCP: if the peer
-// has sent data this side never read, the kernel answers the close with a RESET
-// instead of a FIN, and a reset can discard what is still queued unread in the
-// PEER's receive buffer -- including the line just sent. That is exactly the
-// rate-limit case: a client that flooded the relay has most of its flood unread
-// server-side at the moment the Reject goes out.
-//
-// So: stop writing (CloseWrite sends the FIN behind the last Send), keep READING
-// for up to drain so the unread flood is consumed rather than reset, and let
-// readLoop close the socket when the peer's own FIN arrives or the drain ends.
-// A transport whose connection cannot half-close (anything without CloseWrite)
-// falls back to Close.
-//
-// Found 2026-09-05: TestRateLimitedClientReceivesRejectBeforeClose timed out on
-// a Linux runner waiting for a Reject the relay had written and the client
-// never saw; 40 local Windows runs never reproduced it.
+// CloseGracefully closes the connection so that whatever Send wrote last still reaches the peer. Over TCP a plain
+// Close with unread incoming data sends a reset, which can discard what the peer has not read yet, such as a Reject to
+// a client that flooded the relay. So it half-closes (the FIN follows the last Send), keeps reading for up to drain,
+// and lets readLoop close the socket when the peer's FIN arrives or the drain ends. With no CloseWrite or no drain, it
+// is Close.
 func (c *NDJSONConn) CloseGracefully(drain time.Duration) {
 	type closeWriter interface{ CloseWrite() error }
 	cw, ok := c.conn.(closeWriter)

@@ -6,21 +6,8 @@ import (
 	"time"
 )
 
-// TestATornFinalLineIsNeverDelivered pins the reader's EOF rule: a stream
-// that ends without a newline ends mid-message, and that fragment is dropped,
-// not handed to OnReceive as if it were a line.
-//
-// bufio.ScanLines returns the unterminated remainder at EOF as a token, and
-// before 2026-09-08 the read loop delivered it. The sender side already
-// guarantees the shape this produces: Send closes the connection the moment
-// a write fails, and a write that fails on its deadline has usually put the
-// front of the line on the wire first -- so the peer sees "half a message,
-// then FIN". The core's FuzzEverything reproduced it on CI through a
-// throttled adapter (core/testdata/fuzz/FuzzEverything/f131a0858b74689b):
-// the fake adapter's decoder reported "unexpected end of JSON input" on a
-// payload the core never sent.
-//
-// Fails without the fix: got receives two payloads, the second being `{"b":`.
+// TestATornFinalLineIsNeverDelivered pins the reader's EOF rule: a stream that ends without a newline ends
+// mid-message, and that fragment is dropped, never handed to OnReceive as a line.
 func TestATornFinalLineIsNeverDelivered(t *testing.T) {
 	client, server := net.Pipe()
 	defer client.Close()
@@ -34,9 +21,7 @@ func TestATornFinalLineIsNeverDelivered(t *testing.T) {
 	conn.OnDisconnect(func(error) { close(gone) })
 
 	go func() {
-		// One whole line, then the front half of a second one, then the
-		// close -- exactly what a write deadline expiring mid-line leaves
-		// on the wire.
+		// One whole line, the front half of a second, then the close: what a write deadline expiring mid-line leaves.
 		_, _ = server.Write([]byte("{\"a\":1}\n{\"b\":"))
 		server.Close()
 	}()

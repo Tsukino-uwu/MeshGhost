@@ -7,16 +7,8 @@ import (
 	"time"
 )
 
-// FuzzReadLoopNeverExceedsItsLineLimit drives arbitrary bytes through the
-// framing layer that sits in front of every parser in this project.
-//
-// The property under test is the one DefaultMaxLineBytes exists for: a peer
-// that streams bytes with no newline must not be able to make the reader
-// buffer without bound. The old bufio.Reader.ReadBytes implementation grew
-// its buffer until it found a '\n', so any length check applied to the
-// delivered payload ran too late to prevent the growth. This asserts the
-// limit holds during the read itself — no delivered payload may exceed it,
-// whatever the input looks like.
+// FuzzReadLoopNeverExceedsItsLineLimit drives arbitrary bytes through the framing in front of every parser: whatever
+// the input, no payload past the line limit is delivered, and none is buffered during the read.
 //
 // Longer campaign:
 //
@@ -29,14 +21,10 @@ func FuzzReadLoopNeverExceedsItsLineLimit(f *testing.F) {
 	f.Add(make([]byte, 300)) // long, unterminated: the exhaustion shape
 	f.Add([]byte{0x00, 0xff, 0xfe})
 
-	// Deliberately small so a fuzzer-sized input can actually cross it;
-	// the production value is 4KiB-64KiB and would need huge inputs to test.
+	// Small, so a fuzzer-sized input can cross it.
 	const maxLine = 128
 
-	// The other half of the property: not only is no oversized payload
-	// DELIVERED, none is ever BUFFERED. The probe sees every split call's
-	// buffer length; a read loop holding more than the limit before refusing
-	// is exactly the blind spot the delivered-payload check alone leaves.
+	// The probe sees every split call's buffer length, which a check on delivered payloads alone cannot.
 	var peak atomic.Int64
 	probe := func(n int) {
 		for {
@@ -52,8 +40,7 @@ func FuzzReadLoopNeverExceedsItsLineLimit(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		client, server := net.Pipe()
 
-		// Idle timeout disabled (< 0): closing the client end is what ends
-		// the read loop here, and a real deadline would only add flakiness.
+		// Idle timeout disabled: closing the client end ends the read loop, and a deadline would only add flakiness.
 		nd := FromConnWithLimits(server, maxLine, -1, time.Second)
 
 		oversized := make(chan int, 1)
@@ -68,9 +55,8 @@ func FuzzReadLoopNeverExceedsItsLineLimit(f *testing.F) {
 		})
 		nd.OnDisconnect(func(error) { close(done) })
 
-		// The read loop stops on an over-long line, and net.Pipe is
-		// unbuffered — without a deadline our own Write would then block
-		// forever, turning a caught bug into a hung fuzz run.
+		// The read loop stops on an over-long line and net.Pipe is unbuffered, so without a deadline this Write could
+		// block forever.
 		_ = client.SetWriteDeadline(time.Now().Add(2 * time.Second))
 		_, _ = client.Write(data)
 		_ = client.Close()

@@ -7,73 +7,32 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// The bounds on an input track, and the check that enforces them.
-//
-// WHY THESE LIVE HERE AND NOT IN protocol/limits.go, which is where every other
-// limit in this project lives. InputSample is a bridge type, and protocol
-// cannot import bridge -- bridge already imports protocol, so it would be a
-// cycle. The reason limits.go gives for centralizing (two enforcement points
-// that must never drift apart) also does not apply: there is exactly one, the
-// core accepting a batch from its own adapter, plus the file loader that reads
-// a track back, and both import this package.
-//
-// NONE OF THIS IS A RELAY LIMIT. An input track never goes on the wire. The
-// bridge tolerates a 64 KiB line (transport.DefaultMaxLineBytes), not
-// protocol.MaxLineBytes' 4096 -- so a batch is bounded by the numbers below and
-// by nothing else, and they are the only thing standing between a broken
-// adapter and the core's memory.
+// The bounds on an input track. They live here rather than in protocol because protocol cannot import bridge. None is
+// a relay limit, since an input track never goes on the wire: the bridge tolerates a 64 KiB line, so these are all
+// that stands between a broken adapter and the core's memory.
 const (
-	// MaxInputEdgesPerBatch bounds len(InputSample.Edges) in one message. Well
-	// above a real drain: an adapter reading at 60fps into a poll loop running
-	// several times faster sends 0 or 1 edges a batch, and 64 covers a long
-	// stall without ever being a size an adapter should aim at.
+	// MaxInputEdgesPerBatch bounds len(InputSample.Edges): well above a real drain, covering a long stall.
 	MaxInputEdgesPerBatch = 64
 
-	// MaxInputAxes bounds len(InputEdge.Ax), mirroring protocol.MaxPositionLen
-	// and for the same reason: headroom above the largest real use (a stick, a
-	// camera, maybe a cursor -- so four to six) rather than a target.
+	// MaxInputAxes bounds len(InputEdge.Ax), with headroom above a stick, a camera and a cursor.
 	MaxInputAxes = 8
 
-	// MaxInputLabels bounds how many buttons a track may name, and it is 32
-	// because that is the width of InputEdge.M. The two must agree: a label
-	// table longer than the mask has bits for is naming buttons that can never
-	// be set.
+	// MaxInputLabels bounds how many buttons a track may name. It is the width of InputEdge.M: a label past the mask's
+	// bits names a button that can never be set.
 	MaxInputLabels = 32
 
-	// MaxInputLabelLen bounds one label or axis name, in bytes. Same
-	// opaque-string treatment area_id and anim get -- the core validates the
-	// SHAPE and never reads the meaning.
+	// MaxInputLabelLen bounds one label or axis name in bytes; the core checks the shape and never reads the meaning.
 	MaxInputLabelLen = 32
 
-	// MaxInputFrame bounds InputEdge.F, and the reason is written three fields
-	// down in bridge.go already: "a JSON number is a float64 to every reader
-	// that is not Go". That sentence is why M is 32 bits and not 64. It applies
-	// to F word for word and was never applied.
-	//
-	// **A reader that is not Go is exactly what is on the other end.** The
-	// Pseudoregalia adapter parses `f` into a double and then does
-	// `static_cast<uint64_t>(max(0.0, f))`. A `uint64` near its own maximum
-	// serializes to 18446744073709551615, whose nearest double is 2^64 exactly
-	// -- one past the destination's range, so the cast is undefined behaviour,
-	// in the player's game process, from a clip a friend sent them. The `m`
-	// field on the line above that cast IS guarded, which is what makes this a
-	// missing guard rather than an unconsidered case (P2e-1, 2026-09-12).
-	//
-	// 2^53 is where a double stops representing consecutive integers, so it is
-	// the largest F that can survive the trip meaning what it said. It is not a
-	// restrictive bound: 9,007,199,254,740,992 against the tens of thousands the
-	// four adapters' own frame counters actually reach in a session.
+	// MaxInputFrame bounds InputEdge.F at 2^53, the largest integer a float64 carries exactly: a reader that is not Go
+	// parses f as a double, and a uint64 near its maximum rounds to 2^64, past the range of a cast back to uint64.
 	MaxInputFrame = 1 << 53
 
-	// MaxInputAxisValue bounds the magnitude of one analog axis. Sticks are
-	// normalized to ±1 and a cursor is screen space, so this is far above any
-	// real value; it exists to refuse the infinities and 1e308s that survive a
-	// JSON round trip into a float64 and become +Inf the moment something
-	// narrows them to float32 (protocol.IsValidPosition's lesson, applied here).
+	// MaxInputAxisValue bounds one analog axis, far above any real value (sticks are ±1, a cursor is screen space), to
+	// refuse values that survive a float64 and become +Inf when narrowed to float32.
 	MaxInputAxisValue = 1e4
 )
 
-// validInputAxes reports whether every axis is finite and within bounds.
 func validInputAxes(ax []float64) bool {
 	if len(ax) > MaxInputAxes {
 		return false
@@ -86,8 +45,6 @@ func validInputAxes(ax []float64) bool {
 	return true
 }
 
-// validInputNames reports whether a label or axis-name table is within bounds
-// and every entry is a valid opaque string.
 func validInputNames(names []string) bool {
 	if len(names) > MaxInputLabels {
 		return false
@@ -100,24 +57,14 @@ func validInputNames(names []string) bool {
 	return true
 }
 
-// ValidateInputSample reports whether s passes every bound in this file.
-//
-// It checks ordering WITHIN the batch only. Ordering ACROSS batches is the
-// core's business, because only the core remembers the last edge it accepted --
-// see core.Core.recordInput, which refuses a batch that goes backwards against
-// its predecessor rather than repairing it.
-//
-// A mask bit set above len(Labels) is NOT a rejection, deliberately. An adapter
-// that sets a bit it forgot to name has produced a legible track with one
-// unnamed bit, which is a thing to log and not a thing to refuse -- and
-// refusing it would make the core the arbiter of what a label table has to
-// contain, which is exactly the game knowledge it must not have.
+// ValidateInputSample reports whether s passes every bound in this file. It checks ordering within the batch only;
+// core.Core.recordInput refuses a batch that goes backwards against its predecessor. A mask bit above len(Labels) is
+// not a rejection: refusing it would make the core judge what a label table must contain.
 func ValidateInputSample(s InputSample) bool {
 	if len(s.Edges) > MaxInputEdgesPerBatch {
 		return false
 	}
-	// An empty batch is legal only when it is declaring a table. Anything else
-	// empty is an adapter burning a line to say nothing.
+	// An empty batch is legal only when it declares a table.
 	if len(s.Edges) == 0 && len(s.Labels) == 0 && len(s.Axes) == 0 {
 		return false
 	}
@@ -128,14 +75,10 @@ func ValidateInputSample(s InputSample) bool {
 	var lastF uint64
 	var lastT int64
 	for i, e := range s.Edges {
-		// Same bound and the same reason as protocol.ValidateState's: an
-		// unbounded timestamp overflows a time.Duration downstream.
+		// An unbounded timestamp overflows a time.Duration downstream.
 		if e.T < 0 || e.T > protocol.MaxTimestampMs {
 			return false
 		}
-		// Bounded for the same reason T is, one destination further along: see
-		// MaxInputFrame, where the narrowing this prevents is in the adapter's
-		// process rather than in ours.
 		if e.F > MaxInputFrame {
 			return false
 		}
@@ -150,10 +93,8 @@ func ValidateInputSample(s InputSample) bool {
 	return true
 }
 
-// InputSampleRejectReason names which check s fails, or "" if it passes them
-// all. Only ever called on the rejection path, for the same reason
-// protocol.StateRejectReason is: a batch dropped for size or shape must say so,
-// because every symptom of a silently dropped input track points somewhere else.
+// InputSampleRejectReason names which check s fails, or "" if it passes them all. Called only on the rejection path,
+// because a silently dropped input track shows symptoms that point somewhere else.
 func InputSampleRejectReason(s InputSample) string {
 	if n := len(s.Edges); n > MaxInputEdgesPerBatch {
 		return fmt.Sprintf("%d edges, %d over the %d cap", n, n-MaxInputEdgesPerBatch, MaxInputEdgesPerBatch)

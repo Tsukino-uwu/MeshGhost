@@ -9,8 +9,6 @@ import (
 	"time"
 )
 
-// listen starts a TCP listener on an ephemeral port and returns it plus its
-// address, closing it automatically at test end.
 func listen(t *testing.T) (net.Listener, string) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -21,10 +19,7 @@ func listen(t *testing.T) (net.Listener, string) {
 	return ln, ln.Addr().String()
 }
 
-// TestEchoToSelf covers the "echo to self" milestone from CLAUDE.md's small
-// runnable steps: a client sends a line through a real TCP connection to a
-// server that echoes it straight back, and the client observes the same
-// bytes it sent.
+// TestEchoToSelf: a line sent through a real TCP connection to a server that echoes it comes back byte for byte.
 func TestEchoToSelf(t *testing.T) {
 	ln, addr := listen(t)
 
@@ -65,19 +60,8 @@ func TestEchoToSelf(t *testing.T) {
 	}
 }
 
-// TestMessagesBeforeOnReceiveAreNotLost covers the registration-order race
-// found 2026-08-16: FromConn/Dial start the read loop before returning, so
-// every caller has a window between "connection exists" and "callback
-// installed", and a message arriving in it used to be dropped silently —
-// no error, no log, nothing to debug from. It was the cause of an
-// intermittent failure across the whole suite (~9 of 12 `go test ./...`
-// runs, a different test each time, always a timeout waiting for a message
-// that had genuinely been sent). Reachable in production too: the relay
-// installs its callback after FromConnWithLimits, so a fast client's Hello
-// could go unanswered.
-//
-// This test deliberately sends first and registers second, and also checks
-// the backlog arrives in order rather than merely arriving.
+// TestMessagesBeforeOnReceiveAreNotLost sends before registering OnReceive, in the window after the read loop has
+// started, and checks the backlog arrives in order.
 func TestMessagesBeforeOnReceiveAreNotLost(t *testing.T) {
 	ln, addr := listen(t)
 
@@ -108,8 +92,7 @@ func TestMessagesBeforeOnReceiveAreNotLost(t *testing.T) {
 		}
 	}
 
-	// Give the echoes time to land while no callback is registered — the
-	// exact window that used to lose them.
+	// Let the echoes land while no callback is registered.
 	time.Sleep(200 * time.Millisecond)
 
 	var mu sync.Mutex
@@ -142,9 +125,7 @@ func TestMessagesBeforeOnReceiveAreNotLost(t *testing.T) {
 	}
 }
 
-// TestMultipleMessagesPreserveOrder confirms NDJSON framing splits back
-// exactly the lines that were sent, in order, even when they arrive as one
-// burst of writes.
+// TestMultipleMessagesPreserveOrder: lines sent as one burst split back exactly, in order.
 func TestMultipleMessagesPreserveOrder(t *testing.T) {
 	ln, addr := listen(t)
 
@@ -203,8 +184,6 @@ func TestMultipleMessagesPreserveOrder(t *testing.T) {
 	}
 }
 
-// TestCloseFiresDisconnect confirms closing one side of the connection is
-// observed by the other side's OnDisconnect, not silently dropped.
 func TestCloseFiresDisconnect(t *testing.T) {
 	ln, addr := listen(t)
 
@@ -237,22 +216,8 @@ func TestCloseFiresDisconnect(t *testing.T) {
 	}
 }
 
-// TestLocalCloseDoesNotReportAnError is the regression test for a real log
-// line that looked like a bug and wasn't: on the shipped default transport
-// (udp), every successful join was preceded in the relay's log by
-//
-//	relay: connection error: read tcp ...: use of closed network connection
-//
-// The relay closes the tcp connection itself once it has answered a
-// query_only transport-discovery hello (relay), and this read loop
-// was parked in Scan() at the time, so our own Close() came back as
-// net.ErrClosed and got reported through OnError as if a peer had done
-// something. Reproduced against the real binaries 2026-08-16, then fixed
-// here rather than in the relay, because every deliberate Close() in the
-// codebase had the same problem.
-//
-// OnDisconnect must still fire: suppressing the error must not make a
-// connection ending invisible, only stop it being called an error.
+// TestLocalCloseDoesNotReportAnError: this side's own Close, which the read loop sees as net.ErrClosed, fires
+// OnDisconnect but never OnError.
 func TestLocalCloseDoesNotReportAnError(t *testing.T) {
 	ln, addr := listen(t)
 
@@ -291,16 +256,8 @@ func TestLocalCloseDoesNotReportAnError(t *testing.T) {
 	}
 }
 
-// TestOversizedLineWithNoDelimiterClosesConnection confirms a line
-// exceeding MaxLineBytes is rejected during the read itself, not after
-// being fully buffered. Found while scoping relay-safety hardening
-// (agent_docs/architecture.md's room-code/version ADR): the old
-// bufio.Reader-based readLoop grew its internal buffer without bound until
-// it found a '\n', so a peer that streamed bytes with no newline at all
-// could force unbounded memory growth — a length check on the delivered
-// payload (as relay's MaxLineBytes check used to be) ran too late
-// to prevent that. This test sends well over the limit with no trailing
-// newline at all, the exact scenario the old implementation couldn't bound.
+// TestOversizedLineWithNoDelimiterClosesConnection: a line past MaxLineBytes with no newline at all is refused during
+// the read, not after it is buffered.
 func TestOversizedLineWithNoDelimiterClosesConnection(t *testing.T) {
 	ln, addr := listen(t)
 
@@ -310,13 +267,7 @@ func TestOversizedLineWithNoDelimiterClosesConnection(t *testing.T) {
 		if err != nil {
 			return
 		}
-		// FromConnWithLimits, not FromConn plus a field assignment: FromConn
-		// starts the read loop before it returns, so setting MaxLineBytes
-		// afterward races readLoop's own read of it (see the field's doc
-		// comment in transport.go). When readLoop won that race it kept the
-		// 64KiB default, the 8192-byte write below stayed under it, no
-		// disconnect ever came, and this test failed on the 2s timeout --
-		// caught 2026-08-16 by running the suite with -count=10.
+		// FromConnWithLimits: setting MaxLineBytes after FromConn races the read loop, which may keep the default.
 		FromConnWithLimits(conn, 1024, 0, 0)
 		close(serverUp)
 	}()
@@ -331,7 +282,6 @@ func TestOversizedLineWithNoDelimiterClosesConnection(t *testing.T) {
 	disconnected := make(chan error, 1)
 	client.OnDisconnect(func(err error) { disconnected <- err })
 
-	// Well over the server's 1024-byte limit, no newline anywhere in it.
 	huge := bytes.Repeat([]byte("x"), 8192)
 	if _, err := client.conn.Write(huge); err != nil {
 		t.Fatalf("write: %v", err)
@@ -344,9 +294,6 @@ func TestOversizedLineWithNoDelimiterClosesConnection(t *testing.T) {
 	}
 }
 
-// TestIdleTimeoutClosesConnection confirms a connection that never
-// completes a line within IdleTimeout is closed rather than held open
-// forever — agent_docs/architecture.md's room-code/version ADR.
 func TestIdleTimeoutClosesConnection(t *testing.T) {
 	ln, addr := listen(t)
 
@@ -356,11 +303,7 @@ func TestIdleTimeoutClosesConnection(t *testing.T) {
 		if err != nil {
 			return
 		}
-		// FromConnWithLimits for the same reason as
-		// TestOversizedLineWithNoDelimiterClosesConnection above: setting
-		// IdleTimeout after FromConn races the read loop that is already
-		// running, and losing that race leaves the real 60s default in
-		// place, well past this test's 2s patience.
+		// FromConnWithLimits for the same race as above; losing it leaves the 60s default.
 		FromConnWithLimits(conn, 0, 100*time.Millisecond, 0)
 		close(serverUp)
 	}()
@@ -383,10 +326,8 @@ func TestIdleTimeoutClosesConnection(t *testing.T) {
 	}
 }
 
-// countingConn is a net.Conn that records every Write it receives, so a
-// test can assert on the *number* of writes rather than only the bytes that
-// come out the other end. Reads block until Close, which is enough for
-// FromConn's read loop to sit quietly while the test drives Send.
+// countingConn is a net.Conn that records every Write, so a test can count writes and not only bytes. Reads block
+// until Close, so the read loop sits quietly while the test drives Send.
 type countingConn struct {
 	mu     sync.Mutex
 	writes [][]byte
@@ -431,18 +372,8 @@ func (c *countingConn) snapshot() [][]byte {
 	return out
 }
 
-// TestSendIssuesExactlyOneWritePerMessage pins the property that makes
-// NDJSON framing survive a datagram transport: payload and its terminating
-// newline must leave in a *single* Write. Send used to issue two (payload,
-// then "\n"), which TCP hides completely — the bytes arrive identically
-// either way — but which becomes two datagrams per message over UDP or a
-// QUIC datagram, splitting every line in half with no way to reassemble it
-// downstream. Found while scoping selectable transports; see the transport
-// ADR in agent_docs/architecture.md.
-//
-// This test fails against the two-Write version, which is the point: the
-// bytes-level assertions below pass either way, so only the count catches a
-// regression here.
+// TestSendIssuesExactlyOneWritePerMessage: payload and newline leave in one Write, or a datagram transport splits
+// every line in two. Only the count catches a regression; the bytes match either way.
 func TestSendIssuesExactlyOneWritePerMessage(t *testing.T) {
 	cc := newCountingConn()
 	conn := FromConn(cc)
@@ -465,11 +396,8 @@ func TestSendIssuesExactlyOneWritePerMessage(t *testing.T) {
 	}
 }
 
-// TestSendUnreliableMatchesSendOverTCP confirms the opt-out is a no-op on a
-// stream transport: TCP has no unreliable mode to drop into, so the bytes
-// and the write count must be identical to Send. A transport that quietly
-// did something different here would make the state plane behave one way on
-// tcp and another on udp for no reason a caller could see.
+// TestSendUnreliableMatchesSendOverTCP: with no unreliable mode to drop into, the bytes and the write count are
+// Send's.
 func TestSendUnreliableMatchesSendOverTCP(t *testing.T) {
 	cc := newCountingConn()
 	conn := FromConn(cc)
@@ -488,12 +416,8 @@ func TestSendUnreliableMatchesSendOverTCP(t *testing.T) {
 	}
 }
 
-// partialWriteConn fails its first Write mid-line -- reporting n < len(p)
-// with a timeout error, exactly what a net.Conn does when the write
-// deadline expires with the kernel buffer full -- and records whether
-// Close was called. Everything after that first failure is a bug's
-// playground: a stream missing half a line plus its newline can never be
-// re-framed.
+// partialWriteConn fails its first Write halfway with a timeout error, as a net.Conn does when the write deadline
+// expires with the kernel buffer full, and records whether Close was called.
 type partialWriteConn struct {
 	mu         sync.Mutex
 	writeCalls int
@@ -550,15 +474,8 @@ func (c *partialWriteConn) SetDeadline(t time.Time) error      { return nil }
 func (c *partialWriteConn) SetReadDeadline(t time.Time) error  { return nil }
 func (c *partialWriteConn) SetWriteDeadline(t time.Time) error { return nil }
 
-// TestFailedWritePoisonsConnection pins the fix for a bug the 150-peer
-// ladder found live on 2026-09-01: Send returned the write error but left
-// the connection OPEN with half a line (and no newline) on the stream. The
-// next Send then appended a fresh line onto the unterminated one, and the
-// receiving side's scanner grew that never-ending "line" until it died
-// with "bufio.Scanner: token too long" -- which is precisely the error one
-// synthetic core reported at 150 peers. NDJSON framing cannot be recovered
-// after a partial line, so the only honest move is to close the connection
-// and let the reconnect path take over.
+// TestFailedWritePoisonsConnection: a partial write closes the connection, since NDJSON cannot re-frame after half a
+// line, and the next Send fails instead of appending to the unterminated one.
 func TestFailedWritePoisonsConnection(t *testing.T) {
 	conn := newPartialWriteConn()
 	c := FromConn(conn)
@@ -575,15 +492,9 @@ func TestFailedWritePoisonsConnection(t *testing.T) {
 	}
 }
 
-// TestCloseGracefullyDeliversTheLastLineThenEOF pins what CloseGracefully is
-// for: a line written just before the close reaches a peer that still has
-// unread data of its own in flight, and the peer then sees a clean EOF rather
-// than a connection reset. A plain Close on a socket with unread incoming data
-// makes the kernel send a reset, which can discard that last line in the
-// peer's receive buffer -- the relay's rate-limit Reject was lost exactly that
-// way on a Linux CI runner (2026-09-05). Also pins that the server side closes
-// on its own once the drain ends, so a peer that never hangs up cannot hold
-// the connection open.
+// TestCloseGracefullyDeliversTheLastLineThenEOF: a line written just before the close reaches a peer that still has
+// unread data in flight, followed by a clean EOF rather than a reset, and the server side closes on its own once the
+// drain ends.
 func TestCloseGracefullyDeliversTheLastLineThenEOF(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -610,11 +521,8 @@ func TestCloseGracefullyDeliversTheLastLineThenEOF(t *testing.T) {
 		t.Fatal("accept timed out")
 	}
 
-	// The server reads what the client sends SLOWLY: a callback that dawdles
-	// keeps most of the client's lines sitting unread in the server's kernel
-	// buffer at the moment of the close, which is the condition that turns a
-	// plain Close into a reset -- while still letting the read loop reach the
-	// drain deadline and consume them.
+	// A slow callback keeps most of the client's lines unread in the server's kernel buffer at the close, the
+	// condition that turns a plain Close into a reset.
 	server := FromConnWithLimits(serverRaw, DefaultMaxLineBytes, 0, 0)
 	server.OnReceive(func([]byte) { time.Sleep(2 * time.Millisecond) })
 	closed := make(chan struct{})
@@ -632,7 +540,7 @@ func TestCloseGracefullyDeliversTheLastLineThenEOF(t *testing.T) {
 	}
 	server.CloseGracefully(2 * time.Second)
 
-	// The client must read the reject, then a clean EOF -- never a reset.
+	// The client must read the reject, then a clean EOF, never a reset.
 	_ = client.SetReadDeadline(time.Now().Add(2 * time.Second))
 	got, err := io.ReadAll(client)
 	if err != nil {
