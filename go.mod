@@ -9,6 +9,8 @@ module github.com/Tsukino-uwu/MeshGhost
 
 go 1.26.0
 
+toolchain go1.26.8
+
 require (
 	github.com/bytemare/opaque v0.18.0
 	github.com/quic-go/quic-go v0.62.0

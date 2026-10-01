@@ -31,8 +31,9 @@ so this file stays the dated record of versions and traps, and that one is the s
   in CI — a check that is clean on one and not the other is confusion, not information. When CI
   installs "the newest patch" of something, update the local copy to that patch; when a pin moves
   in the repo, move the local install with it, and re-date the line that records it here.
-- Go toolchain: **`go1.26.8 windows/amd64`** (`go version`, 2026-09-16), the newest 1.26 patch —
-  what both workflows' `setup-go` `"1.26"` installs. Updated that day from `go1.26.5` (installed
+- Go toolchain: **`go1.26.8 windows/amd64`** (`go version`, 2026-09-16). Pinned since 2026-10-01 by
+  `toolchain go1.26.8` in both `go.mod` files, which the workflows' `setup-go` reads (`go-version-file`);
+  before that they installed whatever `"1.26"` resolved to. Updated that day from `go1.26.5` (installed
   2026-08-11) with the official MSI, its SHA-256 compared against go.dev's release list, because
   `govulncheck` reported four standard-library findings in 1.26.5 that CI's newer patch did not
   have. The MeshGhost suite and the root binaries were rebuilt on it the same day.
