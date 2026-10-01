@@ -2,7 +2,7 @@
 
 MeshGhost puts other players into your singleplayer games as ghosts, carried by a client and
 server that know nothing about the game itself. Each game has its own mod, which reads your
-character and shows everyone else's. In every game shipped so far, a ghost is cosmetic.
+character and shows everyone else's. In every game shipped so far, a ghost is cosmetic by default.
 
 ## Setup
 

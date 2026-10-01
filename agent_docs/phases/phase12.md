@@ -963,3 +963,31 @@ Open at the pause: the full harness on the workflow-pinning tip (`0c9a6c31`) fai
 tag, and every action is now on a SHA with its version in a `# vN.N.N` comment, so the check sees no versions and
 passes anything. Fix first next session: read the version from that comment (and keep the fixture), then re-run
 the full harness. Everything else in A3 is committed; the two games still need their on-screen check.
+
+## 2026-10-01 (later) — the action-versions check reads SHA pins, and the full harness is green
+
+"GitHub Action versions agree across workflows" matched only `@vN` tags, so after the pinning commit it saw no
+versions at all. It now keys each `uses:` line on the SHA plus its `# vN.N.N` comment (or the tag, if an action is
+still unpinned), skips commented-out lines, and so also refuses two workflows on the same release at different
+commits. The `action-version-split` fixture plants a SHA pin at an older release; the old regex does not match that
+line, so the fixture fails without the fix. The full harness on `402e648a`, six shards: 68 of 68 fixtures saw their
+planted violation (66 FAIL, 2 WARN), and no worktree was left behind.
+
+## 2026-10-01 (later) — A4 begun: a code map, and the root README checked
+
+`agent_docs/code-map.md` now has a row for every file the doc-coverage section counts: 150 source files (Go,
+adapters, autoplay, the agent guard) and 9 probe folders, each one sentence on what the file does plus links to the
+docs behind it. Four subagents drafted a quarter each from the code, not the comments; this session checked the
+riskier claims against the code (the trust-on-first-use mismatch path in `knownrelays.go`, the try/catch walls in
+TEVI's `Plugin.cs`) and preflight checked every link and anchor. Unmapped files: 158 → 0. The `CLAUDE.md` rule
+lands with it, folded into the same-commit docs bullet so the file stays at 195 lines: a file's row is read before
+changing it and updated with it. `_template/README.md` now says how a build step's **Status:** line is written.
+The root README said a ghost is cosmetic in every shipped game; the Pokémon mods honour `ghost_collision: enabled`
+and Pseudoregalia's chasers honour `contact`, so it now says "by default".
+
+Found on the way, for A5 (stale code comments, the code is right): Crystal's header says vanilla V1.0 only and
+spawned ghosts, where the code also knows V1.1, Archipelago and Speedchoice v8.1 and paints by default;
+Pseudoregalia's `BridgeClient.hpp` says a silent core counts as accepting, where the `.cpp` accepts only
+`bridge_ready`; its `CoreLauncher.hpp` names the mod folder in the config search, where the `.cpp` reads only the
+game's root. For a doc pass: the autoplay README's tools table lacks `clear_obstacle` and `search`, and
+`docs/networking.md` § 7 calls the relay's flood cap a tumbling window where `relay.go` runs a leaky bucket.

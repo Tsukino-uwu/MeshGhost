@@ -876,6 +876,13 @@ Waiting for a capability to be 100% before it earns a line is how a list goes st
 that far behind on 2026-09-10, while the work sat confirmed in its queue. `documentation.md`
 is the opposite — it takes only fully-established mechanics — and the two bars are not the same.
 
+**Every step ends with its own `**Status:**` line**: `**Status:** <state> (date).`, the state in a
+reader's words (works, seen on screen; partial, naming what is missing; built, not yet seen on
+screen; superseded by step N), and the date that of the record that settles it (a `VERIFIED.md`
+entry, a measurement, the phase file). A step whose work changes gets its Status rewritten in the
+same commit, and the README's line-3 status agrees with the steps. Preflight's "Doc coverage"
+section fails a step without one.
+
 **FACT-CHECK EVERY CLAIM AGAINST THE CODE BEFORE WRITING IT.** The user's rule, 2026-09-10, after a
 brand-new beat asserted an interpolation default that had been wrong for eight days: it was written
 straight from a `VERIFIED.md` entry that was true on the day it was written and superseded by an ADR

@@ -162,9 +162,9 @@ loads (root + `adapters/` + host); indexes and queues get one line per entry ins
 ## Records and docs
 
 - **A step is not done until its doc is updated in the same commit**: the adapter README's build
-  step and its **Status:** line, `docs/`, `contract.md`/`adr/`, `autoplay/README.md` or
-  `dev-scripts/README.md`. Only a body line `docs: no process change` excuses it: a typo or a
-  refactor, never a step (`.githooks/commit-msg` refuses otherwise; the map: `dev-scripts/doc-map.txt`).
+  step and its **Status:** line, `docs/`, `contract.md`/`adr/`, the autoplay or dev-scripts README,
+  and the file's row in `agent_docs/code-map.md`, **read before changing any file**. Only a body line
+  `docs: no process change` excuses only a typo or a refactor (`.githooks/commit-msg`, `doc-map.txt`).
 - **`agent_docs/status.md` indexes what's open: two lines per item, maximum** (what, and where the
   detail lives; `claude-md-cap.md`). A third line moves behind a pointer; a fixed-and-confirmed item is
   deleted the moment it is; a phase change overwrites in place rather than appending.

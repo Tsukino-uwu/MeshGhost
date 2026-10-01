@@ -1,9 +1,413 @@
 # Code map
 
-Every source file, what it's for, and where the notes behind it live. A probe folder has one row; `dev-scripts/`
-is described in its own [README](../dev-scripts/README.md). Started 2026-10-01 with the agent guard; the rest of the
-tree gets its rows in step A4 of the bug_fables_ap comparison ([phase12.md](phases/phase12.md), 2026-09-30), and
-preflight's "Doc coverage" section counts the files still missing one.
+Every source file, what it's for, and where the notes behind it live. Look a file up here before changing it,
+and change its row in the same commit when what the file does changes. A probe folder has one row, tests sit
+beside the files they test and have none, and `dev-scripts/` is described in its own
+[README](../dev-scripts/README.md). Preflight's "Doc coverage" section fails a source file with no row.
+
+## Contents
+
+- [The Go side](#the-go-side)
+- [Adapters](#adapters)
+- [Autoplay](#autoplay)
+- [Claude Code](#claude-code)
+
+## The Go side
+
+The client, the relay and the libraries they share; none of it knows any game.
+
+### core/
+
+The game-agnostic client library behind `meshghost.exe`: the relay session, the bridge server, interpolation, replays and chasers.
+
+| File | What it does | Notes |
+|---|---|---|
+| [`core.go`](../core/core.go) | Defines `Core`, the game-agnostic client: one relay session, one bridge adapter. Holds `New`, the default timing constants (interpolation delay, keepalive, heartbeat, reconnect backoff) and how a relay `RejectError` is read as permanent or retryable. `Adapter` serves in-process test hosts only. | [architecture § Package boundaries](architecture.md#package-boundaries)<br>[contract § reject reasons, and which of them are worth retrying](contract.md#reject-reasons-and-which-of-them-are-worth-retrying)<br>[ADR 0046](adr/0046-2026-09-02-450ms-ships-everywhere-judged-on-the-worst-case-link.md) |
+| [`adapterwriter.go`](../core/adapterwriter.go) | The core-to-adapter outbound queue: frames enqueue and one writer goroutine per bridge connection drains, so a slow adapter loses intermediate ghost positions, not the session. A newer `render_remote` replaces an unsent one for that peer in place; other messages keep their order. | [ADR 0060](adr/0060-2026-09-11-neither-end-of-the-bridge-blocks-the-other.md)<br>[networking § 7. Limits and backpressure](../docs/networking.md#7-limits-and-backpressure) |
+| [`bridgeserve.go`](../core/bridgeserve.go) | The core's side of the bridge: `ServeBridge` accepts adapter connections, admits one adapter after its `hello`, dispatches its messages, and answers each `local_state` frame (`onAdapterFrame`) with render and despawn pushes. Also pushes `session_policy` and `recording_state` to the adapter. | [networking § 3. The life of a state message](../docs/networking.md#3-the-life-of-a-state-message)<br>[contract § Connecting: the bridge hello](contract.md#connecting-the-bridge-hello)<br>[ADR 0027](adr/0027-2026-08-16-one-adapter-per-core-answered-explicitly.md) |
+| [`chaser.go`](../core/chaser.go) | The chaser pack: ghosts of the player's own past, each a set delay behind, read from a shared history the recorder tap fills. Runs on gameplay time, so `SetPlayerFrozen` holds it; `ResetChasers` starts it over. `ChaserContact` is the contact mode. | [ADR 0047](adr/0047-2026-09-03-a-replay-is-a-local-fake-peer.md)<br>[ADR 0053](adr/0053-2026-09-05-the-chaser-runs-on-gameplay-time.md)<br>[ADR 0072](adr/0072-2026-09-23-a-death-starts-the-chaser-pack-over.md) |
+| [`clock.go`](../core/clock.go) | `coreClock`, an injectable clock (`Now` and `Since`) so tests can cross time-based boundaries without sleeping; anything whose other end is a socket, a process or a person stays on the wall clock. | [ideas § A virtual clock for the core](ideas.md#a-virtual-clock-for-the-core-so-a-fuzz-step-can-say-eight-hours-pass-with-no-sleep-filed-2026-09-03) |
+| [`correction.go`](../core/correction.go) | When a new sample moves where a remote ghost belongs, the drawn spot is kept as an offset decaying over `Core.Correction`, so the ghost slides rather than jumps. Snaps on an area change, a warp or a local ghost; off at zero. | [ADR 0069](adr/0069-2026-09-15-a-fifth-render-knob-corrections-slide-instead-of-jumping.md) |
+| [`inputrecorder.go`](../core/inputrecorder.go) | Records the adapter's `input_sample` edges (opaque button masks and axes, written on change) to a second NDJSON file in the replay `inputs` folder, tied to the state recording by `recording_id`, plus a ring that `SaveLastInputs` writes out. | [ADR 0056](adr/0056-2026-09-08-inputs-are-their-own-track-in-their-own-file.md)<br>[contract § Two protocols](contract.md#two-protocols) |
+| [`inputtrack.go`](../core/inputtrack.go) | Reads an input track back under the same caps and per-edge re-validation as replay parsing (`parseInputTrackLimited`), and finds a replay clip's track by `recording_id` from the inputs folder's headers (`inputTrackIndex`, `attachTrackFromIndex`). | [ADR 0056](adr/0056-2026-09-08-inputs-are-their-own-track-in-their-own-file.md)<br>[ADR 0057](adr/0057-2026-09-08-a-replay-streams-its-input-track-beside-its-frames.md) |
+| [`interp.go`](../core/interp.go) | `remoteBuffer`, the per-remote sample history kept in timestamp order within a window derived from render settings, and the render-time math: linear or Catmull-Rom between samples (`CurveMode`), optional prediction past the newest (`PredictMode`), and the orientation bracket handed to the adapter. | [networking § 3. The life of a state message](../docs/networking.md#3-the-life-of-a-state-message)<br>[ADR 0040](adr/0040-2026-08-28-the-render-model-becomes-three-knobs-chosen-per-game.md)<br>[ADR 0043](adr/0043-2026-08-30-the-core-hands-the-adapter-its-orientation-bracket.md) |
+| [`knownrelays.go`](../core/knownrelays.go) | `KnownRelays`, the client's trust-on-first-use memory of each relay's certificate fingerprint in `known_servers.json`. A first connection is recorded; a changed fingerprint is logged as a loud warning, remembered and allowed; a file that fails to parse is refused. | [ADR 0066](adr/0066-2026-09-15-tls-always-on-relay-identity-persisted-trust-on-first-use.md)<br>[hosting § Encryption, and how players recognise your server](../docs/hosting.md#encryption-and-how-players-recognise-your-server) |
+| [`localpeer.go`](../core/localpeer.go) | The seam for ghosts the core invents (`replay:` and `chaser:` ids): admits, feeds and drops them through the same buffer and render path as relay peers, while `acceptableRelayPeerID` keeps relay ids out of that namespace. Also the render-tick counters a seam waits on. | [ADR 0047](adr/0047-2026-09-03-a-replay-is-a-local-fake-peer.md)<br>[ADR 0049](adr/0049-2026-09-03-a-local-ghost-renders-on-its-own-delay.md) |
+| [`online.go`](../core/online.go) | The client half of the planes past cosmetic: relay clock sync from the lowest-RTT ping, feature negotiation and resumption, the event, lease, escrow and world send paths, and `handleOnlineMessage`, which drops an inbound plane both sides did not negotiate. Payloads stay opaque. | [contract § Extensibility](contract.md#extensibility--the-event-plane-and-the-arbitration-planes)<br>[ADR 0028](adr/0028-2026-08-17-the-planes-past-cosmetic-event-routing-sequencer.md)<br>[ADR 0062](adr/0062-2026-09-12-a-client-refuses-a-plane-it-never-asked-for.md) |
+| [`recorder.go`](../core/recorder.go) | Writes the adapter's own state stream to a replay file (a header, then one rounded sample per line with delta-encoded extras), tapped before the send-rate limit so it works offline. The same tap fills the `SaveLast` ring and the chaser history. | [ADR 0047](adr/0047-2026-09-03-a-replay-is-a-local-fake-peer.md)<br>[ADR 0051](adr/0051-2026-09-03-recordings-are-plain-text-and-delta-encoded.md)<br>[scaling § What a recording costs on disk](scaling.md#what-a-recording-costs-on-disk-310-mbhour-and-the-three-ways-to-shrink-it-measured-2026-09-03) |
+| [`relaysession.go`](../core/relaysession.go) | Dialling the relay and keeping the session: `ConnectRelay` runs the hello and welcome handshake over the chosen transport, `ConnectRelayOnAdapterHello` connects for an attaching adapter, `reconnectWithBackoff` redials after a drop, and `handleRelayMessage` dispatches welcome, reject, join, leave and state. | [networking § 2. The life of a connection](../docs/networking.md#2-the-life-of-a-connection)<br>[ADR 0016](adr/0016-2026-08-14-core-auto-retries-a-dropped-relay-connection.md)<br>[ADR 0050](adr/0050-2026-09-03-a-downed-relay-no-longer-refuses-the-game.md) |
+| [`relaywriter.go`](../core/relaywriter.go) | The core-to-relay outbound queue, so a relay that stops reading cannot block the bridge read loop and freeze the game. At a full queue a state line displaces the oldest queued state; a reliable line closes the connection for the normal reconnect. | [ADR 0060](adr/0060-2026-09-11-neither-end-of-the-bridge-blocks-the-other.md)<br>[networking § 7. Limits and backpressure](../docs/networking.md#7-limits-and-backpressure) |
+| [`remotenames.go`](../core/remotenames.go) | Peer nametags from `welcome` and `join`, re-sanitized on receipt and pushed to the adapter as `remote_name`, including to one that attaches later. Also `admitToRosterLocked`, which caps relay peers and local ghosts at `protocol.MaxRosterSize` each. | [contract § Two protocols](contract.md#two-protocols)<br>[contract § Limits](contract.md#limits-defined-at-phase-3-tightened-2026-08-14-for-relay-safety-hardening) |
+| [`remotes.go`](../core/remotes.go) | `storeRemoteState` validates an incoming sample, admits only rostered ids, recovers a carried `prev` and buffers it; `remoteStatesAt` and `tickRenders` compute each peer's render-time state, drop other areas and silent peers, and emit render or despawn. | [networking § 3. The life of a state message](../docs/networking.md#3-the-life-of-a-state-message)<br>[contract § The tick model](contract.md#the-tick-model)<br>[ADR 0012](adr/0012-2026-08-13-core-remotestatesat-filters-remotes-by-area-id.md) |
+| [`replay.go`](../core/replay.go) | Playback of recordings as local fake peers: loads `.ndjson`, `.ndjson.gz` and `.zip` clips from the replay `active` folder under size and sample caps, applies trim and gap skipping, and runs a `replayPlayer` goroutine per clip that feeds each sample at its rebased time. | [ADR 0047](adr/0047-2026-09-03-a-replay-is-a-local-fake-peer.md)<br>[security-design § Replay files](security-design.md#replay-files-one-entry-point-for-remote-state-2026-09-03) |
+| [`replaycontrol.go`](../core/replaycontrol.go) | `ReplayControl`, the one entry point for mid-play replay actions (record start, stop or toggle, save last, replay last, restart, rewind, fast forward), shared by hotkeys and the bridge's `replay_control`. Returns what it actually did, because neither caller can reply. | [ADR 0048](adr/0048-2026-09-03-system-wide-hotkeys-live-in-the-core-process.md)<br>[contract § Two protocols](contract.md#two-protocols) |
+| [`replayinputs.go`](../core/replayinputs.go) | Streams a replay clip's input track to an adapter that asked, as `remote_input` edges sent ahead in windows, each stamped with the render-clock time it is due after the clip's trim and gap skipping. Each seam starts with a reset. | [ADR 0057](adr/0057-2026-09-08-a-replay-streams-its-input-track-beside-its-frames.md) |
+| [`roomproof.go`](../core/roomproof.go) | The client half of the room-code proof: the hello carries the login's first message (KE1), `intercept` checks the relay's KE2 against the code and the verified certificate fingerprint and answers KE3, and a relay that welcomes without asking is refused as a code mismatch. | [ADR 0067](adr/0067-2026-09-15-the-room-code-is-proven-not-sent-opaque-bound-to-the-relay-identity.md)<br>[ADR 0070](adr/0070-2026-09-16-a-room-code-on-one-side-only-is-a-mismatch.md) |
+| [`sending.go`](../core/sending.go) | `forwardLocalState` feeds the recorder and split times, throttles to `effectiveSendInterval` (the slower of the relay's rate and the client's own floor), suppresses unchanged states behind a keepalive, attaches the previous sample and hands the line to `sendState`. Also the heartbeat pings. | [networking § 3. The life of a state message](../docs/networking.md#3-the-life-of-a-state-message)<br>[ADR 0039](adr/0039-2026-08-28-a-client-stops-restating-an-unchanged-state.md)<br>[contract § send_hz and max_receive_hz_per_player](contract.md#send_hz-and-max_receive_hz_per_player) |
+| [`settings.go`](../core/settings.go) | Live setters `cmd/meshghost` calls when `config.json` is saved mid-session: smoothing, ghost collision, chaser, replay and connection settings, each re-running whatever consumed the old value so a save applies without a relaunch. A connection change closes the session to redial. | [troubleshooting § I edited config.json and nothing changed](../docs/troubleshooting.md#i-edited-configjson-and-nothing-changed)<br>[config](../docs/config.md) |
+| [`splittime.go`](../core/splittime.go) | Split times: `updateSplits` finds where a replay passed the player's current spot (same `area_id`, nearest position within a window of samples) and puts the time difference on that ghost's nametag, rate-limited. | [ADR 0047](adr/0047-2026-09-03-a-replay-is-a-local-fake-peer.md)<br>[config § client](../docs/config.md#client--read-by-meshghostexe) |
+| [`stats.go`](../core/stats.go) | Client-side counters, each an atomic add on a path that already exists, and `Stats`, the snapshot (link RTT, clock offset, bytes, suppressed and cross-area shares, dry and transit renders) whose `String` is the `-stats` log line. Cumulative across reconnects. | [testing § Watching a running system: -introspect and -stats](testing.md#watching-a-running-system--introspect-and--stats) |
+| [`transportpick.go`](../core/transportpick.go) | Decides what the session moves to after the always-tcp handshake: `queryTransports` asks the relay with a query-only hello, `chooseTransport` takes only the port from its offer, and any failure short of an unreachable relay stays on tcp. `tlsOptions` wires in the `KnownRelays` verifier. | [networking § 6. Transports](../docs/networking.md#6-transports)<br>[ADR 0023](adr/0023-2026-08-16-revision-the-handshake-is-always-tcp-transport.md) |
+
+### bridge/
+
+Message shapes for the local channel between an adapter and its core; imports only `protocol`.
+
+| File | What it does | Notes |
+|---|---|---|
+| [`bridge.go`](../bridge/bridge.go) | Message shapes for the adapter bridge, the localhost NDJSON channel between an adapter and its own core: `Hello`, `LocalState`, `RenderRemote`, `DespawnRemote`, `SessionPolicy`, the replay, chaser and input messages, and named wrappers for the optional planes so bridge and relay types never mix. | [contract § Two protocols](contract.md#two-protocols)<br>[contract § Connecting: the bridge hello](contract.md#connecting-the-bridge-hello) |
+| [`inputlimits.go`](../bridge/inputlimits.go) | Bounds on an input batch (edges, axes, labels, frame and axis values) and `ValidateInputSample`, applied to adapter batches and to track files read back. Lives here, not in `protocol`, because `protocol` cannot import `bridge`. | [networking § 7. Limits and backpressure](../docs/networking.md#7-limits-and-backpressure)<br>[ADR 0056](adr/0056-2026-09-08-inputs-are-their-own-track-in-their-own-file.md) |
+
+### transport/
+
+Byte-level NDJSON framing shared by the relay connection and the bridge; no internal dependencies.
+
+| File | What it does | Notes |
+|---|---|---|
+| [`transport.go`](../transport/transport.go) | `Transport` and `NDJSONConn`: one JSON line per payload over any `net.Conn`, with line-length, idle and write limits, a backlog held until `OnReceive` is set, and `SendUnreliable` using a datagram conn when it offers one. Knows no message shapes. | [networking § 6. Transports](../docs/networking.md#6-transports)<br>[networking § 7. Limits and backpressure](../docs/networking.md#7-limits-and-backpressure)<br>[ADR 0020](adr/0020-2026-08-16-transport-ndjsonconn-loses-no-message-before.md) |
+
+### protocol/
+
+Wire shapes, limits and validators shared by relay and core; the lowest layer, with no internal dependencies.
+
+| File | What it does | Notes |
+|---|---|---|
+| [`protocol.go`](../protocol/protocol.go) | Relay protocol message shapes: `State`, `Envelope`, `Hello`, `Welcome`, `Reject` with its codes and `RetryableForCode`, `Join`, `Leave`, `Nametag`, `Event`, `Pake`, `Ping`/`Pong`, `Prefs` and `Transports`, plus `Version` and the `MinProtocolVersion` floor `AcceptsPeerVersion` checks. | [contract § Message types](contract.md#message-types)<br>[contract § Packet schema](contract.md#packet-schema-the-state-message-payload)<br>[contract § reject reasons, and which of them are worth retrying](contract.md#reject-reasons-and-which-of-them-are-worth-retrying) |
+| [`displayname.go`](../protocol/displayname.go) | `SanitizeDisplayName` truncates a typed name to byte and rune caps and strips disallowed characters rather than refusing it, because a name is only shown and never an identity; `SanitizeNameColor` reduces a colour to `#RRGGBB` or empty. | [contract § Limits](contract.md#limits-defined-at-phase-3-tightened-2026-08-14-for-relay-safety-hardening)<br>[networking § 7. Limits and backpressure](../docs/networking.md#7-limits-and-backpressure) |
+| [`envelope.go`](../protocol/envelope.go) | `AppendEnvelope` writes an envelope's JSON around an already-marshalled payload, byte-identical to `json.Marshal`, so a state line is not marshalled twice. The payload must be bytes `encoding/json` produced. | [scaling § Two candidates, and they do not compose](scaling.md#two-candidates-and-they-do-not-compose)<br>[testing § Fuzzing](testing.md#fuzzing) |
+| [`ghostcollision.go`](../protocol/ghostcollision.go) | The ghost-collision policy values: `NormalizeGhostCollision` maps any unknown value to disabled, and `ResolveGhostCollision` applies the stricter of the relay's and the client's setting. Advisory; the relay cannot check an adapter honours it. | [ADR 0035](adr/0035-2026-08-19-ghost-collision-becomes-a-room-policy-the-host.md)<br>[hosting § Ghost collision](../docs/hosting.md#ghost-collision) |
+| [`limits.go`](../protocol/limits.go) | State-plane limits checked by both relay and core so they cannot drift: field caps (`MaxPositionLen`, `MaxExtrasBytes`, `MaxJSONDepth`, `MaxLineBytes`, `MaxRosterSize`), send-rate bounds, `ValidateState`, `StateRejectReason` and `ClampSendHz`/`ClampReceiveHz`. | [contract § Limits](contract.md#limits-defined-at-phase-3-tightened-2026-08-14-for-relay-safety-hardening)<br>[networking § 7. Limits and backpressure](../docs/networking.md#7-limits-and-backpressure)<br>[security-design § Structural validation of extras and orientation](security-design.md#structural-validation-of-extras-and-orientation--bounding-shape-without-ever-reading-meaning) |
+| [`online.go`](../protocol/online.go) | Wire shapes and bounds for the planes past cosmetic: feature names and negotiation helpers, `Lease`, `Escrow` and `World` with their state replies, the `Validate*` checks (events included), opaque-string rules that keep equality stable across JSON, and resume and escrow timing defaults. | [contract § Extensibility](contract.md#extensibility--the-event-plane-and-the-arbitration-planes)<br>[contract § features](contract.md#features)<br>[ADR 0028](adr/0028-2026-08-17-the-planes-past-cosmetic-event-routing-sequencer.md) |
+| [`prev.go`](../protocol/prev.go) | `StatePrev`, the sender's previous sample carried as a delta inside each state for loss cover, and the pure `BuildPrev`/`ApplyPrev` pair the core's send and receive paths share. | [ADR 0045](adr/0045-2026-09-02-every-state-carries-the-sample-before-it.md)<br>[networking § 3. The life of a state message](../docs/networking.md#3-the-life-of-a-state-message) |
+
+### relay/
+
+The game-agnostic server: rooms, the state fan-out, and the opt-in planes past cosmetic, all over opaque keys and payloads.
+
+| File | What it does | Notes |
+|---|---|---|
+| [`relay.go`](../relay/relay.go) | `Server`, `Room` and `Client`, and `handleConn`, which takes a connection through hello (version floor, room-code proof, transport query, `only_game`, seat) to a bounded welcome, then applies the flood cap and dispatches each message. `stateRecipients` applies receive caps and area filtering. | [networking § 2. The life of a connection](../docs/networking.md#2-the-life-of-a-connection)<br>[networking § 4. Rooms and membership](../docs/networking.md#4-rooms-and-membership) |
+| [`escrow.go`](../relay/escrow.go) | Escrow, the two-party exchange that commits both deposits or neither, with a timeout and an abort when a party leaves. Finished records are kept for a retention window so a party that dropped can resume and learn the outcome. | [contract § Escrow — both or neither](contract.md#escrow--both-or-neither) |
+| [`introspect.go`](../relay/introspect.go) | `Server.Snapshot`: what the relay believes right now (rooms, members and their transports, leases, escrows, world custody, cross-area state fan-out), rendered by `Snapshot.String` for `-introspect`. Shows counts and sizes, never resume tokens or blobs. | [testing § Watching a running system: `-introspect` and `-stats`](testing.md#watching-a-running-system--introspect-and--stats)<br>[hosting § Seeing what your server is actually doing](../docs/hosting.md#seeing-what-your-server-is-actually-doing) |
+| [`leases.go`](../relay/leases.go) | Lease authority over an opaque key: the first claim wins and the room is told, the grant expires at its TTL unless released, a leaving holder's leases are freed, and a resuming client is sent the held set. | [contract § Leases — authority over an opaque key](contract.md#leases--authority-over-an-opaque-key) |
+| [`limits.go`](../relay/limits.go) | The relay's numeric limits and the functions that derive them from config: `EffectiveMaxClients`, open-connection caps per listener and per address, the wrong-room-code budget, `MaxMessagesPerSecondFor`, and the drain windows after a refusal. | [contract § Limits](contract.md#limits-defined-at-phase-3-tightened-2026-08-14-for-relay-safety-hardening)<br>[networking § 7. Limits and backpressure](../docs/networking.md#7-limits-and-backpressure) |
+| [`online.go`](../relay/online.go) | The room sequencer and event plane: `handleEvent` stamps and delivers addressed events in one total order, holding them for suspended members. Also the `outgoing`/`deliver` helpers and the lock order (`sendMu`, then `mu`) every plane file follows. | [contract § Addressing, ordering, and the sender's echo](contract.md#addressing-ordering-and-the-senders-echo)<br>[ADR 0028](adr/0028-2026-08-17-the-planes-past-cosmetic-event-routing-sequencer.md) |
+| [`outbox.go`](../relay/outbox.go) | One bounded queue and writer goroutine per client, so a peer that stops reading delays only itself. When full, a state line displaces the oldest queued state line, and a reliable line disconnects the peer rather than being dropped. | [ADR 0042](adr/0042-2026-08-28-every-client-gets-its-own-outbound-queue-and-writer.md)<br>[networking § 7. Limits and backpressure](../docs/networking.md#7-limits-and-backpressure) |
+| [`resume.go`](../relay/resume.go) | Session resumption for rooms that negotiated it: a dropped client's identity is parked for a grace window under a resume token, and `resumeInto` restores its id, leases and exchanges. Also builds the bounded join and resume snapshots, in priority order. | [contract § `resume_token`](contract.md#resume_token)<br>[networking § 2. The life of a connection](../docs/networking.md#2-the-life-of-a-connection) |
+| [`states.go`](../relay/states.go) | The state plane's inbound path: `forwardState` decodes, validates, stamps the sender's real id, records and fans out. Also the late-join state seed, and arrival seeds for clients that asked for `own_area_only`. | [networking § 3. The life of a state message](../docs/networking.md#3-the-life-of-a-state-message)<br>[contract § `own_area_only`](contract.md#own_area_only--the-relay-may-skip-what-your-core-would-discard) |
+| [`world.go`](../relay/world.go) | World custody: the latest opaque blob per entity, written only by the authority lease's holder and handed whole to the next holder, packed into lines that fit the wire. The relay stores bytes; simulation stays on a client. | [contract § World custody](contract.md#world-custody--the-relay-holds-the-world-not-the-simulation)<br>[ADR 0031](adr/0031-2026-08-17-world-custody-the-relay-holds-the-world-and-four.md) |
+
+### netx/
+
+Turns a transport name into an ordinary `net.Listener` or `net.Conn`, so nothing above it knows which transport it is on.
+
+| File | What it does | Notes |
+|---|---|---|
+| [`netx.go`](../netx/netx.go) | The transport seam: `ParseKind`/`ParseKinds` read a transport name (tcp is always added to a relay's list), and `ListenWithTLS`/`DialWithTLS` hand back a plain listener or connection for tcp-in-TLS or quic. A client never falls back to plaintext. | [networking § 6. Transports](../docs/networking.md#6-transports)<br>[ADR 0021](adr/0021-2026-08-16-selectable-transport-tcp-udp-quic.md) |
+| [`limit.go`](../netx/limit.go) | `LimitListenerWith` closes connections past a cap per listener and, through `srclimit`, per client address, counted beneath TLS so handshakes count. The wrapped connection keeps the optional methods (`CloseWrite`, `WriteUnreliable` and others) the layers above type-assert for. | [ADR 0064](adr/0064-2026-09-15-per-source-state-lives-in-netx-and-is-never-logged.md)<br>[security § The 2026-09-02 review](../docs/security.md#what-changed-2026-09-02-adversarial-review) |
+| [`udp_dev.go`](../netx/udp_dev.go) | Dev build (`meshghost_devudp` tag): plain udp is a real transport through `udpconn`, and `AutoPreference` ranks it last, after quic and tcp. Never part of a release. | [ADR 0065](adr/0065-2026-09-15-plain-udp-is-dormant-behind-a-build-tag.md)<br>[testing § Manual udp runs](testing.md#manual-udp-runs-dev-build-only-since-2026-09-15) |
+| [`udp_release.go`](../netx/udp_release.go) | Release build (no tag): every udp entry point returns `ErrUDPNotSupported`, so a config naming udp is an error rather than a quiet fallback, and `AutoPreference` is quic then tcp. | [ADR 0065](adr/0065-2026-09-15-plain-udp-is-dormant-behind-a-build-tag.md)<br>[networking § 6. Transports](../docs/networking.md#6-transports) |
+| [`udpcapable.go`](../netx/udpcapable.go) | `UDPUsable` opens one udp socket per process and caches whether that worked, so a client that cannot have udp at all (the Windows client under Wine/Proton) goes straight to tcp instead of failing slowly on quic. | [troubleshooting § Playing on Linux or macOS](../docs/troubleshooting.md#playing-on-linux-or-macos) |
+
+### netx/quicconn/
+
+| File | What it does | Notes |
+|---|---|---|
+| [`quicconn.go`](../netx/quicconn/quicconn.go) | QUIC as a `net.Listener`/`net.Conn`: `Write` rides one reliable stream, `WriteUnreliable` a datagram, merged at line boundaries. The listener serves the relay's certificate and caps connections still waiting for their stream; `DialWith` refuses to dial without a verifier. | [networking § 6. Transports](../docs/networking.md#6-transports)<br>[integrating § The QUIC rules you must match exactly](../docs/integrating.md#the-quic-rules-you-must-match-exactly) |
+
+### netx/srclimit/
+
+| File | What it does | Notes |
+|---|---|---|
+| [`srclimit.go`](../netx/srclimit/srclimit.go) | The relay's only per-address state, in memory and never logged: open connections per address (`Acquire`/`Release`) and a leaky-bucket budget of wrong room codes (`NoteAuthFailure`, `Blocked`). IPv6 is keyed by /64; the table is capped and evicts idle entries. | [ADR 0064](adr/0064-2026-09-15-per-source-state-lives-in-netx-and-is-never-logged.md)<br>[security § The fourth review](../docs/security.md#what-changed-2026-09-15-hosting-on-the-internet-the-fourth-review) |
+
+### netx/tlsx/
+
+| File | What it does | Notes |
+|---|---|---|
+| [`tlsx.go`](../netx/tlsx/tlsx.go) | TLS for tcp, and the certificate story quic shares: self-signed ed25519 certificates and their `Fingerprint`, the client-supplied `Verifier`, `Client` for dialing, and `NewListener`, which sniffs the first byte so a plaintext client is refused with a readable log line. | [ADR 0066](adr/0066-2026-09-15-tls-always-on-relay-identity-persisted-trust-on-first-use.md)<br>[security § What is and is not secure, per transport](../docs/security.md#what-is-and-is-not-secure-per-transport) |
+| [`identity.go`](../netx/tlsx/identity.go) | `LoadOrCreateIdentity`: the relay's persisted key and certificate in a `private` folder beside its config (`server.key`, `server.crt`, `server.fingerprint`, `README.txt`), written atomically on first start. A missing or mismatched half is an error, never a silent regeneration. | [hosting § Encryption, and how players recognise your server](../docs/hosting.md#encryption-and-how-players-recognise-your-server)<br>[ADR 0066](adr/0066-2026-09-15-tls-always-on-relay-identity-persisted-trust-on-first-use.md) |
+| [`keylog_dev.go`](../netx/tlsx/keylog_dev.go) | Dev build (`meshghost_devudp` tag): with `SSLKEYLOGFILE` set, every TLS config this package builds appends its session secrets to that file, so Wireshark can decode a capture on the developer's own machine. | [ADR 0066](adr/0066-2026-09-15-tls-always-on-relay-identity-persisted-trust-on-first-use.md) |
+| [`keylog_release.go`](../netx/tlsx/keylog_release.go) | Release build (no tag): declares nothing, so `keyLogWriter` in `tlsx.go` stays nil and `SSLKEYLOGFILE` has no effect. | [ADR 0066](adr/0066-2026-09-15-tls-always-on-relay-identity-persisted-trust-on-first-use.md) |
+
+### netx/udpconn/
+
+Dev build only (`meshghost_devudp` tag, every file): plain udp presented as a `net.Listener` and `net.Conn`s, kept as a comparison against quic.
+
+| File | What it does | Notes |
+|---|---|---|
+| [`udpconn.go`](../netx/udpconn/udpconn.go) | Package doc, wire format and shared constants: every datagram framed by a leading `0xFF` and a type byte, a cookie exchange before admission, and an 8-byte per-connection token on everything after. Defines `MaxDatagramBytes` and `ErrDatagramTooLarge`. | [networking § 6. Transports](../docs/networking.md#6-transports)<br>[ADR 0024](adr/0024-2026-08-16-udp-per-connection-token-the-second-half-of-the.md) |
+| [`conn.go`](../netx/udpconn/conn.go) | `Conn`, one remote address on the shared socket: `Write` is reliable and ordered (sequence numbers, acks, retries, a reorder window) without blocking on the ack, and `WriteUnreliable` sends one datagram once. | [networking § 6. Transports](../docs/networking.md#6-transports) |
+| [`cookies.go`](../netx/udpconn/cookies.go) | The stateless admission cookie: an HMAC of the address and a time slot, checked in constant time against the current and previous slot, so a forged source address costs the listener no per-address state. | [networking § 6. Transports](../docs/networking.md#6-transports)<br>[integrating § udp: really, don't](../docs/integrating.md#udp-really-dont) |
+| [`dial.go`](../netx/udpconn/dial.go) | `Dial`: the client side of the handshake (hello, echo the cookie, receive the token), resending the hello until the timeout because nothing beneath it is reliable yet, then the dialed connection's read loop. | [networking § 6. Transports](../docs/networking.md#6-transports) |
+| [`listener.go`](../netx/udpconn/listener.go) | `Listener`: one udp socket demultiplexed into a `Conn` per remote address, admitted only after a valid cookie, so `relay.Serve` consumes it like any other listener. | [networking § 5. The concurrency model](../docs/networking.md#5-the-concurrency-model)<br>[networking § 6. Transports](../docs/networking.md#6-transports) |
+
+### pake/
+
+| File | What it does | Notes |
+|---|---|---|
+| [`pake.go`](../pake/pake.go) | Proves a room code without sending it: OPAQUE (RFC 9807) over `bytemare/opaque`, one record per code registered under the relay's certificate fingerprint, so a client facing a different certificate fails before sending KE3. One error, `ErrRefused`, for every failure. | [ADR 0067](adr/0067-2026-09-15-the-room-code-is-proven-not-sent-opaque-bound-to-the-relay-identity.md)<br>[contract § `game_version` and `room_code`](contract.md#game_version-and-room_code) |
+
+### internal/cfg/
+
+| File | What it does | Notes |
+|---|---|---|
+| [`cfg.go`](../internal/cfg/cfg.go) | Config plumbing shared by the client and relay binaries: the appending log, rotated at 1 MiB with one old copy (`OpenLogFile`), flag-beats-file precedence (`ExplicitFlags`, `Override`), BOM stripping, keeping a file with one wrong-typed value (`ApplyDespiteBadValue`), and `ReloadRefusal` for a broken save. | [troubleshooting § I edited `config.json` and nothing changed](../docs/troubleshooting.md#i-edited-configjson-and-nothing-changed)<br>[troubleshooting § First: read the log](../docs/troubleshooting.md#first-read-the-log) |
+| [`alias.go`](../internal/cfg/alias.go) | `RenameOldKeys` rewrites a renamed key's old spelling to the current one in the raw bytes before decoding, at the top level of one section only, and says so, so an old config keeps its setting instead of reverting to the default. | [ADR 0063](adr/0063-2026-09-13-a-renamed-config-key-keeps-working-and-says-so.md) |
+| [`unknownkeys.go`](../internal/cfg/unknownkeys.go) | `WarnUnknownKeys` warns about a key in this binary's own section that is not a setting, taking the known names from the struct's json tags by reflection. Warns rather than refuses, and leaves other sections of the shared file alone. | [ADR 0063](adr/0063-2026-09-13-a-renamed-config-key-keeps-working-and-says-so.md)<br>[troubleshooting § I edited `config.json` and nothing changed](../docs/troubleshooting.md#i-edited-configjson-and-nothing-changed) |
+| [`watch.go`](../internal/cfg/watch.go) | `FileWatch` polls a config file's modification time and size once a second and reports a change only when a second poll shows it held still, so an editor's two-step save is read whole. Each binary decides what a change means. | [config](../docs/config.md)<br>[running-the-rig § Changing a client setting without relaunching](running-the-rig.md#changing-a-client-setting-without-relaunching-the-game--since-2026-09-09-just-save-configjson) |
+
+### internal/hotkey/
+
+| File | What it does | Notes |
+|---|---|---|
+| [`hotkey.go`](../internal/hotkey/hotkey.go) | The portable half of the system-wide replay hotkeys: `Parse` turns a chord like `ctrl+shift+F9` into Windows modifier flags and a virtual-key code, and `Run` registers the actions and calls back on each press until stopped. | [ADR 0048](adr/0048-2026-09-03-system-wide-hotkeys-live-in-the-core-process.md)<br>[config § `client` — read by `meshghost.exe`](../docs/config.md#client--read-by-meshghostexe) |
+| [`hotkey_other.go`](../internal/hotkey/hotkey_other.go) | Every OS but Windows (`!windows`): no system-wide hotkeys. Logs once that the bindings were not registered and blocks until stop, so the caller's shape is the same everywhere. | [ADR 0048](adr/0048-2026-09-03-system-wide-hotkeys-live-in-the-core-process.md) |
+| [`hotkey_windows.go`](../internal/hotkey/hotkey_windows.go) | Windows build: `RegisterHotKey` with no window and a `GetMessageW` loop, all on one locked OS thread because registering, receiving and unregistering are per-thread. A chord another program already owns fails alone. | [ADR 0048](adr/0048-2026-09-03-system-wide-hotkeys-live-in-the-core-process.md) |
+
+### internal/paketest/
+
+| File | What it does | Notes |
+|---|---|---|
+| [`paketest.go`](../internal/paketest/paketest.go) | Test helper: a `Prover` holding the client half of the room-code proof, which answers the relay's KE2 when a test's receive loop hands it over. With a wrong code it sends an unusable KE3, so the test sees the relay's own refusal. | [ADR 0067](adr/0067-2026-09-15-the-room-code-is-proven-not-sent-opaque-bound-to-the-relay-identity.md) |
+
+### internal/textfmt/
+
+| File | What it does | Notes |
+|---|---|---|
+| [`textfmt.go`](../internal/textfmt/textfmt.go) | `Bytes` and `PerHour` format byte totals and hourly rates for the one-line summaries the client (`-stats`) and relay (`-introspect`) print, shared so the two lines agree on units. | [testing § Watching a running system: `-introspect` and `-stats`](testing.md#watching-a-running-system--introspect-and--stats) |
+
+### internal/throttle/
+
+| File | What it does | Notes |
+|---|---|---|
+| [`throttle.go`](../internal/throttle/throttle.go) | `Line`: a log line a stranger can trigger prints at most once a second with a running count, safe from any goroutine, so a connection flood cannot roll the log. | [networking § 9. Hosting it](../docs/networking.md#9-hosting-it)<br>[security § The fourth review](../docs/security.md#what-changed-2026-09-15-hosting-on-the-internet-the-fourth-review) |
+
+### cmd/meshghost/
+
+The client (`meshghost.exe`): a core process between an adapter's bridge and the relay.
+
+| File | What it does | Notes |
+|---|---|---|
+| [`main.go`](../cmd/meshghost/main.go) | Entry point: flags and the `client` section of `config.json` (flag beats file beats default), then a `core.Core` with replay, chaser and hotkeys, connected to the relay with retry. Refuses a non-loopback bridge unless told to, and can exit with the game's pid. | [config § `client` — read by `meshghost.exe`](../docs/config.md#client--read-by-meshghostexe)<br>[security-design § The bridge is loopback only by default](security-design.md#the-bridge-is-unauthenticated-and-loopback-only-by-default-not-by-enforcement) |
+| [`console_other.go`](../cmd/meshghost/console_other.go) | Every OS but Windows (`!windows`): `consoleWriter` returns nil and `runningUnderWine` is false, so `show_console` is accepted and ignored and one `config.json` works on every platform. | [troubleshooting § Playing on Linux or macOS](../docs/troubleshooting.md#playing-on-linux-or-macos) |
+| [`console_windows.go`](../cmd/meshghost/console_windows.go) | Windows build: `consoleWriter` allocates a console window for `show_console`, which an autostarted client otherwise lacks, and `runningUnderWine` looks for `wine_get_version` in ntdll so the client can say a console cannot appear there. | [troubleshooting § I want to watch it work](../docs/troubleshooting.md#i-want-to-watch-it-work)<br>[ADR 0026](adr/0026-2026-08-16-amendment-to-the-autostart-adr-the-wine-console.md) |
+| [`parent_unix.go`](../cmd/meshghost/parent_unix.go) | Non-Windows build of `parentGone` for `-exit-with-pid`: `kill(pid, 0)`, where no such process means gone and a permission error means alive. | [ADR 0025](adr/0025-2026-08-16-an-adapter-may-start-its-own-local-core-process.md) |
+| [`parent_windows.go`](../cmd/meshghost/parent_windows.go) | Windows build of `parentGone`: reads the pid's exit code with limited query rights, treats a changed creation time as a recycled pid, and needs two failed queries in a row before calling the parent gone, so one hiccup does not kill the core. | [ADR 0025](adr/0025-2026-08-16-an-adapter-may-start-its-own-local-core-process.md) |
+| [`reload.go`](../cmd/meshghost/reload.go) | Re-reads `config.json` on save into a fresh copy of the flag defaults, diffs it against what is live, applies each changed group through the core's setters, and logs per key whether it applied now, at next use, or needs a relaunch. | [config](../docs/config.md)<br>[running-the-rig § Changing a client setting without relaunching](running-the-rig.md#changing-a-client-setting-without-relaunching-the-game--since-2026-09-09-just-save-configjson) |
+
+### cmd/meshghost-relay/
+
+The relay process, shipped as `meshghost-server.exe`.
+
+| File | What it does | Notes |
+|---|---|---|
+| [`main.go`](../cmd/meshghost-relay/main.go) | Entry point: flags and the `server` config (working directory first, then beside the executable), the persisted identity, one listener per transport behind the connection caps and TLS, and a shutdown that closes the listeners and then tells each connected client to go. | [config § `server` — read by `meshghost-server.exe`](../docs/config.md#server--read-by-meshghost-serverexe)<br>[networking § 9. Hosting it](../docs/networking.md#9-hosting-it) |
+| [`reload.go`](../cmd/meshghost-relay/reload.go) | Re-reads the relay's `config.json` on save: `room_code`, `only_game` and `max_clients` apply live through the `Server` setters without disconnecting anyone, and any other changed key is logged as needing a relaunch. | [config § `server` — read by `meshghost-server.exe`](../docs/config.md#server--read-by-meshghost-serverexe)<br>[security § The fourth review](../docs/security.md#what-changed-2026-09-15-hosting-on-the-internet-the-fourth-review) |
+| [`udp_dev.go`](../cmd/meshghost-relay/udp_dev.go) | Dev build (`meshghost_devudp` tag): the `-listen-udp` flag and `resolveUDPAddr`, which moves plain udp to port 7780 when quic is also served, because both want the shared udp port. | [ADR 0065](adr/0065-2026-09-15-plain-udp-is-dormant-behind-a-build-tag.md)<br>[testing § Manual udp runs](testing.md#manual-udp-runs-dev-build-only-since-2026-09-15) |
+| [`udp_release.go`](../cmd/meshghost-relay/udp_release.go) | Release build (no tag): no `-listen-udp` flag, and `checkUDPConfig` refuses a config whose `listen_udp` is non-empty, because plain udp is not a shipped transport. | [ADR 0065](adr/0065-2026-09-15-plain-udp-is-dormant-behind-a-build-tag.md) |
+
+### cmd/meshghost-netsim/
+
+| File | What it does | Notes |
+|---|---|---|
+| [`main.go`](../cmd/meshghost-netsim/main.go) | A protocol-blind fault-injecting proxy: mirrors the relay's port numbers on another loopback address, so a transport upgrade stays inside it, and adds latency, jitter and partitions on tcp, plus loss (optionally in bursts), duplication and reordering on udp. | [testing § Running a session over a bad network](testing.md#running-a-session-over-a-bad-network)<br>[dev-scripts § The two-rig doctrine](../dev-scripts/README.md#the-two-rig-doctrine-clean-for-fidelity-netsim-for-behaviour-users-call-2026-08-28) |
+
+### cmd/meshghost-fakeadapter/
+
+Headless synthetic peers driving real cores against a relay, for load tests and invariant soaks.
+
+| File | What it does | Notes |
+|---|---|---|
+| [`main.go`](../cmd/meshghost-fakeadapter/main.go) | Entry point and `circleAdapter`: one or many in-process cores whose fake ghosts walk a circle, with game_id, area_id, dimensions and extras taken from flags so the peers can join a real game's room for load tests. | [testing § The suites, and what each is actually for](testing.md#the-suites-and-what-each-is-actually-for)<br>[dev-scripts README](../dev-scripts/README.md) |
+| [`attrition.go`](../cmd/meshghost-fakeadapter/attrition.go) | Samples how many peers each client renders during a run and reports a violation for any client that ends below its peak, so a soak that loses peers cannot exit 0. Skipped offline or with one client; only logged under churn or several areas. | [testing § Soaking the planes past cosmetic](testing.md#soaking-the-planes-past-cosmetic-and-what-that-does-not-cover) |
+| [`bridgemode.go`](../cmd/meshghost-fakeadapter/bridgemode.go) | The `-bridge` mode: each synthetic peer talks to its core over the core's real bridge socket, as a game adapter does, so a run loads the queueing, marshalling and framing that the default direct method calls skip. | [contract § Connecting: the bridge `hello`](contract.md#connecting-the-bridge-hello)<br>[networking § 7. Limits and backpressure](../docs/networking.md#7-limits-and-backpressure) |
+| [`controlplane.go`](../cmd/meshghost-fakeadapter/controlplane.go) | The control-plane checker: synthetic clients send events, contend for one lease key and run escrow exchanges, while each checks sequencer ordering, lease exclusivity and that every exchange terminates. Any violation makes the run exit non-zero. | [testing § Soaking the planes past cosmetic](testing.md#soaking-the-planes-past-cosmetic-and-what-that-does-not-cover) |
+| [`credit.go`](../cmd/meshghost-fakeadapter/credit.go) | The kill-credit checker: clients damage shared synthetic enemies over the event plane and each folds the same ordered ledger, checking exactly-once application, the difficulty ratchet, generation isolation, death agreement and who may earn credit. The enemies are invented; the model is what is tested. | [kill-credit § The model](kill-credit.md#the-model)<br>[testing § The suites, and what each is actually for](testing.md#the-suites-and-what-each-is-actually-for) |
+| [`world.go`](../cmd/meshghost-fakeadapter/world.go) | The world-custody checker: clients contend for one authority lease, the holder drives synthetic entities and hands off periodically, and each client checks for rollback, stale-host writes, loss across a handover, resurrection and grant/snapshot contiguity. | [contract § World custody](contract.md#world-custody--the-relay-holds-the-world-not-the-simulation)<br>[testing § Soaking the planes past cosmetic](testing.md#soaking-the-planes-past-cosmetic-and-what-that-does-not-cover) |
+
+## Adapters
+
+One mod per game, each talking only to its own local client over the bridge.
+
+### TEVI
+
+| File | What it does | Notes |
+|---|---|---|
+| [`Plugin.cs`](../adapters/tevi/MeshGhostTevi/Plugin.cs) | The BepInEx plugin. Each `Update` sends the local player's state (position, clip, trail, orbitars, summons, shield, bullets) and renders each peer as a collider-stripped clone of the player's own sprite object, with mirrored effects, a marker on the map screen and warp devices woken cosmetically. | [TEVI README § How this adapter was built](../adapters/tevi/README.md#how-this-adapter-was-built)<br>[TEVI SYNCED.md](../adapters/tevi/SYNCED.md) |
+| [`BridgeClient.cs`](../adapters/tevi/MeshGhostTevi/BridgeClient.cs) | The bridge socket to the local core: it walks a range of ports past busy or silent cores, reads on a background thread, sends `hello` and then `local_state` only after `bridge_ready`, and parses each `render_remote` into `RemoteState`, dropping non-finite or out-of-range values. | [TEVI SYNCED.md](../adapters/tevi/SYNCED.md)<br>[contract § Connecting: the bridge `hello`](contract.md#connecting-the-bridge-hello) |
+| [`CoreLauncher.cs`](../adapters/tevi/MeshGhostTevi/CoreLauncher.cs) | When no core answers, starts `meshghost.exe` from the game's root folder with no console window and `-exit-with-pid`, so it exits with the game, and kills it on a clean quit; also reads `autostart`, `local_game_bridge` and `map_markers` from the player's `config.json`. | [TEVI FLAGS § Runtime switches](../adapters/tevi/FLAGS.md#runtime-switches--what-a-tester-or-player-can-change-without-a-rebuild)<br>[TEVI README § Building it](../adapters/tevi/README.md#building-it) |
+| [`MeshGhostTeviDevCheats/Plugin.cs`](../adapters/tevi/devtools/MeshGhostTeviDevCheats/Plugin.cs) | A separate, never-shipped BepInEx plugin for test sessions: every frame it fills HP, orbitar MP, charge and crystals (save data) and clears the orb-swap locks, writing game state the adapter may not, hence its own assembly. A toggle file turns each off. | [TEVI PROBES § The register](../adapters/tevi/PROBES.md#the-register)<br>[TEVI MEASURED § Under ScriptEngine a plugin's `Info.Location` is empty](../adapters/tevi/MEASURED.md#2026-09-17--under-scriptengine-a-plugins-infolocation-is-empty) |
+
+### Pseudoregalia
+
+| File | What it does | Notes |
+|---|---|---|
+| [`dllmain.cpp`](../adapters/pseudoregalia/MeshGhostPseudo/Mod/src/dllmain.cpp) | UE4SS's entry points for the DLL: `start_mod` constructs the `Plugin` and `uninstall_mod` deletes it. | [Pseudoregalia README § Building it](../adapters/pseudoregalia/README.md#building-it) |
+| [`Plugin.hpp`](../adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.hpp) | Declares the `Plugin` class (UE4SS's `CppUserModBase`) and `RemoteGhost`, the per-peer record of a spawned ghost and the state mirrored onto it, plus the hook and per-tick methods `Plugin.cpp` defines. | [Pseudoregalia README § How this adapter was built](../adapters/pseudoregalia/README.md#how-this-adapter-was-built) |
+| [`Plugin.cpp`](../adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp) | The UE4SS mod: `on_update` (UE4SS's thread) runs the bridge, and `game_thread_tick`, hooked to the engine tick, reads the local pawn and spawns each peer as a clone of the player's pawn, with hooks that stop a ghost claiming the camera or audio listener or causing damage. | [Pseudoregalia README § How this adapter was built](../adapters/pseudoregalia/README.md#how-this-adapter-was-built)<br>[Pseudoregalia SYNCED.md](../adapters/pseudoregalia/SYNCED.md)<br>[Unreal host rules § `on_update()` is not the game thread](../adapters/pseudoregalia/CLAUDE.md#on_update-is-not-the-game-thread) |
+| [`BridgeClient.hpp`](../adapters/pseudoregalia/MeshGhostPseudo/Mod/src/BridgeClient.hpp) | Declares `BridgeClient` and the bridge's constants: the default port range, the reconnect interval, the busy-port cooldown, the hello-answer timeout and the receive cap. | [contract § Connecting: the bridge `hello`](contract.md#connecting-the-bridge-hello) |
+| [`BridgeClient.cpp`](../adapters/pseudoregalia/MeshGhostPseudo/Mod/src/BridgeClient.cpp) | The Winsock bridge: each sweep walks the port range and notes a free port the launcher can start a core on. Received bytes are split into lines under a capped buffer; `bridge_ready` accepts, a busy `reject` walks on, and any other refusal waits on that core. | [contract § Connecting: the bridge `hello`](contract.md#connecting-the-bridge-hello)<br>[Pseudoregalia README § How this adapter was built](../adapters/pseudoregalia/README.md#how-this-adapter-was-built) |
+| [`CoreLauncher.hpp`](../adapters/pseudoregalia/MeshGhostPseudo/Mod/src/CoreLauncher.hpp) | Declares `CoreLauncher` and the path and config helpers the bridge and the plugin share (`module_directory`, `game_root_directory`, `resolve_bridge_base_port`, `config_bool_value`, `dev_toggle_present`). | [Pseudoregalia README § How this adapter was built](../adapters/pseudoregalia/README.md#how-this-adapter-was-built) |
+| [`CoreLauncher.cpp`](../adapters/pseudoregalia/MeshGhostPseudo/Mod/src/CoreLauncher.cpp) | Starts `meshghost.exe` from the game's root folder with no console window and `-exit-with-pid` when no core answers, and terminates it with the mod. Also the shared file helpers: cached `config.json` reads, the bridge base port, and the dev toggle files beside the DLL. | [Pseudoregalia README § How this adapter was built](../adapters/pseudoregalia/README.md#how-this-adapter-was-built)<br>[Pseudoregalia FLAGS § Runtime dev toggles](../adapters/pseudoregalia/FLAGS.md#runtime-dev-toggles--files-beside-the-dll-and-none-of-them-may-ship-2026-08-29) |
+| [`PeerJson.hpp`](../adapters/pseudoregalia/MeshGhostPseudo/Mod/src/PeerJson.hpp) | Standard-library-only readers for peer-written JSON, with clamps that keep values finite and in range before they reach the engine, and the collapse of queued `render_remote` lines to the newest per peer; free of UE4SS so the fuzz test builds without the game. | [Pseudoregalia SYNCED.md](../adapters/pseudoregalia/SYNCED.md) |
+| [`probe_audiocensus/`](../adapters/pseudoregalia/probes/probe_audiocensus/) | Asks whether ghosts are silencing the player's sound effects: logs every audio component starting and stopping, attributed to player or ghost, with each cue's concurrency settings, plus the listener and view target. Dev-only and parked (`enabled.txt.off`). | [Pseudoregalia PROBES § `probe_audiocensus/`](../adapters/pseudoregalia/PROBES.md#probe_audiocensus--is-the-ghost-noisy-or-is-it-spending-the-players-voices-2026-09-04)<br>[Pseudoregalia documentation § A spawned player pawn claims the audio listener](../adapters/pseudoregalia/documentation.md#a-spawned-player-pawn-claims-the-audio-listener) |
+| [`probe_audiofix/`](../adapters/pseudoregalia/probes/probe_audiofix/) | A writing probe for the stolen-listener fix: when a ghost appears, it points the player controller's audio attenuation listener back at the player's own capsule. Dev-only and parked; the shipped equivalent is a hook in `Plugin.cpp`. | [Pseudoregalia PROBES § `probe_audiofix/`](../adapters/pseudoregalia/PROBES.md#probe_audiofix--the-fix-for-the-stolen-listener-tested-before-it-is-built-2026-09-04)<br>[Pseudoregalia documentation § A spawned player pawn claims the audio listener](../adapters/pseudoregalia/documentation.md#a-spawned-player-pawn-claims-the-audio-listener) |
+| [`probe_pawndiff/`](../adapters/pseudoregalia/probes/probe_pawndiff/) | Asks what differs between the player's pawn and a ghost's: snapshots every plain-valued property on both and writes the differences to a log; sibling scripts census pawns and functions, watch wall runs and snaps, and a few write or call to test fixes. Dev-only. | [Pseudoregalia PROBES § `probe_pawndiff/`](../adapters/pseudoregalia/PROBES.md#probe_pawndiff--what-differs-between-the-players-pawn-and-a-ghosts-field-by-field-2026-09-09) |
+| [`probe_reloader/`](../adapters/pseudoregalia/probes/probe_reloader/) | Not a question but the hot-reload loop: a resident UE4SS mod that restarts a named probe mod in the running game when its trigger file changes, so iterating a probe needs no keystroke or window focus. Dev-only. | [Pseudoregalia PROBES § `probe_reloader/`](../adapters/pseudoregalia/PROBES.md#probe_reloader--the-hot-reload-loop-itself)<br>[Unreal host rules § Probe in Lua, iterate by hot reload](../adapters/pseudoregalia/CLAUDE.md#probe-in-lua-iterate-by-hot-reload-the-c-mod-is-for-shipping-only) |
+| [`probe_scratch/`](../adapters/pseudoregalia/probes/probe_scratch/) | A permanently enabled, empty probe slot, so a new probe can be written over it and hot-loaded without a relaunch (UE4SS only restarts mods it knew at launch). Costs nothing idle; restore the stub after use. Dev-only. | [Pseudoregalia PROBES § `probe_scratch/`](../adapters/pseudoregalia/PROBES.md#probe_scratch--the-always-registered-empty-slot-2026-09-04)<br>[Unreal host rules § Probe in Lua, iterate by hot reload](../adapters/pseudoregalia/CLAUDE.md#probe-in-lua-iterate-by-hot-reload-the-c-mod-is-for-shipping-only) |
+| [`probe_slashvfx/`](../adapters/pseudoregalia/probes/probe_slashvfx/) | Asks what a local melee swing spawns: logs every Niagara or Cascade component appearing or activating, with its asset, attachment and offset, the fields a mirrored-effect row needs. Dev-only, and parked now that the slash is mirrored. | [Pseudoregalia PROBES § `probe_slashvfx/`](../adapters/pseudoregalia/PROBES.md#probe_slashvfx--what-a-melee-swing-actually-spawns-2026-09-01) |
+| [`probe_swordthrow/`](../adapters/pseudoregalia/probes/probe_swordthrow/) | Asks how the thrown sword works: captures the pawns' weapon fields on change and the thrown actor's flight track, with one-shot scripts for the wall bounce, the sit shadow and carrier tests; `prop_carrier_test.lua` is unsafe to run as written. Dev-only and parked. | [Pseudoregalia PROBES § `probe_swordthrow/`](../adapters/pseudoregalia/PROBES.md#probe_swordthrow--the-two-peer-sword-throw-investigation-2026-09-01)<br>[Pseudoregalia documentation § Holding the sword, and throwing it](../adapters/pseudoregalia/documentation.md#holding-the-sword-and-throwing-it) |
+
+### Pokémon Emerald
+
+| File | What it does | Notes |
+|---|---|---|
+| [`meshghost_emerald.lua`](../adapters/emulator/pokemon/emerald/meshghost_emerald.lua) | The BizHawk Lua adapter: each frame it reads the player from RAM, talks to the local core over LuaSocket (starting `meshghost.exe` if none answers), and paints each peer's own sprite, decoded from the cartridge, over the frame. Spawned object events and hardware sprites are dev-only tiers. | [Emerald README § How this adapter was built](../adapters/emulator/pokemon/emerald/README.md#how-this-adapter-was-built)<br>[Emerald FLAGS § Runtime switches](../adapters/emulator/pokemon/emerald/FLAGS.md#runtime-switches--environment-variables-and-loader-globals) |
+| [`probes/`](../adapters/emulator/pokemon/emerald/probes/) | Dev-only BizHawk scripts, none shipped: where state lives in RAM, what the engine does as a character moves, rendering internals, cost, and relocating addresses on Archipelago and other Emerald-derived ROMs, plus warp and test-kit tools that write RAM or the save. | [Emerald PROBES.md](../adapters/emulator/pokemon/emerald/PROBES.md)<br>[Emerald PROBES § Some of these write](../adapters/emulator/pokemon/emerald/PROBES.md#some-of-these-write-read-this-before-running-one) |
+
+### Pokémon Crystal
+
+| File | What it does | Notes |
+|---|---|---|
+| [`meshghost_crystal.lua`](../adapters/emulator/pokemon/crystal/meshghost_crystal.lua) | The BizHawk Lua adapter: it identifies the cartridge build to pick a measured address table, reads the player, talks to the local core over LuaSocket and paints each peer in step with the game's camera; spawning real object events is a dev opt-in. | [Crystal README § How this adapter was built](../adapters/emulator/pokemon/crystal/README.md#how-this-adapter-was-built)<br>[Crystal FLAGS § Runtime switches](../adapters/emulator/pokemon/crystal/FLAGS.md#runtime-switches) |
+| [`probes/`](../adapters/emulator/pokemon/crystal/probes/) | Dev-only BizHawk scripts, none shipped: RAM address hunts and their Archipelago re-measurement, the spawn recipe, movement, pose and cadence, cross-map seams, and drivers and savestate rigs that reach a state; many write live RAM or hold the controller. | [Crystal PROBES.md](../adapters/emulator/pokemon/crystal/PROBES.md)<br>[Probe method](../adapters/_template/probes.md) |
+
+## Autoplay
+
+The dev-only harness that lets an agent play a game through a driver inside it.
+
+### autoplay/cmd/
+
+The core itself, and the commands that drive it without an agent.
+
+| File | What it does | Notes |
+|---|---|---|
+| [`main.go`](../autoplay/cmd/autoplay/main.go) | The core's entry point: an MCP server on stdio plus the loopback listener one driver connects to (`-listen`). Opens or resumes (`-resume`) the run log and writes the per-port exec token; logs never go to stdout, which belongs to MCP. | [autoplay README § The shape](../autoplay/README.md#the-shape)<br>[autoplay README § Running it](../autoplay/README.md#running-it) |
+| [`main.go`](../autoplay/cmd/mcpcall/main.go) | Calls tools without an agent: starts a core over stdio as Claude Code does, waits for a driver, makes a JSON list of calls in order and prints each answer. `-resume` keeps a run spread over invocations in one run log. | [autoplay README § Running it](../autoplay/README.md#running-it)<br>[autoplay README § The run log](../autoplay/README.md#the-run-log) |
+| [`main.go`](../autoplay/cmd/scenario/main.go) | Replays scenario files or folders with no model: the core's server runs in this process, every step's tool is checked before anything runs, then `scenario.Run` plays each. Exit 0 when all passed, 1 when one failed, 2 when nothing ran. | [autoplay README § Scenarios](../autoplay/README.md#scenarios)<br>[autoplay README § Running it](../autoplay/README.md#running-it) |
+| [`main.go`](../autoplay/cmd/session/main.go) | Runs one unattended Claude Code session toward a goal, subscription only: its own core restores the snapshot and checks the goal, a headless `claude -p` plays within a model-call budget, a resumed run distills, and a report is written. Never commits. | [autoplay README § The session loop](../autoplay/README.md#the-session-loop) |
+| [`main.go`](../autoplay/cmd/trials/main.go) | Plays one fight recipe N times against a live driver and scores each try (won, game time, hits and what hit, combo), so builds of a fight reflex are compared over several tries. `-set` overrides one fight argument with no rebuild. | [autoplay README § Running it](../autoplay/README.md#running-it)<br>[tevi log § every rule a switch, a runner](phases/autoplay/tevi.md#2026-09-23--distill-not-pile-on-every-rule-a-switch-a-runner-and-fast-forward) |
+
+### autoplay/server/
+
+The tools an agent calls, each answered by the core or forwarded to the connected driver.
+
+| File | What it does | Notes |
+|---|---|---|
+| [`server.go`](../autoplay/server/server.go) | Registers every MCP tool; a game tool checks the driver's announced capabilities, bounds its input and forwards it (`forward`), passing the answer through unread. `logged` records each call in the run log with its outcome word, loop check and reached marking. | [autoplay README § Tools so far](../autoplay/README.md#tools-so-far)<br>[autoplay README § The shape](../autoplay/README.md#the-shape) |
+| [`knowledge.go`](../autoplay/server/knowledge.go) | The knowledge store's side: `goal` checks the game's `goals.json` against an observe, each snapshot is indexed in `index.ndjson`, and `run_skill` runs a skill through a session on this same server, so its calls are validated and logged as the model's. | [autoplay README § The knowledge store](../autoplay/README.md#the-knowledge-store)<br>[autoplay README § Tools so far](../autoplay/README.md#tools-so-far) |
+| [`loops.go`](../autoplay/server/loops.go) | Flags a loop: a call whose tool, arguments, outcome word, place after it and `changed` match 3 of the last 12 gains a `loop` note and a run-log record. Calls with no outcome word are not watched; a restore clears them. | [autoplay README § The run log](../autoplay/README.md#the-run-log) |
+
+### autoplay/session/
+
+The session loop's library: what a headless session may run with, how its calls are counted, and its report.
+
+| File | What it does | Notes |
+|---|---|---|
+| [`runlog.go`](../autoplay/session/runlog.go) | `SummarizeRunLog` reads a run log's segments in a range and counts calls by tool (status left out), refusals, outcome words, the stops in `Stops`, and each cheat, restore or exec that reached a segment, for the report. Carries the package's subscription-only rule. | [autoplay README § The session loop](../autoplay/README.md#the-session-loop)<br>[autoplay README § The run log](../autoplay/README.md#the-run-log) |
+| [`core.go`](../autoplay/session/core.go) | `Core`, a short-lived MCP client of a core the launcher starts itself before and after the model's run: `Call` decodes an answer or turns a refusal into an error, and `WaitForDriver` polls `status` until a driver has said hello. | [autoplay README § The session loop](../autoplay/README.md#the-session-loop) |
+| [`env.go`](../autoplay/session/env.go) | Keeps the session on the subscription: `CheckEnv` refuses an environment with an API key, auth token or cloud-provider switch set (`BillingVars`), and `ChildEnv` strips those and the launching session's own markers from the child's environment. | [autoplay README § The session loop](../autoplay/README.md#the-session-loop) |
+| [`prompts.go`](../autoplay/session/prompts.go) | Embeds `play.md` and `distill.md`, the prompts the play and distill runs are given, and `Fill`, which fills their template fields and treats a missing field as an error. | [autoplay README § The session loop](../autoplay/README.md#the-session-loop) |
+| [`report.go`](../autoplay/session/report.go) | `Phase` (one headless run's model calls, tool uses, budget and ending) and `Report`, the session's record written as `report.json` and `report.md`: the goal before and after, segments, stops, cheats and the knowledge store's diff. No cost field. | [autoplay README § The session loop](../autoplay/README.md#the-session-loop) |
+| [`stream.go`](../autoplay/session/stream.go) | `Counter` reads a headless run's stream-json line by line and counts model calls as distinct message ids, because one response arrives as several lines; it also tallies tool uses, the last text and the result line, never the cost. | [autoplay README § The session loop](../autoplay/README.md#the-session-loop) |
+
+### autoplay/scenario/
+
+| File | What it does | Notes |
+|---|---|---|
+| [`scenario.go`](../autoplay/scenario/scenario.go) | The scenario file and its checks: `Scenario`, `Step` and `Expect` (dotted paths with `key[field=value]`, operators such as `equals`, `min`, `contains`, `share_of`), decoded strictly so a misspelled check fails, with `restore`, `snapshot` and `segment` refused. | [autoplay README § Scenarios](../autoplay/README.md#scenarios) |
+| [`run.go`](../autoplay/scenario/run.go) | `Run` plays a scenario through a `Caller` (an MCP session): checks the connected game and variant, opens separate run-log segments for setup and steps, stops a run at its first failed step, and reports how many runs passed. | [autoplay README § Scenarios](../autoplay/README.md#scenarios) |
+
+### autoplay/goals/
+
+| File | What it does | Notes |
+|---|---|---|
+| [`goals.go`](../autoplay/goals/goals.go) | Reads a game's `goals.json` and checks each goal's `done_when` (scenario expectations) against an observe answer; the next goal follows the last one met, because a goal checked by place stops holding once passed. `SizeNote` flags a file past 8 KB. | [autoplay README § The knowledge store](../autoplay/README.md#the-knowledge-store)<br>[emerald goals.json](../autoplay/games/emerald/goals.json) |
+
+### autoplay/skill/
+
+| File | What it does | Notes |
+|---|---|---|
+| [`skill.go`](../autoplay/skill/skill.go) | The skill file: one call plus rules choosing the next call from each answer with scenario expectations, `$name` parameters, nesting and `max_calls`; decoded strictly and checked whole before a first call. `Dir` loads a game's skills folder. | [autoplay README § The knowledge store](../autoplay/README.md#the-knowledge-store)<br>[autoplay README § Tools so far](../autoplay/README.md#tools-so-far) |
+| [`run.go`](../autoplay/skill/run.go) | `Runner.Run` plays a skill with no model between calls: resolves nested skills (4 deep at most), makes each call, lets the first matching rule decide the next, and ends `done`, `stopped`, `no_rule`, `max_calls`, `tool_error` or `loop` with a trail. | [autoplay README § The knowledge store](../autoplay/README.md#the-knowledge-store)<br>[autoplay README § Tools so far](../autoplay/README.md#tools-so-far) |
+
+### autoplay/runlog/
+
+| File | What it does | Notes |
+|---|---|---|
+| [`runlog.go`](../autoplay/runlog/runlog.go) | Writes a session's run log as NDJSON: every tool call, and segments labelled walked until a cheat or restore succeeds in one, then reached. `Resume` carries on another core's open segment; a nil `*Log` records nothing. | [autoplay README § The run log](../autoplay/README.md#the-run-log) |
+
+### autoplay/driver/
+
+| File | What it does | Notes |
+|---|---|---|
+| [`driver.go`](../autoplay/driver/driver.go) | The core's side of the driver link, its wire protocol stated at the top: `Hub` listens on loopback, takes one driver at a time after its hello, routes id-matched requests and buffers events. Game-blind: the only payload field it reads is `persisting`. | [autoplay README § The shape](../autoplay/README.md#the-shape) |
+
+### autoplay/drivers/bizhawk/
+
+The driver inside BizHawk, and the libraries it hands every game module.
+
+| File | What it does | Notes |
+|---|---|---|
+| [`driver.lua`](../autoplay/drivers/bizhawk/driver.lua) | Picks its game module from `AUTOPLAY_GAME`, hands it the shared `text` and `route` libraries, connects to the core, and runs each request as a per-frame program, including `select`, screenshots, named snapshots and token-gated `exec`. | [autoplay README § Drivers so far](../autoplay/README.md#drivers-so-far)<br>[autoplay README § Tools so far](../autoplay/README.md#tools-so-far) |
+| [`json.lua`](../autoplay/drivers/bizhawk/json.lua) | A small JSON encoder and decoder for the link's lines: a table keyed exactly 1..n encodes as an array, anything else as an object, and a decoded null is `json.null`. The UE4SS driver loads it too. | [autoplay README § The shape](../autoplay/README.md#the-shape) |
+| [`route.lua`](../autoplay/drivers/bizhawk/route.lua) | The shared `goto`: plans a route over hooks each game module supplies (open tiles, grass, trainers' lines, warps) and rides it, replanning on a bump; plus obstacle rooms (`M.solve`, `M.reach`), `M.travel` across maps, `M.talk` and `M.search`. | [autoplay README § Drivers so far](../autoplay/README.md#drivers-so-far)<br>[autoplay README § Tools so far](../autoplay/README.md#tools-so-far)<br>[state planner § Order](autoplay-state-planner.md#order-each-step-tested-by-replaying-stretches-of-the-route-run) |
+| [`text.lua`](../autoplay/drivers/bizhawk/text.lua) | The shared machine behind `advance_text` and `battle`: decides when to press from hooks each game module supplies (the message, the battle menu, a script running), plays the battle policies, and `forgetChoice` answers a learn-a-move question by `strong_variety`. | [autoplay README § Drivers so far](../autoplay/README.md#drivers-so-far)<br>[autoplay README § Tools so far](../autoplay/README.md#tools-so-far) |
+
+### autoplay/drivers/bizhawk/games/
+
+| File | What it does | Notes |
+|---|---|---|
+| [`crystal.lua`](../autoplay/drivers/bizhawk/games/crystal.lua) | Vanilla Crystal's module: observe from WRAM and the screen's tile buffer (position, text, menus, map, trainers, battles, party, pack), plus `walk`, `goto`, `battle`, `advance_text` and its cheats, measured on the V1.0 ROM it identifies by hash. | [autoplay README § What observe reads](../autoplay/README.md#what-observe-reads)<br>[autoplay README § Cheats so far](../autoplay/README.md#cheats-so-far)<br>[crystal autoplay log](phases/autoplay/crystal.md) |
+| [`emerald.lua`](../autoplay/drivers/bizhawk/games/emerald.lua) | Vanilla Emerald's module: observe (text, menus, keyboard, clock, battles, the map around the player, trainers, warps, party, bag), cheats such as `warp` and `noclip`, and programs (`walk`, `goto` with obstacles, `talk`, `battle`, field-errand reflexes, `type_text`, `set_clock`). | [autoplay README § What observe reads](../autoplay/README.md#what-observe-reads)<br>[autoplay README § Cheats so far](../autoplay/README.md#cheats-so-far)<br>[emerald game.md](../autoplay/games/emerald/game.md) |
+
+### autoplay/drivers/bepinex/
+
+What any BepInEx game's driver shares.
+
+| File | What it does | Notes |
+|---|---|---|
+| [`Link.cs`](../autoplay/drivers/bepinex/Link.cs) | The driver's side of the link for a BepInEx game: a background thread connects to the core, sends the plugin's hello and queues requests; the main thread takes them with `Poll` and answers with `Reply`, `Fail` or `Event`, touching Unity only there. | [autoplay README § Drivers so far](../autoplay/README.md#drivers-so-far)<br>[autoplay README § The shape](../autoplay/README.md#the-shape) |
+| [`AchievementGuard.cs`](../autoplay/drivers/bepinex/AchievementGuard.cs) | Harmony patches that skip every Steam achievement and stat call, plus the game unlock methods a plugin names, from the moment a driver loads until the game exits. Survives hot reloads; `observe` reports how many calls it skipped. | [autoplay README § Drivers so far](../autoplay/README.md#drivers-so-far) |
+
+### autoplay/drivers/bepinex/tevi/
+
+The TEVI driver, a BepInEx plugin of its own.
+
+| File | What it does | Notes |
+|---|---|---|
+| [`Plugin.cs`](../autoplay/drivers/bepinex/tevi/Plugin.cs) | The driver plugin, loaded by ScriptEngine: reads `meshghost-autoplay.txt`, installs the guards and patches, sends its hello, and runs each request per frame (observe, input, text, clock, reflexes, screenshot, snapshot through the game's own save, cheats), with events. | [autoplay README § Drivers so far](../autoplay/README.md#drivers-so-far)<br>[tevi log § the driver built](phases/autoplay/tevi.md#2026-09-17--opened-saves-measured-and-backed-up-the-driver-built-and-a-new-game-reached-through-the-title) |
+| [`Annotate.cs`](../autoplay/drivers/bepinex/tevi/Annotate.cs) | Captures `screenshot`'s frame; with `annotate`, switches on the game's own hitbox drawing for the captured frame only and draws numbered tags over the characters, items and elements in view, listed in the answer with their pixels. | [autoplay README § Tools so far](../autoplay/README.md#tools-so-far)<br>[tevi log § layers 5 and 4](phases/autoplay/tevi.md#2026-09-17-new-session--layers-5-and-4-and-ribauld-a-dodge-that-reads-the-games-boxes-and-learns-an-enemys-tells) |
+| [`Clock.cs`](../autoplay/drivers/bepinex/tevi/Clock.cs) | The `clock` tool: a postfix on the game's per-frame time-scale setting holds game time at 0, lets a step of frames through, and `fast` runs frames faster than real time. Held state lives in AppDomain data, surviving core restarts and hot reloads. | [autoplay README § Tools so far](../autoplay/README.md#tools-so-far)<br>[tevi log § the clock held](phases/autoplay/tevi.md#2026-09-17-same-session--layer-3-the-clock-held) |
+| [`Dodge.cs`](../autoplay/drivers/bepinex/tevi/Dodge.cs) | Decides whether a reflex's intended move is safe: simulates the player's own plans (stand, run, hop, jump, quickdrop) over 45 frames against every box that can hurt the player, walls included, and `Choose` takes the nearest safe plan with most room. | [autoplay README § Drivers so far](../autoplay/README.md#drivers-so-far)<br>[tevi log § layers 5 and 4](phases/autoplay/tevi.md#2026-09-17-new-session--layers-5-and-4-and-ribauld-a-dodge-that-reads-the-games-boxes-and-learns-an-enemys-tells) |
+| [`Events.cs`](../autoplay/drivers/bepinex/tevi/Events.cs) | Reports what happens to the player the frame it happens: `damage_taken` and `enemy_defeated` from a patch on the game's one hit method, and `hp_changed`, `game_over`, dialogue, menu, tip, interact, popup and item events from per-frame reads. Reading only. | [autoplay README § Drivers so far](../autoplay/README.md#drivers-so-far)<br>[tevi log § events](phases/autoplay/tevi.md#2026-09-17-next-session--events-the-intro-played-the-intended-way-and-sequence-for-continuous-movement) |
+| [`InputInjection.cs`](../autoplay/drivers/bepinex/tevi/InputInjection.cs) | Input the game reads as its own: postfixes on Rewired's read methods add holds scheduled by action name and frame (`Schedule`, `ScheduleSequence`, `Keep`, `Tap`, `Quickdrop`) to the real controller's, which is muted while the guard is armed and the window unfocused. | [autoplay README § Drivers so far](../autoplay/README.md#drivers-so-far)<br>[autoplay README § Tools so far](../autoplay/README.md#tools-so-far) |
+| [`Navigate.cs`](../autoplay/drivers/bepinex/tevi/Navigate.cs) | `reflex goto`: a route over the collision grid's standing tiles by steps, falls and jumps up to 3 rows and 5 columns, carried out a frame at a time through the dodge, quickdropping onto landings and replanning from where the player stands. | [autoplay README § Drivers so far](../autoplay/README.md#drivers-so-far)<br>[tevi log § reflex goto](phases/autoplay/tevi.md#2026-09-17-same-session--infernal-bbq-from-the-cell-reflex-goto-and-a-death-at-the-blastvines) |
+| [`Recorder.cs`](../autoplay/drivers/bepinex/tevi/Recorder.cs) | The flight recorder behind `recent`: the last 3600 frames of game time, one row a frame (position, speed, animation, logic state, HP, held input, nearest enemies, hurting boxes, lasers), kept only while game time moves; it reports its own per-frame cost. | [autoplay README § Tools so far](../autoplay/README.md#tools-so-far)<br>[tevi log § layers 5 and 4](phases/autoplay/tevi.md#2026-09-17-new-session--layers-5-and-4-and-ribauld-a-dodge-that-reads-the-games-boxes-and-learns-an-enemys-tells) |
+| [`Reflexes.cs`](../autoplay/drivers/bepinex/tevi/Reflexes.cs) | The `fight` and `evade` reflexes: per-frame programs that follow the nearest enemy and attack it (melee, ranged, jumps, pushing blastorbs) or only dodge, each move checked by `Dodge`; every rule is an argument `cmd/trials` can switch. | [autoplay README § Drivers so far](../autoplay/README.md#drivers-so-far)<br>[tevi log § reflexes](phases/autoplay/tevi.md#2026-09-17-same-session--reflexes-fight-follows-an-enemy-the-artifact-the-hatch-blastvines-and-the-first-sigils) |
+| [`SaveGuard.cs`](../autoplay/drivers/bepinex/tevi/SaveGuard.cs) | From the first core connection until exit, every save read and write goes to a shadow copy under `autoplay/states/tevi/shadow/` and the autosave is skipped: a shadow, not a refusal, because a new game reads back what it wrote. | [autoplay README § Drivers so far](../autoplay/README.md#drivers-so-far)<br>[tevi log § the guard made a shadow](phases/autoplay/tevi.md#2026-09-17-same-session--the-randomizer-off-the-guard-made-a-shadow-and-a-cakewalk-new-game-at-the-intro) |
+| [`Surroundings.cs`](../autoplay/drivers/bepinex/tevi/Surroundings.cs) | What `observe` reads around the player from the game's own state: player physics and hurtbox, the camera's view, characters, elements, items, projectiles, every element of the area, and a text `local_map` of the collision grid with those drawn over it. | [autoplay README § Drivers so far](../autoplay/README.md#drivers-so-far)<br>[tevi log § the ground around the player](phases/autoplay/tevi.md#2026-09-17-same-session--phase-6s-list-the-dialogue-the-ground-around-the-player-snapshots-a-teleport-and-a-scenario-3-of-3) |
+| [`Tells.cs`](../autoplay/drivers/bepinex/tevi/Tells.cs) | Learns what an enemy does before an attack: per character type and logic state, the boxes born after entering it (delay, offset, size, velocity), kept across hot reloads and in a gitignored file, so `Predict` shows the dodge a box before it exists. | [autoplay README § Drivers so far](../autoplay/README.md#drivers-so-far)<br>[tevi log § layers 5 and 4](phases/autoplay/tevi.md#2026-09-17-new-session--layers-5-and-4-and-ribauld-a-dodge-that-reads-the-games-boxes-and-learns-an-enemys-tells) |
+| [`Threats.cs`](../autoplay/drivers/bepinex/tevi/Threats.cs) | Everything that can hurt the player, as the game tests a hit: live bullets with damage and a box, lasers tracked through a patch on their pool, and exploding characters as their blast. `PlayerHurtbox` and `Read` feed the dodge and the recorder. | [autoplay README § Drivers so far](../autoplay/README.md#drivers-so-far)<br>[tevi log § layers 5 and 4](phases/autoplay/tevi.md#2026-09-17-new-session--layers-5-and-4-and-ribauld-a-dodge-that-reads-the-games-boxes-and-learns-an-enemys-tells) |
+
+### autoplay/drivers/ue4ss/
+
+| File | What it does | Notes |
+|---|---|---|
+| [`driver.lua`](../autoplay/drivers/ue4ss/driver.lua) | The driver inside a UE4SS game, started by the mod's bootstrap: runs a frame at a time on the game thread, receives in 40-byte pieces, loads the game module (reloadable in place through `exec`), and serves `observe`, `wait` and token-gated `exec`. | [autoplay README § Drivers so far](../autoplay/README.md#drivers-so-far)<br>[pseudoregalia log § a UE4SS driver](phases/autoplay/pseudoregalia.md#2026-09-23--opened-a-ue4ss-driver-file-8-as-a-new-game-and-the-player-walked-and-the-camera-turned) |
+
+### autoplay/drivers/ue4ss/games/
+
+| File | What it does | Notes |
+|---|---|---|
+| [`pseudoregalia.lua`](../autoplay/drivers/ue4ss/games/pseudoregalia.lua) | Pseudoregalia's module: observe (map, player states, HP, camera, enemies, dialogue), Enhanced Input injected each held frame, snapshots as File 8's own save plus a position file, a guard holding the save slot, and reflexes `walk_to`, `goto`, `reach`, `fight` and `look`. | [autoplay README § Drivers so far](../autoplay/README.md#drivers-so-far)<br>[pseudoregalia game.md](../autoplay/games/pseudoregalia/game.md)<br>[pseudoregalia log § the save slot guarded](phases/autoplay/pseudoregalia.md#2026-09-23-same-session--the-save-slot-guarded-snapshots-sight-by-traces-goto-with-jumps-and-backflips) |
+
+### autoplay/drivers/ue4ss/mod/Scripts/
+
+| File | What it does | Notes |
+|---|---|---|
+| [`main.lua`](../autoplay/drivers/ue4ss/mod/Scripts/main.lua) | The only file copied into the game: reads `meshghost-autoplay.txt` beside the mod (`repo`, `port`, `game`) and loads the driver from the repo, so an edit is live on the mod's next restart. With no config, nothing loads. | [autoplay README § Drivers so far](../autoplay/README.md#drivers-so-far) |
 
 ## Claude Code
 
