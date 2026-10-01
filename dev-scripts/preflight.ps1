@@ -2245,7 +2245,7 @@ function Report-Ratchet([string]$what, [int]$count, [int]$floor, [string]$fix, $
 # Status line, or a Contents list that differs from its file's headings.
 Section "Doc coverage"
 $floorNoCodeMapRow = 0
-$floorStepNoStatus = 167
+$floorStepNoStatus = 0
 
 $codeMapText = if (Test-Path -LiteralPath 'agent_docs/code-map.md') { [System.IO.File]::ReadAllText((Join-Path $root 'agent_docs/code-map.md')) } else { '' }
 $mapped = @(& git ls-files -- '*.go' '*.cs' '*.cpp' '*.hpp' '*.lua' '*.py' | Where-Object {
