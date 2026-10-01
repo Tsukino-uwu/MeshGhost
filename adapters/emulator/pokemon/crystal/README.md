@@ -302,7 +302,9 @@ unwatched says so and is in [UNVERIFIED.md](UNVERIFIED.md).
     read dead values and a standing peer painted itself gliding; it also has a **fourth gait**
     vanilla lacks, which the camera's plausibility test rejected as a register rebase. The rest were
     one shape: a peer's appearance learned from the LOCAL player, which says nothing about a peer on
-    the other build. Everything a build can move is now read off that cartridge rather than assumed.
+    the other build. A peer now wears its own sprite where this cartridge numbers it the same way,
+    checked row by row, so a bike or a surf blob crosses builds and only a repointed id is refused.
+    Everything a build can move is now read off that cartridge rather than assumed.
     **Status:** works, seen on screen (2026-08-27); the confirmations were never moved into the
     verified record.
 25. **FEATURE COMPLETE, 2026-08-27.** The user's own line, added by hand and deliberately left
@@ -348,21 +350,25 @@ unwatched says so and is in [UNVERIFIED.md](UNVERIFIED.md).
     fault where three of the four facings drew mirrored, fixed alongside it.
     **Status:** works, seen on screen (2026-08-27); open: off on the Archipelago table, whose
     connection block is unmeasured.
-30. Taught the adapter which Crystal it is running on. Five recognised builds — vanilla V1.0 and
+30. Taught the adapter which Crystal it is running on. It began 2026-08-18 as a guard that refused
+    an Archipelago ROM by its title before any write. Five recognised builds now — vanilla V1.0 and
     V1.1, Speedchoice v8.1, and Archipelago on either base — on three address tables (V1.1 shares
     V1.0's, both Archipelago bases share one), chosen from the ROM header's title, version byte and
     global checksum. An address a recognised build must read or write and does not have is a
     **refusal to run, never a fallback**: a write aimed at a vanilla address on a patched cartridge
-    does not fail cleanly, it writes somewhere real. Confirmed across all five on screen, 2026-09-09
-    ([VERIFIED.md](VERIFIED.md)).
+    does not fail cleanly, it writes somewhere real. An unrecognised cartridge runs on vanilla's
+    table after a log line naming it, or refuses under `MESHGHOST_CRYSTAL_STRICT=1` (the user's
+    call, 2026-08-18). Confirmed across all five on screen, 2026-09-09 ([VERIFIED.md](VERIFIED.md)).
     **Status:** works, seen on screen (2026-09-09); open: the fallback for other `AP_` titles
-    (2026-09-26) is not yet seen.
+    (2026-09-26) is not yet seen, and `MESHGHOST_CRYSTAL_STRICT=1` has no run on record.
 31. Stopped a player vanishing the moment they entered a battle, a menu or a fishing cast. The
     adapter holds the last in-play state and re-sends it while the player is out of play, with the
     transient extras cleared so a repeated arrival marker cannot keep every receiver stuck in
     arrival handling. Nothing is sent before the first in-play state, so the title screen still
     sends nothing. The user reported the symptom and chose the behaviour; confirmed 2026-09-09
-    ([VERIFIED.md](VERIFIED.md)).
+    ([VERIFIED.md](VERIFIED.md)). A window the emulator itself pauses sends nothing at all, so its
+    ghost still leaves the others while paused; a core fix the same day brings it back on resume,
+    watched that day too.
     **Status:** works, seen on screen (2026-09-09).
 32. Rebuilt the rule for when the game's own UI hides a character, on what the tiles actually say.
     A text box defers to the tilemap's BG-priority bit; a menu rectangle hides unconditionally,
@@ -397,6 +403,12 @@ unwatched says so and is in [UNVERIFIED.md](UNVERIFIED.md).
     pose byte while it stands still. Confirmed in both directions across builds, 2026-09-13
     ([VERIFIED.md](VERIFIED.md)).
     **Status:** works, seen on screen (2026-09-13).
+36. Put the adapter on the network on 2026-08-18, before most steps above: it dials a local core
+    over the bridge, sends the player's state every frame once that core answers `bridge_ready`,
+    and a ghost driven only by the wire walked and turned for the user that day. It walks eight
+    bridge ports from 7778 past any core serving another game, so a second window finds its own.
+    **Status:** works, seen on screen (2026-08-18); two windows on their own ports, seen in one room
+    (2026-08-28).
 
 
 ### Further work past "good enough"

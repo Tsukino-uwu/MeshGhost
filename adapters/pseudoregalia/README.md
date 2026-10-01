@@ -1,11 +1,11 @@
 # Pseudoregalia
 
 **Status: feature complete, declared by the user 2026-08-27** — *"i think we can consider
-pseudoregalia 'feature complete' at this point as well"* — and still growing: 18 steps since, the
-latest seen on screen 2026-09-23 (chaser contact, step 71). **That declaration has a written
-scope**, recorded the same day in [VERIFIED.md](VERIFIED.md) along with what it explicitly does
-*not* cover, so a later session cannot quietly widen it. [UNVERIFIED.md](UNVERIFIED.md) is the live
-queue of what is built but unwatched.
+pseudoregalia 'feature complete' at this point as well"* — and still growing: 20 steps since
+(54–71, 75 and 76), the latest seen on screen 2026-09-23 (chaser contact, step 71). **That
+declaration has a written scope**, recorded the same day in [VERIFIED.md](VERIFIED.md) along with
+what it explicitly does *not* cover, so a later session cannot quietly widen it.
+[UNVERIFIED.md](UNVERIFIED.md) is the live queue of what is built but unwatched.
 
 - Mod Compatibility: Archipelago, AttireUiOverhaul(outfits,weapons,after image color)
   - Should also hopefully work together with any other mods
@@ -141,10 +141,11 @@ needed.
 Most of this is one phase, [agent_docs/phases/phase7.md](../../agent_docs/phases/phase7.md) —
 the sub-numbers below (7.1, 7.4,
 etc.) are that file's own task headings, called out here for anyone jumping straight to the
-detailed log instead of reading the whole thing top to bottom. **They stop at step 44**: that
-file's task list ends at 7.8, and steps 42 and 45 onward belong to no phase number at all. Their
-evidence is in this folder's own [VERIFIED.md](VERIFIED.md) by date, and in
-[UNVERIFIED.md](UNVERIFIED.md) where a step is not yet watched. It reads
+detailed log instead of reading the whole thing top to bottom. **They stop at step 44**, bar step
+74 (7.7): that file's task list ends at 7.8, and the other steps from 42 on
+belong to no phase number at all. Their evidence is in this folder's own
+[VERIFIED.md](VERIFIED.md) by date, and in [UNVERIFIED.md](UNVERIFIED.md) where a step is not yet
+watched. It reads
 as a much smoother
 line than it actually was — the file itself has dozens of individual live-test cycles behind
 several of these steps (the camera fight alone took over twenty), condensed here into what
@@ -160,7 +161,10 @@ Roughly in order:
    at the time, says linking a GitHub account to an Epic Games account unlocks it), pivoted to
    Lua-for-discovery / C++-for-shipping instead. (7.2)
    **Status:** resolved (2026-08-12): UEPseudo access unblocked and the C++ mod built.
-3. Made that model follow the player as a ghost. (7.4)
+3. Made that model follow the player as a ghost. (7.4) A clone of the player's own Blueprint takes
+   the controller the moment it spawns (measured 2026-08-12), so the first fix handed control
+   straight back; since 2026-08-16 the clone spawns with auto-possess switched off on its class for
+   that one call, and control is handed back only if something took it.
    **Status:** works, seen on screen (2026-08-12).
 4. Fought the game's camera, which kept snapping back onto the ghost instead of staying on
    the player. Hooked the game's own camera-retarget call and forced it back. (7.4)
@@ -178,9 +182,12 @@ Roughly in order:
    that only showed up under real sustained traffic, not light testing. (7.5)
    **Status:** resolved by step 7 (2026-08-13).
 7. Remade the networking (and much of the rest of the adapter) in C++, once the C++/UE4SS
-   build toolchain access that had been blocking that path got unblocked. (7.5)
+   build toolchain access that had been blocking that path got unblocked. (7.5) The socket gained
+   `TCP_NODELAY` on 2026-09-06: a Linux tester's recordings stuttered because the mod's one small
+   line per frame was held back for the receiver's delayed acknowledgement, a 40 ms floor in their
+   clip.
    **Status:** works, seen on screen (2026-08-13); zero corrupt lines measured against Lua's 98% the
-   same day.
+   same day; the tester's clip timing matched Windows, measured (2026-09-07).
 8. Tried spawning something not already in the stage (new statues, etc.), then decided
    against it and went back to duplicating the player / reusing an object already in the
    stage — same finding as step 5, re-confirmed in C++: spawned actors could be destroyed but
@@ -225,8 +232,10 @@ Roughly in order:
     (to tell "the write is dead" apart from "the write lands wrong") that it was landing as
     ≈0; traced to a marshaling bug in the vendored UE4SS SDK that only affects `FRotator` on UE
     5.0+, worked around with a local, version-aware helper rather than patching the
-    (un-committable) submodule. (7.6)
-    **Status:** works, seen on screen (2026-08-13).
+    (un-committable) submodule. (7.6) Since 2026-08-30 the facing is also interpolated between the
+    two samples the core draws the position between (ADR 0043), so a fast spin no longer steps.
+    **Status:** works, seen on screen (2026-08-13); open: the interpolated facing (2026-08-30) is
+    judged better, not yet 1:1.
 16. Fixed the ghost getting stuck in a falling animation. (7.6)
     **Status:** works, seen on screen (2026-08-13).
 17. Fixed the ghost getting stuck in a ledge-hang animation. (7.6)
@@ -373,9 +382,11 @@ Roughly in order:
     when it finds nothing on the bridge, which also means a client that's already running gets used
     rather than duplicated. It passes no relay settings — only the bridge port and its own
     process id, with the core reading its own config out of the working directory — so the
-    adapter still knows nothing about the relay.
+    adapter still knows nothing about the relay. Since 2026-09-05 that directory is the game's own
+    root folder, the one place the mod looks: the client, its config.json, log and replays sit
+    where a player can find them rather than deep inside the mod folder.
     **Status:** works, seen on screen (2026-08-16), Proton included; its free-port test was fixed in
-    step 49.
+    step 49; the game-root folder seen on screen (2026-09-05).
 
 43. Stopped a sliding ghost sinking into the floor — the quick way, and the wrong object. A slide
     shrinks the character's capsule half-height from 65 to 22 and drops its centre by the same 43
@@ -432,9 +443,11 @@ Roughly in order:
 49. Made the mod's autostart actually fire (step 42's feature, which a developer with a client
     already running would never have seen fail). It was looking for a free port by connecting and
     waiting to be refused — and on this machine a closed port is never refused, the connection is
-    simply dropped. It now asks the OS instead: a free port is one it can bind.
-    **Status:** works, seen on screen (2026-08-27); open: a second instance never starts its own
-    core (2026-08-29).
+    simply dropped. It now asks the OS instead: a free port is one it can bind. The game also runs
+    twice on one machine (a speedrunner's tip), so two real peers became a routine test once the mod
+    read a busy core's refusal before closing the socket and blamed the right port (2026-08-28).
+    **Status:** works, seen on screen (2026-08-27); two instances seen (2026-08-28); open: a second
+    instance never starts its own core (2026-08-29).
 
 50. Mirrored a peer's ranged shot, after holding the game's own projectile actor crashed the game.
     A thrown sword rests where it lands and is ours to keep; a projectile belongs to the game,
@@ -450,14 +463,17 @@ Roughly in order:
     **Status:** works, seen on screen (2026-08-27); open: whether a peer's ghost returns after its
     own death fade (two clients).
 
-52. Stopped a ghost's afterimages drawing through walls, at zero frames rather than one. Every
-    reactive version made the flicker briefer and never gone, because an afterimage is born with
-    the outline already on and the frame is drawn before any of our code runs. The fix refuses the
+52. Stopped a ghost's afterimages drawing through walls, at zero frames rather than one. The body
+    and sword came first (2026-08-16): a clone inherits the player's custom-depth outline, so both
+    meshes have it switched off through the engine's own setter at spawn and held off each tick,
+    and the player keeps theirs. For the afterimages, every reactive version made the flicker
+    briefer and never gone, because an afterimage is born with the outline already on and the
+    frame is drawn before any of our code runs. The fix refuses the
     outline at the moment the game switches it on. It has to decide before the game says whose the
     image is, so an unattributable one is refused and given the outline back a tick later if it
     turns out to be the player's — wrong in the direction nobody can see.
-    **Status:** works, seen on screen (2026-08-27); open: a player image born on a ghost may lose
-    its outline, unwatched.
+    **Status:** works, seen on screen (2026-08-16 the body and sword, 2026-08-27 the afterimages);
+    open: a player image born on a ghost may lose its outline, unwatched.
 
 53. **The user called the adapter feature complete** (2026-08-27): *"i think we can consider
     pseudoregalia 'feature complete' at this point as well"*. The scope was written down the same
@@ -495,9 +511,11 @@ Roughly in order:
     after every spawn the level's own light repair (`FixAllLights`) ran — the same call a light
     transition makes. Watched by the user, 2026-08-30. **The repair no longer runs by default**:
     on 2026-09-06 it measured 18 ms per ghost and the spawn-tick light kill had already made it
-    unnecessary, so it is off behind `ghost_fixlights_on.txt` (`FLAGS.md`); step 65.
+    unnecessary, so it is off behind `ghost_fixlights_on.txt` (`FLAGS.md`); step 65. The camera
+    rig outlived its ghost, spring arm still ticking, so the frame rate fell with every despawn
+    until a level reload (2026-09-06); it is now destroyed with the ghost and an orphan is swept up.
     **Status:** works, seen on screen (2026-08-30); the repair is off by default since, seen not
-    needed (2026-09-06).
+    needed (2026-09-06); the orphaned rig's frame-rate drop seen gone (2026-09-11).
 
 57. Root-caused the reset crash to stale nametag pointers and fixed it — a world made by "reset
     to last save" freed objects our components still referenced, so the next spawn died in the
@@ -520,9 +538,11 @@ Roughly in order:
     the watcher's player (`create_ghost_weapon_flyer` — pose, glow, bounce effects and blob
     shadow driven from the peer's samples), and confirmed it on two real peers, 2026-09-01. The
     peer-named-asset catalog gate landed the same day: a peer's asset name resolves only through
-    the local game's own loaded assets.
-    **Status:** works, seen on screen (2026-09-01); open: an occasional mid-arc snap, cause
-    unattributed.
+    the local game's own loaded assets. The sword in the ghost's hand follows the peer's own equip
+    flag from the first frame since 2026-09-04: a peer who never picked it up shows empty hands,
+    whatever the watcher owns.
+    **Status:** works, seen on screen (2026-09-01); the hand sword seen (2026-09-04); open: an
+    occasional mid-arc snap, cause unattributed.
 
 60. **Gave the player their sound effects back** (2026-09-04): every ghost, being a clone of the
     player pawn, re-pointed the game's audio listener at its own capsule on spawn, so once it
@@ -606,9 +626,11 @@ Roughly in order:
     driven from the track later (ADR 0057) needs the frame the stick was pushed in, and the look
     deltas cannot give it. The first build read the controller's rotation and a full circle of the
     camera left it unmoved: this game drives its own camera rig, so the axes come from the camera
-    manager, the same read that places the recording indicator.
+    manager, the same read that places the recording indicator. That ghost exists as a dev rig
+    (2026-09-08/09, `ghost_drive.txt`): a replay ghost driven by its clip's inputs through the
+    pawn's own input handling instead of mirrored, which jumped, attacked, walked the route and sat.
     **Status:** works, measured (2026-09-08): 1,107 edges, zero disagreements; the camera axes
-    unwatched.
+    unwatched; the driven ghost partial: corrections still snap it back to the route (2026-09-09).
 
 69. **The recording indicator as a screen-space widget (2026-09-08).** The world-space one hid
     behind geometry and drifted with the field of view, both properties of text placed in the
@@ -643,6 +665,41 @@ Roughly in order:
     [VERIFIED.md](VERIFIED.md) 2026-09-23; the facts behind it are in [MEASURED.md](MEASURED.md).
     **Status:** works, seen on screen (2026-09-23); open: a world-leak crash on restart-last-save
     after a death with chasers up.
+72. **A release that brings its own UE4SS, beside the Archipelago randomizer (2026-08-13).** Back
+    on 2026-08-13 the release package started carrying the UE4SS runtime, built from the RE-UE4SS
+    commit this repo pins and laid out in the game's own folder shape, so a player drags one folder
+    in; the same day the ghost survived an Archipelago reinstall that replaced that runtime. On
+    2026-09-05 both mods worked in either install order, because UE4SS finds this mod by its folder
+    and Archipelago's mod list is left as it was.
+    **Status:** works, seen on screen (2026-09-05): the ghost and Archipelago's item sends, in both
+    install orders.
+73. **A ghost leaves when the client does, and follows across areas (2026-08-14).** Back on
+    2026-08-14, two loopback checks: walking back and forth between two areas, the ghost kept
+    following with no crash; closing the client left it standing frozen, because only a despawn
+    message or a level load ever released a ghost. The mod now watches for the moment the bridge
+    drops and releases every ghost on the next game-thread tick.
+    **Status:** works, seen on screen (2026-08-14).
+74. **Two real players on two machines (2026-08-16).** Back on 2026-08-16 the Linux speedrunner
+    who had prompted autostart ran MeshGhost under Proton on a laptop, and each player saw the
+    other's goat on their own screen: the first time anything in this project was confirmed between
+    two machines. A peer actually on a climbing pole also showed its rotation right, which loopback,
+    with the ghost beside the geometry, never could. (7.7)
+    **Status:** works, seen on screen (2026-08-16).
+75. **The player's own effects, mirrored by key (2026-08-27 to 2026-09-01).** The mod watches for a
+    table of the game's own effects spawning on or beside the player and sends each as a short key,
+    with a running count for a burst the game drops in the world, so quick repeats survive; the
+    watcher spawns the same system on the ghost (the heal, step 47, rides the same mirror). Back on
+    2026-08-27 the charged-attack glow came through on the sword hand; then the landing dust
+    (2026-08-29), once an echo between two ghosts and a mid-body height were fixed; then, on
+    2026-09-01, the melee slash arc, along the performer's facing, and the wall kick's two effects.
+    **Status:** partial: the wall kick had one hedged look (2026-09-01) and looks off in position
+    and timing on a replay ghost (2026-09-23); the glow, dust and slash seen on screen (2026-08-27,
+    2026-09-04, 2026-09-01).
+76. **Replays as ghosts (2026-09-03).** Back on 2026-09-03 the client learned to record what this
+    mod sends and play it back as a ghost. A replay reaches the mod as a peer of the client's own
+    making (ADR 0047), so it is drawn by the same code as a live player; a zip of two recordings
+    dropped into the replay folder plays as two ghosts (2026-09-04).
+    **Status:** works, seen on screen (2026-09-03); the zip of two seen (2026-09-04).
 
 > **Steps 38–41 and 43–44 are deliberately longer than the rest of this list — please leave them
 > that way.**

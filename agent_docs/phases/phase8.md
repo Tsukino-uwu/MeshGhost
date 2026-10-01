@@ -1326,3 +1326,5 @@ and DIVE; then which badge each field move needs, from the party menu (48 trials
 ## 2026-09-27 — pointer: MEASURED.md's "Field-move badges on an Archipelago seed" got its missing index line, for the docs check; no Emerald work (the user is on Bug Fables)
 
 ## 2026-10-01 — pointer: every build step now ends with its Status line, and the README fact-checked; logged in [phase12.md](phase12.md)
+
+## 2026-10-01 (later) — pointer: the approved build-story beats written (new steps 43–46, three merges, four stale claims, two `FLAGS.md` rows); logged in [phase12.md](phase12.md)

@@ -37,7 +37,9 @@ declines and cross-map ghosts still read vanilla's map header. The queue is
   [BANDAGES.md](BANDAGES.md) for the ROM guard that decides where it may write.
 - Adapter language: Lua (BizHawk's scripting host).
 - **How the game is read: an external source decompilation.** Fixed memory addresses, looked up in
-  [`pokeemerald`](https://github.com/pret/pokeemerald) and cited — nothing is discovered at runtime.
+  [`pokeemerald`](https://github.com/pret/pokeemerald) and cited, except where a patched build moves
+  them: `gMapHeader`, the map grid, `gTasks` and `gMapGroups` are found at runtime by their shape,
+  and the `gObjectEvents` offset is picked from the measured ones by finding the player's own entry.
   Addresses are unknowable but authoritative: you cannot invent one, and once the decomp gives it to
   you it is right. See [agent_docs/access-models.md](../../../../agent_docs/access-models.md) for what
   each access model costs and what the other adapters used.
@@ -109,9 +111,9 @@ Measured 2026-08-19 and 2026-08-21 with real peers over the real relay. Full tab
   engine's own; the pre-split measurement — all 56 as bodies, **67 characters on screen** — still
   measured 60.0fps, indistinguishable from a bare emulator.
 - **The painted tier is the rung that costs.** Those same 56 peers painted instead cost a third of
-  the frame rate. That comparison is why the ladder is ordered the way it is: painting is the
-  last rung, reached only by a peer both engine tiers refused, which a room at the shipped 8
-  seats does not produce on a map with slots to spare.
+  the frame rate. That comparison is why the ladder was ordered with painting as the last rung;
+  since 2026-09-11 it is the only rung that ships (step 42), made affordable the same day by a
+  rework that holds 32 painted peers at a flat 60fps.
 - **Past every rung, extra peers are refused and never appear**; nothing is corrupted and no NPC is
   displaced. That path used to cost the game its frame rate — 3fps at 24 peers — because the
   adapter re-scanned and logged per unplaceable peer per frame; fixed 2026-08-19, now a flat
@@ -144,7 +146,9 @@ Roughly in order, with the phase file that covers each part in more depth:
    survived map/warp transitions. ([agent_docs/phases/phase1.md](../../../../agent_docs/phases/phase1.md),
    [phase2.md](../../../../agent_docs/phases/phase2.md))
    **Status:** works, seen on screen (2026-08-11).
-7. Replaced the static box with an idle sprite that moves around.
+7. Replaced the static box with an idle sprite that moves around, decoded from the cartridge in
+   the peer's own gender: Brendan for a male peer and May for a female one, seen both ways between
+   a male and a female save the same day.
    ([agent_docs/phases/phase5_5.md](../../../../agent_docs/phases/phase5_5.md))
    **Status:** works, seen on screen (2026-08-11).
 8. Added a walking animation. ([agent_docs/phases/phase5_5.md](../../../../agent_docs/phases/phase5_5.md))
@@ -234,7 +238,9 @@ order:
     Half was already solved, because every special state is simply its own `graphicsId` and no
     animation classifier is needed; what remained was rendering each one, since a ghost borrows
     the player's graphics. Every state on that list but the rail sections has since landed:
-    ledges on 2026-08-19, the rest in steps 22–36. Rails were never built (step 38).
+    ledges on 2026-08-19, where a ghost hops on the peer's own jump action rather than its distance
+    and casts the game's own jump shadow, learned from the player's first hop; the rest in steps
+    22–36. Rails were never built (step 38).
     **Status:** partial: surf, both bikes and ledges landed; rail sections were never built
     (2026-08-26).
 22. Made a peer's fishing look exactly like the player's, on both renderers. A ghost holds a
@@ -408,22 +414,47 @@ order:
     and only tier for emerald now (keeping spawned & OAM dev), same as we did for crystal. drawn
     with good performance allows us to do more custom things/bypass hardware limitations."* The
     spawn cap defaults to zero and the hardware rung to off; both flags still raise them. It was
-    only affordable because the painted tier had gone from 67ms to 21ms of Lua a frame at 64 peers
-    that morning, and it fixed the cross-gender ghost for free: every engine tier borrows the
-    palette slot loaded for the local player, so a peer of the other gender came out as a copy of
-    you, while the painted tier reads the peer's own graphic from the cartridge. Confirmed on screen
-    the same day, with all four Emerald builds seeing each other. It immediately exposed that
-    Archipelago relocates `gMapHeader`, which the spawned tier had never consulted; an unreadable
-    map now means "do not clip" rather than "hide everything". Detail:
+    only affordable because the painted tier had become 3.2x faster the same day, 67ms to 21ms of Lua
+    a frame at 64 peers, once profiling found work done at the wrong frequency, chiefly an occlusion
+    check asking the map once per pixel row where a tile spans sixteen. And it fixed the cross-gender
+    ghost for free: every engine tier borrows the palette slot loaded for the local player, so a peer
+    of the other gender came out as a copy of you, while the painted tier reads the peer's own
+    graphic from the cartridge. Confirmed on screen the same day, with all four Emerald builds
+    seeing each other. It immediately exposed that Archipelago relocates `gMapHeader`, which the
+    spawned tier had never consulted; an unreadable map now means "do not clip" rather than "hide
+    everything". Detail:
     [phase8.md](../../../../agent_docs/phases/phase8.md), the 2026-09-11 entries; the reasoning is
     also beside the cap's default in `meshghost_emerald.lua`.
     **Status:** works, seen on screen (2026-09-11).
+43. Brought steps 1–9's painted path back as an overflow rung on 2026-08-19, before step 42 made it
+    the only one, so a peer with no object slot was painted rather than missing. It clips itself out
+    of text boxes and the START menu by reading where the game drew on its UI layer (BG0's tilemap);
+    a flickering map-name banner there ate a riding ghost's hat until a debounce fixed it (2026-08-20).
+    **Status:** partial: the banner fix seen on screen (2026-08-20); clipping under a text box or
+    the START menu counted, never watched (2026-09-02).
+44. Brought in SPEEDCHOICE 1.2.2 and EX SPEEDCHOICE 0.4.0 the same night as step 42 (2026-09-11),
+    measuring each build's addresses on its own (EX SPEEDCHOICE moves its ROM tables and its RAM by
+    different amounts), so all four builds saw each other both ways. The next night the patched builds stopped painting ghosts over
+    roofs: occlusion's map header and grid had moved, and both are now found by shape on every build.
+    **Status:** works, seen on screen (2026-09-12); open: cross-map ghosts on patched builds still
+    read vanilla's map header.
+45. Made a ghost open the door (2026-09-12): a peer walking into a house opens that door on your
+    screen, silently, and it shuts behind them. A door is an engine task rather than a sprite, so the
+    receiver creates the game's own door task from its own ROM tables, and only the tile and what is
+    happening to it cross the wire, which keeps the four builds independent.
+    **Status:** works, seen on screen (2026-09-12).
+46. Made the painted ghost identical to the player on foot (2026-09-13); the last difference was our
+    own: the tier drew every peer eight frames late to match the spawned tier, and as the camera stops
+    with the player, a late ghost slid across a still screen at every stop. It ships at zero. Folded
+    in from 2026-09-12: no slow or snap at a seam, and sorting against the player by the game's rule.
+    **Status:** works, seen on screen (2026-09-13); judged on foot on vanilla, not yet on a bike or
+    the water.
 
-**The hardware tier**, most of it spent discovering that the comparison harness, not
-either renderer, was what kept producing wrong answers.
+**Most of the hardware tier's time went into** discovering that the comparison harness, not either
+renderer, was what kept producing wrong answers.
 
-**From a drawn ghost to a spawned one**, on top of the about 10 hours the drawn one took —
-most of it spent on the six bugs above rather than on the spawn itself.
+**Most of the work from a drawn ghost to a spawned one**, on top of the about 10 hours the drawn one
+took, went into the six bugs above rather than into the spawn itself.
 
 **The one rule the peer-state work produced, and it held for every item above:** every guess was
 wrong, and every measurement was right first time. The measurements that worked all had the same

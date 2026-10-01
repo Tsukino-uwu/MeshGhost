@@ -109,8 +109,10 @@ during review passes or later sessions, and say so where it matters:
    core, not the adapter. (6.4/6.5)
    **Status:** works, seen on screen (2026-08-12).
 6. Hit a blocker testing with two players locally — a second copy of the game would not start
-   beside the first — resolved by downloading a second, standalone build via `steamcmd`.
-   **Status:** resolved (2026-08-13).
+   beside the first — resolved by downloading a second, standalone build via `steamcmd`. That copy
+   is an older TEVI build where `EventManager.mainCharacter` is a field, not a property, so the
+   adapter finds it by reflection and one DLL runs on both builds.
+   **Status:** resolved; one DLL seen running on both builds (2026-08-13).
 7. Made ghosts hide when the peer is in a different zone (a real gap where remotes weren't
    filtered by area at all). (6.6)
    **Status:** works, seen on screen (2026-08-13).
@@ -135,9 +137,12 @@ during review passes or later sessions, and say so where it matters:
     **Status:** works, seen on screen (2026-08-28).
 12. Gave ghosts the charged attack's effects. Three name-guesses failed, so a probe was written
     that reports the prefab the game itself spawns; it named them immediately. The ghost also holds
-    on the impact frame now, which needed the clip's PHASE synced, not just its name. (2026-08-28)
-    **Status:** works, seen on screen (2026-08-28); open: never compared side by side to settle
-    whether it is 1:1.
+    on the impact frame now, which needed the clip's PHASE synced, not just its name. Under a bad
+    link the held pose froze early and the weapon kept one colour, so a new clip now starts at the
+    peer's phase, and the weapon's white/blue strobe travels as a colour the ghost replays at the
+    game's own cadence. (2026-08-28)
+    **Status:** works, seen on screen, on the netsim rig too (2026-08-28); open: never compared side
+    by side to settle whether it is 1:1.
 13. Stopped sending what a ghost can derive for itself. The animation phase was the one field TEVI
     sent that changes every frame by construction — an idle is a looping clip — and it alone kept
     the core's unchanged-state suppression from ever firing here. It is now left out while the
@@ -167,7 +172,9 @@ during review passes or later sessions, and say so where it matters:
     cores on their own ports with no configuration and no port churn, and when the relay is stopped
     underneath them both ghosts come back without anyone touching anything (2026-08-28,
     [VERIFIED.md](VERIFIED.md)). This is the first check that used the release files rather than
-    the dev scripts.
+    the dev scripts. Each copy starts its own core with no console window (since 2026-08-18),
+    walks ports 7778–7785 to a free one, and sends nothing until its core answers `bridge_ready`
+    (since 2026-08-27).
     **Status:** works, seen on screen (2026-08-28); open: the 2026-09-02 fix for two copies launched
     close together is unwatched.
 17. Chose the interpolation delay by climbing a ladder rather than guessing, twice in one night.
@@ -202,6 +209,18 @@ during review passes or later sessions, and say so where it matters:
     their VFX ([UNVERIFIED.md](UNVERIFIED.md)) (2026-09-10, [VERIFIED.md](VERIFIED.md)).
     **Status:** partial: shots fly, hit walls and wear the right colours; several shot types and
     their effects are unmirrored, and the 2026-09-16 spawn fix is unwatched (2026-09-10).
+20. Back on 2026-08-13, played with two real players for the first time: the Steam copy and the
+    standalone build, each with its own core, through one real relay. Each saw the other's ghost in
+    place and animating. The pause overlay leaves a peer's ghost up and moving, while a main-menu
+    return or closing the game despawns that player's ghost for the other, because TEVI drops its
+    player only outside play ([VERIFIED.md](VERIFIED.md)).
+    **Status:** works, seen on screen (2026-08-13).
+21. Made the DLL reproducible. `build-tevi.bat` builds the committed HEAD from two clean clones at
+    different paths, with the SDK pinned in `global.json`, every package locked, and the clone's
+    path mapped away, and stages the DLL only if both builds are byte-identical, so it holds no path
+    from the machine that built it (2026-10-01, [phase12.md](../../agent_docs/phases/phase12.md)).
+    **Status:** measured: two clones byte-identical, no local path (2026-10-01); deployed, not yet
+    seen on screen.
 
 ### Further work past "good enough"
 

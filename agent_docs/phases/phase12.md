@@ -1052,3 +1052,24 @@ For A5: history taken out of code comments goes, word for word and only where no
 the gates. The Go proof is `go/scanner` tokens minus comments identical per changed file (a throwaway tool built
 this session confirmed a comment-only change reads identical and a code change does not), plus gofmt and
 `run-gotests.bat`. The Go side carries about 27,000 whole-line comments, tests included.
+
+## 2026-10-01 (later) — A4 closed: the approved beats written
+
+The list in the entry above, written into the four READMEs: one subagent each drafted Pseudoregalia, Emerald and
+Crystal from the records and the code, this session wrote TEVI's and reviewed every diff, rewording where a beat ran
+long or read unclearly. New steps, appended after the last with a "Back on <date>" opening where they predate it: TEVI
+20–21, Pseudoregalia 72–76, Emerald 43–46, Crystal 36; 18 merges into existing steps; Pseudoregalia's top line now
+counts 20 steps since the feature-complete call. Emerald's stale claims fixed: runtime discovery (`gMapHeader`, the
+map grid, `gTasks`, `gMapGroups` found by shape, the avatar offset picked from measured ones), painting as the last
+rung, the two headless sentences after step 42, and in `FLAGS.md` the drawn delay's default (0 since 2026-09-13, not
+8) plus a row for `MESHGHOST_GHOST_PEER_GFX_DRAWN`. Crystal's gait claim had already gone in `2b43371b`. Where the
+records and the approved list disagreed the records won: Pseudoregalia's replays were first seen 2026-09-03 (the zip
+of two 2026-09-04), and Emerald's painted tier became 3.2x faster the same day as drawn-only, not that morning.
+
+Found on the way and not changed, for the user: Emerald's README says the adapter writes object RAM only, while the
+door (step 45) writes `gTasks`; its access-model bullet says a decomp's answer "is right", where `CLAUDE.md` makes a
+decomp a map; Emerald's `FLAGS.md` still calls painting the last rung in the `DRAWN_OVERFLOW` row and has no rows for
+six switches the code reads (`MOVE_TRACE`, `SEAM_TRACE`, `SORT_TRACE`, `NO_SORT`, `READ_GUARD`, `MESHGHOST_CORE_DIR`);
+Pseudoregalia's `CoreLauncher.cpp` tells a player missing `meshghost.exe` to try the mod folder, which it stopped
+searching on 2026-09-05 (a code change, offered as a separate task). Stale code comments found here (Emerald's door
+seeding, Pseudoregalia's search order) go in A5. Steps without Status: 0; preflight clean.

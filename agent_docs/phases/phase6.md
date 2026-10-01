@@ -914,3 +914,5 @@ The stories moved to `pitfalls/by-lesson.md`, "The stories behind the rule files
 
 BepInEx.Core pinned to 5.4.21, a restore lockfile per project, the SDK in `global.json`, and `build-tevi.bat` building
 HEAD from two clean clones; the record is [phase12.md](phase12.md), 2026-10-01 (A3).
+
+## 2026-10-01 (later) — pointer: the approved build-story beats written (new steps 20–21, merges into 6, 12 and 16); logged in [phase12.md](phase12.md)

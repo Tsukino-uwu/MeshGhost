@@ -3930,3 +3930,5 @@ The stories moved to `pitfalls/by-lesson.md`, "The stories behind the rule files
 
 Each DLL now records only its pdb's file name, and the Rust part's source paths are mapped to `/_` and `/cargo`; the record
 is [phase12.md](phase12.md), 2026-10-01 (A3). Deployed to both installs; not yet seen on screen.
+
+## 2026-10-01 (later) — pointer: the approved build-story beats written (new steps 72–76, nine merges); logged in [phase12.md](phase12.md)
