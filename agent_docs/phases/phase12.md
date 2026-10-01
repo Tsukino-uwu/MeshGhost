@@ -1095,3 +1095,18 @@ behind the code" section of `pitfalls/by-lesson.md` (measurements to `verified.m
 `code-map.md` row), run the proof and `run-gotests.bat`, and commit with `docs: no process change` and a phase10 line
 (its lag limit is 3 commits). Then lower the ratchet floors (a gate commit), and on to autoplay, TEVI, Pseudoregalia
 (`parts.py`), the two Lua adapters (`parts.py`), probes, dev-scripts and the workflows.
+
+## 2026-10-02 (pause) — A5: the Go side mostly committed, the rest drafting
+
+The 138 drafted files were finished and reviewed by batch agents (briefs and tools in `private/a5/`). Each batch's
+removed history was read against the records, and what no record held went word for word to `pitfalls/by-lesson.md`,
+"The stories behind the code". Measurements went to `verified.md`, 2026-10-02, and doc pointers to `code-map.md`.
+Committed, each proved token-identical and on a green `run-gotests.bat`: protocol, relay, relay tests, bridge and
+transport, internal, core's four largest files, half of core's tests, netx (phase10.md, 2026-10-02). Drafted and proved
+but not committed (a third test run was in progress at the pause): core's other 22 files, the other half of core's
+tests, `cmd/` (A and B), the autoplay Go, Lua and C# drivers, TEVI's four C# files, Pseudoregalia's `Plugin.cpp`
+parts 1-3 and its other sources. Still drafting at the pause, in `private/a5/parts/`: `Plugin.cpp` parts 4-8, and
+Emerald and Crystal adapter parts. `lua-eq.sh` cannot prove a removed comment line (`luac -s` keeps each function's
+first line), so `lua-eq2.sh` compares line-stripped `luac -l -l` listings. Open items for later are in
+`private/a5/notes-session2.md`: code-map links, living docs whose line pointers drifted, and a netsim partition bug,
+offered as a separate task.
