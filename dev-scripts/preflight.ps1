@@ -2244,7 +2244,7 @@ function Report-Ratchet([string]$what, [int]$count, [int]$floor, [string]$fix, $
 # Refuses a source file with no code-map row, a shipped config key the config page omits, a build step with no
 # Status line, or a Contents list that differs from its file's headings.
 Section "Doc coverage"
-$floorNoCodeMapRow = 158
+$floorNoCodeMapRow = 0
 $floorStepNoStatus = 167
 
 $codeMapText = if (Test-Path -LiteralPath 'agent_docs/code-map.md') { [System.IO.File]::ReadAllText((Join-Path $root 'agent_docs/code-map.md')) } else { '' }
