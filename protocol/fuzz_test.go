@@ -6,21 +6,11 @@ import (
 	"testing"
 )
 
-// The relay is a listening socket that strangers connect to, and every byte
-// it parses is attacker-controlled. limits_test.go checks the boundaries
-// someone thought of; these targets check the ones nobody did.
-//
-// Run a longer campaign than the seed corpus with:
-//
-//	go test ./protocol -run=Fuzz -fuzz=FuzzValidateStateIsStableAcrossTheWire -fuzztime=60s
-//
-// CI runs a short campaign of each on every push (.github/workflows/ci.yml).
+// Every byte the relay parses is attacker-controlled: limits_test.go checks the boundaries someone thought of, and
+// these targets look for the ones nobody did.
 
-// FuzzEnvelopeUnmarshalNeverPanics feeds arbitrary bytes to the outermost
-// decode every connection performs before it knows anything about the
-// message. Decoding must fail cleanly, never panic — the relay treats a
-// malformed line as "ignore and keep going", which is only safe if the
-// decode itself can't take the process down.
+// FuzzEnvelopeUnmarshalNeverPanics fuzzes the outermost decode of every line. The relay ignores a malformed line and
+// keeps going, which is safe only if the decode cannot take the process down.
 func FuzzEnvelopeUnmarshalNeverPanics(f *testing.F) {
 	f.Add([]byte(`{"type":"state","payload":{}}`))
 	f.Add([]byte(`{"type":"hello","payload":null}`))
@@ -33,25 +23,15 @@ func FuzzEnvelopeUnmarshalNeverPanics(f *testing.F) {
 		if err := json.Unmarshal(data, &env); err != nil {
 			return
 		}
-		// A successful decode must leave Payload either absent or itself
-		// valid JSON, since every call site immediately unmarshals it again.
+		// Every call site unmarshals Payload again.
 		if len(env.Payload) > 0 && !json.Valid(env.Payload) {
 			t.Fatalf("decoded envelope carries invalid JSON payload %q", env.Payload)
 		}
 	})
 }
 
-// FuzzValidateStateIsStableAcrossTheWire is the property that actually
-// matters for relay safety, and it is not a restatement of ValidateState's
-// own checks.
-//
-// The relay validates an inbound State, then re-marshals it to forward to
-// every other peer, where each receiving core validates it again. If any
-// State could pass validation and then fail it after a marshal/unmarshal
-// round trip, a peer could push a state through the relay's gate that its
-// neighbours' cores then reject — or worse, one that arrives holding a value
-// the gate was supposed to have stopped. The forwarding path must not be
-// able to change a state's validity in either direction.
+// FuzzValidateStateIsStableAcrossTheWire: the relay validates a State, re-marshals it, and each receiving core
+// validates it again, so a forward must not change a state's validity in either direction.
 func FuzzValidateStateIsStableAcrossTheWire(f *testing.F) {
 	f.Add([]byte(`{"player_id":"p1","position":[1,2],"area_id":"a","anim":"walk"}`))
 	f.Add([]byte(`{"position":[1e308]}`))
@@ -70,7 +50,7 @@ func FuzzValidateStateIsStableAcrossTheWire(f *testing.F) {
 
 		before := ValidateState(st)
 
-		// Exactly what the relay does to forward an accepted state on.
+		// What the relay does to forward an accepted state.
 		wire, err := json.Marshal(st)
 		if err != nil {
 			if before {
@@ -90,13 +70,8 @@ func FuzzValidateStateIsStableAcrossTheWire(f *testing.F) {
 	})
 }
 
-// FuzzValidPositionsSurviveNarrowingToFloat32 guards the specific hazard
-// MaxPositionComponent exists for: both shipped 3D adapters narrow position
-// components to float32 (TEVI's Unity Transform, Pseudoregalia's engine
-// calls), and a value that is finite as a float64 but becomes ±Inf as a
-// float32 would reach a real game's renderer. IsValidPosition's bound is
-// supposed to make that unreachable — this proves no accepted input escapes
-// it, rather than trusting that 1e7 was picked correctly.
+// FuzzValidPositionsSurviveNarrowingToFloat32 guards what MaxPositionComponent is for: the 3D adapters narrow
+// position components to float32, and a value finite as a float64 but infinite as a float32 would reach a renderer.
 func FuzzValidPositionsSurviveNarrowingToFloat32(f *testing.F) {
 	f.Add([]byte(`[1,2,3]`))
 	f.Add([]byte(`[1e7]`))
@@ -121,17 +96,11 @@ func FuzzValidPositionsSurviveNarrowingToFloat32(f *testing.F) {
 	})
 }
 
-// math32IsInf/math32IsNaN avoid a float32->float64 widening round trip,
-// which would hide exactly the overflow being tested.
 func math32IsInf(f float32) bool { return f > 3.4e38 || f < -3.4e38 }
 func math32IsNaN(f float32) bool { return f != f }
 
-// FuzzValidateEventIsStableAcrossTheWire is ValidateEvent's counterpart to
-// the state-plane target above: the event plane's payload is fully opaque, so
-// the only thing standing between a stranger's bytes and the relay's forward
-// path is this one bounds check. A payload that validates must still validate
-// after a round trip through JSON, or the relay and the receiving core could
-// reach different conclusions about the same message.
+// FuzzValidateEventIsStableAcrossTheWire: an opaque payload meets only this bounds check before the relay forwards
+// it, so a valid event must stay valid after a JSON round trip, or relay and core could disagree about it.
 func FuzzValidateEventIsStableAcrossTheWire(f *testing.F) {
 	f.Add("", "", []byte(`{"a":1}`))
 	f.Add("p2", "corr-1", []byte(`null`))
@@ -159,18 +128,14 @@ func FuzzValidateEventIsStableAcrossTheWire(f *testing.F) {
 	})
 }
 
-// FuzzValidateLeaseAndEscrowNeverPanic covers the two arbitration planes'
-// bounds checks. Neither may panic on any input: the relay calls them on
-// bytes a stranger chose, before the request reaches any of its own state.
+// FuzzValidateLeaseAndEscrowNeverPanic: the relay calls both checks on a stranger's bytes before touching its own
+// state.
 func FuzzValidateLeaseAndEscrowNeverPanic(f *testing.F) {
 	f.Add("claim", "route103:candy", 0, "open", "trade-1", "p2", []byte(`{"x":1}`))
 	f.Add("", "", -1, "", "", "", []byte(``))
 
 	f.Fuzz(func(t *testing.T, leaseOp, key string, ttl int, escrowOp, id, with string, blob []byte) {
 		ValidateLease(Lease{Op: LeaseOp(leaseOp), Key: key, TTLMs: ttl})
-		// Whatever the request said, a resolved TTL must always land inside
-		// the honoured range — a negative or absurd value is clamped, never
-		// passed through into a timer.
 		if d := ClampLeaseTTL(ttl); d < MinLeaseTTL || d > MaxLeaseTTL {
 			t.Fatalf("ClampLeaseTTL(%d) = %v, outside [%v, %v]", ttl, d, MinLeaseTTL, MaxLeaseTTL)
 		}
@@ -182,10 +147,8 @@ func FuzzValidateLeaseAndEscrowNeverPanic(f *testing.F) {
 	})
 }
 
-// FuzzNormalizeFeaturesIsIdempotent guards the property the relay's room
-// stickiness depends on: normalizing twice must equal normalizing once, or
-// two clients advertising the same capabilities could compare unequal and be
-// refused a shared room for no reason.
+// FuzzNormalizeFeaturesIsIdempotent: room stickiness depends on it, or two clients advertising the same
+// capabilities could compare unequal and be refused a shared room.
 func FuzzNormalizeFeaturesIsIdempotent(f *testing.F) {
 	f.Add("lease.v1,event.v1")
 	f.Add(" a , a ,,b")
@@ -201,15 +164,8 @@ func FuzzNormalizeFeaturesIsIdempotent(f *testing.F) {
 	})
 }
 
-// FuzzValidateWorldIsStableAcrossTheWire is FuzzValidateEventIsStableAcrossTheWire
-// applied to the world plane, and the Authority field is the reason it exists.
-//
-// A non-UTF-8 string round-trips through JSON as a DIFFERENT string, because
-// encoding/json replaces each invalid byte with U+FFFD. For an authority that
-// is uniquely nasty: the relay compares it for equality against a lease key, so
-// a client whose own validation passed would have every single write silently
-// denied, with nothing anywhere able to explain why. The replacement also
-// expands, so the length check can pass before marshaling and fail after.
+// FuzzValidateWorldIsStableAcrossTheWire exists for Authority: invalid UTF-8 round-trips as a different, longer
+// string, and the relay compares the authority to a lease key, so every write would be silently denied.
 func FuzzValidateWorldIsStableAcrossTheWire(f *testing.F) {
 	f.Add("set", "sim", "e0", []byte(`{"gen":1}`))
 	f.Add("drop", "sim", "e0", []byte(``))
@@ -242,16 +198,8 @@ func FuzzValidateWorldIsStableAcrossTheWire(f *testing.F) {
 	})
 }
 
-// FuzzExtrasSizingMatchesMarshal pins the one thing extrasWithinLimit is
-// allowed to be: a cheaper way to compute EXACTLY the number json.Marshal would
-// have produced. It replaced a literal json.Marshal whose only use was len() on
-// the result, so a disagreement here would not be a slow path — it would be a
-// moved validation boundary, a state one enforcement point accepts and the
-// other rejects, which is the drift protocol/limits.go exists to prevent.
-//
-// Worth fuzzing rather than table-testing because the hazard lives in encoding,
-// not in logic: HTML escaping, U+2028/9, invalid UTF-8 replaced by U+FFFD, and
-// float formatting all change the byte count without changing the value.
+// FuzzExtrasSizingMatchesMarshal: extrasWithinLimit must give json.Marshal's verdict exactly, or the validation
+// boundary moves and one enforcement point accepts a state the other rejects.
 func FuzzExtrasSizingMatchesMarshal(f *testing.F) {
 	f.Add([]byte(`{"k":"v"}`))
 	f.Add([]byte(`{"a":"<&>"}`))
@@ -272,8 +220,7 @@ func FuzzExtrasSizingMatchesMarshal(f *testing.F) {
 		}
 		want := len(marshaled) <= MaxExtrasBytes
 		if len(extras) == 0 {
-			// An empty or absent map is not serialized at all by the caller's
-			// own short-circuit, so it is within the limit by definition.
+			// The caller short-circuits an empty map, so it is within the limit by definition.
 			want = true
 		}
 		if got := extrasWithinLimit(extras); got != want {
@@ -281,12 +228,8 @@ func FuzzExtrasSizingMatchesMarshal(f *testing.F) {
 				got, len(marshaled), MaxExtrasBytes, marshaled)
 		}
 
-		// The property the cheap path RESTS on, checked separately because the
-		// check above would still pass if the bound were wrong in a way that
-		// happened not to straddle the limit for this input. A bound that ever
-		// came in UNDER the true length would accept an oversized extras
-		// without ever consulting the encoder -- silently raising
-		// MaxExtrasBytes for exactly the values it mis-measured.
+		// Checked apart from the verdict: a bound under the true length would accept an oversized extras without
+		// consulting the encoder, even where this input does not straddle the limit.
 		if bound, ok := extrasLengthBound(extras); ok && bound < len(marshaled) {
 			t.Fatalf("extrasLengthBound under-estimated: bound=%d actual=%d for %q",
 				bound, len(marshaled), marshaled)
@@ -294,17 +237,8 @@ func FuzzExtrasSizingMatchesMarshal(f *testing.F) {
 	})
 }
 
-// FuzzClampRatesAlwaysLandInRange fuzzes the two rate resolvers, which sit on
-// the boundary where a relay's advertised send_hz and a peer's requested
-// receive cap enter this process. Added 2026-09-01 with the DefaultSendHz
-// 20 -> 15 change, on the user's principle that a value crossing the wire
-// deserves the same engine as every other one: "I want the fuzzer to actually
-// test/randomize everything".
-//
-// These are the properties every caller already assumes and none of them
-// re-check -- core trusts ClampSendHz's answer to drive its send loop, and the
-// relay trusts it to size a flood cap. A resolver that returned an
-// out-of-range value would put a client into a send rate nothing enforces.
+// FuzzClampRatesAlwaysLandInRange: the core drives its send loop and the relay sizes a flood cap from these answers,
+// and neither re-checks the range.
 func FuzzClampRatesAlwaysLandInRange(f *testing.F) {
 	for _, hz := range []int{0, -1, 1, MinSendHz, DefaultSendHz, 20, MaxSendHz, MaxSendHz + 1, 1 << 20, -(1 << 20)} {
 		f.Add(hz)
@@ -315,25 +249,19 @@ func FuzzClampRatesAlwaysLandInRange(f *testing.F) {
 		if send < MinSendHz || send > MaxSendHz {
 			t.Fatalf("ClampSendHz(%d) = %d, outside [%d, %d] -- a send rate that escapes the range is one nothing enforces", hz, send, MinSendHz, MaxSendHz)
 		}
-		// Zero and negative mean "unspecified", which is the only case allowed
-		// to invent a number rather than pass one through.
 		if hz <= 0 && send != DefaultSendHz {
 			t.Fatalf("ClampSendHz(%d) = %d, want DefaultSendHz (%d): unspecified must resolve to the default", hz, send, DefaultSendHz)
 		}
-		// An already-legal rate must survive untouched, or a relay's honest
-		// configuration silently becomes something else.
 		if hz >= MinSendHz && hz <= MaxSendHz && send != hz {
 			t.Fatalf("ClampSendHz(%d) = %d: an in-range rate must pass through unchanged", hz, send)
 		}
-		// Idempotent: clamping a clamped value is a no-op, which is what makes
-		// it safe to apply at both ends of the wire.
+		// Idempotence is what makes it safe to apply at both ends of the wire.
 		if again := ClampSendHz(send); again != send {
 			t.Fatalf("ClampSendHz is not idempotent: %d -> %d -> %d", hz, send, again)
 		}
 
 		recv := ClampReceiveHz(hz)
-		// Zero is "uncapped" here rather than "use the default" -- the one way
-		// the two resolvers deliberately differ.
+		// Zero is uncapped here, not the default: the one way the two resolvers differ.
 		if recv != 0 && (recv < MinSendHz || recv > MaxSendHz) {
 			t.Fatalf("ClampReceiveHz(%d) = %d, neither 0 (uncapped) nor inside [%d, %d]", hz, recv, MinSendHz, MaxSendHz)
 		}
@@ -346,19 +274,8 @@ func FuzzClampRatesAlwaysLandInRange(f *testing.F) {
 	})
 }
 
-// FuzzDepthBoundsAgreeAndNeverPanic fuzzes the two MaxJSONDepth checkers against
-// each other. They answer the same question by different means -- one scans raw
-// bytes without parsing, the other walks a decoded value -- and a disagreement
-// between them is a hole: Orientation is bounded by the scanner alone, so if the
-// scanner is more permissive than the walk, a shape the walk would refuse rides
-// in through the field that never gets decoded here.
-//
-// Neither of the existing extras targets covers this. FuzzExtrasSizingMatchesMarshal
-// pins our fast sizer against encoding/json's LENGTH, and
-// FuzzValidateStateIsStableAcrossTheWire pins a round trip. Both are about bytes;
-// this is the only one about shape.
-//
-//	go test ./protocol -run=XXX -fuzz=FuzzDepthBoundsAgreeAndNeverPanic -fuzztime=60s
+// FuzzDepthBoundsAgreeAndNeverPanic fuzzes the raw-byte scan against the decoded walk. Orientation is bounded by the
+// scan alone, so a scan more permissive than the walk would let a refused shape in through it.
 func FuzzDepthBoundsAgreeAndNeverPanic(f *testing.F) {
 	f.Add([]byte(`{"a":1}`))
 	f.Add([]byte(`[[[[[[[[]]]]]]]]`))
@@ -369,12 +286,9 @@ func FuzzDepthBoundsAgreeAndNeverPanic(f *testing.F) {
 	f.Add([]byte(``))
 
 	f.Fuzz(func(t *testing.T, b []byte) {
-		// 1. Never panics, whatever the bytes are.
 		scanOK := rawJSONDepthWithinLimit(b)
 
-		// 2. On anything that actually decodes, the byte scan and the walk must
-		// reach the same verdict. Invalid JSON is out of scope: the scanner is
-		// explicitly not a validator, and a malformed value is refused elsewhere.
+		// Invalid JSON is out of scope: the scan is not a validator, and a malformed value is refused elsewhere.
 		var v any
 		if err := json.Unmarshal(b, &v); err != nil {
 			return
@@ -384,8 +298,7 @@ func FuzzDepthBoundsAgreeAndNeverPanic(f *testing.F) {
 			t.Fatalf("the two depth bounds disagree on %q: byte scan says within=%v, decoded walk says within=%v", b, scanOK, walkOK)
 		}
 
-		// 3. And the verdict must be the one ValidateState acts on, through the
-		// field that is never decoded.
+		// The verdict must be the one ValidateState acts on, through the field it never decodes.
 		if len(b) <= MaxOrientationBytes {
 			st := State{Position: []float64{1, 2}, Orientation: json.RawMessage(b)}
 			if got := ValidateState(st); got && !scanOK {

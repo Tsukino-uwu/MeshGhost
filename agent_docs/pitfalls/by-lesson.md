@@ -8088,3 +8088,74 @@ already record it elsewhere; the dates inside are when each was found.
 
 - The CLONE path gets its own pass, over SCRIPTS AND BINARIES ONLY -- never prose. There is no username in `<drive>:\dev\MeshGhost` for the patterns above to catch, so it needs its own; but the rule text legitimately QUOTES it (CLAUDE.md, brief.md, claude-md-cap.md and ideas.md all say "ask before touching anything outside <clone>"), so scanning prose refuses a commit to a perfectly correct document. That is not hypothetical: adding these patterns to the scan above on 2026-09-07 made this hook refuse an ordinary edit to agent_docs/ideas.md on 2026-09-08, over a sentence stating the rule. dev-scripts/preflight.ps1's clone-path check has been scripts-only from the start and says why; this now matches it, which is the point -- three copies of a rule that disagree is how the pitfalls/ split broke CI on 2026-08-25. What breaks on another machine is a SCRIPT that hardcodes the path, or a BINARY that had it baked in by a toolchain. Prose naming the boundary is the rule working.
 - A chat has no end event. Nothing fires when one is closed, so "write the entry before the session ends" depends on a human remembering to hint and an agent choosing to act on the hint. This moves the moment to the one event that always happens and always has the context still loaded: the commit that does the work.
+
+## The stories behind the code, moved out of its comments (2026-10-02)
+
+On 2026-10-02 the code's comments began to be cut to what and why, one batch at a time and the Go side first, each
+batch's code proved unchanged (Go tokens, Lua bytecode, a C# build, C++ tokens). The history those comments carried is
+below, word for word, where no other record already held it; the dates inside are when each was found. Each heading
+is the file the comment sat in at `f64560cc`.
+
+### protocol/protocol.go
+
+- This package has no internal dependencies — it is the lowest layer. Its behaviour is limited to validating, clamping and normalizing its own field values (ValidateState, ClampSendHz, ClampReceiveHz, ClampLeaseTTL, NormalizeFeatures, ResolveGhostCollision and the rest); framing, transport and dispatch live in other packages. This said "nothing here has behavior" until 2026-08-27, by which point there were 21 functions.
+
+### protocol/displayname.go
+
+- It was also, until 2026-08-28, the only free-form string with NO limit at all. area_id and anim are capped at 256 bytes and extras at 1024; a name was bounded only by MaxLineBytes, four kilobytes of anything.
+- **AND NOTHING DISAMBIGUATES WHAT IS DISPLAYED (corrected 2026-09-11, review J15).** This comment used to say "the relay disambiguates what is DISPLAYED (see relay's uniqueDisplayName)", and there is no such function: a repo-wide grep matched only this sentence. So the anti-impersonation argument rested on code that was never written, in the file a reader would come to to check it.
+- What is actually true: two players may type the same name and the relay forwards both unchanged. Pseudoregalia is the only adapter that draws nametags, and it draws `display_name` and never the id -- so on screen, two peers with the same name ARE indistinguishable. That is a real and accepted limitation of a cosmetic overlay with no accounts, not a solved problem, and the honest place for the argument is that nothing in this system TRUSTS a name: every lookup, every roster seat, every despawn and every lease is keyed by player_id, which the relay assigns and a peer cannot choose.
+- 2. CONTROL CHARACTERS GO. This one is not hypothetical and not only about rendering: the relay logs the name it was given, so a name containing a newline could forge relay log lines -- a live log-injection hole that existed before any nametag did.
+- WHY SO STRICT, when a colour cannot really be malicious: because this string is handed to a game engine's text renderer, and the set of things that happen when an engine is passed an unexpected string is open-ended. Six hex digits can be parsed into three bytes by the adapter with no parser and no doubt. Legibility is NOT clamped -- a player may pick a colour that is hard to read against their friend's background, and that is their business. The adapter's answer to legibility is an outline or shadow behind the text, not a narrower palette (the user asked for exactly this: "it also allows people to pick really specific colors if they want to").
+
+### protocol/envelope.go
+
+- It is only ever called with a MessageType -- a short ASCII identifier from the fixed set in protocol.go -- so in practice nothing below the first case ever fires. It is written for arbitrary input anyway, because an assumption about the caller outliving the comment that recorded it is a familiar way to get hurt, and because the two non-obvious cases here are exactly the ones a hand-rolled encoder normally gets wrong. Both were caught by TestAppendEnvelope* on their first run rather than reasoned about:
+  - U+2028 and U+2029 are perfectly valid UTF-8 and encoding/json escapes them anyway, because they are line terminators to a JavaScript parser. limits.go's JSONWireLen already documents the same pair for the same reason.
+  - An invalid UTF-8 byte becomes U+FFFD on the way out, so passing bytes through unexamined would produce a string Marshal would not have.
+
+### protocol/envelope_fuzz_test.go
+
+- The table test that came first already earned its place -- it caught this function passing U+2028 through unescaped, which encoding/json does not do. This covers the inputs nobody thinks to write down.
+- Compared against Marshal's own round trip rather than against the input, which is a distinction this fuzzer had to teach: a type carrying invalid UTF-8 comes back as U+FFFD from encoding/json too, so asserting the ORIGINAL type survives would demand a guarantee the standard library does not make and this function must not either.
+
+### protocol/fuzz_test.go
+
+- FuzzClampRatesAlwaysLandInRange fuzzes the two rate resolvers, which sit on the boundary where a relay's advertised send_hz and a peer's requested receive cap enter this process. Added 2026-09-01 with the DefaultSendHz 20 -> 15 change, on the user's principle that a value crossing the wire deserves the same engine as every other one: "I want the fuzzer to actually test/randomize everything".
+
+### protocol/ghostcollision.go
+
+- An UNRECOGNIZED value normalizes to GhostCollisionDisabled, not to enabled and not to "". That asymmetry is deliberate and is the one interesting decision here: this setting exists so a host can take a physical effect AWAY, so the failure mode of a typo must be the harmless one. A typo that silently left ghosts solid would be a setting that looks applied and isn't -- the same class of bug as the UTF-16 config file in packaging/README.md, where the dangerous case was a room_code that appeared set and was not.
+
+### protocol/ghostcollision_test.go
+
+- A typo must fail SAFE. The whole point of the setting is letting a host take a physical effect away, so an unrecognized value resolving to "enabled" would be a setting that looks applied and isn't -- the same class of bug as the UTF-16 config file that silently discarded a room_code.
+
+### protocol/limits.go
+
+- MaxLineBytes bounds one NDJSON line (the whole Envelope, including its payload). Shared with transport (the actual enforcement point, via NDJSONConn.MaxLineBytes / FromConnWithLimits) so the relay's connections and the core's own relay connection can both use the same tighter value — found in a review pass that only the relay's *accepted* connections used this constant, while the core's *dialed* relay connection kept transport's generous 64KiB package default despite the core enforcing every per-field cap on receive. Chosen generously above any legitimate state message (a handful of floats plus short opaque strings comfortably fits in a few hundred bytes) while still ruling out a peer trying to wedge an unbounded payload through Extras.
+- MinSendHz / MaxSendHz bound both server.send_hz (a relay's configured room rate) and client.max_receive_hz_per_player (a client's own per-peer receive cap) — see the ADR in agent_docs/architecture.md for the send/receive rate-control feature. The floor is the brief's original 10Hz hypothesis, kept as a smoothness floor: the lower the rate, the closer the gap between samples gets to core's interpolation delay (core.DefaultInterpolationDelay, 450ms since ADR 0046 — the two are equal at about 2.2Hz, below this floor, which is the point of having the floor), and once the gap reaches it core/interp.go's remoteBuffer.at() falls back to an edge snapshot instead of smoothing — which degrades in a way that looks like a bug, not a setting someone chose. The ceiling is a bandwidth bound, not a technical one: a room's traffic grows with send_hz times the square of its size (see relay.DefaultMaxClients), so 100Hz in a full 8-seat room is already thousands of messages/second through the relay. MaxSendHz also bounds what a hostile relay can talk a client into sending, which is why these live here rather than in relay/limits.go — both sides enforce them, same reasoning as MaxPositionComponent above.
+- ValidateState reports whether st passes every size/length/finiteness check in this file. Extracted from relay and core, which previously carried the identical five checks verbatim — the two enforcement points (the relay accepting a State from a client, the core accepting one arriving from the relay) can no longer silently drift apart, which is the same reason the individual limits above live here instead of duplicated as package-local constants.
+- It is deliberately not exact. Being exact would mean reproducing encoding/json's float formatting, which is the hazard that got a hand-written sizer rejected outright; being an upper bound means the only thing a mistake can cost is a needless trip through the real encoder. Callers must treat ok=false and "bound exceeds the limit" identically: as "go and measure".
+- Just "{}". Its own case because the comma arithmetic below goes negative here, which made this the first thing FuzzExtrasSizingMatchesMarshal reported. Unreachable through extrasWithinLimit, which short-circuits an empty map before calling this — but a bound that is wrong only where nobody currently looks is still a bound that is wrong.
+
+### protocol/limits_test.go
+
+- TestIsValidPosition covers the newest safety check added to this package — found with zero test coverage anywhere in the codebase while doing a full documentation/code sweep, despite being the check that stops a peer wedging a NaN/±Inf/absurd-magnitude value onto the wire.
+- TestValidateState covers the extracted, shared check that replaced the verbatim-duplicated validation block previously carried separately by relay and core.
+- TestOpaqueIdentifiersMustBeValidUTF8 is the named form of a defect the fuzzer found (its reproducing input is kept in testdata/fuzz/FuzzValidateEventIsStableAcrossTheWire, where `go test` replays it, but a seed file explains nothing about why it matters). The rule: an opaque identifier is only ever compared by equality, and a string that is not valid UTF-8 does not survive JSON — encoding/json swaps each invalid byte for U+FFFD. So the sender's key and every receiver's key are different strings, and equality silently stops working. The replacement also expands one byte into three, which is how it surfaced: a corr_id that passed the length check before marshaling failed it afterwards, so a client accepted an event the relay would then silently drop.
+- TestClampSendHzAndClampReceiveHzDifferOnZero pins the ONE rule that distinguishes the two functions: zero means "use the default rate" for a send rate and "uncapped" for a receive cap, so ClampSendHz(0) is DefaultSendHz and ClampReceiveHz(0) is 0. Neither function had a direct unit test until 2026-08-27 -- the behaviour was covered end to end by a relay test, which would not have caught the two being swapped at a call site, and swapping them is the mistake the shared [MinSendHz, MaxSendHz] tail makes easy.
+- The exact byte where Extras stops being acceptable. Pinned so that any future attempt to compute this length more cheaply — a hand-written size walker was considered and rejected in 2026-08-28's efficiency pass — cannot move the boundary by one byte without a test saying so. A moved boundary is not a performance regression, it is a state the relay accepts and the core rejects.
+
+### protocol/online.go
+
+- The replacement also EXPANDS (one bad byte becomes three), which is how this was found: FuzzValidateEventIsStableAcrossTheWire produced a corr_id that passed the length check before being marshaled and failed it afterwards, so a client's own validation accepted an event the relay would then silently drop. The length asymmetry is the symptom; the broken equality is the disease, and rejecting invalid UTF-8 fixes both at once rather than budgeting for worst-case expansion.
+- ValidOpaqueString, not len(). This was the last bare length check on an opaque string in this package, and the inconsistency is not theoretical: it is what let a control character through in X1-4 on another field, and a feature name is compared for equality to decide what a whole ROOM negotiates -- so an invalid-UTF-8 one is a capability nobody can name twice the same way. Unreachable from the wire today, because encoding/json replaces a bad byte with U+FFFD on the way in; that is a property of the decoder in front of it, not of this function, and this function is exported. Found by the parity cell of the third adversarial review (X1-8).
+
+### protocol/prev.go
+
+- Found by the parity cell of the third adversarial review (X1-2), and it is the third instance of the class validPrev's own comment names: a check applied to the state and not to what the delta makes of it. The other two were the orientation depth (2026-09-08) and the timestamp (2026-09-12, ten lines down).
+
+### protocol/prevunion_test.go
+
+- X1-2 from the 2026-09-12 adversarial review's parity cell. ValidateState bounds a state's extras and validPrev bounds its prev's extras, each on its own. ApplyPrev then builds the UNION of the two, and nothing bounded what they add up to -- so a reconstruction carrying twice the documented cap went into the interpolation buffer and out to the adapter as render_remote.state.extras. It is the third instance of the class validPrev's own comment names: a check applied to the state and not to what the delta makes of it. The other two were the orientation depth (2026-09-08) and the timestamp (2026-09-12).

@@ -6,10 +6,6 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// A typo must fail SAFE. The whole point of the setting is letting a host
-// take a physical effect away, so an unrecognized value resolving to
-// "enabled" would be a setting that looks applied and isn't -- the same class
-// of bug as the UTF-16 config file that silently discarded a room_code.
 func TestNormalizeGhostCollisionFailsSafe(t *testing.T) {
 	for _, tc := range []struct {
 		in, want string
@@ -29,10 +25,8 @@ func TestNormalizeGhostCollisionFailsSafe(t *testing.T) {
 	}
 }
 
-// The rule the whole feature rests on: a host can take collision AWAY, and can
-// never force it ON. Every combination is spelled out rather than sampled,
-// because the asymmetry is the design and a symmetric implementation would
-// pass a looser test.
+// TestResolveGhostCollisionMoreRestrictiveWins spells out every combination, since a symmetric implementation would
+// pass a sampled test.
 func TestResolveGhostCollisionMoreRestrictiveWins(t *testing.T) {
 	const (
 		on  = protocol.GhostCollisionEnabled
@@ -63,8 +57,8 @@ func TestResolveGhostCollisionMoreRestrictiveWins(t *testing.T) {
 	}
 }
 
-// Resolve never returns "": an adapter is told a real policy or nothing at
-// all, so it never has to carry a default of its own.
+// TestResolveGhostCollisionNeverReturnsEmpty: an adapter is told a real policy, so it never carries a default of its
+// own.
 func TestResolveGhostCollisionNeverReturnsEmpty(t *testing.T) {
 	for _, relay := range []string{"", "enabled", "disabled", "junk"} {
 		for _, client := range []string{"", "enabled", "disabled", "junk"} {

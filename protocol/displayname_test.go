@@ -6,14 +6,13 @@ import (
 	"unicode/utf8"
 )
 
-// The attacks this field is actually exposed to, each named for what it does to
-// a person rather than for the code point involved.
+// TestSanitizeDisplayNameClosesTheAttacks names each case for what it does to a person, not for its code point.
 func TestSanitizeDisplayNameClosesTheAttacks(t *testing.T) {
 	cases := []struct {
 		name   string
 		in     string
 		want   string
-		wanted string // why this matters, printed on failure
+		wanted string // why the case matters, printed on failure
 	}{
 		{
 			name:   "a plain name is left completely alone",
@@ -40,12 +39,8 @@ func TestSanitizeDisplayNameClosesTheAttacks(t *testing.T) {
 			wanted: "the relay LOGS this string; a newline lets a player write their own log lines",
 		},
 		{
-			name: "NEWLINE, full-length forgery: the length cap finishes what the newline strip started",
-			in:   "alice\n2026/08/28 relay: p1 joined room \"admin\"",
-			// Two independent defences, and this is what makes the case worth keeping
-			// separate: stripping the newline already means the forged text cannot start
-			// its own line, and the 24-rune cap then removes most of the payload anyway.
-			// A realistic forgery attempt does not fit in a name.
+			name:   "NEWLINE, full-length forgery: the length cap finishes what the newline strip started",
+			in:     "alice\n2026/08/28 relay: p1 joined room \"admin\"",
 			want:   "alice2026/08/28 relay: p", // exactly MaxDisplayNameRunes
 			wanted: "a real forged log line is far longer than a name is allowed to be",
 		},
@@ -128,9 +123,7 @@ func TestSanitizeDisplayNameClosesTheAttacks(t *testing.T) {
 	}
 }
 
-// Truncation must never split a rune, or the name that reaches other players is
-// invalid UTF-8 that encoding/json then replaces with U+FFFD -- turning a length
-// limit into visible corruption.
+// TestSanitizeDisplayNameTruncatesWithoutBreakingRunes: a split rune would reach peers as U+FFFD.
 func TestSanitizeDisplayNameTruncatesWithoutBreakingRunes(t *testing.T) {
 	cases := []string{
 		strings.Repeat("a", 200),
@@ -152,12 +145,6 @@ func TestSanitizeDisplayNameTruncatesWithoutBreakingRunes(t *testing.T) {
 	}
 }
 
-// IDEMPOTENCE IS LOAD-BEARING, not tidiness.
-//
-// The relay sanitizes on the way in and every client sanitizes again on receive,
-// because a relay is not trusted to have done it. If a second pass could change
-// the string, the same player would render under different names on different
-// machines -- which makes impersonation EASIER, which is the opposite of the point.
 func TestSanitizeDisplayNameIsIdempotent(t *testing.T) {
 	inputs := []string{
 		"Tsukino", "つきの", "Zoë", "", "   ",
@@ -174,8 +161,6 @@ func TestSanitizeDisplayNameIsIdempotent(t *testing.T) {
 	}
 }
 
-// Whatever comes out must be safe for the two things that then happen to it:
-// it is written to the relay's log, and it is sent back out as JSON.
 func FuzzSanitizeDisplayNameIsAlwaysSafeToShowAndLog(f *testing.F) {
 	seeds := []string{
 		"Tsukino", "", "   ", "alice\u202Ebob", "a\nb", "\u200B", "つきの",
@@ -197,7 +182,6 @@ func FuzzSanitizeDisplayNameIsAlwaysSafeToShowAndLog(f *testing.F) {
 		if utf8.RuneCountInString(got) > MaxDisplayNameRunes {
 			t.Fatalf("produced too many runes from %q", in)
 		}
-		// The log-injection property, stated directly: no line can ever be broken.
 		if strings.ContainsAny(got, "\n\r\t") {
 			t.Fatalf("produced a line-breaking character from %q -- this is the log injection", in)
 		}
@@ -215,10 +199,6 @@ func FuzzSanitizeDisplayNameIsAlwaysSafeToShowAndLog(f *testing.F) {
 	})
 }
 
-// A colour cannot really be "malicious", but it is handed to a game engine's
-// text renderer, and the set of things an engine does with an unexpected string
-// is open-ended. So the shape is the strictest one that still lets somebody pick
-// exactly the colour they want: a '#' and six hex digits, nothing else.
 func TestSanitizeNameColor(t *testing.T) {
 	cases := []struct{ in, want, why string }{
 		{"#F54927", "#F54927", "the ordinary case: a full hex colour passes untouched"},
@@ -246,8 +226,6 @@ func TestSanitizeNameColor(t *testing.T) {
 	}
 }
 
-// Same reasoning as the name: the relay sanitizes and every client sanitizes
-// again, so a second pass must never change the answer.
 func TestSanitizeNameColorIsIdempotent(t *testing.T) {
 	for _, in := range []string{"#F54927", "#f00", "", "nonsense", "#FFF", "#12345G"} {
 		once := SanitizeNameColor(in)
@@ -257,8 +235,6 @@ func TestSanitizeNameColorIsIdempotent(t *testing.T) {
 	}
 }
 
-// Whatever comes out is either empty or exactly seven characters an adapter can
-// read as three bytes with no parser and no failure case.
 func FuzzSanitizeNameColorIsAlwaysAHexColourOrNothing(f *testing.F) {
 	for _, s := range []string{"#F54927", "#f00", "", "red", "#12345678", "#GGGGGG"} {
 		f.Add(s)

@@ -1,104 +1,45 @@
-// Package protocol defines the wire-level message shapes shared by the relay
-// protocol and the adapter bridge, per agent_docs/contract.md.
+// Package protocol defines the wire-level message shapes shared by the relay protocol and the adapter bridge.
 //
-// This package has no internal dependencies — it is the lowest layer. Its
-// behaviour is limited to validating, clamping and normalizing its own field
-// values (ValidateState, ClampSendHz, ClampReceiveHz, ClampLeaseTTL,
-// NormalizeFeatures, ResolveGhostCollision and the rest); framing, transport
-// and dispatch live in other packages. This said "nothing here has behavior"
-// until 2026-08-27, by which point there were 21 functions.
-//
-// How this package fits the whole -- the life of a connection and of a state
-// message, traced across all of them -- is docs/networking.md.
+// It is the lowest layer, with no internal dependencies. Its behaviour is limited to validating, clamping and
+// normalizing its own field values (ValidateState, ClampSendHz, NormalizeFeatures, ResolveGhostCollision and the
+// rest); framing, transport and dispatch live in other packages.
 package protocol
 
 import "encoding/json"
 
-// Version is the current protocol major version, carried in Hello and in
-// Welcome, and checked against a FLOOR at both ends (agent_docs/contract.md).
-//
-// 2 SINCE 2026-09-08, AND THAT BUMP IS THE ONE DELIBERATE BREAK. Version 1 was
-// checked with `!=`, i.e. exact equality, so any bump at all refused every older
-// build -- which meant the version could never be raised without a flag day, and
-// so in practice was never raised. The floor below replaces that, and it can
-// only work from a line drawn somewhere: everything built before this change is
-// refused once, and from here on a bump is a compatibility DECISION rather than
-// a forced simultaneous upgrade. The user's call, 2026-09-08: "just break
-// anything old/before this change, so we can properly start to have a min
-// version or above going forward".
-//
-// 3 since 2026-09-15 (ADR 0067): the room code left the wire. A hello carries
-// a PAKE message instead of the code, and the relay answers it before a
-// Welcome; a v2 peer sends the code itself, which a v3 relay must not accept
-// and a v3 client never sends. The floor moved with it, the user's call the
-// same day.
+// Version is the protocol version this build sends, in Hello and in Welcome. Acceptance is checked against
+// MinProtocolVersion, a separate number.
 const Version = 3
 
-// MinProtocolVersion is the OLDEST peer this build will talk to, on either side
-// of the connection: a relay accepts a client at or above it, and a core accepts
-// a relay at or above it. Raise it only when the WIRE changes in a way older
-// builds cannot survive -- never merely because a release number moved.
+// MinProtocolVersion is the oldest peer this build talks to, on either side: a relay accepts a client at or above
+// it, and a core accepts a relay at or above it. Compare against this floor, never against Version, which would be
+// an exact match in disguise.
 //
-// AT OR ABOVE THE MINIMUM, NOT AT OR ABOVE THE CURRENT VERSION. The two readings
-// are opposites in effect: comparing against the current version is an exact
-// match in disguise and rebuilds the flag day this floor exists to remove. The
-// concrete case to test against, and the one that must keep working: a v2.3
-// client and a v2.0 relay talk to each other.
-//
-// Modelled on Archipelago's min_client_version (MultiServer.py, MIT, read for
-// facts -- agent_docs/licensing.md), whose default is a rarely-bumped floor and
-// whose exact-match is an opt-in mode. MeshGhost had been running the strict
-// mode as its only mode.
-//
-// A peer that advertises NO version needs no special case: it predates this
-// field, so it is below the floor and the ordinary comparison refuses it.
-// **MOVING IT IS THE MAINTAINER'S CALL AND IS SAID OUT LOUD** (the user,
-// 2026-09-11): the client and the relay are raised TOGETHER, and usually only
-// after a milestone -- a v1.0.0, a v2.0.0 -- rather than because a field was
-// added. Nothing in this repo should bump it on its own reasoning; an adapter's
-// own floor (bridge.Hello.MinProtocolVersion, ADR 0059) is the knob for "this
-// mod needs a newer relay", and it can only tighten.
-//
-// Raised to 3 on 2026-09-15 with the room-code PAKE (ADR 0067), the user's
-// call: the guarantee that the code never crosses the wire holds only if no
-// accepted peer can send it, so a v2 peer is refused on both sides.
+// Raise it only when the wire changes in a way older builds cannot survive, as the maintainer's decision, client and
+// relay together. An adapter's own floor (bridge.Hello.MinProtocolVersion) is the knob for "this mod needs a newer
+// relay", and it can only tighten.
 const MinProtocolVersion = 3
 
-// State is the packet schema's snapshot payload — the "state" message body,
-// and the payload type of the adapter bridge's LocalState/RenderRemote
-// messages (see bridge). Field-for-field match to the schema table
-// in agent_docs/contract.md; do not add fields here without a contract
-// revision recorded as an ADR in agent_docs/architecture.md.
+// State is the packet schema's snapshot payload: the "state" message body, and the payload of the bridge's
+// LocalState/RenderRemote messages. Field for field the contract's schema table; a new field is a contract revision.
 type State struct {
 	PlayerID string `json:"player_id"`
 	Seq      uint64 `json:"seq"`
-	// Timestamp is milliseconds, wall-clock (time.Now().UnixMilli() on
-	// whichever side stamps it) — resolved in contract.md's packet-schema
-	// table. Peers' wall clocks must actually agree, not just be internally
-	// consistent; meaningful clock skew silently falls back to an edge
-	// snapshot every tick rather than failing loudly (see
-	// core/interp.go's remoteBuffer.at()).
+	// Timestamp is wall-clock milliseconds. Peers' clocks must agree: skew silently drops interpolation to an edge
+	// snapshot every tick (core/interp.go's remoteBuffer.at) rather than failing.
 	Timestamp int64 `json:"timestamp"`
-	// AreaID is opaque. Compare by equality only; never branch on contents
-	// outside the adapter that produced it.
+	// AreaID is opaque: compare by equality only.
 	AreaID string `json:"area_id"`
-	// Position is variable-length by design — 2 floats for Emerald, 3 for
-	// 3D games. Do not fix this at a specific length.
+	// Position is variable-length by design (2 floats for a 2D game, 3 for 3D); never fix its length.
 	Position []float64 `json:"position"`
-	// Orientation is optional and opaque (scalar, vector, or quaternion
-	// depending on the adapter). json.RawMessage preserves whatever shape
-	// the adapter sent without the core needing to understand it.
+	// Orientation is optional and opaque: RawMessage keeps whatever shape the adapter sent.
 	Orientation json.RawMessage `json:"orientation,omitempty"`
-	// Anim is opaque. Compare by equality only; tags are only ever
-	// meaningful between two clients running the same game_id.
+	// Anim is opaque: compare by equality only, and only between clients of the same game_id.
 	Anim string `json:"anim"`
 	// Extras is free-form, game-specific, and opaque to the core.
 	Extras map[string]any `json:"extras,omitempty"`
-	// Prev is the sender's PREVIOUS sample as a delta against this one --
-	// loss cover for the unreliable state plane, attached by the core at low
-	// send rates and undone by the receiving core (prev.go, ADR 0045). The
-	// relay forwards it untouched and never stores it: a late joiner gets the
-	// newest sample, not its predecessor. Optional; older peers ignore it.
+	// Prev is the sender's previous sample as a delta against this one, loss cover for the lossy state plane
+	// (prev.go). The relay forwards it untouched and never stores it; older peers ignore it.
 	Prev *StatePrev `json:"prev,omitempty"`
 }
 
@@ -111,83 +52,40 @@ const (
 	TypeJoin    MessageType = "join"
 	TypeLeave   MessageType = "leave"
 	TypeState   MessageType = "state"
-	// TypeEvent is the event plane: reliable, ordered, addressed, and with a
-	// payload fully opaque to the core and relay. Reserved from the start of
-	// the project and implemented 2026-08-17 — see agent_docs/contract.md's
-	// Extensibility section and the ADR in agent_docs/architecture.md. Only
-	// routed for a room whose agreed feature set contains FeatureEventV1.
+	// TypeEvent is the event plane: reliable, ordered, addressed, with a payload opaque to the core and relay.
+	// Routed only in a room whose agreed features contain FeatureEventV1.
 	TypeEvent MessageType = "event"
-	// TypeLease and TypeLeaseState are lease authority over opaque keys:
-	// the relay grants a key to the first asker and refuses the rest,
-	// without ever knowing what the key means. Gated on FeatureLeaseV1.
+	// TypeLease and TypeLeaseState are lease authority over opaque keys, gated on FeatureLeaseV1.
 	TypeLease      MessageType = "lease"
 	TypeLeaseState MessageType = "lease_state"
-	// TypeEscrow and TypeEscrowState are two-sided atomic exchange — both or
-	// neither. Gated on FeatureEscrowV1. See online.go's EscrowOp for why
-	// this is a separate mechanism from leases rather than a use of them.
+	// TypeEscrow and TypeEscrowState are two-sided atomic exchange, both or neither, gated on FeatureEscrowV1.
 	TypeEscrow      MessageType = "escrow"
 	TypeEscrowState MessageType = "escrow_state"
-	// TypeWorld and TypeWorldState are world custody: the relay holds the
-	// latest opaque blob per entity and hands the same canonical set to
-	// whoever takes the authority lease next, so a host leaving does not take
-	// the world with it. Gated on FeatureWorldV1, which requires
-	// FeatureLeaseV1 in the same room — every write names a lease key and is
-	// accepted only from that lease's holder.
+	// TypeWorld and TypeWorldState are world custody, so a host leaving does not take the world with it. Gated on
+	// FeatureWorldV1, which requires FeatureLeaseV1: a write names a lease key and is accepted only from its holder.
 	TypeWorld      MessageType = "world"
 	TypeWorldState MessageType = "world_state"
 	TypePing       MessageType = "ping"
 	TypePong       MessageType = "pong"
-	// TypePrefs updates per-client settings a client first stated in its
-	// Hello, for the case where the truth is not yet known at connect time.
-	//
-	// It exists because own_area_only got that wrong in a way that reached a
-	// live session (2026-08-28). A core connects to the relay at startup, from
-	// its -game flag, and its ADAPTER attaches later -- when the game itself
-	// launches, which can be minutes afterwards. So the Hello was necessarily
-	// sent before the core could know whether its adapter renders neighbouring
-	// areas, and Emerald's cross-map ghosts were filtered away as a result.
-	//
-	// Client to relay only, and additive: a relay too old to know this type
-	// ignores it under the unknown-type rule below and simply keeps forwarding
-	// everything, which is the fail-open direction.
+	// TypePrefs updates per-client settings first stated in the Hello, for when the truth is not known at connect
+	// time: a core connects at startup, and its adapter attaches when the game launches. Client to relay only; an
+	// older relay ignores it as an unknown type and keeps forwarding everything, which is the fail-open direction.
 	TypePrefs MessageType = "prefs"
-	// TypeReject is the relay's reply to a Hello it refuses — wrong protocol
-	// version, mismatched game_id/game_version for the room, a wrong room
-	// code, or a full room — or, since the send/receive rate-control feature
-	// (see the ADR in agent_docs/architecture.md), a mid-session close of an
-	// already-joined connection for exceeding the per-client message cap
-	// (ReasonRateLimited). Sent before the relay closes the connection, so a
-	// client can distinguish "refused/closed, and why" from "the relay is
-	// just slow" or "the relay is down" instead of only ever seeing a bare
-	// hangup. Added alongside room-code auth — see the ADR in
-	// agent_docs/architecture.md.
+	// TypeReject is the relay's reply to a refused Hello, or its notice before closing a joined connection over the
+	// message cap: sent before the close, so a client can tell "refused, and why" from a relay that is slow or down.
 	TypeReject MessageType = "reject"
 
-	// TypePake carries one step of the room-code proof, in either direction:
-	// the relay's KE2 answering a hello's PakeKE1, then the client's KE3
-	// (package pake; ADR 0067). Only ever exchanged between a hello and its
-	// Welcome or Transports; anywhere else it is ignored.
+	// TypePake carries one step of the room-code proof (package pake): the relay's KE2 answering a hello's PakeKE1,
+	// then the client's KE3. Only between a hello and its Welcome or Transports; ignored anywhere else.
 	TypePake MessageType = "pake"
-	// TypeTransports is the relay's reply to a Hello with QueryOnly set:
-	// which transports this relay serves, and on which ports. The relay
-	// closes the connection immediately after sending it — no room is
-	// joined, no player_id is assigned, nothing is announced to anyone.
-	//
-	// It exists so a client set to "auto" can discover that a relay also
-	// speaks quic, and on which port, before it joins — rather than joining
-	// over tcp and
-	// then reconnecting — which would make every other player in the room
-	// watch it leave and rejoin. The port is told rather than assumed:
-	// since 2026-08-16 quic shares the relay's own port by default and
-	// only moves when plain udp is also served. Added 2026-08-16; see the
-	// transport discovery ADR in agent_docs/architecture.md.
+	// TypeTransports is the relay's reply to a Hello with QueryOnly set: which transports it serves, on which
+	// ports. The relay closes right after: no room joined, no player_id assigned, nothing announced. It lets an
+	// "auto" client find quic before joining, rather than joining over tcp and visibly reconnecting.
 	TypeTransports MessageType = "transports"
 )
 
-// Envelope is the outer shape of every relay-protocol and bridge message.
-// Payload is decoded based on Type; unknown Type values are ignored per the
-// forward-compatibility rule in agent_docs/contract.md, not treated as an
-// error.
+// Envelope is the outer shape of every relay-protocol and bridge message. Payload is decoded by Type; an unknown
+// Type is ignored, not an error, for forward compatibility.
 type Envelope struct {
 	Type    MessageType     `json:"type"`
 	Payload json.RawMessage `json:"payload"`
@@ -199,114 +97,39 @@ type Hello struct {
 	GameID          string `json:"game_id"`
 	Room            string `json:"room"`
 	DisplayName     string `json:"display_name"`
-	// NameColor is the colour this client would like its own nametag drawn in,
-	// as "#RRGGBB" (see SanitizeNameColor). Empty means no preference, which is
-	// the default and leaves the choice to whatever renders it. Ignored entirely
-	// when DisplayName is empty, because there is then no tag to colour.
+	// NameColor is this client's nametag colour as "#RRGGBB" (see SanitizeNameColor), or empty for no preference.
+	// Ignored when DisplayName is empty, since there is then no tag to colour.
 	NameColor string `json:"name_color,omitempty"`
-	// PakeKE1 is the first message of the room-code proof (package pake,
-	// OPAQUE RFC 9807), base64. Since 2026-09-15 (ADR 0067) the code itself
-	// never crosses the wire: a client that has a code sends this, the relay
-	// answers with a Pake message carrying KE2, the client replies with KE3,
-	// and only then does the relay go on to the Welcome (or the Transports
-	// answer for a QueryOnly hello). A relay with a code configured refuses a
-	// hello without it as it used to refuse a wrong code; a relay with no code
-	// ignores it. Until this date the field here was room_code, the code
-	// as-is inside TLS -- readable by whoever terminated that TLS.
+	// PakeKE1 is the first message of the room-code proof, base64; the code itself never crosses the wire. A relay
+	// with a code refuses a hello without it, and one with none ignores it.
 	PakeKE1 string `json:"pake_ke1,omitempty"`
-	// GameVersion is the adapter-reported game/DLC version, opaque to the
-	// relay and core (same discipline as GameID/AreaID/Anim — compared only
-	// by equality, never parsed). Empty means "unknown" and is not checked,
-	// matching how a room's first Hello with no game_id would behave — see
-	// the ADR in agent_docs/architecture.md.
+	// GameVersion is the adapter-reported version, opaque to relay and core: compared by equality, never parsed.
+	// Empty means unknown and is not checked.
 	GameVersion string `json:"game_version,omitempty"`
-	// Features is the capability list this client advertises — see the
-	// Feature* constants in online.go. Reserved from 2026-08-11 and
-	// populated from 2026-08-17.
-	//
-	// A room's ROOM-SCOPED capabilities (IsRoomScopedFeature) are sticky on
-	// first join and later joiners must match them exactly, the same way
-	// GameVersion already is. That is not tidiness: if one client advertises
-	// lease.v1 and claims properly while another does not and simply acts,
-	// conflict resolution silently does not work, and everything looks fine
-	// until it doesn't. Refusing at the handshake turns an invisible
-	// correctness failure into a legible one (ReasonFeatureMismatch). The
-	// relay learns no more about "lease.v1" than about "1.2.0".
-	//
-	// Client-scoped capabilities (resume.v1, snapshot.v1) are NOT compared —
-	// they concern only this client and the relay, so they may differ freely
-	// between members of one room. Welcome.Features reports what ended up in
-	// force for this client specifically.
+	// Features is the capability list this client advertises. Room-scoped ones (IsRoomScopedFeature) are sticky on
+	// first join and a later joiner must match them exactly (ReasonFeatureMismatch); client-scoped ones are not
+	// compared.
 	Features []string `json:"features,omitempty"`
-	// ResumeToken, when non-empty, asks the relay to reinstate the identity
-	// this token was issued for (Welcome.ResumeToken) instead of assigning a
-	// fresh player_id: same id, same leases, same in-flight escrows, and no
-	// leave/join seen by anyone else in the room. Honoured only within
-	// DefaultResumeGrace of the drop, only in the same room, and only for a
-	// room whose feature set contains FeatureResumeV1.
-	//
-	// A token that is unknown, expired, or for another room is NOT an error
-	// — the relay silently falls back to assigning a new identity, which is
-	// exactly what a client with no token gets. Failing the join instead
-	// would turn "you were away slightly too long" into "you cannot play."
+	// ResumeToken asks the relay to reinstate the identity it was issued for, within DefaultResumeGrace and in the
+	// same room. An unknown, expired or foreign token is not an error: the relay assigns a fresh identity.
 	ResumeToken string `json:"resume_token,omitempty"`
-	// MaxReceiveHz is the highest rate, in updates per second *per peer*, at
-	// which this client wants the relay to forward other players' state to
-	// it. Zero or absent means uncapped (the pre-existing behavior, and what
-	// an older client that doesn't know this field sends). Enforced at the
-	// relay, which drops the excess before it goes out on the wire —
-	// discarding on receive would save the client nothing, which is the
-	// entire point. Per peer, not in total: a 5Hz cap in an 8-player room is
-	// up to 35 messages/sec inbound, not 5 — see core.Core.
-	// MaxReceiveHz and the ADR in agent_docs/architecture.md.
+	// MaxReceiveHz is the highest rate, per peer, at which this client wants others' state; zero means uncapped.
+	// The relay drops the excess before sending, since discarding on receive would save the client nothing.
 	MaxReceiveHz int `json:"max_receive_hz_per_player,omitempty"`
 
-	// QueryOnly asks the relay to reply with a Transports message and hang
-	// up, instead of joining a room. Every check that guards a real join
-	// still runs first — field lengths, protocol version, and above all the
-	// room code — so this discloses nothing to anyone who could not already
-	// have joined. That is deliberate: it means transport discovery adds no
-	// pre-auth surface to a relay, which the 2026-08-14 hardening pass
-	// worked to keep clear.
-	//
-	// An older relay does not know this field and will treat the message as
-	// an ordinary Hello, joining the client for real. A client must
-	// therefore be ready to receive a Welcome here and simply carry on with
-	// the connection rather than assume a Transports reply — see
-	// core.
+	// QueryOnly asks for a Transports reply and a hang-up instead of a join. Every check guarding a real join runs
+	// first, so discovery adds no pre-auth surface. An older relay joins the client for real, so a client must be
+	// ready for a Welcome here.
 	QueryOnly bool `json:"query_only,omitempty"`
 
-	// OwnAreaOnly declares that this client renders ONLY peers whose area_id
-	// equals its own, so the relay may stop forwarding it the rest instead of
-	// spending both uplinks on states the receiving core would discard at
-	// render time anyway (core.remoteStatesAt).
-	//
-	// ABSENT MEANS SEND EVERYTHING, and that default is load-bearing rather
-	// than polite. An older client does not know this field. More importantly,
-	// an adapter that translates a neighbouring map's coordinates renders peers
-	// in ADJACENT areas — Emerald always, Crystal when its cross-map block is
-	// armed (bridge.Hello's RenderAllAreas) — and for those a naive area filter
-	// would delete a shipped, user-confirmed feature. Only a client that
-	// explicitly opts in is ever filtered, so being wrong about this costs
-	// bandwidth rather than ghosts.
-	//
-	// A new optional field rather than a Features entry, deliberately:
-	// IsRoomScopedFeature is a deny-list that defaults to room-scoped, so an
-	// unrecognised capability string is sticky on first join and refuses any
-	// later joiner who disagrees (ReasonFeatureMismatch). Advertising this as a
-	// feature against an older relay would therefore make a mixed room
-	// UNJOINABLE, turning a bandwidth optimisation into a connectivity bug.
-	// See the ADR in agent_docs/architecture.md.
+	// OwnAreaOnly declares that this client renders only peers in its own area_id, so the relay may skip the rest;
+	// absent means send everything, so being wrong costs bandwidth, never ghosts. A field, not a Features entry: an
+	// unrecognised feature is room-scoped and sticky, which would make a room mixed with an older relay unjoinable.
 	OwnAreaOnly bool `json:"own_area_only,omitempty"`
 }
 
-// TransportOffer is one transport a relay serves.
-//
-// The port travels but the host does not, on purpose: a relay bound to
-// 0.0.0.0 has no idea what address reaches it from outside, whereas the
-// client necessarily already knows one — it just connected to it. Sending
-// only the port means discovery keeps working through NAT and port
-// forwarding without the relay ever having to learn its own public address.
+// TransportOffer is one transport a relay serves. The port travels but not the host: a relay bound to 0.0.0.0
+// cannot know its outside address, while the client already knows one.
 type TransportOffer struct {
 	// Kind is "tcp", "udp", or "quic".
 	Kind string `json:"kind"`
@@ -322,129 +145,45 @@ type Transports struct {
 type Welcome struct {
 	PlayerID string   `json:"player_id"`
 	Roster   []string `json:"roster"`
-	// ProtocolVersion is the relay's own Version, so the floor runs BOTH ways:
-	// the relay refuses a client below its minimum in the hello, and this is
-	// what lets a client refuse a relay below ITS minimum. Without it the check
-	// is one-sided (Archipelago's shape) and a current client will happily sit
-	// in an ancient relay's room -- the user's reason for wanting both, 2026-09-08.
-	//
-	// Absent means a relay older than this field, which is by definition below
-	// any floor this build could declare, so it needs no special case: the
-	// ordinary comparison refuses 0.
+	// ProtocolVersion is the relay's own Version, so the floor runs both ways: a client can refuse a relay below
+	// its minimum. Absent (0) means a relay older than the field, which any floor refuses.
 	ProtocolVersion int `json:"protocol_version,omitempty"`
-	// Nametags carries the labels of the players already in the room, keyed
-	// by the player_id they appear under in Roster. Sanitized by the relay.
-	//
-	// It exists because Join cannot serve a NEWCOMER: a Join is only sent for
-	// somebody arriving, so without this a player who joined a room where three
-	// people were already standing would learn three ids and no names, and would
-	// keep it that way until each of them happened to reconnect. Names are not in
-	// the state stream either -- deliberately, since a per-frame string is pure
-	// waste for a value that changes at most once a session.
-	//
-	// Ids with no name are OMITTED rather than mapped to "": the map is empty on
-	// the wire for a room where nobody named themselves, which is the default.
+	// Nametags carries the sanitized labels of players already in the room, keyed by player_id, since a Join is
+	// only sent for an arrival and names stay out of the per-frame state stream. Ids with no name are omitted.
 	Nametags map[string]Nametag `json:"nametags,omitempty"`
-	// SendHz is the room-wide state send rate this relay is configured for,
-	// in updates per second. A client adopts it as its actual send rate
-	// unless it has deliberately configured a slower one of its own (see
-	// core.Core.MinSendInterval) — the effective rate is the slower
-	// of the two, so a peer on a poor connection can decline to go faster
-	// but can never be made to go faster than the room. Always populated by
-	// a relay that knows this field; a zero here means an older relay that
-	// doesn't, which a client reads as "nothing advertised" and falls back
-	// to core.DefaultMinSendInterval. Deliberately not omitempty: a
-	// new relay always sends a real value, so a 0 on the wire from one would
-	// be a bug worth seeing rather than eliding. See the ADR in
-	// agent_docs/architecture.md.
+	// SendHz is the room's state send rate in updates per second; a client adopts it unless it configured a slower
+	// one. Zero means an older relay. Not omitempty: a current relay always sends a value, so a 0 is a bug to see.
 	SendHz int `json:"send_hz"`
-	// GhostCollision is the room-wide ghost-collision policy this relay is
-	// configured for: GhostCollisionEnabled, GhostCollisionDisabled, or ""
-	// from a relay that predates the field. A client resolves it against its
-	// own configured preference with ResolveGhostCollision (more restrictive
-	// wins) and hands the answer to its adapter over the bridge.
-	//
-	// omitempty, unlike SendHz: "" here is the ordinary shape of an older
-	// relay AND of a current relay whose operator set nothing, and both mean
-	// the same thing — nobody expressed a policy, so every adapter's own
-	// default stands. SendHz is deliberately not omitempty because a current
-	// relay always has a real rate to state; this one genuinely may not.
+	// GhostCollision is the room's policy, resolved against the client's own with ResolveGhostCollision. omitempty,
+	// unlike SendHz, because "" is a real answer: nobody set a policy.
 	GhostCollision string `json:"ghost_collision,omitempty"`
-	// Features is the room's agreed feature set — normalized, and identical
-	// for every member (see Hello.Features). Echoed back so a client can see
-	// what the room actually settled on rather than assuming its own request
-	// was adopted wholesale, and so a client joining an existing room learns
-	// the set it was matched against.
+	// Features is the feature set in force for this client, normalized: the room's agreed set plus this client's
+	// own client-scoped ones (see Hello.Features).
 	Features []string `json:"features,omitempty"`
-	// ResumeToken is the unguessable secret this client presents in a later
-	// Hello.ResumeToken to reclaim this identity after an unexpected drop.
-	// Populated only for a room whose feature set contains FeatureResumeV1;
-	// empty otherwise, and empty from any relay that predates resumption.
-	//
-	// Treat it as a credential: anyone holding it can take over this session,
-	// including its outstanding escrows. It never leaves the client that was
-	// issued it, and is never broadcast to the room.
+	// ResumeToken is the secret this client presents in a later Hello to reclaim this identity after a drop, set
+	// only with FeatureResumeV1. A credential: whoever holds it can take over the session, so it stays on this client.
 	ResumeToken string `json:"resume_token,omitempty"`
-	// Resumed reports that this Welcome reinstated an existing identity
-	// rather than creating one. A client uses it to know that its previous
-	// player_id, leases and escrows are still live — and, more practically,
-	// that it should NOT treat this as a fresh session.
+	// Resumed reports that this Welcome reinstated an existing identity, leases and escrows included.
 	Resumed bool `json:"resumed,omitempty"`
-	// ServerTimeMs is the relay's own wall clock at the moment it sent this
-	// Welcome, in milliseconds. The seed for clock sync: see Pong.ServerTimeMs
-	// for why a single shared clock domain matters more than it sounds.
+	// ServerTimeMs is the relay's wall clock in milliseconds when it sent this Welcome, the seed for clock sync.
 	ServerTimeMs int64 `json:"server_time_ms,omitempty"`
 }
 
-// Reject is the relay's reply to a Hello it refuses to accept, or — since
-// the send/receive rate-control feature — its notice before closing an
-// already-joined connection for exceeding the per-client message cap. See
-// TypeReject. Sent once, immediately before the relay closes the connection.
+// Reject is the relay's reply to a Hello it refuses, or its notice before closing a joined connection over the
+// per-client message cap. Sent once, just before the relay closes the connection.
 type Reject struct {
 	Reason string `json:"reason"`
-	// Code is the STABLE, machine-readable name for this refusal. Reason stays
-	// what it always was -- a sentence for a human reading a log -- and Code is
-	// what any code on either side is meant to branch on.
-	//
-	// Added 2026-09-08 because branching on the prose was not a hypothetical
-	// mistake, it was what all four shipped adapters actually did: each matched
-	// the reason for the substring "relay" to decide whether to wait or walk to
-	// the next port. Every PERMANENT refusal happens to contain that word (core
-	// renders them all as "core: relay refused connection: %s") and the only one
-	// that does not is "busy" -- so a wrong room code, a version mismatch or a
-	// feature mismatch was read as "the relay is briefly down", retried forever,
-	// and the player was never told to fix their config. contract.md already
-	// said the reason is "for the adapter's log, not for branching on", and
-	// Emerald's own source says "The reason is never BRANCHED on" two lines above
-	// the branch. Four authors ignoring the same instruction is a sign the
-	// protocol asked for the wrong thing.
-	//
-	// Empty means a relay older than this field. A reader that does not
-	// recognise a code falls back to Retryable below, and only then to its own
-	// prose table.
+	// Code is the stable name for this refusal and the thing to branch on; Reason is prose for a log. A reader that
+	// does not recognise a code falls back to Retryable, and only then to its own prose table.
 	Code string `json:"code,omitempty"`
-	// Retryable says whether reconnecting could plausibly succeed without the
-	// player changing anything: true for "the room filled up", false for "your
-	// room code is wrong".
-	//
-	// It exists because the receiving side's default was dangerous. Anything
-	// core.isPermanentRejectReason did not recognise was classified PERMANENT,
-	// so a reason a client had not heard of made it give up for the rest of the
-	// session -- exactly the wrong way round for a field that is meant to grow.
-	// omitempty is deliberate and safe: the zero value is false, i.e. permanent,
-	// which is the conservative answer for a relay that never set it.
+	// Retryable says whether reconnecting could succeed without the player changing anything. The zero value means
+	// permanent, the conservative answer for a relay that never set it.
 	Retryable bool `json:"retryable,omitempty"`
 }
 
-// Reject codes: the stable identifiers behind the prose above. One per Reason
-// constant, same order.
-//
-// These are the strings a client may branch on, and they are frozen the moment
-// they ship -- a code is renamed only by a contract revision, because four
-// adapters in three languages compare against these literals. New refusals get a
-// NEW code rather than reusing a near-miss; a reader that does not recognise one
-// is required to fall back rather than guess, which is what makes adding one
-// safe.
+// Reject codes, one per Reason constant, in the same order. Frozen once shipped: renamed only by a contract
+// revision, since adapters in several languages compare the literals. A new refusal gets a new code, and a reader
+// that does not recognise one falls back rather than guesses, which is what makes adding one safe.
 const (
 	CodeProtocolVersionMismatch = "protocol_version_mismatch"
 	CodeHelloFieldTooLong       = "hello_field_too_long"
@@ -463,25 +202,13 @@ type Pake struct {
 	KE3 string `json:"ke3,omitempty"`
 }
 
-// MaxPakeFieldLen bounds a base64 PAKE message on the wire (Hello.PakeKE1,
-// Pake.KE2, Pake.KE3): pake.MaxMessageLen bytes encoded, with room to spare.
-// Checked with the other hello fields before anything is decoded.
+// MaxPakeFieldLen bounds a base64 PAKE message on the wire (Hello.PakeKE1, Pake.KE2, Pake.KE3): pake.MaxMessageLen
+// bytes encoded, with room to spare. Checked with the other hello fields before anything is decoded.
 const MaxPakeFieldLen = 1536
 
-// RetryableForCode answers whether reconnecting could plausibly succeed for a
-// known code, and reports whether it recognised it at all.
-//
-// ONE TABLE, BOTH SIDES. The relay fills Reject.Retryable from it and the core
-// reads it back, so the sender's claim and the receiver's expectation cannot
-// drift into disagreeing -- which is the failure mode the whole prose-matching
-// mess was made of. A caller that gets known == false must fall back to
-// Reject.Retryable rather than guessing, because guessing is what made an
-// unrecognised reason mean "give up forever".
-//
-// Only two are retryable, and both for the same reason: nothing the player owns
-// has to change. A full room empties when somebody leaves, and a rate limit
-// clears on a reconnect that re-reads the room's advertised rate. Everything
-// else needs a config edit first, so retrying it is pure noise.
+// RetryableForCode answers whether reconnecting could succeed for a known code, and whether it knows the code. One
+// table for both sides, so the relay's Reject.Retryable and the core's reading cannot disagree; on known == false a
+// caller falls back to Reject.Retryable. Only a full room and a rate limit are retryable; the rest need a config edit.
 func RetryableForCode(code string) (retryable, known bool) {
 	switch code {
 	case CodeServerFull, CodeRateLimited:
@@ -493,15 +220,9 @@ func RetryableForCode(code string) (retryable, known bool) {
 	return false, false
 }
 
-// CodeForReason maps one of the Reason constants above to its code, for the one
-// caller that cannot name the refusal at compile time: joinOrCreateRoom decides
-// between the game, game-version and feature mismatches at runtime and hands
-// back a reason string.
-//
-// Deliberately NOT a general prose parser. It matches the constants exactly and
-// returns "" for anything else, so a hand-written reason that never went through
-// these constants gets an empty code -- which a reader treats as "unknown, use
-// the flag" rather than being silently mis-classified as something it resembles.
+// CodeForReason maps a Reason constant to its code, for a caller that picks the refusal at runtime
+// (joinOrCreateRoom). It matches the constants exactly and returns "" for anything else, so a hand-written reason
+// reads as unknown rather than being mis-classified as one it resembles.
 func CodeForReason(reason string) string {
 	switch reason {
 	case ReasonProtocolVersionMismatch:
@@ -526,205 +247,93 @@ func CodeForReason(reason string) string {
 	return ""
 }
 
-// AcceptsPeerVersion reports whether a peer advertising v is new enough for this
-// build. Used at BOTH ends, deliberately, so "the floor" means one thing.
-//
-// v == 0 is a peer from before the field existed, which is below any floor this
-// build could declare, so the plain comparison already refuses it -- no special
-// case, which is the point of drawing the cutover line at Version 2.
+// AcceptsPeerVersion reports whether a peer advertising v is new enough for this build. Both ends use it, so the
+// floor means one thing; v == 0 is a peer from before the field, which the plain comparison refuses.
 func AcceptsPeerVersion(v int) bool { return v >= MinProtocolVersion }
 
-// Reason values the relay actually sends in Reject.Reason — named so code
-// on either side of the wire can compare symbolically instead of matching
-// magic strings. Not a closed/coded enum: the wire itself still just
-// carries plain text (a future relay could add a new reason without a
-// contract change, per the forward-compatibility rule), these constants
-// exist only for the Go call sites that need to tell a few of them apart —
-// e.g. core deciding whether a rejection is worth retrying
-// (ReasonServerFull can resolve if someone leaves and ReasonRateLimited can on
-// a reconnect; every other reason here requires a config change first -- the
-// authoritative split is core.isPermanentRejectReason). Added alongside room-code
-// auth, see the ADR in agent_docs/architecture.md.
+// Reason values the relay sends in Reject.Reason, named so Go call sites compare symbolically. Not a closed set:
+// the wire carries plain text, and a future relay may add one. A relay with no Code is classified by
+// core.isPermanentRejectReason, where only ReasonServerFull and ReasonRateLimited are retryable.
 const (
 	ReasonProtocolVersionMismatch = "protocol version mismatch"
 	ReasonHelloFieldTooLong       = "hello field too long"
 	ReasonInvalidRoomCode         = "invalid room code"
 	ReasonGameMismatch            = "game mismatch for this room"
 	ReasonGameVersionMismatch     = "game version mismatch for this room"
-	// ReasonFeatureMismatch means this client's advertised capability set
-	// differs from the one this room agreed on when its first member joined
-	// (see Hello.Features). Sticky the same way game_version is, and refused
-	// for the same reason: two members that disagree about whether leases
-	// exist do not fail loudly, they fail silently and much later.
+	// ReasonFeatureMismatch: the client's capability set differs from the room's. Sticky like game_version, since
+	// members that disagree about whether leases exist fail silently and much later.
 	ReasonFeatureMismatch = "feature set mismatch for this room"
-	// ReasonGameNotAllowed means this relay is configured to host one
-	// specific game and the client is playing a different one — a
-	// server-wide restriction the operator declared up front (see
-	// relay.Server.OnlyGame), not the per-room stickiness
-	// ReasonGameMismatch reports. No room the client picks would help.
+	// ReasonGameNotAllowed: the relay hosts one game (relay.Server.OnlyGame) and no room the client picks would help.
 	ReasonGameNotAllowed = "game not allowed on this relay"
-	// ReasonServerFull means the relay is already at MaxClients across
-	// every room it's hosting combined, not that any one room is full —
-	// see relay.Server.MaxClients.
+	// ReasonServerFull means the relay is at MaxClients across every room combined, not that one room is full.
 	ReasonServerFull = "server full"
-	// ReasonRateLimited means the connection exceeded the relay's per-client
-	// message cap (relay.MaxMessagesPerSecond, scaled by the room's
-	// configured send rate) and is being closed. Unlike every other reason
-	// here, this one is typically sent *after* a successful join, not at
-	// handshake — and unlike the others it is retryable: a reconnecting
-	// client re-reads the room's advertised send rate from the new Welcome
-	// and may well fit under the cap the second time. See
-	// core.isPermanentRejectReason and the ADR in
-	// agent_docs/architecture.md.
+	// ReasonRateLimited: the connection exceeded the per-client message cap and is being closed. Usually sent after
+	// a join, and retryable: a reconnecting client re-reads the room's send rate and may fit under the cap.
 	ReasonRateLimited = "rate limited"
 )
 
-// Join announces a peer entering the room. State seeds a newly-visible
-// remote ghost with its most recent known state, so it appears where it
-// actually is rather than only on its next update.
-//
-// Populated only for a recipient that advertised FeatureSnapshotV1; for
-// anyone else it is nil, as it was for every recipient before 2026-08-17.
-// See relay's stateSnapshotLocked. core handles both cases.
+// Join announces a peer entering the room. State seeds the new ghost with its latest state, so it appears where it
+// is; it is set only for a recipient that advertised FeatureSnapshotV1.
 type Join struct {
 	PlayerID string `json:"player_id"`
 	State    *State `json:"state,omitempty"`
-	// Nametag is this peer's label, ALREADY SANITIZED by the relay. Nil means
-	// the player set no name and nothing should be drawn for them at all --
-	// which is the shipped default, so nil is the common case rather than an
-	// edge one, and a room where nobody named themselves puts this field on the
-	// wire zero times.
-	//
-	// NEVER AN IDENTITY. PlayerID above is the identity; two players may hold
-	// the same Nametag and nothing may key off one. A receiver sanitizes it
-	// AGAIN before showing it, because a relay is not trusted to have done so.
+	// Nametag is this peer's label, sanitized by the relay; nil means draw nothing. Never an identity, and a
+	// receiver sanitizes it again, since a relay is not trusted to have done so.
 	Nametag *Nametag `json:"nametag,omitempty"`
 }
 
-// Nametag is what a peer chose to be labelled as: a name, and optionally a
-// colour to draw it in.
-//
-// One struct rather than two parallel fields because the two travel together
-// everywhere and a colour without a name means nothing -- there is no tag to
-// colour. Both halves are sanitized (SanitizeDisplayName, SanitizeNameColor)
-// before they are ever stored or forwarded.
+// Nametag is what a peer chose to be labelled as: a name, and optionally a colour, which means nothing without the
+// name. Both are sanitized (SanitizeDisplayName, SanitizeNameColor) before they are stored or forwarded.
 type Nametag struct {
-	// Name is the sanitized display name. A Nametag with an empty Name should
-	// not exist: the relay stores no tag at all in that case.
+	// Name is the sanitized display name; the relay stores no tag at all when it is empty.
 	Name string `json:"name"`
-	// Color is "#RRGGBB", or empty for "the adapter's default colour". An
-	// adapter that cannot colour text ignores this and still draws the name.
+	// Color is "#RRGGBB", or empty for the adapter's default colour.
 	Color string `json:"color,omitempty"`
 }
 
-// Leave announces a peer leaving the room. This is what drives
-// despawn_remote on the adapter side of the bridge.
-//
-// **Also sent client -> relay, as a voluntary goodbye** (added 2026-08-17).
-// PlayerID is ignored in that direction — the relay knows whose connection it
-// is — and the message means "I am leaving on purpose; do not hold my session
-// for a reconnect."
-//
-// It exists because resumption otherwise cannot tell a closed game from a bad
-// connection, and guesses wrong in the case a player actually sees. Found live:
-// with resume.v1 on, quitting the game left every other player staring at a
-// frozen ghost for the whole grace window, because the relay only saw a socket
-// close. The core discarding its own token was not enough — that only affects
-// where the NEXT connection lands, and says nothing to the relay about this
-// one. A client that never sends this is unaffected: it simply gets the grace
-// window, which is the correct treatment for an unexplained drop.
+// Leave announces a peer leaving the room, which drives despawn_remote. Also sent client to relay as a voluntary
+// goodbye (PlayerID ignored): "do not hold my session for a reconnect", which resumption cannot otherwise tell from
+// a bad connection.
 type Leave struct {
 	PlayerID string `json:"player_id"`
 }
 
-// Event is one message on the event plane: reliable, ordered, addressed,
-// and opaque. See agent_docs/contract.md's Extensibility section.
-//
-// The two planes are kept structurally separate on purpose, and the reason
-// is delivery semantics rather than tidiness. `extras` on the state plane is
-// lossy, latest-wins, and re-sent ~15x/second at the shipped room rate — right
-// for "what colour is this ghost's trail" and catastrophic for "I offer you
-// this item," which is
-// not an offer if it may silently vanish. Deeper data rides here, never
-// there.
+// Event is one message on the event plane: reliable, ordered, addressed, and opaque. It stays separate from the
+// state plane for delivery semantics: extras is lossy and latest-wins, right for a trail colour and wrong for an
+// item offer.
 type Event struct {
-	// To is the addressee's player_id, or empty for room broadcast. This is
-	// the one field of an Event the relay reads, which is exactly why it is
-	// top-level and the payload is not: **a field earns top-level status only
-	// if game-agnostic code must act on it.** A top-level field the core does
-	// not read is a field the core can start reading.
+	// To is the addressee's player_id, or empty for room broadcast: top-level because it is the one field the relay
+	// reads.
 	To string `json:"to,omitempty"`
-	// From is the sender's player_id, stamped server-side from the
-	// connection's own assigned id and never trusted from the payload —
-	// exactly as State.PlayerID already is, and for the same reason: a peer
-	// could otherwise attribute an event to someone else.
+	// From is the sender's player_id, stamped by the relay from the connection and never trusted from the payload.
 	From string `json:"from,omitempty"`
-	// Seq is the room's monotonic sequencer stamp, assigned by the relay
-	// inside the same critical section that snapshots the recipients, so
-	// every member of a room observes one identical total order over events,
-	// lease changes and escrow changes alike.
-	//
-	// This is real server authority in the practically useful sense, and it
-	// needs no game knowledge whatsoever: **authority over order is not
-	// authority over meaning.** "You were second" needs a counter. "That move
-	// was illegal" needs to understand the game, and is not on offer here.
-	//
-	// Distinct from State.Seq, which is a per-client counter on the lossy
-	// plane and means nothing across senders.
+	// Seq is the room's sequencer stamp, assigned as the recipients are snapshotted, so every member sees one total
+	// order over events, leases and escrows. Distinct from State.Seq, a per-client counter on the lossy plane.
 	Seq uint64 `json:"seq,omitempty"`
-	// CorrID is an opaque correlation id, echoed unchanged, so an adapter can
-	// match a reply to its request without inventing a framing of its own
-	// inside Payload. The relay never generates, interprets or requires one.
+	// CorrID is an opaque correlation id, echoed unchanged, so an adapter can match a reply to its request.
 	CorrID string `json:"corr_id,omitempty"`
-	// Payload is fully opaque to the core and relay — the same rule that
-	// keeps them game-agnostic for area_id and anim is what would keep them
-	// game-agnostic for a battle protocol. Bounded by MaxEventBytes, and
-	// never fragmented: if it does not fit, send a reference, not chunks.
+	// Payload is opaque, bounded by MaxEventBytes and never fragmented: if it does not fit, send a reference.
 	Payload json.RawMessage `json:"payload"`
 }
 
-// Ping keeps an otherwise-quiet connection from going idle
-// (core.Core.sendHeartbeats) and, since 2026-08-17, doubles as the
-// clock-sync probe. Nonce is echoed in the Pong so a client can match a
-// reply to the send time it recorded — previously the field existed and
-// nothing read it back, which meant RTT was not merely unmeasured but not
-// even computable.
+// Ping keeps an otherwise-quiet connection from going idle (core.Core.sendHeartbeats) and doubles as the clock-sync
+// probe: Nonce is echoed in the Pong so a client can match a reply to the send time it recorded.
 type Ping struct {
 	Nonce uint64 `json:"nonce"`
 }
 
-// Prefs updates settings this client already stated in its Hello. Every field
-// is a POINTER so that absent means "unchanged" rather than "false" -- an
-// update message that silently reset the fields it did not mention would be a
-// trap the first time a second field is added.
-//
-// Sent by a core whenever the answer changes, which in practice means when an
-// adapter attaches and declares itself. See TypePrefs for the incident.
+// Prefs updates settings this client stated in its Hello, typically sent when an adapter attaches. Every field is
+// a pointer so absent means unchanged rather than false.
 type Prefs struct {
-	// OwnAreaOnly has exactly the meaning it has on Hello: this client renders
-	// only peers sharing its own area_id, so the relay may skip the rest.
+	// OwnAreaOnly has the meaning it has on Hello: this client renders only peers sharing its area_id.
 	OwnAreaOnly *bool `json:"own_area_only,omitempty"`
 }
 
-// Pong is the relay's reply.
+// Pong is the relay's reply to a Ping.
 type Pong struct {
 	Nonce uint64 `json:"nonce"`
-	// ServerTimeMs is the relay's own wall clock when it sent this reply, in
-	// milliseconds. With the client's recorded send time and its receive
-	// time, that is the standard three-timestamp estimate: RTT is t2-t0, and
-	// the offset between the two clocks is serverTime - (t0+t2)/2.
-	//
-	// **Why the relay is the clock and not each peer:** State.Timestamp is
-	// compared directly against a *local* wall clock by
-	// core/interp.go's remoteBuffer.at(), so two peers whose clocks
-	// disagree by more than the interpolation delay stop interpolating and
-	// silently fall back to an edge snapshot every tick — no error anywhere,
-	// just ghosts that look subtly wrong. A client that has measured this
-	// offset stamps its outgoing timestamps in the relay's clock domain
-	// instead of its own, which puts every member of a room on one shared
-	// clock without any peer having to be correct about the real time.
-	//
-	// Zero means "not advertised" — an older relay — and a client reading
-	// zero applies no offset, which is exactly the pre-2026-08-17 behaviour.
+	// ServerTimeMs is the relay's wall clock in milliseconds when it replied: with send time t0 and receive time t2,
+	// RTT is t2-t0 and the offset serverTime - (t0+t2)/2. The relay is the one clock a room's members can share,
+	// so none has to be right about the real time. Zero means an older relay, and no offset is applied.
 	ServerTimeMs int64 `json:"server_time_ms,omitempty"`
 }

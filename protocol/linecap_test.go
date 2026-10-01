@@ -6,36 +6,12 @@ import (
 	"testing"
 )
 
-// PASSING ValidateState DOES NOT MEAN THE LINE FITS, and this test exists so
-// nobody assumes otherwise -- including by "fixing" the state fuzzer with the
-// obvious assertion, which would fail on a state that is entirely legal.
-//
-// Every per-field bound is enforced independently: area_id and anim at 256
-// bytes each, orientation at 256, extras at 1024, up to 8 position components.
-// Nothing anywhere adds them up, and a carried prev (ADR 0045) meets the same
-// bounds again on its own fields. So a maximal-but-legal state serializes past
-// MaxLineBytes while ValidateState returns true for it -- measured 2026-09-08
-// at just over 4KB against the 4096 cap.
-//
-// The consequence was live and silent, which is why this is pinned rather than
-// left as a comment: the relay's read loop turns an oversized line into
-// bufio.ErrTooLong, which ENDS THE READ LOOP AND DROPS THE CONNECTION with no
-// reject (relay.go says so in as many words -- an oversized line never reaches
-// the callback). The core read EOF, classified it transient, reconnected, was
-// assigned a NEW player_id, and every peer saw despawn/respawn -- looping for as
-// long as the game stayed in that state, with nothing anywhere naming a size.
-// Redundancy is on by default at the shipped 15Hz, so prev is attached in the
-// default configuration.
-//
-// The fix is on the SEND side (core/sending.go drops prev, then refuses), not
-// here: tightening a per-field bound until the sum fits would cost every
-// ordinary state a limit it never approaches, to bound a combination no real
-// adapter produces.
+// TestValidateStateDoesNotImplyTheLineFits: every per-field bound is enforced on its own and nothing sums them, so a
+// maximal legal state carrying a prev serializes past MaxLineBytes. The sender handles it (core/sending.go drops the
+// prev, then refuses); tightening a per-field bound instead would cost every ordinary state a limit it never nears.
 func TestValidateStateDoesNotImplyTheLineFits(t *testing.T) {
-	// Built MAXIMAL BY CONSTRUCTION rather than by hand-counted bytes: each
-	// field is grown until ValidateState refuses it and then stepped back one.
-	// A hand-sized fixture silently stops being maximal the moment any bound
-	// moves, and then this test passes for the wrong reason.
+	// Maximal by construction: each field grows until ValidateState refuses it, then steps back one, so the fixture
+	// stays maximal when a bound moves.
 	fill := func(n int) string { return strings.Repeat("a", n) }
 	// Longest float literals Go will print, so position carries its worst case.
 	pos := []float64{1.2345678901234567, -2.3456789012345678, 3.4567890123456789, -4.5678901234567891,
@@ -89,9 +65,7 @@ func TestValidateStateDoesNotImplyTheLineFits(t *testing.T) {
 		t.Fatalf("the fixture is not a legal state, so it proves nothing: %s", StateRejectReason(st))
 	}
 
-	// THE ENVELOPE, not the bare state -- that is what goes on the wire and what
-	// the reader measures. The bare state is 4095 bytes here, one under the cap,
-	// which is exactly the trap: measuring the payload alone says this is fine.
+	// The envelope, not the bare state, is what the reader measures; the bare state alone is one byte under the cap.
 	payload, err := json.Marshal(st)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -107,8 +81,7 @@ func TestValidateStateDoesNotImplyTheLineFits(t *testing.T) {
 			MaxLineBytes)
 	}
 
-	// And the half the sender relies on: dropping the carried prev, which is
-	// pure redundancy, always brings a legal state back inside the cap.
+	// The sender relies on this: dropping the carried prev, pure redundancy, brings a legal state back inside the cap.
 	without := st
 	without.Prev = nil
 	shorterPayload, err := json.Marshal(without)

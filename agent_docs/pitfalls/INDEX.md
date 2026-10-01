@@ -378,3 +378,4 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - Pseudoregalia: a chaser pack that follows the recording through a death lands on the respawn point (2026-09-23) [CHECK: core TestChaserResetStartsThePackOver]
 - The stories behind the rule files, moved out of them (2026-09-30) [RULE: adapters/CLAUDE.md]
 - The stories behind the gates, moved out of preflight.ps1 (2026-09-30) [CHECK: dev-scripts/preflight.ps1]
+- The stories behind the code, moved out of its comments (2026-10-02) [CHECK: dev-scripts/preflight.ps1]

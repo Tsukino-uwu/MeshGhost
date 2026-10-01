@@ -1,30 +1,12 @@
 package protocol
 
-// The previous sample, carried inside the next one — loss cover for the state
-// plane (ADR 0045, 2026-09-02).
+// The previous sample, carried inside the next one: loss cover for the state plane. A lost sample is superseded
+// rather than retransmitted, which is right mid-walk and wrong for the last one: with change suppression, "I stopped
+// here" has no successor until the idle keepalive, so losing it leaves a ghost gliding on and then jumping.
 //
-// The state plane is unreliable on purpose: on quic it rides datagrams and on
-// udp it rides packets, and a lost sample is superseded by the next one rather
-// than retransmitted (core/sending.go). That is the right trade for a sample
-// in the MIDDLE of a walk. It is the wrong trade for the LAST one: change
-// suppression (ADR 0039) means the packet that says "I stopped here" has no
-// successor until the idle keepalive, so losing it leaves the ghost walking on
-// to nowhere and then jumping when the keepalive lands. Watched on Crystal on
-// 2026-09-02 through meshghost-netsim at 2% loss: a glide, then a teleport, on
-// quic and udp alike.
-//
-// The fix is the standard one for an unreliable game transport: every state
-// also carries the state before it, so a single lost packet costs nothing —
-// the next packet re-delivers what was missed — and only a run of losses
-// shows. It is carried as a DELTA against the state it rides in, because a
-// full copy would double the state plane's bytes and the fields that differ
-// between two consecutive samples are usually the position and a timestamp.
-//
-// The core decides WHEN to attach it (rate-gated: at a high send rate a lost
-// packet is a hole too short to see, so the bytes would buy nothing —
-// core.Core.RedundancyMinInterval). This file only defines the shape and the
-// two pure functions that build and undo it, so the relay's fuzz target and
-// the core's tests exercise the same code.
+// So every state also carries the one before it, as a delta, since a full copy would double the bytes. The core
+// decides when to attach it (core.Core.RedundancyMinInterval); this file is the shape and the two pure functions
+// that build and undo it, so the relay's fuzz target and the core's tests exercise the same code.
 
 import (
 	"bytes"
@@ -32,20 +14,13 @@ import (
 	"reflect"
 )
 
-// StatePrev is the sender's previous sample as a delta against the State that
-// carries it. Every field that is absent means "the same as in the carrying
-// state"; Seq and Timestamp are always present because they always differ.
+// StatePrev is the sender's previous sample as a delta against the State that carries it: an absent field means
+// "the same as in the carrying state", and Seq and Timestamp are always present.
 //
-// Explicitly nullable fields say "the previous sample did NOT have this":
-//   - Orientation: the JSON literal null means the previous sample carried no
-//     orientation (omitting it would mean "same as now").
-//   - Position: PositionNone true means the previous sample carried none (an
-//     empty array would be dropped by omitempty like a nil one).
-//   - Extras: a key whose value is null was ABSENT in the previous sample;
-//     ExtrasNone true means the previous sample had no extras at all. A real
-//     null VALUE inside extras is indistinguishable from absence here, which
-//     the contract accepts: extras are a "small free-form dict" and no shipped
-//     adapter sends a null value (a key it has nothing to say for is omitted).
+// Absence in the previous sample is explicit: Orientation null means it had no orientation, PositionNone that it
+// had no position (an empty array is dropped by omitempty), an extras key set to null that the key was absent, and
+// ExtrasNone that it had no extras. A real null value inside extras therefore reads as absence, which the contract
+// accepts.
 type StatePrev struct {
 	Seq          uint64          `json:"seq"`
 	Timestamp    int64           `json:"timestamp"`
@@ -60,10 +35,9 @@ type StatePrev struct {
 
 var jsonNull = []byte("null")
 
-// BuildPrev expresses prev as a delta against cur. prev must be the sample
-// sent IMMEDIATELY before cur by the same sender, with its own Seq and
-// Timestamp; cur.Prev is ignored (a prev never carries a prev). Never nil: at
-// minimum the delta carries prev's seq and timestamp.
+// BuildPrev expresses prev as a delta against cur. prev must be the sample sent immediately before cur by the same
+// sender; cur.Prev is ignored, since a prev never carries a prev. Never nil: the delta carries at least prev's seq
+// and timestamp.
 func BuildPrev(prev, cur *State) *StatePrev {
 	d := &StatePrev{Seq: prev.Seq, Timestamp: prev.Timestamp}
 	if prev.AreaID != cur.AreaID {
@@ -76,9 +50,7 @@ func BuildPrev(prev, cur *State) *StatePrev {
 	}
 	if !samePositionValues(prev.Position, cur.Position) {
 		if len(prev.Position) == 0 {
-			// prev had no position and cur has one. An empty slice is
-			// dropped by omitempty exactly like a nil one, so absence needs
-			// its own flag, the same way extras_none does.
+			// An empty slice is dropped by omitempty like a nil one, so absence needs its own flag.
 			d.PositionNone = true
 		} else {
 			d.Position = append([]float64(nil), prev.Position...)
@@ -111,14 +83,9 @@ func BuildPrev(prev, cur *State) *StatePrev {
 	return d
 }
 
-// ApplyPrev reconstructs the previous sample from the state that carries it.
-// The result has no Prev of its own and keeps cur's PlayerID (the relay stamps
-// that on the carrying state, and the previous sample came from the same
-// sender).
-//
-// Returns ok=false for two reasons: cur carries no prev, or the reconstruction
-// would break a bound neither ValidateState nor validPrev can see on its own --
-// the extras union below, which is the only field this function creates.
+// ApplyPrev reconstructs the previous sample from the state that carries it, with no Prev and cur's PlayerID (the
+// same sender). ok=false when cur carries no prev, or when the extras union, the one field this function creates,
+// breaks a bound neither ValidateState nor validPrev can see.
 func ApplyPrev(cur *State) (State, bool) {
 	p := cur.Prev
 	if p == nil {
@@ -151,8 +118,7 @@ func ApplyPrev(cur *State) (State, bool) {
 	case p.ExtrasNone:
 		out.Extras = nil
 	case p.Extras != nil:
-		// A fresh map every time: cur.Extras is shared with the carrying
-		// state, which the caller still stores, so it is never mutated here.
+		// A fresh map: cur.Extras is shared with the carrying state, which the caller still stores.
 		m := make(map[string]any, len(cur.Extras)+len(p.Extras))
 		for k, v := range cur.Extras {
 			m[k] = v
@@ -164,29 +130,9 @@ func ApplyPrev(cur *State) (State, bool) {
 				m[k] = v
 			}
 		}
-		// THE UNION IS THE ONE FIELD THIS FUNCTION CREATES, so it is the one
-		// field neither validator has seen.
-		//
-		// ValidateState bounds cur.Extras and validPrev bounds p.Extras, each on
-		// its own, and until 2026-09-12 nothing bounded what they add up to. The
-		// keys need only be DISJOINT: ~1020 bytes of `a0…` on the state and
-		// ~1020 bytes of `b0…` on its prev both pass, the whole line is ~2300
-		// bytes and comfortably inside the 4095 cap, and the reconstruction is
-		// ~2046 -- twice the bound `adapters/_template/PROTOCOL.md` and
-		// `agent_docs/contract.md` promise adapter authors, handed to them as
-		// render_remote.state.extras.
-		//
-		// Found by the parity cell of the third adversarial review (X1-2), and
-		// it is the third instance of the class validPrev's own comment names:
-		// a check applied to the state and not to what the delta makes of it.
-		// The other two were the orientation depth (2026-09-08) and the
-		// timestamp (2026-09-12, ten lines down).
-		//
-		// DROPPING THE COVER RATHER THAN THE STATE is the right degradation and
-		// costs almost nothing: prev is pure redundancy (ADR 0045), so the ghost
-		// walks over one recovered sample it would only have had if a packet had
-		// been lost. The carrying state is untouched -- this returns before
-		// anything is handed back, and the caller stores cur regardless.
+		// ValidateState bounds cur.Extras and validPrev bounds p.Extras, each alone, so disjoint keys can both
+		// pass and sum to twice the bound. Dropping the cover rather than the state costs almost nothing: prev is
+		// pure redundancy, and the caller stores cur regardless.
 		if !extrasWithinLimit(m) {
 			return State{}, false
 		}
@@ -195,8 +141,7 @@ func ApplyPrev(cur *State) (State, bool) {
 	return out, true
 }
 
-// samePositionValues is component-wise equality with nil and empty treated as
-// the same absence (a position is "none" either way on the wire).
+// samePositionValues is component-wise equality with nil and empty treated as the same absence.
 func samePositionValues(a, b []float64) bool {
 	if len(a) != len(b) {
 		return false
@@ -209,27 +154,14 @@ func samePositionValues(a, b []float64) bool {
 	return true
 }
 
-// validPrev is ValidateState's view of a carried previous sample: every bound
-// the carrying state must meet, applied to the delta's own fields. No nesting
-// is possible by type (StatePrev has no Prev), so this cannot recurse.
+// validPrev is ValidateState's view of a carried previous sample: every bound the carrying state must meet, applied
+// to the delta's own fields. StatePrev has no Prev, so this cannot recurse.
 func validPrev(p *StatePrev) bool {
 	if p == nil {
 		return true
 	}
-	// THE ONE BOUND THIS FUNCTION OMITTED, despite its own comment above
-	// promising every bound the carrying state must meet. ValidateState applies
-	// exactly this to state.timestamp and says why on MaxTimestampMs; nothing
-	// applied it here, so any int64 walked in as prev.timestamp -- and ApplyPrev
-	// copies the timestamp across verbatim, so the sample that reaches the
-	// buffer is one ValidateState would have refused.
-	//
-	// The consequence is the third defect MaxTimestampMs lists, reached by the
-	// side door: the peer's newest timestamp becomes permanently the newest
-	// anything will ever be, the stale age-out can never fire for it, and the
-	// room keeps a frozen ghost holding a roster seat for the rest of the
-	// session. Same shape as the orientation-depth omission recorded below --
-	// a check applied to the state and not to the delta it carries. Found by
-	// the third adversarial review (P2b-1).
+	// ApplyPrev copies the timestamp verbatim, so an unbounded one would reach the buffer as a sample ValidateState
+	// refuses and leave the peer immune to the stale age-out.
 	if p.Timestamp < 0 || p.Timestamp > MaxTimestampMs {
 		return false
 	}
@@ -239,14 +171,8 @@ func validPrev(p *StatePrev) bool {
 	if p.Anim != nil && !ValidOpaqueString(*p.Anim, MaxAnimLen) {
 		return false
 	}
-	// Both halves of the orientation bound, exactly as ValidateState applies
-	// them to state.orientation. The depth half was missing until 2026-09-08:
-	// a 240-byte "[[[[...]]]]" is ~120 levels deep, so it sat under the
-	// 256-byte cap, was refused as state.orientation and accepted as
-	// prev.orientation — and ApplyPrev copies orientation across verbatim, so
-	// the reconstruction handed to the adapter as render_remote.orientation is
-	// a state ValidateState itself would reject. Both Lua adapters cap at 64
-	// levels and would refuse it; the C# and C++ ones have no cap at all.
+	// Both halves of the orientation bound, as ValidateState applies them: ApplyPrev copies orientation verbatim to
+	// the adapter.
 	if JSONWireLen(p.Orientation) > MaxOrientationBytes ||
 		!rawJSONDepthWithinLimit(p.Orientation) {
 		return false

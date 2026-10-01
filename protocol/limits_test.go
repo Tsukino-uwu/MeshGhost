@@ -8,10 +8,6 @@ import (
 	"testing"
 )
 
-// TestIsValidPosition covers the newest safety check added to this
-// package — found with zero test coverage anywhere in the codebase while
-// doing a full documentation/code sweep, despite being the check that
-// stops a peer wedging a NaN/±Inf/absurd-magnitude value onto the wire.
 func TestIsValidPosition(t *testing.T) {
 	cases := []struct {
 		name string
@@ -36,9 +32,6 @@ func TestIsValidPosition(t *testing.T) {
 	}
 }
 
-// TestValidateState covers the extracted, shared check that replaced the
-// verbatim-duplicated validation block previously carried separately by
-// relay and core.
 func TestValidateState(t *testing.T) {
 	valid := func() State {
 		return State{
@@ -97,21 +90,10 @@ func TestValidateState(t *testing.T) {
 	})
 }
 
-// TestOpaqueIdentifiersMustBeValidUTF8 is the named form of a defect the
-// fuzzer found (its reproducing input is kept in
-// testdata/fuzz/FuzzValidateEventIsStableAcrossTheWire, where `go test` replays
-// it, but a seed file explains nothing about why it matters).
-//
-// The rule: an opaque identifier is only ever compared by equality, and a
-// string that is not valid UTF-8 does not survive JSON — encoding/json swaps
-// each invalid byte for U+FFFD. So the sender's key and every receiver's key
-// are different strings, and equality silently stops working. The replacement
-// also expands one byte into three, which is how it surfaced: a corr_id that
-// passed the length check before marshaling failed it afterwards, so a client
-// accepted an event the relay would then silently drop.
+// TestOpaqueIdentifiersMustBeValidUTF8: an opaque identifier is compared by equality only, and invalid UTF-8 comes
+// back from JSON as a different, longer string. Reproducer: testdata/fuzz/FuzzValidateEventIsStableAcrossTheWire.
 func TestOpaqueIdentifiersMustBeValidUTF8(t *testing.T) {
-	// Valid UTF-8 and comfortably short. Non-ASCII on purpose: the rule is
-	// about well-formedness, never about restricting anyone to ASCII.
+	// Non-ASCII on purpose: the rule is about well-formedness, never about restricting anyone to ASCII.
 	const ok = "route103:rare-candy-ünïcode"
 	// A lone continuation byte: syntactically impossible UTF-8.
 	const bad = "route103:\xb4\xe5"
@@ -142,16 +124,13 @@ func TestOpaqueIdentifiersMustBeValidUTF8(t *testing.T) {
 		t.Errorf("a state with an invalid-UTF-8 anim was accepted")
 	}
 
-	// And the legitimate cases still pass, so this cannot have been "fixed"
-	// by rejecting everything.
+	// The legitimate cases still pass, so this was not fixed by rejecting everything.
 	if !ValidateEvent(Event{CorrID: ok}) || !ValidateLease(Lease{Op: LeaseClaim, Key: ok}) ||
 		!ValidateState(State{AreaID: ok, Anim: ok}) {
 		t.Errorf("valid identifiers were rejected by the new UTF-8 check")
 	}
 }
 
-// TestValidateWorldBounds covers the world plane's refusals. Both identifiers
-// go through ValidOpaqueString, so both are length- and UTF-8-checked.
 func TestValidateWorldBounds(t *testing.T) {
 	ok := World{Op: WorldSet, Authority: "sim", Key: "e0", Blob: json.RawMessage(`{"gen":1}`)}
 	if !ValidateWorld(ok) {
@@ -178,15 +157,13 @@ func TestValidateWorldBounds(t *testing.T) {
 	if ValidateWorld(big) {
 		t.Fatal("an oversized blob was accepted")
 	}
-	// The UTF-8 half, which is the one that fails silently rather than loudly.
 	if ValidateWorld(World{Op: WorldSet, Authority: "\xff", Key: "e0"}) {
 		t.Fatal("a non-UTF-8 authority was accepted -- it would compare unequal to the " +
 			"lease key it names once JSON replaced the invalid bytes")
 	}
 }
 
-// TestValidateWorldStateBounds is the receive-side check: a hostile relay is
-// not trusted to have enforced its own limits.
+// TestValidateWorldStateBounds is the receive side: a hostile relay is not trusted to have enforced its own limits.
 func TestValidateWorldStateBounds(t *testing.T) {
 	if !ValidateWorldState(WorldState{Authority: "sim", Holder: "p1", Seq: 1,
 		Entries: []WorldEntry{{Key: "e0", Blob: json.RawMessage(`1`)}}}) {
@@ -208,11 +185,8 @@ func TestValidateWorldStateBounds(t *testing.T) {
 	}
 }
 
-// TestJSONWireLenMatchesWhatMarshalWrites pins the helper to the encoder it
-// models: whatever encoding/json actually emits for a raw value must never be
-// longer than JSONWireLen said it would be. A bound that under-counts is the
-// bug this whole helper exists to fix, so under-counting is what this checks —
-// over-counting (the whitespace it declines to credit) is allowed.
+// TestJSONWireLenMatchesWhatMarshalWrites: what encoding/json emits for a raw value must never be longer than
+// JSONWireLen said. Over-counting, the whitespace it declines to credit, is allowed.
 func TestJSONWireLenMatchesWhatMarshalWrites(t *testing.T) {
 	for _, raw := range []string{
 		`1`, `null`, `{"gen":1}`, `"plain"`, `{ "a" : [1, 2] }`,
@@ -231,12 +205,8 @@ func TestJSONWireLenMatchesWhatMarshalWrites(t *testing.T) {
 	}
 }
 
-// TestBlobBoundsCountEscapedBytes is the regression for the input CI's
-// FuzzValidateWorldIsStableAcrossTheWire found on 2026-08-22: a blob that fits
-// in hand and does not fit once encoding/json has escaped every '&' in it.
-// Accepting it means the sender validates, the relay forwards, and the far
-// side rejects a write nobody can explain -- and, on UDP, a datagram built to
-// a 1200-byte budget that is six times over it.
+// TestBlobBoundsCountEscapedBytes: a blob that fits in hand but not once encoding/json has escaped every '&' must be
+// refused, or the sender validates a write the far side rejects.
 func TestBlobBoundsCountEscapedBytes(t *testing.T) {
 	// Raw length comfortably inside the limit; escaped length past it.
 	blob := json.RawMessage(`"` + strings.Repeat("&", MaxWorldBlobBytes/3) + `"`)
@@ -262,13 +232,8 @@ func TestBlobBoundsCountEscapedBytes(t *testing.T) {
 	}
 }
 
-// TestClampSendHzAndClampReceiveHzDifferOnZero pins the ONE rule that
-// distinguishes the two functions: zero means "use the default rate" for a send
-// rate and "uncapped" for a receive cap, so ClampSendHz(0) is DefaultSendHz and
-// ClampReceiveHz(0) is 0. Neither function had a direct unit test until
-// 2026-08-27 -- the behaviour was covered end to end by a relay test, which
-// would not have caught the two being swapped at a call site, and swapping them
-// is the mistake the shared [MinSendHz, MaxSendHz] tail makes easy.
+// TestClampSendHzAndClampReceiveHzDifferOnZero pins the one rule that tells the two apart: zero is DefaultSendHz for
+// a send rate and uncapped for a receive cap. Their shared clamped tail makes swapping them at a call site easy.
 func TestClampSendHzAndClampReceiveHzDifferOnZero(t *testing.T) {
 	for _, hz := range []int{0, -1, -1000} {
 		if got := ClampSendHz(hz); got != DefaultSendHz {
@@ -279,9 +244,6 @@ func TestClampSendHzAndClampReceiveHzDifferOnZero(t *testing.T) {
 		}
 	}
 
-	// Everything else about the two is identical, and that is the point: a
-	// positive value is clamped into range rather than refused, because neither
-	// a relay nor a client may fail over a cosmetic tuning knob.
 	for _, f := range []struct {
 		name string
 		fn   func(int) int
@@ -301,14 +263,9 @@ func TestClampSendHzAndClampReceiveHzDifferOnZero(t *testing.T) {
 	}
 }
 
-// The exact byte where Extras stops being acceptable. Pinned so that any future
-// attempt to compute this length more cheaply — a hand-written size walker was
-// considered and rejected in 2026-08-28's efficiency pass — cannot move the
-// boundary by one byte without a test saying so. A moved boundary is not a
-// performance regression, it is a state the relay accepts and the core rejects.
+// TestExtrasLimitIsExactlyMarshalLength pins the byte where Extras stops being acceptable, so a cheaper length
+// computation cannot move the boundary between relay and core unnoticed.
 func TestExtrasLimitIsExactlyMarshalLength(t *testing.T) {
-	// Build a single-key map whose marshaled form lands on a chosen length.
-	// {"k":"<pad>"} is 8 bytes of syntax around the padding.
 	const overhead = len(`{"k":""}`)
 	atLength := func(n int) map[string]any {
 		return map[string]any{"k": strings.Repeat("a", n-overhead)}
@@ -331,10 +288,8 @@ func TestExtrasLimitIsExactlyMarshalLength(t *testing.T) {
 	}
 }
 
-// The pooled sizer is shared across goroutines by construction: the relay
-// validates every client's state on that client's own read goroutine, so this
-// runs concurrently at exactly the room's message rate. Guards against the
-// buffer being reused mid-encode, which -race reports and a serial test cannot.
+// TestExtrasSizingIsConcurrencySafe: the relay validates each client's state on that client's read goroutine, so
+// the pooled sizer runs concurrently; -race reports a buffer reused mid-encode, a serial test cannot.
 func TestExtrasSizingIsConcurrencySafe(t *testing.T) {
 	small := map[string]any{"k": "v"}
 	big := map[string]any{"k": strings.Repeat("b", MaxExtrasBytes)}
@@ -358,9 +313,6 @@ func TestExtrasSizingIsConcurrencySafe(t *testing.T) {
 	wg.Wait()
 }
 
-// StateRejectReason must name the extras cap for an oversized-extras state and
-// stay empty for a valid one -- the 2026-09-01 sword-throw investigation is why
-// this string exists at all (both enforcement points dropped silently).
 func TestStateRejectReasonNamesOversizedExtras(t *testing.T) {
 	st := State{PlayerID: "p1", AreaID: "area", Anim: "idle", Position: []float64{1, 2, 3}}
 	if got := StateRejectReason(st); got != "" {
@@ -379,19 +331,9 @@ func TestStateRejectReasonNamesOversizedExtras(t *testing.T) {
 	}
 }
 
-// TestDepthBoundRefusesWhatTheSizeCapAdmits pins the gap MaxJSONDepth closes,
-// with the numbers that were measured on 2026-08-24 and sat open in
-// agent_docs/security-design.md until 2026-09-03: a size cap is not a shape cap,
-// and nesting is nearly free per level.
-//
-// Why the existing extras targets never caught this: FuzzExtrasSizingMatchesMarshal
-// checks that our fast sizer agrees with encoding/json about LENGTH, and
-// FuzzValidateStateIsStableAcrossTheWire checks a state survives a round trip.
-// Both are about bytes. Nothing asked about structure, because nothing had a
-// bound on structure to ask about.
+// TestDepthBoundRefusesWhatTheSizeCapAdmits: a size cap is not a shape cap, and nesting is nearly free per level.
 func TestDepthBoundRefusesWhatTheSizeCapAdmits(t *testing.T) {
-	// A nested value costs about a byte a level, so the deep ones below are all
-	// comfortably inside their size caps -- that is the whole point.
+	// A nested value costs about a byte a level, so the deep ones below all fit inside their size caps.
 	deepExtras := func(depth int) map[string]any {
 		var v any = 1
 		for i := 0; i < depth; i++ {
@@ -419,8 +361,7 @@ func TestDepthBoundRefusesWhatTheSizeCapAdmits(t *testing.T) {
 		}
 	}
 
-	// Orientation takes the same bound over raw bytes, and 127 levels was
-	// measured as fitting inside its 256-byte cap.
+	// Orientation takes the same bound over raw bytes; 127 levels fit inside its 256-byte cap.
 	for _, tc := range []struct {
 		depth int
 		want  bool
@@ -440,14 +381,13 @@ func TestDepthBoundRefusesWhatTheSizeCapAdmits(t *testing.T) {
 		}
 	}
 
-	// A brace inside a STRING is not nesting. The byte scan has to know that,
-	// or an ordinary quaternion with a "{" in a label would be refused.
+	// A brace inside a string is not nesting, or a quaternion with a "{" in a label would be refused.
 	deepLooking := []byte(`{"a":"{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{"}`)
 	if !rawJSONDepthWithinLimit(deepLooking) {
 		t.Error("braces inside a string literal counted as nesting")
 	}
 
-	// And the reject reason must name the SHAPE, not a size that is not the problem.
+	// The reject reason must name the shape, not a size that is not the problem.
 	st := State{Position: []float64{1, 2}, Extras: deepExtras(200)}
 	if reason := StateRejectReason(st); !strings.Contains(reason, "nests deeper") {
 		t.Errorf("StateRejectReason = %q, want it to name the depth cap", reason)

@@ -6,20 +6,8 @@ import (
 	"testing"
 )
 
-// Three bounds that every sibling already had (X1-6, X1-7, X1-8; 2026-09-12).
-//
-// A parity cell's whole job is "who else is of this shape", and these are what
-// it found in this package: two receive validators missing a check their
-// neighbours carry, and one bare `len()` among a file of `ValidOpaqueString`s.
-// None is dramatic on its own. All three are the shape that produced eleven of
-// the roughly twenty-five defects this pass fixed, which is the reason to keep
-// looking for it (agent_docs/pitfalls/method.md).
-
-// TestValidateEventBoundsTheIdItCarriesFrom is X1-7. Every other receive
-// validator in this package bounds every peer id it carries; ValidateEvent
-// bounded To and CorrID and left From, which the relay stamps and the CORE
-// then validates a hostile relay's version of before handing it to the adapter
-// as "who this came from".
+// TestValidateEventBoundsTheIdItCarriesFrom: every other receive validator bounds every peer id it carries, and the
+// core checks a relay's From before handing it to the adapter as the sender.
 func TestValidateEventBoundsTheIdItCarriesFrom(t *testing.T) {
 	base := Event{Payload: []byte(`{}`)}
 
@@ -30,22 +18,15 @@ func TestValidateEventBoundsTheIdItCarriesFrom(t *testing.T) {
 			"peer id on a receive path gets", len(long.From), MaxHelloFieldLenForID)
 	}
 
-	// What ValidOpaqueString actually refuses is invalid UTF-8, and that is the
-	// property that matters for an id: a string that does not survive a
-	// marshal/unmarshal round trip unchanged (json replaces the bad byte with
-	// U+FFFD) is one this core would key a map by and the relay would key a
-	// DIFFERENT one by. Control bytes are legal UTF-8 and are deliberately not
-	// refused -- an opaque id's contents are the game's business.
+	// Invalid UTF-8 is what matters for an id: it does not survive a round trip, so core and relay would key
+	// different strings. Control bytes are legal UTF-8 and allowed; an opaque id's contents are the game's business.
 	bad := base
 	bad.From = string([]byte{'p', 0xff, 0xfe})
 	if ValidateEvent(bad) {
 		t.Fatal("accepted an event whose From is not valid UTF-8")
 	}
 
-	// EMPTY IS LEGAL, and this is the half that matters as much as the bound:
-	// a relay that predates the field sends no From at all, and refusing that
-	// would drop every event from an older relay in order to stop one from a
-	// hostile one.
+	// Empty is legal: a relay older than the field sends no From, and refusing it would drop all its events.
 	ok := base
 	if !ValidateEvent(ok) {
 		t.Fatal("refused an event with no From; that is the shape an older relay sends")
@@ -56,10 +37,8 @@ func TestValidateEventBoundsTheIdItCarriesFrom(t *testing.T) {
 	}
 }
 
-// TestNormalizeFeaturesIsBounded is X1-6. validateFeatures gates a Hello, so
-// the relay is protected from a client's list; nothing gated a Welcome, so the
-// client took whatever the relay answered with -- into c.activeFeatures, which
-// HasFeature scans linearly under c.mu on every inbound plane message.
+// TestNormalizeFeaturesIsBounded: validateFeatures gates only a Hello, so a Welcome's list reaches the client, and
+// HasFeature scans it under the core's lock on every plane message.
 func TestNormalizeFeaturesIsBounded(t *testing.T) {
 	var huge []string
 	for i := 0; i < 1000; i++ {
@@ -71,8 +50,7 @@ func TestNormalizeFeaturesIsBounded(t *testing.T) {
 			"compares under the core's lock on every plane message", len(got), len(got))
 	}
 
-	// A name no feature could have is dropped rather than counted against the
-	// cap, so a flood of long junk cannot push a real capability out.
+	// A name no feature could have is dropped, not counted against the cap, so junk cannot push a real one out.
 	junk := []string{strings.Repeat("x", MaxFeatureLen+1), string([]byte{0xff, 0xfe}), FeatureEventV1}
 	got = NormalizeFeatures(junk)
 	if len(got) != 1 || got[0] != FeatureEventV1 {
@@ -80,9 +58,7 @@ func TestNormalizeFeaturesIsBounded(t *testing.T) {
 			junk, got)
 	}
 
-	// And the ordinary case is untouched: this function's day job is making two
-	// clients' lists comparable, and a real list is nowhere near any of these
-	// bounds.
+	// The ordinary case is untouched: a real list is nowhere near these bounds.
 	real := []string{FeatureWorldV1, FeatureEventV1, FeatureEventV1, "  " + FeatureLeaseV1 + "  "}
 	got = NormalizeFeatures(real)
 	if len(got) != 3 {
@@ -90,12 +66,8 @@ func TestNormalizeFeaturesIsBounded(t *testing.T) {
 	}
 }
 
-// TestValidateFeaturesUsesTheOpaqueStringRule is X1-8: the last bare len()
-// check on an opaque string in this package, now asking the same question every
-// sibling asks. Unreachable from the wire, because encoding/json replaces an
-// invalid byte with U+FFFD before this ever runs -- which is a property of the
-// decoder in front of it, not of this exported function, and is exactly the
-// reasoning that let X1-4 through on another field.
+// TestValidateFeaturesUsesTheOpaqueStringRule: only the decoder in front keeps invalid UTF-8 off the wire, which is a
+// property of the decoder, not of this exported function.
 func TestValidateFeaturesUsesTheOpaqueStringRule(t *testing.T) {
 	if validateFeatures([]string{string([]byte{0xff, 0xfe})}) {
 		t.Fatal("accepted a feature name that is not valid UTF-8 -- a name that does not survive " +

@@ -2829,3 +2829,18 @@ Nothing pushed, so CI has not seen any of today's commits.
 
 A new optional bridge message, adapter -> core: a death starts the chaser pack over (`ResetChasers`,
 `core/chaser.go`; `TestChaserResetStartsThePackOver`). The whole account is `phase7.md`, same date.
+
+## 2026-10-02 — A5: the Go side's comments cut to what and why
+
+Part A5 of the plan that brings bug_fables_ap's gates over (the whole account is `phase12.md`): every Go comment is
+read against its code and kept only as a doc comment trimmed to what and why, or a one-line why the code cannot say.
+Batches drafted by subagents, each proved here before its commit: `go/scanner` tokens minus comments identical to the
+parent commit (every directive comment unchanged), gofmt clean, no date, "the user", review ID or `.md` pointer left
+in a comment, and `run-gotests.bat` green on the tree. History a comment carried that no record held went word for
+word to [pitfalls/by-lesson.md](../pitfalls/by-lesson.md), "The stories behind the code"; a Go-side measurement no
+record held went to [verified.md](../verified.md), same date; a doc pointer a comment carried moved to its file's row in
+[code-map.md](../code-map.md). Comments found contradicting the code were fixed to it and are listed per commit.
+
+- `protocol/` (21 files): comment lines 2,379 → 663. Nine stale claims fixed, among them the nametag an empty name
+  gets (none, not the player's id), `clock.v1` called purely informational (the core applies it), and `Welcome.Features`
+  called identical for every member (each client's own client-scoped features are added).

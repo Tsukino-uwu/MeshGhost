@@ -1,17 +1,8 @@
 package protocol
 
-// This file is the wire vocabulary for everything past the cosmetic state
-// plane: the event plane, the room sequencer, lease authority, escrow, room
-// feature negotiation, and session resumption. The design reasoning — why a
-// relay can arbitrate at all without understanding a game, and which gaps
-// this does NOT close — lives in agent_docs/beyond-cosmetic.md; this file is
-// only the shapes and their limits.
-//
-// The governing rule, restated here because every type below depends on it:
-// **the relay compares these strings for equality and does nothing else with
-// them.** A lease key, an escrow id, an event payload and a feature name are
-// all as opaque to relay as area_id and anim already are. Authority
-// over *order* (who was first) never requires knowing what a thing *means*.
+// The wire vocabulary past the cosmetic state plane: events, the room sequencer, leases, escrow, world custody,
+// feature negotiation and resumption. The relay compares these strings for equality and does nothing else with them:
+// authority over order (who was first) never requires knowing what a thing means.
 
 import (
 	"encoding/json"
@@ -21,61 +12,24 @@ import (
 	"unicode/utf8"
 )
 
-// ValidOpaqueString reports whether s is usable as one of this protocol's
-// opaque identifiers: within maxBytes, and valid UTF-8.
-//
-// **The UTF-8 half is not tidiness, and it is not about the contents.** The
-// contract permits exactly one operation on an opaque string — comparison by
-// equality — and a string that is not valid UTF-8 does not survive JSON:
-// encoding/json replaces each invalid byte with U+FFFD on the way out. So the
-// key a sender wrote and the key every receiver compares are different
-// strings, and equality silently stops working across the wire. That is a
-// worse failure than a refusal, because nothing reports it.
-//
-// The replacement also EXPANDS (one bad byte becomes three), which is how this
-// was found: FuzzValidateEventIsStableAcrossTheWire produced a corr_id that
-// passed the length check before being marshaled and failed it afterwards, so
-// a client's own validation accepted an event the relay would then silently
-// drop. The length asymmetry is the symptom; the broken equality is the
-// disease, and rejecting invalid UTF-8 fixes both at once rather than
-// budgeting for worst-case expansion.
-//
-// Not reachable from the wire itself — a string decoded from JSON is already
-// valid UTF-8, because the decoder did the same replacement on the way in — so
-// this guards the in-process callers: core's exported send paths, and
-// any future in-process adapter that builds these values in Go.
+// ValidOpaqueString reports whether s is usable as an opaque identifier: within maxBytes, and valid UTF-8. An
+// identifier is only ever compared by equality, and invalid UTF-8 comes back from JSON as a different string, so
+// equality would silently break across the wire. A string decoded from JSON is already valid, so this guards
+// in-process callers.
 func ValidOpaqueString(s string, maxBytes int) bool {
 	return len(s) <= maxBytes && utf8.ValidString(s)
 }
 
-// ValidOpaqueStringOnWire is ValidOpaqueString with the length measured where
-// it is spent: on the bytes encoding/json writes, not the bytes in hand. Use it
-// for any opaque identifier whose bound was DERIVED from a transport budget,
-// where an under-count is not a slack limit but an undeliverable message.
-//
-// The expansion is the same one JSONWireLen documents for raw values, plus the
-// two a string literal adds: '<', '>' and '&' become six bytes each, U+2028 and
-// U+2029 become six from three, a quote or a backslash doubles, and a control
-// byte becomes a six-byte \u00xx. Invalid UTF-8 needs no budget here because it
-// is refused outright, for the equality reason ValidOpaqueString gives above.
-//
-// Added 2026-09-08. ValidateWorld measured Authority and Key with len() while
-// MaxWorldBlobBytes was derived by SUBTRACTING their bounds from the datagram
-// budget — an arithmetic that only holds if all three are measured the same
-// way. Measured that day: the maximal all-ASCII world_state is 1115 bytes of
-// payload plus 18 of envelope framing, inside udpconn's 1200; swapping the
-// authority to 128 '&' and the key to 64 '&' — both of which ValidateWorld
-// accepted — makes the same message 2075 bytes, which udpconn.checkWritable
-// refuses. Every world_state for that authority then vanished for every
-// udp/quic-datagram peer, reported only as "relay: send to pX failed:".
+// ValidOpaqueStringOnWire is ValidOpaqueString with the length measured on the bytes encoding/json writes. Use it for
+// an identifier whose bound was derived from a transport budget, where an under-count means an undeliverable
+// message: '<', '>' and '&' become six bytes, U+2028/U+2029 six from three, a quote or backslash two, a control byte
+// six. Invalid UTF-8 needs no budget; it is refused.
 func ValidOpaqueStringOnWire(s string, maxBytes int) bool {
 	return utf8.ValidString(s) && opaqueStringWireLen(s) <= maxBytes
 }
 
-// opaqueStringWireLen is how many bytes s occupies inside a JSON string,
-// excluding the surrounding quotes (those belong to the message's scaffolding,
-// which the derivations account for separately). Exact for valid UTF-8, which
-// is the only input ValidOpaqueStringOnWire ever passes it.
+// opaqueStringWireLen is how many bytes s occupies inside a JSON string, quotes excluded (the message's scaffolding
+// accounts for them). Exact for valid UTF-8, the only input it is given.
 func opaqueStringWireLen(s string) int {
 	n := len(s)
 	for i := 0; i < len(s); i++ {
@@ -87,7 +41,7 @@ func opaqueStringWireLen(s string) int {
 		case c < 0x20:
 			n += 5
 		case c == 0xe2:
-			// U+2028 (e2 80 a8) and U+2029 (e2 80 a9): three bytes out, six in.
+			// U+2028 (e2 80 a8) and U+2029 (e2 80 a9): three bytes in, six on the wire.
 			if i+2 < len(s) && s[i+1] == 0x80 && (s[i+2] == 0xa8 || s[i+2] == 0xa9) {
 				n += 3
 			}
@@ -96,189 +50,92 @@ func opaqueStringWireLen(s string) int {
 	return n
 }
 
-// Capability strings a client advertises in Hello.Features. Each names one
-// thing the relay is asked to do that it would otherwise never do; a room
-// whose agreed feature set lacks one has that code path stay completely
-// unused for its whole life, which is what makes all of this opt-in rather
-// than imposed (agent_docs/beyond-cosmetic.md §3 — the relay needs no
-// per-game table and no game_id branch, which CLAUDE.md forbids anyway).
-//
-// Versioned from the start (".v1") because a capability's *meaning* can
-// change while its name doesn't. A future incompatible lease protocol is
-// "lease.v2" and simply fails to match a v1 room, which is exactly the
-// behaviour wanted — as opposed to a Version bump, which hard-rejects every
-// deployed client (see agent_docs/contract.md's versioning rule).
+// Capability strings a client advertises in Hello.Features. Each names one thing the relay would otherwise never do,
+// so a room whose agreed set lacks one never runs that path. Versioned because a capability's meaning can change
+// while its name does not: an incompatible lease protocol is "lease.v2" and simply fails to match a v1 room, where a
+// Version bump would refuse every deployed client.
 const (
-	// FeatureEventV1 enables addressed event routing (TypeEvent). Without
-	// it the relay drops events rather than forwarding them.
+	// FeatureEventV1 enables addressed event routing (TypeEvent); without it the relay drops events.
 	FeatureEventV1 = "event.v1"
 	// FeatureLeaseV1 enables lease claim/renew/release over opaque keys.
 	FeatureLeaseV1 = "lease.v1"
-	// FeatureEscrowV1 enables two-sided atomic exchange. Implies nothing
-	// about leases: a lease grants exclusive *access*, never an atomic
-	// *swap*, and conflating the two is where historical trading exploits
-	// came from (agent_docs/beyond-cosmetic.md §5).
+	// FeatureEscrowV1 enables two-sided atomic exchange. It implies nothing about leases: a lease grants exclusive
+	// access, never an atomic swap.
 	FeatureEscrowV1 = "escrow.v1"
-	// FeatureSnapshotV1 asks the relay to seed a joining client with each
-	// existing member's most recent state, via Join.State. Opt-in only
-	// because it changes what a newly-joined client receives, and every
-	// pre-2026-08-17 client got nothing.
+	// FeatureSnapshotV1 asks the relay to seed a joining client with each member's latest state, via Join.State.
+	// Opt-in because it changes what a newly joined client receives.
 	FeatureSnapshotV1 = "snapshot.v1"
-	// FeatureResumeV1 enables session resumption: a client that drops
-	// unexpectedly and reconnects with its resume token keeps its player_id,
-	// and the rest of the room is never told it left at all.
+	// FeatureResumeV1 enables session resumption: a client that drops and reconnects with its resume token keeps
+	// its player_id, and the rest of the room is never told it left.
 	FeatureResumeV1 = "resume.v1"
-	// FeatureWorldV1 asks the relay to hold custody of a room's world: the
-	// latest opaque blob per entity, handed as a canonical set to whoever
-	// takes the authority lease next, and to anyone who joins.
-	//
-	// **Custody is not designation.** lease.v1 already answers "who is
-	// authoritative" and hands the key to the next claimant when a holder
-	// leaves. What it cannot do is say what that successor inherits: without
-	// custody a new host adopts from its OWN last-known view, every peer's
-	// view is slightly different and slightly stale, and so *which* peer takes
-	// over changes what the world becomes. This closes that, and fixes late
-	// joins by the same mechanism.
-	//
-	// Requires FeatureLeaseV1 in the same room — every write names a lease key
-	// and is accepted only from that lease's holder. The two are deliberately
-	// NOT merged and neither implies the other in NormalizeFeatures: implying
-	// one from the other would change the sticky FeatureSetKey and silently
-	// stop matching rooms that already agreed on the old string.
+	// FeatureWorldV1 asks the relay to hold custody of a room's world: the latest opaque blob per entity, handed to
+	// the next authority-lease holder and to joiners. Requires FeatureLeaseV1, and neither implies the other in
+	// NormalizeFeatures: that would change the sticky FeatureSetKey and stop matching rooms that agreed on the old one.
 	FeatureWorldV1 = "world.v1"
-	// FeatureClockV1 is purely informational — clock sync is a pairwise
-	// client/relay measurement that needs no room agreement and no relay
-	// state, and a relay that has never heard of it still answers Pong. It
-	// is advertised so a room's feature set honestly describes what its
-	// members do, since a client using relay time stamps its state
-	// timestamps in a different clock domain than one that doesn't.
+	// FeatureClockV1 makes every member stamp State.Timestamp in the relay's clock domain. The measurement itself is
+	// pairwise and needs no relay state (any relay answers Pong); the feature is room-scoped because a room where only
+	// some members shift is worse than one where none do.
 	FeatureClockV1 = "clock.v1"
 )
 
-// Limits for everything in this file. Same discipline as limits.go: bounds
-// exist so a peer cannot exhaust the relay, never so anything can be
-// interpreted.
+// Limits for everything in this file. As in limits.go, they exist so a peer cannot exhaust the relay, never so
+// anything can be interpreted.
 const (
-	// MaxEventBytes bounds one Event.Payload. agent_docs/beyond-cosmetic.md
-	// §9 laid out the honest choice here as uniform-vs-transport-dependent,
-	// and 1024 was picked as the uniform answer.
-	//
-	// **It does not actually achieve that, and this comment used to claim it
-	// did.** A maximal Event marshals to 1441 bytes, over
-	// udpconn.MaxDatagramBytes (1200), so it is refused by checkWritable for
-	// every udp peer with nothing but a relay log line to show for it — the
-	// "difference that only shows up in the field" this number was chosen to
-	// avoid. A committed EscrowState is worse: it carries two blobs of up to
-	// MaxEscrowBlobBytes each and overshoots in every case, not just the
-	// maximal one.
-	//
-	// Shrinking these is a contract revision with its own trade-offs, so it
-	// is recorded in agent_docs/risks.md as its own decision rather than made
-	// quietly here. What is NOT optional is that the number stops lying:
-	// netx/udpconn's TestMaximalEventDoesNotFitAUDPDatagram and
-	// TestMaximalCommittedEscrowDoesNotFitAUDPDatagram assert the real
-	// relationship, and will fail the day it changes in either direction.
-	//
-	// There is deliberately NO application-level fragmentation. If a payload
-	// does not fit, the answer is a *reference* to the data rather than the
-	// data (an escrow id, a key), never chunking: fragmenting across a lossy
-	// plane reinvents TCP badly, and the reliable plane already is TCP.
+	// MaxEventBytes bounds one Event.Payload, uniform across transports. It does not keep a maximal Event inside
+	// a udp datagram, and a committed EscrowState overshoots in every case; netx/udpconn's
+	// TestMaximalEventDoesNotFitAUDPDatagram and TestMaximalCommittedEscrowDoesNotFitAUDPDatagram pin that, and
+	// changing it is a contract revision. No application-level fragmentation: send a reference, never chunks.
 	MaxEventBytes = 1024
 
-	// MaxCorrIDLen bounds Event.CorrID, the one piece of an event other than
-	// To that game-agnostic code has any reason to look at (matching a reply
-	// to its request). Opaque; the relay only echoes it.
+	// MaxCorrIDLen bounds Event.CorrID, which the relay only echoes so an adapter can match a reply to its request.
 	MaxCorrIDLen = 64
 
-	// MaxFeatures / MaxFeatureLen bound Hello.Features. Small on purpose:
-	// this is a capability list, not a data channel, and the room-stickiness
-	// check below turns it into a map key.
+	// MaxFeatures and MaxFeatureLen bound Hello.Features: a capability list, not a data channel, and the room check
+	// turns it into a map key.
 	MaxFeatures   = 16
 	MaxFeatureLen = 64
 
-	// MaxLeaseKeyLen bounds a lease key. 128 matches MaxHelloFieldLen's
-	// reasoning — short opaque identifiers, not payloads.
+	// MaxLeaseKeyLen bounds a lease key: a short opaque identifier, like MaxHelloFieldLen, not a payload.
 	MaxLeaseKeyLen = 128
 
-	// MaxLeasesPerRoom bounds how many distinct keys one room may hold at
-	// once, so a client cannot make the relay's lease table grow without
-	// bound by claiming a fresh key every message. A claim past this is
-	// denied, exactly like a claim on a held key.
+	// MaxLeasesPerRoom bounds the distinct keys one room may hold, so a client cannot grow the relay's lease table by
+	// claiming a fresh key every message. A claim past it is denied like a claim on a held key.
 	MaxLeasesPerRoom = 256
 
-	// MaxEscrowIDLen / MaxEscrowBlobBytes bound one exchange. The blob is
-	// the opaque thing being swapped — or, past this size, a reference to it.
+	// MaxEscrowIDLen and MaxEscrowBlobBytes bound one exchange; past this size the blob should be a reference.
 	MaxEscrowIDLen     = 64
 	MaxEscrowBlobBytes = 1024
 
-	// MaxEscrowsPerRoom bounds concurrent exchanges per room, same
-	// exhaustion reasoning as MaxLeasesPerRoom.
+	// MaxEscrowsPerRoom bounds concurrent exchanges per room, for the same reason as MaxLeasesPerRoom.
 	MaxEscrowsPerRoom = 64
 
-	// MaxLiveEscrowsPerMember bounds how many LIVE (not yet committed or
-	// aborted) exchanges one member may have opened at once. Counted by
-	// opener, never by counterparty — counting both sides would let a member
-	// lock a victim out by naming them. Added 2026-09-02 after the
-	// adversarial review showed one member could fill MaxEscrowsPerRoom by
-	// itself; that also made retained terminal records stop counting toward
-	// the room cap, since they had let 64 open-then-abort pairs refuse every
-	// other member's trades for EscrowRetention, renewably. Together: filling
-	// the room's table takes eight members' cooperation, and a dead exchange
-	// costs nobody a slot.
+	// MaxLiveEscrowsPerMember bounds the live exchanges one member has opened. Counted by opener, never by
+	// counterparty, or a member could lock a victim out by naming them; finished records count toward neither cap.
 	MaxLiveEscrowsPerMember = 8
 
-	// MaxHelloFieldLen bounds every string field of Hello (GameID, Room,
-	// DisplayName, RoomCode, GameVersion, and NameColor since 2026-09-08)
-	// — previously unbounded, found while
-	// auditing for malicious-peer hardening alongside room-code auth. One shared
-	// constant rather than five, since none of these fields has any real reason
-	// to differ from the others: a room name, a display name, and a version
-	// string are all short human-facing text. Checked before any of them are
-	// used to create or look up a room, so an oversized field is refused at the
-	// same handshake stage as a bad protocol version or room code.
-	//
-	// Lives here rather than in relay/limits.go, where it was until 2026-08-25,
-	// because that file's own header draws the line: field and size limits on
-	// wire messages belong in protocol/, and relay/ keeps the POLICY limits
-	// (client counts, timeouts, flood caps). This is a field limit on Hello,
-	// which is a protocol message, so it was on the wrong side of a rule the
-	// file states in its first paragraph. agent_docs/contract.md lists it under
-	// Limits with the rest of the field bounds, which is the other tell.
+	// MaxHelloFieldLen bounds every string field of Hello (GameID, Room, DisplayName, GameVersion, NameColor), all
+	// short human-facing text, before any of them creates or looks up a room.
 	MaxHelloFieldLen = 128
 
-	// MaxResumeTokenLen bounds Hello.ResumeToken. The relay's own tokens are
-	// ResumeTokenBytes of hex; this is generous headroom so a future longer
-	// token needs no contract change, while still bounding what an attacker
-	// can push through the pre-auth Hello path.
+	// MaxResumeTokenLen bounds Hello.ResumeToken: headroom over the relay's own ResumeTokenBytes of hex, while still
+	// bounding what an attacker pushes through the pre-auth Hello.
 	MaxResumeTokenLen = 128
 
-	// ResumeTokenBytes is how much entropy the relay puts in a resume token.
-	// 16 bytes (128 bits) makes guessing one — which would let an attacker
-	// steal an in-flight identity, including its outstanding escrows —
-	// infeasible, and the token is generated with crypto/rand, never a
-	// counter. This is the one place in the relay where a value must be
-	// unguessable rather than merely unique, which is exactly why player_id
-	// (a bare counter) cannot serve as one.
+	// ResumeTokenBytes is the crypto/rand entropy in a resume token: guessing one would steal an identity with its
+	// escrows, so it must be unguessable, not just unique, which is why player_id (a counter) cannot serve.
 	ResumeTokenBytes = 16
 )
 
-// Lease TTL bounds. A lease is a *timed* grant, never a permanent one: the
-// hard part of lease authority is lifetime, not the grant itself
-// (agent_docs/beyond-cosmetic.md §4). A holder that vanishes mid-trade must
-// not wedge a key forever, and the only thing that can guarantee that
-// without game knowledge is a clock.
+// Lease TTL bounds. A lease is a timed grant: a holder that vanishes must not wedge a key forever, and without game
+// knowledge only a clock can guarantee that.
 const (
 	MinLeaseTTL     = 1 * time.Second
 	MaxLeaseTTL     = 5 * time.Minute
 	DefaultLeaseTTL = 30 * time.Second
 )
 
-// ClampLeaseTTL resolves a requested lease TTL in milliseconds to a usable
-// duration: zero or negative means "use DefaultLeaseTTL" (the same
-// zero-means-default convention as ClampSendHz and Server.MaxClients), and
-// anything outside [MinLeaseTTL, MaxLeaseTTL] is clamped rather than
-// refused — a client must not lose a claim it would otherwise have won
-// because it asked for a slightly silly duration.
+// ClampLeaseTTL resolves a requested TTL in milliseconds: zero or negative means DefaultLeaseTTL, and anything
+// outside [MinLeaseTTL, MaxLeaseTTL] is clamped rather than refused, so a silly duration never costs a claim.
 func ClampLeaseTTL(ms int) time.Duration {
 	if ms <= 0 {
 		return DefaultLeaseTTL
@@ -293,15 +150,9 @@ func ClampLeaseTTL(ms int) time.Duration {
 	return d
 }
 
-// NormalizeFeatures trims, drops empties, deduplicates and sorts a feature
-// list, so two clients that advertise the same capabilities in a different
-// order (or twice) are recognised as advertising the same set. The relay's
-// room-stickiness check is a string comparison of the normalized lists, so
-// normalizing is what keeps that check from rejecting an identical set for a
-// cosmetic difference.
-//
-// Returns nil for an empty result rather than an empty slice, so "declared
-// nothing" has exactly one representation on the wire and in the room table.
+// NormalizeFeatures trims, drops empty and invalid names, deduplicates, sorts and caps a feature list, so two clients
+// advertising the same set in a different order compare equal: the room check is a string comparison of normalized
+// lists. Returns nil for an empty result, so "declared nothing" has exactly one representation.
 func NormalizeFeatures(features []string) []string {
 	if len(features) == 0 {
 		return nil
@@ -313,22 +164,8 @@ func NormalizeFeatures(features []string) []string {
 		if f == "" {
 			continue
 		}
-		// BOUNDED HERE, NOT ONLY IN validateFeatures, and the difference is the
-		// direction of travel. validateFeatures gates a Hello, so the RELAY is
-		// protected from a client's list; nothing gated a Welcome, so the CLIENT
-		// took whatever the relay answered with. c.activeFeatures is then read
-		// by protocol.HasFeature -- a linear scan -- under c.mu on every inbound
-		// plane message and every send decision, so a thousand-entry answer is a
-		// thousand string compares per message, held against the lock the render
-		// path also wants. Found by the parity cell of the third adversarial
-		// review (X1-6).
-		//
-		// Dropped rather than refused, because nothing here is lost: a name
-		// longer than MaxFeatureLen cannot equal any feature this project
-		// implements, and neither can the seventeenth entry of a list whose
-		// first sixteen already carry every plane that exists. A caller that
-		// needs to REFUSE an over-long list rather than shrink it still has
-		// validateFeatures, and the relay still uses it.
+		// Bounded here too: validateFeatures gates only a Hello, and a Welcome's list is scanned under the core's
+		// lock on every plane message. Dropped, not refused: no real feature is over-long or seventeenth.
 		if !ValidOpaqueString(f, MaxFeatureLen) {
 			continue
 		}
@@ -342,53 +179,23 @@ func NormalizeFeatures(features []string) []string {
 		return nil
 	}
 	sort.Strings(out)
-	// After the sort, so the cap keeps a deterministic set rather than
-	// whichever sixteen happened to arrive first.
+	// After the sort, so the cap keeps a deterministic set.
 	if len(out) > MaxFeatures {
 		out = out[:MaxFeatures]
 	}
 	return out
 }
 
-// FeatureSetKey renders a normalized feature list as one comparable string.
-// The relay stores this per room and compares later joiners against it by
-// equality — learning no more about "lease.v1" than it currently learns
-// about the game version "1.2.0" (agent_docs/beyond-cosmetic.md §3).
+// FeatureSetKey renders a normalized feature list as one comparable string. The relay stores it per room and
+// compares later joiners against it by equality.
 func FeatureSetKey(features []string) string {
 	return strings.Join(NormalizeFeatures(features), ",")
 }
 
-// IsRoomScopedFeature reports whether name is a capability every member of a
-// room must agree on, as opposed to one that concerns only a single client and
-// the relay.
-//
-// The distinction is not bookkeeping — it decides whether turning a capability
-// on costs a coordinated reconfiguration of everyone in the room:
-//
-//   - **Room-scoped** capabilities describe something shared. event.v1,
-//     lease.v1 and escrow.v1 are protocols *between peers*, and a member that
-//     does not speak one silently fails to participate — the hazard
-//     agent_docs/beyond-cosmetic.md §3 exists to close. clock.v1 is subtler
-//     but the same: it changes which clock State.Timestamp is expressed in, and
-//     a room where some members shift and others don't is worse than one where
-//     nobody does.
-//   - **Client-scoped** capabilities describe something between one client and
-//     the relay, which no peer participates in or can even observe.
-//     resume.v1 asks the relay to hold *this* client's identity after a drop.
-//     snapshot.v1 asks it to seed *this* client on join. A peer neither
-//     consents to nor is affected by either.
-//
-// Forcing the second kind through the sticky room check was the original
-// design and it was wrong: it made enabling resumption cost a lockstep
-// reconfiguration of every player, for a feature none of them take part in —
-// friction with no safety bought, and the surest way to have nobody bother.
-//
-// **An unrecognised name is treated as room-scoped.** That is the fail-safe
-// direction: a future room-scoped capability wrongly classified as client-
-// scoped would silently not be enforced, which is exactly the invisible
-// mismatch this whole mechanism exists to prevent, whereas the opposite
-// mistake merely asks for a coordinated config change that was not strictly
-// necessary. Annoying beats silently broken.
+// IsRoomScopedFeature reports whether name is a capability every member of a room must agree on (something shared,
+// like event.v1 or clock.v1) rather than one between a single client and the relay (resume.v1, snapshot.v1). An
+// unrecognised name is room-scoped, the fail-safe direction: a shared capability treated as client-scoped would
+// silently go unenforced, while the opposite mistake only asks for a config change.
 func IsRoomScopedFeature(name string) bool {
 	switch name {
 	case FeatureResumeV1, FeatureSnapshotV1:
@@ -397,9 +204,8 @@ func IsRoomScopedFeature(name string) bool {
 	return true
 }
 
-// RoomScopedFeatures returns the normalized subset of features that a room
-// agrees on collectively. This is what the relay makes sticky and compares a
-// later joiner against; the rest is honoured per client.
+// RoomScopedFeatures returns the normalized subset of features a room agrees on collectively: what the relay makes
+// sticky and compares a later joiner against. The rest is honoured per client.
 func RoomScopedFeatures(features []string) []string {
 	out := make([]string, 0, len(features))
 	for _, f := range NormalizeFeatures(features) {
@@ -413,8 +219,7 @@ func RoomScopedFeatures(features []string) []string {
 	return out
 }
 
-// HasFeature reports whether an already-normalized (or not) feature list
-// contains name. Linear because these lists are at most MaxFeatures long.
+// HasFeature reports whether a feature list contains name; linear, since a list is at most MaxFeatures long.
 func HasFeature(features []string, name string) bool {
 	for _, f := range features {
 		if f == name {
@@ -424,24 +229,15 @@ func HasFeature(features []string, name string) bool {
 	return false
 }
 
-// validateFeatures reports whether a Hello's feature list is within bounds.
-// Checked at the relay before the list is used to create or match a room,
-// same stage as the hello-field length checks.
+// validateFeatures reports whether a Hello's feature list is within bounds, checked at the relay before the list
+// creates or matches a room.
 func validateFeatures(features []string) bool {
 	if len(features) > MaxFeatures {
 		return false
 	}
 	for _, f := range features {
-		// ValidOpaqueString, not len(). This was the last bare length check on
-		// an opaque string in this package, and the inconsistency is not
-		// theoretical: it is what let a control character through in X1-4 on
-		// another field, and a feature name is compared for equality to decide
-		// what a whole ROOM negotiates -- so an invalid-UTF-8 one is a
-		// capability nobody can name twice the same way. Unreachable from the
-		// wire today, because encoding/json replaces a bad byte with U+FFFD on
-		// the way in; that is a property of the decoder in front of it, not of
-		// this function, and this function is exported. Found by the parity
-		// cell of the third adversarial review (X1-8).
+		// Not len(): a feature name decides what a whole room negotiates, so an invalid-UTF-8 one is a capability
+		// nobody can name the same way twice. Only the decoder in front keeps it off the wire, and this is exported.
 		if !ValidOpaqueString(f, MaxFeatureLen) {
 			return false
 		}
@@ -449,30 +245,11 @@ func validateFeatures(features []string) bool {
 	return true
 }
 
-// ValidateHelloFields reports whether every client-supplied field of a Hello is
-// within its bound: the six string fields against MaxHelloFieldLen, the resume
-// token against MaxResumeTokenLen, and the feature list against validateFeatures.
-//
-// It lives here, beside the constants it enforces, rather than as five inline
-// len() comparisons at the relay's one call site — which is where it was until
-// 2026-08-25, and which is why it is easy to add a field to Hello and forget to
-// bound it. A Hello field is attacker-controlled and arrives BEFORE any
-// authentication has happened, so an unbounded one is the cheapest thing there
-// is to get wrong.
-//
-// Deliberately returns a plain bool and never the offending value. The caller
-// must not log field contents on failure: an oversized field is exactly the case
-// where logging it writes unbounded attacker-controlled bytes into the relay's
-// own log on every attempt, which defeats the point of bounding it at all.
+// ValidateHelloFields reports whether every client-supplied field of a Hello, which arrives before any
+// authentication, is within its bound. It returns a plain bool, never the offending value: a caller must not log
+// field contents on failure, which would write unbounded attacker-controlled bytes into the relay's log.
 func ValidateHelloFields(h Hello) bool {
-	// One list rather than a chain of ors, so adding a Hello string field is a
-	// one-line edit in one place instead of another clause to forget — which
-	// is what happened to NameColor, unbounded from its introduction until
-	// 2026-09-08 while the paragraph above and contract.md both said every
-	// hello string field was bounded. It was harmless only by accident:
-	// SanitizeNameColor refuses anything that is not exactly 4 or 7 bytes, so
-	// the value was discarded downstream rather than bounded on arrival, and
-	// the relay logged and compared an attacker-sized string in between.
+	// One list rather than a chain of ors, so bounding a new Hello string field is a one-line edit in one place.
 	for _, s := range []string{
 		h.GameID, h.Room, h.DisplayName, h.GameVersion, h.NameColor,
 	} {
@@ -480,8 +257,7 @@ func ValidateHelloFields(h Hello) bool {
 			return false
 		}
 	}
-	// The PAKE message has its own, larger bound: it is a fixed-size
-	// cryptographic message, not a name.
+	// The PAKE message has its own, larger bound: a fixed-size cryptographic message, not a name.
 	if len(h.PakeKE1) > MaxPakeFieldLen {
 		return false
 	}
@@ -495,85 +271,57 @@ func ValidateHelloFields(h Hello) bool {
 type LeaseOp string
 
 const (
-	// LeaseClaim asks for exclusive hold of Key. Granted to the first asker
-	// and denied to everyone else until it is released or expires.
-	//
-	// **The adapter must ask BEFORE acting, never announce after**
-	// (agent_docs/beyond-cosmetic.md §2). A client that acts locally and then
-	// claims has put the relay's "no" after the fact is already on screen,
-	// which is a rollback problem — per-game, and genuinely hard. The flow is
-	// claim → wait → act, and it costs a network round trip before anything
-	// visible happens. That is invisible for a turn-based trade and
-	// unacceptable for anything twitchy, which is the real boundary on how
-	// deep this can go.
+	// LeaseClaim asks for exclusive hold of Key, granted to the first asker until released or expired. An adapter
+	// claims before acting, never announces after: acting first puts the relay's "no" after the fact is on screen.
 	LeaseClaim LeaseOp = "claim"
-	// LeaseRenew extends the current holder's expiry. From anyone else it is
-	// denied; a renew is not a claim in disguise.
+	// LeaseRenew extends the current holder's expiry; from anyone else it is denied, not treated as a claim.
 	LeaseRenew LeaseOp = "renew"
-	// LeaseRelease gives up a held key immediately. From anyone but the
-	// holder it is ignored.
+	// LeaseRelease gives up a held key at once; from anyone but the holder it is ignored.
 	LeaseRelease LeaseOp = "release"
 )
 
 // Lease is a client's request against one opaque key (client → relay).
 type Lease struct {
 	Op LeaseOp `json:"op"`
-	// Key is opaque. The relay compares it for equality and stores it; it
-	// never parses it, and two clients running different games could not
-	// meaningfully share one anyway (they cannot share a room at all).
+	// Key is opaque: the relay compares it for equality and stores it, and never parses it.
 	Key string `json:"key"`
-	// TTLMs is the requested hold duration in milliseconds, clamped through
-	// ClampLeaseTTL. Zero means DefaultLeaseTTL.
+	// TTLMs is the requested hold in milliseconds, through ClampLeaseTTL; zero means DefaultLeaseTTL.
 	TTLMs int `json:"ttl_ms,omitempty"`
 }
 
-// Lease state reasons. Plain text on the wire, like Reject.Reason — these
-// constants exist for Go call sites, not as a closed enum.
+// Lease state reasons: plain text on the wire, like Reject.Reason, named for Go call sites rather than a closed enum.
 const (
 	LeaseGranted = "granted"
-	// LeaseDenied is sent only to the asker. A failed claim is nobody else's
-	// business and broadcasting it would turn a contested key into a
-	// message storm.
+	// LeaseDenied is sent only to the asker: broadcasting a failed claim would turn a contested key into a message
+	// storm.
 	LeaseDenied = "denied"
 	// LeaseReleased is the holder giving the key up voluntarily.
 	LeaseReleased = "released"
 	// LeaseExpired is the TTL running out with no renew.
 	LeaseExpired = "expired"
-	// LeaseHolderLeft is the holder's connection dropping. Distinct from
-	// expired because an adapter may reasonably treat a clean release, a
-	// timeout, and a disconnect differently — the relay does not, and says
-	// which happened rather than deciding for it.
+	// LeaseHolderLeft is the holder's connection dropping. The relay says which of release, expiry and disconnect
+	// happened, and leaves it to the adapter to treat them differently.
 	LeaseHolderLeft = "holder_left"
-	// LeaseTooMany is a claim refused because the room is already holding
-	// MaxLeasesPerRoom distinct keys.
+	// LeaseTooMany is a claim refused because the room already holds MaxLeasesPerRoom distinct keys.
 	LeaseTooMany = "too many leases in room"
 )
 
-// LeaseState is the relay's answer about one key (relay → client), and the
-// authoritative fact for everyone in the room.
-//
-// The relay never judges merit, only arrival: it picks the first claim and
-// that becomes the fact by fiat. Everyone agrees because everyone was told
-// the same answer, not because the answer was correct on the merits.
-// Arbitrary-but-consistent is the whole trick, and judging *rightness* is
-// what would require understanding the game.
+// LeaseState is the relay's answer about one key (relay to client), and the fact for everyone in the room. The relay
+// judges arrival, never merit: the first claim wins by fiat, and everyone agrees because everyone was told the same.
 type LeaseState struct {
 	Key string `json:"key"`
 	// Holder is the player_id currently holding Key, or empty for "free".
 	Holder string `json:"holder,omitempty"`
-	// Seq is this room's monotonic sequencer stamp — the total order every
-	// member observes. See Event.Seq.
+	// Seq is this room's sequencer stamp, the total order every member observes (see Event.Seq).
 	Seq uint64 `json:"seq"`
-	// ExpiresAt is the relay's own wall clock in milliseconds, so a client
-	// that has done clock sync can render a countdown. Zero when Holder is
-	// empty.
+	// ExpiresAt is the relay's wall clock in milliseconds, so a client that synced clocks can show a countdown.
+	// Zero when Holder is empty.
 	ExpiresAt int64 `json:"expires_at,omitempty"`
 	// Reason is one of the Lease* constants above.
 	Reason string `json:"reason,omitempty"`
 }
 
-// ValidateLease reports whether a Lease request is within bounds and names a
-// real op.
+// ValidateLease reports whether a Lease request is within bounds and names a real op.
 func ValidateLease(l Lease) bool {
 	switch l.Op {
 	case LeaseClaim, LeaseRenew, LeaseRelease:
@@ -583,55 +331,42 @@ func ValidateLease(l Lease) bool {
 	return l.Key != "" && ValidOpaqueString(l.Key, MaxLeaseKeyLen)
 }
 
-// EscrowOp is one step of a two-sided atomic exchange.
-//
-// This exists because **a lease grants exclusive access, never an atomic
-// swap** (agent_docs/beyond-cosmetic.md §5). A trade is two-sided — both or
-// neither — and if one side vanishes after handing over, an item is
-// destroyed or duplicated. That is exactly where historical Pokémon trading
-// exploits came from, and no amount of lease discipline prevents it.
+// EscrowOp is one step of a two-sided atomic exchange. A lease grants exclusive access, never an atomic swap: in a
+// trade where one side vanishes after handing over, an item is destroyed or duplicated.
 type EscrowOp string
 
 const (
-	// EscrowOpen starts an exchange between the sender and With. The id is
-	// chosen by the opener and is opaque.
+	// EscrowOpen starts an exchange between the sender and With; the opener chooses the opaque id.
 	EscrowOpen EscrowOp = "open"
-	// EscrowDeposit hands the relay this party's opaque blob. The relay
-	// holds it and reveals it to nobody until the exchange commits.
+	// EscrowDeposit hands the relay this party's opaque blob, revealed to nobody until the exchange commits.
 	EscrowDeposit EscrowOp = "deposit"
-	// EscrowCommit records this party's willingness to complete. The
-	// exchange completes only once BOTH parties have deposited and BOTH have
-	// committed — which is the entire point.
+	// EscrowCommit records this party's willingness to complete. The exchange completes only once both parties have
+	// deposited and both have committed.
 	EscrowCommit EscrowOp = "commit"
-	// EscrowAbort cancels. Any abort, disconnect, or timeout by either party
-	// aborts the whole exchange and discards both blobs.
+	// EscrowAbort cancels. Any abort, disconnect or timeout by either party aborts the whole exchange and discards
+	// both blobs.
 	EscrowAbort EscrowOp = "abort"
 )
 
-// Escrow is one step a client asks for (client → relay).
+// Escrow is one step a client asks for (client to relay).
 type Escrow struct {
 	Op EscrowOp `json:"op"`
 	// ID is opaque, chosen by the opener, unique within the room.
 	ID string `json:"id"`
-	// With is the counterparty's player_id — required on open, ignored
-	// otherwise. Must be a current member of the room.
+	// With is the counterparty's player_id, a current member: required on open, ignored otherwise.
 	With string `json:"with,omitempty"`
-	// Blob is this party's opaque contribution, on deposit only. The relay
-	// stores the bytes and never looks inside; what a blob means is entirely
-	// the adapter's business, exactly like an event payload.
+	// Blob is this party's opaque contribution, on deposit only; the relay stores the bytes and never looks inside.
 	Blob json.RawMessage `json:"blob,omitempty"`
 }
 
 // Escrow phases, carried in EscrowState.Phase.
 const (
-	// EscrowPhaseOpen means the exchange exists and at least one side has
-	// not deposited yet.
+	// EscrowPhaseOpen means the exchange exists and at least one side has not deposited.
 	EscrowPhaseOpen = "open"
-	// EscrowPhaseDeposited means both blobs are held and the relay is
-	// waiting for both commits.
+	// EscrowPhaseDeposited means both blobs are held and the relay waits for both commits.
 	EscrowPhaseDeposited = "deposited"
-	// EscrowPhaseCommitted is terminal and is the ONLY state in which blobs
-	// are revealed. An adapter applies the swap here and nowhere else.
+	// EscrowPhaseCommitted is terminal and the only phase that reveals blobs; an adapter applies the swap here and
+	// nowhere else.
 	EscrowPhaseCommitted = "committed"
 	// EscrowPhaseAborted is terminal; blobs are discarded and never sent.
 	EscrowPhaseAborted = "aborted"
@@ -645,56 +380,37 @@ const (
 	EscrowReasonRejected  = "rejected"
 )
 
-// EscrowState is the relay's report on one exchange (relay → client), sent
-// to both parties on every phase change.
+// EscrowState is the relay's report on one exchange (relay to client), sent to both parties on every phase change.
 type EscrowState struct {
 	ID string `json:"id"`
-	// Seq is the room sequencer stamp, same total order as Event and
-	// LeaseState.
+	// Seq is the room sequencer stamp, in the same total order as Event and LeaseState.
 	Seq uint64 `json:"seq"`
 	// Phase is one of the EscrowPhase* constants.
 	Phase string `json:"phase"`
 	// Parties is exactly the two player_ids involved, opener first.
 	Parties []string `json:"parties,omitempty"`
-	// Deposited lists which parties have deposited so far — the fact each
-	// side needs to decide whether to commit, without revealing anything.
+	// Deposited lists which parties have deposited, which each side needs before committing, revealing nothing.
 	Deposited []string `json:"deposited,omitempty"`
 	// Committed lists which parties have committed so far.
 	Committed []string `json:"committed,omitempty"`
-	// Blobs is populated ONLY when Phase == EscrowPhaseCommitted, keyed by
-	// depositing player_id. Both parties receive the identical map, which is
-	// what makes the swap both-or-neither from each side's point of view.
+	// Blobs is set only when Phase is EscrowPhaseCommitted, keyed by depositing player_id. Both parties receive the
+	// identical map, which makes the swap both-or-neither from each side's view.
 	Blobs map[string]json.RawMessage `json:"blobs,omitempty"`
 	// Reason explains a terminal phase.
 	Reason string `json:"reason,omitempty"`
 }
 
-// MaxStateReasonLen bounds the human-readable Reason a relay attaches to a
-// LeaseState or EscrowState. Derived from MaxHelloFieldLen rather than
-// repeating a fourth loose 128 — see MaxHelloFieldLenForID, which was created
-// for exactly that drift. Every Reason this repo's relay sends is one of the
-// Lease*/Escrow* constants above, the longest of which is 23 bytes.
+// MaxStateReasonLen bounds the Reason a relay attaches to a LeaseState or EscrowState, derived from MaxHelloFieldLen
+// rather than another loose 128.
 const MaxStateReasonLen = MaxHelloFieldLen
 
-// MaxEscrowParties is how many players one exchange has. Two, by definition —
-// "a trade is two-sided, both or neither" is what the whole plane is for
-// (EscrowOp). It exists as a bound because Parties, Deposited, Committed and
-// Blobs are collections a RELAY fills, and a receiver that trusted their
-// length would iterate as many entries as a 4 KiB line can hold.
+// MaxEscrowParties is how many players one exchange has: two. It bounds Parties, Deposited, Committed and Blobs,
+// collections a relay fills, so a receiver never iterates whatever a line can hold.
 const MaxEscrowParties = 2
 
-// ValidateLeaseState reports whether a LeaseState from a relay is within
-// bounds. The exact mirror of ValidateLease, which is what a relay running
-// this code applied to the request that produced it.
-//
-// UNTIL 2026-09-12 THERE WAS NO SUCH FUNCTION, and core's receive path called
-// none: lease_state and escrow_state were the only two relay→client messages
-// forwarded to a game with nothing checked at all, while event, state and
-// world_state each had their own mirror. Found by the third adversarial review
-// (P3a-2). Measured with len(), not JSONWireLen, deliberately: the wire form
-// was already bounded by the line cap on the way in, and a receiver that
-// measured more strictly than the sender would drop legitimate traffic — the
-// inverse of the 2026-09-08/09-12 forwarding bug, and just as invisible.
+// ValidateLeaseState reports whether a LeaseState from a relay is within bounds, the mirror of ValidateLease. It
+// measures with len(), not JSONWireLen, on purpose: the line cap already bounded the wire form, and a receiver
+// stricter than its sender would drop legitimate traffic.
 func ValidateLeaseState(st LeaseState) bool {
 	if st.Key == "" || !ValidOpaqueString(st.Key, MaxLeaseKeyLen) {
 		return false
@@ -705,10 +421,8 @@ func ValidateLeaseState(st LeaseState) bool {
 	return ValidOpaqueString(st.Reason, MaxStateReasonLen)
 }
 
-// ValidateEscrowState reports whether an EscrowState from a relay is within
-// bounds. The mirror of ValidateEscrow, plus the collection bounds a request
-// has no equivalent of: an Escrow names one counterparty, an EscrowState
-// carries the whole party list.
+// ValidateEscrowState reports whether an EscrowState from a relay is within bounds: the mirror of ValidateEscrow,
+// plus the collection bounds, since an EscrowState carries the whole party list.
 func ValidateEscrowState(st EscrowState) bool {
 	if st.ID == "" || !ValidOpaqueString(st.ID, MaxEscrowIDLen) {
 		return false
@@ -716,9 +430,8 @@ func ValidateEscrowState(st EscrowState) bool {
 	switch st.Phase {
 	case EscrowPhaseOpen, EscrowPhaseDeposited, EscrowPhaseCommitted, EscrowPhaseAborted:
 	default:
-		// A closed set, unlike Reason: an adapter switches on Phase to decide
-		// whether an item changed hands, so an unrecognised one is not a
-		// forward-compatible extension, it is a step nobody can act on.
+		// A closed set, unlike Reason: an adapter switches on Phase to decide whether an item changed hands, so
+		// an unknown one is a step nobody can act on.
 		return false
 	}
 	if !ValidOpaqueString(st.Reason, MaxStateReasonLen) {
@@ -764,32 +477,15 @@ func ValidateEscrow(e Escrow) bool {
 	return JSONWireLen(e.Blob) <= MaxEscrowBlobBytes
 }
 
-// MaxHelloFieldLenForID bounds a player_id appearing in a client-supplied
-// field (Event.To, Escrow.With). Relay-assigned ids are tiny ("p12"), so
-// this is only about refusing an unbounded string before it is used as a map
-// key.
-//
-// It is deliberately the same bound as MaxHelloFieldLen and now says so by
-// deriving from it rather than repeating the number. Both are "a short
-// identifier a client supplied"; there were three separate 128s across two
-// packages, each documented by pointing at another (MaxLeaseKeyLen's comment
-// still cites this one), which is how a set of numbers meant to agree drifts
-// apart one edit at a time.
+// MaxHelloFieldLenForID bounds a player_id in a client-supplied field (Event.To, Escrow.With) before it becomes a
+// map key. Derived from MaxHelloFieldLen, since separate literals for the same kind of identifier drift.
 const MaxHelloFieldLenForID = MaxHelloFieldLen
 
-// ValidateEvent reports whether an Event is within bounds. Checked at the
-// relay on receive and at the core before send, the same two-enforcement-
-// point discipline as ValidateState.
+// ValidateEvent reports whether an Event is within bounds. The relay checks it on receive, and the core both before
+// sending and on receive.
 func ValidateEvent(e Event) bool {
-	// From, and it was the only peer id on any receive validator in this
-	// package with no bound at all. The relay stamps it when forwarding, so an
-	// honest one is always a real player id -- but this same function is what
-	// the CORE checks an inbound event with (core/online.go), where the relay
-	// is the thing being validated, and From is handed to the adapter as the
-	// peer an event came from. Empty is allowed: it is the shape a relay that
-	// predates the field sends, and refusing it would drop every event from an
-	// older relay rather than one from a hostile one. Found by the parity cell
-	// of the third adversarial review (X1-7).
+	// From is handed to the adapter as the peer an event came from, so the core bounds it too. Empty is allowed:
+	// it is what a relay older than the field sends.
 	if !ValidOpaqueString(e.From, MaxHelloFieldLenForID) {
 		return false
 	}
@@ -802,60 +498,26 @@ func ValidateEvent(e Event) bool {
 	return JSONWireLen(e.Payload) <= MaxEventBytes
 }
 
-// ---------------------------------------------------------------------------
-// World custody
-// ---------------------------------------------------------------------------
-
-// Bounds for the world plane. Unlike every other limit in this file, these are
-// derived from udpconn.MaxDatagramBytes rather than from MaxLineBytes, and the
-// difference is not cosmetic: udpconn.checkWritable refuses any datagram over
-// 1200 bytes minus its framing, INCLUDING a reliable one, and the refusal
-// surfaces only as a "relay: send to pX failed:" log line. A message that does
-// not fit is therefore lost for that recipient and — being a custody message —
-// never superseded. See agent_docs/contract.md for the arithmetic, and §9 of
-// the same file for the pre-existing constants that do NOT satisfy this.
+// Bounds for the world plane, derived from udpconn.MaxDatagramBytes rather than MaxLineBytes: udpconn.checkWritable
+// refuses an oversized datagram, reliable ones included, with only a log line to show for it, and a lost custody
+// message is never superseded.
 const (
-	// MaxWorldKeyLen bounds one entity key. 64 matches MaxEscrowIDLen, the
-	// closest existing analogue: an opaque per-object id, not a payload.
+	// MaxWorldKeyLen bounds one entity key, like MaxEscrowIDLen: an opaque per-object id, not a payload.
 	MaxWorldKeyLen = 64
 
-	// MaxWorldBlobBytes bounds one entity's opaque state. Derived: 1182 usable
-	// datagram bytes, minus MaxLeaseKeyLen (128) for the authority, minus
-	// MaxWorldKeyLen (64), minus ~130 of JSON scaffolding, leaves ~860. 768
-	// takes that with ~90 bytes of slack rather than sitting on the edge.
-	//
-	// The subtraction only holds because all three terms are measured the
-	// same way — on the bytes encoding/json writes. The blob always was
-	// (JSONWireLen); the authority and the key were measured with len() until
-	// 2026-09-08, which let a maximal-but-valid world_state reach 2075 bytes
-	// against a budget of 1200 (ValidOpaqueStringOnWire has the measurement).
+	// MaxWorldBlobBytes bounds one entity's opaque state. Derived: 1182 usable datagram bytes, minus MaxLeaseKeyLen
+	// (128) for the authority, minus MaxWorldKeyLen (64), minus about 130 of JSON scaffolding, leaves about 860;
+	// 768 keeps about 90 bytes of slack. The subtraction holds only because all three are measured on the wire.
 	MaxWorldBlobBytes = 768
 
-	// MaxWorldKeysPerRoom bounds how many entities one room's world may hold.
-	//
-	// **Derived, not chosen**, the same discipline as RateLimitHeadroomMultiple:
-	// udpconn's reorderWindow is 64, and a reliable burst wider than that
-	// window is not held by the receiver, is therefore not acked, retries at
-	// 250ms x maxRetries and can eventually close the connection. 64 is the
-	// pathological worst case of a snapshot that packs exactly one maximal
-	// entry per message. The relationship is asserted by a test in package
-	// udpconn, which is the only place that can see the unexported constant.
-	//
-	// ~52KiB per room at the maximum -- 64 * (MaxWorldBlobBytes 768 +
-	// MaxWorldKeyLen 64) = 53,248 bytes; this said ~58KB until 2026-08-27,
-	// which overstated what is actually retained. It is a CAP, not a leak: entries are
-	// bounded, and the only thing that discards them automatically is the room
-	// itself going away. See relay/world.go on why lifetime is deliberately not
-	// tied to the lease.
+	// MaxWorldKeysPerRoom bounds how many entities one room's world may hold. Derived from udpconn's reorderWindow:
+	// a reliable burst wider than it goes unacked and is retried until the connection may close, and a snapshot can
+	// pack one maximal entry per message. A udpconn test asserts it.
 	MaxWorldKeysPerRoom = 64
 
-	// MaxWorldMessageBytes is the batching budget for one WorldState carrying
-	// several entries. It is a THRESHOLD, not a hard bound: a batch stops
-	// growing once the next entry would cross it, but a single entry is always
-	// emitted even if it alone exceeds this (a maximal one renders to ~1115
-	// bytes, which still fits a datagram with its framing). The hard guarantee
-	// — one maximal entry plus framing under MaxDatagramBytes — is what the
-	// udpconn test asserts.
+	// MaxWorldMessageBytes is the batching budget for one WorldState: a threshold, not a hard bound. A batch stops
+	// growing before the next entry would cross it, but a single entry is always sent, and one maximal entry plus
+	// framing stays under MaxDatagramBytes, which the udpconn test asserts.
 	MaxWorldMessageBytes = 1100
 )
 
@@ -863,65 +525,32 @@ const (
 type WorldOp string
 
 const (
-	// WorldSet stores (or replaces) the latest opaque blob for a key.
-	//
-	// **A set that CREATES a key must be sent reliably.** A lossy set on a key
-	// the relay does not currently hold is ignored, and that rule exists to
-	// close a reordering hole one hop earlier than the relay: the lossy and
-	// reliable planes are independent on a datagram transport, so a lossy set
-	// dispatched before a reliable drop can arrive after it, resurrecting an
-	// entity permanently — the relay's map has it deleted, so no snapshot ever
-	// contradicts the resurrection and a late joiner sees a different world
-	// from an existing member. Requiring the creating write to be reliable
-	// makes creation and deletion travel the same ordered plane, so they can
-	// never overtake each other. It costs nothing real: a spawn is a discrete
-	// transition, which is already what Reliable is for.
+	// WorldSet stores or replaces the latest opaque blob for a key. A set that creates a key must be reliable, and a
+	// lossy one on a key the relay does not hold is ignored: on a datagram transport a lossy create could overtake a
+	// reliable drop and resurrect the entity for good.
 	WorldSet WorldOp = "set"
-	// WorldDrop removes a key. Always broadcast; the relay forgets the blob.
+	// WorldDrop removes a key; always broadcast, and the relay forgets the blob.
 	WorldDrop WorldOp = "drop"
 )
 
-// World is one write against one entity (client → relay).
+// World is one write against one entity (client to relay).
 type World struct {
 	Op WorldOp `json:"op"`
-	// Authority names the lease key this write is made under. The relay
-	// accepts it only from that lease's current holder — a pure string
-	// comparison, teaching the relay nothing about the game, and the thing
-	// that prevents the specific failure custody exists to survive: a
-	// departing host's in-flight packets overwriting the new host's world
-	// after handover.
-	//
-	// Bounded by MaxLeaseKeyLen rather than a constant of its own, because it
-	// must be able to name any lease key and a second bound would drift.
+	// Authority names the lease key this write is made under; only that lease's holder may write, so a departing
+	// host's in-flight packets cannot overwrite the new host's world.
 	Authority string `json:"authority"`
 	// Key identifies the entity, opaque and compared only by equality.
 	Key string `json:"key"`
-	// Blob is the entity's opaque state, on a set. The relay stores the bytes
-	// and never looks inside, exactly like an escrow deposit.
+	// Blob is the entity's opaque state on a set; the relay stores the bytes and never looks inside.
 	Blob json.RawMessage `json:"blob,omitempty"`
-	// Reliable selects the DELIVERY VARIANT of this write and nothing else.
-	//
-	// False for continuous motion, which the next update supersedes; true for
-	// a change that must not be missed (an enemy dying, a door opening, and
-	// every write that creates a key — see WorldSet). The relay stores the
-	// latest either way, so a snapshot is always complete regardless.
-	//
-	// **It never selects the serialization.** Every world write is stamped and
-	// delivered under the relay's sendMu, lossy ones included, so a lossy write
-	// may be LOST but is never REORDERED against another write. Skipping that
-	// would let a stale set land after a newer one with nothing to correct it,
-	// since snapshots only go to joiners and a key may never be written again.
-	// The reasoning is in the ADR in agent_docs/architecture.md.
+	// Reliable selects the delivery variant only: false for motion the next update supersedes, true for a change
+	// that must not be missed. Every world write is stamped and delivered under the relay's sendMu either way, so a
+	// lossy write may be lost but never reordered.
 	Reliable bool `json:"reliable,omitempty"`
 }
 
-// WorldEntry is one entity's state inside a WorldState. A message carries a
-// LIST so one type serves both a single live write and a batched snapshot.
-//
-// That is batching, not fragmentation: no entry is ever split, every message is
-// independently complete and applicable, and there is no reassembly or chunk
-// index anywhere. EscrowState.Blobs already carries a map of opaque blobs in
-// one message, so the precedent is established.
+// WorldEntry is one entity's state inside a WorldState: a list, so one type serves a live write and a batched
+// snapshot. Batching, not fragmentation: no entry is split, and every message is complete on its own.
 type WorldEntry struct {
 	Key string `json:"key"`
 	// Blob is absent for a drop.
@@ -930,30 +559,16 @@ type WorldEntry struct {
 	Dropped bool `json:"dropped,omitempty"`
 }
 
-// WorldState is the relay's report about one authority's world (relay →
-// client): a live write, a handover or join snapshot, or a refusal.
+// WorldState is the relay's report about one authority's world (relay to client): a live write, a handover or join
+// snapshot, or a refusal.
 type WorldState struct {
 	Authority string `json:"authority"`
-	// Holder is the lease holder the relay considers authoritative for this
-	// authority right now, or empty for none.
-	//
-	// **Never filter a WorldState against your roster.** core drops
-	// State for an id it was never told about, and applying the same instinct
-	// here would be silently wrong: a world entry legitimately outlives the
-	// player who wrote it, and Holder may name someone who has already left
-	// by the time a snapshot is read. A "helpful" roster check would discard
-	// exactly the adopted world that custody exists to preserve.
+	// Holder is the lease holder the relay considers authoritative now, or empty for none. Never filter a
+	// WorldState against your roster: a world entry outlives the player who wrote it, and Holder may have left.
 	Holder string `json:"holder,omitempty"`
-	// Seq is this room's monotonic sequencer stamp, the same total order as
-	// Event and LeaseState.
-	//
-	// **A receiver must use it.** The relay guarantees a total order, and it
-	// delivers every world message under one lock so that order is real — but
-	// the reliable and lossy planes are independent on a datagram transport,
-	// so two messages to ONE peer can still land out of order between them. An
-	// adapter therefore ignores a WorldState older than what it has already
-	// applied for a key. Without that, a lossy write can overtake the reliable
-	// snapshot that was meant to seed it and then be reverted by it.
+	// Seq is this room's sequencer stamp, in the same total order as Event and LeaseState. A receiver must use it:
+	// reliable and lossy delivery to one peer are independent on a datagram transport, so an adapter ignores a
+	// WorldState older than what it has applied for a key, or a lossy write could overtake the snapshot seeding it.
 	Seq uint64 `json:"seq"`
 	// Entries is what changed, or the whole world for a snapshot.
 	Entries []WorldEntry `json:"entries,omitempty"`
@@ -965,37 +580,19 @@ type WorldState struct {
 const (
 	// WorldWritten is a live write being broadcast to the rest of the room.
 	WorldWritten = "written"
-	// WorldSnapshot is the whole world for one authority, sent to a client
-	// that just took the lease or just joined.
+	// WorldSnapshot is the whole world for one authority, sent to a client that just took the lease or joined.
 	WorldSnapshot = "snapshot"
-	// WorldDenied is a write from someone who does not hold the named
-	// authority lease. Sent only to the writer.
-	//
-	// Explicit rather than silent, and it leaks nothing: lease holdership is
-	// already broadcast to the whole room, the amplification is 1:1, and the
-	// sender is inbound-flood-capped. Silence here would leave a stale host
-	// believing its writes are landing.
+	// WorldDenied is a write from someone not holding the authority lease, sent only to the writer: holdership is
+	// public already, and silence would leave a stale host believing its writes land.
 	WorldDenied = "denied"
-	// WorldTooMany is a write refused because the room already holds
-	// MaxWorldKeysPerRoom entities. Sent only to the writer — silence would
-	// leave a host believing it spawned an entity nobody has.
+	// WorldTooMany is a write refused because the room holds MaxWorldKeysPerRoom entities, sent only to the writer
+	// so a host does not believe it spawned an entity nobody has.
 	WorldTooMany = "too many world keys in room"
 )
 
-// ValidateWorld reports whether a world write is within bounds and names a
-// real op. Checked at the relay on receive and at the core before send, the
-// same two-enforcement-point discipline as ValidateState.
-//
-// ValidOpaqueStringOnWire applies to BOTH Authority and Key — on the wire,
-// since 2026-09-08, because MaxWorldBlobBytes is derived by subtracting their
-// bounds from the datagram budget and that subtraction is meaningless if the
-// two are measured before escaping (see ValidOpaqueStringOnWire for the byte
-// counts). Its UTF-8 half is
-// load-bearing for the first of those specifically: a non-UTF-8 string
-// round-trips through JSON as a *different* string, so an invalid authority
-// would compare unequal to the lease key it names at the relay while the
-// client's own validation passed — every write silently denied, with nothing
-// anywhere reporting why.
+// ValidateWorld reports whether a world write is within bounds and names a real op, checked at the relay on receive
+// and at the core before send. Authority and Key are measured on the wire, since MaxWorldBlobBytes subtracts their
+// bounds from the datagram budget; the UTF-8 half matters for Authority, which must equal the lease key it names.
 func ValidateWorld(w World) bool {
 	switch w.Op {
 	case WorldSet, WorldDrop:
@@ -1011,16 +608,8 @@ func ValidateWorld(w World) bool {
 	return JSONWireLen(w.Blob) <= MaxWorldBlobBytes
 }
 
-// ValidateWorldState reports whether a relay's world report is within bounds.
-// Checked by core on receive: a hostile or compromised relay is not
-// trusted to have enforced its own limits, the same posture ValidateState and
-// ValidateEvent already take on that side.
-//
-// Authority and every entry Key are wire-measured here too (2026-09-08), so
-// this stays the exact mirror of ValidateWorld. It rejects nothing a relay
-// running this code could produce — ValidateWorld refuses such a write on the
-// way in — and a relay that does not run this code is precisely what the
-// function exists to distrust.
+// ValidateWorldState reports whether a relay's world report is within bounds, checked by the core on receive. It
+// mirrors ValidateWorld exactly, so it rejects nothing a relay running this code could produce.
 func ValidateWorldState(st WorldState) bool {
 	if !ValidOpaqueStringOnWire(st.Authority, MaxLeaseKeyLen) {
 		return false
@@ -1042,37 +631,16 @@ func ValidateWorldState(st WorldState) bool {
 	return true
 }
 
-// DefaultResumeGrace is how long the relay holds a dropped client's identity
-// — its player_id, its leases, and its escrows — waiting for it to come
-// back with a resume token, before giving up and telling the room it left.
-//
-// The value is a compromise between two real costs. Too short and a
-// reconnect after a brief network blip still despawns the ghost for
-// everyone, which is the whole thing resumption exists to prevent. Too long
-// and a genuinely departed player's leases stay held, blocking everyone else
-// from a key nobody is coming back for — and the slot stays counted against
-// the relay's MaxClients. 20s comfortably covers
-// core.reconnectWithBackoff's first few attempts (1s, 2s, 4s, 8s)
-// while staying well under the point where a room notices a frozen ghost.
+// DefaultResumeGrace is how long the relay holds a dropped client's identity for a resume token before telling the
+// room it left: long enough for core.reconnectWithBackoff's first few attempts, short enough that a departed
+// player's leases and seat are not held for long.
 const DefaultResumeGrace = 20 * time.Second
 
-// DefaultEscrowTimeout is how long an exchange may sit unfinished before the
-// relay aborts it on its own. Without this a half-finished trade pins both
-// parties' blobs (and, in practice, their leases) forever whenever one side
-// simply stops responding without disconnecting — the "half-finished trade"
-// case agent_docs/beyond-cosmetic.md §10 names as needing crash injection to
-// test properly.
+// DefaultEscrowTimeout is how long an exchange may sit unfinished before the relay aborts it, so a party that stops
+// responding without disconnecting cannot pin both blobs forever.
 const DefaultEscrowTimeout = 60 * time.Second
 
-// EscrowRetention is how long a terminal (committed or aborted) exchange
-// record is kept after it finishes, so a party that dropped in the moment
-// between the relay committing and the message arriving can resume and be
-// told the outcome instead of being left permanently unsure whether the swap
-// happened.
-//
-// **This is the piece that makes atomicity survive a crash rather than only
-// a refusal**, and it is why resumption and escrow are built together rather
-// than separately: without it, "both or neither" holds only for as long as
-// both sockets stay up, which is precisely the case that never fails in
-// testing and always fails in the field.
+// EscrowRetention is how long a finished exchange's record is kept, so a party that dropped between the relay
+// committing and the message arriving can resume and learn the outcome. It makes atomicity survive a crash, not only
+// a refusal: without it, both-or-neither holds only while both sockets stay up.
 const EscrowRetention = 60 * time.Second

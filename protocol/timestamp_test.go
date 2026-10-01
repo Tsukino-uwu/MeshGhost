@@ -7,13 +7,8 @@ import (
 	"time"
 )
 
-// State.Timestamp was the one field on a state that nothing bounded anywhere --
-// not here, not in the relay, not in the core. See MaxTimestampMs for the three
-// separate defects that produced.
-//
-// The property that matters is arithmetic, not taste: the widest span between
-// two ACCEPTED timestamps must not overflow a time.Duration, because both the
-// replay player and the interpolator convert a difference of them to one.
+// TestTimestampIsBounded: the widest span between two accepted timestamps must not overflow a time.Duration, since
+// the replay player and the interpolator both convert a difference of them to one.
 func TestTimestampIsBounded(t *testing.T) {
 	base := State{PlayerID: "p1", AreaID: "a", Position: []float64{1, 2}}
 
@@ -48,13 +43,10 @@ func TestTimestampIsBounded(t *testing.T) {
 	}
 }
 
-// The bound exists to make this conversion safe, so assert the conversion
-// rather than the constant: a future edit that widens MaxTimestampMs without
-// re-checking the arithmetic fails here rather than in a spinning goroutine on
-// somebody's machine.
+// TestTheWidestValidTimestampSpanFitsADuration asserts the conversion rather than the constant, so widening
+// MaxTimestampMs without rechecking the arithmetic fails here.
 func TestTheWidestValidTimestampSpanFitsADuration(t *testing.T) {
-	// Both ends are accepted values, so this is the worst case a caller can be
-	// handed after validation.
+	// Both ends are accepted values, so this is the worst case a caller can be handed after validation.
 	widest := int64(MaxTimestampMs) - 0
 	d := time.Duration(widest) * time.Millisecond
 	if d <= 0 {

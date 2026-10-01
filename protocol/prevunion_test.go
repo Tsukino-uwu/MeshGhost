@@ -1,17 +1,5 @@
 package protocol
 
-// X1-2 from the 2026-09-12 adversarial review's parity cell.
-//
-// ValidateState bounds a state's extras and validPrev bounds its prev's extras,
-// each on its own. ApplyPrev then builds the UNION of the two, and nothing
-// bounded what they add up to -- so a reconstruction carrying twice the
-// documented cap went into the interpolation buffer and out to the adapter as
-// render_remote.state.extras.
-//
-// It is the third instance of the class validPrev's own comment names: a check
-// applied to the state and not to what the delta makes of it. The other two
-// were the orientation depth (2026-09-08) and the timestamp (2026-09-12).
-
 import (
 	"encoding/json"
 	"fmt"
@@ -19,8 +7,7 @@ import (
 	"testing"
 )
 
-// extrasNear builds an extras map close to the cap, with keys carrying the
-// given prefix so two of them can be made disjoint.
+// extrasNear builds an extras map close to the cap, its keys prefixed so two of them can be made disjoint.
 func extrasNear(t *testing.T, prefix string) map[string]any {
 	t.Helper()
 	m := map[string]any{}
@@ -48,8 +35,7 @@ func TestTheExtrasUnionOfAStateAndItsPrevIsBounded(t *testing.T) {
 		Prev:   &StatePrev{Seq: 1, Timestamp: 900, Extras: prv},
 	}
 
-	// BOTH HALVES ARE LEGAL, which is the whole point -- there is no bad field
-	// to refuse, and the line comfortably fits the wire.
+	// Both halves are legal, which is the point: there is no bad field to refuse, and the line fits the wire.
 	if !ValidateState(st) {
 		t.Fatalf("test premise broken: the carrying state is refused (%s)", StateRejectReason(st))
 	}
@@ -69,14 +55,13 @@ func TestTheExtrasUnionOfAStateAndItsPrevIsBounded(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// Before the fix: accepted, at ~2x MaxExtrasBytes.
 		t.Fatalf("a reconstruction carrying %d bytes of extras was accepted, against a %d cap -- "+
 			"the adapter is promised %d and got %d", len(merged), MaxExtrasBytes, MaxExtrasBytes, len(merged))
 	}
 }
 
-// The converse, so the bound is not simply refusing loss cover: an ordinary
-// prev, whose extras overlap the state's, still reconstructs.
+// TestAnOrdinaryPrevStillReconstructs: the union bound must not refuse ordinary loss cover, whose extras overlap the
+// state's.
 func TestAnOrdinaryPrevStillReconstructs(t *testing.T) {
 	st := State{
 		PlayerID: "p1", Timestamp: 1000, AreaID: "town", Position: []float64{3, 4},

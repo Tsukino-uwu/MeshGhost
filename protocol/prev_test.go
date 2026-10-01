@@ -7,10 +7,8 @@ import (
 	"testing"
 )
 
-// The loss cover's two pure halves (ADR 0045): a delta built by BuildPrev and
-// undone by ApplyPrev must give back exactly the previous sample, for every
-// kind of difference two consecutive samples can have -- and the delta must
-// survive the wire, because the relay decodes and re-encodes every state.
+// BuildPrev then ApplyPrev must give back exactly the previous sample for every kind of difference, and the delta
+// must survive the wire, since the relay decodes and re-encodes every state.
 
 func roundTrip(t *testing.T, prev, cur State) State {
 	t.Helper()
@@ -31,12 +29,10 @@ func roundTrip(t *testing.T, prev, cur State) State {
 	return got
 }
 
-// sameSample compares what the receiver's buffer would hold; Prev is never
-// part of that (a reconstructed sample carries none).
+// sameSample compares what the receiver's buffer would hold; a reconstructed sample carries no Prev.
 func sameSample(t *testing.T, want, got State) {
 	t.Helper()
-	// JSON normalises numbers in Extras (int -> float64), so compare through
-	// the wire on both sides.
+	// JSON turns Extras' ints into float64, so compare through the wire on both sides.
 	wb, _ := json.Marshal(want)
 	gb, _ := json.Marshal(got)
 	var w, g map[string]any
@@ -86,7 +82,6 @@ func TestPrevRoundTripsEveryKindOfDifference(t *testing.T) {
 			sameSample(t, want, got)
 		})
 	}
-	// And the mirror image: cur has no extras, prev had some.
 	t.Run("cur has no extras and prev had", func(t *testing.T) {
 		cur := base
 		cur.Extras = nil

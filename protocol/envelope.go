@@ -2,41 +2,15 @@ package protocol
 
 import "unicode/utf8"
 
-// Building an envelope's wire bytes without marshaling twice.
+// AppendEnvelope appends to dst the exact bytes json.Marshal would produce for an Envelope carrying this type and
+// payload, so a payload already marshaled is not marshaled twice. No trailing newline: framing is the transport's.
 //
-// The relay produced every state line twice. envelope() marshals a State into
-// payload bytes, and Room.forward then marshaled the Envelope around those
-// bytes -- which re-parses, re-escapes and re-copies every byte the first
-// marshal had just written. Measured 2026-08-28 at 915ns and two allocations
-// out of the ~8.3us a relay spent on one Emerald state, to produce bytes it
-// already held.
-
-// AppendEnvelope appends to dst the exact bytes json.Marshal would produce for
-// an Envelope carrying this type and payload, and returns the extended slice.
-//
-// No trailing newline: NDJSON framing belongs to the transport, which appends
-// it inside Send from a buffer it reuses (transport.NDJSONConn).
-//
-// THE PRECONDITION IS A SAFETY BOUNDARY, NOT A STYLE NOTE. payload must be
-// bytes that encoding/json itself produced. json.RawMessage's encoder
-// re-compacts its input and re-escapes '<', '>' and '&' on the way out;
-// appending does neither. This is byte-identical only because that second pass
-// is provably a no-op on output the standard library has already compacted and
-// escaped. Hand a client-supplied slice to this and the two stop agreeing.
-//
-// That holds throughout this project today, and not by luck: a peer's own raw
-// bytes only ever appear NESTED (Event.Payload, State.Orientation), inside a
-// struct the relay marshals itself, so the outer marshal still compacts and
-// escapes them. Anything that ever forwards a peer's bytes as a whole payload
-// must keep marshaling rather than appending.
-// FuzzAppendEnvelopeMatchesMarshal is the proof, not this comment.
+// payload must be bytes encoding/json produced: RawMessage's encoder re-compacts and re-escapes '<', '>' and '&',
+// appending does neither, and the two agree only because that pass is a no-op on the library's own output. A peer's
+// raw bytes only appear nested (Event.Payload, State.Orientation) inside a struct the relay marshals; anything that
+// forwards a peer's bytes as a whole payload must keep marshaling. FuzzAppendEnvelopeMatchesMarshal pins this.
 func AppendEnvelope(dst []byte, t MessageType, payload []byte) []byte {
-	// Grow once up front rather than letting append discover the size in
-	// stages. Skipping this made the change a REGRESSION on its first
-	// measurement -- three extra allocations per state against the very
-	// json.Marshal it replaced, which had been filling one sized buffer while
-	// this dribbled into a nil slice. The saving was real; growth was eating
-	// it and then some.
+	// Grow once: letting append grow in stages allocates more than the json.Marshal this replaces.
 	if need := envelopeLen(t, payload); cap(dst)-len(dst) < need {
 		grown := make([]byte, len(dst), len(dst)+need)
 		copy(grown, dst)
@@ -46,8 +20,7 @@ func AppendEnvelope(dst []byte, t MessageType, payload []byte) []byte {
 	dst = appendJSONString(dst, string(t))
 	dst = append(dst, `,"payload":`...)
 	if len(payload) == 0 {
-		// A nil or empty json.RawMessage marshals as null, not as nothing --
-		// appending nothing here would emit invalid JSON.
+		// A nil RawMessage marshals as null and Marshal refuses an empty one; appending nothing would be invalid JSON.
 		dst = append(dst, "null"...)
 	} else {
 		dst = append(dst, payload...)
@@ -55,12 +28,8 @@ func AppendEnvelope(dst []byte, t MessageType, payload []byte) []byte {
 	return append(dst, '}')
 }
 
-// envelopeLen sizes the buffer AppendEnvelope needs. It is exact whenever the
-// type needs no escaping, which is every type this project defines; a type that
-// did would simply let append grow the tail, so being an estimate costs
-// correctness nothing.
-//
-//	{"type":"" ,"payload":}   fixed syntax
+// envelopeLen sizes the buffer AppendEnvelope needs: exact unless the type needs escaping, which no defined type
+// does, and then append grows the tail.
 func envelopeLen(t MessageType, payload []byte) int {
 	const syntax = len(`{"type":"","payload":}`)
 	n := syntax + len(t) + len(payload)
@@ -70,23 +39,9 @@ func envelopeLen(t MessageType, payload []byte) int {
 	return n
 }
 
-// appendJSONString appends s as a quoted JSON string, matching encoding/json
-// with its default SetEscapeHTML(true).
-//
-// It is only ever called with a MessageType -- a short ASCII identifier from
-// the fixed set in protocol.go -- so in practice nothing below the first case
-// ever fires. It is written for arbitrary input anyway, because an assumption
-// about the caller outliving the comment that recorded it is a familiar way to
-// get hurt, and because the two non-obvious cases here are exactly the ones a
-// hand-rolled encoder normally gets wrong. Both were caught by
-// TestAppendEnvelope* on their first run rather than reasoned about:
-//
-//   - U+2028 and U+2029 are perfectly valid UTF-8 and encoding/json escapes
-//     them anyway, because they are line terminators to a JavaScript parser.
-//     limits.go's JSONWireLen already documents the same pair for the same
-//     reason.
-//   - An invalid UTF-8 byte becomes U+FFFD on the way out, so passing bytes
-//     through unexamined would produce a string Marshal would not have.
+// appendJSONString appends s as a quoted JSON string, matching encoding/json with its default SetEscapeHTML(true).
+// Only ever called with a MessageType, but written for any input: U+2028 and U+2029 are escaped because they are
+// line terminators to JavaScript, and an invalid UTF-8 byte becomes the \ufffd escape.
 func appendJSONString(dst []byte, s string) []byte {
 	dst = append(dst, '"')
 	for i := 0; i < len(s); {
@@ -98,11 +53,7 @@ func appendJSONString(dst []byte, s string) []byte {
 				dst = append(dst, '\\', '"')
 			case c == '\\':
 				dst = append(dst, '\\', '\\')
-			// The five control characters encoding/json gives a short escape,
-			// with the rest going to \u00XX below. Enumerated from the standard
-			// library's actual output on this Go version rather than from
-			// memory -- the first draft guessed and omitted \b and \f, which
-			// FuzzAppendEnvelopeMatchesMarshal reported within a minute.
+			// The five control characters encoding/json gives a short escape, taken from its output.
 			case c == '\b':
 				dst = append(dst, '\\', 'b')
 			case c == '\t':
@@ -135,10 +86,8 @@ func appendJSONString(dst []byte, s string) []byte {
 	return append(dst, '"')
 }
 
-// escapedRuneError is what encoding/json writes for a byte that is not valid
-// UTF-8: the six-character escape sequence, not the replacement character
-// itself. Spelled with a backslash on purpose -- the literal glyph is three
-// bytes and would silently produce a shorter, different string.
+// escapedRuneError is what encoding/json writes for a byte that is not valid UTF-8: the six-character escape, not
+// the three-byte replacement glyph, which would be a different string.
 const escapedRuneError = `\ufffd`
 
 func appendUnicodeEscape(dst []byte, r rune) []byte {

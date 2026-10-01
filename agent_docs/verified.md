@@ -145,6 +145,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-15 (evening) — the room code is proven, not sent: the Go-side facts, each with its instrument
 - 2026-09-16 — room codes, TOFU and live config.json edits on the real binaries: the Go-side facts
 - 2026-09-18 — every Linux CI job is green on ubuntu-26.04, tested a month before the label moves
+- 2026-10-02 — Go-side measurements the code comments carried, moved here word for word
 
 ## Split per game — 2026-08-25
 
@@ -2243,3 +2244,27 @@ that a push triggers all came back green:
 **The jobs were then reverted to `ubuntu-latest`** (the user's call, 2026-09-18): auto-tracking is
 worth the repeated warning annotation, because a pin is something that has to be remembered. The
 warning appears on every run until the rollout finishes, and stops on its own after it.
+
+## 2026-10-02 — Go-side measurements the code comments carried, moved here word for word
+
+**Established with the tools, on the dates each one names** (Go-side track): these were measurements written into code
+comments, by the instrument and on the date the text gives, that no other record held. On 2026-10-02 the comments were
+cut to what and why, and each measurement moved here word for word; none was re-run for this entry. Source: the
+comment in the file named by each heading, at `f64560cc`.
+
+### protocol/boundsfix_test.go
+
+- Measured 2026-09-08 by the helper above: all-ASCII, 1082 bytes of payload and 1115 on the wire, comfortably inside udpconn's 1200. With the authority swapped for 128 '&' and the key for 64 '&' — both of which ValidateWorld accepted until this fix — the same message is 2042 bytes of payload and 2075 on the wire, which udpconn.checkWritable refuses. The refusal surfaces only as "relay: send to pX failed:", so every world_state under that authority simply stops existing for every udp and quic-datagram peer.
+
+### protocol/envelope.go
+
+- The relay produced every state line twice. envelope() marshals a State into payload bytes, and Room.forward then marshaled the Envelope around those bytes -- which re-parses, re-escapes and re-copies every byte the first marshal had just written. Measured 2026-08-28 at 915ns and two allocations out of the ~8.3us a relay spent on one Emerald state, to produce bytes it already held.
+- Grow once up front rather than letting append discover the size in stages. Skipping this made the change a REGRESSION on its first measurement -- three extra allocations per state against the very json.Marshal it replaced, which had been filling one sized buffer while this dribbled into a nil slice. The saving was real; growth was eating it and then some.
+
+### protocol/limits.go
+
+- Last on purpose, because it is the only check here that has to SERIALIZE anything: measured 2026-08-28 at 1399ns and 30 of the 115 allocations a relay spends on one Emerald state, against 13ns for every other check in this function put together. Nothing observes WHICH check rejected a state — both call sites drop it either way — so ordering the cheap ones first is invisible for an accepted state and pure profit for a rejected one.
+
+### protocol/prev.go
+
+- ValidateState bounds cur.Extras and validPrev bounds p.Extras, each on its own, and until 2026-09-12 nothing bounded what they add up to. The keys need only be DISJOINT: ~1020 bytes of `a0…` on the state and ~1020 bytes of `b0…` on its prev both pass, the whole line is ~2300 bytes and comfortably inside the 4095 cap, and the reconstruction is ~2046 -- twice the bound `adapters/_template/PROTOCOL.md` and `agent_docs/contract.md` promise adapter authors, handed to them as render_remote.state.extras.
