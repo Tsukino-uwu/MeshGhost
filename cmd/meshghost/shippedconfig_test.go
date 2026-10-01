@@ -17,22 +17,9 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/relay"
 )
 
-// The shipped config.json is a SECOND place every default lives, and an explicit value in it
-// overrides the code default for every packaged player. So a default that is improved in code and
-// not in the file is not a default that shipped — it is a default nobody gets.
-//
-// That happened, which is why this test exists: DefaultInterpolationDelay was raised from 100ms to
-// 250ms on 2026-08-19 after being measured on screen, and both packaging/release/config.json and
-// the per-game client template kept "100ms" until the user asked what the release actually ships.
-// Every packaged player would have kept exactly the stutter the measurement was about.
-//
-// Two kinds of value live in that file and this test treats them differently:
-//
-//   - Values that must TRACK a code default. Checked below. A default change that forgets the file
-//     fails here rather than at a player.
-//   - Values that deliberately DIVERGE, because a release wants something a bare flag should not
-//     assume. Pinned below with their reasons, so the divergence stays a decision rather than
-//     decaying into a discrepancy nobody can date.
+// shippedConfig is the shipped config.json, a second place every default lives: an explicit value there overrides
+// the code default for every packaged player. Values that must track a code default are checked, so a change that
+// forgets the file fails here; values that diverge on purpose are pinned with their reasons.
 type shippedConfig struct {
 	Client struct {
 		ConnectTo             string  `json:"connect_to"`
@@ -130,9 +117,7 @@ func TestShippedConfigTracksCodeDefaults(t *testing.T) {
 		t.Error("shipped replay.delta is false but core.New defaults it true -- a player would " +
 			"write about four times more than they need to (agent_docs/scaling.md)")
 	}
-	// Shipped OFF, deliberately: the shipped client plays with other people.
-	// The key is present anyway so someone who wants a quiet, roomless client
-	// can flip it without knowing the flag exists (the user's call, 2026-09-03).
+	// Shipped off, since the shipped client plays with other people; the key is present so a player can flip it.
 	if cfg.Client.Offline {
 		t.Error("shipped offline is true -- the shipped client would never contact a relay " +
 			"and nobody would see anyone")
@@ -149,10 +134,8 @@ func TestShippedConfigTracksCodeDefaults(t *testing.T) {
 		t.Errorf("shipped max_receive_hz_per_player is %d but core.DefaultMaxReceiveHz is %d",
 			cfg.Client.MaxReceiveHzPerPlayer, core.DefaultMaxReceiveHz)
 	}
-	// tls and tls_fingerprint are gone since 2026-09-15 (ADR 0066): every connection is TLS
-	// and the relay's identity is remembered automatically. A shipped config that still carried
-	// "tls" would, at best, print an obsolete-key note on every launch and, at "auto", refuse to
-	// start -- so the keys must be absent from both sections.
+	// tls and tls_fingerprint are obsolete: a shipped "tls" would print a note on every launch, or at "auto" refuse
+	// to start.
 	if cfg.Client.TLS != nil || cfg.Client.TLSFingerprint != nil {
 		t.Errorf("the shipped client section still carries tls/tls_fingerprint; both keys are obsolete")
 	}
@@ -161,28 +144,18 @@ func TestShippedConfigTracksCodeDefaults(t *testing.T) {
 	}
 }
 
-// Where the release deliberately does NOT match a flag default. Each is a decision with a reason,
-// and pinning them here means the reason has to be revisited to change them rather than quietly
-// eroded. A failure is not necessarily a bug — it means read the reason and decide again.
+// TestShippedConfigDeliberateDivergences pins where the release does not match a flag default, each with its reason. A
+// failure is not necessarily a bug: read the reason and decide again.
 func TestShippedConfigDeliberateDivergences(t *testing.T) {
 	cfg := loadShippedConfig(t, filepath.Join("packaging", "release", "config.json"))
 
-	// listen_on: the -addr FLAG defaults to 127.0.0.1, which is right for development and useless
-	// for hosting -- a host has to accept connections from other machines. The shipped server
-	// config is for someone hosting, so it binds every interface.
-	// player_name_color: the FLAG defaults to blank (no box), and the shipped file carries a real hex
-	// on purpose -- the user's call, 2026-09-03: a player who opens the file should see what the value
-	// looks like. Harmless while the name is the placeholder, since a colour is ignored without a
-	// name; a player who wants a plain tag blanks it. docs/config.md says the same.
+	// player_name_color: the flag defaults to blank, and the shipped file carries a real hex so a player sees what the
+	// value looks like; a colour is ignored without a name.
 	if cfg.Client.NameColor != "#A89975" {
 		t.Errorf("shipped player_name_color should be the example hex #A89975, got %q", cfg.Client.NameColor)
 	}
-	// player_name: the FLAG defaults to blank, and the shipped file carries the placeholder word,
-	// which the client resolves BACK to blank (namePlaceholder). Same reason as the colour and the
-	// user's call, 2026-09-13: a blank taught nobody what the field wanted, and a tester filled
-	// theirs with "Default Name 123" to find out. The two halves are pinned together here because
-	// shipping a placeholder the client does not recognise would put that word over every new
-	// player's ghost.
+	// player_name: the shipped placeholder word teaches what the field wants and resolves back to blank; both halves
+	// are pinned, or an unrecognised placeholder would be drawn over every new player's ghost.
 	if cfg.Client.Name != namePlaceholder {
 		t.Errorf("shipped player_name should be the placeholder %q, got %q", namePlaceholder, cfg.Client.Name)
 	}
@@ -190,10 +163,8 @@ func TestShippedConfigDeliberateDivergences(t *testing.T) {
 		t.Errorf("the client does not recognise the shipped player_name %q as a placeholder, so it "+
 			"would be drawn as a real nametag", cfg.Client.Name)
 	}
-	// room_name: the FLAG defaults to "default" and the shipped file is BLANK, which normalizeRoom
-	// resolves to the same room. Shipped blank so the file reads as something to fill in, and pinned
-	// with the resolution because an empty room that did NOT normalize would be a real, separate
-	// room -- two players differing only in blank-versus-"default" would silently never meet.
+	// room_name: shipped blank so the file reads as something to fill in, and pinned with normalizeRoom, since an
+	// empty room that did not normalize would be a separate room.
 	if cfg.Client.Room != "" {
 		t.Errorf("shipped room_name should be blank, got %q", cfg.Client.Room)
 	}
@@ -201,16 +172,15 @@ func TestShippedConfigDeliberateDivergences(t *testing.T) {
 		t.Errorf("a blank shipped room_name resolves to %q, not the -room flag default %q",
 			normalizeRoom(cfg.Client.Room), defaultRoom)
 	}
+	// listen_on: the -addr flag's 127.0.0.1 suits development, and a host must accept other machines.
 	if cfg.Server.ListenOn != "0.0.0.0:7777" {
 		t.Errorf("shipped listen_on should bind every interface for a host, got %q",
 			cfg.Server.ListenOn)
 	}
 }
 
-// TestShippedConfigNeverRecordsOrChasesBySurprise pins the replay-era keys
-// (ADR 0047, 0048): a release must never write a file or spawn a chaser
-// unless the player asked, the contact hook ships off, and the six hotkey
-// chords match the flag defaults so the log, the README and the file agree.
+// TestShippedConfigNeverRecordsOrChasesBySurprise: a release never writes a file or spawns a chaser unless asked,
+// contact ships off, and the hotkey chords match the flag defaults so the log, the README and the file agree.
 func TestShippedConfigNeverRecordsOrChasesBySurprise(t *testing.T) {
 	cfg := loadShippedConfig(t, filepath.Join("packaging", "release", "config.json"))
 	if cfg.Client.Replay.RecordOnLaunch {
@@ -227,9 +197,7 @@ func TestShippedConfigNeverRecordsOrChasesBySurprise(t *testing.T) {
 	if cfg.Client.Replay.SplitTimes {
 		t.Error("shipped replay.split_times must be false: a nametag that changes several times a second is opted into")
 	}
-	// Contact is the STRING "off" (ADR 0068): a shipped `false` would still
-	// read as off, but the file is what a player copies from, so it shows the
-	// word they would change.
+	// Contact is the string "off", not false: the file is what a player copies from, so it shows the word to change.
 	if cfg.Client.Chaser.Enabled || cfg.Client.Chaser.Contact != "off" {
 		t.Errorf("shipped chaser must be off with contact \"off\", got enabled=%v contact=%q",
 			cfg.Client.Chaser.Enabled, cfg.Client.Chaser.Contact)
@@ -237,11 +205,7 @@ func TestShippedConfigNeverRecordsOrChasesBySurprise(t *testing.T) {
 	if cfg.Client.Replay.SaveLast != "30s" || cfg.Client.Replay.Seek != "5s" || cfg.Client.Replay.StartDelay != "0s" {
 		t.Errorf("shipped replay durations drifted from the flag defaults: %+v", cfg.Client.Replay)
 	}
-	// Blank name and colour, the user's call 2026-09-04: a chaser is you, so a
-	// tag over your own past is clutter. An empty name draws nothing at all
-	// (the same rule the player's own name follows), and a colour without a
-	// name is ignored, so shipping either non-empty would put a label on every
-	// chaser by default.
+	// Blank name and colour: a chaser is you, so a tag over your own past is clutter.
 	if cfg.Client.Chaser.Name != "" || cfg.Client.Chaser.Color != "" {
 		t.Errorf("shipped chaser name/colour are %q/%q, want both empty -- a chaser ships unlabelled",
 			cfg.Client.Chaser.Name, cfg.Client.Chaser.Color)
@@ -260,22 +224,9 @@ func TestShippedConfigNeverRecordsOrChasesBySurprise(t *testing.T) {
 	}
 }
 
-// TestShippedGhostCollisionStaysDisabled pins the one shipped default that had
-// no automated guard at all.
-//
-// DefaultSendHz is pinned by protocol/sendhzdefault_test.go and the shipped
-// interp is pinned against core.DefaultInterpolationDelay elsewhere in this
-// file, so re-introducing an old value for either fails the suite rather than
-// review. ghost_collision had neither: the existing tests cover the string
-// constants (bridge) and the policy plumbing (core/ghostcollision_test.go), and
-// nothing asserted what the release actually ships.
-//
-// It matters more than a default usually would, because ADR 0035's two values
-// are asymmetric rather than opposite: "enabled" means each adapter's own
-// default stands, while "disabled" is BINDING -- no ghost blocks anything, in
-// any game, at any time. Flipping it back would silently make ghosts solid for
-// every player, which is the exact accident this pass was asked to guard
-// against (the user, 2026-09-07). Both blocks carry the key, so both are pinned.
+// TestShippedGhostCollisionStaysDisabled pins what the release ships in both blocks. The two values are asymmetric:
+// "enabled" lets each adapter's default stand, while "disabled" binds every game, so flipping it would silently make
+// ghosts solid for every player.
 func TestShippedGhostCollisionStaysDisabled(t *testing.T) {
 	cfg := loadShippedConfig(t, filepath.Join("packaging", "release", "config.json"))
 
@@ -289,13 +240,8 @@ func TestShippedGhostCollisionStaysDisabled(t *testing.T) {
 	}
 }
 
-// TestTheShippedPredictorIsWhatTheReleaseShips keeps shippedPredict honest.
-// That constant is what the smoothing log line compares against when it decides
-// whether to call a run "the shipped defaults" (review G9, 2026-09-08), so a
-// release that changed its predictor without it would put the line back to
-// saying the wrong thing -- the exact ambiguity it exists to remove. This is a
-// value that deliberately DIVERGES from the flag default, so it is pinned here
-// rather than tracked.
+// TestTheShippedPredictorIsWhatTheReleaseShips keeps shippedPredict, which the smoothing log line compares against, in
+// step with the release; it diverges from the flag default, so it is pinned rather than tracked.
 func TestTheShippedPredictorIsWhatTheReleaseShips(t *testing.T) {
 	cfg := loadShippedConfig(t, filepath.Join("packaging", "release", "config.json"))
 	if cfg.Client.Predict != string(shippedPredict) {
@@ -304,24 +250,9 @@ func TestTheShippedPredictorIsWhatTheReleaseShips(t *testing.T) {
 	}
 }
 
-// A GAME'S CONFIG CARRIES ONLY KEYS SOMETHING IN THAT GAME READS.
-//
-// The root config.json is the complete reference and keeps every key; the
-// per-game files are cut from its client block, so before 2026-09-13 a key only
-// ONE mod read went to all four games -- map_markers (TEVI's pause-menu peer
-// markers) sat in Pseudoregalia's file, and input_display (Pseudoregalia's
-// overlay) in TEVI's. Nothing broke: notClientSettings keeps both out of the
-// unknown-key warning, which is exactly why it went unnoticed until the user
-// read the file and asked why map_markers was there.
-//
-// It is a support question waiting to happen -- a player edits a setting in
-// their own game's config and nothing happens, with no way to know the key was
-// never theirs -- so stage-release.ps1 now strips each from the games that do
-// not read it ($gameOnly). This is the pin on that: the ownership table lives in
-// a PowerShell script, which no Go test would otherwise touch.
-//
-// Skipped in a clean checkout for the same reason as the test above: the
-// per-game files are gitignored staging output.
+// TestEachGameConfigCarriesOnlyItsOwnModKeys: a game's config carries only keys something in that game reads, or a
+// player edits a setting to no effect. It pins stage-release.ps1's $gameOnly table, which no Go code otherwise
+// touches, and skips in a clean checkout, where the per-game files (gitignored staging output) do not exist.
 func TestEachGameConfigCarriesOnlyItsOwnModKeys(t *testing.T) {
 	// key -> the one game whose mod reads it, by its folder under games/.
 	owner := map[string]string{
@@ -368,24 +299,8 @@ func TestEachGameConfigCarriesOnlyItsOwnModKeys(t *testing.T) {
 	}
 }
 
-// THE SHIPPED CONFIG MUST NOT WARN ABOUT ITSELF.
-//
-// WarnUnknownKeys (2026-09-11) names every key in "client" that has no field in
-// fileConfig and says it is "being IGNORED, so whatever it was meant to change
-// is still at its default". The known-key set is fileConfig's own json tags by
-// reflection, which is right for a typo -- and wrong for the keys this file
-// legitimately carries for a DIFFERENT reader. autostart, map_markers,
-// input_display and the ghost_range trio are read by the game's mod, and the
-// replay.indicator trio by the mod's own overlay; none of them is a client
-// setting, none is in any Go struct, and all of them ship turned on.
-//
-// So an untouched release told every player that six of its own defaults were
-// typos doing nothing. docs/config.md documents those keys as legitimate and is
-// right; the warning was wrong.
-//
-// Every shipped config is walked, not just the root one: the per-game files
-// carry keys the root does not (the ghost_range trio is Pseudoregalia's), so
-// checking one would have missed three of them.
+// TestShippedConfigsProduceNoUnknownKeyWarning: the shipped configs must not warn about their own keys, the ones read
+// by the game's mod. Every shipped config is walked, since the per-game files carry keys the root does not.
 func TestShippedConfigsProduceNoUnknownKeyWarning(t *testing.T) {
 	shipped := []string{
 		filepath.Join("packaging", "release", "config.json"),
@@ -399,12 +314,8 @@ func TestShippedConfigsProduceNoUnknownKeyWarning(t *testing.T) {
 			path := filepath.Join("..", "..", rel)
 			raw, err := os.ReadFile(path)
 			if err != nil {
-				// **THE PER-GAME FILES ARE STAGING OUTPUT AND ARE GITIGNORED**, so they exist on a
-				// machine that has staged a release and never in a clean checkout. Failing on
-				// absence made this test pass locally and fail in CI on its first push
-				// (2026-09-11). Their INPUTS are tracked, though, and
-				// TestConfigOverridesProduceNoUnknownKeyWarning below checks those -- which is
-				// where the keys this test was written for actually live.
+				// The per-game files are gitignored staging output, absent in a clean checkout; their tracked
+				// inputs are checked by TestConfigOverridesProduceNoUnknownKeyWarning.
 				if os.IsNotExist(err) {
 					t.Skipf("%s is staging output (gitignored); its tracked inputs are covered by "+
 						"TestConfigOverridesProduceNoUnknownKeyWarning", rel)
@@ -427,16 +338,9 @@ func TestShippedConfigsProduceNoUnknownKeyWarning(t *testing.T) {
 	}
 }
 
-// The per-game config.json files the test above walks are STAGING OUTPUT: staging cuts the root
-// config.json's "client" block and merges packaging/config-overrides/<game>.json over it. The
-// output is gitignored, the two inputs are tracked -- so this is where the per-game keys can
-// actually be checked in CI, and they are the reason the test above walks more than the root:
-// Pseudoregalia's override carries ghost_range, ghost_range_far and ghost_range_throttle, which
-// the root does not have and which a root-only check would miss.
-//
-// An override file is a flat map of client keys. Keys beginning with _comment are documentation
-// and are dropped by staging (dev-scripts/stage-release.ps1), so they are dropped here too --
-// mirroring staging rather than inventing a second rule.
+// TestConfigOverridesProduceNoUnknownKeyWarning checks the tracked inputs of the per-game files, the root
+// config.json's "client" block with packaging/config-overrides/<game>.json merged over it, so CI sees the per-game
+// keys. An override is a flat map of client keys; _comment keys are dropped, as staging drops them.
 func TestConfigOverridesProduceNoUnknownKeyWarning(t *testing.T) {
 	dir := filepath.Join("..", "..", "packaging", "config-overrides")
 	entries, err := os.ReadDir(dir)

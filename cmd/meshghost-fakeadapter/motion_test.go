@@ -6,19 +6,8 @@ import (
 	"time"
 )
 
-// THE SYNTHETIC PEER HAS TO STOP, or this rig cannot judge an interpolator
-// (review H15).
-//
-// A constant-speed circle is the most flattering input an interpolator can be
-// given: no stops, no turns, no landings, infinitely differentiable, sampled
-// exactly on the tick. Every prediction is right and every correction is zero --
-// and `dev-scripts/README.md`'s own rule is that you judge an interpolator on
-// the CORRECTION. A ladder climbed against a circle cannot see the thing it is
-// climbing for.
-//
-// A stop is the one discontinuity a real player produces constantly and a circle
-// never does: velocity to zero and back, which is where an extrapolating
-// interpolator overshoots and has to pull back.
+// TestTheSyntheticPeerActuallyStops: against a constant-speed circle every prediction is right, while a stop is where
+// an extrapolating interpolator overshoots and has to correct.
 func TestTheSyntheticPeerActuallyStops(t *testing.T) {
 	a := &circleAdapter{
 		radiusUnits:   100,
@@ -29,8 +18,6 @@ func TestTheSyntheticPeerActuallyStops(t *testing.T) {
 		stopFraction:  0.5, // half of every 2 s standing still
 	}
 
-	// Sample a whole stop period finely and measure how much of it was spent
-	// not moving.
 	const step = 10 * time.Millisecond
 	var still, moved int
 	var prev []float64
@@ -56,17 +43,14 @@ func TestTheSyntheticPeerActuallyStops(t *testing.T) {
 	if moved == 0 {
 		t.Fatal("the synthetic peer never moved at all")
 	}
-	// Half the period, within a couple of samples.
 	share := float64(still) / float64(still+moved)
 	if share < 0.4 || share > 0.6 {
 		t.Fatalf("the peer was still for %.0f%% of the period, want about 50%%", share*100)
 	}
 }
 
-// AND IT RESUMES WHERE IT STOPPED. The stop drives the ANGLE'S clock rather than
-// the angle, so a resume continues the path -- if it jumped to where it would
-// have been, the rig would be injecting a teleport, which is a different test
-// and one the core currently cannot tell from a walk (ideas.md, review E11).
+// TestAStoppedPeerResumesWhereItStopped: a stop pauses the angle's clock, so a resume continues the path; a jump to
+// where it would have been is a teleport, a different test.
 func TestAStoppedPeerResumesWhereItStopped(t *testing.T) {
 	a := &circleAdapter{
 		radiusUnits:   100,
@@ -93,9 +77,8 @@ func TestAStoppedPeerResumesWhereItStopped(t *testing.T) {
 	}
 }
 
-// OFF IS STILL AVAILABLE, and it has to be: every measurement taken before
-// 2026-09-11 was against the always-moving circle, so a comparison against one
-// of those needs the old shape back.
+// TestStopsCanBeTurnedOff: -stop-every 0 restores the always-moving circle that earlier measurements were taken
+// against.
 func TestStopsCanBeTurnedOff(t *testing.T) {
 	a := &circleAdapter{
 		radiusUnits:   100,

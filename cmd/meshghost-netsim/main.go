@@ -1,39 +1,15 @@
-// Command meshghost-netsim is a fault-injecting proxy that sits between
-// clients and a relay, so a real session can be run against a network worth
-// being afraid of: loss, latency, jitter, reordering, duplication, and
-// partitions.
+// Command meshghost-netsim is a fault-injecting proxy between clients and a relay, so a real session can run under
+// loss, latency, jitter, reordering, duplication and partitions.
 //
-// Why this exists. Every automated check in this repo runs over a perfect
-// loopback. agent_docs/testing.md names the consequence directly -- "real
-// latency and jitter -- loopback has ~none", and interpolation degrades
-// *silently* under wall-clock skew -- and dev-scripts/README.md says the
-// same of the launchers. The only fault injection that existed before this
-// was a package-private drop counter inside netx/udpconn's own
-// tests, which cannot touch a running session. That injector found a real
-// ordering bug on 2026-08-16 (a leave overtaking its own join, stranding a
-// ghost permanently); this is the same idea at session scope.
+// It mirrors the relay's port numbers on a different loopback address (127.0.0.1:7777 as 127.0.0.2:7777). Transport
+// discovery sends the port but not the host, so a client upgrading to udp or quic reuses the host it first connected
+// to; a different port number would route the upgrade around the proxy, and the session would test nothing.
 //
-// How to point a client at it. The proxy mirrors the relay's port NUMBERS
-// on a different loopback address, and that is load-bearing rather than a
-// convenience: agent_docs/contract.md's transport discovery sends the port
-// but deliberately not the host, so a client that upgrades to udp or quic
-// reuses whatever host it first connected to. Mirroring 127.0.0.1:7777 as
-// 127.0.0.2:7777 therefore keeps the whole handshake-then-upgrade path
-// inside the proxy. Giving it a different port number would silently route
-// the upgrade around it, and the session would look fine while testing
-// nothing.
+// On tcp it only delays, jitters and partitions: dropping part of a proxied byte stream corrupts it rather than
+// simulating loss, because the kernel's retransmission sits below the proxy. Loss, reordering and duplication apply
+// to udp and quic only.
 //
-// What it deliberately does NOT do: drop or reorder bytes on tcp. A tcp
-// connection proxied at the application layer is a byte stream, so
-// "dropping" part of it corrupts the stream rather than simulating loss --
-// the kernel's own retransmission is what a real drop would hit, and that
-// is below where this sits. On tcp the honest faults are delay, jitter and
-// partition (a stall), which is what is offered; loss, reorder and
-// duplicate apply to udp/quic only. Asking for them on tcp is refused
-// rather than quietly ignored.
-//
-// Nothing here knows anything about MeshGhost's protocol -- it moves bytes.
-// That is on purpose: it stays useful if the wire format changes.
+// It knows nothing of MeshGhost's protocol and only moves bytes, so it stays useful if the wire format changes.
 package main
 
 import (
@@ -65,15 +41,9 @@ func (d direction) String() string {
 	return "down"
 }
 
-// faults is the shared, seeded fault model. One instance is shared by every
-// flow so a single -seed describes the whole run.
-//
-// Seeded rather than freely random for the same reason netx/udpconn's
-// own proxy arms loss explicitly: a failure nobody can reproduce is barely a
-// failure report. The seed is logged at startup and can be fed back in. Note
-// the honest limit -- with several concurrent flows the *interleaving* is
-// still down to the scheduler, so a seed reproduces the fault distribution,
-// not a bit-identical run.
+// faults is the seeded fault model, shared by every flow so one -seed describes the whole run and a bad run can be
+// replayed. A seed reproduces the fault distribution, not a bit-identical run: concurrent flows interleave as the
+// scheduler decides.
 type faults struct {
 	loss         float64
 	dup          float64
@@ -87,9 +57,7 @@ type faults struct {
 	partitionFor   time.Duration
 	start          time.Time
 
-	// burstMean is the average length of a BAD period when correlated loss is
-	// on, and zero when it is off (the memoryless default). inBad and
-	// burstUntil are the current state; both are guarded by mu.
+	// burstMean is the mean length of a bad period, 0 for memoryless loss; the state below it is guarded by mu.
 	burstMean  time.Duration
 	inBad      bool
 	burstUntil time.Time
@@ -99,30 +67,11 @@ type faults struct {
 	rng *rand.Rand
 }
 
-// losing reports whether this datagram is lost, and is the whole difference
-// between the default fault model and the opt-in one.
-//
-// MEMORYLESS (-loss-burst unset): an independent coin flip per datagram, which
-// is what this tool has always done. It is right for background loss and wrong
-// for the thing that actually breaks an interpolation buffer -- a run of
-// consecutive samples missing -- because independent flips almost never produce
-// one. That is the gap the 2026-09-07 review measured (D5): nothing in the
-// no-arg profile reaches the 150-500ms correlated-gap regime ADR 0046's ladder
-// was judged against, so the shipped 450ms rests on a milder network than its
-// own description claims, and the error direction is that 450 may be UNDER-sized.
-//
-// CORRELATED (-loss-burst set): a two-state Gilbert model. The link is GOOD and
-// loses nothing, or BAD and loses everything, and each period's length is drawn
-// from an exponential with the given mean -- so losses arrive in runs, the way
-// a wifi link with a competing transmitter or a moving obstacle actually fails.
-// -loss keeps its meaning as the long-run FRACTION of time spent BAD, so the
-// same -loss loses the same share of datagrams either way: what changes is the
-// arrangement, which is the only thing an interpolation buffer cares about.
-//
-// Opt-in, and deliberately not the default: every interp verdict on record was
-// made against the memoryless profile, and silently changing what the no-arg
-// rig means would invalidate those comparisons without anyone noticing. The
-// user's call, 2026-09-11.
+// losing reports whether this datagram is lost. Without -loss-burst it flips an independent coin per datagram, which
+// almost never loses a run of consecutive samples, the thing that breaks an interpolation buffer. With it, a
+// two-state Gilbert model: good loses nothing, bad loses everything, periods are exponential with bad ones averaging
+// -loss-burst, and -loss stays the long-run share of time spent bad, so only the arrangement changes. Opt-in,
+// because every interp verdict on record was made against the memoryless profile.
 func (f *faults) losing(now time.Time) bool {
 	if f.loss <= 0 {
 		return false
@@ -132,10 +81,7 @@ func (f *faults) losing(now time.Time) bool {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	// Mean GOOD length follows from the two knobs: the fraction of time spent
-	// BAD is mean(bad) / (mean(good) + mean(bad)), so mean(good) is
-	// mean(bad) * (1-loss)/loss. At the no-arg 5% that is nineteen times as
-	// long good as bad.
+	// The share of time spent bad is mean(bad)/(mean(good)+mean(bad)), so mean(good) is mean(bad)*(1-loss)/loss.
 	goodMean := time.Duration(float64(f.burstMean) * (1 - f.loss) / f.loss)
 	for {
 		if f.inBad {
@@ -154,9 +100,7 @@ func (f *faults) losing(now time.Time) bool {
 	}
 }
 
-// expDurationLocked draws from an exponential distribution with the given mean,
-// which is what makes the state lengths memoryless WITHIN a state while the
-// state itself carries the correlation. Caller holds mu.
+// expDurationLocked draws from an exponential distribution with the given mean. Caller holds mu.
 func (f *faults) expDurationLocked(mean time.Duration) time.Duration {
 	if mean <= 0 {
 		return 0
@@ -178,8 +122,6 @@ func (f *faults) delayFor() time.Duration {
 	d := f.latency
 	if f.jitter > 0 {
 		f.mu.Lock()
-		// Symmetric around the base latency, clamped at zero -- a negative
-		// total delay is not a thing a network does.
 		d += time.Duration(f.rng.Int63n(int64(2*f.jitter))) - f.jitter
 		f.mu.Unlock()
 	}
@@ -189,9 +131,8 @@ func (f *faults) delayFor() time.Duration {
 	return d
 }
 
-// partitioned reports whether the link is currently blacked out. Driven by
-// wall-clock rather than a random draw so the windows are predictable enough
-// to line up against a log.
+// partitioned reports whether the link is blacked out, by wall clock rather than a draw so the windows line up
+// against a log.
 func (f *faults) partitioned() bool {
 	if f.partitionEvery <= 0 || f.partitionFor <= 0 {
 		return false
@@ -259,14 +200,8 @@ func main() {
 		}
 	}
 
-	// Said loudly rather than refused. An earlier version made this fatal, on
-	// the reasoning that silently discarding a -loss the caller asked for
-	// would let a clean run be reported as evidence the stack survives loss.
-	// Running it proved that wrong: the handshake is ALWAYS tcp
-	// (agent_docs/contract.md), so every real session needs tcp mirrored, and
-	// refusing made -loss unusable in exactly the case it exists for. The
-	// honest fix is to allow the combination, apply these faults only where
-	// they mean something, and print which flows they reached.
+	// The udp-only faults are allowed beside mirrored tcp, since the handshake is always tcp and every real session
+	// mirrors it; they are refused only when no udp port would receive them.
 	udpOnly := *loss > 0 || *dup > 0 || *reorder > 0
 	if *tcpPorts != "" && udpOnly && *udpPorts == "" {
 		log.Fatalf("netsim: -loss/-duplicate/-reorder are udp-only, and no udp ports are mirrored, " +
@@ -326,10 +261,7 @@ func main() {
 			"bytes out of a proxied tcp stream corrupts it rather than simulating loss")
 	}
 	if *burstMean > 0 {
-		// Said at startup, because the whole point of the flag is that a
-		// verdict reached under it is not comparable with one reached without
-		// it -- and a log nobody has to ask for is what makes that visible in
-		// a pasted transcript.
+		// Logged unasked, so a pasted transcript shows its verdict was reached on a different network.
 		goodMean := time.Duration(float64(*burstMean) * (1 - *loss) / *loss)
 		log.Printf("netsim: CORRELATED loss on: the link alternates BAD for ~%s (everything lost) "+
 			"and GOOD for ~%s (nothing lost), which keeps -loss=%.3f as the long-run share of "+
@@ -369,12 +301,8 @@ func parsePorts(spec string) []int {
 	return out
 }
 
-// ------------------------------------------------------------------- udp
-
-// serveUDP mirrors one udp port. Each distinct client address gets its own
-// upstream socket, the way a NAT would: the relay's reply then arrives on
-// that socket and can be routed back to exactly the client it belongs to.
-// One shared upstream socket could not tell two clients' replies apart.
+// serveUDP mirrors one udp port. Each client address gets its own upstream socket, the way a NAT would, so the
+// relay's reply can be routed back to the client it belongs to.
 func serveUDP(listenHost, targetHost string, port int, f *faults, st *stats) error {
 	front, err := net.ListenPacket("udp", net.JoinHostPort(listenHost, strconv.Itoa(port)))
 	if err != nil {
@@ -408,8 +336,7 @@ func serveUDP(listenHost, targetHost string, port int, f *faults, st *stats) err
 				}
 				fl = &flow{up: upc}
 				flows[key] = fl
-				// Pump this client's replies back. Faults apply here too, so
-				// -direction=down can black out only the relay's side.
+				// Faults apply to replies too, so -direction=down can black out only the relay's side.
 				go func(client net.Addr, upc net.PacketConn) {
 					rbuf := make([]byte, 64*1024)
 					for {
@@ -435,10 +362,8 @@ func serveUDP(listenHost, targetHost string, port int, f *faults, st *stats) err
 	return nil
 }
 
-// sendUDP applies the fault model to one datagram and hands whatever
-// survives to write. Delays run in their own goroutine, which is exactly
-// what lets a delayed datagram be overtaken -- reordering on udp is a
-// consequence of delay, not a separate mechanism.
+// sendUDP applies the fault model to one datagram and hands whatever survives to write. A delayed datagram is sent
+// from its own goroutine, which is what lets a later one overtake it.
 func sendUDP(f *faults, st *stats, d direction, pkt []byte, write func([]byte)) {
 	if !f.applies(d) {
 		st.forwarded.Add(1)
@@ -481,8 +406,6 @@ func sendUDP(f *faults, st *stats, d direction, pkt []byte, write func([]byte)) 
 	}()
 }
 
-// ------------------------------------------------------------------- tcp
-
 func serveTCP(listenHost, targetHost string, port int, f *faults, st *stats) error {
 	ln, err := net.Listen("tcp", net.JoinHostPort(listenHost, strconv.Itoa(port)))
 	if err != nil {
@@ -514,46 +437,17 @@ func serveTCP(listenHost, targetHost string, port int, f *faults, st *stats) err
 	return nil
 }
 
-// pumpTCP copies src to dst, delaying in place.
-//
-// Delay is applied inline, in this one goroutine per direction, which keeps
-// the stream ORDERED -- a later chunk cannot overtake an earlier one. That
-// is the correct model: tcp reordering is invisible above the kernel, so a
-// proxy that reordered here would be simulating something that cannot
-// happen rather than something that can.
-//
-// A partition stalls the stream rather than discarding it, for the same
-// reason: a real partition makes tcp retransmit until it gives up, so the
-// bytes are late, not gone.
-// tcpChunk is one read from the source, and the instant it is due at the
-// destination.
+// tcpChunk is one read from the source and the instant it is due at the destination.
 type tcpChunk struct {
 	data []byte
 	due  time.Time
 }
 
-// pumpTCP copies one direction of a tcp flow, applying the delay model.
-//
-// **THE READ LOOP DOES NOT SLEEP (review H16, fixed 2026-09-11), and that is the
-// whole difference between DELAYING a stream and CLUMPING it.**
-//
-// This used to sleep inline between the read and the write, in the one goroutine
-// doing both. So the latency was not added to a flowing stream -- it became the
-// stream's SERVICE INTERVAL: at the no-arg profile's 100 ms the path could
-// complete about ten read-write cycles a second, and a 15 Hz sender's lines
-// piled up in the kernel buffer between them and crossed in bursts. The client
-// saw one clump of samples every 100 ms rather than a smooth stream delayed by
-// 100 ms, and those are different networks. Any rate or interpolation verdict
-// taken over tcp on the old rig was measuring the proxy.
-//
-// Now: the reader never blocks, each chunk is stamped with when it is due, and a
-// second goroutine writes them IN ORDER at their due times. Order is preserved
-// by construction -- a stream cannot reorder without corrupting itself, which is
-// exactly why loss, duplication and reordering stay udp-only here.
+// pumpTCP copies one direction of a tcp flow, applying the delay model. The reader does not sleep between read and
+// write: each chunk is stamped with its due time and a second goroutine writes the chunks in order at those times.
+// Sleeping inline would turn the latency into the stream's service interval and deliver it in clumps.
 func pumpTCP(f *faults, st *stats, d direction, src, dst net.Conn) {
-	// Bounded, so a destination that stops reading cannot make this grow without
-	// limit -- at which point the reader blocks, which is what a real congested
-	// link does anyway.
+	// Bounded: a destination that stops reading ends up blocking the reader, as a congested link would.
 	queue := make(chan tcpChunk, 1024)
 	done := make(chan struct{})
 
@@ -574,14 +468,10 @@ func pumpTCP(f *faults, st *stats, d direction, src, dst net.Conn) {
 	for {
 		n, err := src.Read(buf)
 		if n > 0 {
-			// Copied: buf is reused by the next read, and the chunk now
-			// outlives this iteration.
+			// Copied: buf is reused by the next read.
 			chunk := tcpChunk{data: append([]byte(nil), buf[:n]...), due: time.Now()}
 			if f.applies(d) {
-				// A partition holds the whole flow, so it is measured here and
-				// added to the due time rather than slept through -- the reader
-				// stays live and the bytes queue up behind it, which is what a
-				// blacked-out link actually does.
+				// A partition stalls the stream rather than dropping it: tcp retransmits, so the bytes are late.
 				for f.partitioned() {
 					st.partitions.Add(1)
 					chunk.due = chunk.due.Add(50 * time.Millisecond)
@@ -596,10 +486,8 @@ func pumpTCP(f *faults, st *stats, d direction, src, dst net.Conn) {
 			}
 		}
 		if err != nil {
-			// A closed peer is the ordinary way a session ends, so EOF is
-			// not worth a line. Anything else is, because a rig that is
-			// quietly dropping connections looks identical to a stack that
-			// is quietly dropping them.
+			// EOF is how a session ends; anything else is logged, since a rig dropping connections looks like the stack
+			// dropping them.
 			if err != io.EOF {
 				log.Printf("netsim: tcp %s flow ended: %v", d, err)
 			}

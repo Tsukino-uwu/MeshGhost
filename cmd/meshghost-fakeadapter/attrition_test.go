@@ -5,9 +5,7 @@ import (
 	"testing"
 )
 
-// fakeLive gives an adapter a peer count without a relay: circleAdapter.live is
-// what liveCount reads, and these tests are about the WATCHER, not about how a
-// peer gets into that map.
+// fakeLive gives an adapter a peer count without a relay, by filling the map liveCount reads.
 func fakeLive(n int) *circleAdapter {
 	a := &circleAdapter{live: map[string]bool{}}
 	for i := 0; i < n; i++ {
@@ -25,16 +23,12 @@ func (a *circleAdapter) setLive(n int) {
 	}
 }
 
-// A RUN THAT SHEDS PEERS MUST FAIL. Before this check, a soak that started with
-// every client seeing its siblings and ended with half of them gone printed "no
-// invariant violations" and exited 0 -- summarize catches a plane that did
-// NOTHING, and caught nothing in between.
 func TestLosingPeersFailsTheRun(t *testing.T) {
 	a, b := fakeLive(3), fakeLive(3)
 	w := newPeerWatch([]*circleAdapter{a, b})
-	w.sample() // the peak: both see three
+	w.sample()
 
-	a.setLive(1) // two of a's peers went away
+	a.setLive(1)
 	stop := make(chan struct{})
 	close(stop)
 	w.run(stop) // records the final counts
@@ -47,8 +41,6 @@ func TestLosingPeersFailsTheRun(t *testing.T) {
 	}
 }
 
-// AND A HEALTHY RUN MUST NOT. A check that cries wolf on a clean soak gets
-// ignored, which costs the run it exists for.
 func TestAStableRunReportsNoAttrition(t *testing.T) {
 	a, b := fakeLive(2), fakeLive(2)
 	w := newPeerWatch([]*circleAdapter{a, b})
@@ -64,9 +56,7 @@ func TestAStableRunReportsNoAttrition(t *testing.T) {
 	}
 }
 
-// A RUN THAT MOVES CLIENTS BETWEEN AREAS ON PURPOSE CANNOT BE JUDGED THIS WAY,
-// so it is reported and not failed -- churn and -areas both end with clients
-// legitimately out of each other's view.
+// TestChurnIsReportedRatherThanFailed: churn and -areas both end with clients legitimately out of each other's view.
 func TestChurnIsReportedRatherThanFailed(t *testing.T) {
 	a, b := fakeLive(3), fakeLive(3)
 	w := newPeerWatch([]*circleAdapter{a, b})
@@ -83,9 +73,6 @@ func TestChurnIsReportedRatherThanFailed(t *testing.T) {
 	}
 }
 
-// NOTHING IS JUDGED OFFLINE OR WITH ONE CLIENT: nothing can arrive, so nothing
-// can be lost, and a single synthetic client beside a real game is a legitimate
-// shape whose only peer stops when the user stops it.
 func TestOfflineAndSoloRunsAreNotJudged(t *testing.T) {
 	a := fakeLive(3)
 	w := newPeerWatch([]*circleAdapter{a})
@@ -103,8 +90,6 @@ func TestOfflineAndSoloRunsAreNotJudged(t *testing.T) {
 	}
 }
 
-// THE MESSAGE HAS TO BE ACTIONABLE: which client, how many were lost, and where
-// to look. A verdict nobody can act on is a verdict nobody reads.
 func TestTheAttritionMessageSaysWhatToLookFor(t *testing.T) {
 	msg := attritionMessage(2, 7, 3)
 	for _, want := range []string{"client 2", "3 peers", "7 at its peak", "4 peer(s)"} {

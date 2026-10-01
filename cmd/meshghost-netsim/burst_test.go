@@ -37,15 +37,8 @@ func runLengths(f *faults, samples int, spacing time.Duration) []int {
 	return runs
 }
 
-// MEMORYLESS LOSS ALMOST NEVER LOSES THREE IN A ROW, which is the measurement
-// behind D5: at the no-arg 5% and 15Hz, a 200ms triple-gap comes round about
-// every nine minutes and a 267ms quad about every three hours -- so the profile
-// every interp verdict was judged against never reaches the 150-500ms
-// correlated-gap regime an interpolation buffer is SIZED for.
-//
-// This test is the baseline the next one is measured against. It is not a
-// defect being asserted; it is the shape of the default, pinned so that a
-// change to it cannot go unnoticed.
+// TestMemorylessLossHardlyEverLosesARun pins the default's shape, the baseline for the tests below: at 5% and 15Hz,
+// memoryless loss almost never loses three samples in a row.
 func TestMemorylessLossHardlyEverLosesARun(t *testing.T) {
 	f := &faults{loss: 0.05, mu: sync.Mutex{}, rng: rand.New(rand.NewSource(1))}
 	// One minute at 15Hz.
@@ -64,13 +57,11 @@ func TestMemorylessLossHardlyEverLosesARun(t *testing.T) {
 	}
 }
 
-// THE OPT-IN MODEL PRODUCES THE REGIME THE DEFAULT CANNOT. Same -loss, same
-// stream, and now the losses arrive in runs long enough to matter to an
-// interpolation buffer -- which is the entire point of the flag.
+// TestCorrelatedLossProducesRunsLongEnoughToMatter: at the same -loss, -loss-burst delivers losses in runs long
+// enough to matter to an interpolation buffer.
 func TestCorrelatedLossProducesRunsLongEnoughToMatter(t *testing.T) {
 	f := burstFaults(0.05, 250*time.Millisecond)
-	// Ten minutes at 15Hz, so a handful of bad periods is expected rather than
-	// lucky (at 5% that is ~30 seconds spent BAD in total).
+	// Ten minutes at 15Hz, about 30s bad in total at 5%, so several bad periods are expected rather than lucky.
 	runs := runLengths(f, 9000, 66*time.Millisecond)
 	if len(runs) == 0 {
 		t.Fatal("correlated loss lost nothing at all in ten minutes at 5%")
@@ -78,7 +69,7 @@ func TestCorrelatedLossProducesRunsLongEnoughToMatter(t *testing.T) {
 
 	long := 0
 	for _, n := range runs {
-		if n >= 3 { // 3 samples at 66ms is ~200ms, the low end of the regime
+		if n >= 3 { // 3 samples at 66ms is ~200ms, the low end of bad wifi's 150-500ms runs
 			long++
 		}
 	}
@@ -89,9 +80,8 @@ func TestCorrelatedLossProducesRunsLongEnoughToMatter(t *testing.T) {
 	}
 }
 
-// AND IT MUST NOT CHANGE HOW MUCH IS LOST, only how it arrives. If it did, a
-// result under the flag could not be compared with one without it for any
-// reason other than the arrangement, which is the one variable being isolated.
+// TestCorrelatedLossKeepsTheSameLongRunShare: the flag changes how losses arrive, not how many, so a result under it
+// differs from one without it only in the arrangement.
 func TestCorrelatedLossKeepsTheSameLongRunShare(t *testing.T) {
 	const want = 0.05
 	f := burstFaults(want, 250*time.Millisecond)
@@ -111,8 +101,7 @@ func TestCorrelatedLossKeepsTheSameLongRunShare(t *testing.T) {
 	}
 }
 
-// THE FLAG IS OPT-IN, so with it unset nothing about the default model may
-// change: every interp verdict on record was made against it.
+// TestTheDefaultModelIsUntouchedWhenTheFlagIsUnset: every interp verdict on record was made against the default model.
 func TestTheDefaultModelIsUntouchedWhenTheFlagIsUnset(t *testing.T) {
 	f := &faults{loss: 0, mu: sync.Mutex{}, rng: rand.New(rand.NewSource(1))}
 	if f.losing(time.Unix(0, 0)) {

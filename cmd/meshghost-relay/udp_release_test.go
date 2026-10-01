@@ -7,11 +7,8 @@ import (
 	"testing"
 )
 
-// TestAConfigThatStillPlacesUDPIsRefused pins ADR 0065's release half at the
-// one door netx.ParseKinds does not cover: listen_udp. An empty value is what
-// every config shipped before 2026-09-15 carries and is ignored; a real one
-// is refused with the alternatives named. (Build-tagged sibling:
-// udp_dev_test.go, where the same key is a setting.)
+// TestAConfigThatStillPlacesUDPIsRefused pins the release build at listen_udp, the one door netx.ParseKinds does not
+// cover: empty is ignored, and a real value is refused with the alternatives named.
 func TestAConfigThatStillPlacesUDPIsRefused(t *testing.T) {
 	if err := checkUDPConfig(""); err != nil {
 		t.Fatalf("an empty listen_udp must be ignored, got: %v", err)
@@ -25,8 +22,7 @@ func TestAConfigThatStillPlacesUDPIsRefused(t *testing.T) {
 			t.Fatalf("refusal %q does not mention %q", err, want)
 		}
 	}
-	// And the flag a release does not register leaves the value empty, so the
-	// check above is the whole story for a relay started with no config.
+	// A release registers no flag, so without a config the value is empty.
 	if v := udpListenFlag(); v == nil || *v != "" {
 		t.Fatalf("udpListenFlag = %v, want an empty value in a release", v)
 	}

@@ -10,9 +10,8 @@ import (
 	"time"
 )
 
-// The proxy mirrors port NUMBERS across two hosts, so a test needs a port
-// free on both. Picking it on the target host and reusing the number on the
-// listen host is enough here: nothing else in the suite binds 127.0.0.2.
+// freeUDPPort picks a port free on 127.0.0.1; the proxy mirrors the number on 127.0.0.2, which nothing else in the
+// suite binds.
 func freeUDPPort(t *testing.T) int {
 	t.Helper()
 	c, err := net.ListenPacket("udp", "127.0.0.1:0")
@@ -41,20 +40,8 @@ func newFaults(seed int64) *faults {
 	}
 }
 
-// TestUDPProxyForwardsBothWays is the baseline: with no faults armed the
-// proxy must be invisible, including on the return path. The return path is
-// the half that needs the per-client upstream socket, so a proxy that only
-// forwarded one way would still look fine to a one-shot send test.
-
-// rawClient is an UNCONNECTED udp socket aimed at one address, standing in for
-// net.Dial("udp", ...).
-//
-// A connected udp socket is not needed to send to a known address, and
-// depending on one made these tests depend on the host stack being willing to
-// connect() a udp socket to loopback: a dev machine that refused it
-// (WSAEADDRNOTAVAIL) failed both proxy tests with nothing wrong in the code.
-// Same change, same day, as netx/udpconn's rawPeer, which carries the longer
-// note.
+// rawClient is an unconnected udp socket aimed at one address, standing in for net.Dial("udp", ...): some host
+// stacks refuse to connect() a udp socket to loopback (WSAEADDRNOTAVAIL).
 type rawClient struct {
 	pc *net.UDPConn
 	to *net.UDPAddr
@@ -78,6 +65,8 @@ func (r *rawClient) Read(b []byte) (int, error)        { n, _, err := r.pc.ReadF
 func (r *rawClient) SetReadDeadline(t time.Time) error { return r.pc.SetReadDeadline(t) }
 func (r *rawClient) Close() error                      { return r.pc.Close() }
 
+// TestUDPProxyForwardsBothWays: with no faults the proxy is invisible, including on the return path, the half that
+// needs the per-client upstream socket.
 func TestUDPProxyForwardsBothWays(t *testing.T) {
 	port := freeUDPPort(t)
 
@@ -121,9 +110,8 @@ func TestUDPProxyForwardsBothWays(t *testing.T) {
 	}
 }
 
-// TestUDPProxyDropsEverythingAtTotalLoss confirms the fault model is
-// actually wired to the forwarding path. A proxy that accepted -loss and
-// ignored it would pass every other test here.
+// TestUDPProxyDropsEverythingAtTotalLoss confirms the fault model is wired to the forwarding path: a proxy that
+// accepted -loss and ignored it would pass every other test here.
 func TestUDPProxyDropsEverythingAtTotalLoss(t *testing.T) {
 	port := freeUDPPort(t)
 
@@ -175,10 +163,8 @@ func TestUDPProxyDropsEverythingAtTotalLoss(t *testing.T) {
 	}
 }
 
-// TestTCPProxyPreservesOrderUnderJitter is the property that makes the tcp
-// side honest. Delay is applied inline per direction specifically so a
-// later chunk cannot overtake an earlier one -- reordering a tcp stream
-// would be simulating something that cannot happen above the kernel.
+// TestTCPProxyPreservesOrderUnderJitter: chunks are written in order at their due times, so jitter cannot reorder a
+// tcp stream, which never reorders above the kernel.
 func TestTCPProxyPreservesOrderUnderJitter(t *testing.T) {
 	port := freeTCPPort(t)
 
@@ -245,9 +231,6 @@ func TestTCPProxyPreservesOrderUnderJitter(t *testing.T) {
 	}
 }
 
-// TestPartitionWindowIsTimeBasedNotRandom pins the deliberate choice to
-// drive blackouts off the clock: a window you can predict is one you can
-// line up against a log, which a random draw would not be.
 func TestPartitionWindowIsTimeBasedNotRandom(t *testing.T) {
 	f := newFaults(4)
 	f.partitionEvery = 200 * time.Millisecond
@@ -296,10 +279,8 @@ func TestParsePorts(t *testing.T) {
 	}
 }
 
-// TestSeedReproducesTheSameFaultSequence is what makes a bad run worth
-// reporting: same seed, same draws. The doc comment on faults is careful
-// that this covers the sequence and not the interleaving of concurrent
-// flows, and this test only claims the former.
+// TestSeedReproducesTheSameFaultSequence: same seed, same draws. It claims the sequence, not the interleaving of
+// concurrent flows.
 func TestSeedReproducesTheSameFaultSequence(t *testing.T) {
 	draw := func(seed int64) []bool {
 		f := newFaults(seed)

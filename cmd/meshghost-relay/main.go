@@ -1,7 +1,5 @@
-// Command meshghost-relay is the standalone relay process: it accepts
-// relay-protocol connections and forwards state between clients in a room.
-// See relay for the implementation and agent_docs/contract.md for
-// the wire protocol.
+// Command meshghost-relay is the standalone relay process: it accepts relay-protocol connections and forwards state
+// between clients in a room. Package relay is the implementation.
 package main
 
 import (
@@ -31,82 +29,48 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/relay"
 )
 
-// fileConfig is the shape of the "server" section of an optional JSON config
-// file (see -config), mirroring cmd/meshghost's own -- a friendlier
-// alternative to flags for whoever's hosting, per packaging/README.md. The
-// JSON field name is deliberately end-user-facing: "listen_on" (not "addr")
-// reads as an opposite of the client's "connect_to" -- see
-// packaging/release/config.json and its README.txt.
+// fileConfig is the "server" section of the optional JSON config file (see -config), mirroring cmd/meshghost's own.
+// "listen_on" rather than "addr" reads as the opposite of the client's "connect_to".
 type fileConfig struct {
 	Addr     *string `json:"listen_on"`
 	RoomCode *string `json:"room_code"`
-	// OnlyGame restricts this relay to a single game_id. Absent or ""
-	// means it hosts any game (the pre-existing posture). See the ADR in
-	// agent_docs/architecture.md and relay.Server.OnlyGame.
+	// OnlyGame restricts this relay to a single game_id; absent or empty hosts any game.
 	OnlyGame   *string `json:"only_game"`
 	MaxClients *int    `json:"max_clients"`
-	// SendHz is the room-wide state send rate this relay advertises. Absent
-	// or 0 means protocol.DefaultSendHz. See the ADR in
-	// agent_docs/architecture.md for the send/receive rate-control feature.
+	// SendHz is the room-wide state send rate this relay advertises; absent or 0 means protocol.DefaultSendHz.
 	SendHz *int `json:"send_hz"`
-	// GhostCollision is the room-wide ghost-collision policy this relay
-	// advertises: "enabled" (the default, and what an absent value means) or
-	// "disabled". Advisory -- the relay cannot verify an adapter honored it.
-	// See the ADR in agent_docs/architecture.md.
+	// GhostCollision is the room-wide ghost-collision policy this relay advertises, "disabled" (the default) or
+	// "enabled". Advisory: the relay cannot verify an adapter honoured it.
 	GhostCollision *string `json:"ghost_collision"`
-	// ResumeGraceSeconds is how long this relay holds a dropped client's
-	// identity -- its player_id, its leases and its in-flight exchanges --
-	// waiting for it to reconnect, before telling the room it left. Absent or
-	// 0 means protocol.DefaultResumeGrace (20s). Only ever used by a room
-	// whose members negotiated resume.v1; a cosmetic room never holds
-	// anything. Raising it makes a flaky connection less visible to everyone
-	// else and makes a genuinely departed player's keys stay locked longer --
-	// see relay.Server.ResumeGrace.
+	// ResumeGraceSeconds is how long this relay holds a dropped client's identity (player_id, leases, in-flight
+	// exchanges) for a reconnect before telling the room it left; absent or 0 means protocol.DefaultResumeGrace. Only
+	// a room that negotiated resume.v1 uses it. Longer hides a flaky connection, and keeps a departed player's keys
+	// locked longer.
 	ResumeGraceSeconds *int `json:"resume_grace_seconds"`
-	// Transport is a comma-separated list of transports to serve at once:
-	// "tcp", "quic", or both. Absent means "tcp,quic". Clients pick one of
-	// them; a room can hold clients on different transports simultaneously,
-	// since the relay forwards through the transport.Transport interface and
-	// never learns which is which. See the transport ADR in
-	// agent_docs/architecture.md. "udp" is refused by name since 2026-09-15
-	// (ADR 0065); only the meshghost_devudp build accepts it.
+	// Transport is a comma-separated list of transports to serve at once, "tcp", "quic" or both; absent means
+	// "tcp,quic". One room can mix transports, since the relay forwards through transport.Transport. "udp" is refused
+	// by name except in the meshghost_devudp build.
 	Transport *string `json:"transport"`
-	// QuicAddr is where quic listens. Absent or empty is sharesAddrPort:
-	// quic reuses listen_on's port number, so hosting means forwarding one
-	// number. (In the dev build quic KEEPS that number even when plain udp is
-	// served alongside it -- udp is the one that moves; udp_dev.go.)
+	// QuicAddr is where quic listens; absent or empty is sharesAddrPort, listen_on's own port number.
 	QuicAddr *string `json:"listen_quic"`
-	// UDPAddr is where the plain "udp" transport listens, in the dev build.
-	// Still decoded in a release so that an old config's `"listen_udp": ""`
-	// is not reported as an unknown key; a NON-empty value refuses to start
-	// (checkUDPConfig, udp_release.go).
+	// UDPAddr is where plain udp listens in the dev build. A release still decodes it so an old config's empty value
+	// is not an unknown key; a non-empty one refuses to start (checkUDPConfig).
 	UDPAddr *string `json:"listen_udp"`
-	// TLS is the OBSOLETE switch: until 2026-09-15 it was "off", "auto" or
-	// "required", and since then every connection is TLS with nothing to
-	// switch (ADR 0066). Still decoded so an old config's key is not reported
-	// as unknown, and then judged by checkLegacyTLSKey: a value that asked for
-	// plaintext refuses to start -- a security setting is never silently
-	// ignored -- and "required" runs with a note to delete the key.
+	// TLS is the obsolete switch: every connection is TLS. Still decoded so an old config's key is judged by
+	// checkLegacyTLSKey rather than reported unknown.
 	TLS *string `json:"tls"`
-	// QLog turns on quic-go's per-connection qlog trace, written into the
-	// directory the QLOGDIR environment variable names. Dev diagnostics;
-	// absent or false means no trace and no cost. Until 2026-09-15 the
-	// environment variable alone turned it on, silently (B5).
+	// QLog turns on quic-go's per-connection qlog trace, into the directory QLOGDIR names. Dev diagnostics.
 	QLog *bool `json:"qlog"`
 }
 
-// rootConfig is the top-level shape of the config file: a "server" section
-// read by this binary, sitting alongside a "client" section (meaningless
-// here) read by cmd/meshghost from the same file in the shipped package.
+// rootConfig is the top-level shape of the config file: a "server" section read by this binary, beside the "client"
+// section cmd/meshghost reads from the same file.
 type rootConfig struct {
 	Server *fileConfig `json:"server"`
 }
 
-// configTargets are the flag-backed variables applyFileConfig may overwrite
-// — mirrors cmd/meshghost's own configTargets struct. Converted from a flat
-// positional-pointer list to this struct once send_hz became the 4th knob,
-// the same trigger cmd/meshghost's own struct cites (a struct keeps each
-// field's name at the call site instead of relying on positional order).
+// configTargets are the flag-backed variables applyFileConfig may overwrite, mirroring cmd/meshghost's own: a struct
+// keeps each field's name at the call site.
 type configTargets struct {
 	addr           *string
 	roomCode       *string
@@ -123,10 +87,8 @@ type configTargets struct {
 }
 
 func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
-	// Absolute path, BOM strip and empty-file check all live in
-	// cfg.ReadConfigFile, shared with the client. Unlike the client, a MISSING
-	// file is silent here: a relay is run deliberately from a console, so
-	// there is no player to reassure.
+	// Unlike the client, a missing file is silent: a relay is run deliberately from a console, with no player to
+	// reassure.
 	data, shown, err := cfg.ReadConfigFile(path, "meshghost-relay")
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -143,14 +105,10 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 			return
 		}
 	}
-	// A key that is not a setting is a typo doing nothing -- see
-	// cfg.WarnUnknownKeys. Scoped to "server" for the same reason the client
-	// scopes to "client": the root object legitimately carries the other
-	// binary's section, and in the shipped package it carries both.
+	// A key that is not a setting is a typo doing nothing; checked within "server" only, as the root also carries
+	// the client's section.
 	if section := serverSection(data); section != nil {
-		// nil: unlike the client's "client" section, nothing but this binary
-		// reads "server" -- no mod, no adapter -- so every key in it that is
-		// not a setting is a typo.
+		// nil: nothing but this binary reads "server", so every unknown key in it is a typo.
 		cfg.WarnUnknownKeys(section, fileConfig{}, shown, "meshghost-relay", "server", nil)
 	}
 	if rc.Server == nil {
@@ -173,23 +131,12 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	cfg.Override(explicit, "qlog", t.qlog, sc.QLog)
 }
 
-// sharesAddrPort is the default for both -listen-quic and -listen-udp: empty
-// means "use -addr's port". quic is carried over udp and tcp/udp are separate
-// port spaces, so tcp:7777 and quic:7777/udp coexist happily.
-//
-// This is a NAT decision rather than a tidiness one. Serving quic by default
-// (see the transport ADR in agent_docs/architecture.md) would otherwise have
-// turned hosting from "forward 7777" into "forward 7777 and 7780", and the
-// port-forwarding step is where a host actually gives up. Sharing the number
-// makes it "forward 7777, TCP and UDP" -- one rule in most router UIs.
-//
-// The plain udp transport is the one thing that cannot coexist here, since it
-// wants that same udp port. It is opt-in, unencryptable and deliberately last in
-// netx.AutoPreference, so it is the one that carries the awkwardness: when both
-// are served, UDP moves to FallbackUDPAddr and quic keeps the shared number.
+// sharesAddrPort is the default for -listen-quic and -listen-udp: empty means -addr's port. quic runs over udp, a
+// port space apart from tcp, so tcp:7777 and quic on udp:7777 coexist and hosting stays one forwarded number, the step
+// where a host actually gives up. Plain udp wants that same udp port, so when both are served udp moves to
+// FallbackUDPPort and quic keeps the shared number.
 const sharesAddrPort = ""
 
-// servesKind reports whether k is in the resolved transport list.
 func servesKind(kinds []netx.Kind, k netx.Kind) bool {
 	for _, got := range kinds {
 		if got == k {
@@ -199,57 +146,23 @@ func servesKind(kinds []netx.Kind, k netx.Kind) bool {
 	return false
 }
 
-// resolveQuicAddr decides where quic listens, given the transports actually
-// selected, the main -addr, and whatever -listen-quic was set to.
-//
-// Sharing -addr's port is the default because it keeps hosting to ONE forwarded
-// port number, which is the difference between a friend being able to host and
-// not. quic keeps that number even when plain udp is also served: udp is the one
-// that moves (see resolveUDPAddr and FallbackUDPAddr).
-//
-// NOTHING here refuses to start. An operator who names a port explicitly --
-// -listen-udp or -listen-quic -- is believed without further checking, on the
-// grounds that naming a port is the act of taking responsibility for forwarding
-// it. This paragraph described a refusal until 2026-09-07; both functions return
-// (string, error) and every return in either one has a nil error.
-//
-// Extracted from main() on 2026-08-25 so the rule can be tested. It was five
-// nested conditions and a log.Fatalf inside a 300-line main, which meant the only
-// thing that could exercise it was internal/e2e spawning a real process — and
-// e2e cannot easily assert on a refusal, because the refusal is the process
-// exiting. As a pure function returning an error it is nine test cases.
+// resolveQuicAddr decides where quic listens: by default on -addr's port, which keeps hosting to one forwarded
+// number, even when plain udp is served too. It never refuses: every return has a nil error.
 func resolveQuicAddr(kinds []netx.Kind, addr, quicAddr string) (string, error) {
 	if !servesKind(kinds, netx.QUIC) {
-		// Not serving quic: whatever -listen-quic says is irrelevant and is
-		// passed through untouched rather than validated. The flag's own help
-		// text already says it is ignored unless quic is served.
+		// Not serving quic: -listen-quic passes through untouched; its help says it is ignored.
 		return quicAddr, nil
 	}
 	if quicAddr != sharesAddrPort {
-		// Explicitly placed by the operator. Believed without further checking:
-		// naming a port is the act of taking responsibility for forwarding it.
+		// Placed by the operator, and believed: naming a port is taking responsibility for forwarding it.
 		return quicAddr, nil
 	}
 	return addr, nil
 }
 
-// roomCodeFlagHelp is -room-code's help text, at package level so a test can
-// assert what it tells the host (the same reason resolveQuicAddr was lifted out
-// of main on 2026-08-25).
-//
-// It names config.json FIRST and says why, which it did not until 2026-09-08
-// (review F21). A flag value is the process command line: on Windows any local
-// process reads it with `Get-Process -Module`/WMI without elevation, on Linux it
-// sits in /proc/<pid>/cmdline world-readable by default, and on both it lands in
-// the shell history file of whoever typed it. Nothing about that is remote --
-// but a room code is a shared secret whose whole job is that people who do not
-// have it cannot join, and the host who typed it on a shared box has no way of
-// knowing it leaked. The old text pointed at config.json as merely the friendlier
-// spelling; it is also the one that keeps the secret out of an argv every other
-// program on the machine can read.
-//
-// The flag STAYS: it is what dev-scripts and a one-off `-room-code x` test run
-// use, and removing it would break every host who scripted their relay.
+// roomCodeFlagHelp is -room-code's help text, at package level so a test can assert it. It names config.json first
+// and says why: a flag value is the process command line, which any local process reads without elevation (WMI on
+// Windows, /proc/<pid>/cmdline on Linux) and which lands in the shell history. The flag stays for scripted relays.
 const roomCodeFlagHelp = "shared secret clients must send to join a room -- " +
 	"prefer \"room_code\" in config.json: a value passed here is part of this " +
 	"process's command line, which any other local process can read (Get-Process, " +
@@ -318,16 +231,14 @@ func main() {
 			"session without anyone configuring anything -- but note quic needs -listen-quic's "+
 			"port forwarded too, not just -addr's. (udp, the plain unencrypted transport, "+
 			"stopped being an option on 2026-09-15 and is refused by name)")
-	// -listen-udp exists only in the dev build (udp_dev.go); a release
-	// registers no such flag and udpAddr stays "" (udp_release.go). ADR 0065.
+	// -listen-udp exists only in the dev build; a release registers no such flag and udpAddr stays empty.
 	udpAddr := udpListenFlag()
 	quicAddr := flag.String("listen-quic", sharesAddrPort,
 		"address to serve quic on. Empty (the default) means share -addr's port -- quic runs "+
 			"over udp and tcp/udp are separate port spaces, so tcp:7777 and quic:7777/udp "+
 			"coexist and a host forwards ONE port number for both. Ignored unless quic is in "+
 			"-transport")
-	// No -tls flag since 2026-09-15: every connection is TLS. The obsolete
-	// config key is still read into this so it can be judged (checkLegacyTLSKey).
+	// No -tls flag: every connection is TLS. The obsolete config key is still read into this, to be judged.
 	legacyTLS := new(string)
 	qlog := flag.Bool("qlog", false,
 		"write quic-go's qlog trace for every quic connection into the directory the QLOGDIR "+
@@ -344,15 +255,11 @@ func main() {
 	flag.Parse()
 	explicit := cfg.ExplicitFlags()
 
-	// Where the config is, decided before the log opens, because the log goes
-	// beside it. See resolveConfigPath: a relay started from a directory other
-	// than its own used to read no file, say nothing, and come up on loopback.
+	// Decided before the log opens, because the log goes beside the config.
 	located := resolveConfigPath(*configPath, explicit["config"], executableDir)
 
-	// Tee'd with stderr, unlike the client: a relay is normally watched in the
-	// window it was launched from, so its log file is a second copy rather than
-	// the only one. cfg.OpenLogFile returns just the file (nil on failure) and
-	// leaves that composition here, because the two binaries genuinely differ.
+	// Tee'd with stderr, unlike the client: a relay is normally watched in the window it was launched from, so its
+	// log file is a second copy.
 	logOut := io.Writer(os.Stderr)
 	if f := cfg.OpenLogFile(located.logPath("meshghost-server.log"), "meshghost-relay"); f != nil {
 		logOut = io.MultiWriter(os.Stderr, f)
@@ -374,14 +281,10 @@ func main() {
 		legacyTLS:      legacyTLS,
 		qlog:           qlog,
 	}
-	// The flag values BEFORE the file: what every later re-read of the file
-	// starts from (reload.go), so a key removed from the file falls back here.
+	// The flag values before the file: what every re-read starts from, so a key removed from the file falls back here.
 	base := snapshotRelayLive(targets)
 	applyFileConfig(located.path, explicit, targets)
-	// The two listen addresses as the FILE says them, before they are resolved
-	// below: a re-read yields the raw value, so a watcher seeded with the
-	// resolved one reported listen_quic "changed" on every save (found
-	// 2026-09-16 with the real binaries, on the shipped empty listen_quic).
+	// The listen addresses as the file says them, before they are resolved below, to seed the watcher.
 	fileQuicAddr, fileUDPAddr := *quicAddr, *udpAddr
 	if *qlog {
 		quicconn.SetQLog(true)
@@ -390,49 +293,33 @@ func main() {
 			os.Getenv("QLOGDIR"))
 	}
 
-	// The obsolete "tls" key: a value that asked for plaintext is a startup
-	// error, never a silently changed meaning.
 	if note, err := checkLegacyTLSKey(*legacyTLS); err != nil {
 		log.Fatalf("meshghost-relay: %v", err)
 	} else if note != "" {
 		log.Printf("meshghost-relay: %s", note)
 	}
 
-	// This relay's identity: one key pair and certificate, persisted in private/
-	// beside the config so a client that connected once recognizes the same
-	// relay after a restart (tlsx.LoadOrCreateIdentity; ADR 0066). A folder
-	// that holds a broken identity is fatal here, before any listener opens.
+	// One key pair and certificate, persisted beside the config so a client recognizes this relay after a restart. A
+	// broken identity is fatal here, before any listener opens.
 	identityDir := located.identityDir()
 	identity, fingerprint, err := tlsx.LoadOrCreateIdentity(identityDir, netx.TLSALPN)
 	if err != nil {
 		log.Fatalf("meshghost-relay: %v", err)
 	}
 
-	// Fatal on an unrecognized transport rather than falling back to tcp:
-	// netx.Kind's zero value IS tcp, so a lenient parse would quietly hand
-	// an operator who asked for quic an unencrypted relay. Same reasoning
-	// as cmd/meshghost's own -transport handling, and a deliberate
-	// departure from the clamp-and-warn treatment send_hz gets below.
+	// Fatal rather than falling back: netx.Kind's zero value is tcp, so a lenient parse would hand an operator who
+	// asked for quic a different transport.
 	kinds, err := netx.ParseKinds(*transportNames)
 	if err != nil {
 		log.Fatalf("meshghost-relay: %v", err)
 	}
 
-	// A release refuses a config that still places plain udp (udp_release.go);
-	// netx.ParseKinds above already refused it in -transport.
 	if err := checkUDPConfig(*udpAddr); err != nil {
 		log.Fatalf("%v", err)
 	}
 
-	// Resolve where quic listens, now that the transport list is known.
-	//
-	// Sharing -addr's port is the default because it keeps hosting to one
-	// forwarded port number. In the dev build the only thing that can take
-	// that udp port away is the plain udp transport: when both are served
-	// QUIC KEEPS the shared port and plain udp is what relocates (udp_dev.go's
-	// resolveUDPAddr) -- that way the port an operator forwarded is the one
-	// quic still advertises. Moving quic instead would surface much later as
-	// "quic clients can't connect" with nothing pointing here.
+	// quic keeps the shared port and plain udp relocates, so the port an operator forwarded is the one quic
+	// advertises; moving quic would surface much later as clients unable to connect.
 	resolvedUDP, err := resolveUDPListen(kinds, *addr, *udpAddr)
 	if err != nil {
 		log.Fatalf("meshghost-relay: %v", err)
@@ -459,9 +346,6 @@ func main() {
 		log.Fatalf("meshghost-relay: %v", err)
 	}
 
-	// Say what the identity is and where it lives, in the log the host
-	// actually reads. The fingerprint is what every client remembers this
-	// relay by, so it is printed with what keeping it means attached.
 	log.Printf("meshghost-relay: tls certificate fingerprint: %s", fingerprint)
 	log.Printf("meshghost-relay: this server's identity is kept in %s -- players' clients remember "+
 		"the fingerprint above and warn if it changes. Copy that folder into a new install to keep "+
@@ -474,12 +358,8 @@ func main() {
 			"Drop udp from -transport if that matters.")
 	}
 
-	// What a client with transport "auto" is told. Built from the listeners
-	// that actually came up, not from the configured list, so a transport
-	// that failed to bind is never advertised. Only the port is sent — the
-	// host is whatever the client already connected to, which is what makes
-	// this work through NAT (this relay may be bound to 0.0.0.0 and have no
-	// idea what address reaches it). See protocol.TransportOffer.
+	// What a client with transport "auto" is told, built from the listeners that came up, so a transport that failed
+	// to bind is never offered. Only the port is sent: the client already knows the host, which works through NAT.
 	offers := make([]protocol.TransportOffer, 0, len(listeners))
 	for _, bl := range listeners {
 		addr, ok := bl.ln.Addr().(*net.TCPAddr)
@@ -501,13 +381,8 @@ func main() {
 		offers = append(offers, protocol.TransportOffer{Kind: bl.kind.String(), Port: port})
 	}
 
-	// Spell out the port forwarding, because "which ports do I open" is the
-	// step that actually decides whether anyone can connect, and serving quic
-	// by default made it two rules instead of one. Only the host needs this
-	// at all -- every client dials outward -- so saying it here, once, is the
-	// whole of the NAT story for a user. Protocol is named per line because
-	// tcp/7777 and udp/7777 are different forwarding rules on most routers,
-	// and quic is udp despite sitting beside a tcp port.
+	// The forwarding decides whether anyone can connect, and only the host needs it. The protocol is named per line:
+	// tcp/7777 and udp/7777 are separate rules on most routers, and quic is udp.
 	forwards := make([]string, 0, len(offers))
 	for _, o := range offers {
 		proto := "udp"
@@ -523,27 +398,18 @@ func main() {
 
 	server := relay.NewServer()
 	server.Loopback = *loopback
-	// Trimmed for the same reason only_game is, below: hand-typed into
-	// config.json, and a trailing space refused every client with nothing
-	// but "invalid room code" to show for it (fourth review, B7). The value
-	// itself is never lower-cased or otherwise normalized -- a code is a
-	// secret, and the client sends it as typed.
+	// Trimmed, as only_game is: hand-typed into config.json, a trailing space would refuse every client. Never
+	// otherwise normalized: a code is a secret, and the client sends it as typed.
 	server.RoomCode = strings.TrimSpace(*roomCode)
 	*roomCode = server.RoomCode
 	server.SourceGuard = sources
-	// The room-code proof binds to THIS relay's certificate (ADR 0067): a
-	// client's proof names the fingerprint it verified, so it fails against
-	// anyone presenting another certificate, whatever they relay.
+	// The room-code proof binds to this relay's certificate: a client's proof names the fingerprint it verified, so
+	// it fails against anyone presenting another certificate.
 	server.PakeIdentity = fingerprint
-	// Trimmed because this is normally hand-typed into config.json and a
-	// stray space would otherwise refuse every client for no visible
-	// reason. Deliberately not lower-cased or otherwise normalized -- that
-	// would diverge from the exact-equality game_id comparison every other
-	// use site (joinOrCreateRoom, the adapters) already relies on.
+	// Trimmed, but not lower-cased: game_id is compared by exact equality everywhere else.
 	server.OnlyGame = strings.TrimSpace(*onlyGame)
 	server.Offers = offers
-	// The ENFORCED value, so the banner below and tryReserveSlot agree; a
-	// configured 0 means the default and used to be printed as 0 (B7).
+	// The enforced value, so the banner below and tryReserveSlot agree: a configured 0 means the default.
 	server.MaxClients = relay.EffectiveMaxClients(*maxClients)
 	server.SendHz = *sendHz
 	server.GhostCollision = *ghostCollision
@@ -559,12 +425,8 @@ func main() {
 		log.Printf("meshghost-relay: introspection on -- logging relay state every %s", *introspect)
 	}
 	log.Printf("meshghost-relay: max clients (total, across all rooms): %d", server.MaxClients)
-	// Clamp and warn rather than refuse to start -- a typo in a cosmetic
-	// tuning knob must not stop a host booting (see the ADR in
-	// agent_docs/architecture.md). effectiveSendHz never differs from
-	// *sendHz for a client of this same binary (Server.SendHz is clamped at
-	// the identical use site, resolveSendHz), so logging it here is the
-	// operator's only way to see what actually got advertised.
+	// Clamp and warn rather than refuse: a typo in a cosmetic knob must not stop a host booting. The server clamps
+	// the same way, so this log is the operator's only view of the rate advertised.
 	effectiveSendHz := protocol.ClampSendHz(*sendHz)
 	if effectiveSendHz != *sendHz {
 		log.Printf("meshghost-relay: warning: send_hz %d is outside the supported %d-%d range, using %d",
@@ -572,11 +434,7 @@ func main() {
 	}
 	log.Printf("meshghost-relay: room send rate: %dHz (per-client message cap: %d/sec)",
 		effectiveSendHz, relay.MaxMessagesPerSecondFor(effectiveSendHz))
-	// Say what was actually read, the same reason only_game logs its value: a
-	// typo here is silently the RESTRICTIVE choice (NormalizeGhostCollision
-	// sends anything unrecognized to "disabled"), so a host who fat-fingers
-	// this would otherwise see ghosts quietly stop being solid with nothing
-	// explaining it.
+	// Say what was read: anything unrecognized normalizes to "disabled", so a typo would quietly change the policy.
 	switch effectiveCollision := protocol.NormalizeGhostCollision(*ghostCollision); effectiveCollision {
 	case protocol.GhostCollisionDisabled:
 		if *ghostCollision != protocol.GhostCollisionDisabled {
@@ -596,29 +454,22 @@ func main() {
 		log.Printf("meshghost-relay: -loopback enabled — dev-only, do not use with real peers")
 	}
 	log.Print(roomCodeStartupNotice(*roomCode))
-	// Echo the configured value back rather than just "restriction on":
-	// a typo'd game_id refuses every client with no other visible cause,
-	// and this log line is the operator's only way to spot it.
+	// Echo the value: a typo'd game_id refuses every client with no other visible cause.
 	if server.OnlyGame == "" {
 		log.Printf("meshghost-relay: hosting any game (no \"only_game\" set)")
 	} else {
 		log.Printf("meshghost-relay: restricted to game_id %q -- clients playing any other game will be refused",
 			server.OnlyGame)
 	}
-	// Serve every listener concurrently and block on the first one to fail.
-	// Previously this was a single blocking Serve call; the failure
-	// behaviour is deliberately unchanged (any listener dying is fatal)
-	// rather than trying to limp along on the remaining transports, which
-	// would leave some clients able to connect and others not, with only a
-	// log line to explain it.
-	// config.json stays live from here for room_code, only_game and
-	// max_clients (reload.go). The snapshot is taken AFTER main trimmed the
-	// code, so the first diff sees what is actually live.
+	// config.json stays live from here for room_code, only_game and max_clients. The seed is taken after main
+	// trimmed the code, so the first diff sees what is actually live.
 	watchStop := make(chan struct{})
 	defer close(watchStop)
 	go newRelayConfigWatcher(located.path, explicit, base, watcherSeed(targets, fileQuicAddr, fileUDPAddr), server).run(watchStop)
 	log.Print(describeRelayReloadable(located.path))
 
+	// Any listener dying is fatal rather than limping on the rest, which would leave some clients able to connect
+	// and others not.
 	serveErr := make(chan error, len(listeners))
 	for _, bl := range listeners {
 		go func(bl boundListener) {
@@ -626,15 +477,8 @@ func main() {
 		}(bl)
 	}
 
-	// Ctrl+C, and what it used to do: nothing. Before 2026-09-08 this binary
-	// imported no os/signal at all and main() ended only via log.Fatalf, so an
-	// interrupt killed the process where it stood. On tcp the kernel at least
-	// sends a FIN as the sockets are reclaimed; on QUIC -- the SHIPPED DEFAULT
-	// transport -- the udp socket simply stops existing, nothing is sent, and
-	// every player's client sits there until its own idle timeout expires
-	// (~17s, agent_docs/contract.md) with its ghosts aged out at 3s. From the
-	// player's side the host "froze", and the log said the relay was fine right
-	// up to the last line.
+	// An interrupt shuts down with a goodbye: a killed process sends nothing on quic, the shipped default, and every
+	// client would wait out its idle timeout.
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
@@ -651,42 +495,28 @@ func main() {
 		len(lns), n)
 }
 
-// awaitShutdown blocks until a listener dies or a signal arrives, then takes
-// every listener and client down the same way in both cases, and reports which
-// it was: the error a listener died with (nil for a signal) and how many client
-// connections were told to go.
-//
-// Both cases, not one. Until 2026-09-15 a listener's non-temporary Accept error
-// was log.Fatalf with nothing else: every player sat on a dead relay until
-// their own idle timeout, exactly the failure the Ctrl+C path had been fixed
-// on 2026-09-08 (fourth adversarial review, B3). A relay that dies should
-// say goodbye the same way a relay that is stopped does.
+// awaitShutdown blocks until a listener dies or a signal arrives, then takes every listener and client down the same
+// way in both cases, so a relay that dies says goodbye as one that is stopped does. It returns the listener's error
+// (nil for a signal) and how many client connections were told to go.
 func awaitShutdown(serveErr <-chan error, stop <-chan os.Signal, lns []*trackingListener, drain time.Duration) (error, int) {
 	select {
 	case err := <-serveErr:
 		return err, shutdown(lns, drain)
 	case sig := <-stop:
-		// A SECOND Ctrl+C must kill immediately. Restoring the default handler
-		// before doing any work is what makes that true: a host whose shutdown
-		// is taking longer than they expected can always press it again, and
-		// the alternative -- an interrupt landing in a buffered channel nobody
-		// reads -- is a relay that appears to ignore Ctrl+C entirely.
+		// Restoring the default handler first makes a second Ctrl+C kill at once, rather than land in a channel
+		// nobody reads.
 		signal.Reset(os.Interrupt, syscall.SIGTERM)
 		log.Printf("meshghost-relay: %v -- shutting down", sig)
 		return nil, shutdown(lns, drain)
 	}
 }
 
-// shortRoomCodeLen is the length below which the startup line warns. A guess
-// budget of one attempt a second per address (relay.RoomCodeAttemptsPerSecond)
-// makes a short code a matter of patience rather than impossibility: eight
-// characters is where a printable-ASCII code stops being one an attacker
-// with a few addresses can walk through in a session. Reasoned, not
-// measured against an attacker.
+// shortRoomCodeLen is the length below which the startup line warns: at one guess a second per address
+// (relay.RoomCodeAttemptsPerSecond), eight printable-ASCII characters is where a few addresses can no longer walk
+// through a code in a session. Reasoned, not measured against an attacker.
 const shortRoomCodeLen = 8
 
-// roomCodeStartupNotice is the one line the host reads about their room
-// code. A function so a test can hold it to its word.
+// roomCodeStartupNotice is the one line the host reads about their room code, a function so a test can check it.
 func roomCodeStartupNotice(code string) string {
 	switch {
 	case code == "":
@@ -703,30 +533,24 @@ func roomCodeStartupNotice(code string) string {
 	}
 }
 
-// boundListener is one served transport: which kind, and the listener that
-// tracks the connections it hands out so shutdown can reach them.
+// boundListener is one served transport: its kind, and the listener that tracks the connections it hands out.
 type boundListener struct {
 	kind netx.Kind
 	ln   *trackingListener
 }
 
-// listenerConfig is what buildListeners needs from the resolved flags.
 type listenerConfig struct {
 	kinds                   []netx.Kind
 	addr, quicAddr, udpAddr string
-	// identity is the relay's one certificate, served on tcp and quic
-	// alike: tlsx.LoadOrCreateIdentity in the shipped relay, tlsx.ServerConfig
-	// in a test. Required.
+	// identity is the relay's one certificate, served on tcp and quic alike. Required.
 	identity   *tls.Config
 	maxClients int
-	// sources is the per-address table (newSourceTable); nil means no
-	// per-source bound, which only a test asks for.
+	// sources is the per-address table; nil means no per-source bound, which only a test asks for.
 	sources *srclimit.Table
 }
 
-// newSourceTable is the one per-address table a relay process keeps: the
-// connection cap per address for every listener, and the wrong-room-code
-// budget the relay consults. In memory, bounded, never logged (ADR 0064).
+// newSourceTable is the one per-address table a relay process keeps: the connection cap per address for every
+// listener, and the wrong-room-code budget. In memory, bounded, never logged.
 func newSourceTable(maxClients int) *srclimit.Table {
 	return srclimit.New(srclimit.Options{
 		MaxOpenPerSource:    relay.MaxOpenConnsPerSourceFor(maxClients),
@@ -735,36 +559,21 @@ func newSourceTable(maxClients int) *srclimit.Table {
 	})
 }
 
-// buildListeners brings up one listener per selected transport, wrapped the
-// way the shipped relay wraps them: the open-connection limiter, then TLS
-// (tcp only), then connection tracking. It is a function rather than a block
-// of main so a test can drive a hostile client through the SAME stack a
-// stranger meets -- before 2026-09-15 every relay test listened raw, and the
-// wrapper layers were exactly where three shipped bugs had lived
-// (netx/limit.go's story).
-//
-// All listeners feed the same Server: relay.Serve takes any net.Listener and
-// handleConn any net.Conn, so nothing in relay knows or cares which is which
-// -- and a single room can hold clients arriving over different transports,
-// because Room.Forward sends through the transport.Transport interface.
-//
-// On error, every listener already opened is closed again.
+// buildListeners brings up one listener per selected transport, wrapped as the shipped relay wraps them: the
+// open-connection limiter, then TLS (tcp only), then connection tracking. A function so a test can drive a hostile
+// client through the same stack a stranger meets. All listeners feed one Server, which never learns which transport
+// a client came over. On error, every listener already opened is closed again.
 func buildListeners(c listenerConfig) ([]boundListener, error) {
 	if c.identity == nil {
 		return nil, errors.New("no relay identity to serve")
 	}
-	// One certificate for the whole process, on every listener: a
-	// per-listener one would give one relay two fingerprints, and a client
-	// that moved from tcp to quic would warn about its own relay.
+	// One certificate on every listener: one per listener would give a relay two fingerprints, and a client moving
+	// from tcp to quic would warn about its own relay.
 	tlsOpts := netx.TLSOptions{Server: c.identity}
 
-	// Every listener gets the open-connection bound (relay.MaxOpenConnsFor);
-	// the log line it prints is rate-limited.
 	tlsOpts.MaxOpenConns = relay.MaxOpenConnsFor(c.maxClients)
-	// And the per-address half of it, through one table every listener
-	// shares, so one address is one source whichever transport it arrives
-	// on. The same table is the relay's room-code guard (Server.SourceGuard);
-	// the relay only ever hands it a connection and gets back yes or no.
+	// The per-address half, one table shared by every listener so an address is one source on any transport; the
+	// same table is the relay's room-code guard.
 	tlsOpts.Sources = c.sources
 
 	var listeners []boundListener
@@ -783,10 +592,8 @@ func buildListeners(c listenerConfig) ([]boundListener, error) {
 			}
 			return nil, fmt.Errorf("listen %s on %s: %w", k, bind, err)
 		}
-		// Wrapped so Ctrl+C can reach the connections this listener handed
-		// out: closing a listener does NOT close them (quic-go's Listener.Close
-		// says so in as many words, and quic is the shipped default), and a
-		// client whose relay simply vanishes waits out its own idle timeout.
+		// Tracked so shutdown can reach the connections: closing a listener does not close them (quic-go's
+		// Listener.Close says so), and a client whose relay vanishes waits out its own idle timeout.
 		listeners = append(listeners, boundListener{kind: k, ln: trackConns(ln)})
 		label := k.String()
 		if k == netx.TCP {
@@ -797,13 +604,9 @@ func buildListeners(c listenerConfig) ([]boundListener, error) {
 	return listeners, nil
 }
 
-// checkLegacyTLSKey judges the obsolete "tls" config key. Empty (absent) is
-// nothing. A value that asked for plaintext -- off, auto, or their aliases --
-// is an ERROR: the setting meant something about encryption, and a relay that
-// silently ran with a different meaning would be exactly the "security
-// setting a stale binary ignores" agent_docs/risks.md warns about. A value
-// that asked for what is now always true runs, with one line saying to delete
-// the key. Unknown words are an error as they always were.
+// checkLegacyTLSKey judges the obsolete "tls" config key. Empty is nothing. A value that asked for plaintext is an
+// error, since a security setting is never silently given another meaning; one that asked for what is now always
+// true runs with a note to delete the key; an unknown word is an error.
 func checkLegacyTLSKey(v string) (note string, err error) {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "":
@@ -822,13 +625,9 @@ func checkLegacyTLSKey(v string) (note string, err error) {
 	}
 }
 
-// listeningLine is the "listening on" line, and it names the ADDRESS FAMILY
-// the socket actually covers. Go binds a wildcard -- "0.0.0.0" included --
-// as a dual-stack IPv6 socket wherever the OS allows it (Linux, Windows), so a
-// host who wrote 0.0.0.0, firewalled IPv4, and read a line saying 0.0.0.0 had
-// an IPv6 side open they never knew about; the transport offers carry only a
-// port, so an IPv6 client got quic over IPv6 too (fourth adversarial review,
-// B1). The line now says what the operating system reported back, in words.
+// listeningLine is the "listening on" line, naming the address family the socket covers: Go binds a wildcard,
+// "0.0.0.0" included, as a dual-stack IPv6 socket where the OS allows it (Linux, Windows), so a host who firewalled
+// only IPv4 would have an IPv6 side open.
 func listeningLine(addr net.Addr, label string) string {
 	return fmt.Sprintf("meshghost-relay: listening on %s (%s)%s", addr, label, familyNote(addr))
 }
@@ -855,31 +654,15 @@ func familyNote(addr net.Addr) string {
 		"or bind an explicit IPv4 address to serve only that)"
 }
 
-// shutdownDrain is how long shutdown keeps the process alive after telling the
-// clients to go, before the sockets are reclaimed by exit.
-//
-// One second, and it is not a round trip being waited for -- nothing is
-// expected back. It is the time a goodbye needs to LEAVE: a quic connection's
-// CONNECTION_CLOSE is sent 250ms after its stream is closed (netx/quicconn's
-// closeLinger, which exists because a goodbye written and then hard-closed went
-// missing on quic on 2026-08-17), and exiting inside that window would put the
-// relay right back to saying nothing at all. Far under the 3s a ghost is aged
-// out at, so a host restarting a relay never costs a player a visible despawn
-// they would not have had anyway.
+// shutdownDrain is how long shutdown keeps the process alive after telling the clients to go, before exit reclaims
+// the sockets. Nothing is expected back: it is the time a goodbye needs to leave. It is well under the core's ghost
+// age-out (core.DefaultRemoteStaleAfter), so restarting a relay costs a player no extra despawn.
 const shutdownDrain = time.Second
 
-// shutdown stops accepting and then tells every connected client to go, in that
-// order, and returns how many connections it spoke to.
-//
-// The order matters: closing the listeners first means a client that reconnects
-// during the drain is refused by the OS rather than admitted into a room that is
-// about to disappear. Closing the CONNECTIONS is the part that cannot be left
-// out -- see trackingListener -- and it is done the way the relay already closes
-// a client it wants to say something to (transport.CloseGracefully): half-close
-// where the connection can, which puts a FIN behind whatever was last written,
-// and a plain Close where it cannot, which for quic is a stream FIN followed by
-// CONNECTION_CLOSE. Either way the client learns in one round trip instead of
-// waiting out an idle timeout.
+// shutdown stops accepting, then tells every connected client to go, and returns how many connections it spoke to.
+// The listeners close first so a client reconnecting during the drain is refused by the OS. Each connection is
+// half-closed where it can be, a FIN behind the last write, and closed where not, so a client learns in one round
+// trip instead of waiting out an idle timeout.
 func shutdown(lns []*trackingListener, drain time.Duration) int {
 	for _, ln := range lns {
 		if err := ln.Close(); err != nil {
@@ -896,15 +679,8 @@ func shutdown(lns []*trackingListener, drain time.Duration) int {
 	return n
 }
 
-// trackingListener remembers the connections a listener has handed out, so that
-// shutdown can reach them.
-//
-// It exists because closing a listener does not close them. quic-go's
-// Listener.Close documents it outright ("Already established (accepted)
-// connections will be unaffected"), and quic is what a default relay and a
-// default client negotiate -- so the transport almost every real session uses is
-// exactly the one where closing the listeners tells nobody anything.
-// netx/udpconn's own Listener.Close does close its conns; tcp's does not.
+// trackingListener remembers the connections a listener has handed out, so shutdown can reach them: closing a tcp or
+// quic-go listener leaves its accepted connections open, and quic is what a default relay and client negotiate.
 type trackingListener struct {
 	net.Listener
 	mu    sync.Mutex
@@ -923,16 +699,9 @@ func (t *trackingListener) Accept() (net.Conn, error) {
 	t.mu.Lock()
 	t.conns[c] = struct{}{}
 	t.mu.Unlock()
-	// The wrapper's ONLY job is to forget the connection when it closes, so the
-	// map cannot grow for the life of a long-running relay. Everything else it
-	// does is forwarding, and that is the dangerous part: a wrapper embedding
-	// net.Conn as an INTERFACE hides any method net.Conn does not declare, and
-	// this repo has been bitten by that three times (2026-09-05, 2026-09-06,
-	// 2026-09-07 -- netx/limit.go's limitedConn carries the story). The three
-	// optional methods this codebase type-asserts for (five since 2026-09-16) are forwarded below;
-	// WriteUnreliable gets a separate type so it stays ABSENT on a connection
-	// that genuinely has no datagram plane, since transport.SendUnreliable
-	// decides by asking whether the method is there.
+	// The wrapper forgets the connection when it closes. Embedding net.Conn as an interface hides every method
+	// net.Conn does not declare, so the optional methods the codebase type-asserts for are forwarded below, and
+	// WriteUnreliable gets its own type so it stays absent where there is no datagram plane.
 	tc := &trackedConn{Conn: c, owner: t, key: c}
 	if uw, ok := c.(unreliableWriter); ok {
 		return &trackedLossyConn{trackedConn: tc, uw: uw}, nil
@@ -946,14 +715,8 @@ func (t *trackingListener) forget(c net.Conn) {
 	t.mu.Unlock()
 }
 
-// closeClients half-closes (or closes) every connection still open on this
-// listener and returns how many there were.
-//
-// SNAPSHOT UNDER THE LOCK, CLOSE OUTSIDE IT, for the reason netx/udpconn's
-// Listener.Close spells out at length: closing a connection calls back into
-// forget, which wants this same mutex, and holding it across the close is a
-// lock-ordering deadlock -- a relay that never finishes shutting down, which is
-// a worse failure than the one this whole function exists to fix.
+// closeClients half-closes (or closes) every connection still open on this listener and returns how many there were.
+// It snapshots under the lock and closes outside it: closing calls back into forget, which takes the same mutex.
 func (t *trackingListener) closeClients() int {
 	t.mu.Lock()
 	open := make([]net.Conn, 0, len(t.conns))
@@ -962,12 +725,8 @@ func (t *trackingListener) closeClients() int {
 	}
 	t.conns = map[net.Conn]struct{}{}
 	t.mu.Unlock()
-	// IN PARALLEL, UNDER ONE DEADLINE. A half-close writes -- a TLS
-	// close_notify, a quic stream FIN -- and a member whose socket has stalled
-	// holds that write for the whole write timeout. Serially, one such member
-	// held the goodbye for everyone behind it, up to 10 s each (fourth
-	// adversarial review, B6). Now every connection gets the same deadline at
-	// once, and a connection that cannot half-close in time is closed hard.
+	// In parallel under one deadline: a half-close writes, and a stalled member would otherwise hold the goodbye for
+	// everyone behind it. One that cannot half-close in time is closed hard.
 	deadline := time.Now().Add(closeClientsDeadline)
 	var wg sync.WaitGroup
 	for _, c := range open {
@@ -987,14 +746,11 @@ func (t *trackingListener) closeClients() int {
 	return len(open)
 }
 
-// closeClientsDeadline bounds one client's half-close during shutdown. The
-// same second shutdownDrain then waits for the goodbye to leave: a member
-// that cannot take a FIN in a second is not going to read a goodbye either.
+// closeClientsDeadline bounds one client's half-close during shutdown: a member that cannot take a FIN in a second
+// will not read a goodbye either.
 const closeClientsDeadline = time.Second
 
-// unreliableWriter is the datagram plane as transport discovers it: by type
-// assertion on the net.Conn. Declared here for the same reason netx declares
-// its own copy -- it is an optional method, not an exported interface.
+// unreliableWriter is the datagram plane as transport discovers it, by type assertion on the net.Conn.
 type unreliableWriter interface {
 	WriteUnreliable(p []byte) (int, error)
 }
@@ -1012,11 +768,9 @@ func (c *trackedConn) Close() error {
 	return err
 }
 
-// CloseWrite and TransportName forward for the reason netx/limit.go documents:
-// transport.CloseGracefully asserts for CloseWrite and silently degrades to a
-// RESET without it (losing the reject the relay just wrote), and relay's
-// per-client log line asserts for TransportName and calls everything "tcp"
-// without it -- in the very line a remote tester is asked to send back.
+// CloseWrite and TransportName forward because transport.CloseGracefully asserts for CloseWrite and degrades to a
+// reset without it, losing the reject just written, and relay's per-client log line asserts for TransportName and
+// calls everything "tcp" without it.
 func (c *trackedConn) CloseWrite() error {
 	cw, ok := c.Conn.(interface{ CloseWrite() error })
 	if !ok {
@@ -1033,13 +787,8 @@ func (c *trackedConn) TransportName() string {
 	return tn.TransportName()
 }
 
-// AcceptedAt and MaxPayloadBytes forward for the same reason, and were missed
-// the same way: added to the codebase after this list was written. Without
-// AcceptedAt the relay's hello timer restarted at the handshake on every
-// shipped connection, holding a stranger for two windows instead of one
-// (pass 5 of the adversarial review, 2026-09-16, P1d-1;
-// TestShippedStackCountsTheHelloTimeoutFromAccept). A zero time means "no
-// accept time", which the relay reads as the whole window, today's fallback.
+// AcceptedAt forwards so the relay's hello timer counts from accept, not from the handshake, which would hold a
+// stranger for two windows. A zero time means no accept time, which the relay reads as the whole window.
 func (c *trackedConn) AcceptedAt() time.Time {
 	a, ok := c.Conn.(interface{ AcceptedAt() time.Time })
 	if !ok {
@@ -1048,8 +797,8 @@ func (c *trackedConn) AcceptedAt() time.Time {
 	return a.AcceptedAt()
 }
 
-// MaxPayloadBytes is 0 ("no datagram bound") when the connection has none,
-// which is what the relay's sendBudget assumes for a stream.
+// MaxPayloadBytes is 0, no datagram bound, when the connection has none, as the relay's sendBudget assumes for a
+// stream.
 func (c *trackedConn) MaxPayloadBytes() int {
 	m, ok := c.Conn.(interface{ MaxPayloadBytes() int })
 	if !ok {
@@ -1058,12 +807,8 @@ func (c *trackedConn) MaxPayloadBytes() int {
 	return m.MaxPayloadBytes()
 }
 
-// trackedLossyConn is trackedConn for a connection that also has the datagram
-// plane (quic, udp). Separate type rather than a method on trackedConn so that
-// the method is missing exactly when the underlying connection lacks it: the
-// 2026-09-02 incident behind netx/limit.go's limitedLossyConn was every quic
-// state silently riding the ordered stream because a wrapper answered the type
-// assertion the transport uses to find the datagram path.
+// trackedLossyConn is trackedConn for a connection that also has the datagram plane (quic, udp): a separate type so
+// WriteUnreliable is missing exactly when the underlying connection lacks it, as transport finds the plane by asking.
 type trackedLossyConn struct {
 	*trackedConn
 	uw unreliableWriter
@@ -1079,18 +824,14 @@ type locatedConfig struct {
 	note  string
 }
 
-// logPath is where the relay's log goes: beside the config it read, or beside
-// the executable when there was none. Never the bare working directory -- a
-// service manager's working directory is wherever it happens to be, and a log
-// written there is a log nobody finds.
+// logPath is where the relay's log goes: beside the config it read, or beside the executable when there was none,
+// never a service manager's arbitrary working directory.
 func (l locatedConfig) logPath(name string) string {
 	return filepath.Join(l.dir(), name)
 }
 
-// identityDir is where the relay's identity lives (tlsx.LoadOrCreateIdentity):
-// the private/ folder beside the config, for the same reason the log is there --
-// and so that "uninstall" is still "delete the folder", and moving the install
-// moves the identity with it (the user's call, ADR 0066).
+// identityDir is where the relay's identity lives: the private folder beside the config, so uninstalling is still
+// deleting the folder, and moving the install moves the identity.
 func (l locatedConfig) identityDir() string {
 	return filepath.Join(l.dir(), tlsx.IdentityDirName)
 }
@@ -1117,18 +858,10 @@ var executableDir = func() (string, error) {
 	return filepath.Dir(exe), nil
 }
 
-// resolveConfigPath decides which config.json the relay reads.
-//
-// An explicit -config is believed as given. Otherwise the flag's default is a
-// relative name, and it is tried in the WORKING DIRECTORY first -- what every
-// dev-script and every double-click-in-the-package-folder launch relies on --
-// and then BESIDE THE EXECUTABLE. That second look is for a relay run as a
-// service: systemd's default working directory is /, Windows' service host's is
-// system32, and until 2026-09-15 such a relay read no file, said nothing about
-// it, and came up on 127.0.0.1:7777 with no room code (fourth adversarial
-// review, B2). Whatever is decided, the note names it -- including the two
-// places that were looked at when neither had a file -- so a host who edited
-// a config.json somewhere else learns that it is not the one being read.
+// resolveConfigPath decides which config.json the relay reads. An explicit -config is believed as given. Otherwise
+// the relative default is tried in the working directory first, then beside the executable, for a relay run as a
+// service (systemd's working directory is /, a Windows service's is system32). The note names what was decided, and
+// both places looked at when neither had a file.
 func resolveConfigPath(flagValue string, explicit bool, exeDir func() (string, error)) locatedConfig {
 	abs := func(p string) string {
 		if a, err := filepath.Abs(p); err == nil {
@@ -1168,17 +901,14 @@ func resolveConfigPath(flagValue string, explicit bool, exeDir func() (string, e
 		note: fmt.Sprintf("meshghost-relay: no config file at %s -- using flags and built-in defaults", abs(flagValue))}
 }
 
-// serverSection is the raw bytes of the config file's "server" object, or nil
-// if there isn't one -- the unknown-key warning has to look at what was WRITTEN
-// rather than at what decoded.
+// serverSection is the raw bytes of the config file's "server" object, or nil if there isn't one: the unknown-key
+// warning looks at what was written rather than at what decoded.
 func serverSection(data []byte) json.RawMessage {
 	var root map[string]json.RawMessage
 	if err := json.Unmarshal(data, &root); err != nil {
 		return nil
 	}
-	// Case-insensitively, because that is how encoding/json found the section
-	// it decoded: a "Server" section was applied and then never checked for
-	// typos (fourth adversarial review, B7).
+	// Case-insensitively, as encoding/json matched the section it decoded.
 	for k, v := range root {
 		if strings.EqualFold(k, "server") {
 			return v

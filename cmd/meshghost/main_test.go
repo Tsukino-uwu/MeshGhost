@@ -12,9 +12,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// writeConfig writes body to a temp config.json and returns its path, with
-// prefix prepended raw so a test can put a byte-order mark (or anything else
-// an editor might leave) in front of the JSON.
+// writeConfig writes body to a temp config.json and returns its path, with prefix prepended raw so a test can put a
+// byte-order mark, or anything else an editor might leave, in front of the JSON.
 func writeConfig(t *testing.T, prefix []byte, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.json")
@@ -26,25 +25,22 @@ func writeConfig(t *testing.T, prefix []byte, body string) string {
 
 const testClientConfig = `{"client": {"connect_to": "1.2.3.4:9999", "room_code": "letmein"}}`
 
-// applyTestConfig runs applyFileConfig over path with no flags marked
-// explicit, returning the resulting relay address and room code.
+// applyTestConfig runs applyFileConfig over path with no flags marked explicit, returning the relay address and room
+// code.
 func applyTestConfig(path string) (relayAddr, roomCode string) {
 	relayAddr, roomCode, _ = applyTestConfigFull(path)
 	return relayAddr, roomCode
 }
 
-// applyTestConfigFull is applyTestConfig plus the transport, and it passes
-// EVERY configTargets field. Passing all of them is not tidiness: a nil
-// target is a nil dereference the moment a config file sets the
-// corresponding key, so a partially-populated struct here would turn a real
-// crash into a test that passes by never exercising the field.
+// applyTestConfigFull is applyTestConfig plus the transport. Every target it passes matters: a nil target is a nil
+// dereference the moment the file sets that key.
 func applyTestConfigFull(path string) (relayAddr, roomCode, transport string) {
 	relayAddr, roomCode, transport, _, _ = applyTestConfigWithTLS(path, map[string]bool{})
 	return relayAddr, roomCode, transport
 }
 
-// applyTestConfigWithTLS is applyTestConfigFull plus the two tls keys, and
-// takes the explicit-flag set so a test can assert flag-beats-file.
+// applyTestConfigWithTLS is applyTestConfigFull plus the two tls keys, taking the explicit-flag set so a test can
+// assert flag-beats-file.
 func applyTestConfigWithTLS(path string, explicit map[string]bool) (relayAddr, roomCode, transport, tlsMode, tlsPin string) {
 	var bridgeAddr, gameID, room, name, gameVersion, features string
 	var interp, minSend time.Duration
@@ -60,12 +56,8 @@ func applyTestConfigWithTLS(path string, explicit map[string]bool) (relayAddr, r
 	return relayAddr, roomCode, transport, tlsMode, tlsPin
 }
 
-// TestConfigWithUTF8BOMIsStillRead is the regression test for a config file
-// saved by a Windows editor that prepends a UTF-8 BOM: encoding/json refuses
-// those three bytes, which used to discard the whole file — silently falling
-// back to defaults for every setting in it, including room_code, while
-// looking perfectly correct to whoever edited it. Mirrors the relay's own
-// test. Found while testing the only_game setting.
+// TestConfigWithUTF8BOMIsStillRead: a Windows editor may prepend a UTF-8 BOM, which encoding/json refuses, and the
+// file must still be read rather than silently fall back to defaults.
 func TestConfigWithUTF8BOMIsStillRead(t *testing.T) {
 	path := writeConfig(t, []byte{0xEF, 0xBB, 0xBF}, testClientConfig)
 
@@ -78,8 +70,7 @@ func TestConfigWithUTF8BOMIsStillRead(t *testing.T) {
 	}
 }
 
-// TestConfigWithoutBOMIsUnaffected confirms the BOM strip didn't change the
-// ordinary case.
+// TestConfigWithoutBOMIsUnaffected confirms the BOM strip didn't change the ordinary case.
 func TestConfigWithoutBOMIsUnaffected(t *testing.T) {
 	path := writeConfig(t, nil, testClientConfig)
 
@@ -89,10 +80,8 @@ func TestConfigWithoutBOMIsUnaffected(t *testing.T) {
 	}
 }
 
-// TestUTF16ConfigLeavesDefaults confirms a UTF-16 file is refused rather than
-// half-read: it can't be salvaged by stripping a prefix, so applyFileConfig
-// must leave every target untouched (the caller's flag defaults) instead of
-// writing garbage into them.
+// TestUTF16ConfigLeavesDefaults: a UTF-16 file is refused rather than half-read, leaving every target at the
+// caller's flag default.
 func TestUTF16ConfigLeavesDefaults(t *testing.T) {
 	path := writeConfig(t, []byte{0xFF, 0xFE}, testClientConfig)
 
@@ -102,10 +91,8 @@ func TestUTF16ConfigLeavesDefaults(t *testing.T) {
 	}
 }
 
-// TestTransportIsReadFromConfig confirms the transport key reaches the flag
-// target, since a client that silently ignored it would connect over tcp
-// while its operator believed otherwise — and on a quic relay that is the
-// difference between an encrypted session and no session at all.
+// TestTransportIsReadFromConfig confirms the transport key reaches the flag target, or a client asked for quic would
+// silently stay on tcp.
 func TestTransportIsReadFromConfig(t *testing.T) {
 	path := writeConfig(t, nil, `{"client":{"connect_to":"1.2.3.4:7779","transport":"quic"}}`)
 	relayAddr, _, transport := applyTestConfigFull(path)
@@ -117,10 +104,8 @@ func TestTransportIsReadFromConfig(t *testing.T) {
 	}
 }
 
-// TestTransportAbsentFromConfigLeavesTheFlagDefault is the compatibility
-// half: every config.json written before selectable transports existed has
-// no "transport" key at all, and those must keep behaving exactly as they
-// did rather than being reset to an empty string that then fails to parse.
+// TestTransportAbsentFromConfigLeavesTheFlagDefault: a config with no "transport" key keeps the flag default rather
+// than an empty string that fails to parse.
 func TestTransportAbsentFromConfigLeavesTheFlagDefault(t *testing.T) {
 	path := writeConfig(t, nil, `{"client":{"connect_to":"1.2.3.4:7777"}}`)
 	var transport = "tcp" // what flag.String would have left in place
@@ -139,10 +124,8 @@ func TestTransportAbsentFromConfigLeavesTheFlagDefault(t *testing.T) {
 	}
 }
 
-// TestShowConsoleIsReadFromConfig covers the only path a player can actually
-// reach this setting by: editing config.json. There is a -show-console flag too,
-// but nobody autostarting the client types flags -- the adapter spawns it without
-// any.
+// TestShowConsoleIsReadFromConfig covers the only way a player reaches this setting: an autostarted client gets no
+// flags.
 func TestShowConsoleIsReadFromConfig(t *testing.T) {
 	path := writeConfig(t, nil, `{"client":{"show_console":true}}`)
 	var relayAddr, bridgeAddr, gameID, room, name, gameVersion, roomCode, transport string
@@ -160,10 +143,8 @@ func TestShowConsoleIsReadFromConfig(t *testing.T) {
 	}
 }
 
-// TestShowConsoleAbsentFromConfigStaysOff guards the default that makes autostart
-// worth having. Every config.json written before this key existed omits it, and a
-// silent client is the entire point -- an absent key must never be read as "open a
-// window".
+// TestShowConsoleAbsentFromConfigStaysOff: an absent key must never open a window, the default that makes autostart
+// worth having.
 func TestShowConsoleAbsentFromConfigStaysOff(t *testing.T) {
 	path := writeConfig(t, nil, `{"client":{"connect_to":"1.2.3.4:7777"}}`)
 	var relayAddr, bridgeAddr, gameID, room, name, gameVersion, roomCode, transport string
@@ -181,16 +162,8 @@ func TestShowConsoleAbsentFromConfigStaysOff(t *testing.T) {
 	}
 }
 
-// TestWineConsoleIsReportedNotPretended covers what replaced a mistake. There
-// was briefly a default here that turned the console ON under Wine, as a safety
-// valve in case an autostarted client outlived its game there. The Linux tester
-// proved both halves wrong on 2026-08-16: no window ever appeared (Wine has no
-// usable console for a Proton-launched game), and -exit-with-pid reaped the
-// client every time anyway, so there was nothing to guard.
-//
-// What is left is honesty: if someone asks for a console where one cannot exist,
-// say so rather than silently doing nothing -- which is exactly what cost that
-// tester an afternoon.
+// TestWineConsoleIsReportedNotPretended: a console asked for where one cannot exist is reported, not silently
+// skipped.
 func TestWineConsoleIsReportedNotPretended(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -213,15 +186,8 @@ func TestWineConsoleIsReportedNotPretended(t *testing.T) {
 	}
 }
 
-// TestOneBadValueDoesNotDiscardTheWholeConfig is the regression test for the bug
-// that cost a real user their whole session on 2026-08-16. They wrote
-// `"show_console": "true"` -- quoted, so a JSON string where a bool belongs --
-// and every OTHER setting silently reverted to its built-in default. The relay
-// logged them joining as "player" rather than the name they had configured,
-// which is how it was spotted at all.
-//
-// The values checked here are deliberately the ones that matter to a player:
-// where they connect, which room, and what they are called.
+// TestOneBadValueDoesNotDiscardTheWholeConfig: a string where a bool belongs must not revert every other setting,
+// checked on what matters to a player: where they connect, which room, and what they are called.
 func TestOneBadValueDoesNotDiscardTheWholeConfig(t *testing.T) {
 	path := writeConfig(t, nil, `{"client":{
 		"connect_to": "1.2.3.4:9999",
@@ -250,18 +216,14 @@ func TestOneBadValueDoesNotDiscardTheWholeConfig(t *testing.T) {
 	if name != "speedrunner" {
 		t.Errorf("name = %q, want it applied despite the bad show_console", name)
 	}
-	// The offending setting itself is the one thing that must NOT be guessed at:
-	// "true" is a string, and treating it as true would be inventing intent.
+	// The offending setting itself is never guessed at: treating "true" as true would invent intent.
 	if showConsole {
 		t.Error("show_console was applied from a string value, want it skipped as unreadable")
 	}
 }
 
-// TestSyntaxErrorStillDiscardsTheWholeConfig pins the other half. A missing
-// comma or stray brace is not one bad field -- the rest of the file cannot be
-// trusted to mean what the user intended, so the original whole-file warning is
-// still the right answer there. Being lenient about EVERYTHING would have been
-// the easy overcorrection.
+// TestSyntaxErrorStillDiscardsTheWholeConfig: a missing comma or stray brace is not one bad field, and the rest of
+// the file cannot be trusted to mean what was intended.
 func TestSyntaxErrorStillDiscardsTheWholeConfig(t *testing.T) {
 	path := writeConfig(t, nil, `{"client":{"connect_to": "1.2.3.4:9999" "room": "castle"}}`)
 
@@ -282,16 +244,12 @@ func TestSyntaxErrorStillDiscardsTheWholeConfig(t *testing.T) {
 	}
 }
 
-// TestWatchParentPIDFiresOnceWhenTheParentGoes is the regression test for the
-// orphan case autostart introduces: a game crashes, and the client it spawned
-// keeps running with no window, holding the bridge port so the next launch can't
-// listen. The probe is injected rather than killing a real process so this stays
-// deterministic and identical on every platform.
+// TestWatchParentPIDFiresOnceWhenTheParentGoes: a crashed game must not leave an orphan client holding the bridge
+// port. The probe is injected so the test is deterministic on every platform.
 func TestWatchParentPIDFiresOnceWhenTheParentGoes(t *testing.T) {
 	var checks int
 	fired := make(chan struct{}, 4)
-	// Alive for the first two polls, then gone -- so the test also covers that
-	// watchParentPID keeps waiting rather than firing on its first look.
+	// Alive for two polls, then gone, so watchParentPID must keep waiting rather than fire on its first look.
 	gone := func(int) bool {
 		checks++
 		return checks > 2
@@ -306,11 +264,8 @@ func TestWatchParentPIDFiresOnceWhenTheParentGoes(t *testing.T) {
 	}
 }
 
-// TestWatchParentPIDIgnoresZero covers the default. Every client a person starts
-// themselves passes no -exit-with-pid, and pid 0 must not be watched: on Windows
-// it is a real (system) process id, so a lenient check here would have this client
-// watching something that never exits, and on the way there it would call the probe
-// forever for no reason.
+// TestWatchParentPIDIgnoresZero: pid 0, the default, is never watched; on Windows it is a real system process that
+// never exits.
 func TestWatchParentPIDIgnoresZero(t *testing.T) {
 	called := false
 	watchParentPID(0, func(int) bool { called = true; return true }, time.Millisecond,
@@ -320,10 +275,8 @@ func TestWatchParentPIDIgnoresZero(t *testing.T) {
 	}
 }
 
-// TestTheObsoleteTLSKeysAreStillReadSoTheyCanBeJudged: both keys are gone
-// from the flags, but an old config.json still carries them, and a value
-// that asked for plaintext or pinned a relay must reach checkLegacyTLSKeys
-// rather than vanish as unknown.
+// TestTheObsoleteTLSKeysAreStillReadSoTheyCanBeJudged: an old config's plaintext mode or pin must reach
+// checkLegacyTLSKeys rather than vanish as unknown.
 func TestTheObsoleteTLSKeysAreStillReadSoTheyCanBeJudged(t *testing.T) {
 	path := writeConfig(t, nil, `{"client":{"tls":"off","tls_fingerprint":"AB:CD"}}`)
 	_, _, _, tlsMode, tlsPin := applyTestConfigWithTLS(path, map[string]bool{})
@@ -335,9 +288,7 @@ func TestTheObsoleteTLSKeysAreStillReadSoTheyCanBeJudged(t *testing.T) {
 	}
 }
 
-// TestTLSAbsentFromConfigLeavesTheTargetsAlone: an existing config file
-// without the keys leaves both targets empty, which checkLegacyTLSKeys
-// treats as nothing to say.
+// TestTLSAbsentFromConfigLeavesTheTargetsAlone: without the keys both targets stay empty, nothing to say.
 func TestTLSAbsentFromConfigLeavesTheTargetsAlone(t *testing.T) {
 	path := writeConfig(t, nil, `{"client":{"connect_to":"1.2.3.4:7777"}}`)
 	_, _, _, tlsMode, tlsPin := applyTestConfigWithTLS(path, map[string]bool{})
@@ -346,9 +297,8 @@ func TestTLSAbsentFromConfigLeavesTheTargetsAlone(t *testing.T) {
 	}
 }
 
-// TestTheObsoleteTLSKeysAreJudgedByWhatTheyAskedFor: a plaintext mode or a
-// pin refuses to start -- a security setting is never silently ignored --
-// while the harmless leftovers run with a note.
+// TestTheObsoleteTLSKeysAreJudgedByWhatTheyAskedFor: a plaintext mode or a pin refuses to start, and the harmless
+// leftovers run with a note.
 func TestTheObsoleteTLSKeysAreJudgedByWhatTheyAskedFor(t *testing.T) {
 	for _, tc := range []struct {
 		mode, pin string
@@ -381,13 +331,8 @@ func TestTheObsoleteTLSKeysAreJudgedByWhatTheyAskedFor(t *testing.T) {
 	}
 }
 
-// TestBridgeIsLoopback covers the guard on the adapter bridge's bind address.
-//
-// The bridge has no authentication at all, and core.Core's doc comment states
-// as a fact that it "is always loopback TCP" -- nothing enforced that until
-// 2026-08-25. The case that matters is not a typo but config.json's
-// "local_game_bridge" being shared between friends, so the false cases here are
-// the ones this test exists for.
+// TestBridgeIsLoopback covers the guard on the unauthenticated bridge's bind address; the remote cases, a
+// local_game_bridge shared between friends, are the ones it exists for.
 func TestBridgeIsLoopback(t *testing.T) {
 	loopback := []string{
 		"127.0.0.1:7778",
@@ -420,9 +365,8 @@ func TestBridgeIsLoopback(t *testing.T) {
 	}
 }
 
-// TestReplayBlockIsReadFromConfig covers the one way a player reaches
-// recording: the nested "replay" block in config.json (ADR 0047). Absent, both
-// keys keep the flag defaults -- a release must never record by surprise.
+// TestReplayBlockIsReadFromConfig: the nested "replay" block is how a player reaches recording, and absent it keeps
+// the flag defaults, so a release never records by surprise.
 func TestReplayBlockIsReadFromConfig(t *testing.T) {
 	path := writeConfig(t, nil, `{"client":{"replay":{"record_on_launch":true,"save_last":"45s","start_delay":"2s","seek":"8s","split_times":true}}}`)
 	var relayAddr, bridgeAddr, gameID, room, name, gameVersion, roomCode, transport string
@@ -461,9 +405,8 @@ func TestReplayBlockIsReadFromConfig(t *testing.T) {
 	}
 }
 
-// TestHotkeysBlockIsReadFromConfig: the six chords come from the nested
-// "hotkeys" block (ADR 0048); an absent block or key leaves the flag default,
-// and an empty string is a deliberate unbind that survives the merge.
+// TestHotkeysBlockIsReadFromConfig: an absent key leaves the flag default, and an empty string is a deliberate
+// unbind that survives the merge.
 func TestHotkeysBlockIsReadFromConfig(t *testing.T) {
 	path := writeConfig(t, nil, `{"client":{"hotkeys":{"record_toggle":"alt+r","replay_rewind":""}}}`)
 	var relayAddr, bridgeAddr, gameID, room, name, gameVersion, roomCode, transport string
@@ -487,8 +430,7 @@ func TestHotkeysBlockIsReadFromConfig(t *testing.T) {
 	}
 }
 
-// TestChaserBlockIsReadFromConfig: the nested "chaser" block (ADR 0047), with
-// absent keys left at the flag defaults.
+// TestChaserBlockIsReadFromConfig: absent keys in the nested "chaser" block keep the flag defaults.
 func TestChaserBlockIsReadFromConfig(t *testing.T) {
 	path := writeConfig(t, nil, `{"client":{"chaser":{"enabled":true,"count":4,"delay":"2s","name":"Me","spawn_delay":"4s"}}}`)
 	var relayAddr, bridgeAddr, gameID, room, name, gameVersion, roomCode, transport string
@@ -515,13 +457,8 @@ func TestChaserBlockIsReadFromConfig(t *testing.T) {
 	}
 }
 
-// TestARateOutsideTheDocumentedRangeIsWarnedAbout is review G3 (2026-09-08).
-// The flag help promises "Valid range 10-100" and nothing on this side checked
-// it: the number went into the hello raw and the relay clamped it silently, at
-// the far end of a socket the player has no view of. Both ends of the range
-// matter -- a too-low value is the one a player picks deliberately to save
-// bandwidth on a weak connection, and it is the end where the clamp changes
-// what they get most.
+// TestARateOutsideTheDocumentedRangeIsWarnedAbout: a rate the relay would clamp out of the player's sight is warned
+// about here, at both ends of the range.
 func TestARateOutsideTheDocumentedRangeIsWarnedAbout(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -546,8 +483,7 @@ func TestARateOutsideTheDocumentedRangeIsWarnedAbout(t *testing.T) {
 			if !tc.wantWarning {
 				return
 			}
-			// Both numbers, because the useful message is not "that is
-			// invalid" but "you asked for X and you are getting Y".
+			// Both numbers: "you asked for X and you are getting Y".
 			for _, want := range []string{strconv.Itoa(tc.want), strconv.Itoa(tc.wantHz)} {
 				if !strings.Contains(warning, want) {
 					t.Errorf("warning %q does not name %s -- it has to say what was asked for AND what is being used", warning, want)
@@ -557,21 +493,15 @@ func TestARateOutsideTheDocumentedRangeIsWarnedAbout(t *testing.T) {
 	}
 }
 
-// TestANegativeExitWithPIDIsNotAnnouncedAsWatched is review G6 (2026-09-08):
-// main guarded the announcement with `!= 0` while watchParentPID guarded the
-// watching with `<= 0`, so a negative pid printed "watching pid -1 -- will
-// exit when it does" and then watched nothing. This asserts the two answers
-// come from one place and agree, for every sign.
+// TestANegativeExitWithPIDIsNotAnnouncedAsWatched: the "watching pid" announcement and the watcher agree for every
+// sign of pid.
 func TestANegativeExitWithPIDIsNotAnnouncedAsWatched(t *testing.T) {
 	for _, pid := range []int{-1, -4294967296, 0, 1, 4321} {
 		want := pid > 0
 		if got := watchingParentPID(pid); got != want {
 			t.Errorf("watchingParentPID(%d) = %v, want %v", pid, got, want)
 		}
-		// The watcher's own guard, driven with a gone() that reports the
-		// process dead on the first poll, so the call returns either way: it
-		// must poll and fire for exactly the pids the announcement claims,
-		// and do neither for the rest.
+		// gone reports dead on the first poll, so the call returns either way.
 		polled, fired := false, false
 		watchParentPID(pid, func(int) bool { polled = true; return true }, time.Millisecond, func() { fired = true })
 		if polled != want || fired != want {
@@ -581,11 +511,8 @@ func TestANegativeExitWithPIDIsNotAnnouncedAsWatched(t *testing.T) {
 	}
 }
 
-// TestTwoActionsOnTheSameChordAreRefusedAsADuplicate is review G7
-// (2026-09-08). Two actions on one chord used to be registered twice; Windows
-// refuses the second, and the refusal reads "another program may already own
-// this chord" -- so a player goes hunting their machine for a conflict that is
-// in the file they just edited.
+// TestTwoActionsOnTheSameChordAreRefusedAsADuplicate: the clash is named as one in the config, not left to Windows
+// to report as "another program may already own this chord".
 func TestTwoActionsOnTheSameChordAreRefusedAsADuplicate(t *testing.T) {
 	actions, warnings := parseHotkeys([]hotkeyBinding{
 		{core.ReplayRecordToggle, "ctrl+shift+F9"},
@@ -608,9 +535,7 @@ func TestTwoActionsOnTheSameChordAreRefusedAsADuplicate(t *testing.T) {
 	}
 }
 
-// TestAnUnparsableChordIsStillReportedAlone: the duplicate check must not have
-// cost the older behaviour, where one bad chord is skipped and every other key
-// still binds.
+// TestAnUnparsableChordIsStillReportedAlone: one bad chord is skipped and every other key still binds.
 func TestAnUnparsableChordIsStillReportedAlone(t *testing.T) {
 	actions, warnings := parseHotkeys([]hotkeyBinding{
 		{core.ReplayRecordToggle, "F12"}, // reserved for the debugger, refused by hotkey.Parse
@@ -625,11 +550,8 @@ func TestAnUnparsableChordIsStillReportedAlone(t *testing.T) {
 	}
 }
 
-// TestBareFlagDefaultsAreNotCalledTheShippedDefaults is review G9
-// (2026-09-08). The smoothing line exists to say afterwards which rig produced
-// a recording, and it checked every setting on it except predict -- the one
-// where the flag default (linear) and the release (damped) disagree. So a dev
-// run on bare defaults claimed to be a shipped one.
+// TestBareFlagDefaultsAreNotCalledTheShippedDefaults: the flag's predictor (linear) is not the release's (damped), so
+// a run on bare flag defaults must not be labelled shipped.
 func TestBareFlagDefaultsAreNotCalledTheShippedDefaults(t *testing.T) {
 	shipped := func(predict core.PredictMode) bool {
 		return runningTheShippedSmoothing(core.DefaultInterpolationDelay, core.DefaultLocalGhostDelay,
@@ -641,8 +563,7 @@ func TestBareFlagDefaultsAreNotCalledTheShippedDefaults(t *testing.T) {
 	if !shipped(shippedPredict) {
 		t.Error("the shipped values themselves must still be labelled as the shipped defaults")
 	}
-	// The rest of the line's settings, so this test also fails if a later
-	// change loosens one of the checks that were already there.
+	// The line's other settings, so loosening any check fails too.
 	if runningTheShippedSmoothing(core.DefaultInterpolationDelay, core.DefaultLocalGhostDelay,
 		0, 500*time.Millisecond, 0, core.CurveLinear, shippedPredict) {
 		t.Error("extrapolation on is a dev rig, whatever else matches")

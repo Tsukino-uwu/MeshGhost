@@ -11,13 +11,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/core"
 )
 
-// FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane: config.json is a file a
-// player edits by hand, so every value in it is arbitrary -- a count of -1 or
-// 1e9, a duration of "-5s" or "abc", a block that is a string instead of an
-// object, keys the build does not know. applyFileConfig must never panic, a
-// bad value must leave the flag default in place rather than a zero or a
-// garbage value, and the three replay-era blocks are held to that alongside
-// the older keys.
+// FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane: config.json is edited by hand, so any value is possible.
+// applyFileConfig must never panic, and a bad value must leave the flag default rather than a zero or garbage.
 //
 // Long campaign by hand: go test ./cmd/meshghost -run=XXX -fuzz=FuzzApplyFileConfig -fuzztime=5m
 func FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane(f *testing.F) {
@@ -25,7 +20,7 @@ func FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane(f *testing.F) {
 	f.Add(`{"client":{"replay":"not an object","chaser":[1,2],"hotkeys":null}}`)
 	f.Add(`{"client":{"chaser":{"count":-1,"delay":"1e9h","spawn_delay":"NaN"},"interp":"-1ms"}}`)
 	f.Add(`{"client":{"correction":"-1ms","extrapolate":"100ms"}}`)
-	// chaser.contact: the legacy bool, a mode, a non-mode, a number (ADR 0068).
+	// chaser.contact: the legacy bool, a mode, a non-mode, a number.
 	f.Add(`{"client":{"chaser":{"contact":true}}}`)
 	f.Add(`{"client":{"chaser":{"contact":"kill"}}}`)
 	f.Add(`{"client":{"chaser":{"contact":"maybe"}}}`)
@@ -44,9 +39,8 @@ func FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane(f *testing.F) {
 			t.Fatal(err)
 		}
 		var relayAddr, bridgeAddr, gameID, room, name, gameVersion, roomCode, transport string
-		// Every duration key the file can carry needs a target here: a seed
-		// naming a key with a nil target dereferences it (found 2026-09-15 by
-		// the correction seed, which was the first to name extrapolate).
+		// Every duration key the file can carry needs a target here: a seed naming a key with a nil target
+		// dereferences it.
 		var interp, minSend, extrapolate, correction time.Duration
 		var maxReceiveHz int
 		var showConsole, recordOnLaunch, splitTimes, chaserOn bool
@@ -68,19 +62,12 @@ func FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane(f *testing.F) {
 		if !filepath.IsAbs(shown) {
 			t.Fatalf("applyFileConfig returned a relative path %q", shown)
 		}
-		// chaser.contact lands only as a MODE (ADR 0068): whatever the file
-		// says -- a bool, a word, a number, nothing -- the target holds a word
-		// ParseChaserContact accepts, so main() can never exit on a file value.
+		// Whatever the file says, chaser.contact lands as a word ParseChaserContact accepts, so main never exits on it.
 		if _, err := core.ParseChaserContact(contact); err != nil {
 			t.Fatalf("chaser.contact landed as %q from %q: %v", contact, body, err)
 		}
-		// A duration the file could not express as a duration must be the
-		// default, never zero-by-accident: OverrideDuration keeps the target on
-		// a parse failure. A parsed "0s" is a VALUE the player chose and is
-		// allowed -- CI's first campaign (2026-09-03) found this test calling
-		// "save_last":"0s" a bug; the corpus entry beside this file is that
-		// input. Negative durations ARE accepted by time.ParseDuration and are
-		// the core's to clamp, so they are not asserted here.
+		// A bad duration keeps the default, never zero by accident, but a parsed "0s" is a value the player chose.
+		// Negative durations parse, and are the core's to clamp, so they are not asserted here.
 		var doc struct {
 			Client struct {
 				Replay map[string]any `json:"replay"`
@@ -88,18 +75,7 @@ func FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane(f *testing.F) {
 			} `json:"client"`
 		}
 		_ = json.Unmarshal([]byte(strings.TrimPrefix(body, "\ufeff")), &doc)
-		// CASE-INSENSITIVELY, because encoding/json matches a struct tag that way
-		// and the client reads its config into a struct. CI found this on
-		// 2026-09-04 with {"Client":{"replAY":{"sAve_lAst":"0"}}}: the client
-		// correctly applied it as an explicit zero, and this test called that a
-		// bug -- because the mirror it checks against is a map[string]any, where
-		// a key keeps whatever case the file used and "save_last" simply misses.
-		//
-		// The same shape as this test's first CI failure on 2026-09-03, one
-		// layer down: there the invariant did not know an explicit zero from a
-		// bad value; here it did not know the KEY. A test that mirrors a
-		// decoder has to mirror how that decoder matches names, or it invents
-		// failures the code does not have.
+		// Keys match case-insensitively, as encoding/json matches a struct tag; the map mirror keeps the file's case.
 		explicitZero := func(block map[string]any, key string) bool {
 			for k, raw := range block {
 				if !strings.EqualFold(k, key) {

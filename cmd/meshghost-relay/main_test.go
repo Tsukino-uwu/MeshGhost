@@ -10,9 +10,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/netx"
 )
 
-// writeConfig writes body to a temp config.json and returns its path, with
-// prefix prepended raw so a test can put a byte-order mark (or anything else
-// an editor might leave) in front of the JSON.
+// writeConfig writes prefix and body to a temp config.json and returns its path; prefix lets a test put a byte-order
+// mark in front of the JSON.
 func writeConfig(t *testing.T, prefix []byte, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.json")
@@ -24,25 +23,21 @@ func writeConfig(t *testing.T, prefix []byte, body string) string {
 
 const testServerConfig = `{"server": {"listen_on": "1.2.3.4:9999", "only_game": "pseudoregalia"}}`
 
-// applyTestConfig runs applyFileConfig over path with no flags marked
-// explicit, returning the resulting listen address and only_game.
+// applyTestConfig runs applyFileConfig over path with no flags marked explicit, returning listen_on and only_game.
 func applyTestConfig(path string) (addr, onlyGame string) {
 	addr, onlyGame, _, _ = applyTestConfigFull(path)
 	return addr, onlyGame
 }
 
-// applyTestConfigFull is applyTestConfig plus the transport keys, and it
-// passes EVERY configTargets field. Passing all of them is not tidiness: a
-// nil target is a nil dereference the moment a config file sets the
-// corresponding key, so a partially-populated struct here would turn a real
-// crash into a test that passes by never exercising the field.
+// applyTestConfigFull is applyTestConfig plus the transport keys. It passes every configTargets field: a nil target
+// is a nil dereference the moment a config file sets its key.
 func applyTestConfigFull(path string) (addr, onlyGame, transport, quicAddr string) {
 	addr, onlyGame, transport, quicAddr, _ = applyTestConfigWithTLS(path)
 	return addr, onlyGame, transport, quicAddr
 }
 
-// applyTestConfigWithTLS is applyTestConfigFull plus the obsolete tls key,
-// which is still read so checkLegacyTLSKey can judge it.
+// applyTestConfigWithTLS is applyTestConfigFull plus the obsolete tls key, still read so checkLegacyTLSKey can judge
+// it.
 func applyTestConfigWithTLS(path string) (addr, onlyGame, transport, quicAddr, legacyTLS string) {
 	var maxClients, sendHz, resumeGrace int
 	var roomCode, udpAddr, ghostCollision string
@@ -56,12 +51,8 @@ func applyTestConfigWithTLS(path string) (addr, onlyGame, transport, quicAddr, l
 	return addr, onlyGame, transport, quicAddr, legacyTLS
 }
 
-// TestConfigWithUTF8BOMIsStillRead is the regression test for a config file
-// saved by a Windows editor that prepends a UTF-8 BOM: encoding/json refuses
-// those three bytes, which used to discard the whole file — silently falling
-// back to defaults for every setting in it, including room_code, while
-// looking perfectly correct to whoever edited it. Found while testing the
-// only_game setting.
+// TestConfigWithUTF8BOMIsStillRead: a Windows editor may prepend a UTF-8 BOM, which encoding/json refuses, and a
+// file discarded for it would silently fall back to defaults, room_code included.
 func TestConfigWithUTF8BOMIsStillRead(t *testing.T) {
 	path := writeConfig(t, []byte{0xEF, 0xBB, 0xBF}, testServerConfig)
 
@@ -74,8 +65,6 @@ func TestConfigWithUTF8BOMIsStillRead(t *testing.T) {
 	}
 }
 
-// TestConfigWithoutBOMIsUnaffected confirms the BOM strip didn't change the
-// ordinary case.
 func TestConfigWithoutBOMIsUnaffected(t *testing.T) {
 	path := writeConfig(t, nil, testServerConfig)
 
@@ -85,10 +74,8 @@ func TestConfigWithoutBOMIsUnaffected(t *testing.T) {
 	}
 }
 
-// TestUTF16ConfigLeavesDefaults confirms a UTF-16 file is refused rather than
-// half-read: it can't be salvaged by stripping a prefix, so applyFileConfig
-// must leave every target untouched (the caller's flag defaults) instead of
-// writing garbage into them.
+// TestUTF16ConfigLeavesDefaults: a UTF-16 file cannot be salvaged by stripping a prefix, so every target keeps its
+// flag default.
 func TestUTF16ConfigLeavesDefaults(t *testing.T) {
 	path := writeConfig(t, []byte{0xFF, 0xFE}, testServerConfig)
 
@@ -98,11 +85,8 @@ func TestUTF16ConfigLeavesDefaults(t *testing.T) {
 	}
 }
 
-// TestTransportKeysAreReadFromConfig confirms both new server keys reach
-// their flag targets. listen_quic matters as much as transport: quic runs
-// over udp and so cannot share a port with the plain udp transport, which
-// means a relay serving both needs two addresses and silently dropping one
-// of them would bind quic somewhere nobody is dialing.
+// TestTransportKeysAreReadFromConfig: transport and listen_quic both reach their targets; dropping listen_quic would
+// bind quic where nobody dials.
 func TestTransportKeysAreReadFromConfig(t *testing.T) {
 	path := writeConfig(t, nil, `{"server":{"listen_on":"0.0.0.0:7777",`+
 		`"listen_quic":"0.0.0.0:7780","transport":"tcp,udp,quic"}}`)
@@ -118,9 +102,7 @@ func TestTransportKeysAreReadFromConfig(t *testing.T) {
 	}
 }
 
-// TestTransportAbsentFromConfigLeavesTheFlagDefaults is the compatibility
-// half: a config.json written before selectable transports existed has
-// neither key, and such a relay must keep serving tcp exactly as it did.
+// TestTransportAbsentFromConfigLeavesTheFlagDefaults: an older config.json with neither key leaves the flag defaults.
 func TestTransportAbsentFromConfigLeavesTheFlagDefaults(t *testing.T) {
 	path := writeConfig(t, nil, `{"server":{"listen_on":"0.0.0.0:7777"}}`)
 	transport, quicAddr := "tcp", sharesAddrPort
@@ -139,16 +121,8 @@ func TestTransportAbsentFromConfigLeavesTheFlagDefaults(t *testing.T) {
 	}
 }
 
-// TestEmptyConfigFileIsSilentlyIgnored covers "no config" spelled as a file
-// that exists and holds nothing.
-//
-// dev-scripts/run-loadtest-relay.bat passes `-config nul` to mean "ignore the
-// repo's config.json". On Windows os.ReadFile("nul") does not fail
-// os.IsNotExist -- it succeeds with zero bytes -- so this reached
-// json.Unmarshal, which returned "unexpected end of JSON input", and the relay
-// warned on every run that EVERY SETTING was being ignored and defaults used
-// instead. The relay was working correctly; the warning read like a broken
-// install. An empty file means nothing was configured, which is not an error.
+// TestEmptyConfigFileIsSilentlyIgnored: an empty file means nothing was configured. On Windows -config nul reads as a
+// file of zero bytes, not as a missing one.
 func TestEmptyConfigFileIsSilentlyIgnored(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -173,8 +147,7 @@ func TestEmptyConfigFileIsSilentlyIgnored(t *testing.T) {
 	}
 }
 
-// TestTheObsoleteTLSKeyIsStillReadSoItCanBeJudged: the key is gone from
-// the flags, but an old config.json still carries it, and a value that asked
+// TestTheObsoleteTLSKeyIsStillReadSoItCanBeJudged: an old config.json still carries the key, and a value that asked
 // for plaintext must reach checkLegacyTLSKey rather than vanish as unknown.
 func TestTheObsoleteTLSKeyIsStillReadSoItCanBeJudged(t *testing.T) {
 	path := writeConfig(t, nil, `{"server": {"tls": "off"}}`)
@@ -184,9 +157,8 @@ func TestTheObsoleteTLSKeyIsStillReadSoItCanBeJudged(t *testing.T) {
 	}
 }
 
-// TestTheObsoleteTLSKeyIsJudgedByWhatItAskedFor: plaintext modes refuse to
-// start, "required" runs with a note, absent is silent, and a value the key
-// never had is an error too.
+// TestTheObsoleteTLSKeyIsJudgedByWhatItAskedFor: plaintext modes refuse to start, "required" runs with a note,
+// absent is silent, and a value the key never had is an error too.
 func TestTheObsoleteTLSKeyIsJudgedByWhatItAskedFor(t *testing.T) {
 	for _, tc := range []struct {
 		value    string
@@ -216,8 +188,6 @@ func TestTheObsoleteTLSKeyIsJudgedByWhatItAskedFor(t *testing.T) {
 	}
 }
 
-// TestTLSAbsentFromConfigLeavesTheTargetAlone: an existing config file with
-// no "tls" key leaves the legacy target untouched.
 func TestTLSAbsentFromConfigLeavesTheTargetAlone(t *testing.T) {
 	path := writeConfig(t, nil, testServerConfig)
 	tlsMode := ""
@@ -233,21 +203,13 @@ func TestTLSAbsentFromConfigLeavesTheTargetAlone(t *testing.T) {
 	}
 }
 
-// TestResolveQuicAddr covers where quic listens, which is the one startup
-// decision with a refusal in it.
-//
-// It was five nested conditions and a log.Fatalf inside main() until 2026-08-25,
-// so nothing could reach it except internal/e2e spawning a real process -- and
-// e2e cannot easily assert the refusal, because the refusal IS the process
-// exiting. The rule matters because getting it wrong is silent in the worst
-// direction: a relay that quietly relocated quic would advertise a port the host
-// never forwarded, and that surfaces much later as "quic clients cannot connect"
-// with nothing pointing back at startup.
+// TestResolveQuicAddr: a relay that quietly relocated quic would advertise a port the host never forwarded, which
+// surfaces much later as quic clients unable to connect.
 func TestResolveQuicAddr(t *testing.T) {
 	const addr = "0.0.0.0:7777"
 
 	t.Run("quic shares addr's port by default", func(t *testing.T) {
-		// The whole point: hosting means forwarding ONE port number.
+		// Hosting means forwarding one port number.
 		got, err := resolveQuicAddr([]netx.Kind{netx.TCP, netx.QUIC}, addr, sharesAddrPort)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -258,11 +220,7 @@ func TestResolveQuicAddr(t *testing.T) {
 	})
 
 	t.Run("quic KEEPS the shared port when udp is served too", func(t *testing.T) {
-		// Corrected 2026-08-27. This used to refuse and demand a port for quic,
-		// which had it backwards: quic is a DEFAULT transport and plain udp is
-		// opt-in, so making the default one surrender the shared number broke
-		// "forward 7777" for the common case to accommodate the rare one. udp
-		// moves instead -- see TestResolveUDPAddr.
+		// quic is a default transport and plain udp is opt-in, so udp is the one that moves.
 		got, err := resolveQuicAddr([]netx.Kind{netx.TCP, netx.UDP, netx.QUIC}, addr, sharesAddrPort)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -273,7 +231,7 @@ func TestResolveQuicAddr(t *testing.T) {
 	})
 
 	t.Run("an explicit listen-quic settles it, even alongside udp", func(t *testing.T) {
-		// Naming a port is the operator taking responsibility for forwarding it.
+		// Naming a port is taking responsibility for forwarding it.
 		const explicit = "0.0.0.0:7780"
 		got, err := resolveQuicAddr([]netx.Kind{netx.TCP, netx.UDP, netx.QUIC}, addr, explicit)
 		if err != nil {
@@ -306,8 +264,8 @@ func TestResolveQuicAddr(t *testing.T) {
 
 }
 
-// TestServerSectionIsFoundCaseInsensitively: the unknown-key check looks at
-// the section encoding/json decoded, and the decoder matches "Server" (B7).
+// TestServerSectionIsFoundCaseInsensitively: the unknown-key check looks at the section encoding/json decoded, and
+// the decoder matches "Server" too.
 func TestServerSectionIsFoundCaseInsensitively(t *testing.T) {
 	for _, in := range []string{`{"server":{"a":1}}`, `{"Server":{"a":1}}`, `{"SERVER":{"a":1}}`} {
 		if got := serverSection([]byte(in)); string(got) != `{"a":1}` {
@@ -319,9 +277,8 @@ func TestServerSectionIsFoundCaseInsensitively(t *testing.T) {
 	}
 }
 
-// TestListeningLineNamesTheAddressFamily is finding B1: a wildcard bind is a
-// dual-stack socket on the OSes that ship this relay, and the line has to say
-// so, because the firewall rule a host writes is per family.
+// TestListeningLineNamesTheAddressFamily: a wildcard bind is a dual-stack socket on the OSes that ship this relay,
+// and a host's firewall rule is per family.
 func TestListeningLineNamesTheAddressFamily(t *testing.T) {
 	mustTCP := func(s string) net.Addr {
 		a, err := net.ResolveTCPAddr("tcp", s)
@@ -350,28 +307,21 @@ func TestListeningLineNamesTheAddressFamily(t *testing.T) {
 			t.Errorf("%s: %q does not say %q", tc.addr, got, tc.want)
 		}
 	}
-	// Deliberately NO real wildcard bind here: a test binary opening 0.0.0.0
-	// is a new executable every compile, and Windows Firewall asks about each
-	// one -- a prompt on the user's screen per test run (seen 2026-09-15).
-	// The family note is a pure function of the address the OS reports, and
-	// the synthetic addresses above cover both shapes it can report.
+	// No real wildcard bind: every compile is a new executable, and Windows Firewall prompts for each one that opens
+	// 0.0.0.0. The note is a pure function of the reported address, which the cases above cover.
 }
 
-// TestConfigIsFoundInTheWorkingDirectoryFirstThenBesideTheExecutable is
-// finding B2: a relay run as a service has a working directory that is not
-// its own folder, and until 2026-09-15 it read no file and said nothing.
+// TestConfigIsFoundInTheWorkingDirectoryFirstThenBesideTheExecutable: a relay run as a service has a working
+// directory that is not its own folder.
 func TestConfigIsFoundInTheWorkingDirectoryFirstThenBesideTheExecutable(t *testing.T) {
 	exeDir := t.TempDir()
 	exe := func() (string, error) { return exeDir, nil }
-	// logPath reads the package-level lookup when no config was found; point
-	// it at the same directory for this test's life.
+	// logPath reads the package-level lookup when no config was found.
 	prevExe := executableDir
 	executableDir = exe
 	t.Cleanup(func() { executableDir = prevExe })
 	cwd := t.TempDir()
-	// A relative flag value is resolved against the process working directory,
-	// which a test cannot change portably -- so the "working directory" file is
-	// named by an absolute path the way os.Stat would see it from cwd.
+	// A test cannot change the working directory portably, so that file is named by an absolute path.
 	inCwd := filepath.Join(cwd, "config.json")
 
 	t.Run("neither exists: both places named, nothing read", func(t *testing.T) {

@@ -1,37 +1,5 @@
 package main
 
-// The control-plane half of the synthetic-peer rig: N fake clients driving
-// events, leases and escrow exchanges at each other while continuously
-// checking the invariants those planes exist to provide.
-//
-// **This is a checker, not just a traffic generator, and that distinction is
-// the whole point.** relay's tests already prove the invariants hold
-// for a handful of clients over a few seconds on loopback. What they cannot
-// reach is a long run, at real client counts, over a real transport, through
-// cmd/meshghost-netsim's loss and jitter — which is exactly the shape of bug
-// agent_docs/testing.md says concurrency produces: fine in 100 runs, wrong in
-// the 101st, and invisible unless something was asserting the whole time.
-// Generating traffic and eyeballing the log would find only the failures loud
-// enough to crash something.
-//
-// Three invariants are checked, one per plane:
-//
-//  1. **Ordering** — every control message a client receives carries a strictly
-//     larger sequencer stamp than the last. The relay serializes stamping and
-//     delivery per room, so a client seeing 3 before 2 means that serialization
-//     broke. This is the check that caught the original ordering defect when
-//     the planes were first built.
-//  2. **Exclusivity** — a key is granted to a second holder only after the
-//     first one gave it up. Anything else means the relay handed one key to two
-//     clients, which is the single failure lease authority exists to prevent.
-//  3. **Termination** — every exchange reaches `committed` or `aborted`. A
-//     trade that simply stops is the hostage case: both deposits pinned, with
-//     nothing on either side saying so.
-//
-// Violations are logged the moment they happen (with enough context to be
-// actionable) and counted, and a run that saw any exits non-zero — so this can
-// sit in a script or a soak job rather than needing someone to read it.
-
 import (
 	"encoding/json"
 	"fmt"
@@ -45,10 +13,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// violations counts invariant failures across every synthetic client in this
-// process. Process-wide rather than per-client because the exit code is, and
-// because a violation is a property of the run, not of whichever client
-// happened to notice it.
+// violations counts invariant failures across every synthetic client in this process: a violation belongs to the
+// run, as the exit code does.
 var violations atomic.Uint64
 
 func reportViolation(format string, args ...any) {
@@ -56,47 +22,36 @@ func reportViolation(format string, args ...any) {
 	log.Printf("meshghost-fakeadapter: INVARIANT VIOLATION: "+format, args...)
 }
 
-// controlPlane drives and checks one synthetic client's control-plane traffic.
+// controlPlane drives and checks one synthetic client's control-plane traffic for the whole run, because a long run
+// at real client counts over a real transport finds what the relay's short loopback tests cannot:
+//  1. ordering: every control message carries a strictly larger sequencer stamp than the last;
+//  2. exclusivity: a key goes to a second holder only after the first gave it up;
+//  3. termination: every exchange reaches committed or aborted, or both deposits stay pinned with nothing said.
+//
+// A violation is logged when it happens and makes the run exit non-zero.
 type controlPlane struct {
 	core  *core.Core
 	index int
-	// selfID is this client's relay-assigned player_id, captured once after
-	// the handshake. Used to tell its own echoed events from everyone else's,
-	// and to pick a deterministic trade partner.
+	// selfID is this client's relay-assigned player_id: it tells its own echoed events from everyone else's.
 	selfID string
 
 	mu sync.Mutex
-	// lastSeq is the highest sequencer stamp seen. Invariant 1 compares
-	// against it across events, lease states and escrow states alike: they
-	// share one room counter, so a single client's view of all three must be
-	// strictly increasing even though it sees only a subset of the messages.
+	// lastSeq is the highest sequencer stamp seen. Events, lease states and escrow states share one room counter, so
+	// it rises strictly across all three even though a client sees only a subset.
 	lastSeq uint64
-	// leaseHolder is who this client currently believes holds each key.
-	//
-	// **Per key, not one holder overall.** It was a single string while the rig
-	// only ever contended for one key; once the world plane added a second
-	// (its authority), grants for the two keys alternated and invariant 2
-	// reported "two holders of one key" about a relay behaving perfectly.
-	// Found 2026-08-17 the first time both planes ran together.
+	// leaseHolder is who this client believes holds each key; per key, since the world authority is a second key
+	// whose grants interleave with the contended one.
 	leaseHolder map[string]string
-	// peers is every other player_id this client has heard from, learned from
-	// event senders rather than the roster — the core deliberately does not
-	// expose a roster, and learning peers from traffic exercises the event
-	// plane instead of adding an API for the rig's convenience.
+	// peers is every other player_id this client has heard from, learned from event senders: the core exposes no
+	// roster.
 	peers map[string]bool
-	// openExchanges maps an exchange id to when it started, so invariant 3 can
-	// notice one that never finished.
+	// openExchanges maps an exchange id to when it started, so invariant 3 can notice one that never finished.
 	openExchanges map[string]time.Time
 
-	// credit is the kill-credit checker, or nil when that plane is off. Its own
-	// type in credit.go for the same reason world is: eight invariants of its
-	// own, sharing nothing with the three above beyond the sequencer stamp.
+	// credit is the kill-credit checker, or nil when that plane is off.
 	credit *creditChecker
 
-	// world is the world-custody checker, or nil when that plane is off. Its
-	// own type in world.go rather than more fields here: it has five
-	// invariants of its own and shares nothing with the three above beyond
-	// the sequencer stamp, which checkSeq already covers for every plane.
+	// world is the world-custody checker, or nil when that plane is off.
 	world *worldChecker
 
 	eventsSeen  atomic.Uint64
@@ -107,10 +62,7 @@ type controlPlane struct {
 	nextTradeNo atomic.Uint64
 }
 
-// newControlPlane builds a checker. Wiring it to a Core is a separate step
-// (attach) so the checkers can be tested without one — a checker with no test
-// of its own passes forever, including on every run where the thing it was
-// watching was broken.
+// newControlPlane builds a checker; attach wires it to a Core separately, so the checkers can be tested without one.
 func newControlPlane(index int) *controlPlane {
 	return &controlPlane{
 		index:         index,
@@ -120,9 +72,7 @@ func newControlPlane(index int) *controlPlane {
 	}
 }
 
-// attach wires this checker to a connected Core and captures its assigned
-// player_id. Called after the handshake, since selfID does not exist before
-// then and is what tells this client's own echoed events from everyone else's.
+// attach wires this checker to a connected Core and captures its player_id, so it is called after the handshake.
 func (cp *controlPlane) attach(c *core.Core) {
 	cp.core = c
 	cp.selfID = c.PlayerID()
@@ -141,9 +91,7 @@ func (cp *controlPlane) attach(c *core.Core) {
 // checkSeq is invariant 1. Caller must not hold cp.mu.
 func (cp *controlPlane) checkSeq(kind string, seq uint64) {
 	if seq == 0 {
-		// Unstamped. Only reachable from a relay that predates the sequencer,
-		// which cannot happen in a run this rig set up — worth saying rather
-		// than silently treating as ordered.
+		// Only a relay older than the sequencer sends this, which no run of this rig sets up.
 		reportViolation("client %d received an unstamped %s (seq=0)", cp.index, kind)
 		return
 	}
@@ -162,10 +110,7 @@ func (cp *controlPlane) onEvent(ev protocol.Event) {
 	cp.checkSeq("event", ev.Seq)
 	cp.eventsSeen.Add(1)
 	if cp.credit != nil {
-		// The credit plane rides events, so it folds every one of them --
-		// including this client's own echo, which is how a dealer learns where
-		// its own hit landed in the order. Anything not a credit report is
-		// ignored inside the checker rather than filtered here.
+		// Every event, own echo included: the echo is how a dealer learns where its own hit landed in the order.
 		cp.credit.onEvent(ev)
 	}
 	if ev.From == "" || ev.From == cp.selfID {
@@ -179,8 +124,7 @@ func (cp *controlPlane) onEvent(ev protocol.Event) {
 func (cp *controlPlane) onLeaseState(st protocol.LeaseState) {
 	cp.checkSeq("lease_state", st.Seq)
 	if cp.world != nil {
-		// The world authority is a different key from the contended one below,
-		// and its grants are what invariants 5, 6 and 8 are judged against.
+		// The world authority is another key; its grants are what invariants 5, 6 and 8 are judged against.
 		cp.world.onLeaseState(st)
 	}
 
@@ -188,10 +132,8 @@ func (cp *controlPlane) onLeaseState(st protocol.LeaseState) {
 	defer cp.mu.Unlock()
 	switch st.Reason {
 	case protocol.LeaseGranted:
-		// Invariant 2. A grant to somebody else while this client still
-		// believes a different holder has it means the key was handed out
-		// twice — unless the previous holder released it, which arrives as its
-		// own message and clears leaseHolder first.
+		// Invariant 2: a release arrives as its own message and clears leaseHolder first, so a grant to another holder
+		// while one is still recorded means the key was handed out twice.
 		if held := cp.leaseHolder[st.Key]; held != "" && held != st.Holder {
 			reportViolation("client %d saw key %q granted to %s while %s still held it "+
 				"-- two holders of one key",
@@ -204,10 +146,7 @@ func (cp *controlPlane) onLeaseState(st protocol.LeaseState) {
 	case protocol.LeaseReleased, protocol.LeaseExpired, protocol.LeaseHolderLeft:
 		delete(cp.leaseHolder, st.Key)
 	case protocol.LeaseDenied, protocol.LeaseTooMany:
-		// A denial is addressed to the asker alone and says nothing about the
-		// room beyond who currently holds the key, so it must NOT be treated
-		// as a state change. Counted, because a run where every claim is
-		// denied is a working relay and a useless test.
+		// A denial goes to the asker alone and is not a state change. Counted, as an all-denied run tests nothing.
 		cp.claimsLost.Add(1)
 	}
 }
@@ -222,22 +161,16 @@ func (cp *controlPlane) onEscrowState(st protocol.EscrowState) {
 			cp.openExchanges[st.ID] = time.Now()
 		}
 		cp.mu.Unlock()
-		// Whichever side did not open it still has to deposit, and the opener
-		// deposits on its own open too — both sides simply deposit as soon as
-		// they know the exchange exists.
+		// Both sides deposit as soon as they know the exchange exists, the opener included.
 		cp.deposit(st.ID)
 	case protocol.EscrowPhaseDeposited:
-		// Both blobs are in. Committing here rather than immediately after
-		// depositing is what makes this exercise the real two-step: a commit
-		// sent before the other side deposited is legal and is recorded, but
-		// it would never test the ordering that matters.
+		// Committing only once both deposited exercises the real two-step; an early commit is legal but tests nothing.
 		if err := cp.core.SendEscrow(protocol.Escrow{Op: protocol.EscrowCommit, ID: st.ID}); err != nil {
 			log.Printf("meshghost-fakeadapter: client %d could not commit %s: %v", cp.index, st.ID, err)
 		}
 	case protocol.EscrowPhaseCommitted:
 		cp.finish(st.ID)
 		cp.tradesDone.Add(1)
-		// The blobs must both be present, or "both or neither" did not hold.
 		if len(st.Blobs) != 2 {
 			reportViolation("client %d got a committed exchange %s carrying %d blob(s), want 2 "+
 				"-- one side completed a swap the other never contributed to",
@@ -272,10 +205,8 @@ func (cp *controlPlane) finish(id string) {
 	cp.mu.Unlock()
 }
 
-// checkStalledExchanges is invariant 3, run periodically: any exchange still
-// open past the relay's own escrow timeout plus slack should have been aborted
-// by the relay itself, so one still sitting here means a terminal state was
-// never delivered.
+// checkStalledExchanges is invariant 3: an exchange still open past the relay's own escrow timeout plus slack was
+// never given its terminal state.
 func (cp *controlPlane) checkStalledExchanges() {
 	cutoff := time.Now().Add(-(protocol.DefaultEscrowTimeout + 15*time.Second))
 	cp.mu.Lock()
@@ -290,11 +221,8 @@ func (cp *controlPlane) checkStalledExchanges() {
 	}
 }
 
-// partner picks a deterministic counterparty from the peers this client has
-// heard from: the lowest player_id above its own, wrapping to the lowest
-// overall. Deterministic so exactly one side of each pair opens, which avoids
-// two clients opening mirror-image exchanges with each other and both failing
-// on the duplicate id.
+// partner pairs the sorted player_ids, this client's included, two by two and returns this client's partner if it
+// opens for its pair. Deterministic, so no two clients open mirror-image exchanges that fail on the duplicate id.
 func (cp *controlPlane) partner() (string, bool) {
 	cp.mu.Lock()
 	ids := make([]string, 0, len(cp.peers)+1)
@@ -323,9 +251,7 @@ func (cp *controlPlane) partner() (string, bool) {
 func (cp *controlPlane) run(stop <-chan struct{}, wg *sync.WaitGroup, cfg controlPlaneConfig) {
 	defer wg.Done()
 
-	// Staggered per client so N of them do not all fire on the same tick,
-	// which would test one thundering herd repeatedly instead of a realistic
-	// spread — and would hide exactly the interleavings this is looking for.
+	// Staggered so the clients do not all fire on one tick, which would hide the interleavings this looks for.
 	stagger := time.Duration(int64(cfg.eventEvery) * int64(cp.index) / int64(cfg.clients+1))
 	timers := newPlaneTickers(cfg, stagger)
 	defer timers.stop()
@@ -342,9 +268,7 @@ func (cp *controlPlane) run(stop <-chan struct{}, wg *sync.WaitGroup, cfg contro
 				}
 			}
 		case <-timers.lease:
-			// Claim, hold briefly, release. Contention is the point: every
-			// client goes for the same key, so most claims are denied and the
-			// exclusivity check has something to check.
+			// Every client claims the same key, so most claims are denied and exclusivity has something to check.
 			if err := cp.core.ClaimLease(cfg.leaseKey, cfg.leaseHold); err != nil {
 				log.Printf("meshghost-fakeadapter: client %d could not claim: %v", cp.index, err)
 				break
@@ -394,9 +318,7 @@ type controlPlaneConfig struct {
 	featureList []string
 }
 
-// planeTickers holds one ticker per plane, with a disabled plane wired to a
-// nil channel — a nil channel blocks forever in a select, which is exactly the
-// "this plane is off" behaviour wanted, and avoids a branch per case.
+// planeTickers holds one ticker per plane; a plane that is off gets a nil channel, which blocks forever in a select.
 type planeTickers struct {
 	event, lease, trade, audit <-chan time.Time
 	all                        []*time.Ticker
@@ -428,10 +350,8 @@ func (pt *planeTickers) stop() {
 	}
 }
 
-// summarize prints what the run actually exercised. Worth printing even when
-// nothing failed: a run where every claim was denied, or no trade ever
-// completed, is a green result that tested nothing, and the counts are the only
-// way to tell that from a real pass.
+// summarize prints what the run exercised even when nothing failed: a run where every claim was denied, or no trade
+// completed, is a green result that tested nothing.
 func summarize(planes []*controlPlane, elapsed time.Duration) {
 	var events, won, lost, done, gone uint64
 	for _, cp := range planes {
@@ -457,32 +377,17 @@ func summarize(planes []*controlPlane, elapsed time.Duration) {
 		cp.world.mu.Unlock()
 	}
 	if worldOn {
-		// Printed for the same reason the counts above are: a run with zero
-		// adoptions exercised custody's happy path and none of its point, and
-		// that is indistinguishable from a real pass without saying so.
 		log.Printf("meshghost-fakeadapter: world summary: %d entity writes sent, %d world(s) adopted "+
 			"across handovers", writes, adoptions)
-		// **Zero writes is a VIOLATION, not a warning**, and this is the one
-		// counter that had to become one.
-		//
-		// A holder refuses to write until its adoption snapshot has landed (see
-		// world.go's isHolder — a host that writes before seeing what it is
-		// overwriting rolls the world back for everyone). So a relay that stopped
-		// sending an adoption snapshot for an EMPTY world does not make this rig
-		// fail: it makes every client wait forever, write nothing, and report a
-		// clean run. Demonstrated 2026-08-17 against a deliberately regressed
-		// relay: exit 0, "no invariant violations", and not one entity written.
-		// A checker that reports success for a run it never started is worse
-		// than no checker, so silence is now failure.
+		// Zero writes is a violation: a holder waits for its adoption snapshot before writing (isHolder), so a relay
+		// that never sends one for an empty world would otherwise pass with nothing written.
 		if writes == 0 {
 			reportViolation("the world plane was on and not one entity write was sent -- " +
 				"nothing was exercised, so this run proves nothing. The usual cause is a holder " +
 				"never being cleared to write, which happens if an adoption snapshot never arrives")
 		}
 		if adoptions == 0 {
-			// Still only a warning: a run with no -migrate-every legitimately
-			// never hands off, and that is a configuration choice rather than a
-			// broken relay.
+			// Only a warning: a run with no -migrate-every never hands off, by configuration.
 			log.Printf("meshghost-fakeadapter: warning: no handover ever happened -- pass -migrate-every " +
 				"to make a holder give the authority up, or this tested custody without testing migration")
 		}
@@ -504,18 +409,14 @@ func summarize(planes []*controlPlane, elapsed time.Duration) {
 	if creditOn {
 		log.Printf("meshghost-fakeadapter: credit summary: %d hits applied, %d kills, %d rewards taken, "+
 			"%d death(s) agreed with a peer, %d generation(s) reset", hits, kills, rewards, agreed, resets)
-		// **Zero kills is a VIOLATION, for exactly the reason zero writes is
-		// above**: a run where nothing ever died checked the arithmetic of an
-		// empty ledger and reported it as a pass. That is the failure mode this
-		// whole rig exists to rule out.
+		// Zero kills is a violation for the same reason: nothing died, so only an empty ledger was checked.
 		if kills == 0 {
 			reportViolation("the credit plane was on and nothing ever died -- nothing was " +
 				"exercised, so this run proves nothing. The usual cause is -hit-every being too " +
 				"slow for -duration, or every peer sitting in a death window")
 		}
-		// Invariant 13 only speaks about generations created by a reset this
-		// client watched, so a run with resets on, more than one client, and no
-		// agreement at all checked the most valuable invariant zero times.
+		// Invariant 13 only covers generations from a reset this client watched, so resets with no agreement never
+		// ran it.
 		if len(planes) > 1 && resets > 0 && agreed == 0 {
 			reportViolation("the credit plane saw %d reset(s) across %d clients and not one death "+
 				"was ever agreed with a peer -- invariant 13 never ran, so the run says nothing "+

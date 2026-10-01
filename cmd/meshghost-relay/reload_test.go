@@ -11,18 +11,14 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/relay"
 )
 
-// The relay's config.json is live for room_code, only_game and max_clients
-// (fourth adversarial review, B4). These drive the poll by hand -- two polls
-// per save, the settle rule cfg.FileWatch and the client's tests share -- and
-// check the effect on a real server, through the shipped stack.
+// These drive the poll by hand, two polls per save as cfg.FileWatch settles, and check the effect on a real server.
 
 func writeRelayConfig(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	// A poll compares mtime and size; two saves inside one mtime tick with the
-	// same length would be missed by design, so make each save distinct.
+	// A poll compares mtime and size, so two same-length saves inside one mtime tick would be missed by design.
 	now := time.Now()
 	_ = os.Chtimes(path, now, now)
 }
@@ -113,9 +109,8 @@ func TestRelayReloadFallsBackToTheFlagValueAndNamesRelaunchOnlyKeys(t *testing.T
 	if !strings.Contains(joined, "listen_on 0.0.0.0:7777 -> 0.0.0.0:9999 (needs a relaunch") {
 		t.Fatalf("a changed listen_on was not reported as relaunch-only:\n%s", joined)
 	}
-	// A second save changing max_clients applies it -- and listen_on, still
-	// differing from the RUNNING value, is reported again (a reminder, as on
-	// the client) but never applied: prev keeps the running value.
+	// A second save applies max_clients; listen_on, still differing from the running value, is reported again but
+	// never applied.
 	writeRelayConfig(t, path, `{"server":{"listen_on":"0.0.0.0:9999","max_clients":3}}`)
 	w.poll()
 	lines = w.reload()
@@ -129,9 +124,7 @@ func TestRelayReloadFallsBackToTheFlagValueAndNamesRelaunchOnlyKeys(t *testing.T
 	if w.prev.addr != "0.0.0.0:7777" {
 		t.Fatalf("the relaunch-only listen_on carried forward to %q; the running value must stay", w.prev.addr)
 	}
-	// An explicit flag is never overridden by the file. With -max-clients on
-	// the command line the running value IS the flag value, so the live
-	// snapshot carries base's number here, as it would at startup.
+	// An explicit flag is never overridden by the file; with -max-clients given, the running value is the flag's.
 	livex := w.prev
 	livex.maxClients = base.maxClients
 	wx := newRelayConfigWatcher(path, map[string]bool{"max-clients": true}, base, livex, srv)
@@ -142,10 +135,8 @@ func TestRelayReloadFallsBackToTheFlagValueAndNamesRelaunchOnlyKeys(t *testing.T
 	}
 }
 
-// TestRelayReloadKeepsTheLiveSettingsWhenASaveGoesWrong: found 2026-09-16 with the
-// real binaries -- a save with one stray comma re-read from the defaults and
-// turned the room code OFF live until the file was fixed. A broken, empty or
-// section-less save must change nothing; the next good save still applies.
+// TestRelayReloadKeepsTheLiveSettingsWhenASaveGoesWrong: a broken, empty or section-less save changes nothing, and
+// the next good save still applies.
 func TestRelayReloadKeepsTheLiveSettingsWhenASaveGoesWrong(t *testing.T) {
 	captureLog(t)
 	path := filepath.Join(t.TempDir(), "config.json")
@@ -180,9 +171,8 @@ func TestRelayReloadKeepsTheLiveSettingsWhenASaveGoesWrong(t *testing.T) {
 	}
 }
 
-// TestRelayReloadDoesNotReportAResolvedListenAddressAsChanged: main resolves an
-// empty listen_quic/listen_udp in place, and a watcher seeded with the resolved
-// value reported "listen_quic 127.0.0.1:7777 -> " on every save (2026-09-16).
+// TestRelayReloadDoesNotReportAResolvedListenAddressAsChanged: main resolves an empty listen_quic or listen_udp in
+// place, and a watcher seeded with the resolved value would report it changed on every save.
 func TestRelayReloadDoesNotReportAResolvedListenAddressAsChanged(t *testing.T) {
 	captureLog(t)
 	path := filepath.Join(t.TempDir(), "config.json")

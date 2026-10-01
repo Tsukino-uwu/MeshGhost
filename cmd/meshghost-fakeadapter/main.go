@@ -1,26 +1,13 @@
-// Command meshghost-fakeadapter is the Phase 5 proof and the synthetic-peer
-// load generator: it drives real Cores entirely in-process, via core.Adapter,
-// against fake ghosts that walk in a circle — no game, no bridge socket, no
-// emulator, and (checked by this file's own import list) nothing under
-// adapters/. Run two instances against the same relay/room to see each print
-// the other's circling position, the same milestone Phase 4 proved on screen
-// with two real BizHawk clients, but headless.
+// Command meshghost-fakeadapter is the synthetic-peer load generator: it drives real Cores in-process, via
+// core.Adapter, against fake ghosts that walk a circle, with no game, no bridge socket and nothing under adapters/.
+// Two instances on one relay and room each print the other's circling position.
 //
-// With -clients N it instead runs N independent Cores in one process, each
-// its own relay connection, which is the load-test rig: N synthetic peers
-// against a relay measures the relay's own N^2 fan-out cost (Room.Forward
-// sends every state to every other member — see relay/limits.go's
-// DefaultMaxClients), and N synthetic peers joining a room a REAL game client
-// is also in puts N ghosts on that client's screen without needing N copies
-// of the game. That second mode is the only way to measure an adapter's
-// per-ghost render cost, which is the ceiling that actually binds; see
-// dev-scripts/README.md.
+// With -clients N it runs N independent Cores in one process, each its own relay connection. Against a relay alone
+// that measures the relay's N^2 fan-out; joined to a room a real game client is in, it puts N ghosts on that client's
+// screen, the only way to measure an adapter's per-ghost render cost.
 //
-// Nothing here knows anything about any specific game. To impersonate a real
-// game's peers you pass its game_id, its area_id, its position
-// dimensionality, and a blob of game-specific extras as flags — the
-// per-game values live in dev-scripts launchers, not in this file, for the
-// same reason core has no game branching.
+// Nothing here knows any game: a game's peers are imitated by passing its game_id, area_id, position dimensionality
+// and extras as flags, and the per-game values live in the dev-scripts launchers.
 package main
 
 import (
@@ -42,101 +29,64 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// circleAdapter satisfies core.Adapter. It has no game to read from: local
-// state is a deterministic function of wall-clock time, tracing a circle of
-// radius radiusUnits, one full revolution every periodSeconds.
-//
-// RunAdapter still drives it at full tick rate (real per-frame semantics,
-// per the tick model in agent_docs/contract.md — that's the thing being
-// proven) but printing every tick would be unreadable at ~60fps, so
-// printing to the console (this demo's stand-in for a real adapter's silent
-// gui.drawImage redraw) is throttled to logInterval per remote.
+// circleAdapter satisfies core.Adapter with no game to read from: local state is a deterministic function of time,
+// a circle of radiusUnits once every periodSeconds. RunAdapter drives it at the full tick rate; console printing,
+// the stand-in for a real adapter's redraw, is throttled to logInterval per remote.
 type circleAdapter struct {
 	start       time.Time
 	radiusUnits float64
-	// dimScale multiplies the circle offset PER COMPONENT. nil means the historical
-	// behaviour: components 0 and 1 circle, everything past them holds its center value.
-	//
-	// WHY IT EXISTS. A game may carry the SAME position twice at different scales -- Crystal
-	// sends {mapX, mapY, mapX*16, mapY*16}, tiles and map pixels, and its painted tier draws
-	// from the PIXEL pair. With the old behaviour those two held still, so every synthetic
-	// peer painted at one identical spot: 64 ghosts stacked on a single tile, which is both a
-	// useless load shape and against the house rule that no two test characters share a tile.
-	// This stays game-blind -- it says how far each component moves, not what any of them mean.
+	// dimScale multiplies the circle offset per component; nil circles components 0 and 1 and holds the rest at
+	// their center. A game may send one position twice at two scales, and holding the second pair still would stack
+	// every peer on one spot.
 	dimScale      []float64
 	periodSeconds float64
 	logInterval   time.Duration
 
-	// phase offsets this client's position around the circle so N clients
-	// spread out along it instead of stacking into one point — N ghosts
-	// piled at identical coordinates would understate both the render cost
-	// being measured and (for a game with ghost collision on, like
-	// Pseudoregalia) the physics cost.
+	// phase spreads the clients along the circle: ghosts stacked on one point would understate the render cost and,
+	// with ghost collision on, the physics cost.
 	phase float64
 
-	// dims is how many position components to send: 2 for a 2D game, 3 for
-	// a 3D one. Position is variable-length by design (see protocol.State).
+	// dims is how many position components to send: 2 for a 2D game, 3 for a 3D one.
 	dims   int
 	center []float64
 
-	// areaID must equal the real client's own area_id for that client to
-	// render these ghosts at all — core filters remote states by
-	// area_id equality (Core.remoteStatesAt), so a mismatch silently
-	// renders nothing and looks exactly like a broken harness.
+	// areaID must equal the real client's own area_id, or its core filters these ghosts out and the harness looks
+	// broken.
 	areaID string
-	// churnAreaID is the area_id used during a churn window: a value the
-	// real client is guaranteed NOT to be in, so its core despawns this
-	// ghost and respawns it when the window ends. That exercises
-	// spawn/despawn cost (for Pseudoregalia, a full pawn-clone
-	// construction) rather than only steady-state rendering.
+	// churnAreaID is an area_id the real client is never in: during a churn window its core despawns this ghost
+	// and respawns it after, exercising spawn cost rather than only steady-state rendering.
 	churnAreaID string
 	churnEvery  time.Duration
 	churnFor    time.Duration
-	// churnOffset staggers this client's churn window away from its
-	// siblings'. Without it every client derives its window from the same
-	// process start time and they all despawn and respawn in lockstep,
-	// which is both unrealistic (real players don't change area on the
-	// same frame) and misleading to measure: it produces one big periodic
-	// spike instead of the steady trickle of spawn/despawn work a real
-	// room generates.
+	// churnOffset staggers this client's churn window from its siblings', which would otherwise all despawn in
+	// lockstep: one periodic spike instead of a real room's steady trickle.
 	churnOffset time.Duration
 
 	anim        string
 	orientation json.RawMessage
 	yawFollows  bool
-	// facingFollows sends orientation as one of the four cardinal strings
-	// ("up"/"down"/"left"/"right") chosen from the circle tangent, which is
-	// what a 2D grid game's adapter expects -- Crystal and Emerald both key
-	// a ghost's facing (and therefore its walk animation) off that string.
-	// Without it a synthetic peer sends no orientation at all, and a drawn
-	// ghost has no facing to animate: it renders a static forward-facing
-	// frame, which reads as "animation is broken" when nothing is broken.
+	// facingFollows sends orientation as a cardinal string from the circle tangent, which a 2D grid adapter keys a
+	// ghost's facing and walk animation off; without one a drawn ghost renders a static frame.
 	facingFollows bool
 	extras        map[string]any
 
-	// quiet suppresses this client's own per-remote render logging. With N
-	// clients in one process every client sees every other, so leaving all
-	// of them logging is N^2 lines/sec; the rig logs from one client only.
+	// quiet suppresses this client's per-remote render logging: with every client logging, N clients print N^2
+	// lines a second.
 	quiet bool
 
-	// renders counts RenderRemote calls for the periodic throughput
-	// summary. Atomic: RunAdapter's tick goroutine writes it, the summary
-	// goroutine reads it.
+	// renders counts RenderRemote calls for the stats summary.
 	renders atomic.Uint64
 
 	mu        sync.Mutex
 	lastPrint map[string]time.Time
 	live      map[string]bool
-	// How often the synthetic peer STOPS, and for what fraction of that period.
-	// See travelled() and defaultStopPeriod for why a rig with no stops in it cannot
-	// judge an interpolator.
+	// stopPeriod and stopFraction: how often the synthetic peer stops, and for what fraction of that period.
 	stopPeriod   float64
 	stopFraction float64
 }
 
-// inChurnWindow reports whether this client should currently pretend to be
-// in a different area. Deterministic from elapsed time so every client's
-// churn is reproducible across runs rather than depending on scheduling.
+// inChurnWindow reports whether this client should pretend to be in another area, from elapsed time alone so churn
+// reproduces across runs.
 func (a *circleAdapter) inChurnWindow(elapsed time.Duration) bool {
 	if a.churnEvery <= 0 || a.churnFor <= 0 {
 		return false
@@ -148,17 +98,9 @@ func (a *circleAdapter) GetLocalState() (protocol.State, bool) {
 	return a.stateAt(time.Since(a.start))
 }
 
-// stateAt is GetLocalState with the clock passed in, so the deterministic
-// part (the circle, the facing, the churn window) can be tested at a chosen
-// point on the path instead of at whatever moment the test happened to run.
-// travelled maps wall seconds to "seconds of movement", holding still for a
-// fraction of every stopPeriod. Continuous, monotone, and a pure function of t.
-//
-// The shape is: move for (1-fraction) of each period, then hold. Because it is
-// the ANGLE's clock rather than the angle itself, the ghost resumes from where
-// it stopped instead of jumping to where it would have been -- a jump would be
-// a teleport, which is a different test (and one the core cannot currently
-// tell from a walk; see ideas.md, review E11).
+// travelled maps wall seconds to seconds of movement: move for (1-stopFraction) of each stopPeriod, then hold. It is
+// the angle's clock rather than the angle, so a ghost resumes where it stopped instead of jumping, which would be a
+// teleport, a different test.
 func (a *circleAdapter) travelled(t float64) float64 {
 	if a.stopPeriod <= 0 || a.stopFraction <= 0 {
 		return t
@@ -172,50 +114,27 @@ func (a *circleAdapter) travelled(t float64) float64 {
 	return whole*moving + within
 }
 
-// stopPeriod and stopFraction shape the synthetic peer's STOPS.
-//
-// **A CONSTANT-SPEED CIRCLE IS THE MOST FLATTERING INPUT AN INTERPOLATOR CAN BE
-// GIVEN (review H15), and it is what this rig produced for its whole life.** No
-// stops, no turns, no landings, infinitely differentiable, sampled exactly on
-// the tick -- every prediction is right, every correction is zero, and
-// `dev-scripts/README.md`'s own rule is that you judge an interpolator on the
-// CORRECTION. A ladder climbed against this cannot see the thing it is climbing
-// for.
-//
-// What a stop adds is the one discontinuity a real player produces constantly
-// and a circle never does: velocity going to zero and back. That is where an
-// extrapolating interpolator overshoots and has to pull back, which is exactly
-// the artefact a verdict is supposed to be judging.
-//
-// Deliberately NOT random: the motion stays a pure function of elapsed time, so
-// two clients at the same phase are still in lockstep and a run is still
-// reproducible from its flags alone. Off by -stop-every 0.
-// OFF BY DEFAULT, and that is the same call the user made for netsim's correlated
-// loss model on the same day: a rig change that alters what a run MEANS is opt-in,
-// because every number on record was taken without it and a silent change makes
-// those incomparable without anyone noticing. 7 seconds is the suggested value
-// once it is turned on, not the default.
+// defaultStopPeriod is 0, no stops. A stop is where an extrapolating interpolator overshoots and has to correct, which
+// a constant-speed circle never shows; it is opt-in because a rig change that alters what a run means would make the
+// recorded numbers incomparable. Stops are a pure function of elapsed time, so a run reproduces from its flags.
 const defaultStopPeriod = 0.0
 const defaultStopFraction = 0.25
 
+// stateAt is GetLocalState with the clock passed in, so the circle, the facing and the churn window can be tested at a
+// chosen point on the path.
 func (a *circleAdapter) stateAt(elapsed time.Duration) (protocol.State, bool) {
 	t := elapsed.Seconds()
 
-	// THE ANGLE IS DRIVEN BY A "DISTANCE TRAVELLED" CLOCK, not by wall time, so
-	// a stop genuinely stops the ghost rather than teleporting it forward when
-	// it resumes. travelled(t) is continuous and flat during a stop.
 	angle := 2*math.Pi*a.travelled(t)/a.periodSeconds + a.phase
 
 	pos := make([]float64, a.dims)
 	copy(pos, a.center)
-	// Circle in the first two components (the horizontal plane in both 3D
-	// games); any third component stays at its center value, so ghosts
-	// orbit at the height they were placed rather than corkscrewing.
+	// Circle in the first two components; any third holds its center value, so ghosts orbit at their placed height.
 	dx := a.radiusUnits * math.Cos(angle)
 	dy := a.radiusUnits * math.Sin(angle)
 	if len(a.dimScale) > 0 {
-		// Every component moves by the circle offset times its own scale, so a component that
-		// restates another at a different unit stays CONSISTENT with it instead of holding still.
+		// Each component moves by the offset times its own scale, so one restating another in other units stays
+		// consistent with it.
 		for i := range pos {
 			sc := 0.0
 			if i < len(a.dimScale) {
@@ -241,9 +160,7 @@ func (a *circleAdapter) stateAt(elapsed time.Duration) (protocol.State, bool) {
 
 	orient := a.orientation
 	if a.facingFollows {
-		// The tangent of a counter-clockwise circle leads the radius by 90
-		// degrees; quantise it to the nearest cardinal so it reads like a
-		// character walking a path on a tile grid.
+		// The tangent of a counter-clockwise circle, quantised to the nearest cardinal like a walk on a tile grid.
 		tx, ty := -math.Sin(angle), math.Cos(angle)
 		dir := "right"
 		if math.Abs(tx) >= math.Abs(ty) {
@@ -258,9 +175,7 @@ func (a *circleAdapter) stateAt(elapsed time.Duration) (protocol.State, bool) {
 		orient = json.RawMessage(`"` + dir + `"`)
 	}
 	if a.yawFollows {
-		// Face along the circle's tangent so the ghosts look like they're
-		// walking their path rather than sliding sideways — the tangent of
-		// a counter-clockwise circle leads the radius by 90 degrees.
+		// Face along the tangent, which leads the radius by 90 degrees, so ghosts walk their path rather than slide.
 		yaw := math.Mod(angle*180/math.Pi+90, 360)
 		orient = json.RawMessage(fmt.Sprintf("[0,%.2f,0]", yaw))
 	}
@@ -299,11 +214,8 @@ func (a *circleAdapter) DespawnRemote(playerID string) {
 	}
 }
 
-// liveCount is how many distinct remotes this client is currently
-// rendering. This is the harness's own headless self-check: a rig of N
-// clients should settle at N-1 here, and anything less means states are
-// being dropped (wrong area_id, wrong game_id, or a relay at MaxClients)
-// rather than the load test being genuinely light.
+// liveCount is how many distinct remotes this client renders, the rig's headless self-check: N clients should see
+// at least N-1, and fewer means states are dropped (wrong area_id or game_id, or a relay at its client cap).
 func (a *circleAdapter) liveCount() int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -318,8 +230,7 @@ func formatPos(pos []float64) string {
 	return strings.Join(parts, ",")
 }
 
-// parseCenter turns "x,y" or "x,y,z" into a slice of exactly dims
-// components, padding with zeros so -center is optional even in 3D.
+// parseCenter turns "x,y" or "x,y,z" into exactly dims components, padding with zeros so -center is optional.
 func parseCenter(s string, dims int) ([]float64, error) {
 	out := make([]float64, dims)
 	if strings.TrimSpace(s) == "" {
@@ -339,11 +250,8 @@ func parseCenter(s string, dims int) ([]float64, error) {
 	return out, nil
 }
 
-// loadExtras parses the -extras flag, which is either a literal JSON object
-// or @path to a file containing one. Kept opaque and unvalidated beyond
-// "is it a JSON object": extras is free-form and game-specific by contract
-// (agent_docs/contract.md), so this binary has no business knowing which
-// keys a given game expects.
+// loadExtras parses -extras, a literal JSON object or @path to a file holding one. It checks only that it is an
+// object: extras is free-form and game-specific by contract.
 func loadExtras(spec string) (map[string]any, error) {
 	if strings.TrimSpace(spec) == "" {
 		return nil, nil
@@ -363,10 +271,7 @@ func loadExtras(spec string) (map[string]any, error) {
 	return out, nil
 }
 
-// cloneExtras gives each client its own copy. The map is only ever read
-// after startup, but N Cores marshalling one shared map concurrently is the
-// kind of thing that is fine until someone adds a mutation, so each client
-// owning its own is the cheap way to keep that true.
+// cloneExtras gives each client its own copy, so N Cores never marshal one shared map that someone later mutates.
 func cloneExtras(src map[string]any) map[string]any {
 	if src == nil {
 		return nil
@@ -378,14 +283,8 @@ func cloneExtras(src map[string]any) map[string]any {
 	return out
 }
 
-// peerAreaID spreads peer i over areas distinct area_ids. areas <= 1 returns
-// base unchanged, which is what every existing launcher and every recorded
-// measurement before 2026-08-28 assumed -- so the default cannot alter a
-// historical number.
-//
-// The suffix is appended rather than replacing base so a run stays traceable to
-// the game it was imitating, and so two rigs pointed at one relay cannot
-// collide on a bare index.
+// peerAreaID spreads peer i over areas distinct area_ids, suffixed to base so a run stays traceable to the game it
+// imitates. areas <= 1 returns base unchanged, so the default cannot alter a number measured before the flag.
 func peerAreaID(base string, i, areas int) string {
 	if areas <= 1 {
 		return base
@@ -460,9 +359,8 @@ func main() {
 	recordDir := flag.String("record", "", "record client 0's own state stream to this folder as a replay file "+
 		"(ADR 0047; the file appears at the first frame and closes on exit). Works with -relay \"\" (offline)")
 	interp := flag.Duration("interp", core.DefaultInterpolationDelay, "interpolation delay for remote ghosts")
-	// The three render knobs a real client has beside -interp, so this headless
-	// receiver can measure them on a netsim link the way meshghost.exe would run
-	// them (prediction-planning.md, 2026-09-15). Same names, same defaults.
+	// The render knobs meshghost.exe has beside -interp, same names and defaults, so a netsim link can be measured
+	// headless.
 	extrapolate := flag.Duration("extrapolate", 0, "prediction window past the newest sample, as meshghost -extrapolate")
 	predict := flag.String("predict", string(core.PredictLinear), "linear, damped or accelerated, as meshghost -predict")
 	correction := flag.Duration("correction", 0, "error-decay time constant, as meshghost -correction")
@@ -523,9 +421,7 @@ func main() {
 			"zero value and the load tiers could only ever exercise tcp -- see dev-scripts/README.md")
 	flag.Parse()
 
-	// Strict parse, same as cmd/meshghost: a typo must not silently downgrade
-	// the transport, which netx.Kind's tcp zero value would otherwise do
-	// quietly.
+	// Strict parse, as cmd/meshghost: a typo must not fall back to netx.Kind's tcp zero value.
 	transportKind, err := netx.ParseKind(*transportName)
 	if err != nil {
 		log.Fatalf("meshghost-fakeadapter: %v", err)
@@ -537,10 +433,7 @@ func main() {
 	if *dims < 1 {
 		log.Fatalf("meshghost-fakeadapter: -dims must be at least 1, got %d", *dims)
 	}
-	// Refused rather than clamped, unlike the protocol's own rate knobs: this
-	// is a dev rig where a nonsense value means the operator meant something
-	// else, and silently measuring a different room shape than the one asked
-	// for is exactly how a measurement stops being evidence.
+	// Refused rather than clamped: measuring a different room shape than the one asked for is not evidence.
 	if *areas < 1 {
 		log.Fatalf("meshghost-fakeadapter: -areas must be at least 1, got %d", *areas)
 	}
@@ -550,8 +443,7 @@ func main() {
 	}
 	var dimScaleVec []float64
 	if *dimScale != "" {
-		// Reuses parseCenter deliberately: it is the same shape (a comma-separated vector of
-		// exactly -dims components) and a second parser would drift from the first.
+		// The same shape as -center: a comma-separated vector of exactly -dims components.
 		dimScaleVec, err = parseCenter(*dimScale, *dims)
 		if err != nil {
 			log.Fatalf("meshghost-fakeadapter: -dim-scale: %v", err)
@@ -564,10 +456,6 @@ func main() {
 
 	stop := make(chan struct{})
 	if *duration > 0 {
-		// time.AfterFunc rather than a goroutine with a select: there is
-		// nothing else for it to wait on, and closing twice is impossible
-		// because the signal handler below closes the same channel only if it
-		// fires first -- both paths go through stopOnce.
 		time.AfterFunc(*duration, func() { stopOnce(stop) })
 	}
 	sig := make(chan os.Signal, 1)
@@ -577,9 +465,7 @@ func main() {
 		stopOnce(stop)
 	}()
 
-	// Resolved before any client connects: the feature list travels in the
-	// relay Hello, and a room's set is matched exactly, so getting this wrong
-	// fails at the handshake rather than halfway through a run.
+	// Resolved before any client connects: a room matches the feature set exactly, at the handshake.
 	featureList := protocol.NormalizeFeatures(strings.Split(*features, ","))
 	cpCfg := controlPlaneConfig{
 		clients:     *clients,
@@ -608,18 +494,12 @@ func main() {
 		},
 	}
 	if cpCfg.credit.on && !protocol.HasFeature(featureList, protocol.FeatureEventV1) {
-		// Refused rather than warned: the credit plane is nothing but events,
-		// so a run without the capability would negotiate a cosmetic room and
-		// then check eight invariants against a stream that never arrives --
-		// reporting a clean result for a test that did not run.
+		// Refused rather than warned: the credit plane is only events, so without them it would pass on nothing.
 		log.Fatalf("meshghost-fakeadapter: -enemies needs %q in -features", protocol.FeatureEventV1)
 	}
-	// Two keys per entity: a reliable one for discrete state, a lossy one for
-	// position. See world.go's entityKey for why they must not be one blob.
+	// Two keys per entity: a reliable one for discrete state, a lossy one for position.
 	if cpCfg.world.on && cpCfg.world.entities*2 > protocol.MaxWorldKeysPerRoom {
-		// Refused rather than clamped: a run that silently drove fewer entities
-		// than asked for would report a green result for a workload nobody
-		// chose, and the cap is a protocol bound rather than a preference.
+		// Refused rather than clamped: fewer entities than asked would pass a workload nobody chose.
 		log.Fatalf("meshghost-fakeadapter: -host-entities %d needs %d world keys (two per entity), "+
 			"over protocol.MaxWorldKeysPerRoom (%d)",
 			cpCfg.world.entities, cpCfg.world.entities*2, protocol.MaxWorldKeysPerRoom)
@@ -631,10 +511,7 @@ func main() {
 	cpCfg.anyPlaneOn = len(featureList) > 0 &&
 		(*eventEvery > 0 || *leaseEvery > 0 || *tradeEvery > 0 || cpCfg.world.on || cpCfg.credit.on)
 	if len(featureList) > 0 && !cpCfg.anyPlaneOn {
-		// Advertising a capability and then never using it is a real and
-		// confusing state: the room negotiates it, every cosmetic client is
-		// refused for the mismatch, and nothing is actually exercised. Worth
-		// a line rather than silence.
+		// The room still negotiates an unused capability and refuses every cosmetic client for the mismatch.
 		log.Printf("meshghost-fakeadapter: warning: -features %v is set but no plane is being driven "+
 			"-- pass -event-every, -lease-every or -trade-every to actually exercise them",
 			featureList)
@@ -666,17 +543,6 @@ func main() {
 		c.GameVersion = *gameVersion
 		c.Features = featureList
 		c.DialTimeout = 5 * time.Second
-		// Deliberately still the old one-shot connect-or-fail pattern, not
-		// cmd/meshghost's retry-with-backoff: this is dev-only tooling meant to
-		// fail fast and visibly if pointed at a bad address, not something that
-		// needs to tolerate a slow-starting relay the way the real shipped
-		// client does. See the ADR in agent_docs/architecture.md.
-		//
-		// Failing on client i also reports i, because the most likely cause
-		// of a partial failure in a load test is the relay's MaxClients cap
-		// (8 by default, server-wide across all rooms) rather than a bad
-		// address — and that reads as "the rig is broken" unless the count
-		// is right there in the message.
 		if i == 0 && *replayDir != "" {
 			c.ReplayDir = *replayDir
 			c.StartReplays()
@@ -689,13 +555,8 @@ func main() {
 				log.Printf("meshghost-fakeadapter: recording client 0 to %s", path)
 			}
 		}
-		// THE CHECKERS ATTACH BEFORE THE CONNECTION, not after (review H17).
-		// Attaching afterwards wrote c's callback fields while the connection's
-		// read goroutine was already delivering to them -- an unsynchronised
-		// write against a live reader -- and left a blind window covering every
-		// client's whole connect, which is where a Welcome, the first roster and
-		// any adoption snapshot land. A checker that cannot see the join cannot
-		// check what the join did.
+		// The checkers attach before the connection: after it, writing c's callbacks races the read goroutine, and
+		// the Welcome, first roster and any adoption snapshot would land unseen.
 		var cp *controlPlane
 		if cpCfg.anyPlaneOn {
 			cp = newControlPlane(i)
@@ -704,19 +565,17 @@ func main() {
 				cp.world = newWorldChecker(cpCfg.world, "", reportViolation)
 			}
 			if cpCfg.credit.on {
-				// Each client gets a DIFFERENT difficulty scale, which is the
-				// whole point: a run where everyone agrees on maximum health
-				// never ratchets, so it would check the easy half of the model
-				// and call the hard half green.
+				// A different difficulty scale per client, or the ratchet never fires.
 				cp.credit = newCreditChecker(cpCfg.credit, "", creditScale(i), reportViolation)
 			}
 			cp.attach(c)
 			planes = append(planes, cp)
 		}
 
+		// One-shot connect-or-fail, unlike cmd/meshghost's retry: dev tooling fails fast at a bad address. The error
+		// names client i, since a partial failure is most likely the relay's server-wide client cap.
 		if *relayAddr == "" {
-			// Offline: no relay at all. The state path still runs (the recorder
-			// tap sits before the relay check), which is what a -record demo needs.
+			// Offline: the state path still runs, as the recorder tap sits before the relay check.
 			log.Printf("meshghost-fakeadapter: client %d running OFFLINE (-relay \"\"): nothing is sent anywhere", i)
 		} else if err := c.ConnectRelay(*gameID); err != nil {
 			log.Fatalf("meshghost-fakeadapter: client %d of %d: %v "+
@@ -744,7 +603,7 @@ func main() {
 			yawFollows:    *yawFollows,
 			facingFollows: *facingFollows,
 			extras:        cloneExtras(extras),
-			// Only client 0 narrates. See circleAdapter.quiet.
+			// Only client 0 narrates.
 			quiet:     i != 0,
 			lastPrint: make(map[string]time.Time),
 			live:      make(map[string]bool),
@@ -757,9 +616,7 @@ func main() {
 		"circling radius=%.1f period=%.1fs dims=%d",
 		*clients, *relayAddr, *room, *gameID, *areaID, *radius, *period, *dims)
 	if *areas > 1 {
-		// Said out loud because a run that meant to load a renderer and got
-		// -areas by accident renders NOTHING, which looks exactly like a
-		// broken rig rather than a deliberate spread.
+		// A real game client renders nothing outside its own area, which looks like a broken rig.
 		log.Printf("meshghost-fakeadapter: peers spread over %d area_ids (%q..%q) -- a real game client will "+
 			"render only the share matching its own area",
 			*areas, peerAreaID(*areaID, 0, *areas), peerAreaID(*areaID, *areas-1, *areas))
@@ -772,8 +629,7 @@ func main() {
 	var wg sync.WaitGroup
 	var bridgePeers []*bridgePeer
 	if *overBridge {
-		// Built before the tick goroutines start, so a dial failure is a startup error rather
-		// than something discovered mid-run.
+		// Built before the tick goroutines start, so a dial failure is a startup error.
 		for i := range cores {
 			bp, err := runBridgePeer(cores[i], adapters[i], *gameID, *tick, stop)
 			if err != nil {
@@ -797,10 +653,8 @@ func main() {
 		}(cores[i], adapters[i])
 	}
 
-	// The control plane runs alongside the circling ghosts rather than instead
-	// of them, deliberately: a bug that only appears when arbitration traffic
-	// shares a connection with 20Hz state traffic is exactly the kind this rig
-	// exists to find, and running the two separately would never produce it.
+	// The control plane runs alongside the circling ghosts: a bug that needs arbitration and state traffic on one
+	// connection shows only then.
 	if cpCfg.anyPlaneOn {
 		log.Printf("meshghost-fakeadapter: control plane on -- capabilities %v, "+
 			"events every %s, lease claims every %s (key %q), exchanges every %s",
@@ -819,10 +673,7 @@ func main() {
 		}
 	}
 
-	// The peak-peer sampler, which is what makes attrition visible at the end
-	// (review H18). Cheap -- one mutex read per adapter per second -- and
-	// running always, because a run that loses peers is exactly the run nobody
-	// thought to turn a flag on for.
+	// The peak-peer sampler is always on: a run that loses peers is the one nobody thought to turn a flag on for.
 	watch := newPeerWatch(adapters)
 	wg.Add(1)
 	go func() {
@@ -837,12 +688,8 @@ func main() {
 			ticker := time.NewTicker(*statsEvery)
 			defer ticker.Stop()
 			var prev uint64
-			// **THE DIVISOR IS REAL ELAPSED TIME, NOT THE NOMINAL INTERVAL (review H14,
-			// 2026-09-11).** It used to divide by `statsEvery` whatever the clock said -- and a
-			// ticker fires LATE exactly when the process is busy, which is when this number is
-			// being read. So the rate went UP as the rig fell behind: the instrument flattered
-			// the system in proportion to how much trouble it was in, which is the worst
-			// direction for an error in a load rig to point.
+			// The divisor is real elapsed time: a ticker fires late when the process is busy, so the nominal
+			// interval would inflate the rate exactly as the rig falls behind.
 			lastAt := time.Now()
 			for {
 				select {
@@ -861,25 +708,14 @@ func main() {
 					}
 					delta := total - prev
 					prev = total
-					// liveCount from client 0 is the self-check: with N
-					// clients all in one room it should read N-1. Churn
-					// deliberately moves clients in and out of the area, so
-					// the number is expected to vary then and a fixed
-					// expectation would read as a failure rather than the
-					// feature working.
-					// A lower bound, not an equality: this client sees its
-					// N-1 in-process siblings PLUS anyone else in the room,
-					// which in the Tier 2 rig is the whole point (a real
-					// game client is in there too). An equality check here
-					// reported a healthy run as a failure.
+					// A lower bound: client 0 sees its N-1 siblings plus anyone else in the room, such as a real
+					// game client. Churn moves clients in and out of the area on purpose.
 					expect := fmt.Sprintf("expect >=%d", len(adapters)-1)
 					if *churnEvery > 0 {
 						expect = "varies: churn on"
 					}
-					// THE MODE IS IN THE LINE, because a number from one mode means something
-					// different from the same number in the other -- in-process renders are
-					// produced per tick per known remote whether or not anything arrived, while
-					// bridge renders are lines that actually crossed a socket.
+					// In-process renders count per tick per known remote whether or not anything arrived; bridge
+					// renders are lines that crossed a socket.
 					mode := "in-process"
 					extra := ""
 					if *overBridge {
@@ -894,13 +730,8 @@ func main() {
 					log.Printf("stats [%s]: clients=%d client0_remotes=%d (%s) renders=%d (%.0f/s across all clients)%s",
 						mode, len(adapters), adapters[0].liveCount(), expect,
 						total, float64(delta)/elapsed, extra)
-					// Client 0's CORE line as well -- the same summary meshghost.exe
-					// prints under -stats, with the transit and buffer-dry meters
-					// that say what a link is doing to the interpolation buffer.
-					// Added 2026-09-15 for the prediction plan's headroom
-					// measurement (agent_docs/prediction-planning.md, A1): this
-					// tool is the only headless receiver, and until now its core's
-					// meters were computed and never printed.
+					// Client 0's core line too, as meshghost.exe prints under -stats: the transit and buffer-dry
+					// meters of the only headless receiver.
 					log.Print(cores[0].Stats().String())
 				}
 			}
@@ -913,25 +744,17 @@ func main() {
 		summarize(planes, time.Since(start))
 	}
 	log.Println("meshghost-fakeadapter: stopped")
-	// A run that saw an invariant fail exits non-zero, so this can sit in a
-	// script or a soak job instead of needing someone to read the log. Every
-	// other failure in this program is already log.Fatalf; this is the one
-	// that can happen after a completely successful startup.
+	// Every other failure here is already log.Fatalf; this one can follow a clean startup.
 	if violations.Load() > 0 {
 		os.Exit(1)
 	}
 }
 
-// stopOnce closes stop, tolerating a second caller.
-//
-// Both shutdown paths -- -duration elapsing and an interrupt arriving -- close
-// the same channel, and a run that is interrupted just as its duration expires
-// would otherwise panic on a double close while trying to shut down cleanly.
-// That is a rare race whose only symptom would be a stack trace in place of
-// the summary, which is precisely the output the run existed to produce.
 var stopMu sync.Mutex
 var stopped bool
 
+// stopOnce closes stop, tolerating a second caller: -duration and an interrupt both close it, and a double close
+// would print a stack trace in place of the summary.
 func stopOnce(stop chan struct{}) {
 	stopMu.Lock()
 	defer stopMu.Unlock()

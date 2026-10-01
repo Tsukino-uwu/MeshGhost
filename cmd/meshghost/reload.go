@@ -10,29 +10,13 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/internal/cfg"
 )
 
-// CONFIG.JSON RE-READ WHILE RUNNING (2026-09-09). A tester edited config.json
-// mid-session and saw the input display change and nothing else: the
-// Pseudoregalia mod polls the file for its own keys, while every client setting
-// was read once in main() and copied onto the Core. The user's call: "make
-// everything refresh if edit/save is used." This polls the file's modification
-// time once a second, and when it changes -- and holds still for one more poll,
-// because an editor writes a file in more than one step -- re-reads it into a
-// FRESH copy of the flag values as they were before the file was first applied
-// (a removed key must fall back to its default, not keep the old value:
-// cfg.Override writes only when the key is present), diffs against what is
-// live, hands each changed group to the Core's live setters (core/settings.go)
-// and logs one line per changed key saying what happened to it. Flags given on
-// the command line still beat the file, exactly as at start.
-//
-// Three outcomes a line can report: applied now; applies at the next use (a
-// recording setting to the next recording, a connection setting by rejoining
-// the relay); needs a relaunch (the transport, the bridge address, the
-// console). Nothing is re-serialised: the file is only ever read.
+// config.json is re-read while running: a save that holds still for one more poll is read into a fresh copy of the
+// pre-file flag values, so a removed key falls back to its default (cfg.Override writes only a present key), diffed
+// against what is live, handed to the Core's live setters, and logged one line per changed key: applied now, applied
+// at the next use, or needing a relaunch. Flags still beat the file, and the file is only ever read.
 
-// liveValues is every client setting the file can carry, by value. Two copies
-// exist: `base`, the flag values before the file was applied, which every
-// re-read starts from; and `prev`, what is live now, which a re-read is diffed
-// against.
+// liveValues is every client setting the file can carry, by value: base, the flag values every re-read starts from,
+// and prev, what is live now, are two copies.
 type liveValues struct {
 	relayAddr, bridgeAddr, gameID, room, name, nameColor string
 	interp, localInterp, minSend, keepalive, extrapolate time.Duration
@@ -88,8 +72,7 @@ func (v *liveValues) hotkeyBindings() []hotkeyBinding {
 	}
 }
 
-// snapshot copies the flag variables (after flag.Parse, before or after the
-// file) into a liveValues.
+// snapshot copies the flag variables, before or after the file is applied, into a liveValues.
 func snapshot(t configTargets) liveValues {
 	return liveValues{
 		relayAddr: *t.relayAddr, bridgeAddr: *t.bridgeAddr, gameID: *t.gameID, room: *t.room,
@@ -110,8 +93,7 @@ func snapshot(t configTargets) liveValues {
 	}
 }
 
-// configWatcher is the poll. poll() is separate from the goroutine so a test
-// drives it with its own clock.
+// configWatcher is the poll; poll is separate from the goroutine so a test drives it with its own clock.
 type configWatcher struct {
 	path     string
 	explicit map[string]bool
@@ -120,9 +102,7 @@ type configWatcher struct {
 	c        *core.Core
 	rebind   func(bindings []hotkeyBinding)
 
-	// fw is the poll itself -- mtime and size, applied on the second poll that
-	// shows the same new values. Lifted into internal/cfg on 2026-09-15 so the
-	// relay watches its config the same way; nothing about it changed.
+	// fw is the poll itself: mtime and size, applied on the second poll that shows the same new values.
 	fw *cfg.FileWatch
 }
 
@@ -146,9 +126,8 @@ func (w *configWatcher) poll() {
 // reload re-reads the file into a fresh copy of the flag values, applies what
 // changed, and logs it.
 func (w *configWatcher) reload() []string {
-	// A save that went wrong keeps what is live: re-reading from the defaults
-	// would rebind default hotkeys system-wide and leave the room over one stray
-	// comma (cfg.ReloadRefusal).
+	// A save that went wrong keeps what is live: re-reading from the defaults would rebind default hotkeys
+	// system-wide and leave the room over one stray comma (cfg.ReloadRefusal).
 	if why := cfg.ReloadRefusal(w.path, "meshghost", "client"); why != "" {
 		log.Printf("meshghost: config.json was saved but %s -- NOTHING changed: every setting stays as it "+
 			"is running; fix the file and save again", why)
@@ -163,16 +142,8 @@ func (w *configWatcher) reload() []string {
 	for _, l := range lines {
 		log.Printf("meshghost: config.json changed: %s", l)
 	}
-	// THE THREE RELAUNCH-ONLY CONNECTION KEYS DO NOT CARRY FORWARD, and this is
-	// the half that makes holding them back actually hold.
-	//
-	// Everything else becomes "what is live" for the next diff, which is right:
-	// it WAS applied. These three were not. Letting the file's value land here
-	// would mean the first edit reports "needs a relaunch" and the SECOND edit
-	// -- of any other key at all, a name, a colour -- rejoins carrying the relay
-	// address from the first, since applyLive reads them from prev. The gate
-	// would hold for exactly one save. What is live stays live until a relaunch
-	// reads the file from the top.
+	// The three relaunch-only connection keys do not carry forward: applyLive rejoins with prev's, so letting the
+	// file's value land here would let the next save of any key, a name, move the session after all.
 	live := w.prev
 	w.prev = next
 	w.prev.relayAddr, w.prev.room, w.prev.roomCode = live.relayAddr, live.room, live.roomCode
@@ -211,8 +182,7 @@ func applyLive(prev, next *liveValues, c *core.Core, rebind func([]hotkeyBinding
 		c.SetGhostCollisionPreference(next.ghostCollision)
 	}
 
-	// The chaser pack restarts from the new values (it despawns and respawns
-	// after spawn_delay, as on a fresh attach).
+	// The chaser pack restarts from the new values, respawning after spawn_delay as on a fresh attach.
 	chaser := false
 	chaser = changed("chaser.enabled", prev.chaserOn, next.chaserOn, "applied") || chaser
 	chaser = changed("chaser.count", prev.chaserCount, next.chaserCount, "applied") || chaser
@@ -223,9 +193,7 @@ func applyLive(prev, next *liveValues, c *core.Core, rebind func([]hotkeyBinding
 	chaser = changed("chaser.contact", prev.chaserContact, next.chaserContact, "applied") || chaser
 	chaser = changed("chaser.spawn_delay", prev.chaserSpawn, next.chaserSpawn, "applied") || chaser
 	if chaser {
-		// The file's word reached here through overrideChaserContact, which
-		// already refused anything that is not a mode; the parse is the one
-		// place the type is made, and cannot fail on what it let through.
+		// overrideChaserContact already refused anything that is not a mode, so this parse cannot fail on the file.
 		contact, err := core.ParseChaserContact(next.chaserContact)
 		if err != nil {
 			lines = append(lines, fmt.Sprintf("chaser.contact NOT applied -- %v; the previous value stays", err))
@@ -259,35 +227,15 @@ func applyLive(prev, next *liveValues, c *core.Core, rebind func([]hotkeyBinding
 		})
 	}
 
-	// WHERE YOU ARE CONNECTED IS NOT LIVE-EDITABLE, and the three keys that
-	// decide it are held back here rather than passed to the core below.
-	//
-	// The rest of this file exists because editing config.json and having it
-	// take effect is a good thing -- names, colours, toggles and hotkeys all
-	// apply without touching the game. connect_to, room_name and room_code are the
-	// exception: a live re-read means anything on this machine that can WRITE
-	// this file can move a running session onto a relay of its choosing, in the
-	// couple of seconds before the next poll, with the player still playing and
-	// nothing on screen saying so. These three are the keys that decide which
-	// remembered server identity is even being checked against.
-	//
-	// The counter-argument -- that a process which can write your config can
-	// also kill the core and start its own -- is true and is not enough: it
-	// argues that one hole is no worse than another, not that this one should
-	// stay open. The user's call, 2026-09-12: "ip/adress and/or room related
-	// stuffs probly don't make sense to have as live editable". Found by the
-	// third adversarial review (P4a-5).
-	//
-	// A change to any of them is REPORTED, not silently ignored -- a player who
-	// edits the relay address and sees nothing happen has been given a puzzle.
+	// Where you are connected is not live-editable: otherwise anything on this machine that can write config.json
+	// could move a running session onto a relay of its choosing, with nothing on screen saying so. A change is
+	// reported rather than silently ignored.
 	const relaunchToMove = "needs the client relaunched -- where you connect is deliberately not live-editable"
 	changed("connect_to", prev.relayAddr, next.relayAddr, relaunchToMove)
 	changed("room_name", prev.room, next.room, relaunchToMove)
 	changed("room_code", prev.roomCode, next.roomCode, relaunchToMove)
 
-	// Connection: a fresh Hello is the only way these take effect, so the
-	// core leaves the session and rejoins with them -- to the SAME relay and
-	// room, which are carried over from what is live rather than from the file.
+	// Connection: only a fresh Hello applies these, so the core rejoins with them, to the live relay and room.
 	conn := false
 	conn = changed("player_name", prev.name, next.name, "rejoining") || conn
 	conn = changed("player_name_color", prev.nameColor, next.nameColor, "rejoining") || conn
@@ -299,8 +247,7 @@ func applyLive(prev, next *liveValues, c *core.Core, rebind func([]hotkeyBinding
 			lines = append(lines, warning)
 		}
 		rejoined := c.SetConnectionSettings(core.ConnectionSettings{
-			// prev, not next: see the block above. A rejoin triggered by a name
-			// change must not carry a relay address the file changed too.
+			// prev, not next: a rejoin for a name change must not carry a relay address the file changed too.
 			RelayAddr: prev.relayAddr, Room: prev.room, RoomCode: prev.roomCode,
 			DisplayName: next.name, NameColor: next.nameColor, MaxReceiveHz: maxHz, Offline: next.offline,
 		})
@@ -323,8 +270,7 @@ func applyLive(prev, next *liveValues, c *core.Core, rebind func([]hotkeyBinding
 		rebind(next.hotkeyBindings())
 	}
 
-	// Read once at start and not re-readable: named so a player knows a
-	// relaunch is what applies them, instead of wondering.
+	// Read once at start: named so a player knows a relaunch applies them.
 	const relaunch = "needs the client relaunched -- close the game or stop meshghost.exe"
 	changed("bridge", prev.bridgeAddr, next.bridgeAddr, relaunch)
 	changed("game", prev.gameID, next.gameID, relaunch)
@@ -341,8 +287,7 @@ func applyLive(prev, next *liveValues, c *core.Core, rebind func([]hotkeyBinding
 	return lines
 }
 
-// describeReloadable is the one-line summary the start-up log prints, so a
-// player learns the file is live without reading anything else.
+// describeReloadable is the start-up line that tells a player the file is live.
 func describeReloadable(path string) string {
 	return "meshghost: " + strings.TrimSpace(path) + " is re-read when saved: smoothing, ghost collision, chaser, replay and hotkey " +
 		"settings apply without a relaunch, and a name change rejoins the relay; the relay address and room need a relaunch"

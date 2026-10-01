@@ -1,18 +1,8 @@
 package main
 
-// The relay's config.json is live for three settings: room_code, only_game and
-// max_clients. Until 2026-09-15 the relay read its file once, so changing the
-// room code -- the one thing a host does when a code leaks -- meant a restart
-// that dropped every player (fourth adversarial review, B4). The client had
-// re-read its own config since 2026-09-09 (cmd/meshghost/reload.go); this is the same
-// poll (internal/cfg.FileWatch) with the relay's own idea of what a change
-// means.
-//
-// Applied without disconnecting anyone: a new room code gates the next hello, a
-// lowered max_clients refuses the next join. Everything else in the file needs a
-// relaunch and is reported as such, and -- as on the client -- a relaunch-only
-// value that changed does NOT carry forward, so a later edit of some other key
-// does not quietly apply it.
+// The relay's config.json is live for room_code, only_game and max_clients, so a host can change a leaked room code
+// without dropping every player. They apply without disconnecting anyone: a new code gates the next hello, a lowered
+// max_clients refuses the next join. Every other key needs a relaunch and is reported as such.
 
 import (
 	"fmt"
@@ -56,11 +46,9 @@ func snapshotRelayLive(t configTargets) relayLive {
 	}
 }
 
-// watcherSeed is what the watcher treats as live at startup: the running values,
-// except the two listen addresses as the FILE wrote them. main resolves those in
-// place (an empty listen_quic becomes the shared port), and a re-read can only
-// ever yield the raw value, so seeding the resolved one made every save report
-// listen_quic as changed (2026-09-16).
+// watcherSeed is what the watcher treats as live at startup: the running values, except the two listen addresses as
+// the file wrote them. main resolves those in place, and a re-read yields only the raw value, so a resolved seed
+// would report listen_quic changed on every save.
 func watcherSeed(t configTargets, fileQuicAddr, fileUDPAddr string) relayLive {
 	live := snapshotRelayLive(t)
 	live.quicAddr, live.udpAddr = fileQuicAddr, fileUDPAddr
@@ -96,8 +84,8 @@ func (w *relayConfigWatcher) poll() {
 // reload re-reads the file into a fresh copy of the flag values, applies
 // what changed, and logs one line per changed key.
 func (w *relayConfigWatcher) reload() []string {
-	// A save that went wrong keeps what is live: re-reading from the defaults
-	// would turn a room code OFF over one stray comma (cfg.ReloadRefusal).
+	// A save that went wrong keeps what is live: re-reading from the defaults would turn a room code off over one
+	// stray comma.
 	if why := cfg.ReloadRefusal(w.path, "meshghost-relay", "server"); why != "" {
 		log.Printf("meshghost-relay: config.json was saved but %s -- NOTHING changed: every server setting "+
 			"stays as it is running; fix the file and save again", why)
@@ -114,10 +102,8 @@ func (w *relayConfigWatcher) reload() []string {
 	for _, l := range lines {
 		log.Printf("meshghost-relay: config.json changed: %s", l)
 	}
-	// The relaunch-only keys do not carry forward (the client's reload.go says
-	// why at length): what is live stays live until a relaunch reads the file
-	// from the top, so a second edit of any other key cannot quietly apply a
-	// change that was reported as needing a relaunch.
+	// Relaunch-only keys do not carry forward, so a later edit of another key cannot quietly apply a change that was
+	// reported as needing a relaunch.
 	live := w.prev
 	w.prev = next
 	w.prev.addr, w.prev.transport, w.prev.quicAddr, w.prev.udpAddr = live.addr, live.transport, live.quicAddr, live.udpAddr

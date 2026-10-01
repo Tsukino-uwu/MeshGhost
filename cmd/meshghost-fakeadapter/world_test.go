@@ -1,22 +1,7 @@
 package main
 
-// Tests for the world-custody checker, continuing controlplane_test.go's rule:
-// **a checker with no test of its own passes forever**, including on every run
-// where the thing it was watching was broken.
-//
-// That rule is not theoretical here. This checker's first soak reported five
-// violations against a relay that was behaving perfectly, then two more, because
-// two of its five invariants were wrong — a lease *renew* re-broadcasts
-// "granted" (so arming adoption on any grant was wrong), and the rig's own
-// optimistic generation counter was being compared against the relay's
-// authoritative one (so a refused write looked like the world going backwards).
-// Both are pinned below. A checker that cries wolf gets switched off, which
-// costs exactly as much as a checker that never notices.
-//
-// Every test here uses withCleanViolationCount from controlplane_test.go and the
-// same shape: a legal sequence must produce 0, then the one specific defect must
-// produce exactly 1. No t.Parallel() — the violation counter is process-wide and
-// bracketed, not reset.
+// A legal sequence must produce no violation, then the one defect exactly one. No t.Parallel(): the violation counter
+// is process-wide.
 
 import (
 	"encoding/json"
@@ -25,17 +10,15 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// testWorldChecker builds a checker for authority "sim" belonging to "self",
-// reporting through the package-level counter so withCleanViolationCount sees
-// it.
+// testWorldChecker builds a checker for authority "sim" belonging to "self" that reports through the process-wide
+// counter.
 func testWorldChecker() *worldChecker {
 	return newWorldChecker(worldConfig{
 		on: true, authority: "sim", entities: 2, entityHz: 10,
 	}, "self", reportViolation)
 }
 
-// genBlob is a discrete-state blob at one generation, the shape entityKey's
-// reliable key carries.
+// genBlob is a discrete-state blob at one generation, the shape entityKey's reliable key carries.
 func genBlob(t *testing.T, gen uint64) json.RawMessage {
 	t.Helper()
 	b, err := json.Marshal(worldBlob{Gen: gen, X: 1, Y: 2})
@@ -45,8 +28,7 @@ func genBlob(t *testing.T, gen uint64) json.RawMessage {
 	return b
 }
 
-// posBlob is a position-only blob, which carries no generation at all — the
-// shape posKey's lossy key carries.
+// posBlob is a position-only blob with no generation, the shape posKey's lossy key carries.
 func posBlob(t *testing.T) json.RawMessage {
 	t.Helper()
 	b, err := json.Marshal(worldBlob{X: 3, Y: 4})
@@ -73,9 +55,7 @@ func released(seq uint64) protocol.LeaseState {
 	return protocol.LeaseState{Key: "sim", Seq: seq, Reason: protocol.LeaseReleased}
 }
 
-// TestWorldCheckerCatchesARollback is invariant 4: the whole promise of custody
-// is that a successor adopts what the relay holds, so the world never goes
-// backwards when the host changes.
+// TestWorldCheckerCatchesARollback is invariant 4.
 func TestWorldCheckerCatchesARollback(t *testing.T) {
 	w := testWorldChecker()
 
@@ -90,8 +70,7 @@ func TestWorldCheckerCatchesARollback(t *testing.T) {
 	}
 
 	got = withCleanViolationCount(func() {
-		// A newer stamp carrying an older generation. Nothing else in the run
-		// contradicts it, which is exactly why it has to be caught here.
+		// A newer stamp carrying an older generation.
 		w.onWorldState(written(t, 5, "p1", "e0", 2))
 	})
 	if got != 1 {
@@ -99,10 +78,8 @@ func TestWorldCheckerCatchesARollback(t *testing.T) {
 	}
 }
 
-// TestWorldCheckerCatchesAResurrection is invariant 7: a drop followed by a set
-// at or below the dropped generation is a stale write that outlived its own
-// deletion — and it is permanent, because the relay's map has the key deleted so
-// no snapshot ever contradicts the resurrection.
+// TestWorldCheckerCatchesAResurrection is invariant 7. A resurrection is permanent: the relay has the key deleted, so
+// no snapshot ever contradicts it.
 func TestWorldCheckerCatchesAResurrection(t *testing.T) {
 	w := testWorldChecker()
 
@@ -113,7 +90,7 @@ func TestWorldCheckerCatchesAResurrection(t *testing.T) {
 			Authority: "sim", Holder: "p1", Seq: 3, Reason: protocol.WorldWritten,
 			Entries: []protocol.WorldEntry{{Key: "e0", Dropped: true}},
 		})
-		// A legitimate respawn: a HIGHER generation than the one it died at.
+		// A legitimate respawn: a higher generation than the one it died at.
 		w.onWorldState(written(t, 4, "p1", "e0", 5))
 	})
 	if got != 0 {
@@ -125,8 +102,7 @@ func TestWorldCheckerCatchesAResurrection(t *testing.T) {
 			Authority: "sim", Holder: "p1", Seq: 5, Reason: protocol.WorldWritten,
 			Entries: []protocol.WorldEntry{{Key: "e1", Dropped: true}},
 		})
-		// e1 was never seen, so it died at gen 0 — a set at gen 0 would be
-		// nonsense, so use a key with real history instead.
+		// e1 was never seen, so it died at gen 0; the real test uses e0, which has history.
 		w.onWorldState(written(t, 6, "p1", "e0", 6))
 		w.onWorldState(protocol.WorldState{
 			Authority: "sim", Holder: "p1", Seq: 7, Reason: protocol.WorldWritten,
@@ -139,22 +115,15 @@ func TestWorldCheckerCatchesAResurrection(t *testing.T) {
 	}
 }
 
-// TestWorldCheckerDiscardsAStampOlderThanOneAlreadyApplied is the receiver-side
-// ordering rule, and the reason invariant 4 does not fire against the transport.
-//
-// The relay guarantees a total order, but reliable and lossy delivery to one
-// peer are independent, so a lossy write can land ahead of the reliable snapshot
-// meant to seed it. Discarding the older stamp is the contract working, not
-// failing — so it must produce silence, not a violation.
+// TestWorldCheckerDiscardsAStampOlderThanOneAlreadyApplied is the receiver-side ordering rule: reliable and lossy
+// delivery to one peer are independent, so discarding an older stamp is the contract working, not a violation.
 func TestWorldCheckerDiscardsAStampOlderThanOneAlreadyApplied(t *testing.T) {
 	w := testWorldChecker()
 
 	got := withCleanViolationCount(func() {
 		w.onLeaseState(granted(1, "p1"))
 		w.onWorldState(written(t, 10, "p1", "e0", 5))
-		// Arrives late, stamped earlier, carrying an older generation. Under the
-		// seq guard this is dropped in silence; without it, invariant 4 would
-		// report a rollback that never happened.
+		// Arrives late, stamped earlier, carrying an older generation.
 		w.onWorldState(written(t, 9, "p1", "e0", 4))
 	})
 	if got != 0 {
@@ -166,10 +135,8 @@ func TestWorldCheckerDiscardsAStampOlderThanOneAlreadyApplied(t *testing.T) {
 	}
 }
 
-// TestWorldCheckerIgnoresGenerationsOnAPositionOnlyKey. A position key rides the
-// lossy plane and carries no generation by design, because it has nothing that
-// must not go backwards — see entityKey. Invariants 4 and 7 must have nothing to
-// say about it, or every lossy write would look like a rollback to gen 0.
+// TestWorldCheckerIgnoresGenerationsOnAPositionOnlyKey: a position key carries no generation, so invariants 4 and 7
+// must skip it or every lossy write would look like a rollback to gen 0.
 func TestWorldCheckerIgnoresGenerationsOnAPositionOnlyKey(t *testing.T) {
 	w := testWorldChecker()
 
@@ -188,27 +155,19 @@ func TestWorldCheckerIgnoresGenerationsOnAPositionOnlyKey(t *testing.T) {
 	}
 }
 
-// TestWorldCheckerDoesNotArmAdoptionOnARenew pins the first of the two bugs this
-// checker shipped with.
-//
-// A lease renew re-broadcasts "granted" with the same holder, and correctly
-// produces NO adoption snapshot. Arming invariant 8 on any grant therefore left
-// the flag set forever, and the next legitimate write from whoever took over
-// later tripped it — five violations in the first soak, against a relay doing
-// exactly the right thing.
+// TestWorldCheckerDoesNotArmAdoptionOnARenew: a renew re-broadcasts granted with the same holder and no snapshot, so
+// arming invariant 8 on it would trip on the next holder's legitimate write.
 func TestWorldCheckerDoesNotArmAdoptionOnARenew(t *testing.T) {
 	w := testWorldChecker()
 
 	got := withCleanViolationCount(func() {
 		w.onLeaseState(granted(1, "self"))
-		// The adoption that grant owes us.
 		w.onWorldState(protocol.WorldState{
 			Authority: "sim", Holder: "self", Seq: 2, Reason: protocol.WorldSnapshot,
 		})
 		// Renews: same holder, no snapshot owed, and none sent.
 		w.onLeaseState(granted(3, "self"))
 		w.onLeaseState(granted(4, "self"))
-		// Hand off, and watch the new holder write.
 		w.onLeaseState(released(5))
 		w.onLeaseState(granted(6, "p2"))
 		w.onWorldState(written(t, 7, "p2", "e0", 1))
@@ -219,19 +178,13 @@ func TestWorldCheckerDoesNotArmAdoptionOnARenew(t *testing.T) {
 	}
 }
 
-// TestWorldCheckerCatchesALiveWriteBeforeItsAdoption is invariant 8, the
-// wire-visible form of "the snapshot is built inside the grant".
-//
-// A live write arriving between the grant and the adoption means the snapshot
-// was dispatched after the grant rather than inside it — so this client could
-// already have overwritten what it was about to be told to adopt.
+// TestWorldCheckerCatchesALiveWriteBeforeItsAdoption is invariant 8: a live write between the grant and the adoption
+// means the snapshot was sent after the grant rather than inside it.
 func TestWorldCheckerCatchesALiveWriteBeforeItsAdoption(t *testing.T) {
 	w := testWorldChecker()
 
 	got := withCleanViolationCount(func() {
 		w.onLeaseState(granted(1, "self"))
-		// Somebody else's write reaches us while we are still waiting for the
-		// world we were just granted.
 		w.onWorldState(written(t, 2, "self", "e0", 1))
 	})
 	if got != 1 {
@@ -239,9 +192,7 @@ func TestWorldCheckerCatchesALiveWriteBeforeItsAdoption(t *testing.T) {
 	}
 }
 
-// TestWorldCheckerCatchesAnEntityLostAcrossAHandover is invariant 6: every key
-// this client knew about before it took the lease must be in the world it
-// adopts.
+// TestWorldCheckerCatchesAnEntityLostAcrossAHandover is invariant 6.
 func TestWorldCheckerCatchesAnEntityLostAcrossAHandover(t *testing.T) {
 	w := testWorldChecker()
 
@@ -251,7 +202,6 @@ func TestWorldCheckerCatchesAnEntityLostAcrossAHandover(t *testing.T) {
 		w.onWorldState(written(t, 3, "p1", "e1", 1))
 		w.onLeaseState(released(4))
 		w.onLeaseState(granted(5, "self"))
-		// A complete adoption.
 		w.onWorldState(protocol.WorldState{
 			Authority: "sim", Holder: "self", Seq: 6, Reason: protocol.WorldSnapshot,
 			Entries: []protocol.WorldEntry{
@@ -272,7 +222,7 @@ func TestWorldCheckerCatchesAnEntityLostAcrossAHandover(t *testing.T) {
 		w2.onWorldState(written(t, 3, "p1", "e1", 1))
 		w2.onLeaseState(released(4))
 		w2.onLeaseState(granted(5, "self"))
-		// e1 is missing from what we were handed.
+		// e1 is missing from the adoption.
 		w2.onWorldState(protocol.WorldState{
 			Authority: "sim", Holder: "self", Seq: 6, Reason: protocol.WorldSnapshot,
 			Entries: []protocol.WorldEntry{{Key: "e0", Blob: genBlob(t, 1)}},
@@ -284,10 +234,8 @@ func TestWorldCheckerCatchesAnEntityLostAcrossAHandover(t *testing.T) {
 	}
 }
 
-// TestWorldCheckerAcceptsABatchedAdoption. A full world does not fit one
-// datagram, so an adoption arrives as several independently-complete messages
-// with no end marker. Invariant 6 must be judged over the whole batch, not per
-// message, or every batched adoption would look like a loss.
+// TestWorldCheckerAcceptsABatchedAdoption: a full world does not fit one datagram, so an adoption arrives as several
+// messages with no end marker, and invariant 6 is judged over the whole batch.
 func TestWorldCheckerAcceptsABatchedAdoption(t *testing.T) {
 	w := testWorldChecker()
 
@@ -312,8 +260,7 @@ func TestWorldCheckerAcceptsABatchedAdoption(t *testing.T) {
 	}
 }
 
-// TestWorldCheckerCatchesAStaleHostsWrite is invariant 5: a written message must
-// name whoever held the authority at that message's own stamp.
+// TestWorldCheckerCatchesAStaleHostsWrite is invariant 5.
 func TestWorldCheckerCatchesAStaleHostsWrite(t *testing.T) {
 	w := testWorldChecker()
 
@@ -329,8 +276,7 @@ func TestWorldCheckerCatchesAStaleHostsWrite(t *testing.T) {
 	}
 
 	got = withCleanViolationCount(func() {
-		// Stamped after p2's grant, but claiming p1 wrote it. A later transition
-		// closes the window, which is what makes this decidable.
+		// Stamped after p2's grant but claiming p1; the later transition makes it decidable.
 		w.onWorldState(written(t, 6, "p1", "e0", 3))
 		w.onLeaseState(released(7))
 	})
@@ -339,20 +285,14 @@ func TestWorldCheckerCatchesAStaleHostsWrite(t *testing.T) {
 	}
 }
 
-// TestWorldCheckerWaitsBeforeJudgingAWriteThatOvertookItsGrant is the reason
-// invariant 5 is judged by STAMP rather than by arrival.
-//
-// On a lossy transport a write can reach a client before the grant that
-// authorised it. Reporting that would make the checker complain about the
-// transport rather than the relay, so an undecidable case is held until a
-// bracketing lease transition arrives — and then judged correctly.
+// TestWorldCheckerWaitsBeforeJudgingAWriteThatOvertookItsGrant: on a lossy transport a write can arrive before its
+// grant, so invariant 5 holds it until a bracketing lease transition and judges it then.
 func TestWorldCheckerWaitsBeforeJudgingAWriteThatOvertookItsGrant(t *testing.T) {
 	w := testWorldChecker()
 
 	got := withCleanViolationCount(func() {
 		w.onLeaseState(granted(1, "p1"))
-		// p2's write arrives before p2's grant does. Undecidable: nothing yet
-		// brackets stamp 5.
+		// p2's write arrives before p2's grant: nothing yet brackets stamp 5.
 		w.onWorldState(written(t, 5, "p2", "e0", 1))
 	})
 	if got != 0 {
@@ -364,8 +304,7 @@ func TestWorldCheckerWaitsBeforeJudgingAWriteThatOvertookItsGrant(t *testing.T) 
 	}
 
 	got = withCleanViolationCount(func() {
-		// The grant it was waiting for, followed by a transition that closes the
-		// window. p2 did hold the authority at stamp 5, so it resolves clean.
+		// The grant, then a transition that closes the window: p2 held the authority at stamp 5.
 		w.onLeaseState(granted(4, "p2"))
 		w.onLeaseState(released(6))
 	})
@@ -377,15 +316,8 @@ func TestWorldCheckerWaitsBeforeJudgingAWriteThatOvertookItsGrant(t *testing.T) 
 	}
 }
 
-// TestWorldCheckerDoesNotTreatItsOwnRefusedWriteAsARollback pins the second bug
-// this checker shipped with.
-//
-// A write can be refused — this client lost the authority between deciding to
-// write and the relay seeing it — so an optimistic local bump is not evidence
-// the world ever reached that generation. Folding what this client SENT into
-// what it has RECEIVED left it holding a high-water mark the relay never agreed
-// to, and the next snapshot it adopted looked like the world going backwards.
-// Every "rollback" the first soak reported was this.
+// TestWorldCheckerDoesNotTreatItsOwnRefusedWriteAsARollback: a refused write is no evidence the world reached its
+// generation, so adopting the relay's older one is not a rollback.
 func TestWorldCheckerDoesNotTreatItsOwnRefusedWriteAsARollback(t *testing.T) {
 	w := testWorldChecker()
 
@@ -396,8 +328,7 @@ func TestWorldCheckerDoesNotTreatItsOwnRefusedWriteAsARollback(t *testing.T) {
 			Entries: []protocol.WorldEntry{{Key: "e0", Blob: genBlob(t, 5)}},
 		})
 
-		// We issue generations 6 and 7. Both are refused by the relay, so
-		// nobody — including us — ever receives them.
+		// Generations 6 and 7 are issued and refused, so nobody receives them.
 		if next := w.nextGen("e0"); next != 6 {
 			t.Fatalf("nextGen = %d, want 6", next)
 		}
@@ -408,8 +339,7 @@ func TestWorldCheckerDoesNotTreatItsOwnRefusedWriteAsARollback(t *testing.T) {
 			Authority: "sim", Holder: "self", Seq: 3, Reason: protocol.WorldDenied,
 		})
 
-		// Later we adopt again, and the relay still says 5 — correctly, since our
-		// 6 and 7 never landed. That is not a rollback.
+		// Adopting again, the relay still says 5, correctly.
 		w.onLeaseState(released(4))
 		w.onLeaseState(granted(5, "self"))
 		w.onWorldState(protocol.WorldState{
@@ -422,18 +352,15 @@ func TestWorldCheckerDoesNotTreatItsOwnRefusedWriteAsARollback(t *testing.T) {
 		t.Fatalf("adopting a world the relay never advanced produced %d violations, want 0 -- "+
 			"what this client SENT is not evidence of what the world reached", got)
 	}
-	// And the next generation it issues still clears everything it has issued
-	// before, so it can never re-use one.
+	// The next generation still clears everything issued before, so none is re-used.
 	if next := w.nextGen("e0"); next != 8 {
 		t.Fatalf("nextGen = %d after issuing 6 and 7, want 8 -- a re-used generation would be "+
 			"invisible to every peer", next)
 	}
 }
 
-// TestWorldCheckerHoldsWritesUntilItsAdoptionLands is the invariant the relay's
-// empty-snapshot behaviour exists to make checkable, and the one whose failure
-// is silent: a holder that writes before seeing what it is overwriting rolls the
-// world back for everyone.
+// TestWorldCheckerHoldsWritesUntilItsAdoptionLands: a holder that writes before seeing what it overwrites rolls the
+// world back for everyone, silently.
 func TestWorldCheckerHoldsWritesUntilItsAdoptionLands(t *testing.T) {
 	w := testWorldChecker()
 
@@ -442,7 +369,7 @@ func TestWorldCheckerHoldsWritesUntilItsAdoptionLands(t *testing.T) {
 		t.Fatal("cleared to write before the adoption snapshot arrived -- a host that writes " +
 			"here renumbers from a stale view and rolls the world back for everyone")
 	}
-	// Even an EMPTY adoption clears it. That is why the relay sends one.
+	// Even an empty adoption clears it, which is why the relay sends one.
 	w.onWorldState(protocol.WorldState{
 		Authority: "sim", Holder: "self", Seq: 2, Reason: protocol.WorldSnapshot,
 	})
@@ -452,8 +379,7 @@ func TestWorldCheckerHoldsWritesUntilItsAdoptionLands(t *testing.T) {
 	}
 }
 
-// TestWorldCheckerIgnoresAnotherAuthority. Two authorities may share a key, and
-// a checker watching one must not judge the other's traffic.
+// TestWorldCheckerIgnoresAnotherAuthority: two authorities may share a key, and a checker judges only its own.
 func TestWorldCheckerIgnoresAnotherAuthority(t *testing.T) {
 	w := testWorldChecker()
 

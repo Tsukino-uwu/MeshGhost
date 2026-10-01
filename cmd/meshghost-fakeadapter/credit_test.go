@@ -1,24 +1,7 @@
 package main
 
-// Tests for the kill-credit checker, continuing controlplane_test.go's rule:
-// **a checker with no test of its own passes forever**, including on every run
-// where the thing it was watching was broken.
-//
-// These are also the only place the model in agent_docs/kill-credit.md is
-// executable. Its claims — a duplicate cannot double-count, a ratchet cannot
-// resurrect, a stale report cannot touch a fresh generation, two participants
-// cannot disagree about when something died — are arithmetic over an ordered
-// stream, so they can be settled here rather than by watching a game. That is
-// the whole reason the rig exists.
-//
-// Two shapes are used, and the difference matters. Where the correct behaviour
-// is a *violation report*, the test asserts exactly one. Where the correct
-// behaviour is to *silently do nothing* (a duplicate, a stale generation), the
-// test asserts zero violations AND that the fold did not move — because an
-// implementation that reported the problem and then applied it anyway would
-// pass a violation-count check while being exactly as wrong.
-//
-// No t.Parallel(): the violation counter is process-wide and bracketed.
+// Where the right behaviour is silence (a duplicate, a stale generation), a test asserts no violation and an unmoved
+// fold too. No t.Parallel(): the violation counter is process-wide.
 
 import (
 	"encoding/json"
@@ -27,9 +10,7 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// testCreditChecker builds a checker belonging to "self" at scale 1000,
-// reporting through the package-level counter so withCleanViolationCount sees
-// it.
+// testCreditChecker builds a checker for "self" at scale 1000 that reports through the process-wide counter.
 func testCreditChecker() *creditChecker {
 	return newCreditChecker(creditConfig{on: true, enemies: 1}, "self", 1000, reportViolation)
 }
@@ -42,8 +23,7 @@ func hit(t *testing.T, seq uint64, from string, gen, dseq uint64, amt, scale flo
 	})
 }
 
-// reset advances an enemy to a generation, which is also the only thing that
-// makes that generation judgeable by invariant 13.
+// reset advances an enemy to a generation, the only thing that makes it judgeable by invariant 13.
 func reset(t *testing.T, seq uint64, from string, gen uint64) protocol.Event {
 	t.Helper()
 	return creditEvent(t, seq, from, creditMsg{Op: creditReset, Key: "enemy0", Gen: gen})
@@ -58,8 +38,7 @@ func creditEvent(t *testing.T, seq uint64, from string, msg creditMsg) protocol.
 	return protocol.Event{From: from, Seq: seq, Payload: payload}
 }
 
-// fold returns the checker's accumulated fraction and scale for one generation,
-// which is what most of these tests actually assert on.
+// fold returns this client's own fraction, the scale and whether its copy died, for one generation.
 func fold(t *testing.T, c *creditChecker, gen uint64) (float64, float64, bool) {
 	t.Helper()
 	c.mu.Lock()
@@ -72,9 +51,7 @@ func fold(t *testing.T, c *creditChecker, gen uint64) (float64, float64, bool) {
 }
 
 func TestCreditFoldValuesAHitAgainstTheScaleInForce(t *testing.T) {
-	// The core arithmetic of the whole design: ratchet first, then divide. The
-	// opener's hit is worth its share of the fight it was actually fighting;
-	// once a harder client joins, the same absolute damage is worth less.
+	// Ratchet first, then divide: once a harder client joins, the same damage is worth less.
 	c := testCreditChecker()
 	got := withCleanViolationCount(func() {
 		c.onEvent(hit(t, 1, "self", 0, 1, 250, 1000))
@@ -84,8 +61,7 @@ func TestCreditFoldValuesAHitAgainstTheScaleInForce(t *testing.T) {
 		t.Fatalf("legal reports produced %d violation(s), want 0", got)
 	}
 	frac, scale, _ := fold(t, c, 0)
-	// 250/1000 = 0.25 at the opening scale, then the ratchet to 2000 makes the
-	// second 250 worth 0.125.
+	// 250/1000, then 250/2000 after the ratchet.
 	if want := 0.375; frac != want {
 		t.Fatalf("fraction = %v, want %v -- the ratchet must not re-value damage already dealt", frac, want)
 	}
@@ -95,8 +71,6 @@ func TestCreditFoldValuesAHitAgainstTheScaleInForce(t *testing.T) {
 }
 
 func TestCreditFoldIgnoresADuplicateReport(t *testing.T) {
-	// Invariant 9. The correct behaviour is silence, so asserting zero
-	// violations is not enough on its own: the fold must not have moved.
 	c := testCreditChecker()
 	got := withCleanViolationCount(func() {
 		c.onEvent(hit(t, 1, "self", 0, 1, 500, 1000))
@@ -115,9 +89,6 @@ func TestCreditFoldIgnoresADuplicateReport(t *testing.T) {
 }
 
 func TestCreditFoldNeverLowersTheScale(t *testing.T) {
-	// Invariant 10. A lower-scale report arriving after a higher one must not
-	// pull the encounter back down -- the user's "don't scale it downwards",
-	// which has to hold across arrival order.
 	c := testCreditChecker()
 	got := withCleanViolationCount(func() {
 		c.onEvent(hit(t, 1, "self", 0, 1, 100, 3000))
@@ -132,8 +103,6 @@ func TestCreditFoldNeverLowersTheScale(t *testing.T) {
 }
 
 func TestCreditFoldDoesNotResurrectADeadCopy(t *testing.T) {
-	// Invariant 11. Once dead, a later report -- including one that ratchets
-	// the maximum way up -- changes nothing.
 	c := testCreditChecker()
 	got := withCleanViolationCount(func() {
 		c.onEvent(hit(t, 1, "self", 0, 1, 1000, 1000)) // exactly lethal
@@ -152,9 +121,6 @@ func TestCreditFoldDoesNotResurrectADeadCopy(t *testing.T) {
 }
 
 func TestCreditFoldDiscardsAReportFromAnOlderGeneration(t *testing.T) {
-	// Invariant 12, and the case it exists for: a report in flight across a
-	// reset. Discarding is correct behaviour, so this asserts silence plus an
-	// untouched fold, not a violation.
 	c := testCreditChecker()
 	got := withCleanViolationCount(func() {
 		c.onEvent(hit(t, 1, "self", 0, 1, 100, 1000))
@@ -176,8 +142,6 @@ func TestCreditFoldDiscardsAReportFromAnOlderGeneration(t *testing.T) {
 }
 
 func TestCreditFoldCatchesAGenerationAheadOfItsReset(t *testing.T) {
-	// The other half of invariant 12. Adopting this silently would let one
-	// confused client drag the whole room's generation forward.
 	c := testCreditChecker()
 	got := withCleanViolationCount(func() {
 		c.onEvent(hit(t, 1, "self", 0, 1, 100, 1000))
@@ -189,12 +153,9 @@ func TestCreditFoldCatchesAGenerationAheadOfItsReset(t *testing.T) {
 }
 
 func TestCreditCheckerAcceptsAnAgreedDeath(t *testing.T) {
-	// Invariant 13's healthy case. Both participants folded the same ordered
-	// ledger, so both crossed zero on the same stamp.
 	c := testCreditChecker()
 	got := withCleanViolationCount(func() {
-		// The reset is what makes this generation judgeable at all: it is the
-		// one event proving this client was present when the fight began.
+		// The reset is the one event proving this client was present when the fight began.
 		c.onEvent(reset(t, 1, "peer", 1))
 		c.onEvent(hit(t, 2, "self", 1, 1, 400, 1000))
 		c.onEvent(hit(t, 3, "peer", 1, 1, 600, 1000))
@@ -215,9 +176,6 @@ func TestCreditCheckerAcceptsAnAgreedDeath(t *testing.T) {
 }
 
 func TestCreditCheckerCatchesADisagreementAboutWhenItDied(t *testing.T) {
-	// Invariant 13, and the most valuable check in the file: this is what a
-	// naive absolute-damage ledger breaks the instant two clients disagree
-	// about maximum health.
 	c := testCreditChecker()
 	got := withCleanViolationCount(func() {
 		c.onEvent(reset(t, 1, "peer", 1))
@@ -233,8 +191,6 @@ func TestCreditCheckerCatchesADisagreementAboutWhenItDied(t *testing.T) {
 }
 
 func TestCreditCheckerCatchesADisagreementAboutTheTotalDealt(t *testing.T) {
-	// Same stamp, different total. Rarer and worse: it means the fold is
-	// order-dependent somewhere it must not be.
 	c := testCreditChecker()
 	got := withCleanViolationCount(func() {
 		c.onEvent(reset(t, 1, "peer", 1))
@@ -250,14 +206,9 @@ func TestCreditCheckerCatchesADisagreementAboutTheTotalDealt(t *testing.T) {
 }
 
 func TestCreditCheckerDoesNotJudgeAGenerationItJoinedLate(t *testing.T) {
-	// A client that joined mid-fight folded a shorter prefix, so its total is
-	// legitimately different and it must decline to judge. This is the mistake
-	// world.go's checker made on its first soak -- a checker that cries wolf
-	// gets switched off, which costs as much as one that never notices.
 	c := testCreditChecker()
 	got := withCleanViolationCount(func() {
-		// No reset seen, and the first report this client ever sees is already
-		// at generation 4: it joined mid-fight.
+		// No reset seen, and the first report is already at generation 4: it joined mid-fight.
 		c.onEvent(hit(t, 10, "self", 4, 1, 1000, 1000))
 		c.onEvent(creditEvent(t, 11, "peer", creditMsg{
 			Op: creditDeath, Key: "enemy0", Gen: 4, At: 3, Frac: 1,
@@ -269,10 +220,6 @@ func TestCreditCheckerDoesNotJudgeAGenerationItJoinedLate(t *testing.T) {
 }
 
 func TestCreditOnlyAResetProvesAGenerationWasWatchedFromItsStart(t *testing.T) {
-	// The rule behind the two tests above, pinned on its own because it is the
-	// easy thing to "simplify" later: an encounter created by a HIT is one this
-	// client may have joined at any point, even when that hit is the first
-	// thing it ever heard about the enemy. Only a reset proves presence.
 	byHit := testCreditChecker()
 	byHit.onEvent(hit(t, 1, "self", 0, 1, 100, 1000))
 	byReset := testCreditChecker()
@@ -291,9 +238,6 @@ func TestCreditOnlyAResetProvesAGenerationWasWatchedFromItsStart(t *testing.T) {
 }
 
 func TestCreditNonParticipantNeverTakesDamageOrDies(t *testing.T) {
-	// Invariants 14 and 16 together, in their normal form. This client watches
-	// a whole fight go by without ever swinging: it tracks the ledger, its own
-	// copy is untouched, and it earns nothing.
 	c := testCreditChecker()
 	got := withCleanViolationCount(func() {
 		for i := uint64(1); i <= 5; i++ {
@@ -317,10 +261,7 @@ func TestCreditNonParticipantNeverTakesDamageOrDies(t *testing.T) {
 }
 
 func TestCreditParticipantCatchesUpOnJoiningMidFight(t *testing.T) {
-	// The documented discontinuity: a bystander that finally swings adopts the
-	// accumulated total, so its copy snaps to wherever the fight actually is
-	// rather than starting fresh. Named in kill-credit.md as a real visible
-	// cost, and asserted here so it cannot quietly become something else.
+	// A bystander that swings adopts the accumulated total: its copy snaps to where the fight is.
 	c := testCreditChecker()
 	got := withCleanViolationCount(func() {
 		c.onEvent(hit(t, 1, "peer", 0, 1, 400, 1000))
@@ -333,15 +274,14 @@ func TestCreditParticipantCatchesUpOnJoiningMidFight(t *testing.T) {
 	if got != 0 {
 		t.Fatalf("joining mid-fight produced %d violation(s), want 0", got)
 	}
-	// 0.4 + 0.4 accumulated while a bystander, plus this client's own 0.1.
+	// 0.4 + 0.4 while a bystander, plus its own 0.1.
 	if frac, _, _ := fold(t, c, 0); frac != 0.9 {
 		t.Fatalf("fraction = %v after joining, want 0.9 -- a late participant did not adopt the accumulated total", frac)
 	}
 }
 
 func TestCreditIsNotAwardedForAKillThatLandedWhileDead(t *testing.T) {
-	// Invariant 15, and the user's own edge case: tag it once, die, get
-	// nothing. The kill still happens -- the copy dies -- but no reward.
+	// Tag it once, die, get nothing: the copy still dies, with no reward.
 	c := testCreditChecker()
 	got := withCleanViolationCount(func() {
 		c.onEvent(hit(t, 1, "self", 0, 1, 100, 1000))
@@ -361,9 +301,7 @@ func TestCreditIsNotAwardedForAKillThatLandedWhileDead(t *testing.T) {
 }
 
 func TestCreditCheckerCatchesARewardTakenWhileDead(t *testing.T) {
-	// The same rule from the other side: if the reward is ever handed out
-	// anyway, the end-of-run check must say so. Fabricated directly, because
-	// the fold above correctly refuses to produce it.
+	// Fabricated directly, because the fold refuses to produce it.
 	c := testCreditChecker()
 	got := withCleanViolationCount(func() {
 		c.onEvent(hit(t, 1, "self", 0, 1, 1000, 1000))
@@ -378,10 +316,7 @@ func TestCreditCheckerCatchesARewardTakenWhileDead(t *testing.T) {
 }
 
 func TestCreditCheckerCatchesARewardWithoutParticipation(t *testing.T) {
-	// Invariant 14 as an assertion rather than as normal behaviour: the fold
-	// cannot produce this, so it is fabricated. The check exists because a
-	// refactor that moved the participation gate would otherwise hand out
-	// rewards in silence.
+	// Fabricated directly, because the fold cannot produce it.
 	c := testCreditChecker()
 	got := withCleanViolationCount(func() {
 		c.onEvent(hit(t, 1, "peer", 0, 1, 1000, 1000))
@@ -391,18 +326,13 @@ func TestCreditCheckerCatchesARewardWithoutParticipation(t *testing.T) {
 		c.mu.Unlock()
 		c.checkCredit()
 	})
-	// Two: rewarded without participating, and rewarded for something that
-	// never died on this client's copy. Both are true of a fabricated reward.
+	// Two: no participation, and no death on this client's copy.
 	if got != 2 {
 		t.Fatalf("a reward without participation produced %d violation(s), want 2", got)
 	}
 }
 
 func TestCreditResetIsIdempotentByGeneration(t *testing.T) {
-	// Any client may issue a reset without coordinating, because two clients
-	// resetting from the same generation name the same successor and the
-	// second is a no-op. Without that this rig would need an elected resetter,
-	// which is a mechanism the design does not have and should not grow.
 	c := testCreditChecker()
 	got := withCleanViolationCount(func() {
 		c.onEvent(hit(t, 1, "self", 0, 1, 100, 1000))
@@ -418,9 +348,6 @@ func TestCreditResetIsIdempotentByGeneration(t *testing.T) {
 }
 
 func TestCreditCheckerIgnoresSomeoneElsesEvents(t *testing.T) {
-	// The credit plane shares the event plane with controlplane.go's own
-	// chatter, so anything unparseable is another feature's traffic rather
-	// than a defect.
 	c := testCreditChecker()
 	got := withCleanViolationCount(func() {
 		c.onEvent(protocol.Event{From: "peer", Seq: 1, Payload: json.RawMessage(`{"hello":"world"}`)})
@@ -432,9 +359,6 @@ func TestCreditCheckerIgnoresSomeoneElsesEvents(t *testing.T) {
 }
 
 func TestSplitEncKeyRoundTrips(t *testing.T) {
-	// deathToAnnounce reconstructs the enemy key and generation from a map key,
-	// and getting that wrong would announce deaths for the wrong generation --
-	// which invariant 13 would then report against a healthy relay.
 	for _, gen := range []uint64{0, 1, 4096} {
 		key, got := splitEncKey(encKey("enemy7", gen))
 		if key != "enemy7" || got != gen {

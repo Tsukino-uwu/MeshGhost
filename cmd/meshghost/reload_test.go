@@ -10,9 +10,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/core"
 )
 
-// Every key the file can carry, changed at once: each one is named in the
-// report with its old and new value, and the groups the Core applies live are
-// visible on the Core afterwards. Fails without reload.go's per-key lines.
+// TestApplyLiveNamesEveryChangedKeyAndAppliesTheLiveGroups: every key changed at once is named with its old and new
+// value, and the live groups show on the Core afterwards.
 func TestApplyLiveNamesEveryChangedKeyAndAppliesTheLiveGroups(t *testing.T) {
 	prev := liveValues{
 		relayAddr: "127.0.0.1:7777", bridgeAddr: "127.0.0.1:7778", gameID: "a", room: "r1", name: "n1", nameColor: "#111111",
@@ -81,10 +80,7 @@ func TestApplyLiveNamesEveryChangedKeyAndAppliesTheLiveGroups(t *testing.T) {
 	if c.DisplayName != "n2" || !c.Offline || c.MaxReceiveHz != 20 {
 		t.Errorf("connection settings not applied: name=%q offline=%v hz=%d", c.DisplayName, c.Offline, c.MaxReceiveHz)
 	}
-	// WHERE YOU ARE CONNECTED IS NOT LIVE-EDITABLE since 2026-09-12, so the two
-	// that moved a running session are carried over from what is live rather
-	// than taken from the file -- while still being NAMED in the report above,
-	// with the relaunch effect. The user's call; see reload.go.
+	// Where you are connected is not live-editable: the relay and room stay live while the report still names them.
 	if c.RelayAddr == "192.0.2.1:7777" || c.Room == "r2" {
 		t.Errorf("a saved config moved the live session: relay=%q room=%q -- editing this file must not "+
 			"be able to put a running player in somebody else's room", c.RelayAddr, c.Room)
@@ -94,9 +90,8 @@ func TestApplyLiveNamesEveryChangedKeyAndAppliesTheLiveGroups(t *testing.T) {
 	}
 }
 
-// A bad curve name saved mid-session is refused and the previous smoothing
-// stays -- the startup path exits on the same typo, and a running session must
-// neither exit nor silently pick a default.
+// TestApplyLiveRefusesABadCurveAndKeepsTheOld: startup exits on a bad curve, and a running session must neither exit
+// nor silently pick a default.
 func TestApplyLiveRefusesABadCurveAndKeepsTheOld(t *testing.T) {
 	prev := liveValues{interp: 450 * time.Millisecond, curve: "linear", predict: "linear"}
 	next := prev
@@ -116,8 +111,7 @@ func TestApplyLiveRefusesABadCurveAndKeepsTheOld(t *testing.T) {
 	}
 }
 
-// Nothing changed in the file (a save with no edit) reports no line, so the
-// log does not fill with "config.json changed" on every ctrl+s.
+// TestApplyLiveIsQuietWhenNothingDiffers: a save with no edit reports no line, so ctrl+s does not fill the log.
 func TestApplyLiveIsQuietWhenNothingDiffers(t *testing.T) {
 	v := liveValues{interp: time.Second, curve: "linear", predict: "linear"}
 	w := v
@@ -126,10 +120,8 @@ func TestApplyLiveIsQuietWhenNothingDiffers(t *testing.T) {
 	}
 }
 
-// The watcher end to end on a real file: a save is applied on the second poll
-// that sees it unchanged (the editor's write has stopped), a removed key falls
-// back to the flag default rather than keeping the old value, and a value the
-// flag pinned on the command line is not overridden by the file.
+// TestConfigWatcherAppliesASaveAndFallsBackForARemovedKey: on a real file, a save applies on the second poll that
+// sees it unchanged, a removed key falls back to the flag default, and a flag on the command line beats the file.
 func TestConfigWatcherAppliesASaveAndFallsBackForARemovedKey(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
@@ -177,19 +169,9 @@ func TestConfigWatcherAppliesASaveAndFallsBackForARemovedKey(t *testing.T) {
 	}
 }
 
-// F5 from the 2026-09-12 adversarial review (P4a-5), and specifically the half
-// that is easy to get wrong.
-//
-// connect_to, room and room_code stopped being live-editable that day: a live
-// re-read meant anything on this machine that can WRITE config.json could move
-// a running session onto a relay of its choosing, with the player still playing
-// and nothing on screen saying so.
-//
-// THE TRAP IS THE SECOND SAVE. reload() replaces `prev` with what it just read,
-// so if the file's relay address landed there, the next save of ANY other key
-// -- a name, a colour -- would rejoin carrying it, because applyLive builds the
-// Hello from prev. The gate would hold for exactly one save and then open. That
-// is what this test is for; the first save is the easy case.
+// TestASavedConfigCannotMoveALiveSessionEvenOnTheSecondSave: reload replaces prev with what it read, so if the file's
+// relay address landed there, the next save of any other key would rejoin carrying it. The first save is the easy
+// case.
 func TestASavedConfigCannotMoveALiveSessionEvenOnTheSecondSave(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
@@ -229,8 +211,7 @@ func TestASavedConfigCannotMoveALiveSessionEvenOnTheSecondSave(t *testing.T) {
 		t.Fatalf("the first save moved the session: relay=%q room=%q", c.RelayAddr, c.Room)
 	}
 
-	// Save two changes only the NAME -- which legitimately rejoins. The relay
-	// and room it rejoins with must still be the live ones.
+	// Save two changes only the name, which legitimately rejoins, and must rejoin the live relay and room.
 	save(w, `{"client": {"connect_to": "192.0.2.1:9999", "room": "theirs", "name": "renamed"}}`)
 	if c.DisplayName != "renamed" {
 		t.Errorf("a name change stopped applying: %q", c.DisplayName)
@@ -242,10 +223,8 @@ func TestASavedConfigCannotMoveALiveSessionEvenOnTheSecondSave(t *testing.T) {
 	}
 }
 
-// TestConfigWatcherKeepsTheLiveSettingsWhenASaveGoesWrong: found 2026-09-16 with
-// the real binaries -- a save with a stray comma re-read from the defaults, so
-// the client rebound its default hotkeys system-wide and left the room until the
-// file was fixed. A broken, empty or section-less save must change nothing.
+// TestConfigWatcherKeepsTheLiveSettingsWhenASaveGoesWrong: a broken, empty or section-less save changes nothing,
+// rather than re-reading from the defaults.
 func TestConfigWatcherKeepsTheLiveSettingsWhenASaveGoesWrong(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")

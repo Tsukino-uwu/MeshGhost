@@ -22,35 +22,21 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/relay"
 )
 
-// This file is the hostile harness: a stranger's view of the SHIPPED relay.
-//
-// Every test in package relay listens raw (relay_test.go's startServerWith),
-// so until 2026-09-15 nothing exercised the stack a real connection meets --
-// netx.Listen, the open-connection limiter, the TLS sniff, connection
-// tracking, then relay.Serve -- with input that is not cooperative. The three
-// wrapper bugs netx/limit.go recounts all lived in those layers, and each
-// shipped because the tests stopped one layer short. Fourth review, 2026-09-13,
-// finding E1.
-//
-// The clients here speak the wire by hand (a raw socket, or stdlib tls.Client
-// with verification off) rather than through transport or core, because the
-// point is to send what a stranger can send, not what our client would.
+// The hostile harness: a stranger's view of the shipped relay, through the stack a real connection meets (netx.Listen,
+// the open-connection limiter, the TLS sniff, connection tracking), which package relay's raw listeners skip. The
+// clients speak the wire by hand, to send what a stranger can send rather than what our client would.
 
 // stackOpts configures one shipped stack for a test.
 type stackOpts struct {
 	roomCode     string
 	maxClients   int
 	helloTimeout time.Duration
-	// sources overrides the per-address table; nil means the one main
-	// builds for maxClients (newSourceTable), which is what ships.
+	// sources overrides the per-address table; nil means the one main builds for maxClients.
 	sources *srclimit.Table
 }
 
-// startShippedStack brings up a tcp listener exactly as main does
-// (buildListeners) and serves it with a relay.Server configured from opts.
-// Returns the dial address and the server, for tests that want to poke at
-// its state. Closed on cleanup; the log is captured by captureLog first when
-// a test wants to read it.
+// startShippedStack brings up a tcp listener as main does and serves it with a relay.Server configured from opts,
+// returning the dial address and the server. Closed on cleanup.
 func startShippedStack(t *testing.T, opts stackOpts) (string, *relay.Server) {
 	t.Helper()
 	if opts.maxClients == 0 {
@@ -91,8 +77,7 @@ func startShippedStack(t *testing.T, opts stackOpts) (string, *relay.Server) {
 	return ln.Addr().String(), srv
 }
 
-// lockedBuffer is a bytes.Buffer safe to write from the relay's goroutines
-// while a test reads it.
+// lockedBuffer is a bytes.Buffer safe to write from the relay's goroutines while a test reads it.
 type lockedBuffer struct {
 	mu sync.Mutex
 	b  bytes.Buffer
@@ -110,9 +95,8 @@ func (l *lockedBuffer) String() string {
 	return l.b.String()
 }
 
-// captureLog routes the standard logger into a buffer for the test's life.
-// The relay logs through the standard logger, and the standard logger is
-// process-global, so tests using this must not run in parallel.
+// captureLog routes the standard logger into a buffer for the test's life. The logger is process-global, so tests
+// using this must not run in parallel.
 func captureLog(t *testing.T) *lockedBuffer {
 	t.Helper()
 	buf := &lockedBuffer{}
@@ -135,8 +119,8 @@ func dialRaw(t *testing.T, addr string) net.Conn {
 	return c
 }
 
-// dialTLS is a TLS connection that verifies nothing -- a stranger has no
-// fingerprint, and the handshake is what is under test, not the identity.
+// dialTLS is a TLS connection that verifies nothing: a stranger has no fingerprint, and the handshake is under test,
+// not the identity.
 func dialTLS(t *testing.T, addr string) net.Conn {
 	t.Helper()
 	raw := dialRaw(t, addr)
@@ -153,8 +137,7 @@ func dialTLS(t *testing.T, addr string) net.Conn {
 	return tc
 }
 
-// sendHello writes one hello line, filling the protocol version if the test
-// left it zero.
+// sendHello writes one hello line, filling the protocol version if the test left it zero.
 func sendHello(t *testing.T, c net.Conn, hello protocol.Hello) {
 	t.Helper()
 	if hello.ProtocolVersion == 0 {
@@ -181,8 +164,7 @@ func readEnvelope(t *testing.T, c net.Conn) protocol.Envelope {
 	return env
 }
 
-// readEnvelopeLine is readEnvelope keeping the raw line as well, for a
-// caller that hands it to a paketest.Prover.
+// readEnvelopeLine is readEnvelope keeping the raw line as well, for a caller that hands it to a paketest.Prover.
 func readEnvelopeLine(t *testing.T, c net.Conn) (protocol.Envelope, []byte) {
 	t.Helper()
 	_ = c.SetReadDeadline(time.Now().Add(hostileDialTimeout))
@@ -211,8 +193,8 @@ func readReject(t *testing.T, c net.Conn) protocol.Reject {
 	return rej
 }
 
-// expectClosed fails unless the relay ends the connection within the window:
-// a timeout means the relay is holding a socket it should have dropped.
+// expectClosed fails unless the relay ends the connection within the window: a timeout means the relay is holding a
+// socket it should have dropped.
 func expectClosed(t *testing.T, c net.Conn, within time.Duration) {
 	t.Helper()
 	_ = c.SetReadDeadline(time.Now().Add(within))
@@ -231,8 +213,7 @@ func expectClosed(t *testing.T, c net.Conn, within time.Duration) {
 	}
 }
 
-// helloFor is a well-formed hello for room r. The code is proven, not
-// carried (ADR 0067): sendHelloWithCode runs the proof.
+// helloFor is a well-formed hello for room-1. The code is proven, not carried: sendHelloWithCode runs the proof.
 func helloFor() protocol.Hello {
 	return protocol.Hello{
 		GameID:      "game-a",
@@ -241,18 +222,15 @@ func helloFor() protocol.Hello {
 	}
 }
 
-// withKE1 is helloFor plus the proof's first message, for a test that expects
-// the relay to refuse BEFORE answering it (a blocked source).
+// withKE1 is hello plus the proof's first message, for a test that expects the relay to refuse before answering it.
 func withKE1(t *testing.T, hello protocol.Hello, code, identity string) protocol.Hello {
 	t.Helper()
 	hello.PakeKE1 = paketest.New(t, code, identity).KE1()
 	return hello
 }
 
-// sendHelloWithCode sends hello proving code against the stack's identity
-// and answers the relay's KE2 from the same socket, so the next line the
-// test reads is the relay's verdict -- a Welcome, a Reject, or whatever the
-// test is about. A wrong code sends an unusable KE3 (internal/paketest).
+// sendHelloWithCode sends hello proving code against the stack's identity and answers the relay's KE2, so the next
+// line the test reads is the relay's verdict. A wrong code sends an unusable KE3.
 func sendHelloWithCode(t *testing.T, c net.Conn, hello protocol.Hello, code, identity string) {
 	t.Helper()
 	prover := paketest.New(t, code, identity)
@@ -268,9 +246,7 @@ func sendHelloWithCode(t *testing.T, c net.Conn, hello protocol.Hello, code, ide
 		t.Fatalf("reading the relay's answer to the proof: %v", err)
 	}
 	if !prover.Handle(line, func(out []byte) error { _, err := c.Write(append(out, '\n')); return err }) {
-		// Not a KE2: the relay refused (or welcomed) without the proof. Put
-		// the line back for the caller by failing loudly instead -- every
-		// caller here expects the proof to run when a code is configured.
+		// Not a KE2: every caller here expects the proof to run when a code is configured.
 		t.Fatalf("the relay answered %q instead of the proof's KE2", string(line))
 	}
 	if n := br.Buffered(); n > 0 {
@@ -278,12 +254,8 @@ func sendHelloWithCode(t *testing.T, c net.Conn, hello protocol.Hello, code, ide
 	}
 }
 
-// TestShippedStackRejectsAWrongRoomCode is the harness's own proof: through
-// every wrapper, a wrong code gets the same legible Reject a raw listener
-// gives -- over TLS, which since 2026-09-15 is the only way to reach the
-// relay at all. The plaintext row is the other half of that: a plaintext
-// hello, wrong code or right, never reaches the relay and gets no Reject,
-// only a close at the sniff.
+// TestShippedStackRejectsAWrongRoomCode: through every wrapper, over TLS, a wrong code gets the same legible Reject a
+// raw listener gives, while a plaintext hello, wrong code or right, gets only a close at the sniff.
 func TestShippedStackRejectsAWrongRoomCode(t *testing.T) {
 	captureLog(t)
 	addr, srv := startShippedStack(t, stackOpts{roomCode: "right"})
@@ -298,9 +270,7 @@ func TestShippedStackRejectsAWrongRoomCode(t *testing.T) {
 	})
 	t.Run("plaintext is refused before the code is even read", func(t *testing.T) {
 		c := dialRaw(t, addr)
-		// The RIGHT code, on purpose: the refusal is about the missing
-		// handshake, not the code, and a plaintext client with the right
-		// code is exactly the stale build the sniff exists to turn away.
+		// A plaintext client with the right code is the stale build the sniff exists to turn away.
 		env, err := json.Marshal(protocol.Envelope{Type: protocol.TypeHello})
 		if err != nil {
 			t.Fatal(err)
@@ -315,21 +285,9 @@ func TestShippedStackRejectsAWrongRoomCode(t *testing.T) {
 	})
 }
 
-// TestShippedStackClosesASilentConnectionAtTheHelloTimeout: a socket that
-// never says hello is dropped when the relay's hello timer fires.
-//
-// The shipped stack has two timers in front of a stranger: the TLS sniff
-// holds a byte-less socket for ITS timeout first (tlsx's HandshakeTimeout,
-// 10 s, not configurable through netx.TLSOptions), and only a connection
-// that completed a handshake is handed to the relay, where the hello timer
-// starts. Since 2026-09-15 a plaintext first byte is refused at the sniff,
-// so the cheapest way a stranger reaches the relay's timer is a completed
-// handshake followed by silence -- which is what this test does. The two
-// timers used to add up (the pass-3 P1b remainder); since later the same
-// day the relay's timer counts from the moment the socket was ACCEPTED
-// (tlsx.servedConn.AcceptedAt, relay.TestTheHelloTimeoutCountsFromAccept),
-// so a stranger is held for one window, not two. This test asserts the
-// relay's half on the shipped stack.
+// TestShippedStackClosesASilentConnectionAtTheHelloTimeout: a stranger that completes the TLS handshake and then says
+// nothing is dropped when the relay's hello timer fires. The sniff's own timeout comes first and is not configurable
+// through netx.TLSOptions, so this asserts the relay's half.
 func TestShippedStackClosesASilentConnectionAtTheHelloTimeout(t *testing.T) {
 	captureLog(t)
 	const hold = 300 * time.Millisecond
@@ -342,9 +300,8 @@ func TestShippedStackClosesASilentConnectionAtTheHelloTimeout(t *testing.T) {
 	}
 }
 
-// TestShippedStackRefusesAPlaintextClient: a client from before TLS, or a
-// hand tool, is closed at the sniff and never reaches the relay -- so the
-// hello timer is not even what closes it.
+// TestShippedStackRefusesAPlaintextClient: a client from before TLS, or a hand tool, is closed at the sniff and never
+// reaches the relay's hello timer.
 func TestShippedStackRefusesAPlaintextClient(t *testing.T) {
 	captureLog(t)
 	addr, _ := startShippedStack(t, stackOpts{helloTimeout: time.Minute})
@@ -355,12 +312,9 @@ func TestShippedStackRefusesAPlaintextClient(t *testing.T) {
 	expectClosed(t, c, 5*time.Second)
 }
 
-// TestShippedStackCapsOpenConnectionsFromOneSource is finding A5 through the
-// stack that ships: one address holding idle sockets used to be able to take
-// every one of the listener's 64 slots and refuse every real player with a
-// bare close. Now it stops at its own share (relay.MaxOpenConnsPerSourceFor)
-// while the listener still has room. The refusal is a close with no Reject,
-// deliberately: the limiter sits below the protocol and cannot write one.
+// TestShippedStackCapsOpenConnectionsFromOneSource: one address holding idle sockets stops at its own share
+// (relay.MaxOpenConnsPerSourceFor) while the listener still has room. The refusal is a close with no Reject: the
+// limiter sits below the protocol and cannot write one.
 func TestShippedStackCapsOpenConnectionsFromOneSource(t *testing.T) {
 	captureLog(t)
 	const seats = 8
@@ -376,16 +330,14 @@ func TestShippedStackCapsOpenConnectionsFromOneSource(t *testing.T) {
 	for i := 0; i < perSource; i++ {
 		held = append(held, dialRaw(t, addr))
 	}
-	// Let the accept loop take them all: a socket the OS accepted but the
-	// limiter has not yet counted would let the next one slip through.
+	// Let the accept loop take them all: one the OS accepted but the limiter has not counted would let the next in.
 	time.Sleep(200 * time.Millisecond)
 
 	// One more from the same address is closed at once.
 	extra := dialRaw(t, addr)
 	expectClosed(t, extra, hostileDialTimeout)
 
-	// Release one and the address is admitted again; the socket stays open
-	// past the window a refused one is closed in.
+	// Release one and the address is admitted again: the socket stays open past the window a refused one closes in.
 	_ = held[0].Close()
 	time.Sleep(100 * time.Millisecond)
 	again := dialRaw(t, addr)
@@ -397,20 +349,14 @@ func TestShippedStackCapsOpenConnectionsFromOneSource(t *testing.T) {
 	}
 }
 
-// TestShippedStackThrottlesRoomCodeGuessesFromOneSource is finding A3 through
-// the shipped stack and the shipped table: one address gets
-// relay.RoomCodeAttemptBurst wrong codes, and the next hello -- right or
-// wrong -- is refused as rate limited before the code is compared.
+// TestShippedStackThrottlesRoomCodeGuessesFromOneSource: one address gets relay.RoomCodeAttemptBurst wrong codes,
+// and the next hello, right or wrong, is refused as rate limited before the code is compared.
 func TestShippedStackThrottlesRoomCodeGuessesFromOneSource(t *testing.T) {
 	captureLog(t)
 	addr, srv := startShippedStack(t, stackOpts{roomCode: "right-code"})
-	// The budget refills one whole token per second (RoomCodeAttemptsPerSecond),
-	// and every guess here costs a real OPAQUE exchange -- under the race
-	// detector on CI's runner the burst alone took 1.5 s, one token came back
-	// mid-burst, and the guess after the burst was answered with a KE2 instead
-	// of the rate-limit Reject (2026-09-15, three of three runs). So: guess
-	// until the relay blocks, allowing exactly the refill the wall clock
-	// permits, and fail if it blocks EARLY or never blocks at all.
+	// The budget refills a token a second and every guess costs a real OPAQUE exchange, so a slow run can earn a
+	// token back mid-burst: guess until blocked, allowing the refill the clock permits, and fail if it blocks early
+	// or never.
 	rateLimited := protocol.CodeForReason(protocol.ReasonRateLimited)
 	started := time.Now()
 	guesses := 0
@@ -452,8 +398,7 @@ func TestShippedStackThrottlesRoomCodeGuessesFromOneSource(t *testing.T) {
 		}
 		break
 	}
-	// The budget is spent: the right code from the same address is refused
-	// as rate limited, and so is another wrong one.
+	// The budget is spent: the right code and another wrong one are both refused as rate limited.
 	for _, code := range []string{"right-code", "wrong"} {
 		c := dialTLS(t, addr)
 		// Blocked before the proof: the hello with KE1 gets the Reject at once.
@@ -466,8 +411,6 @@ func TestShippedStackThrottlesRoomCodeGuessesFromOneSource(t *testing.T) {
 	}
 }
 
-// TestAShortRoomCodeWarnsAtStartup holds the startup line to its word for
-// the three cases a host can be in.
 func TestAShortRoomCodeWarnsAtStartup(t *testing.T) {
 	if got := roomCodeStartupNotice(""); !strings.Contains(got, "WARNING: no room code") {
 		t.Fatalf("empty code: %q", got)
@@ -480,19 +423,8 @@ func TestAShortRoomCodeWarnsAtStartup(t *testing.T) {
 	}
 }
 
-// TestShippedStackCountsTheHelloTimeoutFromAccept is pass 5's P1d-1. The
-// 2026-09-15 fix made the relay's hello timer count from the moment the
-// socket was accepted (tlsx.servedConn.AcceptedAt), so a stranger who drips
-// the TLS handshake and then goes silent is held for ONE window. It never
-// ran on the shipped stack: main wraps every accepted connection in
-// trackedConn, which forwarded only the methods it listed, so the relay's
-// type assertion for AcceptedAt failed and the timer restarted at the
-// handshake -- two windows again. The test above asserts only a lower bound
-// and passed throughout.
-//
-// Here the handshake starts most of a window after accept; the close must
-// come at the END of the window that started at accept, not a whole window
-// after the handshake.
+// TestShippedStackCountsTheHelloTimeoutFromAccept: the handshake starts most of a window after accept, and the close
+// must come at the end of the window that started at accept, which needs trackedConn to forward AcceptedAt.
 func TestShippedStackCountsTheHelloTimeoutFromAccept(t *testing.T) {
 	captureLog(t)
 	const hold = time.Second
@@ -510,8 +442,6 @@ func TestShippedStackCountsTheHelloTimeoutFromAccept(t *testing.T) {
 		t.Fatalf("tls handshake: %v", err)
 	}
 	_ = tc.SetDeadline(time.Time{})
-	// Counted from accept, about hold-lateBy (300ms) is left. Counted from the
-	// handshake, a whole hold (1s) is. Allow well past the first, well short
-	// of the second.
+	// From accept, hold-lateBy is left; from the handshake, a whole hold. Allow past the first, short of the second.
 	expectClosed(t, tc, hold-lateBy+350*time.Millisecond)
 }

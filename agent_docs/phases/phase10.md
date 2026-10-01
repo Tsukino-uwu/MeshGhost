@@ -2872,3 +2872,6 @@ record held went to [verified.md](../verified.md), same date; a doc pointer a co
   TLS), udp and the tcp handshake said to carry the room code in the clear (it is proven, never sent), quic called one
   datagram per line (reliable lines ride a stream), a TLS connection-state accessor called unused (`PeerFingerprint`
   calls it), and an idle source entry described by its last use (one with an open connection is never idle).
+- `cmd/` (40 files): comment lines 3,551 → 1,240. Stale claims fixed: netsim's loss on tcp said refused (allowed unless no udp
+  port is mirrored), the relay's ghost collision said enabled by default (disabled), `Gzip` said on by default (off), and
+  four doc comments that sat on the wrong function moved to their own.

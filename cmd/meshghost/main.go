@@ -1,6 +1,5 @@
-// Command meshghost is the desktop core process: it connects to a relay
-// and listens for a local adapter over the bridge. See core for
-// the implementation and agent_docs/contract.md for the protocol.
+// Command meshghost is the desktop core process: it connects to a relay and listens for a local adapter over the
+// bridge. The implementation is package core.
 package main
 
 import (
@@ -29,13 +28,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// logRunBanner marks the start of a run in an appending log, so a file holding
-// several runs can be read at all -- without it, a respawned client's output runs
-// straight into the dead one's with no way to tell where one ended. Everything on
-// it is something that has actually been guessed wrong in a support conversation:
-// which executable is really running, which folder it thinks it is in (that is the
-// folder its config and this log come from), and whether an adapter started it or
-// a human did.
+// logRunBanner marks where a run starts in the appending log, with what support conversations have guessed wrong:
+// which executable runs, the folder its config and log come from, and whether an adapter or a person started it.
 func logRunBanner(autostarted bool) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -63,23 +57,11 @@ func logRunBanner(autostarted bool) {
 	log.Printf("meshghost: working directory %s (config and this log are read/written here)", cwd)
 }
 
-// fileConfig is the shape of the "client" section of an optional JSON config
-// file (see -config) -- a friendlier alternative to CLI flags for a
-// non-developer player, per packaging/README.md. Pointer fields distinguish
-// "absent from the file" from "present with a zero value", so a config file
-// only ever overrides what it actually mentions. The JSON field names are
-// deliberately end-user-facing and differ from the flag names below:
-// "connect_to" (not "relay") is the address you connect out to, and
-// "local_game_bridge" (not "bridge") makes clear that socket never leaves
-// the machine -- see packaging/release/config.json and its README.txt.
-//
-// "room_name", "player_name" and "player_name_color" are the newest of those
-// (2026-09-13) and came from watching a tester work out what the file wanted:
-// "room" reads like a mode rather than a word you agree on with friends, and
-// "name" sat in the same file as replay.name and chaser.name, which mean two
-// other things. The old spellings still work -- clientKeyRenames below -- and
-// the WIRE field is untouched: protocol.Hello.Room is still "room", because
-// that one is a contract with anybody who integrates.
+// fileConfig is the "client" section of the optional JSON config file (-config), a player's alternative to flags.
+// Pointer fields tell absent from zero, so the file overrides only what it mentions. The JSON names are player-facing
+// and differ from the flags: "connect_to" is where you connect out to, and "local_game_bridge" never leaves the
+// machine. Old spellings still read (clientKeyRenames); the wire field protocol.Hello.Room is still "room", a
+// contract with anyone who integrates.
 type fileConfig struct {
 	Relay     *string `json:"connect_to"`
 	Bridge    *string `json:"local_game_bridge"`
@@ -88,134 +70,64 @@ type fileConfig struct {
 	Name      *string `json:"player_name"`
 	NameColor *string `json:"player_name_color"`
 	Interp    *string `json:"interp"`
-	// LocalInterp is the render delay for a LOCAL ghost -- a replay or a
-	// chaser -- which is a different number for a different job than Interp;
-	// see core.DefaultLocalGhostDelay.
+	// LocalInterp is the render delay for a local ghost (a replay or a chaser), a different job from Interp.
 	LocalInterp *string `json:"local_interp"`
 	MinSend     *string `json:"min_send"`
-	// Keepalive is how often an UNCHANGED state is re-sent (core.IdleKeepalive).
-	// "0" disables change suppression and sends every frame.
+	// Keepalive is how often an unchanged state is re-sent (core.Core.IdleKeepalive); "0" sends every frame.
 	Keepalive *string `json:"keepalive"`
-	// Extrapolate is the opt-in prediction window (core.Core.Extrapolate).
-	// Absent or "0" holds the newest sample, which is the shipped behaviour.
+	// Extrapolate is the opt-in prediction window (core.Core.Extrapolate); absent or "0" holds the newest sample.
 	Extrapolate *string `json:"extrapolate"`
-	// Curve is "linear" (default) or "catmull-rom" -- see core.CurveMode.
+	// Curve is "linear" (default) or "catmull-rom" (core.CurveMode).
 	Curve *string `json:"curve"`
-	// Predict is "linear" (default) or "accelerated" -- see core.PredictMode.
+	// Predict is "linear" (the flag default), "damped" (shipped) or "accelerated" (core.PredictMode).
 	Predict *string `json:"predict"`
-	// Correction is the error-decay time constant (core.Core.Correction).
-	// Absent or "0" jumps on every correction, which is the shipped behaviour.
+	// Correction is the error-decay time constant (core.Core.Correction); absent or "0" jumps on every correction.
 	Correction *string `json:"correction"`
-	// Stats is how often to log the one-line summary, e.g. "10s". Absent or "0"
-	// disables it. In the FILE as well as on the flag because the client a player
-	// actually runs is usually started by their game, which passes no flags -- so
-	// without this there is no way to turn the numbers on in the session that has
-	// the problem.
+	// Stats is how often to log the one-line summary, e.g. "10s"; absent or "0" disables it. In the file because a
+	// client started by its game gets no flags.
 	Stats       *string `json:"stats"`
 	RoomCode    *string `json:"room_code"`
 	GameVersion *string `json:"game_version"`
-	// MaxReceiveHzPerPlayer is the highest rate, per OTHER player, at which
-	// this client wants the relay to forward their state to it. Absent or 0
-	// means uncapped (the pre-existing behavior). Per-peer, not a total —
-	// see core.Core.MaxReceiveHz and the ADR in agent_docs/architecture.md.
+	// MaxReceiveHzPerPlayer is the highest rate per other player, not a total, at which the relay forwards their state
+	// to this client; absent or 0 is uncapped (core.Core.MaxReceiveHz).
 	MaxReceiveHzPerPlayer *int `json:"max_receive_hz_per_player"`
-	// GhostCollision is this player's OWN ghost-collision preference, and it
-	// only ever works in the restrictive direction: "disabled" turns ghost
-	// collision off for this player whatever the room is set to, while
-	// "enabled" (or absent, the default) accepts whatever the host chose. A
-	// host can take collision away; a host cannot force it onto someone who
-	// does not want it. See core.Core.GhostCollision and the ADR in
-	// agent_docs/architecture.md.
+	// GhostCollision is this player's own preference and only restricts: "disabled" turns ghost collision off whatever
+	// the room says, "enabled" or absent accepts the host's choice (core.Core.GhostCollision).
 	GhostCollision *string `json:"ghost_collision"`
-	// Features turns on capabilities beyond the cosmetic ghost overlay --
-	// the event plane, leases, escrow, late-join snapshots, session
-	// resumption, clock sync (see protocol's Feature* constants and
-	// agent_docs/beyond-cosmetic.md). Absent or empty, the default, means
-	// cosmetic only.
-	//
-	// **A room's capability set has to match EXACTLY across everyone in it**,
-	// so this is not a per-player preference like the ones above: everybody
-	// sharing a room needs the same list, and a client whose list differs is
-	// refused at the handshake with a clear reason rather than admitted into
-	// a room where half the arbitration silently does not work.
+	// Features turns on capabilities beyond the cosmetic overlay (protocol's Feature* constants); absent or empty is
+	// cosmetic only. Everyone in a room needs the same list: a client whose list differs is refused at the handshake
+	// rather than admitted where half the arbitration silently does not work.
 	Features *[]string `json:"features"`
-	// Transport is what this client moves to AFTER connecting, not how it
-	// connects: the handshake is always tcp and no setting changes that.
-	// "tcp" stays put; "udp" and "quic" upgrade if the
-	// relay serves them; "auto" takes the best on offer.
-	//
-	// Because the relay is asked what it serves during that tcp handshake,
-	// connect_to only ever needs the tcp port -- a client never has to be
-	// told where quic lives, and asking for a transport the relay does not
-	// serve degrades to a working tcp session rather than a timeout. See
-	// packaging/release/README.txt and the transport discovery ADR in
-	// agent_docs/architecture.md.
+	// Transport is what this client moves to after connecting over tcp: "tcp" stays put, "quic" upgrades if the relay
+	// serves it, "auto" takes the best on offer. The relay says what it serves during the handshake, so connect_to
+	// needs only the tcp port, and a transport it does not serve degrades to tcp rather than a timeout.
 	Transport *string `json:"transport"`
-	// TLS and TLSFingerprint are OBSOLETE (2026-09-15, ADR 0066): every
-	// connection is TLS with nothing to switch, and the relay's identity is
-	// remembered automatically in known_servers.json rather than pinned
-	// by hand. Both are still decoded so an old config's keys are not
-	// reported as unknown, and then judged by checkLegacyTLSKeys: a value
-	// that asked for plaintext, or a pin, refuses to start -- a security
-	// setting is never silently ignored -- and the harmless leftovers run
-	// with a note to delete them.
+	// TLS and TLSFingerprint are obsolete: every connection is TLS, and the relay's identity is remembered in
+	// known_servers.json. Both are still decoded so an old config is judged by checkLegacyTLSKeys, not called unknown.
 	TLS            *string `json:"tls"`
 	TLSFingerprint *string `json:"tls_fingerprint"`
-	// ShowConsole opens a console window for a client that an adapter started
-	// with no window. Absent or false is the point of autostart -- MeshGhost
-	// should feel like part of launching the game, not a third thing to run --
-	// so this is for someone who wants to watch it work. See consoleWriter.
+	// ShowConsole opens a console window for a client an adapter started with none (consoleWriter).
 	ShowConsole *bool `json:"show_console"`
-	// Offline plays alone deliberately: no relay is dialled, no room is
-	// joined, and the retry loop that logs "cannot connect yet" never starts.
-	// Recording, replays and chasers all still work -- they never needed a
-	// relay. Ships as false; someone who plays with replays and no room turns
-	// it on and gets a quiet console.
+	// Offline plays alone: no relay is dialled and no retry loop starts, while recording, replays and chasers work.
 	Offline *bool `json:"offline"`
-	// Replay is the recording block (ADR 0047): record_on_launch writes the
-	// whole session to the replay/ folder beside this file; save_last is how
-	// many seconds the save-last hotkey keeps. Nested so the player's file
-	// reads as one topic, one line: {"record_on_launch": false, "save_last": "30s"}.
+	// Replay is the recording block: record_on_launch writes the whole session to replay/ beside this file, and
+	// save_last is how much the save-last hotkey keeps.
 	Replay *replayFileConfig `json:"replay"`
-	// Hotkeys binds the mid-play replay actions to system-wide chords the
-	// client itself registers (ADR 0048): they work in every game with the
-	// game focused, and no adapter has to implement a key. One line in the
-	// player's file; an empty value leaves that action unbound.
+	// Hotkeys binds the replay actions to system-wide chords the client registers itself, so they work in every game
+	// with no adapter implementing a key; an empty value leaves that action unbound.
 	Hotkeys *hotkeyFileConfig `json:"hotkeys"`
-	// Chaser is the pack of your own past following you (ADR 0047): count
-	// ghosts, the first `delay` behind and each further `spacing` behind the
-	// one before. Cosmetic whatever ghost_collision says; contact is the
-	// adapter-facing hook no shipped adapter honours yet.
+	// Chaser is the pack of your own past following you: count ghosts, the first delay behind and each next spacing
+	// behind the one before. Cosmetic whatever ghost_collision says.
 	Chaser *chaserFileConfig `json:"chaser"`
 }
 
-// notClientSettings are keys the shipped config.json carries for the GAME'S MOD
-// rather than for this binary, qualified the way cfg.WarnUnknownKeys names a
-// section.
-//
-// config.json is one file read by two programs. The mod that starts this client
-// reads its own handful of keys out of the same "client" object -- it is the
-// player's one settings file on purpose -- and none of them has, or should have,
-// a field in fileConfig: this binary cannot act on any of them.
-//
-// Without this list the unknown-key warning (2026-09-11) could not tell them
-// from a typo, because to reflection they are the same thing, and an untouched
-// release told every player that six of its own shipped defaults were "being
-// IGNORED, so whatever they were meant to change is still at its default". They
-// were not being ignored; they were being read by somebody else. docs/config.md
-// documents them as legitimate and says which program reads each one.
-//
-// Adding a key here is a claim that another reader owns it. If nothing reads it,
-// it IS a typo and belongs in neither place.
-// Pinned by TestShippedConfigsProduceNoUnknownKeyWarning against every shipped
-// config, so a mod that gains a key fails the suite rather than a player's log.
+// notClientSettings are keys config.json carries for the game's mod rather than this binary, qualified the way
+// cfg.WarnUnknownKeys names a section: to reflection a key the mod reads looks like a typo. Adding one claims another
+// reader owns it. TestShippedConfigsProduceNoUnknownKeyWarning pins the list against every shipped config.
 var notClientSettings = map[string]bool{
 	// Read by every shipped mod.
 	"client.autostart": true, // whether the mod starts this client at all
-	// Read by ONE mod each, and since 2026-09-13 shipped only in that game's own
-	// config.json -- stage-release.ps1's $gameOnly strips each from the others,
-	// because a key a player can edit to no effect is a support question. They
-	// stay listed here because the ROOT config.json still carries both.
+	// Read by one mod each and stripped from the other games' files by stage-release.ps1; the root file has both.
 	"client.map_markers":   true, // TEVI's pause-menu peer markers
 	"client.input_display": true, // Pseudoregalia's input overlay (a whole subtree)
 	// Pseudoregalia's distance tiers, in its per-game config.json.
@@ -228,15 +140,10 @@ var notClientSettings = map[string]bool{
 	"client.replay.indicator_timer_color": true,
 }
 
-// clientKeyRenames are the old spellings of client keys that were renamed, and
-// what each is called now. cfg.RenameOldKeys applies them to the raw bytes
-// before anything decodes the file, so an existing config keeps working and the
-// player is told once what to rename (2026-09-13).
-//
-// NOT notClientSettings entries: that map is a claim that ANOTHER READER owns
-// the key, which would be a lie here and would silence a genuine typo. An old
-// spelling is this binary's own key under its previous name, which is a
-// different thing and is handled in a different place.
+// clientKeyRenames maps the old spellings of renamed client keys to their current names. cfg.RenameOldKeys applies
+// them to the raw bytes before anything decodes the file, so an old config keeps working and the player is told once
+// what to rename. They are not notClientSettings entries: an old spelling is this binary's own key, not another
+// reader's.
 var clientKeyRenames = map[string]string{
 	"room":       "room_name",
 	"name":       "player_name",
@@ -250,21 +157,16 @@ type chaserFileConfig struct {
 	Spacing *string `json:"spacing"`
 	Name    *string `json:"name"`
 	Color   *string `json:"color"`
-	// Contact: "off", "hurt" or "kill" (ADR 0068). A bool -- what the key
-	// shipped as before 2026-09-15 -- still reads, see chaserContactJSON.
+	// Contact: "off", "hurt" or "kill"; the bool the key once was still reads (chaserContactJSON).
 	Contact *chaserContactJSON `json:"contact"`
-	// SpawnDelay: a chaser appears only once you have been moving for this
-	// long, so none spawns on top of you while you stand at the start.
-	// Absent or "0s" means the chaser's own delay.
+	// SpawnDelay: a chaser appears only once you have been moving this long, so none spawns on top of you at the
+	// start. Absent or "0s" means the chaser's own delay.
 	SpawnDelay *string `json:"spawn_delay"`
 }
 
-// chaserContactJSON reads chaser.contact as either a JSON string ("off",
-// "hurt", "kill") or the bool the key was until 2026-09-15 (true is "hurt",
-// the one effect it ever promised; false is "off"). It only carries the text:
-// core.ParseChaserContact judges it, so a value that is neither is warned
-// about and skipped at the override site, like a bad duration, rather than
-// failing the whole file.
+// chaserContactJSON reads chaser.contact as a JSON string ("off", "hurt", "kill") or the legacy bool (true is "hurt",
+// the one effect it promised). It only carries the text: core.ParseChaserContact judges it at the override site, so
+// a bad word is warned about and skipped rather than failing the whole file.
 type chaserContactJSON string
 
 func (m *chaserContactJSON) UnmarshalJSON(b []byte) error {
@@ -285,9 +187,8 @@ func (m *chaserContactJSON) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// overrideChaserContact is cfg.Override for chaser.contact: the file's word
-// lands on the flag only when it names a mode, and a word that does not is
-// warned about and skipped so the settings around it still apply.
+// overrideChaserContact is cfg.Override for chaser.contact: the file's word lands only when it names a mode, and
+// any other word is warned about and skipped so the settings around it still apply.
 func overrideChaserContact(explicit map[string]bool, target *string, value *chaserContactJSON, path string) {
 	if value == nil || explicit["chaser-contact"] {
 		return
@@ -312,47 +213,34 @@ type hotkeyFileConfig struct {
 type replayFileConfig struct {
 	RecordOnLaunch *bool   `json:"record_on_launch"`
 	SaveLast       *string `json:"save_last"`
-	// StartDelay is how long after you are in the game a replay ghost starts,
-	// for files whose own header says 0s.
+	// StartDelay is how long after you are in the game a replay ghost starts, for files whose header says 0s.
 	StartDelay *string `json:"start_delay"`
 	// Seek is how far one rewind or fast-forward key press moves a replay.
 	Seek *string `json:"seek"`
-	// SplitTimes shows "+1.2s" on a replay ghost's nametag: how far behind
-	// (or ahead of) it you are. Off unless asked for.
+	// SplitTimes shows how far behind or ahead of a replay ghost you are on its nametag, e.g. "+1.2s".
 	SplitTimes *bool `json:"split_times"`
-	// Gzip writes recordings as .ndjson.gz. On by default and worth about
-	// 19x on a real clip; false writes a plain file you can read in an editor.
+	// Gzip writes recordings as .ndjson.gz. Off by default: a gzip file cut short when the game closes is refused
+	// whole by ordinary tools.
 	Gzip *bool `json:"gzip"`
-	// Delta writes only the values that CHANGED since the previous sample,
-	// which is where a recording's size went once gzip stopped being the
-	// default. The header is untouched, so editing a clip is unaffected.
+	// Delta writes only the values that changed since the previous sample; the header is untouched, so a clip stays
+	// editable.
 	Delta *bool `json:"delta"`
-	// Inputs also records what you PRESSED, as a separate track in
-	// replay/inputs/. Off by default. It never plays back as a ghost; it is a
-	// record of the run's input, for a visualizer and for debugging.
+	// Inputs also records what you pressed, as a separate track in replay/inputs/ that never plays back as a ghost.
 	Inputs *bool `json:"inputs"`
-	// Name and Color label the recordings this client writes -- the clip
-	// header a replay ghost draws its nametag from. Blank falls back to the
-	// player's own "player_name"/"player_name_color", so a clip is born labelled
-	// rather than needing its header edited inside a .gz afterwards.
+	// Name and Color label the recordings this client writes, the header a replay ghost's nametag reads. Blank falls
+	// back to player_name and player_name_color, so a clip is born labelled.
 	Name  *string `json:"name"`
 	Color *string `json:"color"`
 }
 
-// rootConfig is the top-level shape of the config file: a "client" section
-// read by this binary, sitting alongside a "server" section (meaningless
-// here) read by cmd/meshghost-relay from the same file in the shipped
-// package -- see packaging/release/config.json.
+// rootConfig is the top-level shape of the config file: a "client" section read here, beside the "server" section
+// cmd/meshghost-relay reads from the same file.
 type rootConfig struct {
 	Client *fileConfig `json:"client"`
 }
 
-// configTargets are the flag-backed variables applyFileConfig may overwrite
-// — one *string/*time.Duration per fileConfig field. Grouped into a struct
-// (rather than applyFileConfig's old flat list of positional pointer
-// params) since that list was already at five and room-code/game-version
-// support would have pushed it to seven; a struct keeps each field's name
-// at the call site instead of relying on positional order.
+// configTargets are the flag-backed variables applyFileConfig may overwrite, one per fileConfig field, named at the
+// call site rather than passed by position.
 type configTargets struct {
 	relayAddr      *string
 	bridgeAddr     *string
@@ -411,21 +299,13 @@ type hotkeyTargets struct {
 // applyFileConfig returns the absolute path of the config file it looked for
 // (read or not), so callers can place things beside it -- the replay folder.
 func applyFileConfig(path string, explicit map[string]bool, t configTargets) string {
-	// Absolute path, BOM strip and empty-file check all live in
-	// cfg.ReadConfigFile -- shared with cmd/meshghost-relay, which was carrying
-	// the identical sequence. What is NOT shared is the missing-file message
-	// below: with the client autostarted there is no console showing which
-	// folder it was launched from, so a player needs telling.
 	data, shown, err := cfg.ReadConfigFile(path, "meshghost")
 	if err != nil {
 		if !os.IsNotExist(err) {
 			log.Printf("meshghost: warning: could not read config file %s: %v", shown, err)
 			return shown
 		}
-		// Missing was silent until autostart landed. Silence is fine when a
-		// developer passes flags on purpose, and actively misleading for a
-		// player whose only feedback channel is this file: every setting they
-		// typed is being ignored and there was nothing anywhere saying so.
+		// Said, because an autostarted client has no console showing which folder it was launched from.
 		log.Printf("meshghost: no config file at %s -- using built-in defaults "+
 			"(connect_to 127.0.0.1:7777). If you edited a config.json somewhere else, "+
 			"that is not the one being read.", shown)
@@ -435,10 +315,7 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) str
 	if data == nil {
 		return shown
 	}
-	// A key renamed since this file was written is moved to its current name
-	// FIRST, on the raw bytes, so everything below -- the decoder,
-	// ApplyDespiteBadValue, and the unknown-key warner reading clientSection(data)
-	// -- sees only current names and none of them needs to know a rename happened.
+	// Renamed keys move to their current names first, on the raw bytes, so everything below sees only current names.
 	data = cfg.RenameOldKeys(data, "client", clientKeyRenames, shown, "meshghost")
 	var rc rootConfig
 	if err := json.Unmarshal(data, &rc); err != nil {
@@ -446,10 +323,7 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) str
 			return shown
 		}
 	}
-	// A key that is not a setting is a typo doing nothing. Checked on the raw
-	// bytes rather than the decoded struct, because that is the only place an
-	// unknown key still exists -- see cfg.WarnUnknownKeys, including why the
-	// root object is deliberately not checked.
+	// Unknown keys are checked on the raw bytes, the only place one still exists after decoding.
 	if sections := clientSection(data); sections != nil {
 		cfg.WarnUnknownKeys(sections, fileConfig{}, shown, "meshghost", "client", notClientSettings)
 	}
@@ -484,9 +358,7 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) str
 	cfg.Override(explicit, "show-console", t.showConsole, fc.ShowConsole)
 	cfg.Override(explicit, "offline", t.offline, fc.Offline)
 	if fc.Features != nil && !explicit["features"] {
-		// The one setting that is not a straight copy: joined rather than kept as
-		// a list, so the config file and the flag resolve to one representation
-		// and the flag stays a plain string.
+		// Joined, so the file and the flag resolve to one representation and the flag stays a plain string.
 		*t.features = strings.Join(*fc.Features, ",")
 	}
 	if fc.Replay != nil {
@@ -544,29 +416,18 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) str
 	return shown
 }
 
-// namePlaceholder is what packaging/release/config.json ships in player_name,
-// and it means UNSET -- exactly as if the key were empty, so no nametag is
-// drawn. A shipped blank taught nobody what the field wanted: a tester filled
-// theirs with "Default Name 123" to find out, which is the job a placeholder
-// does properly (the user's call, 2026-09-13).
-//
-// Matched case-insensitively and with surrounding space trimmed, so "nickname",
-// "Nickname", "NICKNAME", "  nickname  " and "" are one answer: no tag. The cost
-// is that this exact word cannot be somebody's real nametag; any variation
-// ("Nickname!") can, and docs/config.md says so.
+// namePlaceholder is what the shipped config.json puts in player_name, and it means unset, so no nametag is drawn:
+// the word teaches what the field wants where a blank did not. Matched case-insensitively with surrounding space
+// trimmed, so this exact word cannot be a real nametag, though any variation ("Nickname!") can.
 const namePlaceholder = "nickname"
 
-// defaultRoom is where an empty room_name lands. Every other empty setting in
-// this file means "leave it alone", and the room was the one exception: an
-// empty string was a REAL room, distinct from "default", so two players whose
-// files differed only in blank-versus-"default" joined different rooms and
-// neither was told. The relay keys rooms on the string it is given
-// (relay.roomKey), so nothing downstream can notice the mistake either.
+// defaultRoom is where an empty room_name lands. Left alone, an empty string would be a real room distinct from
+// "default", and the relay keys rooms on the string it is given (relay.roomKey), so two players differing only in
+// blank versus "default" would never meet and nobody would be told.
 const defaultRoom = "default"
 
-// normalizeRoom is the one place an empty or whitespace-only room becomes the
-// default room. It is a string function so the shipped-config test can pin it
-// against the -room flag's default without starting anything.
+// normalizeRoom is the one place an empty or whitespace-only room becomes the default room, a string function so the
+// shipped-config test can pin it against the -room flag's default.
 func normalizeRoom(s string) string {
 	if strings.TrimSpace(s) == "" {
 		return defaultRoom
@@ -574,26 +435,19 @@ func normalizeRoom(s string) string {
 	return s
 }
 
-// isPlaceholderName reports whether a name is the shipped placeholder, i.e. a
-// player who has not chosen one yet.
+// isPlaceholderName reports whether a name is the shipped placeholder, a player who has not chosen one yet.
 func isPlaceholderName(s string) bool {
 	return strings.EqualFold(strings.TrimSpace(s), namePlaceholder)
 }
 
-// Said once per process, not once per reload: the file is re-read on every
-// save, and a line repeated on each one is a line people stop reading.
+// Said once per process, not per reload: the file is re-read on every save, and a line repeated on each goes unread.
 var (
 	loggedRoomDefault     bool
 	loggedPlaceholderName bool
 )
 
-// normalizeIdentity resolves the two settings whose empty value means something
-// other than "unset", AFTER flags and file have both had their say.
-//
-// It touches t.room and t.name and nothing else. t.replayName, t.chaser.name
-// and t.chaser.color are different settings that happen to share a word with
-// these, and a placeholder must never reach them -- pinned by
-// TestThePlaceholderDoesNotLeakIntoReplayOrChaserNames.
+// normalizeIdentity resolves the two settings whose empty value means something other than unset, after flags and
+// file. It touches t.room and t.name only: the replay and chaser names share a word and mean something else.
 func normalizeIdentity(t configTargets) {
 	if t.room != nil {
 		if room := normalizeRoom(*t.room); room != *t.room {
@@ -615,27 +469,18 @@ func normalizeIdentity(t configTargets) {
 	}
 }
 
-// loadClientConfig is applyFileConfig plus the resolution step, and it is what
-// every non-test caller uses: startup and the reload watcher both, so the
-// values they compare are the SAME values. Normalizing in only one of them
-// would make an empty room_name read as a change on the first save and ask the
-// player to relaunch for nothing.
+// loadClientConfig is applyFileConfig plus normalizeIdentity, used by startup and the reload watcher alike: resolving
+// in only one would make an empty room_name read as a change on the first save and ask for a needless relaunch.
 func loadClientConfig(path string, explicit map[string]bool, t configTargets) string {
 	shown := applyFileConfig(path, explicit, t)
 	normalizeIdentity(t)
 	return shown
 }
 
-// checkLegacyTLSKeys judges the two obsolete config keys (ADR 0066). Empty
-// (absent) is nothing. "tls" that asked for plaintext -- off, auto, or their
-// aliases -- is an ERROR, because the setting meant something about
-// encryption and a client that silently ran with a different meaning would
-// be exactly the "security setting a stale binary ignores" agent_docs/risks.md
-// warns about; "required" and its aliases run with a note. A non-empty
-// "tls_fingerprint" is an error too: the player pinned a relay on purpose,
-// and quietly replacing that with remembering-on-first-use is a downgrade
-// they did not choose -- the error says what replaced it. An empty pin is a
-// leftover and runs with a note.
+// checkLegacyTLSKeys judges the two obsolete config keys; absent is nothing. A "tls" that asked for plaintext (off,
+// auto or an alias) is an error, because a security setting must never run with a silently different meaning;
+// "required" and its aliases run with a note. A non-empty "tls_fingerprint" is an error too: the player pinned a
+// relay on purpose, and remembering on first use instead is a downgrade they did not choose.
 func checkLegacyTLSKeys(tlsMode, pin string) (notes []string, err error) {
 	switch strings.ToLower(strings.TrimSpace(tlsMode)) {
 	case "":
@@ -659,29 +504,11 @@ func checkLegacyTLSKeys(tlsMode, pin string) (notes []string, err error) {
 	return notes, nil
 }
 
-// connectRelayWithRetry keeps calling Core.ConnectRelayOnAdapterHello until
-// it succeeds or is permanently refused, so meshghost.exe doesn't require
-// the relay to already be running when the caller uses an explicit -game
-// (dev-scripts, fakeadapter-style tooling — the default, -game unset,
-// already tolerates this for free the same way, since a real adapter's own
-// bridge-reconnect loop drives retries there). Routed through
-// ConnectRelayOnAdapterHello specifically, not Core.ConnectRelay directly:
-// that function already serializes on Core.relayConnectMu and checks
-// "already connected," which matters here because a real adapter can also
-// connect over the bridge and send its own hello for the same game_id
-// while this loop is still waiting for the relay to come up — without
-// going through the same entry point, both could race to dial
-// independently. ConnectRelayOnAdapterHello's own internal logging (with
-// dedup) already covers "could not connect yet" and "permanently
-// refused," so this loop doesn't log anything of its own beyond the final
-// Fatalf. Added after the user asked whether client/server had to be
-// started in a specific order — they shouldn't have to be.
-//
-// Takes no gameVersion parameter: c.GameVersion is already set from the
-// -game-version flag/config before this is called (see main below), and
-// ConnectRelayOnAdapterHello reads it from there directly — passing it
-// again here would have been a dead argument (found in a review pass;
-// this used to take one and thread it through unused).
+// connectRelayWithRetry calls Core.ConnectRelayOnAdapterHello until it succeeds or is permanently refused, so an
+// explicit -game does not need the relay up first (without -game, the adapter's own reconnect loop retries). It goes
+// through ConnectRelayOnAdapterHello rather than Core.ConnectRelay because that serializes on relayConnectMu and
+// checks "already connected": an adapter can send its own hello for the same game while this waits. That function
+// logs its own outcomes, so this loop adds only the final Fatalf, and it reads c.GameVersion, already set by main.
 func connectRelayWithRetry(c *core.Core, gameID string) {
 	backoff := core.InitialReconnectBackoff
 	for {
@@ -690,7 +517,7 @@ func connectRelayWithRetry(c *core.Core, gameID string) {
 			return
 		}
 		if core.IsRoomCodeRefusalErr(err) {
-			// Tried again once a minute rather than exiting (core.RoomCodeRetryInterval).
+			// Retried every core.RoomCodeRetryInterval rather than exiting.
 			time.Sleep(core.RoomCodeRetryInterval)
 			continue
 		}
@@ -702,31 +529,14 @@ func connectRelayWithRetry(c *core.Core, gameID string) {
 	}
 }
 
-// parentPollInterval is how often watchParentPID checks whether the process that
-// spawned this one is still alive. Two seconds matches the adapters' own bridge
-// reconnect interval: it is fast enough that a restarted game finds the port free,
-// and cheap enough to be invisible (one process-handle open per tick).
+// parentPollInterval is how often watchParentPID checks the parent. Two seconds matches the adapters' bridge reconnect
+// interval, so a restarted game finds the port free, at one process-handle open per tick.
 const parentPollInterval = 2 * time.Second
 
-// watchParentPID exits this process once pid does, so an autostarted client dies
-// with the game that started it.
-//
-// Without it, the worst failure mode of autostart is an ORPHAN: a client with no
-// console, spawned by a game that has since crashed, still holding the bridge
-// port -- so the next launch cannot listen and the player sees nothing, with no
-// window anywhere to explain why. A crashed game never gets to clean up after
-// itself, so the child has to do it.
-//
-// Note this is about the process, not about peers seeing you leave: when a game
-// dies its bridge socket closes, and the core already drops the relay connection
-// on that (core.Core.handleBridgeConn), so a real leave is sent either
-// way. What survives is the empty core process, and that is what this reaps.
-//
-// pid <= 0 means "not asked for" and returns immediately -- the guard lives here
-// rather than at the call site so it is covered by the same test.
-//
-// gone and poll are parameters rather than direct calls to parentGone and
-// parentPollInterval so a test can drive this without a real process to kill.
+// watchParentPID exits this process once pid does, so an autostarted client dies with the game that started it
+// rather than linger with no console, holding the bridge port the game's next launch needs. Peers see the leave
+// either way, since the core drops the relay when the bridge socket closes (core.Core.handleBridgeConn); this reaps
+// the empty process. pid <= 0 returns at once; gone and poll are parameters so a test needs no real process.
 func watchParentPID(pid int, gone func(int) bool, poll time.Duration, onGone func()) {
 	if !watchingParentPID(pid) {
 		return
@@ -740,52 +550,20 @@ func watchParentPID(pid int, gone func(int) bool, poll time.Duration, onGone fun
 	}
 }
 
-// watchingParentPID reports whether pid is one this process will actually
-// watch, and is the ONE place that question is answered. Until 2026-09-08
-// (review G6) main tested `*exitWithPID != 0` while watchParentPID tested
-// `pid <= 0`, so a negative pid -- an adapter that got its own pid from a
-// failed call and passed the result through, which is the only way a negative
-// one arrives -- logged "watching pid -1 -- will exit when it does" and then
-// watched nothing at all. The log line is the whole of the evidence that the
-// orphan reaper is armed, so it saying yes while the watcher says no is worse
-// than either answer.
+// watchingParentPID reports whether pid is one this process will watch, the one place that is answered: the
+// "watching pid" log line is the only evidence the orphan reaper is armed, so it must agree with the watcher.
 func watchingParentPID(pid int) bool {
 	return pid > 0
 }
 
-// wineHasNoUsableConsole reports whether a requested console window cannot
-// actually appear, which is the case under Wine (Proton on Linux, CrossOver on
-// macOS).
-//
-// Wine only emulates a Windows console through wineconsole/conhost, and a
-// Proton-launched game has no usable backend for it, so AllocConsole can report
-// success while producing no window at all. This exists purely so the client can
-// SAY that, rather than silently doing nothing.
-//
-// Confirmed by the Linux tester 2026-08-16: the client logged that it was
-// showing a console, and no window ever appeared. There was briefly a default
-// here that turned the console ON under Wine, as a safety valve in case an
-// autostarted client outlived its game there. Both halves of that turned out to
-// be wrong -- the window cannot appear, and the same test proved -exit-with-pid
-// reaps the client across the Wine boundary anyway (six sessions, every one
-// ending in "pid N is gone -- exiting"). So the valve guarded a door that was
-// already shut, with a lock that did not work.
-// bridgeIsLoopback reports whether addr binds the adapter bridge to loopback
-// only. An empty host ("" from ":7778") and "0.0.0.0"/"::" all bind every
-// interface, which is the case this exists to catch.
-//
-// Why this is a refusal and not a warning: the bridge has NO authentication at
-// all -- no room code, no hello check -- and needs none GIVEN that it is
-// loopback, which core.Core's doc comment states as a fact. Bound to a routable
-// address it becomes an open "drive my game and read my whole session" service
-// for anyone on the LAN. The realistic path there is not a typo but config
-// sharing: config.json is the file a host sends friends, and
-// "local_game_bridge" sits in it beside the settings they are meant to edit.
+// bridgeIsLoopback reports whether addr binds the adapter bridge to loopback only; an empty host (":7778"),
+// "0.0.0.0" and "::" bind every interface. main refuses otherwise: the bridge has no authentication and needs none
+// only on loopback, and on a routable address anyone on the LAN can drive the game and read the session. The likely
+// path there is config sharing, since local_game_bridge sits in the file a host sends friends.
 func bridgeIsLoopback(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
-		// Not parseable as host:port -- let net.Listen produce the real error
-		// rather than refusing for a reason we would be guessing at.
+		// Not host:port: let net.Listen report the real error rather than guess at one.
 		return true
 	}
 	if host == "" {
@@ -794,12 +572,12 @@ func bridgeIsLoopback(addr string) bool {
 	if ip := net.ParseIP(host); ip != nil {
 		return ip.IsLoopback()
 	}
-	// A hostname. "localhost" is the only one worth special-casing; anything
-	// else would need a DNS lookup to judge, and a bridge address that has to
-	// be resolved is already outside what this flag is for.
+	// Of hostnames only localhost is judged; any other would need a DNS lookup.
 	return strings.EqualFold(host, "localhost")
 }
 
+// wineHasNoUsableConsole reports whether a requested console cannot appear, which is the case under Wine: a
+// Proton-launched game has no console backend, so AllocConsole can succeed with no window. The client says so.
 func wineHasNoUsableConsole(requested, underWine bool) bool {
 	return requested && underWine
 }
@@ -815,12 +593,7 @@ func main() {
 		"real adapter's own Hello declares it (bridge.Hello); set this to connect at "+
 		"startup instead of waiting for one, e.g. for dev/testing scripts with no adapter attached")
 	room := flag.String("room", "default", "room name to join")
-	// EMPTY BY DEFAULT, and that is the feature. A name is opt-in: leave it unset and no
-	// nametag is drawn over your ghost at all. The old default was "player", which put the
-	// SAME label over every ghost in the room -- a nametag that identifies nobody is worse
-	// than none, and it also broadcast a name for people who never asked to have one shown.
-	// User's call, 2026-08-28: "if its blank it should not display/do anything, it should
-	// only have a text box/show something if a custom name is put in".
+	// Empty by default: a name is opt-in, and one label shared by every ghost would identify nobody.
 	name := flag.String("name", "", "display name to show above your ghost for other players. Empty (the default) means no nametag is drawn for you at all; set it only if you want to be labelled. Sanitized by the relay before anyone sees it -- see protocol.SanitizeDisplayName")
 	nameColor := flag.String("name-color", "", "colour to draw your nametag in, as a hex code like \"#F54927\" (\"#F00\" shorthand works too). Ignored unless -name is set, since with no name there is no tag to colour. Anything that is not a hex colour is dropped and the game's own default is used -- a bad colour never stops you connecting")
 	interp := flag.Duration("interp", core.DefaultInterpolationDelay,
@@ -905,9 +678,7 @@ func main() {
 			"tcp (reliable, and the only one readable with netcat while debugging). quic: "+
 			"loss-tolerant, encrypted and hard to spoof. (udp, the plain unencrypted transport, "+
 			"stopped being an option on 2026-09-15 and is refused by name)")
-	// No -tls or -tls-fingerprint since 2026-09-15: every connection is TLS
-	// and the relay's identity is remembered automatically. The obsolete
-	// config keys are still read into these so they can be judged
+	// No -tls or -tls-fingerprint flags: the obsolete config keys are read into these only to be judged
 	// (checkLegacyTLSKeys).
 	legacyTLS := new(string)
 	legacyPin := new(string)
@@ -949,10 +720,7 @@ func main() {
 	chaserCount := flag.Int("chaser-count", 1, "how many chasers (no cap beyond the roster's 512 seats; config: chaser.count)")
 	chaserDelay := flag.Duration("chaser-delay", 3*time.Second, "how far behind you the first chaser runs (config: chaser.delay)")
 	chaserSpacing := flag.Duration("chaser-spacing", 2*time.Second, "how much further behind each next chaser runs (config: chaser.spacing)")
-	// BLANK BY DEFAULT, the user's call 2026-09-04: a chaser is you, and a tag
-	// floating over your own past is clutter rather than information. Same rule
-	// the player's own -name follows -- empty draws nothing at all -- and the
-	// numbering below already skips an empty name rather than emitting " 1".
+	// Blank by default: a chaser is you, and a tag over your own past is clutter. Empty draws nothing, as with -name.
 	chaserName := flag.String("chaser-name", "", "a nametag for the chasers, numbered when there are several. Empty (the default) draws no tag at all, which is usually what you want for a ghost of yourself (config: chaser.name)")
 	chaserColor := flag.String("chaser-color", "", "colour for that tag, as a hex code like \"#7A2A2A\". Ignored without a name, exactly like player_name_color (config: chaser.color)")
 	chaserSpawn := flag.Duration("chaser-spawn-delay", 0, "a chaser appears only once you have been moving for this long; 0 means the chaser's own delay (config: chaser.spawn_delay)")
@@ -999,12 +767,8 @@ func main() {
 			"overrides the same field from this file")
 	flag.Parse()
 
-	// Log into a buffer until the destination is known, then replay. show_console
-	// lives in the config file (that is where a player can reach it), so the
-	// console can't be opened until the file has been read -- and the file's own
-	// messages, "this is the config I loaded" above all, are exactly the ones
-	// someone who turned the console ON is looking for. Buffering is what keeps
-	// them from landing before the window they belong in exists.
+	// Log into a buffer until the destination is known, then replay it: show_console lives in the file, so the console
+	// opens only after the file is read, and the file's own messages are the ones its window is for.
 	var earlyLog bytes.Buffer
 	log.SetOutput(&earlyLog)
 
@@ -1051,51 +815,27 @@ func main() {
 		chaser: &chaserTargets{enabled: chaserOn, count: chaserCount, delay: chaserDelay, spacing: chaserSpacing,
 			name: chaserName, color: chaserColor, contact: chaserContact, spawnDelay: chaserSpawn},
 	}
-	// The flag values BEFORE the file: what every later re-read of the file
-	// starts from (reload.go), so a key removed from the file falls back here.
+	// The flag values before the file: every re-read starts from them, so a key removed from the file falls back here.
 	base := snapshot(targets)
 	configShown := loadClientConfig(*configPath, explicit, targets)
 	if *replayDir == "" {
-		// Beside the config file, read or not: that is the one folder a player
-		// autostarted by their game can find, and the one the README names.
+		// Beside the config file, read or not: the one folder a player whose game autostarted the client can find.
 		*replayDir = filepath.Join(filepath.Dir(configShown), "replay")
 	}
-	// BOTH FOLDERS ARE CREATED HERE, EMPTY, AND active/ IS THE ONE THAT MATTERS.
-	//
-	// Until 2026-09-03 nothing ever created replay/active/. The recorder made
-	// replay/ on the first recording, so that one at least appeared eventually,
-	// but active/ is READ and never written: StartReplays calls ReadDir on it and
-	// returns 0 on ErrNotExist without logging, deliberately, so a player who had
-	// not made the folder got silence. docs/config.md meanwhile says "drop a file
-	// into replay/active/ and it plays" -- an instruction naming a folder that did
-	// not exist and that nothing would create.
-	//
-	// An empty folder IS the documentation here: it shows where a clip goes
-	// without the player having to read anything or type a path correctly. The
-	// release ships both too (dev-scripts/stage-release.ps1) so they are there on
-	// first unzip, before this ever runs.
-	//
-	// Failure is not fatal, and deliberately quiet at info level: a read-only
-	// install directory is a real thing, and it should cost a player replays, not
-	// the session. StartReplays reports the consequence if it comes to that.
+	// Both folders are created here, empty: active/ is read and never written, and an empty folder shows a player where
+	// a clip goes. A failure costs replays, not the session.
 	if err := os.MkdirAll(filepath.Join(*replayDir, "active"), 0o755); err != nil {
 		log.Printf("could not create %s (replays will not load from it): %v",
 			filepath.Join(*replayDir, "active"), err)
 	}
 
-	// stderr stays in the list unconditionally: when this client was run from a
-	// terminal that IS the live output, and when it was spawned with no window
-	// the writes simply go nowhere. cfg.OpenLogFile returns nil if the file could
-	// not be opened, which is survivable rather than fatal -- losing the log is
-	// worth saying loudly, but not worth refusing to play over.
+	// stderr always: from a terminal it is the live output, and with no window it goes nowhere. A log file that cannot
+	// be opened is survivable.
 	writers := []io.Writer{os.Stderr}
 	if f := cfg.OpenLogFile("meshghost.log", "meshghost"); f != nil {
 		writers = append(writers, f)
 	}
-	// The Wine check is deliberately independent of whether consoleWriter
-	// succeeded: under Wine AllocConsole can report success and still produce no
-	// visible window, so a non-nil writer proves nothing there. Warn on the
-	// request, not on the result.
+	// Judged on the request, not on consoleWriter's result: under Wine AllocConsole can succeed with no window.
 	noConsolePossible := wineHasNoUsableConsole(*showConsole, runningUnderWine())
 	if *showConsole {
 		if w := consoleWriter(); w != nil {
@@ -1115,20 +855,14 @@ func main() {
 			"(meshghost.log) instead.")
 	}
 
-	// Fatal on a bad value rather than clamping to tcp, deliberately
-	// departing from how send_hz and interp are handled: a typo in those
-	// costs a little smoothness, whereas silently falling back here would
-	// hand someone who asked for quic an unencrypted connection and never
-	// mention it. netx.Kind's zero value being tcp is exactly what makes a
-	// lenient parse dangerous.
+	// Fatal, unlike a bad send_hz or interp: ParseKind returns tcp beside its error, and a lenient parse would quietly
+	// run a transport the player did not ask for.
 	transportKind, err := netx.ParseKind(*transportName)
 	if err != nil {
 		log.Fatalf("meshghost: %v", err)
 	}
 
-	// The obsolete "tls" and "tls_fingerprint" keys: a value that asked for
-	// plaintext, or a pin, is a startup error, never a silently changed
-	// meaning (a security setting is never quietly ignored, risks.md).
+	// A plaintext mode or a pin in the obsolete keys is a startup error: a security setting is never quietly ignored.
 	if notes, err := checkLegacyTLSKeys(*legacyTLS, *legacyPin); err != nil {
 		log.Fatalf("meshghost: %v", err)
 	} else {
@@ -1145,8 +879,7 @@ func main() {
 
 	c := core.New()
 	c.Transport = transportKind
-	// Which relay is which, remembered across launches beside the
-	// config (trust on first use; core/knownrelays.go, ADR 0066).
+	// Relay identities, remembered across launches beside the config (trust on first use).
 	c.KnownRelays = core.NewKnownRelaysInDir(filepath.Dir(configShown))
 	c.InterpolationDelay = *interp
 	c.LocalInterpolationDelay = *localInterp
@@ -1172,31 +905,17 @@ func main() {
 	case core.CurveLinear, core.CurveCatmullRom:
 		c.Curve = core.CurveMode(*curve)
 	default:
-		// Refused rather than silently ignored: a typo here changes how every
-		// ghost moves, and a run that quietly used the default while its
-		// launcher said otherwise is exactly the ambiguity the smoothing log
-		// line below exists to remove.
+		// Refused, not ignored: a typo here changes how every ghost moves, and the smoothing line must say what ran.
 		log.Fatalf("meshghost: -curve %q is not a render curve -- use %q or %q",
 			*curve, core.CurveLinear, core.CurveCatmullRom)
 	}
-	// SAY WHICH SMOOTHING THIS RUN IS USING. These two decide how a ghost moves
-	// on screen more than anything else the client does, and until 2026-08-23
-	// neither appeared in the log -- so a session could not tell afterwards
-	// which rig had produced a recording of a stutter. Crystal lost two rounds
-	// of renderer work to exactly that: with no launcher of its own the adapter
-	// autostarted a core on the defaults, the settings were right by accident
-	// and unrecorded, and a quarter second of interpolation was investigated as
-	// a renderer fault (`agent_docs/phases/phase9.md`). A log line is cheaper
-	// than the ambiguity.
-	// "the shipped values" is the part a reader needs: a dev rig is only worth
-	// noticing when it has departed from what a player would actually run.
+	// Say which smoothing this run uses: it decides how a ghost moves on screen, so a recording of a stutter has to
+	// say which rig produced it, and whether that is what a player runs.
 	smoothingNote := " (NOT the shipped defaults -- this is a dev rig)"
 	if runningTheShippedSmoothing(*interp, *localInterp, *minSend, *extrapolate, *correction, c.Curve, c.Predict) {
 		smoothingNote = " (the shipped defaults)"
 	}
-	// The keepalive belongs on this line for the same reason the other two do:
-	// it decides how long a receiver can be working from a state this client has
-	// stopped restating, so a recording of a stutter has to say what it was.
+	// The keepalive too: it decides how long a receiver works from a state this client has stopped restating.
 	keepaliveNote := ", unchanged states re-sent every " + keepalive.String()
 	if *keepalive <= 0 {
 		keepaliveNote = ", change suppression OFF (every frame sent)"
@@ -1220,9 +939,7 @@ func main() {
 		log.Printf("meshghost: %s", maxHzWarning)
 	}
 	c.MaxReceiveHz = maxHz
-	// Only ever restrictive: "enabled" here does not override a host who
-	// turned collision off. protocol.ResolveGhostCollision is where that is
-	// actually enforced -- this just carries the preference.
+	// Only ever restrictive; protocol.ResolveGhostCollision enforces it, and this carries the preference.
 	c.GhostCollision = *ghostCollision
 	c.Features = parseFeatures(*features)
 	c.ReplayDir = *replayDir
@@ -1272,9 +989,8 @@ func main() {
 	c.OnRelayConnected = func(gameID string) {
 		log.Printf("meshghost: connected to relay %s as %s in room %q (game %q)", *relayAddr, c.PlayerID(), *room, gameID)
 	}
-	// config.json stays live from here: a save is re-read and applied
-	// (reload.go). The hotkey rebind releases the old chords first; hkStop is
-	// touched only from the watcher's goroutine after this point.
+	// config.json stays live from here: a save is re-read and applied. The hotkey rebind releases the old chords
+	// first; hkStop is touched only from the watcher's goroutine after this point.
 	watcher := newConfigWatcher(configShown, explicit, base, snapshot(targets), c, func(b []hotkeyBinding) {
 		close(hkStop)
 		hkStop = make(chan struct{})
@@ -1284,14 +1000,10 @@ func main() {
 	log.Print(describeReloadable(configShown))
 
 	if *stats > 0 {
-		// With stats on, a dry render also gets its own line (at most one a
-		// second): which samples sat either side of the hole. The line is
-		// written from the render path under c.mu, so keep it to log.Print.
+		// With stats on, a dry render gets its own line, at most one a second. It is written from the render path
+		// under c.mu, so keep it to log.Print.
 		c.DryLog = func(line string) { log.Print(line) }
-		// Its own goroutine rather than folded into an existing tick: this is
-		// a diagnostic, and it must not be able to slow the state path down or
-		// change its timing. Stats() takes c.mu only briefly and reads the
-		// counters atomically.
+		// Its own goroutine, so a diagnostic cannot slow the state path or change its timing.
 		go func() {
 			t := time.NewTicker(*stats)
 			defer t.Stop()
@@ -1302,31 +1014,14 @@ func main() {
 		log.Printf("meshghost: stats on -- summary every %s", *stats)
 	}
 
-	// CTRL+C IS AN ORDINARY WAY TO END A SESSION, and until 2026-09-11 it ended
-	// one the same way a kill does: no deferred anything, no gzip footer, and a
-	// recording every ordinary tool refuses whole (the 2026-09-03 failure, whose
-	// fix went into the -exit-with-pid path ONLY). Running the core by hand is a
-	// supported configuration -- it is what an antivirus-affected player is told
-	// to do, adapters/emulator/pokemon/crystal/FLAGS.md -- so this is the exit
-	// path those players take every time.
-	//
-	// SIGINT and SIGTERM only. Windows delivers both a console Ctrl+C and a
-	// console-window close as SIGINT through os/signal, and a SIGKILL analogue
-	// cannot be caught by anything, here or anywhere.
+	// Ctrl+C ends a session the ordinary way for a player running the core by hand, so it closes the recording too.
+	// Windows delivers a console Ctrl+C and a console-window close as SIGINT; a kill cannot be caught.
 	closeRecordingOnSignal(c)
 
 	if watchingParentPID(*exitWithPID) {
 		log.Printf("meshghost: watching pid %d -- will exit when it does", *exitWithPID)
 		go watchParentPID(*exitWithPID, parentGone, parentPollInterval, func() {
-			// CLOSE THE RECORDING FIRST. os.Exit runs no deferred anything, and
-			// this is the NORMAL way a session ends -- the player quits the
-			// game and the client is reaped with it. Found live 2026-09-03: a
-			// gzipped recording left this way has its data (the recorder syncs
-			// every second) but no gzip footer, and every ordinary tool --
-			// Explorer, 7-Zip -- refuses the whole file rather than reading the
-			// 3,394 good lines inside it. A plain file lost nothing visible,
-			// which is exactly why this went unnoticed until recordings were
-			// compressed.
+			// Close the recording first: os.Exit runs no deferred calls, and this is how a session normally ends.
 			if path, n, err := c.StopRecording(); err != nil {
 				log.Printf("meshghost: could not close the recording cleanly: %v", err)
 			} else if n > 0 {
@@ -1340,17 +1035,13 @@ func main() {
 
 	switch {
 	case *offline:
-		// One line, and no retry goroutine. The bridge listener below still
-		// binds -- it is how the game's mod attaches, so without it nothing
-		// renders at all -- and core.Offline also refuses the dial an
-		// adapter's own hello would otherwise start.
+		// No retry goroutine. The bridge listener below still binds, since the game's mod attaches through it, and
+		// core.Offline also refuses the dial an adapter's own hello would start.
 		log.Printf("meshghost: OFFLINE -- not connecting to a relay, so no room and no other " +
 			"players. Recording, replays and chasers all still work. Remove \"offline\" from " +
 			"config.json (or pass -offline=false) to play with other people.")
 	case *gameID != "":
-		// Backgrounded, not blocking: the bridge listener below starts
-		// immediately regardless of whether the relay is reachable yet —
-		// see connectRelayWithRetry's doc comment.
+		// Backgrounded: the bridge listener below starts whether or not the relay is reachable yet.
 		go connectRelayWithRetry(c, *gameID)
 	default:
 		log.Printf("meshghost: no game set -- waiting for a game to connect and say hello...")
@@ -1382,12 +1073,9 @@ func main() {
 	}
 }
 
-// parseFeatures turns the comma-separated -features value into the list this
-// client advertises. Unknown names are passed through rather than rejected:
-// the relay compares capability sets by equality and never interprets a name,
-// so a future capability this build has not heard of must still be able to
-// travel through it — the same forward-compatibility posture as unknown
-// fields and unknown message types.
+// parseFeatures turns the comma-separated -features value into the list this client advertises. Unknown names pass
+// through: the relay compares capability sets by equality and never interprets a name, so a future capability still
+// travels.
 func parseFeatures(s string) []string {
 	if strings.TrimSpace(s) == "" {
 		return nil
@@ -1401,50 +1089,20 @@ type hotkeyBinding struct {
 	chord  string
 }
 
-// startHotkeys parses the chords and runs the system-wide key loop for the
-// rest of the process (ADR 0048). Every outcome is logged, and none is fatal:
-// a chord that fails to parse or that another program already owns is skipped
-// alone, and the rest still work. Empty chords are simply unbound.
-// shippedPredict is the prediction model packaging/release/config.json sets,
-// as opposed to what the -predict flag defaults to. The two differ on purpose
-// ("damped" vs "linear"), and TestTheShippedPredictorIsWhatTheReleaseShips
-// reads the packaged file so this constant cannot quietly drift away from it.
+// shippedPredict is the prediction model the packaged config.json sets, which differs from the -predict flag default
+// on purpose; TestTheShippedPredictorIsWhatTheReleaseShips keeps the two in step.
 const shippedPredict = core.PredictDamped
 
-// runningTheShippedSmoothing reports whether this run's smoothing is what a
-// packaged player actually gets, which is what the smoothing log line labels.
-// The point of that label is that a dev rig is only worth noticing when it has
-// departed from the release.
-//
-// predict is in the test since 2026-09-08 (review G9). It was the one setting
-// on the line that was NOT checked, and it is also the one where the flag
-// default and the shipped value disagree -- so a run on bare flag defaults
-// announced itself as "the shipped defaults" while running a different
-// predictor from every packaged install. Inert while extrapolate is 0s, which
-// is what the release ships, but this line exists to remove exactly that class
-// of ambiguity: Crystal lost two rounds of renderer work to a setting that was
-// right by accident and unrecorded.
+// runningTheShippedSmoothing reports whether this run's smoothing is what a packaged player gets, which the smoothing
+// log line labels. predict is compared with shippedPredict, not the flag default, since the two differ.
 func runningTheShippedSmoothing(interp, localInterp, minSend, extrapolate, correction time.Duration, curve core.CurveMode, predict core.PredictMode) bool {
 	return interp == core.DefaultInterpolationDelay && localInterp == core.DefaultLocalGhostDelay &&
 		minSend == 0 && extrapolate == 0 && correction == 0 && curve == core.CurveLinear && predict == shippedPredict
 }
 
-// resolveMaxReceiveHz applies protocol.ClampReceiveHz to what the player asked
-// for and returns the value along with a warning to log, empty when there is
-// nothing to say.
-//
-// The flag help says "Valid range 10-100" and, until 2026-09-08 (review G3),
-// nothing on this side checked it: the raw number went into the hello and the
-// RELAY clamped it, silently, at the far end of a socket the player cannot
-// see. So max_receive_hz_per_player: 5 read as accepted and behaved as 10, and
-// 500 read as accepted and behaved as 100. Every other numeric setting here
-// either clamps with a log line or is fatal; this was the only silent one.
-// ClampReceiveHz's own doc says a caller that wants to warn has to compare its
-// input against the return value itself, which is what this does.
-//
-// A warning rather than log.Fatalf: an out-of-range rate still produces a
-// working session, and a client that refused to start over one would take a
-// player's whole game with it for a setting they can play without.
+// resolveMaxReceiveHz applies protocol.ClampReceiveHz to what the player asked for and returns the value with a
+// warning to log, empty when there is nothing to say, since the relay would otherwise clamp it out of sight. A
+// warning, not a Fatalf: an out-of-range rate still plays.
 func resolveMaxReceiveHz(want int) (int, string) {
 	got := protocol.ClampReceiveHz(want)
 	if got == want {
@@ -1455,20 +1113,9 @@ func resolveMaxReceiveHz(want int) (int, string) {
 		"often as it arrives.)", want, protocol.MinSendHz, protocol.MaxSendHz, got)
 }
 
-// parseHotkeys turns the configured chords into the actions hotkey.Run takes,
-// with a warning line for each one that could not be bound.
-//
-// Duplicate detection is why this is a function of its own (2026-09-08, review
-// G7). Two actions given the same chord used to be handed to the OS as two
-// registrations, the second of which Windows refuses -- and the refusal is
-// reported as "another program may already own this chord", which sends a
-// player looking through their own machine for a program that does not exist,
-// for a conflict that is in the config file they just edited. hotkey.Binding is
-// a comparable struct of the exact two fields RegisterHotKey is given, so the
-// clash is knowable here, before anything is registered, and can be reported as
-// what it is. The first action named keeps the chord: the later one is the one
-// the OS would have refused anyway, so the outcome is unchanged and only the
-// explanation is.
+// parseHotkeys turns the configured chords into hotkey.Run's actions, with a warning for each that could not be
+// bound. Two actions on one chord are caught here, since Windows would refuse the second as "another program may
+// already own this chord"; hotkey.Binding is comparable, and the first action named keeps the chord.
 func parseHotkeys(bindings []hotkeyBinding) (actions []hotkey.Action, warnings []string) {
 	owner := map[hotkey.Binding]string{}
 	for _, b := range bindings {
@@ -1492,6 +1139,8 @@ func parseHotkeys(bindings []hotkeyBinding) (actions []hotkey.Action, warnings [
 	return actions, warnings
 }
 
+// startHotkeys parses the chords and runs the system-wide key loop until stop closes. Every outcome is logged and
+// none is fatal: a chord that fails to parse or that another program owns is skipped alone.
 func startHotkeys(c *core.Core, bindings []hotkeyBinding, stop <-chan struct{}) {
 	actions, warnings := parseHotkeys(bindings)
 	for _, w := range warnings {
@@ -1501,12 +1150,9 @@ func startHotkeys(c *core.Core, bindings []hotkeyBinding, stop <-chan struct{}) 
 		return
 	}
 	fire := func(name string) {
-		// The key loop's own thread must never wait on the core: a seek waits
-		// for a render tick, and the recorder flushes to disk.
+		// The key loop's thread must never wait on the core: a seek waits for a render tick, a recording for the disk.
 		go func() {
-			// The outcome, not "done": a hotkey has nobody to reply to, so this
-			// line is the whole of the feedback. record_toggle is the case that
-			// forced it -- one key, two opposite meanings.
+			// The outcome, not "done": this line is a hotkey's only feedback, and record_toggle has two meanings.
 			what, err := c.ReplayControl(core.ReplayAction(name), 0)
 			if err != nil {
 				log.Printf("meshghost: hotkey %s: %v", name, err)
@@ -1529,9 +1175,8 @@ func startHotkeys(c *core.Core, bindings []hotkeyBinding, stop <-chan struct{}) 
 	}()
 }
 
-// clientSection is the raw bytes of the config file's "client" object, or nil
-// if there isn't one. Used only for the unknown-key warning, which has to look
-// at what was WRITTEN rather than at what decoded.
+// clientSection is the raw bytes of the config file's "client" object, or nil if there isn't one, for the unknown-key
+// warning, which has to look at what was written rather than at what decoded.
 func clientSection(data []byte) json.RawMessage {
 	var root map[string]json.RawMessage
 	if err := json.Unmarshal(data, &root); err != nil {
@@ -1540,18 +1185,9 @@ func clientSection(data []byte) json.RawMessage {
 	return root["client"]
 }
 
-// closeRecordingOnSignal ends the process cleanly on Ctrl+C, closing any
-// recording first.
-//
-// Exit code 0: a deliberate Ctrl+C is a successful end to a session, and a
-// launcher that treats a non-zero code as a crash would report one.
-//
-// The handler is deliberately NOT a place to do anything else. A shutdown path
-// that tries to be thorough is a shutdown path that hangs when one of its steps
-// does, and the one thing that cannot be recovered afterwards is the gzip
-// footer -- peers learn this player is gone from the relay's grace window with
-// or without a goodbye, and every other resource is the operating system's to
-// reclaim.
+// closeRecordingOnSignal ends the process on Ctrl+C with exit code 0, a deliberate end, closing any recording first.
+// It does nothing else: a thorough shutdown hangs when one step does, and only the gzip footer cannot be recovered
+// later, since peers learn of the leave from the relay's grace window.
 func closeRecordingOnSignal(c *core.Core) {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)

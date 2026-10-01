@@ -2,9 +2,7 @@
 
 package main
 
-// The udp address-relocation tests, compiled only under the meshghost_devudp
-// tag (ADR 0065, 2026-09-15). Moved verbatim from relaycli_test.go and
-// main_test.go's TestResolveQuicAddr.
+// The udp address-relocation tests, compiled only under the meshghost_devudp tag.
 
 import (
 	"testing"
@@ -12,16 +10,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/netx"
 )
 
-// TestUDPRelocationKeepsTheBindInterface is the F7 regression.
-//
-// Returning FallbackUDPAddr wholesale threw away the operator's -addr along
-// with its port: a relay started with `-addr 0.0.0.0:7777 -transport
-// tcp,udp,quic` bound udp on 127.0.0.1, reachable from nowhere but the host's
-// own machine, while the startup banner told the host to forward 7780 and the
-// relay advertised udp:7780 to remote clients -- who resolve an offered port
-// against the address they dialled, and so dialled a port with nothing on it.
-// Every line of commentary on that constant justified the PORT; none of them
-// ever addressed the host.
+// TestUDPRelocationKeepsTheBindInterface: only the port moves. A udp listener on an interface the operator never
+// chose is unreachable from outside, while the relay advertises its port to remote clients anyway.
 func TestUDPRelocationKeepsTheBindInterface(t *testing.T) {
 	both := []netx.Kind{netx.TCP, netx.UDP, netx.QUIC}
 
@@ -51,9 +41,7 @@ func TestUDPRelocationKeepsTheBindInterface(t *testing.T) {
 	}
 
 	t.Run("an addr with no port keeps the old constant", func(t *testing.T) {
-		// Not a shape this binary can bind either way -- netx.ListenWithTLS gets
-		// the same string and refuses with its own message -- so this is about
-		// not inventing a second error path for input already being refused.
+		// netx.ListenWithTLS refuses this address with its own message, so no second error path.
 		got, err := resolveUDPAddr(both, "not-an-address", sharesAddrPort)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -64,8 +52,7 @@ func TestUDPRelocationKeepsTheBindInterface(t *testing.T) {
 	})
 
 	t.Run("quic still keeps the shared port", func(t *testing.T) {
-		// The 2026-08-27 rule this fix must not disturb: quic is the default
-		// transport, so quic keeps -addr's number and udp is the one that moves.
+		// quic is the default transport, so quic keeps -addr's number and udp is the one that moves.
 		got, err := resolveQuicAddr(both, "0.0.0.0:7777", sharesAddrPort)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -80,16 +67,11 @@ func TestResolveUDPAddr(t *testing.T) {
 	const addr = "0.0.0.0:7777"
 
 	t.Run("udp is the one that moves, not quic", func(t *testing.T) {
-		// The rule this whole change exists for.
 		got, err := resolveUDPAddr([]netx.Kind{netx.TCP, netx.UDP, netx.QUIC}, addr, sharesAddrPort)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		// The PORT moves; the interface does not. This asserted FallbackUDPAddr
-		// until 2026-09-08, i.e. the loopback host -- which is what let
-		// resolveUDPAddr discard the operator's -addr entirely and bind udp
-		// somewhere no remote player could reach, while the startup banner told
-		// them to forward it.
+		// The port moves; the interface does not.
 		want := "0.0.0.0:" + FallbackUDPPort
 		if got != want {
 			t.Fatalf("got %q, want %q -- udp takes the odd port when quic is served, on -addr's own interface", got, want)
@@ -97,8 +79,7 @@ func TestResolveUDPAddr(t *testing.T) {
 	})
 
 	t.Run("udp without quic keeps addr's port", func(t *testing.T) {
-		// Nothing to collide with, so there is no reason to make a host forward
-		// a second number.
+		// Nothing to collide with, so no reason to make a host forward a second number.
 		got, err := resolveUDPAddr([]netx.Kind{netx.TCP, netx.UDP}, addr, sharesAddrPort)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -130,8 +111,7 @@ func TestResolveUDPAddr(t *testing.T) {
 	})
 
 	t.Run("the shipped default serves tcp,quic and never places udp", func(t *testing.T) {
-		// Out of the box there is no udp at all, so nothing should be relocated
-		// and hosting stays one forwarded number.
+		// Out of the box there is no udp, so nothing relocates and hosting stays one forwarded number.
 		kinds, err := netx.ParseKinds("tcp,quic")
 		if err != nil {
 			t.Fatalf("ParseKinds: %v", err)
@@ -150,8 +130,7 @@ func TestResolveUDPAddr(t *testing.T) {
 	})
 
 	t.Run("the shipped default (tcp,quic) lands on a shared port", func(t *testing.T) {
-		// Guards the out-of-the-box case specifically: the relay ships serving
-		// tcp,quic, so this is the path almost every real host takes.
+		// The relay ships serving tcp,quic, so this is the path almost every real host takes.
 		kinds, err := netx.ParseKinds("tcp,quic")
 		if err != nil {
 			t.Fatalf("ParseKinds: %v", err)

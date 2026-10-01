@@ -1,13 +1,5 @@
 package main
 
-// Two startup/shutdown rules this binary owns, both found by the 2026-09-07
-// adversarial review and fixed 2026-09-08:
-//
-//   - where the plain udp transport lands when quic takes the shared port. The
-//     PORT relocates and the bind interface does not, which is the shape
-//     resolveQuicAddr next door has always had.
-//   - what Ctrl+C does. Until 2026-09-08: nothing at all.
-
 import (
 	"errors"
 	"net"
@@ -17,19 +9,8 @@ import (
 	"time"
 )
 
-// TestShutdownTellsEveryConnectedClient is the F8 regression.
-//
-// Before 2026-09-08 this binary had no os/signal import and main() ended only
-// via log.Fatalf, so an interrupt took the process down without a word. Closing
-// the listeners is not enough on its own and that is the whole point of the
-// tracking: quic-go's Listener.Close leaves already-accepted connections
-// untouched, and quic is the shipped default, so on the transport almost every
-// real session uses a host pressing Ctrl+C left every player waiting out a ~17s
-// idle timeout with their ghosts gone at 3s.
-//
-// Asserted on tcp because a test can hold both ends of one and read the EOF
-// directly; the mechanism under test (close the listeners, then close what they
-// handed out) is transport-independent by construction.
+// TestShutdownTellsEveryConnectedClient: closing the listeners is not enough, as quic-go's leaves accepted
+// connections open. Asserted on tcp, where a test can read the EOF directly; the mechanism is transport-independent.
 func TestShutdownTellsEveryConnectedClient(t *testing.T) {
 	raw, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -37,8 +18,7 @@ func TestShutdownTellsEveryConnectedClient(t *testing.T) {
 	}
 	ln := trackConns(raw)
 
-	// Stand in for relay.Serve: accept until the listener closes, and hold the
-	// server side open exactly as a real session would.
+	// Stand in for relay.Serve: accept until the listener closes, holding the server side open as a session would.
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -56,8 +36,7 @@ func TestShutdownTellsEveryConnectedClient(t *testing.T) {
 	}
 	defer client.Close()
 
-	// Wait until the accept loop has actually registered it, so the test is
-	// asserting on shutdown rather than on a race with the dial.
+	// Wait until the accept loop has registered it, so the test asserts on shutdown rather than a race with the dial.
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		ln.mu.Lock()
@@ -72,14 +51,13 @@ func TestShutdownTellsEveryConnectedClient(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 
-	// drain 0: the drain only holds the process open long enough for a quic
-	// CONNECTION_CLOSE to leave, and there is no process to hold here.
+	// drain 0: there is no process to hold open here.
 	if n := shutdown([]*trackingListener{ln}, 0); n != 1 {
 		t.Fatalf("shutdown spoke to %d connection(s), want 1", n)
 	}
 	wg.Wait()
 
-	// The client must learn NOW, not when its own idle timeout expires.
+	// The client must learn now, not at its own idle timeout.
 	if err := client.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
 		t.Fatalf("set deadline: %v", err)
 	}
@@ -101,9 +79,8 @@ func TestShutdownTellsEveryConnectedClient(t *testing.T) {
 	}
 }
 
-// TestATrackedConnectionIsForgottenWhenItCloses keeps the tracking from becoming
-// a leak: a relay is a long-lived process, and a map keyed by every connection it
-// ever accepted would grow once per join for the life of that process.
+// TestATrackedConnectionIsForgottenWhenItCloses: in a long-lived relay, a map of every connection ever accepted would
+// grow once per join.
 func TestATrackedConnectionIsForgottenWhenItCloses(t *testing.T) {
 	raw, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -138,7 +115,7 @@ func TestATrackedConnectionIsForgottenWhenItCloses(t *testing.T) {
 // fakeConn is a net.Conn with nothing optional on it.
 type fakeConn struct{ net.Conn }
 
-// fullConn has all three of the optional methods this codebase type-asserts for.
+// fullConn has three of the optional methods the codebase type-asserts for.
 type fullConn struct {
 	net.Conn
 	closedWrite bool
@@ -166,13 +143,8 @@ func (l *oneConnListener) Accept() (net.Conn, error) {
 func (l *oneConnListener) Close() error   { return nil }
 func (l *oneConnListener) Addr() net.Addr { return nil }
 
-// TestTheTrackingWrapperHidesNothing is the fourth instance of a wrapper bug
-// this repo has now had (2026-09-05, 2026-09-06, 2026-09-07, all in
-// netx/limit.go's story), written as a test instead: a wrapper embedding
-// net.Conn as an INTERFACE hides every method net.Conn does not declare, and
-// each of the three below is found by a type assertion somewhere that silently
-// degrades when it fails -- a reject lost to a RESET, every client logged as
-// "tcp", every quic state forced onto the ordered stream.
+// TestTheTrackingWrapperHidesNothing: a wrapper embedding net.Conn as an interface hides every method net.Conn does
+// not declare, and each one below is found by a type assertion that silently degrades when it fails.
 func TestTheTrackingWrapperHidesNothing(t *testing.T) {
 	t.Run("a lossy connection keeps all three", func(t *testing.T) {
 		underlying := &fullConn{}
@@ -200,10 +172,7 @@ func TestTheTrackingWrapperHidesNothing(t *testing.T) {
 	})
 
 	t.Run("a plain connection gains no datagram plane", func(t *testing.T) {
-		// The other direction, and it matters just as much: transport decides
-		// whether the unreliable path exists by asking whether the method is
-		// there, so a wrapper that always answers yes makes a tcp connection
-		// claim a datagram plane it has not got.
+		// transport finds the unreliable path by asking for the method, so a tcp connection must not answer.
 		ln := trackConns(&oneConnListener{c: &fakeConn{}})
 		got, err := ln.Accept()
 		if err != nil {
@@ -215,10 +184,7 @@ func TestTheTrackingWrapperHidesNothing(t *testing.T) {
 	})
 }
 
-// TestAServeErrorTellsEveryClientBeforeExit is finding B3 of the fourth
-// adversarial review: a listener dying used to be log.Fatalf and nothing else,
-// so the players sat on a dead relay until their own idle timeout -- the exact
-// failure the Ctrl+C path above had already been fixed for.
+// TestAServeErrorTellsEveryClientBeforeExit: a listener dying says goodbye to every client, as Ctrl+C does.
 func TestAServeErrorTellsEveryClientBeforeExit(t *testing.T) {
 	raw, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -269,8 +235,7 @@ func TestAServeErrorTellsEveryClientBeforeExit(t *testing.T) {
 	}
 }
 
-// slowCloser is a net.Conn whose half-close takes a while, the way a member
-// with a stalled socket holds a TLS close_notify or a quic FIN.
+// slowCloser is a net.Conn whose half-close takes a while, as a member with a stalled socket holds a FIN.
 type slowCloser struct {
 	net.Conn
 	hold time.Duration
@@ -278,9 +243,8 @@ type slowCloser struct {
 
 func (s *slowCloser) CloseWrite() error { time.Sleep(s.hold); return nil }
 
-// TestShutdownHalfClosesClientsInParallel is finding B6: closeClients used to
-// walk the connections serially, so one stalled member held everyone else's
-// goodbye for its whole write timeout.
+// TestShutdownHalfClosesClientsInParallel: one stalled member must not hold everyone else's goodbye for its whole
+// write timeout.
 func TestShutdownHalfClosesClientsInParallel(t *testing.T) {
 	raw, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

@@ -6,12 +6,8 @@ import (
 	"time"
 )
 
-// A 2D tile game's adapter reads a peer's facing from the orientation
-// STRING ("up"/"down"/"left"/"right"), and Crystal's drawn tier keys its
-// walk animation off it too -- a peer with no orientation renders a static
-// forward-facing frame, which looks exactly like broken animation. So the
-// rig has to be able to send one, and it has to follow the path the peer is
-// actually walking rather than being a constant.
+// TestFacingFollowsPathSendsACardinalMatchingTheTangent: a 2D adapter reads facing from the orientation string, and
+// a peer without one renders a static frame that looks like broken animation.
 func TestFacingFollowsPathSendsACardinalMatchingTheTangent(t *testing.T) {
 	a := &circleAdapter{
 		start:         time.Now(),
@@ -23,13 +19,9 @@ func TestFacingFollowsPathSendsACardinalMatchingTheTangent(t *testing.T) {
 		facingFollows: true,
 	}
 
-	// A counter-clockwise circle's tangent leads the radius by 90 degrees, so
-	// stepping a quarter turn at a time must walk the four cardinals in order
-	// and never repeat one -- a constant orientation passes neither check.
+	// A quarter turn at a time must walk all four cardinals; a constant orientation fails.
 	seen := map[string]int{}
 	for q := 0; q < 4; q++ {
-		// stateAt is deterministic in elapsed time; a quarter period is a
-		// quarter turn.
 		st, ok := a.stateAt(time.Duration(q) * time.Second)
 		if !ok {
 			t.Fatalf("quarter %d: no state", q)
@@ -53,8 +45,8 @@ func TestFacingFollowsPathSendsACardinalMatchingTheTangent(t *testing.T) {
 	}
 }
 
-// Off by default: every existing rig sends no orientation for a 2D game and
-// must keep doing so, since an adapter that gets one starts trusting it.
+// TestFacingFollowsPathIsOffByDefault: an adapter that gets an orientation starts trusting it, so existing rigs keep
+// sending none.
 func TestFacingFollowsPathIsOffByDefault(t *testing.T) {
 	a := &circleAdapter{
 		start:         time.Now(),

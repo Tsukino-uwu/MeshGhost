@@ -6,10 +6,8 @@ import (
 	"time"
 )
 
-// identityTargets is a full configTargets whose three identity settings are
-// readable afterwards, plus the replay and chaser names that must NOT follow
-// them. Every field is passed for the reason applyTestConfigWithTLS gives: a
-// nil target is a nil dereference the moment the file sets that key.
+// identity backs a full configTargets whose identity settings, and the replay and chaser names that must not follow
+// them, are readable afterwards. Every target is passed: a nil one is a nil dereference once the file sets that key.
 type identity struct {
 	room, name, nameColor         string
 	replayName, replayColor       string
@@ -38,19 +36,16 @@ func (id *identity) targets() configTargets {
 	}
 }
 
-// resetIdentityNotices lets a test see the once-per-process lines. They are
-// package-level so a reload does not repeat them at a player; a test that ran
-// after another would otherwise assert on a line that was already spent.
+// resetIdentityNotices lets a test see the once-per-process lines, which a test run after another would otherwise
+// find already spent.
 func resetIdentityNotices(t *testing.T) {
 	t.Helper()
 	loggedRoomDefault, loggedPlaceholderName = false, false
 	t.Cleanup(func() { loggedRoomDefault, loggedPlaceholderName = false, false })
 }
 
-// AN OLD SPELLING STILL WORKS AND SAYS SO. This is the whole reason the rename
-// shipped with an alias: without it, "room" became an unknown key, the player
-// fell back to "default" -- a real room, just not their friends' -- and the only
-// clue was a line telling them the key was not a setting.
+// TestOldClientKeysStillApplyAndSaySo: without the alias, an old "room" would be an unknown key and the player would
+// land in "default", a real room, just not their friends'.
 func TestOldClientKeysStillApplyAndSaySo(t *testing.T) {
 	resetIdentityNotices(t)
 	path := writeConfig(t, nil, `{"client": {"room": "castle", "name": "me", "name_color": "#F00"}}`)
@@ -70,9 +65,8 @@ func TestOldClientKeysStillApplyAndSaySo(t *testing.T) {
 	}
 }
 
-// WHEN A FILE CARRIES BOTH SPELLINGS the current one wins -- the shape a player
-// ends up with after copying a fresh shipped config and pasting their old value
-// in beside it.
+// TestTheCurrentSpellingWinsOverTheOldOne: a file with both spellings, the shape a player ends up with after pasting
+// an old value into a fresh shipped config.
 func TestTheCurrentSpellingWinsOverTheOldOne(t *testing.T) {
 	resetIdentityNotices(t)
 	path := writeConfig(t, nil, `{"client": {"room": "old", "room_name": "new"}}`)
@@ -86,18 +80,15 @@ func TestTheCurrentSpellingWinsOverTheOldOne(t *testing.T) {
 	}
 }
 
-// AN EMPTY ROOM IS THE DEFAULT ROOM, not a different one. Before this, a blank
-// room_name was a real room of its own: two players whose files differed only in
-// blank-versus-"default" silently never met, and the relay cannot tell the two
-// apart either, since it keys rooms on whatever string it is handed.
+// TestAnEmptyRoomNameIsTheDefaultRoom: otherwise two players differing only in blank versus "default" would never
+// meet, and the relay, keying rooms on the string it is handed, could not tell.
 func TestAnEmptyRoomNameIsTheDefaultRoom(t *testing.T) {
 	resetIdentityNotices(t)
 	path := writeConfig(t, nil, `{"client": {"room_name": "   "}}`)
 	var id identity
 	out := captureLogForTest(t, func() {
 		loadClientConfig(path, map[string]bool{}, id.targets())
-		// Twice: the file is re-read on every save, and a line repeated on each
-		// one is a line people stop reading.
+		// Twice: the file is re-read on every save, and the notice must not repeat.
 		loadClientConfig(path, map[string]bool{}, id.targets())
 	})
 	if id.room != defaultRoom {
@@ -108,8 +99,7 @@ func TestAnEmptyRoomNameIsTheDefaultRoom(t *testing.T) {
 	}
 }
 
-// THE SHIPPED PLACEHOLDER IS NOT A NAME. It ships so the file teaches what the
-// field wants; drawing it would label every player who has not edited the file
+// TestThePlaceholderPlayerNameIsUnset: drawing the placeholder would label every player who has not edited the file
 // "nickname".
 func TestThePlaceholderPlayerNameIsUnset(t *testing.T) {
 	for _, spelling := range []string{"nickname", "Nickname", "NICKNAME", "  nickname  "} {
@@ -128,9 +118,8 @@ func TestThePlaceholderPlayerNameIsUnset(t *testing.T) {
 	}
 }
 
-// A REAL NAME THAT MERELY RESEMBLES THE PLACEHOLDER IS A REAL NAME. The
-// sentinel is one exact word, and the cost of it being a word at all is that
-// this line has to hold.
+// TestANameThatIsNotThePlaceholderSurvives: the placeholder is one exact word, and a name that resembles it is a
+// real name.
 func TestANameThatIsNotThePlaceholderSurvives(t *testing.T) {
 	resetIdentityNotices(t)
 	path := writeConfig(t, nil, `{"client": {"player_name": "Nickname!"}}`)
@@ -141,10 +130,8 @@ func TestANameThatIsNotThePlaceholderSurvives(t *testing.T) {
 	}
 }
 
-// THE PLACEHOLDER MUST NOT LEAK INTO THE OTHER TWO NAMES IN THE SAME FILE.
-// replay.name labels a recording and chaser.name labels a chaser; they share a
-// word with the player's nametag and mean something else. This also catches an
-// alias shim that recursed into the nested sections.
+// TestThePlaceholderDoesNotLeakIntoReplayOrChaserNames: replay.name and chaser.name share a word with the nametag and
+// mean something else. It also catches an alias shim that recursed into the nested sections.
 func TestThePlaceholderDoesNotLeakIntoReplayOrChaserNames(t *testing.T) {
 	resetIdentityNotices(t)
 	path := writeConfig(t, nil,
@@ -160,10 +147,8 @@ func TestThePlaceholderDoesNotLeakIntoReplayOrChaserNames(t *testing.T) {
 	}
 }
 
-// A BLANK ROOM MUST NOT READ AS A CHANGE ON THE NEXT SAVE. Room is deliberately
-// relaunch-only, so if only one of startup and reload resolved the blank, the
-// first save of any other key would report "needs the client relaunched" for a
-// room nobody touched.
+// TestABlankRoomIsNotAChangeWhenTheFileIsSavedAgain: room is relaunch-only, so if only startup or reload resolved the
+// blank, the first save would ask for a relaunch over a room nobody touched.
 func TestABlankRoomIsNotAChangeWhenTheFileIsSavedAgain(t *testing.T) {
 	resetIdentityNotices(t)
 	path := writeConfig(t, nil, `{"client": {"room_name": "", "interp": "450ms"}}`)

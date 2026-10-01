@@ -4,14 +4,9 @@ package main
 
 import "io"
 
-// consoleWriter is a no-op off Windows: there is no console to allocate, and a
-// process started from a terminal already has one. show_console is accepted and
-// ignored rather than rejected, so the same config.json works on every platform
-// (and so a Windows user's file doesn't fail on a native Linux client). See
-// console_windows.go for what it does where it means something.
+// consoleWriter is a no-op off Windows, where a process started from a terminal already has a console. show_console
+// is accepted and ignored so one config.json works on every platform.
 func consoleWriter() io.Writer { return nil }
 
-// runningUnderWine is always false off Windows: a native Linux or macOS build
-// is not a Windows binary being emulated, it just IS the platform. The Wine
-// question only exists for the .exe running inside a Proton prefix.
+// runningUnderWine is always false off Windows: a native build is not a Windows binary under Wine.
 func runningUnderWine() bool { return false }
