@@ -1007,3 +1007,48 @@ spawned tier; rails never built), Crystal 16 (the first mixed-build room was 202
 address tables, not five). Each top status line now says what is open today; TEVI's notes the 2026-10-01 rebuild is
 deployed and not yet seen. Steps without a Status: 167 → 0. The 51 work items on record with no step of their own
 (TEVI 11, Pseudoregalia 17, Emerald 17, Crystal 6) go to the user next as a yes/no/merge list per README.
+
+## 2026-10-01 (pause) — A4's candidate beats approved, not yet written
+
+The fact-check agents also listed 51 pieces of work on record with no build step of their own. The user approved
+this session's recommendation for every one (the build-story rules in [CLAUDE.md](../../CLAUDE.md): one step per capability, no step for untested work),
+plus five stale claims outside the steps; the session paused before any was written, so the tree is clean at
+`5c6b53b6`. Next chat: write these, each new step 2–4 lines with its `**Status:**` line, appended after the last step
+(renumbering would break references) with enough date context that the order reads, every present-tense claim
+grepped against the code first; then A5.
+
+- TEVI. New 20: two real players, the pause overlay leaving ghosts up, and a main-menu return or game close
+  despawning your ghost while pause does not (VERIFIED 2026-08-13). New 21: the reproducible DLL, two clean clones,
+  staged only if byte-identical (measured 2026-10-01; the rebuild not yet seen). Merge into 6: one DLL across both
+  builds (`mainCharacter` by reflection). Into 12: the weapon's white/blue strobe and the held pose under a bad link.
+  Into 16: it starts its own client with no console window, walks its ports and sends only after `bridge_ready`.
+- Pseudoregalia. New 72: the first release package with its own UE4SS runtime (2026-08-13) and coexisting with the
+  Archipelago randomizer (2026-08-13, 2026-09-05). New 73: ghosts vanish when the client closes and follow across
+  areas (2026-08-14). New 74: 7.7, two machines, one on Linux/Proton (2026-08-16). New 75: the player's own effects
+  mirrored by key (landing dust, charged glow, slash arc; the wall-kick mirror partial). New 76: replays as ghosts, a
+  zip of two recordings as two ghosts (2026-09-04). Merges: auto-possess fix → 3; body and sword not through walls
+  → 52; two instances on one machine → 49; facing interpolation → 15; hand sword from the first frame → 59; client
+  and files in the game root → 42; `TCP_NODELAY` → 7; the orphaned camera rig's FPS drop → 56; the driven ghost dev
+  rig → 68. Update the top line's "18 steps since".
+- Emerald. New 43: the painted path as an overflow rung with UI-panel clipping (2026-08-19/20), the rung that ships
+  since step 42. New 44: SPEEDCHOICE 1.2.2 and EX SPEEDCHOICE 0.4.0 both ways, occlusion on all four builds
+  (2026-09-11/12). New 45: a ghost opens the door on all four builds (2026-09-12). New 46: the painted ghost judged
+  identical to the player (2026-09-13), with the seam fixes and painted ghosts sorting against the player folded in.
+  Merges: gender-correct rendering → the early sprite step; ledge hops and the jump shadow → 21; the painted tier
+  3.2x faster → 42. Stale: "nothing is discovered at runtime" (`gMapHeader`, `gTasks`, `gMapGroups` and the avatar
+  offset are found by shape); painting called the last rung (~line 110); two headless fragments (~line 362);
+  `FLAGS.md` lists `MESHGHOST_EMERALD_DRAWN_DELAY_FRAMES` default 8 where the code has 0 (`meshghost_emerald.lua`
+  :1657) and has no row for `MESHGHOST_GHOST_PEER_GFX_DRAWN` (:5544).
+- Crystal. New 36: it dialled its own core and drove a ghost from the wire (2026-08-18), the port walk seen
+  (2026-08-28). Merges: ROM identification and `MESHGHOST_CRYSTAL_STRICT` → 30; a peer wears its own sprite when
+  this cartridge numbers it the same way → 24; a paused window's ghost leaves and returns → 31. Stale: the top
+  status says a peer's gait is read off the cartridge; it arrives on the wire (`extras.gait`).
+- Left out by the same call: reading the player (implied), the loopback offset, core-restart and lag fixes, savestate
+  loads, hostile-peer hardening, Emerald's bike graphic, collision policy, autostart and replay ghosts (untested on
+  screen), the records step, Crystal's no-collision and first-step change.
+
+For A5: history taken out of code comments goes, word for word and only where no record already holds it, to a
+"The stories behind the code" section in `pitfalls/by-lesson.md`, indexed in `pitfalls/INDEX.md`, as A2.4 did for
+the gates. The Go proof is `go/scanner` tokens minus comments identical per changed file (a throwaway tool built
+this session confirmed a comment-only change reads identical and a code change does not), plus gofmt and
+`run-gotests.bat`. The Go side carries about 27,000 whole-line comments, tests included.

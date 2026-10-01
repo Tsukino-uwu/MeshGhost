@@ -1587,3 +1587,5 @@ every Archipelago seed here has read, `crystal/VERIFIED.md`) as Archipelago, whe
 "UNRECOGNISED Archipelago title" warning on the first log line, instead of vanilla's set. Neither is seen in
 BizHawk yet; the file parses. Still open, and said to the user: nothing detects an Archipelago update that moves
 RAM under the same title; runtime address discovery from the ROM's code was scoped and set aside.
+
+## 2026-10-01 — pointer: every build step now ends with its Status line, and the README fact-checked; logged in [phase12.md](phase12.md)
