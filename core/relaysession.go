@@ -1,11 +1,7 @@
 package core
 
-// The core's relay connection: dialling it, losing it, and getting it back.
-//
-// Split out of core.go on 2026-08-25. Everything here runs on, or races with, the
-// relay connection lifecycle -- which is why the reconnect bookkeeping and the
-// permanent-refusal handling live beside the connect path rather than scattered
-// through a 2,048-line file.
+// The core's relay connection: dialling it, losing it, and getting it back. Everything here runs on, or races with,
+// the connection lifecycle, so the reconnect bookkeeping and refusal handling live beside the connect path.
 
 import (
 	"encoding/json"
@@ -20,20 +16,9 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
-// ConnectRelay dials this Core's RelayAddr, performs the hello/welcome
-// handshake for gameID using its Room/DisplayName/RoomCode/GameVersion/
-// DialTimeout fields (set these before calling), and wires up handling of
-// join/leave/state messages from the relay for the rest of this Core's
-// life. It blocks until Welcome, Reject, or timeout.
-//
-// Collapsed from a 7-parameter signature (addr, gameID, room, displayName,
-// roomCode, gameVersion, timeout) in a review pass: every parameter except
-// gameID already duplicated one of these fields — the same redundancy
-// applyFileConfig's own configTargets struct in cmd/meshghost was
-// introduced to avoid. The version advertised is c.GameVersion when the
-// user set one, and otherwise whatever the adapter last reported through
-// ConnectRelayOnAdapterHello — resolved per call, so an adapter that
-// reconnects reporting a new version is advertised under the new one.
+// ConnectRelay dials RelayAddr, performs the hello and welcome handshake for gameID using this Core's connection
+// fields, and handles the relay's messages from then on. It blocks until Welcome, Reject or timeout. The version
+// advertised is GameVersion if set, otherwise what the adapter last reported, resolved per call.
 func (c *Core) ConnectRelay(gameID string) error {
 	addr, room, displayName, roomCode, timeout :=
 		c.relayAddr(), c.room(), c.displayName(), c.roomCode(), c.DialTimeout
@@ -45,40 +30,17 @@ func (c *Core) ConnectRelay(gameID string) error {
 		c.mu.Unlock()
 	}
 
-	// protocol.MaxLineBytes, not transport's generous 64KiB package
-	// default — found in a review pass: the relay already used its own
-	// tighter limit for connections it accepts, but the core's own dialed
-	// relay connection didn't, despite enforcing every per-field cap on
-	// receive (storeRemoteState). 0/0 for idle/write timeout means "use
-	// transport's own defaults".
-	// The handshake always happens over tcp, whatever Transport says, and
-	// that is not configurable. Only after it does this Core move to the
-	// transport the user actually asked for. See resolveTransport.
+	// The handshake always happens over tcp, whatever Transport says; resolveTransport then picks the session's.
 	kind, dialAddr, tlsOpts, err := c.resolveTransport(addr, gameID, room, displayName, roomCode, gameVersion)
 	if err != nil {
 		return fmt.Errorf("core: dial relay: %w", err)
 	}
 
-	// netx.Dial rather than transport.Dial* so the transport is selectable
-	// (agent_docs/architecture.md's transport ADR); transport.FromConnWithLimits
-	// then applies the same NDJSON framing and limits to whatever net.Conn
-	// comes back, identically for tcp, udp and quic. DefaultDialTimeout,
-	// not this call's `timeout`, matches what transport.DialWithLimits used
-	// internally before this change — `timeout` bounds the wait for Welcome
-	// further down, which is a different thing.
+	// transport.DefaultDialTimeout, not timeout: timeout bounds the wait for Welcome below.
 	netConn, err := netx.DialWithTLS(kind, dialAddr, transport.DefaultDialTimeout, tlsOpts)
 	if err != nil {
-		// In automatic mode, a transport that cannot be DIALLED here is not tried again --
-		// the next attempt falls to the next preference, and tcp always works because the
-		// handshake already happened over it. Without this a machine that cannot do quic at
-		// all (Wine returns WSAEOPNOTSUPP from quic-go's UDP setup) re-picks quic forever.
-		//
-		// An explicit preference is deliberately NOT remembered: someone who asked for quic
-		// should keep being told it is failing rather than be quietly moved.
-		//
-		// TWO CONSECUTIVE failures, not one. See Core.transportDialFailures: a relay that is
-		// merely RESTARTING can fail a single quic dial while its tcp listener is already back,
-		// and condemning on that would silently pin the rest of the session to tcp.
+		// In auto mode a transport that cannot be dialled here stops being chosen after two failures in a row (see
+		// Core.transportDialFailures); tcp always works, since the handshake used it. An explicit choice keeps failing.
 		if c.Transport == netx.Auto && kind != netx.TCP {
 			c.mu.Lock()
 			if c.transportDialFailures == nil {
@@ -109,109 +71,62 @@ func (c *Core) ConnectRelay(gameID string) error {
 		}
 		return fmt.Errorf("core: dial relay: %w", err)
 	}
-	// The room-code proof for this connection (roomproof.go): nil with no
-	// code. Prepared here so the hello can carry its first message.
+	// The room-code proof (roomproof.go), nil with no code, prepared so the hello can carry its first message.
 	proof, err := newRoomProof(roomCode, netConn)
 	if err != nil {
 		_ = netConn.Close()
 		return fmt.Errorf("core: room code proof: %w", err)
 	}
+	// protocol.MaxLineBytes, the limit the relay itself applies, not transport's default; 0, 0 take transport's
+	// default idle and write timeouts.
 	conn := transport.FromConnWithLimits(netConn, protocol.MaxLineBytes, 0, 0)
 	c.mu.Lock()
-	// THE DIAL SUCCEEDED, so this transport's consecutive-failure run is over.
-	// Missing until 2026-09-11, which quietly turned "two failures IN A ROW"
-	// into "two failures ever": a relay restarted twice in a session condemned
-	// quic for the rest of that session, which is the exact outcome the
-	// two-strike rule was added to prevent (Core.transportDialFailures says why
-	// one failure is not evidence). Cleared rather than decremented -- the
-	// question the counter answers is "is it failing NOW".
+	// The dial succeeded, so this transport's run of consecutive failures is over.
 	delete(c.transportDialFailures, kind.String())
-	// TAKING THE SLOT OVER FORGETS WHAT WAS IN IT. If a previous connection is
-	// still sitting here, this Core is done with it whatever its own callback
-	// has managed to run yet -- and leaving its identity in place is what makes
-	// this connection's Welcome look like an illegal second one and get thrown
-	// away. See forgetRelaySessionLocked for the full failure and the run that
-	// found it.
+	// Taking the slot over forgets what was in it: a previous connection's identity left in place would make this
+	// connection's Welcome look like an illegal second one (see forgetRelaySessionLocked).
 	replaced := c.relay
 	if replaced != nil && replaced != conn {
 		c.forgetRelaySessionLocked()
 	}
 	c.relay = conn
-	// The connection's outbound queue, created with it and closed with it. A
-	// previous one is closed below, outside the lock, with the socket it wrote.
 	previousOut := c.relayOut
 	c.relayOut = newRelayWriter(conn, func() { c.relayStuck(conn) })
 	c.mu.Unlock()
 	previousOut.close()
 	if replaced != nil && replaced != conn {
-		// The samples belonged to the session that just ended, and the socket
-		// to a connection nobody will read again. Both outside the lock:
-		// dropAllRemotes takes it, and Close can land its own callback.
+		// Outside the lock: dropAllRemotes takes it, and Close can land its own callback.
 		c.dropAllRemotes()
 		_ = replaced.Close()
 	}
 
 	welcome := make(chan protocol.Welcome, 1)
 	reject := make(chan protocol.Reject, 1)
-	// Closed when this connection dies, so the wait for Welcome below ends the
-	// moment the socket does instead of running out the dial timeout. Without
-	// it a relay that hangs up mid-handshake -- restarting, refusing at the TCP
-	// layer, or simply dropped -- left the caller blocked for the whole
-	// timeout, and on the bridge path that caller is an adapter's Hello: the
-	// game sat there waiting on a connection that was already gone. Found
-	// 2026-08-29 by the schedule fuzzer, which could produce it on demand once
-	// the dial timeout was set to a realistic ten seconds.
+	// gone ends the wait for Welcome the moment the socket dies, so a relay that hangs up mid-handshake does not
+	// leave a launching game's hello blocked for the whole timeout.
 	gone := make(chan struct{})
 	var goneOnce sync.Once
 	conn.OnError(func(err error) { log.Printf("core: relay connection error: %v", err) })
 	conn.OnDisconnect(func(err error) {
 		log.Printf("core: relay disconnected: %v", err)
 		goneOnce.Do(func() { close(gone) })
-		// Without this, a remote's last known snapshot sits in c.remotes
-		// forever: remoteBuffer.at() holds the newest sample with no
-		// extrapolation once renderTime passes it, so nothing about the
-		// existing per-frame tick logic would ever notice the relay is
-		// gone and there's nothing to despawn. Clearing here means the
-		// very next adapter frame sees every remote vanish from
-		// remoteStatesAt's result at once, which onAdapterFrame already
-		// turns into a despawn_remote per id via its existing
-		// rendered-vs-current diff — no new wire message, no bridge
-		// change, just making sure this path actually fires.
-		//
-		// Moved inside the wasCurrent guard below in a review pass
-		// 2026-08-16: it was the one thing this callback did unguarded, so a
-		// stale connection's late OnDisconnect would have wiped the *live*
-		// connection's remotes, despawning and respawning every ghost. No
-		// reachable trigger was found at the time, so it was recorded as
-		// removing an asymmetry rather than fixing an observed bug.
-		//
-		// The reason then given for it being unreachable — "readLoop fires
-		// synchronously on Close" — is WRONG, and believing it caused a real
-		// bug: readLoop runs on its own goroutine (transport.FromConn starts
-		// it), so Close only unblocks its Scan and this callback lands
-		// whenever that goroutine is next scheduled. See
-		// clearRelayIfCurrent, which exists because ConnectRelay's failure
-		// paths cannot wait for it. The wasCurrent guard is load-bearing,
-		// not tidiness.
+		// Dropping the remotes makes the next adapter frame despawn each one; nothing else would, since a buffer
+		// holds its newest sample forever. The wasCurrent guard is load-bearing: this runs on readLoop's own
+		// goroutine, after Close returns, possibly once a newer connection is live.
 		wasCurrent, retry := c.clearRelaySession(conn)
 
 		if wasCurrent {
 			c.dropAllRemotes()
 		}
 
-		// See autoRetryGameID's doc comment: only armed by a prior
-		// ConnectRelayOnAdapterHello success, so this is a no-op for
-		// cmd/meshghost-fakeadapter and core_test.go's direct ConnectRelay
-		// callers.
+		// Armed only by a ConnectRelayOnAdapterHello success, so a direct ConnectRelay never retries.
 		if wasCurrent && retry.gameID != "" {
 			go c.reconnectWithBackoff(retry.gameID, retry.adapterGameVersion, retry.bridgeConn)
 		}
 	})
 	conn.OnReceive(func(payload []byte) {
-		// The proof's messages first: a KE2 is answered or refused here and
-		// never reaches the ordinary handler. A refusal is delivered as a
-		// local Reject so the handshake below fails with the same shape a
-		// relay's wrong-code refusal has, permanent and named.
+		// A proof message is answered or refused here and never reaches the ordinary handler; a refusal arrives as a
+		// local Reject, so the handshake fails the same way a relay's wrong-code refusal does.
 		if proof.intercept(conn, payload, func(r protocol.Reject) {
 			select {
 			case reject <- r:
@@ -223,21 +138,11 @@ func (c *Core) ConnectRelay(gameID string) error {
 		c.handleRelayMessage(conn, payload, welcome, reject)
 	})
 
-	// A resume token from a previous session on this Core, if any. Presented
-	// on every connect attempt: the relay silently ignores one it does not
-	// recognise, so there is no need to know whether this is a reconnect.
+	// The resume token goes on every attempt: the relay ignores one it does not recognise.
 	c.mu.Lock()
 	resumeToken := c.resumeToken
-	// Told to the relay so it can stop forwarding what this core would only
-	// discard at render time. It is the exact inverse of the adapter's own
-	// declaration, read under the same lock that writes it in bridgeserve.go,
-	// which runs before ConnectRelayOnAdapterHello -- so an adapter that takes
-	// over area visibility (Emerald, Crystal with cross-map armed) is never
-	// filtered by the relay either.
-	//
-	// A core with no adapter attached yet reports true, which is harmless: it
-	// sends no state, so it has no area of its own on record and the relay's
-	// filter fails open for it regardless.
+	// The inverse of the adapter's render_all_areas, so an adapter that takes over area visibility is never filtered
+	// by the relay. With no adapter yet it is true and harmless: no state sent means no area on record.
 	ownAreaOnly := !c.adapterRenderAllAreas
 	c.mu.Unlock()
 
@@ -264,22 +169,9 @@ func (c *Core) ConnectRelay(gameID string) error {
 		return err
 	}
 	if err := conn.Send(env); err != nil {
-		// A REJECT THAT ALREADY ARRIVED BEATS THE SEND ERROR, for the same
-		// reason it beats the drop in the select below. The read loop runs on
-		// its own goroutine from the moment the socket is dialled, so a relay
-		// that refuses and closes fast enough has its Reject delivered AND the
-		// socket closed under this send before the send even starts -- the
-		// write then fails with "use of closed network connection", and the
-		// reason the player needs is sitting in the buffered channel, unread.
-		// CI's race job caught exactly this ordering on 2026-09-08, the day the
-		// select-side fix landed: the regression test forces the reject and
-		// the FIN onto the wire before the hello, and one attempt in a hundred
-		// or so lost the hello write rather than the select.
-		//
-		// The reject can only be there because the read loop already ran, and
-		// that is the only thing that closes this connection out from under a
-		// send, so the check never mistakes an unrelated write error for a
-		// refusal.
+		// A Reject that already arrived beats the send error: a relay that refuses and closes fast enough closes
+		// the socket under this send, and the reason sits unread in the channel. Only the read loop that delivered
+		// it can close the socket here, so an unrelated write error is never mistaken for a refusal.
 		select {
 		case r := <-reject:
 			_ = conn.Close()
@@ -292,11 +184,6 @@ func (c *Core) ConnectRelay(gameID string) error {
 	}
 
 	if timeout <= 0 {
-		// Every other timing knob in this codebase (transport.go,
-		// relay.go) treats <=0 as "use the default" — found missing here
-		// in a review pass. Without this, a Core built without explicitly
-		// setting DialTimeout (nothing but cmd/meshghost does) times out
-		// on its very first select below.
 		timeout = DefaultDialTimeout
 	}
 
@@ -306,21 +193,8 @@ func (c *Core) ConnectRelay(gameID string) error {
 
 	select {
 	case w := <-welcome:
-		// THE FLOOR, CLIENT SIDE. The relay checks the client's version in the
-		// hello; this is the other half, and it is why Welcome carries the
-		// relay's own version at all (2026-09-08, the user's call: a current
-		// client should not sit in an ancient relay's room).
-		//
-		// A relay that advertises 0 -- one built before the field existed -- is
-		// refused by the same comparison rather than a special case, which is
-		// what the Version 2 cutover bought: everything older is below the floor
-		// by construction.
-		//
-		// Reported as a permanent RejectError, not a transport error, because it
-		// is one: no amount of retrying changes either build's version, and
-		// classifying it as transient is what would make a client hammer a relay
-		// it can never talk to. The message names both numbers, since "update
-		// one of them" is the only fix and the player needs to know which.
+		// The client half of the version floor, reported as a permanent refusal naming both versions: retrying
+		// changes neither build. A relay advertising 0 predates the field and fails the same comparison.
 		if rej := c.refuseWelcomeVersion(w); rej != nil {
 			_ = conn.Close()
 			c.clearRelayIfCurrent(conn)
@@ -328,18 +202,8 @@ func (c *Core) ConnectRelay(gameID string) error {
 		}
 		c.mu.Lock()
 		if c.relay != conn {
-			// The connection died while its own Welcome was sitting in this
-			// channel, and the teardown has already run. Applying it now
-			// RESURRECTS the dead session's identity on a Core that has none
-			// -- and the next connection's Welcome is then thrown away as an
-			// illegal second one, leaving the core answering to a name the
-			// relay retired and deaf to everyone in the room.
-			//
-			// This is the last of the five the schedule fuzzer found on
-			// 2026-08-29, and the only one where the losing race is INSIDE a
-			// single connect: the select can be handed a buffered Welcome and
-			// a closed socket at the same instant, and it is free to take
-			// either. Both are now correct.
+			// The connection died with its Welcome still in the channel and the teardown has run: applying it now
+			// would resurrect a dead identity and make the next connection's Welcome an illegal second one.
 			c.mu.Unlock()
 			_ = conn.Close()
 			return fmt.Errorf("core: the relay connection dropped before its welcome could be applied")
@@ -348,10 +212,6 @@ func (c *Core) ConnectRelay(gameID string) error {
 		c.relayGame = gameID
 		c.mu.Unlock()
 		if agreed := c.RoomFeatures(); len(agreed) > 0 {
-			// Worth one line at connect: a room's capabilities are matched
-			// exactly and are the difference between a lease being arbitrated
-			// and silently ignored, so "which set did we actually land on"
-			// should never require reading the relay's log to answer.
 			log.Printf("core: room %q negotiated capabilities %v", room, agreed)
 		}
 		go c.sendHeartbeats(conn)
@@ -361,21 +221,8 @@ func (c *Core) ConnectRelay(gameID string) error {
 		c.clearRelayIfCurrent(conn)
 		return &RejectError{Reason: r.Reason, Code: r.Code, Retryable: r.Retryable}
 	case <-gone:
-		// A REJECT THAT ALREADY ARRIVED BEATS THE DROP. The relay writes the
-		// Reject and closes immediately after (relay.go's rejectAndClose), so
-		// the buffered reject channel and the closed gone channel are routinely
-		// ready in the same instant -- and a select with two ready cases picks
-		// uniformly at random, so roughly half of all refusals took this branch.
-		// The caller then got a plain transport error instead of a *RejectError,
-		// IsPermanentRejectErr never saw it, and a wrong room code was redialled
-		// every 15 s for the life of the process with the log saying only
-		// "dropped before the welcome arrived" -- never the actual reason the
-		// player needed in order to fix it (2026-09-08 review).
-		//
-		// A reject is strictly more information than a drop: the drop says the
-		// socket is gone, the reject says WHY, so when both are true the reject
-		// is the answer. Code and Retryable ride along unchanged; they are what
-		// callers branch on.
+		// A Reject that already arrived beats the drop: the relay rejects and closes at once, and a select with two
+		// ready cases picks at random, which would report a permanent refusal as a transient drop.
 		select {
 		case r := <-reject:
 			_ = conn.Close()
@@ -383,58 +230,33 @@ func (c *Core) ConnectRelay(gameID string) error {
 			return &RejectError{Reason: r.Reason, Code: r.Code, Retryable: r.Retryable}
 		default:
 		}
-		// Deliberately the same shape as the timeout below -- an error, not a
-		// retry from in here. Whoever asked for this connection decides what
-		// to do about it, and both callers already know how: cmd/meshghost's
-		// startup loop and reconnectWithBackoff both back off and try again.
+		// An error, not a retry from here: both callers already back off and try again.
 		_ = conn.Close()
 		c.clearRelayIfCurrent(conn)
 		return fmt.Errorf("core: the relay connection dropped before the welcome arrived")
-	case <-time.After(timeout): // wall-clock: waiting on a RELAY over a socket
+	case <-time.After(timeout): // wall-clock: waiting on a relay over a socket
 		_ = conn.Close()
 		c.clearRelayIfCurrent(conn)
 		return fmt.Errorf("core: timed out waiting for welcome from relay")
 	}
 }
 
-// clearRelaySession forgets everything that belonged to ONE relay connection
-// and reports whether conn was the live one, along with what a redial would
-// need. Every field it touches is per-connection: carrying any of them into
-// the next session means answering a new relay's questions with an old
-// relay's answers. Clearing c.relay is what lets a later bridge Hello (the
-// adapter reconnecting, e.g. relaunching the game) redial via
-// ConnectRelayOnAdapterHello, instead of finding it non-nil and treating this
-// Core as connected forever.
-//
-// It is a method rather than the body of ConnectRelay's OnDisconnect closure
-// because a closure needs a real socket and a real drop to reach, which is
-// why eleven of these twelve clears went untested until 2026-08-22. The
-// stale-callback guard in particular is unreachable from a black-box test:
-// it only fires when an OLD connection's callback lands after a NEWER one has
-// replaced it, and nothing outside this package can arrange that. See
-// core/reconnect_test.go.
+// clearRelaySession forgets everything that belonged to one relay connection and reports whether conn was the live
+// one, with what a redial needs. Clearing c.relay lets a later bridge hello redial instead of finding this Core
+// connected forever. A method, not the OnDisconnect closure body, so a test can reach the stale-callback guard.
 func (c *Core) clearRelaySession(conn transport.Transport) (bool, relayRetry) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	retry := relayRetry{c.autoRetryGameID, c.autoRetryAdapterGameVersion, c.autoRetryBridgeConn}
 	if c.relay != conn {
-		// A stale connection's callback, landing after a newer one already
-		// replaced it. Touching anything here would wipe the LIVE session.
-		//
-		// This is correct and it is NOT the whole story: what the old session
-		// left behind still has to be forgotten, and by the time this runs the
-		// new connection owns the fields. That is why the forgetting also
-		// happens at the takeover -- see forgetRelaySessionLocked's callers.
+		// A stale connection's late callback: touching anything would wipe the live session. What the old session
+		// left behind was forgotten at the takeover instead.
 		return false, retry
 	}
 
 	c.relay = nil
-	// The writer goes with the connection. Closing rather than abandoning it
-	// drains what is already queued onto a socket that may still be writable
-	// (a clean leave is the case that matters), and ends its goroutine either
-	// way -- an abandoned one would park on its signal channel for the life of
-	// the process, one per relay drop.
+	// Closing rather than abandoning the writer drains what is queued (a clean leave) and ends its goroutine.
 	c.relayOut.close()
 	c.relayOut = nil
 	c.forgetRelaySessionLocked()
@@ -442,106 +264,33 @@ func (c *Core) clearRelaySession(conn transport.Transport) (bool, relayRetry) {
 	return true, retry
 }
 
-// forgetRelaySessionLocked drops everything that belonged to ONE relay
-// connection, without touching c.relay itself. Called from two places, and the
-// second one is why it exists: clearRelaySession, when a connection this Core
-// still owns dies, and ConnectRelay, when a NEW connection takes the slot over.
-//
-// The takeover call closes the fourth bug the schedule fuzzer found
-// (2026-08-29, on CI's Windows runner, in a schedule that drops a relay socket
-// under a running game). A reconnect can complete before the dead connection's
-// OnDisconnect is scheduled -- the callback runs on that connection's own read
-// goroutine, whenever the runtime gets to it. The stale-callback guard above
-// then correctly declines to touch anything, and the old session's playerID
-// was therefore never cleared. The new connection's Welcome then hits the
-// "a second Welcome is protocol-illegal" guard in handleRelayMessage, which
-// keys off exactly that field, and is DISCARDED: the core keeps the old id,
-// gets no roster, no send rate, no policy and no clock for the session it is
-// actually on -- and since states from ids outside the roster are dropped by
-// design, it goes permanently, silently deaf. Attached adapter, bridge_ready
-// sent, live socket, no error logged, and every other player invisible.
-//
-// The caller must hold c.mu.
+// forgetRelaySessionLocked drops everything that belonged to one relay connection except c.relay itself. It runs
+// when an owned connection dies and when a new connection takes the slot over: a reconnect can finish before the
+// dead connection's callback runs, and an old playerID left in place would make the new Welcome an illegal second
+// one and the core silently deaf. The caller must hold c.mu.
 func (c *Core) forgetRelaySessionLocked() {
 	c.playerID = ""
-	// With the id it used to be inferred from: one Welcome per CONNECTION, and
-	// this is where a connection ends. See Core.welcomed.
 	c.welcomed = false
 	c.relayGame = ""
 	c.relayOwner = nil
-	// Cleared so a reconnect (to this relay again, or a different,
-	// differently-configured one) starts from effectiveSendInterval's
-	// "nothing advertised yet" fallback instead of inheriting this
-	// connection's now-stale rate.
 	c.serverSendInterval = 0
-	// Cleared with the rate above so a reconnect to a differently-configured
-	// relay never inherits a stale policy. The adapter is told the new value
-	// once the next Welcome lands.
 	c.relayGhostCollision = ""
 	c.relayPolicyKnown = false
-	// Per-connection too: the room's agreed capabilities, the clock offset (a
-	// different relay has a different clock, and even the same one restarted
-	// may have jumped), the outstanding ping timings, and whether this session
-	// was a resumption. The resume TOKEN deliberately survives — this is
-	// exactly the drop it exists for, and a test pins that it is still here
-	// afterwards precisely because it is one line among twelve clears.
+	// The resume token deliberately survives: this is the drop it exists for.
 	c.activeFeatures = nil
 	c.resumed = false
 	c.clock = clockSync{}
-	// c.lastNowMs IS DELIBERATELY NOT CLEARED HERE. It was, until 2026-09-08,
-	// on the reasoning that a ceiling belongs to the connection whose offset
-	// produced it -- and that reasoning traded a freeze for a REWIND, which
-	// online.go's nowMsLocked spends a page explaining must never happen:
-	// remoteBuffer.add requires non-decreasing timestamps and does not re-sort,
-	// and a render time that went backwards can flip an opaque field back to a
-	// previous value, manufacturing a state edge the core is forbidden to
-	// interpret and an adapter may act on.
-	//
-	// Concretely, in a clock.v1 room whose offset was +5 s: at the instant the
-	// relay drops, the offset goes to zero with the clock above and the emitted
-	// now falls by five seconds. recordLocal then stamps five seconds in the
-	// past, the chaser is fed nothing it considers new for five wall seconds,
-	// every chaser sees a gap past replayGapSeamMs, and the whole pack
-	// despawns and respawns on the player -- the same on-screen signature as
-	// the 2026-09-05 queue-hole bug.
-	//
-	// Keeping the ceiling costs the clamp's documented behaviour instead: the
-	// emitted clock holds still until real time catches up, bounded by the
-	// dropped offset. A held clock is sortable and rewinds nothing; a step back
-	// is neither. The OFFSET is still reset above, so a new relay's clock is
-	// never inherited -- only the floor under what we already told the room.
+	// c.lastNowMs is deliberately kept: clearing it lets the clock step back by the dropped offset, which unsorts every
+	// buffer and despawns the chaser pack. Holding still until real time catches up is the lesser cost.
 	c.pendingPings = nil
-	// Roster is per-connection: player_ids are only meaningful within the
-	// connection that assigned them. Welcome used to be the de facto reset (it
-	// replaced the map wholesale), but it no longer does -- see the Welcome
-	// case, which now merges so a Join that arrives first isn't erased -- so
-	// the reset has to be explicit here, or a stale id could outlive the
-	// connection that named it and pass the trust check on the next one.
+	// player_ids mean something only within the connection that assigned them, and Welcome merges rather than
+	// replaces, so the reset is explicit or a stale id would pass the trust check on the next connection.
 	c.roster = make(map[string]int64)
-	// THE ROSTER'S TWO SHADOW MAPS GO WITH IT, and they were left behind until
-	// 2026-09-12. Both are keyed by player_id, which the comment above says is
-	// only meaningful inside the connection that assigned it -- so a name and an
-	// aged-out mark outliving that connection are the same defect as a stale
-	// roster entry, minus the trust check that makes the roster's version
-	// visible. Nothing ever emptied either one: a Leave clears a single id and a
-	// relay under no obligation to send Leaves simply never does. What
-	// accumulates is charged to the NEXT adapter, one non-coalescing
-	// remote_name per entry from pushRemoteNames (core/remotenames.go).
-	//
-	// agedOut clears wholesale: the age-out that fills it skips local ids
-	// outright (core/remotes.go), so every member is a relay peer.
+	// The roster's shadow maps go with it, or what accumulates is pushed to the next adapter one remote_name each.
+	// agedOut never holds a local id, so it clears wholesale.
 	c.agedOut = nil
-	// remoteNames does NOT. It holds the player's own chaser and replay tags
-	// too, and those ghosts outlive a relay drop -- their samples come from a
-	// goroutine in this process, not from the socket that just died. Clearing
-	// the map wholesale would strip the nametag off every one of them on a
-	// reconnect, which is the same shape as the near-miss recorded on
-	// 2026-09-12 in pitfalls/method.md: a gate that turns on where a value came
-	// from must ask that question, not a question that merely correlates.
-	//
-	// isLocalPeerID, never a c.localPeers lookup: membership is dropped and
-	// re-admitted at every seam and a reconnect can land inside one, while the
-	// id itself never changes (core/localpeer.go).
+	// remoteNames also holds the player's own chaser and replay tags, whose ghosts outlive a relay drop. Asked by id,
+	// never c.localPeers: membership is dropped and re-admitted at every seam, and a reconnect can land inside one.
 	for id := range c.remoteNames {
 		if !isLocalPeerID(id) {
 			delete(c.remoteNames, id)
@@ -549,6 +298,9 @@ func (c *Core) forgetRelaySessionLocked() {
 	}
 }
 
+// clearRelayIfCurrent drops a connection whose handshake failed. OnDisconnect runs later on the read goroutine, and
+// until it does a retry would find c.relay set with no game and report "already connected" instead of the refusal.
+// Guarded on c.relay == conn so a late call never clears a newer connection.
 func (c *Core) clearRelayIfCurrent(conn transport.Transport) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -559,37 +311,13 @@ func (c *Core) clearRelayIfCurrent(conn transport.Transport) {
 	}
 }
 
-// ConnectRelayOnAdapterHello lazily connects Core to the relay the first
-// time an adapter declares its game (and, optionally, game version) via a
-// bridge.Hello, instead of requiring the caller to already know either at
-// startup — see agent_docs/architecture.md's ADR. Uses RelayAddr/Room/
-// DisplayName/RoomCode/DialTimeout, which must be set (directly on the
-// Core) before any bridge connection can send a Hello.
-//
-// adapterGameVersion is what the adapter itself reported; c.GameVersion, if
-// set, overrides it — mirroring how -game/config already lets a caller with
-// no real adapter (dev-scripts, cmd/meshghost-fakeadapter) force a value
-// instead of waiting for one to arrive over the bridge.
-//
-// bridgeConn is the specific bridge connection whose Hello triggered this
-// call, or nil for a caller with no bridge connection at all (the eager
-// -game/config path). Recorded as c.relayOwner on a successful new
-// connect, so only this connection's own later disconnect is allowed to
-// tear down the relay session it established — see relayOwner's doc
-// comment.
-//
-// No-op if this Core is already connected to the relay for the same
-// gameID. If it's already connected for a *different* gameID, returns an
-// error rather than reconnecting: the earlier connection's relay Hello
-// already committed this Core to that game and can't be retracted, so a
-// second game can't share the same Core/process.
+// ConnectRelayOnAdapterHello connects to the relay the first time an adapter declares its game, so the caller need
+// not know it at startup. The connection fields must be set before any bridge hello. adapterGameVersion is what the
+// adapter reported; GameVersion overrides it. bridgeConn (nil on the eager -game path) becomes relayOwner. Already
+// connected for the same game, it only hands ownership and auto-retry to bridgeConn; for a different game it is an
+// AlreadyServingError, since the earlier hello committed this Core to that game.
 func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bridgeConn transport.Transport) error {
-	// OFFLINE IS ENFORCED HERE, at the one funnel, and not at the caller: both
-	// ways into a relay dial come through this function -- cmd/meshghost's
-	// startup retry loop when -game is set, and an adapter's own hello over the
-	// bridge when it is not -- which is exactly why it was written as a funnel.
-	// Guarding only the loop would leave a game launching itself into a dial
-	// the player asked not to happen. Nil, not an error: nothing failed.
+	// Offline is enforced here, the one funnel both ways into a dial pass through; nil, since nothing failed.
 	if c.offline() {
 		return nil
 	}
@@ -603,32 +331,9 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 
 	if alreadyConnected {
 		if connectedGame == gameID {
-			// OWNERSHIP FOLLOWS THE CURRENT ADAPTER, and this transfer is the
-			// whole reason this branch is not a bare `return nil` any more.
-			//
-			// A relaunched game reaches here: the relay session is still up for
-			// the same game, so there is nothing to dial. But without the
-			// transfer, c.relayOwner stays the DEPARTING bridge connection --
-			// and handleBridgeConn's OnDisconnect tears the relay session down
-			// when `c.relayOwner == nd`, which is still true for a connection
-			// that has already been replaced. So the departing adapter killed
-			// the session its replacement had just been handed, AND disarmed
-			// auto-retry on the way out, leaving the Core with an attached
-			// adapter, no relay connection and nothing to redial it: a dead
-			// session until the game is restarted again.
-			//
-			// Found by CI on 2026-08-27 as a one-in-two intermittent failure of
-			// internal/e2e's TestARelaunchedGameGetsAWorkingSessionAgain ("no
-			// ghost completed the round trip within 1m0s of relaunching the
-			// adapter"). 25 local -race runs of that test never reproduced it;
-			// the window is between the departing connection releasing the
-			// admission slot and its relay Close landing, which is
-			// microseconds wide and which a real relaunch normally misses.
-			//
-			// Re-arming auto-retry is part of the fix, not tidying: if the
-			// relay connection is already dying as we transfer, the retry --
-			// now pointing at the LIVE bridge connection rather than the dead
-			// one -- is what reconnects it.
+			// A relaunched game: ownership follows the current adapter, or the departing connection's disconnect
+			// tears down the session its replacement was just handed. Auto-retry is re-armed at the live connection
+			// so a session already dying as it transfers still reconnects.
 			if bridgeConn != nil {
 				runBeforeArmingAutoRetryHook()
 				c.mu.Lock()
@@ -636,19 +341,8 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 				c.autoRetryGameID = gameID
 				c.autoRetryAdapterGameVersion = adapterGameVersion
 				c.autoRetryBridgeConn = bridgeConn
-				// The SECOND door into the dead session this branch was written
-				// to close, found by the schedule fuzzer 2026-08-29 on
-				// "attach, detach, attach". The session we decided to transfer
-				// can die between that decision and this arming: the departing
-				// adapter's OnDisconnect closes the relay and empties
-				// auto-retry, and if the teardown reaches clearRelaySession
-				// first it finds nothing armed and starts nothing -- and then
-				// this arms a retry that no future event will ever run,
-				// because a redial is only triggered by a connection dropping
-				// and the connection is already gone. The core sits there with
-				// an attached, bridge_ready adapter, no relay connection, no
-				// error and nothing retrying, which is precisely the state the
-				// ownership transfer above exists to prevent.
+				// The session can die between the decision and this arming, with the teardown finding nothing armed;
+				// nothing would ever redial it, so this does.
 				lost := c.relay == nil
 				c.mu.Unlock()
 				if lost {
@@ -658,12 +352,7 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 			}
 			return nil
 		}
-		// A *AlreadyServingError rather than a plain fmt.Errorf, because the
-		// difference decides what happens to the adapter. bridgeserve.go only
-		// refuses a hello when IsPermanentRejectErr says the failure is final;
-		// a plain error read as "not final", so this adapter was accepted, got
-		// bridge_ready, and retryRelayForSoloAdapter then span forever on an
-		// error that can never clear. Found 2026-09-07.
+		// Not a plain error: bridgeserve.go refuses a hello only when IsPermanentRejectErr says the failure is final.
 		return &AlreadyServingError{Connected: connectedGame, Requested: gameID}
 	}
 
@@ -674,22 +363,11 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 	roomCodeDue := cachedCode == protocol.CodeInvalidRoomCode &&
 		time.Since(cachedAt) >= RoomCodeRetryInterval // wall-clock: paces a real retry, like the backoff sleeps
 	if cachedGame == gameID && cachedReason != "" && !roomCodeDue {
-		// Already logged once, below, the first time this was hit. A
-		// permanently-rejected combination doesn't change without a config
-		// edit and restart, so retrying the relay dial (and re-logging
-		// identically) every time the adapter reconnects to the bridge
-		// would just spam both this process's log and the relay.
+		// Logged once already; only a config edit and restart changes it.
 		return &RejectError{Reason: cachedReason, Code: cachedCode}
 	}
 
-	// Record what the adapter reported in its own field rather than writing
-	// it into c.GameVersion. c.GameVersion is the *user's* override, and
-	// latching an adapter-reported value into it destroys the "not set"
-	// state for the rest of the process: an adapter that reconnects
-	// reporting a different version (the user enabled DLC and relaunched the
-	// game, say) would then be advertised to the relay under the first
-	// version it ever reported, with nothing in the log to explain it.
-	// Found in a review pass 2026-08-16; ConnectRelay resolves the two.
+	// Its own field, never GameVersion, the player's override: see Core.adapterGameVersion.
 	c.mu.Lock()
 	c.adapterGameVersion = adapterGameVersion
 	c.mu.Unlock()
@@ -711,8 +389,6 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 		if changed || c.connectFailingSince.IsZero() {
 			c.connectFailingSince = now
 		}
-		// Repeat the same message periodically while it keeps failing —
-		// see reconnectLogInterval for why silence is the worse option.
 		stillFailing := !permanent && !changed &&
 			!c.lastConnectErrLoggedAt.IsZero() &&
 			now.Sub(c.lastConnectErrLoggedAt) >= getReconnectLogInterval()
@@ -734,10 +410,7 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 
 		switch {
 		case changed:
-			// No "core: " prefix here — every error ConnectRelay can
-			// return is already self-prefixed with it (dial/send/timeout
-			// errors, and RejectError.Error()), so this used to print
-			// "core: core: ...". Found in a review pass.
+			// No "core: " prefix: every error ConnectRelay returns already carries it.
 			if permanent && IsRoomCodeRefusalErr(err) {
 				log.Printf("%v — trying again once a minute, in case the server was not the real one or its code "+
 					"changes; if your room_code is wrong, fix it and restart", err)
@@ -768,23 +441,8 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 	c.autoRetryGameID = gameID
 	c.autoRetryAdapterGameVersion = adapterGameVersion
 	c.autoRetryBridgeConn = bridgeConn
-	// The drop that lands INSIDE this handshake, between ConnectRelay
-	// returning and auto-retry being armed here. OnDisconnect ran while
-	// autoRetryGameID was still empty, so it cleared the session and started
-	// nothing -- and nothing else ever would, because a redial is only ever
-	// triggered by a connection dropping and there is no longer a connection
-	// to drop. The game keeps running, the adapter was told bridge_ready, and
-	// the player is invisible to the room until they relaunch it.
-	//
-	// Read under the same lock clearRelaySession takes, which is what makes
-	// "exactly one retry loop" true rather than likely: whichever of the two
-	// gets the lock second sees the other's decision. If it cleared first, its
-	// retry.gameID was empty and this starts the loop; if this armed first, it
-	// sees a live c.relay and starts nothing, because OnDisconnect will.
-	//
-	// Found 2026-08-28 by core/schedule_convergence_fuzz_test.go, on the schedule
-	// "both attach, both send, alice's relay socket dies" -- roughly one run
-	// in twenty, which is exactly the shape a fixed-sequence test cannot see.
+	// A drop between ConnectRelay returning and this arming found nothing armed and started nothing. Read under the
+	// lock clearRelaySession takes, so exactly one of the two starts the retry loop.
 	lostDuringHandshake := c.relay == nil
 	c.mu.Unlock()
 
@@ -799,107 +457,36 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 	return nil
 }
 
-// beforeArmingAutoRetryHook, if set, runs at the point where
-// ConnectRelayOnAdapterHello is about to arm auto-retry -- on BOTH paths there,
-// the one that dialled and the one that transferred ownership of a session
-// that was already up. Nil in every shipped path and set only by
-// handshakedrop_test.go, which needs the relay connection to die inside that
-// window: the window is real (a fuzzed schedule hits it about one run in
-// twenty) but nothing outside this package can aim at it, so without the seam
-// both regression tests for it would be probabilistic ones.
-//
-// ATOMIC, AND THAT IS NOT DECORATION -- a plain func() variable here was a real
-// data race that CI's -race job would have caught eventually and that a local
-// run reproduced roughly once in five full suites (2026-08-30). The write is
-// the test's own t.Cleanup clearing the hook; the read is this package's
-// RECONNECT goroutine, which outlives the test that started it and is still
-// looping through ConnectRelayOnAdapterHello when Cleanup runs. So it is a
-// test-infrastructure race rather than a shipped bug -- the hook is nil in
-// every real session -- but it fails the suite just as hard, and "only tests"
-// is not a reason to leave a race in a package whose -race job is the thing
-// standing between this project and the bugs local runs cannot find.
-//
-// The load costs an atomic read on a path that is already dialling a socket.
+// beforeArmingAutoRetryHook is a test seam that runs just before ConnectRelayOnAdapterHello arms auto-retry, so a
+// test can drop the relay inside that window. Atomic although only tests set it: reconnect goroutines outlive the
+// test that cleared it.
 var beforeArmingAutoRetryHook atomic.Pointer[func()]
 
-// beforeHandshakeSelectHook, if set, runs immediately before ConnectRelay's
-// handshake select, and exists for exactly one test.
-//
-// The window it opens is real and cannot be aimed at from outside: a relay
-// refusal is written and the socket closed in the same breath, so the buffered
-// reject channel and the closed gone channel are routinely both ready when the
-// select runs -- and Go then picks between them at random. Reproducing THAT
-// ordering, rather than the far commoner one where the reject is handed
-// straight to an already-parked select, means holding the connecting goroutine
-// back until both are ready. Nothing else in this package can do that.
-//
-// Atomic for the same reason beforeArmingAutoRetryHook is: reconnect
-// goroutines outlive the test that set it, so a plain variable is a data race
-// the -race job would fail on. The cost in a real session is one atomic load
-// per connect, on a path that has just dialled a socket.
+// beforeHandshakeSelectHook is a test seam that runs just before ConnectRelay's handshake select, so a test can make
+// a Reject and the drop both ready at once. Atomic for the same reason.
 var beforeHandshakeSelectHook atomic.Pointer[func()]
 
-// runBeforeArmingAutoRetryHook loads and runs the hook if one is set.
 func runBeforeArmingAutoRetryHook() {
 	if fn := beforeArmingAutoRetryHook.Load(); fn != nil {
 		(*fn)()
 	}
 }
 
-// reconnectWithBackoff keeps calling ConnectRelayOnAdapterHello for
-// (gameID, adapterGameVersion, bridgeConn) until it succeeds or is
-// permanently refused, so a relay restart or network blip after an already-
-// successful connect doesn't leave this Core stuck disconnected forever —
-// see autoRetryGameID's doc comment on the Core struct for the live incident
-// that surfaced this gap and why cmd/meshghost's own connectRelayWithRetry
-// (which only drives the *first* connect attempt) didn't cover it.
-//
-// Unlike cmd/meshghost's connectRelayWithRetry, this never calls
-// log.Fatalf on a permanent rejection — Core is a library and must not
-// exit the host process out from under a real adapter (a running game).
-// It logs and stops retrying instead; ConnectRelayOnAdapterHello's own
-// permanent-reject caching means this doesn't spam the relay either.
+// reconnectWithBackoff calls ConnectRelayOnAdapterHello until it succeeds or is permanently refused, so a relay
+// restart after a successful connect does not leave this Core disconnected. A library never exits the host: on a
+// permanent refusal it logs and stops.
 func (c *Core) reconnectWithBackoff(gameID, adapterGameVersion string, bridgeConn transport.Transport) {
 	initial, backoffMax := c.reconnectBackoffBounds()
 	backoff, holdFirst := c.resumeReconnectBackoff(initial, backoffMax)
 	for {
-		// STOP IF THE GAME IS GONE, checked every iteration -- the equivalent of
-		// the test retryRelayForSoloAdapter has always made, which this loop
-		// never had.
-		//
-		// releaseAdapterSlot disarms auto-retry when a bridge connection ends,
-		// but it cannot stop a goroutine already asleep in the backoff below,
-		// and that sleep reaches 15s. So: the relay drops, this loop starts,
-		// the player quits the game during the sleep, and the loop wakes,
-		// redials, and rejoins the room with the surviving resume_token -- with
-		// no game attached, sending no state, and nothing left that will ever
-		// tear it down, because its owner is already gone. sendHeartbeats then
-		// keeps the session non-idle indefinitely: a roster seat that never
-		// leaves, announced to every peer, which contract.md says an
-		// adapter-driven disconnect must never produce. Found by the 2026-09-07
-		// review (two agents, independently).
-		//
-		// THE TEST IS "IS THIS CONNECTION CLOSED", not "is it the attached
-		// adapter". The sibling loop can ask the stricter question because it
-		// belongs to an adapter that is attached by construction; this one is
-		// also started by the ownership-transfer path, where the connection it
-		// was started FOR is legitimately not yet the attached one --
-		// TestASessionDyingDuringOwnershipTransferStillReconnects drives exactly
-		// that, and the stricter test made it return on the first iteration and
-		// leave a bridge_ready adapter with no relay and nothing retrying: the
-		// dead session that path exists to prevent. A closed connection is the
-		// unambiguous signal that the game is gone, and it is the same one the
-		// hello path already uses to tell a dead incumbent from a busy one.
+		// Stop if the game is gone, or a loop asleep in the backoff when the player quits would rejoin with no game
+		// and hold a seat forever. Closed, not "attached": the ownership-transfer path starts this loop for a
+		// connection that is not attached yet.
 		if transportIsClosed(bridgeConn) {
 			return
 		}
-		// WAIT BEFORE THE FIRST DIAL TOO, when the session this loop replaces
-		// achieved nothing. Every sleep in this loop used to be AFTER a failed
-		// dial, so a relay that welcomed and dropped got a free immediate
-		// redial every time -- see Core.reconnectBackoff. Looping rather than
-		// sleeping inline so the "is the game gone" check above still runs
-		// between the wait and the dial: this sleep reaches the ceiling, and a
-		// player can quit inside it.
+		// Wait before the first dial too when the previous session achieved nothing; looping, so the check above
+		// still runs after the wait.
 		if holdFirst {
 			holdFirst = false
 			log.Printf("core: the last relay session ended almost as soon as it started -- "+
@@ -913,8 +500,6 @@ func (c *Core) reconnectWithBackoff(gameID, adapterGameVersion string, bridgeCon
 			return
 		}
 		if IsRoomCodeRefusalErr(err) {
-			// Kept trying, slowly (RoomCodeRetryInterval says why); the loop's
-			// top still ends it when the game goes.
 			time.Sleep(RoomCodeRetryInterval) // wall-clock: paces real reconnect attempts
 			continue
 		}
@@ -927,29 +512,21 @@ func (c *Core) reconnectWithBackoff(gameID, adapterGameVersion string, bridgeCon
 	}
 }
 
-// resumeReconnectBackoff decides what a starting reconnect loop waits, from
-// what the PREVIOUS session managed. See Core.reconnectBackoff for the failure
-// this closes; holdFirst is whether to wait before the first dial rather than
-// only after a failed one.
-//
-// The threshold is the backoff itself rather than a new constant, and that is
-// what keeps it honest in both directions: a session that outlived the wait we
-// were about to impose is progress by definition, so an ordinary relay restart
-// resets to the floor and a flaky link settles where its uptime matches its own
-// backoff -- rather than escalating to the ceiling and overshooting
-// DefaultResumeGrace, which would turn a blip into a despawn for the whole room.
+// resumeReconnectBackoff decides what a starting reconnect loop waits from what the previous session managed;
+// holdFirst means wait before the first dial. The threshold is the backoff itself: a session that outlived the wait
+// is progress, so a relay restart resets and a flaky link settles where its uptime matches its backoff, instead of
+// escalating past DefaultResumeGrace.
 func (c *Core) resumeReconnectBackoff(initial, max time.Duration) (backoff time.Duration, holdFirst bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	upAt := c.relaySessionUpAt
-	c.relaySessionUpAt = time.Time{} // cleared, not read: one verdict per session
+	c.relaySessionUpAt = time.Time{} // one verdict per session
 	held := c.reconnectBackoff
 	if held < initial {
 		held = initial
 	}
-	// No session at all to judge (a first connect, or a dial that never got a
-	// Welcome): the loop's own failure path owns the cadence from here.
+	// No session to judge: the loop's own failure path owns the cadence.
 	if upAt.IsZero() {
 		c.reconnectBackoff = initial
 		return initial, false
@@ -962,9 +539,8 @@ func (c *Core) resumeReconnectBackoff(initial, max time.Duration) (backoff time.
 	return held, true
 }
 
-// escalateReconnectBackoff doubles within max and REMEMBERS the result, so the
-// escalation survives this loop returning -- which it does the instant a dial
-// succeeds, however briefly.
+// escalateReconnectBackoff doubles within max and remembers the result, so the escalation survives the loop
+// returning on a dial that succeeds however briefly.
 func (c *Core) escalateReconnectBackoff(cur, max time.Duration) time.Duration {
 	next := nextBackoffWithin(cur, max)
 	c.mu.Lock()
@@ -973,22 +549,9 @@ func (c *Core) escalateReconnectBackoff(cur, max time.Duration) time.Duration {
 	return next
 }
 
-// retryRelayForSoloAdapter keeps trying the relay for an adapter that was
-// ACCEPTED without one (bridgeserve.go: a relay that is merely down no longer
-// refuses the game). It is deliberately NOT reconnectWithBackoff:
-//
-//   - it stops when the adapter it belongs to is gone. That loop starts from a
-//     relay DROP, with its adapter still attached, so it never needed the check;
-//     this one starts at hello time and would otherwise outlive the game and go
-//     on redialling on behalf of a closed bridge connection.
-//   - the identity check is exact (nd is the attached adapter, not merely one).
-//     A relaunched game arrives as a NEW connection and brings its own hello,
-//     which starts its own attempt; this loop redialling on the old one's behalf
-//     would hand relayOwner a connection that has already gone.
-//
-// A success is logged, because the session silently changing from solo to
-// connected is exactly the kind of thing a player should be able to see in the
-// log afterwards.
+// retryRelayForSoloAdapter keeps trying the relay for an adapter accepted while the relay was down. Unlike
+// reconnectWithBackoff it stops unless nd is still the attached adapter: a relaunched game brings its own hello and
+// attempt, and redialling for the old connection would hand relayOwner one that is gone.
 func (c *Core) retryRelayForSoloAdapter(gameID, adapterGameVersion string, nd transport.Transport) {
 	backoff, backoffMax := c.reconnectBackoffBounds()
 	for {
@@ -1016,30 +579,16 @@ func (c *Core) retryRelayForSoloAdapter(gameID, adapterGameVersion string, nd tr
 	}
 }
 
-// PlayerID returns the id assigned by the relay at Welcome. Empty until
-// ConnectRelay succeeds.
+// PlayerID returns the id assigned by the relay at Welcome. Empty until ConnectRelay succeeds.
 func (c *Core) PlayerID() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.playerID
 }
 
-// handleRelayMessage handles one line from the relay. conn is the connection it
-// arrived on, and a message from a connection this Core has already replaced is
-// DISCARDED rather than applied.
-//
-// That guard is the other half of clearRelaySession's stale-callback guard, and
-// it is there for the same reason: a connection's callbacks run on that
-// connection's own goroutine and land whenever the runtime gets to them, so a
-// dead session's Welcome can arrive after a new session is established.
-// Applied, it overwrites the LIVE session's identity with a retired one -- the
-// core then calls itself by a name the relay has given to nobody, while the
-// room calls it something else, and every check that compares the two silently
-// disagrees. Found 2026-08-29 by the schedule fuzzer on a constrained CPU, one
-// shape after the takeover fix in ConnectRelay closed the mirror-image case.
-//
-// A nil conn means "no connection context" and skips the check, which is how
-// core_test.go drives this function directly.
+// handleRelayMessage handles one line from the relay. A message from a connection this Core has already replaced is
+// discarded: callbacks land late on the connection's own goroutine, and a dead session's Welcome would overwrite the
+// live identity. A nil conn skips the check, for tests.
 func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welcome chan<- protocol.Welcome, reject chan<- protocol.Reject) {
 	if conn != nil {
 		c.mu.Lock()
@@ -1049,8 +598,7 @@ func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welc
 			return
 		}
 	}
-	// Counted before parsing, so a malformed line still shows up as inbound
-	// cost -- it was paid for on the wire either way.
+	// Counted before parsing: a malformed line was paid for on the wire too.
 	atomic.AddUint64(&c.stats.messagesReceived, 1)
 	atomic.AddUint64(&c.stats.bytesReceived, uint64(len(payload)))
 
@@ -1062,73 +610,32 @@ func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welc
 	switch env.Type {
 	case protocol.TypeWelcome:
 		c.mu.Lock()
-		// A FLAG OF OUR OWN, not "is the relay-supplied id non-empty".
-		//
-		// This keyed off c.playerID != "" until 2026-09-12, which let the relay
-		// decide whether its own second Welcome was legal: name the client "",
-		// and the guard below never fires again. c.welcomed is set by this
-		// branch and cleared only by forgetRelaySessionLocked, so nothing the
-		// relay sends can talk it back down. Found by the third adversarial
-		// review (P3a-5).
+		// A flag of our own, not "is playerID set": the relay chooses playerID.
 		alreadyWelcomed := c.welcomed
 		c.mu.Unlock()
 		if alreadyWelcomed {
-			// A second Welcome mid-connection is protocol-illegal — Welcome
-			// only ever arrives once, replying to this Core's own Hello.
-			// Ignored rather than reprocessed, so a hostile or buggy relay
-			// can't reset this Core's roster/playerID mid-session.
+			// A second Welcome is protocol-illegal, and reprocessing it would let a relay reset the roster mid-session.
 			log.Printf("core: received a second Welcome from the relay after already connected — ignoring")
 			return
 		}
 		var w protocol.Welcome
 		if err := json.Unmarshal(env.Payload, &w); err == nil {
-			// THE ID THE RELAY GIVES *US* GETS THE SAME SHAPE CHECK AS THE ONES
-			// IT GIVES OUR PEERS, and it did not until 2026-09-12: the 09-12
-			// player_id fix bounded Join and State and left Welcome, the one
-			// that names this client, assigned verbatim.
-			//
-			// The three it now refuses, all reachable with one Welcome:
-			//   - empty, which is what made the second-Welcome guard above a
-			//     guard the relay controlled;
-			//   - unbounded, since this id is compared against every inbound
-			//     state's player_id and is reported to the adapter;
-			//   - "replay:"/"chaser:"-shaped, which collides with the namespace
-			//     this core hands its own ghosts (core/localpeer.go).
-			//
-			// Refused by dropping the Welcome rather than repairing it: an id is
-			// the relay's to assign, so there is nothing correct to substitute,
-			// and ConnectRelay then fails the dial instead of running a session
-			// under a name nothing agrees on.
+			// The id that names us gets the same shape check as our peers': empty, unbounded or local-shaped is
+			// refused, and the Welcome dropped rather than repaired, since only the relay can assign an id.
 			if !acceptableRelayPeerID(w.PlayerID) {
 				log.Printf("core: the relay's welcome named this client with an unusable player_id -- refusing the session")
 				return
 			}
 			c.mu.Lock()
 			c.welcomed = true
-			// The moment this session came UP, which is what tells the next
-			// reconnect loop whether the last one achieved anything. See
-			// Core.relaySessionUpAt.
 			c.relaySessionUpAt = c.clk().Now()
-			// MERGED into the roster, not assigned over it. The relay adds a
-			// joining client to the room before it sends that client's
-			// Welcome, so another player joining in that window has its Join
-			// forwarded to us first -- our very first message can be someone
-			// else's Join, ahead of our own Welcome. Replacing the map here
-			// (which this did until 2026-08-16) erased that player, and since
-			// states from anyone outside the roster are dropped by design
-			// (see the roster field's comment), we would never render them
-			// again for the whole session: two people starting at the same
-			// moment could simply never see each other. Found by a relay test
-			// written for a different race, in the CI race job.
-			//
-			// Safe against a stale id outliving its connection because the
-			// roster is now cleared explicitly on disconnect.
+			// Merged, not replaced: the relay adds a joiner to the room before sending its Welcome, so another
+			// player's Join can arrive first, and replacing the map would lose them for the session.
 			if c.roster == nil {
 				c.roster = make(map[string]int64, len(w.Roster))
 			}
 			for _, id := range w.Roster {
-				// continue, not break: one unusable id is no reason to refuse
-				// the real peers listed after it.
+				// continue, not break: one unusable id is no reason to refuse the real peers after it.
 				if !acceptableRelayPeerID(id) {
 					continue
 				}
@@ -1136,26 +643,14 @@ func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welc
 					break
 				}
 			}
-			// w.SendHz == 0 means "not advertised" (an older relay that
-			// predates this field), a distinct case from "advertised badly" —
-			// only clamp (defense-in-depth against a hostile relay talking
-			// this Core into an absurd rate, same trust-boundary posture as
-			// the roster cross-check and ValidateState on receive) when a
-			// real value was actually sent. See effectiveSendInterval and the
-			// ADR in agent_docs/architecture.md.
+			// Zero means an older relay advertised nothing; a real value is clamped against a hostile relay.
 			if w.SendHz > 0 {
 				c.serverSendInterval = time.Second / time.Duration(protocol.ClampSendHz(w.SendHz))
 			}
-			// Normalized on receive rather than trusted as sent, the same
-			// defence-in-depth against a hostile relay as clamping SendHz
-			// above — and here an unrecognized value normalizes to
-			// "disabled", so a relay cannot talk this client into a physical
-			// effect by sending garbage.
+			// Normalized, not trusted: an unrecognized value becomes "disabled", so garbage cannot cause a physical
+			// effect.
 			c.relayGhostCollision = protocol.NormalizeGhostCollision(w.GhostCollision)
 			c.relayPolicyKnown = true
-			// The room's agreed set, normalized again on receive rather than
-			// trusted as sent — same defence-in-depth against a hostile relay
-			// as clamping SendHz above.
 			c.activeFeatures = protocol.NormalizeFeatures(w.Features)
 			c.resumed = w.Resumed
 			hadToken := c.resumeToken != ""
@@ -1163,10 +658,8 @@ func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welc
 				c.resumeToken = w.ResumeToken
 			}
 			c.mu.Unlock()
-			// A Welcome can land long after the adapter came up: a background
-			// reconnect, or a resume into a relay configured differently from
-			// the one this session started on. Re-push so the adapter follows
-			// the room it is actually in now. No-ops when nothing changed.
+			// A Welcome can land long after the adapter came up (a background reconnect, a resume into a relay
+			// configured differently), so the adapter follows the room it is in now.
 			c.pushSessionPolicy()
 			logResumeOutcome(w, hadToken)
 
@@ -1175,59 +668,27 @@ func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welc
 			default:
 			}
 
-			// THE NAMETAGS OF EVERYONE ALREADY IN THE ROOM, AND THIS MUST HAPPEN AFTER THE SEND
-			// ABOVE -- which is the opposite of what a plausible-sounding argument said.
-			//
-			// The argument was: the send completes the handshake, whose caller then pushes the
-			// adapter everything already known, so storing names after it means that push reads an
-			// empty map. It sounds airtight and it is wrong twice over. First, it was tested: with
-			// the store deliberately left late, the delivery test passed 60 runs out of 60, so the
-			// race it describes does not decide anything. Second, moving it EARLIER caused a real
-			// regression -- storeRemoteName writes to the adapter's bridge socket, that write can
-			// block, and blocking here delays the Welcome the handshake is waiting on. The
-			// pre-existing FuzzSchedule caught it as "alice ... timed out waiting for welcome".
-			//
-			// So: nothing that can block belongs before the handshake completes. The adapter still
-			// learns these names, from pushRemoteNames when it attaches -- which is a different
-			// mechanism from this one and is what actually carries them (see remotenames.go).
-			//
-			// Outside the lock above deliberately: storeRemoteName takes c.mu itself.
+			// After the send, never before: storing a name can block on the bridge and would delay the Welcome the
+			// handshake waits on. The adapter gets these names from pushRemoteNames when it attaches. Outside the
+			// lock: storeRemoteName takes c.mu.
 			c.storeRosterNames(w.Nametags)
 		}
 	case protocol.TypeReject:
 		var r protocol.Reject
 		if err := json.Unmarshal(env.Payload, &r); err == nil {
-			// WHICH REJECT THIS IS gets decided by the handshake's state, not
-			// by whether a channel send happens to block. Until 2026-09-08 the
-			// send below was tried first and the logging lived in its default
-			// branch -- but reject is buffered (cap 1) and the relay closes
-			// right after a reject, so there is only ever one: the send ALWAYS
-			// succeeded and the default branch was dead code. A mid-session
-			// refusal (ReasonRateLimited on an already-joined connection) went
-			// into a channel nobody reads again after the handshake returned,
-			// and the player saw only "core: relay disconnected: EOF" with no
-			// hint that they had been rate-limited or why.
-			//
-			// playerID is set only by our own Welcome and cleared both on
-			// disconnect and when a new connection takes the slot over
-			// (forgetRelaySessionLocked), so a non-empty one means this Core
-			// finished a handshake and nothing is waiting on reject.
+			// The handshake's state decides which Reject this is: once joined, nothing reads the channel again, so a
+			// mid-session refusal must be logged here. playerID is set only by our own Welcome and cleared with the
+			// session.
 			c.mu.Lock()
 			joined := c.playerID != ""
 			c.mu.Unlock()
 			if joined {
-				// Code as well as Reason: Reason is the sentence for a human,
-				// Code is the stable name anything reading this log
-				// programmatically can match on (protocol.go's Reject).
 				log.Printf("core: relay closed this connection: %s (code %q)", r.Reason, r.Code)
 				break
 			}
 			select {
 			case reject <- r:
 			default:
-				// A second refusal on one handshake. The relay does not send
-				// one today, but dropping it silently is how the first one got
-				// lost, so it goes to the log rather than nowhere.
 				log.Printf("core: relay refused this connection again before it was read: %s (code %q)",
 					r.Reason, r.Code)
 			}
@@ -1242,17 +703,13 @@ func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welc
 			admitted := c.admitToRosterLocked(j.PlayerID)
 			c.mu.Unlock()
 			if !admitted {
-				// Nothing else for this id either: the name and the seeded
-				// state would outlive a roster entry that never existed.
+				// No name or seed either: both would outlive a roster entry that never existed.
 				break
 			}
 			c.storeRemoteName(j.PlayerID, j.Nametag)
 			if j.State != nil {
-				// A Join's seed state is BY DEFINITION that player's, so the
-				// id is taken from the Join rather than believed from the
-				// state -- the two were never compared, and an honest relay
-				// always agrees. This is what keeps the seed from being a
-				// second, ungated door into storeRemoteState.
+				// The seed is that player's by definition, so its id comes from the Join: otherwise the seed would be
+				// an ungated door into storeRemoteState.
 				seed := *j.State
 				seed.PlayerID = j.PlayerID
 				c.storeRemoteState(seed)
@@ -1261,31 +718,15 @@ func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welc
 	case protocol.TypeLeave:
 		var l protocol.Leave
 		if err := json.Unmarshal(env.Payload, &l); err == nil {
-			// THE SAME GATE ITS TWO NEIGHBOURS HAVE, and it did not have it
-			// until 2026-09-12 -- Join above and State below both refuse an id
-			// this core would never have handed out, and the case between them
-			// took whatever arrived. A relay that says `leave` for "chaser:1"
-			// or "replay:lap1" reaches straight past every namespace guard the
-			// 09-12 pass added and despawns the PLAYER'S OWN ghost: their
-			// chaser pack, or the replay they are racing, gone mid-run with
-			// nothing in any log. Cheaper for a hostile relay than anything it
-			// can do with a state, because a leave needs no plausible contents
-			// at all. Found by the parity cell of the third adversarial review
-			// (X1-5).
-			//
-			// A local id is dropped rather than acted on: this core owns those
-			// namespaces, so the relay has nothing to say about them.
+			// The same gate as Join and State: a leave for a local id would despawn the player's own chaser or replay.
 			if !acceptableRelayPeerID(l.PlayerID) {
 				break
 			}
 			c.mu.Lock()
 			delete(c.roster, l.PlayerID)
-			// Dropped with the roster entry, not left behind: player ids are
-			// reused by a relay across a session, so a stale name here would
-			// eventually be shown over somebody else's ghost.
+			// A relay may reuse an id, and a stale name would then end up over somebody else's ghost.
 			delete(c.remoteNames, l.PlayerID)
-			// The relay let this id go and may reuse it: whoever gets it next
-			// arrives with a Join, not as a returning peer (see agedOut).
+			// Whoever gets the id next arrives with a Join, not as a returning peer.
 			delete(c.agedOut, l.PlayerID)
 			c.mu.Unlock()
 			c.dropRemote(l.PlayerID)
@@ -1299,30 +740,15 @@ func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welc
 			c.storeRemoteState(st)
 		}
 	default:
-		// The event/lease/escrow planes and Pong, which handleOnlineMessage
-		// owns (core/online.go). Anything it does not recognise
-		// either — a message type from a newer relay — is ignored, the same
-		// forward-compatibility posture as unknown fields.
+		// The opt-in planes and Pong (online.go); a type from a newer relay is ignored there.
 		c.handleOnlineMessage(env)
 	}
 }
 
-// refuseWelcomeVersion applies BOTH protocol floors to a relay's Welcome and
-// returns the refusal, or nil.
-//
-// Split out of the connect path so the floors can be tested without a relay --
-// they are a decision about two numbers and nothing else, and the connect path
-// around them is sockets.
-//
-// THE ORDER IS LOAD-BEARING. The build's own floor runs first and
-// unconditionally: an adapter may only ever TIGHTEN, never talk this core into
-// accepting a relay it should refuse. A field that could loosen a safety check
-// from outside the process would be worse than no field.
+// refuseWelcomeVersion applies both protocol floors to a relay's Welcome and returns the refusal, or nil. The
+// build's own floor runs first and unconditionally, so an adapter can only tighten it.
 func (c *Core) refuseWelcomeVersion(w protocol.Welcome) *RejectError {
-	// A relay that advertises 0 -- one built before the field existed -- is
-	// refused by the same comparison rather than a special case, which is what
-	// the Version 2 cutover bought: everything older is below the floor by
-	// construction.
+	// A relay advertising 0 predates the field and fails the same comparison.
 	if !protocol.AcceptsPeerVersion(w.ProtocolVersion) {
 		return &RejectError{
 			Reason: fmt.Sprintf("this relay speaks protocol version %d, but this build needs %d or newer "+
@@ -1332,14 +758,8 @@ func (c *Core) refuseWelcomeVersion(w protocol.Welcome) *RejectError {
 			Retryable: false,
 		}
 	}
-	// **THE ADAPTER'S OWN FLOOR, which is allowed to be stricter and nothing
-	// else.** The check above asks whether these two BUILDS can talk, which is
-	// a property of the wire. This one answers a question only the adapter can:
-	// it may depend on a field an older relay never forwards, and without it
-	// the adapter connects, renders, and is quietly missing the thing it was
-	// written for. See bridge.Hello.MinProtocolVersion.
-	//
-	// Zero -- every shipped adapter today -- passes.
+	// The adapter's own floor: it may depend on a field an older relay never forwards (bridge.Hello's
+	// MinProtocolVersion). Zero passes.
 	c.mu.Lock()
 	floor := c.adapterMinProtocol
 	c.mu.Unlock()

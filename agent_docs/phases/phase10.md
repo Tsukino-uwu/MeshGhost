@@ -2859,3 +2859,8 @@ record held went to [verified.md](../verified.md), same date; a doc pointer a co
   the relay is unreachable (it accepts a solo adapter), unknown config keys logged one line per key (one per section).
   `testing.md` no longer says the gameblind header carries the user's wording of the rule: that is in ADR 0035, and the
   three-stay-three quote in the stories section.
+- `core/core.go`, `relaysession.go`, `bridgeserve.go`, `interp.go`: comment lines 2,753 → 607. Stale claims fixed:
+  `ReplayGzip` said on by default (off), `RelayAddr` and its neighbours said unused by `ConnectRelay` (it reads them),
+  `Offline` said never rewritten (a config re-read does), an idle close said to show every peer a leave (a resumable
+  drop is suspended), already-connected-for-the-same-game called a no-op (ownership and auto-retry move to the new
+  bridge connection); three doc comments that sat on the wrong declaration moved to their own.
