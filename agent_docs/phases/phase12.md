@@ -916,3 +916,8 @@ paths build byte-identical DLLs. `build-tevi.bat` now runs `build-tevi.ps1`, whi
 unless the two DLLs match and hold no local path, stages clone A's DLL, copies its DLL and pdb into the in-tree
 `bin\Release` for the dev loop, and records every build input's hash (from the clone, in committed form) plus the
 SDK in `built-from.txt`. The TEVI bridge fuzz harness passes on the locked restore.
+`build-tevi.bat` on HEAD `697da9b4`: two clean clones, byte-identical (`1106c1539e4a`, SDK 10.0.401), the DLL's only
+path `/_/adapters/tevi/MeshGhostTevi/obj/Release/MeshGhostTevi.pdb`; preflight no longer lists it among the known
+leaking binaries. Deployed to both TEVI installs with `meshghost.exe` and the shipped `config.json` (each install's
+config was an older shipped one with default values and no personal name or room; backed up as
+`config.json.pre-2026-10-01`), every file hash-checked. Not yet seen on screen.
