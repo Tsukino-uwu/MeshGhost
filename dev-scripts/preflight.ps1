@@ -2246,7 +2246,8 @@ function Report-Ratchet([string]$what, [int]$count, [int]$floor, [string]$fix, $
         Report-Fail "$what`: $count, above the recorded floor of $floor -- $fix"
         @($examples) | Select-Object -First 10 | ForEach-Object { Write-Host "          $_" }
     } else {
-        Report-Fail "$what`: $count, below the recorded floor of $floor -- lower the floor in preflight.ps1 to $count"
+        # A warning, not a failure: a code commit cannot carry the gate change that lowers the floor.
+        Report-Warn "$what`: $count, below the recorded floor of $floor -- lower the floor in preflight.ps1 to $count"
     }
 }
 
