@@ -887,3 +887,17 @@ asks before an edit to the gate data (`gate-lists.txt`, `doc-map.txt`, `phase-ma
 `.claude/`, and before a commit while any of those has uncommitted changes. The untracked `settings.local.json` is
 unchanged. Seventeen sample events behaved as intended, including a `--no-verify` written inside a heredoc commit
 message (allowed: prose runs nothing). `dev-scripts/README.md` now names A2.5's sections too.
+
+## 2026-10-01 — A2's full harness, and A3 begun: pinned, reproducible builds
+
+The full harness on A2's tip (67 fixtures, six shards) was cut off when the session stopped: 64 passed, none
+failed, and the three unfinished (`dependency-floating`, `doc-contents-mismatch`, `workflow-action-unpinned`)
+passed on a re-run. The cut-off run left four worktrees under the temp folder, removed and pruned by hand.
+
+A3 measured first: each of the TEVI DLL, `main.dll` and `dwmapi.dll` carries exactly one path, its pdb's;
+`UE4SS.dll` carries one pdb path plus Rust panic locations (64 into the RE-UE4SS submodule, about 80 into the
+cargo registry under the home folder). `BepInEx.Core 5.*` resolves to 5.4.21 in all three BepInEx projects, and
+of the two SDKs installed (10.0.302, 10.0.401) the newer builds today. First gate change: `global.json` and
+`Directory.Build.props` join the root allowlist, and preflight's built-from check reads a recorded name with a
+slash as repo-relative, for build inputs outside the source folder. The seven GitHub Actions the workflows use got
+their licensing row (all MIT, each `LICENSE` read 2026-10-01) before their docs or tags were read.

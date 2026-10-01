@@ -511,7 +511,8 @@ function Check-BuiltFrom($label, $builtFromPath, $sourceDir) {
         $file = $Matches['file']; $recorded = $Matches['hash'].ToLower()
         # CMakeLists.txt sits one directory above the sources, so it is checked separately below.
         if ($file -eq 'CMakeLists.txt') { continue }
-        $src = Join-Path $sourceDir $file
+        # A name with a slash is repo-relative: the build inputs outside the source folder (global.json and the like).
+        $src = if ($file.Contains('/')) { $file } else { Join-Path $sourceDir $file }
         if (-not (Test-Path $src)) { $stale += "$file (recorded, but the file is gone)"; continue }
         $actual = (Get-FileHash $src -Algorithm SHA256).Hash.ToLower()
         if ($actual -ne $recorded) { $stale += $file }

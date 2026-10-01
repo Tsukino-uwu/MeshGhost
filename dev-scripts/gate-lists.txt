@@ -12,6 +12,8 @@ README.md
 go.mod
 go.sum
 nuget.config    the NuGet feeds every .csproj restores from
+global.json     the exact .NET SDK every .csproj builds with
+Directory.Build.props    ends MSBuild's search for build files at the repo root
 
 [home-patterns]
 C:\Users
