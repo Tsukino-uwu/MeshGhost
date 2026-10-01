@@ -9,31 +9,7 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// The relay spawns a goroutine per accepted connection (Serve) plus one read
-// loop inside each transport.NDJSONConn. Nothing in relay_test.go asserts
-// those ever go away: the disconnect tests check that peers observe a Leave,
-// which they would even if the handler goroutine stayed parked forever. A
-// relay is a long-lived process holding sessions indefinitely, so a goroutine
-// that outlives its connection is a slow leak that only shows up in
-// production.
-
-// awaitWelcome waits for this client's Welcome and insists it is the FIRST
-// message on the connection.
-//
-// It used to skip ahead past anything that arrived first, and said why: these
-// tests churn connections through one busy room, a client is added to the room
-// before its Welcome goes out, and a peer departing at that instant could have
-// its Leave forwarded to the new client ahead of it. **That window is closed --
-// Client.holdUntilWelcome holds every message produced between the two and
-// delivers them in order behind the Welcome (relay.go's markWelcomedAndFlush
-// says why the ordering is load-bearing rather than cosmetic).** So the skip
-// stopped being a tolerance for a real race and became the one helper that
-// could not notice the hold regressing, in the busiest room this package has.
-//
-// Kept as a name rather than folded into expectWelcome because these tests do
-// not care what the Welcome SAYS, only that it came; tightened 2026-09-11 after
-// the review flagged the split (H6, which read the asymmetry the other way
-// round -- it is the strict helper at ~145 call sites that is right).
+// awaitWelcome insists the Welcome is the first message: Client.holdUntilWelcome makes anything earlier a regression.
 func awaitWelcome(t *testing.T, tc *testClient) {
 	t.Helper()
 	if env := tc.next(timeout); env.Type != protocol.TypeWelcome {
@@ -44,11 +20,7 @@ func awaitWelcome(t *testing.T, tc *testClient) {
 	}
 }
 
-// waitForGoroutines polls until the count drops to at most want, or the
-// deadline passes, and reports the final count. Polling rather than a single
-// check because teardown is asynchronous on both sides of a connection —
-// the relay notices a hangup, fires its callbacks, and only then does the
-// read loop return.
+// waitForGoroutines polls, since teardown is asynchronous on both sides of a connection, and returns the last count.
 func waitForGoroutines(want int, timeout time.Duration) int {
 	deadline := time.Now().Add(timeout)
 	for {
@@ -61,17 +33,14 @@ func waitForGoroutines(want int, timeout time.Duration) int {
 	}
 }
 
-// TestNoGoroutineLeakAcrossManyConnections is the load-shaped version: churn
-// far more connections than the goroutine tolerance, so a per-connection leak
-// cannot hide inside the noise band the way it could with a handful.
+// TestNoGoroutineLeakAcrossManyConnections churns far more connections than the tolerance, so a per-connection leak
+// cannot hide in the noise. A disconnect test would pass with the handler goroutine still parked.
 func TestNoGoroutineLeakAcrossManyConnections(t *testing.T) {
 	srv := NewServer()
 	srv.MaxClients = 64
 	addr := startServerWith(t, srv)
 
-	// Let the accept loop and any lazily-started runtime goroutines settle
-	// before sampling, so the baseline isn't an undercount that turns
-	// ordinary startup into a fake leak.
+	// Let startup goroutines settle, so the baseline is not an undercount.
 	waitForGoroutines(0, 200*time.Millisecond)
 	baseline := runtime.NumGoroutine()
 
@@ -88,9 +57,7 @@ func TestNoGoroutineLeakAcrossManyConnections(t *testing.T) {
 		}
 	}
 
-	// Tolerance, not equality: the runtime keeps a few goroutines of its own
-	// and the last round's teardown may still be in flight. A real
-	// per-connection leak would be 160 here, far outside this band.
+	// The runtime keeps goroutines of its own; a per-connection leak would be 160 here, far outside the band.
 	const tolerance = 10
 	if got := waitForGoroutines(baseline+tolerance, 10*time.Second); got > baseline+tolerance {
 		buf := make([]byte, 1<<16)
@@ -100,25 +67,20 @@ func TestNoGoroutineLeakAcrossManyConnections(t *testing.T) {
 	}
 }
 
-// TestNoSlotLeak covers the other resource a connection holds: one of the
-// server's global MaxClients slots. A slot released on some disconnect paths
-// but not others would let a relay drift into permanently refusing joins
-// while looking healthy — and unlike a goroutine leak, the symptom lands on
-// the next player to try to join, not on the host.
+// TestNoSlotLeak: a MaxClients slot released on some disconnect paths but not others would refuse joins while the
+// relay looks healthy.
 func TestNoSlotLeak(t *testing.T) {
 	srv := NewServer()
 	srv.MaxClients = 4
 	addr := startServerWith(t, srv)
 
-	// Churn well past the cap: if a single slot were leaked per connection,
-	// the fifth join here would already be refused.
+	// Past the cap: one leaked slot per connection would refuse the fifth join.
 	for i := 0; i < 24; i++ {
 		tc := dialTestClient(t, addr, "slotgame", "slotroom", fmt.Sprintf("p%d", i))
 		awaitWelcome(t, tc)
 		tc.conn.Close()
 
-		// The slot is released when the relay notices the hangup, so give
-		// each iteration a moment rather than racing that.
+		// The slot is released when the relay notices the hangup.
 		deadline := time.Now().Add(2 * time.Second)
 		for {
 			srv.mu.Lock()
@@ -135,21 +97,8 @@ func TestNoSlotLeak(t *testing.T) {
 	}
 }
 
-// TestRoomIsDroppedEvenWhenItHeldAWorld pins the inverse of world custody's
-// "never tie world lifetime to lease lifetime".
-//
-// A world deliberately outlives its authority lease and the client that wrote
-// it, so that a successor can adopt it. The cap that keeps that from being a
-// leak (protocol.MaxWorldKeysPerRoom) is only a cap if the ROOM still goes away
-// when its last member leaves — otherwise a long-lived relay accumulates one
-// pinned room per session that ever used the plane, each holding up to ~58KB,
-// and it keeps serving clients perfectly while it does. That is the shape the
-// first real relay DoS would take, and no liveness probe can see it.
-//
-// Deterministic on purpose: this was first written as an assertion inside
-// FuzzRelaySurvivesArbitraryPostJoinMessages and does not belong there — see
-// that target's own note on why both a per-iteration deadline and a cumulative
-// ceiling were unusable. Here it is exact.
+// TestRoomIsDroppedEvenWhenItHeldAWorld: a world outlives its lease and writer by design, so MaxWorldKeysPerRoom is
+// a cap only if the room still goes when its last member leaves.
 func TestRoomIsDroppedEvenWhenItHeldAWorld(t *testing.T) {
 	s := NewServer()
 
@@ -159,8 +108,6 @@ func TestRoomIsDroppedEvenWhenItHeldAWorld(t *testing.T) {
 	s.rooms[r.key] = r
 	s.mu.Unlock()
 
-	// A held authority and a populated world: exactly the state that must not
-	// pin the room.
 	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
 	setWorld(r, "p1", "sim", "boss", "alive")
 	r.mu.Lock()

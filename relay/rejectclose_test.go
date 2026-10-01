@@ -11,25 +11,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// A refused hello's Reject must reach the client even when the client has
-// written bytes the relay will never read -- which is every real client, since
-// it goes on sending while it waits for an answer.
-//
-// The mechanism, and why a plain Close is not enough: closing a socket that
-// still holds unread data answers with a RESET rather than a FIN, and a reset
-// discards what is sitting unread in the CLIENT's receive buffer, including the
-// Reject written a moment earlier. The relay's rate-limit path was fixed for
-// exactly this on 2026-09-05; the HANDSHAKE path was not, and on 2026-09-06
-// CI's Linux race job caught the consequence in the core: a permanent
-// game_version mismatch arrived as a bare EOF, was classified as a transient
-// drop ("the relay connection dropped before the welcome arrived"), and the
-// core retried instead of telling the player and closing the bridge
-// (core.TestBridgeHelloGameVersionReachesRelay).
-//
-// This test writes the hello and then a wedge of lines the relay never reads,
-// because it rejects and stops reading at the hello. Raw sockets throughout:
-// the point is what the kernel does with the close, so nothing may be doing its
-// own buffering or draining on top.
+// A refused hello's Reject must arrive behind client data the relay never reads: closing a socket with unread data
+// sends a reset, which discards the Reject from the client's receive buffer. Raw sockets, so nothing else buffers.
 func TestARefusedHelloDeliversItsRejectBehindUnreadData(t *testing.T) {
 	addr := startServer(t)
 
@@ -39,8 +22,7 @@ func TestARefusedHelloDeliversItsRejectBehindUnreadData(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// A protocol-version mismatch: refused by rejectAndClose without needing a
-	// room, a code or another client.
+	// A protocol-version mismatch is refused without needing a room, a code or another client.
 	hello, err := json.Marshal(protocol.Envelope{
 		Type:    protocol.TypeHello,
 		Payload: mustJSON(t, protocol.Hello{ProtocolVersion: protocol.MinProtocolVersion - 1, GameID: "emerald", Room: "r", DisplayName: "alice"}),
@@ -52,15 +34,11 @@ func TestARefusedHelloDeliversItsRejectBehindUnreadData(t *testing.T) {
 		t.Fatalf("write hello: %v", err)
 	}
 
-	// The wedge: complete, legal lines the relay will never read, because it
-	// has already stopped reading this connection. Small enough each to be a
-	// valid line, together far more than the relay's receive buffer will have
-	// consumed.
+	// Legal lines the relay never reads, together far more than its receive buffer will have consumed.
 	junk := []byte(`{"type":"ping","payload":{}}` + "\n")
 	wedge := strings.Repeat(string(junk), 4000)
 	_ = conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
-	// A short write here is fine and expected once the peer stops reading; what
-	// matters is that the bytes are in flight, not that all of them arrive.
+	// A short write is expected once the peer stops reading; the bytes only need to be in flight.
 	_, _ = conn.Write([]byte(wedge))
 	_ = conn.SetWriteDeadline(time.Time{})
 

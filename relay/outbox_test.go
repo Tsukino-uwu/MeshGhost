@@ -8,17 +8,7 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// THE TEST THIS FEATURE EXISTS FOR, and it fails against the code as it stood
-// before outbox.go: Room.forward wrote to every recipient in turn on one
-// goroutine, so a peer whose socket had stopped draining starved every peer
-// behind it in the loop for up to the ten-second write timeout.
-//
-// Confirmed capable of failing rather than merely observed to pass -- the same
-// discipline used for the udpconn framing lock. Reverting the enqueue in
-// Room.forwardLine to an inline Send does not merely turn this red: the test
-// HANGS, because Forward never returns at all while the stalled peer holds it.
-// That is the defect in its starkest form, and it is worth knowing the old
-// behaviour was "the room stops" rather than "the room is slow".
+// With an inline Send in place of the outbox this test hangs rather than failing: Forward never returns.
 func TestOneStalledPeerDoesNotBlockTheRoom(t *testing.T) {
 	r := newRoom("emerald", "", "room1", nil)
 
@@ -56,11 +46,8 @@ func TestOneStalledPeerDoesNotBlockTheRoom(t *testing.T) {
 	}
 }
 
-// A stalled peer must not stall the SENDER either. Room.forward runs on the
-// sending client's own read goroutine (and, one level up, while transport holds
-// its delivery mutex), so a blocking write there stops that client being able
-// to send anything at all -- its own game freezes out of the session because
-// somebody else's socket is wedged.
+// Room.forward runs on the sender's own read goroutine, so a blocking write there would freeze the sender out of the
+// session because somebody else's socket is wedged.
 func TestForwardReturnsPromptlyDespiteAStalledPeer(t *testing.T) {
 	r := newRoom("emerald", "", "room1", nil)
 	stalled := &fakeStallingTransport{unblock: make(chan struct{})}
@@ -82,13 +69,10 @@ func TestForwardReturnsPromptlyDespiteAStalledPeer(t *testing.T) {
 	}
 }
 
-// The overflow policy is the contract's, not an invention: the state plane is
-// lossy and latest-wins, so when a queue is full the stale sample is always the
-// right one to lose. Everything else -- join, leave, event, lease, escrow,
-// world -- may not be dropped at all.
+// The state plane is lossy and latest-wins, so a full queue loses a stale sample; nothing reliable may be dropped.
 func TestOverflowDropsStaleStateAndKeepsReliableMessages(t *testing.T) {
 	o := &outbox{signal: make(chan struct{}, 1), id: "p1", done: make(chan struct{})}
-	// No writer goroutine: the queue is inspected directly, so nothing drains.
+	// No writer goroutine, so nothing drains.
 
 	for i := 0; i < maxOutboxLines; i++ {
 		if !o.enqueue(outMsg{line: []byte("state"), unreliable: true}) {
@@ -96,8 +80,6 @@ func TestOverflowDropsStaleStateAndKeepsReliableMessages(t *testing.T) {
 		}
 	}
 
-	// One more state: accepted, by displacing an older one. The queue must not
-	// grow, which is the property that bounds memory.
 	if !o.enqueue(outMsg{line: []byte("newer"), unreliable: true}) {
 		t.Fatal("an overflowing state must displace a stale one, not disconnect the client")
 	}
@@ -112,16 +94,12 @@ func TestOverflowDropsStaleStateAndKeepsReliableMessages(t *testing.T) {
 		t.Fatalf("newest queued line is %q, want the sample that just arrived", newest)
 	}
 
-	// A reliable message at a full queue means the peer is not reading at all.
-	// Dropping it would strand a ghost or wedge a trade, so the caller is told
-	// to disconnect instead.
+	// A reliable line at a full queue means the peer is not reading; dropping it would strand a ghost or wedge a trade.
 	if o.enqueue(outMsg{line: []byte("leave"), unreliable: false}) {
 		t.Fatal("a reliable message at a full queue must ask for a disconnect, never be dropped")
 	}
 }
 
-// A queue holding only reliable messages has nothing droppable in it, so an
-// arriving state yields rather than displacing something that may not be lost.
 func TestStateYieldsRatherThanDisplacingAReliableMessage(t *testing.T) {
 	o := &outbox{signal: make(chan struct{}, 1), id: "p1", done: make(chan struct{})}
 	for i := 0; i < maxOutboxLines; i++ {
@@ -142,11 +120,7 @@ func TestStateYieldsRatherThanDisplacingAReliableMessage(t *testing.T) {
 	}
 }
 
-// Order within one client's queue is FIFO, which is what keeps the control
-// plane's total order intact: Room.sendMu assigns a sequencer stamp and then
-// delivers, and "deliver" now means "enqueue in order onto each recipient's
-// FIFO". If the queue reordered, the order assigned would stop being the order
-// sent, which is the invariant online.go's header calls load-bearing.
+// The queue is FIFO so the order Room.sendMu assigns sequencer stamps in stays the order sent.
 func TestOutboxPreservesOrder(t *testing.T) {
 	rt := &recordingTransport{}
 	o := newOutbox("p1", rt)
@@ -181,9 +155,7 @@ func TestOutboxPreservesOrder(t *testing.T) {
 	}
 }
 
-// Closing drains rather than discards. The last thing a refused client is owed
-// is the Reject explaining why, and it travels this same queue -- discarding on
-// close would turn an explained refusal into a bare hangup.
+// A refused client's Reject travels this queue, so discarding on close would turn the refusal into a bare hangup.
 func TestCloseDrainsWhatIsAlreadyQueued(t *testing.T) {
 	rt := &recordingTransport{}
 	o := newOutbox("p1", rt)
@@ -202,10 +174,7 @@ func TestCloseDrainsWhatIsAlreadyQueued(t *testing.T) {
 	}
 }
 
-// One goroutine per client means a leak per player who ever joined if close is
-// ever missed. relay/leak_test.go covers the server end to end; this covers the
-// primitive directly, including the case where the writer is parked waiting for
-// work rather than draining.
+// A writer parked waiting for work must exit on close too, or every player who ever joined leaks a goroutine.
 func TestClosingAnIdleOutboxStopsItsGoroutine(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {

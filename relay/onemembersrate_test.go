@@ -1,13 +1,7 @@
 package relay
 
-// Section E of the 2026-09-12 adversarial review: four places where ONE
-// member's message rate decided something for the rest of the room, or for a
-// member who was not even connected.
-//
-// They are unit-level rather than driven through a real client, deliberately:
-// each is about a decision made under r.mu, and the flood cap means a
-// socket-level reproduction of the 120-a-second cases would spend a second of
-// wall clock per assertion.
+// One member's message rate must not decide anything for the rest of the room. Unit-level: each decision is made
+// under r.mu, and through a socket the flood cap would cost a second of wall clock per assertion.
 
 import (
 	"encoding/json"
@@ -19,8 +13,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// E2 (P1a-2). A renew that changes nothing a receiver can render is the asker's
-// business. It takes no table slot, so the lease cap never sees it.
+// A renew that changes nothing a receiver can render goes to the asker alone: it takes no table slot, so the lease
+// cap never bounds it.
 func TestARenewThatChangesNothingIsNotBroadcastToTheRoom(t *testing.T) {
 	r := newRoom("emerald", "", "room1", nil)
 	for _, id := range []string{"holder", "bystander-1", "bystander-2"} {
@@ -30,16 +24,14 @@ func TestARenewThatChangesNothingIsNotBroadcastToTheRoom(t *testing.T) {
 	r.mu.Lock()
 	r.leases = make(map[string]*lease)
 	room := r.memberIDsLocked()
-	// The claim: a real change, so the whole room hears it.
 	first := r.grantLeaseLocked("door", "holder", time.Minute, room)
-	// A renew in the same second: same holder, same expiry to the second.
+	// Same holder, same expiry to the second.
 	renew := r.grantLeaseLocked("door", "holder", time.Minute, room)
 	r.mu.Unlock()
 
 	if got := recipientCount(first); got != 3 {
 		t.Fatalf("the initial claim went to %d member(s), want the whole room (3)", got)
 	}
-	// Before the fix: 3, at whatever rate the holder cared to renew.
 	if got := recipientCount(renew); got != 1 {
 		t.Errorf("a renew that changed nothing went to %d member(s), want the asker alone -- "+
 			"a renew takes no table slot, so nothing else bounds this fan-out", got)
@@ -54,9 +46,7 @@ func recipientCount(outs []outgoing) int {
 	return n
 }
 
-// E4 (P1c-4). The arrival seed is an O(N) walk plus a marshal per peer, fired
-// by a sender's own area changing -- and it is the only finding in this section
-// that lands in a default cosmetic room.
+// The arrival seed is an O(N) walk under r.mu plus a marshal per peer, fired by the sender's own area change.
 func TestAlternatingAreasCannotReSeedOnEveryMessage(t *testing.T) {
 	r := newRoom("emerald", "", "room1", nil)
 	arrival := &recordingTransport{}
@@ -67,7 +57,6 @@ func TestAlternatingAreasCannotReSeedOnEveryMessage(t *testing.T) {
 		r.recordState(id, protocol.State{PlayerID: id, AreaID: "town"})
 	}
 
-	// Twenty area changes as fast as a client can send them.
 	for i := 0; i < 20; i++ {
 		area := "town"
 		if i%2 == 1 {
@@ -79,7 +68,6 @@ func TestAlternatingAreasCannotReSeedOnEveryMessage(t *testing.T) {
 	arrival.mu.Lock()
 	sent := len(arrival.got)
 	arrival.mu.Unlock()
-	// Before the fix: 8 seeds per call into "town", ten times over.
 	if sent > 8 {
 		t.Errorf("a client alternating two area ids was re-seeded %d time(s) in one burst -- "+
 			"each seed is an O(N) walk under r.mu and a marshal per peer", sent)
@@ -89,8 +77,7 @@ func TestAlternatingAreasCannotReSeedOnEveryMessage(t *testing.T) {
 	}
 }
 
-// E5 (P1c-1). The per-member cap counts LIVE exchanges, so a third party can
-// churn open/abort and push out a committed record whose party is away.
+// The per-member cap counts only live exchanges, so a third party's open/abort churn reaches the terminal records.
 func TestAThirdPartyCannotEvictATradeOutcomeSomebodyIsStillOwed(t *testing.T) {
 	r := newRoom("emerald", "", "room1", nil)
 	r.tryAdd(&Client{PlayerID: "alice", Conn: &recordingTransport{}})
@@ -98,15 +85,13 @@ func TestAThirdPartyCannotEvictATradeOutcomeSomebodyIsStillOwed(t *testing.T) {
 
 	r.mu.Lock()
 	r.escrows = make(map[string]*escrow)
-	// Bob dropped in the moment between the relay committing and the message
-	// arriving -- the exact case EscrowRetention exists for.
+	// Bob dropped between the commit and its message: the case EscrowRetention exists for.
 	r.members["bob"].suspended = true
-	// The committed record is the OLDEST, which is what made age alone pick it.
+	// The committed record is the oldest, so eviction by age alone would pick it.
 	r.escrows["their-trade"] = &escrow{
 		parties: [2]string{"alice", "bob"}, phase: protocol.EscrowPhaseCommitted,
 		terminal: true, terminalAt: time.Now().Add(-time.Minute),
 	}
-	// A third party fills the rest of the table with fresh terminal records.
 	for i := 0; len(r.escrows) < maxEscrowRecordsPerRoom; i++ {
 		r.escrows[fmt.Sprintf("churn-%d", i)] = &escrow{
 			parties: [2]string{"mallory", "alice"}, phase: protocol.EscrowPhaseAborted,
@@ -117,16 +102,13 @@ func TestAThirdPartyCannotEvictATradeOutcomeSomebodyIsStillOwed(t *testing.T) {
 	_, survived := r.escrows["their-trade"]
 	r.mu.Unlock()
 
-	// Before the fix: gone, and bob resumes unable to tell a completed trade
-	// from one that never finished -- "both or neither" broken from one side.
 	if !survived {
 		t.Fatal("a committed trade whose party is still away was evicted by an uninvolved member's " +
 			"open/abort churn -- the record's whole purpose is to answer that party on resume")
 	}
 }
 
-// And the converse, so the eviction still bounds the table when every terminal
-// record is owed to somebody: a full table must not refuse new exchanges.
+// When every terminal record is owed to somebody, a full table must still evict rather than refuse new exchanges.
 func TestTheEscrowTableIsStillBoundedWhenEveryRecordIsOwed(t *testing.T) {
 	r := newRoom("emerald", "", "room1", nil)
 	r.tryAdd(&Client{PlayerID: "away", Conn: &recordingTransport{}})
@@ -150,17 +132,15 @@ func TestTheEscrowTableIsStillBoundedWhenEveryRecordIsOwed(t *testing.T) {
 	}
 }
 
-// E6 (P1c-2). A broadcast reaches every backlog, so 64 of them push out the
-// addressed events a returning member's conversation is made of.
+// A broadcast reaches every backlog, so a flood of them must not push out the addressed events a returning member's
+// conversation is made of.
 func TestABroadcastFloodCannotEvictAMembersAddressedBacklog(t *testing.T) {
 	r := newRoom("emerald", "", "room1", nil)
 	r.tryAdd(&Client{PlayerID: "away", Conn: &recordingTransport{}})
 
 	r.mu.Lock()
 	r.members["away"].suspended = true
-	// One event actually aimed at this member, first in the queue.
 	r.queueMissedEventLocked("away", protocol.Event{From: "partner", To: "away", Seq: 1})
-	// Then a flood of broadcasts, more than the backlog holds.
 	for i := 0; i < maxMissedEventsPerMember*2; i++ {
 		r.queueMissedEventLocked("away", protocol.Event{From: "mallory", To: "", Seq: uint64(i + 2)})
 	}
@@ -176,19 +156,14 @@ func TestABroadcastFloodCannotEvictAMembersAddressedBacklog(t *testing.T) {
 			addressed = true
 		}
 	}
-	// Before the fix: gone, and they resume believing their partner never spoke.
 	if !addressed {
 		t.Fatal("a broadcast flood pushed the one ADDRESSED event out of a suspended member's " +
 			"backlog -- anybody in the room could decide what they come back knowing")
 	}
 }
 
-// E7 (P1c-3). maxMissedEventsPerMember's own comment states the rule -- a
-// section that could fill the 192-line snapshot "would push the escrow, world
-// and lease lines off the end and break, to save the event plane, three planes
-// that were not broken" -- and the escrow section had no cap at all. A client
-// does not choose how many exchanges it is a party to: anyone can open one
-// naming it as the counterparty.
+// Anyone can open an exchange naming a client as counterparty, so the escrow section is capped short of the whole
+// resume snapshot, or the world, lease and state lines fall off its end.
 func TestTheEscrowSectionCannotFillAWholeResumeSnapshot(t *testing.T) {
 	r := newRoom("emerald", "", "room1", nil)
 	r.tryAdd(&Client{PlayerID: "victim", Conn: &recordingTransport{}})
@@ -201,21 +176,16 @@ func TestTheEscrowSectionCannotFillAWholeResumeSnapshot(t *testing.T) {
 			terminal: true, terminalAt: time.Now().Add(-time.Duration(i) * time.Second),
 		}
 	}
-	// One LIVE exchange, which is the line the victim actually has to act on.
 	r.escrows["live-one"] = &escrow{
 		parties: [2]string{"partner", "victim"}, phase: protocol.EscrowPhaseDeposited,
 	}
 	lines := r.escrowSnapshotLocked("victim")
 	r.mu.Unlock()
 
-	// Before the fix: 257, against a whole-snapshot budget of 192 -- so the
-	// world, lease and state sections were dropped off the tail entirely.
 	if len(lines) > maxEscrowSnapshotLines {
 		t.Errorf("the escrow section emitted %d lines, past its %d cap and %d of the whole %d-line "+
 			"snapshot budget", len(lines), maxEscrowSnapshotLines, len(lines), maxSnapshotLines)
 	}
-	// And the live one survives the cut, because it is the one still waiting on
-	// this client rather than an outcome it can ask for.
 	found := false
 	for _, o := range lines {
 		if strings.Contains(string(o.env.Payload), "live-one") {
@@ -228,28 +198,16 @@ func TestTheEscrowSectionCannotFillAWholeResumeSnapshot(t *testing.T) {
 	}
 }
 
-// X1-1 from the parity cell. forwardState bounds the line it sends and checks
-// BEFORE recordState, so everything in r.lastState fits as a `state`. Wrapping
-// the same payload in a Join adds 24 + len(player_id) bytes, and nothing
-// measured THAT -- so a sender landing just under the cap was stored and
-// re-served to every later snapshot.v1 joiner as a line over it.
-//
-// An over-cap line is not a reject: it is bufio.ErrTooLong in the joiner's read
-// loop, so it reconnects, is handed the same snapshot, and loops. The client
-// who cannot get into the room is the one who did nothing.
+// forwardState measures a state as a state line, but a seed re-serves it inside a Join, 24 + len(player_id) bytes
+// longer. Over the cap, the joiner's read loop fails with bufio.ErrTooLong and it reconnects into the same snapshot.
 func TestASeedIsMeasuredAsTheJoinItIsSentAs(t *testing.T) {
 	r := newRoom("emerald", "", "room1", nil)
 	r.tryAdd(&Client{PlayerID: "loud", Conn: &recordingTransport{}})
 	joiner := &Client{PlayerID: "joiner", Conn: &recordingTransport{}, features: []string{protocol.FeatureSnapshotV1}}
 	r.tryAdd(joiner)
 
-	// A state as close to the cap as forwardState will let through, which needs
-	// the ESCAPING route: area_id and anim are bounded by len() at 256 each, and
-	// encoding/json writes '&' as six bytes, so those two fields alone are worth
-	// ~3072 wire bytes. That is the 2026-09-12 forward-seam mechanism, and it is
-	// what makes a state that is legal-but-huge reachable at all. extras then
-	// fills the gap, one byte at a time, so the result lands INSIDE the 28-byte
-	// window a Join wrapper adds rather than somewhere convenient.
+	// Reaching the cap needs escaping: area_id and anim are bounded by len(), and encoding/json writes '&' as six
+	// bytes. extras then grows a byte at a time, so the line lands inside the window a Join wrapper adds.
 	stateLine := func(v protocol.State) int {
 		t.Helper()
 		b, err := json.Marshal(v)
@@ -303,8 +261,6 @@ func TestASeedIsMeasuredAsTheJoinItIsSentAs(t *testing.T) {
 	outs := r.stateSnapshotLocked("joiner")
 	r.mu.Unlock()
 
-	// Before the fix: one outgoing, over the cap, which kills the joiner's read
-	// loop the moment it arrives.
 	for _, o := range outs {
 		if n := len(protocol.AppendEnvelope(nil, o.env.Type, o.env.Payload)); n > protocol.MaxPayloadBytes {
 			t.Fatalf("a seed went out at %d bytes, %d over what a receiver can read -- "+
@@ -314,19 +270,15 @@ func TestASeedIsMeasuredAsTheJoinItIsSentAs(t *testing.T) {
 	}
 }
 
-// X1-3 from the parity cell. The pre-Welcome hold had a bare count where the
-// outbox one file over has a two-class policy: past 64 it dropped whatever
-// arrived next, reliable included. A dropped state is harmless (latest-wins);
-// a dropped join means the receiving client never learns that peer exists and
-// discards its states for the rest of the session as an unannounced id.
+// A dropped state is harmless (latest wins); a dropped join means the client discards that peer's states for the
+// session as an unannounced id.
 func TestTheWelcomeHoldDropsSamplesRatherThanLifecycleLines(t *testing.T) {
 	r := newRoom("emerald", "", "room1", nil)
 	held := &Client{PlayerID: "joining", Conn: &recordingTransport{}, holdUntilWelcome: true}
 	r.tryAdd(held)
 	r.tryAdd(&Client{PlayerID: "mover", Conn: &recordingTransport{}})
 
-	// Fill the hold past its bound with state samples, exactly as a busy room
-	// does while one client's Welcome is still being written.
+	// A busy room fills the hold with state samples while a Welcome is still being written.
 	st, err := json.Marshal(protocol.State{PlayerID: "mover", Timestamp: 1, AreaID: "town", Position: []float64{1, 2}})
 	if err != nil {
 		t.Fatal(err)
@@ -336,7 +288,6 @@ func TestTheWelcomeHoldDropsSamplesRatherThanLifecycleLines(t *testing.T) {
 		r.forwardLine(stateLine, []string{"joining"}, true)
 	}
 
-	// Now the line that matters: somebody joins.
 	jb, err := json.Marshal(protocol.Join{PlayerID: "newcomer"})
 	if err != nil {
 		t.Fatal(err)
@@ -356,16 +307,13 @@ func TestTheWelcomeHoldDropsSamplesRatherThanLifecycleLines(t *testing.T) {
 			found = true
 		}
 	}
-	// Before the fix: the join is message 129 behind 64 states and is dropped,
-	// so this client never hears of "newcomer" at all.
 	if !found {
 		t.Fatal("a join was dropped from the pre-welcome hold in favour of state samples -- " +
 			"the receiving client then discards that peer's states forever as an unannounced id")
 	}
 }
 
-// X1-4. Every sibling field in this dump uses %q; the one a STRANGER chooses
-// used %s, and a room's feature set sticks for the room's whole life.
+// A room's feature strings are a stranger's choice and stick for the room's life, so the dump must quote them.
 func TestARoomsFeaturesCannotForgeLinesInTheIntrospectDump(t *testing.T) {
 	forged := "x\n  room \"admin\" game=\"emerald\" members=99 seq=0"
 	s := Snapshot{

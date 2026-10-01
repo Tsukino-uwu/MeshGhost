@@ -2,10 +2,7 @@
 
 package relay
 
-// The udp-only relay tests, compiled only under the meshghost_devudp tag (ADR
-// 0065, 2026-09-15): plain udp no longer ships, and its tests run through
-// dev-scripts/run-gotests-udp.bat. Moved here verbatim from
-// relay_transport_test.go and welcomebudget_test.go.
+// The udp-only relay tests: plain udp is a dev-build transport, and dev-scripts/run-gotests-udp.bat runs these.
 
 import (
 	"encoding/json"
@@ -15,28 +12,17 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// transportKindsUnderTest is every transport the relay's mixed-room and
-// budget tests run against: all three under this tag.
+// transportKindsUnderTest is all three transports under this tag.
 var transportKindsUnderTest = []netx.Kind{netx.TCP, netx.UDP, netx.QUIC}
 
-// TestAWelcomeOverUDPFitsInOneDatagram is the end-to-end assertion: on the
-// shipped default transport, a player joining a room whose Welcome cannot fit
-// in a datagram still gets in, and still learns about everybody.
-//
-// The room is not the interesting party here -- the JOINER is. It asserts on
-// what the last client receives, because that is the only place the defect was
-// ever visible.
+// TestAWelcomeOverUDPFitsInOneDatagram: a joiner whose Welcome cannot fit one datagram still gets in and learns about
+// everybody. It asserts on what the last joiner receives, the only place the defect shows.
 func TestAWelcomeOverUDPFitsInOneDatagram(t *testing.T) {
-	// Enough that the Welcome for the last joiner cannot fit one datagram, and
-	// few enough that it comfortably fits protocol.MaxPayloadBytes -- so a
-	// failure here can only be about the transport's budget, never the
-	// protocol's. The size is asserted below rather than assumed.
+	// Past one datagram and well under protocol.MaxPayloadBytes, so a failure is the transport's budget, never the
+	// protocol's.
 	const members = 12
 
-	// Above DefaultMaxClients (8), which is the only reason this needs saying:
-	// the SHIPPED default already crosses the udp budget at 8 members whose
-	// names escape (measured below), so the cap is not what protects anyone
-	// here -- it just gets in this fixture's way.
+	// Above DefaultMaxClients, which protects no one here: escaping names cross the udp budget below it.
 	s := NewServer()
 	s.MaxClients = members + 4
 	addr := startServerOn(t, s, netx.UDP)
@@ -52,17 +38,13 @@ func TestAWelcomeOverUDPFitsInOneDatagram(t *testing.T) {
 		ids = append(ids, w.PlayerID)
 	}
 
-	// The last one in is the one the room is largest for. Join it separately so
-	// its Welcome and its overflow Joins can be read without the earlier
-	// clients' join announcements in the way.
+	// The last joiner sees the largest room; joined apart, so earlier announcements do not mix with its overflow Joins.
 	last := dialTestClientOn(t, netx.UDP, addr, "emerald", "room1", maximalEscapedName())
 	defer last.conn.Close()
 
 	w := last.expectWelcome(timeout)
 
-	// The Welcome that actually crossed the wire must fit the datagram the wire
-	// carries -- measured against sendBudget for the same connection kind the
-	// relay wrote it on.
+	// Measured against sendBudget for the connection kind the relay wrote it on.
 	budget := sendBudget(last.conn)
 	if budget >= protocol.MaxPayloadBytes {
 		t.Fatalf("this client reports a send budget of %d, which is not a udp one; the fixture "+
@@ -73,8 +55,7 @@ func TestAWelcomeOverUDPFitsInOneDatagram(t *testing.T) {
 			"on the real wire this message is refused and the joiner never sees it", got, budget)
 	}
 
-	// AND NOBODY MAY BE LOST TO THE TRIM. Whatever the Welcome could not carry
-	// arrives as ordinary Joins, before anything else this client is sent.
+	// Nobody may be lost to the trim: the rest arrive as Joins before anything else.
 	known := map[string]bool{}
 	for _, id := range w.Roster {
 		known[id] = true
@@ -98,15 +79,8 @@ func TestAWelcomeOverUDPFitsInOneDatagram(t *testing.T) {
 	}
 }
 
-// TestRelayOverUDP is the step's observable outcome: an unmodified relay,
-// serving a udpconn listener, carries a real session — hello, welcome, the
-// join announcement, and a forwarded state — between two clients that
-// never touched TCP.
-//
-// The point being demonstrated is as much about relay as about
-// UDP: this test passes with zero relay changes, because Serve takes a
-// net.Listener and Room.Forward sends through the transport.Transport
-// interface.
+// TestRelayOverUDP: the unmodified relay carries a whole session over a udpconn listener, since Serve takes a
+// net.Listener and Room.Forward sends through transport.Transport.
 func TestRelayOverUDP(t *testing.T) {
 	addr := startServerOn(t, NewServer(), netx.UDP)
 
@@ -124,7 +98,7 @@ func TestRelayOverUDP(t *testing.T) {
 		t.Fatalf("second client's roster = %v, want [%s]", w2.Roster, w1.PlayerID)
 	}
 
-	// c1 sees the join for c2 — a reliable message, so it must arrive.
+	// A join is reliable, so it must arrive.
 	joinEnv := c1.next(timeout)
 	if joinEnv.Type != protocol.TypeJoin {
 		t.Fatalf("c1 got %q, want %q", joinEnv.Type, protocol.TypeJoin)

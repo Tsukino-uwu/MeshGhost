@@ -10,9 +10,7 @@ import (
 	"time"
 )
 
-// logCapture redirects the standard logger into a buffer for the duration of
-// one test. Guarded, because the relay logs from the connection goroutine that
-// notices a drop, not from the test's own.
+// logCapture is guarded: the relay logs from the connection goroutine that notices a drop, not from the test's own.
 type logCapture struct {
 	mu  sync.Mutex
 	buf bytes.Buffer
@@ -42,15 +40,7 @@ func captureLog(t *testing.T) *logCapture {
 	return c
 }
 
-// TestALeaveIsLogged is a regression test for a gap that made a live session
-// unreadable on 2026-08-19: the relay logged seventeen joins and not one
-// departure, so its own log could not answer "who is still in this room" or
-// "is anything leaking". Join was printed at the join site; leave was never
-// printed anywhere, even though the join line's comment describes the two as a
-// pair of lifecycle events.
-//
-// The assertion is deliberately about the LOG rather than about membership —
-// membership already has tests, and what was missing was the operator's view.
+// TestALeaveIsLogged: the operator's log pairs a leave with each join, so it can say who is still in a room.
 func TestALeaveIsLogged(t *testing.T) {
 	logs := captureLog(t)
 
@@ -62,9 +52,7 @@ func TestALeaveIsLogged(t *testing.T) {
 	c2 := dialTestClient(t, addr, "emerald", "room1", "bob")
 	w2 := c2.expectWelcome(timeout)
 
-	// Drop bob and wait for the relay to have finished with it. Polling the
-	// log is what the test is about; there is no other observable that says
-	// "the departure has been recorded" rather than "has begun".
+	// The log is the only observable that says the departure was recorded rather than begun.
 	c2.conn.Close()
 
 	deadline := time.Now().Add(timeout)

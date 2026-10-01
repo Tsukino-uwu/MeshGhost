@@ -6,10 +6,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// The relay's part in the loss cover (ADR 0045) is to do nothing to it: the
-// carried previous sample rides through forwardState's decode/re-encode
-// intact, and the relay never stores it -- a late joiner is seeded with the
-// newest sample, not its predecessor.
+// The carried prev rides through forwardState intact and is never stored: a late joiner is seeded with the newest
+// sample only.
 func TestForwardStateKeepsTheCarriedPrevAndDoesNotRecordIt(t *testing.T) {
 	r := benchRoom(2)
 	prev := emeraldState()
@@ -37,8 +35,7 @@ func TestForwardStateKeepsTheCarriedPrevAndDoesNotRecordIt(t *testing.T) {
 	}
 }
 
-// A hostile prev is bounded by the same validator as the state it rides in,
-// at the relay's gate: the cover must not be a way past ValidateState.
+// A prev is checked by the same validator as its state, so the cover is no way past ValidateState.
 func TestAStateWithAnInvalidPrevIsDroppedAtTheRelay(t *testing.T) {
 	r := benchRoom(2)
 	st := emeraldState()

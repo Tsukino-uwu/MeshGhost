@@ -13,10 +13,7 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
-// startServerOn is startServerWith for a transport other than tcp. Nothing
-// in relay changes to support one: Serve takes any net.Listener,
-// which is the entire reason the demultiplexing lives in
-// netx/udpconn instead of here.
+// startServerOn is startServerWith for another transport: Serve takes any net.Listener, so relay needs no change.
 func startServerOn(t *testing.T, s *Server, kind netx.Kind) string {
 	t.Helper()
 	ln, err := netx.Listen(kind, "127.0.0.1:0")
@@ -28,12 +25,10 @@ func startServerOn(t *testing.T, s *Server, kind netx.Kind) string {
 	return ln.Addr().String()
 }
 
-// dialTestClientOn is dialTestClient over an arbitrary transport.
 func dialTestClientOn(t *testing.T, kind netx.Kind, addr, gameID, room, name string) *testClient {
 	t.Helper()
-	// quic has no unverified dial since 2026-09-15; these tests are about the
-	// relay, not identity, so they say trust-any out loud. tcp here is a raw
-	// listener (startRelayOn), so it stays on the plain dial.
+	// quic has no unverified dial, and these tests are about the relay, not identity, so they trust any certificate.
+	// tcp here is a raw listener (startServerOn), so it stays on the plain dial.
 	var netConn net.Conn
 	var err error
 	if kind == netx.QUIC {
@@ -74,8 +69,6 @@ func dialTestClientOn(t *testing.T, kind netx.Kind, addr, gameID, room, name str
 	return tc
 }
 
-// TestRelayOverQUIC is TestRelayOverUDP for the encrypted transport. Same
-// unmodified relay, a third listener type.
 func TestRelayOverQUIC(t *testing.T) {
 	addr := startServerOn(t, NewServer(), netx.QUIC)
 
@@ -107,20 +100,12 @@ func TestRelayOverQUIC(t *testing.T) {
 	}
 }
 
-// TestRelayMixesAllThreeTransportsInOneRoom is the property that makes a
-// per-transport choice safe to offer at all: a room may hold clients on
-// different transports at once, and neither they nor the relay can tell.
-// If this did not hold, picking a transport would partition the player base
-// and the setting would be a trap rather than a feature.
-//
-// It also demonstrates the point of the whole design — three transports,
-// one relay, and relay contains not one line that knows which is
-// which.
+// TestRelayMixesAllThreeTransportsInOneRoom: a room holds clients on different transports at once, or picking a
+// transport would partition the players.
 func TestRelayMixesAllThreeTransportsInOneRoom(t *testing.T) {
 	s := NewServer()
 
-	// transportKindsUnderTest: tcp and quic in a release build, all three
-	// under the meshghost_devudp tag (ADR 0065). The name keeps its "three".
+	// tcp and quic, plus udp under the meshghost_devudp tag; the name keeps its "three".
 	order := transportKindsUnderTest
 	addrs := map[netx.Kind]string{}
 	for _, k := range order {
@@ -139,7 +124,6 @@ func TestRelayMixesAllThreeTransportsInOneRoom(t *testing.T) {
 		}
 		clients[k], welcomes[k] = c, w
 
-		// Everyone already in the room sees this one join.
 		for _, prev := range order[:i] {
 			if env := clients[prev].next(timeout); env.Type != protocol.TypeJoin {
 				t.Fatalf("%s client got %q, want a join for the %s client", prev, env.Type, k)
@@ -147,7 +131,6 @@ func TestRelayMixesAllThreeTransportsInOneRoom(t *testing.T) {
 		}
 	}
 
-	// Every sender's state must reach both other transports.
 	for _, sender := range order {
 		clients[sender].sendState(protocol.State{
 			PlayerID: welcomes[sender].PlayerID, Seq: 1, Timestamp: 1,
@@ -166,15 +149,13 @@ func TestRelayMixesAllThreeTransportsInOneRoom(t *testing.T) {
 	}
 }
 
-// queryTransports performs the discovery exchange the way core
-// does and returns the relay's answer.
+// queryTransports performs the discovery exchange the way core does and returns the relay's answer.
 func queryTransports(t *testing.T, addr string, hello protocol.Hello) (protocol.Envelope, bool) {
 	t.Helper()
 	return queryTransportsWithCode(t, addr, hello, "")
 }
 
-// queryTransportsWithCode is queryTransports proving a room code on the
-// discovery leg, as the core does (ADR 0067).
+// queryTransportsWithCode is queryTransports proving a room code on the discovery leg, as the core does.
 func queryTransportsWithCode(t *testing.T, addr string, hello protocol.Hello, code string) (protocol.Envelope, bool) {
 	t.Helper()
 	conn, err := transport.Dial(addr)
@@ -218,11 +199,8 @@ func queryTransportsWithCode(t *testing.T, addr string, hello protocol.Hello, co
 	}
 }
 
-// TestQueryOnlyReturnsTheTransportListAndDoesNotJoin covers the discovery
-// exchange itself. "Does not join" is half the point: this runs before a
-// client commits to a transport, so it must not consume a player_id,
-// occupy a slot, or announce anything to anyone — otherwise the whole
-// reason for asking first (no leave/rejoin flicker) is lost.
+// TestQueryOnlyReturnsTheTransportListAndDoesNotJoin: discovery runs before a client picks a transport, so it takes
+// no player_id or slot and announces nothing, or asking first would bring back the leave/rejoin flicker.
 func TestQueryOnlyReturnsTheTransportListAndDoesNotJoin(t *testing.T) {
 	s := NewServer()
 	s.Offers = []protocol.TransportOffer{
@@ -231,7 +209,7 @@ func TestQueryOnlyReturnsTheTransportListAndDoesNotJoin(t *testing.T) {
 	}
 	addr := startServerOn(t, s, netx.TCP)
 
-	// A real member, so we can watch whether the query disturbs the room.
+	// A real member, to watch whether the query disturbs the room.
 	member := dialTestClientOn(t, netx.TCP, addr, "emerald", "room1", "alice")
 	defer member.conn.Close()
 	member.expectWelcome(timeout)
@@ -253,8 +231,6 @@ func TestQueryOnlyReturnsTheTransportListAndDoesNotJoin(t *testing.T) {
 		t.Fatalf("offers = %+v, want the two configured", got.Offers)
 	}
 
-	// The existing member must not have seen a join, and must still be
-	// able to use the room.
 	select {
 	case env := <-member.envs:
 		t.Fatalf("the room saw a %q from a query that should never have joined", env.Type)
@@ -262,11 +238,8 @@ func TestQueryOnlyReturnsTheTransportListAndDoesNotJoin(t *testing.T) {
 	}
 }
 
-// TestQueryOnlyStillRequiresTheRoomCode is the property that made asking
-// first acceptable at all. If discovery answered before the room-code
-// check, it would be the relay's only pre-auth endpoint — a hole in
-// exactly what the 2026-08-14 hardening pass closed. A wrong code must get
-// a reject, not a transport list.
+// TestQueryOnlyStillRequiresTheRoomCode: answering before the room-code check would make discovery the relay's one
+// pre-auth endpoint.
 func TestQueryOnlyStillRequiresTheRoomCode(t *testing.T) {
 	s := NewServer()
 	s.RoomCode = "correct-horse"
@@ -286,8 +259,7 @@ func TestQueryOnlyStillRequiresTheRoomCode(t *testing.T) {
 		t.Fatalf("got %q, want %q", reply.Type, protocol.TypeReject)
 	}
 
-	// And the correct code still works, so the check is a real gate rather
-	// than discovery being broken outright.
+	// The correct code still works, so this is a gate rather than broken discovery.
 	reply, ok = queryTransportsWithCode(t, addr, protocol.Hello{
 		GameID: "emerald", Room: "room1", DisplayName: "friend",
 	}, "correct-horse")
@@ -296,10 +268,8 @@ func TestQueryOnlyStillRequiresTheRoomCode(t *testing.T) {
 	}
 }
 
-// TestQueryOnlyAgainstARelayWithNoOffersIsHarmless covers every existing
-// test's server and any relay that could not determine its own ports: an
-// empty list, not an error, which a client treats as "nothing to upgrade
-// to."
+// TestQueryOnlyAgainstARelayWithNoOffersIsHarmless: a relay that could not determine its ports answers an empty list,
+// which a client reads as nothing to upgrade to.
 func TestQueryOnlyAgainstARelayWithNoOffersIsHarmless(t *testing.T) {
 	addr := startServerOn(t, NewServer(), netx.TCP)
 	reply, ok := queryTransports(t, addr, protocol.Hello{
@@ -317,11 +287,8 @@ func TestQueryOnlyAgainstARelayWithNoOffersIsHarmless(t *testing.T) {
 	}
 }
 
-// TestJoinLogRecordsTheTransport pins that a Client carries the transport it
-// arrived over. Logging-only, but it is the host's only way to tell which
-// transport a given player is on now that a room can mix them — without it,
-// diagnosing "why is this one player stuttering" means asking them to read
-// their own client log.
+// TestJoinLogRecordsTheTransport: in a room that mixes transports, the join log is the host's only way to tell
+// which one a player is on.
 func TestJoinLogRecordsTheTransport(t *testing.T) {
 	s := NewServer()
 	type row struct {
@@ -339,8 +306,6 @@ func TestJoinLogRecordsTheTransport(t *testing.T) {
 		w := c.expectWelcome(timeout)
 
 		s.mu.Lock()
-		// Keyed by game_id AND name since rooms became genuinely partitioned
-		// by game (see roomKey) -- a name alone no longer identifies a room.
 		room := s.rooms[roomKey("emerald", "room-"+tc.want)]
 		s.mu.Unlock()
 		if room == nil {

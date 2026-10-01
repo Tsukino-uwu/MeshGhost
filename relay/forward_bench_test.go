@@ -1,20 +1,7 @@
 package relay
 
-// What one inbound state COSTS the relay, and where that cost goes.
-//
-// Written 2026-08-28 as the baseline for the efficiency pass in
-// agent_docs/plans.md's "Efficiency is a standing goal". Until now every
-// benchmark in this repo lived in core (core/interp_bench_test.go) and measured
-// RECEIVE-side arithmetic; nothing had ever measured the relay, which is the
-// process that carries the whole room's fan-out and the one a host pays for.
-//
-// Read allocs/op at least as closely as ns/op. The fan-out is quadratic in room
-// size (agent_docs/plans.md: n x (n-1) state messages), so per-recipient
-// allocation is what decides whether a big room is possible at all -- and it is
-// the number the stage-2 cleanup is aimed squarely at.
-//
-// These call Room.forwardState, the real path handleConn takes, rather than a
-// replica of it kept in step by hand -- see that function's own comment.
+// What one inbound state costs the relay, through Room.forwardState, the path handleConn takes. Read allocs/op at
+// least as closely as ns/op: the fan-out is quadratic in room size, so per-recipient allocation decides big rooms.
 
 import (
 	"encoding/json"
@@ -26,17 +13,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
-// discardTransport is a recipient that accepts everything and keeps nothing, so
-// what is measured is the relay's own work rather than a socket or a test's
-// bookkeeping. recordingTransport in world_test.go deliberately copies and
-// retains every payload, which would put ITS allocations in these numbers.
-//
-// A POINTER to a non-empty struct rather than an empty value type, so the
-// compiler cannot treat the interface as zero-sized and optimise away costs a
-// real *NDJSONConn would pay. Measured both ways on 2026-08-28: it made no
-// difference, which is itself the finding -- the bound method value in
-// Room.forward does not escape, so allocations stay flat from a 2-member room
-// to a 128-member one and the planned fix for it was dropped as a non-win.
+// discardTransport keeps nothing, so what is measured is the relay's work, not a socket's or recordingTransport's. A
+// pointer to a non-empty struct, so the compiler cannot treat it as zero-sized and skip costs a real conn pays.
 type discardTransport struct{ sent int }
 
 func (d *discardTransport) Send([]byte) error           { d.sent++; return nil }
@@ -46,10 +24,8 @@ func (d *discardTransport) OnDisconnect(func(error))    {}
 func (d *discardTransport) OnError(func(error))         {}
 func (d *discardTransport) Close() error                { return nil }
 
-// benchRoom builds a room of n members that all share one area, which is the
-// WORST case for fan-out and therefore the honest one to measure: every
-// recipient is a real recipient, and the cross-area shadow counters suppress
-// nothing. Member 0 is the sender.
+// benchRoom's members never opted in to area filtering, so every one is a recipient: the worst case for fan-out.
+// Member 0 is the sender.
 func benchRoom(n int) *Room {
 	r := newRoom("bench", "1", "room", nil)
 	for i := 0; i < n; i++ {
@@ -58,11 +34,7 @@ func benchRoom(n int) *Room {
 	return r
 }
 
-// The two real state shapes on the wire today, with the field names the
-// adapters actually send -- a benchmark against an invented shape measures an
-// invented cost. Emerald carries 14 extras keys and 2D tile coordinates
-// (meshghost_emerald.lua's encodeLocalState); TEVI carries 3 in the common case
-// and a 3D position (MeshGhostTevi/BridgeClient.cs).
+// Emerald's and TEVI's state shapes, with the field names they send: an invented shape measures an invented cost.
 func emeraldState() protocol.State {
 	return protocol.State{
 		AreaID:      "map:1:2",
@@ -96,13 +68,8 @@ func mustPayload(tb testing.TB, st protocol.State) []byte {
 	return b
 }
 
-// BenchmarkStateFanout is the headline number: one inbound state, decoded,
-// validated, stamped, recorded and fanned out to every other member.
-//
-// The room sizes bracket what the project actually cares about: 2 is a session
-// with a friend, 8 is DefaultMaxClients, 32 is the size agent_docs/plans.md
-// prices at 39.7 GB/hour of host uplink, and 128 is there to show the shape of
-// the curve rather than to describe a room anyone runs today.
+// BenchmarkStateFanout is the headline number: one inbound state, decoded, validated, stamped, recorded and fanned
+// out to every other member.
 func BenchmarkStateFanout(b *testing.B) {
 	shapes := []struct {
 		name string
@@ -126,11 +93,8 @@ func BenchmarkStateFanout(b *testing.B) {
 	}
 }
 
-// BenchmarkValidateState isolates protocol.ValidateState, which marshals
-// st.Extras purely to measure its serialized length (protocol/limits.go).
-// "noExtras" is not a real adapter -- every shipped one sends extras -- it is
-// the short-circuit path, present so the difference between the two names the
-// cost of that marshal exactly.
+// BenchmarkValidateState isolates protocol.ValidateState. "noExtras" is no real adapter's shape: it is the
+// short-circuit path, so the difference names the cost of bounding the extras.
 func BenchmarkValidateState(b *testing.B) {
 	bare := emeraldState()
 	bare.Extras = nil
@@ -152,11 +116,8 @@ func BenchmarkValidateState(b *testing.B) {
 	}
 }
 
-// BenchmarkEnvelopeMarshal measures the two marshals that stage 2 collapses
-// into one: envelope() turns the State into payload bytes, and Room.forward
-// then marshals the Envelope around those bytes, re-scanning and re-copying
-// every one of them. Both are measured here so the saving is attributable
-// rather than inferred from the fan-out number moving.
+// BenchmarkEnvelopeMarshal measures envelope() turning a State into payload bytes, then the two ways of turning a
+// payload into a line.
 func BenchmarkEnvelopeMarshal(b *testing.B) {
 	st := emeraldState()
 	b.Run("stateToPayload", func(b *testing.B) {
@@ -171,10 +132,7 @@ func BenchmarkEnvelopeMarshal(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	// The two ways of turning a payload into a line, side by side, so the
-	// saving is attributable rather than inferred from the fan-out number
-	// moving. "viaMarshal" is what the state path did until 2026-08-28 and is
-	// what the control plane still does.
+	// viaMarshal is the control plane's way; viaAppend is the state path's.
 	b.Run("payloadToLine/viaMarshal", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
@@ -191,10 +149,8 @@ func BenchmarkEnvelopeMarshal(b *testing.B) {
 	})
 }
 
-// Guards the benchmarks themselves: a fan-out benchmark that silently measured
-// a room where every state was dropped as invalid, or reached nobody, would
-// report a wonderful number and mean nothing. This is the same reasoning as the
-// load rig's client0_remotes self-check (dev-scripts/README.md).
+// A fan-out benchmark over states that were dropped as invalid, or reached nobody, would report a fine number and
+// mean nothing.
 func TestBenchmarkFixturesAreRealisticAndForwarded(t *testing.T) {
 	for _, st := range []protocol.State{emeraldState(), teviState()} {
 		if !protocol.ValidateState(st) {

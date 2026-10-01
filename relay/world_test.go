@@ -1,10 +1,7 @@
 package relay
 
-// Tests for world custody. Four of these exist because the obvious
-// implementation of this feature is wrong in four separate ways, and every one
-// of them produces SILENT permanent divergence — no error anywhere, just two
-// clients looking at different worlds. They are marked as such; if one starts
-// failing, the answer is never to relax it.
+// Tests for world custody. The four marked corrections each catch an obvious design that silently and permanently
+// splits two clients' worlds: if one fails, never relax it.
 
 import (
 	"encoding/json"
@@ -17,28 +14,20 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// worldFeatures is the minimum a room needs for this plane: custody plus the
-// leases that gate every write.
+// worldFeatures is the minimum for this plane: custody plus the leases that gate every write.
 var worldFeatures = []string{protocol.FeatureLeaseV1, protocol.FeatureWorldV1}
 
-// recordingTransport captures every payload written to it, in write order.
-// Ordering is the point of most of this file, so what matters is the ORDER
-// Send was called in, not merely the set of messages that arrived.
+// recordingTransport captures every payload in the order Send was called, which is the point of most of this file.
 type recordingTransport struct {
 	mu sync.Mutex
-	// delay is slept inside every write, to widen the window in which a
-	// missing serialization point can show itself. Without it a race that is
-	// real still needs an unlucky scheduler to appear.
+	// delay is slept inside every write, to widen the window a missing serialization point needs.
 	delay time.Duration
 	// block, when non-nil, holds the first write until it is closed.
 	block   chan struct{}
 	blocked bool
 	got     [][]byte
-	// lossy[i] records whether got[i] arrived via SendUnreliable rather than
-	// Send. Both land in the same slice -- a datagram transport delivers the
-	// same bytes either way -- so without this a test cannot tell which
-	// delivery variant the relay actually chose, which is the whole content
-	// of the reliable/lossy rules in world.go.
+	// lossy[i] records whether got[i] came by SendUnreliable: both land in got, so this is how a test tells which
+	// delivery variant the relay chose.
 	lossy []bool
 }
 
@@ -105,8 +94,7 @@ func (rt *recordingTransport) worldStates(t *testing.T) []protocol.WorldState {
 	return out
 }
 
-// worldRoom builds a room with the world plane on and the named members
-// already in it, returning each member's recorder.
+// worldRoom builds a room with the world plane on and the named members in it, returning each member's recorder.
 func worldRoom(t *testing.T, features []string, ids ...string) (*Room, map[string]*recordingTransport) {
 	t.Helper()
 	r := newRoom("emerald", "", "room1", features)
@@ -141,24 +129,11 @@ func worldKeysOf(r *Room) []string {
 	return out
 }
 
-// ---------------------------------------------------------------------------
-// The four corrections. Each of these fails against the obvious design.
-// ---------------------------------------------------------------------------
+// The four corrections: each fails against the obvious design.
 
-// TestLossyWorldWriteIsOrderedAgainstAReliableDrop is the wire-visible form of
-// "Reliable selects the delivery variant ONLY, never the serialization".
-//
-// The tempting design is that a lossy write skips sendMu the way the state
-// plane does. It cannot, and the failure is silent: a lossy set can be stamped
-// first and delivered second, so the relay's map holds one value while every
-// client's last-received is a different one — and nothing ever corrects it,
-// because snapshots go only to joiners and a key may never be written again. A
-// drop overtaken by a stale set is worse still: the entity is resurrected
-// permanently for everyone but the relay.
-//
-// Asserted as strictly increasing stamps in DELIVERY order, under concurrent
-// writers, with a delay inside every write to widen the window. Worth running
-// with -count=10 -race, per agent_docs/testing.md.
+// TestLossyWorldWriteIsOrderedAgainstAReliableDrop: Reliable selects the delivery variant, never the serialization. A
+// lossy set skipping sendMu can be stamped first and delivered second, and no snapshot corrects a key never written
+// again; a drop overtaken by a stale set resurrects the entity. Worth running with -count=10 -race.
 func TestLossyWorldWriteIsOrderedAgainstAReliableDrop(t *testing.T) {
 	r, rts := worldRoom(t, worldFeatures, "p1", "p2")
 	watcher := rts["p2"]
@@ -182,8 +157,7 @@ func TestLossyWorldWriteIsOrderedAgainstAReliableDrop(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for n := 0; n < 20; n++ {
-				// Alternating lossy motion and a reliable drop/recreate: the
-				// exact mix the serialization has to hold together.
+				// Lossy motion with a reliable drop and recreate, the mix the serialization must hold together.
 				r.handleWorld("p1", protocol.World{
 					Op: protocol.WorldSet, Authority: "sim", Key: key,
 					Blob: blob("moving"), Reliable: false,
@@ -214,20 +188,14 @@ func TestLossyWorldWriteIsOrderedAgainstAReliableDrop(t *testing.T) {
 	}
 }
 
-// TestWorldSurvivesItsAuthorityLeaseExpiring is one third of "never tie world
-// lifetime to lease lifetime".
-//
-// Freeing entries in freeLeaseLocked is the obvious wrong turn, and it destroys
-// the world in exactly the case the feature exists for: a host crashing arrives
-// there via expireSuspended -> finishLeave -> releaseLeasesOfLocked.
+// TestWorldSurvivesItsAuthorityLeaseExpiring: freeing entries in freeLeaseLocked is the obvious wrong turn, and a
+// crashing host arrives there via expireSuspended, finishLeave and releaseLeasesOfLocked.
 func TestWorldSurvivesItsAuthorityLeaseExpiring(t *testing.T) {
 	r, _ := worldRoom(t, worldFeatures, "p1")
 	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
 	setWorld(r, "p1", "sim", "boss", "alive")
 
-	// Wind the expiry into the past and fire the callback by hand, rather than
-	// waiting out a real TTL — expireLease re-checks the clock, so this is the
-	// same code path a timer takes.
+	// Fired by hand with the expiry in the past: expireLease re-checks the clock, so this is the timer's path.
 	r.mu.Lock()
 	r.leases["sim"].expiresAt = time.Now().Add(-time.Second)
 	r.mu.Unlock()
@@ -247,8 +215,8 @@ func TestWorldSurvivesItsAuthorityLeaseExpiring(t *testing.T) {
 	}
 }
 
-// TestWorldSurvivesACleanRelease: a host handing off DELIBERATELY still wants
-// the world to reach its successor. This is the case a crash test would miss.
+// TestWorldSurvivesACleanRelease: a deliberate handoff still wants the world to reach its successor, which a crash
+// test would miss.
 func TestWorldSurvivesACleanRelease(t *testing.T) {
 	r, _ := worldRoom(t, worldFeatures, "p1")
 	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
@@ -260,8 +228,6 @@ func TestWorldSurvivesACleanRelease(t *testing.T) {
 	}
 }
 
-// TestWorldSurvivesTheHolderDisconnecting is the case custody exists for at
-// all: the host is gone and a successor must find the world where it was left.
 func TestWorldSurvivesTheHolderDisconnecting(t *testing.T) {
 	s := NewServer()
 	r, _ := worldRoom(t, worldFeatures, "p1", "p2")
@@ -281,23 +247,14 @@ func TestWorldSurvivesTheHolderDisconnecting(t *testing.T) {
 	}
 }
 
-// TestLateJoinWorldSeedIsNotOvertakenByAConcurrentWrite covers the latent bug
-// this feature exposes: handleConn's old seed block took r.mu and delivered
-// WITHOUT sendMu.
-//
-// State got away with that because a stale seed self-corrects within 50ms — the
-// next sample from that player overwrites it. A world seed does not: delivered
-// after a concurrently-broadcast newer write, it leaves the joiner permanently
-// stale with nothing to correct it. joinSnapshot must therefore serialize
-// against an in-flight broadcast, which is what this asserts: while a broadcast
-// is stalled mid-delivery, a join seed must not slip past it.
+// TestLateJoinWorldSeedIsNotOvertakenByAConcurrentWrite: a stale state seed is overwritten by the next sample, but a
+// world seed delivered after a newer broadcast leaves the joiner stale for good, so joinSnapshot waits out a broadcast.
 func TestLateJoinWorldSeedIsNotOvertakenByAConcurrentWrite(t *testing.T) {
 	r, rts := worldRoom(t, worldFeatures, "p1", "p2")
 	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
 	setWorld(r, "p1", "sim", "boss", "alive")
 
-	// p2's transport blocks on its next write, so the broadcast below is
-	// caught mid-delivery with sendMu held.
+	// p2's transport blocks on its next write, so the broadcast below stalls mid-delivery with sendMu held.
 	rts["p2"].block = make(chan struct{})
 
 	joiner := &recordingTransport{}
@@ -334,10 +291,7 @@ func TestLateJoinWorldSeedIsNotOvertakenByAConcurrentWrite(t *testing.T) {
 		t.Fatal("the join seed never completed after the broadcast finished")
 	}
 
-	// p3 was already a member, so it also received the broadcast. What matters
-	// is that the seed it eventually got came AFTER that broadcast in the total
-	// order and carries the newer value -- a seed built before it and delivered
-	// after would silently revert this client and nothing would correct it.
+	// p3 is a member, so it got the broadcast too; its seed must follow it in the total order with the newer value.
 	states := joiner.worldStates(t)
 	if len(states) != 2 {
 		t.Fatalf("joiner got %d world messages, want the broadcast and then its seed", len(states))
@@ -354,13 +308,9 @@ func TestLateJoinWorldSeedIsNotOvertakenByAConcurrentWrite(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Authority
-// ---------------------------------------------------------------------------
+// Authority.
 
-// TestStaleHostCannotWriteAfterHandover is the whole reason writes are
-// lease-gated: a departing host's in-flight packets must not overwrite the new
-// host's world after handover.
+// TestStaleHostCannotWriteAfterHandover: a departing host's in-flight writes must not overwrite the new host's world.
 func TestStaleHostCannotWriteAfterHandover(t *testing.T) {
 	r, rts := worldRoom(t, worldFeatures, "p1", "p2")
 	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
@@ -371,18 +321,16 @@ func TestStaleHostCannotWriteAfterHandover(t *testing.T) {
 	before := len(rts["p2"].worldStates(t))
 	setWorld(r, "p1", "sim", "boss", "stale-from-p1")
 
-	// The relay's copy is untouched.
 	r.mu.Lock()
 	got := string(r.world[worldKey{authority: "sim", key: "boss"}].blob)
 	r.mu.Unlock()
 	if strings.Contains(got, "stale") {
 		t.Fatalf("a stale host's write was stored: %s", got)
 	}
-	// Nobody else heard it.
 	if after := len(rts["p2"].worldStates(t)); after != before {
 		t.Fatalf("the new holder received %d world messages from the stale host, want 0", after-before)
 	}
-	// And the stale host was told, rather than left believing its writes land.
+	// The stale host is told, not left believing its writes land.
 	denials := rts["p1"].worldStates(t)
 	last := denials[len(denials)-1]
 	if last.Reason != protocol.WorldDenied {
@@ -393,8 +341,6 @@ func TestStaleHostCannotWriteAfterHandover(t *testing.T) {
 	}
 }
 
-// TestWorldWriteWithoutTheLeaseIsDenied covers the ordinary case: a client that
-// never claimed at all.
 func TestWorldWriteWithoutTheLeaseIsDenied(t *testing.T) {
 	r, rts := worldRoom(t, worldFeatures, "p1")
 	setWorld(r, "p1", "sim", "boss", "alive")
@@ -408,23 +354,9 @@ func TestWorldWriteWithoutTheLeaseIsDenied(t *testing.T) {
 	}
 }
 
-// TestAdoptionIntoAnEmptyWorldStillSendsOneSnapshot is the assertion whose
-// absence would let a regression pass EVERYTHING.
-//
-// A new holder has to know when it may start writing. Until its adoption has
-// landed it cannot tell "there is nothing to adopt" from "what I am about to
-// overwrite has not arrived yet", and a host that guesses wrong writes
-// generation 1 over a world already at generation 2 — a rollback, silent, and
-// permanent. So an adoption sends exactly one snapshot even when the world is
-// empty, and "empty" is the case an implementation naturally optimises away.
-//
-// **Nothing else catches that.** Every other test in this file uses a non-empty
-// world, so all of them would still pass. Worse, the soak rig would report zero
-// invariant violations rather than a failure, because
-// cmd/meshghost-fakeadapter's isHolder refuses to write until its adoption has
-// landed — so it would simply never write anything, and a run that exercised
-// nothing looks exactly like a run that passed. Same shape as CLAUDE.md's rule
-// about a diagnostic that breaks the thing it measures.
+// TestAdoptionIntoAnEmptyWorldStillSendsOneSnapshot: until its adoption lands a new holder cannot tell an empty world
+// from one in flight, and writing early rolls it back. Nothing else catches this: the other tests use a non-empty
+// world, and the soak rig's isHolder would just never write, which looks like a clean run.
 func TestAdoptionIntoAnEmptyWorldStillSendsOneSnapshot(t *testing.T) {
 	r, rts := worldRoom(t, worldFeatures, "p1")
 	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
@@ -446,17 +378,14 @@ func TestAdoptionIntoAnEmptyWorldStillSendsOneSnapshot(t *testing.T) {
 	}
 }
 
-// TestHandoverSnapshotIsSentOnlyWhenTheHolderChanges. A renew, and a re-claim
-// by the current holder, must produce none — otherwise the busiest client's
-// whole world goes back on the wire at its own renew rate.
+// TestHandoverSnapshotIsSentOnlyWhenTheHolderChanges: a snapshot per renew would put the busiest client's whole world
+// back on the wire at its renew rate.
 func TestHandoverSnapshotIsSentOnlyWhenTheHolderChanges(t *testing.T) {
 	r, rts := worldRoom(t, worldFeatures, "p1")
 	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
 	setWorld(r, "p1", "sim", "boss", "alive")
 
-	// One already, from the grant above: the adoption snapshot into what was
-	// then an empty world. Asserted rather than merely used as a baseline, so
-	// this test cannot silently start measuring from zero.
+	// The grant's adoption snapshot, asserted so the baseline cannot silently be zero.
 	before := len(rts["p1"].worldStates(t))
 	if before != 1 {
 		t.Fatalf("expected exactly the adoption snapshot before the renew, got %d messages", before)
@@ -468,13 +397,8 @@ func TestHandoverSnapshotIsSentOnlyWhenTheHolderChanges(t *testing.T) {
 	}
 }
 
-// TestAdoptionSnapshotFollowsTheGrantWithNothingBetween is the wire-visible
-// form of "the snapshot must be built inside grantLeaseLocked".
-//
-// If it were dispatched afterwards, the new holder could receive its grant,
-// legally begin writing, and only then receive a snapshot built before its own
-// writes — reverting itself, with the relay's map correct and the new host
-// stale. Contiguity in the delivery order is what proves it was not.
+// TestAdoptionSnapshotFollowsTheGrantWithNothingBetween: built after grantLeaseLocked, a snapshot could reach the new
+// holder after its first writes and revert it, so the snapshot must follow the grant directly.
 func TestAdoptionSnapshotFollowsTheGrantWithNothingBetween(t *testing.T) {
 	r, rts := worldRoom(t, worldFeatures, "p1", "p2")
 	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
@@ -521,12 +445,8 @@ func TestAdoptionSnapshotFollowsTheGrantWithNothingBetween(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Ordinary coverage
-// ---------------------------------------------------------------------------
+// Ordinary coverage.
 
-// TestWorldDroppedWhenRoomDidNotNegotiateIt: no capability, no plane. A room
-// that never asked for custody must never run a line of it.
 func TestWorldDroppedWhenRoomDidNotNegotiateIt(t *testing.T) {
 	addr := startServer(t)
 	c1 := dialFeatureClient(t, addr, "room1", "alice", []string{protocol.FeatureLeaseV1})
@@ -541,11 +461,8 @@ func TestWorldDroppedWhenRoomDidNotNegotiateIt(t *testing.T) {
 	c1.expectNothingOfType(protocol.TypeWorldState, 250*time.Millisecond)
 }
 
-// TestWorldWithoutLeasesIsAnnouncedRatherThanSilent. The combination is
-// incoherent — every write names an authority that cannot exist — and is
-// deliberately NOT made to imply lease.v1, since that would change the sticky
-// feature-set key and silently stop matching rooms that already agreed on the
-// old one.
+// TestWorldWithoutLeasesIsAnnouncedRatherThanSilent: world.v1 does not imply lease.v1, which would change the sticky
+// feature-set key and stop matching rooms that already agreed on the old one.
 func TestWorldWithoutLeasesIsAnnouncedRatherThanSilent(t *testing.T) {
 	addr := startServer(t)
 	c1 := dialFeatureClient(t, addr, "room1", "alice", []string{protocol.FeatureWorldV1})
@@ -558,9 +475,7 @@ func TestWorldWithoutLeasesIsAnnouncedRatherThanSilent(t *testing.T) {
 	c1.expectNothingOfType(protocol.TypeWorldState, 250*time.Millisecond)
 }
 
-// TestOversizedWorldBlobIsDroppedNotFragmented. Same answer an oversized event
-// gets: an entity that does not fit means the blob should be a reference to the
-// data rather than the data.
+// TestOversizedWorldBlobIsDroppedNotFragmented: an entity that does not fit should carry a reference to the data.
 func TestOversizedWorldBlobIsDroppedNotFragmented(t *testing.T) {
 	r, rts := worldRoom(t, worldFeatures, "p1", "p2")
 	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
@@ -573,7 +488,7 @@ func TestOversizedWorldBlobIsDroppedNotFragmented(t *testing.T) {
 	if protocol.ValidateWorld(req) {
 		t.Fatal("ValidateWorld accepted an oversized blob")
 	}
-	// The relay never sees it, so nothing is stored and nothing is sent.
+	// The relay never sees it.
 	if got := worldKeysOf(r); len(got) != 0 {
 		t.Fatalf("world held %v", got)
 	}
@@ -582,8 +497,7 @@ func TestOversizedWorldBlobIsDroppedNotFragmented(t *testing.T) {
 	}
 }
 
-// TestWorldCapDeniesRatherThanDroppingSilently, and an overwrite at the cap
-// still succeeds — the bound is on distinct keys, not on writes.
+// TestWorldCapDeniesRatherThanDroppingSilently: the bound is on distinct keys, so an overwrite at the cap succeeds.
 func TestWorldCapDeniesRatherThanDroppingSilently(t *testing.T) {
 	r, rts := worldRoom(t, worldFeatures, "p1")
 	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
@@ -602,7 +516,6 @@ func TestWorldCapDeniesRatherThanDroppingSilently(t *testing.T) {
 			"an entity nobody has", got, protocol.WorldTooMany)
 	}
 
-	// Overwriting an existing key at the cap is fine.
 	setWorld(r, "p1", "sim", "e0", "updated")
 	r.mu.Lock()
 	got := string(r.world[worldKey{authority: "sim", key: "e0"}].blob)
@@ -612,10 +525,8 @@ func TestWorldCapDeniesRatherThanDroppingSilently(t *testing.T) {
 	}
 }
 
-// TestLossyWriteCannotCreateAKey. Creation and deletion must travel the same
-// ordered plane, or a create dispatched before a drop can arrive after it and
-// resurrect the entity permanently — the relay's map has it deleted, so no
-// snapshot ever contradicts the resurrection.
+// TestLossyWriteCannotCreateAKey: a create dispatched before a drop could arrive after it and resurrect the entity,
+// which no snapshot contradicts since the relay's map has it deleted.
 func TestLossyWriteCannotCreateAKey(t *testing.T) {
 	r, _ := worldRoom(t, worldFeatures, "p1")
 	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
@@ -627,7 +538,7 @@ func TestLossyWriteCannotCreateAKey(t *testing.T) {
 		t.Fatalf("a lossy write created %v -- creation must be reliable", got)
 	}
 
-	// Created reliably, it then updates lossily just fine.
+	// Created reliably, it then updates lossily.
 	setWorld(r, "p1", "sim", "boss", "alive")
 	r.handleWorld("p1", protocol.World{
 		Op: protocol.WorldSet, Authority: "sim", Key: "boss", Blob: blob("moved"), Reliable: false,
@@ -640,9 +551,8 @@ func TestLossyWriteCannotCreateAKey(t *testing.T) {
 	}
 }
 
-// TestTwoAuthoritiesMaySharreAKey: entries are namespaced by authority, because
-// two authorities colliding on one key has no defined resolution and picking
-// one would make the relay adjudicate game content.
+// TestTwoAuthoritiesMaySharreAKey: picking a winner between two authorities on one key would make the relay
+// adjudicate game content, so entries are namespaced by authority.
 func TestTwoAuthoritiesMaySharreAKey(t *testing.T) {
 	r, _ := worldRoom(t, worldFeatures, "p1", "p2")
 	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim-a"})
@@ -659,20 +569,15 @@ func TestTwoAuthoritiesMaySharreAKey(t *testing.T) {
 	}
 }
 
-// TestWriterIsExcludedFromItsOwnWorldBroadcast. Unlike an event — where the
-// echo is how a sender learns its own stamp — the host is by definition the
-// authoritative source, and echoing would double the busiest client's inbound.
+// TestWriterIsExcludedFromItsOwnWorldBroadcast: unlike an event's echo, which tells a sender its stamp, echoing the
+// authoritative host would double the busiest client's inbound.
 func TestWriterIsExcludedFromItsOwnWorldBroadcast(t *testing.T) {
 	r, rts := worldRoom(t, worldFeatures, "p1", "p2")
 	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
 	setWorld(r, "p1", "sim", "boss", "alive")
 
-	// p1 gets exactly one message: the adoption snapshot its own grant produced,
-	// which is empty because the world was empty at that point. What it must
-	// never get is its own write echoed back. The count is asserted as well as
-	// the contents — a bare loop over the messages would pass just as happily on
-	// zero of them, which is the regression
-	// TestAdoptionIntoAnEmptyWorldStillSendsOneSnapshot exists to catch.
+	// Only its own empty adoption snapshot, never its write echoed. The count is asserted too, since a bare loop would
+	// pass on zero messages.
 	own := rts["p1"].worldStates(t)
 	if len(own) != 1 {
 		t.Fatalf("the writer received %d world messages, want exactly its own adoption snapshot",
@@ -693,15 +598,14 @@ func TestWriterIsExcludedFromItsOwnWorldBroadcast(t *testing.T) {
 	}
 }
 
-// TestWorldSeedIsNotGatedOnSnapshotV1. world.v1 is room-scoped, so every member
-// has it by construction; copying stateSnapshotLocked's per-recipient gate
-// wholesale would silently leave late joiners looking at an empty world.
+// TestWorldSeedIsNotGatedOnSnapshotV1: world.v1 is room-scoped, so copying stateSnapshotLocked's per-recipient gate
+// would leave late joiners looking at an empty world.
 func TestWorldSeedIsNotGatedOnSnapshotV1(t *testing.T) {
 	r, _ := worldRoom(t, worldFeatures, "p1")
 	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
 	setWorld(r, "p1", "sim", "boss", "alive")
 
-	// A joiner that did NOT ask for snapshot.v1.
+	// A joiner that did not ask for snapshot.v1.
 	joiner := &recordingTransport{}
 	r.tryAdd(&Client{PlayerID: "p2", Conn: joiner})
 	r.joinSnapshot("p2")
@@ -712,8 +616,7 @@ func TestWorldSeedIsNotGatedOnSnapshotV1(t *testing.T) {
 	}
 }
 
-// TestResumingClientIsSentTheWorld: a resuming non-host has missed every lossy
-// write it was away for, and nothing else will ever resend them.
+// TestResumingClientIsSentTheWorld: nothing else resends the lossy writes a resuming non-host missed.
 func TestResumingClientIsSentTheWorld(t *testing.T) {
 	r, rts := worldRoom(t, worldFeatures, "p1", "p2")
 	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
@@ -727,8 +630,7 @@ func TestResumingClientIsSentTheWorld(t *testing.T) {
 	}
 }
 
-// TestIntrospectionShowsWorldSizeButNeverBlobs. Same posture as escrow blobs:
-// a debugging aid must not become a way to read the contents of a room.
+// TestIntrospectionShowsWorldSizeButNeverBlobs: a debugging aid must not become a way to read a room's contents.
 func TestIntrospectionShowsWorldSizeButNeverBlobs(t *testing.T) {
 	r, _ := worldRoom(t, worldFeatures, "p1")
 	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
@@ -750,9 +652,8 @@ func TestIntrospectionShowsWorldSizeButNeverBlobs(t *testing.T) {
 	}
 }
 
-// TestOrphanedWorldIsCalledOutInIntrospection. A world nobody holds is the
-// state custody exists to produce, not a fault, and someone reading the log
-// while wondering why nobody is simulating needs that difference stated.
+// TestOrphanedWorldIsCalledOutInIntrospection: a world nobody holds is what custody exists to produce, not a fault,
+// and someone wondering why nobody is simulating needs that said.
 func TestOrphanedWorldIsCalledOutInIntrospection(t *testing.T) {
 	r, _ := worldRoom(t, worldFeatures, "p1")
 	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
@@ -765,9 +666,8 @@ func TestOrphanedWorldIsCalledOutInIntrospection(t *testing.T) {
 	}
 }
 
-// TestWorldSnapshotIsBatchedNotFragmented. A full room's world does not fit one
-// datagram, so it is split — and every message it splits into must be
-// independently complete and applicable, with no reassembly anywhere.
+// TestWorldSnapshotIsBatchedNotFragmented: a full world does not fit one datagram, so each message it is split into
+// must apply on its own, with no reassembly.
 func TestWorldSnapshotIsBatchedNotFragmented(t *testing.T) {
 	r, _ := worldRoom(t, worldFeatures, "p1")
 	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
@@ -811,16 +711,8 @@ func TestWorldSnapshotIsBatchedNotFragmented(t *testing.T) {
 	}
 }
 
-// A drop must never be delivered lossily, whatever the writer asked for.
-//
-// TestLossyWriteCannotCreateAKey covers the create side of the same invariant:
-// creation and deletion have to travel on the same ordered plane, or a stale
-// set dispatched before a reliable drop can arrive after it and resurrect the
-// entity permanently. The delete side was unguarded -- ValidateWorld accepts
-// {op:"drop", reliable:false} and handleWorld forwarded it through
-// ForwardUnreliable -- and a lost drop is never corrected: the relay's map has
-// the key gone, and snapshots go only to joiners, so a peer that missed it
-// keeps the entity standing forever.
+// A drop is never delivered lossily, whatever the writer asked: the relay's map has the key gone and snapshots go only
+// to joiners, so a peer that missed it keeps the entity standing. ValidateWorld accepts a lossy drop.
 func TestADropIsNeverDeliveredLossily(t *testing.T) {
 	r, rts := worldRoom(t, worldFeatures, "p1", "p2")
 	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})
@@ -831,7 +723,7 @@ func TestADropIsNeverDeliveredLossily(t *testing.T) {
 	rt.got, rt.lossy = nil, nil
 	rt.mu.Unlock()
 
-	// Asking for lossy delivery explicitly -- the relay must override it.
+	// Lossy delivery asked for explicitly, which the relay must override.
 	r.handleWorld("p1", protocol.World{
 		Op: protocol.WorldDrop, Authority: "sim", Key: "boss", Reliable: false,
 	})
@@ -853,11 +745,7 @@ func TestADropIsNeverDeliveredLossily(t *testing.T) {
 	}
 }
 
-// The lossy plane is still used for what it is for: an ordinary update to a key
-// that already exists. Guards the fix above from being over-applied into
-// "everything world-related is reliable now", which would give up the one thing
-// ForwardUnreliable buys here -- a stale position never retransmitted late
-// behind a newer one.
+// An update to an existing key stays lossy, so a stale position is never retransmitted late behind a newer one.
 func TestAnUpdateStillHonoursLossyDelivery(t *testing.T) {
 	r, rts := worldRoom(t, worldFeatures, "p1", "p2")
 	r.handleLease("p1", protocol.Lease{Op: protocol.LeaseClaim, Key: "sim"})

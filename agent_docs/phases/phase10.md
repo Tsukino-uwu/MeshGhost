@@ -2848,3 +2848,6 @@ record held went to [verified.md](../verified.md), same date; a doc pointer a co
   the deferred `finishJoin`, not the `dropIfEmpty` beside the refusal; a resume token is minted for a client that asked
   (client-scoped), not a room; `Serve` stops on an Accept error that is not temporary; the flood cap is a leaky bucket,
   not a tumbling window. Five doc comments that sat on the wrong function moved to their own.
+- `relay/` tests (33 files): comment lines 1,946 → 506. Stale claims fixed: tests citing helpers by names that moved
+  (`startRelayOn`, "the test above"), udp called the shipped default transport (it is dev-tag only), and a stale seed
+  said to correct itself within 50 ms (true only at the old 20 Hz).

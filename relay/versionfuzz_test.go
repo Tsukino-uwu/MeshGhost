@@ -13,30 +13,14 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
-// FuzzHelloProtocolVersion drives every version a hello can carry.
-//
-// WHY THIS EXISTS AND THE OTHER FUZZERS DO NOT COVER IT: both existing relay
-// targets hard-code `ProtocolVersion: protocol.Version`, so the field was the
-// one hello value nothing ever varied -- and on 2026-09-08 it stopped being a
-// constant comparison and became a DECISION with two outcomes, made before the
-// room is touched. A gate nothing fuzzes is a gate whose edges nobody has seen
-// (the user asked for exactly this on the day the floor landed).
-//
-// Two properties, and the second is the interesting one:
-//
-//   - The relay SURVIVES any int the field can hold -- negative, zero, 1, the
-//     floor, far above it, and both int64 extremes, which is where an arithmetic
-//     comparison would go wrong if anyone ever replaced `>=` with a subtraction.
-//   - The verdict MATCHES protocol.AcceptsPeerVersion exactly. That is what stops
-//     the two ends drifting: the relay refusing something the shared predicate
-//     accepts is precisely the split-brain a floor is supposed to remove, and it
-//     would otherwise show up as "some players cannot join" long after the change
-//     that caused it.
+// FuzzHelloProtocolVersion drives every version a hello can carry, which the other relay targets hard-code. The relay
+// survives any int, where a subtraction in place of >= would wrap, and its verdict matches protocol.AcceptsPeerVersion
+// exactly, so the two ends cannot drift into some players being unable to join.
 func FuzzHelloProtocolVersion(f *testing.F) {
 	// The edges by name, so a failure points at a case rather than a number.
 	for _, v := range []int64{
 		0,                                      // a peer from before the field existed
-		1,                                      // every build before the 2026-09-08 cutover
+		1,                                      // every build before the version floor
 		int64(protocol.MinProtocolVersion) - 1, // one below the floor
 		int64(protocol.MinProtocolVersion),     // exactly the floor
 		int64(protocol.Version),                // us
@@ -50,19 +34,9 @@ func FuzzHelloProtocolVersion(f *testing.F) {
 		f.Add(b)
 	}
 
-	// One relay for the whole campaign, on an in-memory listener, for the same
-	// reason the two targets in fuzz_test.go do it: a real 127.0.0.1:0 listener
-	// plus a real dial PER ITERATION burns two ephemeral ports each, and at a
-	// few thousand executions a second the kernel runs out of them long before
-	// the campaign ends. CI hit exactly that on 2026-09-08 -- "listen tcp
-	// 127.0.0.1:0: bind: address already in use" after 22 s and ~55k execs --
-	// and reported it as a finding against whatever input happened to be
-	// running, which is a harness defect wearing a crasher's clothes. Nothing
-	// under test here is the TCP layer; the decision is made on the decoded
-	// hello.
-	//
-	// The join log is silenced like the siblings do: every accepted version is
-	// a join, and the log volume rather than the relay is what throttles the run.
+	// One relay on an in-memory listener, as in fuzz_test.go: a listener and a dial per iteration exhaust the ephemeral
+	// ports, and the bind error reads as a finding against whatever input was running. Every accepted version is a
+	// join, so the log is silenced or its volume throttles the run.
 	log.SetOutput(io.Discard)
 	f.Cleanup(func() { log.SetOutput(os.Stderr) })
 
@@ -70,7 +44,7 @@ func FuzzHelloProtocolVersion(f *testing.F) {
 	f.Cleanup(func() { ln.Close() })
 	srv := NewServer()
 	srv.SendHz = protocol.MaxSendHz
-	srv.MaxClients = 4096 // see the MaxClients note on FuzzRelaySurvivesArbitraryLines
+	srv.MaxClients = 4096 // as in FuzzRelaySurvivesArbitraryLines
 	go srv.Serve(ln)
 
 	f.Fuzz(func(t *testing.T, seed []byte) {

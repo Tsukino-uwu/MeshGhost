@@ -1,9 +1,5 @@
 package relay
 
-// Tests for the relay's introspection view -- specifically the cross-area
-// fan-out counters, which exist to answer whether relay-side area filtering is
-// worth building at all. See Room's counter fields and agent_docs/risks.md.
-
 import (
 	"testing"
 	"time"
@@ -11,25 +7,18 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// The cross-area fan-out counters are a MEASUREMENT, and a measurement that is
-// quietly wrong is worse than none — it would be used to decide whether to
-// build relay-side area filtering at all. So this pins the arithmetic against a
-// room whose answer can be worked out by hand.
-//
-// It also pins the two things the counters must NOT do: read area_id contents
-// (equality only), and change what anyone receives.
+// The counters are checked against a room worked out by hand; they must neither read area_id contents nor change
+// what anyone receives.
 func TestCrossAreaFanoutCountersMeasureWhatTheyClaim(t *testing.T) {
 	r := newRoom("emerald", "", "room1", nil)
 	for _, id := range []string{"a", "b", "c"} {
 		r.tryAdd(&Client{PlayerID: id, Conn: &recordingTransport{}})
 	}
 
-	// Everyone's area is known: a and b together in "town", c away in "cave".
 	for id, area := range map[string]string{"a": "town", "b": "town", "c": "cave"} {
 		r.recordState(id, protocol.State{PlayerID: id, AreaID: area})
 	}
 
-	// One state from a. Recipients are b (same area) and c (cross-area).
 	const payload = 100
 	got := r.stateRecipients("a", "town", "town", payload, time.Now())
 	if len(got) != 2 {
@@ -54,8 +43,7 @@ func TestCrossAreaFanoutCountersMeasureWhatTheyClaim(t *testing.T) {
 	}
 	r.mu.Unlock()
 
-	// Through the same path -introspect uses, so the reported numbers and the
-	// counted ones cannot drift apart.
+	// Through the path -introspect uses, so the reported and counted numbers cannot drift apart.
 	snap := r.snapshot(time.Now()).StateFanout
 	if snap.DistinctAreas != 2 {
 		t.Errorf("distinct areas = %d, want 2", snap.DistinctAreas)
@@ -65,10 +53,7 @@ func TestCrossAreaFanoutCountersMeasureWhatTheyClaim(t *testing.T) {
 	}
 }
 
-// Fail open, in both directions. An area-equality filter could only ever
-// suppress when BOTH sides are known, so the counter must not claim a saving
-// that a real filter could not take — the core's own rule is that an unknown
-// local area filters nothing.
+// A filter can suppress only when both areas are known, so the counter must not claim a saving it could not take.
 func TestUnknownAreaIsNeverCountedAsSuppressible(t *testing.T) {
 	for _, tc := range []struct{ name, senderArea, recipientArea string }{
 		{"sender area unknown", "", "town"},

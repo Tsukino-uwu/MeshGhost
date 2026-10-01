@@ -16,41 +16,9 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
-// FuzzRelaySurvivesArbitraryLines is the end-to-end counterpart to the
-// parser fuzzing in protocol and transport: it throws
-// arbitrary bytes at a real, running relay and then checks the relay can
-// still serve a legitimate client.
-//
-// This is the shape of the only genuinely untrusted input the project has.
-// A relay is a listening port strangers connect to, and every hand-written
-// test in relay_test.go sends a well-formed message that merely violates a
-// documented limit — none of them send bytes that aren't a message at all.
-//
-// The server is shared across iterations on purpose, which makes the
-// liveness check cumulative: if malformed input leaks connection slots
-// (Server.MaxClients is a global count released on disconnect), the good
-// client eventually stops being able to join and this fails. A fresh server
-// per iteration would hide that entirely.
-//
-// MaxClients is raised well above the shipped default of 8 for this run,
-// though, and slot-leak detection proper belongs to TestNoSlotLeak in
-// leak_test.go rather than here. At the default, 12 fuzz workers each
-// holding a garbage connection and a probe connection contend for 8 global
-// slots, so the probe starts failing on contention alone and burns its full
-// retry window — measured as throughput collapsing to zero for ~18s at a
-// time. That is the cap working as designed, not a defect, but it makes the
-// fuzzer spend its time queueing instead of exploring inputs.
-//
-// The listener is in-memory (net.Pipe) rather than TCP. The relay has no
-// TCP-specific code — Serve takes any net.Listener and handleConn any
-// net.Conn — and a fuzzer opening real sockets at hundreds of thousands of
-// iterations per second exhausts the ephemeral port range on Windows and
-// fails with a dial error that says nothing about the relay. Real-TCP
-// coverage of well-formed traffic is what the rest of relay_test.go is for.
-//
-// Longer campaign:
-//
-//	go test ./relay -run=XXX -fuzz=FuzzRelaySurvivesArbitraryLines -fuzztime=60s
+// FuzzRelaySurvivesArbitraryLines throws arbitrary bytes at a running relay, then checks it still serves a good
+// client. The server is shared across iterations, so a leaked connection slot accumulates until the check fails. The
+// listener is net.Pipe: real sockets at fuzz rates exhaust Windows' ephemeral ports and fail with a dial error.
 func FuzzRelaySurvivesArbitraryLines(f *testing.F) {
 	f.Add([]byte(`{"type":"hello","payload":{"protocol_version":1,"game_id":"g"}}`))
 	f.Add([]byte(`{"type":"state","payload":{"position":[1,2]}}`))
@@ -61,19 +29,14 @@ func FuzzRelaySurvivesArbitraryLines(f *testing.F) {
 	f.Add([]byte(``))
 	f.Add([]byte{0x00, 0x01, 0x02})
 
-	// The relay logs a line per join and per failed send. The fuzzer
-	// discovers valid hellos quickly and then produces tens of thousands a
-	// second, and that log volume — not the relay itself — is what throttles
-	// the run: measured, it collapses throughput to zero for ~18s at a
-	// stretch while the engine blocks on test output. Nothing here asserts
-	// on log content.
+	// Log volume, not the relay, would throttle the run; nothing here asserts on log content.
 	log.SetOutput(io.Discard)
 	f.Cleanup(func() { log.SetOutput(os.Stderr) })
 
 	ln := newPipeListener()
 	f.Cleanup(func() { ln.Close() })
 	srv := NewServer()
-	srv.MaxClients = 4096 // see the MaxClients note above
+	srv.MaxClients = 4096 // at the default, workers contend for slots and the probe queues instead of exploring
 	go srv.Serve(ln)
 
 	f.Fuzz(func(t *testing.T, data []byte) {
@@ -81,9 +44,7 @@ func FuzzRelaySurvivesArbitraryLines(f *testing.F) {
 		if err != nil {
 			t.Fatalf("relay listener stopped accepting: %v", err)
 		}
-		// net.Pipe is unbuffered and the relay's read loop stops on a bad
-		// line, so an undeadlined write here would hang the fuzz run
-		// instead of reporting anything.
+		// net.Pipe is unbuffered and the relay stops reading on a bad line, so an undeadlined write would hang the run.
 		_ = conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
 		_, _ = conn.Write(data)
 		_, _ = conn.Write([]byte{'\n'})
@@ -95,42 +56,13 @@ func FuzzRelaySurvivesArbitraryLines(f *testing.F) {
 	})
 }
 
-// postJoinRoom names each iteration's own room below.
 var postJoinRoom atomic.Uint64
 
-// FuzzRelaySurvivesArbitraryPostJoinMessages reaches the code the target above
-// cannot: the relay's POST-JOIN dispatch.
-//
-// The target above dials, writes one line and hangs up, so it only ever
-// exercises the pre-auth hello path. Everything past the handshake —
-// handleEvent, handleLease, handleEscrow, handleWorld and the state path — was
-// therefore reached only by hand-written, well-formed tests, and those are
-// exactly the handlers where a stranger's string becomes a key in the relay's
-// own maps: a lease key, an escrow id, and a worldKey all do.
-//
-// **This is a second target rather than a change to the first**, deliberately.
-// The first one's whole value is that its input is not shaped like a message;
-// prefixing it with a canned hello would mean the hello parser never saw garbage
-// again, and would invalidate the corpus committed under testdata/fuzz/ for it,
-// which dev-scripts/ci-fuzz.sh reads as a genuine find rather than a mismatch.
-// The two own different questions: "is this a message at all" and "given that it
-// is, is the plane handler safe".
-//
-// The input is STRUCTURED — a type and a payload, not one line — so the harness
-// builds the envelope and every iteration is guaranteed to land in the dispatch
-// switch. With a raw line the engine would spend its budget rediscovering
-// {"type":...,"payload":...} and any invalid-JSON iteration would die at the
-// outer decode, which is already the other target's job. Same reasoning as
-// protocol.FuzzValidateWorldIsStableAcrossTheWire's typed arguments.
-//
-// Longer campaign:
-//
-//	go test ./relay -run=XXX -fuzz=FuzzRelaySurvivesArbitraryPostJoinMessages -fuzztime=60s
+// FuzzRelaySurvivesArbitraryPostJoinMessages fuzzes the dispatch after a real join, where a stranger's string becomes
+// a lease key, escrow id or world key. A separate target, so the first keeps feeding the hello parser non-messages
+// and its committed corpus stays valid; the input is a type and a payload, so every iteration reaches the dispatch.
 func FuzzRelaySurvivesArbitraryPostJoinMessages(f *testing.F) {
-	// The world seeds name authority "a" on purpose: that is the lease the
-	// prologue below actually holds, and without it every world write lands in
-	// the denial branch and the store/evict/stamp/broadcast path stays
-	// unreachable — a campaign that looks like it covers custody and doesn't.
+	// Authority "a" is the lease the prologue holds; any other reaches only the denial branch.
 	f.Add("world", []byte(`{"op":"set","authority":"a","key":"e0","blob":{"hp":3},"reliable":true}`))
 	f.Add("world", []byte(`{"op":"drop","authority":"a","key":"e0"}`))
 	f.Add("world", []byte(`{"op":"set","authority":"a","key":"e0","blob":{"x":1}}`))
@@ -143,43 +75,27 @@ func FuzzRelaySurvivesArbitraryPostJoinMessages(f *testing.F) {
 	f.Add("hello", []byte(`{"protocol_version":1,"game_id":"fuzzgame"}`))
 	f.Add("", []byte(``))
 
-	// Same reason as the other target: the relay logs a line per join, and this
-	// one joins every iteration, so the log volume rather than the relay is what
-	// would throttle the run.
+	// This target joins every iteration, so log volume would throttle the run.
 	log.SetOutput(io.Discard)
 	f.Cleanup(func() { log.SetOutput(os.Stderr) })
 
-	// Its own listener and server, NOT shared with the target above: both
-	// register an f.Cleanup that closes the listener, and in a plain seed-only
-	// `go test` both run sequentially, so sharing would let the first one's
-	// cleanup close the listener out from under this one.
+	// Not shared: a seed-only go test runs both targets in turn, and the first's cleanup closes its listener.
 	ln := newPipeListener()
 	f.Cleanup(func() { ln.Close() })
 	srv := NewServer()
-	srv.MaxClients = 4096 // see the MaxClients note on the target above
+	srv.MaxClients = 4096 // as in the target above
 	go srv.Serve(ln)
 
 	f.Fuzz(func(t *testing.T, typ string, payload []byte) {
-		// A fresh room per iteration, named from a counter rather than from the
-		// input. Not for feature stickiness — the hello is canned, so its
-		// feature set is always identical — but for the LEASE: a lease is
-		// exclusive, so in a shared room the parallel fuzz workers contend for
-		// key "a" and whether a given input reached the accept path or the
-		// denial path would depend on which workers happened to overlap. A fuzz
-		// finding that does not replay is worthless. Nothing in the relay
-		// branches on a room name, so replay determinism is unaffected.
+		// A room per iteration, so parallel workers never contend for lease "a" and a finding replays.
 		room := "wf" + strconv.FormatUint(postJoinRoom.Add(1), 36)
 
 		conn, err := ln.dial()
 		if err != nil {
 			t.Fatalf("relay listener stopped accepting: %v", err)
 		}
-		// **Drain before writing anything.** The relay answers a hello with a
-		// Welcome from inside its own read-loop callback, and net.Pipe is
-		// unbuffered, so with nobody reading, that write blocks for the full
-		// transport write timeout (10s) and the fuzzed line is never even read.
-		// Without this the campaign does not fail — it just runs at a handful of
-		// iterations per minute, which is worse, because it looks like coverage.
+		// Drain first: the Welcome is written from the relay's read loop and net.Pipe is unbuffered, so unread it
+		// blocks for the write timeout and the campaign crawls without failing.
 		drained := make(chan struct{})
 		go func() { defer close(drained); _, _ = io.Copy(io.Discard, conn) }()
 
@@ -192,16 +108,8 @@ func FuzzRelaySurvivesArbitraryPostJoinMessages(f *testing.F) {
 			return err == nil
 		}
 
-		// The prologue is built here and never by the fuzzer: it is the one
-		// pre-state the fuzzer cannot reach on its own, and the point of the
-		// target is what happens AFTER it.
-		//
-		// All four room-scoped planes at once, and world.v1 needs lease.v1 named
-		// explicitly or the dispatch returns before handleWorld. Deliberately no
-		// resume.v1: it would make the relay hold this identity after the
-		// disconnect instead of releasing it, which pins the room. The teardown
-		// assertion this used to protect now lives in leak_test.go, as
-		// TestRoomIsDroppedEvenWhenItHeldAWorld.
+		// world.v1 needs lease.v1 named or dispatch returns before handleWorld. No resume.v1: the relay would hold
+		// this identity after the disconnect, which pins the room.
 		hello, err := json.Marshal(protocol.Hello{
 			ProtocolVersion: protocol.Version,
 			GameID:          "fuzzgame",
@@ -220,8 +128,7 @@ func FuzzRelaySurvivesArbitraryPostJoinMessages(f *testing.F) {
 			<-drained
 			return
 		}
-		// Claiming the authority is load-bearing, not setup noise: handleWorld
-		// only stores anything for the lease's current holder.
+		// handleWorld stores only for the lease's current holder.
 		claim, err := json.Marshal(protocol.Lease{Op: protocol.LeaseClaim, Key: "a"})
 		if err != nil {
 			t.Fatalf("marshal lease: %v", err)
@@ -232,9 +139,7 @@ func FuzzRelaySurvivesArbitraryPostJoinMessages(f *testing.F) {
 			return
 		}
 
-		// The fuzzed message. Raw invalid bytes are the other target's job, so
-		// anything that is not valid JSON is carried as a JSON string instead —
-		// that keeps the envelope well-formed and the plane handler reachable.
+		// Invalid JSON goes as a JSON string, so the envelope stays well-formed and the handler reachable.
 		body := payload
 		if !json.Valid(body) {
 			body, err = json.Marshal(string(payload))
@@ -253,7 +158,6 @@ func FuzzRelaySurvivesArbitraryPostJoinMessages(f *testing.F) {
 	})
 }
 
-// mustEnvelope wraps an already-marshaled payload in an envelope line.
 func mustEnvelope(t *testing.T, typ protocol.MessageType, payload []byte) []byte {
 	t.Helper()
 	b, err := json.Marshal(protocol.Envelope{Type: typ, Payload: payload})
@@ -263,11 +167,8 @@ func mustEnvelope(t *testing.T, typ protocol.MessageType, payload []byte) []byte
 	return b
 }
 
-// relayStillServesAGoodClient dials a well-formed client and reports whether
-// it gets its Welcome. Retried briefly rather than checked once: a connection
-// slot is released when the relay notices a disconnect, so a single immediate
-// attempt would race that and report a leak that isn't one. A genuine leak
-// never resolves and still fails here.
+// relayStillServesAGoodClient reports whether a well-formed client gets its Welcome, retried briefly: a slot is
+// released when the relay notices a disconnect, so one immediate attempt would race it.
 func relayStillServesAGoodClient(ln *pipeListener) bool {
 	deadline := time.Now().Add(3 * time.Second)
 	for {
@@ -325,9 +226,7 @@ func welcomed(ln *pipeListener) bool {
 	}
 }
 
-// pipeListener is a net.Listener backed by net.Pipe, so a test can drive
-// Server.Serve without binding a real socket. See the port-exhaustion note
-// on FuzzRelaySurvivesArbitraryLines for why this exists.
+// pipeListener is a net.Listener backed by net.Pipe, so a test can drive Server.Serve without binding a socket.
 type pipeListener struct {
 	conns  chan net.Conn
 	closed chan struct{}
@@ -357,8 +256,6 @@ func (l *pipeListener) Close() error {
 
 func (l *pipeListener) Addr() net.Addr { return pipeAddr{} }
 
-// dial returns the caller's end of a new connection, handing the other end
-// to whoever is in Accept.
 func (l *pipeListener) dial() (net.Conn, error) {
 	client, server := net.Pipe()
 	select {

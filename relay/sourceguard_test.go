@@ -12,9 +12,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
-// fakeGuard is a SourceGuard that blocks after a set number of failures and
-// records what it was asked, so the relay's side of the contract can be
-// asserted without netx/srclimit's bucket in the way.
+// fakeGuard blocks after a set number of failures and records what it was asked, so the relay's side can be
+// asserted without netx/srclimit's bucket.
 type fakeGuard struct {
 	mu       sync.Mutex
 	failures int
@@ -41,12 +40,8 @@ func (g *fakeGuard) NoteAuthSuccess(net.Conn) {
 	g.failures--
 }
 
-// TestLoginsHeldOpenInParallelCannotOutspendTheBudget is pass 5's P1b-3.
-// The budget was asked at hello and charged at KE3 or disconnect, so logins
-// opened side by side were each answered with a KE2 against a budget none of
-// them had spent yet -- and the KE2 is what tells the client whether its code
-// was right. The third concurrent login from a source with a budget of two
-// must be refused before its code is compared.
+// TestLoginsHeldOpenInParallelCannotOutspendTheBudget: the KE2 tells a client whether its code was right, so the third
+// concurrent login from a source with a budget of two is refused before its code is compared.
 func TestLoginsHeldOpenInParallelCannotOutspendTheBudget(t *testing.T) {
 	s := NewServer()
 	s.RoomCode = "right"
@@ -97,8 +92,7 @@ func TestLoginsHeldOpenInParallelCannotOutspendTheBudget(t *testing.T) {
 	}
 }
 
-// TestARightCodeCostsNothing: the attempt charged when a proof begins is
-// refunded when it proves the right code.
+// TestARightCodeCostsNothing: the attempt charged when a proof begins is refunded when it proves the right code.
 func TestARightCodeCostsNothing(t *testing.T) {
 	s := NewServer()
 	s.RoomCode = "right"
@@ -130,11 +124,8 @@ func (tc *testClient) expectReject(timeout time.Duration) protocol.Reject {
 	return rej
 }
 
-// TestAWrongRoomCodeIsReportedToTheGuardAndABlockedSourceIsRefusedFirst:
-// the relay tells the guard about each wrong code, asks it before every
-// compare, and once it says blocked the hello is refused as "rate limited"
-// -- without the code being compared, so a RIGHT code from a blocked source
-// is refused too, and the reply says nothing about which it was.
+// TestAWrongRoomCodeIsReportedToTheGuardAndABlockedSourceIsRefusedFirst: a blocked source is refused as rate limited
+// before any compare, so even a right code is refused and the reply says nothing about which it was.
 func TestAWrongRoomCodeIsReportedToTheGuardAndABlockedSourceIsRefusedFirst(t *testing.T) {
 	s := NewServer()
 	s.RoomCode = "right"
@@ -156,8 +147,7 @@ func TestAWrongRoomCodeIsReportedToTheGuardAndABlockedSourceIsRefusedFirst(t *te
 		t.Fatalf("guard saw %d failures and %d questions, want 2 and 2", failures, asked)
 	}
 
-	// Blocked now: even the right code is refused, as rate limited, and the
-	// failure count does not move (nothing was compared).
+	// Blocked: the right code is refused as rate limited, and nothing is compared.
 	c := dialTestClientWithCode(t, addr, protocol.Hello{GameID: "g", Room: "r"}, "right")
 	rej := c.expectReject(2 * time.Second)
 	if rej.Code != protocol.CodeForReason(protocol.ReasonRateLimited) {
@@ -174,8 +164,7 @@ func TestAWrongRoomCodeIsReportedToTheGuardAndABlockedSourceIsRefusedFirst(t *te
 	}
 }
 
-// TestNoGuardMeansNoBudget: every existing test runs with a nil guard, and
-// the relay must not so much as touch it.
+// TestNoGuardMeansNoBudget: every other test runs with a nil guard, which the relay must not touch.
 func TestNoGuardMeansNoBudget(t *testing.T) {
 	s := NewServer()
 	s.RoomCode = "right"

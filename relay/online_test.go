@@ -1,17 +1,7 @@
 package relay
 
-// Tests for everything past the cosmetic state plane: the event plane, the
-// room sequencer, leases, escrow, feature negotiation, late-join snapshots
-// and session resumption.
-//
-// The concurrency tests here are the point of the file, not decoration.
-// agent_docs/testing.md's durable lesson is that a test asserting an
-// invariant under concurrent clients found a relay race locally in 100 runs
-// once written, where the race detector had only caught it by accident and in
-// a misleading place — and full online is almost entirely concurrency bugs.
-// So the invariants (exactly one lease holder, one identical total order for
-// every member, both-or-neither on an exchange) are asserted against many
-// clients racing, not against a tidy two-client sequence.
+// Tests for the planes past cosmetic. The invariants (one lease holder, one total order for every member,
+// both-or-neither on an exchange) are asserted against many clients racing, not a tidy two-client sequence.
 
 import (
 	"encoding/json"
@@ -24,7 +14,6 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// allFeatures is the full opt-in set, for tests that want every capability on.
 var allFeatures = []string{
 	protocol.FeatureEventV1,
 	protocol.FeatureLeaseV1,
@@ -59,9 +48,7 @@ func (tc *testClient) send(t protocol.MessageType, payload any) {
 	}
 }
 
-// nextOfType drains messages until one of the wanted type arrives, so a test
-// asserting on (say) a LeaseState is not derailed by an unrelated Join. Fails
-// the test on timeout rather than returning a zero value.
+// nextOfType skips other types, so an unrelated Join cannot derail a test waiting on a LeaseState.
 func (tc *testClient) nextOfType(want protocol.MessageType, timeout time.Duration) protocol.Envelope {
 	tc.t.Helper()
 	deadline := time.After(timeout)
@@ -105,9 +92,6 @@ func (tc *testClient) expectEvent(timeout time.Duration) protocol.Event {
 	return ev
 }
 
-// expectNothingOfType asserts no message of that type arrives within the
-// window — the shape most of the negative assertions here need (an event that
-// must not reach a third party, a leave that must not be broadcast).
 func (tc *testClient) expectNothingOfType(unwanted protocol.MessageType, window time.Duration) {
 	tc.t.Helper()
 	deadline := time.After(window)
@@ -123,16 +107,10 @@ func (tc *testClient) expectNothingOfType(unwanted protocol.MessageType, window 
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Feature negotiation
-// ---------------------------------------------------------------------------
+// Feature negotiation.
 
-// TestRoomFeatureSetIsStickyAndMismatchIsRefused is the hazard
-// agent_docs/beyond-cosmetic.md §3 names: one client advertising lease.v1 and
-// claiming properly while another does not and simply acts means conflict
-// resolution silently does not work, and everything looks fine until it
-// doesn't. Refusing at the handshake is what turns that into a legible
-// failure.
+// TestRoomFeatureSetIsStickyAndMismatchIsRefused: a client that claims leases beside one that simply acts makes
+// conflict resolution fail silently; refusing at the handshake makes it legible.
 func TestRoomFeatureSetIsStickyAndMismatchIsRefused(t *testing.T) {
 	addr := startServer(t)
 
@@ -143,9 +121,7 @@ func TestRoomFeatureSetIsStickyAndMismatchIsRefused(t *testing.T) {
 		t.Fatalf("welcome features = %v, want [%s]", w1.Features, protocol.FeatureLeaseV1)
 	}
 
-	// A client advertising nothing must be refused, not quietly admitted:
-	// "declared nothing" is a real value that has to match, unlike an
-	// undeclared game_version.
+	// "Declared nothing" is a value that has to match, unlike an undeclared game_version.
 	c2 := dialFeatureClient(t, addr, "room1", "bob", nil)
 	defer c2.conn.Close()
 	env := c2.next(timeout)
@@ -161,10 +137,6 @@ func TestRoomFeatureSetIsStickyAndMismatchIsRefused(t *testing.T) {
 	}
 }
 
-// TestFeatureSetMatchesRegardlessOfOrderOrDuplicates confirms the stickiness
-// check compares capability SETS, not the literal arrays. Two clients built
-// from different config files should not fail to share a room because one
-// listed its features in a different order.
 func TestFeatureSetMatchesRegardlessOfOrderOrDuplicates(t *testing.T) {
 	addr := startServer(t)
 
@@ -181,9 +153,6 @@ func TestFeatureSetMatchesRegardlessOfOrderOrDuplicates(t *testing.T) {
 	}
 }
 
-// TestEventDroppedWhenRoomDidNotNegotiateIt is the other half of opt-in: a
-// capability the room never agreed on must not run at all, which is what lets
-// the relay stay free of any per-game table.
 func TestEventDroppedWhenRoomDidNotNegotiateIt(t *testing.T) {
 	addr := startServer(t)
 
@@ -195,13 +164,10 @@ func TestEventDroppedWhenRoomDidNotNegotiateIt(t *testing.T) {
 	c1.expectNothingOfType(protocol.TypeEvent, 300*time.Millisecond)
 }
 
-// ---------------------------------------------------------------------------
-// Event plane
-// ---------------------------------------------------------------------------
+// Event plane.
 
-// TestEventBroadcastReachesEveryoneIncludingSender covers the echo, which is
-// not a convenience: the sequencer stamp is the relay's, so the sender has no
-// other way to learn where its own action landed in the total order.
+// TestEventBroadcastReachesEveryoneIncludingSender: the echo is the sender's only way to learn where its own action
+// landed in the total order.
 func TestEventBroadcastReachesEveryoneIncludingSender(t *testing.T) {
 	addr := startServer(t)
 
@@ -212,8 +178,7 @@ func TestEventBroadcastReachesEveryoneIncludingSender(t *testing.T) {
 	defer c2.conn.Close()
 	c2.expectWelcome(timeout)
 
-	// From is deliberately a lie here — the relay must overwrite it with the
-	// connection's own assigned id, exactly as it does for State.PlayerID.
+	// A forged From: the relay must overwrite it with the connection's assigned id, as for State.PlayerID.
 	c1.send(protocol.TypeEvent, protocol.Event{
 		From:    "somebody-else",
 		CorrID:  "req-1",
@@ -234,8 +199,6 @@ func TestEventBroadcastReachesEveryoneIncludingSender(t *testing.T) {
 	}
 }
 
-// TestAddressedEventReachesOnlyTheAddresseeAndSender confirms `to` actually
-// routes rather than broadcasting — the one field of an event the relay reads.
 func TestAddressedEventReachesOnlyTheAddresseeAndSender(t *testing.T) {
 	addr := startServer(t)
 
@@ -258,9 +221,7 @@ func TestAddressedEventReachesOnlyTheAddresseeAndSender(t *testing.T) {
 	c3.expectNothingOfType(protocol.TypeEvent, 300*time.Millisecond)
 }
 
-// TestOversizedEventIsDroppedNotFragmented pins the deliberate absence of
-// application-level fragmentation. An event past MaxEventBytes means the
-// payload should have been a reference to the data, not the data.
+// TestOversizedEventIsDroppedNotFragmented: an event past MaxEventBytes should have carried a reference to the data.
 func TestOversizedEventIsDroppedNotFragmented(t *testing.T) {
 	addr := startServer(t)
 
@@ -280,13 +241,6 @@ func TestOversizedEventIsDroppedNotFragmented(t *testing.T) {
 	c1.expectNothingOfType(protocol.TypeEvent, 300*time.Millisecond)
 }
 
-// TestSequencerGivesEveryMemberOneIdenticalTotalOrder is the invariant that
-// makes sequencer authority worth anything: it is not enough that events
-// arrive, they must arrive in the SAME order at every member, even when
-// several clients send concurrently.
-//
-// This is authority over order, which needs no game knowledge — as opposed to
-// authority over meaning, which would.
 func TestSequencerGivesEveryMemberOneIdenticalTotalOrder(t *testing.T) {
 	const (
 		senders          = 4
@@ -301,10 +255,7 @@ func TestSequencerGivesEveryMemberOneIdenticalTotalOrder(t *testing.T) {
 		defer clients[i].conn.Close()
 		clients[i].expectWelcome(timeout)
 	}
-	// Everyone must be in the room before anyone sends, or an early event
-	// would legitimately not reach a client that had not joined yet. Client i
-	// learns about the clients that joined AFTER it via Join; the ones before
-	// it came in its own Welcome roster.
+	// Everyone joins before anyone sends; client i hears later joiners as Joins, earlier ones in its Welcome.
 	for i, tc := range clients {
 		for n := i + 1; n < senders; n++ {
 			tc.nextOfType(protocol.TypeJoin, timeout)
@@ -325,10 +276,7 @@ func TestSequencerGivesEveryMemberOneIdenticalTotalOrder(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Each client's observed sequence of (seq, from, payload) must be
-	// identical to every other's. Comparing the whole list, not just the
-	// stamps: a relay that stamped consistently but delivered out of order
-	// would pass a weaker check and still be broken.
+	// The whole list, not just the stamps: consistent stamps delivered out of order would pass a weaker check.
 	var reference []string
 	for ci, tc := range clients {
 		observed := make([]string, 0, expectedReceived)
@@ -354,16 +302,9 @@ func TestSequencerGivesEveryMemberOneIdenticalTotalOrder(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Leases
-// ---------------------------------------------------------------------------
+// Leases.
 
-// TestExactlyOneClaimantWinsAContestedLease is the core lease invariant, and
-// the reason this file exists: many clients race for one key, and the relay
-// must produce exactly one holder and tell everyone the same answer.
-//
-// The relay never judges merit, only arrival — it picks the first claim and
-// that becomes the fact by fiat. Arbitrary-but-consistent is the whole trick.
+// TestExactlyOneClaimantWinsAContestedLease: the relay judges arrival, not merit, and tells everyone one holder.
 func TestExactlyOneClaimantWinsAContestedLease(t *testing.T) {
 	const claimants = 6
 	addr := startServer(t)
@@ -387,8 +328,6 @@ func TestExactlyOneClaimantWinsAContestedLease(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Every client either won or was denied; collect the first answer each
-	// one gets that names a holder, and require them all to agree.
 	holders := make(map[string]int)
 	for i, tc := range clients {
 		st := tc.expectLeaseState(timeout)
@@ -408,10 +347,7 @@ func TestExactlyOneClaimantWinsAContestedLease(t *testing.T) {
 		winner = h
 	}
 
-	// And a claim by someone who was not in the contest still loses, now that
-	// it has settled — a denial goes only to the asker. A fresh client rather
-	// than one of the racers, so this assertion cannot accidentally read a
-	// lease_state still queued from the contest above.
+	// A fresh client, so this cannot read a lease_state still queued from the contest.
 	late := dialFeatureClient(t, addr, "room1", "late", []string{protocol.FeatureLeaseV1})
 	defer late.conn.Close()
 	late.expectWelcome(timeout)
@@ -423,9 +359,7 @@ func TestExactlyOneClaimantWinsAContestedLease(t *testing.T) {
 	}
 }
 
-// TestLeaseReleaseFreesTheKeyForTheNextClaimant confirms the ordinary
-// hand-off, and that a release is broadcast rather than told only to the
-// holder — everyone needs to know a key is free.
+// TestLeaseReleaseFreesTheKeyForTheNextClaimant: a release is broadcast, since everyone needs to know a key is free.
 func TestLeaseReleaseFreesTheKeyForTheNextClaimant(t *testing.T) {
 	addr := startServer(t)
 
@@ -453,9 +387,8 @@ func TestLeaseReleaseFreesTheKeyForTheNextClaimant(t *testing.T) {
 	}
 }
 
-// TestLeaseExpiresWithoutRenew covers the half of lease authority that is
-// actually hard: lifetime. A holder that stops talking must not wedge a key
-// forever, and only a clock can guarantee that without game knowledge.
+// TestLeaseExpiresWithoutRenew: a holder that stops talking must not wedge a key, and without game knowledge only a
+// clock can guarantee that.
 func TestLeaseExpiresWithoutRenew(t *testing.T) {
 	addr := startServer(t)
 
@@ -463,8 +396,7 @@ func TestLeaseExpiresWithoutRenew(t *testing.T) {
 	defer c1.conn.Close()
 	c1.expectWelcome(timeout)
 
-	// MinLeaseTTL is the shortest the relay will honour; asking for less is
-	// clamped up to it rather than refused.
+	// Less than MinLeaseTTL is clamped up to it rather than refused.
 	c1.send(protocol.TypeLease, protocol.Lease{Op: protocol.LeaseClaim, Key: "k", TTLMs: 1})
 	if st := c1.expectLeaseState(timeout); st.Reason != protocol.LeaseGranted {
 		t.Fatalf("claim = %+v, want granted", st)
@@ -475,10 +407,8 @@ func TestLeaseExpiresWithoutRenew(t *testing.T) {
 	}
 }
 
-// TestLeaseIsFreedWhenItsHolderDisconnects is the disconnect half of the same
-// problem — and is reported distinctly from an expiry, because an adapter may
-// reasonably treat "they hung up" and "they went quiet" differently. The relay
-// does not decide which; it says which happened.
+// TestLeaseIsFreedWhenItsHolderDisconnects: reported apart from an expiry, since an adapter may treat "hung up" and
+// "went quiet" differently.
 func TestLeaseIsFreedWhenItsHolderDisconnects(t *testing.T) {
 	addr := startServer(t)
 
@@ -499,9 +429,7 @@ func TestLeaseIsFreedWhenItsHolderDisconnects(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Escrow
-// ---------------------------------------------------------------------------
+// Escrow.
 
 func openEscrow(t *testing.T, a, b *testClient, id, withID string) {
 	t.Helper()
@@ -513,10 +441,7 @@ func openEscrow(t *testing.T, a, b *testClient, id, withID string) {
 	}
 }
 
-// TestEscrowRevealsBlobsOnlyOnCommit is the atomicity property stated
-// directly: neither side may see the other's contribution until the exchange
-// has completed, or the second depositor could decide what to offer after
-// seeing what it was offered.
+// TestEscrowRevealsBlobsOnlyOnCommit: otherwise the second depositor could choose its offer after seeing the first.
 func TestEscrowRevealsBlobsOnlyOnCommit(t *testing.T) {
 	addr := startServer(t)
 
@@ -564,17 +489,15 @@ func TestEscrowRevealsBlobsOnlyOnCommit(t *testing.T) {
 		if st.Phase != protocol.EscrowPhaseCommitted {
 			t.Fatalf("phase = %q, want %q", st.Phase, protocol.EscrowPhaseCommitted)
 		}
-		// Both parties receive the identical map — that is what makes the
-		// swap both-or-neither from each side's point of view.
+		// Both parties receive the identical map, so the swap is both-or-neither from each side.
 		if string(st.Blobs[w1.PlayerID]) != `{"mon":"mudkip"}` || string(st.Blobs[w2.PlayerID]) != `{"mon":"torchic"}` {
 			t.Fatalf("committed blobs = %v, want both parties' deposits", st.Blobs)
 		}
 	}
 }
 
-// TestEscrowAbortDiscardsBothBlobs is the "neither" half. An abort must
-// destroy the deposits rather than deliver them, which is what makes it safe
-// to trigger on a disconnect.
+// TestEscrowAbortDiscardsBothBlobs: an abort destroys the deposits rather than delivering them, so a disconnect can
+// trigger one safely.
 func TestEscrowAbortDiscardsBothBlobs(t *testing.T) {
 	addr := startServer(t)
 
@@ -605,11 +528,8 @@ func TestEscrowAbortDiscardsBothBlobs(t *testing.T) {
 	}
 }
 
-// TestEscrowAbortsWhenAPartyDisconnects is the one-side-vanishes case
-// agent_docs/beyond-cosmetic.md §5 calls out as never examined and the source
-// of real-world duplication bugs. An exchange whose counterparty is gone can
-// never complete, and leaving it open would hold the other side's deposit
-// hostage until the timeout.
+// TestEscrowAbortsWhenAPartyDisconnects: an exchange whose counterparty is gone can never complete, and left open it
+// holds the other side's deposit until the timeout.
 func TestEscrowAbortsWhenAPartyDisconnects(t *testing.T) {
 	addr := startServer(t)
 
@@ -636,9 +556,7 @@ func TestEscrowAbortsWhenAPartyDisconnects(t *testing.T) {
 	}
 }
 
-// TestEscrowRefusesANonMemberCounterparty stops an exchange being opened
-// against an id that is not in the room, which would otherwise sit pinned
-// until its timeout with nobody able to complete it.
+// TestEscrowRefusesANonMemberCounterparty: an exchange with an id not in the room would sit pinned until its timeout.
 func TestEscrowRefusesANonMemberCounterparty(t *testing.T) {
 	addr := startServer(t)
 
@@ -654,14 +572,9 @@ func TestEscrowRefusesANonMemberCounterparty(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Late-join snapshot
-// ---------------------------------------------------------------------------
+// Late-join snapshot.
 
-// TestLateJoinerIsSeededWithExistingPlayersState covers Join.State, reserved
-// since the contract was written and populated for the first time here.
-// Without it a newcomer sees nothing at all until every existing player
-// happens to move.
+// TestLateJoinerIsSeededWithExistingPlayersState: without Join.State a newcomer sees nobody until each player moves.
 func TestLateJoinerIsSeededWithExistingPlayersState(t *testing.T) {
 	addr := startServer(t)
 
@@ -670,8 +583,7 @@ func TestLateJoinerIsSeededWithExistingPlayersState(t *testing.T) {
 	w1 := c1.expectWelcome(timeout)
 	c1.sendState(protocol.State{AreaID: "0:9", Position: []float64{4, 5}, Anim: "idle"})
 
-	// Give the relay a moment to record it before the second client joins;
-	// without an ordering point the test would race the forward path.
+	// No ordering point exists, so give the relay a moment to record the state before the second client joins.
 	time.Sleep(100 * time.Millisecond)
 
 	c2 := dialFeatureClient(t, addr, "room1", "bob", []string{protocol.FeatureSnapshotV1})
@@ -693,8 +605,6 @@ func TestLateJoinerIsSeededWithExistingPlayersState(t *testing.T) {
 	}
 }
 
-// TestNoSnapshotWithoutTheCapability keeps the previous behaviour exactly
-// intact for a room that did not ask — the reason this is opt-in at all.
 func TestNoSnapshotWithoutTheCapability(t *testing.T) {
 	addr := startServer(t)
 
@@ -710,13 +620,9 @@ func TestNoSnapshotWithoutTheCapability(t *testing.T) {
 	c2.expectNothingOfType(protocol.TypeJoin, 300*time.Millisecond)
 }
 
-// ---------------------------------------------------------------------------
-// Session resumption
-// ---------------------------------------------------------------------------
+// Session resumption.
 
-// TestResumeKeepsThePlayerIDAndTheRoomNeverSeesALeave is the user-visible
-// point of resumption: a network blip stops costing everyone else a despawn
-// and a respawn.
+// TestResumeKeepsThePlayerIDAndTheRoomNeverSeesALeave: a network blip must not cost the room a despawn and respawn.
 func TestResumeKeepsThePlayerIDAndTheRoomNeverSeesALeave(t *testing.T) {
 	addr := startServerWith(t, &Server{
 		rooms:      make(map[string]*Room),
@@ -733,13 +639,11 @@ func TestResumeKeepsThePlayerIDAndTheRoomNeverSeesALeave(t *testing.T) {
 	c2.expectWelcome(timeout)
 	c1.nextOfType(protocol.TypeJoin, timeout) // alice learns about bob
 
-	// Alice holds a key, then her connection drops underneath her.
 	c1.send(protocol.TypeLease, protocol.Lease{Op: protocol.LeaseClaim, Key: "k"})
 	c1.expectLeaseState(timeout)
 	c2.expectLeaseState(timeout)
 	c1.conn.Close()
 
-	// Bob must see nothing at all — no leave, and no lease release.
 	c2.expectNothingOfType(protocol.TypeLeave, 300*time.Millisecond)
 
 	back := dialTestClientWithHello(t, addr, protocol.Hello{
@@ -762,17 +666,13 @@ func TestResumeKeepsThePlayerIDAndTheRoomNeverSeesALeave(t *testing.T) {
 	if w.ResumeToken == "" || w.ResumeToken == w1.ResumeToken {
 		t.Fatal("resume token was not rotated — tokens are single-use")
 	}
-	// The lease survived the drop, and is replayed to the resumed client.
 	if st := back.expectLeaseState(timeout); st.Holder != w1.PlayerID || st.Key != "k" {
 		t.Fatalf("resumed client's lease snapshot = %+v, want it still holding \"k\"", st)
 	}
-	// And bob never learned any of it happened.
 	c2.expectNothingOfType(protocol.TypeJoin, 300*time.Millisecond)
 }
 
-// TestResumeGraceExpiryBecomesARealLeave is the other side: an identity is
-// held, not held forever. A player who is genuinely gone must free its keys
-// and its slot, or one departure blocks a key nobody is coming back for.
+// TestResumeGraceExpiryBecomesARealLeave: a player who is gone must free its keys and its slot.
 func TestResumeGraceExpiryBecomesARealLeave(t *testing.T) {
 	addr := startServerWith(t, &Server{
 		rooms:       make(map[string]*Room),
@@ -805,21 +705,8 @@ func TestResumeGraceExpiryBecomesARealLeave(t *testing.T) {
 	}
 }
 
-// TestCommittedEscrowSurvivesAPartyCrashingBeforeItHearsTheOutcome is the
-// crash-injection case the whole retention mechanism exists for, and the one
-// that decides whether "both or neither" is a real guarantee or one that only
-// holds while both sockets stay up.
-//
-// The scenario: alice deposits and commits, then her connection dies. Bob
-// deposits and commits, so the exchange COMPLETES while alice is not there to
-// hear it — the relay's committed message is written to a suspended
-// connection and goes nowhere. Alice comes back and must be told the outcome,
-// with both blobs, or she is permanently unsure whether she gave something
-// away for nothing.
-//
-// This is precisely the failure that never shows up in testing and always
-// shows up in the field, so it gets an explicit test rather than being
-// assumed from the retention constant's existence.
+// TestCommittedEscrowSurvivesAPartyCrashingBeforeItHearsTheOutcome: the exchange completes while alice is suspended,
+// and on resume she must be told the outcome with both blobs, or both-or-neither holds only while sockets stay up.
 func TestCommittedEscrowSurvivesAPartyCrashingBeforeItHearsTheOutcome(t *testing.T) {
 	addr := startServerWith(t, &Server{
 		rooms:      make(map[string]*Room),
@@ -844,8 +731,7 @@ func TestCommittedEscrowSurvivesAPartyCrashingBeforeItHearsTheOutcome(t *testing
 	alice.expectEscrowState(timeout)
 	bob.expectEscrowState(timeout)
 
-	// Alice's connection dies mid-exchange. Her identity is held, so the
-	// exchange must NOT be aborted — a suspended party is not a departed one.
+	// A suspended party is not a departed one, so the exchange must not abort.
 	alice.conn.Close()
 
 	bob.send(protocol.TypeEscrow, protocol.Escrow{
@@ -854,7 +740,6 @@ func TestCommittedEscrowSurvivesAPartyCrashingBeforeItHearsTheOutcome(t *testing
 	bob.expectEscrowState(timeout)
 	bob.send(protocol.TypeEscrow, protocol.Escrow{Op: protocol.EscrowCommit, ID: "trade-1"})
 
-	// Bob sees it complete. Alice, being gone, sees nothing at all.
 	st := bob.expectEscrowState(timeout)
 	if st.Phase != protocol.EscrowPhaseCommitted {
 		t.Fatalf("bob's phase = %q, want %q — a suspended party must not abort a live exchange", st.Phase, protocol.EscrowPhaseCommitted)
@@ -863,7 +748,6 @@ func TestCommittedEscrowSurvivesAPartyCrashingBeforeItHearsTheOutcome(t *testing
 		t.Fatalf("bob's committed blobs = %v, want alice's deposit included", st.Blobs)
 	}
 
-	// Alice reconnects and must learn what happened while she was gone.
 	back := dialTestClientWithHello(t, addr, protocol.Hello{
 		ProtocolVersion: protocol.Version,
 		GameID:          "emerald",
@@ -886,10 +770,8 @@ func TestCommittedEscrowSurvivesAPartyCrashingBeforeItHearsTheOutcome(t *testing
 	}
 }
 
-// TestEscrowAbortsIfACrashedPartyNeverComesBack is the other half: retention
-// is not forgiveness. Once the grace window closes the party has genuinely
-// left, and an exchange that can never complete must release the other side's
-// deposit rather than hold it hostage until the 60s escrow timeout.
+// TestEscrowAbortsIfACrashedPartyNeverComesBack: once the grace window closes, an exchange that can never complete
+// releases the other side's deposit rather than holding it until the escrow timeout.
 func TestEscrowAbortsIfACrashedPartyNeverComesBack(t *testing.T) {
 	addr := startServerWith(t, &Server{
 		rooms:       make(map[string]*Room),
@@ -923,9 +805,7 @@ func TestEscrowAbortsIfACrashedPartyNeverComesBack(t *testing.T) {
 	}
 }
 
-// TestStaleResumeTokenJoinsFreshRatherThanFailing pins the degradation rule:
-// being away slightly too long must cost a new identity, never the ability to
-// play.
+// TestStaleResumeTokenJoinsFreshRatherThanFailing: away too long costs a new identity, never the ability to play.
 func TestStaleResumeTokenJoinsFreshRatherThanFailing(t *testing.T) {
 	addr := startServer(t)
 
@@ -948,18 +828,9 @@ func TestStaleResumeTokenJoinsFreshRatherThanFailing(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Introspection
-// ---------------------------------------------------------------------------
+// Introspection.
 
-// TestSnapshotReportsWhatTheRelayThinksIsTrue covers the debugging aid, which
-// is worth a test for one specific reason: it is the tool someone reaches for
-// when something is already wrong, so a snapshot that quietly reports the
-// wrong thing is worse than none at all.
-//
-// It also pins the two omissions that are deliberate rather than incidental —
-// resume tokens and escrow blobs never appear, being a credential and the
-// contents of a trade in progress respectively.
+// The snapshot never shows a resume token (a credential) or an escrow blob (a trade's contents).
 func TestSnapshotReportsWhatTheRelayThinksIsTrue(t *testing.T) {
 	s := &Server{rooms: make(map[string]*Room), MaxClients: DefaultMaxClients}
 	addr := startServerWith(t, s)
@@ -997,8 +868,7 @@ func TestSnapshotReportsWhatTheRelayThinksIsTrue(t *testing.T) {
 		t.Fatalf("escrow snapshot = %+v, want one live exchange with a single deposit", room.Escrows)
 	}
 
-	// The rendered form is what a host actually reads, so assert on it too —
-	// and on what must NOT be in it.
+	// The rendered form is what a host reads.
 	rendered := snap.String()
 	if !strings.Contains(rendered, `lease "k" held by `+wA.PlayerID) {
 		t.Fatalf("rendered snapshot does not name the lease holder:\n%s", rendered)
@@ -1010,8 +880,7 @@ func TestSnapshotReportsWhatTheRelayThinksIsTrue(t *testing.T) {
 		t.Fatalf("rendered snapshot leaked a resume token, which is a session credential:\n%s", rendered)
 	}
 
-	// A suspended identity is the state hardest to diagnose without this, so
-	// it must be visible and labelled.
+	// A suspended identity is the hardest state to diagnose without this.
 	alice.conn.Close()
 	deadline := time.Now().Add(2 * time.Second)
 	for {
@@ -1029,33 +898,22 @@ func TestSnapshotReportsWhatTheRelayThinksIsTrue(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Room-scoped vs client-scoped capabilities
-// ---------------------------------------------------------------------------
+// Room-scoped and client-scoped capabilities.
 
-// TestClientScopedCapabilitiesDoNotSplitARoom is the point of the split. A
-// capability that concerns only one client and the relay must not force every
-// other member to be reconfigured in lockstep — no peer participates in it, so
-// there is nothing for them to disagree about.
-//
-// The original design made every capability sticky, which meant enabling
-// resumption cost a coordinated config change across every player for a
-// feature none of them take part in. That is friction with no safety bought,
-// and the surest way to have nobody enable it.
+// TestClientScopedCapabilitiesDoNotSplitARoom: no peer takes part in a client-scoped capability, so there is nothing
+// for the room to agree on.
 func TestClientScopedCapabilitiesDoNotSplitARoom(t *testing.T) {
 	addr := startServerWith(t, &Server{
 		rooms:      make(map[string]*Room),
 		MaxClients: DefaultMaxClients,
 	})
 
-	// A plain cosmetic client creates the room, advertising nothing at all.
 	plain := dialFeatureClient(t, addr, "room1", "plain", nil)
 	defer plain.conn.Close()
 	if w := plain.expectWelcome(timeout); len(w.Features) != 0 {
 		t.Fatalf("cosmetic client's welcome carried features %v, want none", w.Features)
 	}
 
-	// A client wanting only client-scoped capabilities joins the same room.
 	fancy := dialFeatureClient(t, addr, "room1", "fancy",
 		[]string{protocol.FeatureResumeV1, protocol.FeatureSnapshotV1})
 	defer fancy.conn.Close()
@@ -1070,8 +928,7 @@ func TestClientScopedCapabilitiesDoNotSplitARoom(t *testing.T) {
 		t.Fatalf("welcome features = %v, want resume.v1 reported as in force for this client", w.Features)
 	}
 
-	// And it genuinely works: the fancy client drops and resumes, while the
-	// plain client — which has never heard of resumption — sees nothing.
+	// The fancy client drops and resumes while the plain one, which never heard of resumption, sees nothing.
 	plainSaw := make(chan struct{})
 	go func() {
 		plain.expectNothingOfType(protocol.TypeLeave, 700*time.Millisecond)
@@ -1096,20 +953,16 @@ func TestClientScopedCapabilitiesDoNotSplitARoom(t *testing.T) {
 	}
 }
 
-// TestRoomScopedCapabilityStillSplitsARoom is the other half: the split must
-// not have quietly weakened the check that matters. A capability peers take
-// part in still has to match exactly, or conflict resolution fails silently.
+// TestRoomScopedCapabilityStillSplitsARoom: a capability peers take part in must still match exactly.
 func TestRoomScopedCapabilityStillSplitsARoom(t *testing.T) {
 	addr := startServer(t)
 
-	// A room-scoped capability mixed with a client-scoped one: only the
-	// room-scoped half is compared, so this must still be refused.
 	c1 := dialFeatureClient(t, addr, "room1", "alice",
 		[]string{protocol.FeatureLeaseV1, protocol.FeatureResumeV1})
 	defer c1.conn.Close()
 	c1.expectWelcome(timeout)
 
-	// Same client-scoped set, different room-scoped set: refused.
+	// Same client-scoped set, different room-scoped set.
 	c2 := dialFeatureClient(t, addr, "room1", "bob", []string{protocol.FeatureResumeV1})
 	defer c2.conn.Close()
 	env := c2.next(timeout)
@@ -1117,7 +970,7 @@ func TestRoomScopedCapabilityStillSplitsARoom(t *testing.T) {
 		t.Fatalf("a client missing the room's lease.v1 got %q, want a reject", env.Type)
 	}
 
-	// And differing ONLY in a client-scoped capability is fine.
+	// Differing only in a client-scoped capability.
 	c3 := dialFeatureClient(t, addr, "room1", "carol", []string{protocol.FeatureLeaseV1})
 	defer c3.conn.Close()
 	if w := c3.expectWelcome(timeout); w.PlayerID == "" {
@@ -1125,8 +978,6 @@ func TestRoomScopedCapabilityStillSplitsARoom(t *testing.T) {
 	}
 }
 
-// TestSnapshotIsPerRecipientNotPerRoom confirms the seed follows the receiving
-// client's own request, since it changes only what that client receives.
 func TestSnapshotIsPerRecipientNotPerRoom(t *testing.T) {
 	addr := startServer(t)
 
@@ -1136,7 +987,6 @@ func TestSnapshotIsPerRecipientNotPerRoom(t *testing.T) {
 	mover.sendState(protocol.State{AreaID: "0:9", Position: []float64{4, 5}})
 	time.Sleep(100 * time.Millisecond)
 
-	// Wants a seed and must get one.
 	wanting := dialFeatureClient(t, addr, "room1", "wanting", []string{protocol.FeatureSnapshotV1})
 	defer wanting.conn.Close()
 	wanting.expectWelcome(timeout)
@@ -1148,27 +998,14 @@ func TestSnapshotIsPerRecipientNotPerRoom(t *testing.T) {
 		t.Fatal("a client that asked for a seed did not get one")
 	}
 
-	// Does not want one, in the same room, and must not get one.
 	plain := dialFeatureClient(t, addr, "room1", "plain", nil)
 	defer plain.conn.Close()
 	plain.expectWelcome(timeout)
 	plain.expectNothingOfType(protocol.TypeJoin, 300*time.Millisecond)
 }
 
-// TestResumeTakesOverAConnectionTheRelayHasNotNoticedIsDead is the case that
-// makes resumption work in the field rather than only in tests.
-//
-// A client's connection dies without the relay noticing — routine on quic,
-// where a hard-killed peer sends no close frame and the connection lingers
-// until quic's idle timeout (measured 2026-08-17: ~17s, against an immediate
-// RST on tcp). The client reconnects INSIDE that window, while the relay still
-// believes the old connection is fine.
-//
-// The original design registered a session only on disconnect, so the token
-// matched nothing here: the client got a fresh player_id and its old ghost
-// stood there until the timeout. That is strictly worse than not having
-// resumption, and it is the common case — which is why this is tested by
-// resuming without ever closing the first connection.
+// TestResumeTakesOverAConnectionTheRelayHasNotNoticedIsDead: routine on quic, where a hard-killed peer sends no close
+// and its connection lingers until the idle timeout, so the client reconnects while the old one still looks live.
 func TestResumeTakesOverAConnectionTheRelayHasNotNoticedIsDead(t *testing.T) {
 	addr := startServerWith(t, &Server{
 		rooms:      make(map[string]*Room),
@@ -1183,8 +1020,7 @@ func TestResumeTakesOverAConnectionTheRelayHasNotNoticedIsDead(t *testing.T) {
 	bob.expectWelcome(timeout)
 	alice.nextOfType(protocol.TypeJoin, timeout)
 
-	// Deliberately NOT closing alice's connection: the relay must still
-	// believe it is live when the replacement arrives.
+	// Alice's connection stays open: the relay must still believe it live when the replacement arrives.
 	back := dialTestClientWithHello(t, addr, protocol.Hello{
 		ProtocolVersion: protocol.Version,
 		GameID:          "emerald",
@@ -1203,15 +1039,11 @@ func TestResumeTakesOverAConnectionTheRelayHasNotNoticedIsDead(t *testing.T) {
 		t.Fatalf("took over as %q, want the original identity %q", w.PlayerID, wA.PlayerID)
 	}
 
-	// Bob must see none of it: no leave, no join, no duplicate. The resource
-	// side of a takeover is asserted separately, in
-	// TestTakeoverLeavesExactlyOneMemberAndOneSlot.
+	// The resource side is TestTakeoverLeavesExactlyOneMemberAndOneSlot.
 	bob.expectNothingOfType(protocol.TypeLeave, 400*time.Millisecond)
 }
 
-// TestTakeoverLeavesExactlyOneMemberAndOneSlot guards the resource half of a
-// takeover: the replaced connection must not leave its member entry, its
-// server-wide slot, or a second ghost behind.
+// TestTakeoverLeavesExactlyOneMemberAndOneSlot: the replaced connection leaves no member entry, slot or ghost behind.
 func TestTakeoverLeavesExactlyOneMemberAndOneSlot(t *testing.T) {
 	s := &Server{rooms: make(map[string]*Room), MaxClients: DefaultMaxClients}
 	addr := startServerWith(t, s)
@@ -1231,8 +1063,7 @@ func TestTakeoverLeavesExactlyOneMemberAndOneSlot(t *testing.T) {
 	defer back.conn.Close()
 	back.expectWelcome(timeout)
 
-	// The superseded connection's own OnDisconnect fires asynchronously; give
-	// it a moment and then require the books to balance.
+	// The superseded connection's OnDisconnect fires asynchronously.
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		snap := s.Snapshot()
@@ -1247,21 +1078,13 @@ func TestTakeoverLeavesExactlyOneMemberAndOneSlot(t *testing.T) {
 	}
 }
 
-// TestVoluntaryLeaveIsImmediateEvenWithResumptionOn is the fix for a bug the
-// 2026-08-17 loopback session found: with resume.v1 on, quitting the game left
-// every other player staring at a frozen ghost for the whole grace window,
-// because the relay only ever saw a socket close and could not tell a
-// deliberate exit from a bad connection.
-//
-// The core discarding its own resume token was not enough — that only decides
-// where the NEXT connection lands and says nothing to the relay about this one.
-// A client now says goodbye explicitly.
+// TestVoluntaryLeaveIsImmediateEvenWithResumptionOn: a socket close cannot tell a deliberate exit from a bad
+// connection, so a quitting client says goodbye and the room sees it leave at once.
 func TestVoluntaryLeaveIsImmediateEvenWithResumptionOn(t *testing.T) {
 	addr := startServerWith(t, &Server{
 		rooms:      make(map[string]*Room),
 		MaxClients: DefaultMaxClients,
-		// Long enough that a suspension would be unmistakable in the timings
-		// below rather than a race against the grace expiring on its own.
+		// Long enough that a suspension is unmistakable rather than racing the grace expiring.
 		ResumeGrace: 30 * time.Second,
 	})
 
@@ -1274,13 +1097,11 @@ func TestVoluntaryLeaveIsImmediateEvenWithResumptionOn(t *testing.T) {
 	watcher.expectWelcome(timeout)
 	quitter.nextOfType(protocol.TypeJoin, timeout)
 
-	// Say goodbye, then hang up — exactly what the core does when its adapter
-	// (the game) goes away.
+	// Goodbye, then hang up: what the core does when its adapter goes away.
 	quitter.send(protocol.TypeLeave, protocol.Leave{})
 	time.Sleep(150 * time.Millisecond)
 	quitter.conn.Close()
 
-	// The watcher must see a real leave promptly, NOT after 30 seconds.
 	env := watcher.nextOfType(protocol.TypeLeave, 3*time.Second)
 	var leave protocol.Leave
 	if err := json.Unmarshal(env.Payload, &leave); err != nil {
@@ -1291,10 +1112,7 @@ func TestVoluntaryLeaveIsImmediateEvenWithResumptionOn(t *testing.T) {
 	}
 }
 
-// TestUnexplainedDropStillGetsTheGraceWindow is the other side of the same
-// coin: only an explicit goodbye skips the grace. A client that simply
-// vanishes — which is what a network failure looks like — must still be held,
-// or the fix above would have quietly disabled resumption altogether.
+// TestUnexplainedDropStillGetsTheGraceWindow: only an explicit goodbye skips the grace.
 func TestUnexplainedDropStillGetsTheGraceWindow(t *testing.T) {
 	addr := startServerWith(t, &Server{
 		rooms:       make(map[string]*Room),
@@ -1309,16 +1127,13 @@ func TestUnexplainedDropStillGetsTheGraceWindow(t *testing.T) {
 	watcher.expectWelcome(timeout)
 	dropper.nextOfType(protocol.TypeJoin, timeout)
 
-	// No goodbye: just gone.
 	dropper.conn.Close()
 
 	watcher.expectNothingOfType(protocol.TypeLeave, 1*time.Second)
 }
 
-// TestSnapshotShowsPerMemberClientScopedCapabilities covers the question
-// introspection most obviously invites once a player drops and is NOT held:
-// why not. The answer is usually "that client never asked for resume.v1",
-// which is a per-client fact and so cannot appear on the room's feature line.
+// TestSnapshotShowsPerMemberClientScopedCapabilities: why a dropped player was not held is usually "it never asked
+// for resume.v1", a per-client fact the room's feature line cannot show.
 func TestSnapshotShowsPerMemberClientScopedCapabilities(t *testing.T) {
 	s := &Server{rooms: make(map[string]*Room), MaxClients: DefaultMaxClients}
 	addr := startServerWith(t, s)
@@ -1328,8 +1143,7 @@ func TestSnapshotShowsPerMemberClientScopedCapabilities(t *testing.T) {
 	defer resumable.conn.Close()
 	wR := resumable.expectWelcome(timeout)
 
-	// Same room-scoped set, no client-scoped extras — so it shares the room
-	// but is NOT resumable, which is exactly the difference to surface.
+	// Same room-scoped set and no client-scoped extras: shares the room, not resumable.
 	plain := dialFeatureClient(t, addr, "room1", "plain", []string{protocol.FeatureLeaseV1})
 	defer plain.conn.Close()
 	wP := plain.expectWelcome(timeout)
@@ -1345,8 +1159,7 @@ func TestSnapshotShowsPerMemberClientScopedCapabilities(t *testing.T) {
 	if len(byID[wP.PlayerID]) != 0 {
 		t.Fatalf("member %s shows features %v, want none", wP.PlayerID, byID[wP.PlayerID])
 	}
-	// A room-scoped capability belongs on the room line, not repeated on every
-	// member.
+	// A room-scoped capability belongs on the room line, not on every member.
 	if protocol.HasFeature(byID[wR.PlayerID], protocol.FeatureLeaseV1) {
 		t.Fatalf("member line repeated the room-scoped lease.v1: %v", byID[wR.PlayerID])
 	}
@@ -1355,17 +1168,8 @@ func TestSnapshotShowsPerMemberClientScopedCapabilities(t *testing.T) {
 	}
 }
 
-// suspend used to create the session's grace timer AFTER releasing s.mu, while
-// forgetSessionsOf reads it under s.mu and takeSession reads it just after —
-// an unsynchronised write against two guarded reads. It is reachable in the
-// ordinary way, not a rare one: a client reconnecting with its token in the
-// same instant the relay notices its old socket died is the quic takeover case
-// takeSession's own doc comment calls routine.
-//
-// The consequence was mild (an un-stopped timer whose callback finds nothing to
-// do), which is exactly why it needed a test rather than an argument — this is
-// the class of bug CI's `-race` job exists for, and the one thing that reports
-// it is the race detector. Locally this passes either way; on CI it does not.
+// TestSuspendDoesNotRaceWithResumeOnTheSessionTimer: suspend, takeSession and forgetSessionsOf all touch sess.timer,
+// and a reconnect in the instant the relay notices the old socket died runs them together. Only -race reports it.
 func TestSuspendDoesNotRaceWithResumeOnTheSessionTimer(t *testing.T) {
 	s := &Server{rooms: make(map[string]*Room), ResumeGrace: time.Minute}
 	r := newRoom("emerald", "", "room1", nil)
@@ -1376,7 +1180,6 @@ func TestSuspendDoesNotRaceWithResumeOnTheSessionTimer(t *testing.T) {
 		r.tryAdd(c)
 		s.registerSession(r, c.PlayerID, token, "")
 
-		// All three of the paths that touch sess.timer, at once.
 		var wg sync.WaitGroup
 		wg.Add(3)
 		go func() { defer wg.Done(); s.suspend(r, c, token) }()

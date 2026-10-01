@@ -1,21 +1,12 @@
 package relay
 
-// F15 of the 2026-09-08 review. introspect.go's Snapshot states that nothing in
-// this package locks a room while still holding Server.mu, and goes out of its
-// way not to be the first thing that does -- so that a future r.mu-then-s.mu
-// path stays a free choice rather than a deadlock. dropIfEmpty contradicted it:
-// it took s.mu and then called r.size(), which takes r.mu. Latent, not live,
-// and a stated invariant nobody enforces is how the next reader gets it wrong.
-
 import (
 	"testing"
 	"time"
 )
 
-// TestDropIfEmptyDoesNotTakeARoomLockWhileHoldingTheServerLock holds r.mu and
-// asks dropIfEmpty to run: it must finish anyway. Failing this means s.mu and
-// r.mu are nested again, which is a deadlock the moment anything takes them the
-// other way round.
+// TestDropIfEmptyDoesNotTakeARoomLockWhileHoldingTheServerLock holds r.mu while dropIfEmpty runs. Nothing may lock
+// a room while holding Server.mu, so that a path taking them the other way round stays free of deadlock.
 func TestDropIfEmptyDoesNotTakeARoomLockWhileHoldingTheServerLock(t *testing.T) {
 	s := NewServer()
 	r := newRoom("emerald", "", "room1", nil)
@@ -44,12 +35,8 @@ func TestDropIfEmptyDoesNotTakeARoomLockWhileHoldingTheServerLock(t *testing.T) 
 	}
 }
 
-// TestTheMemberCountDropIfEmptyReadsTracksTheRoster is the other half: the
-// lock-free count is only worth reading if it equals len(members) at every
-// point a member joins, is replaced by a resume, or leaves. A count that drifts
-// high leaks a room table entry for the life of the server; one that drifts low
-// sweeps a room with players still in it, and they go on talking to a room
-// nobody else can reach.
+// TestTheMemberCountDropIfEmptyReadsTracksTheRoster: a lock-free count that drifts high leaks a room table entry; one
+// that drifts low sweeps a room with players still in it.
 func TestTheMemberCountDropIfEmptyReadsTracksTheRoster(t *testing.T) {
 	r := newRoom("emerald", "", "room1", nil)
 	check := func(when string) {
@@ -66,8 +53,7 @@ func TestTheMemberCountDropIfEmptyReadsTracksTheRoster(t *testing.T) {
 	r.tryAdd(&Client{PlayerID: "p2", Conn: &recordingTransport{}})
 	check("after two joins")
 
-	// A resume swaps a fresh Client onto an existing id: the map's size does
-	// not move and neither may the count.
+	// A resume swaps a fresh Client onto an existing id, so the count must not move.
 	r.mu.Lock()
 	r.putMemberLocked(&Client{PlayerID: "p1", Conn: &recordingTransport{}})
 	r.mu.Unlock()

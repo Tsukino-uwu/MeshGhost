@@ -14,11 +14,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
-// The relay's log is a host's only window and it is 1 MiB with one rotated
-// copy, so every line a stranger can cause per connection is, across a few
-// thousand cycling connections, a way to erase the history (fourth
-// adversarial review, 2026-09-13, A4 and its post-join sibling C4, plus C5
-// and C6). These tests count lines.
+// The relay's log keeps 1 MiB and one rotated copy, so any line a stranger can cause per connection is, over a few
+// thousand cycling connections, a way to erase it. These tests count lines.
 
 type lockedBuf struct {
 	mu sync.Mutex
@@ -46,8 +43,7 @@ func captureRelayLog(t *testing.T) *lockedBuf {
 	return buf
 }
 
-// TestRefusedHellosLogAtMostOnceASecond: fifty wrong codes in well under a
-// second produce one refusal line, and it carries the count.
+// TestRefusedHellosLogAtMostOnceASecond: fifty wrong codes inside a second make one refusal line carrying the count.
 func TestRefusedHellosLogAtMostOnceASecond(t *testing.T) {
 	logs := captureRelayLog(t)
 	s := NewServer()
@@ -55,9 +51,7 @@ func TestRefusedHellosLogAtMostOnceASecond(t *testing.T) {
 	addr := startServerWith(t, s)
 	const attempts = 50
 	for i := 0; i < attempts; i++ {
-		// A proof that is not one, which is what a flooder sends: refused at
-		// once, no key exchange on either side, so fifty of them land inside
-		// one throttle window whatever the machine is doing.
+		// An unusable proof is refused with no key exchange, so all fifty land inside one throttle window.
 		c := dialTestClientWithHello(t, addr, protocol.Hello{GameID: "g", Room: "r", PakeKE1: "bm90IGEga2Ux"})
 		c.expectReject(2 * time.Second)
 		c.conn.Close()
@@ -70,8 +64,6 @@ func TestRefusedHellosLogAtMostOnceASecond(t *testing.T) {
 	}
 }
 
-// failingTransport refuses every write, the way a socket whose far end has
-// gone does, and counts how many it refused.
 type failingTransport struct {
 	transport.Transport
 	writes atomic32
@@ -101,15 +93,13 @@ func (f *failingTransport) Send([]byte) error {
 
 func (f *failingTransport) SendUnreliable([]byte) error { return f.Send(nil) }
 
-// TestAnOutboxStopsAtTheFirstFailedSend: a queue of twenty reliable lines
-// behind a dead socket costs one log line and one write, not twenty of each,
-// and the writer goroutine exits.
+// TestAnOutboxStopsAtTheFirstFailedSend: twenty reliable lines behind a dead socket cost one log line and one write,
+// and the writer exits.
 func TestAnOutboxStopsAtTheFirstFailedSend(t *testing.T) {
 	logs := captureRelayLog(t)
 	ft := &failingTransport{}
 	o := newOutbox("p9", ft)
-	// Fill before the writer can drain: enqueue is quick and the first Send
-	// fails synchronously, so most lines are queued when it does.
+	// enqueue is quick and the first Send fails synchronously, so most lines are queued by then.
 	for i := 0; i < 20; i++ {
 		if !o.enqueue(outMsg{line: []byte("{\"type\":\"leave\"}\n")}) {
 			t.Fatalf("enqueue %d refused with the queue far under its cap", i)
@@ -126,15 +116,14 @@ func TestAnOutboxStopsAtTheFirstFailedSend(t *testing.T) {
 	if n := logs.count("send to p9 failed"); n != 1 {
 		t.Fatalf("%d failure lines, want 1", n)
 	}
-	// And an enqueue after that is absorbed, not a disconnect signal: the
-	// connection is already gone.
+	// An enqueue after that is absorbed, not a disconnect signal: the connection is already gone.
 	if !o.enqueue(outMsg{line: []byte("x\n")}) {
 		t.Fatal("enqueue after the writer closed reported a disconnect-worthy failure")
 	}
 }
 
-// TestHelloTimeoutsAndConnectionErrorsLogAtMostOnceASecond: thirty sockets
-// that say nothing, then thirty that reset -- each class one line.
+// TestHelloTimeoutsAndConnectionErrorsLogAtMostOnceASecond: thirty silent sockets make at most two hello-timeout
+// lines, and the throttle counts all thirty.
 func TestHelloTimeoutsAndConnectionErrorsLogAtMostOnceASecond(t *testing.T) {
 	logs := captureRelayLog(t)
 	s := NewServer()
@@ -154,7 +143,6 @@ func TestHelloTimeoutsAndConnectionErrorsLogAtMostOnceASecond(t *testing.T) {
 			c.Close()
 		}
 	}()
-	// Wait out the hello timeout for all of them.
 	time.Sleep(400 * time.Millisecond)
 	if n := logs.count("did not complete hello"); n > 2 {
 		t.Fatalf("%d hello-timeout lines for %d silent connections; want at most 2", n, each)
@@ -164,8 +152,7 @@ func TestHelloTimeoutsAndConnectionErrorsLogAtMostOnceASecond(t *testing.T) {
 	}
 }
 
-// addrFailingTransport fails every write with the *net.OpError a real socket
-// returns, which prints the peer's address.
+// addrFailingTransport fails with the *net.OpError a real socket returns, which prints the peer's address.
 type addrFailingTransport struct{ transport.Transport }
 
 func (addrFailingTransport) Send([]byte) error {
@@ -174,11 +161,8 @@ func (addrFailingTransport) Send([]byte) error {
 		Err:  errors.New("connection reset by peer")}
 }
 
-// TestAFailedPreAdmissionSendLogsAtMostOnceASecond is pass 5's P1b-1: a
-// stranger's refused hello followed by a stream reset makes the Reject's
-// write fail, and sendEnvelope printed one line per connection with no
-// throttle -- the A4 flood through the one line it missed. And the line
-// carried the peer's address, which the relay's log never does.
+// TestAFailedPreAdmissionSendLogsAtMostOnceASecond: a Reject that fails on a reset stream is throttled like every
+// other line a stranger can cause, and never prints the peer's address.
 func TestAFailedPreAdmissionSendLogsAtMostOnceASecond(t *testing.T) {
 	logs := captureRelayLog(t)
 	const attempts = 200
@@ -199,8 +183,6 @@ type notWrittenErr struct{}
 func (notWrittenErr) Error() string    { return "datagram too large" }
 func (notWrittenErr) NotWritten() bool { return true }
 
-// refusesFirstUnreliable refuses its first unreliable line before writing
-// and delivers everything else.
 type refusesFirstUnreliable struct {
 	transport.Transport
 	mu        sync.Mutex
@@ -226,11 +208,8 @@ func (r *refusesFirstUnreliable) SendUnreliable(p []byte) error {
 	return r.Send(p)
 }
 
-// TestARefusedLineDoesNotEndTheOutbox is pass 5's PM-1: one line the
-// connection refused before writing -- a state too large for a quic
-// datagram -- ended the member's writer, and every join, leave and state
-// owed to it after that was silently discarded while its pongs kept it
-// looking alive.
+// TestARefusedLineDoesNotEndTheOutbox: a line refused before writing, such as a state too large for a quic datagram,
+// must not end the writer, or every later line is lost while pongs keep the member looking alive.
 func TestARefusedLineDoesNotEndTheOutbox(t *testing.T) {
 	captureRelayLog(t)
 	rt := &refusesFirstUnreliable{}

@@ -15,8 +15,7 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
-// testClient is a minimal relay-protocol client used only to exercise
-// Server from the outside, over a real TCP connection.
+// testClient exercises Server from the outside, over a real TCP connection.
 type testClient struct {
 	t    *testing.T
 	conn *transport.NDJSONConn
@@ -33,20 +32,13 @@ func dialTestClient(t *testing.T, addr, gameID, room, name string) *testClient {
 	})
 }
 
-// dialTestClientWithHello is dialTestClient's more general form, for tests
-// that need to set fields dialTestClient doesn't expose (GameVersion, the
-// features) — added alongside relay-safety hardening,
-// agent_docs/architecture.md's room-code/version ADR.
 func dialTestClientWithHello(t *testing.T, addr string, hello protocol.Hello) *testClient {
 	t.Helper()
 	return dialTestClientWithCode(t, addr, hello, "")
 }
 
-// dialTestClientWithCode is dialTestClientWithHello with a room code to
-// prove (ADR 0067): the hello carries KE1 and the relay's KE2 is answered
-// from the receive loop, against pake.UnboundIdentity since these servers
-// set no PakeIdentity. A wrong code sends an unusable KE3 so the relay's own
-// refusal is what the test reads (internal/paketest says why).
+// dialTestClientWithCode proves code: KE2 is answered from the receive loop against pake.UnboundIdentity, and a wrong
+// code sends an unusable KE3 so the test reads the relay's own refusal.
 func dialTestClientWithCode(t *testing.T, addr string, hello protocol.Hello, code string) *testClient {
 	t.Helper()
 	conn, err := transport.Dial(addr)
@@ -142,8 +134,6 @@ func startServerWith(t *testing.T, s *Server) string {
 
 const timeout = 2 * time.Second
 
-// TestHelloWelcome confirms a single client joining an empty room gets a
-// Welcome with its assigned player_id and an empty roster.
 func TestHelloWelcome(t *testing.T) {
 	addr := startServer(t)
 	c1 := dialTestClient(t, addr, "emerald", "room1", "alice")
@@ -158,10 +148,6 @@ func TestHelloWelcome(t *testing.T) {
 	}
 }
 
-// TestSecondClientSeesJoinAndState is the "see on second client" milestone:
-// two clients join the same room, the second sees a Join for the first
-// (roster) and its own Welcome shows the first client already present, then
-// a State sent by one arrives at the other.
 func TestSecondClientSeesJoinAndState(t *testing.T) {
 	addr := startServer(t)
 
@@ -177,7 +163,6 @@ func TestSecondClientSeesJoinAndState(t *testing.T) {
 		t.Fatalf("second client's welcome roster = %v, want [%s]", w2.Roster, w1.PlayerID)
 	}
 
-	// c1 should observe a join announcing c2.
 	joinEnv := c1.next(timeout)
 	if joinEnv.Type != protocol.TypeJoin {
 		t.Fatalf("c1 got message type %q, want %q", joinEnv.Type, protocol.TypeJoin)
@@ -190,8 +175,6 @@ func TestSecondClientSeesJoinAndState(t *testing.T) {
 		t.Fatalf("join.PlayerID = %q, want %q", join.PlayerID, w2.PlayerID)
 	}
 
-	// c1 sends a state update; c2 should receive it forwarded, with the
-	// sender's assigned player_id intact.
 	c1.sendState(protocol.State{
 		PlayerID:  w1.PlayerID,
 		Seq:       1,
@@ -213,7 +196,6 @@ func TestSecondClientSeesJoinAndState(t *testing.T) {
 		t.Fatalf("forwarded state = %+v, want player_id=%s area_id=emerald-0001 anim=walking", st, w1.PlayerID)
 	}
 
-	// c1 must not receive its own state back.
 	select {
 	case env := <-c1.envs:
 		t.Fatalf("c1 unexpectedly received %q; state should not echo to sender", env.Type)
@@ -221,9 +203,7 @@ func TestSecondClientSeesJoinAndState(t *testing.T) {
 	}
 }
 
-// TestLeaveOnDisconnect confirms a client closing its connection produces a
-// Leave for the remaining room member — this is what drives
-// despawn_remote on the adapter side of the bridge.
+// TestLeaveOnDisconnect: the Leave is what drives despawn_remote on the adapter side.
 func TestLeaveOnDisconnect(t *testing.T) {
 	addr := startServer(t)
 
@@ -253,19 +233,8 @@ func TestLeaveOnDisconnect(t *testing.T) {
 	}
 }
 
-// TestSameRoomNameInDifferentGamesAreSeparateRooms is the behaviour that
-// replaced a rejection, and the reason the change was worth making: `room`
-// ships defaulted to "default" for every game, so keying rooms by name alone
-// meant the first game onto a server took "default" and every other game was
-// refused with a "game mismatch" that gave no hint the fix was to invent a
-// room name. A server that advertises hosting any number of games at once was
-// therefore broken by its own default configuration.
-//
-// Rooms are now keyed by game_id AND name (roomKey), which is what the package
-// comment always claimed ("partitioned by game_id"). Two games asking for the
-// same room name get two separate rooms, automatically, with nothing to
-// configure -- and cannot see each other, which is the property that made
-// mixing them unacceptable in the first place.
+// TestSameRoomNameInDifferentGamesAreSeparateRooms: rooms are keyed by game_id and name, so two games asking for the
+// same room name (the shipped default) get two rooms that cannot see each other.
 func TestSameRoomNameInDifferentGamesAreSeparateRooms(t *testing.T) {
 	addr := startServer(t)
 
@@ -273,8 +242,6 @@ func TestSameRoomNameInDifferentGamesAreSeparateRooms(t *testing.T) {
 	defer emerald.conn.Close()
 	wEmerald := emerald.expectWelcome(timeout)
 
-	// The exact case that used to be refused: a different game, same room name,
-	// same server.
 	tevi := dialTestClient(t, addr, "tevi", "default", "bob")
 	defer tevi.conn.Close()
 	wTevi := tevi.expectWelcome(timeout)
@@ -282,27 +249,21 @@ func TestSameRoomNameInDifferentGamesAreSeparateRooms(t *testing.T) {
 		t.Fatal("a second game was refused the default room name")
 	}
 
-	// Separate rooms, so neither is announced to the other and neither appears
-	// in the other's roster.
 	if len(wTevi.Roster) != 0 {
 		t.Fatalf("tevi's roster = %v, want empty — it must not see the emerald room", wTevi.Roster)
 	}
 	emerald.expectNothingOfType(protocol.TypeJoin, 300*time.Millisecond)
 
-	// And state does not cross between them.
 	tevi.sendState(protocol.State{AreaID: "tevi-zone", Position: []float64{1, 2}})
 	emerald.expectNothingOfType(protocol.TypeState, 300*time.Millisecond)
 
-	// Two rooms really exist, both named "default".
 	if wEmerald.PlayerID == wTevi.PlayerID {
 		t.Fatal("both clients were given the same player_id")
 	}
 }
 
-// TestLoopbackEchoesGhost confirms the Phase 3 -loopback flag: a lone
-// client's own State comes back to it under a synthetic "<id>-ghost"
-// player_id, so the loopback milestone exercises a real relay round trip
-// without a second physical client.
+// TestLoopbackEchoesGhost: -loopback echoes a lone client's state under a synthetic "<id>-ghost" id, a real relay
+// round trip without a second client.
 func TestLoopbackEchoesGhost(t *testing.T) {
 	s := NewServer()
 	s.Loopback = true
@@ -323,12 +284,7 @@ func TestLoopbackEchoesGhost(t *testing.T) {
 
 	wantGhost := w1.PlayerID + "-ghost"
 
-	// A Join for the synthetic ghost id must precede its first echoed state
-	// — otherwise core.storeRemoteState's roster-trust check (see
-	// the 2026-08-14 ADR in agent_docs/architecture.md) silently drops it as
-	// a state for a player_id it never saw announced. Found live: loopback
-	// mode spawned no ghost at all after that hardening landed, since this
-	// Join was missing entirely.
+	// The Join must precede the first echo, or core.storeRemoteState drops the state as from an unannounced id.
 	joinEnv := c1.next(timeout)
 	if joinEnv.Type != protocol.TypeJoin {
 		t.Fatalf("got message type %q, want %q (loopback ghost join)", joinEnv.Type, protocol.TypeJoin)
@@ -340,10 +296,7 @@ func TestLoopbackEchoesGhost(t *testing.T) {
 	if join.PlayerID != wantGhost {
 		t.Fatalf("ghost join player_id = %q, want %q", join.PlayerID, wantGhost)
 	}
-	// The ghost's Join carries the sender's own nametag back with a "-ghost"
-	// suffix (added 2026-08-29), so nametag rendering is testable in loopback.
-	// Without it the synthetic peer is nameless and an adapter draws no tag at
-	// all -- which made loopback useless for the whole nametag feature.
+	// The sender's own nametag comes back with a "-ghost" suffix, so nametags can be judged in loopback.
 	if join.Nametag == nil {
 		t.Fatalf("ghost join carried no nametag; want the sender's own with a -ghost suffix")
 	}
@@ -366,8 +319,7 @@ func TestLoopbackEchoesGhost(t *testing.T) {
 		t.Fatalf("echoed state = %+v, want area_id=0:9 position=[5 6]", st)
 	}
 
-	// A second State from the same client must NOT re-send the Join —
-	// loopbackGhostSent should have latched after the first one.
+	// A second state must not re-send the Join.
 	c1.sendState(protocol.State{
 		PlayerID:  w1.PlayerID,
 		Seq:       2,
@@ -382,9 +334,6 @@ func TestLoopbackEchoesGhost(t *testing.T) {
 	}
 }
 
-// TestNoLoopbackNoEcho confirms the default (flag off) behavior is
-// unchanged: a lone client sending State receives nothing back, matching
-// the existing "must not receive its own state back" guarantee.
 func TestNoLoopbackNoEcho(t *testing.T) {
 	addr := startServer(t)
 
@@ -401,9 +350,6 @@ func TestNoLoopbackNoEcho(t *testing.T) {
 	}
 }
 
-// TestServerStampsPlayerID confirms the relay overwrites State.PlayerID
-// with the connection's own assigned id rather than trusting the payload —
-// a client claiming a different id must not be forwarded under that id.
 func TestServerStampsPlayerID(t *testing.T) {
 	addr := startServer(t)
 
@@ -428,25 +374,8 @@ func TestServerStampsPlayerID(t *testing.T) {
 	}
 }
 
-// TestJoinIsNeverSentForAPlayerAlreadyInTheWelcomeRoster is the regression
-// test for a race CI's race detector caught 2026-08-16, surfacing as an
-// intermittent, misleading failure in TestOversizedPositionDropped ("c2
-// unexpectedly received join").
-//
-// The relay captured rosterBeforeJoin atomically with adding a client, then
-// broadcast that client's join to allExcept(newID) — a SECOND, later lock
-// acquisition. A client that joined in the window between another client's
-// add and its broadcast was therefore included in that broadcast, despite
-// having already been told about it in its own welcome roster: a duplicate,
-// late join for a player it already knew about. Fixed by forwarding to the
-// roster captured with the add.
-//
-// This test states the invariant rather than the mechanism — nothing a
-// client already has in its welcome roster may then arrive as a join — so it
-// still means something if the implementation changes shape. Clients join
-// concurrently to make the window as wide as this can make it; the race
-// detector's slower scheduling is what actually made it reproduce, which is
-// why the local suite never saw it in 300 runs.
+// TestJoinIsNeverSentForAPlayerAlreadyInTheWelcomeRoster states the invariant, not the mechanism. Clients join
+// concurrently to widen the window, which in practice only the race detector's scheduling opens.
 func TestJoinIsNeverSentForAPlayerAlreadyInTheWelcomeRoster(t *testing.T) {
 	addr := startServer(t)
 
@@ -457,12 +386,8 @@ func TestJoinIsNeverSentForAPlayerAlreadyInTheWelcomeRoster(t *testing.T) {
 	}
 	observations := make([]*observation, clients)
 
-	// The goroutines below only dial and collect; every assertion and every
-	// t.Fatal happens on the test goroutine after wg.Wait(). testClient's own
-	// helpers (dialTestClient, expectWelcome) call t.Fatal internally, which is
-	// not valid from a non-test goroutine and would make this test flaky under
-	// load rather than failing honestly -- so this dials at the transport level
-	// directly and reports problems through a channel.
+	// testClient's helpers call t.Fatal, which is invalid off the test goroutine, so these dial at the transport level
+	// and report through a channel.
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	failures := make(chan error, clients)
@@ -496,14 +421,7 @@ func TestJoinIsNeverSentForAPlayerAlreadyInTheWelcomeRoster(t *testing.T) {
 				return
 			}
 
-			// The welcome is NOT necessarily the first message: the relay adds
-			// a client to the room before sending its welcome, so a player
-			// joining in that window has its join forwarded here first. That
-			// is real, was found by this test, and is handled in
-			// core (Welcome merges into the roster rather than
-			// replacing it) rather than by serialising a network write under
-			// the room lock. So skip past anything that arrives early, and
-			// count it as already-known so the assertion below stays honest.
+			// Client.holdUntilWelcome puts the welcome first; a join that still arrived early counts as already known.
 			deadline := time.After(timeout)
 			early := make(map[string]bool)
 			for observations[i] == nil {
@@ -575,9 +493,6 @@ func TestJoinIsNeverSentForAPlayerAlreadyInTheWelcomeRoster(t *testing.T) {
 	}
 }
 
-// TestOversizedPositionDropped confirms a State whose Position exceeds
-// MaxPositionLen is dropped rather than forwarded — one of the Limits
-// agent_docs/contract.md says are "enforced starting Phase 3".
 func TestOversizedPositionDropped(t *testing.T) {
 	addr := startServer(t)
 
@@ -600,19 +515,8 @@ func TestOversizedPositionDropped(t *testing.T) {
 	}
 }
 
-// TestOutOfRangePositionDropped confirms a state with a position component
-// past MaxPositionComponent's magnitude is dropped, not forwarded —
-// protocol.IsValidPosition/ValidateState had no test anywhere before this,
-// despite being the newest limit added. A syntactically valid JSON number
-// like 1e308 survives []float64 unmarshaling and becomes +Inf the moment an
-// adapter narrows it to float32. NaN/±Inf themselves aren't tested at this
-// wire level: standard JSON has no literal for them (confirmed:
-// json.Marshal on a NaN/Inf float64 errors), so they can never actually
-// arrive over the wire — IsValidPosition's own NaN/Inf checks are defense
-// in depth for a State constructed directly in Go, covered instead by
-// protocol's own TestIsValidPosition and
-// core's TestNonFiniteInboundPositionDropped (which calls
-// storeRemoteState directly, bypassing JSON).
+// TestOutOfRangePositionDropped: 1e308 is valid JSON and survives []float64, but is +Inf once an adapter narrows it
+// to float32. NaN and Inf have no JSON literal, so protocol's and core's own tests cover them.
 func TestOutOfRangePositionDropped(t *testing.T) {
 	addr := startServer(t)
 
@@ -634,9 +538,6 @@ func TestOutOfRangePositionDropped(t *testing.T) {
 	}
 }
 
-// TestOversizedOrientationDropped and TestOversizedAnimDropped confirm the
-// remaining two arms of the combined length check in
-// protocol.ValidateState — only the AreaID arm had a test before this.
 func TestOversizedOrientationDropped(t *testing.T) {
 	addr := startServer(t)
 
@@ -680,8 +581,6 @@ func TestOversizedAnimDropped(t *testing.T) {
 	}
 }
 
-// TestOversizedLineClosesConnection confirms a client sending a line over
-// MaxLineBytes gets disconnected rather than silently accepted.
 func TestOversizedLineClosesConnection(t *testing.T) {
 	addr := startServer(t)
 
@@ -708,8 +607,6 @@ func TestOversizedLineClosesConnection(t *testing.T) {
 	}
 }
 
-// TestServerFullRejectsExtraClient confirms a relay at its configured
-// MaxClients refuses an additional join rather than growing unbounded.
 func TestServerFullRejectsExtraClient(t *testing.T) {
 	addr := startServer(t)
 
@@ -747,19 +644,7 @@ func TestServerFullRejectsExtraClient(t *testing.T) {
 	}
 }
 
-// TestMismatchedProtocolVersionRejected confirms a Hello whose
-// protocol_version doesn't match protocol.Version is refused outright, per
-// the versioning rule (agent_docs/contract.md). Previously untested —
-// closed as a coverage gap while scoping relay-safety hardening
-// (agent_docs/architecture.md's room-code/version ADR).
-// A version BELOW the floor is refused; one above it is not.
-//
-// This asserted that protocol.Version+1 was refused until 2026-09-08, i.e. that
-// the check was exact equality -- which is what made the version unraisable
-// without a flag day and so, in practice, never raised. Under a floor a NEWER
-// peer is fine: unknown JSON fields are ignored, and refusing one would make
-// every relay upgrade a synchronised one in the other direction. See
-// protocol.MinProtocolVersion.
+// TestMismatchedProtocolVersionRejected: a version below protocol.MinProtocolVersion is refused.
 func TestMismatchedProtocolVersionRejected(t *testing.T) {
 	addr := startServer(t)
 
@@ -790,9 +675,8 @@ func TestMismatchedProtocolVersionRejected(t *testing.T) {
 	}
 }
 
-// The other half of the floor, and the half that would silently stop being true
-// if anyone re-tightened the comparison: a client NEWER than the relay joins.
-// The concrete case from plans.md -- a v2.3 client must work with a v2.0 relay.
+// A newer client joins: unknown JSON fields are ignored, and refusing it would make every relay upgrade a
+// synchronised one.
 func TestAClientNewerThanTheRelayIsAccepted(t *testing.T) {
 	addr := startServer(t)
 
@@ -812,8 +696,7 @@ func TestAClientNewerThanTheRelayIsAccepted(t *testing.T) {
 	}
 }
 
-// The relay states its own version, which is what lets a client apply the floor
-// in the other direction (core refuses a relay below its minimum).
+// The relay's own version lets a client apply the floor the other way, refusing a relay below its minimum.
 func TestTheWelcomeCarriesTheRelaysProtocolVersion(t *testing.T) {
 	addr := startServer(t)
 
@@ -835,10 +718,6 @@ func TestTheWelcomeCarriesTheRelaysProtocolVersion(t *testing.T) {
 	}
 }
 
-// TestOversizedExtrasDropped confirms a State whose Extras exceeds
-// MaxExtrasBytes is dropped rather than forwarded. Previously untested —
-// closed as a coverage gap while scoping relay-safety hardening
-// (agent_docs/architecture.md's room-code/version ADR).
 func TestOversizedExtrasDropped(t *testing.T) {
 	addr := startServer(t)
 
@@ -851,10 +730,8 @@ func TestOversizedExtrasDropped(t *testing.T) {
 	c2.expectWelcome(timeout)
 	c1.next(timeout)
 
-	// strings.Repeat, not a raw zero-byte string: JSON escapes each
-	// non-printable byte as a 6-character sequence, which would blow past
-	// MaxLineBytes first and close the connection instead of exercising
-	// the MaxExtrasBytes drop-only path this test targets.
+	// Printable bytes: JSON escapes a zero byte as six characters, which would hit MaxLineBytes and close the
+	// connection instead of reaching the MaxExtrasBytes drop.
 	oversized := map[string]any{"junk": strings.Repeat("a", protocol.MaxExtrasBytes+1)}
 	c1.sendState(protocol.State{PlayerID: w1.PlayerID, AreaID: "a", Position: []float64{1, 1}, Anim: "idle", Extras: oversized})
 
@@ -865,10 +742,6 @@ func TestOversizedExtrasDropped(t *testing.T) {
 	}
 }
 
-// TestRateLimitClosesConnection confirms a client exceeding
-// MaxMessagesPerSecond is disconnected rather than left to keep flooding.
-// Previously untested — closed as a coverage gap while scoping relay-safety
-// hardening (agent_docs/architecture.md's room-code/version ADR).
 func TestRateLimitClosesConnection(t *testing.T) {
 	addr := startServer(t)
 
@@ -879,10 +752,7 @@ func TestRateLimitClosesConnection(t *testing.T) {
 	disconnected := make(chan struct{})
 	c1.conn.OnDisconnect(func(err error) { close(disconnected) })
 
-	// Marshal once and send raw via conn.Send, ignoring write errors:
-	// unlike sendState (which t.Fatalf's on error), a later send in this
-	// loop is expected to fail once the relay has already closed the
-	// connection for exceeding the rate limit.
+	// Raw sends, not sendState: a later send is expected to fail once the relay has closed the connection.
 	payload, err := json.Marshal(protocol.State{PlayerID: w1.PlayerID, AreaID: "a", Position: []float64{1, 1}, Anim: "idle"})
 	if err != nil {
 		t.Fatalf("marshal state: %v", err)
@@ -904,12 +774,8 @@ func TestRateLimitClosesConnection(t *testing.T) {
 	}
 }
 
-// TestHelloTimeoutClosesConnection confirms an unauthenticated connection
-// that never completes a Hello is closed after Server.HelloTimeout rather
-// than held open forever. Found while scoping relay-safety hardening —
-// transport's own IdleTimeout doesn't cover this case on its own, since it
-// resets on any successfully read line, not just a completed Hello. See
-// agent_docs/architecture.md's room-code/version ADR.
+// TestHelloTimeoutClosesConnection: transport's IdleTimeout resets on any line read, not only a completed Hello, so
+// it cannot bound an unauthenticated connection.
 func TestHelloTimeoutClosesConnection(t *testing.T) {
 	s := NewServer()
 	s.HelloTimeout = 100 * time.Millisecond
@@ -924,7 +790,6 @@ func TestHelloTimeoutClosesConnection(t *testing.T) {
 	disconnected := make(chan struct{})
 	conn.OnDisconnect(func(err error) { close(disconnected) })
 
-	// Deliberately never send a Hello.
 	select {
 	case <-disconnected:
 	case <-time.After(timeout):
@@ -932,9 +797,7 @@ func TestHelloTimeoutClosesConnection(t *testing.T) {
 	}
 }
 
-// fakeStallingTransport is a transport.Transport whose Send blocks until
-// unblock is closed, used to prove Room.Forward no longer holds r.mu for
-// the duration of a slow/stalled Send call.
+// fakeStallingTransport's Send blocks until unblock is closed.
 type fakeStallingTransport struct {
 	unblock chan struct{}
 }
@@ -949,15 +812,8 @@ func (f *fakeStallingTransport) OnDisconnect(func(error))            {}
 func (f *fakeStallingTransport) OnError(func(error))                 {}
 func (f *fakeStallingTransport) Close() error                        { return nil }
 
-// TestRoomForwardDoesNotBlockOtherOperationsOnStalledSend confirms
-// Room.Forward releases r.mu before calling Send, so one stalled room
-// member can't freeze other room operations (joins, leaves, roster reads,
-// other Forward calls) for the duration of its own send. Previously
-// Room.Forward held r.mu for its entire send loop; harmless when Send was
-// unbounded-but-fast, but real once NDJSONConn.Send gained a WriteTimeout
-// (transport.go) and could legitimately block for seconds against a
-// stalled peer. Found while scoping relay-safety hardening —
-// agent_docs/architecture.md's room-code/version ADR.
+// TestRoomForwardDoesNotBlockOtherOperationsOnStalledSend: Room.Forward releases r.mu before sending, so a member
+// whose Send blocks for its write timeout cannot freeze joins, leaves or other sends.
 func TestRoomForwardDoesNotBlockOtherOperationsOnStalledSend(t *testing.T) {
 	r := newRoom("emerald", "", "room1", nil)
 	stalled := &fakeStallingTransport{unblock: make(chan struct{})}
@@ -970,8 +826,7 @@ func TestRoomForwardDoesNotBlockOtherOperationsOnStalledSend(t *testing.T) {
 		close(forwardDone)
 	}()
 
-	// Give Forward a moment to reach the (now stalled) Send call before
-	// racing a room operation against it.
+	// Let Forward reach the stalled Send first.
 	time.Sleep(50 * time.Millisecond)
 
 	roomOpDone := make(chan struct{})
@@ -994,9 +849,6 @@ func TestRoomForwardDoesNotBlockOtherOperationsOnStalledSend(t *testing.T) {
 	}
 }
 
-// TestRoomCodeAcceptsCorrectCode confirms a Hello that proves the relay's
-// configured RoomCode (ADR 0067) is accepted normally — room-code auth added alongside
-// relay-safety hardening, agent_docs/architecture.md's ADR.
 func TestRoomCodeAcceptsCorrectCode(t *testing.T) {
 	s := NewServer()
 	s.RoomCode = "letmein"
@@ -1013,10 +865,7 @@ func TestRoomCodeAcceptsCorrectCode(t *testing.T) {
 	}
 }
 
-// TestRoomCodeRejectsWrongCode confirms a Hello whose proof is of the wrong
-// code is refused with a legible Reject, not a bare hangup — see the ADR in
-// agent_docs/architecture.md on why a rejection needs to be distinguishable
-// from "the relay is just slow."
+// TestRoomCodeRejectsWrongCode: a wrong code gets a Reject, not a bare hangup that looks like a slow relay.
 func TestRoomCodeRejectsWrongCode(t *testing.T) {
 	s := NewServer()
 	s.RoomCode = "letmein"
@@ -1040,11 +889,7 @@ func TestRoomCodeRejectsWrongCode(t *testing.T) {
 	}
 }
 
-// TestEmptyConfiguredRoomCodeAcceptsAnyHello confirms the back-compat
-// default: a relay with no RoomCode configured accepts a join regardless of
-// what (if anything) the client offers to prove — auth stays off
-// unless the relay operator opts in, matching the pre-existing friend-hosted
-// posture. agent_docs/architecture.md's ADR.
+// TestEmptyConfiguredRoomCodeAcceptsAnyHello: with no RoomCode the relay admits whatever the client offers to prove.
 func TestEmptyConfiguredRoomCodeAcceptsAnyHello(t *testing.T) {
 	addr := startServer(t) // NewServer(), RoomCode left empty
 
@@ -1059,9 +904,6 @@ func TestEmptyConfiguredRoomCodeAcceptsAnyHello(t *testing.T) {
 	}
 }
 
-// TestOnlyGameAcceptsMatchingGame confirms a relay restricted to one game
-// still accepts a client playing that game normally — see the ADR in
-// agent_docs/architecture.md on the single-game relay setting.
 func TestOnlyGameAcceptsMatchingGame(t *testing.T) {
 	s := NewServer()
 	s.OnlyGame = "pseudoregalia"
@@ -1078,10 +920,8 @@ func TestOnlyGameAcceptsMatchingGame(t *testing.T) {
 	}
 }
 
-// TestOnlyGameRejectsOtherGame confirms a client playing a different game
-// than the relay is configured for is refused with a legible Reject naming
-// that specific reason, not a bare hangup and not the per-room
-// ReasonGameMismatch (no room this client could pick would help).
+// TestOnlyGameRejectsOtherGame: the reason is ReasonGameNotAllowed, not the per-room ReasonGameMismatch, since no room
+// this client could pick would help.
 func TestOnlyGameRejectsOtherGame(t *testing.T) {
 	s := NewServer()
 	s.OnlyGame = "pseudoregalia"
@@ -1105,10 +945,7 @@ func TestOnlyGameRejectsOtherGame(t *testing.T) {
 	}
 }
 
-// TestEmptyOnlyGameAcceptsAnyGame confirms the back-compat default: a relay
-// with no OnlyGame configured hosts whatever shows up, including two
-// different games at once in different rooms — the pre-existing posture,
-// unchanged unless the operator opts in. agent_docs/architecture.md's ADR.
+// TestEmptyOnlyGameAcceptsAnyGame: with no OnlyGame the relay hosts two games at once, in different rooms.
 func TestEmptyOnlyGameAcceptsAnyGame(t *testing.T) {
 	addr := startServer(t) // NewServer(), OnlyGame left empty
 
@@ -1125,11 +962,8 @@ func TestEmptyOnlyGameAcceptsAnyGame(t *testing.T) {
 	}
 }
 
-// TestGameVersionMismatchRejected confirms a room's game_version, once
-// declared, is sticky the same way game_id already is: a second client
-// claiming a different game_version for the same room is refused, but a
-// client that doesn't declare one at all is never refused for it.
-// agent_docs/architecture.md's room-code/version ADR.
+// TestGameVersionMismatchRejected: a room's declared game_version is sticky, but a client that declares none is never
+// refused for it.
 func TestGameVersionMismatchRejected(t *testing.T) {
 	addr := startServer(t)
 
@@ -1149,8 +983,6 @@ func TestGameVersionMismatchRejected(t *testing.T) {
 		t.Fatalf("got message type %q, want %q for a mismatched game_version", env.Type, protocol.TypeReject)
 	}
 
-	// A client that doesn't declare a version at all must still be allowed
-	// in — only a real mismatch between two declared versions is refused.
 	c3 := dialTestClientWithHello(t, addr, protocol.Hello{
 		GameID: "emerald", Room: "room1", DisplayName: "carol",
 	})
@@ -1161,14 +993,8 @@ func TestGameVersionMismatchRejected(t *testing.T) {
 	}
 }
 
-// TestTryAddAndSnapshotRosterIsAtomic is a regression test for a bug found
-// in a review pass: the join path used to call Room.roster() and
-// Room.tryAdd() as two separate calls, so two clients joining concurrently
-// could each snapshot the roster before either had actually added itself —
-// neither would then appear in the other's Welcome roster or the resulting
-// Join broadcast. tryAddAndSnapshotRoster combines both under one critical
-// section so the snapshot for the Nth join always reflects exactly the
-// N-1 members added before it, never fewer, by construction.
+// TestTryAddAndSnapshotRosterIsAtomic: the Nth join's snapshot holds exactly the N-1 members added before it, or two
+// concurrent joiners could each miss the other.
 func TestTryAddAndSnapshotRosterIsAtomic(t *testing.T) {
 	r := newRoom("emerald", "", "room1", nil)
 
@@ -1188,13 +1014,8 @@ func TestTryAddAndSnapshotRosterIsAtomic(t *testing.T) {
 	}
 }
 
-// TestOversizedHelloFieldRejected confirms a Hello with a field over
-// protocol.MaxHelloFieldLen is refused with ReasonHelloFieldTooLong. The
-// DisplayName here is also paired with a bad ProtocolVersion, to confirm
-// the length check runs *first* (a review-pass fix — previously the
-// version check ran first and its rejectAndClose logged the full,
-// oversized field value): if the version check won, the reject reason
-// would be "protocol version mismatch" instead.
+// TestOversizedHelloFieldRejected pairs an oversized DisplayName with a bad ProtocolVersion: the length check must
+// run first, since every refusal logs the hello's fields.
 func TestOversizedHelloFieldRejected(t *testing.T) {
 	addr := startServer(t)
 
@@ -1219,11 +1040,7 @@ func TestOversizedHelloFieldRejected(t *testing.T) {
 	}
 }
 
-// TestPingGetsPong confirms the relay's pre-existing Ping handler (added
-// alongside the protocol's Ping/Pong types, but never exercised by a real
-// sender until core's heartbeat fix — see the 2026-08-14 verified.md
-// entry on the idle-timeout reconnect-ID churn bug) actually replies, and
-// echoes the nonce back unchanged so a caller can match requests to replies.
+// TestPingGetsPong: the pong echoes the nonce, so a caller can match replies to requests.
 func TestPingGetsPong(t *testing.T) {
 	addr := startServer(t)
 	c1 := dialTestClient(t, addr, "emerald", "room1", "alice")
@@ -1255,13 +1072,8 @@ func TestPingGetsPong(t *testing.T) {
 	}
 }
 
-// TestIdleConnectionWithoutPingIsDroppedByIdleTimeout is the "before the
-// fix" control: with IdleTimeout shrunk to something waitable and no Ping
-// (or any other traffic) sent, the relay closes the connection once it
-// elapses. Proves the scenario the heartbeat fixes is real and this test
-// harness actually exercises it — see
-// TestHeartbeatKeepsIdleRelayConnectionAlive (core/core_test.go)
-// for the "after the fix" counterpart against the same knob.
+// TestIdleConnectionWithoutPingIsDroppedByIdleTimeout is the control for core's
+// TestHeartbeatKeepsIdleRelayConnectionAlive: with no traffic at all, IdleTimeout drops the connection.
 func TestIdleConnectionWithoutPingIsDroppedByIdleTimeout(t *testing.T) {
 	s := NewServer()
 	s.IdleTimeout = 50 * time.Millisecond
@@ -1275,16 +1087,13 @@ func TestIdleConnectionWithoutPingIsDroppedByIdleTimeout(t *testing.T) {
 
 	select {
 	case <-disconnected:
-		// expected: the relay's read deadline elapsed with nothing sent.
 	case <-time.After(2 * time.Second):
 		t.Fatal("connection was not dropped by IdleTimeout — test harness assumption is wrong")
 	}
 }
 
-// --- Send/receive rate control (agent_docs/architecture.md's ADR) ---
+// Send and receive rate control.
 
-// TestWelcomeAdvertisesConfiguredSendRate confirms a relay operator's
-// configured Server.SendHz reaches a joining client verbatim in Welcome.
 func TestWelcomeAdvertisesConfiguredSendRate(t *testing.T) {
 	s := NewServer()
 	s.SendHz = 50
@@ -1298,10 +1107,6 @@ func TestWelcomeAdvertisesConfiguredSendRate(t *testing.T) {
 	}
 }
 
-// TestWelcomeAdvertisesDefaultSendRateWhenUnconfigured confirms an
-// unconfigured relay (Server.SendHz left at its zero value) advertises
-// protocol.DefaultSendHz — the zero-means-default convention applied to
-// this new field.
 func TestWelcomeAdvertisesDefaultSendRateWhenUnconfigured(t *testing.T) {
 	addr := startServer(t)
 	c1 := dialTestClient(t, addr, "emerald", "room1", "alice")
@@ -1312,13 +1117,7 @@ func TestWelcomeAdvertisesDefaultSendRateWhenUnconfigured(t *testing.T) {
 	}
 }
 
-// TestOutOfRangeSendRateIsClampedRatherThanRefused confirms an operator's
-// bad server.send_hz value is clamped, not refused — a typo in a cosmetic
-// tuning knob must not stop a relay from starting. Covers all four
-// documented clamp cases: absent/zero and negative both fall back to the
-// default; too low and too high are clamped to the nearest valid bound. Not
-// table-driven subtests (this file's own convention) — a sequence of
-// independent checks instead.
+// TestOutOfRangeSendRateIsClampedRatherThanRefused: a typo in a cosmetic tuning knob must not stop a relay starting.
 func TestOutOfRangeSendRateIsClampedRatherThanRefused(t *testing.T) {
 	check := func(configured, want int) {
 		s := NewServer()
@@ -1337,12 +1136,8 @@ func TestOutOfRangeSendRateIsClampedRatherThanRefused(t *testing.T) {
 	check(1000, protocol.MaxSendHz)
 }
 
-// TestReceiveCapThrottlesOnlyTheClientThatAskedForIt confirms the
-// per-(sender,recipient) gate is genuinely per-recipient: a sender pushing a
-// steady stream of states reaches an uncapped recipient at (close to) full
-// rate, while a recipient that requested a 5Hz cap receives meaningfully
-// fewer of the same messages — never zero (the gate always lets the first
-// one through), never as many as the uncapped peer got.
+// TestReceiveCapThrottlesOnlyTheClientThatAskedForIt: a 5Hz-capped recipient gets fewer of the same states than an
+// uncapped one, and never zero, since the gate always lets the first through.
 func TestReceiveCapThrottlesOnlyTheClientThatAskedForIt(t *testing.T) {
 	addr := startServer(t)
 
@@ -1372,7 +1167,6 @@ func TestReceiveCapThrottlesOnlyTheClientThatAskedForIt(t *testing.T) {
 					count++
 				}
 			case <-done:
-				// Drain whatever already arrived before returning.
 				for {
 					select {
 					case env := <-tc.envs:
@@ -1415,10 +1209,7 @@ func TestReceiveCapThrottlesOnlyTheClientThatAskedForIt(t *testing.T) {
 	}
 }
 
-// TestReceiveCapDoesNotThrottleJoinOrLeave confirms a recipient's own
-// receive gate — even set aggressively low — never blocks a Join or Leave.
-// A throttled Leave would strand a permanently frozen ghost on that
-// recipient's screen, exactly the failure this guarantee exists to prevent.
+// TestReceiveCapDoesNotThrottleJoinOrLeave: a throttled Leave would strand a frozen ghost on that recipient's screen.
 func TestReceiveCapDoesNotThrottleJoinOrLeave(t *testing.T) {
 	addr := startServer(t)
 
@@ -1436,9 +1227,7 @@ func TestReceiveCapDoesNotThrottleJoinOrLeave(t *testing.T) {
 		t.Fatalf("got %q, want %q (peer's join)", join.Type, protocol.TypeJoin)
 	}
 
-	// Several states in immediate succession -- capped's 1Hz gate will drop
-	// all but (at most) the first of these, proving the gate is actually
-	// active for this recipient.
+	// The 1Hz gate drops all but the first of these, so it is active for this recipient.
 	for i := 0; i < 5; i++ {
 		peer.sendState(protocol.State{PlayerID: w.PlayerID, AreaID: "a", Position: []float64{float64(i), 0}, Anim: "idle"})
 	}
@@ -1465,10 +1254,6 @@ func TestReceiveCapDoesNotThrottleJoinOrLeave(t *testing.T) {
 	}
 }
 
-// TestUncappedRecipientStillReceivesEveryState is the default-path
-// regression: with no MaxReceiveHz set (every client today, and every older
-// client forever), every single state sent must still arrive, byte for
-// byte the same guarantee as before the receive-cap gate existed.
 func TestUncappedRecipientStillReceivesEveryState(t *testing.T) {
 	addr := startServer(t)
 
@@ -1499,10 +1284,6 @@ func TestUncappedRecipientStillReceivesEveryState(t *testing.T) {
 	}
 }
 
-// TestRateLimitScalesWithConfiguredSendRate confirms a relay configured for
-// a fast room (100Hz) tolerates proportionally more traffic before closing
-// a connection — the historical flat 120/sec cap would have tripped well
-// before this burst completes.
 func TestRateLimitScalesWithConfiguredSendRate(t *testing.T) {
 	s := NewServer()
 	s.SendHz = 100
@@ -1523,8 +1304,7 @@ func TestRateLimitScalesWithConfiguredSendRate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal envelope: %v", err)
 	}
-	// 100Hz * RateLimitHeadroomMultiple (6) = 600/sec cap. This burst is
-	// well above the OLD flat 120 but comfortably under 600.
+	// 100Hz * RateLimitHeadroomMultiple (6) is a 600/sec cap; this burst is past the 120 floor and well under it.
 	const burst = 200
 	for i := 0; i < burst; i++ {
 		if err := c1.conn.Send(env); err != nil {
@@ -1536,10 +1316,9 @@ func TestRateLimitScalesWithConfiguredSendRate(t *testing.T) {
 	case <-disconnected:
 		t.Fatal("connection was closed — the flood cap did not scale with the configured 100Hz send rate")
 	case <-time.After(200 * time.Millisecond):
-		// still open, as expected
 	}
 
-	// The connection must still work normally afterward, not just survive.
+	// It must still work afterwards, not just survive.
 	c2 := dialTestClient(t, addr, "emerald", "room1", "bob")
 	defer c2.conn.Close()
 	c2.expectWelcome(timeout)
@@ -1550,11 +1329,8 @@ func TestRateLimitScalesWithConfiguredSendRate(t *testing.T) {
 	}
 }
 
-// TestRateLimitNeverFallsBelowTheHistoricalFloor confirms a relay
-// configured for a SLOW room (10Hz) still tolerates the historical 120/sec
-// floor, not the smaller scaled value (10*6=60) — turning a room down must
-// never start disconnecting older clients still sending at their own
-// built-in 20Hz default.
+// TestRateLimitNeverFallsBelowTheHistoricalFloor: turning a room down must never disconnect an older client still
+// sending at its own built-in 20Hz.
 func TestRateLimitNeverFallsBelowTheHistoricalFloor(t *testing.T) {
 	s := NewServer()
 	s.SendHz = 10
@@ -1575,8 +1351,7 @@ func TestRateLimitNeverFallsBelowTheHistoricalFloor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal envelope: %v", err)
 	}
-	// More than the scaled value (10*6=60) but fewer than the historical
-	// floor (120) -- proves the floor, not the scaled-down value, applies.
+	// Past the scaled 10*6=60 and under the 120 floor.
 	const burst = 100
 	for i := 0; i < burst; i++ {
 		if err := c1.conn.Send(env); err != nil {
@@ -1591,10 +1366,7 @@ func TestRateLimitNeverFallsBelowTheHistoricalFloor(t *testing.T) {
 	}
 }
 
-// TestRateLimitedClientReceivesRejectBeforeClose confirms the rate-limit
-// path sends a Reject (ReasonRateLimited) before closing, replacing the
-// previous anonymous hangup — the same "refused/closed, and why" posture
-// TypeReject already provides at handshake, extended to a mid-session close.
+// TestRateLimitedClientReceivesRejectBeforeClose: a mid-session close says why, as a handshake refusal does.
 func TestRateLimitedClientReceivesRejectBeforeClose(t *testing.T) {
 	addr := startServer(t)
 
@@ -1648,17 +1420,12 @@ func TestRateLimitedClientReceivesRejectBeforeClose(t *testing.T) {
 	}
 }
 
-// TestReceiveGateForgetsASenderThatLeft is a white-box regression for
-// Room.remove's gate purge: without it, a departed sender's entry would sit
-// forever in every remaining member's receive gate (player_ids are never
-// reused), one stale map entry per departure over a long-lived relay's
-// life.
+// TestReceiveGateForgetsASenderThatLeft: player_ids are never reused, so without Room.remove's purge every departed
+// sender stays in each remaining member's receive gate for the relay's life.
 func TestReceiveGateForgetsASenderThatLeft(t *testing.T) {
 	r := newRoom("emerald", "", "room1", nil)
 	sender := &Client{PlayerID: "p1", Conn: &fakeStallingTransport{unblock: make(chan struct{})}}
-	// maxReceiveHz must be > 0 -- the uncapped (0) path short-circuits
-	// allowStateFrom before it ever touches the gate map, so an uncapped
-	// recipient would never actually exercise (or need) the purge below.
+	// Capped: an uncapped allowStateFrom returns before it touches the gate map.
 	recipient := &Client{PlayerID: "p2", Conn: &fakeStallingTransport{unblock: make(chan struct{})}, maxReceiveHz: 10}
 	r.tryAdd(sender)
 	r.tryAdd(recipient)
@@ -1683,21 +1450,8 @@ func TestReceiveGateForgetsASenderThatLeft(t *testing.T) {
 	}
 }
 
-// TestRoomsAreIndependentAcrossTheirWholeLifecycle is the generic version of the
-// multi-game question: can the server create a room, keep it, create another,
-// drop one, and leave every survivor untouched — in whatever order that happens.
-//
-// Real usage is not a tidy sequence. Rooms come and go while others are mid-
-// session, in arbitrary interleavings, and a server that only works when rooms
-// are created and destroyed in order is a server that works until the day two
-// groups play at once. This walks one such interleaving and asserts isolation at
-// every step, because the failure mode is silent: a room that is dropped, or
-// dropped-and-recreated, or reached through the wrong key, does not error — it
-// just stops delivering, or starts delivering to strangers.
-//
-// It matters most immediately because rooms are keyed by game_id AND name
-// (roomKey), so "the same name in another game" and "a different name" are two
-// distinct axes and dropIfEmpty has to delete exactly one entry.
+// TestRoomsAreIndependentAcrossTheirWholeLifecycle walks one interleaving of rooms created and dropped, checking
+// isolation at every step: a room dropped or reached through the wrong key does not error, it stops delivering.
 func TestRoomsAreIndependentAcrossTheirWholeLifecycle(t *testing.T) {
 	s := &Server{rooms: make(map[string]*Room), MaxClients: DefaultMaxClients}
 	addr := startServerWith(t, s)
@@ -1708,7 +1462,6 @@ func TestRoomsAreIndependentAcrossTheirWholeLifecycle(t *testing.T) {
 		return len(s.rooms)
 	}
 
-	// 1. A room is created on first join.
 	a1 := dialTestClient(t, addr, "emerald", "alpha", "a1")
 	defer a1.conn.Close()
 	a1.expectWelcome(timeout)
@@ -1716,7 +1469,6 @@ func TestRoomsAreIndependentAcrossTheirWholeLifecycle(t *testing.T) {
 		t.Fatalf("after the first join there are %d rooms, want 1", roomCount())
 	}
 
-	// 2. A second client joins the SAME room and finds the first there.
 	a2 := dialTestClient(t, addr, "emerald", "alpha", "a2")
 	defer a2.conn.Close()
 	if w := a2.expectWelcome(timeout); len(w.Roster) != 1 {
@@ -1727,7 +1479,6 @@ func TestRoomsAreIndependentAcrossTheirWholeLifecycle(t *testing.T) {
 		t.Fatalf("joining an existing room created a new one: %d rooms", roomCount())
 	}
 
-	// 3. A DIFFERENT room name, same game. The first room keeps working.
 	b1 := dialTestClient(t, addr, "emerald", "beta", "b1")
 	defer b1.conn.Close()
 	if w := b1.expectWelcome(timeout); len(w.Roster) != 0 {
@@ -1738,7 +1489,6 @@ func TestRoomsAreIndependentAcrossTheirWholeLifecycle(t *testing.T) {
 	}
 	a1.expectNothingOfType(protocol.TypeJoin, 200*time.Millisecond)
 
-	// 4. The SAME room name in another game. Also independent.
 	c1 := dialTestClient(t, addr, "tevi", "alpha", "c1")
 	defer c1.conn.Close()
 	if w := c1.expectWelcome(timeout); len(w.Roster) != 0 {
@@ -1748,7 +1498,6 @@ func TestRoomsAreIndependentAcrossTheirWholeLifecycle(t *testing.T) {
 		t.Fatalf("%d rooms, want 3", roomCount())
 	}
 
-	// 5. Traffic stays in its own room, in every direction.
 	a1.sendState(protocol.State{AreaID: "alpha-zone", Position: []float64{1, 1}})
 	if st := a2.nextOfType(protocol.TypeState, timeout); st.Type != protocol.TypeState {
 		t.Fatal("state did not reach the other member of the same room")
@@ -1756,10 +1505,7 @@ func TestRoomsAreIndependentAcrossTheirWholeLifecycle(t *testing.T) {
 	b1.expectNothingOfType(protocol.TypeState, 200*time.Millisecond)
 	c1.expectNothingOfType(protocol.TypeState, 200*time.Millisecond)
 
-	// 6. Emptying one room must not disturb the others. Drain "alpha" (emerald)
-	//    completely — the room being dropped is the one that shares its NAME with
-	//    a live room in another game, which is precisely where deleting by name
-	//    instead of by key would evict the wrong entry.
+	// The dropped room shares its name with a live room in another game: deleting by name would evict the wrong one.
 	a1.conn.Close()
 	a2.conn.Close()
 	deadline := time.Now().Add(3 * time.Second)
@@ -1770,7 +1516,6 @@ func TestRoomsAreIndependentAcrossTheirWholeLifecycle(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	// The survivors are still live and still separate.
 	b2 := dialTestClient(t, addr, "emerald", "beta", "b2")
 	defer b2.conn.Close()
 	if w := b2.expectWelcome(timeout); len(w.Roster) != 1 {
@@ -1779,8 +1524,6 @@ func TestRoomsAreIndependentAcrossTheirWholeLifecycle(t *testing.T) {
 	c1.sendState(protocol.State{AreaID: "tevi-zone", Position: []float64{2, 2}})
 	b1.expectNothingOfType(protocol.TypeState, 200*time.Millisecond)
 
-	// 7. Re-creating a dropped room gives a fresh, empty one — not a revived
-	//    corpse still holding its old members.
 	a3 := dialTestClient(t, addr, "emerald", "alpha", "a3")
 	defer a3.conn.Close()
 	if w := a3.expectWelcome(timeout); len(w.Roster) != 0 {
@@ -1790,7 +1533,6 @@ func TestRoomsAreIndependentAcrossTheirWholeLifecycle(t *testing.T) {
 		t.Fatalf("%d rooms after recreating one, want 3", roomCount())
 	}
 
-	// And it is genuinely wired up, not just present in the map.
 	a4 := dialTestClient(t, addr, "emerald", "alpha", "a4")
 	defer a4.conn.Close()
 	a4.expectWelcome(timeout)
@@ -1800,33 +1542,16 @@ func TestRoomsAreIndependentAcrossTheirWholeLifecycle(t *testing.T) {
 	c1.expectNothingOfType(protocol.TypeState, 200*time.Millisecond)
 }
 
-// TestJoinRacingTheLastLeaveIsNotOrphaned targets the window between being
-// handed a room and actually joining it.
-//
-// handleConn calls joinOrCreateRoom (which takes s.mu, finds or creates the
-// room, and releases it), then reserves a slot, mints an id, and only then adds
-// the client under r.mu. If the room's last existing member disconnects inside
-// that window, finishLeave -> dropIfEmpty sees size 0 and removes the room from
-// s.rooms — and the joining client then adds itself to a room nobody can reach.
-// The next client asking for that same name creates a fresh one, so the two are
-// permanently invisible to each other despite both being "connected".
-//
-// That is the same class of failure the roster snapshot already fixed for a
-// different window, and it fails silently: everyone gets a Welcome, nothing
-// errors, the ghosts just never appear.
-//
-// Churn is what makes it reachable — a room emptying while someone joins is
-// exactly the start/drop/start pattern of real use.
+// TestJoinRacingTheLastLeaveIsNotOrphaned: if the last member leaves between joinOrCreateRoom and the add, dropIfEmpty
+// removes the room and the joiner lands in one nobody can reach. Nothing errors; the ghosts never appear.
 func TestJoinRacingTheLastLeaveIsNotOrphaned(t *testing.T) {
 	s := &Server{rooms: make(map[string]*Room), MaxClients: DefaultMaxClients}
 	addr := startServerWith(t, s)
 
 	for i := 0; i < 40; i++ {
-		// The sole occupant, whose departure can empty the room.
 		leaver := dialTestClient(t, addr, "emerald", "churn", "leaver")
 		leaver.expectWelcome(timeout)
 
-		// A joiner racing that departure.
 		var wg sync.WaitGroup
 		var joiner *testClient
 		var joinerID string
@@ -1842,8 +1567,6 @@ func TestJoinRacingTheLastLeaveIsNotOrphaned(t *testing.T) {
 		}()
 		wg.Wait()
 
-		// A third client asks for the same room. If the joiner was orphaned, this
-		// one lands in a different room object and never sees it.
 		witness := dialTestClient(t, addr, "emerald", "churn", "witness")
 		w := witness.expectWelcome(timeout)
 
@@ -1861,7 +1584,6 @@ func TestJoinRacingTheLastLeaveIsNotOrphaned(t *testing.T) {
 
 		joiner.conn.Close()
 		witness.conn.Close()
-		// Let the room settle back to empty before the next iteration.
 		deadline := time.Now().Add(2 * time.Second)
 		for {
 			s.mu.Lock()
@@ -1875,28 +1597,22 @@ func TestJoinRacingTheLastLeaveIsNotOrphaned(t *testing.T) {
 	}
 }
 
-// TestRoomDroppedWhileAClientIsJoiningIt drives the orphaning hazard directly,
-// in the order handleConn can actually interleave it, rather than hoping a
-// timing race reproduces. The steps below are exactly what two goroutines do:
-// one is handed a room by joinOrCreateRoom and has not added itself yet, while
-// the other's last member leaves and dropIfEmpty removes the room.
+// TestRoomDroppedWhileAClientIsJoiningIt drives the same hazard in the order handleConn can interleave it, without
+// depending on timing.
 func TestRoomDroppedWhileAClientIsJoiningIt(t *testing.T) {
 	s := &Server{rooms: make(map[string]*Room), MaxClients: DefaultMaxClients}
 
-	// A joiner is handed the room. It has NOT added itself yet -- that happens
-	// several statements later in handleConn.
+	// Handed the room, not added yet: that happens several statements later in handleConn.
 	joining, reason := s.joinOrCreateRoom("emerald", "", "x", nil)
 	if reason != "" {
 		t.Fatalf("join refused: %s", reason)
 	}
 
-	// Meanwhile the room's last member departs and the room is swept.
+	// The room's last member departs meanwhile.
 	s.dropIfEmpty(joining)
 
-	// The joiner now completes its join, into whatever it was handed.
 	joining.tryAdd(&Client{PlayerID: "p1"})
 
-	// A later client asks for the same room.
 	later, reason := s.joinOrCreateRoom("emerald", "", "x", nil)
 	if reason != "" {
 		t.Fatalf("second join refused: %s", reason)
@@ -1908,23 +1624,8 @@ func TestRoomDroppedWhileAClientIsJoiningIt(t *testing.T) {
 	}
 }
 
-// TestForwardHoldsTrafficUntilWelcomeIsWritten pins the protocol's one
-// ordering guarantee: Welcome is the FIRST message a client receives.
-//
-// handleConn has to add a client to the room before it can send that client's
-// Welcome, because the Welcome carries the roster captured atomically with the
-// add. That leaves a window in which the client is a full room member — and
-// Room.forward, running on some other connection's goroutine, will write to
-// it. If the room's last other occupant leaves in that window, its Leave beats
-// the Welcome onto the socket. core reads its own player_id and
-// roster out of Welcome, so anything arriving first refers to a session the
-// client does not yet believe it has.
-//
-// Checked here at the Room level rather than end to end on purpose: the live
-// version of this needs an unlucky scheduler (CI's race job caught it as an
-// intermittent TestJoinRacingTheLastLeaveIsNotOrphaned failure, "got message
-// type \"leave\", want \"welcome\"", on 2026-08-17). Driving forward and the
-// flush directly makes the same claim without depending on timing at all.
+// TestForwardHoldsTrafficUntilWelcomeIsWritten: a client is a room member before its Welcome is written, and core
+// reads its player_id and roster from the Welcome, so nothing may reach it first. At the Room level, so no timing.
 func TestForwardHoldsTrafficUntilWelcomeIsWritten(t *testing.T) {
 	r := newRoom("emerald", "", "churn", nil)
 	rt := &recordingTransport{}
@@ -1942,14 +1643,8 @@ func TestForwardHoldsTrafficUntilWelcomeIsWritten(t *testing.T) {
 			len(got), got[0].Type)
 	}
 
-	// Lossy state is held too, not dropped. Dropping it looks safe — the
-	// state plane is latest-wins — but the seeding that would cover the gap
-	// (joinSnapshot) only runs for a room that negotiated snapshot.v1, so in
-	// an ordinary cosmetic room a discarded sample is simply lost and its
-	// sender stays invisible until it sends another. An earlier version of
-	// this fix dropped it and cost
-	// TestRateLimitScalesWithConfiguredSendRate a message it was entitled
-	// to, which is what this half of the test pins.
+	// State is held too: joinSnapshot covers a dropped sample only in a snapshot.v1 room, so elsewhere its sender
+	// stays invisible until it sends again.
 	state, err := envelope(protocol.TypeState, protocol.State{AreaID: "a", Position: []float64{1, 2}})
 	if err != nil {
 		t.Fatalf("build state: %v", err)
@@ -1960,8 +1655,6 @@ func TestForwardHoldsTrafficUntilWelcomeIsWritten(t *testing.T) {
 		t.Fatalf("state reached the client before its Welcome (%d message(s))", len(got))
 	}
 
-	// Welcome has now been written, so the hold lifts and everything held is
-	// delivered, in the order it was produced.
 	r.markWelcomedAndFlush("p1")
 
 	got := rt.received(t)
@@ -1977,7 +1670,6 @@ func TestForwardHoldsTrafficUntilWelcomeIsWritten(t *testing.T) {
 			got[0].Type, got[1].Type, protocol.TypeLeave, protocol.TypeState)
 	}
 
-	// And the hold is genuinely over — later traffic goes straight through.
 	r.Forward(leave, []string{"p1"})
 	if got := rt.received(t); len(got) != 3 {
 		t.Fatalf("after the flush the client received %d message(s), want 3 — the hold "+
@@ -1985,20 +1677,8 @@ func TestForwardHoldsTrafficUntilWelcomeIsWritten(t *testing.T) {
 	}
 }
 
-// TestFlushIsNotOvertakenByANewerMessage pins the ordering half of the
-// pre-Welcome hold: a message produced WHILE the backlog is being flushed must
-// not reach the client ahead of that backlog.
-//
-// The first version of markWelcomedAndFlush cleared the hold, unlocked, and
-// then sent what it had taken. In the gap, Room.forward saw a client with no
-// hold and wrote straight to the connection — so a newer message could land in
-// front of older queued ones. That is message reordering introduced by the very
-// mechanism added to stop it, and no existing test noticed, because they all
-// flush with nothing else in flight.
-//
-// recordingTransport's block makes the window deterministic instead of hoping
-// for it: the flush parks inside its first write, a second message is forwarded
-// while it is parked, and only then is the write released.
+// TestFlushIsNotOvertakenByANewerMessage: a message produced while the backlog flushes must not overtake it.
+// recordingTransport's block parks the flush inside its first write, so the window is deterministic.
 func TestFlushIsNotOvertakenByANewerMessage(t *testing.T) {
 	r := newRoom("emerald", "", "churn", nil)
 	rt := &recordingTransport{block: make(chan struct{})}
@@ -2037,7 +1717,7 @@ func TestFlushIsNotOvertakenByANewerMessage(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 
-	// Produced mid-flush. It must NOT overtake `first`.
+	// Produced mid-flush.
 	r.Forward(second, []string{"p1"})
 
 	close(rt.block)
@@ -2060,20 +1740,9 @@ func TestFlushIsNotOvertakenByANewerMessage(t *testing.T) {
 	}
 }
 
-// TestBigRoomWelcomeStaysUnderLineLimit pins the fix for the bug that took every client of a
-// 150-peer room down AT JOIN on 2026-09-01: the Welcome carried the entire roster and its
-// nametags, which grows O(members) and crossed protocol.MaxLineBytes (4096) somewhere above
-// ~100 named members. Every core reads its relay connection through a scanner capped at
-// exactly that limit, so the oversized Welcome killed the connection with "bufio.Scanner:
-// token too long" -- room size had silently become a wire-format ceiling, which
-// agent_docs/scaling.md's standing principle prohibits. The fix bounds the Welcome
-// (boundWelcomeRoster) and hands the remaining members over as ordinary Joins, which a core
-// already treats identically to a roster entry.
-//
-// The reader below is deliberately a RAW scanner with the core's own line limit rather than a
-// testClient (whose transport.Dial default is the generous 64KiB): this test must die exactly
-// the way a real core died, so it fails against the unbounded Welcome and passes against the
-// bounded one.
+// TestBigRoomWelcomeStaysUnderLineLimit: a whole roster with nametags outgrows protocol.MaxLineBytes, the cap on every
+// core's scanner, so boundWelcomeRoster sends the rest as Joins. The reader is a raw scanner at that cap, not a
+// testClient with transport.Dial's 64KiB, so it fails the way a real core does.
 func TestBigRoomWelcomeStaysUnderLineLimit(t *testing.T) {
 	big := NewServer()
 	big.MaxClients = 200

@@ -8,20 +8,9 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// Relay-side cross-area filtering. agent_docs/plans.md frames this as a change
-// of SCALING SHAPE rather than a saving: a room's host uplink goes from
-// n x (n-1) state messages to n x (peers in your area), which is the difference
-// between "8 is the practical limit" and "the limit is how many people are
-// standing in the same room".
-//
-// What makes it safe to ship is that it is a STRICT SUBSET of the check
-// core.remoteStatesAt already applies at render time, and that check stays in
-// place untouched. The relay only declines to send what the recipient's own
-// core would have discarded -- with one exception, the departure case, which
-// has its own test below and is the reason this is not a one-line change.
+// The relay's area filter is a strict subset of core.remoteStatesAt's render-time check, which stays: it declines
+// only what the recipient's core would discard, except the departure case below.
 
-// areaRoom builds a room where every member's area is known and each states
-// whether it opted in to filtering.
 func areaRoom(t *testing.T, members map[string]struct {
 	area        string
 	ownAreaOnly bool
@@ -68,11 +57,8 @@ func TestOwnAreaOnlyClientDoesNotReceiveCrossAreaState(t *testing.T) {
 	}
 }
 
-// THE TEST THAT PROTECTS EMERALD. An adapter that translates a neighbouring
-// map's coordinates renders peers in ADJACENT areas and declares
-// render_all_areas over the bridge, which its core turns into own_area_only
-// being absent. Absent must mean "send me everything" -- and so must an older
-// client that has never heard of the field, which is the same code path.
+// Absent own_area_only means send everything: an adapter that renders adjacent areas declares render_all_areas, and
+// an older client never sends the field.
 func TestClientThatDidNotOptInReceivesEverything(t *testing.T) {
 	r, _ := areaRoom(t, map[string]member{
 		"sender":   {area: "town", ownAreaOnly: true},
@@ -84,14 +70,11 @@ func TestClientThatDidNotOptInReceivesEverything(t *testing.T) {
 	}
 }
 
-// Both fail-open conditions, each mirroring one in core.remoteStatesAt. An
-// unknown area on either side means the relay cannot know the two differ, so it
-// must forward.
+// An unknown area on either side fails open, mirroring core.remoteStatesAt.
 func TestUnknownAreaFailsOpen(t *testing.T) {
 	t.Run("recipient area unknown", func(t *testing.T) {
 		r := newRoom("emerald", "", "room1", nil)
 		r.tryAdd(&Client{PlayerID: "sender", Conn: &recordingTransport{}, ownAreaOnly: true})
-		// Never sent a state, so the relay knows no area for it.
 		r.tryAdd(&Client{PlayerID: "quiet", Conn: &recordingTransport{}, ownAreaOnly: true})
 		r.recordState("sender", protocol.State{PlayerID: "sender", AreaID: "town"})
 		if !recipientsOf(r, "sender", "town")["quiet"] {
@@ -109,9 +92,7 @@ func TestUnknownAreaFailsOpen(t *testing.T) {
 	})
 }
 
-// A room may freely mix a filtered client and a cross-map one, because the
-// decision is per RECIPIENT rather than per room. If it were per room, one
-// Emerald client would switch filtering off for a whole 32-seat lobby.
+// Per recipient, not per room: one cross-map client must not switch filtering off for everyone else.
 func TestMixedRoomFiltersPerRecipient(t *testing.T) {
 	r, _ := areaRoom(t, map[string]member{
 		"sender":   {area: "town", ownAreaOnly: true},
@@ -127,18 +108,8 @@ func TestMixedRoomFiltersPerRecipient(t *testing.T) {
 	}
 }
 
-// THE DEPARTURE CASE, and the reason filtering by area alone is wrong rather
-// than merely wasteful.
-//
-// A peer walking OUT of a recipient's area is announced by exactly one message:
-// the first state carrying its new area_id. That is what the recipient's core
-// despawns the ghost on. Filter it and the recipient hears silence, its buffer
-// edge-holds the last sample, and the ghost stands frozen at the doorway until
-// core.DefaultRemoteStaleAfter (3 seconds) ages it out -- where today's despawn
-// takes about one interpolation delay.
-//
-// Caught by core's own TestCrossAreaFiltersRemote, which went red the moment
-// the filter went in and before this test existed.
+// The first state carrying a peer's new area is what despawns its ghost in the area it left; filtered, the ghost
+// freezes at the doorway until core.DefaultRemoteStaleAfter ages it out.
 func TestDepartingPeerDespawnsOnItsOwnStateNotByAgeOut(t *testing.T) {
 	r, _ := areaRoom(t, map[string]member{
 		"walker":    {area: "town", ownAreaOnly: true},
@@ -146,8 +117,6 @@ func TestDepartingPeerDespawnsOnItsOwnStateNotByAgeOut(t *testing.T) {
 		"unrelated": {area: "cave", ownAreaOnly: true},
 	})
 
-	// The walker crosses from town to cave. Its previous area was town, so the
-	// state that announces the crossing must still reach the peer it left.
 	got := r.stateRecipients("walker", "cave", "town", 100, time.Now())
 	set := map[string]bool{}
 	for _, id := range got {
@@ -162,23 +131,18 @@ func TestDepartingPeerDespawnsOnItsOwnStateNotByAgeOut(t *testing.T) {
 	}
 }
 
-// The departure delivery is for the crossing message only. Once the walker is
-// established in its new area, ordinary filtering resumes -- otherwise the
-// exception would quietly disable the feature for anyone who ever moved.
 func TestDepartureDeliveryIsOnlyForTheCrossingState(t *testing.T) {
 	r, _ := areaRoom(t, map[string]member{
 		"walker": {area: "cave", ownAreaOnly: true},
 		"stayer": {area: "town", ownAreaOnly: true},
 	})
-	// prevArea == area: the walker is standing still in the cave now.
+	// recipientsOf passes the area as prevArea too: the walker has settled in the cave.
 	if recipientsOf(r, "walker", "cave")["stayer"] {
 		t.Fatal("after the crossing, states must be filtered from the old area again")
 	}
 }
 
-// The counters have to keep telling two different stories apart once the filter
-// is live: what COULD be suppressed, and what WAS. Conflating them would make
-// the introspect line report a shrinking opportunity as the filter improved.
+// Conflated, the introspect line would report a shrinking opportunity as the filter improved.
 func TestCountersSeparateSuppressibleFromActuallyFiltered(t *testing.T) {
 	r, _ := areaRoom(t, map[string]member{
 		"sender":   {area: "town", ownAreaOnly: true},
@@ -203,10 +167,8 @@ func TestCountersSeparateSuppressibleFromActuallyFiltered(t *testing.T) {
 	}
 }
 
-// A resumed session keeps its player_id but arrives as a brand new *Client, so
-// without seeding its cached area would start empty and the filter would fail
-// open until its next state landed. Harmless, invisible, and exactly the kind of
-// thing that never gets noticed.
+// A resumed session arrives as a new *Client; unseeded, its area is empty and the filter fails open until its next
+// state.
 func TestResumedClientKeepsItsArea(t *testing.T) {
 	r := newRoom("emerald", "", "room1", nil)
 	original := &Client{PlayerID: "p1", Conn: &recordingTransport{}, ownAreaOnly: true}
@@ -224,12 +186,7 @@ func TestResumedClientKeepsItsArea(t *testing.T) {
 	}
 }
 
-// The arrival seed, and why it is required rather than a nicety. A filtered
-// client receives nothing from another area, so on arriving it knows nothing
-// about who is standing there -- and change suppression (ADR 0039) means a
-// motionless peer says nothing for up to IdleKeepalive. Without the seed,
-// walking into a room where somebody is standing still shows an empty room and
-// pops them in a quarter of a second later, at every seam.
+// A filtered client heard nothing from the area it enters, and a motionless peer there is silent until IdleKeepalive.
 func TestArrivalIsSeededWithPeersAlreadyInTheArea(t *testing.T) {
 	r, conns := areaRoom(t, map[string]member{
 		"walker":   {area: "town", ownAreaOnly: true},
@@ -250,15 +207,12 @@ func TestArrivalIsSeededWithPeersAlreadyInTheArea(t *testing.T) {
 	if st.PlayerID != "standing" {
 		t.Fatalf("seeded with %q, want the peer standing in the destination area", st.PlayerID)
 	}
-	// The peer in a third area must not be seeded -- the arrival is joining one
-	// area, not being handed the whole room.
 	if got := conns["far"].received(t); len(got) != 0 {
 		t.Fatalf("a peer in an unrelated area was seeded too: %d message(s)", len(got))
 	}
 }
 
-// Reliably, not on the lossy state plane. An ordinary state sample may be lost
-// because another follows in ~50ms; a seed has no successor.
+// A lost state sample is covered by the next one; a seed has no successor.
 func TestArrivalSeedIsSentReliably(t *testing.T) {
 	r, conns := areaRoom(t, map[string]member{
 		"walker":   {area: "town", ownAreaOnly: true},
@@ -274,8 +228,6 @@ func TestArrivalSeedIsSentReliably(t *testing.T) {
 	}
 }
 
-// A client that never opted in was already receiving every area's traffic, so
-// seeding it would deliver a duplicate of something it already has.
 func TestClientThatDidNotOptInIsNotSeeded(t *testing.T) {
 	r, conns := areaRoom(t, map[string]member{
 		"crossmap": {area: "town", ownAreaOnly: false},
@@ -287,18 +239,8 @@ func TestClientThatDidNotOptInIsNotSeeded(t *testing.T) {
 	}
 }
 
-// THE BUG THAT REACHED A LIVE SESSION, at the unit level.
-//
-// A core connects to the relay from its -game flag at startup; its adapter
-// attaches when the game launches, which can be minutes later. So the Hello is
-// necessarily sent before the core can know whether its adapter renders
-// neighbouring areas, and it defaults to own_area_only -- which for Emerald,
-// whose cross-map ghosts are a shipped feature, is exactly wrong.
-//
-// The symptom on 2026-08-28 was a ghost crossing a route seam freezing on the
-// tile it entered and vanishing three seconds later: one state delivered by the
-// transition rule, then silence, then the stale-after timer. protocol.TypePrefs
-// is the correction, and this is it working.
+// The Hello goes out before the adapter attaches, so its own_area_only is a guess; the prefs an attaching adapter
+// sends must be able to turn filtering off.
 func TestPrefsCanTurnFilteringOffAfterTheHello(t *testing.T) {
 	r, _ := areaRoom(t, map[string]member{
 		"sender":   {area: "town", ownAreaOnly: true},
@@ -309,7 +251,7 @@ func TestPrefsCanTurnFilteringOffAfterTheHello(t *testing.T) {
 		t.Fatal("precondition: a client that declared own_area_only should be filtered")
 	}
 
-	// The adapter attaches and declares render_all_areas; the core relays that.
+	// The prefs from an adapter that declared render_all_areas.
 	r.mu.Lock()
 	r.members["crossmap"].ownAreaOnly = false
 	r.mu.Unlock()

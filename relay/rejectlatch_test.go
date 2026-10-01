@@ -10,31 +10,14 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
-// A refused hello must be TERMINAL for that connection.
-//
-// Only the rate-limit path latched. The handshake refusals did not, and
-// transport.CloseGracefully deliberately keeps READING and dispatching for
-// handshakeCloseDrain so the Reject is not lost to a reset -- so every line a
-// refused client had already pipelined re-entered the whole hello block:
-// ValidateHelloFields, the room-code compare, joinOrCreateRoom, tryReserveSlot,
-// nextPlayerID, newOutbox, and the Join broadcast.
-//
-// The worst case is this one: a peer refused for a wrong room code sends a
-// SECOND hello, with the right code, on the same already-refused connection --
-// and completes a genuine join over a socket whose write side is closed. It
-// takes a max_clients slot, gets a player_id, and spawns a ghost on every real
-// player's screen that despawns again ~2s later when the drain ends.
-//
-// This was masked until 2026-09-07: netx's limiter hid CloseWrite, so
-// CloseGracefully degraded to a hard Close and there was no drain to re-enter.
-// Fixing the wrapper without latching would have exposed this to every client
-// rather than only TLS ones, which is why the two landed together.
+// A refused hello is terminal: CloseGracefully keeps reading through handshakeCloseDrain, so a second hello with the
+// right code could otherwise join over the half-closed socket, take a slot and flash a ghost on every screen.
 func TestASecondHelloAfterARejectIsIgnored(t *testing.T) {
 	s := NewServer()
 	s.RoomCode = "letmein"
 	addr := startServerWith(t, s)
 
-	// A real member, so a phantom join would have somebody to be announced to.
+	// A real member, so a phantom join has somebody to be announced to.
 	witness := dialTestClientWithCode(t, addr, protocol.Hello{
 		GameID: "emerald", Room: "room1", DisplayName: "witness",
 	}, "letmein")
@@ -67,22 +50,16 @@ func TestASecondHelloAfterARejectIsIgnored(t *testing.T) {
 		if err != nil {
 			t.Fatalf("marshal envelope: %v", err)
 		}
-		// An error here is expected for the second one once the write side is
-		// closed, and is not the thing under test -- the point is what the relay
-		// does with a line that DOES arrive, which is why the two are sent back
-		// to back with no wait between them.
+		// The second Send may fail once the write side closes; what matters is a line that does arrive.
 		_ = conn.Send(env)
 	}
 
-	// Refused at once: a proof that is not a proof (the relay rejects a KE1
-	// it cannot parse without waiting for anything).
+	// A KE1 the relay cannot parse is refused at once.
 	send(protocol.Hello{GameID: "emerald", Room: "room1", DisplayName: "intruder", PakeKE1: "bm90IGEga2Ux"})
-	// ...and immediately a hello with a real KE1, into the drain window. The
-	// relay must not even answer it with a KE2.
+	// A real KE1 straight into the drain window, which the relay must not even answer with a KE2.
 	send(protocol.Hello{GameID: "emerald", Room: "room1", DisplayName: "intruder",
 		PakeKE1: paketest.New(t, "letmein", "").KE1()})
 
-	// Exactly one Reject, and never a Welcome.
 	var rejects int
 	deadline := time.After(2 * time.Second)
 collect:
@@ -106,7 +83,6 @@ collect:
 			"re-processed during the close drain)", rejects)
 	}
 
-	// And the witness must never have been told anybody joined.
 	select {
 	case env := <-witness.envs:
 		if env.Type == protocol.TypeJoin {
@@ -119,7 +95,6 @@ collect:
 	case <-time.After(200 * time.Millisecond):
 	}
 
-	// The room still holds only the witness: no slot was reserved for the refusal.
 	s.mu.Lock()
 	room := s.rooms[roomKey("emerald", "room1")]
 	s.mu.Unlock()

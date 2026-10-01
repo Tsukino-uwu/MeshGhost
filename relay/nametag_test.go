@@ -10,18 +10,11 @@ import (
 
 const nametagTimeout = 2 * time.Second
 
-// A nametag reaches the people who need it by two DIFFERENT routes, and both
-// have to work or the feature is half-built:
-//
-//	Join    -- for somebody arriving while you are already in the room.
-//	Welcome -- for the people already standing there when YOU arrive.
-//
-// Only the first is obvious, and a build with only the first looks fine in
-// every two-player test where one player joins after the other is watching.
+// A nametag travels in a Join to those already in the room and in the Welcome to the newcomer; a build with only the
+// Join passes every two-player test where one player watches the other arrive.
 func TestANametagReachesBothANewcomerAndTheRoom(t *testing.T) {
 	addr := startServer(t)
 
-	// alice is already in the room, with a name and a colour.
 	alice := dialTestClientWithHello(t, addr, protocol.Hello{
 		GameID:      "e2egame",
 		Room:        "room1",
@@ -30,7 +23,6 @@ func TestANametagReachesBothANewcomerAndTheRoom(t *testing.T) {
 	})
 	alice.expectWelcome(nametagTimeout)
 
-	// bob arrives after her, so his Welcome must carry HER tag.
 	bob := dialTestClientWithHello(t, addr, protocol.Hello{
 		GameID:      "e2egame",
 		Room:        "room1",
@@ -54,7 +46,6 @@ func TestANametagReachesBothANewcomerAndTheRoom(t *testing.T) {
 		t.Fatalf("welcome roster gave alice colour %q, want %q", aliceTag.Color, "#F54927")
 	}
 
-	// And alice, who was already watching, must get bob's tag in his Join.
 	join := waitForJoin(t, alice)
 	if join.Nametag == nil {
 		t.Fatal("bob's join carried no nametag, so alice would render him unlabelled forever")
@@ -64,12 +55,8 @@ func TestANametagReachesBothANewcomerAndTheRoom(t *testing.T) {
 	}
 }
 
-// THE DEFAULT IS NO NAME, so the default must put nothing on the wire at all.
-//
-// This is the shipped configuration -- the name field is empty unless somebody
-// deliberately sets one -- which makes it the case most worth pinning: a nil
-// nametag rather than a present-but-empty one, so an adapter's "do I draw a
-// label?" question is answered by the field's absence and cannot be got wrong.
+// The shipped default is no name: a nil nametag rather than an empty one, so an adapter draws a label only when one
+// is present.
 func TestAPlayerWithNoNameCarriesNoNametagAnywhere(t *testing.T) {
 	addr := startServer(t)
 
@@ -88,16 +75,13 @@ func TestAPlayerWithNoNameCarriesNoNametagAnywhere(t *testing.T) {
 	}
 }
 
-// The relay is the trust boundary: whatever a client puts in its Hello, what
-// reaches everybody else is sanitized. A client cannot opt out of this by
-// being the one who typed it.
 func TestTheRelaySanitizesANametagBeforeAnyoneElseSeesIt(t *testing.T) {
 	addr := startServer(t)
 
 	watcher := dialTestClient(t, addr, "e2egame", "room1", "watcher")
 	watcher.expectWelcome(nametagTimeout)
 
-	// A name carrying the three attacks at once, and a colour that is not one.
+	// A newline, a bidi override and a zero-width space, and a colour that is not one.
 	dialTestClientWithHello(t, addr, protocol.Hello{
 		GameID:      "e2egame",
 		Room:        "room1",
@@ -119,9 +103,7 @@ func TestTheRelaySanitizesANametagBeforeAnyoneElseSeesIt(t *testing.T) {
 	}
 }
 
-// waitForJoin returns the next Join this client receives, failing the test if
-// one does not arrive. Other message types are skipped rather than treated as
-// failures: a room's traffic legitimately includes states and pongs.
+// waitForJoin skips other message types: a room's traffic includes states and pongs.
 func waitForJoin(t *testing.T, tc *testClient) protocol.Join {
 	t.Helper()
 	deadline := time.After(nametagTimeout)

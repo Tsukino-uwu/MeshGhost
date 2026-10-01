@@ -10,15 +10,10 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
-// The room-code proof on the relay's side (ADR 0067). What the pake package
-// tests is the cryptography's integration; what these test is the relay's
-// state machine around it: a hello that offers no proof, a proof that is
-// started and abandoned, and a second hello while one is parked.
+// The relay's state machine around the room-code proof; package pake tests the cryptography's integration.
 
-// TestAHelloWithoutAProofIsRefusedWhenACodeIsSet: the wire no longer has a
-// room_code field, so a client that has no code sends nothing -- and a relay
-// with a code must refuse that exactly as it refused a wrong code, and
-// charge it to the source's budget.
+// TestAHelloWithoutAProofIsRefusedWhenACodeIsSet: a client with no code sends no proof, which a relay with a code
+// refuses like a wrong code and charges to the source's budget.
 func TestAHelloWithoutAProofIsRefusedWhenACodeIsSet(t *testing.T) {
 	s := NewServer()
 	s.RoomCode = "letmein"
@@ -38,10 +33,8 @@ func TestAHelloWithoutAProofIsRefusedWhenACodeIsSet(t *testing.T) {
 	}
 }
 
-// TestAnAbandonedProofIsChargedToTheSource: a client that learns its code is
-// wrong at KE2 hangs up without a KE3 (core does exactly that). If that cost
-// nothing, a guesser would start a proof per guess and never pay -- so the
-// relay charges the budget when a parked hello's connection ends.
+// TestAnAbandonedProofIsChargedToTheSource: a client that learns at KE2 that its code is wrong hangs up without a
+// KE3, so if that cost nothing a guesser would start a proof per guess and never pay.
 func TestAnAbandonedProofIsChargedToTheSource(t *testing.T) {
 	s := NewServer()
 	s.RoomCode = "letmein"
@@ -93,9 +86,8 @@ func TestAnAbandonedProofIsChargedToTheSource(t *testing.T) {
 	t.Fatalf("guard saw %d failures after an abandoned proof, want 1", guard.failures)
 }
 
-// TestASecondHelloDuringAParkedProofIsIgnored: between KE2 and KE3 the only
-// line the relay acts on is the KE3; a hello there is neither answered nor
-// admitted, so a client cannot use the parked window to skip the proof.
+// TestASecondHelloDuringAParkedProofIsIgnored: between KE2 and KE3 the relay acts only on the KE3, so the parked
+// window cannot skip the proof.
 func TestASecondHelloDuringAParkedProofIsIgnored(t *testing.T) {
 	s := NewServer()
 	s.RoomCode = "letmein"

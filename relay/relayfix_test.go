@@ -1,16 +1,5 @@
 package relay
 
-// Regressions for the 2026-09-08 review pass over the relay: a Welcome bound
-// that was computed on unescaped bytes, three defects in the resume path, an
-// unbounded escrow table, counters that reported traffic that was never sent,
-// and a world dispatch that failed open.
-//
-// Each test here was confirmed to FAIL with its own fix neutralised, one at a
-// time — the standing rule in agent_docs/testing.md, and the reason
-// TestBigRoomWelcomeStaysUnderLineLimit did not catch the first of them: it
-// passed against the broken code because its fixture used a name that JSON
-// does not escape.
-
 import (
 	"bufio"
 	"encoding/json"
@@ -25,23 +14,12 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// maximalEscapedName is the worst legitimate nametag: MaxDisplayNameRunes of a
-// character protocol.SanitizeDisplayName keeps (graphic ASCII) and encoding/json
-// escapes to six bytes with HTML escaping on, which is the setting every marshal
-// in this package uses. An ampersand renders as a six-byte unicode escape, so this
-// is 24 runes in hand and 144 bytes on the wire.
+// maximalEscapedName is the worst legitimate nametag: MaxDisplayNameRunes of a character SanitizeDisplayName keeps
+// and encoding/json, with the HTML escaping every marshal here uses, writes as six bytes.
 func maximalEscapedName() string { return strings.Repeat("&", protocol.MaxDisplayNameRunes) }
 
-// TestAWelcomeIsBoundedByItsSerializedSize is C1 from the 2026-09-07 review.
-//
-// The 2026-09-01 cap was a member COUNT (32), sized by an arithmetic that
-// counted the bytes in hand: "a nametag entry is ~60 with a maximal name". With
-// the escaping above an entry is ~173, so a full Welcome measured 6183 B against
-// protocol.MaxLineBytes 4096 and the joining core's scanner died with "token too
-// long" — the 2026-09-01 incident, reopened at a fifth of the player count.
-//
-// The assertion is on the SERIALIZED size, which is the thing that was wrong:
-// no count can be checked against an arithmetic nobody re-derives.
+// TestAWelcomeIsBoundedByItsSerializedSize: the bound is on the serialized size, since a member count rests on an
+// arithmetic of bytes in hand that escaping breaks.
 func TestAWelcomeIsBoundedByItsSerializedSize(t *testing.T) {
 	const members = 64
 	roster := make([]string, 0, members)
@@ -71,9 +49,7 @@ func TestAWelcomeIsBoundedByItsSerializedSize(t *testing.T) {
 	if len(overflow) == 0 {
 		t.Fatal("nothing overflowed at 64 maximal names, so this fixture no longer exercises the bound")
 	}
-	// The nametags must follow the roster exactly: a name for an id the client
-	// was not told about is a map entry it can never use, and an id in the
-	// roster with its name left behind is the F4 failure in another place.
+	// Nametags follow the roster: a name for an unlisted id is useless, and a listed id without one is nameless.
 	if len(welcome.Nametags) != len(welcome.Roster) {
 		t.Fatalf("welcome lists %d members and %d nametags", len(welcome.Roster), len(welcome.Nametags))
 	}
@@ -83,12 +59,7 @@ func TestAWelcomeIsBoundedByItsSerializedSize(t *testing.T) {
 		}
 	}
 
-	// The measurement the old comment got wrong, pinned so the next person to
-	// change the sizing sees the real numbers rather than re-deriving them. The
-	// review measured 3927 B at 20 members, 4115 B at 21 and 6183 B at the cap
-	// of 32 against the shipped Welcome's own fixed fields; this fixture's are
-	// slightly smaller, so its crossing sits a member or two later -- which is
-	// exactly why the assertion below is on the bound and not on a count.
+	// full is the unbounded size, logged so a change to the sizing shows the real numbers.
 	full := func(n int) int {
 		w, _ := boundWelcomeRoster(protocol.Welcome{PlayerID: "p99", SendHz: 20}, roster[:n], names, protocol.MaxPayloadBytes)
 		w.Roster = roster[:n]
@@ -106,12 +77,8 @@ func TestAWelcomeIsBoundedByItsSerializedSize(t *testing.T) {
 		full(20), full(21), full(32), protocol.MaxLineBytes)
 }
 
-// TestAJoinerWithEscapedNamesInTheRoomIsNotKilledByItsOwnWelcome is C1 through
-// the real server, read the way a real core reads it: a raw scanner capped at
-// exactly protocol.MaxLineBytes, so this test dies exactly the way a real core
-// died. TestBigRoomWelcomeStaysUnderLineLimit is the same shape with an
-// UNESCAPED fixture, which is the whole reason it stayed green through this
-// defect -- 120 of its names come to 2151 B where 32 of these come to over 6000.
+// TestAJoinerWithEscapedNamesInTheRoomIsNotKilledByItsOwnWelcome is TestBigRoomWelcomeStaysUnderLineLimit with names
+// JSON escapes, read through a raw scanner capped at protocol.MaxLineBytes as a real core reads.
 func TestAJoinerWithEscapedNamesInTheRoomIsNotKilledByItsOwnWelcome(t *testing.T) {
 	srv := NewServer()
 	srv.MaxClients = 64
@@ -138,9 +105,7 @@ func TestAJoinerWithEscapedNamesInTheRoomIsNotKilledByItsOwnWelcome(t *testing.T
 		t.Fatalf("raw hello: %v", err)
 	}
 
-	// Every member must still be learned -- through the Welcome or through the
-	// Joins that carry the overflow. A bound that silently forgot members would
-	// pass a size assertion and fail on screen.
+	// Every member must be learned, from the Welcome or the overflow's Joins: a bound that forgot some would pass.
 	known := map[string]bool{}
 	sc := bufio.NewScanner(raw)
 	sc.Buffer(make([]byte, 4096), protocol.MaxLineBytes)
@@ -179,13 +144,8 @@ func TestAJoinerWithEscapedNamesInTheRoomIsNotKilledByItsOwnWelcome(t *testing.T
 		members, len(known), sc.Err(), members)
 }
 
-// TestAResumeWelcomeIsBoundedLikeAJoinWelcome is F14, and it is the reason F4
-// could not be fixed on its own: the resume path built its roster with no bound
-// at all, and the only thing keeping it under protocol.MaxLineBytes was that it
-// also dropped every nametag. Giving it the names back without the bound would
-// have moved the "token too long" kill from the join path onto the resume path,
-// where it is worse -- a client that is disconnected by its own resume Welcome
-// reconnects with the token that Welcome carried and does it again.
+// TestAResumeWelcomeIsBoundedLikeAJoinWelcome: a client killed by its own resume Welcome reconnects with the token
+// that Welcome carried and is killed again.
 func TestAResumeWelcomeIsBoundedLikeAJoinWelcome(t *testing.T) {
 	srv := NewServer()
 	srv.MaxClients = 64
@@ -205,8 +165,7 @@ func TestAResumeWelcomeIsBoundedLikeAJoinWelcome(t *testing.T) {
 	}
 	alice.conn.Close()
 
-	// Read back the way a real core reads: a scanner at exactly the core's own
-	// line limit, so an oversized resume Welcome kills this connection here.
+	// A scanner at the core's own line limit, so an oversized resume Welcome kills this connection.
 	raw, err := net.Dial("tcp", addr)
 	if err != nil {
 		t.Fatalf("raw dial: %v", err)
@@ -265,20 +224,13 @@ func TestAResumeWelcomeIsBoundedLikeAJoinWelcome(t *testing.T) {
 		len(known), members, sc.Err())
 }
 
-// TestAResumeThatFindsNoMemberDoesNotLeakItsOutbox is F1.
-//
-// newOutbox starts its writer goroutine, and resumeInto built one BEFORE
-// checking that the identity is still in the room — so the early return parked
-// that goroutine on its signal channel forever, holding the transport with it.
-// The window is not theoretical: finishLeave calls r.remove before
-// forgetSessionsOf, so a resume landing between those two lines finds a valid
-// session for a member that has already gone.
+// TestAResumeThatFindsNoMemberDoesNotLeakItsOutbox: resumeInto starts an outbox writer before it finds the member, so
+// its early return must close it. finishLeave calls r.remove before forgetSessionsOf, which opens that window.
 func TestAResumeThatFindsNoMemberDoesNotLeakItsOutbox(t *testing.T) {
 	s := NewServer()
 	r := newRoom("emerald", "", "room1", allFeatures)
 
-	// Settle first, so ordinary lazily-started runtime goroutines are not
-	// counted as the leak (leak_test.go's own reasoning).
+	// Settle first, so startup goroutines are not counted as the leak.
 	waitForGoroutines(0, 200*time.Millisecond)
 	baseline := runtime.NumGoroutine()
 
@@ -296,8 +248,7 @@ func TestAResumeThatFindsNoMemberDoesNotLeakItsOutbox(t *testing.T) {
 	}
 }
 
-// stalledTransport never completes a write until it is released, which is how a
-// peer that has stopped reading looks to the relay. closes counts Close calls:
+// stalledTransport holds every write until released, as a peer that stopped reading looks. closes counts Close calls:
 // forwardLine closes a connection whose outbox refused a reliable line.
 type stalledTransport struct {
 	mu      sync.Mutex
@@ -334,14 +285,8 @@ func (st *stalledTransport) closed() int {
 	return st.closes
 }
 
-// TestAResumeSnapshotCannotDisconnectTheClientItIsFor is F2.
-//
-// The snapshot emitted one reliable line per lease (up to
-// protocol.MaxLeasesPerRoom, 256), per world authority, per escrow and per
-// member, into an outbox that holds 256 and disconnects on a reliable line
-// arriving at a full queue. So one member holding many leases made ANOTHER
-// player's resume disconnect — and the client retries with the token from that
-// same Welcome, which is a loop nothing breaks out of.
+// TestAResumeSnapshotCannotDisconnectTheClientItIsFor: the outbox disconnects on a reliable line at a full queue, so
+// a snapshot must fit it, or one member's leases loop another player's resume.
 func TestAResumeSnapshotCannotDisconnectTheClientItIsFor(t *testing.T) {
 	r := newRoom("emerald", "", "room1", allFeatures)
 
@@ -355,8 +300,7 @@ func TestAResumeSnapshotCannotDisconnectTheClientItIsFor(t *testing.T) {
 	defer me.out.close()
 	r.tryAdd(me)
 
-	// One member holding the room's whole lease table, plus enough other
-	// members with a state seed to put the total well past the queue.
+	// One member holds the whole lease table, and enough members with a state seed put the total well past the queue.
 	r.mu.Lock()
 	r.leases = make(map[string]*lease, protocol.MaxLeasesPerRoom)
 	for i := 0; i < protocol.MaxLeasesPerRoom; i++ {
@@ -399,10 +343,8 @@ func TestAResumeSnapshotCannotDisconnectTheClientItIsFor(t *testing.T) {
 	}
 }
 
-// TestResumeKeepsEveryNametagInBothDirections is F4: the resumed Client was
-// built without a nametag and its Welcome omitted Nametags, so a named player
-// who blipped went nameless to every LATER joiner for the rest of the session,
-// and got their own roster back with everybody's name stripped.
+// TestResumeKeepsEveryNametagInBothDirections: a resumed player keeps its name for later joiners, and its own Welcome
+// carries everyone else's.
 func TestResumeKeepsEveryNametagInBothDirections(t *testing.T) {
 	addr := startServerWith(t, &Server{
 		rooms:      make(map[string]*Room),
@@ -436,7 +378,7 @@ func TestResumeKeepsEveryNametagInBothDirections(t *testing.T) {
 			"must not come back to a room of anonymous ids", w.Nametags, w.Roster)
 	}
 
-	// Direction two: everyone who joins AFTER the blip.
+	// Direction two: everyone who joins after the blip.
 	carol := dialFeatureClient(t, addr, "room1", "carol", allFeatures)
 	defer carol.conn.Close()
 	wc := carol.expectWelcome(timeout)
@@ -446,8 +388,7 @@ func TestResumeKeepsEveryNametagInBothDirections(t *testing.T) {
 	}
 }
 
-// playerIDIn returns the one id in roster that is not tc's own. Both tests
-// above have exactly two members, so this needs nothing cleverer.
+// playerIDIn returns the one id in roster that is not tc's own; its caller's room has exactly two members.
 func (tc *testClient) playerIDIn(roster []string) string {
 	tc.t.Helper()
 	if len(roster) != 1 {
@@ -456,13 +397,8 @@ func (tc *testClient) playerIDIn(roster []string) string {
 	return roster[0]
 }
 
-// TestTheEscrowTableIsBoundedAndItsCheckIsCounted is F3.
-//
-// escrowTableFullLocked counted only LIVE exchanges — correct, and the
-// 2026-09-02 fix — but terminal records are retained for
-// protocol.EscrowRetention (60s) and nothing bounded the map at all, so its
-// size was inbound rate times retention (~3,600 entries at the flood cap) and
-// the whole of it was scanned on every open, under r.mu.
+// TestTheEscrowTableIsBoundedAndItsCheckIsCounted: terminal records are kept for protocol.EscrowRetention, so the
+// table needs a bound of its own, and the per-opener count is kept rather than rescanned under r.mu.
 func TestTheEscrowTableIsBoundedAndItsCheckIsCounted(t *testing.T) {
 	r := newRoom("emerald", "", "room1", allFeatures)
 	for _, id := range []string{"a", "b"} {
@@ -488,8 +424,7 @@ func TestTheEscrowTableIsBoundedAndItsCheckIsCounted(t *testing.T) {
 		t.Fatalf("live escrow count = %d after aborting every one, want 0", live)
 	}
 
-	// The 2026-09-02 property still holds: retained records never refuse an
-	// open. Evicting the oldest terminal record is what keeps both true at once.
+	// Retained records still never refuse an open: the oldest terminal record is evicted instead.
 	r.handleEscrow("b", protocol.Escrow{Op: protocol.EscrowOpen, ID: "fresh", With: "a"})
 	r.mu.Lock()
 	e := r.escrows["fresh"]
@@ -498,8 +433,7 @@ func TestTheEscrowTableIsBoundedAndItsCheckIsCounted(t *testing.T) {
 		t.Fatalf("an open against a full table of terminal records got %+v, want an open exchange", e)
 	}
 
-	// And the per-opener count is maintained rather than rescanned: eight live
-	// exchanges is the cap, the ninth is refused, and aborting one frees a slot.
+	// At MaxLiveEscrowsPerMember the next open is refused, and aborting one frees a slot.
 	for i := 0; i < protocol.MaxLiveEscrowsPerMember; i++ {
 		r.handleEscrow("a", protocol.Escrow{Op: protocol.EscrowOpen, ID: fmt.Sprintf("live%d", i), With: "b"})
 	}
@@ -521,13 +455,8 @@ func TestTheEscrowTableIsBoundedAndItsCheckIsCounted(t *testing.T) {
 	}
 }
 
-// TestForwardedCountersCountOnlyWhatTheGateAllowed is F13.
-//
-// Recipients and PayloadBytes were recorded from the PRE-gate member set, while
-// the per-recipient receive-rate gate runs afterwards and only its result
-// reaches forwardLine — so a room where anybody set max_receive_hz_per_player
-// reported traffic that was never sent. introspect.go's own header calls that
-// "the kind of confidently wrong number a debugging aid must never produce".
+// TestForwardedCountersCountOnlyWhatTheGateAllowed: counted before the receive-rate gate, a room where anyone set
+// max_receive_hz_per_player would report traffic that was never sent.
 func TestForwardedCountersCountOnlyWhatTheGateAllowed(t *testing.T) {
 	r := newRoom("emerald", "", "room1", nil)
 	r.tryAdd(&Client{PlayerID: "a", Conn: &recordingTransport{}})
@@ -558,10 +487,8 @@ func TestForwardedCountersCountOnlyWhatTheGateAllowed(t *testing.T) {
 	}
 }
 
-// TestAnUnknownWorldOpIsNotTreatedAsASet is F20: the entity cap and the
-// create-must-be-reliable rule both tested Op == WorldSet while the default arm
-// stored anything that was not a drop, so both bounds rested on
-// protocol.ValidateWorld in another package rather than on this switch.
+// TestAnUnknownWorldOpIsNotTreatedAsASet: the entity cap and the create-must-be-reliable rule test Op == WorldSet, so
+// a default arm that stored any other op would leave both bounds to protocol.ValidateWorld.
 func TestAnUnknownWorldOpIsNotTreatedAsASet(t *testing.T) {
 	r := newRoom("emerald", "", "room1", []string{protocol.FeatureLeaseV1, protocol.FeatureWorldV1})
 	writer := &recordingTransport{}
@@ -589,7 +516,7 @@ func TestAnUnknownWorldOpIsNotTreatedAsASet(t *testing.T) {
 		t.Fatalf("an unknown op was broadcast to the room as %q", got[0].Type)
 	}
 
-	// The two real ops still work, so this did not close the door on everything.
+	// A real set still works, so the door is not closed on everything.
 	r.handleWorld("host", protocol.World{
 		Op: protocol.WorldSet, Authority: "sim", Key: "e0",
 		Blob: json.RawMessage(`{"gen":1}`), Reliable: true,
