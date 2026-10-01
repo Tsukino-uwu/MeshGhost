@@ -1,22 +1,7 @@
 package core
 
-// B2 from the 2026-09-12 adversarial review (P3a-2): handleOnlineMessage
-// forwarded all four opt-in planes to the attached adapter with no capability
-// check, while every one of the matching SEND paths gated on the room's agreed
-// features. The asymmetry is the finding.
-//
-// WHY IT IS A BRIDGE KILL RATHER THAN A STRAY MESSAGE. The event lane does not
-// coalesce -- only renders do -- so a relay repeating a message the adapter
-// never asked for fills the queue at adapterQueueCap, and the writer's verdict
-// for a full queue is "stuck, not slow": it closes the adapter socket and runs
-// the full teardown, taking the ghosts, chasers, replays and any recording with
-// it (core/adapterwriter.go). {"type":"event","payload":{}} is enough; it
-// passes ValidateEvent, because an empty event is a legal event.
-//
-// The gate is deliberately NOT the mirror of sendControlOn. activeFeatures is
-// filled from the relay's own Welcome, so mirroring it would hand the attacker
-// the key; planeNegotiated also requires that THIS side asked, which a default
-// cosmetic room -- every shipped adapter -- never does.
+// An unasked-for plane is not a stray message: the event lane does not coalesce, so a relay repeating one fills the
+// adapter queue, and a full queue tears the bridge down as a stuck adapter.
 
 import (
 	"encoding/json"
@@ -34,8 +19,7 @@ func onlineEnvelope(t *testing.T, kind protocol.MessageType, payload any) protoc
 	return protocol.Envelope{Type: kind, Payload: b}
 }
 
-// The configuration almost every player is in: a cosmetic room that negotiated
-// nothing at all. All four planes must stop at the door.
+// A cosmetic room that negotiated nothing, the configuration almost every player is in.
 func TestAnOptInPlaneNeverReachesAGameThatDidNotAskForIt(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -59,9 +43,7 @@ func TestAnOptInPlaneNeverReachesAGameThatDidNotAskForIt(t *testing.T) {
 			c.OnWorldState = func(protocol.WorldState) { delivered = true }
 
 			env := onlineEnvelope(t, tc.kind, tc.payload)
-			// Still CLAIMED, so handleRelayMessage's unknown-type fallthrough
-			// keeps its meaning: refusing a plane is not the same as failing to
-			// recognise a message.
+			// Still claimed, so handleRelayMessage does not take a refused plane for an unknown type.
 			if handled := c.handleOnlineMessage(env); !handled {
 				t.Fatalf("handleOnlineMessage did not claim a %s at all", tc.name)
 			}
@@ -74,8 +56,7 @@ func TestAnOptInPlaneNeverReachesAGameThatDidNotAskForIt(t *testing.T) {
 	}
 }
 
-// The converse for each, so the gate is not simply refusing everything: a room
-// that DID agree the plane, with this side having asked for it, still gets it.
+// The converse, so the gate is not simply refusing everything.
 func TestAnOptInPlaneStillArrivesWhenBothSidesAgreedIt(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -114,12 +95,11 @@ func TestAnOptInPlaneStillArrivesWhenBothSidesAgreedIt(t *testing.T) {
 	}
 }
 
-// AND THE HALF A HOSTILE RELAY CONTROLS. It writes Welcome.Features itself, so
-// a gate that asked only "did the room agree it" is a gate it opens for free.
+// TestARelayCannotTurnAPlaneOnByItself: a relay writes Welcome.Features itself, so a gate asking only "did the room
+// agree it" is one it opens for free.
 func TestARelayCannotTurnAPlaneOnByItself(t *testing.T) {
 	c := New()
-	// Exactly what a relay can do: claim every plane in its Welcome. This side
-	// asked for none of them.
+	// The relay claims every plane in its Welcome; this side asked for none.
 	c.mu.Lock()
 	c.activeFeatures = []string{
 		protocol.FeatureEventV1, protocol.FeatureLeaseV1,
@@ -146,8 +126,6 @@ func TestARelayCannotTurnAPlaneOnByItself(t *testing.T) {
 	}
 }
 
-// The sub-finding: these two were the only relay->client messages forwarded to
-// a game with nothing checked at all.
 func TestAHostileLeaseOrEscrowStateIsCheckedOnReceive(t *testing.T) {
 	long := make([]byte, protocol.MaxLeaseKeyLen+1)
 	for i := range long {

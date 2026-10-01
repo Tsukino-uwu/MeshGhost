@@ -7,21 +7,11 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// AN ADAPTER MAY DECLARE ITS OWN PROTOCOL FLOOR, AND IT MAY ONLY TIGHTEN.
-//
-// The core's own floor (protocol.MinProtocolVersion) answers "can these two
-// BUILDS talk", which is a property of the wire. An adapter's answers a
-// different question that only the adapter can: it may depend on a field an
-// older relay never forwards, and without a floor of its own it connects,
-// renders, and is quietly missing the thing it was written for. That silent
-// degradation is the failure this exists to turn into a refusal.
-//
-// The user's call, 2026-09-11: "similar to the server/client min floor we
-// already have".
+// TestAnAdapterFloorRefusesAnOlderRelay: an adapter may depend on a field an older relay never forwards, which the
+// build's own floor cannot know; without a floor of its own it connects and quietly lacks what it was written for.
 func TestAnAdapterFloorRefusesAnOlderRelay(t *testing.T) {
 	c := New()
-	// One above what this build speaks, so the relay in front of it is by
-	// definition too old for this adapter and not for the build.
+	// One above what this build speaks: too old for this adapter, not for the build.
 	c.mu.Lock()
 	c.adapterMinProtocol = protocol.Version + 1
 	c.mu.Unlock()
@@ -49,8 +39,7 @@ func TestAnAdapterFloorRefusesAnOlderRelay(t *testing.T) {
 	}
 }
 
-// NO OPINION IS THE DEFAULT, and it is what every shipped adapter sends -- so an
-// adapter that predates the field must keep working unchanged.
+// No floor is the default, so an adapter that predates the field keeps working unchanged.
 func TestAnAdapterWithNoFloorAcceptsWhatTheBuildAccepts(t *testing.T) {
 	c := New()
 	if rej := c.refuseWelcomeVersion(protocol.Welcome{
@@ -61,9 +50,7 @@ func TestAnAdapterWithNoFloorAcceptsWhatTheBuildAccepts(t *testing.T) {
 	}
 }
 
-// AND IT MAY ONLY TIGHTEN. An adapter naming a floor BELOW the build's must not
-// talk the core into accepting a relay the core itself refuses -- otherwise the
-// field is a way to disable a safety check from outside the process.
+// An adapter's floor may only tighten: one below the build's would switch off a safety check from outside the process.
 func TestAnAdapterCannotLowerTheBuildFloor(t *testing.T) {
 	c := New()
 	c.mu.Lock()

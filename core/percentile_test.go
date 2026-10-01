@@ -1,9 +1,8 @@
 package core
 
-// The transit and dry percentiles exist to size a delay (prediction-planning.md,
-// A2.0), so a percentile that reads low is the dangerous direction: a delay
-// sized on it is too short. These pin the rank arithmetic, the bucket edge
-// rounding UP, the overflow bucket, and that Core.Stats reads the real meters.
+// The transit and dry percentiles exist to size a delay, so one that reads low is the dangerous direction: a delay
+// sized on it is too short. These pin the rank arithmetic, the bucket edge rounding up, the overflow bucket, and that
+// Core.Stats reads the real meters.
 
 import (
 	"strings"
@@ -12,9 +11,7 @@ import (
 
 func TestHistogramPercentileIsTheBucketEdgeAboveTheRank(t *testing.T) {
 	var h msHistogram
-	// 100 readings: 1..100ms. p50 is the 50th (50ms, bucket [50,60)), p95 the
-	// 95th (bucket [90,100)), p99 the 99th (bucket [90,100)), p100 the 100th
-	// (bucket [100,110), whose edge is capped at the 100ms max).
+	// 1..100ms: each percentile is the upper edge of its rank's 10ms bucket, capped at the 100ms max.
 	for ms := int64(1); ms <= 100; ms++ {
 		h.add(ms)
 	}
@@ -29,8 +26,7 @@ func TestHistogramPercentileIsTheBucketEdgeAboveTheRank(t *testing.T) {
 }
 
 func TestHistogramPercentileIsNotTheMean(t *testing.T) {
-	// 94 fast samples and 6 slow ones: the mean sits near 40ms, and a delay
-	// sized on it misses every slow one. p95 must land in the slow group.
+	// 94 fast samples and 6 slow: a delay sized on the mean, near 40ms, misses every slow one.
 	var h msHistogram
 	for i := 0; i < 94; i++ {
 		h.add(20)

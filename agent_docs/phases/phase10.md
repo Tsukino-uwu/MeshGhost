@@ -2864,3 +2864,7 @@ record held went to [verified.md](../verified.md), same date; a doc pointer a co
   `Offline` said never rewritten (a config re-read does), an idle close said to show every peer a leave (a resumable
   drop is suspended), already-connected-for-the-same-game called a no-op (ownership and auto-retry move to the new
   bridge connection); three doc comments that sat on the wrong declaration moved to their own.
+- `core/` tests, second half of each list (46 files): comment lines 867 → 317. Stale claims fixed: a test doc naming a
+  constant that does not exist (`stopJoinBudget`), a stub said to record what was written (it counts sends), every
+  shipped adapter said to send no floor (all four send `min_protocol_version` 2), and a relay with no code said to
+  welcome a client that has one (it is refused).

@@ -8,19 +8,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/bridge"
 )
 
-// A SOLO SESSION MUST STILL BE TOLD THE SESSION POLICY (review J2).
-//
-// pushSessionPolicy waited for a relay Welcome before telling the adapter
-// anything, which is right for a relay that has not answered YET -- an unknown
-// room policy resolves to ENABLED, and guessing "make ghosts solid" is the wrong
-// direction. It is wrong for a session that will never have a relay at all: there
-// is no room, so the room's opinion is not unknown, it is absent, and the
-// player's own setting is the whole answer.
-//
-// The consequence is worse than a missing message, because `chaser_contact`
-// rides this same message and the chaser is explicitly a SOLO feature (ADR
-// 0047): the one mode where the chaser exists without a room was the one mode
-// where its opt-in could never be delivered.
+// TestAnOfflineSessionIsToldItsPolicy: with no relay there is no room whose policy to wait for, so the player's own
+// setting is the whole answer, and chaser_contact, the solo chaser's opt-in, rides the same message.
 func TestAnOfflineSessionIsToldItsPolicy(t *testing.T) {
 	c := New()
 	c.Offline = true
@@ -68,10 +57,8 @@ func TestAnOfflineSessionIsToldItsPolicy(t *testing.T) {
 	}
 }
 
-// AND AN ONLINE SESSION STILL WAITS. The guess this gate prevents -- telling an
-// adapter to make ghosts solid because nobody has said otherwise YET -- must
-// still be prevented, or the fix above trades one silent wrong answer for
-// another.
+// TestAnOnlineSessionStillWaitsForTheRoomsPolicy: an unknown room policy resolves to enabled, so telling the adapter
+// before the Welcome would make ghosts solid in a room that may have disabled them.
 func TestAnOnlineSessionStillWaitsForTheRoomsPolicy(t *testing.T) {
 	c := New()
 	c.Offline = false

@@ -1,12 +1,7 @@
 package core
 
-// E6 from the 2026-09-07 review: aging a peer out dropped its interpolation
-// buffer and left its roster seat and its nametag behind. The roster is capped
-// (protocol.MaxRosterSize), and admitToRosterLocked refuses a full one in
-// silence -- so on a transport where peers vanish without a goodbye, which is
-// the case aging out exists for, a long session eventually stops showing new
-// arrivals and refuses the player's own chasers and replays, with no log line
-// and PeersKnown pinned at the cap.
+// Aging a peer out gives back its roster seat: the roster is capped and admitToRosterLocked refuses a full one in
+// silence, so seats kept by peers that vanished without a goodbye would refuse every new arrival, chasers and replays.
 
 import (
 	"fmt"
@@ -19,8 +14,7 @@ import (
 func TestAgingAPeerOutGivesBackItsRosterSeat(t *testing.T) {
 	c := New()
 	wall := time.Now().UnixMilli()
-	// Comfortably past DefaultRemoteStaleAfter, and stamped in the past
-	// because staleness is judged against this machine's clock.
+	// Past DefaultRemoteStaleAfter, stamped in the past because staleness is judged against this machine's clock.
 	gone := wall - 10_000
 
 	c.mu.Lock()
@@ -36,14 +30,11 @@ func TestAgingAPeerOutGivesBackItsRosterSeat(t *testing.T) {
 	c.mu.Lock()
 	seats, names := len(c.roster), len(c.remoteNames)
 	c.mu.Unlock()
-	// Before the fix: 1 and 1.
 	if seats != 0 {
 		t.Errorf("roster still holds %d seat(s) for a peer that aged out", seats)
 	}
-	// The nametag is KEPT since 2026-09-09: an aged-out peer is usually a
-	// paused emulator that comes back under the same id without a Join, and
-	// a genuinely reused id always arrives with its own Join, which stores
-	// the new name unconditionally (a Leave is where a name is dropped).
+	// The nametag is kept: an aged-out peer is usually a paused emulator that returns under the same id without a
+	// Join, while a reused id always arrives with its own Join, which stores the new name.
 	if names != 1 {
 		t.Errorf("remoteNames holds %d nametag(s) for a peer that aged out, want 1 kept for its return", names)
 	}
@@ -52,8 +43,6 @@ func TestAgingAPeerOutGivesBackItsRosterSeat(t *testing.T) {
 	}
 }
 
-// The symptom itself, at the size it bites: a full roster's worth of peers that
-// all went quiet must not lock the room shut.
 func TestAFullRosterOfAgedOutPeersStillAdmitsANewcomer(t *testing.T) {
 	c := New()
 	wall := time.Now().UnixMilli()
@@ -75,8 +64,6 @@ func TestAFullRosterOfAgedOutPeersStillAdmitsANewcomer(t *testing.T) {
 	c.mu.Lock()
 	admitted := c.admitToRosterLocked("newcomer")
 	c.mu.Unlock()
-	// Before the fix: refused, and every join after it for the rest of the
-	// session -- new players simply never appear.
 	if !admitted {
 		t.Fatal("a newcomer was refused a roster seat after 512 peers aged out")
 	}

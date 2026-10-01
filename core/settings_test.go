@@ -9,9 +9,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/relay"
 )
 
-// The chaser pack follows the settings a save brings: a bigger pack, a smaller
-// one, and off. StartChasers stops the old pack first, so the count returned
-// is the pack now running.
+// TestSetChaserSettingsRestartsThePack: a bigger pack, then off. StartChasers stops the old pack first, so the count
+// returned is the pack now running.
 func TestSetChaserSettingsRestartsThePack(t *testing.T) {
 	c := New()
 	t.Cleanup(c.StopChasers)
@@ -35,9 +34,8 @@ func TestSetChaserSettingsRestartsThePack(t *testing.T) {
 	}
 }
 
-// A saved ghost_collision reaches the attached adapter as a fresh session
-// policy, even though the room's policy did not change -- the de-dupe key is
-// cleared on purpose so the player sees the resolution logged again.
+// TestSetGhostCollisionPreferenceRepushesThePolicy though the room's policy did not change: the de-dupe key is cleared
+// on purpose so the player sees the resolution logged again.
 func TestSetGhostCollisionPreferenceRepushesThePolicy(t *testing.T) {
 	s := relay.NewServer()
 	s.SendHz = protocol.MaxSendHz
@@ -62,10 +60,8 @@ func TestSetGhostCollisionPreferenceRepushesThePolicy(t *testing.T) {
 	}
 }
 
-// A saved name (or room, or relay) makes the core leave its relay session and
-// rejoin with the new Hello, through the same auto-retry a dropped socket
-// gets. Observed as a second OnRelayConnected, and the relay's roster then
-// carries the new name.
+// TestSetConnectionSettingsRejoinsTheRelay: a saved name, room or relay leaves the relay session and rejoins with the
+// new Hello through the same auto-retry a dropped socket gets, seen as a second OnRelayConnected.
 func TestSetConnectionSettingsRejoinsTheRelay(t *testing.T) {
 	s := relay.NewServer()
 	s.SendHz = protocol.MaxSendHz
@@ -103,8 +99,8 @@ func TestSetConnectionSettingsRejoinsTheRelay(t *testing.T) {
 	}
 }
 
-// Replay settings land on the fields the recorder reads at its next use, and
-// the ring follows save_last at once.
+// TestSetReplaySettingsRearmsTheRing: the settings land on the fields the recorder reads at its next use, and the ring
+// follows save_last at once.
 func TestSetReplaySettingsRearmsTheRing(t *testing.T) {
 	c := New()
 	c.SetReplaySettings(ReplaySettings{SaveLastSpan: 20 * time.Second, Inputs: true, Gzip: true, Seek: 7 * time.Second, Name: "n", Color: "#123456"})

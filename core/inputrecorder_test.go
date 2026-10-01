@@ -9,9 +9,7 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/bridge"
 )
 
-// inputCore is recordingCore with the input track turned on -- the feature is
-// opt-in, so every test here has to ask for it explicitly, which is also the
-// assertion that it is off by default.
+// inputCore is recordingCore with the opt-in input track turned on.
 func inputCore(t *testing.T) *Core {
 	t.Helper()
 	c := recordingCore(t)
@@ -19,8 +17,7 @@ func inputCore(t *testing.T) *Core {
 	return c
 }
 
-// batch is one InputSample carrying edges built from (frame, mask) pairs, with
-// t tracking the frame so the monotonic checks are satisfied by construction.
+// batch is one InputSample with edges from (frame, mask) pairs; t follows the frame so the monotonic checks pass.
 func batch(labels []string, pairs ...[2]uint64) bridge.InputSample {
 	s := bridge.InputSample{Labels: labels}
 	for _, p := range pairs {
@@ -41,8 +38,7 @@ func TestInputTrackWritesHeaderAndEdges(t *testing.T) {
 		t.Errorf("track written to %s, want a file in the %q subfolder", path, inputsSubdir)
 	}
 
-	// The file appears at the FIRST edge and not before, so a track armed in
-	// the main menu leaves nothing behind if the game is quit before play.
+	// The file appears at the first edge, so a track armed in the main menu leaves nothing if the game quits first.
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Errorf("the file exists before any edge arrived: %v", err)
 	}
@@ -71,16 +67,13 @@ func TestInputTrackWritesHeaderAndEdges(t *testing.T) {
 	if track.edges[0].M != 1 || track.edges[1].M != 0 {
 		t.Errorf("masks %d,%d, want 1,0", track.edges[0].M, track.edges[1].M)
 	}
-	// F and T are the ADAPTER's, kept verbatim; a one-frame press has to stay
-	// one frame apart however the core stamped the batch.
+	// F and T are the adapter's, kept verbatim: a one-frame press stays one frame apart however the core stamped it.
 	if track.edges[1].F-track.edges[0].F != 1 {
 		t.Errorf("frames %d and %d: the adapter's spacing was not preserved",
 			track.edges[0].F, track.edges[1].F)
 	}
 }
 
-// The whole feature is opt-in, and this is the test that says so: with
-// ReplayInputs unset, nothing arms and nothing is written.
 func TestInputTrackIsOffUnlessAskedFor(t *testing.T) {
 	c := recordingCore(t) // deliberately NOT inputCore
 	path, err := c.StartInputRecording("rec-1")
@@ -99,8 +92,7 @@ func TestInputTrackIsOffUnlessAskedFor(t *testing.T) {
 	}
 }
 
-// An edge identical to the one before it is suppressed. The adapter should not
-// send one; this side must not depend on that.
+// The adapter should not send an edge identical to the one before it; this side must not depend on that.
 func TestInputTrackSuppressesIdenticalEdges(t *testing.T) {
 	c := inputCore(t)
 	path, err := c.StartInputRecording("")
@@ -124,8 +116,7 @@ func TestInputTrackSuppressesIdenticalEdges(t *testing.T) {
 	}
 }
 
-// The ring is the always-on half: it collects with no file recording at all,
-// and save-last drains it after the fact.
+// The ring is the always-on half: it collects with no file recording, and save-last drains it after the fact.
 func TestSaveLastInputsDrainsTheRingWithNoRecording(t *testing.T) {
 	c := inputCore(t)
 	c.SaveLastSpan = time.Minute
@@ -154,8 +145,7 @@ func TestSaveLastInputsDrainsTheRingWithNoRecording(t *testing.T) {
 	}
 }
 
-// The ring trims by the newest EDGE's own stamp, not by wall clock, so a game
-// that stops sending freezes the ring rather than draining it.
+// The ring trims by the newest edge's own stamp, not wall clock, so a game that stops sending freezes the ring.
 func TestInputRingTrimsByTheNewestEdge(t *testing.T) {
 	var r inputRing
 	r.setSpan(time.Second)
@@ -175,8 +165,7 @@ func TestInputRingTrimsByTheNewestEdge(t *testing.T) {
 	}
 }
 
-// A recording and its input track carry the SAME id, which is the only thing
-// tying the two artefacts of one run together.
+// A recording and its input track carry the same id, the only thing tying the two artefacts of one run together.
 func TestRecordingAndInputTrackShareAnID(t *testing.T) {
 	c := inputCore(t)
 	recPath, err := c.StartRecording()

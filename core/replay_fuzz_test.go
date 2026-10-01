@@ -7,10 +7,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// FuzzParseReplayNeverPanics is the loader's pin (ADR 0047): a replay file is
-// a stranger's bytes -- shared, hand-edited, or hostile -- and the loader must
-// refuse or accept them without ever panicking, and anything it accepts must
-// pass the same validation a relay packet does, sample by sample.
+// FuzzParseReplayNeverPanics: a replay file is a stranger's bytes, so the loader refuses or accepts without
+// panicking, and every sample it accepts passes the validation a relay packet does.
 //
 // Run a long campaign by hand after touching the loader or protocol limits:
 //

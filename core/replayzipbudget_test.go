@@ -33,26 +33,14 @@ func writeClipZip(t *testing.T, dir string, n, samplesPerClip int) string {
 	return path
 }
 
-// A zip may hold as many clips as it likes, and together they may cost no more
-// memory than one clip is already allowed to.
-//
-// replayMaxSamples bounded ONE file. Nothing bounded the PRODUCT, so one archive
-// could yield hundreds of clips at that cap each, all resident at once, and the
-// roster check that would have refused them runs long after every clip is in
-// memory. A replay zip is untrusted by construction: clips are shared between
-// players and StartReplays loads everything in replay/active/ the moment the
-// adapter attaches.
-//
-// Measured 2026-09-07: "{}" passes ValidateState, 2,000,000 of them gzip to
-// 5,891 bytes and cost ~256 MB as []protocol.State, and a ~240 KB zip of 40 such
-// entries asked for ~10 GB.
+// TestAZipSpendsOneSampleBudgetAcrossAllItsEntries: a zip's clips together cost no more than one clip may. Clips are
+// shared between players, and StartReplays loads everything in replay/active/ the moment the adapter attaches.
 func TestAZipSpendsOneSampleBudgetAcrossAllItsEntries(t *testing.T) {
 	dir := t.TempDir()
 	const perClip = 4
 	path := writeClipZip(t, dir, 3, perClip)
 
-	// Control: with a budget that fits everything, all three load. Without this
-	// the test below could pass because the zip was broken rather than bounded.
+	// The control: without it the subtests below could pass on a broken zip rather than a bounded one.
 	t.Run("a generous budget loads every clip", func(t *testing.T) {
 		defer restoreArchiveBudget(replayMaxSamplesPerArchive)
 		replayMaxSamplesPerArchive = 1000
@@ -100,8 +88,6 @@ func TestAZipSpendsOneSampleBudgetAcrossAllItsEntries(t *testing.T) {
 
 func restoreArchiveBudget(v int) { replayMaxSamplesPerArchive = v }
 
-// The per-file cap must still be the per-file cap: a single loose clip is
-// unaffected by the archive budget, since it is not an archive.
 func TestALooseClipIsNotBoundedByTheArchiveBudget(t *testing.T) {
 	defer restoreArchiveBudget(replayMaxSamplesPerArchive)
 	replayMaxSamplesPerArchive = 1
@@ -120,8 +106,8 @@ func TestALooseClipIsNotBoundedByTheArchiveBudget(t *testing.T) {
 	}
 }
 
-// The budget is a ceiling on the caller, never a way to raise the per-file cap:
-// parseReplayLimited clamps whatever it is handed down to replayMaxSamples.
+// TestTheArchiveBudgetCannotRaiseThePerFileCap: parseReplayLimited clamps whatever budget it is handed to
+// replayMaxSamples.
 func TestTheArchiveBudgetCannotRaiseThePerFileCap(t *testing.T) {
 	clip, err := parseReplayLimited(bytes.NewReader(clipBytes(nil, walkStates(3, 50))), "x", replayMaxSamples*10)
 	if err != nil {
@@ -131,8 +117,7 @@ func TestTheArchiveBudgetCannotRaiseThePerFileCap(t *testing.T) {
 		t.Fatalf("got %d samples, want 3", len(clip.samples))
 	}
 
-	// And a budget of 2 refuses a 3-sample clip, which is the plumbing the zip
-	// path depends on.
+	// A budget of 2 refuses a 3-sample clip: the plumbing the zip path depends on.
 	if _, err := parseReplayLimited(bytes.NewReader(clipBytes(nil, walkStates(3, 50))), "x", 2); err == nil {
 		t.Fatal("a 3-sample clip was accepted on a 2-sample budget")
 	}

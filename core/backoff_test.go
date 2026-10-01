@@ -5,11 +5,8 @@ import (
 	"time"
 )
 
-// The doubling and the clamp, against a ceiling that is not the shipped one.
-//
-// Worth pinning separately from the reconnect itself: nextBackoffWithin is now used by two callers
-// with two different ceilings, and a clamp that is subtly wrong for one of them would show up only
-// as "reconnects feel wrong", which is not something anybody reports precisely.
+// TestBackoffDoublesAndClampsToItsOwnCeiling, not the shipped one: nextBackoffWithin serves two ceilings, and a clamp
+// subtly wrong for one would only show as reconnects that feel wrong.
 func TestBackoffDoublesAndClampsToItsOwnCeiling(t *testing.T) {
 	const max = 40 * time.Millisecond
 	got := []time.Duration{}
@@ -25,11 +22,8 @@ func TestBackoffDoublesAndClampsToItsOwnCeiling(t *testing.T) {
 	}
 }
 
-// A Core with no overrides must behave exactly as it always has.
-//
-// The point of making these fields was to let a TEST compress them, and a change that quietly
-// altered the shipped cadence while doing so would be a much worse bug than the one it enables
-// finding.
+// TestUnconfiguredCoreKeepsTheShippedCadence: the fields exist so a test can compress them, and must not alter the
+// shipped cadence while doing so.
 func TestUnconfiguredCoreKeepsTheShippedCadence(t *testing.T) {
 	c := New()
 	initial, max := c.reconnectBackoffBounds()
@@ -52,9 +46,8 @@ func TestACoreUsesItsOwnBackoffBoundsWhenSet(t *testing.T) {
 	}
 }
 
-// A ceiling below the floor is the one combination that reads as a bug rather than a setting: the
-// first wait would be longer than the cap that is supposed to bound it. Clamped rather than
-// rejected, because a timing knob refusing a session is worse than a timing knob being sensible.
+// TestACeilingBelowTheFloorIsRaisedRatherThanInverted: clamped rather than rejected, because a timing knob refusing a
+// session is worse than one being sensible.
 func TestACeilingBelowTheFloorIsRaisedRatherThanInverted(t *testing.T) {
 	c := New()
 	c.ReconnectInitialBackoff = 30 * time.Millisecond

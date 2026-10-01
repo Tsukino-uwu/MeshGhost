@@ -16,11 +16,8 @@ func fullOffers() []protocol.TransportOffer {
 	}
 }
 
-// A MACHINE THAT CANNOT OPEN A UDP SOCKET MUST NOT BE OFFERED ONE, EVER.
-//
-// The Proton case: quic and plain udp both begin with net.ListenUDP, so neither can work,
-// and dialling them to discover that costs two failed dials and seconds of connect delay on
-// every launch -- relearned each time, because the core exits with the game.
+// Under Proton quic and udp both fail at net.ListenUDP, and dialling them to find out costs two failed dials on every
+// launch, since the core exits with the game.
 func TestUDPIncapableMachineSkipsQUICAndUDPWithoutDialling(t *testing.T) {
 	c := &Core{Transport: netx.Auto, udpProbe: func() bool { return false }}
 
@@ -38,16 +35,9 @@ func TestUDPIncapableMachineSkipsQUICAndUDPWithoutDialling(t *testing.T) {
 	}
 }
 
-// THE CASE THAT RULES OUT A CONFIG FLAG.
-//
-// A Linux player can have both: a native Linux client and a Proton one, reading the SAME
-// config.json out of the same game folder. A setting in that file cannot distinguish them --
-// it would pin the native client to tcp too, throwing away the quic it can perfectly well
-// use. The probe asks about THIS PROCESS, so the native client keeps quic with no setting
-// involved and nothing for a player to get wrong.
+// A native Linux client and a Proton one can read the same config.json, so no config flag can tell them apart; the
+// probe asks about this process.
 func TestANativeClientKeepsQUICWithTheSameConfig(t *testing.T) {
-	// Same Transport setting as the Proton client above -- the only difference is the
-	// machine, which is exactly the difference a config key cannot express.
 	c := &Core{Transport: netx.Auto, udpProbe: func() bool { return true }}
 
 	kind, addr := c.chooseTransport("relay.example:7777", fullOffers())
@@ -59,9 +49,7 @@ func TestANativeClientKeepsQUICWithTheSameConfig(t *testing.T) {
 	}
 }
 
-// AN EXPLICIT PREFERENCE IS STILL NOT SILENTLY MOVED, matching what unusableTransports
-// already does: somebody who wrote "quic" is told it is failing rather than downgraded
-// behind their back. The clear repeated error IS the answer for them.
+// An explicit preference is never silently moved, as with unusableTransports: whoever wrote "quic" is told it fails.
 func TestExplicitQUICIsNotSkippedByTheProbe(t *testing.T) {
 	c := &Core{Transport: netx.QUIC, udpProbe: func() bool { return false }}
 
@@ -71,8 +59,7 @@ func TestExplicitQUICIsNotSkippedByTheProbe(t *testing.T) {
 	}
 }
 
-// The explanation is once per process, not once per connect attempt -- chooseTransport runs
-// on every retry and the answer cannot change while the process lives.
+// chooseTransport runs on every retry, and the answer cannot change while the process lives.
 func TestTheUDPDowngradeIsExplainedOnce(t *testing.T) {
 	c := &Core{Transport: netx.Auto, udpProbe: func() bool { return false }}
 
@@ -87,8 +74,6 @@ func TestTheUDPDowngradeIsExplainedOnce(t *testing.T) {
 	}
 }
 
-// The probe must not fire at all when the relay offers nothing but tcp -- there is no
-// downgrade to explain, and claiming one would be a false alarm in the log.
 func TestNoUDPComplaintWhenTheRelayOffersOnlyTCP(t *testing.T) {
 	c := &Core{Transport: netx.Auto, udpProbe: func() bool { return false }}
 	offers := []protocol.TransportOffer{{Kind: "tcp", Port: 7777}}

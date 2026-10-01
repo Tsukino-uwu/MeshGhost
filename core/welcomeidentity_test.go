@@ -1,19 +1,5 @@
 package core
 
-// B7 and its larger half, from the 2026-09-12 adversarial review (P3a-5).
-//
-// The "a second Welcome is protocol-illegal" guard asked whether c.playerID was
-// non-empty -- a value the RELAY supplies in the very message being guarded. A
-// relay that named this client "" therefore switched the guard off for the rest
-// of the connection and could resend Welcome at will, resetting the roster, the
-// agreed feature set, the clock offset and the resume token each time.
-//
-// Reading the code for that turned up the bigger omission underneath it: the
-// 2026-09-12 player_id fix bounded the ids a relay hands us for our PEERS (Join
-// and State, via acceptableRelayPeerID) and left the one that names US assigned
-// verbatim -- so an empty, unbounded or "replay:"/"chaser:"-shaped id was this
-// client's own identity for the session.
-
 import (
 	"encoding/json"
 	"strings"
@@ -35,11 +21,11 @@ func welcomeEnvelope(t *testing.T, w protocol.Welcome) []byte {
 	return env
 }
 
-// The bypass itself: the guard must not be something the guarded party writes.
+// TestAnEmptyPlayerIDCannotSwitchOffTheSecondWelcomeGuard: the guard must not be something the guarded party writes,
+// or a relay that names this client "" can resend Welcome at will.
 func TestAnEmptyPlayerIDCannotSwitchOffTheSecondWelcomeGuard(t *testing.T) {
 	c := New()
-	// A connection that has had its Welcome, named with the empty id the relay
-	// chose. Before the fix this left the guard's own test false forever.
+	// A connection already welcomed, named with the empty id the relay chose.
 	c.playerID = ""
 	c.welcomed = true
 	c.roster["p2"] = 0
@@ -68,14 +54,10 @@ func TestAnEmptyPlayerIDCannotSwitchOffTheSecondWelcomeGuard(t *testing.T) {
 	}
 }
 
-// And the hole under it: this client's OWN id gets the shape check its peers'
-// ids already got.
+// TestTheRelayCannotNameThisClientWithAnUnusableID: this client's own id gets the shape check its peers' ids get.
 func TestTheRelayCannotNameThisClientWithAnUnusableID(t *testing.T) {
-	// No invalid-UTF-8 case, and the omission is a finding rather than a gap: a
-	// first draft had one and it failed, because the id goes through
-	// json.Marshal here and comes back with the bad byte already replaced by
-	// U+FFFD. That is exactly what ValidOpaqueString's comment says -- the UTF-8
-	// half of it guards in-process callers, and is unreachable from the wire.
+	// No invalid-UTF-8 case: json.Marshal replaces the bad byte with U+FFFD, so that half of ValidOpaqueString
+	// guards in-process callers and is unreachable from the wire.
 	cases := map[string]string{
 		"empty":         "",
 		"unbounded":     strings.Repeat("p", protocol.MaxHelloFieldLenForID+1),

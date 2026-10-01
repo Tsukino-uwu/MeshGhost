@@ -6,9 +6,8 @@ import (
 	"testing"
 )
 
-// wedgedTransport is an adapter that accepts a connection and then never reads:
-// Send blocks until the test releases it, which is what "stuck, not slow" means.
-// It records whether it was closed, which is the thing under test.
+// wedgedTransport is an adapter that accepts a connection and never reads: Send blocks until the test releases it,
+// which is what "stuck, not slow" means. It records whether it was closed.
 type wedgedTransport struct {
 	mu      sync.Mutex
 	closed  bool
@@ -40,20 +39,8 @@ func (w *wedgedTransport) wasClosed() bool {
 	return w.closed
 }
 
-// A stuck adapter must have its SOCKET closed, not merely its session torn down.
-//
-// The queue-cap branch is the only terminal verdict in adapterwriter.go reached
-// without a write ever failing -- every other path gets the close for free,
-// because transport.Send closes the connection before returning an error. So it
-// sent the relay a Goodbye, cleared auto-retry, stopped chasers, replays and
-// recording, freed the adapter slot, and left the connection ESTABLISHED. The
-// mod kept a healthy socket, kept sending local_state forever, and received
-// nothing ever again -- and because its reconnect logic keys off a socket close,
-// it never fired. A player silently alone, with no error in the game, until they
-// restart it.
-//
-// That is strictly worse than the 2026-09-06 lockout this refactor was written
-// to fix, where the game at least saw a RESET and was back in 150 ms.
+// TestAStuckAdapterHasItsSocketClosed, not merely its session torn down: the queue cap is the only verdict reached
+// without a failed write, which closes the connection for free, and the mod's reconnect keys off a socket close.
 func TestAStuckAdapterHasItsSocketClosed(t *testing.T) {
 	nd := newWedgedTransport()
 	var superseded uint64
@@ -65,14 +52,8 @@ func TestAStuckAdapterHasItsSocketClosed(t *testing.T) {
 		}
 	})
 
-	// Fill past the cap. Every message is a distinct player so nothing can be
-	// coalesced away -- coalescing is the SLOW path, and this test is about the
-	// stuck one.
-	// Loop until it refuses rather than guessing where that is: the writer
-	// goroutine takes one batch before its first Send blocks, so the refusal
-	// lands a batch-size past the cap and the exact number is not the point.
-	// The generous ceiling is only so a broken cap fails the test instead of
-	// hanging it.
+	// Events, which never coalesce: coalescing is the slow path, and this test is about the stuck one. Loop until
+	// refused, since the writer takes one batch before its first Send blocks; the ceiling makes a broken cap fail.
 	accepted, refused := 0, false
 	for i := 0; i < adapterQueueCap*4; i++ {
 		if !w.enqueue(queuedMsg{env: []byte(`{"type":"x"}`)}) {

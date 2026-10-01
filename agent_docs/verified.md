@@ -2301,3 +2301,15 @@ comment in the file named by each heading, at `f64560cc`.
   - THE WINDOW IS FUNCTIONAL AND DERIVED. remoteBuffer.historyMs is set from the Core's own render settings (see Core.requiredHistoryMs), so the buffer keeps exactly as much history as the configured delay and prediction actually need. Zero means "unset", which uses defaultSnapshotAgeMs -- the old value, so a bare remoteBuffer (every test that predates this) behaves exactly as before.
   - THE COUNT IS A MEMORY BOUND AND NOTHING ELSE. It exists so an adversarially fast sender cannot grow a buffer without limit, and is set high enough that it cannot reach into the window at any rate anyone will ever configure: 1024 samples cover the default 600ms window up to ~1700Hz, against a MaxSendHz of 100. Cost is ~40 bytes a snapshot, so the worst case is tens of KB per peer and only under abuse.
   - **Do not put a functional decision back into the count.** If a window needs to grow, grow the window.
+
+### core/teardownsuccessor_test.go
+
+- releaseAdapterSlot frees the admission slot and returns a SNAPSHOT of what the gone connection owned. From the instant it returns, a relaunched game may attach -- 150 ms is the measured real-world figure (2026-09-06, the 512-chaser session) -- and since 2026-09-07 the writer's onDead runs the teardown as `go c.finishBridgeTeardown(...)`, adding unbounded scheduling latency between the snapshot and the act.
+
+### core/replayzipbudget_test.go
+
+- Measured 2026-09-07: "{}" passes ValidateState, 2,000,000 of them gzip to 5,891 bytes and cost ~256 MB as []protocol.State, and a ~240 KB zip of 40 such entries asked for ~10 GB.
+
+### core/ringcost_test.go
+
+- The comparison is a RATIO against the same machine's fill of the same ring, taken in the same run, so it holds on a slow runner too: the copy-down was three to four orders of magnitude worse, and a hundred is the line. The fill is the baseline rather than a handful of empty adds because a coarse clock (Windows ticks at about half a millisecond) reads a few hundred adds as 0s; 200,000 of them take tens of milliseconds on any machine. This is not a tolerance band on a timing assertion (testing.md, 2026-09-04): the two costs are separated by the algorithm, not by a clock reading.

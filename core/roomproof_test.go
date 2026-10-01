@@ -11,11 +11,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/relay"
 )
 
-// The client's side of the room-code proof (ADR 0067), against a real relay
-// over TLS. The code never leaves this process: what these assert is what a
-// player sees -- the right code joins, on both legs; the wrong code is a
-// permanent, named refusal that the client decides for itself before it
-// sends a third message; and a relay with no code welcomes with a note.
+// The client's side of the room-code proof against a real relay over TLS: the right code joins on both legs, and a
+// wrong code is a permanent, named refusal the client decides before it sends a third message.
 
 func codedCore(t *testing.T, relayAddr, code string) *Core {
 	t.Helper()
@@ -52,8 +49,7 @@ func TestTheRightCodeJoinsAndTheWrongOneIsAPermanentLocalRefusal(t *testing.T) {
 	}
 }
 
-// TestTheDiscoveryLegProvesTheCodeToo: the query-only hello used to carry
-// the code, so it must carry the proof now, or a client on transport auto
+// TestTheDiscoveryLegProvesTheCodeToo: the query-only hello carries the proof too, or a client on transport auto
 // could never reach a coded relay's transport list.
 func TestTheDiscoveryLegProvesTheCodeToo(t *testing.T) {
 	s := relay.NewServer()
@@ -74,12 +70,8 @@ func TestTheDiscoveryLegProvesTheCodeToo(t *testing.T) {
 	}
 }
 
-// TestARoomCodeRefusalIsTriedAgainOnceAnInterval is pass 5's P1b-client-3:
-// a room-code refusal was cached for the life of the process, so one refusal
-// from a server that was not the real one -- or a host who fixed their code
-// a moment later -- kept the player solo until they restarted. It stays
-// cached (no redial at the adapter's retry pace) until RoomCodeRetryInterval
-// has passed, then is tried for real. Any other permanent refusal is not.
+// TestARoomCodeRefusalIsTriedAgainOnceAnInterval: a room-code refusal stays cached, with no redial at the adapter's
+// retry pace, until RoomCodeRetryInterval passes; any other permanent refusal stays cached.
 func TestARoomCodeRefusalIsTriedAgainOnceAnInterval(t *testing.T) {
 	defer func(v time.Duration) { RoomCodeRetryInterval = v }(RoomCodeRetryInterval)
 	RoomCodeRetryInterval = 300 * time.Millisecond
@@ -121,10 +113,8 @@ func TestARoomCodeRefusalIsTriedAgainOnceAnInterval(t *testing.T) {
 	}
 }
 
-// TestAClientWithACodeRefusesARelayWithNone: a code on one side only is a
-// mismatch (ADR 0070). This client joined and logged a line until 2026-09-16,
-// so an impostor took the session by never asking for the proof. The refusal
-// is permanent and names the room code, like a wrong code.
+// TestAClientWithACodeRefusesARelayWithNone: a code on one side only is a mismatch, or an impostor takes the session
+// by never asking for the proof. The refusal is permanent and names the room code, like a wrong code.
 func TestAClientWithACodeRefusesARelayWithNone(t *testing.T) {
 	addr := startRelay(t)
 	c := codedCore(t, addr, "letmein")

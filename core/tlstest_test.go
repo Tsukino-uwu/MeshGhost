@@ -11,11 +11,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/relay"
 )
 
-// Every relay a core test dials serves TLS, because every relay does since
-// 2026-09-15 (ADR 0066) and a core never dials plaintext. These helpers are
-// the one place that identity lives for the package: one certificate for
-// every test relay, generated once, so a test that restarts a relay on the
-// same address sees the same identity a real restart would.
+// Every relay a core test dials serves TLS, because a core never dials plaintext. One certificate for every test
+// relay, generated once, so a relay restarted on the same address keeps its identity as a real restart would.
 
 var testIdentity = sync.OnceValues(func() (*tls.Config, string) {
 	cfg, fp, err := tlsx.ServerConfig(netx.TLSALPN)
@@ -25,28 +22,22 @@ var testIdentity = sync.OnceValues(func() (*tls.Config, string) {
 	return cfg, fp
 })
 
-// testIdentityDER is the leaf certificate every test relay presents, for a
-// test that wants to drive a Verifier by hand.
+// testIdentityDER is the leaf certificate every test relay presents, for a test that drives a Verifier by hand.
 func testIdentityDER() []byte {
 	cfg, _ := testIdentity()
 	return cfg.Certificates[0].Certificate[0]
 }
 
-// bindProofToTestIdentity does what cmd/meshghost-relay does: the room-code
-// proof (ADR 0067) is registered under the fingerprint of the certificate
-// the relay serves, so a core -- which names the fingerprint it verified --
-// can prove a code to a test relay at all. Left unset, the relay registers
-// under pake.UnboundIdentity and every coded join fails on the client, which
-// is the binding working, not a test relay.
+// bindProofToTestIdentity does what cmd/meshghost-relay does: it registers the room-code proof under the served
+// certificate's fingerprint, the one a core names. Left unset, every coded join fails on the client, by design.
 func bindProofToTestIdentity(s *relay.Server) {
 	if s.PakeIdentity == "" {
 		_, s.PakeIdentity = testIdentity()
 	}
 }
 
-// serveTLS wraps a raw listener the way the relay's tcp listener is wrapped:
-// every accepted connection is a completed TLS handshake, and a plaintext
-// one is refused. The accept loop a test runs on top sees only the former.
+// serveTLS wraps a raw listener the way the relay's tcp listener is wrapped: every accepted connection is a completed
+// TLS handshake, and a plaintext one is refused.
 func serveTLS(t testing.TB, ln net.Listener) net.Listener {
 	t.Helper()
 	cfg, _ := testIdentity()
@@ -69,8 +60,7 @@ func listenTLS(t testing.TB) net.Listener {
 	return ln
 }
 
-// listenTLSOn is listenTLS on a specific address: a relay coming back on the
-// port a test reserved.
+// listenTLSOn is listenTLS on a specific address: a relay coming back on the port a test reserved.
 func listenTLSOn(t testing.TB, addr string) net.Listener {
 	t.Helper()
 	raw, err := net.Listen("tcp", addr)
@@ -80,8 +70,7 @@ func listenTLSOn(t testing.TB, addr string) net.Listener {
 	return serveTLS(t, raw)
 }
 
-// listenQUICWithTestIdentity serves quic with the same certificate the tcp
-// test relays present, as the real relay does.
+// listenQUICWithTestIdentity serves quic with the same certificate the tcp test relays present, as the real relay does.
 func listenQUICWithTestIdentity(t testing.TB, addr string) net.Listener {
 	t.Helper()
 	cfg, _ := testIdentity()
@@ -92,9 +81,8 @@ func listenQUICWithTestIdentity(t testing.TB, addr string) net.Listener {
 	return ln
 }
 
-// dialRelayTLS is a hand-driven client's connection to a test relay: TLS,
-// accepting the relay's certificate. What a test that speaks the wire by
-// hand (rejectreason_wirefreeze_test.go) uses in place of a raw dial.
+// dialRelayTLS is a hand-driven client's connection to a test relay: TLS, accepting the relay's certificate, for a
+// test that speaks the wire by hand.
 func dialRelayTLS(t testing.TB, addr string) net.Conn {
 	t.Helper()
 	conn, err := netx.DialWithTLS(netx.TCP, addr, testTimeout, netx.TLSOptions{Verify: tlsx.TrustAnyCertificate})

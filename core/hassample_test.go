@@ -1,19 +1,8 @@
 package core
 
-// hasSample replaced a linear scan of every held snapshot with a binary search
-// over the run that shares the queried timestamp (P3b-2's amplifier half).
-//
-// THE RISK IN THAT IS A WRONG ANSWER, NOT A CRASH, and it is wrong in two
-// directions that both matter. A false negative re-inserts a sample already
-// held, so a ghost walks a step it already walked. A false positive drops a
-// sample that was genuinely lost, which is the loss cover silently not
-// covering -- the thing ADR 0045 exists for, and invisible on screen because a
-// missing sample looks exactly like the packet loss it was meant to hide.
-//
-// So this compares the two directly, over a buffer built to have every shape
-// that could break the search: duplicate timestamps, out-of-order arrival,
-// seq and timestamp deliberately decoupled (which only a lying sender does,
-// and is therefore exactly what must not confuse it).
+// hasSample binary-searches the run sharing the queried timestamp, and the risk is a wrong answer: a false negative
+// re-inserts a sample already held, a false positive is the loss cover silently not covering. So it is compared with a
+// linear scan over duplicate timestamps, out-of-order arrival, and seq decoupled from timestamp (a lying sender).
 
 import (
 	"math/rand"
@@ -22,7 +11,7 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// The scan hasSample replaced, kept as the oracle.
+// linearHasSeq is the scan hasSample replaced, kept as the oracle.
 func linearHasSeq(b *remoteBuffer, seq uint64) bool {
 	for i := range b.snapshots {
 		if b.snapshots[i].Seq == seq {
@@ -37,8 +26,7 @@ func TestHasSampleAgreesWithTheScanItReplaced(t *testing.T) {
 
 	for trial := 0; trial < 200; trial++ {
 		b := &remoteBuffer{historyMs: maxHistoryMs}
-		// Timestamps drawn from a small set on purpose, so runs of equal
-		// timestamps are common rather than rare.
+		// Timestamps from a small set, so runs of equal timestamps are common.
 		type held struct {
 			seq uint64
 			ts  int64
@@ -51,10 +39,9 @@ func TestHasSampleAgreesWithTheScanItReplaced(t *testing.T) {
 			added = append(added, held{seq, ts})
 		}
 
-		// Every (seq, timestamp) pair that went in, plus pairs that never did.
 		for _, h := range added {
-			// The oracle answers on seq alone, so only ask it where the pair is
-			// consistent -- which is what BuildPrev guarantees for a real prev.
+			// The oracle answers on seq alone, so it is asked only where the pair is consistent, as BuildPrev
+			// guarantees for a real prev.
 			want := linearHasSeq(b, h.seq)
 			got := b.hasSample(h.seq, h.ts)
 			if !got && want && sampleHeldAt(b, h.seq, h.ts) {
@@ -78,7 +65,7 @@ func TestHasSampleAgreesWithTheScanItReplaced(t *testing.T) {
 	}
 }
 
-// sampleHeldAt is the honest question hasSample answers: is THIS pair present.
+// sampleHeldAt is the honest question hasSample answers: is this pair present.
 func sampleHeldAt(b *remoteBuffer, seq uint64, ts int64) bool {
 	for i := range b.snapshots {
 		if b.snapshots[i].Seq == seq && b.snapshots[i].Timestamp == ts {
@@ -88,8 +75,7 @@ func sampleHeldAt(b *remoteBuffer, seq uint64, ts int64) bool {
 	return false
 }
 
-// And the case the change is FOR: the prev of the newest sample, on a full
-// buffer, which is what every state on a lossy link asks about.
+// TestHasSampleFindsThePrevOfTheNewestSampleOnAFullBuffer: the question every state on a lossy link asks.
 func TestHasSampleFindsThePrevOfTheNewestSampleOnAFullBuffer(t *testing.T) {
 	b := &remoteBuffer{historyMs: maxHistoryMs}
 	for i := 0; i < maxSnapshots; i++ {

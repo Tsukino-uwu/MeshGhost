@@ -10,9 +10,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// Every way a batch can be out of bounds, and the sentence each is refused
-// with. The reasons matter as much as the refusals: a batch dropped silently
-// is what makes a missing track look like a broken adapter.
+// TestInputSampleBounds: every way a batch can be out of bounds, and the reason each is refused with, since a batch
+// dropped silently makes a missing track look like a broken adapter.
 func TestInputSampleBounds(t *testing.T) {
 	long := strings.Repeat("x", bridge.MaxInputLabelLen+1)
 	tooMany := make([]bridge.InputEdge, bridge.MaxInputEdgesPerBatch+1)
@@ -68,8 +67,8 @@ func TestInputSampleBounds(t *testing.T) {
 	}
 }
 
-// A batch that declares only a label table is legal: it is how an adapter says
-// what its bits mean before the player has touched anything.
+// TestLabelOnlyBatchIsAccepted: a label table alone is how an adapter says what its bits mean before the player has
+// touched anything.
 func TestLabelOnlyBatchIsAccepted(t *testing.T) {
 	s := bridge.InputSample{Labels: []string{"jump", "attack"}, Source: "pawn_properties"}
 	if !bridge.ValidateInputSample(s) {
@@ -77,8 +76,8 @@ func TestLabelOnlyBatchIsAccepted(t *testing.T) {
 	}
 }
 
-// A mask bit above the label table is LOGGED, never refused: the core is not
-// the arbiter of what a game's label table has to contain.
+// TestUnlabelledMaskBitIsNotARejection: a mask bit above the label table is logged, never refused, since the core is
+// not the arbiter of what a game's label table contains.
 func TestUnlabelledMaskBitIsNotARejection(t *testing.T) {
 	s := bridge.InputSample{
 		Labels: []string{"jump"},
@@ -89,8 +88,8 @@ func TestUnlabelledMaskBitIsNotARejection(t *testing.T) {
 	}
 }
 
-// A batch that goes backwards against its PREDECESSOR is dropped whole rather
-// than repaired -- ordering is the one property a reader may trust absolutely.
+// TestBatchGoingBackwardsAcrossBatchesIsDropped whole rather than repaired: ordering is the one property a reader may
+// trust absolutely.
 func TestBatchGoingBackwardsAcrossBatchesIsDropped(t *testing.T) {
 	c := inputCore(t)
 	path, err := c.StartInputRecording("")
@@ -117,8 +116,7 @@ func TestBatchGoingBackwardsAcrossBatchesIsDropped(t *testing.T) {
 	}
 }
 
-// The flood ceiling drops edges and NEVER detaches the adapter -- killing the
-// game's connection for being loud is a worse outcome than losing the track.
+// TestInputFloodDropsWithoutDetaching: killing the game's connection for being loud is worse than losing the track.
 func TestInputFloodDropsWithoutDetaching(t *testing.T) {
 	c := inputCore(t)
 	if _, err := c.StartInputRecording(""); err != nil {
@@ -152,8 +150,7 @@ func TestInputFloodDropsWithoutDetaching(t *testing.T) {
 	}
 }
 
-// The ring is bounded by COUNT as well as by span: a time-bounded buffer fed at
-// an uncapped rate is an unbounded buffer (review G8's lesson).
+// TestInputRingIsBoundedByCountNotOnlySpan: a time-bounded buffer fed at an uncapped rate is an unbounded buffer.
 func TestInputRingIsBoundedByCountNotOnlySpan(t *testing.T) {
 	var r inputRing
 	r.setSpan(time.Hour) // a span far too long to ever trim
@@ -165,7 +162,7 @@ func TestInputRingIsBoundedByCountNotOnlySpan(t *testing.T) {
 	}
 }
 
-// The ring span is clamped to maxRingSpan, like the state ring's.
+// TestInputRingSpanIsClamped to maxRingSpan, like the state ring's.
 func TestInputRingSpanIsClamped(t *testing.T) {
 	var r inputRing
 	r.setSpan(6 * time.Hour)

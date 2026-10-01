@@ -1,10 +1,7 @@
 package core
 
-// Loss cover (ADR 0045): a state carries the sample before it, so a single
-// lost packet costs a receiver nothing. Watched on Crystal 2026-09-02 through
-// meshghost-netsim at 2% loss: the lost packet that mattered was the LAST one
-// of a walk, which change suppression gives no successor until the keepalive,
-// so the ghost walked on and then teleported. The last test here is that case.
+// Loss cover: a state carries the sample before it, so a single lost packet costs a receiver nothing. The lost packet
+// that matters is the last of a walk, which change suppression gives no successor until the keepalive.
 
 import (
 	"testing"
@@ -13,8 +10,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// coverCore is suppressionCore with the cover forced ON regardless of the
-// effective send interval (a test cannot wait 40ms per frame), or OFF.
+// coverCore is suppressionCore with the cover forced on regardless of the effective send interval (a test cannot wait
+// 40ms per frame), or off.
 func coverCore(t *testing.T, on bool) (*Core, *capturingTransport) {
 	t.Helper()
 	c, ct := suppressionCore(t, time.Hour)
@@ -66,7 +63,6 @@ func TestTheCoverIsGatedOnTheSendInterval(t *testing.T) {
 			t.Fatalf("state %d carries a prev with the cover off", i)
 		}
 	}
-	// The default gate against a real interval: 15Hz carries, 100Hz does not.
 	d := New()
 	if !d.redundancyOnLocked(time.Second/15) || d.redundancyOnLocked(time.Second/100) {
 		t.Fatal("default gate: want on at 15Hz and off at 100Hz")
@@ -92,8 +88,7 @@ func TestTheBracketCarriesThePreSilenceStateAndIsCarriedByTheResume(t *testing.T
 	}
 }
 
-// receiverWith returns a Core that knows peer "p2" and has received the given
-// states in order; the returned buffer is p2's.
+// receiverWith returns a Core that knows peer "p2" and has received the given states in order; the buffer is p2's.
 func receiverWith(t *testing.T, states ...protocol.State) (*Core, *remoteBuffer) {
 	t.Helper()
 	c := New()
@@ -148,12 +143,8 @@ func TestACarriedSampleAlreadySeenIsNotDuplicated(t *testing.T) {
 	}
 }
 
-// The case that was watched: the last sample of a walk is lost. Without the
-// cover the receiver's newest sample is one step short until the keepalive
-// re-states the stop, and the ghost renders there and then jumps. With it, the
-// keepalive (a bracket-free repeat of the same state) carries the lost stop as
-// its prev, so the receiver holds the true final position with its true
-// timestamp and interpolates onto it.
+// TestTheLostLastSampleOfAWalkArrivesWithTheKeepalive: without the cover the ghost renders one step short until the
+// keepalive and then jumps; with it, the keepalive carries the lost stop as its prev, at its true timestamp.
 func TestTheLostLastSampleOfAWalkArrivesWithTheKeepalive(t *testing.T) {
 	walk1, walk2 := lcSample(1, 1000, 0), lcSample(2, 1067, 1)
 	stop := lcSample(3, 1133, 2) // lost
@@ -169,8 +160,7 @@ func TestTheLostLastSampleOfAWalkArrivesWithTheKeepalive(t *testing.T) {
 	if got.Position[0] != 2 {
 		t.Fatalf("at the stop time the ghost is at x=%v, want 2 (the recovered stop)", got.Position[0])
 	}
-	// And the ordering invariant held: the recovered sample sits between the
-	// walk and the keepalive by timestamp, not at the end where it arrived.
+	// The recovered sample sits between the walk and the keepalive by timestamp, not at the end where it arrived.
 	if b.snapshots[2].Seq != 3 || b.snapshots[3].Seq != 4 {
 		t.Fatalf("recovered sample out of order: seqs %d,%d,%d,%d",
 			b.snapshots[0].Seq, b.snapshots[1].Seq, b.snapshots[2].Seq, b.snapshots[3].Seq)

@@ -10,11 +10,8 @@ import (
 	"testing"
 )
 
-// TestAWhitespaceClipCannotBeReadWithoutLimit is pass 5's PM-3: a blank line
-// costs no sample and no byte of the memory budget, so a clip of megabytes of
-// whitespace ending in one valid sample was read end to end and ACCEPTED --
-// and a gzip of whitespace is thousands to one. Reading is bounded by the
-// same byte budget now.
+// TestAWhitespaceClipCannotBeReadWithoutLimit: a blank line costs no sample and no byte of the memory budget, and a
+// gzip of whitespace is thousands to one, so reading itself is bounded by the same byte budget.
 func TestAWhitespaceClipCannotBeReadWithoutLimit(t *testing.T) {
 	defer func(v int) { replayMaxBytes = v }(replayMaxBytes)
 	replayMaxBytes = 1 << 20
@@ -33,10 +30,8 @@ func TestAWhitespaceClipCannotBeReadWithoutLimit(t *testing.T) {
 	}
 }
 
-// TestAZipEntryThatFailsStillSpendsWhatItRead: an entry of whitespace errors
-// out as "no samples", and an entry that errored spent nothing, so one zip
-// could repeat the scan once per entry. Two entries of just over half the
-// budget each: the second must find the budget spent.
+// TestAZipEntryThatFailsStillSpendsWhatItRead: an entry of whitespace errors as "no samples", and one that spent
+// nothing would let a zip repeat the scan per entry. Two entries of over half the budget: the second finds it spent.
 func TestAZipEntryThatFailsStillSpendsWhatItRead(t *testing.T) {
 	defer func(v int) { replayMaxBytes = v }(replayMaxBytes)
 	replayMaxBytes = 1 << 20

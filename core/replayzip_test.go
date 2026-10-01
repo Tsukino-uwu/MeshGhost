@@ -45,13 +45,8 @@ func gzipped(t *testing.T, b []byte) []byte {
 	return out.Bytes()
 }
 
-// TestAZipOfThreeClipsIsThreeGhosts is the question a player asks the moment
-// zips are readable at all: what happens if I put two recordings in one?
-//
-// The answer this pins is "all of them play". replay/active/ already means
-// "everything in here becomes a ghost", so a zip behaves like a folder that
-// happens to be a single file -- and taking only the first would leave someone
-// who zipped two clips watching one ghost with nothing saying why.
+// TestAZipOfThreeClipsIsThreeGhosts: everything in replay/active/ becomes a ghost, so a zip there behaves like a
+// folder and every clip in it plays.
 func TestAZipOfThreeClipsIsThreeGhosts(t *testing.T) {
 	c, fa := replayCore(t)
 	dir := filepath.Join(c.ReplayDir, "active")
@@ -72,8 +67,7 @@ func TestAZipOfThreeClipsIsThreeGhosts(t *testing.T) {
 	if n := c.StartReplays(); n != 3 {
 		t.Fatalf("StartReplays loaded %d, want 3 -- one per clip inside the zip", n)
 	}
-	// Each is its own ghost, named for the archive AND the entry so two clips
-	// from different zips can never collide.
+	// Each ghost is named for the archive and the entry, so clips from different zips never collide.
 	for _, want := range []string{"replay:pack.zip/a.ndjson", "replay:pack.zip/b.ndjson", "replay:pack.zip/c.ndjson.gz"} {
 		c.replayMu.Lock()
 		_, ok := c.replays[want]
@@ -88,8 +82,6 @@ func TestAZipOfThreeClipsIsThreeGhosts(t *testing.T) {
 	}, "the second clip inside the zip to render as its own ghost")
 }
 
-// TestAZipWithOneClipBehavesLikeThatClip: the ordinary case, and the one a
-// person actually makes -- right-click, send to compressed folder.
 func TestAZipWithOneClipBehavesLikeThatClip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "run.zip")
@@ -110,8 +102,7 @@ func TestAZipWithOneClipBehavesLikeThatClip(t *testing.T) {
 	}
 }
 
-// TestAZipWithNothingPlayableSaysSo rather than failing silently, and one bad
-// entry does not condemn the good ones beside it.
+// TestAZipWithNothingPlayableSaysSo, and one bad entry does not condemn the good ones beside it.
 func TestAZipWithNothingPlayableSaysSo(t *testing.T) {
 	dir := t.TempDir()
 	empty := filepath.Join(dir, "empty.zip")

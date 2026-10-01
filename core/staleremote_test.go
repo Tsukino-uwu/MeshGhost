@@ -1,12 +1,7 @@
 package core
 
-// A peer that stops sending must stop being drawn.
-//
-// Found live 2026-08-28: the user saw "multiple static ghosts" accumulate in a
-// running game, one per core restart. Each restarted core joined the relay as a
-// NEW player id, and the old id simply stopped sending -- it never left, so
-// nothing dropped it, and remoteBuffer.at happily returned its last sample
-// forever. The ghosts stood there permanently.
+// A peer that stops sending must stop being drawn: a restarted core rejoins as a new player id and the old one never
+// sends a Leave, so without aging out its last sample stands there forever.
 
 import (
 	"testing"
@@ -15,8 +10,7 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// renderOnce drives one render tick and reports which ids were rendered and
-// which were despawned, the same way an adapter frame does.
+// renderOnce drives one render tick, the way an adapter frame does, and reports which ids were drawn and despawned.
 func renderOnce(c *Core, rendered map[string]bool) (drawn []string, despawned []string) {
 	c.tickRenders(rendered,
 		func(id string, st protocol.State, _ orientBracket) { drawn = append(drawn, id) },
@@ -57,11 +51,8 @@ func TestASilentPeerIsDespawnedRatherThanLeftStanding(t *testing.T) {
 	}
 }
 
-// The other half, and the one that would break real sessions if the timeout
-// were too eager: a peer that keeps sending is never dropped, however still it
-// is standing. Change suppression means an idle player's states arrive one
-// keepalive apart rather than every frame, so the margin between the two has to
-// be real.
+// TestAPeerThatKeepsSendingIsNeverAgedOut, however still it stands: change suppression spaces an idle player's states
+// one keepalive apart, so the margin between that and the timeout has to be real.
 func TestAPeerThatKeepsSendingIsNeverAgedOut(t *testing.T) {
 	c := New()
 	c.InterpolationDelay = 0
@@ -86,9 +77,8 @@ func TestAPeerThatKeepsSendingIsNeverAgedOut(t *testing.T) {
 	}
 }
 
-// Negative means "never age out", i.e. exactly what this Core did before the
-// timeout existed -- kept so a session can rule the new behaviour out when
-// diagnosing something else.
+// TestAgingOutCanBeDisabled: a negative RemoteStaleAfter never ages out, so a session diagnosing something else can
+// rule aging out as a cause.
 func TestAgingOutCanBeDisabled(t *testing.T) {
 	c := New()
 	c.InterpolationDelay = 0

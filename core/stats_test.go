@@ -1,9 +1,7 @@
 package core
 
-// The stats counters are a diagnostic, and a diagnostic that is quietly wrong
-// is worse than none — someone sizes a bandwidth decision with it. These pin
-// the arithmetic and the two rules that are easy to get backwards: an unknown
-// local area filters nothing, and Stats must never change behaviour.
+// A quietly wrong diagnostic is worse than none: someone sizes a bandwidth decision with it. These pin the arithmetic
+// and two rules easy to get backwards: an unknown local area filters nothing, and Stats never changes behaviour.
 
 import (
 	"testing"
@@ -45,9 +43,8 @@ func TestStatsCountCrossAreaDiscardsAtRenderTime(t *testing.T) {
 	}
 }
 
-// An unknown local area filters nothing — the core's own rule, unchanged since it was written.
-// The counter must agree with it, or it would report a saving that no filter
-// could actually take.
+// The counter must agree with the core's rule that an unknown local area filters nothing, or it reports a saving no
+// filter could take.
 func TestStatsCountNothingCrossAreaWhenLocalAreaUnknown(t *testing.T) {
 	c := New()
 	c.roster = map[string]int64{"far": 0}
@@ -63,8 +60,7 @@ func TestStatsCountNothingCrossAreaWhenLocalAreaUnknown(t *testing.T) {
 	}
 }
 
-// Zero traffic must read as zero, not as a divide-by-zero or a fabricated
-// rate. A stats line printed one second after startup is the common case.
+// Zero traffic reads as zero, not a divide-by-zero: a stats line one second after startup is the common case.
 func TestStatsOnAFreshCoreAreEmptyNotNonsense(t *testing.T) {
 	s := New().Stats()
 	if s.CrossAreaShare() != 0 {

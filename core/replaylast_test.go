@@ -10,9 +10,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// TestReplayLastPlaysTheRecordingYouJustFinished is the flow the hotkey is for,
-// and the one a player describes as "play, stop, then replay": nothing is moved
-// into replay/active, and the clip that plays is the newest file in the folder.
+// TestReplayLastPlaysTheRecordingYouJustFinished: play, stop, then replay, with nothing moved into replay/active; the
+// newest file in the folder plays.
 func TestReplayLastPlaysTheRecordingYouJustFinished(t *testing.T) {
 	c, fa := replayCore(t)
 	if _, err := c.StartRecording(); err != nil {
@@ -40,13 +39,8 @@ func TestReplayLastPlaysTheRecordingYouJustFinished(t *testing.T) {
 	}, "the just-finished recording to play as a ghost")
 }
 
-// TestReplayLastWorksWhileStillRecording: pressing it without stopping first
-// used to fail outright with "unexpected end of JSON input", because the
-// recorder's buffer flushes whenever it FILLS -- which lands mid-line -- so the
-// file on disk ended in a partial line and the loader refused the whole clip.
-//
-// The same shape is what a game crash leaves behind, which is why this matters
-// beyond the hotkey: a recording nobody closed must still play what it has.
+// TestReplayLastWorksWhileStillRecording: the recorder's buffer flushes when it fills, mid-line, so an open recording
+// (or one a crash left) ends in a partial line and must still play what it has.
 func TestReplayLastWorksWhileStillRecording(t *testing.T) {
 	c, _ := replayCore(t)
 	if _, err := c.StartRecording(); err != nil {
@@ -67,9 +61,8 @@ func TestReplayLastWorksWhileStillRecording(t *testing.T) {
 	}
 }
 
-// TestATruncatedLastLineLosesOnlyThatLine, and a bad line anywhere else still
-// refuses the file -- which is what stops the tolerance above from being a
-// licence to accept garbage.
+// TestATruncatedLastLineLosesOnlyThatLine, while a bad line anywhere else still refuses the file, so the tolerance is
+// not a licence to accept garbage.
 func TestATruncatedLastLineLosesOnlyThatLine(t *testing.T) {
 	dir := t.TempDir()
 
@@ -97,12 +90,7 @@ func TestATruncatedLastLineLosesOnlyThatLine(t *testing.T) {
 	}
 }
 
-// TestReplayLastIsNotCappedByReplaysThatAlreadyFinished pins the fix for a
-// tester's 2026-09-06 log line, "16 replays are already active (the cap)", in a
-// session where nothing was playing: finished players stayed in c.replays and
-// the cap counted them. Sixteen finished players in the map, then replay_last
-// on a real recording -- it must play. Fails without pruneFinishedReplaysLocked
-// with exactly the tester's error.
+// TestReplayLastIsNotCappedByReplaysThatAlreadyFinished: finished players are pruned before the cap counts c.replays.
 func TestReplayLastIsNotCappedByReplaysThatAlreadyFinished(t *testing.T) {
 	c, fa := replayCore(t)
 	if _, err := c.StartRecording(); err != nil {
@@ -114,9 +102,7 @@ func TestReplayLastIsNotCappedByReplaysThatAlreadyFinished(t *testing.T) {
 	if _, _, err := c.StopRecording(); err != nil {
 		t.Fatal(err)
 	}
-	// Sixteen players that have RUN AND FINISHED -- what sixteen record/replay
-	// cycles of distinct clips leave behind. White-box: a player is finished when
-	// its run closed done, which is the only thing the pruning looks at.
+	// Sixteen finished players, what sixteen record/replay cycles leave behind; a closed done is all pruning reads.
 	c.replayMu.Lock()
 	if c.replays == nil {
 		c.replays = make(map[string]*replayPlayer)

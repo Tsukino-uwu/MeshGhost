@@ -8,13 +8,8 @@ import (
 	"testing"
 )
 
-// TestFuzzScheduleSeedsAreLongerThanTheirConfig: FuzzSchedule returns at once
-// on any input no longer than its configuration prefix, so a seed or a
-// committed reproducer that short passes every run while testing nothing. On
-// 2026-09-01 the prefix grew to five bytes and nothing was migrated; the
-// reproducer pinning the "names before Welcome block the handshake"
-// regression (three bytes) and two of the five seeds had been no-ops since
-// (pass 5 of the adversarial review, 2026-09-16, X2-1).
+// TestFuzzScheduleSeedsAreLongerThanTheirConfig: FuzzSchedule returns at once on any input no longer than its
+// configuration prefix, so a seed or committed reproducer that short passes every run while testing nothing.
 func TestFuzzScheduleSeedsAreLongerThanTheirConfig(t *testing.T) {
 	for i, schedule := range fuzzScheduleSeedSchedules {
 		if len(schedule) == 0 {

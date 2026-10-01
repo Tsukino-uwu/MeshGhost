@@ -5,23 +5,14 @@ import (
 	"time"
 )
 
-// A NAME REACHES A CLIENT BY TWO ROUTES, AND ONLY ONE OF THEM IS EASY TO NOTICE.
-//
-// Join covers a peer who arrives while you are watching. Welcome covers the peers who were
-// ALREADY standing in the room when you arrived. A build with only the first half looks correct in
-// every test where one player joins while the other watches -- which is the natural way to test it
-// by hand, and is how this was tested live: it worked, twice, and then failed the moment the peer
-// happened to connect first.
-//
-// This is the free version of that live test, which is the point: the bug is in Go, and Go is
-// verified with tools rather than by asking somebody to relaunch a game.
+// TestAPeerAlreadyInTheRoomIsLearnedFromTheWelcomeRoster: Join covers only peers who arrive later, so a build missing
+// the roster half passes every hand test where one player joins while the other watches.
 func TestAPeerAlreadyInTheRoomIsLearnedFromTheWelcomeRoster(t *testing.T) {
 	addr := startRelay(t)
 
-	// Alice is in the room FIRST, with a name.
 	_, _ = startCore(t, addr, "nametaggame", "room1", "Alice")
 
-	// Bob arrives second, so Alice can only reach him through his Welcome.
+	// Bob arrives second, so he can only learn Alice's name from his Welcome.
 	bob, _ := startCore(t, addr, "nametaggame", "room1", "Bob")
 
 	deadline := time.Now().Add(testTimeout)
@@ -51,8 +42,6 @@ func TestAPeerAlreadyInTheRoomIsLearnedFromTheWelcomeRoster(t *testing.T) {
 	}
 }
 
-// The other direction, which is the one that already worked -- kept so a fix to the roster path
-// cannot quietly break the arrival path.
 func TestAPeerWhoArrivesLaterIsLearnedFromItsJoin(t *testing.T) {
 	addr := startRelay(t)
 
@@ -71,8 +60,8 @@ func TestAPeerWhoArrivesLaterIsLearnedFromItsJoin(t *testing.T) {
 	t.Fatal("alice never learned bob's name from his Join")
 }
 
-// A player with no name must produce no entry at all, rather than an entry with an empty name --
-// the adapter's "should I draw a label?" is answered by absence, and this is the shipped default.
+// TestAPeerWithNoNameIsNeverStored: no entry rather than an empty name, because the adapter draws a label only when
+// one is present, and no name is the shipped default.
 func TestAPeerWithNoNameIsNeverStored(t *testing.T) {
 	addr := startRelay(t)
 
@@ -87,26 +76,16 @@ func TestAPeerWithNoNameIsNeverStored(t *testing.T) {
 	}
 }
 
-// THE TEST THAT WOULD HAVE CAUGHT THE REAL BUG, which the three above did not.
-//
-// They assert what the CORE learned. This asserts what the ADAPTER was told -- and the whole
-// defect lived in the gap between those two, so every one of them passed while a nametag was
-// invisible in a real game.
-//
-// The shape is the one a player actually has: somebody is already in the room, THEN the game
-// launches and its adapter attaches. That ordering is what made it fail, because the handshake
-// completed before the roster's names were stored, so the push at attach found an empty map.
-// A peer who joins later takes a different path entirely and always worked, which is exactly why
-// two live tests in a row looked fine.
+// TestAnAttachingAdapterIsToldAboutNamesAlreadyInTheRoom asserts what the adapter is told, not what the core learned,
+// in the order a player has: a peer already in the room, then the game launches and its adapter attaches.
 func TestAnAttachingAdapterIsToldAboutNamesAlreadyInTheRoom(t *testing.T) {
 	addr := startRelay(t)
 
-	// Already here, named, before this client exists at all.
 	alice, _ := startCore(t, addr, "nametaggame", "room1", "Alice")
 	waitForPlayerID(t, alice)
 	alicePlayerID := alice.PlayerID()
 
-	// Now the game launches: a lazy core, and an adapter that attaches and drives the connect.
+	// The game launches: a lazy core, and an adapter that attaches and drives the connect.
 	_, bridgeAddr := startCoreLazy(t, addr, "room1", "Bob")
 	fa := reattachFakeAdapter(t, bridgeAddr, "nametaggame")
 

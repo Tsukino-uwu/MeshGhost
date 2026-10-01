@@ -8,18 +8,15 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// FuzzParseInputTrackNeverPanics holds the track parser to the same promise
-// parseReplay is held to: a file is a stranger's bytes the moment one person
-// sends another a track, and the parser's job is to refuse rather than to
-// crash. Anything it ACCEPTS must also meet the bounds a live batch would have
-// met -- a file is not a way around the validator.
+// FuzzParseInputTrackNeverPanics: a track is a stranger's bytes once one person sends it to another, so the parser
+// refuses rather than crashes, and anything it accepts meets the bounds a live batch would.
 func FuzzParseInputTrackNeverPanics(f *testing.F) {
 	f.Add(`{"meshghost_inputs":1,"game":"g","labels":["jump"]}` + "\n" +
 		`{"ts":1,"f":1,"t":16,"m":1}` + "\n" +
 		`{"ts":2,"f":2,"t":32,"m":0,"ax":[0.5,-0.25]}` + "\n")
 	f.Add(`{"meshghost_inputs":1}` + "\n")
 	f.Add(`{"meshghost_inputs":7,"game":"g"}` + "\n" + `{"ts":1,"f":1,"t":1,"m":1}` + "\n")
-	f.Add(`{"meshghost_replay":1,"game":"g"}` + "\n") // a CLIP: must be refused, not read
+	f.Add(`{"meshghost_replay":1,"game":"g"}` + "\n") // a clip: must be refused, not read
 	f.Add("not json at all\n")
 	f.Add("")
 	f.Add("\n\n\n")

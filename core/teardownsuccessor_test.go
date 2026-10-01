@@ -5,8 +5,7 @@ import (
 	"testing"
 )
 
-// closeSpy is a transport that records whether it was closed and what was
-// written to it. Enough to tell a Goodbye-and-close apart from being left alone.
+// closeSpy is a transport that records whether it was closed and how many sends it took.
 type closeSpy struct {
 	mu     sync.Mutex
 	closed bool
@@ -35,24 +34,8 @@ func (t *closeSpy) wasClosed() bool {
 	return t.closed
 }
 
-// A late teardown must not close the relay a SUCCESSOR is using.
-//
-// releaseAdapterSlot frees the admission slot and returns a SNAPSHOT of what the
-// gone connection owned. From the instant it returns, a relaunched game may
-// attach -- 150 ms is the measured real-world figure (2026-09-06, the
-// 512-chaser session) -- and since 2026-09-07 the writer's onDead runs the
-// teardown as `go c.finishBridgeTeardown(...)`, adding unbounded scheduling
-// latency between the snapshot and the act.
-//
-// finishBridgeTeardown acted on that stale snapshot: it closed the relay before
-// it ever looked for a successor, and its successor check was a separate c.mu
-// section that was already out of date by the time StopReplays ran. Its own
-// comment claimed ownership made this safe; ownership was read once and never
-// re-read, and a successor can inherit this very relay connection through
-// relaysession.go's same-game transfer branch. The result on screen is peers
-// seeing the player leave and rejoin under a new player_id, and a relaunched
-// game running with no chasers, no replays and no recording -- with every log
-// line looking normal.
+// TestALateTeardownLeavesTheSuccessorsRelayAlone: finishBridgeTeardown gets a snapshot taken when the slot was freed,
+// and a relaunched game may attach and inherit the relay before it runs, so ownership is re-read at the act.
 func TestALateTeardownLeavesTheSuccessorsRelayAlone(t *testing.T) {
 	c := New()
 	relay := &closeSpy{}
@@ -65,8 +48,7 @@ func TestALateTeardownLeavesTheSuccessorsRelayAlone(t *testing.T) {
 	c.attachedAdapter = successor
 	c.mu.Unlock()
 
-	// The stale snapshot the gone connection's releaseAdapterSlot would have
-	// produced: it DID own the relay at the time it was taken.
+	// The stale snapshot releaseAdapterSlot would have produced: the gone connection owned the relay when it was taken.
 	c.finishBridgeTeardown(gone, true, true, relay)
 
 	if relay.wasClosed() {
@@ -80,9 +62,8 @@ func TestALateTeardownLeavesTheSuccessorsRelayAlone(t *testing.T) {
 	}
 }
 
-// The ordinary case must still work: no successor, the relay is still ours, so
-// the teardown really does say goodbye and close. Without this the test above
-// would pass against a finishBridgeTeardown that had simply stopped working.
+// The control: with no successor the teardown still says goodbye and closes, or the test above passes against a
+// finishBridgeTeardown that stopped working.
 func TestAnOrdinaryTeardownStillClosesItsOwnRelay(t *testing.T) {
 	c := New()
 	relay := &closeSpy{}

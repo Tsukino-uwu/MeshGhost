@@ -22,15 +22,8 @@ func captureLog(t *testing.T, f func()) string {
 	return buf.String()
 }
 
-// A SESSION THAT ENDS UP ON TCP MUST SAY SO.
-//
-// Found in a Proton tester's log, not by reasoning: sixteen "using quic" lines across eight
-// game launches, every one of them followed by the dial failing and the session falling back
-// to tcp -- and not one line naming tcp. chooseTransport returned at its `want == netx.TCP`
-// branch, which sat ABOVE the log.Printf that announces the choice, so the tcp path was
-// silent. The only evidence of the transport actually in use was the "read tcp ..." inside a
-// later DISCONNECT message, which means the transport could be learned only from a failure,
-// and only by someone who knew to look there.
+// TestFallingBackToTCPIsLogged: a session that ends up on tcp says so, or the transport in use can be learned only
+// from a later disconnect message.
 func TestFallingBackToTCPIsLogged(t *testing.T) {
 	offers := []protocol.TransportOffer{
 		{Kind: "tcp", Port: 7777},
@@ -57,8 +50,6 @@ func TestFallingBackToTCPIsLogged(t *testing.T) {
 	}
 }
 
-// The same must hold when tcp was ASKED for rather than fallen back to: the log names the
-// transport in use either way, so reading it never requires knowing which case applied.
 func TestExplicitTCPIsLogged(t *testing.T) {
 	offers := []protocol.TransportOffer{{Kind: "tcp", Port: 7777}, {Kind: "quic", Port: 7777}}
 	c := &Core{Transport: netx.TCP}
@@ -74,7 +65,6 @@ func TestExplicitTCPIsLogged(t *testing.T) {
 	}
 }
 
-// The quic line must not have regressed while adding the tcp one.
 func TestChoosingQUICStillLogsQUIC(t *testing.T) {
 	offers := []protocol.TransportOffer{{Kind: "tcp", Port: 7777}, {Kind: "quic", Port: 7777}}
 	c := &Core{Transport: netx.Auto}

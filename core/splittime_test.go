@@ -9,11 +9,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// TestSplitTimeShowsHowFarBehindTheGhostThePlayerIs: the ghost walks
-// x = 0..99 in 1s (10ms a sample); the player walks the same line at half
-// that pace. At the player's x, the ghost was there half as long ago as the
-// player took to get there, so the tag reads "+<about half the elapsed>s"
-// and grows as the player falls further behind.
+// TestSplitTimeShowsHowFarBehindTheGhostThePlayerIs: the ghost walks x = 0..99 in 1s and the player at half that
+// pace, so the tag reads about half the elapsed time and grows.
 func TestSplitTimeShowsHowFarBehindTheGhostThePlayerIs(t *testing.T) {
 	c, _, fa := startLocalPeerCoreWith(t, func(c *Core) {
 		c.ReplayDir = filepath.Join(t.TempDir(), "replay")
@@ -35,8 +32,7 @@ func TestSplitTimeShowsHowFarBehindTheGhostThePlayerIs(t *testing.T) {
 		tag = fa.names[id].DisplayName
 		fa.mu.Unlock()
 		if x >= 40 && strings.HasPrefix(tag, "PB +") {
-			// At x=40 the player has spent 800ms; the ghost passed x=40 at
-			// 400ms. Delta ~ +0.4s, growing. Accept a generous band.
+			// At x=40 the player has spent 800ms and the ghost passed it at 400ms: about +0.4s, in a generous band.
 			var secs float64
 			if _, err := fmtSscanf(tag, &secs); err != nil {
 				t.Fatalf("tag %q did not parse", tag)
@@ -101,8 +97,7 @@ func parseFloat(s string, v *float64) (int, error) {
 	return 1, nil
 }
 
-// TestSplitTimeIgnoresAnotherAreaAndTheNameStaysShort: a player in another
-// area gets no split; a long header name is clamped so the suffix survives the
+// TestSplitTimeIgnoresAnotherAreaAndTheNameStaysShort: a long header name is clamped so the suffix survives the
 // 24-character nametag cap.
 func TestSplitTimeIgnoresAnotherAreaAndTheNameStaysShort(t *testing.T) {
 	c, _, fa := startLocalPeerCoreWith(t, func(c *Core) {
@@ -144,8 +139,6 @@ func TestSplitTimeIgnoresAnotherAreaAndTheNameStaysShort(t *testing.T) {
 	t.Fatalf("no split tag appeared in the shared area; last %q", tag)
 }
 
-// TestSplitTimesAreOffByDefault: with the switch off the replay ghost's tag
-// is the header name and nothing else, however far behind the player falls.
 func TestSplitTimesAreOffByDefault(t *testing.T) {
 	c, fa := replayCore(t)
 	writeActive(t, c, "pb.ndjson", clipBytes(map[string]any{"name": "PB"}, walkStates(100, 10)))
@@ -164,18 +157,11 @@ func TestSplitTimesAreOffByDefault(t *testing.T) {
 	}
 }
 
-// TestSplitTimeIsMeasuredAgainstTheGhostYouCanSEE: the number on the nametag
-// has to describe the ghost on screen, not the schedule it was fed on.
-//
-// A replay is DRAWN LocalInterpolationDelay behind the samples it feeds
-// (remoteStatesAt), so a player running the recorded line at the recorded pace
-// is that much AHEAD of the ghost they can see -- and until 2026-09-03 the tag
-// said 0.0s while the ghost was still short of the spot, which is exactly the
-// case racing one is for. 300ms here rather than the shipped 25ms because the
-// tag is printed to one decimal and 25ms would round away.
+// TestSplitTimeIsMeasuredAgainstTheGhostYouCanSEE: a replay is drawn LocalInterpolationDelay behind the samples it
+// feeds, so a player at the recorded pace is that much ahead of the ghost on screen. 300ms rather than the shipped
+// 25ms, which the tag's one decimal would round away.
 func TestSplitTimeIsMeasuredAgainstTheGhostYouCanSEE(t *testing.T) {
-	// speed is the trap: it converts CLIP time to wall time, and the render
-	// delay is already wall time. Dividing by it would read -0.1s here.
+	// speed converts clip time to wall time and the render delay is already wall time: dividing by it reads -0.1s.
 	for _, tc := range []struct {
 		name       string
 		speed      float64
@@ -202,9 +188,7 @@ func TestSplitTimeIsMeasuredAgainstTheGhostYouCanSEE(t *testing.T) {
 			var tag string
 			deadline := time.Now().Add(testTimeout)
 			for time.Now().Before(deadline) {
-				// The player runs the ghost's own recorded line at the ghost's
-				// own playback pace, so every difference in the tag is the
-				// render delay and nothing else.
+				// The player runs the recorded line at the playback pace, so the tag shows only the render delay.
 				x := float64(time.Since(start) / tc.playerStep)
 				fa.frame(&protocol.State{AreaID: "a", Position: []float64{x, 0}})
 				time.Sleep(5 * time.Millisecond)

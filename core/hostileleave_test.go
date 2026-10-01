@@ -7,31 +7,15 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// A relay has nothing to say about ids this core minted (X1-5, 2026-09-12).
-//
-// `Join` above it and `State` below it both refuse an id that fails
-// `acceptableRelayPeerID`. `Leave`, sitting between them, took whatever
-// arrived -- so a relay that says `leave` for "chaser:1" or "replay:lap1"
-// reached straight past every namespace guard this pass added and despawned the
-// PLAYER'S OWN ghost: the chaser pack they are racing, or the replay they are
-// following, gone mid-run with nothing in any log to say why.
-//
-// It is the cheapest thing a hostile relay can do, too, because a leave needs no
-// plausible contents at all -- a state has to look like a state.
-//
-// A relay does not have to be malicious for this to bite, only confused: the
-// core hands the adapter local ghosts under these prefixes and the relay never
-// sees them, so any relay that echoed an id back from somewhere it should not
-// have would produce the same despawn.
-
+// TestARelayCannotLeaveThisCoresOwnGhosts: a relay has nothing to say about ids this core minted. Leave is gated like
+// Join and State, or a relay, hostile or merely echoing an id, despawns the player's own chaser pack or replay; a leave
+// needs no plausible contents at all.
 func TestARelayCannotLeaveThisCoresOwnGhosts(t *testing.T) {
 	for _, id := range []string{"chaser:1", "replay:lap1", "chaser:", "replay:"} {
 		t.Run(id, func(t *testing.T) {
 			c := New()
 
-			// Stood up through the real admission, not by writing the maps:
-			// both are made lazily, and a test that reaches around that is
-			// testing a state this core cannot actually be in.
+			// Through the real admission, not by writing the maps: both are made lazily.
 			c.mu.Lock()
 			c.admitToRosterLocked(id)
 			c.mu.Unlock()
@@ -63,9 +47,8 @@ func TestARelayCannotLeaveThisCoresOwnGhosts(t *testing.T) {
 	}
 }
 
-// TestARelaysLeaveStillWorksForARealPeer is the half that keeps the gate from
-// being a regression of its own: refusing local ids must not refuse anybody
-// else, or every ghost in the room stays on screen forever.
+// TestARelaysLeaveStillWorksForARealPeer: refusing local ids must not refuse anybody else, or every ghost in the room
+// stays on screen forever.
 func TestARelaysLeaveStillWorksForARealPeer(t *testing.T) {
 	c := New()
 	c.mu.Lock()

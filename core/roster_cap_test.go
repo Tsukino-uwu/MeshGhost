@@ -8,10 +8,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// TestAReplayPackCannotTakeTheSeatsOfPlayersWhoJoinLater is pass 5's PM-2: a
-// zip of 512 one-sample clips seated every replay ghost before the relay's
-// first Join, and every real player after that was refused a seat and never
-// appeared. Each kind has its own bound now, and neither can starve the other.
+// TestAReplayPackCannotTakeTheSeatsOfPlayersWhoJoinLater: replay ghosts and relay-announced players each have their
+// own bound, so neither can starve the other.
 func TestAReplayPackCannotTakeTheSeatsOfPlayersWhoJoinLater(t *testing.T) {
 	c := New()
 	for i := 0; i < protocol.MaxRosterSize; i++ {
@@ -35,11 +33,8 @@ func TestAReplayPackCannotTakeTheSeatsOfPlayersWhoJoinLater(t *testing.T) {
 	}
 }
 
-// TestRosterIsBoundedAgainstARelayThatAnnouncesWithoutEnd: the roster is the
-// one thing between a hostile or broken relay and the adapter, which spawns a
-// ghost per announced id and counts nothing. Until 2026-09-02 a relay could
-// announce ids forever, over welcome or join, and every one became a ghost.
-// Found by the 2026-09-02 adversarial review of the peer-to-adapter path.
+// TestRosterIsBoundedAgainstARelayThatAnnouncesWithoutEnd: the roster is the one thing between a hostile or broken
+// relay and the adapter, which spawns a ghost per announced id and counts nothing.
 func TestRosterIsBoundedAgainstARelayThatAnnouncesWithoutEnd(t *testing.T) {
 	c := New()
 	welcome := make(chan protocol.Welcome, 1)

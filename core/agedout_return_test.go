@@ -1,16 +1,7 @@
 package core
 
-// 2026-09-09, the five-build Crystal rig: five clients on one map lost each
-// other one by one and never recovered until every client reconnected. A
-// BizHawk window pauses while a menu is open (and, with "run in background"
-// off, whenever it loses focus); a paused window's adapter sends nothing, so
-// 3s later every other core aged that peer out -- and the 2026-09-08 fix that
-// gives an aged-out peer's roster seat back (E6) then refused every state it
-// sent on resume, because a seat was only ever granted at Welcome/Join and a
-// paused peer never re-joins. The receiving side has the mirror image: a
-// window paused for a while ages EVERYONE out on resume and sees nobody again.
-//
-// Both tests below fail on the 2026-09-08 code: the returning peer renders 0.
+// A peer aged out for silence, most often a paused emulator window, retakes its roster seat on its next fresh state:
+// the relay never saw it leave, so no Join comes.
 
 import (
 	"testing"
@@ -36,8 +27,7 @@ func TestAPeerThatAgedOutIsBackOnItsNextFreshState(t *testing.T) {
 		t.Fatalf("RemotesAgedOut = %d, want 1", aged)
 	}
 
-	// The window is unpaused: the same id sends a fresh sample. No Join --
-	// the relay never saw it leave.
+	// The window is unpaused: the same id sends a fresh sample, and no Join.
 	c.storeRemoteState(protocol.State{PlayerID: "paused", Timestamp: wall, AreaID: "town", Position: []float64{3, 4}})
 	c.storeRemoteState(protocol.State{PlayerID: "paused", Timestamp: wall + 50, AreaID: "town", Position: []float64{3, 4}})
 
@@ -64,8 +54,6 @@ func TestAPeerThatAgedOutIsBackOnItsNextFreshState(t *testing.T) {
 	}
 }
 
-// The roster's reason for existing is untouched: an id the relay never
-// admitted is still refused, aged-out set or not.
 func TestAnIdNeverAdmittedIsStillRefusedAfterOthersAgedOut(t *testing.T) {
 	c := New()
 	wall := time.Now().UnixMilli()
@@ -83,8 +71,8 @@ func TestAnIdNeverAdmittedIsStillRefusedAfterOthersAgedOut(t *testing.T) {
 	}
 }
 
-// A Leave is the relay letting the id go: whoever gets it next must arrive
-// with a Join, so the aged-out mark does not survive it.
+// TestALeaveClearsTheAgedOutMark: a Leave is the relay letting the id go, so whoever gets it next must arrive with a
+// Join.
 func TestALeaveClearsTheAgedOutMark(t *testing.T) {
 	c := New()
 	wall := time.Now().UnixMilli()

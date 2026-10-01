@@ -8,22 +8,9 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// A relay-announced player_id becomes a map key in four of this core's tables
-// and is handed to the game mod verbatim, and until 2026-09-12 nothing on the
-// receive path bounded its length or its SHAPE.
-//
-// Two refusals, both about shape and neither about meaning:
-//
-//   - protocol.MaxHelloFieldLenForID exists to refuse "an unbounded string
-//     before it is used as a map key", and was applied only to ids a CLIENT
-//     sends the relay -- never to the ones the relay sends back.
-//   - isLocalPeerID's comment says relay ids "never carry a colon prefix like
-//     these". True of an honest relay; not a guarantee. A hostile one that
-//     mints "chaser:1" puts its states in the buffer this core's own replay
-//     ghost feeds, renders cosmetic, and -- because the stale age-out skips
-//     local ids -- never despawns.
-//
-// Found by the third adversarial review (cells P3a-3 and P3a-6).
+// TestRelaySuppliedIDsAreBoundedAndOutsideTheLocalNamespace: a relay-announced player_id is a map key in four tables
+// and reaches the game mod verbatim, so its length is bounded, and a local-peer prefix is refused: "chaser:1" from a
+// relay would land in this core's own chaser buffer, render cosmetic and, exempt from the stale age-out, never despawn.
 func TestRelaySuppliedIDsAreBoundedAndOutsideTheLocalNamespace(t *testing.T) {
 	c := New()
 	welcome := make(chan protocol.Welcome, 1)

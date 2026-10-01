@@ -6,16 +6,9 @@ import (
 	"testing"
 )
 
-// samePosition replaced reflect.DeepEqual on the per-frame suppression path, so
-// the only thing it is allowed to be is DeepEqual without the reflection. It is
-// checked AGAINST DeepEqual rather than against hand-written expectations: a
-// hand-written table can encode the same misunderstanding twice and agree with
-// itself, and the cases that matter here are precisely the ones somebody would
-// get wrong from memory.
-//
-// Suppression decides whether a state goes on the wire at all (ADR 0039), so a
-// disagreement here is not a slow path -- it is a ghost that stops updating, or
-// traffic the user was told would not be sent.
+// TestSamePositionMatchesDeepEqual: samePosition may only be reflect.DeepEqual without the reflection, so it is checked
+// against DeepEqual, not a hand-written table that could encode the same misunderstanding twice. Suppression decides
+// whether a state goes on the wire at all: a disagreement is a ghost that stops updating, or traffic never meant to go.
 func TestSamePositionMatchesDeepEqual(t *testing.T) {
 	nan := math.NaN()
 	values := [][]float64{
@@ -46,9 +39,8 @@ func TestSamePositionMatchesDeepEqual(t *testing.T) {
 	}
 }
 
-// Spelled out separately because it is the one case a "simplification" would
-// break silently: len(nil) == len([]float64{}) == 0, so a bare length-then-loop
-// comparison calls these equal where DeepEqual does not.
+// TestSamePositionDistinguishesNilFromEmpty: a bare length-then-loop "simplification" calls nil and empty equal, where
+// DeepEqual does not.
 func TestSamePositionDistinguishesNilFromEmpty(t *testing.T) {
 	if samePosition(nil, []float64{}) {
 		t.Fatal("nil and empty must differ, as they do for reflect.DeepEqual")
@@ -58,16 +50,9 @@ func TestSamePositionDistinguishesNilFromEmpty(t *testing.T) {
 	}
 }
 
-// The two NaN cases, which are the ones the table above would not have
-// separated on its own and which reflect.DeepEqual treats differently from each
-// other. Distinct slices compare element-wise, so NaN != NaN and the state is
-// sent; the SAME slice hits DeepEqual's documented "same backing array, same
-// length" shortcut and is equal without any element being examined.
-//
-// The aliased case is live, not academic: forwardLocalState's `kept := *state`
-// shares the adapter's Position array, so prev and cur can be the same memory
-// on the very next frame. Getting this wrong would have changed which frames
-// get suppressed for any adapter that reuses its position slice.
+// TestSamePositionNaNFollowsDeepEqualBothWays: distinct NaN slices compare element-wise and differ, while the same
+// slice hits DeepEqual's "same backing array, same length" shortcut and is equal. The aliased case is live:
+// forwardLocalState's `kept := *state` shares the adapter's Position array, so prev and cur can be the same memory.
 func TestSamePositionNaNFollowsDeepEqualBothWays(t *testing.T) {
 	shared := []float64{math.NaN()}
 	if !samePosition(shared, shared) {

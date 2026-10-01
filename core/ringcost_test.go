@@ -7,20 +7,9 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// A full ring must cost about what a filling one does per add. Before
-// 2026-09-15 both rings copied every live sample down one slot on every add
-// once the count bound bit -- 200,000 samples moved per sample -- which put
-// the core package at Go's ten-minute limit under the race detector, and in a
-// game is the whole buffer memmoved once per frame. The reslice fix is O(1).
-//
-// The comparison is a RATIO against the same machine's fill of the same ring,
-// taken in the same run, so it holds on a slow runner too: the copy-down was
-// three to four orders of magnitude worse, and a hundred is the line. The fill
-// is the baseline rather than a handful of empty adds because a coarse clock
-// (Windows ticks at about half a millisecond) reads a few hundred adds as 0s;
-// 200,000 of them take tens of milliseconds on any machine. This is not a
-// tolerance band on a timing assertion (testing.md, 2026-09-04): the two
-// costs are separated by the algorithm, not by a clock reading.
+// A full ring must cost about what a filling one does per add, as a ratio to the same ring's fill in the same run, so
+// the algorithm separates the two costs, not the clock. The fill is the baseline: a coarse clock reads a few hundred
+// adds as 0s.
 const ringCostAdds = 5_000
 
 func TestAFullStateRingCostsWhatAFillingOneDoesPerAdd(t *testing.T) {
@@ -53,8 +42,7 @@ func TestAFullStateRingCostsWhatAFillingOneDoesPerAdd(t *testing.T) {
 	if newest := got[len(got)-1].Seq; newest != uint64(maxRingSamples+ringCostAdds-1) {
 		t.Fatalf("newest held is seq %d, want %d -- the reslice took the wrong end", newest, maxRingSamples+ringCostAdds-1)
 	}
-	// The dead prefix a reslice leaves is reclaimed by append's next regrowth,
-	// so the backing array stays within a small multiple of the live samples.
+	// append's next regrowth drops a reslice's dead prefix, so the array stays a small multiple of the live samples.
 	if c := cap(r.buf); c > 2*maxRingSamples {
 		t.Fatalf("the backing array has grown to %d slots for %d live samples -- the reslice is leaking its prefix", c, maxRingSamples)
 	}

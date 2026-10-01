@@ -9,22 +9,12 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// TestReplayScannersIgnoreTheInputTrack is the test that pins the safety
-// argument for putting tracks in replay/inputs/ rather than beside the clips.
-//
-// The argument is a fact about two specific functions, not a convention:
-// replayLast plays the newest FILE in ReplayDir (it skips directories), and
-// StartReplays reads only ReplayDir/active/. A track in either would be picked
-// up and parsed as a clip -- and replayLast in particular chooses by mod time,
-// so a freshly written track would win over every real recording the player has.
-//
-// If a refactor ever makes either scanner descend into subfolders, this fails
-// rather than the player's next F11 spawning a ghost from an input file.
+// TestReplayScannersIgnoreTheInputTrack: tracks in replay/inputs/ are safe only while replayLast skips directories
+// and StartReplays reads only active/; replayLast picks by mod time, so a fresh track would beat every recording.
 func TestReplayScannersIgnoreTheInputTrack(t *testing.T) {
 	c := inputCore(t)
 
-	// A real recording for replayLast to find, so the test distinguishes
-	// "ignored the track" from "found nothing at all".
+	// A real recording, so "ignored the track" differs from "found nothing at all".
 	if _, err := c.StartRecording(); err != nil {
 		t.Fatalf("StartRecording: %v", err)
 	}
@@ -38,8 +28,7 @@ func TestReplayScannersIgnoreTheInputTrack(t *testing.T) {
 		t.Fatalf("the input track was not written: %v", err)
 	}
 
-	// StartReplays reads active/ only. Copy the track in as a bare filename to
-	// prove the SUBFOLDER is what protects it, not the "in-" prefix.
+	// An empty active/: StartReplays reads only that folder, so the track in inputs/ must not load.
 	activeDir := filepath.Join(c.ReplayDir, "active")
 	if err := os.MkdirAll(activeDir, 0o755); err != nil {
 		t.Fatalf("mkdir active: %v", err)
@@ -49,9 +38,7 @@ func TestReplayScannersIgnoreTheInputTrack(t *testing.T) {
 	}
 	c.StopReplays()
 
-	// replayLast picks the newest file in the replay folder. The track is
-	// newer than the recording, so if directories were descended into it would
-	// win -- which is the failure this exists to catch.
+	// The track is newer than the recording, so a replayLast that descended into directories would pick it.
 	if err := c.replayLast(); err != nil {
 		t.Fatalf("replayLast: %v", err)
 	}
@@ -70,9 +57,8 @@ func TestReplayScannersIgnoreTheInputTrack(t *testing.T) {
 	}
 }
 
-// A track handed to the CLIP parser is refused with a sentence rather than
-// misplayed, which is the belt-and-braces half of the argument above: it
-// survives somebody hand-copying a file up one level.
+// A track handed to the clip parser is refused with a sentence rather than misplayed, which survives somebody
+// hand-copying a file up one level.
 func TestInputTrackIsRefusedByTheReplayParser(t *testing.T) {
 	c := inputCore(t)
 	path, err := c.StartInputRecording("")
@@ -91,7 +77,6 @@ func TestInputTrackIsRefusedByTheReplayParser(t *testing.T) {
 	}
 }
 
-// And the reverse: a clip handed to the TRACK parser is refused the same way.
 func TestReplayClipIsRefusedByTheInputParser(t *testing.T) {
 	c := inputCore(t)
 	if _, err := c.StartRecording(); err != nil {

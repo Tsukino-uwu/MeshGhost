@@ -8,10 +8,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/bridge"
 )
 
-// TestInputTrackRoundTrips is what makes the format-stability promise checkable
-// rather than a claim in an ADR. A track is meant to still be readable when
-// something is finally written to read it, so what goes in comes out -- plain
-// and gzipped, since the compressed form is a different write path.
+// TestInputTrackRoundTrips: a track must stay readable by whatever is later written to read it, so what goes in comes
+// out, plain and gzipped, since the compressed form is a different write path.
 func TestInputTrackRoundTrips(t *testing.T) {
 	for _, gz := range []bool{false, true} {
 		name := "plain"
@@ -36,8 +34,7 @@ func TestInputTrackRoundTrips(t *testing.T) {
 					s.Axes = []string{"move_x", "move_y"}
 					s.Source = "pawn_properties"
 				}
-				// Alternating masks so nothing is suppressed, and axes that
-				// survive the 3-decimal rounding exactly.
+				// Consecutive masks differ, so nothing is suppressed; the axes survive 3-decimal rounding exactly.
 				e := bridge.InputEdge{
 					F: frame, T: int64(frame) * 16, M: uint32(i%7) + 1,
 					Ax: []float64{float64(i%100) / 100.0, -float64(i%50) / 100.0},
@@ -80,9 +77,8 @@ func TestInputTrackRoundTrips(t *testing.T) {
 	}
 }
 
-// A track cut off mid-line -- the writer flushes on a clock, so this is what a
-// track read while it is still being written looks like -- keeps everything
-// that WAS written, exactly as a clip does (ADR 0051).
+// The writer flushes on a clock, so a track read while still being written ends mid-line; it keeps what was written,
+// as a clip does.
 func TestInputTrackToleratesAHalfWrittenFinalLine(t *testing.T) {
 	c := inputCore(t)
 	path, err := c.StartInputRecording("")
@@ -100,7 +96,7 @@ func TestInputTrackToleratesAHalfWrittenFinalLine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	// Chop the last line in half.
+	// Cut into the last line.
 	cut := len(b) - 12
 	if cut <= 0 {
 		t.Fatal("the track is too short to truncate meaningfully")
