@@ -35,8 +35,23 @@ rem somewhere else).
 set CMAKE_EXE=cmake
 if exist "C:\Program Files\CMake\bin\cmake.exe" set CMAKE_EXE=C:\Program Files\CMake\bin\cmake.exe
 
-echo Building MeshGhostPseudo main.dll (Game__Shipping__Win64)...
-"%CMAKE_EXE%" --build "%SRC%\build" --config Game__Shipping__Win64 --target MeshGhostPseudo
+rem The Rust part of UE4SS.dll keeps source paths in its panic messages: map the clone and the cargo
+rem home to fixed names. RUSTFLAGS splits on spaces, so a path holding one cannot be mapped this way.
+for %%I in ("%ROOT%") do set ROOT_ABS=%%~fI
+set CARGO_DIR=%CARGO_HOME%
+if not defined CARGO_DIR set CARGO_DIR=%USERPROFILE%\.cargo
+if not "%ROOT_ABS: =%"=="%ROOT_ABS%" (
+  echo build-pseudoregalia: the clone path holds a space, which RUSTFLAGS cannot carry; nothing built.
+  exit /b 1
+)
+if not "%CARGO_DIR: =%"=="%CARGO_DIR%" (
+  echo build-pseudoregalia: the cargo home path holds a space, which RUSTFLAGS cannot carry; nothing built.
+  exit /b 1
+)
+set RUSTFLAGS=--remap-path-prefix=%ROOT_ABS%=/_ --remap-path-prefix=%CARGO_DIR%=/cargo
+
+echo Building MeshGhostPseudo main.dll and the UE4SS runtime (Game__Shipping__Win64)...
+"%CMAKE_EXE%" --build "%SRC%\build" --config Game__Shipping__Win64 --target MeshGhostPseudo proxy
 if errorlevel 1 (
   echo build-pseudoregalia: cmake build failed, nothing staged.
   exit /b 1

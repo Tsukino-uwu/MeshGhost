@@ -447,8 +447,10 @@ default silently drags every dev client back down, and a ghost updating at 15Hz 
   dedup pruning only get exercised over minutes at a real send rate, not over one round trip — see CLAUDE.md's
   rule about light tests not closing load-dependent risks.
 - `build-pseudoregalia.bat` — not a launcher, a build step: compiles the Pseudoregalia UE4SS
-  C++ mod (`main.dll`) via its local CMake build tree and stages it into
-  `packaging/release/games/pseudoregalia/`. Re-run and commit the result whenever
+  C++ mod (`main.dll`) and the UE4SS runtime (`UE4SS.dll`, `dwmapi.dll`) via its local CMake build tree,
+  with each DLL recording only its pdb's file name and the Rust part's source paths remapped to `/_`
+  and `/cargo` (`RUSTFLAGS`; it refuses a clone or cargo-home path with a space), and stages `main.dll`
+  into `packaging/release/games/pseudoregalia/`; `stage-ue4ss-runtime.bat` stages the runtime. Re-run and commit the result whenever
   `adapters/pseudoregalia/MeshGhostPseudo/Mod/src/*` or its `CMakeLists.txt` change — same
   staleness-gate pattern as `build-tevi.bat`, but CI can't build this one at all (needs the
   private UEPseudo dependency), so the build tree must already be configured locally — see

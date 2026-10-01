@@ -119,6 +119,14 @@ ghosts can a game hold", alongside Emerald's and Crystal's measured ceilings); w
 the table — the per-ghost redraw span that dominates the cost, instrumented and waiting — is
 filed in [UNVERIFIED.md](UNVERIFIED.md).
 
+## Building it
+
+`dev-scripts/build-pseudoregalia.bat` builds `main.dll` and the UE4SS runtime (`UE4SS.dll`, `dwmapi.dll`) from the
+locally configured CMake tree over the pinned RE-UE4SS submodule; CI cannot, because one dependency is private, so the
+DLLs are checked in. `dev-scripts/stage-ue4ss-runtime.bat` stages the runtime. Each DLL records only its pdb's file
+name, and the Rust part's source paths are mapped to `/_` and `/cargo`, so no DLL holds a path from the machine that
+built it. After a rebuild, also copy the DLLs to the live game install(s), not just `packaging/release/`.
+
 ## How this adapter was built
 
 Third game, and by far the hardest: roughly 15-20 hours to reach "good enough" — a ghost that

@@ -939,3 +939,18 @@ workflows parse. A bug in A2.5's pinning check surfaced on the first real pins: 
 `$Matches`, so every SHA-pinned line counted as unpinned (its fixture planted a tag, which took the other
 branch). Fixed with the regex's own groups, and a new fixture plants a SHA with no version comment. The pinning
 and dependency ratchets are at 0, so any new unpinned action, open permission or floating input now fails.
+
+A3, the C++ side. Microsoft documents `/PDBALTPATH` (the binary records the given name instead of the pdb's path)
+and no deterministic-output option for `cl` or `link`; `/Brepro` is in neither the docs nor either tool's `/?`, so
+it was not used, and A5's code-unchanged proof for C++ falls back to tokens plus a clean build, as the plan allows.
+`%_PDB%` cannot pass through CMake's Visual Studio generator (it doubles every `%`, and the DLL recorded
+`%%%main.pdb%%%`), so the option is `/PDBALTPATH:$<TARGET_PDB_FILE_NAME:...>`: on `main.dll` in `Mod/CMakeLists.txt`,
+and on the submodule's `UE4SS` and `proxy` (dwmapi) targets from our top-level `CMakeLists.txt`, without touching the
+submodule. The Rust part keeps source paths in its panic messages; Corrosion passes the build's `RUSTFLAGS` through
+(read in its `Corrosion.cmake`), and `rustc --help -v` documents `--remap-path-prefix`, so `build-pseudoregalia.bat`
+maps the clone to `/_` and the cargo home to `/cargo` (refusing a path with a space, which `RUSTFLAGS` cannot carry)
+and now also builds the `proxy` target. A full rebuild (76 crates) and `stage-ue4ss-runtime.bat`: all three DLLs
+hold no local path, the submodule pin is unchanged, and preflight reports no tracked binary with a username or
+clone path. Deployed to both Pseudoregalia installs with `meshghost.exe` and the shipped config (backed up as
+`config.json.pre-2026-10-01`; the overwrite reset the Steam install's chaser count 5 / delay 5s / spacing 5s to the
+shipped 1 / 3s / 2s, and dropped three `ghost_range` keys from both). Not yet seen on screen.

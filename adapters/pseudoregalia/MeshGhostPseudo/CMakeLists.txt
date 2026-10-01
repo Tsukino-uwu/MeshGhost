@@ -16,3 +16,8 @@ project(MeshGhostPseudoMods)
 
 add_subdirectory(RE-UE4SS)
 add_subdirectory(Mod)
+
+# The runtime's two DLLs (UE4SS.dll, and dwmapi.dll from the proxy target) record only their pdb's file name.
+foreach(runtime UE4SS proxy)
+    target_link_options(${runtime} PRIVATE "/PDBALTPATH:$<TARGET_PDB_FILE_NAME:${runtime}>")
+endforeach()

@@ -3925,3 +3925,8 @@ jump heights, the backflip, and `activeSaveSlotName` reading the user's File 5 i
 ## 2026-09-30 — pointer: the host CLAUDE.md cut to its rules
 
 The stories moved to `pitfalls/by-lesson.md`, "The stories behind the rule files"; the record is [phase12.md](phase12.md), 2026-09-30.
+
+## 2026-10-01 — pointer: main.dll and the UE4SS runtime rebuilt without local paths
+
+Each DLL now records only its pdb's file name, and the Rust part's source paths are mapped to `/_` and `/cargo`; the record
+is [phase12.md](phase12.md), 2026-10-01 (A3). Deployed to both installs; not yet seen on screen.

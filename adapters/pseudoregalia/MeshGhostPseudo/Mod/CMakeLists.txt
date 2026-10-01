@@ -19,3 +19,7 @@ target_include_directories(${TARGET} PRIVATE src)
 target_link_libraries(${TARGET} PUBLIC UE4SS ws2_32)
 
 set_target_properties(${TARGET} PROPERTIES OUTPUT_NAME "main")
+
+# The DLL records only its pdb's file name, never the folder it was built in.
+# The pdb's name from CMake, not %_PDB%: the Visual Studio generator doubles every %.
+target_link_options(${TARGET} PRIVATE "/PDBALTPATH:$<TARGET_PDB_FILE_NAME:${TARGET}>")
