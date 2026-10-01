@@ -14,34 +14,15 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/netx"
 )
 
-// Restarts, against the real binaries.
-//
-// Nothing in this package restarted anything until 2026-08-22: the only
-// outage covered was TestClientSurvivesARelayThatIsNotThereYet, which is the
-// relay being late at STARTUP -- a different code path
-// (connectRelayWithRetry) from a relay that goes away mid-session
-// (reconnectWithBackoff). Meanwhile "something restarted" is the most common
-// thing that actually happens to this software: a player relaunches the game,
-// a host restarts the server, a client is killed and started again. The same
-// week this file was written, a re-attaching adapter turned out to be told the
-// wrong ghost-collision policy, and the reproduction was exactly a relaunch.
-//
-// All three pin -transport tcp, for the reason world_e2e_test.go documents: a
-// hard-killed quic peer sends no close frame and lingers until quic's own idle
-// timeout (~17s), which would dominate any assertion about a restart.
+// Restarts against the real binaries. All but one pin -transport tcp: a hard-killed quic peer sends no close frame and
+// lingers until quic's idle timeout, which would dominate any assertion about a restart.
 
-// restartTimeout is deliberately longer than the file's testTimeout.
-// reconnectWithBackoff starts at 1s and doubles to a 15s cap, so a client that
-// has already failed a dial or two during the outage may legitimately wait out
-// a long backoff before its next attempt. A tight timeout here would report a
-// working reconnect as a failure.
+// restartTimeout is longer than testTimeout: reconnectWithBackoff doubles to a cap, so a client that failed a dial or
+// two during the outage may wait out a long backoff.
 const restartTimeout = 60 * time.Second
 
-// killAndWait kills a process and REAPS it. The Wait is the part that matters
-// for a restart: until the process is reaped the OS may still hold its
-// listening socket, so starting the replacement on the same address races a
-// bind failure that has nothing to do with the code under test. t.Cleanup's
-// own kill of an already-reaped process is harmless.
+// killAndWait kills a process and reaps it: until then the OS may still hold its listening socket, and a replacement
+// on the same address would race a bind failure.
 func killAndWait(t *testing.T, cmd *exec.Cmd) {
 	t.Helper()
 	if cmd == nil || cmd.Process == nil {
@@ -53,23 +34,10 @@ func killAndWait(t *testing.T, cmd *exec.Cmd) {
 	_, _ = cmd.Process.Wait()
 }
 
-// restartRelay starts a relay on an address a relay was just killed on, and starts it AGAIN if
-// the first attempt dies at the bind.
-//
-// CI, 2026-09-09 (the race job, TestAutomaticTransportIsNotSilentlyDowngradedByARelayRestart):
-// four seconds after the old relay was killed and reaped, the new one logged `listen tcp
-// 127.0.0.1:38126: bind: address already in use` and exited, and the test failed on the
-// render that never came. Nothing of ours held that port: it is a number freePort handed out
-// from the kernel's ephemeral range, and anything on the runner -- a dial the client is making
-// to the dead relay, another connection's local end -- can be sitting on it for a while (the
-// TOCTOU testing.md records under freePort; this is its restart-shaped variant). A relay that
-// exits at the bind is told apart from one that is slow to listen by watching the process
-// itself: an exit before the listener answers means "try again", a second apart, up to attempts
-// times (the runner held its port for more than four seconds), and a
-// port that is never given back fails with the relay's own bind error in the log above, not a
-// 20s silence. The first start of a test is not retried -- freePort's own race there is the
-// recorded one, and a first bind that fails says something is wrong with the rig, not with
-// timing.
+// restartRelay starts a relay on an address one was just killed on, and starts it again if it exits at the bind:
+// anything on the runner, such as a connection's local end, can sit on a freePort number for seconds. An exit before
+// the listener answers means retry, a second apart, so a port never given back fails with the relay's own bind error
+// rather than a silent timeout. A test's first start is not retried; a first bind failing means the rig is wrong.
 func restartRelay(t *testing.T, dir, bin string, args ...string) *exec.Cmd {
 	t.Helper()
 	const attempts = 10
@@ -97,8 +65,7 @@ func restartRelay(t *testing.T, dir, bin string, args ...string) *exec.Cmd {
 			}
 			if conn, err := net.DialTimeout("tcp", addr, time.Second); err == nil {
 				conn.Close()
-				// A dial that connects is not proof the RELAY is up: whatever holds the
-				// port may accept too. The process being alive after the dial is.
+				// Whatever holds the port may accept too, so the relay is up only if it is still alive after the dial.
 				select {
 				case <-exited:
 					t.Logf("restartRelay: attempt %d of %d exited before listening on %s (its bind error is above) -- retrying", attempt, attempts, addr)
@@ -117,25 +84,19 @@ func restartRelay(t *testing.T, dir, bin string, args ...string) *exec.Cmd {
 	return nil
 }
 
-// The regression test for restartRelay's retry: the port is HELD by this test for a second, the
-// relay's first start dies at the bind exactly as CI's did, and the second start is what comes
-// up. Without the retry (a plain start + waitForListener) this is a 20s wait and a failure.
+// TestRestartRelayRetriesWhileThePortIsHeld: the test holds the port for a second, the relay's first start dies at the
+// bind, and a later start comes up.
 func TestRestartRelayRetriesWhileThePortIsHeld(t *testing.T) {
 	r := newRig(t)
-	// The holder is the CI shape: not a listener on the port but a connection whose LOCAL end
-	// is the port -- the relay's bind fails and a dial to the port is refused, both exactly as
-	// on the runner. (A listener as the holder would ACCEPT the probe dial and look like a
-	// relay; the first version of this test did that and proved nothing.)
+	// The holder is a connection whose local end is the port, not a listener: a listener would accept the probe dial
+	// and look like a relay.
 	far, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("far listener: %v", err)
 	}
 	defer far.Close()
-	// The far end's accepted connection is closed WITH the holder. Left open, the holder's
-	// close is a half-close and on Linux its local port sits in FIN_WAIT_2 for a minute --
-	// the first version of this test did that, and CI saw the relay refused ten times in a
-	// row after the "release". Both ends closed, the port is TIME_WAIT, which SO_REUSEADDR
-	// lets the relay bind through.
+	// The far end closes with the holder: a half-close leaves the port in FIN_WAIT_2 on Linux for a minute, while
+	// both ends closed leave TIME_WAIT, which SO_REUSEADDR lets the relay bind through.
 	accepted := make(chan net.Conn, 1)
 	go func() {
 		c, err := far.Accept()
@@ -169,14 +130,10 @@ func TestRestartRelayRetriesWhileThePortIsHeld(t *testing.T) {
 	if took := time.Since(started); took < 500*time.Millisecond {
 		t.Fatalf("the relay came up in %v while the port was still held -- the holder did not hold, so this test proved nothing", took)
 	}
-	// The relay that came up is a real one: it answers a hello the way any relay does.
 	waitForListener(t, r.relayAddr)
 }
 
-// drainRenders empties whatever the adapter has already buffered, so a later
-// assertion is about renders produced AFTER the restart. startAdapter's
-// channel holds 64, and without this every test here would pass on a render
-// that arrived before the kill.
+// drainRenders empties what the adapter already buffered, so a later assertion is about renders after the restart.
 func drainRenders(renders <-chan bridge.RenderRemote) {
 	for {
 		select {
@@ -187,9 +144,8 @@ func drainRenders(renders <-chan bridge.RenderRemote) {
 	}
 }
 
-// requireRendersStop is the negative control every restart test needs: it
-// proves the outage was real. Without it, a "restart" that in fact killed
-// nothing would still pass the recovery assertion below it.
+// requireRendersStop is the negative control: it proves the outage was real, so a restart that killed nothing cannot
+// pass.
 func requireRendersStop(t *testing.T, renders <-chan bridge.RenderRemote, what string) {
 	t.Helper()
 	drainRenders(renders)
@@ -227,14 +183,8 @@ func awaitFreshRender(t *testing.T, renders <-chan bridge.RenderRemote, what str
 	}
 }
 
-// TestASessionRecoversWhenTheRelayProcessIsRestarted is the live incident
-// core.go's autoRetryGameID comment records (2026-08-14: a shared relay was
-// restarted under two running cores, both logged "relay disconnected", and
-// both then sat there forever). The fix shipped; nothing has ever tested it
-// against the real binaries.
-//
-// Neither the client nor the adapter is touched: recovering without human
-// intervention is the whole property.
+// TestASessionRecoversWhenTheRelayProcessIsRestarted: a relay restarted under a running client and adapter, neither of
+// them touched, comes back without anyone intervening.
 func TestASessionRecoversWhenTheRelayProcessIsRestarted(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and launches real binaries; skipped under -short")
@@ -251,21 +201,13 @@ func TestASessionRecoversWhenTheRelayProcessIsRestarted(t *testing.T) {
 	killAndWait(t, relayCmd)
 	requireRendersStop(t, renders, "killing the relay")
 
-	// Promptly, and on the same address: the client is already backing off, so
-	// every second the relay is missing is a second of backoff to wait out.
+	// Promptly, on the same address: every second the relay is missing is more backoff to wait out.
 	restartRelay(t, r.dir, r.relayBin, "-addr", r.relayAddr, "-loopback")
 	awaitFreshRender(t, renders, "restarting the relay")
 }
 
-// TestTheClientProcessCanBeRestartedUnderARunningAdapter is the mirror case,
-// and it asserts a property the harness was built for and never exercised:
-// startAdapter reconnects on its own because core deliberately closes a bridge
-// connection when the relay is unreachable, so a real adapter must keep
-// retrying. Nothing had ever taken the core away underneath one.
-//
-// Restarting on the SAME bridge port also proves the port is genuinely
-// released when the process dies, which is a real Windows failure mode rather
-// than a theoretical one.
+// TestTheClientProcessCanBeRestartedUnderARunningAdapter: the core goes away under a running adapter, which reconnects
+// to its replacement on the same bridge port, so the port is released when the process dies.
 func TestTheClientProcessCanBeRestartedUnderARunningAdapter(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and launches real binaries; skipped under -short")
@@ -286,12 +228,8 @@ func TestTheClientProcessCanBeRestartedUnderARunningAdapter(t *testing.T) {
 	awaitFreshRender(t, renders, "restarting the client")
 }
 
-// TestARelaunchedGameGetsAWorkingSessionAgain is a game relaunch at process
-// scale: the adapter goes away and a new one attaches to the same, still
-// running core. Existing e2e only proves a SECOND, concurrent adapter is
-// refused -- never that the slot is released when the first one leaves, which
-// is the case a player hits every time they restart the game, and the case
-// TestGhostCollisionRepeatedForANewAdapter flaked on in CI.
+// TestARelaunchedGameGetsAWorkingSessionAgain: an adapter leaves and a new one attaches to the same running core, so
+// the slot is released, as every game relaunch needs.
 func TestARelaunchedGameGetsAWorkingSessionAgain(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and launches real binaries; skipped under -short")
@@ -317,29 +255,9 @@ func TestARelaunchedGameGetsAWorkingSessionAgain(t *testing.T) {
 	}
 }
 
-// TestAutomaticTransportIsNotSilentlyDowngradedByARelayRestart is the one restart test that does
-// NOT pin -transport tcp, and the exception is the point of it.
-//
-// Its three neighbours pin tcp for the reason this file's header gives, and that choice left a real
-// gap: AUTOMATIC mode is the only mode that can silently change transport, and no restart test ever
-// ran in it. A defect introduced on 2026-08-28 lived exactly there -- a transport was given up on
-// after a single failed dial, so a client reconnecting while a relay's tcp listener was back but
-// its quic listener was not would spend the rest of its session on tcp. Every existing test still
-// passed, because the session RECOVERS; it just recovers degraded, with nothing visible on screen.
-// THIS IS A GUARD, NOT A REGRESSION TEST, and the difference is worth stating because the opposite
-// claim is the easy one to make. It PASSES with that defect reintroduced: a relay restarted here
-// brings both listeners up together -- waitForRelayTransport below even waits for quic before the
-// client reconnects -- so the race window never opens and no quic dial ever fails. Reproducing the
-// race needs a relay that ADVERTISES quic while nothing accepts on that port, which is what
-// core/transportfallback_test.go builds, and that is the test which fails without the fix.
-//
-// What this one is for is the property no other restart test asserts at all: after a real relay
-// process dies and comes back, a real client is still on the transport it started on. Any future
-// change that downgrades more eagerly -- on a timeout, on a Welcome failure, on a backoff -- lands
-// here, and none of the neighbours would notice.
-//
-// It pays the cost the header describes -- a hard-killed quic client lingers until quic's own idle
-// timeout -- which is what restartTimeout is for.
+// TestAutomaticTransportIsNotSilentlyDowngradedByARelayRestart: after a real relay dies and comes back, a client in
+// automatic mode is still on quic, so it does not pin tcp and pays quic's linger. A guard, not a regression test: both
+// listeners return together here, so the race core/transportfallback_test.go reproduces never opens.
 func TestAutomaticTransportIsNotSilentlyDowngradedByARelayRestart(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and launches real binaries; skipped under -short")
@@ -356,7 +274,7 @@ func TestAutomaticTransportIsNotSilentlyDowngradedByARelayRestart(t *testing.T) 
 	waitForRelayTransport(t, netx.TCP, r.relayAddr)
 	waitForRelayTransport(t, netx.QUIC, quicAddr)
 
-	// Auto, and given the TCP address only: reaching quic requires asking the relay.
+	// Auto, given the tcp address only: reaching quic requires asking the relay.
 	startClientOn(t, r.dir, r.clientBin, r.relayAddr, r.bridgeAddr, netx.Auto)
 
 	renders, stop := startAdapter(t, r.bridgeAddr, "e2egame")
@@ -377,7 +295,7 @@ func TestAutomaticTransportIsNotSilentlyDowngradedByARelayRestart(t *testing.T) 
 	}
 	logText := string(logBytes)
 
-	// THE ASSERTION THE OTHER RESTART TESTS CANNOT MAKE: recovered, and recovered on quic.
+	// Recovered, and recovered on quic.
 	if strings.Contains(logText, "not be chosen again this session") {
 		t.Fatal("the client gave up on a transport across a relay restart -- the session came " +
 			"back on tcp instead of quic, which no existing assertion would have noticed")

@@ -1,27 +1,8 @@
 package cfg
 
-// A KEY THAT IS NOT A SETTING SAYS SO NOW.
-//
-// A typo'd config key did nothing, silently: the JSON parsed, the value was
-// ignored, and the setting the player thought they had changed kept its default.
-// ApplyDespiteBadValue already covers a key with the WRONG TYPE, which is the
-// same class of mistake with the same cost -- and that one is on record as
-// having cost a tester their room code -- but a key with the wrong NAME went
-// unremarked, which is the more likely typo of the two (`roomcode`, `min-send`,
-// `connectto`).
-//
-// WHY NOT json.DisallowUnknownFields, which is the obvious tool: the file is
-// shared. The ROOT object legitimately carries sections this binary knows
-// nothing about -- an adapter's own, a future one's -- so refusing an unknown
-// key there would be refusing someone else's setting. This walks the sections
-// this binary DOES own and warns inside them, which is where a typo actually
-// lands, and it warns rather than refuses: one misspelled key must not cost the
-// twenty that were spelled right, the same rule ApplyDespiteBadValue follows.
-//
-// The known-key set comes from the struct's own json tags by reflection, so it
-// cannot drift from the settings that exist -- a curated list would go stale the
-// first time a setting was added, which is the failure mode this file is
-// supposed to prevent rather than reproduce.
+// A config key that is not a setting is warned about, since a typo'd key otherwise does nothing, silently. Not
+// json.DisallowUnknownFields: the file is shared, so only the sections this binary owns are checked, and a warning
+// never refuses the file. The known keys come from the struct's json tags by reflection, so they cannot drift.
 
 import (
 	"encoding/json"
@@ -31,33 +12,12 @@ import (
 	"strings"
 )
 
-// WarnUnknownKeys logs one line per key in raw that has no counterpart in the
-// struct type of v, recursing into nested objects it also owns.
+// WarnUnknownKeys logs one line listing the keys in raw with no field in v's struct type, recursing into the nested
+// sections it owns; only v's type is read. where names the section ("client", "client.replay").
 //
-// raw is the JSON object this section was decoded from, v a value of the type it
-// was decoded INTO (the zero value is enough -- only its type is read). where
-// names the section for the message ("client", "client.replay"), path the file
-// and prog the binary, matching every other warning in this package.
-//
-// notSettings names keys this binary does not own but that are NOT mistakes,
-// qualified the same way where is ("client.autostart", "client.replay.indicator").
-// A shipped config.json is read by more than one program: the client owns most
-// of the "client" section, and the game's mod reads a handful of keys beside its
-// own settings. Reflection cannot tell those from a typo -- both are "no field
-// with this name" -- so the caller that knows says so. Such a key is skipped
-// entirely: not warned about, and not recursed into, because the subtree belongs
-// to whoever does own it.
-//
-// This stays a list of what is NOT a setting rather than a list of what is. The
-// header above explains why the accepted set must come from reflection: a
-// curated list of settings goes stale the first time one is added, which is the
-// failure this file exists to prevent. A key belonging to another reader is the
-// opposite case -- it is not derivable from this binary's types at all, and it
-// changes only when that other reader changes.
-//
-// Silent on anything it cannot check: raw that is not an object, a type that is
-// not a struct, a map-typed field (whose keys are the user's to choose). Being
-// unable to check is not evidence of a mistake.
+// notSettings names keys another reader of the shared file owns, qualified like where ("client.autostart"):
+// reflection cannot tell them from a typo, so the caller says so, and they are neither reported nor recursed into.
+// Anything it cannot check (raw not an object, a non-struct type, a map field whose keys are the player's) is silent.
 func WarnUnknownKeys(raw []byte, v any, path, prog, where string, notSettings map[string]bool) {
 	t := structType(reflect.TypeOf(v))
 	if t == nil {
@@ -65,8 +25,7 @@ func WarnUnknownKeys(raw []byte, v any, path, prog, where string, notSettings ma
 	}
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &obj); err != nil {
-		// Not an object, or not parseable -- ApplyDespiteBadValue's business,
-		// not this function's.
+		// Not an object: ApplyDespiteBadValue's business.
 		return
 	}
 	known := map[string]reflect.Type{}
@@ -79,18 +38,12 @@ func WarnUnknownKeys(raw []byte, v any, path, prog, where string, notSettings ma
 		if !ok {
 			continue
 		}
-		// Lower-cased on both sides of the lookup: encoding/json matches a key
-		// to a field case-insensitively, so "Room_Code" IS applied -- and
-		// until 2026-09-15 this function then told the host it was being
-		// ignored (fourth adversarial review, B7). The check has to match the
-		// decoder it speaks for.
+		// Lower-cased on both sides: encoding/json matches a key case-insensitively, so this check must too.
 		known[strings.ToLower(name)] = f.Type
 	}
 
 	var unknown []string
 	for key, val := range obj {
-		// Another reader's key, declared by the caller. Not a setting here and
-		// not a mistake, so it is neither reported nor descended into.
 		if notSettings[where+"."+key] {
 			continue
 		}
@@ -99,8 +52,6 @@ func WarnUnknownKeys(raw []byte, v any, path, prog, where string, notSettings ma
 			unknown = append(unknown, key)
 			continue
 		}
-		// A nested section this binary owns gets the same treatment: a typo
-		// inside "replay" or "hotkeys" is exactly as silent as one beside them.
 		if nested := structType(ft); nested != nil {
 			WarnUnknownKeys(val, reflect.New(nested).Elem().Interface(), path, prog, where+"."+key, notSettings)
 		}
@@ -120,8 +71,6 @@ func WarnUnknownKeys(raw []byte, v any, path, prog, where string, notSettings ma
 		prog, path, len(unknown), where, strings.Join(unknown, ", "), strings.Join(names, ", "))
 }
 
-// structType unwraps pointers and reports the struct type, or nil for anything
-// else (a map, a slice, a scalar).
 func structType(t reflect.Type) reflect.Type {
 	for t != nil && t.Kind() == reflect.Pointer {
 		t = t.Elem()
@@ -132,13 +81,10 @@ func structType(t reflect.Type) reflect.Type {
 	return t
 }
 
-// jsonName is the key this field is spelled as in the file, and false for a
-// field the encoder skips.
 func jsonName(f reflect.StructField) (string, bool) {
 	tag, ok := f.Tag.Lookup("json")
 	if !ok {
-		// No tag: encoding/json uses the Go field name verbatim. Reported as
-		// such rather than guessed at.
+		// No tag: encoding/json uses the Go field name verbatim.
 		return f.Name, true
 	}
 	name, _, _ := strings.Cut(tag, ",")

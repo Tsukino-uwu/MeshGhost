@@ -12,10 +12,8 @@ import (
 	"time"
 )
 
-// captureLog runs fn with the standard logger redirected, and returns what it
-// wrote. Every function in this package reports to the user through log, so the
-// log line IS the behaviour under test -- these are user-facing messages a
-// confused non-developer reads while their config is half-applied.
+// captureLog runs fn with the standard logger redirected and returns what it wrote: the log line a player reads is the
+// behaviour under test.
 func captureLog(t *testing.T, fn func()) string {
 	t.Helper()
 	var buf bytes.Buffer
@@ -44,8 +42,6 @@ func TestStripBOMLeavesCleanInputAlone(t *testing.T) {
 	}
 }
 
-// A UTF-16 file cannot be salvaged, so it must return nil AND say what to do --
-// the whole point is that the raw encoding/json error names none of that.
 func TestStripBOMRefusesUTF16AndSaysHowToFix(t *testing.T) {
 	for name, bom := range map[string][]byte{
 		"little-endian": {0xFF, 0xFE},
@@ -76,8 +72,6 @@ func captureStrip(t *testing.T, in []byte) []byte {
 	return got
 }
 
-// A syntax error is fatal to the whole file and must say so: the rest genuinely
-// cannot be trusted to be what the user meant.
 func TestApplyDespiteBadValueRefusesSyntaxError(t *testing.T) {
 	var v struct {
 		A int `json:"a"`
@@ -96,9 +90,7 @@ func TestApplyDespiteBadValueRefusesSyntaxError(t *testing.T) {
 	}
 }
 
-// The 2026-08-16 bug itself: one mistyped value used to discard every other
-// setting. A type error must be survivable and must say only that ONE key is
-// being dropped.
+// TestApplyDespiteBadValueSurvivesTypeError: one mistyped value must not discard every other setting.
 func TestApplyDespiteBadValueSurvivesTypeError(t *testing.T) {
 	var v struct {
 		ShowConsole bool   `json:"show_console"`
@@ -119,19 +111,11 @@ func TestApplyDespiteBadValueSurvivesTypeError(t *testing.T) {
 	if !strings.Contains(out, "show_console") {
 		t.Fatalf("warning does not name the offending key: %q", out)
 	}
-	// The reassurance the 2026-08-16 message exists for -- your room code did
-	// not evaporate with it -- without the over-promise removed on 2026-09-08;
-	// see TestASecondMistypedValueIsNotPromisedToStillApply.
 	if !strings.Contains(out, "everything correctly typed still applies") {
 		t.Fatalf("warning does not reassure about the other settings: %q", out)
 	}
 }
 
-// The regression this package's extraction actually fixes. Both mains used to
-// hardcode ONE example -- the client always printed `true`, the relay always `8`
-// -- so each printed the wrong kind of value whenever the mistyped key happened
-// to be of the other type, which is exactly when someone is reading the message.
-// The example is now derived from the type.
 func TestApplyDespiteBadValueExampleMatchesTheType(t *testing.T) {
 	cases := []struct {
 		name, doc, wantExample, wantNotExample string
@@ -160,9 +144,6 @@ func TestApplyDespiteBadValueExampleMatchesTheType(t *testing.T) {
 	}
 }
 
-// A string field given a number: quotes are the FIX here, not the problem, so the
-// "quotes make a value text" parenthetical would tell the user to do the opposite
-// of what they need.
 func TestApplyDespiteBadValueDoesNotBlameQuotesOnAStringField(t *testing.T) {
 	var v struct {
 		Name string `json:"name"`
@@ -184,15 +165,8 @@ func TestApplyDespiteBadValueDoesNotBlameQuotesOnAStringField(t *testing.T) {
 	}
 }
 
-// TestOverridePrecedence pins the rule the whole config system rests on:
-// an explicit flag beats the config file, which beats the built-in default.
-//
-// It exists because that rule was written out by hand twenty-five times across
-// the two mains, as `if fc.X != nil && !explicit["x"] { *t.x = *fc.X }`. Nothing
-// tested it, and the failure mode is silent in the worst way -- a flag name
-// typo'd into the explicit map lookup makes a config value quietly win over the
-// flag the user actually typed, which looks exactly like the setting being
-// ignored.
+// TestOverridePrecedence pins the rule the config system rests on: an explicit flag beats the config file, which beats
+// the built-in default.
 func TestOverridePrecedence(t *testing.T) {
 	const (
 		builtin  = "default-value"
@@ -227,8 +201,6 @@ func TestOverridePrecedence(t *testing.T) {
 	})
 
 	t.Run("a present-but-empty value is applied, not treated as absent", func(t *testing.T) {
-		// The reason every fileConfig field is a POINTER. Clearing a setting by
-		// writing "" in the file has to be distinguishable from not mentioning it.
 		target := builtin
 		empty := ""
 		Override(map[string]bool{}, "name", &target, &empty)
@@ -260,8 +232,6 @@ func TestOverridePrecedence(t *testing.T) {
 	})
 }
 
-// TestOverrideDuration covers the two settings the config file expresses as a
-// duration string, where a bad value must cost only itself.
 func TestOverrideDuration(t *testing.T) {
 	t.Run("a valid duration applies", func(t *testing.T) {
 		target := 250 * time.Millisecond
@@ -286,7 +256,6 @@ func TestOverrideDuration(t *testing.T) {
 		if target != 250*time.Millisecond {
 			t.Fatalf("target = %v, want it untouched at 250ms -- one bad duration must not cost the setting around it", target)
 		}
-		// The warning has to name the key the USER typed, not a Go field name.
 		if !strings.Contains(out, "interp") || !strings.Contains(out, "quarter of a second") {
 			t.Fatalf("warning does not name the key and the offending value: %q", out)
 		}
@@ -302,17 +271,11 @@ func TestOverrideDuration(t *testing.T) {
 	})
 }
 
-// TestOpenLogFileRotatesOnceAtMaxLogBytes pins the rule that stops an
-// autostarted client growing its log forever: a .log at or over MaxLogBytes is
-// renamed to .log.1 (one generation, older one discarded) and a fresh .log is
-// appended to. Untested until 2026-08-27 -- and it is the reason the file APPENDS
-// at all, which is a deliberate trade recorded at length on OpenLogFile itself.
 func TestOpenLogFileRotatesOnceAtMaxLogBytes(t *testing.T) {
 	dir := t.TempDir()
 	name := filepath.Join(dir, "meshghost.log")
 
-	// Exactly MaxLogBytes: the check is `>=`, so the boundary is the case worth
-	// pinning rather than something comfortably over it.
+	// Exactly MaxLogBytes: the check is `>=`, so the boundary is the case worth pinning.
 	if err := os.WriteFile(name, bytes.Repeat([]byte("a"), MaxLogBytes), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -345,9 +308,6 @@ func TestOpenLogFileRotatesOnceAtMaxLogBytes(t *testing.T) {
 }
 
 func TestOpenLogFileAppendsBelowMaxLogBytes(t *testing.T) {
-	// The other half, and the more important one: it must NOT truncate. A
-	// process that dies and gets respawned would otherwise erase the evidence of
-	// why it died, which is the one report worth having when there is no console.
 	dir := t.TempDir()
 	name := filepath.Join(dir, "meshghost.log")
 	if err := os.WriteFile(name, []byte("first run\n"), 0o644); err != nil {
@@ -375,14 +335,8 @@ func TestOpenLogFileAppendsBelowMaxLogBytes(t *testing.T) {
 	}
 }
 
-// TestASecondMistypedValueIsNotPromisedToStillApply is review G10 (2026-09-08).
-// encoding/json keeps only the FIRST UnmarshalTypeError and skips every other
-// mistyped value, so a file with two wrong types loses both -- while the old
-// message told its author that "everything else in the file still applies",
-// which is exactly the sentence they would trust instead of re-reading their
-// own file. The fixture below is the shape a real config takes: one bad value
-// that gets named, one that does not, and one good value that really does
-// survive.
+// TestASecondMistypedValueIsNotPromisedToStillApply: encoding/json names only the first mistyped value but skips them
+// all, so the message must not promise the rest of the file applied.
 func TestASecondMistypedValueIsNotPromisedToStillApply(t *testing.T) {
 	var v struct {
 		ShowConsole bool   `json:"show_console"`
@@ -412,12 +366,7 @@ func TestASecondMistypedValueIsNotPromisedToStillApply(t *testing.T) {
 	}
 }
 
-// TestAMistypedGroupDoesNotPrintAGoTypeName is the other half of review G10.
-// The type switch covered bool/int/string and printed reflect's own name for
-// anything else, so a player who quoted a whole section was told their config
-// needed "a main.replayFileConfig" -- a Go declaration they cannot open, with
-// nothing in it they could type. Both non-scalar shapes a config file has are
-// covered: a group in braces and a list in square brackets.
+// TestAMistypedGroupDoesNotPrintAGoTypeName covers both non-scalar shapes: a group in braces and a list in brackets.
 func TestAMistypedGroupDoesNotPrintAGoTypeName(t *testing.T) {
 	type replaySection struct {
 		Gzip bool `json:"gzip"`
@@ -449,9 +398,7 @@ func TestAMistypedGroupDoesNotPrintAGoTypeName(t *testing.T) {
 			if !strings.Contains(out, tc.wantShape) {
 				t.Errorf("message does not show the shape the key needs.\n got: %q\nwant it to contain: %q", out, tc.wantShape)
 			}
-			// The Go names the old code printed, spelled the way reflect
-			// spells them, so this fails on a regression rather than on a
-			// paraphrase.
+			// Spelled the way reflect spells them, so a regression fails rather than a paraphrase.
 			for _, goName := range []string{"cfg.replaySection", "[]string", "struct {"} {
 				if strings.Contains(out, goName) {
 					t.Errorf("message prints a Go type name (%q) to a player: %q", goName, out)

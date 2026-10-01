@@ -11,24 +11,9 @@ import (
 	"testing"
 )
 
-// EVERY WIRE SHAPE MUST BE IN THE FROZEN-FIELDS GATE, and until 2026-09-11
-// nothing checked that (review J9).
-//
-// TestWireFieldsAreFrozen compares a hand-written sample map against a
-// hand-written frozen-field map. It errors when a FROZEN entry has no sample --
-// and it has nothing at all to say about a type that was never added to either.
-// So the gate protected exactly the shapes somebody remembered to list, and a
-// new message type was invisible to it by default, which is the wrong default
-// for a gate whose whole job is noticing what changed.
-//
-// Five shapes had escaped that way (`BridgeReady`, `RemoteName`,
-// `RecordingState`, `PlayerFrozen`, and `protocol.StatePrev`'s nine fields).
-// Listing those five is the fix for those five; this is the fix for the next
-// one, which is the one nobody will be looking for.
-//
-// The source is parsed rather than reflected over, because reflection cannot
-// enumerate the types a package DECLARES -- only the ones something already
-// mentions, which is the same blind spot one level down.
+// TestEveryWireShapeIsCoveredByTheFrozenGate: every json-tagged struct protocol and bridge declare must be in
+// TestWireFieldsAreFrozen's maps, which otherwise see only the shapes someone remembered to list. It parses the source
+// because reflection cannot enumerate the types a package declares.
 func TestEveryWireShapeIsCoveredByTheFrozenGate(t *testing.T) {
 	for _, pkg := range []struct {
 		dir   string
@@ -57,9 +42,8 @@ func TestEveryWireShapeIsCoveredByTheFrozenGate(t *testing.T) {
 	}
 }
 
-// wireStructsIn returns the names of exported structs in dir that have at least
-// one json-tagged field -- which is this repo's definition of "crosses a wire".
-// _test.go files are skipped: a test's own fixture is not a wire shape.
+// wireStructsIn returns the exported structs in dir with at least one json-tagged field, this repo's definition of
+// crossing a wire; a _test.go fixture is not a wire shape.
 func wireStructsIn(t *testing.T, dir string) []string {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
@@ -98,10 +82,8 @@ func wireStructsIn(t *testing.T, dir string) []string {
 	return out
 }
 
-// frozenNamesFor reads the sample-map literals out of gameblind_test.go itself.
-// Parsing the test rather than exporting a list from it keeps the two maps where
-// they are readable -- next to the reasoning that justifies each entry -- and
-// still makes them checkable.
+// frozenNamesFor reads the sample-map literals out of gameblind_test.go, so the maps stay beside the reasoning for each
+// entry and are still checkable.
 func frozenNamesFor(t *testing.T, which string) map[string]bool {
 	t.Helper()
 	src, err := os.ReadFile("gameblind_test.go")
@@ -126,10 +108,8 @@ func frozenNamesFor(t *testing.T, which string) map[string]bool {
 
 	out := map[string]bool{}
 	for _, part := range strings.Split(body, "\"") {
-		// Keys are the quoted strings; values are package selectors and never
-		// quoted, so every odd-indexed piece is a name. Collecting all of them
-		// and letting extras through is fine: this map is only ever asked
-		// "is X present".
+		// Keys are quoted and values never are, so every odd piece is a name; extras are harmless, since this map is
+		// only asked whether a name is present.
 		if part != "" && !strings.ContainsAny(part, "{}:,= \t\n") {
 			out[part] = true
 		}

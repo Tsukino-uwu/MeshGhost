@@ -11,18 +11,9 @@ import (
 	"time"
 )
 
-// TestOfflineClientRendersAReplayAndNeverDialsTheRelay: with "offline" set, the
-// real meshghost.exe plays a replay ghost through the real bridge and does not
-// contact the relay at all -- not once, not on a retry, and not when the
-// adapter's own hello arrives (the second path into a dial, and the one a guard
-// on the startup loop alone would miss).
-//
-// PROVEN BY A LISTENER, not by reading a log: the test itself binds the relay
-// address and counts accepts. Zero is the assertion.
-//
-// Recording, replays and chasers never needed a relay -- forwardLocalState taps
-// the recorder before it looks for one -- so what "offline" adds is only the
-// MODE: without it a client with nobody to reach retries forever and says so.
+// TestOfflineClientRendersAReplayAndNeverDialsTheRelay: with "offline" set, the real meshghost.exe plays a replay ghost
+// and never contacts the relay, not on a retry and not when the adapter's hello arrives, the second path into a dial.
+// The test binds the relay address itself and counts accepts; zero is the assertion.
 func TestOfflineClientRendersAReplayAndNeverDialsTheRelay(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and launches real binaries; skipped under -short")
@@ -30,8 +21,7 @@ func TestOfflineClientRendersAReplayAndNeverDialsTheRelay(t *testing.T) {
 	base := newRig(t)
 	r := base.withFreshPorts(t)
 
-	// The relay address is REAL and listening -- so a dial would succeed, and
-	// a client that made one could not hide it.
+	// The relay address is real and listening, so a client that dialed could not hide it.
 	ln, err := net.Listen("tcp", r.relayAddr)
 	if err != nil {
 		t.Fatalf("listen on the relay address: %v", err)
@@ -87,8 +77,7 @@ func TestOfflineClientRendersAReplayAndNeverDialsTheRelay(t *testing.T) {
 		t.Fatal("no replay ghost rendered with -offline: the bridge must still serve, since it is " +
 			"how the game's mod attaches and nothing renders without it")
 	}
-	// Checked after the ghost, not before: by now the client has been up long
-	// enough to have retried several times if it were going to.
+	// Checked after the ghost: by now the client would have retried several times.
 	if n := atomic.LoadInt64(&dials); n != 0 {
 		t.Fatalf("an offline client opened %d connection(s) to the relay address", n)
 	}

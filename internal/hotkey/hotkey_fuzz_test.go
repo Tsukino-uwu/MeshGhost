@@ -5,11 +5,9 @@ import (
 	"testing"
 )
 
-// FuzzParseNeverPanicsAndOnlyAdmitsDocumentedChords: a chord is a string a
-// player typed into config.json. Whatever it is, Parse must not panic, and
-// anything it accepts must be a documented modifier set plus one documented
-// key -- never F12, never the Windows key, never a bare key -- and must print
-// back to a string that parses to the same binding.
+// FuzzParseNeverPanicsAndOnlyAdmitsDocumentedChords: whatever a player types, Parse must not panic, and anything it
+// accepts is a documented modifier set plus one documented key (never F12, the Windows key or a bare key) that prints
+// back to a string parsing to the same binding.
 //
 // Long campaign by hand: go test ./internal/hotkey -run=XXX -fuzz=FuzzParse -fuzztime=5m
 func FuzzParseNeverPanicsAndOnlyAdmitsDocumentedChords(f *testing.F) {

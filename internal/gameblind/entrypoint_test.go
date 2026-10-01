@@ -9,17 +9,10 @@ import (
 	"testing"
 )
 
-// TestRemoteStateHasOneEntryPoint is the structural half of ADR 0047's safety
-// argument: a replay file can do exactly what a stranger's packets can do, and
-// nothing more, BECAUSE both reach the core through storeRemoteState (with
-// protocol.ValidateState in front of it) and nothing else does. This fails the
-// build if a new caller appears anywhere in core, so a second door -- a loader
-// that "just appends to the buffer", a chaser that skips validation -- is a
-// decision made in this file rather than a drift.
-//
-// The allowed callers, by file: the relay session (a Join's first state and
-// every State message) and the local-peer feeder every replay and chaser goes
-// through. Tests are exempt: they call it to set up a peer.
+// TestRemoteStateHasOneEntryPoint: a replay file can do only what a stranger's packets can, because both reach the
+// core through storeRemoteState, behind protocol.ValidateState, and nothing else does. A new caller in core fails
+// here, so a second door is a decision made in this file. The allowed callers are the relay session (a Join's first
+// state and every State) and the local-peer feeder every replay and chaser goes through.
 func TestRemoteStateHasOneEntryPoint(t *testing.T) {
 	root := repoRoot(t)
 	allowed := map[string]bool{

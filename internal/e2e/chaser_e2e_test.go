@@ -14,12 +14,9 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
-// TestChaserFollowsThroughTheRealBinary: -chaser on the shipped client makes
-// a cosmetic "chaser:1" ghost render to the adapter, named from the flag,
-// with nothing but the adapter's own frames feeding it. It also runs with
-// -chaser-contact kill, so the session_policy the real binary pushes must
-// carry the mode's own word (ADR 0068); the default case -- no field at all
-// -- is asserted by every client in ghostcollision_e2e_test.go.
+// TestChaserFollowsThroughTheRealBinary: -chaser on the shipped client renders named cosmetic chaser ghosts fed only by
+// the adapter's own frames, lagging by their own delay and not the interp as well; with -chaser-contact kill,
+// session_policy carries the mode's own word.
 func TestChaserFollowsThroughTheRealBinary(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and launches real binaries; skipped under -short")
@@ -34,18 +31,13 @@ func TestChaserFollowsThroughTheRealBinary(t *testing.T) {
 	waitForListener(t, r.relayAddr)
 
 	bridgeAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t)))
-	// -interp 450ms, the SHIPPED value, overriding startClient's own 0ms: a
-	// chaser must lag by its own delay and not by that plus the network's
-	// jitter buffer, and at interp 0 -- which every other test here wants --
-	// the difference cannot exist. That blind spot is why the defect fixed on
-	// 2026-09-03 survived both this suite and core's own (phases/phase11.md).
+	// -interp 450ms, the shipped value: a chaser must lag by its own delay, not that plus the network's jitter buffer,
+	// and at interp 0 the two cannot differ.
 	startClient(t, r.dir, r.clientBin, r.relayAddr, bridgeAddr, "-transport", "tcp",
 		"-interp", "450ms",
 		"-chaser", "-chaser-count", "2", "-chaser-delay", "200ms", "-chaser-spacing", "100ms",
 		"-chaser-spawn-delay", "100ms", "-chaser-name", "Shadow", "-chaser-contact", "kill")
-	// A MOVING player: a chaser never spawns on one who stands still (the
-	// spawn window, core/chaser.go), and the shared driver sends one fixed
-	// position every frame, which is exactly a standing player.
+	// A moving player: a chaser never spawns on one who stands still, which the shared driver's fixed position is.
 	renders, policies, playerX, stop := startMovingAdapter(t, bridgeAddr, "e2egame")
 	defer stop()
 
@@ -68,15 +60,9 @@ func TestChaserFollowsThroughTheRealBinary(t *testing.T) {
 					t.Fatalf("a chaser rendered without cosmetic=true: %+v", rr)
 				}
 				seen[rr.PlayerID] = true
-				// The walker covers 0.5 units per 20ms, so one unit is 40ms
-				// of lag. Measured on chaser:1 only -- chaser:2 is 100ms
-				// further back by -chaser-spacing.
-				// NOT the first render: a just-spawned chaser has only a
-				// few samples, so a render time past the oldest of them
-				// edge-holds there and the lag reads short whatever the
-				// delay arithmetic says. Measured from x > 30 -- more than
-				// a second of walking, buffer full -- and the last reading
-				// is the one asserted on.
+				// The walker covers 0.5 units per 20ms, so one unit is 40ms of lag; chaser:2 sits a spacing further
+				// back. Read only past x 30, once the buffer is full: a just-spawned chaser edge-holds on its oldest
+				// sample and reads short.
 				if rr.PlayerID == "chaser:1" && len(rr.State.Position) > 0 {
 					if x := playerX(); x > 30 {
 						lagMs = (x - rr.State.Position[0]) * 40
@@ -104,12 +90,8 @@ func TestChaserFollowsThroughTheRealBinary(t *testing.T) {
 	awaitRemoteNameCalled(t, "Shadow 1", "the first chaser's numbered nametag")
 }
 
-// startMovingAdapter is startAdapter with a player who walks: x advances every
-// frame. Kept beside the one test that needs it rather than folded into the
-// shared driver, whose fixed position every other test relies on.
-// It also reports the last x it sent, so a test can measure how far behind a
-// ghost is drawn in the player's own units, and hands over every
-// session_policy it is pushed.
+// startMovingAdapter is startAdapter with a player whose x advances every frame. It reports the last x sent, so a test
+// can measure a ghost's lag in the player's own units, and hands over every session_policy it is pushed.
 func startMovingAdapter(t *testing.T, bridgeAddr, gameID string) (<-chan bridge.RenderRemote, <-chan bridge.SessionPolicy, func() float64, func()) {
 	t.Helper()
 	renders := make(chan bridge.RenderRemote, 64)

@@ -234,8 +234,10 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
   that fails if server, client and adapter start merging (`_test.go` files exempt, since `core`'s
   own tests start a real relay on purpose); and **adapters never speak the relay protocol**, read
   out of the Lua/C#/C++ sources as text, vendored dependencies skipped. Read the file's header
-  before changing any of it: it carries the user's wording of the rule and the burden of proof for
-  a new wire field. Each was proven to fail against a deliberate violation before being kept.
+  before changing any of it, and the burden of proof above its frozen field lists before adding a
+  wire field. The user's wording of the game-blind rule is in ADR 0035, and of the three stay three in
+  pitfalls/by-lesson.md, "The stories behind the code". Each was proven to fail against a deliberate
+  violation before being kept.
 - **`cmd/meshghost`, `cmd/meshghost-relay`, `cmd/meshghost-netsim`** — each has its own tests,
   mostly around config/flag precedence and, for netsim, the fault injection itself.
 - **`internal/cfg`, `internal/textfmt`, `internal/hotkey`** — the three production `internal/`

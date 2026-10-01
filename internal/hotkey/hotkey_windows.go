@@ -2,26 +2,11 @@
 
 package hotkey
 
-// The Windows half: RegisterHotKey with a NULL window, a GetMessageW loop on
-// the registering thread, UnregisterHotKey on the way out. Every call and
-// constant is from learn.microsoft.com, read 2026-09-03 (ADR 0048):
-//
-//   - RegisterHotKey: hWnd NULL posts WM_HOTKEY to the CALLING THREAD's queue,
-//     "and must be processed in the message loop"; ids 0x0000-0xBFFF; fails
-//     if another application already registered the chord.
-//   - UnregisterHotKey: frees a hot key "previously registered by the calling
-//     thread" -- so register, loop and unregister all run on one OS thread,
-//     which runtime.LockOSThread guarantees for this goroutine.
-//   - GetMessageW: -1 on error, 0 on WM_QUIT, nonzero otherwise; the loop
-//     checks -1 explicitly, as the page insists.
-//   - WM_HOTKEY (0x0312): wParam is the hotkey id.
-//   - PostThreadMessageW: fails unless the thread has a message queue, which
-//     the system creates on the thread's first User call; the page's own
-//     recipe is PeekMessage(PM_NOREMOVE) first, then signal ready. The stop
-//     message is WM_APP+1 (0x8001): the WM_QUIT page says not to post WM_QUIT
-//     from outside, and WM_APP through 0xBFFF is the range "available for
-//     use by applications" (the WM_USER page).
-//   - MSG: hwnd, message, wParam, lParam, time, POINT pt, DWORD lPrivate.
+// The Windows half, per Microsoft's page for each call. RegisterHotKey with a NULL window posts WM_HOTKEY (wParam is
+// the id) to the calling thread's queue, and UnregisterHotKey frees only what the calling thread registered, so
+// register, loop and unregister share one locked OS thread. GetMessageW returns -1 on error. PostThreadMessageW needs
+// the thread's queue to exist, hence PeekMessage first; the stop message is WM_APP+1, since WM_QUIT must not be posted
+// from outside.
 
 import (
 	"errors"
@@ -72,9 +57,6 @@ func run(actions []Action, fire func(name string), report func(Result), stop <-c
 	ready := make(chan uint32, 1)
 	done := make(chan error, 1)
 	go func() {
-		// Everything below happens on ONE OS thread: RegisterHotKey binds
-		// the chord to the calling thread's queue and UnregisterHotKey only
-		// frees what the calling thread registered.
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
 

@@ -7,12 +7,8 @@ import (
 	"testing"
 )
 
-// TestLogRotatesWhileRunning: until 2026-09-02 the cap was checked once, at
-// open, so a long-running relay grew its log without bound -- under a
-// connection flood, until the disk was full. The 2026-09-02 adversarial review
-// named it. Now the writer rotates itself the moment a write would carry the
-// file past MaxLogBytes, keeping one older generation, exactly as the startup
-// check does.
+// TestLogRotatesWhileRunning: a write that would carry the file past MaxLogBytes rotates it, so a long-running relay's
+// log stays bounded under a connection flood.
 func TestLogRotatesWhileRunning(t *testing.T) {
 	t.Chdir(t.TempDir())
 
@@ -46,23 +42,9 @@ func TestLogRotatesWhileRunning(t *testing.T) {
 	}
 }
 
-// TestARotationThatCannotRenameStopsRetrying is review G1 (2026-09-08). A
-// rotation that cannot rename used to leave size over the cap, so the cap test
-// in Write was true again on the very next line and every line after it: a
-// Close+Rename+OpenFile+Stat per log line for the life of the process, with no
-// backoff and nothing said. The trigger is ordinary -- two copies of one game
-// run from the same folder share meshghost.log, and Go opens without
-// FILE_SHARE_DELETE -- and the same writer is the relay's disk bound (ADR
-// 0044), where the log rate belongs to whoever is connecting.
-//
-// A directory sitting in the .1 slot is how the rename is made to fail here:
-// os.Rename onto a directory is refused on both Windows and Linux, so the test
-// runs the same way on the CI matrix as on the dev machine, with no locking
-// tricks and no second process.
-//
-// The assertion is on the number of attempts, not on the log's contents,
-// because the storm is invisible in the file: every line it costs is still
-// written. Not dropping them is half the fix.
+// TestARotationThatCannotRenameStopsRetrying: a rotation whose rename fails backs off by MaxLogBytes instead of
+// retrying on every line, and drops nothing. A directory in the .1 slot makes the rename fail on Windows and Linux
+// alike; the test counts attempts because the retry storm is invisible in the file.
 func TestARotationThatCannotRenameStopsRetrying(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if err := os.Mkdir("t.log.1", 0o755); err != nil {
@@ -81,8 +63,6 @@ func TestARotationThatCannotRenameStopsRetrying(t *testing.T) {
 
 	chunk := bytes.Repeat([]byte("x"), 64*1024)
 	total := 0
-	// Past the cap, and then a further 512 KiB -- eight more writes that each
-	// used to be a rotation of their own.
 	for total < MaxLogBytes+8*len(chunk) {
 		n, err := w.Write(chunk)
 		if err != nil {
@@ -110,10 +90,8 @@ func TestARotationThatCannotRenameStopsRetrying(t *testing.T) {
 	}
 }
 
-// TestRotationResumesOnceTheRenameCanSucceedAgain is the other half of G1: the
-// backoff must not be a one-way latch. The blocking .1 going away is the other
-// game closing, and nobody restarts a client for that -- so the next attempt,
-// one MaxLogBytes later, has to rotate normally.
+// TestRotationResumesOnceTheRenameCanSucceedAgain: the backoff is not a latch. Once the .1 slot clears, as when the
+// other game closes, the next attempt rotates normally.
 func TestRotationResumesOnceTheRenameCanSucceedAgain(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if err := os.Mkdir("t.log.1", 0o755); err != nil {
@@ -128,9 +106,7 @@ func TestRotationResumesOnceTheRenameCanSucceedAgain(t *testing.T) {
 	r := w.(*rotatingLog)
 
 	chunk := bytes.Repeat([]byte("x"), 64*1024)
-	// Bounded: 64 MiB of writes is far more than the two rotations this needs,
-	// and a loop keyed on the counter can otherwise never end if the backoff
-	// stops working, which is the failure the sibling test is about.
+	// Bounded, so a broken backoff fails the test instead of hanging it.
 	writeUntilRotation := func(want int) {
 		t.Helper()
 		for i := 0; i < 1024 && r.rotations < want; i++ {

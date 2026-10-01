@@ -1,41 +1,14 @@
-// Package gameblind holds the tests that keep the Go side game-blind.
+// Package gameblind holds the tests that keep the Go side game-blind, so the split between client and server on one
+// side and adapter and game on the other fails a test when crossed instead of resting on prose.
 //
-// WHY THIS EXISTS. MeshGhost is built on the client/server being one thing and the adapter/game
-// being another, and until now that separation was enforced only by prose -- `CLAUDE.md`'s core
-// rule and the 2026-08-20 ADR in `agent_docs/architecture.md`. Prose is a statement of intent,
-// not enforcement: nothing failed when it was crossed. These tests fail.
+// The forbidden thing is not a game's identity: game_id is part of the contract, routed and filtered on as an opaque
+// label. It is the Go side knowing what a game does: its mechanics, states, units and quirks. A label may be carried,
+// compared and logged, never the thing a behaviour is chosen by. The likeliest breach is not a branch on a game's name
+// but contract creep, a field only one game needs added to the wire and "just passed through", which is why the wire's
+// field lists are frozen below.
 //
-// WHAT THE RULE ACTUALLY IS, in the user's own words (2026-08-20): *"its fine to have
-// dumb/generic things in the server/client i guess, if it allows us to reuse things for other
-// games. but i still want it to be dumb/not know how the games work"*, and, sharpening it once
-// more: *"its fine to have the `game_id` etc, know what game it is. but specifically for 'game
-// knowledge' on what the games do/how they work"*.
-//
-// So the forbidden thing is NOT the identity of a game. `game_id` is a first-class part of the
-// contract -- the relay routes rooms by it, a host filters on it, `-game` names it on the command
-// line, and every one of those treats it as an opaque label it never looks inside. What is
-// forbidden is the Go side knowing anything about what a game DOES: its mechanics, its states, its
-// units, its quirks. A label may be carried, compared to another label, and logged. It may never
-// be the thing a behaviour is chosen by.
-//
-// THE THREE CHECKS, and what each one catches:
-//
-//  1. `TestGoSideNeverBranchesOnAGame` -- the literal tell. A game name in a library package's
-//     code at all, or anywhere in `cmd/` outside help text, means a behaviour is being selected by
-//     which game is attached.
-//  2. `TestGoSideImportsStayGeneric` -- drift by dependency. A game-specific package imported into
-//     the core would be game knowledge arriving through the back door.
-//  3. `TestWireFieldsAreFrozen` -- the one that matters most, and the one prose missed entirely.
-//     The realistic failure is not `if game == "emerald"`; nobody writes that after reading the
-//     rule. It is CONTRACT CREEP: a field only one game needs, added to the wire and "just passed
-//     through". Every word of the prose rule is satisfied and the protocol has quietly become
-//     game-shaped anyway. Freezing the field lists makes that impossible to do silently -- adding
-//     a field means editing this test, which is where the burden of proof is stated.
-//
-// COMMENTS AND TESTS ARE DELIBERATELY EXEMPT. Naming the game a rule came from is how the reason
-// survives -- `core.go` explaining a filter with "Emerald's cross-map ghosts" is documentation,
-// not knowledge the code acts on -- and the Go-side tests use real game ids as sample DATA, which
-// is exactly the opaque-label use the contract intends.
+// Comments and tests are exempt: naming the game a rule came from is documentation, and tests use real game ids as
+// sample data, the opaque-label use the contract intends.
 package gameblind_test
 
 import (
@@ -54,18 +27,13 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// The four shipped games plus the two families they arrive through. A name here is not a
-// blocklist of words -- it is the vocabulary that proves game knowledge leaked in, because there
-// is no legitimate reason for generic transport/session code to contain any of them.
+// gameTokens are the shipped games and the families they arrive through: generic transport and session code has no
+// legitimate reason to contain any of them.
 var gameTokens = []string{"emerald", "crystal", "tevi", "pseudoregalia", "pokemon", "bizhawk"}
 
-// The generic Go side, in full. `internal/e2e` is excluded on purpose: it is a test harness that
-// drives a fake adapter and names games as data, which is the allowed use.
-//
-// `pake` and the four other `internal/` packages are here because core, relay and netx import
-// them, and the import check below trusts any package of this module whose PATH names no game:
-// an `if game == ...` placed in internal/throttle and called from the relay made the relay
-// game-aware with this test green (pass 5 of the adversarial review, 2026-09-16, X2-8).
+// libraryDirs is the generic Go side. internal/e2e is left out because it names games as test data; pake and the
+// internal packages are in because core, relay and netx import them, and the import check trusts any package of this
+// module whose path names no game.
 var libraryDirs = []string{"bridge", "core", "netx", "protocol", "relay", "transport",
 	"pake", "internal/cfg", "internal/hotkey", "internal/textfmt", "internal/throttle"}
 
@@ -123,13 +91,9 @@ func goFiles(t *testing.T, root string, dirs []string) []string {
 	return out
 }
 
-// TestGoSideNeverBranchesOnAGame fails when the generic Go side contains a game's name in code.
-//
-// Library packages are held to the strict form: no game name in any identifier or string literal,
-// full stop. They have no user-facing text, so there is nothing legitimate to say a game's name
-// in. `cmd/` is allowed to name games in help text -- a host reading `-game` deserves to know what
-// the real values look like -- but never in a comparison, a switch, or a map lookup, because those
-// are the shapes that make behaviour depend on which game is attached.
+// TestGoSideNeverBranchesOnAGame fails when the generic Go side contains a game's name in code. A library package has
+// no user-facing text, so no identifier or string literal may name a game; cmd/ may in help text, but never in a
+// comparison, switch or lookup, the shapes that choose behaviour by game.
 func TestGoSideNeverBranchesOnAGame(t *testing.T) {
 	root := repoRoot(t)
 	fset := token.NewFileSet()
@@ -140,8 +104,7 @@ func TestGoSideNeverBranchesOnAGame(t *testing.T) {
 			t.Fatalf("parsing %s: %v", path, err)
 		}
 
-		// First pass: the positions of game-name literals that sit somewhere a DECISION is made.
-		// Collected separately so `cmd/`'s help text can be told apart from a comparison.
+		// First pass: game-name literals where a decision is made, so cmd/'s help text can be told from a comparison.
 		decisions := map[token.Pos]string{}
 		mark := func(n ast.Node) {
 			ast.Inspect(n, func(inner ast.Node) bool {
@@ -212,20 +175,17 @@ func TestGoSideNeverBranchesOnAGame(t *testing.T) {
 	}
 }
 
-// Third-party dependencies the generic side is allowed to have. Kept explicit rather than
-// "anything already in go.mod": the point is that a NEW one is a decision somebody makes on
-// purpose, not something that arrives with a `go get`.
+// allowedThirdParty is explicit rather than all of go.mod, so a new dependency is a decision, not a side effect of
+// go get.
 var allowedThirdParty = []string{
 	"github.com/quic-go/quic-go",
 	"golang.org/x/",
-	// The room-code proof's OPAQUE implementation (ADR 0067), imported only by pake. Listed when
-	// pake joined libraryDirs (2026-09-16); before that nothing scanned the package that uses it.
+	// The room-code proof's OPAQUE implementation, imported only by pake.
 	"github.com/bytemare/opaque",
 }
 
-// TestGoSideImportsStayGeneric fails when a library package imports something that is not the
-// standard library, this module, or an explicitly allowed dependency -- the back door through
-// which game knowledge would arrive as a dependency rather than as a branch.
+// TestGoSideImportsStayGeneric fails when a library package imports something outside the standard library, this
+// module and allowedThirdParty: the back door through which game knowledge would arrive as a dependency.
 func TestGoSideImportsStayGeneric(t *testing.T) {
 	root := repoRoot(t)
 	fset := token.NewFileSet()
@@ -265,59 +225,28 @@ func TestGoSideImportsStayGeneric(t *testing.T) {
 	}
 }
 
-// The wire, frozen. Each entry is the JSON field names of one message, sorted.
+// The wire, frozen: each entry is the JSON field names of one message, sorted.
 //
-// THE BURDEN OF PROOF FOR ADDING ONE. `area_id` and `anim` are the shape to copy: the core holds
-// them, compares them by equality, and never reads what is inside -- so they carry whatever a game
-// means by them without the core learning any of it. A new field must be the same kind of thing.
-// Concretely, before this list is edited, one of these has to be true:
+// The burden of proof for adding one: area_id and anim are the shape to copy, held and compared by equality without
+// the core reading what is inside. Before this list is edited, one of these must hold:
 //
-//   - the field serves at least two unrelated games, so it is a generic capability rather than one
-//     game's mechanic wearing a general-sounding name; or
-//   - the field is opaque to the core by construction -- carried, compared by equality at most,
-//     never interpreted, exactly like `area_id`.
+//   - the field serves at least two unrelated games, a generic capability rather than one game's mechanic; or
+//   - the field is opaque to the core by construction: carried, compared by equality at most, never interpreted.
 //
-// If neither holds, the thing being added is game knowledge, and it belongs in the adapter, which
-// is free to put whatever it likes inside an opaque field it already has (`extras`, an event
-// payload) without the core ever knowing.
+// If neither holds it is game knowledge, and it belongs in the adapter, inside an opaque field it already has (extras,
+// an event payload).
 var frozenProtocolFields = map[string][]string{
-	// prev (2026-09-02, ADR 0045) qualifies under the SECOND test: it is the sender's previous
-	// sample as a delta of the SAME opaque fields, built and undone by protocol.BuildPrev/ApplyPrev
-	// without reading any of them. The core learns nothing new from it -- it fills a hole in a
-	// buffer of samples it already treats as opaque.
+	// prev passes the second test: the previous sample as a delta of the same opaque fields, built and undone by
+	// protocol.BuildPrev and ApplyPrev without reading any of them.
 	"State": {"anim", "area_id", "extras", "orientation", "player_id", "position", "prev", "seq", "timestamp"},
-	// StatePrev is a DELTA of a State against the State carrying it (ADR 0045's
-	// loss cover), and it qualifies for exactly the reason State does: every
-	// field here is one of State's own, or a flag saying that field was absent.
-	// `position_none` and `extras_none` exist because an omitted field and a
-	// field that was genuinely empty are different facts and JSON cannot tell
-	// them apart -- which is a statement about the encoding, not about a game.
-	//
-	// It was NOT in this gate until 2026-09-11 (review J9): nine peer-controlled
-	// fields, reconstructed into a State and handed to an adapter, with nothing
-	// watching what they were. The test that found it -- and that will find the
-	// next one -- is TestEveryWireShapeIsCoveredByTheFrozenGate.
+	// StatePrev passes as State does: every field is one of State's own, or a flag (position_none, extras_none) saying
+	// it was absent, since JSON cannot tell an omitted field from an empty one.
 	"StatePrev": {"anim", "area_id", "extras", "extras_none", "orientation", "position", "position_none", "seq", "timestamp"},
 	"Envelope":  {"payload", "type"},
-	// own_area_only (2026-08-28) qualifies under the SECOND test above: it is a bare bool
-	// asking the relay to compare two area_ids for equality and forward accordingly. The relay
-	// learns nothing about what an area is, exactly as it learns nothing from area_id itself --
-	// which is the field it makes the relay act on. It mirrors bridge.Hello.render_all_areas
-	// below, already frozen on the same reasoning.
-	//
-	// name_color, nametags and nametag (2026-08-28) qualify under BOTH tests. A label above a
-	// character is not knowledge about any particular game -- every game that can draw a ghost
-	// can draw a label over it, which is the "serves two unrelated games" test -- and the core
-	// treats both halves as opaque: it sanitizes them for SAFETY and never reads them for
-	// meaning, never compares them, never branches on them. Nothing anywhere keys off a name;
-	// player_id remains the only identity, which is the property that keeps this cosmetic.
-	//
-	// The colour is a bare "#RRGGBB" for the same reason area_id is an opaque string: the core
-	// can validate its SHAPE without knowing what any game does with it.
-	//
-	// pake_ke1 and the Pake message (2026-09-15, ADR 0067) replaced room_code: the room-code
-	// proof's three messages, opaque bytes the core and relay hand to package pake and never
-	// read. No game is named anywhere in them; the same bytes serve every game.
+	// own_area_only passes the second test: a bool asking the relay to compare two area_ids for equality.
+	// name_color and the nametags pass both: every game that draws a ghost can draw a label over it, and the core
+	// sanitizes them for safety but never reads, compares or branches on them; player_id stays the only identity.
+	// pake_ke1 and Pake are the room-code proof's opaque bytes, handed to package pake and never read.
 	"Hello":   {"display_name", "features", "game_id", "game_version", "max_receive_hz_per_player", "name_color", "own_area_only", "pake_ke1", "protocol_version", "query_only", "resume_token", "room"},
 	"Pake":    {"ke2", "ke3"},
 	"Welcome": {"features", "ghost_collision", "nametags", "player_id", "protocol_version", "resume_token", "resumed", "roster", "send_hz", "server_time_ms"},
@@ -327,9 +256,7 @@ var frozenProtocolFields = map[string][]string{
 	"Leave":   {"player_id"},
 	"Event":   {"corr_id", "from", "payload", "seq", "to"},
 	"Ping":    {"nonce"},
-	// own_area_only again, for the same reason it is allowed on Hello: a bool asking the relay
-	// to compare two opaque ids for equality teaches it nothing about what an area is. It needs
-	// its own message because Hello is sent before the adapter attaches -- see protocol.TypePrefs.
+	// own_area_only again, for Hello's reason; its own message because Hello is sent before the adapter attaches.
 	"Prefs":          {"own_area_only"},
 	"Pong":           {"nonce", "server_time_ms"},
 	"TransportOffer": {"kind", "port"},
@@ -345,23 +272,9 @@ var frozenProtocolFields = map[string][]string{
 
 var frozenBridgeFields = map[string][]string{
 	"Envelope": {"payload", "type"},
-	// interpolate_orientation (2026-08-30) qualifies under the SECOND test above and mirrors
-	// render_all_areas beside it: a bare bool by which an adapter declares a capability of its
-	// OWN -- "my orientation is continuous, so a midpoint between two of them means something".
-	// The core learns nothing about the game from it; it does not even learn what an orientation
-	// IS, which is precisely why the interpolation happens in the adapter. Bridge-only, so it
-	// cannot fragment room compatibility. See bridge.Hello and ADR 0043.
-	// input_tracks (2026-09-08, ADR 0057) is the third adapter-local bool beside the two above and
-	// qualifies the same way: "stream me a replay's input track" declares a capability of the
-	// adapter's own (it has something to draw or drive with one). The core learns nothing about
-	// the game from it, and off it does not even look for a track.
-	// min_protocol_version qualifies on the second test, and cleanly: it is a
-	// NUMBER the core compares against the relay's announced version and
-	// nothing else. It carries no game knowledge -- there is no game whose
-	// floor differs from another game's for a reason about the GAME -- and the
-	// core never looks at what it means, only at whether one integer is below
-	// another. The adapter declares it because it is the only party that knows
-	// which relay version the mod it ships alongside actually needs.
+	// interpolate_orientation and input_tracks pass the second test like render_all_areas: bools by which an adapter
+	// declares a capability of its own. min_protocol_version passes it too: a number compared with the relay's version
+	// and never interpreted, since no game's floor differs for a reason about the game.
 	"Hello":       {"features", "game_id", "game_version", "input_tracks", "interpolate_orientation", "min_protocol_version", "render_all_areas"},
 	"Event":       {"Event"},
 	"Lease":       {"Lease"},
@@ -370,78 +283,33 @@ var frozenBridgeFields = map[string][]string{
 	"EscrowState": {"EscrowState"},
 	"World":       {"World"},
 	"WorldState":  {"WorldState"},
-	// chaser_contact (2026-09-03, ADR 0047): the one effect a cosmetic ghost may have, as a
-	// policy string like ghost_collision beside it; the core knows nothing about what contact IS.
+	// chaser_contact is a policy string like ghost_collision; the core knows nothing about what contact is.
 	"SessionPolicy": {"chaser_contact", "ghost_collision"},
-	// replay_control (2026-09-03, ADR 0047): an action name from a fixed list and a number of
-	// seconds. Nothing about any game -- it is the adapter pressing one of the core's own keys.
+	// ReplayControl is an action from a fixed list and seconds: the adapter pressing one of the core's own keys.
 	"ReplayControl": {"action", "seconds"},
 	"Reject":        {"code", "reason", "retryable"},
 	"LocalState":    {"state"},
-	// bridge_ready (2026-08-16) carries nothing at all, and the empty list is the point: it
-	// answers one question -- may I use you -- and every other answer worth having is either
-	// the adapter's own input or none of its business. A field appearing here would be the
-	// core telling an adapter something about the session at attach time, which is what
-	// session_policy and recording_state are for.
+	// BridgeReady carries nothing, and the empty list is the point: session facts go in session_policy and
+	// recording_state.
 	"BridgeReady": {},
-	// remote_name (2026-08-28) is the nametag handover, frozen here from 2026-09-08 -- it was
-	// missing from bridgeSamples until then, so its field list was never pinned at all. It
-	// qualifies the same way protocol.Nametag beside it does: a label over a character is
-	// something every game that can draw a ghost can draw, and the core treats both halves as
-	// opaque -- sanitized for SAFETY, never read for meaning, never branched on.
+	// RemoteName passes as protocol.Nametag does: a label any game can draw, sanitized and never read for meaning.
 	"RemoteName": {"color", "display_name", "player_id"},
-	// recording_state (ADR 0048) is core -> adapter and says nothing about any game: a bool
-	// and a wall-clock stamp for a recording the CORE owns, so a player can see that F9 did
-	// something without reading a hidden console. Frozen from 2026-09-08 for the same reason
-	// remote_name is.
+	// RecordingState is a bool and a wall-clock stamp for a recording the core owns.
 	"RecordingState": {"recording", "started_unix_ms"},
-	// player_frozen (ADR 0053) is adapter -> core and is the closest call in this file, so it
-	// is worth stating plainly: the bool means "the game is holding the player still and this
-	// is not gameplay", which every game has some form of -- a modal, a popup, a pause -- and
-	// the core learns nothing about WHICH from it. Its one consumer is the chaser clock. What
-	// would breach the rule is a reason string naming the game's own state; there is none.
-	// Frozen from 2026-09-08.
+	// PlayerFrozen is the closest call: every game holds the player still outside gameplay somehow, and the core learns
+	// nothing about which; a reason string naming the game's own state would breach the rule.
 	"PlayerFrozen": {"frozen"},
-	// input_sample (2026-09-08, ADR 0056) qualifies under BOTH tests, and it is
-	// worth being explicit because "record the buttons" SOUNDS like the most
-	// game-specific thing in this file.
-	//
-	// The two-unrelated-games test: every game has input. A handheld's eight
-	// buttons, a 3D platformer's stick and camera, a point-and-click's cursor --
-	// all of them are "some bits changed at some frame", which is the whole of
-	// what these two structs say.
-	//
-	// The opaque-by-construction test, which is the one actually load-bearing:
-	// `m` is an integer the core compares to the previous one for equality and
-	// never decomposes -- it cannot tell a jump from a pause button, and nothing
-	// anywhere branches on a bit. `labels`, `axes` and `source` are strings
-	// copied verbatim into a file header and never read back for meaning; the
-	// core does not even know how many buttons a game HAS except by counting a
-	// list it was handed. `f` and `t` are monotonic counters checked for
-	// ordering only, `ax` is bounded floats carried through, and `drop` is a
-	// count of what the adapter threw away. The ADAPTER names its own buttons,
-	// which is precisely the split that keeps this side blind.
+	// InputSample passes both: every game has input, and the core compares m for equality without decomposing it,
+	// copies labels, axes and source verbatim, checks f and t for order only and carries ax; the adapter names its own
+	// buttons.
 	"InputSample": {"axes", "drop", "edges", "labels", "source"},
 	"InputEdge":   {"ax", "f", "m", "t"},
-	// remote_input (2026-09-08, ADR 0057) is input_sample going the other way, and qualifies on
-	// the same two grounds: the mask, the axes and the three header tables are the file's own
-	// bytes carried verbatim, never decomposed; `at` is a timestamp the core computed from two it
-	// owns (the track's stamp and the replay's start), exactly as interp_t below is a fraction of
-	// two timestamps it owns; `reset` is a bare "drop what you hold" with no reason attached, the
-	// same shape as a despawn. The core sends what a file says at the time a clip says, and
-	// could not tell a jump from a pause button while doing it.
+	// RemoteInput is InputSample going the other way: the file's bytes verbatim, plus at, computed from two timestamps
+	// the core owns, and reset, a bare "drop what you hold".
 	"RemoteInput":     {"axes", "edges", "labels", "player_id", "reset", "source"},
 	"RemoteInputEdge": {"at", "ax", "f", "m", "t"},
-	// orientation_from/orientation_to/interp_t (2026-08-30) qualify under the SECOND test
-	// above, and are the cleanest case of it in the list: the two orientation blobs are the
-	// SAME opaque bytes `orientation` already is, carried verbatim, and interp_t is a fraction
-	// the core computed from two timestamps it owns. The core learns nothing about what an
-	// orientation is by saying which pair it used -- it still cannot read either one, which is
-	// exactly why the interpolation has to happen in the adapter. bridge only, never
-	// protocol.State: nothing here crosses the network. See bridge.RenderRemote.
-	// cosmetic (2026-09-03, ADR 0047) qualifies under the SECOND test: a bare bool the core sets
-	// for a ghost it INVENTED (a replay, the chaser), which teaches it nothing about any game.
-	// It exists so an adapter can keep such a ghost a picture whatever ghost_collision says.
+	// orientation_from, orientation_to and interp_t pass the second test: the same opaque bytes orientation already is,
+	// and a fraction of two timestamps the core owns. cosmetic is a bool the core sets on a ghost it invented.
 	"RenderRemote":  {"cosmetic", "interp_t", "orientation_from", "orientation_to", "player_id", "state"},
 	"DespawnRemote": {"player_id"},
 }
@@ -461,8 +329,8 @@ func jsonFields(v any) []string {
 	return out
 }
 
-// TestWireFieldsAreFrozen fails when a message gains or loses a field without this test being
-// updated -- the gate that makes contract creep a decision instead of a drift.
+// TestWireFieldsAreFrozen fails when a message gains or loses a field without this test being updated, so contract
+// creep is a decision, not a drift.
 func TestWireFieldsAreFrozen(t *testing.T) {
 	protocolSamples := map[string]any{
 		"State": protocol.State{}, "StatePrev": protocol.StatePrev{},
@@ -519,22 +387,9 @@ func TestWireFieldsAreFrozen(t *testing.T) {
 	compare("bridge", bridgeSamples, frozenBridgeFields)
 }
 
-// TestEveryBridgeMessageStructIsSampled closes the hole TestWireFieldsAreFrozen has always had.
-// That test compares samples against frozen lists in both directions, so it catches a field
-// added to a SAMPLED message and a frozen entry whose sample disappeared -- but a message type
-// that was never sampled at all is invisible to it, because nothing in either map mentions it.
-// That is not hypothetical: bridge.RemoteName, bridge.RecordingState, bridge.PlayerFrozen and
-// bridge.BridgeReady were all missing here from the day they were written until 2026-09-08, so
-// their field lists were free to grow a game-shaped field with the whole suite green. Adding a
-// message and forgetting to sample it is the easiest possible mistake, and it disabled the
-// check precisely for the newest message -- the one most likely to be contract creep.
-//
-// It reads bridge/bridge.go with go/ast rather than reflect for the same reason
-// TestEveryBridgeMessageTypeValueIsFrozen in the bridge package does: a Go package exposes no
-// list of its own declared types at runtime, so the declaration list has to come from the
-// source. Every exported struct type in that file is a bridge message by construction -- it is
-// a single file of wire shapes -- so "declared and exported" is the right test for "must be
-// frozen here".
+// TestEveryBridgeMessageStructIsSampled: an exported struct in bridge.go that was never sampled is invisible to
+// TestWireFieldsAreFrozen, free to grow a game-shaped field. It parses the source because a package cannot list its
+// declared types at run time.
 func TestEveryBridgeMessageStructIsSampled(t *testing.T) {
 	path := filepath.Join(repoRoot(t), "bridge", "bridge.go")
 	fset := token.NewFileSet()
@@ -567,15 +422,9 @@ func TestEveryBridgeMessageStructIsSampled(t *testing.T) {
 	}
 }
 
-// THE THREE STAY THREE.
-//
-// User, 2026-08-20: *"I want it to always stay server/client + adapter modular/split, never to
-// have all 3 merge into 1-2 things"*. The split is not a filing convention -- it is why the Go
-// side can be trusted without a game running, why a relay can host games it has never heard of,
-// and why an adapter can be written by someone who never reads `relay/`. Merging any two of them
-// would not break a test anywhere before this one, because merging looks like an import.
-//
-// Each edge below is one of those merges, named by what it would mean:
+// forbiddenEdges keeps server, client and adapter apart: the split is why the Go side can be trusted without a game
+// running, why a relay hosts games it has never heard of, and why an adapter can be written without reading relay/. A
+// merge looks like an import, so each edge is one, named by what it would mean.
 var forbiddenEdges = []struct{ from, to, why string }{
 	{"relay", "bridge", "the server would learn the adapter interface -- the bridge is the CLIENT's business, and a relay that knows it is a relay that could talk to a game"},
 	{"relay", "core", "the server would absorb the client"},
@@ -587,7 +436,7 @@ var forbiddenEdges = []struct{ from, to, why string }{
 	{"cmd/meshghost-relay", "bridge", "the relay binary would speak the adapter's protocol"},
 }
 
-// TestTheThreeStayApart fails when any of those imports appears, in the package or its tests.
+// TestTheThreeStayApart fails when a shipped package or binary imports across one of those edges.
 func TestTheThreeStayApart(t *testing.T) {
 	root := repoRoot(t)
 	const module = "github.com/Tsukino-uwu/MeshGhost/"
@@ -599,10 +448,7 @@ func TestTheThreeStayApart(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			// Tests are exempt, and deliberately: `core`'s own tests start a REAL relay to check
-			// the client against, which is the harness proving the two halves work together --
-			// the opposite of merging them. What must never happen is a shipped package or
-			// binary depending on the other side, which is what this walks.
+			// Tests are exempt: core's tests start a real relay to prove the two halves work together.
 			if e.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 				return nil
 			}
@@ -626,27 +472,12 @@ func TestTheThreeStayApart(t *testing.T) {
 	}
 }
 
-// Relay-protocol vocabulary. An adapter that contains any of these is speaking past its own
-// bridge, which is `CLAUDE.md`'s "adapters never speak the relay protocol" -- the third leg of the
-// split, and the only one that lives outside Go.
+// relayOnlyVocabulary is relay-protocol vocabulary: an adapter that contains any of it is speaking past its own bridge.
 var relayOnlyVocabulary = []string{"resume_token", "room_code", "pake_ke1", "protocol_version"}
 
-// containsIdentifier is strings.Contains with a WORD BOUNDARY, and the boundary is the whole point
-// (2026-09-11).
-//
-// A bare Contains made this gate match a SUBSTRING of a longer identifier, and the case that found
-// it is a legitimate one: `min_protocol_version` is a field on bridge.Hello (ADR 0059), which is an
-// adapter's own message to its own local core -- exactly the thing this test exists to permit --
-// and it contains `protocol_version`, which is the relay's. All four adapters failed at once for
-// saying something they are entitled to say.
-//
-// The fix is not an exemption list. An exemption would have to be renewed for every future field
-// whose name happens to embed one of these words, and each renewal is a chance to wave through a
-// real violation. A boundary test asks the question the rule actually asks: does this file NAME a
-// relay-protocol field?
-//
-// Identifier characters are letters, digits and underscore -- the same set in Lua, C# and C++, and
-// the reason a hyphen or a quote on either side still counts as a boundary.
+// containsIdentifier is strings.Contains at word boundaries, so an adapter's own min_protocol_version does not match
+// the relay's protocol_version; an exemption list would need renewing for every such field. Identifier characters are
+// letters, digits and underscore in Lua, C# and C++ alike.
 func containsIdentifier(body, word string) bool {
 	for i := 0; ; {
 		j := strings.Index(body[i:], word)
@@ -668,9 +499,8 @@ func isIdentRune(r rune) bool {
 	return r == '_' || (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
 }
 
-// TestAdaptersNeverSpeakTheRelayProtocol reads the adapter sources as text, because they are Lua,
-// C# and C++ and there is no other way to hold them to it from here. Vendored dependencies are
-// skipped -- what they contain is not ours and not a claim about our split.
+// TestAdaptersNeverSpeakTheRelayProtocol reads the adapter sources as text, since they are Lua, C# and C++. Vendored
+// dependencies are skipped: they are not ours.
 func TestAdaptersNeverSpeakTheRelayProtocol(t *testing.T) {
 	root := repoRoot(t)
 	exts := map[string]bool{".lua": true, ".cs": true, ".cpp": true, ".hpp": true}

@@ -1,15 +1,7 @@
 package e2e
 
-// The world-custody plane driven through the actual shipped binaries: a real
-// relay process, three real client processes, and three bridge adapters that
-// speak nothing but the bridge protocol — no game, no human.
-//
-// **This is the only test that proves custody survives a host process dying**,
-// as opposed to a lease being released by a function call. Everything the
-// relay's own tests can reach is in-process: they can free a lease, but they
-// cannot kill the thing holding it and watch its successor pick the world up
-// off the floor. That is the entire scenario the feature exists for, so it is
-// worth the cost of building binaries for.
+// The world-custody plane through the shipped binaries: the only test that kills the process holding the authority
+// and watches its successor pick the world up, which the relay's in-process tests cannot do.
 
 import (
 	"encoding/json"
@@ -24,10 +16,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
-// worldAdapter is a bridge adapter that drives the world plane: it declares the
-// capabilities in its own Hello (an adapter's one legitimate say in what the
-// core negotiates), writes entities, and records everything the core pushes
-// back down.
+// worldAdapter drives the world plane over the bridge: it declares the capabilities in its own Hello, writes entities,
+// and records everything the core pushes back.
 type worldAdapter struct {
 	conn *transport.NDJSONConn
 
@@ -99,8 +89,7 @@ func (a *worldAdapter) set(t *testing.T, key string, value int) {
 	}
 }
 
-// awaitLease waits until this adapter has seen a lease state with the given
-// reason for the world authority.
+// awaitLease waits until this adapter has seen a lease state with the given reason for the world authority.
 func (a *worldAdapter) awaitLease(t *testing.T, reason string) {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
@@ -120,20 +109,16 @@ func (a *worldAdapter) awaitLease(t *testing.T, reason string) {
 	t.Fatalf("never saw a %q for the world authority; lease states seen: %+v", reason, a.leases)
 }
 
-// mark returns a cursor into what this adapter has already received, so a later
-// awaitWorld only considers what arrives AFTER it. Necessary because the same
-// reason legitimately appears more than once in one run — a client is seeded on
-// join and again on adopting the authority — and a check that looked at the
-// whole history would happily pass on the older one.
+// mark returns a cursor into what this adapter has received, so a later awaitWorld only considers what arrives after
+// it: a client is seeded on join and again on adopting the authority, with the same reason.
 func (a *worldAdapter) mark() int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return len(a.states)
 }
 
-// awaitWorld waits for world messages after since with the given reason, and
-// returns the entities they carried, merged across however many messages the
-// relay batched the answer into.
+// awaitWorld waits for world messages after since with the given reason and returns the entities they carried, merged
+// across however many messages the relay batched them into.
 func (a *worldAdapter) awaitWorld(t *testing.T, since int, reason string, wantKeys int) map[string]string {
 	t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
@@ -164,14 +149,11 @@ func (a *worldAdapter) awaitWorld(t *testing.T, since int, reason string, wantKe
 	return nil
 }
 
-// TestWorldSurvivesTheHostProcessDyingAndSeedsALateJoiner is the whole feature
-// in one run: a host writes a world, the host's PROCESS is killed, a second
-// client takes the authority and is handed the same world, and a third client
-// that was never there for any of it joins and sees exactly the same thing.
+// TestWorldSurvivesTheHostProcessDyingAndSeedsALateJoiner: a host writes a world, its process is killed, a second
+// client takes the authority and is handed the same world, and a third client joining later is seeded with it.
 func TestWorldSurvivesTheHostProcessDyingAndSeedsALateJoiner(t *testing.T) {
 	r := newRig(t)
-	// Not -loopback: this needs several real clients in one room, which is the
-	// opposite of what loopback mode is for.
+	// Not -loopback: this needs several real clients in one room.
 	start(t, r.dir, r.relayBin, "-addr", r.relayAddr)
 	waitForListener(t, r.relayAddr)
 
@@ -180,18 +162,11 @@ func TestWorldSurvivesTheHostProcessDyingAndSeedsALateJoiner(t *testing.T) {
 		cmd := start(t, r.dir, r.clientBin,
 			"-relay", r.relayAddr,
 			"-bridge", bridgeAddr,
-			// Deliberately NO -game: that makes the core connect eagerly at
-			// startup, before any adapter has spoken, so the adapter's own
-			// declared capabilities never reach the relay Hello. The lazy path
-			// -- dial on the first bridge Hello -- is both the default and the
-			// only one that carries them.
+			// No -game: connecting eagerly at startup would reach the relay before the adapter declares its
+			// capabilities.
 			"-room", "e2eworld",
-			// tcp explicitly, because this test kills a process and needs the
-			// relay to notice. A hard-killed quic peer sends no close frame and
-			// its connection lingers until quic's own idle timeout (~17s,
-			// measured 2026-08-17), against an immediate RST on tcp -- so on the
-			// default "auto" this would spend the whole test waiting on a
-			// property that has nothing to do with custody.
+			// tcp, so the relay notices the kill: a hard-killed quic peer lingers until quic's idle timeout, against an
+			// immediate RST on tcp.
 			"-transport", "tcp",
 			"-interp", "0ms",
 			"-min-send", "10ms",
@@ -211,17 +186,12 @@ func TestWorldSurvivesTheHostProcessDyingAndSeedsALateJoiner(t *testing.T) {
 	host.set(t, "boss", 100)
 	host.set(t, "door", 1)
 
-	// A peer joins and is seeded with the world that already exists. Waiting for
-	// that here is what proves the world was really populated before the host
-	// died rather than after — without it the kill below could beat the writes
-	// and the test would pass for the wrong reason.
+	// A peer joins and is seeded with the world, which proves it was populated before the host dies.
 	_, peer, _ := launch()
 	peer.awaitWorld(t, 0, protocol.WorldSnapshot, 2)
 	adoptFrom := peer.mark()
 
-	// The host's process dies outright — no goodbye, no clean release. This is
-	// the case that would take the world with it if lifetime were tied to the
-	// lease.
+	// The host's process dies outright, with no clean release.
 	killHost()
 	peer.awaitLease(t, protocol.LeaseHolderLeft)
 
@@ -236,8 +206,7 @@ func TestWorldSurvivesTheHostProcessDyingAndSeedsALateJoiner(t *testing.T) {
 	// The successor writes on, from what it adopted.
 	peer.set(t, "boss", 40)
 
-	// And a client that was never present for any of it joins and is seeded
-	// with the same world — the same mechanism, for free.
+	// A client that was never present joins and is seeded with the current world.
 	_, latecomer, _ := launch()
 	seeded := latecomer.awaitWorld(t, 0, protocol.WorldSnapshot, 2)
 	if seeded["boss"] != `{"hp":40}` || seeded["door"] != `{"hp":1}` {

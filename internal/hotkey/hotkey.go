@@ -1,16 +1,9 @@
-// Package hotkey binds system-wide keys for the replay actions (ADR 0048).
+// Package hotkey binds system-wide keys for the replay actions. The core process registers them, so they work in every
+// game with the game focused and no adapter has to implement a key.
 //
-// The core process registers them, so they work in every game with the game
-// focused and no adapter has to implement a key. This file is the portable
-// half: parsing a chord like "ctrl+shift+F9" into the modifier flags and the
-// virtual-key code Windows wants, and the Run contract. The Windows half is
-// hotkey_windows.go; every other OS gets hotkey_other.go, a no-op that logs
-// once, so CI's linux/darwin builds stay green and a non-Windows client simply
-// has no hotkeys.
-//
-// Every constant below is from learn.microsoft.com, read 2026-09-03 and cited
-// in ADR 0048: RegisterHotKey's fsModifiers table and the Virtual-Key Codes
-// page. Nothing here is from memory.
+// This file is the portable half: parsing a chord like "ctrl+shift+F9" into the modifier flags and virtual-key code
+// Windows wants, and the Run contract. Only Windows registers anything; elsewhere Run logs once and waits. The
+// constants are from Microsoft's RegisterHotKey fsModifiers table and its Virtual-Key Codes page.
 package hotkey
 
 import (
@@ -61,16 +54,12 @@ var namedKeys = map[string]uint32{
 	"delete":   0x2E,
 }
 
-// Parse reads a chord: modifiers and one key joined by '+', any order, any
-// case. Modifiers: ctrl (or control), shift, alt. Keys: F1-F24 (not F12),
-// A-Z, 0-9, and the named keys above.
+// Parse reads a chord: modifiers and one key joined by '+', any order, any case. Modifiers: ctrl (or control), shift,
+// alt. Keys: F1-F24 (not F12), A-Z, 0-9, and the named keys above.
 //
-// Refused on purpose: F12, which RegisterHotKey's page reserves for the
-// debugger at all times; win, which the same page says is reserved for the
-// operating system; and a bare key with no modifier, because a system-wide
-// hotkey takes that key away from every other program while the client runs,
-// and a plain F9 that suddenly does nothing in a text editor is not a bug a
-// player would trace to this file.
+// Refused on purpose: F12, which RegisterHotKey's page reserves for the debugger; win, reserved for the operating
+// system; and a bare key, because a system-wide hotkey takes that key away from every other program while the client
+// runs.
 func Parse(s string) (Binding, error) {
 	var b Binding
 	parts := strings.Split(s, "+")
@@ -90,9 +79,7 @@ func Parse(s string) (Binding, error) {
 			default:
 				m = ModControl
 			}
-			// A modifier named twice is a typo the player would not see
-			// ("ctrl+ctrl+a" binds ctrl+a); refused rather than folded. Found
-			// by the fuzzer on 2026-09-03, first campaign.
+			// A modifier named twice is a typo the player would not see ("ctrl+ctrl+a" binds ctrl+a), so refuse it.
 			if b.Mods&m != 0 {
 				return b, fmt.Errorf("hotkey %q: %s is named twice", s, p)
 			}
@@ -188,11 +175,9 @@ func (b Binding) String() string {
 	return strings.Join(append(parts, key), "+")
 }
 
-// Run registers every action's chord system-wide, calls fire(name) on each
-// press, and blocks until stop is closed, unregistering on the way out. report
-// is called once per action with the registration outcome (a chord another
-// program already owns fails alone; the rest still work). On an OS with no
-// implementation it logs once and blocks until stop.
+// Run registers every action's chord system-wide, calls fire(name) on each press, and blocks until stop is closed,
+// unregistering on the way out. report is called once per action with the registration outcome: a chord another
+// program already owns fails alone. On an OS with no implementation it logs once and blocks until stop.
 func Run(actions []Action, fire func(name string), report func(Result), stop <-chan struct{}) error {
 	return run(actions, fire, report, stop)
 }

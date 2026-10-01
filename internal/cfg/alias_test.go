@@ -13,8 +13,7 @@ var clientRenames = map[string]string{
 	"name_color": "player_name_color",
 }
 
-// value reads one top-level key out of the named section, so a test asserts on
-// what a decoder would see rather than on the exact bytes of a re-marshal.
+// value reads one top-level key out of the named section, so a test asserts on what a decoder sees, not on bytes.
 func value(t *testing.T, data []byte, section, key string) (string, bool) {
 	t.Helper()
 	var root map[string]json.RawMessage
@@ -36,10 +35,6 @@ func value(t *testing.T, data []byte, section, key string) (string, bool) {
 	return s, true
 }
 
-// AN OLD SPELLING STILL WORKS, AND SAYS SO. The whole point of the alias: a
-// player's existing file keeps the room they typed. Without this, "room" became
-// an unknown key and they joined "default" -- a real room, just not their
-// friends' one, with nothing on screen explaining it.
 func TestAnOldKeyStillAppliesAndSaysSo(t *testing.T) {
 	in := []byte(`{"client":{"room":"castle","name":"me","name_color":"#F00","interp":"450ms"}}`)
 	var out []byte
@@ -65,9 +60,6 @@ func TestAnOldKeyStillAppliesAndSaysSo(t *testing.T) {
 	}
 }
 
-// BOTH SPELLINGS PRESENT: the current name wins. Someone who pastes an old
-// value in beside a freshly-copied shipped config has a file carrying both, and
-// the one they most recently edited is the current one.
 func TestTheCurrentNameWinsOverTheOldOne(t *testing.T) {
 	in := []byte(`{"client":{"room":"old","room_name":"new"}}`)
 	var out []byte
@@ -85,10 +77,6 @@ func TestTheCurrentNameWinsOverTheOldOne(t *testing.T) {
 	}
 }
 
-// THE RENAME MUST NOT REACH A NESTED SECTION. "client.name" is the player's own
-// nametag; "client.replay.name" labels a recording and "client.chaser.name"
-// labels a chaser. They share a word and mean different things, so a shim that
-// recursed would quietly rename two settings nobody asked to rename.
 func TestNestedSectionsKeepTheirOwnKeys(t *testing.T) {
 	in := []byte(`{"client":{"replay":{"name":"pb","color":"#FFF"},"chaser":{"name":"Why?"}}}`)
 	var out []byte
@@ -103,9 +91,7 @@ func TestNestedSectionsKeepTheirOwnKeys(t *testing.T) {
 	}
 }
 
-// WHAT IT CANNOT CHECK, IT LEAVES ALONE -- byte for byte, and silently. A
-// malformed file is ApplyDespiteBadValue's business, and being unable to look is
-// not evidence of a mistake.
+// TestUncheckableInputIsReturnedUnchanged: byte for byte and silently; a malformed file is ApplyDespiteBadValue's.
 func TestUncheckableInputIsReturnedUnchanged(t *testing.T) {
 	cases := map[string]string{
 		"not JSON at all":       `{"client":{"room":`,
@@ -130,9 +116,6 @@ func TestUncheckableInputIsReturnedUnchanged(t *testing.T) {
 	}
 }
 
-// A SECTION THIS BINARY DOES NOT OWN IS UNTOUCHED. The root object carries
-// sections belonging to other readers (the relay's "server", a mod's own), and
-// a rename in one must never reach another.
 func TestOtherSectionsAreUntouched(t *testing.T) {
 	in := []byte(`{"client":{"room":"castle"},"server":{"room":"kept"}}`)
 	var out []byte

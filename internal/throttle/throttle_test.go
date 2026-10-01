@@ -5,8 +5,7 @@ import (
 	"testing"
 )
 
-// TestOnlyOneLinePerIntervalButEveryOneIsCounted: a burst prints once and the
-// printed count covers the burst.
+// TestOnlyOneLinePerIntervalButEveryOneIsCounted: a burst prints once and the printed count covers the burst.
 func TestOnlyOneLinePerIntervalButEveryOneIsCounted(t *testing.T) {
 	var l Line
 	printed := 0
@@ -29,8 +28,7 @@ func TestOnlyOneLinePerIntervalButEveryOneIsCounted(t *testing.T) {
 	}
 }
 
-// TestConcurrentCallersPrintOnce: the CAS is what makes many goroutines agree
-// on the one line, which the relay's per-connection goroutines need.
+// TestConcurrentCallersPrintOnce: the compare-and-swap makes the relay's per-connection goroutines agree on one line.
 func TestConcurrentCallersPrintOnce(t *testing.T) {
 	var l Line
 	var wg sync.WaitGroup

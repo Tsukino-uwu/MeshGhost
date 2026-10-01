@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// TestParseReadsChordsAnyOrderAnyCase pins the parser against the values
-// RegisterHotKey and the Virtual-Key Codes page define (ADR 0048).
+// TestParseReadsChordsAnyOrderAnyCase pins the parser against the values RegisterHotKey and the Virtual-Key Codes page
+// define.
 func TestParseReadsChordsAnyOrderAnyCase(t *testing.T) {
 	cases := map[string]Binding{
 		"ctrl+shift+F9":     {Mods: ModControl | ModShift, VK: 0x78},
@@ -40,8 +40,8 @@ func TestParseReadsChordsAnyOrderAnyCase(t *testing.T) {
 	}
 }
 
-// TestParseRefusesWhatTheDocsReserve: F12 (the debugger), the Windows key
-// (the OS), a bare key (every other program), and garbage.
+// TestParseRefusesWhatTheDocsReserve: F12 (the debugger), the Windows key (the OS), a bare key (every other program),
+// and garbage.
 func TestParseRefusesWhatTheDocsReserve(t *testing.T) {
 	for _, in := range []string{"ctrl+F12", "win+F9", "super+a", "F9", "ctrl", "ctrl+shift", "ctrl+F0", "ctrl+F25", "ctrl+enter", "ctrl+a+b", "", "ctrl++a", "ctrl+ctrl+a", "shift+alt+shift+F1"} {
 		if _, err := Parse(in); err == nil {
@@ -64,9 +64,8 @@ func TestStringRoundTrips(t *testing.T) {
 	}
 }
 
-// TestRunReturnsOnStop: the contract every OS keeps -- Run blocks until stop
-// and then returns. On Windows this registers a real chord and unregisters
-// it; elsewhere it logs once. Nothing is pressed either way.
+// TestRunReturnsOnStop: on every OS Run blocks until stop and then returns. On Windows it registers and unregisters a
+// real chord; nothing is pressed.
 func TestRunReturnsOnStop(t *testing.T) {
 	b, _ := Parse("ctrl+shift+alt+F23")
 	stop := make(chan struct{})
@@ -81,8 +80,7 @@ func TestRunReturnsOnStop(t *testing.T) {
 			if r.Name != "probe" {
 				t.Fatalf("reported %+v", r)
 			}
-			// A failure here is another program owning ctrl+shift+alt+F23,
-			// which is not this package's bug; it is still reported, not hidden.
+			// A failure here is another program owning ctrl+shift+alt+F23, reported rather than hidden.
 			if r.Err != nil {
 				t.Logf("registration refused on this machine: %v", r.Err)
 			}

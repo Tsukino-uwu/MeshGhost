@@ -2855,3 +2855,7 @@ record held went to [verified.md](../verified.md), same date; a doc pointer a co
   ghost drawn earlier and no longer rendered, not only on a relay Leave; `SessionPolicy` waits for the room's policy (or
   offline), not straight after `BridgeReady`; a negative transport timeout disables it rather than falling back to the
   default; lines that arrive before `OnReceive` are held and flushed, so only an early disconnect can be missed.
+- `internal/` (30 files): comment lines 1,608 → 478. Stale claims fixed: e2e tests saying the core closes the bridge when
+  the relay is unreachable (it accepts a solo adapter), unknown config keys logged one line per key (one per section).
+  `testing.md` no longer says the gameblind header carries the user's wording of the rule: that is in ADR 0035, and the
+  three-stay-three quote in the stories section.

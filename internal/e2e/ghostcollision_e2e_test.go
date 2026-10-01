@@ -10,8 +10,7 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
-// awaitPolicy dials the bridge as an adapter would, says hello, and returns
-// the ghost_collision the REAL client binary pushes down.
+// awaitPolicy dials the bridge as an adapter would, says hello, and returns the ghost_collision the real client pushes.
 func awaitPolicy(t *testing.T, bridgeAddr string) string {
 	t.Helper()
 	conn, err := transport.Dial(bridgeAddr)
@@ -28,8 +27,7 @@ func awaitPolicy(t *testing.T, bridgeAddr string) string {
 		}
 		var sp bridge.SessionPolicy
 		if json.Unmarshal(env.Payload, &sp) == nil {
-			// Every client here runs with the shipped chaser defaults, so the
-			// contact hook must be ABSENT -- not "off", not "enabled" (ADR 0068).
+			// Every client here runs with the shipped chaser defaults, so the contact hook must be absent, not "off".
 			if sp.ChaserContact != "" {
 				t.Errorf("session_policy carried chaser_contact=%q with contact never asked for", sp.ChaserContact)
 			}
@@ -51,11 +49,8 @@ func awaitPolicy(t *testing.T, bridgeAddr string) string {
 	}
 }
 
-// The whole feature, through the actual shipped executables: a host types one
-// value into the relay's config, and an adapter in a different process is told.
-// The in-package core tests prove the resolution rule; this proves the two
-// binaries really carry it between them, which is the part a wire-format or
-// flag-plumbing mistake would break while every unit test still passed.
+// TestGhostCollisionPolicyCrossesTheRealBinaries: a value in the relay's config reaches an adapter in another process,
+// which a wire-format or flag-plumbing mistake would break while the core's unit tests still pass.
 func TestGhostCollisionPolicyCrossesTheRealBinaries(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -65,7 +60,7 @@ func TestGhostCollisionPolicyCrossesTheRealBinaries(t *testing.T) {
 	}{
 		{"host disables it room-wide", []string{"-ghost-collision", "disabled"}, nil, protocol.GhostCollisionDisabled},
 		{"host leaves it alone", []string{"-ghost-collision", "enabled"}, nil, protocol.GhostCollisionEnabled},
-		// The relay ships disabled since 2026-09-02 (the user's call), so silence on both sides is off.
+		// The relay ships disabled, so silence on both sides is off.
 		{"neither side says anything", nil, nil, protocol.GhostCollisionDisabled},
 		{
 			"a player opts out under a permissive host",

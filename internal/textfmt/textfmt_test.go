@@ -5,17 +5,8 @@ import (
 	"time"
 )
 
-// This package had no test file at all until 2026-08-27, which is worth saying
-// plainly: it exists precisely so the client's and the relay's status lines
-// "cannot start disagreeing about what a megabyte is" (see the package doc), and
-// that was the one property nothing pinned. Two copies of a formatter agreeing
-// today is not the same as two that cannot drift; neither is one copy whose
-// thresholds nothing checks.
-
 func TestBytesThresholds(t *testing.T) {
-	// The boundaries, not the middles: an off-by-one in a `>=` is the whole
-	// class of bug available here, so each case sits exactly on a switch arm or
-	// one byte below it.
+	// The boundaries, not the middles: each case sits exactly on a switch arm or one byte below it.
 	cases := []struct {
 		in   uint64
 		want string
@@ -38,10 +29,7 @@ func TestBytesThresholds(t *testing.T) {
 }
 
 func TestPerHourReportsUnknownRatherThanDividingByZero(t *testing.T) {
-	// A process that has not been up long enough to have an uptime must not
-	// produce +Inf or NaN in a line a person is reading. The guard is
-	// `uptime <= 0`, so a negative duration -- which a clock adjustment can
-	// hand you -- has to take the same branch as zero.
+	// A negative duration, which a clock adjustment can hand you, must take zero's branch, not print +Inf or NaN.
 	for _, d := range []time.Duration{0, -time.Second} {
 		if got := PerHour(1<<20, d); got != "rate unknown" {
 			t.Errorf("PerHour(1MiB, %v) = %q, want %q", d, got, "rate unknown")
@@ -50,8 +38,6 @@ func TestPerHourReportsUnknownRatherThanDividingByZero(t *testing.T) {
 }
 
 func TestPerHourScalesToTheHour(t *testing.T) {
-	// The point of the function per its own doc: "41 MB/hour" is actionable and
-	// "11.7 KB/s" is not, so the rate must be per HOUR and must reuse Bytes.
 	if got, want := PerHour(1<<20, time.Hour), "1.0 MB/hour"; got != want {
 		t.Errorf("PerHour(1MiB, 1h) = %q, want %q", got, want)
 	}

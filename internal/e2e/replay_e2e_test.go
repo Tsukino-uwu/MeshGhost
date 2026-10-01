@@ -10,11 +10,8 @@ import (
 	"time"
 )
 
-// TestReplayFileBecomesAGhostThroughTheRealBinary is ADR 0047 end to end: a
-// file dropped into replay/active/ beside the client's config renders through
-// the real meshghost.exe as a cosmetic ghost carrying the header's name, with
-// no second player anywhere. The relay is up only because the shipped client
-// refuses an adapter it cannot connect for; the replay itself never touches it.
+// TestReplayFileBecomesAGhostThroughTheRealBinary: a file in replay/active/ renders through the real meshghost.exe as a
+// cosmetic ghost carrying the header's name, with no second player anywhere; the replay never touches the relay.
 func TestReplayFileBecomesAGhostThroughTheRealBinary(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and launches real binaries; skipped under -short")
@@ -32,8 +29,7 @@ func TestReplayFileBecomesAGhostThroughTheRealBinary(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(replayDir, "active"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// A 20-sample clip of a walk across the adapter's own area, looping so the
-	// test never races its end.
+	// A clip of a walk across the adapter's own area, looping so the test never races its end.
 	var sb strings.Builder
 	sb.WriteString(`{"meshghost_replay":1,"name":"PB","color":"#FF8800","speed":1.0,"loop":true,"game":"e2egame"}` + "\n")
 	for i := 0; i < 20; i++ {
@@ -45,9 +41,8 @@ func TestReplayFileBecomesAGhostThroughTheRealBinary(t *testing.T) {
 	}
 
 	bridgeAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t)))
-	// -interp 450ms, the shipped value, rather than startClient's 0ms: a replay
-	// is drawn on its OWN schedule and must not be pushed back by the network
-	// jitter buffer as well (phases/phase11.md, 2026-09-03).
+	// -interp 450ms, the shipped value: a replay is drawn on its own schedule and must not also wait out the network
+	// jitter buffer.
 	startClient(t, r.dir, r.clientBin, r.relayAddr, bridgeAddr, "-transport", "tcp",
 		"-interp", "450ms", "-replay-dir", replayDir)
 	renders, stop := startAdapter(t, bridgeAddr, "e2egame")

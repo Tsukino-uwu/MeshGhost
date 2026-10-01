@@ -1,17 +1,6 @@
-// Package e2e drives the actual shipped executables as processes.
-//
-// Everything else in this repo's test suite exercises packages in-process.
-// That leaves a real gap: cmd/meshghost and cmd/meshghost-relay contain flag
-// parsing, config loading, and the wiring that turns those into a Core and a
-// Server, and the only tests touching them check config-file BOM handling.
-// A change that wired a flag to the wrong field, or dropped the bridge
-// listener entirely, would pass every existing test and still ship a broken
-// meshghost.exe.
-//
-// Covering that used to mean running dev-scripts by hand -- launch
-// run-relay-loopback.bat, launch run-core-*.bat, attach something that
-// speaks the bridge protocol, and look. This is that rig, automated: real
-// binaries, real TCP, real NDJSON, no game and no human.
+// Package e2e drives the shipped executables as processes: real binaries, real TCP, real NDJSON, no game and no
+// human. It covers what in-process tests cannot, the flag parsing, config loading and wiring in cmd/meshghost and
+// cmd/meshghost-relay.
 package e2e
 
 import (
@@ -47,12 +36,8 @@ func exeName(base string) string {
 	return base
 }
 
-// buildBinary compiles one command into dir and returns its path. Built from
-// source every run rather than reusing whatever sits at the repo root: those
-// root binaries are stale far more often than anyone expects (CLAUDE.md has
-// a standing rule about it after a bug repro once ran against stale
-// binaries), and a test that silently exercises an older build is
-// worse than no test.
+// buildBinary compiles one command into dir and returns its path. Built every run, never the repo root's binaries,
+// which are often stale.
 func buildBinary(t *testing.T, dir, pkg, base string) string {
 	t.Helper()
 	out := filepath.Join(dir, exeName(base))
@@ -63,40 +48,10 @@ func buildBinary(t *testing.T, dir, pkg, base string) string {
 	return out
 }
 
-// freePort asks the OS for a port, then releases it. There is an inherent
-// race between releasing and the child process binding, but the alternative
-// is parsing an address out of the relay's log output, which would couple
-// this test to a log line's exact wording. On a loopback-only test machine
-// the window is not a practical problem.
-//
-// It checks the port is free for UDP as well as TCP, and retries if it isn't.
-// Asking for a TCP port only proves a TCP port is free, and the relay binds
-// the SAME number for udp (and another for quic, which is udp underneath), so
-// the two were never the same question. On Windows they can differ outright:
-// Hyper-V/WinNAT reserve blocks of the ephemeral range, and a udp bind inside
-// one fails with "An attempt was made to access a socket in a way forbidden by
-// its access permissions" (WSAEACCES) on a number TCP handed out happily.
-//
-// Found 2026-08-16 when a release build failed on exactly that, three tests at
-// once, on ports 63503/63536/63555. It is luck-of-the-draw, which is worse than
-// a reliable failure: it had passed on the same code minutes earlier, so
-// re-running would have "fixed" it and taught us nothing.
-// ASKED ON THE SCARCE SIDE FIRST, 2026-08-20. The original asked TCP for a number and then
-// probed udp on it, which is the wrong way round: the reserved blocks above are excluded from
-// UDP while TCP hands them out happily, so every attempt was a fresh chance to draw a number udp
-// could never have. On a runner whose exclusions cover much of the ephemeral range, twenty draws
-// can all lose -- which is exactly what CI did today, the same three tests as 2026-08-16.
-// Letting the OS pick the UDP port means the exclusions are applied by the OS instead of
-// gambled against, and TCP, which has no such blocks, is the one being probed.
-//
-// AND FROM THREE SOURCES IN TURN, 2026-09-08. The udp-first draw lost 200 times in a row on the
-// v1.2.5 release runner -- every tcp probe answered "forbidden by its access permissions", the
-// Windows text for a RESERVED port -- because the exclusions on that runner were on the TCP side
-// this time, and Windows hands out ephemeral ports SEQUENTIALLY: 200 draws from :0 are 200
-// consecutive numbers, which a single reservation block hundreds wide swallows whole. So the
-// draws now rotate: the OS's udp pick, the OS's tcp pick, and a random number from the
-// unreserved-by-default range below the ephemeral one. Whichever protocol a block excludes, the
-// other's pick or the random jump lands outside it. Every candidate is still probed on BOTH.
+// freePort returns a port free for both tcp and udp, since the relay binds the same number for each. Windows reserves
+// blocks of the ephemeral range for one protocol and hands ephemeral ports out sequentially, so candidates rotate
+// between the OS's udp pick, its tcp pick and a random port below the ephemeral range, each probed on both. The
+// release-to-bind race remains; reading the address from the relay's log would tie the test to its wording.
 func freePort(t *testing.T) int {
 	t.Helper()
 	const attempts = 200
@@ -121,14 +76,10 @@ func freePort(t *testing.T) int {
 			port = ln.Addr().(*net.TCPAddr).Port
 			ln.Close()
 		default:
-			// Below Windows' 49152+ ephemeral range, above the registered
-			// services most machines actually run; random so that consecutive
-			// misses are never neighbours inside one block.
+			// Below Windows' 49152+ ephemeral range; random so consecutive misses are never neighbours in one block.
 			port = 20000 + rand.IntN(29000)
 		}
 
-		// Probe both on the same number. Closed immediately: this only answers
-		// "is this number usable", the same way the picks above do.
 		ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 		if err != nil {
 			lastErr = err
@@ -143,17 +94,14 @@ func freePort(t *testing.T) int {
 		pc.Close()
 		return port
 	}
-	// The reason, not just the count: without it the next failure is as undiagnosable as this
-	// one was, and the error text is what names a reservation as a reservation.
+	// The last error is what names a reservation as one.
 	t.Fatalf("could not find a port free for both tcp and udp after %d attempts (last error: %v)",
 		attempts, lastErr)
 	return 0
 }
 
-// start launches a binary with cwd set to dir. cwd matters: both binaries
-// read config.json from the working directory, so without this they would
-// pick up the repo's own packaging/release/config.json and the test would
-// depend on whatever that file currently says.
+// start launches a binary with its working directory set to dir, where both binaries read config.json from, so no
+// test depends on the repo's own shipped config.
 func start(t *testing.T, dir, bin string, args ...string) *exec.Cmd {
 	t.Helper()
 	cmd := exec.Command(bin, args...)
@@ -186,40 +134,15 @@ func waitForListener(t *testing.T, addr string) {
 	}
 }
 
-// startAdapter runs a bridge adapter against the client's bridge port and
-// returns the render_remote messages it receives.
-//
-// It reconnects, which is not incidental: when the client cannot reach the
-// relay, core deliberately closes the bridge connection so the
-// adapter retries later (see core.go's bridge Hello handler and
-// adapters/_template/PROTOCOL.md's "non-blocking, retry next frame on
-// failure"). Every real adapter -- the BizHawk Lua, TEVI's plugin,
-// Pseudoregalia's mod -- has this loop. An adapter without one appears to
-// work whenever the relay happens to be up first and silently never
-// recovers otherwise, which is exactly the ordering
-// TestClientSurvivesARelayThatIsNotThereYet covers.
-//
-// The returned stop function is idempotent so a test can both defer it and
-// call it early.
-// observedNames records every remote_name any adapter in this process was told.
-//
-// A map rather than a channel because this message arrives exactly once per peer: a channel
-// nobody happens to be reading at that instant loses it, and "the test missed it" would be
-// indistinguishable from "the core never sent it" -- which is the exact ambiguity the bug being
-// tested for lived inside.
+// observedNames records every remote_name any adapter in this process was told. A map, not a channel: the message
+// arrives once per peer, and a channel nobody was reading would make "missed" look like "never sent".
 var observedNames struct {
 	sync.Mutex
 	byPlayer map[string]bridge.RemoteName
 }
 
-// awaitRemoteNameCalled waits for an adapter to be told a nametag with exactly
-// this display name, and returns it.
-//
-// Named rather than "any name", because "any" cannot tell the peer's own
-// nametag apart from one the same rig invented -- a loopback ghost's
-// "<name>-ghost", or the other adapter in the same process being told about
-// this one. Either satisfies "a name arrived" while proving nothing about the
-// name the test is actually asking after.
+// awaitRemoteNameCalled waits for an adapter to be told a nametag with exactly this display name. Any name would not
+// do: the rig invents others, such as a loopback ghost's "<name>-ghost".
 func awaitRemoteNameCalled(t *testing.T, want, what string) bridge.RemoteName {
 	t.Helper()
 	deadline := time.Now().Add(testTimeout)
@@ -238,6 +161,8 @@ func awaitRemoteNameCalled(t *testing.T, want, what string) bridge.RemoteName {
 	return bridge.RemoteName{}
 }
 
+// startAdapter runs a bridge adapter against the client's bridge port and returns the render_remote messages it
+// receives, plus an idempotent stop. Like every real adapter it reconnects, so a dropped bridge recovers.
 func startAdapter(t *testing.T, bridgeAddr, gameID string) (<-chan bridge.RenderRemote, func()) {
 	t.Helper()
 
@@ -254,8 +179,7 @@ func startAdapter(t *testing.T, bridgeAddr, gameID string) (<-chan bridge.Render
 		}
 	}
 
-	// One connection's lifetime: dial, say hello, then push frames until the
-	// connection dies or the test ends.
+	// One connection's lifetime: dial, say hello, then push frames until the connection dies or the test ends.
 	session := func() {
 		conn, err := transport.Dial(bridgeAddr)
 		if err != nil {
@@ -271,9 +195,6 @@ func startAdapter(t *testing.T, bridgeAddr, gameID string) (<-chan bridge.Render
 			if json.Unmarshal(payload, &env) != nil {
 				return
 			}
-			// remote_name is delivered ONCE, at attach or on a join -- so unlike render_remote
-			// there is no second chance to observe it. Recorded here rather than in a channel a
-			// test might not be reading yet.
 			if env.Type == bridge.TypeRemoteName {
 				var rn bridge.RemoteName
 				if json.Unmarshal(env.Payload, &rn) == nil {
@@ -330,8 +251,6 @@ func startAdapter(t *testing.T, bridgeAddr, gameID string) (<-chan bridge.Render
 	go func() {
 		for !stopped() {
 			session()
-			// Same shape as a real adapter's retry: pause briefly rather
-			// than spinning on a client that isn't ready.
 			select {
 			case <-stop:
 				return
@@ -343,9 +262,8 @@ func startAdapter(t *testing.T, bridgeAddr, gameID string) (<-chan bridge.Render
 	return renders, func() { stopOnce.Do(func() { close(stop) }) }
 }
 
-// sendBridge writes one bridge message, reporting whether it got out. A
-// failed send here means the connection died, which is a normal event this
-// adapter recovers from -- not a test failure.
+// sendBridge writes one bridge message, reporting whether it got out; a failed send is a dead connection, not a test
+// failure.
 func sendBridge(conn *transport.NDJSONConn, typ bridge.MessageType, payload any) bool {
 	b, err := json.Marshal(payload)
 	if err != nil {
@@ -358,11 +276,8 @@ func sendBridge(conn *transport.NDJSONConn, typ bridge.MessageType, payload any)
 	return conn.Send(env) == nil
 }
 
-// startRelay and startClient launch the real binaries with the flags the
-// dev-scripts use, minus the personal paths.
-// startRelay returns the process so a test can kill it and start another on
-// the same address -- see restart_e2e_test.go. Existing callers ignore the
-// return value, which is why adding it changed nothing for them.
+// startRelay launches the real relay in loopback mode, returning the process so a test can kill it and start another
+// on the same address.
 func startRelay(t *testing.T, dir, bin, addr string) *exec.Cmd {
 	t.Helper()
 	cmd := start(t, dir, bin, "-addr", addr, "-loopback")
@@ -370,15 +285,9 @@ func startRelay(t *testing.T, dir, bin, addr string) *exec.Cmd {
 	return cmd
 }
 
-// startClient returns the process for the same reason startRelay does, and
-// takes extra flags so a restart test can pin the transport.
-//
-// SINCE 2026-09-03 A CLIENT ACCEPTS ITS ADAPTER WITH NO RELAY REACHABLE and
-// plays solo, retrying in the background (bridgeserve.go). So "the adapter
-// attached" no longer proves a relay is involved, and a test that means to
-// exercise the server must assert on something only a relay can produce -- a
-// player id, a peer's render_remote, a room event. Every test here already
-// does; keep it that way, or a broken relay will look like a pass.
+// startClient launches the real client, returning the process and taking extra flags. A client accepts its adapter
+// with no relay reachable and plays solo, so a test of the relay must assert on something only a relay produces: a
+// player id, a peer's render_remote, a room event.
 func startClient(t *testing.T, dir, bin, relayAddr, bridgeAddr string, extra ...string) *exec.Cmd {
 	t.Helper()
 	args := append([]string{
@@ -394,7 +303,6 @@ func startClient(t *testing.T, dir, bin, relayAddr, bridgeAddr string, extra ...
 	return cmd
 }
 
-// rig builds both binaries and picks their ports.
 type rig struct {
 	dir        string
 	relayBin   string
@@ -415,33 +323,15 @@ func newRig(t *testing.T) rig {
 	}
 }
 
-// TestReleaseBinariesRoundTripAGhost is the automated form of the loopback
-// check a human otherwise performs by launching two dev-scripts and watching
-// the screen: a real relay process in loopback mode, a real client process,
-// and a real adapter on the bridge. A state sent in must come back as a
-// render_remote, which means it crossed the bridge, the client's relay
-// connection, the relay's forwarding path, and all the way back.
-// TestSecondAdapterIsRejectedByTheRealBinary is the end-to-end half of the
-// core's admission-control tests: against the ACTUAL shipped meshghost.exe, a
-// second adapter attaching to a core that already has one is told why and hung
-// up on, rather than silently joining and sharing the first one's relay session.
-//
-// Worth having at this level as well as in core because the failure it
-// guards is invisible by nature -- both adapters used to log a normal
-// "connected" -- so a unit test passing while the real binary misbehaved would
-// look exactly like success.
-//
-// Both adapters are dialed by hand rather than through startAdapter, because
-// startAdapter connects asynchronously and reconnects on drop: which of the two
-// reached the core first would be a coin toss, and the test would sometimes
-// assert against whichever one lost.
+// TestSecondAdapterIsRejectedByTheRealBinary: a second adapter attaching to the shipped meshghost.exe is told why and
+// hung up on, not silently joined to the first one's session. Both are dialed by hand because startAdapter's
+// asynchronous reconnect would make which one arrived first a coin toss.
 func TestSecondAdapterIsRejectedByTheRealBinary(t *testing.T) {
 	r := newRig(t)
 	startRelay(t, r.dir, r.relayBin, r.relayAddr)
 	startClient(t, r.dir, r.clientBin, r.relayAddr, r.bridgeAddr)
 
-	// answers watches one bridge connection for the core's reply to a hello:
-	// "" for bridge_ready, or the reason for a reject.
+	// answers watches one connection for the core's reply to a hello: "" for bridge_ready, or the reject's reason.
 	answers := func(conn *transport.NDJSONConn) <-chan string {
 		out := make(chan string, 1)
 		conn.OnReceive(func(payload []byte) {
@@ -468,8 +358,7 @@ func TestSecondAdapterIsRejectedByTheRealBinary(t *testing.T) {
 		return out
 	}
 
-	// The first adapter must be fully attached before the second dials, and
-	// bridge_ready is exactly that signal -- it is why the core sends one.
+	// The first adapter must be attached before the second dials, which bridge_ready signals.
 	first, err := transport.Dial(r.bridgeAddr)
 	if err != nil {
 		t.Fatalf("first adapter dial: %v", err)
@@ -508,20 +397,10 @@ func TestSecondAdapterIsRejectedByTheRealBinary(t *testing.T) {
 	}
 }
 
-// TestPortWalkFindsAFreeCore models the port walk each adapter performs
-// (Pseudoregalia's BridgeClient today, TEVI and Emerald later) against REAL
-// core processes, so the sequence the C++ implements is checked even though the
-// C++ itself cannot run here without the game.
+// TestPortWalkFindsAFreeCore runs the adapters' port walk against real core processes, with one port of each kind the
+// walk must tell apart:
 //
-// It exists because the interesting cases cannot be produced by hand: Steam
-// refuses a second Pseudoregalia, so "two instances" is untestable on the dev
-// machine, and a foreign program squatting on a bridge port is not something
-// anyone can arrange on demand either. Both are just listeners, so a test can
-// hold them.
-//
-// Three ports, one of each kind the walk must tell apart:
-//
-//	P1  a real core WITH an adapter attached -> answers reject, skip it
+//	P1  a real core with an adapter attached -> answers reject, skip it
 //	P2  something else entirely, accepting connections and never speaking
 //	P3  a real core with nothing attached    -> answers bridge_ready, use it
 func TestPortWalkFindsAFreeCore(t *testing.T) {
@@ -540,8 +419,7 @@ func TestPortWalkFindsAFreeCore(t *testing.T) {
 	// P3: a core with nobody on it.
 	startClient(t, r.dir, r.clientBin, r.relayAddr, freeAddr)
 
-	// P2: the squatter. Accepts, reads nothing, answers nothing -- the shape of
-	// an unrelated program that happens to hold a port in our range.
+	// P2: the squatter, an unrelated program holding a port in the range: accepts, then says nothing.
 	squatLn, err := net.Listen("tcp", squatAddr)
 	if err != nil {
 		t.Fatalf("squatter listen: %v", err)
@@ -565,8 +443,7 @@ func TestPortWalkFindsAFreeCore(t *testing.T) {
 
 	waitForListener(t, busyAddr)
 	waitForListener(t, freeAddr)
-	// The busy core is only busy once its adapter has actually said hello;
-	// without this the first candidate is a race rather than a known state.
+	// The busy core is only busy once its adapter has said hello.
 	time.Sleep(2 * time.Second)
 
 	chosen, spawnable := walkPorts(t, []string{busyAddr, squatAddr, freeAddr})
@@ -580,11 +457,8 @@ func TestPortWalkFindsAFreeCore(t *testing.T) {
 	}
 }
 
-// TestPortWalkOffersAFreePortToSpawnOn is the other half: when nothing in range
-// will have the adapter, the walk must report a port where NOTHING is listening,
-// which is where the mod starts a core. It must never offer a port that answered
-// and said it was busy -- that is another game's core, and contract.md is
-// explicit that an adapter only ever starts or stops a core it owns.
+// TestPortWalkOffersAFreePortToSpawnOn: with no core in range free, the walk offers a port where nothing listens, never
+// one whose core answered busy, since an adapter only starts or stops a core it owns.
 func TestPortWalkOffersAFreePortToSpawnOn(t *testing.T) {
 	r := newRig(t)
 	startRelay(t, r.dir, r.relayBin, r.relayAddr)
@@ -608,15 +482,8 @@ func TestPortWalkOffersAFreePortToSpawnOn(t *testing.T) {
 	}
 }
 
-// TestPortWalkSkipsSeveralBusyCores is the same question with no fakes at all:
-// every port here holds a REAL meshghost.exe, the first two with real adapters
-// attached, and the walk has to step past both to reach the free one.
-//
-// This is the scenario the dev machine cannot produce by hand -- Steam refuses
-// a second Pseudoregalia, so "two games already running, start a third" only
-// exists here. TestPortWalkFindsAFreeCore covers the one case real cores cannot
-// simulate (something that is not MeshGhost at all holding a port); this covers
-// the case that needs no simulation.
+// TestPortWalkSkipsSeveralBusyCores: every port holds a real core, the first two with adapters attached, and the walk
+// steps past both to the free one.
 func TestPortWalkSkipsSeveralBusyCores(t *testing.T) {
 	r := newRig(t)
 	startRelay(t, r.dir, r.relayBin, r.relayAddr)
@@ -633,7 +500,7 @@ func TestPortWalkSkipsSeveralBusyCores(t *testing.T) {
 		_, stop := startAdapter(t, addr, "e2egame")
 		defer stop()
 	}
-	// Both adapters need to have said hello before either core counts as busy.
+	// Both adapters must have said hello before either core counts as busy.
 	time.Sleep(2 * time.Second)
 
 	chosen, spawnable := walkPorts(t, []string{busy1, busy2, free})
@@ -646,11 +513,9 @@ func TestPortWalkSkipsSeveralBusyCores(t *testing.T) {
 	}
 }
 
-// walkPorts is the adapter-side algorithm from agent_docs/contract.md, written
-// in Go: for each candidate, connect; nothing listening marks a port a core
-// could be started on; a reject means somebody else's core; bridge_ready means
-// this one is ours. Returns the address it settled on ("" for none) and the
-// first port worth starting a core on.
+// walkPorts is the adapters' port walk in Go: nothing listening marks a port a core could start on, a reject means
+// another game's core, bridge_ready means ours. It returns the address it settled on ("" for none) and the first port
+// worth starting a core on.
 func walkPorts(t *testing.T, addrs []string) (chosen, spawnable string) {
 	t.Helper()
 	const answerTimeout = 1500 * time.Millisecond
@@ -689,18 +554,15 @@ func walkPorts(t *testing.T, addrs []string) (chosen, spawnable string) {
 			}
 			conn.Close() // rejected -- somebody else's core
 		case <-time.After(answerTimeout):
-			// Silence is NOT acceptance. Something that accepts a connection and
-			// then never speaks is far more likely an unrelated program than a
-			// MeshGhost core, and committing to it strands the adapter with no
-			// ghosts and no explanation -- the exact silent failure this whole
-			// change exists to remove. Skipping an older core costs nothing by
-			// comparison: the walk simply starts its own on a free port.
+			// Silence is not acceptance: a listener that never speaks is more likely an unrelated program.
 			conn.Close()
 		}
 	}
 	return "", spawnable
 }
 
+// TestReleaseBinariesRoundTripAGhost: a state a real adapter sends comes back as a render_remote through a real client
+// and a loopback relay, so it crossed the bridge, both relay legs and back.
 func TestReleaseBinariesRoundTripAGhost(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and launches real binaries; skipped under -short")
@@ -734,10 +596,8 @@ func TestReleaseBinariesRoundTripAGhost(t *testing.T) {
 	}
 }
 
-// TestClientSurvivesARelayThatIsNotThereYet covers an ordering real users hit
-// constantly and no dev-script exercises deliberately: the client (and its
-// adapter) started before the relay exists. Nothing may exit, and the session
-// must come up on its own once the relay appears -- no restart, no human.
+// TestClientSurvivesARelayThatIsNotThereYet: a client and adapter started before the relay exists must not exit, and
+// the session comes up on its own once the relay appears.
 func TestClientSurvivesARelayThatIsNotThereYet(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and launches real binaries; skipped under -short")
@@ -745,14 +605,11 @@ func TestClientSurvivesARelayThatIsNotThereYet(t *testing.T) {
 
 	r := newRig(t)
 
-	// Client and adapter first, with nothing to connect to.
 	startClient(t, r.dir, r.clientBin, r.relayAddr, r.bridgeAddr)
 	renders, stop := startAdapter(t, r.bridgeAddr, "e2egame")
 	defer stop()
 
-	// Long enough for the client to fail several relay dials and for the
-	// core to have closed the adapter's bridge connection at least once, so
-	// this really tests recovery rather than a lucky first attempt.
+	// Long enough for the client to fail several relay dials, so this tests recovery, not a lucky first attempt.
 	time.Sleep(1500 * time.Millisecond)
 
 	startRelay(t, r.dir, r.relayBin, r.relayAddr)
@@ -765,11 +622,8 @@ func TestClientSurvivesARelayThatIsNotThereYet(t *testing.T) {
 	}
 }
 
-// waitForRelayTransport is waitForListener for a transport where a bare TCP
-// connect proves nothing. It dials the way a real client would — which for
-// udp means completing the address-validation exchange, and for quic the
-// TLS handshake — so a successful probe means the relay is genuinely
-// serving that transport on that port, not merely that something is bound.
+// waitForRelayTransport is waitForListener for a transport where a bare TCP connect proves nothing: it dials as a
+// client would, so success means the relay is serving that transport on that port.
 func waitForRelayTransport(t *testing.T, kind netx.Kind, addr string) {
 	t.Helper()
 	if kind == netx.TCP {
@@ -778,8 +632,7 @@ func waitForRelayTransport(t *testing.T, kind netx.Kind, addr string) {
 	}
 	deadline := time.Now().Add(testTimeout)
 	for {
-		// A probe, so trust-any: the question is whether something is
-		// serving the transport, not who. The client under test verifies.
+		// Trust-any: the question is whether something serves the transport, not who; the client under test verifies.
 		conn, err := netx.DialWithTLS(kind, addr, time.Second, netx.TLSOptions{Verify: tlsx.TrustAnyCertificate})
 		if err == nil {
 			conn.Close()
@@ -792,17 +645,8 @@ func waitForRelayTransport(t *testing.T, kind netx.Kind, addr string) {
 	}
 }
 
-// startRelayOn is startRelay for a chosen transport. quic gets its own
-// address because it runs over udp and so cannot share a port with the
-// plain udp transport.
-// startRelayOn serves tcp plus kind, and returns once both are up.
-//
-// tcp is not optional: netx.ParseKinds adds it whether or not it is named,
-// because every client handshakes over tcp before moving to its configured
-// transport. tcpAddr is therefore what a client connects to for ANY kind —
-// quic in particular listens elsewhere (it runs over udp and cannot share a
-// port with the plain udp transport), and the client learns that port from
-// the handshake rather than being told it.
+// startRelayOn serves tcp plus kind and returns once both are up. Every client handshakes over tcp, so tcpAddr is what
+// a client connects to for any kind; quic listens on its own port, which the client learns from the handshake.
 func startRelayOn(t *testing.T, dir, bin, tcpAddr, quicAddr string, kind netx.Kind) {
 	t.Helper()
 	args := []string{"-loopback", "-transport", "tcp," + kind.String(), "-addr", tcpAddr}
@@ -832,9 +676,7 @@ func startClientOn(t *testing.T, dir, bin, relayAddr, bridgeAddr string, kind ne
 	waitForListener(t, bridgeAddr)
 }
 
-// withFreshPorts reuses an already-built pair of binaries with new ports,
-// so a table of transports does not pay for a rebuild per entry — which
-// matters more now that quic-go is linked in.
+// withFreshPorts reuses the built binaries with new ports, so a table of transports does not rebuild per entry.
 func (r rig) withFreshPorts(t *testing.T) rig {
 	t.Helper()
 	r.relayAddr = net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t)))
@@ -842,32 +684,21 @@ func (r rig) withFreshPorts(t *testing.T) rig {
 	return r
 }
 
-// TestReleaseBinariesRoundTripAGhostOnEveryTransport is
-// TestReleaseBinariesRoundTripAGhost repeated for udp and quic: the real
-// relay and client processes, launched with -transport, carrying a real
-// ghost all the way from the adapter's bridge socket, out over the chosen
-// transport, through the relay and back.
-//
-// This is the test that would catch a transport wired correctly in the
-// packages but not actually reachable from the shipped binaries' flags and
-// config — the gap between "the unit tests pass" and "a user can turn it
-// on", which is the entire reason internal/e2e exists.
+// TestReleaseBinariesRoundTripAGhostOnEveryTransport is TestReleaseBinariesRoundTripAGhost over each non-tcp transport
+// a release ships, catching one wired in the packages but unreachable from the binaries' flags and config.
 func TestReleaseBinariesRoundTripAGhostOnEveryTransport(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and launches real binaries; skipped under -short")
 	}
 
 	base := newRig(t)
-	// quic only since 2026-09-15: these are release binaries built from
-	// source, and a release has no udp (ADR 0065).
+	// A release build has no udp.
 	for _, kind := range []netx.Kind{netx.QUIC} {
 		t.Run(kind.String(), func(t *testing.T) {
 			r := base.withFreshPorts(t)
 			quicAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t)))
 			startRelayOn(t, r.dir, r.relayBin, r.relayAddr, quicAddr, kind)
-			// The client is given the TCP address only, for every kind: the
-			// handshake is always tcp, and the real transport's port comes
-			// back from the relay.
+			// The client gets the tcp address only: the handshake is always tcp, and the relay names the real port.
 			startClientOn(t, r.dir, r.clientBin, r.relayAddr, r.bridgeAddr, kind)
 
 			renders, stop := startAdapter(t, r.bridgeAddr, "e2egame")
@@ -891,14 +722,8 @@ func TestReleaseBinariesRoundTripAGhostOnEveryTransport(t *testing.T) {
 	}
 }
 
-// TestAutoTransportUpgradesToQUIC is the discovery feature end to end: a
-// real client told only "auto" and a tcp address finds the relay's quic
-// port, which it could not possibly have guessed — quic runs on a
-// different port, so there is nothing to probe for.
-//
-// It asserts on the client's own log rather than on packet contents
-// because that log line is also the user-visible artifact: without it, a
-// user has no way to tell which transport they actually ended up on.
+// TestAutoTransportUpgradesToQUIC: a client told only "auto" and a tcp address finds the relay's quic port, which it
+// cannot guess. It asserts on the client's log because that line is how a player tells which transport they are on.
 func TestAutoTransportUpgradesToQUIC(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and launches real binaries; skipped under -short")
@@ -917,8 +742,6 @@ func TestAutoTransportUpgradesToQUIC(t *testing.T) {
 	waitForRelayTransport(t, netx.TCP, r.relayAddr)
 	waitForRelayTransport(t, netx.QUIC, quicAddr)
 
-	// The client is given the TCP address only. Finding quic requires
-	// asking the relay.
 	startClientOn(t, r.dir, r.clientBin, r.relayAddr, r.bridgeAddr, netx.Auto)
 
 	renders, stop := startAdapter(t, r.bridgeAddr, "e2egame")
@@ -944,20 +767,8 @@ func TestAutoTransportUpgradesToQUIC(t *testing.T) {
 	}
 }
 
-// TestReleaseBinariesRoundTripAGhostOverTLS is the TLS feature end to end,
-// through the shipped binaries rather than the packages: a real relay, a
-// real client, no flag about encryption on either (there is none since
-// 2026-09-15), and a real ghost carried from the adapter's bridge socket out
-// over an encrypted tcp session and back.
-//
-// tcp on purpose. quic has been encrypted since it existed, so proving
-// anything there would prove nothing about this feature; tcp is the leg
-// that was plaintext, and it is also the leg every client uses for the
-// handshake that carries the room code.
-//
-// The room code is set here for the same reason: it is the thing worth
-// protecting, so this asserts the whole path works while it is in play, not
-// just an empty-code session.
+// TestReleaseBinariesRoundTripAGhostOverTLS: a ghost round-trips over tcp with a room code set and no encryption flag
+// on either binary. tcp because every handshake and the room code proof ride it; quic is encrypted regardless.
 func TestReleaseBinariesRoundTripAGhostOverTLS(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and launches real binaries; skipped under -short")
@@ -997,12 +808,8 @@ func TestReleaseBinariesRoundTripAGhostOverTLS(t *testing.T) {
 		t.Fatalf("no render_remote reached the adapter over tls within %s", testTimeout)
 	}
 
-	// The fingerprint is what every client remembers this relay by, so it
-	// has to be in the log the host actually reads -- and the identity it
-	// names has to be on disk, beside the binary here since there is no
-	// config, or nothing survives a restart. The client's side of the same
-	// memory is its known-servers file beside ITS config (here, the same
-	// folder: both binaries run from r.dir).
+	// Clients remember the relay by its fingerprint, so it must be in the host's log and its identity on disk to
+	// survive a restart; the client keeps its known-servers file beside its config, here the same folder.
 	logBytes, err := os.ReadFile(filepath.Join(r.dir, "meshghost-server.log"))
 	if err != nil {
 		t.Fatalf("read relay log: %v", err)
@@ -1020,17 +827,8 @@ func TestReleaseBinariesRoundTripAGhostOverTLS(t *testing.T) {
 	}
 }
 
-// TestTheClientRefusesAPlaintextRelay is the downgrade guard, run against
-// the real client binary: the "relay" is a raw listener that speaks no TLS
-// -- a relay from before 2026-08-19, or an on-path party blackholing the
-// handshake, which look the same from here -- so nothing must ever reach the
-// adapter.
-//
-// This is the property room-code auth never had. A stale relay silently
-// disables room-code checking with no way for a client to notice
-// (agent_docs/risks.md); this client cannot be disabled from the other end,
-// and since 2026-09-15 has no setting that could be, so the plaintext relay
-// here is a listener the test owns rather than a flag the binary lost.
+// TestTheClientRefusesAPlaintextRelay is the downgrade guard: a relay that speaks no TLS, an old one or an on-path
+// party, must never deliver a ghost, and the client has no setting that could disable this.
 func TestTheClientRefusesAPlaintextRelay(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and launches real binaries; skipped under -short")
@@ -1049,8 +847,7 @@ func TestTheClientRefusesAPlaintextRelay(t *testing.T) {
 			if err != nil {
 				return
 			}
-			// Read whatever arrives and hang up, as an old relay does with a
-			// line it cannot parse.
+			// Read whatever arrives and hang up, as an old relay does with a line it cannot parse.
 			go func(c net.Conn) {
 				defer c.Close()
 				_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
@@ -1081,15 +878,8 @@ func TestTheClientRefusesAPlaintextRelay(t *testing.T) {
 	}
 }
 
-// A NAMETAG MUST REACH AN ADAPTER THAT ATTACHES TO A ROOM SOMEBODY IS ALREADY IN.
-//
-// Through the real binaries, in the order that actually failed live on 2026-08-28: a named peer
-// is already connected, and only THEN does the second game launch. That client learns the name
-// from its Welcome roster rather than from a Join, and has to hand it to an adapter that did not
-// exist when the handshake happened.
-//
-// The reverse order -- peer joins while you watch -- worked from the first build and was what got
-// tested by hand twice, which is precisely why this shape went unnoticed.
+// TestAnAdapterJoiningARoomIsToldTheNamesAlreadyThere: a named peer is connected before the second game launches, so
+// that client learns the name from its Welcome roster, not a Join, and must hand it to an adapter that attaches later.
 func TestAnAdapterJoiningARoomIsToldTheNamesAlreadyThere(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and launches real binaries; skipped under -short")
@@ -1101,8 +891,7 @@ func TestAnAdapterJoiningARoomIsToldTheNamesAlreadyThere(t *testing.T) {
 
 	base := newRig(t)
 	r := base.withFreshPorts(t)
-	// Not -loopback: two real named clients is the whole point, and a loopback
-	// echo would add a third nametag ("Alice-ghost") that races the real one.
+	// Not -loopback: a loopback echo would add a third nametag ("Alice-ghost") that races the real one.
 	start(t, r.dir, r.relayBin, "-addr", r.relayAddr)
 	waitForListener(t, r.relayAddr)
 

@@ -8,18 +8,9 @@ import (
 	"testing"
 )
 
-// TestRelayCoreAndCmdNeverReadAClientAddress pins the privacy property
-// docs/security.md states: the relay does not read a client's IP. Only netx
-// may call RemoteAddr -- it must, to demultiplex udp and to name a refused
-// connection in a throttled log line -- and from 2026-09-15 it also keeps
-// per-source counters there (ADR 0064: in memory, bounded, never logged,
-// never persisted).
-//
-// The relay gets its per-source policy through an interface it calls with
-// the net.Conn (relay.Server.SourceGuard), so the address is read on netx's
-// side of that line. This test is what keeps a shortcut -- "just split the
-// address here" -- from turning that decision into drift. Tests are exempt:
-// the hostile harness dials from a known address and may say so.
+// TestRelayCoreAndCmdNeverReadAClientAddress pins the privacy property that the relay does not read a client's IP.
+// Only netx may call RemoteAddr, to demultiplex udp, name a refused connection, and keep its in-memory, bounded,
+// never-logged per-source counters; the relay reaches that policy through relay.Server.SourceGuard with the net.Conn.
 func TestRelayCoreAndCmdNeverReadAClientAddress(t *testing.T) {
 	root := repoRoot(t)
 	fset := token.NewFileSet()

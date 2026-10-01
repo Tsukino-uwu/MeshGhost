@@ -1,8 +1,6 @@
-// Package paketest is the room-code proof for a test that speaks the relay's
-// wire by hand: a Prover holds the client half of the proof and answers the
-// relay's KE2 line when a test's own receive loop hands it over. Production
-// code uses core's roomproof.go; this exists so relay, core and cmd tests do
-// not each carry a copy of the same twenty lines.
+// Package paketest is the room-code proof for a test that speaks the relay's wire by hand: a Prover holds the client
+// half and answers the relay's KE2 when the test's own receive loop hands it over, so relay, core and cmd tests share
+// one copy.
 package paketest
 
 import (
@@ -58,14 +56,9 @@ func (p *Prover) KE1() string {
 // what a client with the wrong code sees before it sends anything.
 func (p *Prover) Failed() bool { return p != nil && p.failed }
 
-// Handle answers one line from the relay if it is the proof's KE2, sending
-// KE3 back through send, and reports whether the line was consumed.
-//
-// When the code is wrong the real client sends nothing and hangs up; this
-// one sends an unusable KE3 instead, on purpose, so the relay's own refusal
-// -- the Reject with the room-code CODE, and the budget charge behind it --
-// is what a test reads. That is the relay's behaviour under test; the
-// client's is core's.
+// Handle answers one line from the relay if it is the proof's KE2, sending KE3 back through send, and reports whether
+// the line was consumed. With a wrong code the real client sends nothing and hangs up; this one sends an unusable KE3,
+// so a test reads the relay's own refusal and the budget charge behind it.
 func (p *Prover) Handle(line []byte, send func([]byte) error) bool {
 	if p == nil {
 		return false
