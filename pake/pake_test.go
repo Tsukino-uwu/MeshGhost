@@ -27,9 +27,7 @@ func run(t *testing.T, srv *pake.Server, code, clientIdentityOfServer string) (c
 	}
 	ke3, cerr := c.Finish(ke2, clientIdentityOfServer)
 	if cerr != nil {
-		// The client refused; a real client sends nothing. The relay then
-		// counts the session as failed (its Finish is never called) -- here
-		// we call it with nothing to show it refuses too.
+		// A real client sends nothing after refusing; Finish with nothing shows the relay refuses too.
 		return cerr, sess.Finish(nil)
 	}
 	return nil, sess.Finish(ke3)
@@ -64,11 +62,8 @@ func TestTheWrongCodeFailsOnTheClientBeforeAnythingIsSent(t *testing.T) {
 	}
 }
 
-// TestADifferentServerIdentityFailsTheClient is the binding: a client that
-// verified some OTHER certificate names a different identity, and the login
-// fails on its side even though the code is right and the bytes are the
-// genuine relay's -- which is exactly what a man in the middle relaying
-// KE1/KE2 between two TLS sessions looks like.
+// TestADifferentServerIdentityFailsTheClient: a client that verified another certificate fails even with the right
+// code and the genuine relay's bytes, which is what a man in the middle relaying KE1/KE2 looks like.
 func TestADifferentServerIdentityFailsTheClient(t *testing.T) {
 	srv, err := pake.NewServer("hunter2", fp)
 	if err != nil {
@@ -83,9 +78,8 @@ func TestADifferentServerIdentityFailsTheClient(t *testing.T) {
 	}
 }
 
-// TestAForgedKE3IsRefusedByTheRelay: a KE3 from a login against another
-// record (another code) does not satisfy this one, and a KE3 from a
-// different session on the same record does not either.
+// TestAForgedKE3IsRefusedByTheRelay: a KE3 from another record, or from another session on the same record, is
+// refused.
 func TestAForgedKE3IsRefusedByTheRelay(t *testing.T) {
 	srv, err := pake.NewServer("hunter2", fp)
 	if err != nil {
@@ -152,10 +146,8 @@ func TestAnEmptyCodeIsAnError(t *testing.T) {
 	}
 }
 
-// FuzzMessagesNeverPanic: whatever bytes arrive as KE1 at the relay or as
-// KE2 at the client, the answer is ErrRefused or a real message, never a
-// panic. A relay's login endpoint is reachable by anyone who can complete a
-// TLS handshake.
+// FuzzMessagesNeverPanic: any bytes as KE1 at the relay or KE2 at the client give ErrRefused or a real message,
+// never a panic; anyone who completes a TLS handshake reaches the relay's login.
 func FuzzMessagesNeverPanic(f *testing.F) {
 	srv, err := pake.NewServer("hunter2", fp)
 	if err != nil {
