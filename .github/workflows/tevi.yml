@@ -43,7 +43,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: '10.0.x'
+          global-json-file: global.json
 
       # The harness exits non-zero and prints every problem, rather than stopping at the first:
       # one run should say everything that is wrong, because the next run costs a push.

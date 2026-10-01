@@ -2333,10 +2333,10 @@ if ($contentsBad.Count -gt 0) {
 
 # Refuses more dates, "the user", review IDs or .md pointers in code comments than the recorded floors.
 Section "Comment traces in code (ratchet)"
-$floorTraceDate = 3853
-$floorTraceUser = 1234
+$floorTraceDate = 3852
+$floorTraceUser = 1233
 $floorTraceReview = 157
-$floorTraceMd = 1777
+$floorTraceMd = 1774
 
 # The comment text of each line: whole-line and trailing comments, and block comments, by the file's syntax.
 function Get-CommentTexts([string]$path) {
@@ -2410,7 +2410,7 @@ Report-Ratchet 'workflows whose top-level permissions are not {}' $openPermissio
 # Refuses a floating NuGet version, a project without a restore lockfile or deterministic build, a missing SDK pin,
 # or a go.mod without an exact toolchain.
 Section "Dependencies pinned (ratchet)"
-$floorUnpinnedDeps = 18
+$floorUnpinnedDeps = 2
 $unpinnedDeps = @()
 foreach ($proj in @(& git ls-files -- '*.csproj')) {
     $xml = [System.IO.File]::ReadAllText((Join-Path $root $proj))

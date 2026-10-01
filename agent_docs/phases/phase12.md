@@ -921,3 +921,8 @@ path `/_/adapters/tevi/MeshGhostTevi/obj/Release/MeshGhostTevi.pdb`; preflight n
 leaking binaries. Deployed to both TEVI installs with `meshghost.exe` and the shipped `config.json` (each install's
 config was an older shipped one with default values and no personal name or room; backed up as
 `config.json.pre-2026-10-01`), every file hash-checked. Not yet seen on screen.
+Then the gates caught up: `tevi.yml` installs the SDK from `global.json` (`setup-dotnet`'s `global-json-file`, read
+from its README), `release.yml`'s TEVI staleness step also hashes `packages.lock.json`, `global.json`,
+`Directory.Build.props` and `nuget.config` (simulated locally: passes on the tree, and refused a one-byte change to
+`global.json`), and the floors fell to 3,852 dated / 1,233 user / 1,774 `.md` comment lines and 2 build inputs
+(the two `go.mod` toolchain lines).

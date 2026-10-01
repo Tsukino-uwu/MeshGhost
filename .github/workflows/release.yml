@@ -307,8 +307,8 @@ jobs:
         # BepInEx/plugins/) because CI can't build it itself (the .csproj needs the
         # developer's own proprietary TEVI install -- see packaging/README.md and
         # dev-scripts/build-tevi.bat). This is the guard that stops a release shipping a DLL
-        # older than the source that's supposed to have produced it: rehash the same three
-        # files build-tevi.bat hashed, and compare against what it recorded in built-from.txt
+        # older than the source that's supposed to have produced it: rehash every build input
+        # build-tevi.ps1 hashed, and compare against what it recorded in built-from.txt
         # (kept outside the MeshGhost/ drag-and-drop tree, one level up).
         shell: pwsh
         run: |
@@ -325,6 +325,10 @@ jobs:
             "BridgeClient.cs"        = "adapters\tevi\MeshGhostTevi\BridgeClient.cs"
             "CoreLauncher.cs"        = "adapters\tevi\MeshGhostTevi\CoreLauncher.cs"
             "MeshGhostTevi.csproj"   = "adapters\tevi\MeshGhostTevi\MeshGhostTevi.csproj"
+            "packages.lock.json"     = "adapters\tevi\MeshGhostTevi\packages.lock.json"
+            "./global.json"          = "global.json"
+            "./Directory.Build.props" = "Directory.Build.props"
+            "./nuget.config"         = "nuget.config"
           }
           $stale = $false
           foreach ($name in $files.Keys) {
