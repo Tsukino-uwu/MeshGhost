@@ -52,7 +52,7 @@ full note.
   300 local runs of the same test never reproduced. Now that `-race` runs locally, run that first.
 - `preflight.ps1` — read-only pre-live-test check: gofmt, the leak grep (both slash directions),
   CLAUDE.md's cap, root binaries vs source, both mod DLLs vs their `built-from.txt`, CRLF in
-  LF-pinned sources, GitHub Action versions agreeing across workflows, doc coverage (code-map rows,
+  LF-pinned sources, each GitHub Action on one commit and version across workflows, doc coverage (code-map rows,
   config keys, build-step Status lines), the comment-trace and pinning ratchets, leftover MeshGhost
   processes, and optionally the deployed DLLs in the live
   game installs (`MESHGHOST_TEVI_DLL`, `MESHGHOST_TEVI_DLL_ALT`, `MESHGHOST_PSEUDO_DLL` — env vars

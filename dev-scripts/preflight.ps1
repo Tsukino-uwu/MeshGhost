@@ -2117,7 +2117,7 @@ if ($countHits.Count -eq 0) {
     $countHits | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
 }
 
-# Refuses a GitHub Action pinned to different major versions across workflows.
+# Refuses a GitHub Action pinned to different commits or versions across workflows.
 Section "GitHub Action versions agree across workflows"
 
 $wfDir = Join-Path $root ".github\workflows"
@@ -2125,8 +2125,10 @@ if (Test-Path $wfDir) {
     $uses = @{}
     foreach ($wf in Get-ChildItem -LiteralPath $wfDir -Filter *.yml) {
         foreach ($m in [regex]::Matches((Get-Content -Raw -Encoding UTF8 -LiteralPath $wf.FullName),
-                'uses:\s*([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)@(v[0-9]+)')) {
-            $name, $ver = $m.Groups[1].Value, $m.Groups[2].Value
+                '(?m)^\s*(?:-\s*)?uses:\s*([A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+)@([0-9a-f]{40}|[^\s#]+)[ \t]*(?:#[ \t]*(v[0-9][0-9.]*))?')) {
+            $name, $ref, $note = $m.Groups[1].Value, $m.Groups[2].Value, $m.Groups[3].Value
+            # A SHA pin carries its release in the trailing comment, so both must agree.
+            $ver = if ($ref -match '^[0-9a-f]{40}$') { "$(if ($note) { $note } else { 'no # vN' }) at $($ref.Substring(0, 12))" } else { $ref }
             if (-not $uses.ContainsKey($name)) { $uses[$name] = @{} }
             if (-not $uses[$name].ContainsKey($ver)) { $uses[$name][$ver] = @() }
             $uses[$name][$ver] += $wf.Name

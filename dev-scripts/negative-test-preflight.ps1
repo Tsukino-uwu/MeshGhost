@@ -519,8 +519,8 @@ $fixtures = @(
     @{  Name = 'action-version-split'
         Section = 'GitHub Action versions agree across workflows'
         Expect = 'FAIL'
-        Why = 'one workflow pinning an action to an older major than the rest'
-        Plant = { param($wt) Plant-TextLine $wt '.github/workflows/docs.yml' '# planted by the negative-test harness: uses: actions/checkout@v1' } },
+        Why = 'one workflow pinning an action to an older release than the rest'
+        Plant = { param($wt) Plant-TextLine $wt '.github/workflows/docs.yml' '      - uses: actions/checkout@1111111111111111111111111111111111111111 # v1.0.0' } },
 
     @{  Name = 'adapter-gate-too-broad'
         Section = 'Every adapter has its own path-filtered workflow'
