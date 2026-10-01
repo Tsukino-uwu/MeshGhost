@@ -1,29 +1,8 @@
 package relay
 
-// Relay introspection: "what does the server think is true right now."
-//
-// agent_docs/beyond-cosmetic.md §10 listed this as reserved, and until
-// 2026-08-17 that was right — **a relay that forwards and forgets has no state
-// worth inspecting.** Rooms and a client count are visible from the log lines
-// join and leave already print. That changed the moment the relay started
-// holding facts nobody else can see: who holds which lease and for how much
-// longer, which exchanges are mid-flight and how far along, and whose identity
-// is parked waiting for a reconnect. A wedged trade or a key nobody can claim
-// is now a question the log cannot answer, because the relevant state is a map
-// in memory rather than an event that was printed once.
-//
-// **This is a snapshot function, not an endpoint.** The relay has no
-// introspection port, no HTTP server, and nothing new to authenticate. That is
-// deliberate: agent_docs/architecture.md's transport-discovery ADR worked to
-// keep the relay free of any pre-auth surface, and adding a status listener
-// would hand that back for a debugging convenience. cmd/meshghost-relay's
-// -introspect instead logs this to the relay's own log, which is where a host
-// is already looking and which is already trusted with join/leave lines.
-//
-// **Nothing here exposes a secret.** Resume tokens are credentials — anyone
-// holding one can take over that session, including its outstanding exchanges
-// — so only their COUNT appears. Escrow blobs are the contents of a trade in
-// progress and are likewise never rendered; only how far the exchange has got.
+// Relay introspection: what the server believes right now, for state that lives only in memory (leases, exchanges,
+// parked identities). A snapshot the relay logs itself, not an endpoint, so it adds no pre-auth surface. Nothing here
+// exposes a secret: resume tokens appear only as a count, and escrow and world blobs never.
 
 import (
 	"fmt"
@@ -38,23 +17,14 @@ import (
 // MemberSnapshot is one client's visible state in a room.
 type MemberSnapshot struct {
 	PlayerID string
-	// Transport is "tcp", "udp" or "quic" — a room may legitimately mix them.
+	// Transport is "tcp", "udp" or "quic"; a room may mix them.
 	Transport string
-	// Suspended means this identity is parked waiting for a reconnect: still
-	// in the roster, receiving nothing. The single most confusing state to
-	// debug without this, because such a client looks present in every log
-	// line that ever mentioned it and is silently unreachable.
+	// Suspended means this identity is parked waiting for a reconnect: in the roster, receiving nothing.
 	Suspended bool
 	// MaxReceiveHz is this client's own requested per-peer cap; 0 is uncapped.
 	MaxReceiveHz int
-	// Features is this member's CLIENT-scoped capabilities only — the
-	// room-scoped ones are a property of the room and are reported there
-	// instead of repeated on every line.
-	//
-	// Without this the tool could not answer the question it most obviously
-	// invites once a player drops: "why was that identity not held?" The
-	// answer is usually "that client never asked for resume.v1", which is
-	// per-client and therefore invisible on the room's own feature line.
+	// Features is this member's client-scoped capabilities only (room-scoped ones are on the room), which answers
+	// why an identity was not held: that client never asked for resume.v1.
 	Features []string
 }
 
@@ -62,107 +32,64 @@ type MemberSnapshot struct {
 type LeaseSnapshot struct {
 	Key    string
 	Holder string
-	// ExpiresIn is how long the current hold has left. Negative means the
-	// expiry timer has fired but has not been processed yet, which is a
-	// legitimate transient rather than a bug.
+	// ExpiresIn is how long the hold has left; negative is a fired timer not yet processed, a legitimate transient.
 	ExpiresIn time.Duration
 }
 
-// EscrowSnapshot is one exchange. Blobs are deliberately absent — see the
-// file comment.
+// EscrowSnapshot is one exchange; its blobs are deliberately absent.
 type EscrowSnapshot struct {
 	ID        string
 	Phase     string
 	Parties   []string
 	Deposited []string
 	Committed []string
-	// Terminal means this record is finished and is only being kept for its
-	// retention window, so a party that dropped before hearing the outcome
-	// can still be told it on resume.
+	// Terminal means the record is finished and kept only for its retention window, so a party that dropped can
+	// still learn the outcome.
 	Terminal bool
 	Reason   string
 }
 
-// WorldSnapshot is one entity the relay holds custody of. The blob is
-// deliberately absent — same posture as escrow blobs (see the file comment),
-// plus its size, which is the part a host debugging "why is this room's world
-// so big" actually needs.
+// WorldSnapshot is one entity the relay holds custody of: its size, never its blob.
 type WorldSnapshot struct {
 	Authority string
 	Key       string
-	// Holder is whoever currently holds the authority lease, or empty for
-	// nobody. Empty is a normal, expected state rather than a fault: the world
-	// deliberately outlives its authority, waiting for a successor to adopt it.
+	// Holder is the authority lease's holder, or empty: the world outlives its authority by design.
 	Holder    string
 	BlobBytes int
 	Seq       uint64
 }
 
-// StateFanoutSnapshot answers one question: how much of this room's state
-// fan-out crosses areas, and how much of that the relay's own filter is
-// removing. Until 2026-08-28 there was no filter and this only reported what
-// one WOULD save, which is why SuppressibleShare is named for a hypothetical.
-//
-// Counts and bytes only -- the area_id STRINGS are deliberately never exposed
-// here. They are opaque game data, a host may paste an introspect dump into an
-// issue, and the relay having no idea what an area means is a promise this file
-// should not be the one to break. DistinctAreas is a count for the same reason:
-// a room where it is always 1 is a room where filtering can save nothing.
+// StateFanoutSnapshot answers how much of this room's state fan-out crosses areas, and how much of that the relay's
+// filter removes. Counts and bytes only: area_id strings are opaque game data and are never exposed here.
 type StateFanoutSnapshot struct {
-	// StatesIn is how many state messages this room has accepted for
-	// forwarding -- the liveness denominator; if this is not moving, the rest
-	// means nothing.
+	// StatesIn is how many state messages this room accepted for forwarding: the liveness denominator.
 	StatesIn uint64
-	// Recipients is the sum over those messages of how many members each was
-	// actually fanned out to. This is the O(n^2) term made visible.
-	//
-	// AFTER the per-recipient receive-rate gate, since 2026-09-08. It was
-	// recorded from the pre-gate member set until then, so a room where anybody
-	// set max_receive_hz_per_player reported up to ~30% more delivered traffic
-	// than the relay had sent -- the confidently wrong number this file's own
-	// header forbids.
+	// Recipients sums, over those messages, how many members each reached after the receive-rate gate: the O(n^2)
+	// term.
 	Recipients uint64
-	// CrossAreaRecipients is how many of those recipients were in another
-	// area: both areas known, and different. It is the CEILING on what area
-	// filtering can suppress, not what it did suppress.
+	// CrossAreaRecipients is how many of those were in another known area: the ceiling on what area filtering can
+	// suppress, not what it did.
 	CrossAreaRecipients uint64
-	// FilteredRecipients is what the filter actually dropped -- cross-area AND
-	// the recipient having declared own_area_only. It is lower than
-	// CrossAreaRecipients by exactly the traffic to clients that did not opt
-	// in: the cross-map adapters, and any client too old to know the field.
-	// The gap between the two is therefore the remaining headroom.
+	// FilteredRecipients is what the filter dropped: cross-area and the recipient declared own_area_only. The gap to
+	// CrossAreaRecipients is traffic to clients that did not opt in.
 	FilteredRecipients uint64
-	// The same three numbers weighted by message size, which is what actually
-	// matters on the wire. Payload only, excluding the envelope -- see
-	// stateRecipients for why, and why the shares are unaffected by that.
-	// PayloadBytes follows Recipients: post-gate, and so post-filter.
+	// The same three weighted by payload size, envelope excluded (see stateRecipients); PayloadBytes is post-gate and
+	// so post-filter.
 	PayloadBytes          uint64
 	CrossAreaPayloadBytes uint64
 	FilteredPayloadBytes  uint64
-	// DistinctAreas is how many different areas the room's members are
-	// currently spread across.
+	// DistinctAreas is how many areas the room's members are spread across; always 1 means filtering saves nothing.
 	DistinctAreas int
 }
 
-// offeredBytes is the pre-filter total: what this room would have put on the
-// wire with no area filtering at all. Both shares below divide by it, so
-// neither can end up comparing a post-filter numerator against a post-filter
-// denominator and reporting a share that shrinks as the filter gets better.
-//
-// It excludes what a recipient's own receive-rate gate dropped, because
-// PayloadBytes has since 2026-09-08 (a message the gate refused was never sent,
-// and counting it here would put traffic in the denominator that no filtering
-// decision could ever have removed). In a room where nobody set
-// max_receive_hz_per_player -- the default -- nothing is gated and this is the
-// same number it always was.
+// offeredBytes is the pre-filter total, what the room would have sent with no area filtering. Both shares divide by
+// it, so neither shrinks as the filter improves. What the receive-rate gate refused was never sent and is not in it.
 func (f StateFanoutSnapshot) offeredBytes() uint64 {
 	return f.PayloadBytes + f.FilteredPayloadBytes
 }
 
-// SuppressibleShare is the fraction of state bytes that area filtering COULD
-// remove, 0 to 1 -- the ceiling, reached only if every client opted in. This is
-// the number the relay-side filtering decision originally rested on, and it
-// stays meaningful afterwards as the size of the opportunity.
+// SuppressibleShare is the fraction of state bytes area filtering could remove, 0 to 1: the ceiling, reached only if
+// every client opted in.
 func (f StateFanoutSnapshot) SuppressibleShare() float64 {
 	if f.offeredBytes() == 0 {
 		return 0
@@ -170,9 +97,8 @@ func (f StateFanoutSnapshot) SuppressibleShare() float64 {
 	return float64(f.CrossAreaPayloadBytes) / float64(f.offeredBytes())
 }
 
-// SavedShare is the fraction area filtering ACTUALLY removed. It equals
-// SuppressibleShare in a room where every client opted in, and is lower by the
-// share going to cross-map adapters and older clients.
+// SavedShare is the fraction area filtering actually removed, lower than SuppressibleShare by the share going to
+// clients that did not opt in.
 func (f StateFanoutSnapshot) SavedShare() float64 {
 	if f.offeredBytes() == 0 {
 		return 0
@@ -186,13 +112,9 @@ type RoomSnapshot struct {
 	GameID      string
 	GameVersion string
 	Features    []string
-	// Seq is the room sequencer's current value — how many ordered control
-	// messages this room has issued. Mostly useful as a liveness signal: a
-	// room where something is stuck shows a seq that has stopped moving.
+	// Seq is the room sequencer's current value; a stuck room shows it stopped moving.
 	Seq uint64
-	// StateFanout is the cross-area measurement described on Room's counters:
-	// how much of this room's state traffic every recipient's core throws away
-	// at render time. Measurement only -- nothing in the relay branches on it.
+	// StateFanout is the cross-area measurement; nothing in the relay branches on it.
 	StateFanout StateFanoutSnapshot
 	Members     []MemberSnapshot
 	Leases      []LeaseSnapshot
@@ -204,44 +126,21 @@ type RoomSnapshot struct {
 type Snapshot struct {
 	Clients    int
 	MaxClients int
-	// SuspendedSessions is how many dropped identities are currently being
-	// held waiting for a reconnect — not how many resumable sessions exist,
-	// which for a healthy room is simply everyone. The COUNT only: the tokens
-	// themselves are credentials and never appear.
+	// SuspendedSessions is how many dropped identities are held waiting for a reconnect, not how many resumable
+	// sessions exist; the tokens never appear.
 	SuspendedSessions int
 	Rooms             []RoomSnapshot
 }
 
-// Snapshot captures the relay's current state.
-//
-// Room pointers are collected under s.mu and then each room is locked
-// separately, rather than locking a room while still holding s.mu. Nothing in
-// this package nests those the other way round, so the nested form would also
-// be safe today — but it would make this function the reason a future
-// r.mu-then-s.mu path becomes a deadlock, and a debugging aid must not be the
-// thing that constrains the code it inspects.
-//
-// **This paragraph was false between the day it was written and 2026-09-08**:
-// dropIfEmpty took s.mu and then called r.size(), which takes r.mu, so the
-// s.mu-then-r.mu order this function abstains from creating already existed and
-// abstaining bought nothing. Latent rather than live — nothing took r.mu and
-// then reached for s.mu — but an invariant asserted in one file and contradicted
-// in another is how the next reader gets it wrong. dropIfEmpty now reads
-// Room.memberCount, which needs no lock, and
-// relay/lockorder_test.go's TestDropIfEmptyDoesNotTakeARoomLockWhileHoldingTheServerLock
-// is what keeps it that way.
+// Snapshot captures the relay's current state. Room pointers are collected under s.mu and each room is locked after
+// releasing it, so a debugging aid never creates a lock order the code it inspects must respect.
 func (s *Server) Snapshot() Snapshot {
 	s.mu.Lock()
 	snap := Snapshot{
 		Clients:    s.clientCount,
 		MaxClients: s.MaxClients,
 	}
-	// Counted, not len(s.suspended): that map holds every LIVE identity too,
-	// since a session is registered when its token is issued rather than when
-	// it drops (see resume.go's suspendedSession). Reporting the map size
-	// would say "3 suspended sessions" about a healthy three-player room,
-	// which is exactly the kind of confidently wrong number a debugging aid
-	// must never produce.
+	// Counted, not len(s.suspended): that map holds every live identity too, registered when its token is issued.
 	for _, sess := range s.suspended {
 		if sess.suspended {
 			snap.SuspendedSessions++
@@ -260,8 +159,7 @@ func (s *Server) Snapshot() Snapshot {
 	for _, r := range rooms {
 		snap.Rooms = append(snap.Rooms, r.snapshot(now))
 	}
-	// Stable ordering, so two snapshots taken a second apart can be eyeballed
-	// against each other — map iteration order would make every line move.
+	// Stable ordering, so two snapshots a second apart can be compared by eye.
 	sort.Slice(snap.Rooms, func(i, j int) bool { return snap.Rooms[i].Name < snap.Rooms[j].Name })
 	return snap
 }
@@ -286,8 +184,7 @@ func (r *Room) snapshot(now time.Time) RoomSnapshot {
 			FilteredPayloadBytes:  r.stateBytesFiltered,
 		},
 	}
-	// Counted from live membership rather than from lastState, so a departed
-	// member's stale area never inflates it.
+	// Counted from live membership, so a departed member's stale area never inflates it.
 	areas := make(map[string]struct{}, len(r.members))
 	for id := range r.members {
 		if st, ok := r.lastState[id]; ok && st.AreaID != "" {
@@ -361,18 +258,8 @@ func (r *Room) snapshot(now time.Time) RoomSnapshot {
 	return out
 }
 
-// String renders a snapshot as the multi-line block cmd/meshghost-relay
-// writes to its log.
-//
-// Written to be readable by a host rather than parsed by a program: this
-// answers "why can nobody claim that key" and "is that trade stuck", which are
-// questions someone asks while staring at a terminal. A machine-readable form
-// would need a stable format and therefore a compatibility promise, for a
-// consumer that does not exist.
-//
-// A room with nothing beyond members collapses to one line, so the common case
-// — a purely cosmetic room, which is every room today — does not bury the one
-// room that has something going on.
+// String renders a snapshot as the multi-line block cmd/meshghost-relay logs, for a host to read rather than a
+// program to parse. A purely cosmetic room collapses to one line, so it does not bury a room with something going on.
 func (s Snapshot) String() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "relay state: %d/%d client slots in use, %d room(s), %d suspended session(s)",
@@ -384,24 +271,10 @@ func (s Snapshot) String() string {
 		}
 		fmt.Fprintf(&b, " members=%d seq=%d", len(r.Members), r.Seq)
 		if len(r.Features) > 0 {
-			// %q, like the four fields around it. This was %s until 2026-09-12,
-			// and a room's feature set is the one string here that a STRANGER
-			// chooses and that then sticks for the room's whole life:
-			// validateFeatures bounds the count and each length and checks no
-			// characters at all, unlike every other opaque string, and
-			// IsRoomScopedFeature admits anything unrecognised. So a hello whose
-			// features carried a newline forged whole `room "admin" game=...`
-			// lines inside this dump, permanently, for an operator to read.
-			//
-			// protocol/displayname.go records the identical hole for display
-			// names ("a name containing a newline could forge relay log lines")
-			// -- this is that lesson, unapplied one field over. Found by the
-			// parity cell of the third adversarial review (X1-4).
+			// %q: a stranger chooses the room's feature strings, and a newline in one would forge lines in this dump.
 			fmt.Fprintf(&b, " features=%q", strings.Join(r.Features, ","))
 		}
-		// Only once the room has actually forwarded something: a line reading
-		// "0 states, 0% cross-area" on a freshly created room is noise that
-		// looks like a measurement.
+		// Only once the room has forwarded something: zeros on a new room would look like a measurement.
 		if f := r.StateFanout; f.StatesIn > 0 {
 			fmt.Fprintf(&b, "\n    state fan-out: %d states to %d recipients (%s), %d area(s)",
 				f.StatesIn, f.Recipients, textfmt.Bytes(f.PayloadBytes), f.DistinctAreas)
@@ -419,29 +292,19 @@ func (s Snapshot) String() string {
 				fmt.Fprintf(&b, ", %s", strings.Join(m.Features, "+"))
 			}
 			if m.Suspended {
-				// Called out in words rather than a flag: a suspended member
-				// is present in the roster and receiving nothing, which is
-				// exactly the state someone debugging a frozen ghost needs
-				// spelled out.
+				// Spelled out: in the roster and receiving nothing is the state behind a frozen ghost.
 				b.WriteString(" -- SUSPENDED, holding its identity for a reconnect")
 			}
 		}
 		for _, l := range r.Leases {
 			fmt.Fprintf(&b, "\n    lease %q held by %s, expires in %s", l.Key, l.Holder, l.ExpiresIn)
 		}
-		// Rolled up per authority rather than one line per entity: a room with
-		// a full world has MaxWorldKeysPerRoom of them, and 64 lines of
-		// "entity, 300 bytes" would bury the members and leases above. The
-		// question this answers is "is a world being held, how big, and does
-		// anyone own it" -- the individual keys are the adapter's business.
+		// Rolled up per authority: a full world's MaxWorldKeysPerRoom lines would bury the members and leases above.
 		for _, w := range rollUpWorld(r.World) {
 			fmt.Fprintf(&b, "\n    world %q: %d entit%s, %d bytes held",
 				w.Authority, w.Entities, plural(w.Entities), w.Bytes)
 			if w.Holder == "" {
-				// Worth spelling out: this is what an orphaned world looks
-				// like, and it is the state custody exists to produce rather
-				// than a fault. Someone reading this while wondering why nobody
-				// is simulating needs the difference stated.
+				// An orphaned world is what custody exists to produce, not a fault, so it is spelled out.
 				b.WriteString(" -- NOBODY holds this authority, waiting for a successor to adopt it")
 			} else {
 				fmt.Fprintf(&b, ", held by %s", w.Holder)
@@ -467,8 +330,7 @@ type worldRollup struct {
 	Bytes     int
 }
 
-// rollUpWorld groups a room's entities by authority, preserving the sorted
-// order snapshot already put them in.
+// rollUpWorld groups a room's entities by authority, keeping the order snapshot sorted them in.
 func rollUpWorld(entries []WorldSnapshot) []worldRollup {
 	var out []worldRollup
 	for _, w := range entries {

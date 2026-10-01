@@ -2844,3 +2844,7 @@ record held went to [verified.md](../verified.md), same date; a doc pointer a co
 - `protocol/` (21 files): comment lines 2,379 → 663. Nine stale claims fixed, among them the nametag an empty name
   gets (none, not the player's id), `clock.v1` called purely informational (the core applies it), and `Welcome.Features`
   called identical for every member (each client's own client-scoped features are added).
+- `relay/` (10 files): comment lines 2,807 → 711. Stale claims fixed: the room a refused join created is removed by
+  the deferred `finishJoin`, not the `dropIfEmpty` beside the refusal; a resume token is minted for a client that asked
+  (client-scoped), not a room; `Serve` stops on an Accept error that is not temporary; the flood cap is a leaky bucket,
+  not a tumbling window. Five doc comments that sat on the wrong function moved to their own.

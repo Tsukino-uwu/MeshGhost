@@ -4,96 +4,29 @@ import (
 	"time"
 )
 
-// Limits enforced starting Phase 3, per the "Limits" section of
-// agent_docs/contract.md. Originally these defended against only a
-// malformed or careless peer, not a determined attacker (the relay ran
-// no-auth through Phase 4) — the relay-safety work recorded in
-// agent_docs/architecture.md's room-code/version ADR adds real
-// authentication and audits this file with an adversarial peer in mind, so
-// treat the numbers below as tight, not generous, going forward. State
-// field limits shared with core (MaxLineBytes, MaxPositionLen,
-// MaxExtrasBytes, etc.) live in protocol/limits.go instead of
-// here, referenced directly as protocol.* at each call site rather than
-// aliased — a review pass found the previous half-aliased state (some
-// constants aliased here, some referenced as protocol.* directly at the
-// same call sites) confusing.
+// State field limits shared with core live in protocol/limits.go, referenced as protocol.* at each call site.
 const (
-	// DefaultMaxClients bounds how many clients a single relay accepts in
-	// total, across every room it's hosting, when a host doesn't configure
-	// one (see Server.MaxClients). This is server-wide, not per room: two
-	// rooms don't each get their own DefaultMaxClients worth of headroom.
-	// Room.Forward fans every state message out to every other member of
-	// its own room, so traffic within a room grows roughly with the square
-	// of that room's size, not linearly — a host who raises this a lot and
-	// then lets it all pile into one room is trading their own relay's
-	// bandwidth/CPU for more seats, not something to size up casually. No
-	// enforced ceiling: a host who wants more than the default is free to
-	// configure it and find out.
+	// DefaultMaxClients bounds how many clients one relay accepts in total, across every room, when a host configures
+	// none. A room's traffic grows with the square of its size, so raising it trades the host's bandwidth for seats.
 	DefaultMaxClients = 8
 
-	// MaxMessagesPerSecond is the FLOOR of the per-client flood cap, not the
-	// cap itself since the send/receive rate-control feature (see the ADR in
-	// agent_docs/architecture.md): the real cap is
-	// max(MaxMessagesPerSecond, sendHz*RateLimitHeadroomMultiple), computed
-	// by MaxMessagesPerSecondFor below, so a relay configured for a faster
-	// send_hz gets proportionally more headroom instead of tripping this
-	// flat number outright. At the default send_hz (protocol.DefaultSendHz,
-	// 15 since 2026-09-01) the scaled term is 90, so this floor is what
-	// applies — the same 120 an unconfigured relay has always enforced. The core does
-	// throttle its own send rate (core.Core.MinSendInterval / the room's
-	// advertised send_hz, added the same session TEVI's uncapped Update()
-	// first tripped this limit for real — see agent_docs/architecture.md's
-	// ADR); this floor still sits above that default rate for headroom
-	// rather than to compensate for an unthrottled client.
+	// MaxMessagesPerSecond is the floor of the per-client flood cap; MaxMessagesPerSecondFor scales the cap with
+	// send_hz, and at the default send_hz the floor is what applies.
 	MaxMessagesPerSecond = 120
 
-	// RateLimitHeadroomMultiple is how many messages per second per client
-	// the relay tolerates for each Hz of the room's configured send rate.
-	// 6x covers ping/pong heartbeats, scheduling jitter against a fixed
-	// tumbling window, and a client that ignores the advertised rate
-	// outright — the flood cap is a resource guard, not enforcement of
-	// send_hz (nothing anywhere makes a client honor Welcome.SendHz).
-	//
-	// **A LITERAL AGAIN as of 2026-09-01, and the flip is the point.** It
-	// was written as MaxMessagesPerSecond / protocol.DefaultSendHz (120/20)
-	// in a 2026-08-16 review pass, so that "a relay left at defaults
-	// computes precisely the historical 120" could not silently break. When
-	// DefaultSendHz dropped 20 → 15, that derivation would have kept the
-	// defaults case right (15 × 8 = 120) while quietly RAISING the cap at
-	// every configured rate above the default — a 100Hz room would have gone
-	// from 600 to 800 messages/second per client, loosening a resource guard
-	// as a side effect of a cosmetic smoothness decision nobody connected to
-	// it.
-	//
-	// So the invariant worth protecting turned out to be the CAP's behaviour,
-	// not the arithmetic link: pinned at 6, every configured rate keeps
-	// exactly the cap it had, and the default case is unchanged too — 15 × 6
-	// = 90 falls under the MaxMessagesPerSecond floor, which returns 120, the
-	// same number 20Hz produced. Both properties hold, which is why this is a
-	// literal rather than a redivision.
-	//
-	// The 2026-08-16 lesson still stands where it was aimed (three
-	// independent literals in two packages); what it missed is that a derived
-	// constant transmits a change to places the change was never reasoned
-	// about. A derivation is only safe while every dependant WANTS to move
-	// with the source.
+	// RateLimitHeadroomMultiple is how many messages per second per client the relay tolerates for each Hz of the
+	// room's send rate: room for heartbeats, scheduling jitter and a client that ignores the advertised rate, since
+	// the cap is a resource guard, not enforcement of send_hz. A literal on purpose: derived from
+	// protocol.DefaultSendHz, lowering that default would silently raise the cap at every configured rate.
 	RateLimitHeadroomMultiple = 6
 
-	// DefaultHelloTimeout bounds how long an unauthenticated connection may
-	// sit without completing a Hello and joining a room. Without this, a
-	// connection that never sends a Hello — or sends other, otherwise-legal
-	// messages just to keep transport's idle timeout from firing without
-	// ever actually joining — is held open indefinitely, one live goroutine
-	// and socket per attempt. See Server.HelloTimeout.
+	// DefaultHelloTimeout bounds how long an unauthenticated connection may sit without completing a Hello and
+	// joining a room; legal non-Hello messages would otherwise keep it open indefinitely.
 	DefaultHelloTimeout = 10 * time.Second
 )
 
-// EffectiveMaxClients is the seat count the relay ENFORCES for a configured
-// max_clients: the value itself, or DefaultMaxClients when it is zero or
-// negative. One function so the enforcement (tryReserveSlot) and the startup
-// banner cannot disagree -- until 2026-09-15 the banner printed the raw
-// configured 0 while eight seats were enforced (fourth adversarial review,
-// B7), the same lie MaxMessagesPerSecondFor's comment records for the rate cap.
+// EffectiveMaxClients is the seat count the relay enforces for a configured max_clients: the value itself, or
+// DefaultMaxClients when it is zero or negative. One function so the enforcement and the startup banner agree.
 func EffectiveMaxClients(configured int) int {
 	if configured <= 0 {
 		return DefaultMaxClients
@@ -101,16 +34,9 @@ func EffectiveMaxClients(configured int) int {
 	return configured
 }
 
-// MaxOpenConnsFor is the per-listener bound on accepted connections, joined
-// or not, that cmd/meshghost-relay applies through netx.LimitListener. Eight
-// per seat, floored at 64: a real client uses one connection (plus a brief
-// discovery query and, on resume, a moment of overlap), so a relay at
-// MaxClients has room for every seat to be reconnecting at once with
-// strangers knocking, while a flood of never-hello connections stops at a
-// number the host's memory and descriptor limits can absorb. Until
-// 2026-09-02 nothing bounded this at all -- MaxClients counted only joined
-// clients, so a connection that never said hello was free to hold for
-// HelloTimeout, thousands at a time from one machine.
+// MaxOpenConnsFor is the per-listener bound on accepted connections, joined or not, applied through
+// netx.LimitListener. A real client uses one connection, so every seat can be reconnecting at once with strangers
+// knocking, while a flood of never-hello connections stops at a number the host can absorb.
 func MaxOpenConnsFor(maxClients int) int {
 	if n := maxClients * OpenConnsPerSeat; n > MinMaxOpenConns {
 		return n
@@ -123,21 +49,9 @@ const (
 	MinMaxOpenConns  = 64
 )
 
-// MaxOpenConnsPerSourceFor is the per-ADDRESS half of MaxOpenConnsFor,
-// applied through netx/srclimit: how many connections one client address
-// may hold open at once, across every listener. Two per seat, floored at
-// 16.
-//
-// Sized from what a client actually holds, checked 2026-09-15: ONE
-// connection at a time -- the discovery query closes before the session is
-// dialled (core/transportpick.go) and a reconnect starts only after the
-// previous session ended. Everything above one is relay-side overlap: close
-// propagation on a resume, and a quic connection briefly counted by both
-// the pending gate and the limiter as it is handed up. So one address may
-// legitimately be a whole household behind one NAT filling every seat, and
-// the 2x is a margin over that, not a measurement (ADR 0064). At the default
-// of 8 seats an address gets 16 of the listener's 64 slots, so the flood
-// that used to refuse every real player from one machine now needs four.
+// MaxOpenConnsPerSourceFor is the per-address half of MaxOpenConnsFor, applied through netx/srclimit across every
+// listener. A client holds one connection at a time, but one address may be a household behind one NAT filling every
+// seat; the 2x is a margin for relay-side overlap on a resume or a quic hand-up, not a measurement.
 func MaxOpenConnsPerSourceFor(maxClients int) int {
 	if n := maxClients * OpenConnsPerSourcePerSeat; n > MinMaxOpenConnsPerSource {
 		return n
@@ -150,67 +64,25 @@ const (
 	MinMaxOpenConnsPerSource  = 16
 )
 
-// RoomCodeAttemptBurst and RoomCodeAttemptsPerSecond budget wrong room codes
-// PER CLIENT ADDRESS, through Server.SourceGuard (netx/srclimit). Until
-// 2026-09-15 the only bound on guessing was one guess per connection, and a
-// connection cost the guesser a couple of round trips: hundreds of guesses
-// a second from one machine, so a dictionary word fell in minutes (fourth
-// adversarial review, finding A3).
-//
-// A code is tried on BOTH legs of a join -- the discovery query carries it
-// and so does the session hello -- so one typo costs two attempts. A burst
-// of 6 is three typos free; after that an address gets one attempt back per
-// second, and while it is over budget every hello from it is refused as
-// "rate limited" before the code is even compared, the right code included
-// (the budget is the address's, not the code's). Both numbers are reasoned
-// from the join's shape, not measured against an attacker; ADR 0064.
+// RoomCodeAttemptBurst and RoomCodeAttemptsPerSecond budget wrong room codes per client address, through
+// Server.SourceGuard. A code rides both legs of a join, so a burst of 6 is three typos free; an address over budget
+// is refused before its code is compared, the right code included. Reasoned from the join's shape, not measured.
 const (
 	RoomCodeAttemptBurst      = 6
 	RoomCodeAttemptsPerSecond = 1.0
 )
 
-// MaxMessagesPerSecondFor returns the per-client flood cap for a room running
-// at sendHz. It only ever scales UP from MaxMessagesPerSecond: lowering a
-// relay's send_hz must never start disconnecting clients that are still
-// sending at their own built-in default rate — an older client, or any
-// client with an explicit local override, never sees Welcome.SendHz at all
-// or deliberately ignores it, and none of them deserve to be dropped just
-// because the operator turned the room down.
-//
-// Exported so a caller outside this package (cmd/meshghost-relay, which
-// prints the cap to the operator at startup) reports the number the relay
-// actually enforces. It had hand-copied the formula, which would have made
-// the startup banner lie the moment this rule changed — found in a review
-// pass 2026-08-16. An unexported alias in front of this one was deleted in
-// the 2026-08-18 audit: it only duplicated the doc comment.
-// rateLimitDrain bounds how long a rate-limited connection is kept half-open
-// after its Reject so the client's remaining flood can be read instead of
-// reset -- see transport.CloseGracefully. Long enough for the client to see
-// the Reject and close first (which is what ends the drain early); short
-// enough that a client that never closes cannot hold a slot.
+// rateLimitDrain bounds how long a rate-limited connection is kept half-open after its Reject, so the client's
+// remaining flood is read instead of reset: long enough to see the Reject, short enough not to hold a slot.
 const rateLimitDrain = 2 * time.Second
 
-// handshakeCloseDrain is rateLimitDrain's reason applied to the OTHER place
-// this relay writes a line and then hangs up: the handshake. A Reject, or the
-// transport offer a query-only client asked for, is the last thing written to a
-// connection that is about to close -- and `Close()` behind ANY unread bytes is
-// a RESET, which discards what is still sitting unread in the CLIENT's receive
-// buffer, including the line just sent. A client that wrote anything after its
-// hello (a keepalive, a queued state, a second hello) is exactly that case.
-//
-// Found 2026-09-06 on CI's Linux race job, where a core saw EOF with no Reject
-// and reported "the relay connection dropped before the welcome arrived" -- a
-// TRANSIENT error -- for a permanent game_version mismatch, so it kept retrying
-// instead of telling the player and closing the bridge
-// (core.TestBridgeHelloGameVersionReachesRelay; 30 local Windows runs under
-// -race never reproduced it). Same class as the rate-limit case fixed
-// 2026-09-05, in the path that fix did not cover.
-//
-// The cost is a refused connection held half-open until the client closes,
-// bounded by this: the drain ends the moment the client hangs up, which a
-// client that read its Reject does immediately.
+// handshakeCloseDrain is the same drain for a handshake's last line (a Reject, or a query-only client's transport
+// offer): Close behind unread bytes is a reset, which discards the line still unread in the client's buffer.
 const handshakeCloseDrain = 2 * time.Second
 
+// MaxMessagesPerSecondFor returns the per-client flood cap for a room running at sendHz. It only scales up from
+// MaxMessagesPerSecond, so turning a room down never drops a client that ignores Welcome.SendHz. Exported so the
+// startup banner prints the cap the relay enforces.
 func MaxMessagesPerSecondFor(sendHz int) int {
 	if limit := sendHz * RateLimitHeadroomMultiple; limit > MaxMessagesPerSecond {
 		return limit

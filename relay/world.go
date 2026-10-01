@@ -1,25 +1,10 @@
 package relay
 
-// World custody: the relay holds the latest opaque blob per entity and hands
-// the same canonical set to whoever takes the authority lease next.
+// World custody: the relay holds the latest opaque blob per entity and hands the same set to whoever takes the
+// authority lease next, so which peer takes over no longer changes what the world becomes. Custody, not simulation:
+// the relay stores bytes it cannot read, and running the world stays on a client.
 //
-// **This is custody, not simulation.** "Host" is really three jobs, and the
-// relay can hold exactly two of them: *designation* (who is authoritative),
-// which lease.v1 already does, and *custody* (holding the world so a successor
-// can adopt it), which is this file. The third — *simulation*, running the AI
-// and resolving damage — stays on a client and is excluded by architecture,
-// because it is the only one that requires understanding the game.
-//
-// Without custody a new host adopts from its OWN last-known view; every peer's
-// is slightly different and slightly stale, so *which* peer takes over changes
-// what the world becomes. With it, adoption is a fact the relay states rather
-// than a guess each client makes. The relay still understands nothing: it
-// stores bytes it cannot read, exactly as escrow already does for deposits and
-// Join.State does for late joiners. See agent_docs/beyond-cosmetic.md's
-// peer-authority section and the ADR in agent_docs/architecture.md.
-//
-// **Lock order is sendMu then mu, never the reverse**, the same as online.go —
-// restated here because every entry point below takes both.
+// Lock order is sendMu then mu, as in online.go; every entry point below takes both.
 
 import (
 	"encoding/json"
@@ -29,14 +14,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// worldKey identifies one entity: the authority it belongs to, and its own
-// opaque key.
-//
-// Keyed by BOTH deliberately. Two authorities colliding on one key has no
-// defined resolution — neither holder is wrong, and picking one would make the
-// relay adjudicate a question about game content, which is the line it does not
-// cross. Separate namespaces make the collision impossible instead of
-// arbitrating it.
+// worldKey identifies one entity by its authority and its own opaque key: separate namespaces make a collision
+// between two authorities impossible rather than something the relay would have to adjudicate.
 type worldKey struct {
 	authority string
 	key       string
@@ -45,20 +24,14 @@ type worldKey struct {
 // worldEntry is one entity's stored state.
 type worldEntry struct {
 	blob json.RawMessage
-	// seq is the stamp of the write that produced this value. Kept for
-	// introspection only — nothing branches on it.
+	// seq is the stamp of the write that produced this value, for introspection only.
 	seq uint64
 }
 
-// handleWorld applies one write and broadcasts the result. Mirrors handleLease
-// exactly: take sendMu, compute everything under mu, unlock, deliver.
+// handleWorld applies one write and broadcasts the result, in handleLease's shape.
 func (r *Room) handleWorld(from string, req protocol.World) {
-	// See Room.sendMu. Held for lossy writes too: Reliable selects the
-	// delivery variant, never the serialization. A write that skipped this
-	// could be stamped before another and delivered after it, leaving the
-	// relay's map holding one value while every client's last-received is a
-	// different one — and nothing would ever correct that, because snapshots
-	// go only to joiners and a key may never be written again.
+	// Held for lossy writes too: a write stamped before another and delivered after it would leave the relay's map
+	// and every client disagreeing, and nothing would correct it.
 	r.sendMu.Lock()
 	defer r.sendMu.Unlock()
 
@@ -75,10 +48,8 @@ func (r *Room) handleWorld(from string, req protocol.World) {
 
 	switch {
 	case l == nil || l.holder != from:
-		// Not the authority. This is the case custody exists to survive: a
-		// departing host's in-flight packets must not overwrite the new host's
-		// world after handover. Answered explicitly rather than dropped, so a
-		// stale host learns it has stopped being authoritative.
+		// Not the authority: a departing host's in-flight writes must not overwrite the new host's world. Answered,
+		// so a stale host learns it has stopped being authoritative.
 		holder := ""
 		if l != nil {
 			holder = l.holder
@@ -86,17 +57,8 @@ func (r *Room) handleWorld(from string, req protocol.World) {
 		outs = r.packWorldLocked(req.Authority, holder, protocol.WorldDenied, nil, []string{from})
 
 	case req.Op == protocol.WorldSet && !exists && !req.Reliable:
-		// A lossy write that would CREATE a key. Ignored — see
-		// protocol.WorldSet: the lossy and reliable planes are independent on a
-		// datagram transport, so honouring this would let a stale set that was
-		// dispatched before a reliable drop arrive after it and resurrect the
-		// entity permanently. Requiring creation to be reliable puts creation
-		// and deletion on the same ordered plane, where they cannot overtake
-		// each other.
-		//
-		// Logged once per room rather than answered per write: this is a
-		// programming error in the adapter, not a per-request outcome, and a
-		// denial per lossy write would answer the busiest plane at its own rate.
+		// A lossy write may not create a key: on a datagram transport a stale set could overtake a reliable drop and
+		// resurrect the entity. Logged once, since a denial per lossy write would answer the busiest plane at its rate.
 		r.worldLossyCreateOnce.Do(func() {
 			log.Printf("relay: room %q: a lossy world write tried to create key %q under authority %q "+
 				"-- ignored; a write that creates a key must be sent reliably, or it can be overtaken "+
@@ -105,27 +67,13 @@ func (r *Room) handleWorld(from string, req protocol.World) {
 		})
 
 	case req.Op == protocol.WorldSet && !exists && len(r.world) >= protocol.MaxWorldKeysPerRoom:
-		// A resource bound, not a policy — the same shape as LeaseTooMany, and
-		// answered rather than dropped for the same reason: silence would leave
-		// a host believing it spawned an entity nobody has. Overwriting an
-		// entry that already exists never counts against the cap.
+		// A resource bound, answered so a host does not believe it spawned an entity nobody has. Overwriting an
+		// existing entry never counts against it.
 		outs = r.packWorldLocked(req.Authority, from, protocol.WorldTooMany, nil, []string{from})
 
 	case req.Op != protocol.WorldSet && req.Op != protocol.WorldDrop:
-		// **An op this switch does not name is ignored, not treated as a set.**
-		// Until 2026-09-08 the arm below was a bare `default` that took anything
-		// which was not a drop and stored it, while the entity cap and the
-		// create-must-be-reliable rule above both tested `Op == WorldSet` -- so
-		// an unrecognised op walked past both bounds and wrote a key. Nothing
-		// can reach it today, because protocol.ValidateWorld refuses any op but
-		// these two upstream, and that is precisely the objection: two of this
-		// room's resource bounds rested on a check in another package. Named
-		// explicitly so they rest on this one.
-		//
-		// Silent rather than denied: WorldDenied means "you are not the
-		// authority", which would be a lie, and there is no reason string for
-		// "that op does not exist" -- the client cannot have sent this without a
-		// bug on its own side that a refusal reason would not help.
+		// An op this switch does not name is ignored, never stored, so the bounds above do not rest on
+		// protocol.ValidateWorld alone. Silent, since WorldDenied would claim the writer is not the authority.
 		r.worldUnknownOpOnce.Do(func() {
 			log.Printf("relay: room %q: a world write named op %q, which is neither %q nor %q -- ignored",
 				r.Name, req.Op, protocol.WorldSet, protocol.WorldDrop)
@@ -141,12 +89,8 @@ func (r *Room) handleWorld(from string, req protocol.World) {
 			r.world[wk] = &worldEntry{blob: req.Blob, seq: seq}
 			entry.Blob = req.Blob
 		}
-		// **The writer is excluded from its own broadcast**, unlike an event —
-		// where the echo is how a sender learns its own stamp. Here the writer
-		// is by definition the authoritative source and already knows what it
-		// wrote, so echoing would only double the busiest client's inbound. It
-		// learns of failure by an explicit denial and of success by silence.
-		// This is a decision, not an oversight.
+		// The writer is excluded from its own broadcast, unlike an event: it is the authority and already knows what
+		// it wrote. It learns of failure by a denial and of success by silence.
 		to := make([]string, 0, len(r.members))
 		for id := range r.members {
 			if id != from {
@@ -157,19 +101,8 @@ func (r *Room) handleWorld(from string, req protocol.World) {
 			[]protocol.WorldEntry{entry}, to); ok {
 			outs = append(outs, o)
 		}
-		// A lossy write keeps its lossy delivery: on a datagram transport a
-		// stale position is then never retransmitted late behind a newer one,
-		// which is the real value ForwardUnreliable has here.
-		//
-		// A DROP is never lossy, whatever the writer asked for. The
-		// create-must-be-reliable rule above exists to put creation and
-		// deletion on the same ordered plane; honouring `reliable:false` on a
-		// drop would reopen that hole from the other side, since a lost drop
-		// is never corrected -- the relay's map has the key gone, and
-		// snapshots go only to joiners, so a peer that missed it keeps the
-		// entity standing forever. Enforced here rather than in
-		// ValidateWorld because it is a delivery choice to override, not a
-		// malformed request to refuse.
+		// A lossy write keeps lossy delivery, so a stale position is never retransmitted behind a newer one. A drop
+		// is always reliable: a lost drop is never corrected, since snapshots go only to joiners.
 		unreliable = !req.Reliable && req.Op != protocol.WorldDrop
 	}
 	r.mu.Unlock()
@@ -180,10 +113,8 @@ func (r *Room) handleWorld(from string, req protocol.World) {
 	r.deliver(outs)
 }
 
-// worldMessageLocked builds one WorldState. Caller holds r.mu and has already
-// taken the stamp, so a caller that needs to record the stamp alongside the
-// state it just stored can do so. Caller holds sendMu too, since this only
-// ever produces something about to be delivered.
+// worldMessageLocked builds one WorldState with a stamp the caller already took, so it can store the stamp alongside
+// the state. Caller holds sendMu and r.mu.
 func (r *Room) worldMessageLocked(authority, holder, reason string, seq uint64,
 	entries []protocol.WorldEntry, to []string) (outgoing, bool) {
 	return out(protocol.TypeWorldState, protocol.WorldState{
@@ -195,18 +126,10 @@ func (r *Room) worldMessageLocked(authority, holder, reason string, seq uint64,
 	}, to)
 }
 
-// packWorldLocked splits entries across as many WorldState messages as it
-// takes to keep each one inside protocol.MaxWorldMessageBytes, stamping each
-// separately. Caller holds sendMu AND r.mu.
-//
-// Splitting is BATCHING, not fragmentation: every message it produces is
-// independently complete and applicable, no entry is ever split, and there is
-// no reassembly. A single entry too large for the budget is emitted anyway —
-// the budget is a threshold, and a maximal entry still fits a datagram with its
-// framing (protocol.MaxWorldMessageBytes).
-//
-// An empty entries list still produces exactly one message, which is what
-// carries a denial or a refusal.
+// packWorldLocked splits entries across as many WorldState messages as keep each inside
+// protocol.MaxWorldMessageBytes, stamping each. Batching, not fragmentation: every message is complete, no entry is
+// split, and an oversized entry goes alone, since a maximal entry still fits a datagram with its framing. An empty
+// list still produces the one message that carries a denial. Caller holds sendMu and r.mu.
 func (r *Room) packWorldLocked(authority, holder, reason string, entries []protocol.WorldEntry, to []string) []outgoing {
 	var outs []outgoing
 	emit := func(batch []protocol.WorldEntry) {
@@ -231,14 +154,8 @@ func (r *Room) packWorldLocked(authority, holder, reason string, entries []proto
 	return outs
 }
 
-// worldLineBytes is how many bytes one WorldState occupies on the wire,
-// measured rather than estimated — the envelope wrapper, the JSON field names
-// and the blobs' own encoding are all real cost, and a guess that drifted from
-// them would be a silent truncation on a datagram transport rather than an
-// error.
-//
-// The stamp is measured at its widest so a batch sized now cannot overflow
-// later under a larger sequencer value.
+// worldLineBytes is one WorldState's size on the wire, measured rather than estimated: a guess that drifted would be
+// a silent truncation on a datagram transport. The stamp is measured at its widest, so a batch cannot overflow later.
 func worldLineBytes(authority, holder, reason string, entries []protocol.WorldEntry) int {
 	env, err := envelope(protocol.TypeWorldState, protocol.WorldState{
 		Authority: authority,
@@ -257,22 +174,14 @@ func worldLineBytes(authority, holder, reason string, entries []protocol.WorldEn
 	return len(b)
 }
 
-// sortWorldEntries puts a snapshot's entries in a stable order. Map iteration
-// is deliberately randomized in Go, so without this the same world would batch
-// differently every time it was sent — which turns a size regression into a
-// flake rather than a failure, and makes two snapshots impossible to eyeball
-// against each other.
+// sortWorldEntries puts a snapshot's entries in a stable order, so the same world always batches the same way and a
+// size regression fails rather than flakes.
 func sortWorldEntries(entries []protocol.WorldEntry) {
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Key < entries[j].Key })
 }
 
-// worldSnapshotLocked returns one authority's whole world, addressed to one
-// client. This is what a new lease holder adopts.
-//
-// Caller holds **both** sendMu and r.mu. Both, not either: see
-// grantLeaseLocked, where building this in the same critical section as the
-// grant is what makes "grant, then snapshot" a fact of the total order rather
-// than a hope.
+// worldSnapshotLocked returns one authority's whole world, addressed to the new lease holder that adopts it. Caller
+// holds both sendMu and r.mu, for grantLeaseLocked's reason.
 func (r *Room) worldSnapshotLocked(authority, to string) []outgoing {
 	if !r.hasFeature(protocol.FeatureWorldV1) {
 		return nil
@@ -284,13 +193,8 @@ func (r *Room) worldSnapshotLocked(authority, to string) []outgoing {
 		}
 		entries = append(entries, protocol.WorldEntry{Key: wk.key, Blob: e.blob})
 	}
-	// **An empty world still produces a snapshot**, and that is not tidiness.
-	// A new holder has to know when it may start writing: until its adoption
-	// has landed it cannot tell "there is nothing to adopt" from "what I am
-	// about to overwrite has not arrived yet", and a host that guesses wrong
-	// writes generation 1 over a world already at generation 2 — a rollback,
-	// silent, and permanent. One small message per handover buys the
-	// difference. Found by cmd/meshghost-fakeadapter's own soak, 2026-08-17.
+	// An empty world still produces a snapshot: until its adoption lands, a new holder cannot tell "nothing to
+	// adopt" from "not arrived yet", and writing early would silently roll the world back.
 	sortWorldEntries(entries)
 	holder := ""
 	if l := r.leases[authority]; l != nil {
@@ -299,15 +203,9 @@ func (r *Room) worldSnapshotLocked(authority, to string) []outgoing {
 	return r.packWorldLocked(authority, holder, protocol.WorldSnapshot, entries, []string{to})
 }
 
-// worldSnapshotAllLocked returns every authority's world, addressed to one
-// client — what a joining or resuming client needs to see the same room as
-// everyone already in it. Caller holds sendMu AND r.mu.
-//
-// **Deliberately NOT gated on the recipient's snapshot.v1**, unlike
-// stateSnapshotLocked. That gate is right for state, which is a per-client
-// convenience; world.v1 is room-scoped, so every member of the room has it by
-// construction, and copying the state gate wholesale here would silently leave
-// late joiners looking at an empty world.
+// worldSnapshotAllLocked returns every authority's world, addressed to a joining or resuming client. Unlike
+// stateSnapshotLocked it is not gated on snapshot.v1: world.v1 is room-scoped, so every member has it. Caller holds
+// sendMu and r.mu.
 func (r *Room) worldSnapshotAllLocked(to string) []outgoing {
 	if !r.hasFeature(protocol.FeatureWorldV1) {
 		return nil

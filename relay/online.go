@@ -1,41 +1,14 @@
 package relay
 
-// The relay's side of the room sequencer and the event plane, plus the
-// outgoing/deliver helpers its four sibling files share. Lease authority moved
-// to leases.go, escrow to escrow.go, late-join snapshots to states.go and
-// session resumption to resume.go on 2026-08-25; this header still claimed all
-// five until 2026-08-27. The name stays because five files cite it as the
-// authority on the locking discipline below. Design reasoning lives in
-// agent_docs/beyond-cosmetic.md; the ADR is in agent_docs/architecture.md.
+// The room sequencer and the event plane, plus the outgoing/deliver helpers every plane file shares.
 //
-// **Nothing in this file understands a game, and that is a property to
-// defend, not a coincidence.** Every identifier that crosses it — a lease
-// key, an escrow id, an event payload, a feature name — is an opaque string
-// or an opaque blob, compared for equality and never parsed, exactly like
-// area_id and anim already are (CLAUDE.md's opaque-field rule). The relay
-// arbitrates by *arrival*, never by merit: it picks the first claim and that
-// becomes the fact by fiat, and everyone agrees because everyone was told the
-// same answer, not because the answer was right. Judging rightness is
-// simulation authority, which is excluded by construction.
+// Nothing here understands a game: a lease key, escrow id, event payload or feature name is opaque, compared for
+// equality and never parsed. The relay arbitrates by arrival, never by merit, since judging is simulation authority.
 //
-// Locking discipline, which is the only subtle thing here, and which two
-// separate locks exist to express:
-//
-//   - r.mu guards members, leases, escrows, lastState and seqCounter. Every
-//     handler computes its outgoing messages under it and delivers them AFTER
-//     unlocking, via the outgoing/deliver pair — the same snapshot-then-act
-//     shape Room.forward uses, and for the same reason (a Send can block for a
-//     whole WriteTimeout against a stalled peer, and doing that under r.mu
-//     would freeze every other operation in the room).
-//   - r.sendMu is held across BOTH halves — stamp and deliver — by every entry
-//     point in this file, including the timer callbacks. Without it the total
-//     order is assigned correctly and then delivered in a different one, since
-//     two handlers can be stamped 1 and 2 and race to the socket after each
-//     has released r.mu. That is precisely what a sequencer exists to prevent,
-//     and it failed the total-order test the first time it ran.
-//
-// **Lock order is always sendMu then mu.** Nothing here may take r.mu and then
-// reach for sendMu.
+// Locking, followed by every plane file: r.mu guards members, leases, escrows, lastState and seqCounter, and every
+// handler builds its outgoing messages under it and delivers after unlocking, since a Send can block for a whole
+// WriteTimeout. r.sendMu is held across both stamp and deliver by every entry point, timers included, or two handlers
+// stamped 1 and 2 race to the socket out of order. Lock order is always sendMu then mu.
 
 import (
 	"log"
@@ -43,29 +16,17 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// outgoing is one message and the recipients it goes to, computed under r.mu
-// and sent after unlocking. Bundling them keeps every handler in this file to
-// one shape: build outs, unlock, deliver.
+// outgoing is one message and its recipients, computed under r.mu and sent after unlocking.
 type outgoing struct {
 	env protocol.Envelope
 	to  []string
-	// unreliable asks deliver for the lossy variant. Set by exactly one
-	// caller — a lossy world write in world.go — and false everywhere else.
+	// unreliable asks deliver for the lossy variant; only a lossy world write sets it.
 	unreliable bool
 }
 
-// deliver sends each outgoing, reliably unless it asked otherwise. Reliable is
-// the default and covers everything in this file: it all carries a decision —
-// who holds a key, whether a trade completed — and unlike a cosmetic position
-// sample, a dropped one is never superseded by the next.
-//
-// This used to say there was no unreliable variant on purpose. That was right
-// while the control plane was only decisions; world.v1 added a plane where a
-// write can be a continuous position sample that the next update supersedes, so
-// the exception is now real. **It selects the delivery variant only.** Every
-// outgoing here, lossy ones included, is still stamped and delivered under
-// sendMu, so a lossy message may be lost and can never be reordered against
-// another — see world.go's handleWorld and protocol.World.Reliable.
+// deliver sends each outgoing, reliably unless it asked otherwise: a decision, unlike a position sample, is never
+// superseded by the next. The flag selects the delivery variant only; every outgoing is still stamped and delivered
+// under sendMu, so a lossy one may be lost but never reordered.
 func (r *Room) deliver(outs []outgoing) {
 	for _, o := range outs {
 		if o.unreliable {
@@ -76,10 +37,8 @@ func (r *Room) deliver(outs []outgoing) {
 	}
 }
 
-// out builds an outgoing, or returns ok=false if the payload could not be
-// marshaled (which nothing in this package can actually cause — every
-// payload here is plain data — so a false is a bug worth logging, not a
-// condition to handle).
+// out builds an outgoing, or returns ok=false if the payload could not be marshaled, which for this package's
+// plain-data payloads is a bug worth logging, not a condition to handle.
 func out(t protocol.MessageType, payload any, to []string) (outgoing, bool) {
 	env, err := envelope(t, payload)
 	if err != nil {
@@ -89,26 +48,19 @@ func out(t protocol.MessageType, payload any, to []string) (outgoing, bool) {
 	return outgoing{env: env, to: to}, true
 }
 
-// hasFeature reports whether this room's agreed feature set contains name.
-// The set is fixed when the room's first member joins and never changes, so
-// this needs no lock — a later joiner that disagrees is refused at the
-// handshake rather than allowed to alter it (protocol.ReasonFeatureMismatch).
+// hasFeature reports whether this room's agreed feature set contains name. The set is fixed by the first member and
+// a joiner that disagrees is refused at the handshake, so this needs no lock.
 func (r *Room) hasFeature(name string) bool {
 	return protocol.HasFeature(r.features, name)
 }
 
-// wants reports whether this client asked for a client-scoped capability.
-// Room-scoped ones are answered by Room.hasFeature instead — the room agreed
-// on those collectively, and a single client's opinion of them is not a
-// question that can be asked.
+// wants reports whether this client asked for a client-scoped capability; room-scoped ones are Room.hasFeature's.
 func (c *Client) wants(name string) bool {
 	return protocol.HasFeature(c.features, name)
 }
 
-// effectiveFeatures is what is actually in force for one client: the room's
-// agreed room-scoped set, plus the client-scoped capabilities this client
-// asked for. Echoed in its Welcome so a client reads back what it really has
-// rather than a room-wide answer to a per-client question.
+// effectiveFeatures is what is in force for one client, echoed in its Welcome: the room's room-scoped set plus the
+// client-scoped capabilities this client asked for.
 func effectiveFeatures(r *Room, c *Client) []string {
 	out := append([]string(nil), r.features...)
 	for _, f := range c.features {
@@ -119,24 +71,16 @@ func effectiveFeatures(r *Room, c *Client) []string {
 	return protocol.NormalizeFeatures(out)
 }
 
-// nextSeq returns this room's next sequencer stamp. Caller holds r.mu, which
-// is the entire trick: the stamp is assigned inside the same critical section
-// that snapshots the recipient set, so the order the relay assigns is the
-// order every member observes. A counter, incremented under a lock already
-// being taken — this is what agent_docs/beyond-cosmetic.md §6 meant by "the
-// sequencer half is cheap."
-//
-// Starts at 1, so a zero Seq on the wire is unambiguously "unstamped" rather
-// than "the first one".
+// nextSeq returns this room's next sequencer stamp. Caller holds r.mu: the stamp is assigned in the same critical
+// section that snapshots the recipients, so the assigned order is the order every member observes. It starts at 1,
+// so a zero Seq means unstamped.
 func (r *Room) nextSeq() uint64 {
 	r.seqCounter++
 	return r.seqCounter
 }
 
-// memberIDsLocked returns every current member's id, suspended ones included.
-// Caller holds r.mu. Suspended members are included because they are still in
-// the room as far as identity is concerned — Room.forward is what actually
-// declines to write to them.
+// memberIDsLocked returns every current member's id, suspended ones included: Room.forward is what declines to write
+// to them. Caller holds r.mu.
 func (r *Room) memberIDsLocked() []string {
 	ids := make([]string, 0, len(r.members))
 	for id := range r.members {
@@ -149,25 +93,11 @@ func (r *Room) memberIDsLocked() []string {
 // Event plane
 // ---------------------------------------------------------------------------
 
-// handleEvent stamps and routes one client event. from is the sender's
-// relay-assigned id, which overwrites whatever the payload claimed — the
-// same server-side stamping State.PlayerID already gets, and for the same
-// reason.
-//
-// The sender always receives its own event back. That is deliberate and is
-// what makes the sequencer useful rather than decorative: the stamp is the
-// relay's, so the sender has no other way to learn where its own event landed
-// in the total order, and a client that cannot place its own action in the
-// order cannot reason about anyone else's either. An adapter tells its own
-// echo apart by comparing From against its player_id.
-//
-// An event addressed to a player_id that is not in the room is delivered to
-// nobody but the sender's own echo. No error is sent back: the relay has no
-// way to distinguish "typo" from "they left half a second ago", and an
-// adapter waiting on a reply already has to handle a reply that never comes.
+// handleEvent stamps and routes one client event, overwriting From with the sender's relay-assigned id. The sender
+// always gets its own event back: the stamp is the relay's, so the echo is how it learns where its event landed in
+// the total order. An event addressed to a player not in the room reaches only that echo, with no error: the relay
+// cannot tell a typo from a player who just left.
 func (r *Room) handleEvent(from string, ev protocol.Event) {
-	// See Room.sendMu: the stamp and its delivery must not be separable, or
-	// two concurrent events are stamped in one order and sent in another.
 	r.sendMu.Lock()
 	defer r.sendMu.Unlock()
 
@@ -186,8 +116,7 @@ func (r *Room) handleEvent(from string, ev protocol.Event) {
 			}
 		}
 	}
-	// Anyone in that recipient list whose connection is currently down gets the
-	// event held for its resume instead of dropped -- see queueMissedEventLocked.
+	// A suspended recipient gets the event held for its resume instead of dropped.
 	for _, id := range to {
 		if c, ok := r.members[id]; ok && c.suspended {
 			r.queueMissedEventLocked(id, ev)
@@ -200,48 +129,21 @@ func (r *Room) handleEvent(from string, ev protocol.Event) {
 	}
 }
 
-// maxMissedEventsPerMember bounds one suspended member's event backlog.
-//
-// 64 is a quarter of maxSnapshotLines (resume.go, 192), which is the budget the
-// whole resume snapshot shares: a backlog that could fill it would push the
-// escrow, world and lease lines off the end and break, to save the event plane,
-// three planes that were not broken. At the event flood cap the grace window
-// (protocol.DefaultResumeGrace, 20s) can carry far more than 64 events, so this
-// is a ceiling on the guarantee and not a promise it always holds -- which is
-// the honest shape available without a per-client ack the protocol does not
-// have. Overflow drops the OLDEST and is logged once per room, so an operator
-// sees the one case where a returning client is still told less than everything.
+// maxMissedEventsPerMember bounds one suspended member's event backlog to a quarter of maxSnapshotLines, so a full
+// backlog cannot push the escrow, world and lease lines off the resume snapshot. The grace window can carry more, so
+// this is a ceiling on the guarantee; overflow is logged once per room.
 const maxMissedEventsPerMember = 64
 
-// queueMissedEventLocked holds one stamped event for a member whose connection
-// is down, to be replayed by resumeSnapshot. Caller holds r.mu, and (like every
-// other event path) sendMu, so the backlog is in the sequencer's own order.
-//
-// Held for SUSPENDED members only. A member with a live connection was written
-// to; a member that has really left has had its backlog dropped with its
-// identity (Room.remove), so this map can only grow while a resumable session
-// is waiting, and only to maxMissedEventsPerMember per waiting member.
+// queueMissedEventLocked holds one stamped event for a suspended member, to be replayed by resumeSnapshot. Caller
+// holds r.mu and sendMu, so the backlog is in the sequencer's order; Room.remove drops it with a member that left.
 func (r *Room) queueMissedEventLocked(id string, ev protocol.Event) {
 	if r.missedEvents == nil {
 		r.missedEvents = make(map[string][]protocol.Event)
 	}
 	q := r.missedEvents[id]
 	if len(q) >= maxMissedEventsPerMember {
-		// A BROADCAST GOES BEFORE ANYTHING ADDRESSED TO THIS MEMBER, and until
-		// 2026-09-12 the choice was age alone.
-		//
-		// Age alone means anybody in the room can decide what a suspended member
-		// comes back knowing: a broadcast (to:"") reaches everyone, including
-		// this backlog, so 64 of them at the sender's flood cap push out every
-		// addressed event underneath -- and addressed is the half that was aimed
-		// at THIS member and is the half a trade conversation is made of. They
-		// resume believing nothing happened. One member's message rate deciding
-		// another's history is the same shape as the escrow eviction fixed the
-		// same day. Found by the third adversarial review (P1c-2).
-		//
-		// Within a class it is still oldest-first, for the reason that was
-		// already here: the newer half of a conversation is the half a returning
-		// client needs in order to answer.
+		// A broadcast goes first, or anyone's broadcasts could push out the events addressed to this member; within
+		// a class, oldest first, since the newer half of a conversation is the half a returning client answers.
 		drop := 0
 		for i, held := range q {
 			if held.To == "" {
@@ -259,13 +161,9 @@ func (r *Room) queueMissedEventLocked(id string, ev protocol.Event) {
 	r.missedEvents[id] = append(q, ev)
 }
 
-// missedEventsLocked takes the backlog held for a returning member, as
-// outgoings addressed to it alone, and clears it. Caller holds r.mu.
-//
-// The events carry the Seq they were stamped with when they were first sent, not
-// a fresh one: they ARE those events, and re-stamping them would place a peer's
-// action after things that really happened later. That is the whole point of a
-// total order the relay owns.
+// missedEventsLocked takes and clears the backlog held for a returning member, as outgoings addressed to it alone.
+// The events keep their original Seq: re-stamping would place a peer's action after things that happened later.
+// Caller holds r.mu.
 func (r *Room) missedEventsLocked(to string) []outgoing {
 	q := r.missedEvents[to]
 	if len(q) == 0 {

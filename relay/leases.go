@@ -1,16 +1,6 @@
 package relay
 
-// Split out of online.go on 2026-08-25, where leases, escrow, late-join
-// snapshots and session resumption were four independent subsystems sharing one
-// 1,115-line file. relay/world.go had already set the precedent for one
-// subsystem per file; these four simply had not followed it yet.
-//
-// **The locking discipline in online.go's header governs this file too, and it
-// is the only subtle thing here.** In short: r.mu guards the room's maps and
-// every handler computes its outgoing messages under it and delivers them AFTER
-// unlocking; r.sendMu is held across BOTH stamp and deliver so the total order
-// assigned is the order actually sent. Lock order is always sendMu then mu.
-// Read online.go's header before changing anything in this file.
+// Lease authority over an opaque key. The locking discipline in online.go's header governs this file.
 
 import (
 	"time"
@@ -22,11 +12,8 @@ import (
 // Leases
 // ---------------------------------------------------------------------------
 
-// lease is one held key. The timer is what makes this a lease rather than a
-// permanent grant: **the hard part is lifetime, not the sequencer**
-// (agent_docs/beyond-cosmetic.md §4). A holder that vanishes mid-trade must
-// not wedge a key forever, and a clock is the only thing that can guarantee
-// that without knowing what the key means.
+// lease is one held key. The timer makes it a lease rather than a grant: a holder that vanishes must not wedge a key
+// forever, and only a clock guarantees that without knowing what the key means.
 type lease struct {
 	holder    string
 	expiresAt time.Time
@@ -52,10 +39,7 @@ func (r *Room) handleLease(from string, req protocol.Lease) {
 	case protocol.LeaseClaim:
 		switch {
 		case l != nil && l.holder != from:
-			// Held by someone else. Denied — and told only to the asker: a
-			// failed claim is nobody else's business, and broadcasting one
-			// would turn a contested key into a message storm exactly when
-			// the room is busiest.
+			// Denied, and told only to the asker: broadcasting failed claims would storm a room when it is busiest.
 			if o, ok := out(protocol.TypeLeaseState, protocol.LeaseState{
 				Key: req.Key, Holder: l.holder, Seq: r.nextSeq(),
 				ExpiresAt: l.expiresAt.UnixMilli(), Reason: protocol.LeaseDenied,
@@ -63,18 +47,14 @@ func (r *Room) handleLease(from string, req protocol.Lease) {
 				outs = append(outs, o)
 			}
 		case l == nil && r.leaseTableFullLocked(from):
-			// A resource bound, not a policy: without it a client can grow
-			// the relay's lease table without limit by claiming a fresh key
-			// per message. Denied like any other refusal.
+			// A resource bound: without it a client grows the table by claiming a fresh key per message.
 			if o, ok := out(protocol.TypeLeaseState, protocol.LeaseState{
 				Key: req.Key, Seq: r.nextSeq(), Reason: protocol.LeaseTooMany,
 			}, asker); ok {
 				outs = append(outs, o)
 			}
 		default:
-			// Free, or already ours — a re-claim by the holder is a renew,
-			// which keeps a retrying client from losing its own key to its
-			// own retry.
+			// Free, or ours: a re-claim by the holder is a renew, so a client never loses its key to its own retry.
 			outs = append(outs, r.grantLeaseLocked(req.Key, from, protocol.ClampLeaseTTL(req.TTLMs), broadcast)...)
 		}
 
@@ -82,9 +62,7 @@ func (r *Room) handleLease(from string, req protocol.Lease) {
 		if l != nil && l.holder == from {
 			outs = append(outs, r.grantLeaseLocked(req.Key, from, protocol.ClampLeaseTTL(req.TTLMs), broadcast)...)
 		} else {
-			// A renew from a non-holder is denied, never silently upgraded
-			// into a claim: a client that thinks it still holds a key it lost
-			// must find out, not quietly take it back.
+			// Denied, never upgraded into a claim: a client that lost its key must find out, not quietly retake it.
 			st := protocol.LeaseState{Key: req.Key, Seq: r.nextSeq(), Reason: protocol.LeaseDenied}
 			if l != nil {
 				st.Holder = l.holder
@@ -99,44 +77,27 @@ func (r *Room) handleLease(from string, req protocol.Lease) {
 		if l != nil && l.holder == from {
 			outs = append(outs, r.freeLeaseLocked(req.Key, protocol.LeaseReleased, broadcast)...)
 		}
-		// A release from a non-holder is ignored outright — there is nothing
-		// to tell anyone, and answering would let a peer probe which keys are
-		// held without ever claiming one.
+		// A release from a non-holder is ignored: answering would let a peer probe which keys are held.
 	}
 	r.mu.Unlock()
 
 	r.deliver(outs)
 }
 
-// maxLeasesPerMember bounds how many keys ONE member may hold at once, and it
-// is derived from the room cap rather than chosen: eight members' cooperation
-// to fill the table, exactly the ratio protocol.MaxLiveEscrowsPerMember has to
-// protocol.MaxEscrowsPerRoom.
-//
-// Added 2026-09-08. Escrow was given a per-member bound in the 2026-09-02
-// adversarial review and leases were not, though the abuse is the same one and
-// worse here: a re-claim by the current holder is a RENEW, so a held key never
-// lapses, and one member claiming protocol.MaxLeasesPerRoom keys and renewing
-// them answered every other member's lease.claim with LeaseTooMany for as long
-// as it kept renewing. In a world.v1 room nobody else could write to the world
-// at all, since a write is only accepted from the holder of the lease it names.
-// docs/security.md carried it as an accepted risk with this fix shape named.
+// maxLeasesPerMember bounds how many keys one member may hold, so it takes eight members to fill the table, the
+// ratio escrow's per-member cap has to its room cap. A held key never lapses while renewed, so without this one
+// member could deny every other claim, and in a world.v1 room every world write.
 const maxLeasesPerMember = protocol.MaxLeasesPerRoom / 8
 
-// leaseTableFullLocked is the claim-time bound: the room's whole table, and
-// this claimant's own share of it. Only a claim for a NEW key consults it -- a
-// renew, and a re-claim by the current holder, take no new slot and must never
-// be refused, or a member at its own cap would lose the keys it already holds
-// to its own retries. Caller holds r.mu.
+// leaseTableFullLocked is the claim-time bound: the room's table and this claimant's share. Only a claim for a new
+// key consults it; a renew takes no new slot and must never be refused. Caller holds r.mu.
 func (r *Room) leaseTableFullLocked(claimant string) bool {
 	return len(r.leases) >= protocol.MaxLeasesPerRoom ||
 		r.leasesBy[claimant] >= maxLeasesPerMember
 }
 
-// heldLeaseLocked and releasedLeaseLocked keep r.leasesBy in step with
-// r.leases. Both transitions live here rather than at their call sites because
-// a count that drifts one way silently locks a member out of a table with room
-// in it, and the other way un-bounds the cap entirely. Caller holds r.mu.
+// heldLeaseLocked and releasedLeaseLocked keep r.leasesBy in step with r.leases, in one place: a drifting count
+// either locks a member out of a table with room in it or un-bounds the cap. Caller holds r.mu.
 func (r *Room) heldLeaseLocked(holder string) {
 	if r.leasesBy == nil {
 		r.leasesBy = make(map[string]int)
@@ -152,34 +113,15 @@ func (r *Room) releasedLeaseLocked(holder string) {
 	}
 }
 
-// grantLeaseLocked gives key to holder for ttl, (re)arming its expiry timer,
-// and returns the broadcast announcing it — followed, when the holder actually
-// CHANGED and this room has world.v1, by the world that holder now inherits.
-//
-// Caller holds **both** sendMu and r.mu. Today only handleLease calls this and
-// it holds both; the requirement is stated because a future caller holding only
-// r.mu would break the handover silently rather than loudly.
-//
-// **The adoption snapshot is built here, in the same critical section as the
-// grant, and not dispatched afterwards.** If it were dispatched afterwards the
-// new holder could receive its grant, legally begin writing (it holds the lease
-// now), and only then receive a snapshot built before its own writes — reverting
-// itself, with the relay's map correct and the new host stale. Building it here
-// and delivering it in the same sendMu window makes "grant, then snapshot" a
-// fact of the total order rather than a hope.
-// The `to` list is what a CHANGE is announced to. A renew that changes nothing
-// a receiver can see is answered to the asker alone -- see the comment on the
-// broadcast below.
+// grantLeaseLocked gives key to holder for ttl, re-arming its expiry, and returns the change announced to `to`,
+// followed, when the holder changed, by the world that holder inherits. Caller holds both sendMu and r.mu: the
+// adoption snapshot is built in the same critical section as the grant, or a new holder could start writing and then
+// receive a snapshot older than its own writes.
 func (r *Room) grantLeaseLocked(key, holder string, ttl time.Duration, to []string) []outgoing {
 	l := r.leases[key]
-	// Captured before the assignment below. A renew, and a re-claim by the
-	// current holder, must produce NO snapshot: nothing was adopted, and
-	// re-sending the world on every renew would put the busiest client's whole
-	// world back on the wire at its renew rate.
+	// Captured before the assignment: a renew adopts nothing, so it sends no world, and the room sees only whether
+	// the holder or the expiry, to the second, changed.
 	previousHolder := ""
-	// Captured with it, for the same reason: what the ROOM can observe about a
-	// renew is the holder and the expiry, and the expiry only to the resolution
-	// anything renders it at. See the broadcast test below.
 	previousExpirySec := int64(0)
 	if l != nil {
 		previousExpirySec = l.expiresAt.Unix()
@@ -190,10 +132,7 @@ func (r *Room) grantLeaseLocked(key, holder string, ttl time.Duration, to []stri
 		r.heldLeaseLocked(holder)
 	} else {
 		previousHolder = l.holder
-		// A handover in place: no caller does this today (handleLease only
-		// reaches here for a free key or the current holder's own renew), but
-		// the count has to survive one arriving, since a miscount here is a
-		// lockout nobody can clear without restarting the relay.
+		// No caller hands over in place today, but the count must survive one: a miscount is a lockout until restart.
 		if previousHolder != holder {
 			r.releasedLeaseLocked(previousHolder)
 			r.heldLeaseLocked(holder)
@@ -204,30 +143,15 @@ func (r *Room) grantLeaseLocked(key, holder string, ttl time.Duration, to []stri
 	}
 	l.holder = holder
 	l.expiresAt = time.Now().Add(ttl)
-	// AfterFunc rather than a sweeper goroutine: a timer exists only while a
-	// lease does, so a room that never uses leases starts nothing at all and
-	// this whole subsystem stays genuinely free for the cosmetic case.
+	// AfterFunc rather than a sweeper goroutine: a room that never uses leases starts nothing.
 	l.timer = time.AfterFunc(ttl, func() { r.expireLease(key, holder) })
 
 	st := protocol.LeaseState{
 		Key: key, Holder: holder, Seq: r.nextSeq(),
 		ExpiresAt: l.expiresAt.UnixMilli(), Reason: protocol.LeaseGranted,
 	}
-	// A RENEW THAT CHANGES NOTHING VISIBLE IS THE ASKER'S BUSINESS, NOT THE
-	// ROOM'S -- the same rule the denied claim above already follows, and for
-	// the same reason: this is an N-way fan-out driven by ONE client's message
-	// rate. A renew takes no table slot, so leaseTableFullLocked never sees it,
-	// and nothing else bounded it: at the per-connection flood cap a single
-	// client turns ~120 renews a second into 120xN sends, plus a re-armed timer
-	// each time. Found by the third adversarial review (P1a-2).
-	//
-	// The test is "did anything a receiver can render change", not "was this a
-	// renew". The holder is the fact everyone needs; the expiry is a countdown,
-	// which nothing renders finer than a second -- so a burst of renews inside
-	// one second collapses to a single broadcast, and a real extension still
-	// announces itself the moment it crosses into the next second. The ASKER
-	// always gets its answer, because a client must be able to tell a renew that
-	// worked from one that was denied.
+	// A renew that changes nothing a receiver renders goes to the asker alone, or one client's renew rate drives an
+	// N-way fan-out. The expiry renders to the second, so a burst of renews collapses to one broadcast.
 	announce := to
 	if holder == previousHolder && l.expiresAt.Unix() == previousExpirySec {
 		announce = []string{holder}
@@ -242,18 +166,9 @@ func (r *Room) grantLeaseLocked(key, holder string, ttl time.Duration, to []stri
 	return outs
 }
 
-// freeLeaseLocked drops key and returns the broadcast announcing it. Caller
-// holds r.mu.
-//
-// **The world this key was authority over is deliberately NOT freed here.**
-// Tying world lifetime to lease lifetime would destroy the world in exactly the
-// case custody exists for: a host crashing arrives here via expireSuspended →
-// finishLeave → releaseLeasesOfLocked, and a clean handoff arrives here too. A
-// host that deliberately hands off still wants the world to survive to its
-// successor. The world waits, un-owned, for the next claimant; the only thing
-// that discards it is the room itself going away (dropIfEmpty), and what
-// accumulates in the meantime is bounded by protocol.MaxWorldKeysPerRoom —
-// a cap, not a leak.
+// freeLeaseLocked drops key and returns the announcement. The world this key was authority over is deliberately
+// kept for the next claimant, since a crashed or handing-off host's successor needs it; it goes with the room, and
+// protocol.MaxWorldKeysPerRoom bounds it meanwhile. Caller holds r.mu.
 func (r *Room) freeLeaseLocked(key, reason string, to []string) []outgoing {
 	l := r.leases[key]
 	if l == nil {
@@ -272,9 +187,8 @@ func (r *Room) freeLeaseLocked(key, reason string, to []string) []outgoing {
 	return nil
 }
 
-// expireLease is the TTL firing. The holder check makes it idempotent
-// against the timer having been superseded by a renew or a release that raced
-// it — Timer.Stop cannot promise a callback already in flight did not run.
+// expireLease is the TTL firing. The holder and expiry checks make it a no-op after a renew or release that raced it:
+// Timer.Stop cannot stop a callback already running.
 func (r *Room) expireLease(key, holder string) {
 	r.sendMu.Lock()
 	defer r.sendMu.Unlock()
@@ -290,9 +204,8 @@ func (r *Room) expireLease(key, holder string) {
 	r.deliver(outs)
 }
 
-// releaseLeasesOfLocked frees every lease held by holder. Caller holds r.mu.
-// Called when a player really leaves — not when it merely suspends, since a
-// resuming client must find its keys where it left them.
+// releaseLeasesOfLocked frees every lease held by holder when a player really leaves; a suspended one keeps its keys
+// for its resume. Caller holds r.mu.
 func (r *Room) releaseLeasesOfLocked(holder string, to []string) []outgoing {
 	var outs []outgoing
 	for key, l := range r.leases {
@@ -303,9 +216,7 @@ func (r *Room) releaseLeasesOfLocked(holder string, to []string) []outgoing {
 	return outs
 }
 
-// leaseSnapshotLocked returns the current state of every held key, addressed
-// to one client. Sent to a resuming client, whose own view of the room was
-// discarded when its connection dropped. Caller holds r.mu.
+// leaseSnapshotLocked returns every held key's state, addressed to one resuming client. Caller holds r.mu.
 func (r *Room) leaseSnapshotLocked(to string) []outgoing {
 	var outs []outgoing
 	for key, l := range r.leases {

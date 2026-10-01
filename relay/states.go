@@ -1,16 +1,6 @@
 package relay
 
-// Split out of online.go on 2026-08-25, where leases, escrow, late-join
-// snapshots and session resumption were four independent subsystems sharing one
-// 1,115-line file. relay/world.go had already set the precedent for one
-// subsystem per file; these four simply had not followed it yet.
-//
-// **The locking discipline in online.go's header governs this file too, and it
-// is the only subtle thing here.** In short: r.mu guards the room's maps and
-// every handler computes its outgoing messages under it and delivers them AFTER
-// unlocking; r.sendMu is held across BOTH stamp and deliver so the total order
-// assigned is the order actually sent. Lock order is always sendMu then mu.
-// Read online.go's header before changing anything in this file.
+// The locking discipline in online.go's header governs this file.
 
 import (
 	"encoding/json"
@@ -26,70 +16,30 @@ import (
 // The state plane's inbound path
 // ---------------------------------------------------------------------------
 
-// forwardState is everything the relay does with one inbound state: decode it,
-// enforce the shared limits, stamp the sender's real id over whatever the
-// payload claimed, remember it for late joiners, and fan it out. It returns the
-// validated, stamped state so the dev loopback echo can reuse it, and ok=false
-// for anything dropped.
-//
-// Extracted from handleConn's OnReceive on 2026-08-28, mechanically and with no
-// behaviour change, so that relay/forward_bench_test.go measures THE path
-// rather than a copy of it kept in step by hand. A benchmark that replicates
-// the sequence it claims to measure stops being evidence the moment either side
-// drifts, and this is the hottest path in the process.
+// forwardState is everything the relay does with one inbound state: decode, validate, stamp the sender's real id,
+// remember it for late joiners, and fan it out. It returns the stamped state for the dev loopback echo, and ok=false
+// for anything dropped. Its own function so forward_bench_test.go measures this path, not a copy of it.
 func (r *Room) forwardState(senderID string, payload []byte) (protocol.State, bool) {
 	var st protocol.State
 	if err := json.Unmarshal(payload, &st); err != nil {
 		return protocol.State{}, false
 	}
-	// Size/length/finiteness limits (agent_docs/contract.md) — drop
-	// rather than truncate, so a client sees silence instead of a
-	// half-forwarded, confusing state. protocol.ValidateState is
-	// shared with core so both enforcement points can't
-	// silently drift apart.
+	// Dropped rather than truncated, so a client sees silence instead of a half-forwarded state; ValidateState is
+	// shared with core so the two enforcement points cannot drift.
 	if !protocol.ValidateState(st) {
 		logStateDropThrottled("relay", senderID, st)
 		return protocol.State{}, false
 	}
-	// player_id is stamped server-side from the connection's own
-	// assigned id, never trusted from the payload — a peer could
-	// otherwise claim someone else's id. Cheap now; Phase 4 puts
-	// untrusted peers on the wire.
+	// Never trusted from the payload, or a peer could claim someone else's id.
 	st.PlayerID = senderID
 	statePayload, err := json.Marshal(st)
 	if err != nil {
 		return protocol.State{}, false
 	}
-	// Built once, here, instead of marshaling the State and then marshaling an
-	// Envelope around the bytes that produced -- which re-parsed, re-escaped
-	// and re-copied every one of them. protocol.AppendEnvelope's own comment
-	// carries the precondition that makes appending byte-identical to
-	// marshaling, and the fuzz target that proves it.
-	//
-	// Freshly allocated per state rather than taken from a pool, deliberately:
-	// forwardLine hands this exact slice to c.pending for any client still
-	// waiting on its Welcome, where it outlives the call. A pool here would
-	// need that copy first, and an aliasing bug on the fan-out path is not
-	// worth one allocation.
+	// Freshly allocated rather than pooled: forwardLine hands this slice to c.pending, where it outlives the call.
 	line := protocol.AppendEnvelope(nil, protocol.TypeState, statePayload)
-	// A state can pass ValidateState and still marshal into a line no receiver
-	// will accept. AreaID and Anim are bounded with len() (ValidOpaqueString),
-	// but encoding/json escapes '&', '<' and '>' to six bytes each on the way
-	// back out, and `prev` carries its own copy of both. Measured 2026-09-12:
-	// an inbound line of 1185 bytes -- which this relay's own 4096-byte inbound
-	// cap admits -- leaves here at 6305.
-	//
-	// An oversized line is not a reject: it is bufio.ErrTooLong in every OTHER
-	// member's read loop, so one sender drops the whole room's ghosts with no
-	// explanation anywhere. Checked BEFORE recordState so a line nobody can
-	// receive is never stored and re-served to a joiner as a Join seed.
-	//
-	// Same ladder as core/sending.go, and measured on the bytes actually going
-	// out for the same reason it measures its own there -- the bound is spent
-	// on the wire. prev is pure redundancy (ADR 0045), so it goes first; the
-	// whole state goes only if dropping prev was not enough. An honest client
-	// already applied this bound to these same bytes before sending, so no
-	// frame it would have sent is dropped here.
+	// A valid state can re-encode past the cap (json escapes '&', '<' and '>' to six bytes, prev repeats them), which
+	// is ErrTooLong in every receiver. Checked before recordState; prev, pure redundancy, goes first (core/sending.go).
 	if len(line) > protocol.MaxPayloadBytes {
 		if st.Prev != nil {
 			st.Prev = nil
@@ -103,15 +53,8 @@ func (r *Room) forwardState(senderID string, payload []byte) (protocol.State, bo
 			return protocol.State{}, false
 		}
 	}
-	// Remembered before forwarding, and independent of the
-	// per-recipient rate gate below: a late joiner should be seeded
-	// with the newest sample, not the newest one that happened to be
-	// forwarded to somebody. Recorded for every room, not only ones
-	// that asked for snapshots -- see recordState.
-	// Remembered WITHOUT the carried previous sample (ADR 0045): a late
-	// joiner is seeded with the newest sample, and the one before it is a
-	// hole-filler for a receiver that was listening at the time, which a
-	// joiner was not. The forwarded line above keeps it.
+	// Recorded before forwarding and regardless of the rate gate, so a joiner gets the newest sample; without prev,
+	// which only fills holes for a receiver that was listening at the time.
 	recorded := st
 	recorded.Prev = nil
 	prevArea := r.recordState(senderID, recorded)
@@ -122,42 +65,16 @@ func (r *Room) forwardState(senderID string, payload []byte) (protocol.State, bo
 	return st, true
 }
 
-// seedArrivalInto hands a player who has just entered an area the newest state
-// the relay holds for everyone already standing in it.
-//
-// It is the other half of the filter, and it is REQUIRED rather than a
-// nicety -- because of change suppression, not despite it. A filtered client
-// receives nothing from another area, so on arriving it knows nothing about
-// the peers there and must wait for each of them to speak. ADR 0039 means a
-// motionless peer does not speak: it re-states only every IdleKeepalive
-// (250ms by default). So without this, walking into a room where somebody is
-// standing still shows an empty room first and pops them in up to a keepalive
-// later -- a defect that appears at every seam and gets worse the more
-// successful suppression is.
-//
-// Sent RELIABLY. A dropped seed on the lossy state plane would reinstate
-// exactly the pop this exists to remove, and unlike an ordinary state sample
-// there is no next one coming to supersede it.
-//
-// Only for a client that opted into filtering: anyone else was already being
-// sent everything and needs no catching up.
-// arrivalSeedInterval is the shortest gap between two arrival seeds for one
-// client. It bounds the fan-out described on Client.lastArrivalSeed without
-// costing a real transition anything:
-//
-// A seed exists to cover the gap until each peer in the new area speaks again,
-// which is at most one protocol.DefaultIdleKeepalive (250ms). Two seeds closer
-// together than that are covering the same gap with the same contents -- at the
-// shipped 15Hz send rate, under three states can even have arrived from any
-// peer in between. And no game this repo adapts moves a player through two
-// areas inside a fifth of a second: TEVI and Pseudoregalia load between rooms,
-// and a Pokemon warp runs an animation.
+// arrivalSeedInterval is the shortest gap between two arrival seeds for one client, bounding their fan-out at no cost
+// to a real transition: a seed covers at most one core.DefaultIdleKeepalive, and no adapted game crosses areas faster.
 const arrivalSeedInterval = 200 * time.Millisecond
 
-// seedOversizedLine throttles the oversized-seed line process-wide; a Room
-// has no handle on its Server, and the count is all the line needs.
+// seedOversizedLine throttles the oversized-seed line process-wide; a Room has no handle on its Server.
 var seedOversizedLine throttle.Line
 
+// seedArrivalInto hands a player who just entered an area the newest state held for everyone already in it, if it
+// opted into area filtering. Change suppression makes a motionless peer silent until its keepalive, so without this
+// an arriving client sees an empty area and the peers pop in later. Sent reliably: no next sample supersedes a seed.
 func (r *Room) seedArrivalInto(arrival, area string) {
 	r.mu.Lock()
 	c, ok := r.members[arrival]
@@ -165,8 +82,7 @@ func (r *Room) seedArrivalInto(arrival, area string) {
 		r.mu.Unlock()
 		return
 	}
-	// Checked under r.mu, before the O(N) walk below rather than after it --
-	// the walk and the marshals it feeds are the cost being bounded.
+	// Checked before the O(N) walk below, which is the cost being bounded.
 	now := time.Now() // wall-clock: a rate limit on a real client's real message rate
 	if !c.lastArrivalSeed.IsZero() && now.Sub(c.lastArrivalSeed) < arrivalSeedInterval {
 		r.mu.Unlock()
@@ -184,13 +100,9 @@ func (r *Room) seedArrivalInto(arrival, area string) {
 	}
 	r.mu.Unlock()
 
-	// Built and delivered after unlocking, the same snapshot-then-act shape
-	// every other handler in this package uses.
 	for _, st := range seeds {
-		// The peer's ORIGINAL timestamp, deliberately: core's remoteBuffer
-		// renders behind live, so a sample from the recent past is what it
-		// wants to interpolate from. Re-stamping it as "now" would place the
-		// ghost ahead of the render time and hold it at the buffer's edge.
+		// The peer's original timestamp: core renders behind live, and re-stamping it now would hold the ghost at
+		// the buffer's edge.
 		if env, err := envelope(protocol.TypeState, st); err == nil {
 			r.Forward(env, []string{arrival})
 		}
@@ -201,28 +113,17 @@ func (r *Room) seedArrivalInto(arrival, area string) {
 // Late-join snapshot
 // ---------------------------------------------------------------------------
 
-// recordState remembers a player's most recent valid state, so a client
-// joining later can be shown an existing player immediately instead of
-// waiting for that player's next update.
-//
-// Recorded unconditionally, where this used to be gated on the room having
-// asked for snapshots. Once snapshot.v1 became client-scoped the gate could no
-// longer be answered here at all — the sender's own capabilities say nothing
-// about whether some future joiner will want a seed — and the storage is one
-// State per member, bounded by MaxClients, which is not worth a condition. The
-// gate that survives is the one that matters: whether to SEND a seed, which is
-// the receiving client's own question.
-// It returns the area this player was in BEFORE this state, which the caller
-// needs to recognise a seam crossing -- see stateRecipients' transition rule.
+// recordState remembers a player's most recent valid state for late joiners, in every room: storage is one State per
+// member, and whether to send a seed is the recipient's question. It returns the area the player was in before this
+// state, so the caller can recognise a seam crossing.
 func (r *Room) recordState(playerID string, st protocol.State) (prevArea string) {
 	r.mu.Lock()
 	if r.lastState == nil {
 		r.lastState = make(map[string]protocol.State)
 	}
 	r.lastState[playerID] = st
-	// One lookup here replaces one per member per message in stateRecipients,
-	// which is the whole point of caching it on the Client. Kept strictly in
-	// step with the map above by living in its only writer.
+	// Cached on the Client so stateRecipients looks it up once per message, not once per member; kept in step by
+	// living in the map's only writer.
 	if c, ok := r.members[playerID]; ok {
 		prevArea = c.lastArea
 		c.lastArea = st.AreaID
@@ -231,15 +132,10 @@ func (r *Room) recordState(playerID string, st protocol.State) (prevArea string)
 	return prevArea
 }
 
-// stateSnapshotLocked returns a Join carrying each other member's last known
-// state, addressed to one client. Join.State has been reserved for exactly
-// this since the contract was written and never populated until now; the
-// receiving side already handled a populated one correctly.
-// Caller holds r.mu.
+// stateSnapshotLocked returns a Join carrying each other member's last known state, addressed to one client. Caller
+// holds r.mu.
 func (r *Room) stateSnapshotLocked(to string) []outgoing {
-	// The RECIPIENT's own capability, not the room's: a seed changes only what
-	// this one client receives, so a room may freely mix members that want one
-	// and members that do not.
+	// The recipient's capability, not the room's: a seed changes only what this one client receives.
 	recipient, ok := r.members[to]
 	if !ok || !recipient.wants(protocol.FeatureSnapshotV1) {
 		return nil
@@ -257,29 +153,8 @@ func (r *Room) stateSnapshotLocked(to string) []outgoing {
 			continue
 		}
 		snapshot := st
-		// MEASURED AS A JOIN, because that is what it is now.
-		//
-		// forwardState bounds the line it sends and checks BEFORE recordState,
-		// so everything in r.lastState fits as a `state`. It does not follow
-		// that it fits here: wrapping the same payload in a Join adds the
-		// envelope's own type change plus `"player_id":"…","state":`, which is
-		// 24 + len(id) bytes more. A sender that lands its own state just under
-		// the cap is therefore stored, and re-served to every later snapshot.v1
-		// joiner as a line that is OVER it -- and an over-cap line is not a
-		// reject, it is bufio.ErrTooLong in that joiner's read loop, so it
-		// reconnects, gets the same snapshot, and loops. The one client who
-		// cannot get into the room is the one who did nothing.
-		//
-		// Same defect and same fix as the 2026-09-12 forward-seam one, reached
-		// by the other door; found by the parity cell of the same review (X1-1),
-		// which is the cell whose job is exactly "who else is of this shape".
-		//
-		// Dropping the seed rather than the joiner: a missing seed costs that
-		// peer's ghost one keepalive of lateness (they appear on their next
-		// state, ~50ms), which is precisely the cost snapshot.v1 exists to
-		// avoid and is enormously cheaper than the reconnect loop. prev is
-		// stripped first for the same reason forwardState strips it -- it is
-		// pure redundancy, and a seed carries no loss to cover.
+		// Measured as a join, 24 + len(id) bytes more: a stored state just under the cap would put the joiner in an
+		// ErrTooLong reconnect loop, where dropping the seed costs one state of lateness. prev goes first.
 		if snapshot.Prev != nil {
 			snapshot.Prev = nil
 		}
@@ -287,16 +162,9 @@ func (r *Room) stateSnapshotLocked(to string) []outgoing {
 		if !ok {
 			continue
 		}
-		// Against the RECIPIENT'S OWN budget, not the protocol's. A seed rides
-		// the reliable plane, and on udp that carries 1181 bytes rather than
-		// 4095 -- so a seed this check passed could still be a message the
-		// recipient's connection cannot physically take, which before
-		// 2026-09-12 closed it. Dropping the seed is already the chosen cost
-		// here; this just measures it against the number that decides.
-		// See sendBudget (P1d-3).
+		// Against the recipient's own budget (sendBudget), not the protocol's: a udp connection takes less.
 		if n := len(protocol.AppendEnvelope(nil, o.env.Type, o.env.Payload)); n > seedBudget {
-			// One line a second: this fires once per oversized seed per
-			// joiner, and a member controls how large its seed is (C6).
+			// Throttled: a member controls how large its seed is.
 			if count, ok := seedOversizedLine.Allow(); ok {
 				log.Printf("relay: room %q: %s's seed for %s is %d bytes as a join, over the %d that connection can take -- "+
 					"not seeding it (they appear on that peer's next state) (%d so far)", r.Name, id, to, n, seedBudget, count)
@@ -308,24 +176,16 @@ func (r *Room) stateSnapshotLocked(to string) []outgoing {
 	return outs
 }
 
-// forgetState drops a departed player's snapshot, so a long-lived relay does
-// not accumulate one per player who ever visited. Called only on a real
-// leave — a suspended (resumable) player keeps its snapshot, which is what
-// lets it come back without every peer's ghost of it jumping.
+// forgetState drops a departed player's snapshot on a real leave; a suspended player keeps it, so peers' ghosts of it
+// do not jump when it resumes.
 func (r *Room) forgetState(playerID string) {
 	r.mu.Lock()
 	delete(r.lastState, playerID)
 	r.mu.Unlock()
 }
 
-// logStateDropThrottled says WHY a state was dropped, at most once per
-// dropLogInterval per process -- the reason (protocol.StateRejectReason) is
-// only computed inside the throttle window. Added 2026-09-01: both
-// enforcement points dropped silently, and a Pseudoregalia sword throw that
-// pushed extras past the cap presented as four unrelated ghost bugs before
-// anything named the real cause. A steady stream of oversized states from one
-// misbehaving adapter must not flood the log, hence the throttle rather than
-// a per-drop line.
+// logStateDropThrottled says why a state was dropped, at most once per dropLogInterval per process, so one
+// misbehaving adapter cannot flood the log; the reason is only computed inside the window.
 func logStateDropThrottled(who, playerID string, st protocol.State) {
 	now := time.Now()
 	last := lastStateDropLog.Load()
@@ -341,10 +201,8 @@ const dropLogInterval = 5 * time.Second
 
 var lastStateDropLog atomic.Pointer[time.Time]
 
-// logOversizedForwardThrottled reports a state that was valid but whose
-// forwarded line no receiver could have read. Separate from
-// logStateDropThrottled because StateRejectReason has nothing to say here --
-// every field IS within its own bound, which is exactly the trap.
+// logOversizedForwardThrottled reports a valid state whose forwarded line no receiver could read. StateRejectReason
+// has nothing to say here: every field is within its own bound.
 func logOversizedForwardThrottled(playerID string, size int) {
 	now := time.Now()
 	last := lastOversizedForwardLog.Load()
