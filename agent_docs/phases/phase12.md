@@ -1073,3 +1073,25 @@ six switches the code reads (`MOVE_TRACE`, `SEAM_TRACE`, `SORT_TRACE`, `NO_SORT`
 Pseudoregalia's `CoreLauncher.cpp` tells a player missing `meshghost.exe` to try the mod folder, which it stopped
 searching on 2026-09-05 (a code change, offered as a separate task). Stale code comments found here (Emerald's door
 seeding, Pseudoregalia's search order) go in A5. Steps without Status: 0; preflight clean.
+
+## 2026-10-01 (pause) — A5 begun: `pake` committed, the Go and TEVI drafts left in the tree
+
+`0707a4a0` trimmed `pake` by hand as the worked example: tokens minus comments identical, gofmt clean, its tests
+green. Then a proof tool per language, each tested on a comment-only change (passes) and a one-token code change
+(caught): `gotok` (Go tokens minus comments, plus every `//go:`-style directive unchanged), `cs-eq.ps1` (the C# DLL
+built from HEAD and from the working tree with no pdb, compared by hash; with a pdb, moved line numbers change the
+bytes), `cpptok.py` (C, C++ and C# tokens), `lua-eq.sh` (`luac -s` bytecode), `ps-eq.ps1` (PowerShell parser
+tokens), `comment-only.py` (bat, sh, yml and the git attribute files), and `parts.py`, which splits a giant file into
+parts with equal comment loads, proves each part, and joins them (`Plugin.cpp` and both Lua adapters round-trip byte
+for byte). They, the two agent briefs and the batch lists are in `private/a5/` (gitignored).
+
+Eleven Go batches and two TEVI ones were drafting in subagents when the user paused, and were stopped mid-batch. The
+tree holds their drafts uncommitted: 138 files (136 Go, TEVI's `Plugin.cs` and `BridgeClient.cs`), 17,223 lines out
+and 4,434 in, every file token-identical to HEAD and gofmt clean. Not yet reviewed, tested or committed, and the
+agents never reported, so the history they deleted (and whether a record holds it) is only in the diff against HEAD;
+a copy is `private/a5/drafts-2026-10-01.patch`. Next chat: per batch (`private/a5/go-*.txt`), finish the files the
+agent did not reach, read the removed lines against the records, move what no record holds into a new "The stories
+behind the code" section of `pitfalls/by-lesson.md` (measurements to `verified.md`, missing links to the file's
+`code-map.md` row), run the proof and `run-gotests.bat`, and commit with `docs: no process change` and a phase10 line
+(its lag limit is 3 commits). Then lower the ratchet floors (a gate commit), and on to autoplay, TEVI, Pseudoregalia
+(`parts.py`), the two Lua adapters (`parts.py`), probes, dev-scripts and the workflows.
