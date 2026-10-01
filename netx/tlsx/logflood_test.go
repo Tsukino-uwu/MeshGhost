@@ -10,25 +10,11 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 )
 
-// The refusals ARE the attack (P1b-2, 2026-09-12).
-//
-// Both lines this listener writes about a stranger -- a plaintext connection,
-// and a handshake that failed -- were one line per
-// attempt, from an unauthenticated source, on a port that exists to be reached
-// from the internet. A machine opening connections in a loop therefore turned a
-// connection flood into a disk flood, with the host's own log as the amplifier.
-//
-// `netx.limitListener` and `netx/quicconn`'s `notePendingRefusal` both cap the
-// same class at one line a second with a running count, and both say why in a
-// comment. This listener was the one place in the project that did not, which is
-// what the parity cell of a review is for.
-//
-// The count is the half that makes throttling honest: an operator watching a
-// flood needs to know how big it is, and "42 refused so far" once a second says
-// that where 42 identical lines only say it by being counted.
+// The refusals are the attack: both lines the listener writes about a stranger (a plaintext connection, a failed
+// handshake) are capped at one a second with a running count, so a connection flood cannot become a disk flood and
+// an operator still learns how big it is.
 
-// floodListener stands up a sniffing listener whose Logf records every line, so
-// a test can flood it and count what came out.
+// floodListener stands up a sniffing listener whose Logf counts every line.
 func floodListener(t *testing.T) (addr string, lines func() int) {
 	t.Helper()
 
@@ -72,9 +58,7 @@ func floodListener(t *testing.T) (addr string, lines func() int) {
 	}
 }
 
-// attempts is well above the one-per-second cap and small enough to run in
-// well under a second on any machine, which is the whole shape of the
-// assertion: if these all land inside one window, at most one line may appear.
+// attempts is well above the cap and runs in well under a second, so they land in about one window.
 const attempts = 40
 
 func TestPlaintextRefusalsDoNotFloodTheLog(t *testing.T) {
@@ -85,7 +69,7 @@ func TestPlaintextRefusalsDoNotFloodTheLog(t *testing.T) {
 		if err != nil {
 			t.Fatalf("dial %d: %v", i, err)
 		}
-		// A plaintext first byte, which is what the sniffer refuses. 'n' is not tlsRecordHandshake (0x16).
+		// 'n' is not tlsRecordHandshake (0x16), so the sniffer refuses it.
 		_, _ = c.Write([]byte("n"))
 		c.Close()
 	}
@@ -101,10 +85,7 @@ func TestFailedHandshakesDoNotFloodTheLog(t *testing.T) {
 	addr, lines := floodListener(t)
 
 	for i := 0; i < attempts; i++ {
-		// A real TLS ClientHello that cannot succeed: the ALPN does not match,
-		// so the server refuses during the handshake rather than during the
-		// sniff. That is the second of the two lines, and it is the expensive
-		// one -- a handshake is real CPU an unauthenticated stranger can spend.
+		// A real ClientHello with a mismatched ALPN, refused during the handshake rather than the sniff.
 		c, err := tls.DialWithDialer(
 			&net.Dialer{Timeout: testTimeout}, "tcp", addr,
 			&tls.Config{InsecureSkipVerify: true, NextProtos: []string{"not-meshghost"}, MinVersion: tls.VersionTLS13},
@@ -121,18 +102,13 @@ func TestFailedHandshakesDoNotFloodTheLog(t *testing.T) {
 	}
 }
 
-// waitForAtLeast gives the per-connection goroutines a moment to run -- the
-// sniff and the handshake happen off the Accept path on purpose (see
-// NewListener), so the last few lines can trail the last dial. It returns the
-// count once it stops moving, so "at most two" is measured against everything
-// that was going to be written rather than against a snapshot taken too early.
+// waitForAtLeast waits for want lines, then settles once more: the sniff and handshake run off the Accept path, so the
+// last lines can trail the last dial, and the cap is judged against all of them.
 func waitForAtLeast(t *testing.T, lines func() int, want int) int {
 	t.Helper()
 	deadline := time.Now().Add(testTimeout)
 	for time.Now().Before(deadline) {
 		if lines() >= want {
-			// One more settle, so a late line is counted against the cap
-			// rather than missed.
 			time.Sleep(100 * time.Millisecond)
 			return lines()
 		}

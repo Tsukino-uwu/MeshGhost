@@ -14,16 +14,6 @@ import (
 	"time"
 )
 
-// Split out of udpconn.go on 2026-08-27, along the banner comments that file had already drawn
-// around its four concerns -- so the cut lines were chosen by whoever wrote them, not by this
-// pass. Same precedent as relay/online.go into one file per plane (2026-08-25). udpconn.go keeps
-// the package doc, the wire format, the constants and ErrDatagramTooLarge, which every part uses.
-//
-// Conn: one remote address presented as an ordinary net.Conn, with the reliability, ordering
-// and reorder-window machinery that costs relay/ zero lines.
-
-// ------------------------------------------------------------------- Conn
-
 // Conn is one remote address's view of the shared socket, presented as a
 // net.Conn so transport can wrap it in the same NDJSON framing it
 // applies to TCP.
@@ -32,33 +22,24 @@ type Conn struct {
 	remote *net.UDPAddr
 	owner  *Listener // nil for a dialed (client-side) Conn
 
-	// token is this connection's unpredictable secret, issued by the
-	// listener on admission and required on every application datagram
-	// afterwards. See tokenLen for why address validation alone is not
-	// enough.
+	// token is this connection's unpredictable secret, issued on admission and required on every application
+	// datagram afterwards (see tokenLen).
 	token [tokenLen]byte
 
 	in     chan []byte
 	closed chan struct{}
 	once   sync.Once
 
-	// closeErr is WHY this connection ended, or nil for a close this side
-	// decided on. Written inside once.Do before closed is closed, which is the
-	// publication edge -- nothing may read it without first observing that
-	// channel closed. See closeReason.
+	// closeErr is why this connection ended, nil for a close this side decided on. Written in once.Do before closed is
+	// closed, which publishes it: nothing may read it before observing that channel closed.
 	closeErr error
 
-	// writeClosed is set by CloseWrite: no NEW payload may go out, while
-	// everything else about the connection keeps working. Its own flag rather
-	// than a second channel because retryLoop and sendAck must go on writing
-	// through it -- that is the entire point of half-closing. See CloseWrite.
+	// writeClosed is set by CloseWrite: no new payload may go out. A flag rather than a channel because retryLoop and
+	// sendAck must go on writing through it.
 	writeClosed atomic.Bool
 
-	// readBuf holds the remainder of a datagram that did not fit in the
-	// caller's buffer. Real UDP discards that remainder; an in-memory queue
-	// must not, or a short Read would silently eat half a JSON line.
-	// Touched only from Read, which transport calls from a single
-	// goroutine.
+	// readBuf holds the rest of a datagram that did not fit the caller's buffer: real UDP discards it, but an in-memory
+	// queue must not, or a short Read would eat half a line. Touched only from Read, on transport's one goroutine.
 	readBuf []byte
 
 	mu            sync.Mutex
@@ -69,37 +50,19 @@ type Conn struct {
 	// an accepted one uses its listener's instead. See socketWriteMu.
 	dialWMu sync.Mutex
 
-	// lossyMu guards lossyBuf, the scratch buffer WriteUnreliable frames
-	// into. Its own mutex rather than mu, which rawWrite takes and releases
-	// while the buffer is still in use, and rather than the caller's lock,
-	// because this package is public and its own tests call WriteUnreliable
-	// directly.
-	//
-	// The buffer exists because the relay's fan-out calls this once PER
-	// RECIPIENT for every state, and each call was allocating a fresh
-	// framing buffer -- the one allocation in the state path that really did
-	// scale with room size (agent_docs/plans.md's n x (n-1)).
+	// lossyMu guards lossyBuf, the scratch buffer WriteUnreliable frames into, so the relay's per-recipient fan-out
+	// does not allocate per call. Not mu, which rawWrite takes and releases while the buffer is still in use.
 	lossyMu  sync.Mutex
 	lossyBuf []byte
 
-	// Reliability state. Write goes through here; WriteUnreliable does not
-	// touch any of it.
+	// Reliability state: Write uses it, WriteUnreliable never does.
 	relMu   sync.Mutex
 	nextSeq uint64
 	pending map[uint64]*pendingMsg
 
-	// wantSeq is the next sequence number that may be delivered, and
-	// reorderBuf holds payloads that arrived ahead of it. Together they make
-	// the reliable path ordered as well as reliable.
-	//
-	// These replaced a plain seen-set: with in-order delivery a duplicate is
-	// just seq < wantSeq, so the old set and its 1024-entry pruning are no
-	// longer needed to recognise one.
-	//
-	// wantSeq is initialised lazily rather than at construction because
-	// there are two construction sites; 0 means "not yet started" and is
-	// promoted to 1, which is the first value Write can assign (it
-	// increments before use).
+	// wantSeq is the next sequence number that may be delivered, and reorderBuf holds payloads that arrived ahead of
+	// it, so the reliable path is ordered as well as reliable. A wantSeq of 0 means not started and is promoted to 1,
+	// the first value Write assigns.
 	wantSeq    uint64
 	reorderBuf map[uint64][]byte
 
@@ -147,20 +110,9 @@ func (c *Conn) Read(p []byte) (int, error) {
 	}
 }
 
-// closeReason is what a Read or Write on a closed connection reports: the cause
-// if this connection died of one, and net.ErrClosed if it was simply closed.
-//
-// The distinction is the whole point. transport.fail suppresses net.ErrClosed
-// from OnError because on tcp it can only mean a local Close(), and reporting
-// it would put a scarier second line under every deliberate hangup. That
-// reasoning does not survive the move to a datagram transport: here retry
-// exhaustion -- a peer that has GONE -- closes the connection too, and answering
-// net.ErrClosed made the one failure this transport can actually detect
-// indistinguishable from hanging up on someone. Naming it here keeps
-// transport's rule intact and makes its comment true (P1d-4, 2026-09-12).
-//
-// Safe to read without a lock: closeErr is written before close(c.closed) and
-// every caller here has already received from that channel.
+// closeReason is what a Read or Write on a closed connection reports: the cause if it died of one, else
+// net.ErrClosed. transport.fail suppresses net.ErrClosed as a local Close, and here retry exhaustion, a peer that has
+// gone, closes the connection too. Lock-free: closeErr is written before close(c.closed), which every caller has seen.
 func (c *Conn) closeReason() error {
 	if c.closeErr != nil {
 		return c.closeErr
@@ -168,29 +120,9 @@ func (c *Conn) closeReason() error {
 	return net.ErrClosed
 }
 
-// Write sends p reliably: it is retransmitted until the far end acks it or
-// the retry budget runs out, at which point the connection is closed
-// (which relay already turns into a normal leave).
-//
-// Payloads are also delivered to the far end IN ORDER. That is not free on
-// a datagram transport and is not implied by retransmission: the receive
-// path holds anything that arrives early until the gap ahead of it fills
-// (see handleControl's ctrlData case). Before that, this comment claimed
-// "TCP-like semantics" while delivering out of order under loss, and
-// relay's lifecycle messages ride this path — a leave overtaking
-// its own join stranded that peer's ghost for the whole session.
-//
-// Reliable is the default because this is a net.Conn: anything holding one
-// generically — transport's framing, a future caller, a test —
-// gets TCP-like semantics without having to know it is on UDP. The lossy
-// fast path is the explicit opt-out, WriteUnreliable, and only the state
-// plane uses it.
-//
-// It does not block waiting for the ack. Blocking would stall
-// relay's Forward loop for every other recipient behind one slow
-// peer, and the guarantee callers actually need is "this will keep trying",
-// not "this has arrived by the time Write returns". A peer that never acks
-// is a peer that has gone away, and closing is the right report for that.
+// Write sends p reliably and in order: it is retransmitted until acked or until the retry budget runs out, which
+// closes the connection, and the receiver holds early arrivals until the gap fills. It does not wait for the ack,
+// which would stall relay's fan-out behind one slow peer.
 func (c *Conn) Write(p []byte) (int, error) {
 	if err := c.checkWritable(p, 2+tokenLen+seqLen); err != nil {
 		return 0, err
@@ -220,27 +152,15 @@ func (c *Conn) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// WriteUnreliable sends p once, with no sequence number, no ack and no
-// retransmission. It is still framed — `0xFF 0x07 <token8>` ahead of the
-// NDJSON line, 10 bytes — because every application datagram must carry the
-// token; an unwrapped one would be a way to simply not carry it, and is
-// dropped on arrival. (This comment also claimed the payload went on the wire
-// "exactly as the NDJSON line and nothing else", which stopped being true when
-// the token became mandatory. Corrected 2026-08-17.)
-//
-// Dropping is the correct behaviour rather than a regrettable one: the
-// state plane is explicitly lossy and latest-wins (agent_docs/contract.md),
-// so a lost position sample is superseded by the next one ~50ms later
-// rather than missed. Retransmitting it would deliver stale data late,
-// which is worse than not delivering it at all.
+// WriteUnreliable sends p once, with no sequence number, ack or retransmission, framed as 0xFF 0x07 <token8> because
+// every application datagram carries the token. A lost sample is superseded by the next; resending it would deliver
+// stale data late.
 func (c *Conn) WriteUnreliable(p []byte) (int, error) {
 	if err := c.checkWritable(p, 2+tokenLen); err != nil {
 		return 0, err
 	}
-	// Held across rawWrite, not merely across the framing: the buffer is still
-	// the argument being written when rawWrite runs, so releasing early would
-	// let a concurrent WriteUnreliable overwrite a datagram mid-send. That is
-	// also why this cannot share mu, which rawWrite takes and drops itself.
+	// Held across rawWrite, which still reads the buffer: releasing after the framing would let a concurrent call
+	// overwrite a datagram mid-send.
 	c.lossyMu.Lock()
 	defer c.lossyMu.Unlock()
 	c.lossyBuf = append(c.lossyBuf[:0], ctrlPrefix, ctrlLossy)
@@ -249,24 +169,9 @@ func (c *Conn) WriteUnreliable(p []byte) (int, error) {
 	return c.rawWrite(c.lossyBuf)
 }
 
-// MaxPayloadBytes is the largest payload one reliable Write can carry on this
-// connection: MaxDatagramBytes less this transport's own reliable framing (the
-// control prefix, the per-connection token and the sequence number).
-//
-// It exists so a caller that BUILDS a message can size it to fit, instead of
-// discovering the limit as an error after the fact. checkWritable has always
-// refused an oversized payload -- honestly, and naming tcp as the workaround --
-// but the relay never had a way to ASK, so it sized its Welcome against
-// protocol.MaxPayloadBytes (4095), which is what a receiver's line scanner
-// accepts and has nothing to do with what a datagram carries. A room of 16
-// players with plain 24-rune names produced 1195 bytes against the 1182 here --
-// and six players whose names contain '&' produced 1291, which is inside the
-// relay's own DEFAULT client cap of 8. The joining player was hung up on with no
-// Reject and no reason (measured 2026-09-12; P1d-3's other half).
-//
-// Read structurally by transport.NDJSONConn, which subtracts its own newline
-// before reporting a Send budget upward -- this package must not know that
-// framing exists, and does not.
+// MaxPayloadBytes is the largest payload one reliable Write can carry: MaxDatagramBytes less the control prefix, the
+// token and the sequence number. A caller building a message sizes it to fit; transport.NDJSONConn reads it
+// structurally and subtracts its own newline.
 func (c *Conn) MaxPayloadBytes() int { return MaxDatagramBytes - 2 - tokenLen - seqLen }
 
 // checkWritable rejects a write that is closed or would risk IP
@@ -279,9 +184,7 @@ func (c *Conn) checkWritable(p []byte, overhead int) error {
 	default:
 	}
 	if c.writeClosed.Load() {
-		// Half-closed: same answer net.TCPConn gives for a write after
-		// CloseWrite. Only NEW payloads are refused -- retryLoop and sendAck
-		// call rawWrite directly and keep going. See CloseWrite.
+		// Half-closed: net.TCPConn's answer after CloseWrite. retryLoop and sendAck call rawWrite directly and go on.
 		return net.ErrClosed
 	}
 	if len(p)+overhead > MaxDatagramBytes {
@@ -291,21 +194,9 @@ func (c *Conn) checkWritable(p []byte, overhead int) error {
 	return nil
 }
 
-// socketWriteMu serializes a set-deadline/write/clear-deadline sequence
-// against every other write on the SAME socket.
-//
-// An accepted Conn's c.pc IS the listener's socket -- shared by every other
-// Conn on it and by the listener's own handshake replies -- so a write
-// deadline is not per-connection state at all, it is per-socket state. Until
-// 2026-09-08 rawWrite set and cleared it unguarded: two concurrent writes
-// stomped each other, B's deferred clear landing while A was still writing (so
-// A wrote with no bound at all), and a write with no deadline of its own
-// inheriting whatever A had just set. Benign only because the caller always
-// sets a deadline in the future -- not a property to lean on in the one file
-// whose entire premise is that each Conn behaves like its own net.Conn.
-//
-// A dialed Conn owns its socket outright, but two goroutines writing on one
-// Conn stomp the same way, so it gets its own.
+// socketWriteMu serializes a set-deadline/write/clear-deadline sequence against every other write on the same
+// socket. An accepted Conn's c.pc is the listener's socket, so a write deadline is per-socket state; a dialed Conn
+// owns its socket, but two goroutines writing on it would stomp each other's deadline the same way.
 func (c *Conn) socketWriteMu() *sync.Mutex {
 	if c.owner != nil {
 		return &c.owner.wmu
@@ -318,10 +209,7 @@ func (c *Conn) rawWrite(b []byte) (int, error) {
 	dl := c.writeDeadline
 	c.mu.Unlock()
 
-	// Taken for EVERY write, not only a deadline-carrying one: an unbounded
-	// write that overlaps someone else's deadline window is exactly the
-	// cross-connection coupling this is here to remove. The cost is one
-	// uncontended mutex either side of a sendto syscall.
+	// Taken for every write: an unbounded write overlapping another's deadline window is the coupling this removes.
 	m := c.socketWriteMu()
 	m.Lock()
 	defer m.Unlock()
@@ -359,34 +247,14 @@ func (c *Conn) retryLoop() {
 			c.relMu.Unlock()
 
 			if exhausted {
-				// The peer stopped acking entirely. Treat it as gone
-				// rather than retrying forever: UDP has no disconnect
-				// signal, so this is the only way a vanished client is
-				// ever noticed, and relay's existing disconnect
-				// path turns it into a real leave for the rest of the room.
-				//
-				// CLOSED WITH A REASON, because this is the discovery, not
-				// merely a close: see ErrPeerUnresponsive for what reporting
-				// it as an ordinary hangup cost.
+				// The peer stopped acking. UDP has no disconnect signal, so this is how a vanished peer is noticed, and
+				// the reason is kept so it is not reported as an ordinary hangup.
 				c.closeWith(ErrPeerUnresponsive)
 				return
 			}
 			for _, w := range resend {
-				// A failed resend is ONE failed datagram, not a dead
-				// connection, so it must not end this goroutine. Until
-				// 2026-09-08 it returned here without closing anything,
-				// which quietly disabled the only thing this transport has:
-				// maxRetries exhaustion above is how a vanished peer is
-				// ever noticed at all (UDP has no disconnect signal), and it
-				// cannot fire from a loop that has stopped counting. The
-				// connection then sat there until relay's 60s idle timeout
-				// with every pending lifecycle message unsent. A transient
-				// ENOBUFS or a write deadline that had already passed --
-				// both ordinary -- was enough to reach it.
-				//
-				// Errors are dropped rather than logged: this is a library
-				// with no logger, and the peer going away is reported to the
-				// caller by Close above, which is the report that matters.
+				// One failed datagram, not a dead connection: returning would stop the count above that notices a
+				// vanished peer. Errors are dropped; this library has no logger.
 				_, _ = c.rawWrite(w)
 			}
 		}
@@ -404,30 +272,15 @@ func (c *Conn) sendAck(seq uint64) {
 	_, _ = c.rawWrite(ab)
 }
 
-// handleControl processes one control datagram, returning a payload for the
-// caller to deliver or nil. Shared by the listener's demultiplexer and a
-// dialed conn's own read loop, so the two cannot drift.
-//
-// Reliable payloads (ctrlData) are delivered HERE rather than returned,
-// because acking correctly requires knowing whether delivery succeeded.
-// Only the lossy path returns a payload, where dropping is the intended
-// behaviour anyway.
+// handleControl processes one control datagram, returning a payload for the caller to deliver or nil. Shared by the
+// listener's demultiplexer and a dialed conn's read loop, so the two cannot drift. Reliable payloads are delivered
+// here rather than returned, because acking correctly requires knowing whether delivery succeeded.
 func (c *Conn) handleControl(b []byte) []byte {
 	if len(b) < 2 || b[0] != ctrlPrefix {
 		return nil
 	}
-	// Every application datagram must carry this connection's token.
-	// Address validation gated admission; this gates everything after it,
-	// so guessing a client's ip:port is not enough to inject into its
-	// session. Constant-time, for the same reason the room-code compare in
-	// relay is. See tokenLen.
-	//
-	// body is sliced inside this guard, not after it. It used to be computed
-	// unconditionally for every message type, which stayed in bounds only by
-	// two coincidences: both callers pass buf[:n] out of a MaxDatagramBytes
-	// array, so slicing past len was still within cap, and body went unused
-	// for the types that skip the check. Neither is a property to lean on in
-	// the most exposed surface in the repo.
+	// Every application datagram must carry this connection's token, compared in constant time. body is sliced only
+	// inside this guard, after its length check.
 	var body []byte
 	if b[1] == ctrlData || b[1] == ctrlLossy || b[1] == ctrlAck {
 		if len(b) < 2+tokenLen ||
@@ -455,25 +308,17 @@ func (c *Conn) handleControl(b []byte) []byte {
 			c.wantSeq = 1
 		}
 
-		// Already delivered. Re-ack and stop: a lost ack is exactly why the
-		// sender is retransmitting, and silence would keep it retransmitting
-		// until it gives up and drops the connection.
+		// Already delivered. Re-ack: a lost ack is why the sender is retransmitting, and silence would keep it
+		// retransmitting until it gives up and drops the connection.
 		if seq < c.wantSeq {
 			c.relMu.Unlock()
 			c.sendAck(seq)
 			return nil
 		}
 
-		// Arrived ahead of something still in flight. Hold it, so nothing
-		// above here ever sees a later message before an earlier one — a
-		// leave overtaking its own join used to strand that peer's ghost
-		// permanently (see core's TestLeaveIsNotUndoneByALateJoin).
-		//
-		// Deliberately NOT acked while it sits here, which is what keeps the
-		// "ack only what was actually delivered" rule below intact: acking
-		// now and hitting a full queue at delivery time would lose the
-		// payload with the sender believing it landed. Unacked means the
-		// sender keeps retransmitting until it is genuinely delivered.
+		// Arrived ahead of something in flight: hold it, so nothing above sees a later message before an earlier one.
+		// Not acked while held: acking now and meeting a full queue at delivery would lose it with the sender
+		// believing it landed.
 		if seq > c.wantSeq {
 			if c.reorderBuf == nil {
 				c.reorderBuf = map[uint64][]byte{}
@@ -487,17 +332,8 @@ func (c *Conn) handleControl(b []byte) []byte {
 			return nil
 		}
 
-		// This is the one being waited for, so it and any contiguous run it
-		// unblocks can go up now.
-		//
-		// Deliver BEFORE acking, and ack only if delivery succeeded. The
-		// obvious order — ack, record, then hand upward — is wrong, and
-		// wrong in a way that silently defeats the entire reliability layer:
-		// deliver drops when the queue is full, but the sender has its ack
-		// by then so it never retransmits. A join, leave or welcome could
-		// vanish under a burst while Write reported success. Only reachable
-		// with a stalled reader and a full queue, which is why no test
-		// caught it; found in review.
+		// The one being waited for: it and any contiguous run it unblocks go up now. Deliver before acking, and ack
+		// only what was delivered: deliver drops on a full queue, and an acked payload is never retransmitted.
 		out := make([]byte, len(payload))
 		copy(out, payload)
 		curSeq, cur, buffered := seq, out, false
@@ -505,10 +341,8 @@ func (c *Conn) handleControl(b []byte) []byte {
 		var acks []uint64
 		for {
 			if !c.deliver(cur) {
-				// Nothing was consumed: a buffered payload is still in the
-				// map and wantSeq still points at it, and a just-arrived one
-				// is still held by the sender. Either way it is retried, and
-				// the next arrival re-runs this drain.
+				// Nothing was consumed: a buffered payload stays in the map with wantSeq on it, and a just-arrived
+				// one is still held by the sender. Either is retried, and the next arrival re-runs this drain.
 				break
 			}
 			acks = append(acks, curSeq)
@@ -543,32 +377,9 @@ func (c *Conn) handleControl(b []byte) []byte {
 	return nil
 }
 
-// CloseWrite half-closes this connection: no new payload may be written, while
-// everything already queued keeps being retransmitted, acks keep flowing both
-// ways, and Read keeps working until the caller closes for real.
-//
-// IT EXISTS FOR transport.CloseGracefully, whose whole job is "the last thing I
-// wrote must actually arrive". That method asserts for this method and falls
-// back to a hard Close for a connection that cannot half-close -- which, until
-// 2026-09-12, was this one. On udp a hard close is strictly worse than the tcp
-// reset CloseGracefully was written to avoid, in two ways at once:
-//
-//   - Close ends retryLoop, so the Reject the relay just wrote gets exactly ONE
-//     datagram and no retransmission. One dropped packet and a client with a
-//     wrong room code or an old protocol version never learns why -- it sees a
-//     silence indistinguishable from a network fault, so it treats a PERMANENT
-//     refusal as transient and reconnects for as long as the player leaves the
-//     game running. relay.rejectAndClose exists precisely to prevent that, and
-//     was quietly not working on the shipped default transport.
-//   - Close also unregisters this Conn from its listener, so the drain
-//     CloseGracefully asks for reads nothing at all. The relay's rate-limit
-//     path depends on that drain to consume a flooding client's remaining
-//     traffic instead of resetting it.
-//
-// Idempotent, and returns nil always: there is nothing here that can fail, and
-// net.TCPConn.CloseWrite on an already half-closed connection is the shape
-// being matched. Found by the transports cell of the third adversarial review
-// (P1d-1).
+// CloseWrite half-closes this connection: no new payload may be written, while queued ones keep being retransmitted,
+// acks keep flowing and Read keeps working. transport.CloseGracefully relies on it, since Close ends retryLoop (a
+// Reject would get one datagram) and unregisters the Conn (the drain would read nothing).
 func (c *Conn) CloseWrite() error {
 	c.writeClosed.Store(true)
 	return nil
@@ -576,12 +387,11 @@ func (c *Conn) CloseWrite() error {
 
 func (c *Conn) Close() error { return c.closeWith(nil) }
 
-// closeWith is Close, recording why. A nil reason means "this side decided to",
-// which is what Close itself always means; anything else is a cause Read and
-// Write will report instead of a bare net.ErrClosed. See closeReason.
+// closeWith is Close, recording why: a nil reason means this side decided to, anything else is the cause Read and
+// Write report instead of a bare net.ErrClosed.
 func (c *Conn) closeWith(reason error) error {
 	c.once.Do(func() {
-		// Before the channel close, which is the publication edge for it.
+		// Before the channel close, which publishes it.
 		c.closeErr = reason
 		close(c.closed)
 		if c.owner != nil {
@@ -619,12 +429,8 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
-// deliver hands one datagram to this Conn, reporting whether it was
-// accepted. Never blocks: this runs on the listener's single read loop, so
-// waiting for one slow reader would stall every other connection.
-//
-// The bool is load-bearing for reliable delivery — see handleControl, which
-// must not acknowledge a payload it could not hand over.
+// deliver hands one datagram to this Conn, reporting whether it was accepted. Never blocks: it runs on the listener's
+// single read loop. handleControl must not acknowledge a payload deliver refused.
 func (c *Conn) deliver(b []byte) bool {
 	select {
 	case c.in <- b:

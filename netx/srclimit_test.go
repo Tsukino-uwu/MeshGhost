@@ -8,12 +8,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/netx/srclimit"
 )
 
-// TestLimitListenerCapsOpenConnectionsPerSource: with a per-source table the
-// limiter refuses the connection past one ADDRESS's cap while the listener
-// as a whole has room, frees the slot on Close, and still forwards the
-// datagram plane (the wrapper is unchanged; TestLimitListenerKeepsTheUnreliableWrite
-// covers that separately). Without the table every dial here is from one
-// loopback address and all of them are accepted -- which is the finding.
+// TestLimitListenerCapsOpenConnectionsPerSource: with a per-source table the limiter refuses the connection past one
+// address's cap while the listener as a whole has room, and frees the slot on Close.
 func TestLimitListenerCapsOpenConnectionsPerSource(t *testing.T) {
 	raw, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -60,7 +56,6 @@ func TestLimitListenerCapsOpenConnectionsPerSource(t *testing.T) {
 	dial()
 	waitAccepted()
 
-	// Third from the same address: refused although the listener has 62 slots left.
 	third := dial()
 	_ = third.SetReadDeadline(time.Now().Add(2 * time.Second))
 	if n, err := third.Read(make([]byte, 1)); err == nil {
@@ -79,8 +74,6 @@ func TestLimitListenerCapsOpenConnectionsPerSource(t *testing.T) {
 		t.Fatalf("table counted %d per-source refusals, want 1", refusedOpen)
 	}
 
-	// The slot is freed on Close -- through the release closure that captured
-	// the address at Accept time.
 	_ = first.Close()
 	dial()
 	waitAccepted()
@@ -89,8 +82,7 @@ func TestLimitListenerCapsOpenConnectionsPerSource(t *testing.T) {
 	}
 }
 
-// TestPerSourceRefusalLogsNoAddress: the throttled line carries a count and
-// never the address -- docs/security.md's privacy section is what makes the
+// TestPerSourceRefusalLogsNoAddress: the throttled line carries a count and never the address, which is what makes a
 // per-source table acceptable at all.
 func TestPerSourceRefusalLogsNoAddress(t *testing.T) {
 	raw, err := net.Listen("tcp", "127.0.0.1:0")

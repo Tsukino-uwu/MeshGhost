@@ -8,23 +8,8 @@ import (
 	"time"
 )
 
-// A quic connection that DIES must say what of (P1d-4, 2026-09-12).
-//
-// streamLoop ends when the scanner stops, and sc.Err() is the whole account of
-// why: nil for a clean FIN, and otherwise the quic-level cause -- an idle
-// timeout, a CONNECTION_CLOSE from the peer, a path that stopped working -- or
-// bufio.ErrTooLong from this package's own 64 KiB line limit, which a peer can
-// trip with no way to learn the limit exists. That error was discarded, and the
-// bare Close() left Read answering net.ErrClosed, which transport.fail
-// suppresses from OnError as a local close.
-//
-// So on quic, every disconnect that was not a deliberate hangup looked exactly
-// like one. Found by the transports cell of the third adversarial review.
-
-// TestAPeerThatKillsTheConnectionIsNotReportedAsALocalClose is the assertion.
-// The peer aborts at the quic layer rather than closing the stream politely,
-// which is what a crashed process, a killed VM or a broken path all look like
-// from here.
+// TestAPeerThatKillsTheConnectionIsNotReportedAsALocalClose: a peer aborting at the quic layer (a crashed process, a
+// broken path) reaches Read as its cause, not as the bare net.ErrClosed transport.fail suppresses as a local close.
 func TestAPeerThatKillsTheConnectionIsNotReportedAsALocalClose(t *testing.T) {
 	l := listenTest(t)
 	client, server := connect(t, l, "hello\n")
@@ -33,8 +18,7 @@ func TestAPeerThatKillsTheConnectionIsNotReportedAsALocalClose(t *testing.T) {
 	if !ok {
 		t.Fatalf("accepted conn is %T, want *Conn", server)
 	}
-	// Not sc.Close(): that is the polite path, and the polite path is the one
-	// that already worked. This is the connection simply ceasing to be.
+	// Not sc.Close(): the polite path already worked; this is the connection simply ceasing to be.
 	if err := sc.qc.CloseWithError(7, "the peer went away"); err != nil {
 		t.Fatalf("abort the peer's connection: %v", err)
 	}
@@ -49,28 +33,19 @@ func TestAPeerThatKillsTheConnectionIsNotReportedAsALocalClose(t *testing.T) {
 	if strings.Contains(err.Error(), "deadline") {
 		t.Fatalf("read blocked to its deadline instead of noticing the peer had gone: %v", err)
 	}
-	// NOT an errors.Is(err, net.ErrClosed) assertion, and that is worth saying
-	// out loud: quic-go's *quic.ApplicationError answers true to it deliberately,
-	// so that generic code treats a dead connection as a closed one. This layer
-	// therefore cannot make a terminal failure distinguishable BY IDENTITY --
-	// what it can do is carry the cause instead of discarding it, which is what
-	// is asserted here. The decision about whether anyone hears it is
-	// transport.fail's, on a flag rather than on an error value; its own half of
-	// this fix is transport/closereason_test.go.
+	// Not errors.Is(err, net.ErrClosed): quic-go's *quic.ApplicationError answers true to it deliberately, so this
+	// layer can only carry the cause, never change its identity.
 	if err.Error() == net.ErrClosed.Error() {
 		t.Fatalf("read reported a bare %v, so the cause streamLoop had in hand was thrown away", err)
 	}
-	// The wording is quic-go's to choose, so this asks only that the peer's own
-	// code survived the trip rather than pinning a message string.
+	// The wording is quic-go's; only the peer's code is pinned.
 	if !strings.Contains(err.Error(), "7") {
 		t.Errorf("read reported %v, which does not carry the peer's application error code", err)
 	}
 }
 
-// TestADeliberateCloseIsStillJustAClose keeps the other half honest, the same
-// way netx/udpconn's namesake does: naming causes must not turn every hangup
-// this project performs on purpose into an error line. Close() carries no
-// reason, so Read still answers net.ErrClosed and transport still suppresses it.
+// TestADeliberateCloseIsStillJustAClose: Close() carries no reason, so a deliberate hangup still reads as
+// net.ErrClosed and transport still suppresses it.
 func TestADeliberateCloseIsStillJustAClose(t *testing.T) {
 	l := listenTest(t)
 	client, _ := connect(t, l, "hello\n")

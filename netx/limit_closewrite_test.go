@@ -7,20 +7,8 @@ import (
 	"time"
 )
 
-// A limited connection must still be able to HALF-close.
-//
-// transport.CloseGracefully asserts for CloseWrite and falls back to a hard
-// Close when the assertion fails. limitedConn embeds net.Conn as an interface,
-// so before 2026-09-07 that assertion failed for every connection the relay
-// accepted -- the limiter is applied unconditionally -- and every reject the
-// relay wrote (wrong room code, version mismatch, rate limited) was lost to a
-// TCP reset behind the unread data instead of reaching the client. The client
-// then saw ECONNRESET, classified a PERMANENT refusal as a transport error,
-// and retried it forever.
-//
-// This is the third connection wrapper to lose a method this way
-// (WriteUnreliable 2026-09-02, then this one), which is why the test asserts
-// the delivery, not just the method's presence.
+// A limited connection must still half-close, or transport.CloseGracefully falls back to a hard Close and the relay's
+// reject is lost to a reset behind the unread data. The test asserts the delivery, not just the method's presence.
 func TestLimitListenerKeepsTheGracefulHalfClose(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -50,8 +38,6 @@ func TestLimitListenerKeepsTheGracefulHalfClose(t *testing.T) {
 			"reject reason the relay writes is lost to the reset")
 	}
 
-	// The last line before the graceful close has to arrive, which is the whole
-	// point: a reject is written and THEN the write side is closed.
 	if _, err := server.Write([]byte("reject\n")); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -69,10 +55,8 @@ func TestLimitListenerKeepsTheGracefulHalfClose(t *testing.T) {
 	}
 }
 
-// The limiter must not invent a transport label for a connection that has none,
-// and must not hide one that does. relay's transportName asserts for this
-// method and defaults to "tcp", so a hidden method silently logged every udp
-// and quic client as "tcp" in the per-client line a remote tester sends back.
+// The limiter must not invent a transport label for a connection that has none, nor hide one that does: relay's
+// transportName defaults to "tcp" when the method is hidden.
 func TestLimitListenerReportsTheUnderlyingTransportName(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

@@ -1,49 +1,26 @@
-// Package quicconn presents QUIC as an ordinary net.Listener handing out
-// ordinary net.Conns, the same shape netx/udpconn provides for
+// Package quicconn presents QUIC as an ordinary net.Listener handing out net.Conns, the shape netx/udpconn gives
 // UDP, so relay and transport need no knowledge of it.
 //
-// QUIC is worth having because it is the only one of the three transports
-// that is fast under packet loss AND encrypted AND resistant to address
-// spoofing, with no configuration from the user. Its handshake IS TLS 1.3,
-// so encryption is not optional, and its connection IDs make a forged
-// source address useless — the two things plain UDP gives up.
+// QUIC is the one transport that is fast under packet loss, encrypted and resistant to address spoofing with no
+// configuration: its handshake is TLS 1.3, and its connection IDs make a forged source address useless.
 //
-// # Streams and datagrams, and why both
+// # Streams and datagrams
 //
-// A QUIC connection here carries one bidirectional stream plus datagrams:
+// A connection carries one bidirectional stream plus datagrams:
 //
 //   - Transport.Send -> the stream. Reliable and ordered.
-//   - Transport.SendUnreliable -> a QUIC datagram (RFC 9221). Fire and
-//     forget.
+//   - Transport.SendUnreliable -> a QUIC datagram (RFC 9221). Fire and forget.
 //
-// Using only the stream would work and would be simpler, but it would also
-// make QUIC pointless for this project: a single reliable stream
-// head-of-line blocks exactly like TCP, so a lost packet stalls the newer
-// positions queued behind it just the same. The payoff only appears once
-// the state plane rides datagrams.
+// The stream alone would head-of-line block exactly like TCP; the payoff is the state plane riding datagrams.
 //
-// # Why the stream side is line-buffered here
-//
-// Datagrams and stream bytes are merged into one byte stream for Read,
-// because that is what a net.Conn is. Merging naively would corrupt
-// framing: if the stream has delivered half of one JSON line when a
-// datagram arrives, splicing the datagram in mid-line produces something
-// no parser can recover. So the stream is split into complete lines before
-// anything is handed upward, and a datagram is already exactly one line.
-// Interleaving then only ever happens at line boundaries, where it is
-// harmless.
+// Read merges both into one byte stream, so the stream is split into whole lines before anything is handed up, and
+// a datagram is already one line: interleaving happens only at line boundaries, where it cannot corrupt framing.
 //
 // # Certificates
 //
-// The shipped relay hands ListenWith the SAME certificate its tcp listener
-// serves (Options.TLS, from tlsx.LoadOrCreateIdentity), so a client sees
-// one fingerprint for one relay whichever transport it lands on; until
-// 2026-09-15 this package generated a second, unverified certificate of its
-// own. Listen without one still self-signs in memory, for tests. The client
-// side verifies through a tlsx.Verifier -- core's known-relays store, which
-// remembers a relay's fingerprint on first connect -- and DialWith refuses a
-// nil verifier rather than skipping the check. There is no CA and no
-// hostname: connect_to is a bare IP. ADR 0066.
+// ListenWith serves the certificate the relay's tcp listener serves (Options.TLS), so a client sees one fingerprint
+// per relay; Listen without one self-signs in memory, for tests. A client verifies through a tlsx.Verifier, and
+// DialWith refuses a nil one. There is no CA and no hostname check.
 package quicconn
 
 import (
@@ -68,30 +45,19 @@ import (
 )
 
 const (
-	// alpn identifies this protocol during the TLS handshake. Both ends
-	// must agree or the handshake fails outright, which is the desired
-	// outcome when something else is listening on the port.
+	// alpn must match on both ends or the handshake fails, which is what should happen when something else listens
+	// on the port.
 	alpn = "meshghost"
 
-	// maxLineBytes bounds one NDJSON line read off the stream. Matches
-	// transport's own generous default rather than
-	// protocol's tighter one, because this package deliberately
-	// has no dependency on either — the real per-message limit is enforced
-	// above, where the protocol is actually known.
+	// maxLineBytes bounds one NDJSON line off the stream at transport's generous default: this package knows no
+	// protocol, and the real per-message limit is enforced above.
 	maxLineBytes = 64 * 1024
 
 	readQueue = 64
 )
 
-// newSelfSignedTLSConfig builds the listener's TLS configuration with a
-// freshly generated in-memory certificate: what Listen uses when no shared
-// identity is given, which only a test does. Generating per connection
-// would be a free CPU lever for an unauthenticated stranger, so it is once
-// per listener.
-//
-// The certificate generation itself lives in netx/tlsx, shared with TLS
-// over the tcp transport so there is one self-signed-certificate story in
-// this project rather than two that can drift apart.
+// newSelfSignedTLSConfig is the listener's TLS config with an in-memory certificate, for Listen without a shared
+// identity (tests only). Once per listener: per connection would be a free CPU lever for a stranger.
 func newSelfSignedTLSConfig() (*tls.Config, error) {
 	cfg, _, err := tlsx.ServerConfig(alpn)
 	if err != nil {
@@ -100,63 +66,40 @@ func newSelfSignedTLSConfig() (*tls.Config, error) {
 	return cfg, nil
 }
 
-// withALPN is the shared identity as this transport serves it: a clone, so
-// the tcp listener's NextProtos are untouched, carrying this package's
-// ALPN (which is the same string -- one protocol, two carriers).
+// withALPN is the shared identity as this transport serves it: a clone, so the tcp listener's NextProtos are
+// untouched.
 func withALPN(shared *tls.Config) *tls.Config {
 	cfg := shared.Clone()
 	cfg.NextProtos = []string{alpn}
 	return cfg
 }
 
-// qlogEnabled gates the qlog tracer below. Set once at startup by a binary's
-// -qlog flag (SetQLog); read by every quicConfig call after that. Atomic so a
-// test can flip it without the race detector objecting to the listener's
-// goroutines reading it.
+// qlogEnabled gates the qlog tracer; atomic so a test can flip it while the listener's goroutines read it.
 var qlogEnabled atomic.Bool
 
-// SetQLog turns quic-go's qlog tracing on or off for every connection made
-// after the call. Off by default: until 2026-09-15 the tracer was always
-// installed and the QLOGDIR environment variable alone decided whether it
-// wrote, so an environment a stranger's handshake ran under could make the
-// relay write a file per connection with no line in the startup output
-// saying so (fourth adversarial review, B5). Now the operator asks for it
-// explicitly and the binary logs where the traces go.
+// SetQLog turns quic-go's qlog tracing on or off for every connection made after the call. Off by default, so an
+// environment variable alone never makes the relay write a file per connection.
 func SetQLog(enabled bool) { qlogEnabled.Store(enabled) }
 
 func quicConfig() *quic.Config {
 	cfg := &quic.Config{
 		EnableDatagrams: true,
-		// This protocol is one bidirectional stream per connection plus
-		// datagrams, so nothing else is granted. quic-go's defaults (100
-		// bidirectional, 100 unidirectional, 512 KiB per stream, 1.5 MiB per
-		// connection) let a stranger who has completed a handshake but not a
-		// hello park many MiB of unread stream data on the relay for as long
-		// as the hello timer allows. Found by the 2026-09-02 adversarial
-		// review. -1 is quic-go's "none"; 0 would mean "default".
+		// One bidirectional stream plus datagrams, so nothing else is granted: quic-go's defaults let a stranger who
+		// has handshaked but not said hello park many MiB of unread stream data. -1 is quic-go's "none", 0 "default".
 		MaxIncomingStreams:    1,
 		MaxIncomingUniStreams: -1,
-		// Lines are at most protocol.MaxLineBytes (4 KiB) and are read as
-		// they arrive, so a window this size is never the bottleneck; it
-		// bounds what a peer can send ahead of the reader.
+		// Lines are at most protocol.MaxLineBytes and read as they arrive; the window bounds what a peer sends ahead.
 		InitialStreamReceiveWindow:     64 * 1024,
 		MaxStreamReceiveWindow:         256 * 1024,
 		InitialConnectionReceiveWindow: 64 * 1024,
 		MaxConnectionReceiveWindow:     256 * 1024,
 	}
-	// Dev diagnostics only, and only when asked (SetQLog): quic-go writes a
-	// qlog trace of every packet, loss declaration, congestion-window change
-	// and pacing pause for the connection into the directory the QLOGDIR
-	// environment variable names. Added 2026-09-02 to read why datagrams
-	// stalled for up to 770ms through meshghost-netsim at 2% loss while tcp
-	// on the same proxy never exceeded its configured delay.
+	// Dev diagnostics, only when asked: quic-go writes a qlog trace per connection into the directory QLOGDIR names.
 	if qlogEnabled.Load() {
 		cfg.Tracer = qlog.DefaultConnectionTracer
 	}
 	return cfg
 }
-
-// ------------------------------------------------------------------- Conn
 
 // Conn adapts one QUIC connection (its single bidirectional stream plus its
 // datagrams) to net.Conn.
@@ -164,17 +107,15 @@ type Conn struct {
 	qc     *quic.Conn
 	stream *quic.Stream
 
-	// acceptedAt is when the listener took this connection in, set only on
-	// the accepting side; zero on a dialed connection. See AcceptedAt.
+	// acceptedAt is set only on the accepting side; zero on a dialed connection.
 	acceptedAt time.Time
 
 	in     chan []byte
 	closed chan struct{}
 	once   sync.Once
 
-	// closeErr is WHY this connection ended, or nil for a close this side
-	// decided on. Written inside once.Do before closed is closed, which is the
-	// publication edge. See closeReason.
+	// closeErr is why this connection ended, nil for a close this side decided on. Written in once.Do before closed
+	// is closed, which publishes it.
 	closeErr error
 
 	readBuf []byte
@@ -183,9 +124,7 @@ type Conn struct {
 	readDeadline  time.Time
 	writeDeadline time.Time
 
-	// dgramSlot holds the one datagram send that is allowed to be parked inside
-	// quic-go at a time. See WriteUnreliable, which explains why there is a slot
-	// at all and why one is the right number.
+	// dgramSlot holds the one datagram send allowed to be parked inside quic-go at a time (see WriteUnreliable).
 	dgramSlot chan struct{}
 }
 
@@ -202,9 +141,7 @@ func newConn(qc *quic.Conn, stream *quic.Stream) *Conn {
 	return c
 }
 
-// streamLoop splits the reliable stream into whole NDJSON lines before
-// queueing them, so a datagram arriving mid-line cannot corrupt framing.
-// See the package doc.
+// streamLoop queues the stream as whole NDJSON lines, so a datagram arriving mid-line cannot corrupt framing.
 func (c *Conn) streamLoop() {
 	sc := bufio.NewScanner(c.stream)
 	sc.Buffer(make([]byte, 4096), maxLineBytes)
@@ -216,13 +153,8 @@ func (c *Conn) streamLoop() {
 			return
 		}
 	}
-	// The stream ended: the peer closed, or the connection died -- and WHICH is
-	// the whole content of sc.Err(), which this discarded until 2026-09-12.
-	// nil is a clean FIN; anything else is the quic-level cause (an idle
-	// timeout, a CONNECTION_CLOSE, a path that broke) or bufio.ErrTooLong from
-	// this package's own 64 KiB line limit, which a peer could trip with no way
-	// to learn it existed. Read reports it and transport.fail hands it to
-	// OnError, where a bare net.ErrClosed was suppressed. See closeReason.
+	// nil is a clean FIN; anything else is the cause (an idle timeout, a CONNECTION_CLOSE, a broken path, or
+	// bufio.ErrTooLong from the line limit), which Read reports instead of a bare net.ErrClosed.
 	c.closeWith(sc.Err())
 }
 
@@ -238,9 +170,7 @@ func (c *Conn) datagramLoop() {
 		case <-c.closed:
 			return
 		default:
-			// Full queue: drop, exactly as the udp transport does. The
-			// only traffic on this path is the lossy state plane, where a
-			// dropped sample is superseded ~50ms later.
+			// Full queue: drop. Only the lossy state plane rides datagrams, and its next sample supersedes this one.
 		}
 	}
 }
@@ -280,16 +210,9 @@ func (c *Conn) Read(p []byte) (int, error) {
 	}
 }
 
-// closeReason is what a Read or Write on a closed connection reports: the cause
-// if this connection died of one, and net.ErrClosed if it was simply closed.
-//
-// Same rule and same reason as netx/udpconn's, which carries the full note:
-// transport.fail suppresses net.ErrClosed from OnError because on tcp only a
-// local Close() produces it, and on a transport where every terminal failure
-// produces it too, that suppression swallowed the cause of every disconnect.
-//
-// Safe to read without a lock: closeErr is written before close(c.closed), and
-// every caller here has already received from that channel.
+// closeReason is what a Read or Write on a closed connection reports: the cause if it died of one, else
+// net.ErrClosed, which transport.fail suppresses as a local Close. Lock-free: closeErr is written before
+// close(c.closed), and every caller has already received from that channel.
 func (c *Conn) closeReason() error {
 	if c.closeErr != nil {
 		return c.closeErr
@@ -314,17 +237,9 @@ func (c *Conn) Write(p []byte) (int, error) {
 	return c.stream.Write(p)
 }
 
-// WriteUnreliable sends p as a QUIC datagram: no retransmission, no
-// ordering, and no head-of-line blocking against the stream. This is the
-// method that makes QUIC worth choosing over TCP — see the package doc.
-//
-// A datagram too large for the connection's current path MTU is refused by
-// quic-go rather than fragmented, and such a line is written to the stream
-// instead. Until 2026-09-16 the refusal was returned as-is, which made every
-// state line between ~1.2 KB and the protocol's 4 KB cap undeliverable to a
-// quic member on every send, and made the relay's outbox discard the member's
-// whole queue as if the socket had died (pass 5 of the adversarial review,
-// PM-1). A state late is better than never, and the stream is framed the same.
+// WriteUnreliable sends p as a QUIC datagram: no retransmission, no ordering, and no head-of-line blocking against
+// the stream. A line too large for the path's datagram is written to the stream instead, because quic-go refuses
+// rather than fragments it: a state late is better than never, and the stream is framed the same.
 func (c *Conn) WriteUnreliable(p []byte) (int, error) {
 	select {
 	case <-c.closed:
@@ -332,44 +247,17 @@ func (c *Conn) WriteUnreliable(p []byte) (int, error) {
 	default:
 	}
 
-	// THE WRITE DEADLINE REACHES THIS PATH TOO, and until 2026-09-12 it did
-	// not: SetWriteDeadline stored a value that only Write above ever read.
-	//
-	// quic-go's SendDatagram is not a fire-and-forget call. Its queue holds 32
-	// frames and its own comment says "Once that limit is reached, Add blocks
-	// until the queue size has reduced", on a select with no timeout. A quic
-	// peer whose congestion window has collapsed therefore parked the relay's
-	// writer goroutine for that client -- and every reliable join, leave and
-	// reject queued behind it -- past the bound relay/outbox.go is written
-	// around, which says in as many words "this is the call that can block for
-	// the whole write timeout". On this path there was no write timeout. Found
-	// by the transports cell of the third adversarial review (P1d-2).
-	//
-	// DROPPING IS THE CORRECT ANSWER HERE, not a compromise: this is the lossy
-	// plane, the contract is latest-wins, and a sample that cannot be queued
-	// now is superseded by the next one in milliseconds. What is NOT acceptable
-	// is reporting it -- transport.Send closes the connection on a write error,
-	// so returning one would turn a congested moment into a disconnect. It
-	// counts as written, which on a lossy plane is what "sent" already means.
-	//
-	// One goroutine, one slot. A goroutine is needed because SendDatagram takes
-	// no context and cannot be asked to give up; the slot is what stops them
-	// accumulating, and one is the right number because a relay client has
-	// exactly one writer goroutine (relay/outbox.go) -- so at most one send can
-	// be outstanding before the caller is back here asking again. The parked
-	// goroutine ends on its own when the queue drains or the connection closes.
-	//
-	// p is copied because it outlives the call. transport reuses its scratch
-	// buffer between sends, and an async read of it would be a data race the
-	// race detector would find long after this landed.
+	// SendDatagram blocks with no timeout once quic-go's queue is full, so it runs on a goroutine the write deadline
+	// can abandon. A datagram that cannot be queued counts as written: the next sample supersedes it, and an error
+	// would make transport.Send close the connection. One slot, because a relay client has one writer goroutine.
 	dl := c.writeDeadlineNow()
 	select {
 	case c.dgramSlot <- struct{}{}:
 	default:
-		// A previous datagram is still parked. Dropping without spawning is the
-		// whole point of the slot.
+		// A previous datagram is still parked: drop without spawning.
 		return len(p), nil
 	}
+	// Copied: the send outlives this call, and transport reuses its buffer.
 	buf := append([]byte(nil), p...)
 	done := make(chan error, 1)
 	go func() {
@@ -394,8 +282,7 @@ func (c *Conn) WriteUnreliable(p []byte) (int, error) {
 		}
 		return len(p), nil
 	case <-timeout:
-		// The deadline the caller set. The send is still parked and will finish
-		// or die with the connection; this caller is released.
+		// The send stays parked and ends with the queue or the connection; this caller is released.
 		return len(p), nil
 	case <-c.closed:
 		return 0, net.ErrClosed
@@ -408,77 +295,28 @@ func (c *Conn) writeDeadlineNow() time.Time {
 	return c.writeDeadline
 }
 
-// closeLinger is how long a closing connection stays alive after its stream
-// has been closed, so the bytes already written to that stream can actually
-// reach the peer.
-//
-// Without it, Close() closed the stream and tore down the whole QUIC
-// connection in the same breath. Closing the stream only signals FIN; the data
-// still has to be delivered, and it cannot be once the connection is gone — so
-// the peer received CONNECTION_CLOSE instead of the last message and never saw
-// it at all.
-//
-// **That silently broke every send-before-close in the project on quic**, which
-// is a pattern this codebase relies on deliberately in three places: the
-// relay's Reject before refusing a hello (a client with a wrong room code saw a
-// bare hangup rather than the reason, which is the entire thing rejectAndClose
-// exists to prevent), the relay's rate-limit Reject, and the core's goodbye
-// before a deliberate leave. Found 2026-08-17 by the goodbye going missing on
-// quic while working perfectly on tcp.
-//
-// **It is an UPPER BOUND, not a fixed wait** (2026-09-23). It was a fixed 250 ms,
-// "far longer than a loopback round trip" -- which holds only while nothing is
-// lost. CONNECTION_CLOSE discards whatever is still unacknowledged, and once a
-// packet is lost the retransmission backs off (on loopback roughly 30, 60, 120
-// ... ms, so the probe after a 2 s blackout goes out near 3.8 s). A Windows CI
-// run lost the Reject this way (TestAWriteBeforeCloseSurvivesABlackout
-// reproduces it every time), and the netsim rig's 1 s blackouts are the same
-// case on a real connection. quic-go has no public "the stream's data was
-// acknowledged" signal, so closeWith waits for the one the PEER gives: its
-// transport reads our FIN, closes, and its CONNECTION_CLOSE ends ours. A
-// well-behaved peer therefore ends the linger within a round trip; only a peer
-// that never answers holds a closed connection this long, and Close() still
-// never blocks on it.
+// closeLinger bounds how long a closed connection stays up so bytes already written reach the peer: CONNECTION_CLOSE
+// discards unacknowledged data, and quic-go has no "stream acknowledged" signal. A peer closing on our FIN ends it in
+// a round trip; 5 s outlasts the retransmission backoff (on loopback, the probe after a 2 s blackout is near 3.8 s).
 const closeLinger = 5 * time.Second
 
-// CloseWrite half-closes this connection: the stream sends its FIN, so the peer
-// knows the line just written was the last one, while the quic connection stays
-// up and Read keeps working until the caller closes for real.
-//
-// It is one call because quic already draws this line where net.TCPConn does:
-// closing a stream closes the SENDING half of it. What Close adds on top is
-// tearing down the connection underneath, which is the part that must not
-// happen yet.
-//
-// transport.CloseGracefully asserts for this method and hard-closes anything
-// without it, which is what quic got until 2026-09-12 -- so the drain it asked
-// for read nothing, and the relay's rate-limit path (which half-closes
-// precisely to consume a flooding client's remaining traffic rather than
-// discard it) silently did not work here. The Reject itself always survived, on
-// this transport only, because closeLinger below covers it by another route;
-// that is why the gap was invisible. Same finding as netx/udpconn's CloseWrite,
-// which has the fuller note (P1d-1).
+// CloseWrite half-closes this connection: the stream sends its FIN, so the peer knows the last line arrived, while
+// the connection stays up and Read keeps working. transport.CloseGracefully hard-closes anything without it.
 func (c *Conn) CloseWrite() error { return c.stream.Close() }
 
 func (c *Conn) Close() error { return c.closeWith(nil) }
 
-// closeWith is Close, recording why. A nil reason means "this side decided
-// to"; anything else is a cause Read and Write report instead of a bare
-// net.ErrClosed. See closeReason.
+// closeWith is Close, recording why: a nil reason means this side decided to, anything else is the cause Read and
+// Write report instead of net.ErrClosed.
 func (c *Conn) closeWith(reason error) error {
 	c.once.Do(func() {
-		// Before the channel close, which is the publication edge for it.
+		// Before the channel close, which publishes it.
 		c.closeErr = reason
 		close(c.closed)
-		// Closing the stream first signals FIN, so the peer learns the message
-		// it is about to receive is the last one.
+		// The FIN tells the peer the message it is about to receive is the last one.
 		_ = c.stream.Close()
-		// The connection teardown is deferred rather than skipped: a QUIC
-		// connection left open forever would leak, and a peer that has already
-		// gone will simply never read the data. It ends at the peer's own close
-		// or at closeLinger, whichever is first (see closeLinger). A goroutine,
-		// not a sleep, so Close stays non-blocking — it is called from read
-		// loops and from error paths that must not stall.
+		// Teardown waits for the peer's close or closeLinger, on a goroutine: Close is called from read loops and
+		// error paths that must not stall.
 		go func() {
 			linger := time.NewTimer(closeLinger)
 			defer linger.Stop()
@@ -516,42 +354,28 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
-// TLSConnectionState exposes the underlying TLS state. Present so the
-// scoped-but-unscheduled room-code channel-binding work
-// (agent_docs/ideas.md) can reach ExportKeyingMaterial without this package
-// having to change shape later; nothing calls it yet.
-// AcceptedAt is when the listener took this connection in -- before it
-// waited for the client's first stream -- or zero on a dialed connection.
-// The relay's hello timeout counts from it (relay.Server.handleConn).
+// AcceptedAt is when the listener took this connection in, before it waited for the client's first stream, or zero
+// on a dialed connection. The relay's hello timeout counts from it.
 func (c *Conn) AcceptedAt() time.Time { return c.acceptedAt }
 
+// TLSConnectionState exposes the TLS state, so tlsx.PeerFingerprint can read the leaf the room-code proof binds to.
 func (c *Conn) TLSConnectionState() tls.ConnectionState {
 	return c.qc.ConnectionState().TLS
 }
 
-// --------------------------------------------------------------- Listener
-
 // Listener is a net.Listener over a QUIC listener.
 type Listener struct {
-	// pending counts connections that have handshaked and not yet opened a
-	// stream -- the window netx.LimitListener cannot see. See acceptLoop.
+	// pending counts connections that have handshaked and not yet opened a stream, which netx.LimitListener cannot
+	// see.
 	pendingMu      sync.Mutex
 	pending        int
 	refusedPending int
 	lastPendingLog time.Time
 	refusedSource  int
 	lastSourceLog  time.Time
-	// sources is the per-address table, shared with netx.LimitListener; nil
-	// means no per-source bound. See Options.
+	// sources is the per-address table, shared with netx.LimitListener; nil means no per-source bound.
 	sources *srclimit.Table
-	// maxPending is this listener's own copy of the package default, taken once
-	// in Listen and never written again. The accept loop used to read the
-	// package var directly, which the race detector caught in CI on 2026-09-12:
-	// the only writer is a test lowering it, and its t.Cleanup restore ran while
-	// this listener's goroutine was still logging a refusal. Cleanups are LIFO
-	// and Close does not wait for acceptLoop, so ordering them would not have
-	// fixed it -- a listener's own limit simply should not be a mutable global
-	// read at arbitrary times.
+	// maxPending is this listener's copy of the package default, so a test restoring the var never races acceptLoop.
 	maxPending int
 
 	ql     *quic.Listener
@@ -562,18 +386,13 @@ type Listener struct {
 
 // Options configures ListenWith.
 type Options struct {
-	// TLS is the relay's identity, shared with its tcp listener so one relay
-	// has one fingerprint. Nil generates a self-signed certificate in memory
-	// (tests only; the shipped relay always passes its persisted identity).
+	// TLS is the relay's identity, shared with its tcp listener so one relay has one fingerprint. Nil generates a
+	// self-signed certificate in memory (tests only).
 	TLS *tls.Config
 
-	// Sources, when set, bounds handshaked-and-waiting-for-a-stream
-	// connections per client address, on top of the listener-wide
-	// maxPending. The pending window is per listener and had no per-source
-	// fairness at all: 26 real handshakes a second from one machine kept it
-	// full (fourth adversarial review, 2026-09-13, finding A5). The slot is
-	// released when the connection is handed to Accept, where
-	// netx.LimitListener takes over the count with the same table.
+	// Sources, when set, bounds connections waiting for a stream per client address, on top of the listener-wide
+	// maxPending. The slot is released when the connection is handed to Accept, where netx.LimitListener takes over
+	// the count with the same table.
 	Sources *srclimit.Table
 }
 
@@ -604,15 +423,9 @@ func ListenWith(addr string, o Options) (*Listener, error) {
 	}
 	tr := &quic.Transport{
 		Conn: pc,
-		// Every unvalidated source goes through a Retry first (RFC 9000
-		// §8.1.2), so a spoofed Initial costs the relay a stateless reply
-		// rather than a full TLS handshake and a 5-second half-open
-		// connection, and the relay stops being a 3x reflector toward the
-		// spoofed address. quic.ListenAddr leaves this nil, which never
-		// validates. The price is one extra round trip per connect, paid
-		// once per session; quic-go suggests gating this on load, but a
-		// relay connects rarely and is exposed always. Found by the
-		// 2026-09-02 adversarial review.
+		// Every unvalidated source gets a Retry first (RFC 9000 §8.1.2), so a spoofed Initial costs a stateless reply
+		// rather than a TLS handshake and half-open state, and the relay is no 3x reflector; quic.ListenAddr never
+		// validates. One extra round trip per connect: quic-go suggests gating on load, but a relay is always exposed.
 		VerifySourceAddress: func(net.Addr) bool { return true },
 	}
 	ql, err := tr.Listen(tlsConf, quicConfig())
@@ -624,8 +437,7 @@ func ListenWith(addr string, o Options) (*Listener, error) {
 		ql:     ql,
 		accept: make(chan *Conn, 16),
 		closed: make(chan struct{}),
-		// Read here, before the goroutine below exists, so the write and every
-		// later read are ordered by the goroutine's own creation.
+		// Read before the accept goroutine exists, whose creation orders every later read.
 		maxPending: maxPending,
 		sources:    o.Sources,
 	}
@@ -640,25 +452,14 @@ func (l *Listener) acceptLoop() {
 			l.Close()
 			return
 		}
-		// PENDING CONNECTIONS ARE COUNTED, and this is the only place they can
-		// be. netx.LimitListener bounds what Accept RETURNS, and a quic
-		// connection does not reach Accept until it has opened a stream -- so
-		// until 2026-09-11 a client could complete the handshake, open no
-		// stream, and sit here for the full ten seconds below outside every
-		// bound the relay has: MaxOpenConns counted none of them, and each one
-		// is a goroutine, a quic connection state and a UDP 4-tuple. A machine
-		// that repeated it held an unbounded number.
-		//
-		// Refused rather than queued, matching LimitListener's own choice and
-		// for the same reason: a queued stranger still holds everything it
-		// would hold anyway.
+		// Counted here because a quic connection reaches Accept, and netx.LimitListener, only once it opens a
+		// stream. Refused rather than queued: a queued stranger still holds everything it would hold anyway.
 		if !l.takePending() {
 			_ = qc.CloseWithError(0, "too many pending connections")
 			l.notePendingRefusal()
 			continue
 		}
-		// The per-source half of the same bound. The address is taken once
-		// and kept for the release, for the reason netx/limit.go gives.
+		// The address is taken once: release may run after the close, when RemoteAddr is not promised.
 		var release func()
 		if l.sources != nil {
 			addr := qc.RemoteAddr()
@@ -670,9 +471,7 @@ func (l *Listener) acceptLoop() {
 			}
 			release = func() { l.sources.Release(addr) }
 		}
-		// Wait for the client's stream on its own goroutine: a client that
-		// completes the handshake and then opens no stream must not stall
-		// every other pending connection.
+		// On its own goroutine, so a client that opens no stream cannot stall the other pending connections.
 		go l.awaitStream(qc, release)
 	}
 }
@@ -695,19 +494,9 @@ func (l *Listener) noteSourceRefusal() {
 		"may; %d refused so far for that reason", n)
 }
 
-// maxPending bounds connections that have handshaked and not yet opened a
-// stream. Sized as a multiple of the accept channel rather than of the relay's
-// MaxOpenConns, which this package deliberately does not know: the window is
-// ten seconds at most, a legitimate client opens its stream in one round trip,
-// and anything holding thousands of these open is not a player.
-// A var, not a const, ONLY so a test can lower it: proving the bound with the
-// shipped value would mean completing 257 real TLS 1.3 handshakes to assert one
-// refusal. Nothing writes it outside a test.
-//
-// Each Listener COPIES it in Listen and reads its own field thereafter, so a
-// test lowering it before Listen still works while nothing reads this var
-// concurrently with the test restoring it. That was a real data race, caught by
-// the race detector in CI and not by any local run (2026-09-12).
+// maxPending bounds connections that have handshaked and not yet opened a stream. Sized from the accept channel,
+// since this package does not know the relay's MaxOpenConns: a client opens its stream in one round trip. A var only
+// so a test can lower it rather than complete 257 TLS handshakes; each Listener copies it in ListenWith.
 var maxPending = 256
 
 func (l *Listener) takePending() bool {
@@ -726,9 +515,8 @@ func (l *Listener) releasePending() {
 	l.pendingMu.Unlock()
 }
 
-// notePendingRefusal logs at most once a second: the refusals ARE the flood, so
-// a line per refusal would turn a connection flood into a disk flood -- the same
-// rule netx.LimitListener follows, and the same reason.
+// notePendingRefusal logs at most once a second: the refusals are the flood, and a line each would make a connection
+// flood a disk flood.
 func (l *Listener) notePendingRefusal() {
 	l.pendingMu.Lock()
 	n := l.refusedPending + 1
@@ -742,21 +530,13 @@ func (l *Listener) notePendingRefusal() {
 	if quiet {
 		return
 	}
-	// pending, then the limit -- not the limit twice. It read
-	// `l.maxPending, l.maxPending, n` until 2026-09-12, so the one number an
-	// operator watching a handshake flood actually wants (how close the listener
-	// is to its bound) was never printed, and the line looked correct because
-	// at the moment it fires the two happen to be equal. netx.LimitListener's
-	// equivalent logs `l.open.Load()` against `l.max` and is the shape to copy.
-	// Found by the transports cell of the third adversarial review (P1d-11).
+	// pending, then the limit: the two are equal when this fires, so printing the limit twice would look right.
 	log.Printf("quicconn: refused a connection: %d already handshaked and waiting for a stream "+
 		"(limit %d); %d refused so far", pending, l.maxPending, n)
 }
 
-// awaitStream waits for the client's first stream and hands the connection
-// up. release, when non-nil, gives back the per-source pending slot; it runs
-// whether the stream arrived or not, because either way this connection
-// leaves the pending window.
+// awaitStream waits for the client's first stream and hands the connection up. release, when non-nil, gives back
+// the per-source slot whether the stream arrived or not.
 func (l *Listener) awaitStream(qc *quic.Conn, release func()) {
 	defer l.releasePending()
 	if release != nil {
@@ -771,9 +551,7 @@ func (l *Listener) awaitStream(qc *quic.Conn, release func()) {
 		return
 	}
 	c := newConn(qc, stream)
-	// The relay's hello timeout counts from here rather than from the
-	// moment it sees the connection, so this wait and the hello timer
-	// overlap instead of adding up (see tlsx.servedConn).
+	// The relay's hello timeout counts from here, so this wait and the hello timer overlap instead of adding up.
 	c.acceptedAt = acceptedAt
 	select {
 	case l.accept <- c:
@@ -801,27 +579,9 @@ func (l *Listener) Close() error {
 
 func (l *Listener) Addr() net.Addr { return l.ql.Addr() }
 
-// ------------------------------------------------------------------- Dial
-
-// dialHint explains a failed dial, and the two cases it separates are not
-// variations on one problem — they point at opposite machines.
-//
-// A LOCAL socket failure means quic-go never got as far as sending a packet:
-// quic.DialAddr's first act is net.ListenUDP on the wildcard address, and its
-// error is returned unwrapped, so it arrives here as a *net.OpError with Op
-// "listen". The relay is irrelevant to it. Wine/Proton is the case that found
-// this: Go's netFD.init issues WSAIoctl(SIO_UDP_CONNRESET) and, since the fix
-// for golang/go#68614, SIO_UDP_NETRESET, and RETURNS the error rather than
-// ignoring it — Wine does not implement them and answers WSAEOPNOTSUPP,
-// "winapi error #10045". That fails EVERY udp socket in the process, so a
-// machine showing this can serve neither quic nor plain udp and belongs on
-// tcp. Telling such a player to go check whether their relay serves quic
-// sends them to audit the one thing that cannot be the cause — which is
-// exactly what the old unconditional hint did, in a log whose previous line
-// already listed quic among the relay's offers.
-//
-// Anything else got a socket and failed afterwards, which is where the
-// relay-side question genuinely belongs.
+// dialHint explains a failed dial. quic.DialAddr opens its local udp socket first and returns that error unwrapped,
+// a *net.OpError with Op "listen": then the relay cannot be the cause (under Wine/Proton every udp socket fails).
+// Anything else got a socket and failed afterwards, where the relay-side question belongs.
 func dialHint(err error) string {
 	var oe *net.OpError
 	if errors.As(err, &oe) && oe.Op == "listen" {
@@ -833,10 +593,8 @@ func dialHint(err error) string {
 		" it moves to listen_quic only when plain udp is served too)"
 }
 
-// Dial is refused: a quic dial without a certificate verifier would accept
-// anyone, and until 2026-09-15 that is exactly what this function did. Use
-// DialWith, and say tlsx.TrustAnyCertificate out loud if that is what you
-// mean (tests, dev tools).
+// Dial is refused: a quic dial without a certificate verifier would accept anyone. Use DialWith, and say
+// tlsx.TrustAnyCertificate out loud if that is what you mean (tests, dev tools).
 func Dial(addr string, timeout time.Duration) (net.Conn, error) {
 	return nil, errors.New("quicconn: Dial verifies nothing -- use DialWith with a tlsx.Verifier")
 }
@@ -860,9 +618,7 @@ func DialWith(addr string, timeout time.Duration, verify tlsx.Verifier) (net.Con
 	if err != nil {
 		return nil, fmt.Errorf("quicconn: dial %s: %w%s", addr, err, dialHint(err))
 	}
-	// DialAddr returns once the handshake has completed, so the leaf is one the
-	// relay signed with; checked here, before the stream exists, and never in
-	// the TLS config's callbacks (tlsx.clientConfig says why).
+	// The handshake is complete, so the leaf is one the relay proved it holds; a TLS callback runs before that proof.
 	if err := tlsx.VerifyLeaf(qc.ConnectionState().TLS, verify); err != nil {
 		_ = qc.CloseWithError(0, "certificate refused")
 		return nil, fmt.Errorf("quicconn: %w", err)
@@ -872,16 +628,11 @@ func DialWith(addr string, timeout time.Duration, verify tlsx.Verifier) (net.Con
 		_ = qc.CloseWithError(0, "no stream")
 		return nil, fmt.Errorf("quicconn: open stream: %w", err)
 	}
-	// Note a QUIC stream does not exist on the wire until something is
-	// written to it, so the relay's Accept returns only once this client
-	// sends its first message — which is always the hello, immediately.
-	// Deliberately NOT nudged open with an empty line here: that would
-	// deliver a zero-length payload the relay would try to parse as an
-	// envelope, producing a spurious malformed-message error on every
-	// single quic connection.
+	// A stream exists on the wire only once written to, so the relay's Accept returns at this client's hello. Not
+	// nudged open with an empty line: the relay would parse it as a malformed envelope.
 	return newConn(qc, stream), nil
 }
 
 // TransportName identifies this connection's transport to a caller holding
-// only a net.Conn. See the equivalent in netx/udpconn.
+// only a net.Conn.
 func (c *Conn) TransportName() string { return "quic" }

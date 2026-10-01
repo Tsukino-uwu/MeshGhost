@@ -9,21 +9,9 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 )
 
-// A write followed by Close must survive loss, not only a clean loopback.
-//
-// The Windows CI run of 2026-09-23 (35802463324) failed
-// TestConformanceTheRejectStillArrivesAfterCloseGracefully on quic alone: the
-// client never saw the reject. Close used to tear the connection down a fixed
-// 250 ms after closing the stream, and CONNECTION_CLOSE discards whatever is
-// still unacknowledged -- so any loss that pushed the retransmission past that
-// window (a busy runner dropping loopback UDP; on the internet, the 1 s
-// blackouts the netsim rig models) lost the last message for good. That last
-// message is the relay's Reject and the core's goodbye. TCP does not have this
-// hole: the kernel keeps delivering a closed socket's queued bytes.
-//
-// This blacks out every server-to-client packet for 2 s from the moment of the
-// Close. With the fixed linger the connection is gone before the blackout ends;
-// the write must still arrive after it.
+// TestAWriteBeforeCloseSurvivesABlackout: the last line written before Close (the relay's Reject, the core's
+// goodbye) still arrives when every server-to-client packet is dropped for 2 s from the Close. TCP has no such hole:
+// the kernel keeps delivering a closed socket's queued bytes.
 func TestAWriteBeforeCloseSurvivesABlackout(t *testing.T) {
 	l := listenTest(t)
 	proxy := newLossyProxy(t, l.Addr().String())

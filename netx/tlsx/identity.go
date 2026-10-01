@@ -1,12 +1,7 @@
 package tlsx
 
-// The relay's persisted identity: one key pair and one certificate, kept in
-// a folder beside the relay's config so a client that connected once can
-// recognize the same relay after a restart. Until 2026-09-15 the certificate
-// lived in memory and was regenerated every run, which was right while
-// nothing checked it (ADR 0034: a key file next to the exe bought no
-// security). Now every client checks it (core's known-relays store), and a
-// persisted key is what makes that check mean anything. ADR 0066.
+// The relay's persisted identity: one key pair and one certificate, kept in a folder beside the relay's config so a
+// client that connected once recognizes the same relay after a restart, which is what makes its check mean anything.
 
 import (
 	"crypto/ed25519"
@@ -20,50 +15,36 @@ import (
 	"strings"
 )
 
-// The files LoadOrCreateIdentity keeps in its folder. All three are written
-// together; the fingerprint is derived from the certificate and is there for
-// a human to read or copy, never for the loader to trust.
-//
-// The folder is called "private" rather than "tls" on purpose (the user's
-// call, 2026-09-15): a host shares install folders, and the name has to say
-// what sharing this one does at the moment they are dragging it into a zip.
-// A README.txt inside says the same in sentences.
+// The files LoadOrCreateIdentity keeps in its folder, written together. The fingerprint is derived from the
+// certificate, for a human to read, never for the loader to trust. The folder is called "private" so its name says
+// what sharing it does to a host dragging it into a zip; a README.txt inside says the same in sentences.
 const (
 	// IdentityDirName is the folder's name, beside the relay's config.json.
 	IdentityDirName = "private"
 	// ReadmeFileName explains the folder to whoever opens it.
 	ReadmeFileName = "README.txt"
-	// KeyFileName holds the private key: PKCS#8, PEM, mode 0600 where the
-	// OS supports modes. Keep it private: whoever has it IS this relay to
-	// every client that has connected before.
+	// KeyFileName holds the private key: PKCS#8, PEM, mode 0600 where the OS supports modes. Whoever has it is this
+	// relay to every client that has connected before.
 	KeyFileName = "server.key"
-	// CertFileName holds the certificate, PEM. Persisted because a
-	// certificate re-signed from the same key has a new serial and so a new
-	// fingerprint -- the key alone does not pin the identity.
+	// CertFileName holds the certificate, PEM. A certificate re-signed from the same key has a new serial and so a
+	// new fingerprint, so the key alone does not pin the identity.
 	CertFileName = "server.crt"
-	// FingerprintFileName holds the fingerprint as one line of hex, so an
-	// operator can read it without a tool.
+	// FingerprintFileName holds the fingerprint as one line of hex, for an operator to read without a tool.
 	FingerprintFileName = "server.fingerprint"
 )
 
-// LoadOrCreateIdentity returns the listener's TLS configuration for the
-// identity kept in dir, creating one when the folder holds none.
+// LoadOrCreateIdentity returns the listener's TLS configuration for the identity kept in dir, creating one when the
+// folder holds none. The rules are all-or-nothing, and never silent:
 //
-// The rules are all-or-nothing, and never silent:
-//
-//   - Neither the key nor the certificate exists: generate both, write the
-//     three files (each through a temporary file and a rename, so a crash
-//     mid-write leaves nothing half-written), and return them.
+//   - Neither the key nor the certificate exists: generate both, write the three files (each through a temporary
+//     file and a rename), and return them.
 //   - Both exist and agree: load them.
-//   - Anything else -- one of the two is missing, either is unreadable or
-//     does not parse, the key does not match the certificate -- is an
-//     ERROR the relay should refuse to start on. Regenerating quietly in
-//     any of those cases would give the relay a new identity every client
-//     then warns about, while hiding the broken file that caused it.
+//   - Anything else (one missing, either unreadable or unparsable, the key not matching the certificate) is an error
+//     the relay should refuse to start on. Regenerating quietly would hide the broken file behind a new identity
+//     every client warns about.
 //
-// The fingerprint file is rewritten whenever it is missing or disagrees
-// with the certificate: it is derived, not identity, so it can never be
-// the reason a relay refuses to start.
+// The fingerprint file is rewritten whenever it is missing or disagrees with the certificate: it is derived, so it
+// is never the reason a relay refuses to start.
 func LoadOrCreateIdentity(dir, alpn string) (*tls.Config, string, error) {
 	keyPath := filepath.Join(dir, KeyFileName)
 	certPath := filepath.Join(dir, CertFileName)
@@ -129,9 +110,7 @@ func writeIdentity(dir string, cert tls.Certificate, fp string) error {
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]})
 
-	// The key first and most restricted. If the certificate write then fails
-	// the loader sees "key present, certificate missing" and refuses to
-	// start, which is the wanted outcome for a half-written identity.
+	// The key first: if the certificate write then fails, the loader refuses the half-written identity.
 	if err := WriteFileAtomic(filepath.Join(dir, KeyFileName), keyPEM, 0o600); err != nil {
 		return err
 	}
@@ -144,8 +123,7 @@ func writeIdentity(dir string, cert tls.Certificate, fp string) error {
 	return WriteFileAtomic(filepath.Join(dir, ReadmeFileName), []byte(readmeText), 0o644)
 }
 
-// readmeText is written beside the key on first start. Plain words, for the
-// person about to zip the folder.
+// readmeText is written beside the key on first start, in plain words for the person about to zip the folder.
 const readmeText = `This folder is your server's identity. DO NOT SHARE IT.
 
 ` + KeyFileName + `          the private key. Whoever has this file can pose as your server
@@ -167,11 +145,9 @@ changed.
 MeshGhost writes this file; you never need to edit anything here.
 `
 
-// WriteFileAtomic writes data to path through a temporary file in the same
-// directory and a rename, so a reader never sees a partial file. The mode is
-// applied to the temporary file before it holds a byte. Exported because
-// core's known-relays store writes its file the same way, and one atomic
-// write in the repo is better than two that can drift.
+// WriteFileAtomic writes data to path through a temporary file in the same directory and a rename, so a reader never
+// sees a partial file. The mode is applied before the file holds a byte. Exported for core's known-relays store, so
+// there is one atomic write rather than two that can drift.
 func WriteFileAtomic(path string, data []byte, mode os.FileMode) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp")

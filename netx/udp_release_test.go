@@ -8,10 +8,8 @@ import (
 	"time"
 )
 
-// What a RELEASE guarantees about plain udp (ADR 0065): the name is refused
-// wherever a transport can be named, nothing dials or listens on it, and
-// auto never ranks it. Each of these is the untagged half of a rule whose
-// tagged half lives in udp_dev_test.go.
+// What a release guarantees about plain udp: the name is refused wherever a transport can be named, nothing dials or
+// listens on it, and auto never ranks it. udp_dev_test.go is the tagged half.
 
 func TestUDPIsRefusedByParseKind(t *testing.T) {
 	for _, in := range []string{"udp", "UDP", " udp "} {
@@ -24,7 +22,6 @@ func TestUDPIsRefusedByParseKind(t *testing.T) {
 			t.Fatalf("ParseKinds(%q) = %v, want ErrUDPNotSupported -- a config that still says udp must not start", in, err)
 		}
 	}
-	// And the error says what to use instead.
 	if _, err := ParseKind("udp"); err == nil || err.Error() != "netx: udp is not a supported transport; use quic or tcp" {
 		t.Fatalf("the refusal does not name the alternatives: %v", err)
 	}

@@ -11,12 +11,8 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/netx/srclimit"
 )
 
-// TestPendingConnectionsAreCappedPerSourceAndDrain is the per-address half
-// of TestAHandshakedConnectionThatOpensNoStreamIsBounded, and it asserts
-// the part that test never did: the count DRAINS when the held connections
-// close, so a refused source is admitted again. The listener-wide cap stays
-// at its shipped value; only one address's cap is small, so a refusal here
-// can only come from the per-source table.
+// TestPendingConnectionsAreCappedPerSourceAndDrain: one address's pending connections are capped, and the count
+// drains when they close, so a refused source is admitted again. Only the per-source cap is small here.
 func TestPendingConnectionsAreCappedPerSourceAndDrain(t *testing.T) {
 	table := srclimit.New(srclimit.Options{MaxOpenPerSource: 2})
 	l, err := ListenWith("127.0.0.1:0", Options{Sources: table})
@@ -62,8 +58,7 @@ func TestPendingConnectionsAreCappedPerSourceAndDrain(t *testing.T) {
 	}
 	waitPending(2)
 
-	// The third from the same address is closed by the listener after its
-	// handshake; the listener-wide cap (256) is nowhere near.
+	// The third is closed by the listener after its handshake; the listener-wide cap is nowhere near.
 	third, err := dial()
 	if err == nil {
 		defer third.CloseWithError(0, "")
@@ -81,8 +76,7 @@ func TestPendingConnectionsAreCappedPerSourceAndDrain(t *testing.T) {
 		t.Fatalf("pending = %d after the refusal, want 2: a refused connection must not be counted", got)
 	}
 
-	// DRAIN: close the held ones and the count returns to zero -- the
-	// assertion the earlier test lacked (fourth review, E4).
+	// Drain: closing the held ones returns the count to zero.
 	for _, qc := range held {
 		_ = qc.CloseWithError(0, "")
 	}

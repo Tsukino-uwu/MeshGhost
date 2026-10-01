@@ -12,22 +12,9 @@ import (
 
 const testTimeout = 3 * time.Second
 
-// rawPeer is a bare UDP socket that talks to one address, standing in for the
-// net.Dial("udp", ...) these tests used until 2026-09-11.
-//
-// **The socket is deliberately UNCONNECTED, which is also what the shipped
-// dialer uses** (udpconn.Dial's net.ListenUDP with a nil local address, and its
-// comment says why). A CONNECTED udp socket is not needed to send a datagram to
-// a known address, and depending on one made this package's tests depend on the
-// machine being willing to connect() a udp socket to loopback -- which is a
-// property of the host's network stack and its filter drivers, not of this code.
-// A dev machine that refused it (WSAEADDRNOTAVAIL, "The requested address is not
-// valid in its context") failed five tests here and two in meshghost-netsim,
-// with nothing wrong in the repo and nothing wrong in what ships.
-//
-// Everything else about these tests is unchanged: each rawPeer has its own
-// ephemeral source address, which is what "from another address" means to the
-// cookie check under test.
+// rawPeer is a bare UDP socket that talks to one address. Unconnected, like the shipped dialer's: connecting a udp
+// socket to loopback depends on the host's network stack and filter drivers, not on this code. Each rawPeer has its
+// own ephemeral source address, which is what "from another address" means to the cookie check.
 type rawPeer struct {
 	pc *net.UDPConn
 	to *net.UDPAddr
@@ -40,10 +27,8 @@ func dialRaw(t *testing.T, to net.Addr) *rawPeer {
 		t.Fatalf("resolve %s: %v", to, err)
 	}
 	if ua.IP == nil || ua.IP.IsUnspecified() {
-		// A DIALED conn's local address is the UNSPECIFIED one, because the
-		// shipped dialer binds with a nil local address -- so "send to where
-		// that conn is listening" resolves to [::]:port, which Linux accepts as
-		// localhost and Windows refuses outright. Loopback is what both mean.
+		// A dialed conn's local address is the unspecified one (the dialer binds a nil address), so it resolves to
+		// [::]:port, which Linux takes as localhost and Windows refuses. Loopback is what both mean.
 		ua.IP = net.IPv6loopback
 		if ip4 := ua.IP.To4(); ip4 != nil {
 			ua.IP = ip4
@@ -104,8 +89,7 @@ func dialAndAccept(t *testing.T, l *Listener) (client, server net.Conn) {
 	}
 }
 
-// TestRoundTripBothDirections is the basic proof that a demultiplexed
-// pseudo-conn behaves like the net.Conn the rest of the codebase expects.
+// TestRoundTripBothDirections: a demultiplexed pseudo-conn behaves like the net.Conn the rest of the code expects.
 func TestRoundTripBothDirections(t *testing.T) {
 	l := listenTest(t)
 	client, server := dialAndAccept(t, l)
@@ -138,11 +122,8 @@ func readOne(t *testing.T, c net.Conn) string {
 	return string(buf[:n])
 }
 
-// TestUnvalidatedSourceNeverReachesAccept is the address-validation
-// property, and the reason this package exists rather than a bare
-// net.ListenUDP. A datagram whose source address has not proved it can
-// receive at that address must not produce a connection, or the relay could
-// be driven — and used as a reflector — by a spoofed source.
+// TestUnvalidatedSourceNeverReachesAccept: a source that has not proved it receives at its address gets no
+// connection, or a spoofed source could drive the relay and use it as a reflector.
 func TestUnvalidatedSourceNeverReachesAccept(t *testing.T) {
 	l := listenTest(t)
 
@@ -162,11 +143,8 @@ func TestUnvalidatedSourceNeverReachesAccept(t *testing.T) {
 	assertNoAccept(t, l, 300*time.Millisecond)
 }
 
-// TestCookieFromOneAddressDoesNotValidateAnother pins that the cookie is
-// bound to the address it was issued for. If it were not, one honest client
-// could hand its cookie to anyone, or an attacker could harvest one and
-// replay it from elsewhere — which would defeat the entire point of
-// validating the address.
+// TestCookieFromOneAddressDoesNotValidateAnother: a cookie is bound to the address it was issued for, so a harvested
+// one cannot be replayed from elsewhere.
 func TestCookieFromOneAddressDoesNotValidateAnother(t *testing.T) {
 	l := listenTest(t)
 
@@ -216,12 +194,8 @@ func assertNoAccept(t *testing.T, l *Listener, within time.Duration) {
 	}
 }
 
-// TestReadPreservesAPartiallyConsumedDatagram is the framing bug this
-// package would otherwise have. Real UDP throws away whatever did not fit
-// in the caller's buffer; an in-memory queue that copied that behaviour
-// would silently eat the tail of a JSON line whenever a reader passed a
-// small buffer, producing a parse error at a layer that could not explain
-// it.
+// TestReadPreservesAPartiallyConsumedDatagram: real UDP discards what does not fit the caller's buffer; the in-memory
+// queue must not, or a reader with a small buffer would lose the tail of a line.
 func TestReadPreservesAPartiallyConsumedDatagram(t *testing.T) {
 	l := listenTest(t)
 	client, server := dialAndAccept(t, l)
@@ -248,10 +222,8 @@ func TestReadPreservesAPartiallyConsumedDatagram(t *testing.T) {
 	}
 }
 
-// TestOversizedWriteIsRefusedNotFragmented covers the MTU rule. A datagram
-// large enough to be fragmented is lost whole when any one fragment is
-// lost, so this returns an error naming the fix rather than sending
-// something that will mysteriously fail on a real network.
+// TestOversizedWriteIsRefusedNotFragmented: a datagram large enough to be fragmented is lost whole when any fragment
+// is, so the write is refused with an error naming the fix.
 func TestOversizedWriteIsRefusedNotFragmented(t *testing.T) {
 	l := listenTest(t)
 	client, _ := dialAndAccept(t, l)
@@ -267,18 +239,8 @@ func TestOversizedWriteIsRefusedNotFragmented(t *testing.T) {
 		t.Errorf("error %q should name the workaround (the tcp transport)", err)
 	}
 
-	// AND IT MUST SAY SO STRUCTURALLY, not only in prose. transport.Send
-	// closes the connection on a write error -- correct on a stream, where a
-	// timed-out write can leave a line half-sent and NDJSON cannot
-	// resynchronize -- and asks the error whether any of it reached the wire
-	// before deciding. checkWritable refuses this one before the syscall, so
-	// the answer is no and the session survives one skipped message.
-	//
-	// Asserted here rather than only in netx's conformance suite because the
-	// two halves live in packages that cannot import each other (transport has
-	// no internal dependencies at all): nothing but a test on each side keeps
-	// the method and the caller in agreement. Through the %w wrap, because
-	// that is how it reaches transport. See tooLargeError (P1d-3, 2026-09-12).
+	// The refusal must also say, structurally, that nothing reached the wire, so transport.Send keeps the session.
+	// Asserted on both sides because transport cannot import this package, and through the %w wrap as it arrives.
 	var nw interface{ NotWritten() bool }
 	if !errors.As(err, &nw) {
 		t.Fatalf("error %v does not implement NotWritten; transport.Send will close the "+
@@ -289,10 +251,8 @@ func TestOversizedWriteIsRefusedNotFragmented(t *testing.T) {
 	}
 }
 
-// TestReadDeadlineExpires confirms deadlines work, which
-// transport's read loop depends on for its own idle timeout — a
-// pseudo-conn that ignored them would leave a dead UDP peer's connection
-// open forever, since UDP has no disconnect signal of its own.
+// TestReadDeadlineExpires: transport's idle timeout depends on read deadlines, since UDP has no disconnect signal of
+// its own.
 func TestReadDeadlineExpires(t *testing.T) {
 	l := listenTest(t)
 	_, server := dialAndAccept(t, l)
@@ -310,10 +270,8 @@ func TestReadDeadlineExpires(t *testing.T) {
 	}
 }
 
-// TestCookieIsBoundToItsTimeSlot pins the derivation directly, so a future
-// refactor cannot quietly make cookies constant — which would make every
-// captured cookie valid forever and turn address validation into
-// decoration.
+// TestCookieIsBoundToItsTimeSlot pins the derivation, so a refactor cannot make cookies constant and every captured
+// one valid forever.
 func TestCookieIsBoundToItsTimeSlot(t *testing.T) {
 	secret := []byte("test-secret-not-used-on-the-wire")
 	now := time.Now()
@@ -333,25 +291,13 @@ func TestCookieIsBoundToItsTimeSlot(t *testing.T) {
 	}
 }
 
-// TestInjectionFromTheRightAddressWithTheWrongTokenIsDropped is the
-// property the per-connection token exists for, and the one address
-// validation alone does not provide.
-//
-// The cookie exchange gates ADMISSION: it proves a source address is real.
-// After that, a connection used to be identified by source address alone,
-// so anyone able to spoof a live client's ip:port could inject state into
-// its session — the thing TCP makes hard by also requiring a 32-bit
-// sequence number, and the thing docs/security.md's own CelesteNet notes
-// cite as why TCP is safer by construction.
-//
-// This test forges exactly that: a datagram sent from the client's real
-// address, correctly framed, carrying a token that is merely wrong.
+// TestInjectionFromTheRightAddressWithTheWrongTokenIsDropped: a datagram from the client's real address, correctly
+// framed but carrying a wrong token, is dropped. That is what the token adds over address validation.
 func TestInjectionFromTheRightAddressWithTheWrongTokenIsDropped(t *testing.T) {
 	l := listenTest(t)
 	client, server := dialAndAccept(t, l)
 
-	// A legitimate message first, to prove the channel works at all and to
-	// establish what "delivered" looks like.
+	// A legitimate message first, to prove the channel works and what delivered looks like.
 	const real = `{"legit":true}` + "\n"
 	if _, err := client.Write([]byte(real)); err != nil {
 		t.Fatalf("write: %v", err)
@@ -381,8 +327,7 @@ func TestInjectionFromTheRightAddressWithTheWrongTokenIsDropped(t *testing.T) {
 		t.Fatalf("a datagram with the wrong token was delivered: %q", buf[:n])
 	}
 
-	// And the real connection must still work afterwards — a rejected
-	// forgery must not disturb the session it targeted.
+	// A rejected forgery must not disturb the session it targeted.
 	const after = `{"still":"working"}` + "\n"
 	if _, err := client.Write([]byte(after)); err != nil {
 		t.Fatalf("write after forgery: %v", err)
@@ -392,10 +337,8 @@ func TestInjectionFromTheRightAddressWithTheWrongTokenIsDropped(t *testing.T) {
 	}
 }
 
-// TestUnframedDatagramsAreIgnored covers the other half of making the token
-// mandatory: a bare NDJSON line, which used to be a valid unreliable
-// payload, must no longer be accepted — otherwise the token would be
-// trivially bypassable by simply not using it.
+// TestUnframedDatagramsAreIgnored: a bare NDJSON line is not accepted, or the token could be bypassed by not
+// using it.
 func TestUnframedDatagramsAreIgnored(t *testing.T) {
 	l := listenTest(t)
 	client, server := dialAndAccept(t, l)

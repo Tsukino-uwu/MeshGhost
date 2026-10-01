@@ -23,10 +23,8 @@ func listenTest(t *testing.T) *Listener {
 	return l
 }
 
-// connect brings up a client and its accepted server counterpart. Note the
-// order: a QUIC stream does not exist on the wire until it is written to,
-// so the client must send something before Accept can return — which is
-// exactly what a real client does with its hello.
+// connect brings up a client and its accepted server. The client writes first: a QUIC stream does not exist on the
+// wire, so Accept cannot return, until something is written to it.
 func connect(t *testing.T, l *Listener, firstLine string) (client, server net.Conn) {
 	t.Helper()
 	type accepted struct {
@@ -75,7 +73,6 @@ func readOne(t *testing.T, c net.Conn) string {
 	return string(buf[:n])
 }
 
-// TestStreamRoundTrip is the reliable path.
 func TestStreamRoundTrip(t *testing.T) {
 	l := listenTest(t)
 	client, server := connect(t, l, `{"type":"hello"}`+"\n")
@@ -91,10 +88,7 @@ func TestStreamRoundTrip(t *testing.T) {
 	}
 }
 
-// TestDatagramRoundTrip covers the unreliable path, which is the entire
-// reason QUIC is worth having here: without datagrams a single reliable
-// stream head-of-line blocks exactly like TCP, and the transport would buy
-// nothing but encryption.
+// TestDatagramRoundTrip covers the unreliable path, without which quic would buy nothing over tcp but encryption.
 func TestDatagramRoundTrip(t *testing.T) {
 	l := listenTest(t)
 	client, server := connect(t, l, `{"type":"hello"}`+"\n")
@@ -114,12 +108,8 @@ func TestDatagramRoundTrip(t *testing.T) {
 	}
 }
 
-// TestStreamAndDatagramsDoNotCorruptEachOther is the framing hazard this
-// package's line-buffering exists to prevent. Stream bytes and datagrams
-// are merged into one byte stream for Read, so if a datagram were spliced
-// in while only half a JSON line had arrived on the stream, the result
-// would be unparseable. Interleaving the two heavily and checking every
-// line survives intact is the only way to catch that.
+// TestStreamAndDatagramsDoNotCorruptEachOther: heavily interleaved stream lines and datagrams reach Read as whole
+// lines, never a datagram spliced into half a stream line.
 func TestStreamAndDatagramsDoNotCorruptEachOther(t *testing.T) {
 	l := listenTest(t)
 	client, server := connect(t, l, `{"n":0}`+"\n")
@@ -135,8 +125,6 @@ func TestStreamAndDatagramsDoNotCorruptEachOther(t *testing.T) {
 		}
 	}()
 
-	// Every delivered chunk must be one or more whole lines: no partial
-	// line, and nothing spliced into the middle of another.
 	if err := server.SetReadDeadline(time.Now().Add(testTimeout)); err != nil {
 		t.Fatalf("deadline: %v", err)
 	}
@@ -190,11 +178,7 @@ func itoa(i int) string {
 	return string(b)
 }
 
-// TestHandshakeIsTLS13 pins that the connection really is encrypted, and at
-// the version the room-code channel-binding work would need. Without a
-// completed TLS 1.3 handshake, ExportKeyingMaterial is not usable and that
-// follow-up would be blocked — so this is the check that keeps the door
-// open rather than a decorative assertion.
+// TestHandshakeIsTLS13 pins that the connection is encrypted at TLS 1.3 with this package's ALPN.
 func TestHandshakeIsTLS13(t *testing.T) {
 	l := listenTest(t)
 	client, _ := connect(t, l, `{"type":"hello"}`+"\n")
@@ -210,37 +194,21 @@ func TestHandshakeIsTLS13(t *testing.T) {
 	if st.NegotiatedProtocol != alpn {
 		t.Errorf("ALPN = %q, want %q", st.NegotiatedProtocol, alpn)
 	}
-	// The finding the shelved room-code binding work depends on: whether
-	// keying material can actually be exported from a quic-go connection.
-	// Recorded as a real check rather than an assumption — see
-	// agent_docs/ideas.md's transport-security section.
+	// Logged, not failed: nothing that ships exports keying material.
 	if _, err := st.ExportKeyingMaterial("meshghost-test", nil, 32); err != nil {
 		t.Logf("NOTE: ExportKeyingMaterial is NOT available on a quic-go connection: %v", err)
 		t.Logf("      the room-code channel-binding follow-up would need another mechanism")
 	}
 }
 
-// TestFinalWriteBeforeCloseIsDelivered is the regression test for a defect
-// that silently broke every send-before-close in the project on quic.
-//
-// Close() used to close the stream and tear down the whole QUIC connection in
-// the same breath. Closing a stream only signals FIN — the bytes still have to
-// be delivered, and they cannot be once the connection is gone, so the peer got
-// CONNECTION_CLOSE instead of the last message.
-//
-// This is not a hypothetical pattern. The relay writes a Reject and then closes
-// when it refuses a hello, so a client with a wrong room code saw a bare
-// hangup rather than the reason — precisely what rejectAndClose exists to
-// prevent — and the same shape carries the rate-limit Reject and the core's
-// goodbye before a deliberate leave. Found 2026-08-17 when the goodbye went
-// missing on quic while working perfectly on tcp.
+// TestFinalWriteBeforeCloseIsDelivered: a line written just before Close arrives. Closing the stream only signals FIN,
+// so the connection must outlive it until the bytes are delivered.
 func TestFinalWriteBeforeCloseIsDelivered(t *testing.T) {
 	l := listenTest(t)
 	client, server := connect(t, l, "hello\n")
 	defer server.Close()
 
-	// Drain the handshake line connect() sent, so the assertion below reads
-	// the farewell rather than what was already in flight ahead of it.
+	// Drain connect()'s line, so the assertion below reads the farewell.
 	if err := server.SetReadDeadline(time.Now().Add(testTimeout)); err != nil {
 		t.Fatalf("set read deadline: %v", err)
 	}
@@ -253,8 +221,7 @@ func TestFinalWriteBeforeCloseIsDelivered(t *testing.T) {
 	if _, err := client.Write([]byte(farewell)); err != nil {
 		t.Fatalf("write farewell: %v", err)
 	}
-	// Immediately, with no flush, no sleep and no handshake — exactly what
-	// every send-before-close site in this codebase does.
+	// Immediately, with no flush and no sleep, as every send-before-close site does.
 	if err := client.Close(); err != nil {
 		t.Fatalf("close: %v", err)
 	}
@@ -286,29 +253,15 @@ func readFull(c net.Conn, buf []byte) (int, error) {
 	return total, nil
 }
 
-// TestMaximalWorldStateFitsAQuicDatagram is the quic half of the world plane's
-// size derivation, and it exists because **quic is the default transport** while
-// the bounds were derived against udpconn.
-//
-// SendUnreliable here is a REAL datagram path (RFC 9221), not a fallback to the
-// stream, and quic-go refuses a datagram larger than the connection's current
-// path MTU rather than fragmenting it. That limit is dynamic and can sit below
-// udpconn.MaxDatagramBytes, so "it fits a 1200-byte datagram" does not by itself
-// prove a lossy world write is deliverable over quic. A refusal surfaces to the
-// caller as an error that relay only logs, so an undersized path would
-// make lossy writes quietly stop working while reliable ones (which ride the
-// stream and have no such limit) kept going.
-//
-// Round-tripped rather than merely size-checked, because the number that matters
-// is the one quic-go itself accepts.
+// TestMaximalWorldStateFitsAQuicDatagram: the largest world message the protocol permits arrives intact through
+// WriteUnreliable on quic, the default transport. A line too large for a datagram rides the stream, so this proves
+// delivery, not that the message fit one datagram.
 func TestMaximalWorldStateFitsAQuicDatagram(t *testing.T) {
 	l := listenTest(t)
 	client, server := connect(t, l, `{"type":"hello"}`+"\n")
 	readOne(t, server)
 
-	// The largest single-entry world message the protocol permits, built the way
-	// the relay builds it. Kept in step with netx/udpconn's
-	// TestMaximalWorldStateFitsAUDPDatagram, which owns the udp arithmetic.
+	// Built the way the relay builds it; kept in step with udpconn's TestMaximalWorldStateFitsAUDPDatagram.
 	blob := json.RawMessage(`"` + strings.Repeat("x", protocol.MaxWorldBlobBytes-2) + `"`)
 	payload, err := json.Marshal(protocol.WorldState{
 		Authority: strings.Repeat("a", protocol.MaxLeaseKeyLen),
@@ -341,15 +294,8 @@ func TestMaximalWorldStateFitsAQuicDatagram(t *testing.T) {
 	}
 }
 
-// TestAnUnreliableWriteTooLargeForADatagramRidesTheStream is pass 5's PM-1.
-// quic-go refuses a datagram larger than the path allows (~1.2 KB) rather
-// than fragmenting it, and until 2026-09-16 that refusal was returned as-is:
-// a state line between that and the protocol's 4 KB cap -- a full extras
-// object does it, and a tcp member sends one without noticing -- was dropped
-// on every send to every quic member, and the relay's outbox took the error
-// for a dead socket and discarded everything owed to that member for the rest
-// of its connection. A line that cannot go as a datagram goes on the stream:
-// late is better than never for a state, and the stream is framed the same.
+// TestAnUnreliableWriteTooLargeForADatagramRidesTheStream: quic-go refuses a datagram larger than the path allows
+// rather than fragmenting it, so such a line goes on the stream, whole.
 func TestAnUnreliableWriteTooLargeForADatagramRidesTheStream(t *testing.T) {
 	l := listenTest(t)
 	client, server := connect(t, l, `{"type":"hello"}`+"\n")

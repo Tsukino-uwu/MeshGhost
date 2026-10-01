@@ -12,11 +12,6 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 )
 
-// The relay's persisted identity (ADR 0066). Every test here fails against
-// the in-memory ServerConfig this replaced: a certificate regenerated per
-// process has a new fingerprint every time, which is exactly what a client
-// that remembers fingerprints cannot live with.
-
 func load(t *testing.T, dir string) (*tls.Config, string) {
 	t.Helper()
 	cfg, fp, err := tlsx.LoadOrCreateIdentity(dir, testALPN)
@@ -48,9 +43,8 @@ func TestAFreshFolderGetsAnIdentityThatIsReusedNextTime(t *testing.T) {
 	}
 }
 
-// TestALoadedIdentityIsWhatTheListenerServes: the round trip through PEM
-// must give a listener whose leaf certificate has the persisted
-// fingerprint, or the file is a decoy.
+// TestALoadedIdentityIsWhatTheListenerServes: the round trip through PEM must give a listener whose leaf has the
+// persisted fingerprint, or the file is a decoy.
 func TestALoadedIdentityIsWhatTheListenerServes(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "tls")
 	load(t, dir) // create
@@ -75,8 +69,7 @@ func TestALoadedIdentityIsWhatTheListenerServes(t *testing.T) {
 	}
 }
 
-// TestDeletingTheWholeIdentityRegeneratesIt: the documented way to a new
-// identity is to move BOTH files out. A new fingerprint follows.
+// TestDeletingTheWholeIdentityRegeneratesIt: the documented way to a new identity is to move both files out.
 func TestDeletingTheWholeIdentityRegeneratesIt(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "tls")
 	_, first := load(t, dir)
@@ -91,9 +84,8 @@ func TestDeletingTheWholeIdentityRegeneratesIt(t *testing.T) {
 	}
 }
 
-// TestHalfAnIdentityIsFatal: one of the two files missing is never a silent
-// regeneration -- that would hide a broken install behind a "new identity"
-// warning on every client.
+// TestHalfAnIdentityIsFatal: one of the two files missing is never a silent regeneration, which would hide a broken
+// install behind a "new identity" warning on every client.
 func TestHalfAnIdentityIsFatal(t *testing.T) {
 	for _, missing := range []string{tlsx.KeyFileName, tlsx.CertFileName} {
 		t.Run("missing "+missing, func(t *testing.T) {
@@ -111,8 +103,7 @@ func TestHalfAnIdentityIsFatal(t *testing.T) {
 	}
 }
 
-// TestACorruptIdentityIsFatal: garbage, and a key that is not the
-// certificate's, both refuse.
+// TestACorruptIdentityIsFatal: garbage, and a key that is not the certificate's, both refuse.
 func TestACorruptIdentityIsFatal(t *testing.T) {
 	corrupt := func(t *testing.T, dir, name string, with []byte) {
 		t.Helper()
@@ -152,8 +143,8 @@ func TestACorruptIdentityIsFatal(t *testing.T) {
 	})
 }
 
-// TestAWrongFingerprintFileIsRewrittenNotFatal: the fingerprint file is
-// derived, for humans; it can never be why a relay fails to start.
+// TestAWrongFingerprintFileIsRewrittenNotFatal: the fingerprint file is derived, for humans; it can never be why a
+// relay fails to start.
 func TestAWrongFingerprintFileIsRewrittenNotFatal(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "tls")
 	_, fp := load(t, dir)
@@ -176,9 +167,8 @@ func TestAWrongFingerprintFileIsRewrittenNotFatal(t *testing.T) {
 	}
 }
 
-// TestTheKeyIsPrivate: 0600 where the OS has modes. Windows has ACLs
-// instead, and Go's Chmod there touches only the read-only bit, so the
-// assertion is skipped rather than faked.
+// TestTheKeyIsPrivate: 0600 where the OS has modes. Windows has ACLs instead and Go's Chmod there touches only the
+// read-only bit, so the assertion is skipped rather than faked.
 func TestTheKeyIsPrivate(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("file modes are not a thing on Windows; the key's mode is asserted on POSIX in CI")
@@ -194,9 +184,7 @@ func TestTheKeyIsPrivate(t *testing.T) {
 	}
 }
 
-// TestTheFolderExplainsItself: the README is written with the identity and
-// names the key as the file never to share -- the folder's name is the hint,
-// the README is the explanation.
+// TestTheFolderExplainsItself: the README is written with the identity and names the key as the file never to share.
 func TestTheFolderExplainsItself(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), tlsx.IdentityDirName)
 	load(t, dir)
@@ -211,8 +199,8 @@ func TestTheFolderExplainsItself(t *testing.T) {
 	}
 }
 
-// TestNoTemporaryFileIsLeftBehind: the atomic write cleans up after itself,
-// so a tls/ folder never accumulates .tmp files a host would wonder about.
+// TestNoTemporaryFileIsLeftBehind: the atomic write cleans up after itself, so the identity folder never accumulates
+// .tmp files a host would wonder about.
 func TestNoTemporaryFileIsLeftBehind(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "tls")
 	load(t, dir)

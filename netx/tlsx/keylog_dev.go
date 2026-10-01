@@ -2,14 +2,9 @@
 
 package tlsx
 
-// Dev-only: TLS session keys for Wireshark. With the meshghost_devudp build
-// tag (the same tag that keeps plain udp alive, ADR 0065) and SSLKEYLOGFILE
-// set in the environment, every listener and client configuration this
-// package builds appends its session secrets to that file in the NSS key
-// log format Wireshark reads, so a capture of an encrypted session can be
-// decoded on the developer's own machine. A release build has no such
-// hook: keylog_release.go's keyLogWriter is always nil, and the environment
-// variable does nothing (ADR 0066).
+// Dev-only TLS session keys for Wireshark: with the meshghost_devudp tag and SSLKEYLOGFILE set, every configuration
+// this package builds appends its session secrets to that file in the NSS key log format, so a capture can be decoded
+// on the developer's own machine. A release has no such hook (keylog_release.go).
 
 import (
 	"log"

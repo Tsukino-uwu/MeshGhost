@@ -5,39 +5,12 @@ import (
 	"sync"
 )
 
-// UDPUsable reports whether this machine can create a udp socket at all, and
-// caches the answer for the life of the process.
+// UDPUsable reports whether this process can create a udp socket at all, and caches the answer for its life. quic's
+// first act is net.ListenUDP on the wildcard address, so a process that cannot open one cannot have quic or udp.
 //
-// It exists because "can I do quic" and "can I do plain udp" are not two
-// questions on some platforms — they are one, answered before a single packet
-// moves. quic.DialAddr's first act is net.ListenUDP on the wildcard address,
-// and udpconn's is the same, so a machine that cannot open a udp socket cannot
-// have either transport no matter what the relay offers.
-//
-// Wine/Proton is the case that found it. Go's netFD.init issues
-// WSAIoctl(SIO_UDP_CONNRESET) and, since the fix for golang/go#68614,
-// SIO_UDP_NETRESET, and RETURNS the error rather than ignoring it; Wine does
-// not implement them and answers WSAEOPNOTSUPP ("winapi error #10045"), so
-// EVERY udp socket in the process fails. A Proton tester's log showed the cost:
-// two doomed quic dials and up to seven seconds of connect delay on every
-// single game launch, forever, because the per-process condemnation in
-// Core.unusableTransports is relearned from scratch each time the core starts.
-//
-// # Why this is a probe and not a platform check
-//
-// Asking "am I under Wine" would answer today's question and be wrong later:
-// Wine that implements the ioctls would be denied quic by a hard-coded rule it
-// no longer deserves. Asking the machine to actually open a socket costs one
-// syscall at startup, needs no Wine detection, and is right on any platform
-// that fails udp for any reason — including ones nobody has hit yet.
-//
-// It is also self-scoping, which is the property that matters when a Linux
-// player has both clients available. This asks about THIS PROCESS. A
-// Wine-hosted client autostarted by the game answers false; a native Linux
-// client, which is a different process on the Linux side of the prefix, opens
-// its socket normally and answers true — even when both read the same
-// config.json out of the same game folder. No setting has to describe the
-// situation, and no setting can describe it wrongly.
+// Under Wine, Go's netFD.init returns the WSAEOPNOTSUPP that Wine answers to WSAIoctl(SIO_UDP_CONNRESET) and
+// SIO_UDP_NETRESET, so every udp socket in the process fails. Opening a socket rather than detecting Wine stays right
+// once Wine implements the ioctls, and scopes itself: a native Linux client beside a Wine-hosted one answers true.
 func UDPUsable() bool {
 	udpUsableOnce.Do(func() {
 		c, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})

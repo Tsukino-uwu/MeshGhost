@@ -2,20 +2,8 @@
 
 package udpconn
 
-// The world plane's bounds are DERIVED from this package's own constants, not
-// chosen. They live in protocol, which has no internal dependencies by
-// design and therefore cannot see reorderWindow or the framing sizes at all —
-// so the relationship is asserted here, in the one package that can, the same
-// discipline RateLimitHeadroomMultiple already follows.
-//
-// **These are the tests that would have caught the pre-existing sizing bug.**
-// MaxEventBytes' own comment claims it was sized to fit under MaxDatagramBytes
-// and it is not: a maximal Event marshals to 1441 bytes and cannot be
-// delivered to a udp peer at all, failing checkWritable with nothing but a log
-// line. Shrinking those constants is a contract change with its own trade-offs,
-// so it is recorded in agent_docs/risks.md as its own decision rather than made
-// here — but the assertion below is the shape that should be retrofitted to
-// events and escrow when it is taken.
+// The world plane's bounds derive from this package's constants, which protocol cannot see (it has no internal
+// dependencies), so the relationship is asserted here, in the one package that can.
 
 import (
 	"encoding/json"
@@ -56,15 +44,9 @@ func maximalWorldStateLine(t *testing.T) int {
 	return len(line)
 }
 
-// TestMaximalWorldStateFitsAUDPDatagram is the assertion the world plane's
-// bounds were derived from.
-//
-// checkWritable refuses any datagram over MaxDatagramBytes minus its framing,
-// INCLUDING a reliable one, and the refusal surfaces only as a "relay: send to
-// pX failed:" line in the relay's log — so a message that does not fit is lost
-// for that recipient, silently, and is never superseded. A custody message that
-// vanished that way would leave one client permanently looking at a different
-// world.
+// TestMaximalWorldStateFitsAUDPDatagram is the assertion the world plane's bounds were derived from. checkWritable
+// refuses an oversized datagram, reliable included, so a custody message that did not fit would be lost for that
+// recipient and never superseded, leaving one client looking at a different world.
 func TestMaximalWorldStateFitsAUDPDatagram(t *testing.T) {
 	// The reliable path's framing: a two-byte header, the session token, and
 	// the sequence number. See Conn.Write's own call to checkWritable.
@@ -92,15 +74,9 @@ func TestBatchedWorldStateFitsAUDPDatagram(t *testing.T) {
 	}
 }
 
-// TestWorldSnapshotNeverExceedsTheReorderWindow is why MaxWorldKeysPerRoom is
-// 64 and not a round number somebody liked.
-//
-// A snapshot is delivered reliably and can be as wide as one message per entity
-// in the pathological case. A reliable burst wider than the receiver's reorder
-// window is not held, is therefore not acked, and the sender retries it at
-// retryInterval for maxRetries before giving up and CLOSING THE CONNECTION — so
-// raising the room cap without raising the window turns a large world into a
-// disconnect at exactly the moment a new host adopts it.
+// TestWorldSnapshotNeverExceedsTheReorderWindow is why MaxWorldKeysPerRoom is 64. A reliable burst wider than the
+// receiver's reorder window is not held, so not acked, and is retried until the connection closes: raising the room
+// cap without the window turns a new host adopting a large world into a disconnect.
 func TestWorldSnapshotNeverExceedsTheReorderWindow(t *testing.T) {
 	if protocol.MaxWorldKeysPerRoom > reorderWindow {
 		t.Fatalf("protocol.MaxWorldKeysPerRoom is %d but this package's reorderWindow is %d -- a "+
@@ -131,34 +107,17 @@ func maximalEventLine(t *testing.T) int {
 	return len(line)
 }
 
-// TestMaximalEventDoesNotFitAUDPDatagram pins the CURRENT, known-wrong state
-// rather than asserting the guarantee we would like.
-//
-// MaxEventBytes' doc comment claimed that 1024 was chosen so a
-// whole event envelope fits under MaxDatagramBytes, "so an event means the same
-// thing on every transport". It does not: a maximal event overshoots, and is
-// then refused by checkWritable for every udp peer with nothing but a relay log
-// line to show for it. The comment has been corrected; this test is what stops
-// the claim coming back, and what will fail the day somebody shrinks the
-// constant to make it true — at which point flip the assertion.
-//
-// Shrinking MaxEventBytes is a contract revision with its own trade-offs and is
-// recorded in agent_docs/risks.md as its own decision, so this test asserts
-// reality, and names the gap in its failure message rather than hiding it.
-// The sizes themselves, asserted rather than described. Three files carried a
-// figure for "how big is a maximal event" and all three were wrong (~1310 in
-// two comments, 1321 in agent_docs/risks.md, against a real 1441) because
-// nothing checked them -- the tests above assert only the INEQUALITY, which
-// stays true however far off the number is. A prose number nobody can fail is
-// a number that drifts; these two constants fail loudly instead.
-//
-// If a protocol change moves them, update the constants and every place that
-// quotes them (the failure message names them).
+// maximalEventLineBytes and maximalEscrowLineBytes are the measured sizes, asserted rather than described: the
+// inequality checks stay true however far a quoted figure drifts. If a protocol change moves them, update every
+// place that quotes them (the failure messages name them).
 const (
 	maximalEventLineBytes  = 1441
 	maximalEscrowLineBytes = 3302
 )
 
+// TestMaximalEventDoesNotFitAUDPDatagram pins the current, known gap rather than the guarantee: a maximal event
+// overshoots a datagram and is refused for every udp peer. Shrinking MaxEventBytes is a contract revision; if it is
+// ever made, invert this test into the guarantee.
 func TestMaximalEventDoesNotFitAUDPDatagram(t *testing.T) {
 	const framing = 2 + tokenLen + seqLen
 
@@ -176,10 +135,8 @@ func TestMaximalEventDoesNotFitAUDPDatagram(t *testing.T) {
 	}
 }
 
-// TestMaximalCommittedEscrowDoesNotFitAUDPDatagram is the same gap, wider: a
-// committed EscrowState carries TWO blobs of up to MaxEscrowBlobBytes each, so
-// it overshoots by more than an event does and in every case rather than only
-// the maximal one. Nothing documented this anywhere before the 2026-08-18 audit.
+// TestMaximalCommittedEscrowDoesNotFitAUDPDatagram is the same gap, wider: a committed EscrowState carries two blobs
+// of up to MaxEscrowBlobBytes, so it overshoots in every case, not only the maximal one.
 func TestMaximalCommittedEscrowDoesNotFitAUDPDatagram(t *testing.T) {
 	const framing = 2 + tokenLen + seqLen
 

@@ -1,27 +1,12 @@
-// Package netx is the transport-selection seam: it turns a transport name
-// from config.json ("tcp", "udp", "quic") into an ordinary net.Listener or
-// net.Conn, and nothing else.
+// Package netx is the transport-selection seam: it turns a transport name from config.json ("tcp", "udp", "quic")
+// into an ordinary net.Listener or net.Conn, and nothing else.
 //
-// Everything above this package stays transport-agnostic as a result.
-// relay's Serve takes a net.Listener and handleConn a net.Conn, so
-// neither changes to gain a transport; transport wraps whatever
-// net.Conn it is handed in the same NDJSON framing regardless. That is the
-// point of doing the work at this layer rather than by adding a second
-// Transport implementation: the relay's per-connection-goroutine model —
-// which Client.gateMu's comment in relay leans on when it says
-// everything else needs no lock because "OnReceive is serial" — survives
-// untouched. See the transport ADR in agent_docs/architecture.md.
+// Everything above it stays transport-agnostic: relay's Serve takes a net.Listener and transport frames any net.Conn
+// in NDJSON, so the relay's per-connection-goroutine model, which its locking relies on, survives every transport.
+// Like transport, it is a leaf package: no dependency on protocol, core or relay.
 //
-// This package deliberately has no dependency on protocol,
-// core, or relay, the same leaf-package discipline
-// transport keeps.
-//
-// Note for datagram transports: one datagram carries exactly one NDJSON
-// line. NDJSON framing is redundant there but harmless, and keeping it
-// means a single Transport implementation covers all three.
-//
-// How this package fits the whole -- the life of a connection and of a state
-// message, traced across all of them -- is docs/networking.md.
+// On a datagram transport one datagram carries exactly one NDJSON line; the framing is redundant there but lets one
+// Transport implementation cover every kind.
 package netx
 
 import (
@@ -38,55 +23,36 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 )
 
-// Kind is a selectable transport. The zero value is TCP, which is both the
-// default and the only one that existed before selectable transports — so
-// any zero-valued struct keeps the original behaviour.
+// Kind is a selectable transport. The zero value is TCP, the default, so a zero-valued struct gets it.
 type Kind int
 
 const (
-	// TCP is newline-delimited JSON over a TCP stream. The default, and
-	// the only transport that can be read with netcat or a packet capture
-	// — see docs/security.md's transport section.
+	// TCP is newline-delimited JSON over a TCP stream, which ListenWithTLS and DialWithTLS wrap in TLS. The default.
 	TCP Kind = iota
 
-	// UDP is one datagram per NDJSON line, with delivery guaranteed only
-	// for messages sent via Transport.Send. It cannot be encrypted: Go's
-	// standard library has no DTLS, so a room code on this transport
-	// crosses the wire in the clear with no way to fix it. Use QUIC if
-	// encryption matters.
+	// UDP is one datagram per NDJSON line, delivered reliably only for Transport.Send. It cannot be encrypted (Go's
+	// standard library has no DTLS) and exists only in the dev build.
 	UDP
 
-	// QUIC is one datagram per NDJSON line over a QUIC connection, whose
-	// handshake is TLS 1.3 — so it is encrypted and resistant to address
-	// spoofing without any extra configuration.
+	// QUIC carries reliable lines on one stream and unreliable ones as datagrams over a QUIC connection, whose
+	// handshake is TLS 1.3, so it is encrypted and resists address spoofing with no extra configuration.
 	QUIC
 
-	// Auto is a client-only placeholder: ask the relay what it serves, then
-	// use the best of those. It is never a real transport, so Listen and
-	// Dial refuse it — core resolves it to a concrete Kind before
-	// either is called. See the transport discovery ADR in
-	// agent_docs/architecture.md.
+	// Auto is a client-only placeholder: ask the relay what it serves, then use the best of those. Listen and Dial
+	// refuse it; core resolves it to a concrete Kind first.
 	Auto
 )
 
-// AutoPreference, the order Auto picks in, lives in udp_release.go (QUIC,
-// TCP -- what ships) and udp_dev.go (plus UDP last, under the
-// meshghost_devudp tag). ADR 0065.
+// AutoPreference, the order Auto picks in, is per build: udp_release.go ships quic then tcp, udp_dev.go adds udp last.
 
-// ParseKind resolves a transport name from config or a flag. It is
-// deliberately strict: an unrecognized value is an error rather than a
-// silent fall back to TCP, because a typo would otherwise downgrade the
-// transport without saying so. That is the same trap already recorded in
-// agent_docs/risks.md for a stale binary silently ignoring room_code.
+// ParseKind resolves a transport name from config or a flag. An unrecognized value is an error, never a fall back to
+// TCP, so a typo cannot downgrade the transport without saying so.
 func ParseKind(s string) (Kind, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "tcp":
 		return TCP, nil
 	case "udp":
-		// A release refuses the name outright (udp_release.go); the dev build
-		// accepts it. Refusing rather than falling back to tcp is the same
-		// choice the default arm makes for a typo: a transport the user did
-		// not get should be an error they see.
+		// A release refuses the name rather than fall back to tcp, as the default arm does for a typo.
 		return parseUDPKind()
 	case "quic":
 		return QUIC, nil
@@ -97,10 +63,8 @@ func ParseKind(s string) (Kind, error) {
 	}
 }
 
-// ParseKinds resolves a comma-separated list, for the relay, which may
-// serve several transports at once. Order is preserved and duplicates are
-// dropped. An empty list is an error rather than a default, so a
-// misconfigured relay refuses to start instead of quietly listening on
+// ParseKinds resolves a comma-separated list for the relay, which may serve several transports at once. Order is kept
+// and duplicates dropped. An empty list is an error, so a misconfigured relay refuses to start rather than listen on
 // something the operator did not choose.
 func ParseKinds(s string) ([]Kind, error) {
 	var out []Kind
@@ -126,16 +90,8 @@ func ParseKinds(s string) ([]Kind, error) {
 		return nil, fmt.Errorf("netx: no transport named in %q (want a comma-separated list of tcp, udp, quic)", s)
 	}
 
-	// tcp is mandatory and is prepended if the operator left it out. Every
-	// client handshakes over tcp before moving to anything else — that is
-	// what lets it discover which transports exist and on which ports — so
-	// a relay without tcp would be unreachable by every client, including
-	// ones configured for the very transports it does serve.
-	//
-	// Silently adding it rather than refusing to start: the operator asked
-	// to serve udp/quic and still gets exactly that, plus the leg that makes
-	// them reachable. Found by internal/e2e when a udp-only relay stopped
-	// being connectable.
+	// Every client handshakes over tcp first to learn which transports exist and on which ports, so a relay without
+	// tcp is unreachable; it is added rather than refused, since the operator still gets what they asked for.
 	if !seen[TCP] {
 		out = append([]Kind{TCP}, out...)
 	}
@@ -157,11 +113,8 @@ func (k Kind) String() string {
 	}
 }
 
-// Listen starts a listener for k on addr.
-//
-// Every kind returns a plain net.Listener whose Accept yields a net.Conn,
-// including the datagram ones — the demultiplexing that makes that true for
-// UDP lives in the udpconn subpackage, and QUIC's equivalent in quicconn.
+// Listen starts a listener for k on addr. Every kind, the datagram ones included, returns a plain net.Listener; the
+// demultiplexing lives in udpconn and quicconn.
 func Listen(k Kind, addr string) (net.Listener, error) {
 	return listenWith(k, addr, nil)
 }
@@ -191,9 +144,7 @@ func Dial(k Kind, addr string, timeout time.Duration) (net.Conn, error) {
 	case UDP:
 		return udpDial(addr, timeout)
 	case QUIC:
-		// quic is TLS by construction, so a dial that verifies nothing is
-		// the same downgrade a plaintext tcp dial would be. Refused here
-		// rather than trusted; DialWithTLS is the one dial for it.
+		// quic is TLS by construction, so a dial that verifies nothing would be a downgrade.
 		return nil, errors.New("netx: quic must be dialed through DialWithTLS, which verifies the relay's certificate")
 	case Auto:
 		return nil, fmt.Errorf("netx: %q must be resolved to a concrete transport before dialing (core does this via relay discovery)", Auto)
@@ -202,48 +153,33 @@ func Dial(k Kind, addr string, timeout time.Duration) (net.Conn, error) {
 	}
 }
 
-// TLSALPN is the ALPN identifier for MeshGhost's NDJSON protocol carried
-// over TLS on the tcp transport. Both ends must agree or the handshake
-// fails outright, which is the wanted outcome when something else entirely
-// is listening on the port.
+// TLSALPN is the ALPN identifier for MeshGhost's NDJSON over TLS on tcp. Both ends must agree or the handshake fails,
+// which is what is wanted when something else is listening on the port.
 const TLSALPN = "meshghost"
 
-// TLSOptions is what every shipped transport needs to be encrypted AND
-// verified: the relay's one identity on the listen side, a verifier of it on
-// the dial side. It is deliberately separate from Kind: TLS is not a fourth
-// transport, it is a property every shipped one has. There is no mode --
-// since 2026-09-15 there is nothing to switch (ADR 0066).
-//
-// tcp is wrapped in tlsx; quic's own handshake is TLS 1.3 and is given the
-// same certificate and the same verifier. The tagged dev-only udp transport
-// cannot be encrypted (Go's standard library has no DTLS) and ignores every
-// field here; it never ships (ADR 0065).
+// TLSOptions is what every shipped transport needs to be encrypted and verified: the relay's one identity on the
+// listen side, a verifier of it on the dial side. TLS is not a fourth Kind but a property of every shipped one: tcp is
+// wrapped in tlsx, and quic's own TLS 1.3 handshake gets the same certificate and verifier. The dev-only udp transport
+// ignores every field.
 type TLSOptions struct {
-	// Server is the listener's identity (tlsx.LoadOrCreateIdentity, or
-	// tlsx.ServerConfig in a test). Listen-side, required for tcp and quic
-	// -- the caller builds it so it can log the fingerprint and serve one
-	// certificate on every listener.
+	// Server is the listener's identity (tlsx.LoadOrCreateIdentity, or tlsx.ServerConfig in a test), required
+	// listen-side for tcp and quic. The caller builds it so it can log the fingerprint and serve one certificate on
+	// every listener.
 	Server *tls.Config
 
-	// Verify checks the relay's leaf certificate during the dial-side
-	// handshake, on tcp and quic alike. Required: a nil verifier is an
-	// error, never an unchecked connection. core supplies its known-relays
-	// store's verifier; a test says tlsx.TrustAnyCertificate.
+	// Verify checks the relay's leaf certificate in the dial-side handshake, on tcp and quic alike. A nil verifier is
+	// an error, never an unchecked connection.
 	Verify tlsx.Verifier
 
-	// Logf receives the listener's per-connection notices. Nil means the
-	// standard logger.
+	// Logf receives the listener's per-connection notices. Nil means the standard logger.
 	Logf func(format string, args ...any)
 
-	// MaxOpenConns bounds accepted-and-not-yet-closed connections per
-	// listener, counted beneath the TLS layer so handshakes count too; 0
-	// means unbounded. Listen-side only. See LimitListener.
+	// MaxOpenConns bounds open connections per listener, counted beneath TLS so handshakes count too; 0 means
+	// unbounded. Listen-side only.
 	MaxOpenConns int
 
-	// Sources, when set, bounds the same thing PER CLIENT ADDRESS, through
-	// every listener that shares the table -- and quic's pending gate, the
-	// window before Accept that MaxOpenConns cannot see. Listen-side only.
-	// See LimitOptions.Sources and package srclimit.
+	// Sources, when set, bounds the same per client address across every listener sharing the table, and quic's
+	// pending gate before Accept, which MaxOpenConns cannot see. Listen-side only.
 	Sources *srclimit.Table
 }
 
@@ -255,10 +191,9 @@ func (o TLSOptions) logf(format string, args ...any) {
 	log.Printf(format, args...)
 }
 
-// ListenWithTLS is Listen with the relay's identity: tcp is wrapped so
-// every accepted connection is a completed TLS handshake (a plaintext one
-// is closed, with a throttled log line), and quic serves the same
-// certificate. This is the only listen the shipped relay makes.
+// ListenWithTLS is Listen with the relay's identity: every accepted tcp connection is a completed TLS handshake (a
+// plaintext one is closed, with a throttled log line), and quic serves the same certificate. It is the only listen
+// the shipped relay makes.
 func ListenWithTLS(k Kind, addr string, opts TLSOptions) (net.Listener, error) {
 	if opts.Server == nil && (k == TCP || k == QUIC) {
 		return nil, fmt.Errorf("netx: ListenWithTLS(%s) needs the relay's identity in TLSOptions.Server", k)
@@ -289,26 +224,10 @@ func ListenWithTLS(k Kind, addr string, opts TLSOptions) (net.Listener, error) {
 	return wrapped, nil
 }
 
-// DialWithTLS is the one dial a client makes: tcp handshaked through tlsx,
-// quic through its own TLS 1.3 handshake, both verified by opts.Verify.
-//
-// The rule is the whole security-relevant part, so it is stated plainly: a
-// client NEVER falls back to plaintext, and never accepts a certificate its
-// verifier did not. A relay that cannot complete a handshake gets no bytes,
-// not even a hello.
-//
-// Until 2026-09-15 there was an "auto" mode that fell back to plaintext
-// once, with a warning, so a client could still reach a relay built before
-// TLS existed. The fourth adversarial review (A1) showed what that
-// allowance cost: ANY failed handshake took the fallback -- a dropped
-// ClientHello, a reset, the 3 s discovery timeout -- and the plaintext
-// redial carried the room code, so an on-path party only had to break one
-// handshake to read it. And nothing could tell an old relay from that
-// party, because a plaintext relay never answers a ClientHello with bytes.
-// Every release since 2026-08-19 speaks TLS, so the allowance was
-// withdrawn, and the same day the mode went with it (user decision; ADR
-// 0066). The tagged dev-only udp transport is the one plaintext dial left,
-// and it never ships.
+// DialWithTLS is the one dial a client makes: tcp handshaked through tlsx, quic through its own TLS 1.3 handshake,
+// both verified by opts.Verify. A client never falls back to plaintext and never accepts a certificate its verifier
+// did not; a relay that cannot complete a handshake gets no bytes, not even a hello, since any fallback is a downgrade
+// an on-path party triggers by breaking one handshake. The dev-only udp transport is the one plaintext dial left.
 func DialWithTLS(k Kind, addr string, timeout time.Duration, opts TLSOptions) (net.Conn, error) {
 	switch k {
 	case UDP:

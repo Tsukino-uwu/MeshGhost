@@ -2868,3 +2868,7 @@ record held went to [verified.md](../verified.md), same date; a doc pointer a co
   constant that does not exist (`stopJoinBudget`), a stub said to record what was written (it counts sends), every
   shipped adapter said to send no floor (all four send `min_protocol_version` 2), and a relay with no code said to
   welcome a client that has one (it is refused).
+- `netx/` (54 files): comment lines 3,041 → 1,066. Stale claims fixed: tcp called readable with netcat (every tcp leg is
+  TLS), udp and the tcp handshake said to carry the room code in the clear (it is proven, never sent), quic called one
+  datagram per line (reliable lines ride a stream), a TLS connection-state accessor called unused (`PeerFingerprint`
+  calls it), and an idle source entry described by its last use (one with an open connection is never idle).

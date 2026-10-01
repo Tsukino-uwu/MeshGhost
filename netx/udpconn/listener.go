@@ -10,15 +10,6 @@ import (
 	"time"
 )
 
-// Split out of udpconn.go on 2026-08-27, along the banner comments that file had already drawn
-// around its four concerns -- so the cut lines were chosen by whoever wrote them, not by this
-// pass. Same precedent as relay/online.go into one file per plane (2026-08-25). udpconn.go keeps
-// the package doc, the wire format, the constants and ErrDatagramTooLarge, which every part uses.
-//
-// Listener: one UDP socket demultiplexed into one Conn per remote address, plus admission.
-
-// --------------------------------------------------------------- Listener
-
 // Listener is a net.Listener over one UDP socket, demultiplexing by remote
 // address.
 type Listener struct {
@@ -32,10 +23,8 @@ type Listener struct {
 	mu    sync.Mutex
 	conns map[string]*Conn
 
-	// wmu serializes writes on pc, which every accepted Conn shares with
-	// this listener. It guards the socket's write deadline, which is
-	// per-socket state and was being set per-connection. See
-	// Conn.socketWriteMu.
+	// wmu serializes writes on pc, which every accepted Conn shares: the write deadline is per-socket state (see
+	// Conn.socketWriteMu).
 	wmu sync.Mutex
 }
 
@@ -79,9 +68,8 @@ func (l *Listener) readLoop() {
 			return
 		}
 		if n > MaxDatagramBytes {
-			// Nothing this package sends is that large, so it is not ours;
-			// dropped without touching l.conns. See readBufferBytes for why
-			// it must be read in full rather than left to the socket.
+			// Nothing this package sends is that large, so it is not ours; it is still read in full (see
+			// readBufferBytes).
 			continue
 		}
 		l.handle(buf[:n], remote)
@@ -100,9 +88,8 @@ func (l *Listener) handle(b []byte, remote *net.UDPAddr) {
 		}
 		switch b[1] {
 		case ctrlHello:
-			// Stateless challenge: nothing is remembered about this
-			// address until it proves it can receive at the address it
-			// claims. See the package doc on why storing would be worse.
+			// Stateless challenge: nothing is remembered about this address until it proves it receives at the
+			// address it claims.
 			out := append([]byte{ctrlPrefix, ctrlCookie}, cookieFor(l.secret, key, currentSlot(time.Now()))...)
 			_, _ = l.pc.WriteToUDP(out, remote)
 			return
@@ -113,11 +100,8 @@ func (l *Listener) handle(b []byte, remote *net.UDPAddr) {
 			l.admit(remote, key)
 			return
 		case ctrlData, ctrlLossy, ctrlAck:
-			// Application traffic, which only means anything for an
-			// already-admitted connection — and handleControl additionally
-			// requires that connection's own token, so neither an
-			// unvalidated source nor one that merely guessed a live
-			// client's ip:port can inject on anyone's behalf.
+			// Only for an admitted connection, and handleControl also requires its token, so neither an
+			// unvalidated source nor one that guessed a live client's ip:port can inject on anyone's behalf.
 			if c := l.lookup(key); c != nil {
 				if payload := c.handleControl(b); payload != nil {
 					c.deliver(payload)
@@ -129,9 +113,7 @@ func (l *Listener) handle(b []byte, remote *net.UDPAddr) {
 		}
 	}
 
-	// Anything that is not a control frame is not application data either:
-	// since the token became mandatory, every real payload is wrapped. An
-	// unwrapped datagram is either an old peer or a probe, and is dropped.
+	// Anything else is not application data either: every real payload is a control frame, so it is dropped.
 }
 
 func (l *Listener) lookup(key string) *Conn {
@@ -148,11 +130,8 @@ func (l *Listener) admit(remote *net.UDPAddr, key string) {
 	l.mu.Lock()
 	if existing, exists := l.conns[key]; exists {
 		l.mu.Unlock()
-		// Re-send the token, which is what the comment above has always
-		// claimed a repeated confirm does: the retry exists because the
-		// client has not seen a ready, so answering it with silence turned
-		// one lost ready datagram into a failed Dial. Idempotent -- same
-		// connection, same token (2026-09-08).
+		// Re-send the token: the retry means the client has not seen a ready, and silence would turn one lost ready
+		// into a failed Dial. Same connection, same token.
 		ready := append([]byte{ctrlPrefix, ctrlReady}, existing.token[:]...)
 		_, _ = l.pc.WriteToUDP(ready, remote)
 		return
@@ -171,22 +150,9 @@ func (l *Listener) admit(remote *net.UDPAddr, key string) {
 	l.conns[key] = c
 	l.mu.Unlock()
 
-	// NEVER BLOCK HERE. admit runs on readLoop -- the one goroutine that
-	// reads the socket for EVERY connection on it -- so parking on a full
-	// accept queue reads no datagram for any live client until the relay
-	// gets round to Accept, and the kernel receive buffer fills behind it.
-	// deliver() in conn.go is non-blocking for exactly this reason and says
-	// so; until 2026-09-08 this send was not, which made the accept queue
-	// (16 deep) a stall on the whole transport.
-	//
-	// A queue-full admission is DROPPED rather than queued elsewhere: an
-	// unaccepted connection has proven nothing yet -- no room, no player,
-	// no state -- so losing it costs a handshake and nothing more, and the
-	// client's own confirm retries (dial.go) re-run this whole path within
-	// 500ms, by which time the relay has usually drained one. Registering
-	// it and then walking that back is what keeps the drop honest: if it is
-	// not going to be accepted, no token is issued, so the client is not
-	// left believing it has a session the listener will never serve.
+	// Never block: admit runs on readLoop, the one goroutine reading the socket for every connection, so a full
+	// accept queue would stall them all. A dropped admission costs one handshake, which the client's confirm retries
+	// re-run, and forgetting the key means no token is issued for a session the listener will never serve.
 	select {
 	case l.accept <- c:
 	case <-l.closed:
@@ -197,10 +163,7 @@ func (l *Listener) admit(remote *net.UDPAddr, key string) {
 		return
 	}
 
-	// Hand the token over. Retransmitted by the client's own confirm
-	// retries if this datagram is lost: an unanswered confirm makes the
-	// client send another, and admit above is idempotent for an address
-	// that already has a Conn, so this send is what repeats.
+	// Hand the token over. If it is lost, the client's next confirm makes admit above re-send it.
 	ready := append([]byte{ctrlPrefix, ctrlReady}, c.token[:]...)
 	_, _ = l.pc.WriteToUDP(ready, remote)
 }
@@ -225,25 +188,9 @@ func (l *Listener) Close() error {
 		close(l.closed)
 		_ = l.pc.Close()
 
-		// SNAPSHOT UNDER THE LOCK, CLOSE OUTSIDE IT. Holding l.mu across
-		// c.once.Do() is a lock-ordering deadlock, found 2026-09-01 in a
-		// goroutine dump from a test binary that hung for ten minutes:
-		//
-		//   Conn.Close   takes c.once, then calls l.forget() -> wants l.mu
-		//   Listener.Close takes l.mu,  then calls c.once.Do -> wants c.once
-		//
-		// Opposite orders, so a peer disconnecting at the moment the
-		// listener closes wedges both goroutines permanently — a relay that
-		// never finishes shutting down, and (as seen) a whole test package
-		// stuck behind it. Rare because the window is one map iteration
-		// wide, which is exactly why it survived until an unrelated timing
-		// change shook it loose.
-		//
-		// Taking the snapshot first removes the nesting entirely: nothing
-		// here holds l.mu while touching a Conn, so forget()'s l.mu wait is
-		// always against an unheld lock. Emptying the map under the same
-		// lock keeps forget() correct-but-redundant for these conns rather
-		// than racing it.
+		// Snapshot under the lock, close outside it: Conn.Close takes c.once and then l.mu (in forget), so holding
+		// l.mu across c.once.Do deadlocks against a peer disconnecting now. Emptying the map under the same lock
+		// leaves forget redundant for these conns rather than racing it.
 		l.mu.Lock()
 		closing := make([]*Conn, 0, len(l.conns))
 		for _, c := range l.conns {

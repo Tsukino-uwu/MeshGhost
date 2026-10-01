@@ -1,31 +1,19 @@
-// Package srclimit keeps the relay's only per-source state: how many
-// connections each client address holds open, and how many wrong room codes
-// it has recently tried.
+// Package srclimit keeps the relay's only per-source state: how many connections each client address holds open, and
+// how many wrong room codes it has recently tried. Global bounds alone are what one machine walks straight through:
+// it could hold every slot, or guess room codes as fast as it can open connections.
 //
-// WHY IT EXISTS. Every bound the relay had before 2026-09-15 was global: 64
-// open connections per listener, 256 handshaked quic connections waiting for
-// a stream, one room-code guess per connection. Global bounds are what a
-// single machine walks straight through -- one address could hold all 64
-// slots and refuse every real player with a bare close (finding A5 of the
-// fourth adversarial review, 2026-09-13), and could guess room codes at the
-// rate it could open connections, hundreds a second (finding A3). Both need
-// the one thing the relay had never kept: who is asking.
+// # Addresses stay here
 //
-// WHAT IT DELIBERATELY IS NOT. docs/security.md's privacy section: the
-// relay does not read a client's IP, and relay, core and cmd/ contain no
-// RemoteAddr call site (internal/gameblind pins that). This package lives in
-// netx, the layer that already had to know addresses to demultiplex udp, and
-// it keeps them in memory only: nothing here is logged, written, or handed
-// upward. The relay reaches it through relay.Server.SourceGuard by passing
-// the net.Conn, so the address is read on this side of that line. What a
-// caller can learn from a Table is a yes or a no and a count.
+// The relay does not read a client's IP: relay, core and cmd/ have no RemoteAddr call site (internal/gameblind pins
+// that). This package lives in netx, which already knew addresses to demultiplex udp, and keeps them in memory only:
+// nothing is logged, written or handed upward. The relay passes the net.Conn through relay.Server.SourceGuard, so
+// what a caller learns from a Table is a yes, a no and a count.
 //
-// BOUNDED, AND THE ATTACKER PAYS. The map is capped at MaxEntries. When it
-// is full a newcomer evicts the oldest idle entry (no open connection, empty
-// bucket), and if none is idle the newcomer is refused -- every entry that
-// is not idle was used within the last few seconds, so a full table means
-// thousands of distinct addresses active at once, which is not a room of
-// friends. ADR 0064.
+// # Bounded
+//
+// The map is capped at MaxEntries. When it is full a newcomer evicts the oldest idle entry (no open connection, empty
+// bucket), and if none is idle the newcomer is refused: a full table of active entries is thousands of addresses at
+// once, not a room of friends.
 package srclimit
 
 import (
@@ -39,19 +27,16 @@ import (
 type Options struct {
 	// MaxOpenPerSource bounds connections one address may hold open at once.
 	MaxOpenPerSource int
-	// AuthBurst is how many failed room-code attempts an address may make
-	// before it is blocked; AuthRefillPerSecond is how fast that allowance
-	// comes back. Zero AuthBurst means room-code failures are not tracked.
+	// AuthBurst is how many failed room-code attempts an address may make before it is blocked;
+	// AuthRefillPerSecond is how fast that allowance comes back. Zero AuthBurst means failures are not tracked.
 	AuthBurst           int
 	AuthRefillPerSecond float64
-	// MaxEntries caps the number of addresses remembered. Zero means
-	// DefaultMaxEntries.
+	// MaxEntries caps the number of addresses remembered. Zero means DefaultMaxEntries.
 	MaxEntries int
 }
 
-// DefaultMaxEntries is the table cap when Options.MaxEntries is zero. Sized
-// so that an attacker needs thousands of distinct addresses at once to fill
-// it, while the memory it can cost a host is a few hundred kilobytes.
+// DefaultMaxEntries is the table cap when Options.MaxEntries is zero: thousands of distinct addresses at once to fill
+// it, a few hundred kilobytes at most to a host.
 const DefaultMaxEntries = 4096
 
 // Table is the per-source state. Safe for concurrent use.
@@ -82,21 +67,12 @@ func New(o Options) *Table {
 	return &Table{opts: o, now: time.Now, entries: make(map[string]*entry)}
 }
 
-// Key is the part of an address a Table is keyed by: an IPv4 host, or the
-// /64 an IPv6 host sits in, with any zone stripped. Empty when addr is not
-// host:port shaped (net.Pipe says "pipe"), in which case the Table counts
-// nothing for it -- a connection with no address cannot be a stranger's.
+// Key is the part of an address a Table is keyed by: an IPv4 host, or the /64 an IPv6 host sits in, with any zone
+// stripped. Empty when addr is not host:port shaped (net.Pipe says "pipe"); the Table counts nothing for it.
 //
-// Why the /64 and not the address (pass 5 of the adversarial review,
-// 2026-09-16, P1b-2): an ordinary home IPv6 line is handed a whole /64, and
-// one machine can bind any address in it, so keying by the full address gave
-// that machine a fresh wrong-room-code budget and a fresh connection share
-// per source address it chose to use -- the guessing rate the budget exists
-// to stop, bounded again only by the listener-wide caps. A /64 is the
-// smallest block a single subscriber is given; it is the IPv6 shape of the
-// one public IPv4 a NAT household already shares. An IPv4-mapped IPv6
-// address is keyed as the IPv4 it carries, so a dual-stack listener counts a
-// v4 client once whichever form the socket reports.
+// A home IPv6 line is handed a whole /64 and one machine can bind any address in it, so keying the full address
+// would give it a fresh budget per address; the /64 is the IPv6 shape of one NAT household's public IPv4. An
+// IPv4-mapped address is keyed as its IPv4, so a dual-stack listener counts a v4 client once.
 func Key(addr net.Addr) string {
 	if addr == nil {
 		return ""
@@ -118,10 +94,9 @@ func Key(addr net.Addr) string {
 	return ip.Mask(net.CIDRMask(64, 128)).String() + "/64"
 }
 
-// Acquire records one more open connection from addr. False means the
-// address already holds MaxOpenPerSource, or the table is full of active
-// entries; the caller closes the connection and must NOT call Release for
-// it. An unkeyable address is always acquired and never counted.
+// Acquire records one more open connection from addr. False means the address already holds MaxOpenPerSource, or
+// the table is full of active entries; the caller closes the connection and must not call Release for it. An
+// unkeyable address is always acquired and never counted.
 func (t *Table) Acquire(addr net.Addr) bool {
 	key := Key(addr)
 	if key == "" {
@@ -156,8 +131,7 @@ func (t *Table) Release(addr net.Addr) {
 	}
 }
 
-// NoteAuthFailure records one wrong room code from conn's address.
-// Implements relay.Server.SourceGuard.
+// NoteAuthFailure records one wrong room code from conn's address. Implements relay.Server.SourceGuard.
 func (t *Table) NoteAuthFailure(conn net.Conn) {
 	if t.opts.AuthBurst <= 0 || conn == nil {
 		return
@@ -176,10 +150,9 @@ func (t *Table) NoteAuthFailure(conn net.Conn) {
 	e.level++
 }
 
-// NoteAuthSuccess refunds one attempt charged by NoteAuthFailure, because the
-// proof it paid for came out right. The relay charges when a proof begins
-// (relay.SourceGuard says why), so a player who types the right code pays
-// nothing. Implements relay.Server.SourceGuard.
+// NoteAuthSuccess refunds one attempt charged by NoteAuthFailure, because the proof it paid for came out right. The
+// relay charges when a proof begins, so a player who types the right code pays nothing. Implements
+// relay.Server.SourceGuard.
 func (t *Table) NoteAuthSuccess(conn net.Conn) {
 	if t.opts.AuthBurst <= 0 || conn == nil {
 		return
@@ -202,9 +175,8 @@ func (t *Table) NoteAuthSuccess(conn net.Conn) {
 	}
 }
 
-// Blocked reports whether conn's address has used up its allowance of wrong
-// room codes and must be refused before the code is even compared.
-// Implements relay.Server.SourceGuard.
+// Blocked reports whether conn's address has used up its allowance of wrong room codes and must be refused before
+// the code is even compared. Implements relay.Server.SourceGuard.
 func (t *Table) Blocked(conn net.Conn) bool {
 	if t.opts.AuthBurst <= 0 || conn == nil {
 		return false
@@ -227,10 +199,9 @@ func (t *Table) Blocked(conn net.Conn) bool {
 	return false
 }
 
-// Counts are the running totals a listener's throttled log line prints:
-// connections refused because one address held too many, connections
-// refused because the table was full, and hellos refused because the
-// address was blocked. Never addresses.
+// Counts are the running totals a listener's throttled log line prints: connections refused because one address
+// held too many, connections refused because the table was full, and hellos refused because the address was
+// blocked. Never addresses.
 func (t *Table) Counts() (refusedOpen, refusedFull, blockedAuths int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -244,12 +215,8 @@ func (t *Table) Len() int {
 	return len(t.entries)
 }
 
-// leakLocked brings e's bucket up to date. Tokens come back WHOLE, one per
-// 1/AuthRefillPerSecond, not as a continuous drain: with a continuous drain
-// an address blocked at level == burst is unblocked a millisecond later
-// (level 2.999 < 3), so "blocked" would be a window nothing could rely on.
-// Whole tokens make it a full interval, which is the rate the relay's tests
-// assert against.
+// leakLocked brings e's bucket up to date. Tokens come back whole, one per 1/AuthRefillPerSecond: with a continuous
+// drain an address blocked at level == burst would be unblocked a millisecond later (2.999 < 3).
 func (t *Table) leakLocked(e *entry) {
 	now := t.now()
 	e.lastSeen = now
@@ -286,9 +253,8 @@ func (t *Table) idleLocked(e *entry) bool {
 	return e.level == 0
 }
 
-// lookupLocked returns key's entry, creating it -- evicting the oldest idle
-// entry when the table is full -- or nil when the table is full of active
-// entries.
+// lookupLocked returns key's entry, creating it (evicting the oldest idle entry when the table is full), or nil when
+// the table is full of active entries.
 func (t *Table) lookupLocked(key string) *entry {
 	if e := t.entries[key]; e != nil {
 		e.lastSeen = t.now()

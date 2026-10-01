@@ -1,39 +1,23 @@
-// Package tlsx is TLS for the tcp transport, and the one certificate story
-// every MeshGhost transport shares.
+// Package tlsx is TLS for the tcp transport, and the one certificate story every MeshGhost transport shares. tcp is
+// the leg every session uses: every client handshakes over it before moving to any other transport.
 //
-// It exists because `tcp` is the one leg of a MeshGhost session that is
-// always used: every client handshakes over tcp before it moves anywhere
-// (see core's resolveTransport and docs/security.md's "How a client
-// actually connects"), and that handshake carries the room code. So a
-// session on the encrypted `quic` transport still sent its room code across
-// the network in the clear, on the discovery leg, before it ever reached
-// quic. Encrypting tcp closes that.
+// # What this protects against
 //
-// # What this protects against, precisely
+// There is no plaintext mode and no plaintext fallback: a listener refuses a connection that does not begin a TLS
+// handshake, and a client sends nothing to a relay it cannot handshake with. The certificate is self-signed; what
+// authenticates it is the Verifier the client passes to Client, which in core remembers each relay's fingerprint on
+// first connect and checks it afterwards (trust on first use, the SSH model). So:
 //
-// Since 2026-09-15 there is no plaintext mode and no plaintext fallback: a
-// listener refuses a connection that does not begin a TLS handshake, and a
-// client sends nothing to a relay it cannot handshake with. The certificate
-// is self-signed. What authenticates it is the Verifier the client passes
-// to Client: core's known-relays store remembers each relay's fingerprint
-// on first connect and checks it afterwards (trust on first use, the SSH
-// model, ADR 0066). So:
-//
-//   - Passive capture -- someone reading traffic on shared wifi, a VPN, an
-//     ISP -- is blocked on every connection.
-//   - An active man-in-the-middle on the FIRST connection to a relay is not
-//     detected: there is nothing yet to compare against. From the second
-//     connection on, a changed identity is noticed.
-//   - There is no CA anywhere in this design. connect_to is a bare IP, so
-//     there is no name a certificate could be checked against.
+//   - Passive capture (shared wifi, a VPN, an ISP) is blocked on every connection.
+//   - An active man-in-the-middle on the first connection to a relay is not detected: there is nothing yet to compare
+//     against. From the second connection on, a changed identity is noticed.
+//   - There is no CA: connect_to is a bare IP, so there is no name a certificate could be checked against.
 //
 // # Why the sniff stays
 //
-// A TLS ClientHello starts with the byte 0x16; an NDJSON line starts with
-// '{'. NewListener reads exactly one byte before handshaking, so a client
-// that speaks plaintext -- a build from before 2026-08-19, or netcat -- is
-// refused with a log line that says WHY, rather than with a handshake
-// failure that names nothing.
+// A TLS ClientHello starts with the byte 0x16; an NDJSON line starts with '{'. NewListener reads one byte before
+// handshaking, so a plaintext client (an old build, or netcat) is refused with a log line that says why, rather than
+// a handshake failure that names nothing.
 package tlsx
 
 import (
@@ -58,52 +42,33 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/internal/throttle"
 )
 
-// defaultHandshakeTimeout bounds one accepted connection's sniff plus TLS
-// handshake. It exists because a handshake is real CPU an unauthenticated
-// stranger can ask for: without a bound, N half-open connections each hold
-// a goroutine and a socket indefinitely. See agent_docs/ideas.md's note on
-// the (still absent) per-IP cap, which is a separate decision.
+// defaultHandshakeTimeout bounds one accepted connection's sniff plus TLS handshake: a handshake is CPU an
+// unauthenticated stranger can ask for, and without a bound each half-open connection holds a goroutine and a socket.
 const defaultHandshakeTimeout = 10 * time.Second
 
-// tlsRecordHandshake is the first byte of a TLS record of type handshake —
-// what every ClientHello begins with. No JSON value starts with it, which
-// is what makes one-byte sniffing unambiguous here.
+// tlsRecordHandshake is the first byte of every ClientHello. No JSON value starts with it, which is what makes
+// one-byte sniffing unambiguous.
 const tlsRecordHandshake = 0x16
 
-// certificateValidity is how long a generated certificate is valid for.
-// Twenty years: the relay's identity is persisted (identity.go) and nothing
-// on the client checks the validity period -- a Verifier compares the
-// fingerprint and nothing else -- so this is the one field of the
-// certificate a player could never be asked to do anything about.
+// certificateValidity is twenty years: the identity is persisted and a Verifier compares the fingerprint only, so
+// this is the one field of the certificate a player could never be asked to do anything about.
 const certificateValidity = 20 * 365 * 24 * time.Hour
 
-// Verifier decides whether the certificate a relay presented is the relay
-// the client meant. It receives the LEAF certificate's DER bytes and nothing
-// else -- the one certificate the peer proved possession of during the
-// handshake -- and a non-nil error refuses the connection before a byte of
-// application data is sent.
+// Verifier decides whether the certificate a relay presented is the relay the client meant. It receives the leaf
+// certificate's DER bytes and nothing else, and a non-nil error refuses the connection before a byte of application
+// data is sent.
 //
-// ONLY the leaf. InsecureSkipVerify is set (there is no CA), so Go does no
-// chain building: rawCerts is whatever DER blobs the peer chose to send,
-// and only the FIRST is bound to the handshake signature. Matching against
-// any later entry accepted a certificate the peer does not hold the key
-// for: an attacker copies the relay's (public) cert, presents
-// [attacker_leaf, genuine_relay_cert], and the check passes while the
-// session is keyed by attacker_leaf. Found 2026-09-07, when the check was
-// still a pin.
+// Only the leaf: with InsecureSkipVerify set there is no chain building, and only the first certificate the peer
+// sends is bound to the handshake signature. An attacker can append a copy of the relay's public certificate after
+// its own, so matching any later entry accepts a certificate the peer holds no key for.
 type Verifier func(leafDER []byte) error
 
-// TrustAnyCertificate is the Verifier that accepts every certificate.
-//
-// FOR TESTS AND DEV TOOLS ONLY. It is what a test uses to reach a listener
-// whose certificate it did not generate, and what cmd/meshghost-netsim
-// uses to stand between two ends it owns. No shipped client path uses it:
-// core always verifies through its known-relays store, and a nil Verifier
-// is an error rather than this.
+// TrustAnyCertificate is the Verifier that accepts every certificate, for tests and dev tools only
+// (cmd/meshghost-netsim stands between two ends it owns). No shipped client path uses it, and a nil Verifier is an
+// error rather than this.
 func TrustAnyCertificate([]byte) error { return nil }
 
-// newCertificate generates a fresh Ed25519 self-signed certificate and
-// returns it with its fingerprint.
+// newCertificate generates a fresh Ed25519 self-signed certificate and returns it with its fingerprint.
 func newCertificate() (tls.Certificate, string, error) {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -116,11 +81,8 @@ func newCertificate() (tls.Certificate, string, error) {
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: priv}, Fingerprint(der), nil
 }
 
-// certificateFor self-signs a certificate for an Ed25519 key pair. Split
-// from newCertificate so the identity loader can rebuild one for a key it
-// read from disk; note the SERIAL is random, so two certificates for the
-// same key have different fingerprints -- which is why identity.go persists
-// the certificate as well as the key.
+// certificateFor self-signs a certificate for an Ed25519 key pair. The serial is random, so two certificates for the
+// same key have different fingerprints, which is why identity.go persists the certificate as well as the key.
 func certificateFor(pub ed25519.PublicKey, priv ed25519.PrivateKey) ([]byte, error) {
 	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
@@ -142,8 +104,8 @@ func certificateFor(pub ed25519.PublicKey, priv ed25519.PrivateKey) ([]byte, err
 	return der, nil
 }
 
-// keyLogWriter, when a dev build sets it (keylog_dev.go), receives every
-// session's secrets in Wireshark's NSS key log format. Nil in a release.
+// keyLogWriter, when a dev build sets it (keylog_dev.go), receives every session's secrets in Wireshark's NSS key
+// log format. Nil in a release.
 var keyLogWriter io.Writer
 
 // configFor is the listener's TLS configuration around one certificate.
@@ -159,16 +121,9 @@ func configFor(cert tls.Certificate, alpn string) *tls.Config {
 	return cfg
 }
 
-// ServerConfig builds a listener's TLS configuration around a freshly
-// generated in-memory Ed25519 certificate, and returns the certificate's
-// fingerprint alongside it.
-//
-// This is the in-memory identity: a TEST's relay, or a tool that lives for
-// one run. The shipped relay loads a persisted one with
-// LoadOrCreateIdentity instead, so a client can recognize it across
-// restarts. Call either once per process and reuse the result: generating
-// a key per connection would hand an unauthenticated stranger a free CPU
-// lever.
+// ServerConfig builds a listener's TLS configuration around a freshly generated in-memory Ed25519 certificate, and
+// returns its fingerprint, for a test's relay or a tool that lives for one run; the shipped relay uses
+// LoadOrCreateIdentity. Call either once per process: a key per connection would hand a stranger a free CPU lever.
 func ServerConfig(alpn string) (*tls.Config, string, error) {
 	cert, fp, err := newCertificate()
 	if err != nil {
@@ -177,32 +132,19 @@ func ServerConfig(alpn string) (*tls.Config, string, error) {
 	return configFor(cert, alpn), fp, nil
 }
 
-// Fingerprint is the SHA-256 of a certificate's DER bytes, lower-case hex
-// with no separators: the string a relay prints at startup, the string a
-// client remembers in known_servers.json, and the only thing that
-// identifies a relay.
+// Fingerprint is the SHA-256 of a certificate's DER bytes, lower-case hex with no separators: what a relay prints at
+// startup, what a client remembers in known_servers.json, and the only thing that identifies a relay.
 func Fingerprint(der []byte) string {
 	sum := sha256.Sum256(der)
 	return hex.EncodeToString(sum[:])
 }
 
-// clientConfig builds a dialer's TLS configuration.
+// clientConfig builds a dialer's TLS configuration. InsecureSkipVerify is on purpose: connect_to is a bare IP, so
+// there is no CA and no hostname to check. Verification is the Verifier, applied by VerifyLeaf after the handshake.
 //
-// InsecureSkipVerify is set on purpose and is not a shortcut: "connect_to"
-// is a bare IP a friend sent you, so there is no CA and no hostname a
-// certificate could be checked against. Verification is the Verifier,
-// applied to the leaf certificate only (see Verifier for why only), and
-// AFTER the handshake completes -- by VerifyLeaf, which every dialer calls.
-//
-// Not in VerifyPeerCertificate, where it was until 2026-09-16: crypto/tls
-// calls that (and VerifyConnection) as soon as the Certificate message
-// arrives, BEFORE the CertificateVerify signature proves the server holds
-// the certificate's key. The known-relays Verifier records what it is shown,
-// so an on-path attacker could send any certificate bytes -- the genuine
-// relay's own included, or anyone's -- fail the handshake, and still have
-// rewritten the player's remembered identity (pass 5 of the adversarial
-// review, P1b-client-2). After the handshake, the leaf is one the peer
-// signed with.
+// Not in VerifyPeerCertificate: crypto/tls calls that (and VerifyConnection) when the Certificate message arrives,
+// before CertificateVerify proves the server holds the key, so a recording Verifier could be fed any certificate by
+// a handshake that then fails.
 func clientConfig(alpn string) *tls.Config {
 	cfg := &tls.Config{
 		InsecureSkipVerify: true,
@@ -215,11 +157,9 @@ func clientConfig(alpn string) *tls.Config {
 	return cfg
 }
 
-// ClientConfig is clientConfig for a caller that drives its own handshake
-// -- quicconn, whose dial is quic-go's rather than crypto/tls's. That caller
-// MUST call VerifyLeaf with the completed connection's state before sending
-// anything. A nil verifier is an error here for the same reason it is in
-// Client, so a caller cannot reach a config without having one to call.
+// ClientConfig is clientConfig for a caller that drives its own handshake (quicconn, through quic-go). That caller
+// must call VerifyLeaf with the completed connection's state before sending anything; a nil verifier is an error so
+// it cannot reach a config without one.
 func ClientConfig(alpn string, verify Verifier) (*tls.Config, error) {
 	if verify == nil {
 		return nil, errors.New("tlsx: no certificate verifier -- a nil Verifier would accept anyone; " +
@@ -228,10 +168,8 @@ func ClientConfig(alpn string, verify Verifier) (*tls.Config, error) {
 	return clientConfig(alpn), nil
 }
 
-// VerifyLeaf applies verify to a COMPLETED handshake's leaf certificate --
-// the only certificate the handshake signature binds (see Verifier). Call it
-// after the handshake and before the first byte of application data; a
-// non-nil error means close the connection.
+// VerifyLeaf applies verify to a completed handshake's leaf certificate, the only one the handshake signature binds.
+// Call it before the first byte of application data; a non-nil error means close the connection.
 func VerifyLeaf(state tls.ConnectionState, verify Verifier) error {
 	if verify == nil {
 		return errors.New("tlsx: no certificate verifier")
@@ -245,21 +183,14 @@ func VerifyLeaf(state tls.ConnectionState, verify Verifier) error {
 	return verify(state.PeerCertificates[0].Raw)
 }
 
-// FingerprintHexLen is the length of a normalized fingerprint: SHA-256 as
-// hex.
+// FingerprintHexLen is the length of a normalized fingerprint: SHA-256 as hex.
 const FingerprintHexLen = 64
 
-// NormalizeFingerprint accepts the shapes a human might write: with or
-// without colons, spaces or upper case. It is what the known-relays store
-// parses its file with, so a hand-edited entry compares equal to the
-// relay's own print of the same value.
+// NormalizeFingerprint accepts the shapes a human might write: with or without colons, spaces or upper case. The
+// known-relays store parses its file with it, so a hand-edited entry compares equal to the relay's own print.
 //
-// It is picky about LENGTH. Until 2026-09-15 it silently dropped every
-// non-hex rune and returned whatever was left, so a placeholder such as
-// "<paste here>" normalized to the empty string, which then meant "no pin"
-// (fourth adversarial review, A2). An empty input still normalizes to the
-// empty string; anything else must come out as exactly FingerprintHexLen
-// hex digits or it is an error.
+// It is picky about length, since dropping non-hex runes alone turns a placeholder such as "<paste here>" into the
+// empty string. An empty input normalizes to empty; anything else must be exactly FingerprintHexLen hex digits.
 func NormalizeFingerprint(s string) (string, error) {
 	if strings.TrimSpace(s) == "" {
 		return "", nil
@@ -279,16 +210,10 @@ func NormalizeFingerprint(s string) (string, error) {
 	return b.String(), nil
 }
 
-// Client wraps an already-dialed connection in TLS and completes the
-// handshake before returning, so a failure surfaces here rather than
-// halfway through the first Send. On failure the underlying connection is
-// closed — the caller has nothing usable left.
-//
-// verify is applied to the relay's leaf certificate once the handshake has
-// proven it (VerifyLeaf);
-// nil is an error, closed before a byte is sent. There is deliberately no
-// "just encrypt" spelling here: a caller that wants that says
-// TrustAnyCertificate, in a place a reviewer can grep for.
+// Client wraps an already-dialed connection in TLS and completes the handshake before returning, so a failure
+// surfaces here rather than in the first Send; on failure the underlying connection is closed. verify is applied to
+// the leaf once the handshake has proven it, and nil is an error: a caller that wants "just encrypt" says
+// TrustAnyCertificate, where a reviewer can grep for it.
 func Client(conn net.Conn, alpn string, verify Verifier, timeout time.Duration) (net.Conn, error) {
 	if timeout <= 0 {
 		timeout = defaultHandshakeTimeout
@@ -321,14 +246,9 @@ func IsTLS(conn net.Conn) bool {
 	return false
 }
 
-// servedConn is what NewListener hands up: the handshaked *tls.Conn plus
-// the moment the raw socket was accepted, BEFORE the sniff and the
-// handshake. The relay's hello timeout counts from that moment
-// (Server.handleConn asks through AcceptedAt), so the sniff's own timeout
-// and the hello timeout overlap instead of adding up: until 2026-09-15 a
-// stranger could hold a socket for the sniff's 10 s and then the hello
-// timer's 10 s, twice what the contract promised (third adversarial
-// review, P1b; found again by the fourth's harness).
+// servedConn is what NewListener hands up: the handshaked *tls.Conn plus the moment the raw socket was accepted,
+// before the sniff and handshake. The relay's hello timeout counts from that moment (through AcceptedAt), so the two
+// timeouts overlap instead of adding up.
 type servedConn struct {
 	*tls.Conn
 	acceptedAt time.Time
@@ -337,11 +257,9 @@ type servedConn struct {
 // AcceptedAt is when the raw connection was accepted from the listener.
 func (c *servedConn) AcceptedAt() time.Time { return c.acceptedAt }
 
-// PeerFingerprint is the fingerprint of the leaf certificate the peer
-// presented on conn -- a *tls.Conn, or anything exposing its TLS state the
-// way quicconn.Conn does -- or "" when conn is not TLS. It is what the
-// room-code proof binds to (package pake): the identity a client names is
-// the certificate it actually verified on this connection.
+// PeerFingerprint is the fingerprint of the leaf certificate the peer presented on conn (a *tls.Conn, or anything
+// exposing its TLS state as quicconn.Conn does), or "" when conn is not TLS. The room-code proof (package pake) binds
+// to it.
 func PeerFingerprint(conn net.Conn) string {
 	var state tls.ConnectionState
 	switch c := conn.(type) {
@@ -362,28 +280,20 @@ func PeerFingerprint(conn net.Conn) string {
 
 // ListenConfig configures NewListener.
 type ListenConfig struct {
-	// TLS is the server certificate config, from ServerConfig or
-	// LoadOrCreateIdentity. Required.
+	// TLS is the server certificate config, from ServerConfig or LoadOrCreateIdentity. Required.
 	TLS *tls.Config
 
-	// HandshakeTimeout bounds the sniff plus handshake per connection.
-	// Zero means defaultHandshakeTimeout.
+	// HandshakeTimeout bounds the sniff plus handshake per connection. Zero means defaultHandshakeTimeout.
 	HandshakeTimeout time.Duration
 
-	// Logf receives one line per refused plaintext connection and per
-	// failed handshake, throttled. Nil means the standard logger.
+	// Logf receives the throttled lines for refused plaintext connections and failed handshakes. Nil means the
+	// standard logger.
 	Logf func(format string, args ...any)
 }
 
-// NewListener wraps ln so every accepted connection is handshaked as TLS
-// before it is handed up, and a connection that does not begin a TLS
-// handshake is closed with a log line saying so.
-//
-// The sniff and the handshake happen on a per-connection goroutine, not
-// inside Accept. That matters: doing it in Accept would let one client that
-// connects and then says nothing stall every other client for the whole
-// handshake timeout, which is a denial of service anyone can perform with
-// netcat.
+// NewListener wraps ln so every accepted connection is handshaked as TLS before it is handed up, and one that does
+// not begin a TLS handshake is closed with a log line saying so. The sniff and handshake run on a goroutine per
+// connection, not inside Accept, so one client that connects and says nothing cannot stall every other.
 func NewListener(ln net.Listener, cfg ListenConfig) (net.Listener, error) {
 	if cfg.TLS == nil {
 		return nil, errors.New("tlsx: NewListener needs a TLS config -- every connection is TLS since 2026-09-15")
@@ -424,41 +334,21 @@ type sniffListener struct {
 	done      chan struct{}
 	closeOnce sync.Once
 
-	// fatal is closed once the inner listener has failed for good, with
-	// fatalErr written before the close (so the close publishes it). It
-	// exists because Accept is a channel receive: once acceptLoop has
-	// stopped there is nothing left to send, and a caller that calls Accept
-	// again -- which relay.Serve does on every error -- would block on that
-	// channel for the life of the process. See acceptLoop.
+	// fatal is closed once the inner listener has failed for good, after fatalErr is written (so the close publishes
+	// it). Accept is a channel receive, and relay.Serve calls it again on every error, so without this a stopped
+	// acceptLoop would leave that caller blocked for the life of the process.
 	fatal    chan struct{}
 	fatalErr error
 
-	// THE REFUSALS ARE THE ATTACK, so they are counted and logged at most once
-	// a second rather than once each. Both lines this listener writes about a
-	// stranger -- a plaintext connection, and a handshake that failed -- were
-	// one line per attempt, from an unauthenticated source, on a port that
-	// exists to be reached from the internet. A machine opening connections
-	// in a loop therefore turned a connection flood into a disk flood, with
-	// the host's own log as the amplifier. netx.limitListener and quicconn's
-	// notePendingRefusal both cap the same class the same way and have said
-	// so in a comment since they shipped; this listener is the one place that
-	// did not. Found by the pre-auth cell of the third adversarial review
-	// (P1b-2, 2026-09-12).
-	//
-	// Counted separately because they mean different things: a plaintext
-	// client is an old build or a hand tool, and a failed handshake may be an
-	// attack or a version mismatch, and an operator reading one line an hour
-	// needs to know which they have.
+	// The refusals are the attack, so they are logged at most once a second, with a count: a line per attempt turns
+	// a connection flood into a disk flood. Counted apart, because a plaintext client is an old build or a hand tool,
+	// and a failed handshake an attack or a version mismatch.
 	plainLine throttle.Line
 	shakeLine throttle.Line
 }
 
-// notePlaintextRefusal writes the throttled line for a connection that did
-// not begin with a TLS handshake. The CompareAndSwap inside throttle.Line is
-// what makes two per-connection goroutines racing here produce one line
-// rather than two -- this listener handshakes on a goroutine per
-// connection, so unlike limitListener's Accept loop there is no single
-// writer.
+// notePlaintextRefusal writes the throttled line for a connection that did not begin with a TLS handshake.
+// throttle.Line's CompareAndSwap makes the per-connection goroutines racing here produce one line, not several.
 func (l *sniffListener) notePlaintextRefusal(addr net.Addr) {
 	n, ok := l.plainLine.Allow()
 	if !ok {
@@ -482,22 +372,9 @@ func (l *sniffListener) acceptLoop() {
 	for {
 		c, err := l.Listener.Accept()
 		if err != nil {
-			// A TEMPORARY error must not end this loop. relay.Serve
-			// deliberately backs off and RETRIES on ne.Temporary() (added
-			// 2026-09-02 so descriptor exhaustion could not take the relay
-			// down), and until 2026-09-08 this loop returned on the first
-			// error of any kind and delivered it exactly once: the retried
-			// Accept then selected on a channel nothing would ever send to
-			// again and parked forever. The relay logged one "retrying"
-			// line and silently stopped accepting tcp for the rest of the
-			// process while existing rooms kept working, so it looked
-			// alive. This wrapper is always in the relay's tcp path.
-			//
-			// The error is still handed up rather than swallowed: the
-			// backoff-and-log policy belongs to the caller, and this
-			// wrapper exists to sniff bytes, not to make that decision. The
-			// small backoff here is only so a caller with no policy of its
-			// own cannot spin this loop on a repeating EMFILE.
+			// A temporary error must not end this loop: relay.Serve retries Accept on one (descriptor exhaustion),
+			// and a stopped loop would leave it waiting on a channel nothing sends to. The error is still handed up,
+			// since the policy is the caller's; this backoff only stops a caller with none spinning on EMFILE.
 			if ne, ok := err.(net.Error); ok && ne.Temporary() { //nolint:staticcheck // the deprecation is about timeouts; EMFILE is exactly what this asks
 				l.deliver(accepted{err: err})
 				if backoff == 0 {
@@ -512,9 +389,7 @@ func (l *sniffListener) acceptLoop() {
 				}
 				continue
 			}
-			// Permanent: the listener is closed or the socket is gone.
-			// Recorded rather than delivered once, so every later Accept
-			// gets the same real error instead of hanging.
+			// Permanent: recorded rather than delivered once, so every later Accept gets the same error, not a hang.
 			l.fatalErr = err
 			close(l.fatal)
 			return
@@ -524,8 +399,7 @@ func (l *sniffListener) acceptLoop() {
 	}
 }
 
-// classify reads the one byte that decides what this connection is, then
-// either refuses it or completes a TLS handshake on it.
+// classify reads the one byte that decides what this connection is, then refuses it or completes a TLS handshake.
 func (l *sniffListener) classify(c net.Conn) {
 	acceptedAt := time.Now()
 	deadline := acceptedAt.Add(l.timeout)
@@ -534,9 +408,7 @@ func (l *sniffListener) classify(c net.Conn) {
 	first := make([]byte, 1)
 	n, err := c.Read(first)
 	if err != nil || n == 0 {
-		// Nothing usable arrived in time. Dropped silently: a port scan
-		// and a health check both look exactly like this, and logging
-		// them would fill a host's log with noise they cannot act on.
+		// Dropped silently: a port scan and a health check look like this, and a host cannot act on either.
 		_ = c.Close()
 		return
 	}
@@ -571,9 +443,8 @@ func (l *sniffListener) deliver(a accepted) {
 }
 
 func (l *sniffListener) Accept() (net.Conn, error) {
-	// Connections already sniffed are handed up before the failure is
-	// reported: a handshake that completed just as the inner listener died
-	// is a usable session, and losing it would drop a real player.
+	// Connections already sniffed are handed up before a failure: a handshake that completed as the inner listener
+	// died is a real player's usable session.
 	select {
 	case a := <-l.out:
 		return a.conn, a.err
@@ -598,9 +469,8 @@ func (l *sniffListener) Close() error {
 	return err
 }
 
-// prefixConn replays the bytes already consumed by the sniff before
-// delegating to the real connection. Without it the ClientHello would be
-// missing its first byte and every handshake would fail.
+// prefixConn replays the byte the sniff consumed before delegating to the real connection, so the ClientHello is
+// whole.
 type prefixConn struct {
 	net.Conn
 	prefix []byte
@@ -615,13 +485,8 @@ func (c *prefixConn) Read(p []byte) (int, error) {
 	return c.Conn.Read(p)
 }
 
-// CloseWrite and TransportName forward for the same reason limitedConn's do
-// (see netx/limit.go): this type embeds net.Conn as an interface, so
-// without them anything that unwraps to it loses the limiter's half-close
-// and transport label. Until 2026-09-15 a plaintext client was handed up
-// wrapped in one of these, and that is where the loss showed (found
-// 2026-09-07); today only a *tls.Conn sits above it, and the methods stay
-// so the type keeps the same surface as the connection it wraps.
+// CloseWrite and TransportName forward for the same reason netx's limitedConn's do: this type embeds net.Conn as an
+// interface, which hides them. Only a *tls.Conn sits above it now; they keep the surface of the connection it wraps.
 func (c *prefixConn) CloseWrite() error {
 	cw, ok := c.Conn.(interface{ CloseWrite() error })
 	if !ok {

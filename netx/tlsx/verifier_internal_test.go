@@ -16,8 +16,7 @@ import (
 	"time"
 )
 
-// newDER returns a self-signed certificate's DER bytes. Two calls give two
-// unrelated certificates, which is all these tests need: the verifier is
+// newDER returns a self-signed certificate's DER bytes. Two calls give two unrelated certificates; the verifier is
 // handed raw DER, so nothing here has to chain or verify.
 func newDER(t *testing.T, cn string) []byte {
 	t.Helper()
@@ -38,18 +37,9 @@ func newDER(t *testing.T, cn string) []byte {
 	return der
 }
 
-// The verifier must be handed ONLY the leaf. InsecureSkipVerify is set on
-// the client config on purpose (a bare IP has no CA and no hostname to
-// check), so Go builds and verifies no chain: rawCerts is whatever the peer
-// chose to send, and only rawCerts[0] is bound to the handshake signature.
-// Before 2026-09-07 the (then) pin check looped over every entry, so an
-// attacker who copied the relay's public certificate could present
-// [attacker_leaf, genuine_relay_cert], match at index 1, and key the session
-// with a certificate they own.
-//
-// This test fails against that loop: the verifier accepts the genuine
-// relay's fingerprint, and the genuine certificate IS present -- just not
-// where it proves anything.
+// The verifier must be handed only the leaf: with InsecureSkipVerify there is no chain building, and only the first
+// certificate is bound to the handshake signature. The genuine relay's certificate is present here, just not where
+// it proves anything.
 func TestTheVerifierIsHandedOnlyTheLeafCertificate(t *testing.T) {
 	relay := newDER(t, "relay")
 	attacker := newDER(t, "attacker")
@@ -61,8 +51,7 @@ func TestTheVerifierIsHandedOnlyTheLeafCertificate(t *testing.T) {
 		}
 		return nil
 	}
-	// VerifyLeaf is handed the completed handshake's state, whose
-	// PeerCertificates are whatever the peer sent, in its order.
+	// The completed handshake's PeerCertificates are whatever the peer sent, in its order.
 	verify := func(chain [][]byte, _ any) error {
 		state := tls.ConnectionState{HandshakeComplete: true}
 		for _, der := range chain {
@@ -91,17 +80,14 @@ func TestTheVerifierIsHandedOnlyTheLeafCertificate(t *testing.T) {
 	}
 }
 
-// TestClientConfigRefusesANilVerifier: there is no "no verifier" any more.
 func TestClientConfigRefusesANilVerifier(t *testing.T) {
 	if _, err := ClientConfig("", nil); err == nil {
 		t.Fatal("ClientConfig with a nil verifier returned a config; it must refuse")
 	}
 }
 
-// TestNormalizeFingerprintIsPickyAboutLengthOnly is finding A2 of the fourth
-// adversarial review: a placeholder used to normalize to "" and mean "no
-// pin" while the log said the relay was pinned. The store parses its file
-// with this, so the same rule now protects a hand-edited entry.
+// TestNormalizeFingerprintIsPickyAboutLengthOnly: a placeholder must not normalize to the empty string. The
+// known-relays store parses its file with this, so the rule protects a hand-edited entry.
 func TestNormalizeFingerprintIsPickyAboutLengthOnly(t *testing.T) {
 	real := Fingerprint(newDER(t, "relay"))
 	for _, ok := range []string{
@@ -136,14 +122,9 @@ func withColons(hex string) string {
 	return b.String()
 }
 
-// TestTheVerifierSeesOnlyACertificateTheServerProvedItHolds is pass 5's
-// P1b-client-2. The known-relays Verifier RECORDS what it is shown, and it
-// used to be shown the Certificate message the moment it arrived -- before
-// the CertificateVerify signature proved the server holds that
-// certificate's key. A server presenting the genuine relay's certificate
-// while signing with a different key must fail the handshake WITHOUT the
-// verifier ever being called, or an on-path attacker rewrites a player's
-// remembered identity with bytes it cannot use.
+// TestTheVerifierSeesOnlyACertificateTheServerProvedItHolds: the known-relays Verifier records what it is shown, so a
+// server presenting the genuine relay's certificate while signing with another key must fail the handshake without
+// the verifier being called, or an on-path attacker rewrites a player's remembered identity.
 func TestTheVerifierSeesOnlyACertificateTheServerProvedItHolds(t *testing.T) {
 	_, genuineKey, err := ed25519.GenerateKey(nil)
 	if err != nil {

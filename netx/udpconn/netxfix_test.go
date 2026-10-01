@@ -11,22 +11,9 @@ import (
 	"time"
 )
 
-// Regressions for the 2026-09-08 review findings F10, F11, F18 and F19. Each
-// one is a defect that a green suite could not see: a stalled read loop, a
-// handshake that trusts anyone, a deadline set on the wrong socket, and a
-// retry loop that stops counting.
-
-// --------------------------------------------------------------- F10
-
-// TestAFullAcceptQueueDoesNotStallTheDemultiplexer covers F10: admit ran a
-// BLOCKING send into the 16-deep accept channel, on the one goroutine that
-// reads the socket for every connection on it. One admission arriving while
-// the relay was behind on Accept parked that goroutine, after which no
-// datagram for any live client was read at all and the kernel buffer filled
-// behind it — for a room that was working a moment earlier.
-//
-// The probe is a plain hello from an uninvolved socket: answering it is the
-// cheapest thing the read loop does, so silence means the loop is not running.
+// TestAFullAcceptQueueDoesNotStallTheDemultiplexer: with the accept queue full, one more admission must not park the
+// read loop that serves every connection on the socket. The probe is a plain hello from an uninvolved socket:
+// answering it is the cheapest thing the read loop does, so silence means the loop is not running.
 func TestAFullAcceptQueueDoesNotStallTheDemultiplexer(t *testing.T) {
 	l := listenTest(t)
 
@@ -40,9 +27,7 @@ func TestAFullAcceptQueueDoesNotStallTheDemultiplexer(t *testing.T) {
 		t.Cleanup(func() { c.Close() })
 	}
 
-	// One more admission, which has nowhere to go. It is expected to fail for
-	// this client (the connection is dropped rather than queued — see admit);
-	// what must NOT happen is the listener going deaf.
+	// One more admission, with nowhere to go: it is dropped, but the listener must not go deaf.
 	overflow := make(chan struct{})
 	go func() {
 		defer close(overflow)
@@ -76,20 +61,9 @@ func TestAFullAcceptQueueDoesNotStallTheDemultiplexer(t *testing.T) {
 	<-overflow
 }
 
-// --------------------------------------------------------------- F11
-
-// TestTheHandshakeIgnoresDatagramsFromAnyoneButTheRelay covers F11: the dial
-// socket is unconnected, so the kernel filters nothing, and both handshake
-// reads discarded the sender. An off-path attacker who knows a player's IP
-// could spray `FF 06 <8 random bytes>` across the ephemeral port range during
-// the connect window; whichever landed first won the token loop and the client
-// adopted an attacker-chosen token. Every datagram it then sent failed the
-// relay's token compare and was dropped, so the player got a session that
-// connected and never worked, with no error logged anywhere.
-//
-// The attacker here is given what a real one has to guess — the client's exact
-// port, learned through the test's own relay — and sends first, so this fails
-// deterministically without the source check rather than occasionally.
+// TestTheHandshakeIgnoresDatagramsFromAnyoneButTheRelay: a forged cookie and token from another source, sent first,
+// are ignored during the handshake. The attacker is given the client's exact port, so this fails deterministically
+// without the source check.
 func TestTheHandshakeIgnoresDatagramsFromAnyoneButTheRelay(t *testing.T) {
 	relay, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
@@ -164,15 +138,8 @@ func TestTheHandshakeIgnoresDatagramsFromAnyoneButTheRelay(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------- F18
-
-// TestOneConnsWriteDeadlineDoesNotReachAnother covers F18: an accepted Conn's
-// socket IS the listener's, shared with every other Conn on it, so setting a
-// write deadline was writing per-socket state from a per-connection method.
-// Two concurrent writes stomped each other — one clearing the other's deadline
-// mid-write, or a deadline-free write inheriting a deadline it never set. The
-// second is the one this asserts, because it is observable: an expired
-// deadline on one connection must not fail an unrelated connection's write.
+// TestOneConnsWriteDeadlineDoesNotReachAnother: accepted Conns share the listener's socket, so an expired write
+// deadline on one must not fail an unrelated connection's write that has none.
 func TestOneConnsWriteDeadlineDoesNotReachAnother(t *testing.T) {
 	l := listenTest(t)
 	_, serverA := dialAndAccept(t, l)
@@ -213,17 +180,9 @@ func TestOneConnsWriteDeadlineDoesNotReachAnother(t *testing.T) {
 	<-done
 }
 
-// --------------------------------------------------------------- F19
-
-// TestATransientWriteErrorDoesNotAbandonTheRetries covers F19: retryLoop
-// returned from its goroutine on one failed resend, without closing anything.
-// maxRetries exhaustion is the ONLY way this transport ever notices a peer
-// that has vanished (UDP has no disconnect signal), and it cannot fire from a
-// loop that has stopped counting — so the connection lingered to the relay's
-// 60s idle timeout with its lifecycle messages unsent.
-//
-// An expired write deadline stands in for the transient failure because it is
-// the one this package can produce on demand; ENOBUFS reaches the same line.
+// TestATransientWriteErrorDoesNotAbandonTheRetries: a failed resend must not end retryLoop, whose maxRetries
+// exhaustion is how a vanished peer is noticed. An expired write deadline stands in for the transient failure because
+// this package can produce it on demand; ENOBUFS reaches the same line.
 func TestATransientWriteErrorDoesNotAbandonTheRetries(t *testing.T) {
 	l := listenTest(t)
 	client, _ := dialAndAccept(t, l)

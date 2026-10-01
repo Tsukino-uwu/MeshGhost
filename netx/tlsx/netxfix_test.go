@@ -10,24 +10,17 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 )
 
-// Regressions for the 2026-09-08 review finding F9: the sniffing listener
-// returned from its accept loop on the FIRST error of any kind and delivered
-// it exactly once, so relay.Serve's deliberate temporary-error retry (added
-// 2026-09-02 for descriptor exhaustion) parked on a channel nothing would ever
-// send to again. The relay logged one "retrying" line and then accepted no tcp
-// for the life of the process while existing rooms kept working, so nothing
-// about it looked broken. This wrapper is in the tcp path of every relay.
+// The sniffing listener must survive a temporary Accept error, which relay.Serve retries, and report a permanent one
+// to every later caller rather than hang: it sits in the tcp path of every relay.
 
-// tempAcceptError is what the kernel hands back as EMFILE/ENFILE: a net.Error
-// that says "not right now", which is the whole reason relay.Serve retries.
+// tempAcceptError stands in for EMFILE or ENFILE: a net.Error that says "not right now".
 type tempAcceptError struct{}
 
 func (tempAcceptError) Error() string   { return "tlsx test: temporary accept error" }
 func (tempAcceptError) Timeout() bool   { return false }
 func (tempAcceptError) Temporary() bool { return true }
 
-// flakyListener returns one temporary error from Accept before behaving
-// exactly like the listener it wraps.
+// flakyListener returns one temporary error from Accept, then behaves like the listener it wraps.
 type flakyListener struct {
 	net.Listener
 	mu    sync.Mutex
@@ -69,13 +62,11 @@ func TestATemporaryAcceptErrorDoesNotStopTheListener(t *testing.T) {
 	}
 	ln := sniffing(t, &flakyListener{Listener: raw})
 
-	// The error itself is still reported, because the backoff-and-log policy
-	// belongs to the caller (relay.Serve), not to this wrapper.
+	// The error is still reported: the backoff policy belongs to the caller.
 	if _, err := ln.Accept(); err == nil {
 		t.Fatal("want the temporary error reported to the caller, got nil")
 	}
 
-	// The retry. This is the half that hung.
 	type result struct {
 		c   net.Conn
 		err error
@@ -91,8 +82,7 @@ func TestATemporaryAcceptErrorDoesNotStopTheListener(t *testing.T) {
 		t.Fatalf("dial: %v", err)
 	}
 	defer client.Close()
-	// A TLS handshake in the background: the listener hands the connection up
-	// only once it completes (a plaintext line is refused since 2026-09-15).
+	// The listener hands the connection up only once the handshake completes.
 	go func() {
 		secure, err := tlsx.Client(client, testALPN, tlsx.TrustAnyCertificate, testTimeout)
 		if err == nil {
@@ -118,10 +108,7 @@ func TestAPermanentAcceptErrorReachesEveryLaterCaller(t *testing.T) {
 	}
 	ln := sniffing(t, raw)
 
-	// Kill the inner listener under the wrapper, the way a closed socket or a
-	// revoked binding would. The caller must be told, and told again: a
-	// permanent error that is reported once and then silently becomes a hang
-	// is the same defect in a different shape.
+	// A permanent error must be reported to every later Accept, not once and then a hang.
 	raw.Close()
 
 	for i := 0; i < 3; i++ {

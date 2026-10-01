@@ -10,40 +10,24 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/netx/srclimit"
 )
 
-// LimitListener bounds how many connections accepted from ln may be open at
-// once. Past max, a new connection is closed immediately rather than handed to
-// the caller -- and rather than queued, which is what x/net/netutil's version
-// does: a queued stranger still holds a kernel socket, and the relay's
-// per-connection timers never start for it, so the cap would bound memory
-// but not descriptors.
+// LimitListener bounds how many connections accepted from ln may be open at once. Past max, a new connection is
+// closed at once rather than queued (as x/net/netutil does): a queued stranger still holds a kernel socket, so the cap
+// would bound memory but not descriptors.
 //
-// Why this exists: the relay's MaxClients counts JOINED clients. Nothing
-// counted a connection that had been accepted and not yet said hello, and
-// each of those costs a goroutine, a read buffer, a socket and a timer for up
-// to HelloTimeout -- or, under TLS, a handshake goroutine before the relay
-// even sees it. So a stranger could hold thousands open from one machine at
-// a few bytes each, and past the descriptor limit Accept itself failed.
-// Found by the 2026-09-02 adversarial review. Applied UNDER the TLS layer so
-// that handshaking connections count too.
-//
-// A refusal is logged at most once per second: the refusals are the attack,
-// and a line per refusal would turn a connection flood into a disk flood.
+// The relay's MaxClients counts joined clients only, and each connection not yet past its hello costs a goroutine, a
+// buffer, a socket and a timer, so this is applied beneath TLS, where handshaking connections count too. A refusal is
+// logged at most once a second: the refusals are the attack, and a line each would turn it into a disk flood.
 func LimitListener(ln net.Listener, max int, logf func(string, ...any)) net.Listener {
 	return LimitListenerWith(ln, LimitOptions{Max: max, Logf: logf})
 }
 
 // LimitOptions configures LimitListenerWith.
 type LimitOptions struct {
-	// Max bounds open connections across the whole listener; 0 means the
-	// listener is returned untouched.
+	// Max bounds open connections across the whole listener; 0 means the listener is returned untouched.
 	Max int
-	// Sources, when set, additionally bounds open connections PER CLIENT
-	// ADDRESS (srclimit.Options.MaxOpenPerSource). A global cap alone is
-	// what one machine walks straight through: hold all Max sockets from
-	// one address and every real player is refused with a bare close
-	// (fourth adversarial review, 2026-09-13, finding A5). The table is
-	// shared with the other listeners and with the relay's room-code
-	// guard so one address is one source everywhere; ADR 0064.
+	// Sources, when set, also bounds open connections per client address (srclimit.Options.MaxOpenPerSource), so one
+	// machine cannot hold all Max and lock every player out. The table is shared with the other listeners and the
+	// relay's room-code guard, so one address is one source everywhere.
 	Sources *srclimit.Table
 	// Logf receives the throttled refusal lines. Nil means none.
 	Logf func(string, ...any)
@@ -64,10 +48,7 @@ type limitListener struct {
 	open    atomic.Int64
 	refused atomic.Int64
 	lastLog atomic.Int64 // unix nanos of the last refusal line
-	// The per-source refusals get their own count and throttle: the line
-	// prints different numbers (this address's cap, not the listener's),
-	// and folding them into one would either misreport the numbers or let
-	// one kind of flood silence the other's line.
+	// Per-source refusals have their own count and throttle so one kind of flood cannot silence the other's line.
 	refusedSource atomic.Int64
 	lastSourceLog atomic.Int64
 	logf          func(string, ...any)
@@ -88,10 +69,8 @@ func (l *limitListener) Accept() (net.Conn, error) {
 			l.noteRefusal()
 			continue
 		}
-		// The address is taken ONCE, here, and the release closure keeps it:
-		// Close runs the underlying Close before release (limitedConn.Close),
-		// and what RemoteAddr returns on a closed connection is not something
-		// three different net.Conn implementations promise.
+		// The address is taken once, here: release runs after the underlying Close, and RemoteAddr on a closed
+		// connection is not something every net.Conn implementation promises.
 		var release func()
 		if l.sources != nil {
 			addr := c.RemoteAddr()
@@ -129,9 +108,7 @@ func (l *limitListener) noteRefusal() {
 	}
 }
 
-// noteSourceRefusal logs a per-address refusal at most once a second, by
-// count only -- the address itself is never printed (docs/security.md's
-// privacy section; the table keeps it in memory and nowhere else).
+// noteSourceRefusal logs a per-address refusal at most once a second, by count only: the address is never printed.
 func (l *limitListener) noteSourceRefusal() {
 	n := l.refusedSource.Add(1)
 	now := time.Now().UnixNano()
@@ -157,25 +134,9 @@ func (c *limitedConn) Close() error {
 	return err
 }
 
-// CloseWrite and TransportName forward through the wrapper for the same reason
-// limitedLossyConn exists: limitedConn embeds net.Conn as an INTERFACE, so a
-// method the underlying connection has but net.Conn does not is invisible to
-// the type assertions that look for it. Two shipped consequences, both found
-// 2026-09-07:
-//
-//   - transport.CloseGracefully asserts for CloseWrite and falls back to a hard
-//     Close when it is missing. The relay wraps EVERY accepted connection in a
-//     limiter, so every reject the relay wrote -- wrong room code, version
-//     mismatch, rate limited -- was lost to a TCP reset behind the unread data
-//     instead of reaching the client, which then classified a PERMANENT refusal
-//     as a transport error and retried it forever.
-//   - relay's transportName asserts for TransportName and defaults to "tcp", so
-//     every udp and quic client was logged as "tcp" in the per-client line a
-//     remote tester is asked to send back.
-//
-// Both return the underlying behaviour when it exists and today's fallback when
-// it does not, so a connection that genuinely cannot half-close still ends in
-// Close, exactly as before.
+// CloseWrite and TransportName forward because limitedConn embeds net.Conn as an interface, which hides every method
+// net.Conn lacks from the type assertions that look for it: without CloseWrite the relay's rejects are lost to a
+// reset, and without TransportName every client is logged as tcp. Each falls back as if the method were missing.
 func (c *limitedConn) CloseWrite() error {
 	cw, ok := c.Conn.(interface{ CloseWrite() error })
 	if !ok {
@@ -192,12 +153,8 @@ func (c *limitedConn) TransportName() string {
 	return tn.TransportName()
 }
 
-// AcceptedAt and MaxPayloadBytes forward for the same reason (pass 5 of the
-// adversarial review, 2026-09-16, P1d-1): the limiter wraps every quic
-// connection above quicconn, so the relay's hello timer could not see when a
-// quic connection was accepted and restarted its window at the first stream.
-// Zero values are the relay's own fallbacks: the whole window, no datagram
-// bound. Test: TestLimitListenerForwardsTheOptionalMethods.
+// AcceptedAt and MaxPayloadBytes forward for the same reason, so the relay's hello timer sees when a quic connection
+// was accepted. Zero values are the relay's own fallbacks: the whole window, no datagram bound.
 func (c *limitedConn) AcceptedAt() time.Time {
 	a, ok := c.Conn.(interface{ AcceptedAt() time.Time })
 	if !ok {
@@ -214,25 +171,15 @@ func (c *limitedConn) MaxPayloadBytes() int {
 	return m.MaxPayloadBytes()
 }
 
-// unreliableWriter is the state plane's fire-and-forget escape hatch, as the
-// transport package discovers it: by type assertion on the net.Conn, which is
-// exactly what an embedded-interface wrapper defeats.
+// unreliableWriter is the state plane's fire-and-forget write, which transport finds by type assertion on the
+// net.Conn.
 type unreliableWriter interface {
 	WriteUnreliable(p []byte) (int, error)
 }
 
-// limitedLossyConn is limitedConn for a connection that also has an
-// unreliable write -- the quic and udp transports. It exists because
-// limitedConn embeds net.Conn as an INTERFACE, so the underlying
-// connection's WriteUnreliable is hidden behind it: transport.SendUnreliable
-// asserts for the method, finds nothing, and falls back to the reliable
-// stream. That is what happened the night the limiter shipped (2026-09-02):
-// every state the relay forwarded over quic rode the ordered stream, so one
-// lost or reordered packet stalled every sample behind it for a round trip,
-// and a TEVI ghost through meshghost-netsim at 2% loss snapped every few
-// seconds at any interpolation delay. The datagram path is the reason quic
-// is worth serving at all (quicconn's package doc), and this wrapper is what
-// keeps it reachable through the limiter. Test: TestLimitListenerKeepsTheUnreliableWrite.
+// limitedLossyConn is limitedConn for a connection that also has an unreliable write (quic, udp). Without it the
+// embedded interface hides WriteUnreliable, and transport.SendUnreliable falls back to the ordered stream, where one
+// lost packet stalls every state behind it.
 type limitedLossyConn struct {
 	*limitedConn
 	uw unreliableWriter

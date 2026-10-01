@@ -145,7 +145,6 @@ func TestTheTableIsBoundedAndEvictsTheOldestIdleEntry(t *testing.T) {
 	tb, clk := newTable(t, Options{MaxOpenPerSource: 4, MaxEntries: 3, AuthBurst: 2, AuthRefillPerSecond: 1})
 	addr := func(i int) net.Addr { return tcpAddr(t, fmt.Sprintf("10.1.0.%d:1", i)) }
 
-	// Three idle entries, touched at different times.
 	for i := 1; i <= 3; i++ {
 		clk.t = clk.t.Add(time.Second)
 		if !tb.Acquire(addr(i)) {
@@ -156,7 +155,6 @@ func TestTheTableIsBoundedAndEvictsTheOldestIdleEntry(t *testing.T) {
 	if tb.Len() != 3 {
 		t.Fatalf("Len = %d, want 3", tb.Len())
 	}
-	// A fourth evicts the oldest idle one (addr 1), not a newer one.
 	clk.t = clk.t.Add(time.Second)
 	if !tb.Acquire(addr(4)) {
 		t.Fatal("a newcomer was refused although idle entries could be evicted")
@@ -164,7 +162,6 @@ func TestTheTableIsBoundedAndEvictsTheOldestIdleEntry(t *testing.T) {
 	if tb.Len() != 3 {
 		t.Fatalf("Len = %d after eviction, want 3", tb.Len())
 	}
-	// addr 1 was forgotten: it can open again from scratch; addr 4 is at 1.
 	if !tb.Acquire(addr(2)) || !tb.Acquire(addr(3)) {
 		t.Fatal("entries that should have survived were refused")
 	}
@@ -213,11 +210,8 @@ type strAddr string
 func (s strAddr) Network() string { return "test" }
 func (s strAddr) String() string  { return string(s) }
 
-// TestOneIPv6SubscriberSharesOneBudget is pass 5's P1b-2: one machine on a
-// home IPv6 line can use any address in its /64, and keying by the whole
-// address gave each of them a fresh wrong-room-code budget -- unlimited
-// guesses from one host. Every address in the /64 must draw on one bucket;
-// the next /64 over is a different subscriber and must not.
+// TestOneIPv6SubscriberSharesOneBudget: every address in one /64 draws on one wrong-code bucket; the next /64 over
+// is a different subscriber.
 func TestOneIPv6SubscriberSharesOneBudget(t *testing.T) {
 	tb := New(Options{AuthBurst: 3, AuthRefillPerSecond: 0.0001})
 	conn := func(host string) fakeConn { return fakeConn{remote: strAddr("[" + host + "]:7777")} }

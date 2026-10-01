@@ -9,37 +9,14 @@ import (
 	"time"
 )
 
-// A refused hello must survive one dropped packet (P1d-1, 2026-09-12).
-//
-// relay.rejectAndClose writes a Reject and then calls
-// transport.CloseGracefully, whose entire reason for existing is that the last
-// line written must actually arrive. It asserts for CloseWrite and hard-closes
-// anything that cannot half-close -- and this transport could not, so on the
-// SHIPPED DEFAULT transport that call did the opposite of its name:
-//
-//   - Close ends retryLoop, so the Reject went out as exactly one datagram with
-//     no retransmission behind it. Lose that packet and a client with a wrong
-//     room code sees silence, which is indistinguishable from a network fault,
-//     so it treats a permanent refusal as transient and reconnects forever.
-//   - Close also unregisters the Conn from its listener, so the drain
-//     CloseGracefully asked for read nothing -- which is the mechanism the
-//     relay's rate-limit path relies on to consume a flooder's remaining
-//     traffic rather than reset it.
-//
-// These two pin the halves separately, because they fail separately.
-
-// TestCloseWriteKeepsRetransmittingWhatWasAlreadySent is the first half. It
-// reaches into c.pending, which is how the retry loop's liveness is observable
-// at all -- the same window TestATransientWriteErrorDoesNotAbandonTheRetries
-// uses, for the same reason.
+// TestCloseWriteKeepsRetransmittingWhatWasAlreadySent: after CloseWrite a Reject already written is still
+// retransmitted. c.pending is where the retry loop's liveness is observable at all.
 func TestCloseWriteKeepsRetransmittingWhatWasAlreadySent(t *testing.T) {
 	l := listenTest(t)
 	client, server := dialAndAccept(t, l)
 	sc := server.(*Conn)
 
-	// The client goes away without saying so, which is what a client on a
-	// broken path looks like and what makes retransmission the thing that
-	// matters: nothing will ever ack what the relay is about to write.
+	// The client goes away unannounced, as on a broken path, so nothing will ever ack what the relay writes next.
 	_ = client.Close()
 
 	if _, err := sc.Write([]byte(`{"type":"reject","reason":"bad room code"}`)); err != nil {
@@ -85,17 +62,13 @@ func TestCloseWriteKeepsRetransmittingWhatWasAlreadySent(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	// And a half-close is still a close for NEW traffic, or it is not a
-	// half-close at all.
 	if _, err := sc.Write([]byte(`{"type":"state"}`)); !errors.Is(err, net.ErrClosed) {
 		t.Fatalf("a write after CloseWrite returned %v, want net.ErrClosed", err)
 	}
 }
 
-// TestCloseWriteStillReceives is the second half: the drain reads. The relay
-// half-closes and then keeps reading for a bounded window, so a rate-limited
-// client's remaining flood is consumed rather than reset, and so the Reject is
-// not thrown away with it.
+// TestCloseWriteStillReceives: after CloseWrite the drain still reads, so a rate-limited client's remaining flood is
+// consumed rather than reset.
 func TestCloseWriteStillReceives(t *testing.T) {
 	l := listenTest(t)
 	client, server := dialAndAccept(t, l)
@@ -105,8 +78,7 @@ func TestCloseWriteStillReceives(t *testing.T) {
 		t.Fatalf("CloseWrite: %v", err)
 	}
 
-	// The client had not finished talking. On a hard close this datagram is
-	// dropped by the listener, which no longer knows this connection exists.
+	// On a hard close the listener drops this, no longer knowing the connection exists.
 	if _, err := client.Write([]byte("still-talking\n")); err != nil {
 		t.Fatalf("client write after the half-close: %v", err)
 	}

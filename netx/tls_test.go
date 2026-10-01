@@ -1,14 +1,8 @@
 package netx_test
 
-// TLS over the tcp transport, tested at the netx seam — where a caller
-// (the relay's main, the core) actually reaches it.
-//
-// The load-bearing test here is
-// TestTheRoomCodeIsNotReadableOnTheWireWithTLS, which taps the bytes
-// actually crossing the socket rather than asserting on configuration. It
-// has a deliberate negative control in the same function: over a raw socket
-// the room code IS readable, so the test fails if the feature stops working
-// *and* fails if the test stops actually looking.
+// TLS over the tcp transport, tested at the netx seam where the relay and the core reach it.
+// TestTheRoomCodeIsNotReadableOnTheWireWithTLS taps the bytes crossing the socket, with a negative control: over a
+// raw socket the secret is readable, so the test fails if TLS stops working and if the test stops looking.
 
 import (
 	"bufio"
@@ -27,9 +21,8 @@ import (
 
 const tlsTestTimeout = 5 * time.Second
 
-// tap sits between a client and target, forwarding both directions and
-// recording every byte the client sends. This is the packet capture a
-// coffee-shop eavesdropper would have.
+// tap sits between a client and target, forwarding both directions and recording every byte the client sends: an
+// eavesdropper's packet capture.
 type tap struct {
 	ln net.Listener
 
@@ -90,10 +83,8 @@ func (tp *tap) captured() string {
 	return tp.seen.String()
 }
 
-// relayish is a stand-in for the relay: a TLS listener that reads one line
-// per connection. It is netx.ListenWithTLS, so this exercises the same call
-// the real relay makes. Returns the address, the lines it received, and the
-// fingerprint it serves.
+// relayish stands in for the relay through the same netx.ListenWithTLS call, reading one line per connection. It
+// returns the address, the lines received and the fingerprint served.
 func relayish(t *testing.T) (addr string, got chan string, fingerprint string) {
 	t.Helper()
 	cfg, fp, err := tlsx.ServerConfig(netx.TLSALPN)
@@ -108,9 +99,8 @@ func relayish(t *testing.T) (addr string, got chan string, fingerprint string) {
 	return ln.Addr().String(), readLines(t, ln), fp
 }
 
-// rawRelay is a relay from before 2026-08-19: a plaintext listener that
-// reads one line per connection. The control case of the wire test, and
-// what a client must refuse.
+// rawRelay is a plaintext listener that reads one line per connection, as a relay without TLS would: the control
+// case of the wire test, and what a client must refuse.
 func rawRelay(t *testing.T) (addr string, got chan string) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -134,10 +124,7 @@ func readLines(t *testing.T, ln net.Listener) chan string {
 				defer c.Close()
 				_ = c.SetReadDeadline(time.Now().Add(tlsTestTimeout))
 				line, err := bufio.NewReader(c).ReadString(byte('\n'))
-				// Only NDJSON is reported. A plaintext relay handed a TLS
-				// ClientHello sees binary garbage, exactly as the real one
-				// would; reporting it would make "did the room code
-				// arrive?" answer yes for bytes no relay could parse.
+				// Only NDJSON is reported: a ClientHello is binary no relay could parse, not an arrived line.
 				if line == "" || !strings.HasPrefix(line, "{") {
 					_ = err
 					return
@@ -152,18 +139,11 @@ func readLines(t *testing.T, ln net.Listener) chan string {
 	return got
 }
 
-// trustAny is the dial-side options a test that is not about verification
-// uses. Named so its every use is greppable.
+// trustAny is the dial-side options a test that is not about verification uses, named so every use is greppable.
 var trustAny = netx.TLSOptions{Verify: tlsx.TrustAnyCertificate}
 
-// TestTheRoomCodeIsNotReadableOnTheWireWithTLS is the whole point of the
-// feature, asserted against real bytes on a real socket.
-//
-// The plaintext half is not decoration: it proves the tap is looking at the
-// right traffic, so a green encrypted half means "the room code was
-// encrypted" rather than "the test stopped watching". Since 2026-09-15 no
-// shipped dial is plaintext, so the control case is a raw socket to a raw
-// listener -- the same bytes an old client sent.
+// TestTheRoomCodeIsNotReadableOnTheWireWithTLS asserts against real bytes on a real socket. The plaintext half proves
+// the tap is watching the right traffic; no shipped dial is plaintext, so it is a raw socket to a raw listener.
 func TestTheRoomCodeIsNotReadableOnTheWireWithTLS(t *testing.T) {
 	const secret = "hunter2-room-code"
 	hello := "{\"room_code\":\"" + secret + "\"}\n"
@@ -210,17 +190,9 @@ func TestTheRoomCodeIsNotReadableOnTheWireWithTLS(t *testing.T) {
 	})
 }
 
-// TestAClientRefusesAPlaintextRelay: no bytes to a relay that cannot
-// handshake. This is the property no earlier MeshGhost security setting had
-// — room-code auth is enforced only by the relay, so a stale relay silently
-// disables it (agent_docs/risks.md). This client cannot be disabled from
-// the other end, and since 2026-09-15 there is no mode in which it could.
-//
-// Two shapes of relay, because finding A1 of the fourth adversarial review
-// was that they are indistinguishable from the client's side: a plaintext
-// relay never answers a ClientHello with bytes (it drops the line it cannot
-// parse and closes at its hello timeout), which is exactly what an on-path
-// party blackholing the handshake looks like.
+// TestAClientRefusesAPlaintextRelay: no application bytes to a relay that cannot handshake, a property the other end
+// cannot disable. Two shapes of relay, indistinguishable from the client's side: a plaintext relay never answers a
+// ClientHello with bytes, which is what an on-path party blackholing the handshake looks like.
 func TestAClientRefusesAPlaintextRelay(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -252,10 +224,7 @@ func TestAClientRefusesAPlaintextRelay(t *testing.T) {
 				conn.Close()
 				t.Fatal("the client connected to a plaintext relay; a failed handshake must be a refusal")
 			}
-			// It necessarily sends a ClientHello — that is what "try TLS"
-			// means — but no application data, so the room code and
-			// everything else in the hello never reach a relay that could
-			// not encrypt them.
+			// It necessarily sends a ClientHello, but no application data.
 			select {
 			case line := <-got:
 				t.Fatalf("the plaintext relay received the application line %q; the client must "+
@@ -266,8 +235,7 @@ func TestAClientRefusesAPlaintextRelay(t *testing.T) {
 	}
 }
 
-// TestARelayRefusesAPlaintextClient: the other direction. A client from
-// before TLS (or netcat) is closed, and its line never reaches the relay.
+// TestARelayRefusesAPlaintextClient: a plaintext client (or netcat) is closed, and its line never reaches the relay.
 func TestARelayRefusesAPlaintextClient(t *testing.T) {
 	addr, got, _ := relayish(t)
 	conn, err := net.DialTimeout("tcp", addr, tlsTestTimeout)
@@ -289,10 +257,8 @@ func TestARelayRefusesAPlaintextClient(t *testing.T) {
 	}
 }
 
-// TestOneIdentityOnTCPAndQUIC: the relay hands both listeners the same
-// certificate, so a client sees one fingerprint whichever transport it lands
-// on. Until 2026-09-15 quic generated its own, unverified one -- the "tcp is
-// stronger than quic" gap docs/security.md used to document.
+// TestOneIdentityOnTCPAndQUIC: the relay hands both listeners the same certificate, so a client sees one fingerprint
+// whichever transport it lands on.
 func TestOneIdentityOnTCPAndQUIC(t *testing.T) {
 	cfg, fp, err := tlsx.ServerConfig(netx.TLSALPN)
 	if err != nil {
@@ -329,9 +295,8 @@ func TestOneIdentityOnTCPAndQUIC(t *testing.T) {
 	}
 }
 
-// TestTheVerifierDecidesOnEveryTransport: a verifier that refuses refuses
-// the quic handshake as it does the tcp one, and a missing verifier is an
-// error on both rather than an unchecked session.
+// TestTheVerifierDecidesOnEveryTransport: a refusing verifier refuses the quic handshake as it does the tcp one, and
+// a missing verifier is an error on both rather than an unchecked session.
 func TestTheVerifierDecidesOnEveryTransport(t *testing.T) {
 	cfg, _, err := tlsx.ServerConfig(netx.TLSALPN)
 	if err != nil {
@@ -373,9 +338,7 @@ func TestTheVerifierDecidesOnEveryTransport(t *testing.T) {
 	}
 }
 
-// TestBareDialRefusesQUIC: the unverified quic dial is gone, so nothing in
-// the tree can reach a quic relay without a verifier by taking the other
-// door.
+// TestBareDialRefusesQUIC: nothing can reach a quic relay without a verifier by taking the plain Dial.
 func TestBareDialRefusesQUIC(t *testing.T) {
 	if conn, err := netx.Dial(netx.QUIC, "127.0.0.1:1", tlsTestTimeout); err == nil {
 		conn.Close()
@@ -385,8 +348,7 @@ func TestBareDialRefusesQUIC(t *testing.T) {
 	}
 }
 
-// TestListenWithTLSNeedsAnIdentity: there is no "off" that returns the bare
-// listener. A relay that forgot its identity does not come up plaintext.
+// TestListenWithTLSNeedsAnIdentity: a relay that forgot its identity does not come up plaintext.
 func TestListenWithTLSNeedsAnIdentity(t *testing.T) {
 	for _, kind := range []netx.Kind{netx.TCP, netx.QUIC} {
 		if ln, err := netx.ListenWithTLS(kind, "127.0.0.1:0", netx.TLSOptions{}); err == nil {

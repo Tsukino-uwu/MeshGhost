@@ -7,13 +7,8 @@ import (
 	"time"
 )
 
-// TestParseKindRejectsATypo is the point of ParseKind being strict. A
-// mistyped transport must stop the binary, not silently fall back to TCP:
-// an operator who wrote "quik" expecting an encrypted transport and got an
-// unencrypted one instead, with no message anywhere, is the exact failure
-// agent_docs/risks.md already records for a stale binary ignoring
-// room_code. Kind's zero value is TCP, so a lenient parser would produce
-// precisely that.
+// TestParseKindRejectsATypo: a mistyped transport must stop the binary. Kind's zero value is TCP, so a lenient parser
+// would turn "quik" into tcp with no message anywhere.
 func TestParseKindRejectsATypo(t *testing.T) {
 	for _, bad := range []string{"quik", "tcp/udp", "", "  ", "sctp"} {
 		if _, err := ParseKind(bad); err == nil {
@@ -23,8 +18,7 @@ func TestParseKindRejectsATypo(t *testing.T) {
 }
 
 func TestParseKindAcceptsEveryTransport(t *testing.T) {
-	// "udp" is the dev build's alone (udp_dev_test.go); a release refuses it
-	// (udp_release_test.go).
+	// "udp" is the dev build's alone; a release refuses it (udp_release_test.go).
 	for in, want := range map[string]Kind{
 		"tcp": TCP, "quic": QUIC,
 		"TCP": TCP, " quic ": QUIC,
@@ -40,10 +34,8 @@ func TestParseKindAcceptsEveryTransport(t *testing.T) {
 	}
 }
 
-// TestParseKindsPreservesOrderAndDropsDuplicates covers the relay's
-// multi-transport list. Order matters only for the startup log's
-// readability, but duplicates must not produce two listeners racing for the
-// same port.
+// TestParseKindsPreservesOrderAndDropsDuplicates: order matters only for the startup log, but a duplicate would be
+// two listeners racing for one port.
 func TestParseKindsPreservesOrderAndDropsDuplicates(t *testing.T) {
 	got, err := ParseKinds("quic, tcp ,quic,tcp")
 	if err != nil {
@@ -60,9 +52,6 @@ func TestParseKindsPreservesOrderAndDropsDuplicates(t *testing.T) {
 	}
 }
 
-// TestParseKindsRejectsAnEmptyList confirms a relay configured with no
-// transport refuses to start rather than defaulting to something the
-// operator did not ask for.
 func TestParseKindsRejectsAnEmptyList(t *testing.T) {
 	for _, bad := range []string{"", "   ", ",", " , , "} {
 		if _, err := ParseKinds(bad); err == nil {
@@ -71,10 +60,8 @@ func TestParseKindsRejectsAnEmptyList(t *testing.T) {
 	}
 }
 
-// TestTCPListenAndDialRoundTrip is the seam's own smoke test: whatever
-// Listen and Dial return has to behave like the net.Listener/net.Conn pair
-// the rest of the codebase already expects, because relay and
-// transport consume them as exactly that.
+// TestTCPListenAndDialRoundTrip is the seam's smoke test: what Listen and Dial return must behave as the
+// net.Listener and net.Conn that relay and transport consume.
 func TestTCPListenAndDialRoundTrip(t *testing.T) {
 	ln, err := Listen(TCP, "127.0.0.1:0")
 	if err != nil {
@@ -120,33 +107,12 @@ func TestTCPListenAndDialRoundTrip(t *testing.T) {
 	}
 }
 
-// TestTCPAndUDPShareAPortNumber pins the fact the relay's port scheme rests
-// on: TCP and UDP have independent port spaces, so serving tcp and quic
-// (which is carried over UDP) costs one port number, not two. The udp side
-// here is a quic listener, since 2026-09-15: plain udp no longer ships, and
-// quic is the transport whose udp socket actually shares the number.
+// TestTCPAndUDPShareAPortNumber: TCP and UDP have independent port spaces, so serving tcp and quic (over UDP) costs
+// one port number, not two.
 //
-// Verified here rather than asserted in a comment, because if it were ever
-// false the relay would fail to start in its shipped tcp,udp configuration
-// and the reason would not be obvious from the error.
-// Retried rather than attempted once, because the OS gets to choose the port
-// and some of its choices are unusable through no fault of this claim. Windows
-// reserves scattered UDP ranges (Hyper-V/WinNAT), and a TCP port drawn from the
-// ephemeral pool can land inside one — the UDP bind then fails with
-// "an attempt was made to access a socket in a way forbidden by its access
-// permissions" even though TCP and UDP port spaces really are independent.
-// Found on CI's Windows runner 2026-08-17, where this failed the release gate
-// twice in one afternoon on a claim that was never actually in doubt.
-//
-// A retry keeps the assertion exactly as strong: if the two port spaces were
-// NOT independent, every attempt would fail, not merely some.
-//
-// Twenty retries all drawing from TCP were not enough (CI's Windows runner,
-// 2026-09-02, on a comment-only push): Windows hands out ephemeral ports in
-// order, so twenty consecutive TCP draws can all land inside one excluded UDP
-// range. Now every other attempt lets UDP choose the port -- a port UDP could
-// bind is by definition not in a UDP-excluded range -- and TCP follows, so one
-// excluded range on either side cannot exhaust the attempts.
+// Windows reserves scattered UDP ranges (Hyper-V, WinNAT) and hands out ephemeral ports in order, so one draw can
+// land in a reserved block; the test retries, letting each side pick the port in turn. A retry keeps the assertion as
+// strong: if the port spaces were not independent, every attempt would fail.
 func TestTCPAndUDPShareAPortNumber(t *testing.T) {
 	const attempts = 40
 	var lastErr error
@@ -169,7 +135,7 @@ func TestTCPAndUDPShareAPortNumber(t *testing.T) {
 
 		secondLn, err := Listen(second, net.JoinHostPort("127.0.0.1", port))
 		if err != nil {
-			// Almost certainly an OS-reserved range. Draw another port.
+			// Almost certainly an OS-reserved range.
 			lastErr = fmt.Errorf("port %s (%s first): %w", port, first, err)
 			firstLn.Close()
 			continue
@@ -190,15 +156,8 @@ func TestTCPAndUDPShareAPortNumber(t *testing.T) {
 		"port space and the relay's one-port scheme is broken", attempts, lastErr)
 }
 
-// TestParseKindsAlwaysIncludesTCP pins the rule that keeps a relay
-// reachable. Every client handshakes over tcp before moving to its
-// configured transport, so a relay serving only udp or only quic would be
-// unreachable by everyone — including clients configured for exactly the
-// transport it does serve.
-//
-// Found by internal/e2e when a udp-only relay stopped being connectable,
-// after every package-level test still passed. Pinned here so the rule
-// cannot be quietly dropped.
+// TestParseKindsAlwaysIncludesTCP: every client handshakes over tcp before moving to its configured transport, so a
+// relay serving only quic would be unreachable by everyone.
 func TestParseKindsAlwaysIncludesTCP(t *testing.T) {
 	for _, in := range []string{"quic", "quic,quic"} {
 		got, err := ParseKinds(in)
@@ -210,7 +169,7 @@ func TestParseKindsAlwaysIncludesTCP(t *testing.T) {
 			t.Errorf("ParseKinds(%q) = %v, want tcp first — a relay without tcp is unreachable", in, got)
 		}
 	}
-	// And naming it explicitly must not duplicate the listener.
+	// Naming it explicitly must not duplicate the listener.
 	got, err := ParseKinds("tcp,quic,tcp")
 	if err != nil {
 		t.Fatalf("ParseKinds: %v", err)

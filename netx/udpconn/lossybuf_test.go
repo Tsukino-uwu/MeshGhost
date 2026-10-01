@@ -9,13 +9,9 @@ import (
 	"time"
 )
 
-// WriteUnreliable is the state plane's write, so the relay calls it once per
-// RECIPIENT for every state a room carries -- the one allocation on that path
-// that genuinely scaled with room size, since everything else is per message.
-// It now frames into a buffer the connection keeps.
-//
-// Pinned as an allocation count rather than left to a benchmark, because a
-// benchmark reports a regression only if somebody runs it and reads it.
+// TestWriteUnreliableDoesNotAllocatePerCall: the relay calls WriteUnreliable once per recipient per state, so it
+// frames into a buffer the connection keeps. An allocation count, because a benchmark only reports a regression if
+// somebody runs it and reads it.
 func TestWriteUnreliableDoesNotAllocatePerCall(t *testing.T) {
 	l := listenTest(t)
 	rawClient, server := dialAndAccept(t, l)
@@ -24,12 +20,8 @@ func TestWriteUnreliableDoesNotAllocatePerCall(t *testing.T) {
 		t.Fatalf("Dial returned %T, wanted *Conn", rawClient)
 	}
 
-	// Drain, so the socket buffer filling up cannot turn into a write error
-	// that ends the measurement early.
-	// One deadline for the whole drain, set BEFORE the measurement: a
-	// SetReadDeadline per read allocates a time value on this goroutine, and
-	// testing.AllocsPerRun counts the whole process, so the drain itself was
-	// contributing to the number it exists to keep out of the way.
+	// Drain, so a full socket buffer cannot end the measurement with a write error. One deadline, set before the
+	// measurement: a SetReadDeadline per read allocates, and AllocsPerRun counts the whole process.
 	done := make(chan struct{})
 	_ = server.SetReadDeadline(time.Now().Add(testTimeout))
 	go func() {
@@ -52,14 +44,8 @@ func TestWriteUnreliableDoesNotAllocatePerCall(t *testing.T) {
 		t.Fatalf("warm-up write: %v", err)
 	}
 
-	// The MINIMUM over several batches, not one batch. AllocsPerRun counts
-	// every allocation in the process during its window -- the listener's
-	// goroutines, the runtime, whatever the scheduler lets run -- and under
-	// whole-suite load one batch reported 4.0 twice on 2026-09-03 while the
-	// same test passed 40 of 40 on its own. A regression in WriteUnreliable
-	// allocates on EVERY call and so in every batch; a stray allocation from
-	// somewhere else lands in some batches and not others. The minimum tells
-	// those apart, which a single batch never could.
+	// The minimum over several batches: AllocsPerRun counts every allocation in the process, so a stray one from
+	// another goroutine lands in some batches, while a regression here allocates in every batch.
 	got := testing.AllocsPerRun(200, func() {
 		if _, err := client.WriteUnreliable(payload); err != nil {
 			t.Fatalf("write: %v", err)
@@ -74,12 +60,7 @@ func TestWriteUnreliableDoesNotAllocatePerCall(t *testing.T) {
 			got = again
 		}
 	}
-	// Below one, not "at most one". The regression this pins -- a fresh
-	// framing buffer per call -- measures exactly 1.00, and the real code
-	// 0.00 (measured 2026-09-03 by removing the reuse on purpose); the old
-	// "got > 1" therefore let the very thing it was written for pass. The
-	// minimum over batches is what makes a strict bound safe: a stray
-	// allocation from another goroutine cannot turn every batch's 0 into 1.
+	// Below one, not at most one: a fresh framing buffer per call measures exactly 1.00, the real code 0.00.
 	t.Logf("WriteUnreliable: %.2f allocations per call (minimum of 5 batches)", got)
 	if got >= 1 {
 		t.Fatalf("WriteUnreliable allocated %.2f times per call (minimum of 5 batches), want 0 "+
@@ -87,10 +68,8 @@ func TestWriteUnreliableDoesNotAllocatePerCall(t *testing.T) {
 	}
 }
 
-// The buffer is shared state on a path the relay drives concurrently, so the
-// lock has to cover the write itself and not merely the framing -- otherwise a
-// second caller can overwrite a datagram that is still being sent. This is the
-// test that would catch that, under -race, which is how it is run in CI.
+// TestConcurrentWriteUnreliableKeepsDatagramsIntact: the lock covers the write itself, not merely the framing, so a
+// second caller cannot overwrite a datagram still being sent. It catches that under -race, as CI runs it.
 func TestConcurrentWriteUnreliableKeepsDatagramsIntact(t *testing.T) {
 	l := listenTest(t)
 	rawClient, server := dialAndAccept(t, l)
@@ -102,8 +81,7 @@ func TestConcurrentWriteUnreliableKeepsDatagramsIntact(t *testing.T) {
 	const writers = 8
 	const each = 40
 
-	// Every payload is a distinct, self-describing line so a torn or
-	// interleaved datagram is recognisable rather than merely suspicious.
+	// Every payload is a distinct, self-describing line, so a torn or interleaved datagram is recognisable.
 	want := make(map[string]bool, writers*each)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -131,9 +109,7 @@ func TestConcurrentWriteUnreliableKeepsDatagramsIntact(t *testing.T) {
 	}
 	wg.Wait()
 
-	// UDP may legitimately drop, so this asserts that everything which ARRIVES
-	// is one of the exact payloads sent -- never a splice of two. Loss is fine
-	// here; corruption is not.
+	// UDP may drop, so loss is fine; everything that arrives must be one exact payload, never a splice of two.
 	buf := make([]byte, MaxDatagramBytes)
 	seen := 0
 	for {

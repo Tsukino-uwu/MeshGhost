@@ -7,17 +7,14 @@ import (
 	"time"
 )
 
-// TestLimitListenerClosesConnectionsPastTheCap: the cap counts connections
-// from Accept until Close, the one past it is closed at once (its far end
-// reads EOF promptly, rather than sitting until a timeout), and closing an
-// accepted connection frees its slot.
+// TestLimitListenerClosesConnectionsPastTheCap: the cap counts connections from Accept until Close, the one past it
+// is closed at once (its far end reads EOF rather than waiting out a timeout), and a close frees its slot.
 func TestLimitListenerClosesConnectionsPastTheCap(t *testing.T) {
 	raw, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	// Written from the accept goroutine, read here: atomic, or the race
-	// detector (CI, first push) rightly objects.
+	// Written from the accept goroutine and read here, so atomic.
 	var logged atomic.Int32
 	ln := LimitListener(raw, 2, func(string, ...any) { logged.Add(1) }).(*limitListener)
 	defer ln.Close()
@@ -61,7 +58,6 @@ func TestLimitListenerClosesConnectionsPastTheCap(t *testing.T) {
 		t.Fatalf("open = %d, want 2", got)
 	}
 
-	// Third: refused. Its far end must see EOF quickly.
 	third := dial()
 	_ = third.SetReadDeadline(time.Now().Add(2 * time.Second))
 	if n, err := third.Read(make([]byte, 1)); err == nil {
@@ -76,7 +72,6 @@ func TestLimitListenerClosesConnectionsPastTheCap(t *testing.T) {
 		t.Fatalf("refusal logged %d times, want 1", n)
 	}
 
-	// Free one slot; the next dial is accepted again.
 	_ = first.Close()
 	dial()
 	waitAccepted()
@@ -85,8 +80,7 @@ func TestLimitListenerClosesConnectionsPastTheCap(t *testing.T) {
 	}
 }
 
-// lossyConn is a net.Conn that also offers the state plane's unreliable
-// write, the way quicconn.Conn and udpconn.Conn do.
+// lossyConn is a net.Conn that also offers the state plane's unreliable write, as quicconn.Conn and udpconn.Conn do.
 type lossyConn struct {
 	net.Conn
 	unreliableWrites atomic.Int32
@@ -97,7 +91,6 @@ func (c *lossyConn) WriteUnreliable(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// lossyListener hands out lossyConns.
 type lossyListener struct {
 	net.Listener
 	last chan *lossyConn
@@ -113,11 +106,8 @@ func (l *lossyListener) Accept() (net.Conn, error) {
 	return lc, nil
 }
 
-// TestLimitListenerKeepsTheUnreliableWrite: a connection that offers
-// WriteUnreliable still offers it after the limiter wraps it, and the call
-// reaches the underlying connection. The limiter shipped without this
-// (2026-09-02) and every quic state the relay forwarded silently rode the
-// reliable stream -- see limitedLossyConn.
+// TestLimitListenerKeepsTheUnreliableWrite: a connection that offers WriteUnreliable still offers it after the
+// limiter wraps it, and the call reaches the underlying connection.
 func TestLimitListenerKeepsTheUnreliableWrite(t *testing.T) {
 	raw, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -162,8 +152,7 @@ func TestLimitListenerKeepsTheUnreliableWrite(t *testing.T) {
 		t.Fatalf("the unreliable write did not reach the connection: %d calls", got)
 	}
 
-	// And a connection WITHOUT the method must not grow one: the transport
-	// decides reliability by asserting for it.
+	// A connection without the method must not grow one: the transport decides reliability by asserting for it.
 	rawPlain, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -194,8 +183,7 @@ func TestLimitListenerKeepsTheUnreliableWrite(t *testing.T) {
 	}
 }
 
-// acceptedConn is a connection that knows when it was accepted and has a
-// datagram bound, as tlsx's servedConn and quicconn's Conn do.
+// acceptedConn knows when it was accepted and has a datagram bound, as tlsx's servedConn and quicconn's Conn do.
 type acceptedConn struct {
 	net.Conn
 	at time.Time
@@ -217,11 +205,8 @@ func (l *acceptedListener) Accept() (net.Conn, error) {
 	return &acceptedConn{Conn: c, at: l.at}, nil
 }
 
-// TestLimitListenerForwardsTheOptionalMethods is pass 5's P1d-1: the relay
-// type-asserts for AcceptedAt (its hello timer counts from accept) and
-// MaxPayloadBytes (its Welcome budget), and a wrapper embedding net.Conn as
-// an interface hides both. The limiter wraps every quic connection, so the
-// accept-time fix never reached one.
+// TestLimitListenerForwardsTheOptionalMethods: the relay type-asserts for AcceptedAt (its hello timer counts from
+// accept) and MaxPayloadBytes (its Welcome budget), which a wrapper embedding net.Conn as an interface hides.
 func TestLimitListenerForwardsTheOptionalMethods(t *testing.T) {
 	raw, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

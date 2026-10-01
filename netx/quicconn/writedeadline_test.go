@@ -1,19 +1,5 @@
 package quicconn
 
-// P1d-2 from the transports cell of the 2026-09-12 adversarial review.
-//
-// SetWriteDeadline stored a value that only Write read. WriteUnreliable went
-// straight into quic-go's SendDatagram, whose queue holds 32 frames and whose
-// own comment reads "Once that limit is reached, Add blocks until the queue
-// size has reduced" -- on a select with no timeout. So a quic peer whose
-// congestion window had collapsed parked the relay's writer goroutine for that
-// client, and every reliable join, leave and reject queued behind it, past the
-// bound relay/outbox.go is written around.
-//
-// These drive the real Conn over a real quic connection. The queue depth is
-// quic-go's, not ours, so the test fills it by writing into a peer that never
-// reads and never acknowledges rather than by reaching into internals.
-
 import (
 	"context"
 	"crypto/tls"
@@ -76,10 +62,7 @@ func dialOne(t *testing.T) (server, client *Conn) {
 	}
 	t.Cleanup(func() { server.Close() })
 
-	// Consume the byte that primed the stream, so a test reading for its own
-	// datagram does not get handed the handshake's leftovers instead. The
-	// listener only surfaces a connection once its stream carries something,
-	// which is why the prime exists at all.
+	// Consume the prime, so a test reading for its own datagram is not handed it instead.
 	_ = server.SetReadDeadline(time.Now().Add(5 * time.Second))
 	if _, err := server.Read(make([]byte, 8)); err != nil {
 		t.Fatalf("draining the stream prime: %v", err)
@@ -88,13 +71,12 @@ func dialOne(t *testing.T) (server, client *Conn) {
 	return server, client
 }
 
-// The bound itself: with the queue jammed, an unreliable write returns inside
-// its deadline instead of parking the caller.
+// TestAnUnreliableWriteHonoursItsWriteDeadline: with quic-go's datagram queue jammed by a peer that never reads, an
+// unreliable write returns inside its deadline instead of parking the caller.
 func TestAnUnreliableWriteHonoursItsWriteDeadline(t *testing.T) {
 	_, client := dialOne(t)
 
-	// Far more than quic-go's 32-frame queue, at a size that will not be
-	// drained quickly, so at least one send is parked when the deadline runs.
+	// Far more than quic-go's 32-frame queue, so at least one send is parked when the deadline runs.
 	payload := make([]byte, 1000)
 	if err := client.SetWriteDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
 		t.Fatalf("set deadline: %v", err)
@@ -104,13 +86,10 @@ func TestAnUnreliableWriteHonoursItsWriteDeadline(t *testing.T) {
 	for i := 0; i < 2000 && time.Now().Before(deadline); i++ {
 		start := time.Now()
 		if _, err := client.WriteUnreliable(payload); err != nil {
-			// A refusal is fine (too large for the path, connection gone); a
-			// STALL is what this test is about.
+			// A refusal is fine (too large for the path, connection gone); only a stall fails.
 			continue
 		}
-		// Generous against the 100ms deadline so a scheduler hiccup on a busy
-		// CI box is not a failure, and still far under the multi-second park
-		// the unbounded path produced.
+		// Generous against the 100ms deadline, so a busy CI box's scheduler is not a failure.
 		if took := time.Since(start); took > 3*time.Second {
 			t.Fatalf("an unreliable write blocked for %v against a 100ms write deadline -- "+
 				"this is the relay's writer goroutine for one client, and every reliable "+
@@ -120,9 +99,8 @@ func TestAnUnreliableWriteHonoursItsWriteDeadline(t *testing.T) {
 	}
 }
 
-// And the converse, so the drop is not simply refusing everything: on an idle
-// connection with room in the queue, an unreliable write still goes out and
-// still reports what it wrote.
+// TestAnOrdinaryUnreliableWriteStillSends: with room in the queue an unreliable write still goes out and reports what
+// it wrote, so the drop is not refusing everything.
 func TestAnOrdinaryUnreliableWriteStillSends(t *testing.T) {
 	server, client := dialOne(t)
 
@@ -145,11 +123,7 @@ func TestAnOrdinaryUnreliableWriteStillSends(t *testing.T) {
 		t.Fatalf("read: %v -- an ordinary unreliable write did not arrive, so the drop is eating "+
 			"traffic rather than only shedding it under congestion", err)
 	}
-	// Verbatim, with no newline appended. streamLoop frames its lines and
-	// datagramLoop deliberately does not -- a datagram is one whole message by
-	// construction. Asserted rather than assumed because a first draft of this
-	// test expected the stream's framing here and failed on it, which is the
-	// same asymmetry the transports cell filed separately (P1d-7).
+	// Verbatim, with no newline appended: a datagram is one whole message, so datagramLoop does not frame it.
 	if string(buf[:got]) != string(want) {
 		t.Fatalf("got %q, want %q", buf[:got], want)
 	}

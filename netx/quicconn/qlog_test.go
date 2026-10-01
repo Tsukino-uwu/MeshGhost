@@ -2,10 +2,7 @@ package quicconn
 
 import "testing"
 
-// TestQLogTracerIsOffUnlessAsked is finding B5 of the fourth adversarial
-// review: the tracer used to be installed unconditionally, so the QLOGDIR
-// environment variable alone made every stranger's handshake write a file.
-// Now it is installed only after SetQLog(true), whatever the environment says.
+// TestQLogTracerIsOffUnlessAsked: QLOGDIR alone installs no tracer; only SetQLog(true) does.
 func TestQLogTracerIsOffUnlessAsked(t *testing.T) {
 	t.Setenv("QLOGDIR", t.TempDir())
 	if quicConfig().Tracer != nil {

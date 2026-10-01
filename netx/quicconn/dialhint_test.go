@@ -9,12 +9,8 @@ import (
 	"testing"
 )
 
-// A dial that failed because the LOCAL udp socket could not be created must not
-// ask the reader whether the relay serves quic -- the relay was never contacted.
-//
-// This is the Wine/Proton shape exactly: quic.DialAddr calls net.ListenUDP first
-// and returns its error unwrapped, and Go's netFD.init turns Wine's
-// WSAEOPNOTSUPP ("winapi error #10045") from WSAIoctl into a "listen" OpError.
+// TestDialHintBlamesTheMachineWhenTheUDPSocketCannotBeCreated uses the Wine/Proton shape: Go turns Wine's
+// WSAEOPNOTSUPP from WSAIoctl into a "listen" OpError, and the relay was never contacted.
 func TestDialHintBlamesTheMachineWhenTheUDPSocketCannotBeCreated(t *testing.T) {
 	err := &net.OpError{
 		Op:   "listen",
@@ -34,8 +30,6 @@ func TestDialHintBlamesTheMachineWhenTheUDPSocketCannotBeCreated(t *testing.T) {
 	}
 }
 
-// Still wrapped in fmt.Errorf %w, so errors.As must reach through the wrapping
-// the real Dial applies.
 func TestDialHintReachesThroughWrapping(t *testing.T) {
 	inner := &net.OpError{Op: "listen", Net: "udp", Err: errors.New("nope")}
 	wrapped := errors.Join(errors.New("quicconn: dial x"), inner)
@@ -44,8 +38,6 @@ func TestDialHintReachesThroughWrapping(t *testing.T) {
 	}
 }
 
-// Every OTHER failure had a working socket, so the relay-side question is the
-// right one and must survive.
 func TestDialHintStillAsksAboutTheRelayForEverythingElse(t *testing.T) {
 	for _, err := range []error{
 		errors.New("timeout: no recent network activity"),

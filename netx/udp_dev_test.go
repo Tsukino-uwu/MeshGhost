@@ -4,10 +4,6 @@ package netx
 
 import "testing"
 
-// The dev build's udp tests (ADR 0065). TestAutoNeverPrefersUDPOverQUIC is
-// moved verbatim from netx_test.go; the others are the udp forms of
-// ParseKinds' guarantees.
-
 func TestParseKindsAcceptsUDPInTheDevBuild(t *testing.T) {
 	for _, in := range []string{"udp", "udp,quic", "quic,udp"} {
 		got, err := ParseKinds(in)
@@ -24,10 +20,8 @@ func TestParseKindsAcceptsUDPInTheDevBuild(t *testing.T) {
 	}
 }
 
-// TestAutoNeverPrefersUDPOverQUIC pins the ordering that keeps an automatic
-// choice from being a silent security downgrade: udp and quic behave the
-// same under packet loss, but udp cannot be encrypted at all, so nothing
-// should pick it on a user's behalf while quic is available.
+// TestAutoNeverPrefersUDPOverQUIC: udp and quic behave the same under loss but udp cannot be encrypted, so auto
+// ranking it first would be a silent downgrade.
 func TestAutoNeverPrefersUDPOverQUIC(t *testing.T) {
 	quicAt, udpAt := -1, -1
 	for i, k := range AutoPreference {

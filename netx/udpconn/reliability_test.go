@@ -9,17 +9,9 @@ import (
 	"time"
 )
 
-// lossyProxy sits between a client and a Listener and drops datagrams on
-// demand, so the reliability layer can be tested against real packet loss
-// without waiting for a real network to misbehave.
-//
-// Loss is armed explicitly rather than applied at random or to every Nth
-// datagram. Both of those looked simpler and were worse: a fixed stride
-// lines up with the handshake's own alternating request/response pattern
-// and can starve one message type completely, and randomness would make a
-// failure here impossible to reproduce. Arming it after the connection is
-// up tests exactly the property in question — a reliable payload survives
-// its first N datagrams being lost — and does so identically every run.
+// lossyProxy sits between a client and a Listener and drops client-to-server datagrams on demand. Loss is armed
+// explicitly: a fixed stride lines up with the handshake's request/response pattern and can starve one message type,
+// and random loss would make a failure impossible to reproduce.
 type lossyProxy struct {
 	front  *net.UDPConn // faces the client
 	back   *net.UDPConn // faces the real listener
@@ -148,15 +140,8 @@ func connectThroughProxy(t *testing.T, l *Listener, p *lossyProxy) (client, serv
 	}
 }
 
-// TestReliableWriteSurvivesPacketLoss is the core reliability property, and
-// the reason lifecycle messages do not ride the unreliable path. A dropped
-// leave would strand a ghost on another player's screen forever, and a
-// dropped welcome would mean the client never joins at all — neither is
-// recoverable at a higher layer, because nothing above here knows a
-// datagram went missing.
-//
-// This fails without the retransmit loop: the payload is written once,
-// discarded by the proxy, and never arrives.
+// TestReliableWriteSurvivesPacketLoss: a reliable payload arrives though its first three datagrams are lost. Nothing
+// above this layer knows a datagram went missing, so a dropped leave or welcome would never be recovered.
 func TestReliableWriteSurvivesPacketLoss(t *testing.T) {
 	l := listenTest(t)
 	p := newLossyProxy(t, l.Addr().String())
@@ -184,17 +169,13 @@ func TestReliableWriteSurvivesPacketLoss(t *testing.T) {
 	}
 }
 
-// TestReliableWriteIsDeliveredOnlyOnce covers the other half: retransmission
-// means the far end can receive the same payload several times, so it must
-// deduplicate. Without that, a retried join would be delivered twice and
-// the relay would act on it twice.
+// TestReliableWriteIsDeliveredOnlyOnce: a reliable payload is not delivered again within a few retry intervals. It
+// arms no loss, so it does not force a retransmit of a payload the receiver has already seen.
 func TestReliableWriteIsDeliveredOnlyOnce(t *testing.T) {
 	l := listenTest(t)
 	p := newLossyProxy(t, l.Addr().String())
 	client, server := connectThroughProxy(t, l, p)
 
-	// Losing the acks (not the data) is what forces the sender to retry a
-	// payload the receiver has already seen — the exact duplicate case.
 	const line = `{"type":"join"}` + "\n"
 	if _, err := client.Write([]byte(line)); err != nil {
 		t.Fatalf("write: %v", err)
@@ -208,8 +189,7 @@ func TestReliableWriteIsDeliveredOnlyOnce(t *testing.T) {
 		t.Fatalf("first read: %v", err)
 	}
 
-	// Anything further within a couple of retry intervals would be a
-	// duplicate delivery.
+	// Anything further within a few retry intervals would be a duplicate delivery.
 	if err := server.SetReadDeadline(time.Now().Add(3 * retryInterval)); err != nil {
 		t.Fatalf("deadline: %v", err)
 	}
@@ -219,27 +199,9 @@ func TestReliableWriteIsDeliveredOnlyOnce(t *testing.T) {
 	}
 }
 
-// TestReliableWritesArriveInOrderUnderLoss pins down what "reliable"
-// actually promises on this transport.
-//
-// Reliable and ordered are both promised. A payload whose first datagram is
-// lost used to be overtaken by the next one, which was never lost, so both
-// arrived in the wrong order; the resequencing buffer closed that -- see
-// Conn.wantSeq and Conn.reorderBuf, which hold anything that arrives ahead of
-// the next deliverable sequence number until the gap is filled.
-//
-// This matters above here rather than in the abstract. relay sends
-// every lifecycle message (join, leave, welcome, reject) on this path, and
-// core applies them in arrival order -- a Leave overtaken by its
-// own Join strands that peer's ghost permanently. See
-// TestLeaveIsNotUndoneByALateJoin in core.
-//
-// The assertion below is therefore in-order delivery. It used to assert the
-// opposite, and this paragraph used to say "if a resequencing buffer is ever
-// added, this test should fail" -- the buffer was added, the assertion was
-// updated, and the comment was not, leaving the two saying opposite things.
-// netx/conformance_test.go's TestConformanceSendIsOrdered owns the same claim
-// at the contract level.
+// TestReliableWritesArriveInOrderUnderLoss: a payload whose first datagram is lost is not overtaken by the next.
+// core applies lifecycle messages in arrival order, so a leave overtaking its own join would strand a ghost.
+// TestConformanceSendIsOrdered owns the same claim at the contract level.
 func TestReliableWritesArriveInOrderUnderLoss(t *testing.T) {
 	l := listenTest(t)
 	p := newLossyProxy(t, l.Addr().String())
@@ -248,9 +210,8 @@ func TestReliableWritesArriveInOrderUnderLoss(t *testing.T) {
 	const first = `{"type":"join"}` + "\n"
 	const second = `{"type":"leave"}` + "\n"
 
-	// Only the first payload's initial datagram is lost. The second is
-	// written straight after and travels cleanly, so it reaches the far end
-	// while the first is still waiting on its retransmit.
+	// Only the first payload's initial datagram is lost, so the second reaches the far end while the first waits on
+	// its retransmit.
 	p.dropNextToServer(1)
 	if _, err := client.Write([]byte(first)); err != nil {
 		t.Fatalf("write first: %v", err)
@@ -275,7 +236,6 @@ func TestReliableWritesArriveInOrderUnderLoss(t *testing.T) {
 	got := []string{read("first"), read("second")}
 	want := []string{first, second}
 
-	// Both must arrive -- that is the reliability property, and it holds.
 	if got[0] == got[1] {
 		t.Fatalf("the same payload was delivered twice: %q", got[0])
 	}
@@ -285,11 +245,8 @@ func TestReliableWritesArriveInOrderUnderLoss(t *testing.T) {
 	}
 }
 
-// TestUnreliableWriteIsDroppedNotRetried is the deliberate other side of
-// the design. State samples must NOT be retransmitted: the plane is
-// latest-wins, so a resent sample would arrive stale and out of order,
-// which is worse than the gap it fills. This proves the opt-out genuinely
-// opts out rather than quietly inheriting reliability.
+// TestUnreliableWriteIsDroppedNotRetried: state samples are never retransmitted, since the plane is latest-wins and a
+// resent sample would arrive stale. The opt-out must not quietly inherit reliability.
 func TestUnreliableWriteIsDroppedNotRetried(t *testing.T) {
 	l := listenTest(t)
 	p := newLossyProxy(t, l.Addr().String())
@@ -319,22 +276,9 @@ func TestUnreliableWriteIsDroppedNotRetried(t *testing.T) {
 	}
 }
 
-// TestReliablePayloadIsNotAckedWhenItCannotBeDelivered covers the ordering
-// bug that made the reliability layer silently unreliable.
-//
-// Delivery into a Conn is non-blocking and drops when the queue is full —
-// correct for the lossy state plane, fatal for a reliable one if the ack
-// goes out first. The sender would have its ack, so it would never
-// retransmit, and the dedup record would suppress the retransmit even if it
-// did: a join, leave or welcome could vanish while Write reported success.
-//
-// The asserted property is the precise, deterministic one: **an
-// undeliverable payload must not be acknowledged**. It saturates the
-// receiver's queue directly, then checks the sender still has the message
-// outstanding. An earlier version drove the same idea through the public
-// API by flooding and draining, and quietly PASSED against the buggy code
-// because the queue was not reliably full at the deciding instant — which
-// is why this one reaches into the queue rather than approximating it.
+// TestReliablePayloadIsNotAckedWhenItCannotBeDelivered: delivery drops on a full queue, so a payload that cannot be
+// delivered must not be acked, or the sender never retransmits it. It fills the queue directly, because flooding
+// through the public API does not reliably have it full at the deciding instant.
 func TestReliablePayloadIsNotAckedWhenItCannotBeDelivered(t *testing.T) {
 	l := listenTest(t)
 	client, server := dialAndAccept(t, l)
@@ -364,13 +308,8 @@ func TestReliablePayloadIsNotAckedWhenItCannotBeDelivered(t *testing.T) {
 			"accepted — it was acked before delivery, so it will never be retransmitted and is lost")
 	}
 
-	// And once the reader catches up, the retransmission must land. The
-	// filler is drained through the same Read loop that waits for it, so a
-	// retransmit that arrives mid-drain still counts. This used to drain with
-	// a blind `<-srv.in` first, and the sleep above is exactly two retry
-	// ticks: the second resend could land while that loop ran, be swallowed
-	// as filler and acked, leaving the sender nothing to resend and the wait
-	// below to time out (CI, 2026-09-05).
+	// Once the reader catches up, the retransmission must land. The filler drains through the same Read loop, so a
+	// resend arriving mid-drain still counts instead of being swallowed as filler.
 	deadline := time.Now().Add(8 * time.Second)
 	buf := make([]byte, MaxDatagramBytes)
 	for time.Now().Before(deadline) {
