@@ -17,7 +17,7 @@ $dirty = & git -C $repo status --porcelain --untracked-files=no -- 'adapters/tev
 if ($dirty) { throw "build inputs have uncommitted changes; the build uses HEAD, so commit first:`n$($dirty -join "`n")" }
 $head = (& git -C $repo rev-parse HEAD).Trim()
 foreach ($lib in 'Assembly-CSharp.dll', 'Newtonsoft.Json.dll') {
-    if (-not (Test-Path -LiteralPath (Join-Path $src "lib\$lib"))) { throw "no lib\$lib: copy it from your TEVI install (adapters\tevi\README.md)" }
+    if (-not (Test-Path -LiteralPath (Join-Path $src "lib\$lib"))) { throw "no lib\${lib}: copy it from your TEVI install (adapters\tevi\README.md)" }
 }
 
 # A git variable inherited from a hook would point every clone below at this repo.
