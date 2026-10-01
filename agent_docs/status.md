@@ -12,7 +12,7 @@ not expire (2026-09-27), kept at the top until the user unpins it.
 ## Open now
 
 - 2026-10-01 — **PINNED, priority 1 (the user): the four shipped DLLs rebuilt with no build path or username, and deployed; open until a TEVI and a Pseudoregalia ghost are seen on screen.** `phases/phase12.md`.
-- 2026-10-01 — **Gates and docs from bug_fables_ap, Part A (A1–A7): A1–A3 done bar the on-screen check; A4's code map done, the build steps' Status lines and fact-check fixes with the user.** `phases/phase12.md`.
+- 2026-10-01 — **Gates and docs from bug_fables_ap, Part A (A1–A7): A1–A3 done bar the on-screen check; A4's code map done, the build steps' Status lines with the user.** `phases/phase12.md`.
 - 2026-09-30 (re-checked) — **Sort each adapter's older code-level entries out of `UNVERIFIED.md`/`VERIFIED.md` into `MEASURED.md`**, and give every `UNVERIFIED.md` (and `_template`) a full index. Another chat.
 - 2026-09-30 (re-checked) — **Autoplay, Emerald: the League beaten** (the 1:1 route run); the state planner's step 2 begun, badge rules measured; next the capability reader. `phases/autoplay/emerald.md`.
 - 2026-09-30 (re-checked) — **Autoplay, Crystal: paused** (the user); `goto`, the PACK, POKéMON menu, badges, bike, surf and `effective` scoring done on V1.0; next the whiteout. `phases/autoplay/crystal.md`.
