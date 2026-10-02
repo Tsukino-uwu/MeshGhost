@@ -142,7 +142,7 @@ measurements.**
 `packaging/config-overrides/<game>.json` (moved out of the release tree 2026-09-05) is applied onto
 the root `config.json`'s `"client"` block when the release is staged. **There is no separate config
 template and has not been since 2026-09-02** — every game's `config.json` is cut from that block
-(`dev-scripts/stage-release.ps1:26-28`). Only two of the four games have an overrides file at all:
+(the per-game loop in `dev-scripts/stage-release.ps1`). Only two of the four games have an overrides file at all:
 Pseudoregalia's carries its three distance tiers and nothing else, and TEVI's holds only its
 `_comment`. **So no game overrides a render knob today** — `interp` reaches all four as the root
 block's `450ms`, and `ghost_collision: disabled` is a ROOT key

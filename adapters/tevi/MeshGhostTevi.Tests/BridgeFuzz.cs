@@ -3,7 +3,7 @@
 // The private queue is reached by reflection, so shipped code carries no test seam. A fixed corpus, not a
 // coverage-guided fuzzer: the decoder's whole input is one line of text. Newtonsoft here comes from NuGet, while the
 // plugin binds to the game's own copy, so a green run bounds our parse and dispatch, not that exact deserializer.
-// Each category asserts that values arrive at the callback, so a key nothing reads fails the run.
+// Each category that feeds a value asserts it arrives at the callback, so a key nothing reads fails the run.
 
 using System;
 using System.Collections.Concurrent;

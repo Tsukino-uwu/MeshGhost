@@ -1177,3 +1177,12 @@ bullets), and four CI measurements (the race job's 10m29s, the fuzz shards, the 
 said the relay logs in its working directory (it writes beside its config or executable), and `.gitattributes` gave
 every hook a leak check (only pre-commit has one). Two living-doc pointers the trim moved now name what they mean:
 `pitfalls/method.md`'s quote of the README eol comment, and `ideas.md`'s `ci.yml:158` (the `race` job).
+
+## 2026-10-03 — A5's second pass: dev-scripts read against the code
+
+`dev-scripts/` (85 files, gate scripts apart) was read comment by comment; five files changed. The dev loader said its
+targets tick in load order (last to first), the hitch meter's header claimed ten lost frames still read 58 fps (a
+one-second rate would read 50; `README.md`, `crowd-limits.md` and `phase8.md` carry the same sentence, left for a
+measurement), `hot-reload-lua.ps1`'s TEVI example would send F10 (ScriptEngine's key is F6), and `run-netsim.bat` said
+a seed replays the same fault sequence (the same distribution). `scaling.md`'s pointer into `stage-release.ps1` now
+names the loop. Proofs: `luac -l -l` listings, PowerShell tokens and comment-only lines identical.

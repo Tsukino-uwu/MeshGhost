@@ -37,7 +37,7 @@ namespace MeshGhostTevi
         {
             // Our own child's port answered busy while the child lives: another game reached it first. The child is
             // forgotten, not killed, so a fresh core starts at the cursor. Only on busy, never on silence: forgetting
-            // on silence made two restarting instances chase each other's fresh cores round the range.
+            // on silence lets two restarting instances chase each other's fresh cores round the range.
             if (ChildStillRunning() && childPort != 0 && lastBusyPort == childPort)
             {
                 log($"MeshGhost: the core this adapter started (pid {child.Id}, port {childPort}) is serving " +

@@ -25,7 +25,8 @@ namespace MeshGhostTevi
             public int? RoomX;
             public int? RoomY;
 
-            // Which afterimage trail the game's own decision spawns: 0 or null none, 1 slide or quickdrop, 2 dodge.
+            // Which afterimage trail the game's own decision spawns: 0 or null none, 1 a slide, a quickdrop or any
+            // SetTrail call, 2 dodge.
             public int? TrailMode;
             // Mode 1's own parameters: anything in the game may call SetTrail with its own rate, decay, colour, order.
             public float? TrailRate;

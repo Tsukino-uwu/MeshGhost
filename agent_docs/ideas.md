@@ -88,8 +88,9 @@ is USED, that project is checked and recorded there first.
    list, since it's visible during normal play rather than only while the map is open.
 
 2. **Bug: the FullMap marker is update-driven, not frame-driven.** `UpdateRemoteMapMarker`
-   (`adapters/tevi/MeshGhostTevi/Plugin.cs:195`) only runs from inside `UpsertRemoteGhost`,
-   which only fires when a `render_remote` arrives (`Plugin.cs:339`, invoked from `DrainInto`). If a peer's state stops
+   (`adapters/tevi/MeshGhostTevi/Plugin.cs`) only runs from inside `UpsertRemoteGhost`,
+   which only fires when a `render_remote` arrives (invoked from `DrainInto`). The code has since moved it to every
+   frame (`RefreshRemoteMapMarkers` from `Update`, read 2026-10-03; not yet seen on screen). If a peer's state stops
    arriving while the local player has the map open, the marker doesn't hide or refresh — it
    just sits wherever it was, stale, until the next `render_remote`. Real bug in shipped code,
    not a hypothetical.
@@ -110,17 +111,17 @@ is USED, that project is checked and recorded there first.
    is per-state free-form data, not identity).
 
 4. **Per-remote appearance.** Every ghost is a clone of the *local* player's own
-   `spranim_prefer.pixel.gameObject` (`Plugin.cs:258-263, 265-321`) — there is only one
+   `spranim_prefer.pixel.gameObject` (`CreateRealGhostVisual` in `Plugin.cs`) — there is only one
    template, the local character. Two peers on different characters/costumes both render as
    whatever the *viewer's* own character looks like. Needs a real per-character visual source,
    not just a config toggle.
 
-5. **Ghost depth sorting.** Ghost z is hardcoded to `0` (`Plugin.cs:371`, `:398`) with no sorting-layer
+5. **Ghost depth sorting.** Ghost z is hardcoded to `0` (the positions `UpsertRemoteGhost` sets in `Plugin.cs`) with no sorting-layer
    handling against TEVI's own render layers — currently invisible only because it hasn't
    collided with a real layering bug yet.
 
 6. **Config surface.** Exactly one `BepInEx.Configuration.ConfigFile.Bind` call exists in the
-   whole adapter (`BridgePort`, `Plugin.cs:469`) — read once at `Awake`, no live re-read.
+   whole adapter (`BridgePort`, in `Plugin.cs`) — read once at `Awake`, no live re-read.
    Any future toggle (map marker on/off, ghost opacity, nameplates, verbose logging, the
    collision experiment below) needs this pattern established for real, not assumed. Do this
    with whichever toggle ships first, not speculatively ahead of time.
@@ -2537,9 +2538,9 @@ but never loops or indexes nil. **CI is nearly free:** `lua.yml` already exists,
 `lua5.4`, and is already path-filtered on `**.lua` — this becomes a second job in it, not a new
 workflow.
 
-**2. TEVI next.** `BridgeClient.DrainInto` (`adapters/tevi/MeshGhostTevi/BridgeClient.cs:671`)
-deserializes with `JsonConvert.DeserializeObject<JObject>` at `:690` and then switches on the
-`type` field at `:702`-`:756` (`render_remote`, `despawn_remote`, `bridge_ready`, `reject`).
+**2. TEVI next.** `BridgeClient.DrainInto` (`adapters/tevi/MeshGhostTevi/BridgeClient.cs`)
+deserializes with `JsonConvert.DeserializeObject<JObject>` and then switches on the
+`type` field (`render_remote`, `despawn_remote`, `bridge_ready`, `reject`).
 The parse half looks separable from the apply half — the switch builds a `RemoteState` and hands it
 to callbacks, so no Unity type is needed to reach the end of parsing. **Step: confirm that, then
 split the switch into a `TryParseBridgeLine` that returns a result object**, and put a `dotnet test`

@@ -29,13 +29,13 @@ without a protocol change.
 **Granularity is ALREADY the adapter's choice.** `area_id` is opaque to the core — compared by
 equality, never interpreted — so what an "area" *is* was never decided by the Go side. Pseudoregalia
 reports the UE Level's full name (`Plugin.cpp:12011`), TEVI reports its area enum
-(`Plugin.cs:2359`). Moving Pseudoregalia from zone to room granularity is **not** a core or relay
+(`Update` in `Plugin.cs`). Moving Pseudoregalia from zone to room granularity is **not** a core or relay
 change; it is that adapter reporting a finer string, and the shipped `own_area_only` filter starts
 culling per room the same day. Nothing in `core` or `relay` learns anything about the game.
 
 **THE RULE THAT DECIDES GRANULARITY: cull to the widest thing the adapter DISPLAYS, not the widest
 thing it DRAWS.** This is the trap, and TEVI is the live example the user suspected. Its pause-map
-marker gates on `state.AreaId == currentLocalArea` (`Plugin.cs:383`) — a peer's marker appears
+marker gates on `state.AreaId == currentLocalArea` (`UpdateRemoteMapMarker` in `Plugin.cs`) — a peer's marker appears
 because that peer's state is arriving while they are anywhere in the zone. Switch TEVI to room-level
 `area_id` and the ghosts get cheaper while the map marker silently loses everyone outside your own
 room. The character is drawn per room; the map is displayed per zone; the wider one sets the floor.

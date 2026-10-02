@@ -930,3 +930,17 @@ orphan sweep said to run on every session change (once per session that reaches 
 resolve from its own assembly's folder (the game root and the environment variable), and the fuzz harness said seeded
 (a fixed corpus). Still open in the docs: `FLAGS.md` describes three phase constants the code never reads as live, and
 `documentation.md` says trails spawn per fixed step where `TickTrails` runs once a frame.
+
+## 2026-10-03 — A5's second pass: the C# comments read against the code
+
+Every comment left in `MeshGhostTevi/` and its test project was read beside its code. Fixed to the code: the spawn-diff
+diagnostic said it watches objects near the player (it walks each anchor's own subtree) and named a coverage line that
+does not exist, trail mode 1 was said to mean a slide or quickdrop (also any `SetTrail` timer), a doc on `LastAnimTime`
+said it feeds drift correction (it is written and never read), and the fuzz test said every category checks values
+arrive (three only check the decoder survives). The bullet catch-up bound's "0.5 s" assumes a 1/60 fixed step the code
+reads at runtime; the original sentence went to `MEASURED.md`. Both the adapter DLL and the test DLL build
+byte-identical from HEAD and from the trimmed sources (deterministic, path-mapped, no pdb). Docs that cited `Plugin.cs`
+and `BridgeClient.cs` line numbers (`culling.md`, `risks.md`, `ideas.md`) now name the symbol; `ideas.md`'s map-marker
+bug notes the code now refreshes every frame (not yet seen on screen). Found and not changed: `AnimPhaseTolerance`,
+`FreezePhaseTimeout`, `lastWeaponRgb` and `SpawnDiffRadius` are never read and `LastAnimTime`, `FreezeArmedAt` and
+`lastWeaponSeenAt` never read back, while `FLAGS.md` still describes the phase corrector and the radius as live.

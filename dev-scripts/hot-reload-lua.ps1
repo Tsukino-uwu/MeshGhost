@@ -4,8 +4,8 @@
 #
 # Usage:
 #   pwsh dev-scripts/hot-reload-lua.ps1                 # every running pseudoregalia
-#   pwsh dev-scripts/hot-reload-lua.ps1 -Key F10        # if HotReloadKey differs
-#   pwsh dev-scripts/hot-reload-lua.ps1 -ProcessName TEVI
+#   pwsh dev-scripts/hot-reload-lua.ps1 -Key <key>      # when HotReloadKey is not F10
+#   pwsh dev-scripts/hot-reload-lua.ps1 -ProcessName TEVI -Key F6   # ScriptEngine's ReloadKey (tevi-hotreload.ps1)
 #
 # -Key must match HotReloadKey in that install's UE4SS-settings.ini, and must not collide with a game or UE4SS binding.
 

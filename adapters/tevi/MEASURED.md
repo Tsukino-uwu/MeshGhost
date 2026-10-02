@@ -576,6 +576,10 @@ Each fact below sat in a code comment beside the code that uses it (at `f64560cc
 - FLAGS ARE NOT A BIRTH FACT. The lock-on shot ADDS CannotPassWall to itself 0.02s after launch (inside BulletBehave, which never runs on a ghost), and until the watcher knows that, its own wall test skips the bullet and it flies into the rock -- 26 of them died inside solid tile in one session, every one reading cpw=False (user's screenshot, 2026-09-10). So the ring refreshes the flags field every frame the birth is still in it, and the receiver applies them to a bullet it has already spawned. No game code runs on the watcher: the shooter reports, the watcher believes.
 - WHOSE GEOMETRY IS IT? WorldManager answers about the room the LOCAL player is in, so asking it whether a peer's bullet has hit a wall is only a real question while the peer is in that same room. Measured 2026-09-10: without this the test fired at the peer's own muzzle and killed 41 shots on the spot, 155-422 units short (the RECV lines read `despawningAfterCatchUp=True`). In the same room it was exact -- 136 kills at delta 0.0 -- and it is the only way a wall hit lands with no wire delay at all. Flags gained after birth, for bullets already flying (see ReadBulletFlagUpdates).
 
+**`adapters/tevi/MeshGhostTevi/Plugin.cs`**, checked against adapters/tevi/MEASURED.md, "Measured" (every entry), "Facts the code comments carried, moved here word for word" and "Not measured yet"; documentation.md, FLAGS.md, SYNCED.md (row 14 says "at most 30 catch-up steps", no duration) and agent_docs/phases/phase6.md searched too. None states TEVI's fixed step (MainVar.fixedDeltaTime), which the 0.5s assumes is 1/60 s; it belongs under "Not measured yet".
+
+- A birth arrives up to a send interval late, so spawn replays the missed steps or the bullet starts behind and dies short. A sanity bound (0.5s), never reached at a sane send rate.
+
 ## Not measured yet
 
 ### Not measured yet — backup slots and the chapter-reset slot

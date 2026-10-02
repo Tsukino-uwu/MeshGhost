@@ -26,8 +26,8 @@ namespace MeshGhostTevi
         // Logs what the adapter sees at each play-session edge (player, EventManager, map open), one line per edge.
         private const bool DIAG_MENU_GATE = false;
 
-        // Logs every object appearing or disappearing near the player and each ghost, by instance id (pooling defeats
-        // counts), unfiltered by name. SpawnDiffCoverage reports the scan's cost: a quiet log is not "nothing".
+        // Logs every object appearing or disappearing under the player and each ghost, by instance id (pooling defeats
+        // counts), unfiltered by name. Its coverage line reports the scan's cost: a quiet log is not "nothing".
         private const bool DIAG_SPAWN_DIFF = false;
         // 20Hz: a one-frame effect is unlikely to fall between two samples.
         private const float SpawnDiffSampleInterval = 0.05f;
@@ -83,7 +83,6 @@ namespace MeshGhostTevi
             // fired before this ghost appeared do not replay.
             public int LastVfxSeq;
 
-            // Last phase received for this peer, for drift correction.
             public float LastAnimTime;
 
             // Playback speed correcting this ghost's clip phase, 1 when it is in step.
@@ -157,7 +156,7 @@ namespace MeshGhostTevi
             public string Cause;            // DIAG_GHOST_BULLETS: which of our rules ended it
             public string EffectObjectName; // DIAG_GHOST_BULLETS: the pooled object handed to it
             public bool PopDone;            // the wall-hit pop reached zero; nothing steps it again
-            public bool WallTestOk;         // the shooter is in OUR room, so our geometry is theirs
+            public bool WallTestOk;         // the shooter is in our room, so our geometry is theirs
             public GameObject Fx;           // the pooled follower, for clearing its trail on a snap
         }
 
@@ -1026,7 +1025,7 @@ namespace MeshGhostTevi
             if (TrailHaveEffectField != null && TrailHaveEffectField.GetValue(sa) is bool h) haveEffect = h;
         }
 
-        // Latch what the peer's trail IS this frame. Spawning happens in TickTrails.
+        // Latch what the peer's trail is this frame. Spawning happens in TickTrails.
         private static void LatchTrail(RemoteGhostVisual visual, BridgeClient.RemoteState state)
         {
             int mode = state.TrailMode ?? 0;
@@ -1341,8 +1340,7 @@ namespace MeshGhostTevi
                 int prev;
                 bool known = mirroredEffectActive.TryGetValue(index, out prev);
                 mirroredEffectActive[index] = active;
-                // A rise, near the player, and only after a baseline exists -- the first sample
-                // must not report the resting state as an event.
+                // A rise near the player, after a baseline: the first sample must not report the resting state.
                 if (known && active > prev && nearPlayer)
                 {
                     localVfxSeq++;
@@ -2564,7 +2562,7 @@ namespace MeshGhostTevi
         // A safety net only: a type with no despawn rule of its own, whose death row was dropped, would fly forever.
         private const float BulletSafetyLife = 12f;
         // A birth arrives up to a send interval late, so spawn replays the missed steps or the bullet starts behind and
-        // dies short. A sanity bound (0.5s), never reached at a sane send rate.
+        // dies short. A sanity bound, never reached at a sane send rate.
         private const int BulletCatchUpStepsMax = 30;
         private static readonly FieldInfo BulletPrefabField = typeof(BulletManager).GetField("bullet_prefab", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo BulletStartSizeField = typeof(bulletScript).GetField("startSize", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -3521,8 +3519,8 @@ namespace MeshGhostTevi
         private bool[] bulletPoolWasEnabled;
         private bool loggedBehaveFailure;
 
-        // Off: with it on, a peer's shots damaged the watcher. Off is the straight-line flight, wrong for the families
-        // that move themselves and incapable of harm.
+        // Off, because on it a peer's shots damage the watcher. Off is the straight-line flight: wrong for the families
+        // that move themselves, and incapable of harm.
         private const bool GhostBulletsRunGameBehaviour = false;
 
         // BulletBehave on another game's bullet, with useChargeRemove zeroed (charged families erase the watcher's
@@ -4028,7 +4026,7 @@ namespace MeshGhostTevi
             }
         }
 
-        // Probe (DIAG_SPAWN_DIFF): objects appearing or disappearing near a character, by instance id.
+        // Probe (DIAG_SPAWN_DIFF): objects appearing or disappearing under a character, by instance id.
         private void DiagSpawnDiff(CharacterBase player)
         {
             if (Time.time - lastSpawnDiffSampleTime < SpawnDiffSampleInterval)

@@ -2,8 +2,8 @@
 -- control file names, so a script is swapped on a running emulator with no relaunch.
 --
 -- The control file (bizhawk-dev-loader.target beside this file, or MESHGHOST_DEV_LOADER_TARGET) holds one .lua path
--- per line, all loaded and ticked in order, or `none` or nothing to run nothing; `#` lines are ignored. A relative
--- path resolves against this folder. Prefer absolute: a target that loads a DLL relative to its own path fails with
+-- per line, loaded in order and ticked last to first, or `none` or nothing to run nothing; `#` lines are ignored. A
+-- relative path resolves against this folder. Prefer absolute: a target that loads a DLL relative to its own path fails with
 -- "The specified module could not be found" when that path is relative. It reloads when the set of paths changes,
 -- not the bytes, so to re-run an edited target, drop its line and add it back.
 --

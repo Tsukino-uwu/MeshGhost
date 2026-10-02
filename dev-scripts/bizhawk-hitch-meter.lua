@@ -1,6 +1,6 @@
 -- The hitch meter, game-agnostic and read-only: frames over 20ms, over 33ms, and the worst gap, because a frame rate
--- is an average and ten frames lost in one second still read 58fps. Its log is buffered and the console throttled:
--- an instrument that costs frame time cannot measure it.
+-- is an average and an average cannot see one long frame. Its log is buffered and the console throttled: an
+-- instrument that costs frame time cannot measure it.
 --
 -- os.clock is the Lua process's own CPU time, so a big gap in it puts the cost in a Lua script; a low
 -- client.get_approx_framerate with small gaps puts it elsewhere, where no adapter tuning will find it.
@@ -50,9 +50,9 @@ local function tick()
 	local gap = t - lastFrame
 	lastFrame = t
 	if gap > 0.033 then
-		slow2 = slow2 + 1 -- lost more than two frames' worth
+		slow2 = slow2 + 1 -- longer than two frames
 	elseif gap > 0.020 then
-		slow1 = slow1 + 1 -- lost more than one
+		slow1 = slow1 + 1 -- longer than one, with a margin
 	end
 	if gap > worstGap then
 		worstGap = gap

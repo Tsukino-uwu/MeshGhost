@@ -638,8 +638,8 @@ goal", the number sizes the win; it is not a threshold the win has to clear to b
   peer-supplied string to an engine-wide `StaticFindObject` lookup (`Plugin.cpp:9383`) — type-checked
   against `AnimMontage` before use, so no type confusion, but the peer may play any montage in the
   loaded game and the miss-warning reveals whether an arbitrary object name exists. TEVI hands a
-  peer string to Unity's `anim.Play` (`Plugin.cs:506`) with no validation beyond
-  `protocol.MaxAnimLen`. **Neither is ACE**; both are cosmetic misbehaviour plus, for TEVI, a
+  peer string to Unity's `anim.Play` (`UpsertRemoteGhost` in `Plugin.cs`), since gated by `IsPlayableAnimName`
+  (a length cap, then `Animator.HasState` on the ghost's own animator). **Neither is ACE**; both are cosmetic misbehaviour plus, for TEVI, a
   per-frame log flood from a peer alternating two bogus names. Fix for both is an allowlist of the
   names the adapter actually mirrors, which is a small fixed set. `ideas.md`, "The ACE audit".
 

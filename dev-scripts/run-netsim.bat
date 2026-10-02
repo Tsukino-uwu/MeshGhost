@@ -12,7 +12,7 @@ REM -loss alone drops datagrams independently and rarely loses the consecutive s
 REM -loss-burst keeps that share but loses it in runs of about that length: a different network, not a harder one.
 REM
 REM Then start a relay and point a client at 127.0.0.2:  ..\meshghost.exe -relay 127.0.0.2:7777 -game pseudoregalia
-REM The seed is printed at startup; -seed replays the same fault sequence.
+REM The seed is printed at startup; -seed replays the same fault model, not a bit-identical run.
 REM -loss, -duplicate and -reorder apply to udp flows only; the handshake is always tcp, so tcp stays mirrored too.
 setlocal
 if "%~1"=="" (
