@@ -1110,3 +1110,24 @@ Emerald and Crystal adapter parts. `lua-eq.sh` cannot prove a removed comment li
 first line), so `lua-eq2.sh` compares line-stripped `luac -l -l` listings. Open items for later are in
 `private/a5/notes-session2.md`: code-map links, living docs whose line pointers drifted, and a netsim partition bug,
 offered as a separate task.
+
+## 2026-10-02 (pause) — A5 mostly committed; probes, dev-scripts and workflows part-drafted
+
+Committed since the last pause, each batch proved and recorded (the per-area notes are in phase6-10, 11 and 13, same
+date): the rest of the Go side (`cmd/`, core's other files and tests), autoplay (Go, Lua, C#), TEVI (and its DLL,
+rebuilt by `build-tevi.bat` from two clean clones, byte-identical), the Emerald and Crystal adapters (each joined from
+parts, `luac -l -l` listings with line numbers stripped identical), and Pseudoregalia (`Plugin.cpp` joined from eight
+parts, C++ tokens identical; `main.dll` rebuilt). Both rebuilt DLLs and `meshghost.exe` went to all four TEVI and
+Pseudoregalia installs, hash-checked; not yet seen on screen. Living docs whose `file.go:N` pointers the trims moved now
+name symbols (`5c3de86a`). Proof tools grew: `lua-eq2.sh` (the old `lua-eq.sh` cannot prove a removed comment line,
+because `luac -s` keeps each function's first line), `cs-eq.ps1` now overlays every changed file (a project may compile
+files outside its folder), and `assemble.py`/`assemble_facts.py`/`codemap.py` paste the records, all in `private/a5/`.
+
+Paused by the user mid-batch. The tree holds 72 files of drafts from the probe, dev-scripts and workflow agents, stopped
+before reporting (a copy is `private/a5/drafts-2026-10-02.patch`): Emerald and Crystal probes, the Pseudoregalia
+probes, seven dev-scripts files, and possibly some workflow comments. Next chat: per batch list in `private/a5/`
+(`pr-*.txt`, `ds-*.txt`, `wf-all.txt`, `emu-tests.txt`), finish and review the drafts with `BRIEF-review-other.md`,
+paste the records, prove, commit; then the ratchet gate commit (floors to their new counts, `//go:` directives exempt,
+then a hard FAIL at 0), and the second pass. Open items found on the way are in `private/a5/notes-session2.md`, "For the
+user / later"; three code defects are offered as separate tasks (the netsim partition stretch, two in `Plugin.cpp`,
+two in the Crystal adapter).
