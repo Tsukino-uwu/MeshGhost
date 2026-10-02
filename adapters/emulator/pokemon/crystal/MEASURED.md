@@ -71,6 +71,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - Type matchups and the same-type bonus (2026-09-17)
 - Which stats a move's damage uses, and where the stats are (2026-09-17)
 - The lead fainted: "Use next POKéMON?" and the party list in a battle (2026-09-17)
+- 2026-10-02 — Facts the code comments carried, moved here word for word
 - Not measured yet: The rest of autoplay's Crystal reading (from 2026-09-17)
 
 ## Measured
@@ -769,6 +770,34 @@ the question after the lead fainted, and of NO and YES chosen. Snapshots saved a
   and CANCEL, the POKéMON menu's layout, read as the party list; `select` BELLSPROUT sent it out, and `battle strongest` played
   on to `ended` (VINE WHIP each turn).
 - **Not seen:** the question in a trainer battle; the whole party fainting (the whiteout); NO when escape fails.
+
+### 2026-10-02 — Facts the code comments carried, moved here word for word
+
+Each fact below sat in a code comment beside the code that uses it (at `f64560cc`), and no entry above held it. On 2026-10-02 the comments were cut to what and why and the facts moved here word for word. Each names the probe, capture or date it was measured with where the comment did; none was re-measured for this entry. The label above each group is the file it came from, then the entry it was checked against.
+
+**`autoplay/drivers/bizhawk/games/crystal.lua`**, checked against adapters/emulator/pokemon/crystal/MEASURED.md, "The map around the player, the characters on it, and its signs (2026-09-17)"
+
+- cmd_drive.lua's hops on vanilla V1.0 (2026-09-16).
+
+**`autoplay/drivers/bizhawk/games/crystal.lua`**, checked against adapters/emulator/pokemon/crystal/MEASURED.md, "The battlers, their moves, and what a move's power and accuracy bytes do (2026-09-17)"
+
+- A battle's box is cleared over 2 frames, row 14 on the first and row 16 on the next: "attack missed!" read "            d!" for one frame, 11 frames after its ▼ went (autoplay_text_probe.lua, 2026-09-17). So a box whose rows changed since the frame the watcher last saw is still changing, whatever the ▼ did before.
+
+**`autoplay/drivers/bizhawk/games/crystal.lua`**, checked against adapters/emulator/pokemon/crystal/MEASURED.md, "A wild battle: when it is one, its two menus and its font (2026-09-17)"
+
+- IN A BATTLE (autoplay_text_probe.lua, 2026-09-17, a wild PIDGEY on Route 29): the action menu used the same block -- first row 14 and cursor column 9, 2 rows by 2 columns, CFA7 0x26 (items 2 rows and 6 columns apart: FIGHT at column 10, PKMN at 16), wMenuCursorY and wMenuCursorX (CFAA) both from 1, the ▶ at wCursorCurrentTile. The move menu that FIGHT opened read first row 13, column 5, 2 rows (the two moves CYNDAQUIL knows) by 1, CFA7 0x10, with wWindowStackSize at 0 -- so in a battle a menu counts without a window. Its frame's right column (CF85) still read the action menu's 19, which is also the move box's.
+
+**`autoplay/drivers/bizhawk/games/crystal.lua`**, checked against adapters/emulator/pokemon/crystal/MEASURED.md, "A trainer battle: sight, approach, the battle's own waits with no ▼, and the words after (2026-09-17)"
+
+- set_flag {flag, value = true}: one event flag, bit (flag & 7) of the byte (flag >> 3) past wEventFlags -- the layout two defeat flags read (Don's 1336, byte 167 bit 0, and Mikey's 1450, each 0 before his battle and 1 after; MEASURED.md, "A trainer battle" and "A trainer talked to"). wEventFlags is 0x100 bytes in our build's .sym (DA72, and wCurBox at DB72), so ids 0-2047. Only defeat flags are measured; refused outside the overworld. `report` reads it back.
+
+**`autoplay/drivers/bizhawk/games/crystal.lua`**, checked against adapters/emulator/pokemon/crystal/MEASURED.md, "The PACK: its pockets, the item pocket, and its list that scrolls (2026-09-17)"
+
+- THE ITEM POCKET (autoplay_bag_probe.lua, 2026-09-17, vanilla V1.0, Route 30; MEASURED.md, "The PACK"). wNumItems (D892) then an id and a quantity per entry and FF: `01 12 01 FF` while the PACK showed POTION ×1; picking up Route 30's item ball printed "A put the ANTIDOTE in the ITEM POCKET." and it read `02 12 01 09 01 FF`. Item names: the id'th 0x50-ended string from 72:4000 (18 POTION, 9 ANTIDOTE, as drawn). The 7-byte entry at 01:67C1 + (id - 1) * 7 read 01 at +5 for both, the pocket the game filed them in. wItems holds 20 entries: wNumKeyItems (D8BC) is 41 bytes on in our build's .sym.
+
+**`autoplay/drivers/bizhawk/games/crystal.lua`**, checked against adapters/emulator/pokemon/crystal/MEASURED.md, "The ball pocket, a POKé BALL thrown in a battle, and a second Pokémon in the party (2026-09-17)" and "The key item pocket, and riding the BICYCLE (2026-09-17)"
+
+- THE BALL POCKET, the same way (Route 31, the same day): its item ball printed "A put the POKé BALL in the BALL POCKET.", wNumBalls (D8D7) read `01 05 01 FF`, and POKé BALL's attribute entry read 03 at +5. It holds 12 entries: wNumPCItems (D8F1) is 26 bytes on in our build's .sym. The PACK's pockets by that byte: the address, the entries, wCurPocket. THE KEY ITEM POCKET (MEASURED.md, "The key item pocket"): the attribute table files 22 items under 02 (BICYCLE, OLD ROD, ...); the scrolling menu's header read 01 at CF94 on it where the other two read 02, and wNumKeyItems (D8BC) is 27 bytes before wNumBalls in our build's .sym: a count, 25 one-byte entries and FF. `size` is the bytes an entry takes.
 
 ## Not measured yet
 

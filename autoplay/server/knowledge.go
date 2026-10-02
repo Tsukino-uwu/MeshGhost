@@ -1,7 +1,7 @@
 package server
 
-// The knowledge store's side of the core (Phase 3): the goal tool, which checks a game's goals file against an
-// observe, and the snapshot index. What a goal or an index entry says about the game is never read here: a goal's
+// The knowledge store's side of the core: the goal tool, which checks a game's goals file against an observe, the
+// snapshot index, and run_skill. What a goal or an index entry says about the game is never read here: a goal's
 // expectations are paths and operators into the driver's answer, as a scenario step's are.
 
 import (

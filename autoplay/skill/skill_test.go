@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-// trip is the scratch loop the Emerald story sessions ran (2026-09-17), as rules.
+// trip is the scratch loop the Emerald story sessions ran, as rules.
 const trip = `{
   "name": "trip", "game": "emerald", "description": "goto, fighting and reading whatever stops it",
   "params": {"map": "string", "x": "number", "y": "number"},

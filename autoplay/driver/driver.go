@@ -1,9 +1,9 @@
-// Package driver is the core's side of the driver link: a loopback TCP listener that accepts ONE
-// driver at a time — the small piece inside an emulator or game that carries out commands — and
-// turns its newline-delimited JSON into request/response calls and a buffer of events.
+// Package driver is the core's side of the driver link: a loopback TCP listener that accepts one driver at a time
+// (the small piece inside an emulator or game that carries out commands) and turns its newline-delimited JSON into
+// request/response calls and a buffer of events.
 //
-// It is game-blind: it never reads a payload, only routes it. What a driver can do is whatever
-// its hello says, and every name in a payload (a mode, a map, an event kind) is opaque here.
+// It is game-blind: it routes every result and event payload without reading it. What a driver can do is whatever its
+// hello says, and every name in a payload (a mode, a map, an event kind) is opaque here.
 //
 // The wire (protocol 1), one JSON object per line, at most MaxLineBytes:
 //
@@ -14,9 +14,8 @@
 //	driver -> core  {"type":"event","payload":{"kind":"...",...}}    unsolicited, buffered by the hub
 //	driver -> core  {"type":"ping"}                                  once a second, ignored: a dead link is only seen on a send
 //
-// A hello's "persisting", and a cheat's answer carrying the same field, list the cheats still in effect
-// in the game (a noclip left on): the only payload field the core reads, so a run segment begun while
-// one is on is not labelled walked.
+// A hello's "persisting", and a cheat's answer carrying the same field, list the cheats still in effect in the game (a
+// noclip left on), so a run segment begun while one is on is not labelled walked.
 package driver
 
 import (

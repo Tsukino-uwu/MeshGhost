@@ -6,26 +6,10 @@ using UnityEngine;
 
 namespace MeshGhostAutoplay.Tevi
 {
-    // EVENTS past mode, area and room (Plugin.SendEvents): what happens to the player, reported the frame it happens.
-    //
-    // - damage_taken: a hit. Every hit on a character goes through CharacterBase.BulletHurtPlayer, the player's and an
-    //   enemy's alike (names read from the Steam build's assemblies, 2026-09-17); a prefix keeps the player's HP before
-    //   and a postfix reports the hit when the HP it had then went down, with what the game passed: the owner (a
-    //   character, as observe's nearby names one), the bullet's type, blocked, and the damage it computed.
-    // - enemy_defeated: a hit through the same method taking another character's HP from above 0 to 0 (its type, as
-    //   nearby names it, and whether the hit's owner was the player).
-    // - hp_changed: the player's HP differs from the last frame's, by any cause -- a hit, and also what never passes
-    //   through a hit (buffs over time, a fall, a heal, a script). A hit reports both.
-    // - game_over: GameSystem.isGameOver() rising above 0.
-    // - dialogue_changed: a conversation opening, moving to another line or section, or closing.
-    // - menu_changed: the menu observe reads (the save list, the title's menus) opening, changing or closing.
-    // - tip_shown: a short instruction banner (observe's tip) coming up, with its keyword and text.
-    // - interact_changed: the bubble saying Up does something here (observe's interact) appearing, changing kind or going.
-    // - popup_shown: the message sliding in at the bottom left (observe's popup: a new ability and how to use it).
-    // - item_obtained: the box naming an item just picked up (observe's obtained) coming up.
-    //
-    // Reading only: nothing here changes what the game does. The patch goes with the plugin (removed in OnDestroy) as
-    // InputInjection's do.
+    // Events past mode, area and room, reported the frame they happen. Every hit on a character goes through
+    // CharacterBase.BulletHurtPlayer: a prefix keeps the HP before, and a postfix reports damage_taken when the
+    // player's went down and enemy_defeated when another character's reached 0. The rest compare per-frame reads with
+    // the last frame's; hp_changed also catches what no hit carries (a buff, a fall, a heal). Reading only.
     public static class Events
     {
         public const string HarmonyId = "dev.meshghost.autoplay.events";

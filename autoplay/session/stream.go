@@ -8,8 +8,7 @@ import (
 
 // Counter reads a headless Claude Code run's stream-json output line by line and counts its model calls: each
 // response the model makes carries one message id, and a response with several content blocks arrives as several
-// lines with the same id (code.claude.com/docs/en/headless.md, read 2026-09-17; checked on the dry run before relying
-// on it). The result line's cost field is never read.
+// lines with the same id (Claude Code's headless docs). The result line's cost field is never read.
 type Counter struct {
 	ids       map[string]bool
 	SessionID string

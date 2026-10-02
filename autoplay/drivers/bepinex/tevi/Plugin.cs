@@ -10,26 +10,17 @@ using UnityEngine;
 
 namespace MeshGhostAutoplay.Tevi
 {
-    // autoplay's TEVI driver (DEV TOOL, WRITES INPUT AND GAME STATE, never shipped; agent_docs/phases/phase13.md,
-    // agent_docs/phases/autoplay/tevi.md, ADR 0071). A BepInEx plugin of its own, the way the dev cheats are: loaded by
-    // ScriptEngine from a developer install's BepInEx\scripts\, never from plugins\, and never inside MeshGhostTevi.dll.
-    // It carries out the autoplay core's commands over autoplay/driver/driver.go's protocol 1 (Link.cs).
-    //
-    // CONFIG: `meshghost-autoplay.txt` in BepInEx\scripts\, one `key=value` per line -- `port` (the core's; with no
-    // file the driver connects nowhere) and `repo` (this repository's root, for screenshots, the exec token and the
-    // driver's log under autoplay/runs/). Machine paths live there, in the install, never here.
-    //
-    // Names of the game's types and members are read from the Steam build's assemblies (agent_docs/licensing.md's
-    // facts-not-code posture; the adapter's own measurements in adapters/tevi/documentation.md), and what each one
-    // does is measured into agent_docs/phases/autoplay/tevi.md before anything here relies on it.
+    // autoplay's TEVI driver: a dev tool that writes input and game state, never shipped. A BepInEx plugin of its own,
+    // loaded by ScriptEngine from a developer install's BepInEx\scripts\, never inside MeshGhostTevi.dll; it carries
+    // out the core's commands over protocol 1 (Link.cs). Its config there, meshghost-autoplay.txt, names `port` (no
+    // file: it connects nowhere) and `repo` (for screenshots, states and the log).
     [BepInPlugin("dev.meshghost.autoplay.tevi", "MeshGhost Autoplay TEVI driver", "0.1.0")]
     public class Plugin : BaseUnityPlugin
     {
         private const string GameName = "tevi";
 
-        // The in-game slots this driver plays and saves in (the user, 2026-09-17: vanilla 36-39, "idm if 40-80~ is also used", and a
-        // fresh Infernal BBQ game "on slot40"). Their files are the save guard's shadow copies; every other slot is listed as
-        // protected in the hello. A snapshot saves to the running game's slot when it is one of these, else to the first.
+        // The in-game slots this driver plays and saves in, in the save guard's shadow; every other slot is protected
+        // in the hello. A snapshot saves to the running game's slot when it is one of these, else to the first.
         private static readonly byte[] WorkingSlots = { 39, 40 };
         private static byte WorkingSlot => Array.IndexOf(WorkingSlots, (byte)MainVar.instance._saveslot) >= 0 ? (byte)MainVar.instance._saveslot : WorkingSlots[0];
         private const int LastSlot = 100;
@@ -54,7 +45,7 @@ namespace MeshGhostAutoplay.Tevi
             ReadConfig();
             build = BuildStamp();
             Log("loaded: port " + port + ", repo " + (repo ?? "(none: screenshots and exec are off)") + ", build " + build);
-            // TEVI's own unlock and sync methods (names from its assembly, 2026-09-17), besides the Steam library's.
+            // TEVI's own unlock and sync methods, besides the Steam library's.
             Log(AchievementGuard.Install(new[] { "GemaSteamAPIAchievements.UnlockAchievement", "GemaSteamAPIAccess.TrySyncAchievements" }));
             Log(SaveGuard.Install(Application.persistentDataPath, repo == null ? null : repo + "/autoplay/states/" + GameName + "/shadow"));
             if (repo != null) Tells.TableFile = repo + "/autoplay/states/" + GameName + "/tells.json";
@@ -84,9 +75,7 @@ namespace MeshGhostAutoplay.Tevi
             Log("unloaded (the save guard stays as it was: " + (SaveGuard.Armed ? "armed" : "not armed") + ")");
         }
 
-        // Where this plugin's files sit. Not Info.Location: ScriptEngine loads a plugin from its bytes, and Location
-        // reads empty, so a path built from it lands in the game's working folder (measured 2026-09-17: the first
-        // load looked for .\meshghost-autoplay.txt, found none, and connected to the default port).
+        // Not Info.Location: ScriptEngine loads a plugin from its bytes, so Location reads empty.
         private static string ScriptsDir => Path.Combine(Paths.BepInExRootPath, "scripts");
 
         private void ReadConfig()
@@ -150,8 +139,6 @@ namespace MeshGhostAutoplay.Tevi
             }
         }
 
-        // ---- what the driver says about itself ------------------------------------------------------------------
-
         private static readonly string[] Capabilities = { "observe", "wait", "press", "sequence", "advance_text", "screenshot", "screenshot:annotate", "snapshot", "restore", "cheat:teleport", "cheat:difficulty", "reflex:fight", "reflex:evade", "reflex:goto", "clock", "recent" };
 
         private JObject Hello()
@@ -176,8 +163,7 @@ namespace MeshGhostAutoplay.Tevi
             return hello;
         }
 
-        // The Randomizer's own switch (TeviRandomizer.RandomizerPlugin.randomizerEnabled), when it is loaded: while on,
-        // every slot's file is its randomizer/rando.tevisave<N>.sav. Null without the mod.
+        // The Randomizer's own switch, which moves every slot's file to its own folder; null without the mod.
         private static FieldInfo randomizerField;
         private static bool randomizerLooked;
 
@@ -206,9 +192,7 @@ namespace MeshGhostAutoplay.Tevi
             {
                 if (plugin == null || plugin.GetType().FullName != "MeshGhostTeviDevCheats.Plugin") continue;
                 var on = new Dictionary<string, bool> { ["hp"] = true, ["mp"] = true, ["charge"] = true, ["crystal"] = true, ["swap"] = true };
-                // Where the dev cheats read it: they build the path from their own location, which is empty under
-                // ScriptEngine, so it is the game's root folder, not scripts\ (their load line named
-                // .\meshghost-devcheats.txt and a file in the root switched them off, 2026-09-17).
+                // They build the path from their own location, empty under ScriptEngine: the game's root folder.
                 string toggles = Path.Combine(Paths.GameRootPath, "meshghost-devcheats.txt");
                 try
                 {
@@ -235,8 +219,6 @@ namespace MeshGhostAutoplay.Tevi
             }
             return out_;
         }
-
-        // ---- reading the game ------------------------------------------------------------------------------------
 
         private static CharacterBase Player()
         {
@@ -309,7 +291,6 @@ namespace MeshGhostAutoplay.Tevi
             }
             if (full && p != null && p.t != null && wm != null)
             {
-                // What is around the player, from the game's own state (Surroundings.cs).
                 ((JObject)o["player"]).Merge(Surroundings.Player(p));
                 JObject view = Surroundings.View();
                 JArray characters = Surroundings.Characters(p, view);
@@ -341,8 +322,7 @@ namespace MeshGhostAutoplay.Tevi
                 };
                 if (SaveManager.Instance != null && wm != null)
                 {
-                    // The Custom Game options this save runs with, as the game answers for each (not the title screen's
-                    // choice: the Randomizer turns some on by itself).
+                    // As the game answers, not the title screen's choice: the Randomizer turns some on by itself.
                     var custom = new JArray();
                     for (byte i = 0; i < (byte)Game.CustomGame.MAX; i++)
                     {
@@ -376,8 +356,7 @@ namespace MeshGhostAutoplay.Tevi
         private static readonly FieldInfo SaveMenuSelected = typeof(HUDSaveMenu).GetField("selected", BindingFlags.Instance | BindingFlags.NonPublic);
         private static readonly FieldInfo SaveMenuEntering = typeof(HUDSaveMenu).GetField("isEntering", BindingFlags.Instance | BindingFlags.NonPublic);
 
-        // The save list (title and in game): 4 rows a page, a slot is page * 4 + row. Its fields are the menu's own, so
-        // `slot` is where the game's cursor is, whatever the highlight has drawn yet.
+        // The save list, from the menu's own fields: `slot` is the game's cursor, whatever the highlight shows.
         private static JObject SaveMenu()
         {
             HUDSaveMenu m = HUDSaveMenu.Instance;
@@ -397,9 +376,7 @@ namespace MeshGhostAutoplay.Tevi
 
         private const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
 
-        // The title's own menus: the main menu, Custom Game and the difficulty list. Each keeps its entries in a private
-        // `selections` (slots whose GetText is the text drawn) and its cursor in a private byte `selected`; the title
-        // screen holds the other two. Only the one on screen is returned.
+        // The title's own menus (main menu, Custom Game, difficulty list); only the one on screen is returned.
         private static JObject TitleMenu()
         {
             GemaTitleScreenManager title = GemaTitleScreenManager.Instance;
@@ -433,8 +410,7 @@ namespace MeshGhostAutoplay.Tevi
             return new JObject { ["name"] = name, ["items"] = items, ["cursor"] = cursor is byte c ? (JToken)c : null };
         }
 
-        // A conversation (ChatSystem): its status while not OFF, the section and line the game is on of how many, who
-        // speaks (the row's character id), the whole line and how much of it has printed. Private fields, read by name.
+        // A conversation while not OFF: section, line of lines, speaker, the whole line and how much has printed.
         private static JObject Dialogue()
         {
             ChatSystem chat = ChatSystem.Instance;
@@ -458,8 +434,7 @@ namespace MeshGhostAutoplay.Tevi
             };
         }
 
-        // The short instruction banner (ControlTips): its keyword (Tips.<name>), the text as drawn with the button pictures
-        // taken out, and how far it has faded in. Returned while it is fading in or shown, not once it fades out.
+        // The short instruction banner while fading in or shown: keyword, text as drawn, how far faded in.
         private static JObject Tip()
         {
             ControlTips tips = ControlTips.Instance;
@@ -469,8 +444,7 @@ namespace MeshGhostAutoplay.Tevi
             var text = t.GetField("text", Private)?.GetValue(tips) as TMPro.TextMeshPro;
             float alpha = text != null ? text.color.a : 0f;
             if (target <= 0f) return null;
-            // The keyword changes before the text does: while fading in (measured 2026-09-17: alpha 0.012 with the last tip's
-            // text) the text is left out, and `shown` is false until the banner is half faded in.
+            // The keyword changes before the text does, so the text is left out until the banner is half faded in.
             bool shown = alpha >= 0.5f;
             return new JObject
             {
@@ -481,10 +455,8 @@ namespace MeshGhostAutoplay.Tevi
             };
         }
 
-        // Every text the game draws right now: each active TextMeshPro (world or UI) whose text is not empty and whose colour
-        // is not faded out, with the object's name, top to bottom by screen position. What no reader above knows by name
-        // (a tutorial window, a popup) still reaches the agent as words. At most 150 entries (a menu's list with its labels ran past 40) of 1500 characters (a tutorial
-        // window's text ran past 400).
+        // Every text the game draws right now, top to bottom, so what no reader above knows by name (a tutorial window)
+        // still reaches the agent as words. The caps fit a menu's list with its labels and a tutorial window's text.
         private static JArray ScreenText()
         {
             var found = new List<KeyValuePair<float, JObject>>();
@@ -506,10 +478,7 @@ namespace MeshGhostAutoplay.Tevi
             return arr;
         }
 
-        // The bubble over the player's head that says Up does something here (EnterTips): `kind` by its sprite -- `enter` (a
-        // door), `talk`, `action` -- while the game keeps it shown (it re-arms a short timer each frame the player is in range,
-        // and fades once that runs out). The user, 2026-09-17: "there will be an icon above the player head, when you can use
-        // the up arrow to interact with things".
+        // The bubble over her head saying Up does something here: `kind` by its sprite, while its fadeout runs.
         private static JObject Interact()
         {
             EnterTips tips = EnterTips.Instance;
@@ -528,9 +497,8 @@ namespace MeshGhostAutoplay.Tevi
             return new JObject { ["kind"] = kind };
         }
 
-        // The message that slides in at the bottom left (HUDPopupMessage): a new ability and how to use it, and the like. While its
-        // timer runs, `title` and `text` are the whole message it is printing, with the game's markup taken out. The user,
-        // 2026-09-17: "you got another ui popup, a new skill, along with a description at the bottom left of how to use it".
+        // The message that slides in at the bottom left (a new ability and how to use it): while its timer runs, the
+        // whole message it is printing, markup taken out.
         private static readonly System.Text.RegularExpressions.Regex Markup = new System.Text.RegularExpressions.Regex("<[^>]*>");
 
         private static JObject Popup()
@@ -551,8 +519,7 @@ namespace MeshGhostAutoplay.Tevi
             };
         }
 
-        // The box that names an item just picked up (HUDObtainedItem), while it is up: the item's type and the name and
-        // description drawn. Confirm closes it.
+        // The box that names an item just picked up, while it is up; Confirm closes it.
         private static JObject Obtained()
         {
             HUDObtainedItem hud = HUDObtainedItem.Instance;
@@ -578,8 +545,6 @@ namespace MeshGhostAutoplay.Tevi
             }
             return out_;
         }
-
-        // ---- the frame loop --------------------------------------------------------------------------------------
 
         private void Update()
         {
@@ -617,7 +582,8 @@ namespace MeshGhostAutoplay.Tevi
             }
             if (Time.frameCount % 30 == 0) link.SetHello(Hello());
 
-            InputInjection.MuteReal = SaveGuard.Armed && !Application.isFocused; // armed: a core has connected since the game started
+            // armed: a core has connected since the game started
+            InputInjection.MuteReal = SaveGuard.Armed && !Application.isFocused;
             InputInjection.Expire();
             SendEvents();
 
@@ -641,7 +607,8 @@ namespace MeshGhostAutoplay.Tevi
 
         private void SendEvents()
         {
-            List<JObject> hits = Events.Drain(); // a hit while no core is connected is dropped, never sent to the next one
+            // a hit while no core is connected is dropped, never sent to the next one
+            List<JObject> hits = Events.Drain();
             if (!link.Connected)
             {
                 Events.Unprime();
@@ -769,8 +736,6 @@ namespace MeshGhostAutoplay.Tevi
             currentTick = null;
         }
 
-        // ---- verbs -----------------------------------------------------------------------------------------------
-
         private Func<JToken> WaitJob(JObject p)
         {
             int frames = (int?)p["frames"] ?? 0;
@@ -803,9 +768,9 @@ namespace MeshGhostAutoplay.Tevi
             };
         }
 
-        // SEQUENCE {steps: [{buttons, from, frames}], stop_on}: every hold scheduled at once from the next frame, so they
-        // overlap exactly as asked; the first event whose kind is in stop_on cuts what is held (let go on the next frame)
-        // and drops what has not begun, and the answer waits a frame for that release.
+        // {steps: [{buttons, from, frames}], stop_on}: every hold scheduled at once, overlapping exactly as asked; the
+        // first event whose kind is in stop_on lets go what is held and drops what has not begun, and the answer waits
+        // a frame for the release.
         private Func<JToken> SequenceJob(JObject p)
         {
             var steps = new List<KeyValuePair<IList<string>, KeyValuePair<int, int>>>();
@@ -855,12 +820,10 @@ namespace MeshGhostAutoplay.Tevi
             };
         }
 
-        // ADVANCE_TEXT: through a conversation line by line, the way a player reads it. While a line is up, Confirm is tapped
-        // once it has stood TapEvery frames with no change (the first tap on a line still printing finishes it, the next moves
-        // on); each new line goes into the log, and the item box is logged and confirmed the same way. Ends `closed` once no
-        // conversation has been open for SettleFrames and the game is not paused, `window_open` when paused with no conversation (a
-        // tutorial window: its words are in observe's screen_text), or `stuck` after StuckTaps taps with no change.
-        // StuckTaps 12: a long line of Roleo's and one of Celia's stood through 6 taps and moved on at the next call (2026-09-17).
+        // Through a conversation line by line, the way a player reads it: Confirm tapped once a line has stood TapEvery
+        // frames unchanged (the first tap on a line still printing finishes it), each line and item box logged. Ends
+        // `closed`, `window_open` when paused with no conversation (a tutorial window), or `stuck` after StuckTaps taps
+        // with no change; a long line can stand through 6 taps.
         private const int TapEvery = 30, SettleFrames = 90, StuckTaps = 12, AdvanceFrameLimit = 3 * 60 * 60;
 
         private Func<JToken> AdvanceTextJob()
@@ -868,7 +831,8 @@ namespace MeshGhostAutoplay.Tevi
             var log = new JArray();
             int start = Time.frameCount, lastChange = start, taps = 0;
             string lastKey = null;
-            JObject entry = null; // the line being read: its text is filled while it is up, since the game's text changes after the line number
+            // the line being read, filled while it is up: the game's text changes after the line number
+            JObject entry = null;
             JObject Done(string outcome, JObject extra = null)
             {
                 var o = new JObject { ["outcome"] = outcome, ["frames"] = Time.frameCount - start, ["log"] = log, ["after"] = Observe(false) };
@@ -925,10 +889,8 @@ namespace MeshGhostAutoplay.Tevi
             };
         }
 
-        // ---- snapshots: the game's own save and load, through autoplay's slot in the save guard's shadow ----------------
-
-        // The file the game uses for a slot, where Easy Save resolves it now: in the shadow while the guard is armed. Only
-        // a path inside the shadow is returned; anything else is refused, so a snapshot never reads or writes a real save.
+        // The file the game uses for a slot, where Easy Save resolves it now; only a path inside the shadow is
+        // returned, so a snapshot never reads or writes a real save.
         private string ShadowSlotFile(byte slot)
         {
             string shadow = SaveGuard.ShadowRoot;
@@ -952,8 +914,7 @@ namespace MeshGhostAutoplay.Tevi
             return path;
         }
 
-        // SNAPSHOT {path}: the game saves to autoplay's slot exactly as its save menu does (SaveManager.SaveGame with the
-        // slot set; it keeps the area and the player's x and y), and that file is copied to the core's path.
+        // {path}: the game saves to autoplay's slot as its save menu does; the file is copied to the core's path.
         private JToken Snapshot(JObject p)
         {
             string path = StatePath(p);
@@ -970,9 +931,8 @@ namespace MeshGhostAutoplay.Tevi
             return new JObject { ["slot"] = WorkingSlot, ["slot_file"] = slotFile, ["bytes"] = new FileInfo(path).Length, ["frame"] = Time.frameCount, ["at"] = Observe(false) };
         }
 
-        // RESTORE {path}: the file goes back into autoplay's slot, the recent-slot pointer is set to it the way the save
-        // menu's load sets it, and the game reloads (SaveManager.ReloadToGame, what that menu calls once its fade is out).
-        // Answers once a new world has loaded and play has resumed, or fails after RestoreFrameLimit frames.
+        // {path}: the file goes back into autoplay's slot, the recent-slot pointer is set to it as the save menu's load
+        // sets it, and the game reloads; answers once play has resumed, or fails after RestoreFrameLimit frames.
         private const int RestoreFrameLimit = 1800;
 
         private Func<JToken> RestoreJob(JObject p)
@@ -997,10 +957,7 @@ namespace MeshGhostAutoplay.Tevi
                 if (frames > RestoreFrameLimit) throw new Exception("the game had not resumed play " + RestoreFrameLimit + " frames after the reload (mode " + Mode() + ")");
                 WorldManager wm = WorldManager.Instance;
                 CharacterBase pl = Player();
-                // Play resumes before the area and the camera are set (measured 2026-09-17: 10 frames after `play` the area
-                // read NONE and the camera's view was far from the player), so both are waited for too.
-                // And the fade-in: play resumed at alpha 0.49, which fell to 0 about 132 frames later, and a teleport made
-                // while it was above 0 did not hold, while one made at 0 did (measured 2026-09-17).
+                // Play resumes before the area, camera and fade-in settle; a teleport during the fade did not hold.
                 bool loaded = wm != null && wm != before && wm.MapInited && (Mode() == "play" || Mode() == "event")
                     && wm.CurrentRoomArea != Map.AreaType.NONE && pl != null && pl.t != null && !Utility.isOutsideCamera(pl.t.position, 0f)
                     && FadeManager.Instance != null && FadeManager.Instance.GetCurrentAlpha() <= 0.001f;
@@ -1011,8 +968,7 @@ namespace MeshGhostAutoplay.Tevi
             };
         }
 
-        // CHEAT teleport {x, y}: the player's transform to world x, y (as observe's location reads them), the velocity
-        // zeroed; answers 10 frames later with where the game has the player then, read back, not the values written.
+        // {x, y}: her transform to world x, y, velocity zeroed; answers 10 frames later with where the game has her.
         private Func<JToken> TeleportJob(JObject args)
         {
             if (args["x"] == null || args["y"] == null) throw new Exception("teleport needs x and y, world units as observe's location reads them");
@@ -1029,17 +985,14 @@ namespace MeshGhostAutoplay.Tevi
             {
                 if (Time.frameCount < until) return null;
                 JObject after = Observe(false);
-                // Held: the position the game has 10 frames on is the one asked for (within a unit). One made 11 frames after a
-                // restore answered did not hold (measured 2026-09-17), so this is said, never assumed.
+                // Read back, never assumed: one made inside a restore's fade-in did not hold.
                 CharacterBase now = Player();
                 bool held = now != null && now.t != null && Mathf.Abs(now.t.position.x - x) < 1f && Mathf.Abs(now.t.position.y - y) < 1f;
                 return new JObject { ["requested"] = new JObject { ["x"] = x, ["y"] = y }, ["held"] = held, ["before"] = before, ["after"] = after, ["changed"] = Changed(before, after) };
             };
         }
 
-        // CHEAT difficulty {level}: the running save's difficulty, set the way the game's own difficulty change at a bed sets it
-        // (SaveManager.SetDifficulty; the new-game list is Cakewalk 0, Picnic 1, Normal 3, Hard 5, Expert 7, Infernal BBQ 10, read as a
-        // map from GemaNewGame). Answers with the value read back.
+        // {level}: the save's difficulty through the game's own SaveManager.SetDifficulty, answered as read back.
         private Func<JToken> DifficultyJob(JObject args)
         {
             if (args["level"] == null) throw new Exception("difficulty needs level, 0 to 10");

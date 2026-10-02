@@ -1,8 +1,6 @@
--- autoplay BizHawk driver: a small JSON encoder/decoder for the driver link (DEV TOOL, never shipped).
--- Enough for the link's lines: objects, arrays, strings with escapes, integers and floats, booleans,
--- null. A table is encoded as an array when its keys are exactly 1..n with n > 0, otherwise as an
--- object; an empty table is an object. Decoded null is json.null, so a present-but-null key is
--- distinguishable from a missing one.
+-- JSON for the autoplay driver link (a dev tool, never shipped). A table keyed exactly 1..n (n > 0) encodes as an
+-- array, any other as an object, so {} is an object. Decoded null is json.null, so a key present as null is told
+-- apart from a missing one.
 
 local json = {}
 json.null = setmetatable({}, { __tostring = function() return "null" end })

@@ -1,9 +1,10 @@
-// Package server is the MCP face of the core: the tools an agent calls, each one either answered
-// by the core itself or forwarded to the connected driver.
+// Package server is the MCP face of the core: the tools an agent calls, each one either answered by the core itself or
+// forwarded to the connected driver.
 //
-// A tool that needs the game checks the driver's announced capabilities first, so a driver that
-// cannot do a thing produces a plain refusal rather than a call it will fail. Everything a driver
-// returns is passed through unread: the core stays game-blind.
+// A tool that needs the game checks the driver's announced capabilities first, so a driver that cannot do a thing
+// produces a plain refusal rather than a call it will fail. A driver's answer is passed through whole (a loop note may
+// be added): the core reads a few fields from it (the outcome word, the place and what changed for the loop check, the
+// cheats still on, a screenshot's path), never what they mean, so it stays game-blind.
 package server
 
 import (
@@ -287,12 +288,12 @@ type tools struct {
 	selfSession *mcp.ClientSession
 	selfErr     error
 
-	// Calls repeating the same answer at the same place (LOOPS, loops.go).
+	// Calls repeating the same answer at the same place.
 	loops loopWatch
 }
 
-// logged wraps a handler so every call lands in the run log. reachedBy, when given, names what a
-// SUCCESSFUL call did to the world by other means than play.
+// logged wraps a handler so every call lands in the run log. reachedBy, when given, names what a successful call did
+// to the world by other means than play.
 func logged[In, Out any](t *tools, name string, reachedBy func(In) string, h mcp.ToolHandlerFor[In, Out]) mcp.ToolHandlerFor[In, Out] {
 	return func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, Out, error) {
 		res, out, err := h(ctx, req, in)

@@ -1,14 +1,14 @@
-// Package skill stores and replays what worked: a skill is one tool call and the rules for what to call next on
-// each answer, run by the core with no model between the calls. The model makes one call ("go to that Center,
-// fighting whatever stops you") and is asked again only where no rule says what to do.
+// Package skill stores and replays what worked: a skill is one tool call and the rules for what to call next on each
+// answer, run by the core with no model between the calls. The model makes one call ("go to that Center, fighting
+// whatever stops you") and is asked again only where no rule says what to do.
 //
-// Every call a skill makes is an ordinary tool call through the same server, so it is validated, logged and
-// labelled walked or reached exactly as the model's own would be. The rules read the answers with the scenario
-// runner's expectations, so the runner is game-blind and one skill format serves every driver: Emerald's goto and
-// battle, TEVI's sequence and reflex.
+// Every call a skill makes is an ordinary tool call through the same server, so it is validated, logged and labelled
+// walked or reached exactly as the model's own would be. The rules read the answers with the scenario runner's
+// expectations, so the runner is game-blind and one skill format serves every driver: Emerald's goto and battle,
+// TEVI's sequence and reflex.
 //
-// A skill file is JSON, decoded strictly. It is kept in the knowledge store only after it has succeeded twice
-// (the plan's rule): `succeeded` lists both runs, or the skill is marked `draft` while it is being proved.
+// A skill file is JSON, decoded strictly. It is kept in the knowledge store only after it has succeeded twice:
+// `succeeded` lists both runs, or the skill is marked `draft` while it is being proved.
 package skill
 
 import (
@@ -77,8 +77,8 @@ type Rule struct {
 	After string            `json:"after"`
 	When  []scenario.Expect `json:"when,omitempty"`
 	Then  Then              `json:"then"`
-	// Max, when above 0, is the most times the rule may decide in one run; after that it no longer matches. A trip that
-	// read the same message and walked back into it looped until max_calls (the first unattended session, 2026-09-17).
+	// Max, when above 0, is the most times the rule may decide in one run; after that it no longer matches, so a rule
+	// that keeps answering the same message cannot run the skill out to max_calls.
 	Max  int    `json:"max,omitempty"`
 	Note string `json:"note,omitempty"`
 }

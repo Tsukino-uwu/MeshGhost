@@ -1,14 +1,7 @@
--- autoplay UE4SS driver (DEV TOOL, WRITES INPUT, never shipped; agent_docs/phases/autoplay/pseudoregalia.md)
---
--- The piece inside an Unreal game running UE4SS that carries out the autoplay core's commands, the way
--- drivers/bizhawk/driver.lua does inside BizHawk. Loaded by mod/Scripts/main.lua (the bootstrap copied into the
--- game), which sets AUTOPLAY = {repo, port, game, mod_dir}. It runs one frame at a time on the GAME thread,
--- from UE4SS's engine-tick hook (LoopInGameThreadAfterFrames(1, ...)): the socket is polled there without
--- blocking, and every read of an actor happens there, never on UE4SS's async thread.
---
--- The link is the core's protocol 1, stated at the top of autoplay/driver/driver.go. One request is carried out
--- at a time; a program (a hold, a wait) runs a frame at a time and answers when it ends.
--- WHILE A PRESS IS RUNNING THIS SCRIPT DRIVES THE PLAYER. Take the mod out (or its config) when done.
+-- autoplay's UE4SS driver, a dev tool that drives the player and never ships: it carries out the core's commands
+-- inside an Unreal game over its protocol 1 (autoplay/driver/driver.go), as drivers/bizhawk/driver.lua does in BizHawk.
+-- mod/Scripts/main.lua loads it and sets AUTOPLAY. It runs a frame at a time on the game thread, from UE4SS's
+-- engine-tick hook: the socket is polled there without blocking, and actors are never read on UE4SS's async thread.
 
 local PROTOCOL = 1
 local MAX_LINE = 64 * 1024
@@ -32,8 +25,7 @@ end
 
 local json = dofile(ROOT .. "/autoplay/drivers/bizhawk/json.lua")
 
--- LuaSocket: the copy Pseudoregalia's socket probe proved inside UE4SS's Lua (probe_socket, Phase 7.2).
--- lua54.dll first by full path, so the socket DLL binds to the Lua the game already has loaded.
+-- lua54.dll first, by full path, so the socket DLL binds to the Lua the game already has loaded.
 local LIB = (ROOT .. "/adapters/pseudoregalia/probes/probe_socket/Scripts/lib/x64/"):gsub("/", "\\")
 pcall(function() package.loadlib(LIB .. "lua54.dll", "autoplay_force_preload") end)
 local openSocket, socketErr = package.loadlib(LIB .. "socket-windows-5-4.dll", "luaopen_socket_core")
@@ -43,7 +35,6 @@ if not openSocket then
 end
 local socket = openSocket()
 
--- The game module, handed the driver's helpers.
 local host = { log = log, json = json, frame = function() return frame end, root = ROOT }
 local chunk, cerr = loadfile(ROOT .. "/autoplay/drivers/ue4ss/games/" .. A.game .. ".lua")
 if not chunk then
@@ -52,9 +43,8 @@ if not chunk then
 end
 local game = chunk(host)
 
--- A soft reload: the game module read and run again inside this Lua state, the link and its socket left alone. UE4SS's
--- RestartMod tore the whole state down under a live game loop, and the game crashed in UE4SS within seconds of it twice
--- (2026-09-23, 16:43 and 17:11, one stack). Reached from exec as reload_game(); answers the error, or nil.
+-- reload_game() from exec: the game module run again in this Lua state with the link left alone, since RestartMod
+-- tearing the whole state down under a live game loop crashed the game. Answers the error, or nil.
 local connectedOnce = false
 local function reloadGame()
 	local c, e = loadfile(ROOT .. "/autoplay/drivers/ue4ss/games/" .. A.game .. ".lua")
@@ -118,11 +108,8 @@ local function changed(before, after)
 	return out
 end
 
--- EXEC {code, token}: Lua run inside the game, on the game thread, for a question no tool answers yet. Only with
--- the token the core wrote for this port (autoplay/runs/exec_token_<port>.txt). The chunk reads UE4SS's globals
--- through its own environment, gets `game` (the module), `host` and `print` (into the answer), and is stopped after
--- EXEC_INSTRUCTIONS VM instructions. A native fault is not a Lua error: no pcall catches an access violation, so
--- a UFunction call on an object you do not own can still take the game down (adapters/pseudoregalia/CLAUDE.md).
+-- exec: Lua run on the game thread, only with the token the core wrote for this port, stopped after EXEC_INSTRUCTIONS.
+-- No pcall catches a native access violation: a UFunction call on an object you do not own can still crash the game.
 local EXEC_INSTRUCTIONS, EXEC_OUTPUT_LINES = 20000000, 400
 
 local function toPlain(v, depth)
@@ -188,8 +175,7 @@ local function persisting()
 	return game.persisting and game.persisting() or {}
 end
 
--- A request becomes either an immediate answer or a `hold`: a program run once per frame, returning
--- (finished, result, err). The game module's `programs` table makes them; `wait` is the driver's own.
+-- A request is answered at once or becomes a `hold`: a program run once a frame, returning (finished, result, err).
 local function begin(req)
 	local verb, p = req.type, req.payload or {}
 	if verb == "observe" then
@@ -296,10 +282,8 @@ local function connect()
 	log("connected to 127.0.0.1:" .. port .. ", hello sent")
 end
 
--- Received bytes come in pieces of at most CHUNK: a string LuaSocket makes is built by ITS OWN lua54.dll, a second
--- Lua runtime, and one longer than Lua's short-string limit (40) reads as empty in UE4SS's Lua while a shorter one
--- reads right (the loopback self-test, 2026-09-23; the 98% "corrupt lines" of Phase 7.5 were the same wall). So
--- nothing is ever received as a line or with a prefix: pieces are joined here, in UE4SS's own runtime.
+-- At most CHUNK bytes a receive: a string made by LuaSocket's own lua54.dll reads as empty in UE4SS's Lua once longer
+-- than 40 bytes, so a line is never received whole but joined here, in UE4SS's own runtime.
 local CHUNK, NL = 40, string.char(10)
 
 local function takeLines(piece)
@@ -336,7 +320,6 @@ local function drain()
 	end
 end
 
--- Each key of the module's watch() that changed goes out as "<key>_changed".
 local function watchEvents()
 	local ok, d = pcall(game.watch)
 	if not ok or type(d) ~= "table" then return end

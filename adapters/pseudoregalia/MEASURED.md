@@ -51,6 +51,7 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - 2026-09-23 (autoplay, later) — how she moves: frame rate, the capsule, jump heights, the backflip, the save slot
 - 2026-09-23 (autoplay, evening) — ledge grabs, climb poles, the float at a jump's top, coyote time, the slide, breakable walls
 - 2026-09-23 (autoplay, night) — the Keeper, a pit's cost, a bubble's boost, the castle's exits
+- 2026-10-02 — Facts the code comments carried, moved here word for word
 
 ## Measured
 
@@ -242,6 +243,24 @@ Same install, File 8. From the flight recorder, which also recorded the Keeper b
 - **Exits** (`BP_TransitionZone_C`) name their far side in `startTag` (`Level Name` read None): the castle's `_7` at
   (6350, -11450) reads `libraryWest`, `_8` `theatreEast`, `_0` `theatreSouthEast`, `_4`/`_5`/`_6` `upper...`.
 - **Reading every simple property on the Keeper by name crashed the game** in UE4SS; names alone (ForEachProperty) did not.
+
+### 2026-10-02 — Facts the code comments carried, moved here word for word
+
+Each fact below sat in a code comment beside the code that uses it (at `f64560cc`), and no entry above held it. On 2026-10-02 the comments were cut to what and why and the facts moved here word for word. Each names the probe, capture or date it was measured with where the comment did; none was re-measured for this entry. The label above each group is the file it came from, then the entry it was checked against.
+
+**`autoplay/drivers/ue4ss/games/pseudoregalia.lua`**, checked against adapters/pseudoregalia/MEASURED.md, "2026-09-23 (night) — what marks talking, reading and sitting on the player", "2026-09-23 (autoplay, later) — how she moves: frame rate, the capsule, jump heights, the backflip, the save slot", "2026-09-23 (autoplay, evening) — ledge grabs, climb poles, the float at a jump's top, coyote time, the slide, breakable walls" and "2026-09-23 (autoplay, night) — the Keeper, a pit's cost, a bubble's boost, the castle's exits"
+
+- AXES: the swinging axes (BP_HazardAxe_C), from the registry. Each swings +-45 degrees in the x-z plane about its pivot (the actor's position, 3250 over the axes' corridor floor at 2550); the long one's blade (Box) came down to ~2660 at the bottom of its arc, into a standing player (top 2682) and over a sliding one (~2596) (sampled 2026-09-23). A cell under one is where goto slides.
+- DIALOGUE: a conversation's words are the game instance's UI_DialoguePrompt_C: `Text Bubbles` (every line, with the game's markup: [3rr] a pause, [#cf2525](word) a colour), `currentLine` (from 1), `writing` while a line prints, `canClose?` (an NPC conversation, 2026-09-23). Finished prompts linger until garbage collection (MEASURED.md, "what marks talking"), so the newest -- the lowest name number, the one created last -- is read, and only while controlState says she is reading or talking. A sign's words come from the sign itself (`things`).
+- What she has: the pawn's own obtained/has flags (BP_PlayerGoatMain_C, read by name 2026-09-23: obtainedSlide? turned true with the slide's screen).
+- The save is synchronous here (File 8 changed inside the call, 2026-09-23); wait a few frames for the OS anyway, and accept an unchanged file after 30 (nothing in the save changed since the last one).
+- advance_text {every (default 45), max_taps (default 20)}: while the player reads or talks (`controlState` 1 or 2, the values an NPC conversation and a book gave, MEASURED.md 2026-09-23; a mirror gave 2 the same day), tap MenuAdvance for 4 frames every `every` frames. Ends `closed` once `controlState` is back to 0 for 10 frames, `not_reading` if it was 0 from the start, or `stuck` after max_taps with no close. An upgrade's screen (UI_NewUpgradePrompt_C) pauses the game and its CONTINUE answered neither a posted key nor an injected action; the widget's own bound click handler is what a click on it runs (the Dream Breaker and the slide, 2026-09-23). Returns the upgrade prompt when one is on screen.
+- The slide (actionState 1, speed about 1100 for ~85 frames after a Crouch tap at a run, 2026-09-23): the capsule's centre drops from 2267 to 2224 over a floor at 2200, and CrouchedHalfHeight reads 20. Swept a little inside, as CAP_H.
+- FLIPGRAB_UP: a backflip (peak 265 against a jump's 206) into a ledge grab: a jump grabbed ledges 80-94 over its apex, so a flip should catch ~350. The rises just past GRAB_UP (320-324) were the smallest the dungeon's full flood refused (2026-09-23). Executed as a flip; the hang handler climbs.
+- Further, a leap lands only by catching the ledge: the user's grab hops rose 178 across 661 and 286 across 283.
+- And, with the slide, the floor under a low beam: probed from above, the passage under the slide room's corridor read as the beam's top 150 up, its underside 100 over the real floor (2026-09-23).
+- Too low to walk, low enough to slide: the slide's capsule (centre 24 over the floor, measured 2226-2224 from 2267 standing) swept at SLIDE_H. The passage under the slide room's corridor (2026-09-23) is one.
+- A slide edge: a Crouch tap on the ground at a run starts the slide (actionState 1); tapped again only once it has ended, 4 frames each. Crouch held while standing still crouches her in place (moveState 2) and she does not move. Crouched (moveState 2) counts as on the ground: a slide that ends under the low ceiling leaves her crouched there. Under the swinging axes: slide through, as the corridor teaches -- walking, she was hit 5 at a time and knocked off the shelf (2026-09-23). Tapped when a cell up to 4 ahead is under one and she is within 200 of it.
 
 ## Not measured yet
 

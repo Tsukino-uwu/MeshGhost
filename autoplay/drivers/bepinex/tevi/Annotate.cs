@@ -7,22 +7,15 @@ using UnityEngine;
 
 namespace MeshGhostAutoplay.Tevi
 {
-    // ANNOTATED PICTURES (the plan's layer 5; agent_docs/phases/phase13.md, "how an agent sees a game"): the game's frame with
-    // what the driver reads drawn onto it, so a picture and the numbers are the same moment and say which thing is which.
-    //
-    // - The game's own hitbox drawing: BulletManager.showHitBox, the switch its debug console's `showHitBox` command calls (names
-    //   read from the Steam build's assemblies, 2026-09-17), draws every live bullet's box -- the characters' body and hurt boxes
-    //   are bullets too -- as world-space lines, so the frame capture has them. It is on only from the request until the
-    //   captured frame, and off again after unless it was on before. Read as a map: while it is on, a slide starting or ending
-    //   re-creates that character's body box (CharacterBase.ToggleSlide), so the switch is not only drawing; kept to those frames.
-    // - Numbered tags drawn into the captured picture over each character, item and element a player meets in view (as observe's
-    //   nearby, items and elements list them), and the same numbers listed in the answer with what each one is and its pixel.
-    //   The world-to-pixel mapping is the camera's edges over the picture's size (a pixel was a world unit, MEASURED.md).
+    // The game's frame with what the driver reads drawn onto it, the same moment as the numbers: the game's own hitbox
+    // drawing (BulletManager.showHitBox draws every live bullet's box as world-space lines), on only from the request
+    // to the captured frame unless it was on before, as a debug switch may do more than draw; and numbered tags over
+    // each character, item and element in view, listed in the answer with their pixels.
     public static class Annotate
     {
         private static readonly FieldInfo UpdatedCount = typeof(BulletManager).GetField("updatedCount", BindingFlags.Instance | BindingFlags.NonPublic);
 
-        // How many frames to wait for the game's debug update to draw once the switch is on, before capturing without it.
+        // Frames to wait for the game's debug update to draw once the switch is on, before capturing without it.
         private const int DrawWaitFrames = 10;
 
         public static IEnumerator Capture(string path, bool annotate, Func<CharacterBase> player, Action<JObject, string> done)
@@ -37,8 +30,8 @@ namespace MeshGhostAutoplay.Tevi
                     bm.showHitBox(true);
                     switched = true;
                 }
-                // Wait for a frame whose debug update has run with the switch on: `yield return null` resumes after this
-                // frame's Updates, so a count that has moved means the lines for this frame are set.
+                // Wait for a frame whose debug update has run with the switch on: `yield return null` resumes after
+                // this frame's Updates, so a count that has moved means the lines for this frame are set.
                 int before = UpdatedCount != null ? (int)UpdatedCount.GetValue(bm) : -1;
                 while (waited < DrawWaitFrames)
                 {
@@ -137,7 +130,7 @@ namespace MeshGhostAutoplay.Tevi
             {
                 Vector3 pos = kv.Key;
                 if (pos.x < left || pos.x > right || pos.y < Math.Min(top, bottom) || pos.y > Math.Max(top, bottom)) continue;
-                // Texture rows count up from the bottom; the answer's py counts down from the top, as an image viewer does.
+                // Texture rows count from the bottom; the answer's py counts from the top, as an image viewer does.
                 int px = (int)((pos.x - left) / (right - left) * tex.width);
                 int row = (int)((pos.y - Math.Min(top, bottom)) / Math.Abs(top - bottom) * tex.height);
                 n++;

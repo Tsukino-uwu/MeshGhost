@@ -9,13 +9,9 @@ using Newtonsoft.Json.Linq;
 
 namespace MeshGhostAutoplay
 {
-    // The driver's side of autoplay's link for a BepInEx host (DEV TOOL, never shipped; agent_docs/phases/phase13.md,
-    // ADR 0071). The wire is protocol 1, stated at the top of autoplay/driver/driver.go: a hello, then requests with ids
-    // answered by a result or an error, and events sent unasked.
-    //
-    // Game-blind. A background thread connects to the core on 127.0.0.1, says the hello the game plugin last set, and
-    // reads lines; the game's main thread takes requests with Poll and answers with Reply or Fail. Nothing of Unity is
-    // touched off the main thread, and log lines from the thread wait in a queue the main thread drains.
+    // The driver's side of autoplay's link for any BepInEx game, a dev tool speaking protocol 1 (top of
+    // autoplay/driver/driver.go): a background thread connects, says the hello and reads; the main thread takes
+    // requests with Poll and answers with Reply or Fail, touching Unity only there.
     public sealed class Link : IDisposable
     {
         public const int Protocol = 1;
@@ -56,12 +52,10 @@ namespace MeshGhostAutoplay
 
         public bool Connected => connected;
 
-        // The generation of the current connection: a request carries the one it arrived on, so an answer meant for a
-        // core that has gone is never sent to the next one.
+        // A request keeps its connection's generation, so an answer for a core that has gone never reaches the next.
         public int Generation => generation;
 
-        // Set on the main thread whenever what the hello says may have changed. A connection made with an older hello
-        // is dropped, so a core never keeps a stale one; the thread reconnects with this.
+        // A connection made with an older hello is dropped and remade, so a core never keeps a stale one.
         public void SetHello(JObject hello)
         {
             string line = hello.ToString(Formatting.None);

@@ -8,15 +8,12 @@ import (
 	"sync"
 )
 
-// LOOPS (2026-09-17). Two unattended Emerald sessions spent minutes on calls that kept answering the same thing at the
-// same place -- a trip walking back into one message, a goto sliding back down a mud slope -- until the user saw it on
-// screen. Every call passes through logged, so the core watches them for every game: a call whose tool, arguments,
-// outcome word, place after it and what it changed all match LoopRepeats of the last LoopWindow calls is a loop. What it
-// changed counts because a menu walked through stays at one place: three advance_text answering menu_open on 10.2 (4,5)
-// while an HM was taught were three messages, not a loop (attempt 2, 2026-09-17), and the sandstorm's message and the
-// mud slope changed the same thing every time. Its answer gains a "loop"
-// field saying so (a skill run ends there, outcome "loop"), and the run log a "loop" record. A call with no outcome word
-// (press, observe, a read) is not watched, and restore clears what was seen: a fight retried from a snapshot is a choice.
+// LoopWindow and LoopRepeats define a loop: a call whose tool, arguments, outcome word, place after it and what it
+// changed all match LoopRepeats of the last LoopWindow calls. Every call passes through logged, so the core watches
+// them for every game. What it changed counts because a menu walked through stays at one place, while a real loop
+// changes the same thing each time. A looping call's answer gains a "loop" field (a skill run ends there, outcome
+// "loop") and the run log a "loop" record. A call with no outcome word (press, observe, a read) is not watched, and
+// restore clears what was seen: a fight retried from a snapshot is a choice.
 const (
 	LoopWindow  = 12
 	LoopRepeats = 3

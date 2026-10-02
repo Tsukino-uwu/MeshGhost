@@ -1,13 +1,13 @@
-// Package goals reads a game's goals file -- the milestones a session plays toward -- and says which of them
-// the game's state meets.
+// Package goals reads a game's goals file (the milestones a session plays toward) and says which of them the game's
+// state meets.
 //
 // A goal is met when every expectation in its done_when holds on an observe answer: the scenario runner's own
 // expectations (paths and operators), so a goal is checked the same way a scenario step is and the core stays
-// game-blind. Goals are in story order. The next goal is the one after the last goal met, not the first one
-// unmet: a goal checked by where the player stands ("in Mauville") stops holding once the player walks on, and
-// a later goal met says the earlier ones were passed.
+// game-blind. Goals are in story order. The next goal is the one after the last goal met, not the first one unmet: a
+// goal checked by where the player stands ("in Mauville") stops holding once the player walks on, and a later goal
+// met says the earlier ones were passed.
 //
-// The file is JSON, decoded strictly, like a scenario (phase13.md, 2026-09-16: knowledge files are JSON).
+// The file is JSON, decoded strictly, like a scenario.
 package goals
 
 import (
@@ -25,8 +25,8 @@ import (
 // MaxFileBytes bounds a goals file.
 const MaxFileBytes = 1 << 20
 
-// KeepUnderBytes is the size a knowledge file is kept under (the plan's "about 8 KB"): past it the file is
-// consolidated, never grown into a diary. Load does not refuse a larger file; SizeNote says so.
+// KeepUnderBytes is the size a knowledge file is kept under: past it the file is consolidated, never grown into a
+// diary. Load does not refuse a larger file; SizeNote says so.
 const KeepUnderBytes = 8 * 1024
 
 // File is a game's goals file.
@@ -42,7 +42,7 @@ type Goal struct {
 	ID          string            `json:"id"`
 	Description string            `json:"description"`
 	DoneWhen    []scenario.Expect `json:"done_when"`
-	// Hints points to where the way is written (a heading of route.md), never the way itself.
+	// Hints points to where the way is written (a heading of the game's route file), never the way itself.
 	Hints string `json:"hints,omitempty"`
 	Note  string `json:"note,omitempty"`
 }

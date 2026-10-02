@@ -7,21 +7,15 @@ using UnityEngine;
 
 namespace MeshGhostAutoplay.Tevi
 {
-    // THE FLIGHT RECORDER (the plan's layer 4; agent_docs/phases/phase13.md, "how an agent sees a game"): the last Capacity frames
-    // of game time, recorded every frame whether or not a core is connected, read by `recent` after an event to see what led to
-    // it. A frame is recorded only when game time moved (Time.deltaTime above 0): while the clock is held, or the game has
-    // stopped its own time (a menu, a conversation), nothing moves and nothing is kept, so the buffer holds what happened.
-    //
-    // A row: frame, mode, x, y, velocity x and y, on the ground, animation, logic state, HP, the driver's input held (the real
-    // controller's is not seen), up to MaxEnemies living characters in view nearest first as [type index, id, x, y, hp, animation
-    // index, logic state index] (what comes before an attack: a charge from a standstill gave no box to see, 2026-09-17), and
-    // up to MaxBoxes live bullets not the player's -- attacks, shots, and the characters' own body and hurt boxes, which the
-    // game keeps as bullets too -- nearest first as [type index, owner type index, x, y, width, height], the box's centre and
-    // size as the game's hitbox drawing takes them (BulletManager._BMDebugUpdate, read as a map), and up to MaxLasers lasers not the player's as
-    // [type index, from x, from y, to x, to y, radius, hurting] (Threats.ReadLasers). Types are named once. Its own cost per frame is measured and reported (`cost`), since it runs every frame.
+    // The flight recorder: the last Capacity frames of game time, recorded whether or not a core is connected, read by
+    // `recent` after an event to see what led to it. Only frames where game time moved are kept, so a held clock, a
+    // menu or a conversation leaves the buffer holding what happened. A row: the player, the driver's held input (not
+    // the real controller's), the nearest characters with their state, the nearest boxes that can hurt her and the
+    // lasers; types named once. It reports its own cost.
     public static class Recorder
     {
-        public const int Capacity = 3600; // 60 seconds; one `recent` reads at most 600 of them, reaching back with until_frame
+        // 60 seconds; one `recent` reads at most 600 of them, reaching back with until_frame
+        public const int Capacity = 3600;
         private const int MaxEnemies = 4, MaxBoxes = 8, MaxLasers = 32;
 
         // The link caps a line at 64 KB: an answer past this is thinned (every doubled) until it fits.
@@ -149,8 +143,7 @@ namespace MeshGhostAutoplay.Tevi
                 r.Boxes[i] = new Box { Type = b.type.ToString(), Owner = b.owner == null ? "none" : b.owner.type.ToString(), X = c.x, Y = c.y, W = b.GetHSizeW(), H = b.GetHSizeH() };
             }
 
-            // Lasers are not bullets (Threats.cs): Ribauld's cut-in lasers killed her twice on Infernal BBQ with no box in the rows
-            // before the hit (2026-09-17).
+            // Lasers are not bullets (Threats.cs): without them a laser hit shows no box in the rows before it.
             List<Threats.Laser> beams = Threats.ReadLasers(p);
             r.LaserCount = Math.Min(beams.Count, MaxLasers);
             for (int i = 0; i < r.LaserCount; i++)
@@ -181,7 +174,7 @@ namespace MeshGhostAutoplay.Tevi
 
         private static Row At(int back) => Rows[(next - 1 - back + Capacity * 2) % Capacity]; // back 0: the newest
 
-        // The rows oldest first: at most `frames` recorded frames ending at `untilFrame` (or the newest), one every `every`.
+        // The rows oldest first: at most `frames` ending at `untilFrame` (or the newest), one every `every`.
         public static JObject Read(int frames, int every, int? untilFrame)
         {
             int end = 0; // how far back the newest row to read is
@@ -256,7 +249,7 @@ namespace MeshGhostAutoplay.Tevi
             return types.Count - 1;
         }
 
-        // observe's trail, from the same record: the last `frames` recorded frames every `every`, [frame, x, y, on_ground, anim].
+        // observe's trail from the same record: the last `frames` every `every`, as [frame, x, y, on_ground, anim].
         public static JArray Trail(int frames, int every)
         {
             var arr = new JArray();

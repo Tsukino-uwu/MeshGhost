@@ -15,7 +15,7 @@ const (
 	OutcomeNoRule    = "no_rule"    // no rule matched the last answer: the caller decides
 	OutcomeMaxCalls  = "max_calls"  // the skill made its max_calls and a rule still asked for another
 	OutcomeToolError = "tool_error" // a call was refused or failed; the last answer holds the error text
-	OutcomeLoop      = "loop"       // the core marked an answer as a loop (server's LOOPS): the same answer at the same place again
+	OutcomeLoop      = "loop"       // the core marked an answer as a loop: the same answer at the same place again
 )
 
 // Loader finds a skill by name.
@@ -208,8 +208,8 @@ func orEmpty(m map[string]any) map[string]any {
 	return m
 }
 
-// match returns the index of the first rule after call whose expectations all hold on answer and that has not decided its
-// max times, or -1; spent is the 1-based first rule that held but had, 0 when none.
+// match returns the index of the first rule after call whose expectations all hold on answer and that has not
+// decided its max times, or -1; spent is the 1-based first rule that held but had, 0 when none.
 func match(s *Skill, call string, answer any, fired []int) (index, spent int) {
 	for i := range s.Rules {
 		r := &s.Rules[i]

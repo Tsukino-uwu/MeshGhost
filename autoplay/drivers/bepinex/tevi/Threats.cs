@@ -7,31 +7,16 @@ using UnityEngine;
 
 namespace MeshGhostAutoplay.Tevi
 {
-    // What can hurt the player, as the game tests it (bulletScript.isHit and CheckHitCharacter, read as a map; names from the
-    // Steam build's assemblies, 2026-09-17): a live bullet not the player's own, with damage above 0 and a box, overlapping
-    // the player's hurtbox -- Bodybox wide and high, centred at her x plus its x offset, and at the height of the game's own
-    // hitbox display (GameSystem.hitboxDisplay), lower while sliding. The characters' contact damage is a bullet of this kind
-    // too (ENEMY_HURTBOX). What each rule does in play is measured before a reflex relies on it (adapters/tevi/MEASURED.md).
+    // What can hurt the player: a live bullet not hers, with damage and a box, overlapping her hurtbox; contact damage
+    // is one too (ENEMY_HURTBOX). Lasers are not bullets: one hurts through a circle cast along its forward once its
+    // private `hurt` is on, and the game keeps no list of live ones, so a postfix on GemaPoolManager.CreateLaser notes
+    // each one made. Reading only.
     //
-    // LASERS are not bullets: a LaserController2D hurts through a circle cast from its position along its forward, of radius
-    // OverAll_Size / offsize times its extra hitbox width, as far as length / 10 times OverAll_Size, once its private `hurt` is
-    // on (LaserController2D, read as a map; found 2026-09-17 when a hit read bullet type NORMAL with no box near the player:
-    // Ribauld's cut-in laser). The game keeps no list of live lasers (they come from a spawn pool), so a postfix on
-    // GemaPoolManager.CreateLaser notes each one made, and one gone inactive is forgotten. Reading only.
-    //
-    // EXPLOSIVES: some characters are a blast waiting to happen, and the blast's bullet is born with no box and grows to its full
-    // size a frame or two later -- too late to step out of. TEVI's blastorb (EnergyBall) explodes as it comes within about 42 units
-    // of the player (EnergyBall, read as a map), and its ENERGYBALL_EXPLODE box read 0x0 for two frames, then 405x405 (measured
-    // 2026-09-17, the Ribauld fight). So a character whose type has been seen to explode is itself a threat of its blast's size,
-    // moving with it: the table starts with that measurement and learns any other from a bullet it sees grow from 0x0. The user,
-    // 2026-09-17: "the orb only explode when it touch something, not when laying idle on the ground" -- so a still one is only
-    // its touch distance (TouchReach each side), and a moving one too ("only dangerous if you touch them or they are pushed into
-    // you"), except where its path meets another character, which sets it off: there it is its whole blast. Two blasts on 2026-09-17
-    // came from treating every moving orb as its blast, when no plan escapes a 405-wide box closing at 20 units a frame and the
-    // least-bad one ran into it. A still orb that hops straight up is detonating (below): all of its blast.
-    //
-    // A box that belongs to a character (its centre within a tile of the character: a body, a charge) stops at walls when moved on,
-    // as the character does: Ribauld's charge, predicted to carry on past a wall, stopped under the player's landing (2026-09-17).
+    // An exploding character's blast is born with no box and grows a frame or two later, too late to step out of, so a
+    // type seen to explode is itself a threat of its blast's size, learned from an EXPLODE bullet seen to grow. An orb
+    // goes off only on touch, so a still or moving one is only its touch distance, except where its path meets another
+    // character or it hops straight up from rest: there it is its whole blast. A box belonging to a character stops at
+    // walls, as the character does.
     public static class Threats
     {
         public const string HarmonyId = "dev.meshghost.autoplay.threats";
@@ -50,13 +35,12 @@ namespace MeshGhostAutoplay.Tevi
             public float Radius;
             public bool Hurting;
             public string Type;
-            public int AppearIn; // frames of game time until it hurts: 0 when it does, or when how long its warning lasts is not known yet
+            // frames of game time until it hurts: 0 when it does, or when how long its warning lasts is not known yet
+            public int AppearIn;
         }
 
-        // A laser's warning beam is safe until it activates (the user, 2026-09-17: "they are safe locations, until they activate/start to
-        // deal damage"); Ribauld's cut-in lasers on Infernal BBQ hurt 56 frames after they appeared, at the same x (the flight recorder read
-        // every frame, 2026-09-17; a first reading of 138 came from rows printed only when the count changed, and stood her in a beam). So each
-        // laser's age is counted in frames of game time, and the age at which a type first hurts is learned, the shortest seen.
+        // A laser's warning beam is safe until it activates, at the same x: each laser's age is counted in frames of
+        // game time, and the age at which a type first hurts is learned, the shortest seen.
         private static readonly Dictionary<LaserController2D, int> LaserAge = new Dictionary<LaserController2D, int>();
         private static readonly Dictionary<LaserController2D, int> LaserAgedAt = new Dictionary<LaserController2D, int>();
         private static readonly Dictionary<string, int> WarnFrames = new Dictionary<string, int> { ["RIBAULD_CUTIN_LASER"] = 56 };
@@ -88,8 +72,8 @@ namespace MeshGhostAutoplay.Tevi
             if (__result != null && !Lasers.Contains(__result)) Lasers.Add(__result);
         }
 
-        // The live lasers not the player's, as segments with a radius: the length and size each is growing toward, whichever is
-        // larger, since a warning beam becomes the hurting one where it stands.
+        // The live lasers not the player's, as segments with a radius: the length and size each is growing toward,
+        // whichever is larger, since a warning beam becomes the hurting one where it stands.
         public static List<Laser> ReadLasers(CharacterBase p)
         {
             var list = new List<Laser>();
@@ -139,8 +123,8 @@ namespace MeshGhostAutoplay.Tevi
             return list;
         }
 
-        // Whether a moving explosive's straight path over the next second comes within a tile and a half of a living character other
-        // than itself and the player, which would set it off there.
+        // Whether a moving explosive's straight path over the next second comes within a tile and a half of a living
+        // character other than itself and the player, which would set it off there.
         private static bool PathMeetsCharacter(CharacterManager cm, CharacterBase self, CharacterBase p, Vector2 from, Vector2 v)
         {
             Vector2 to = from + v * 60f;
@@ -178,13 +162,12 @@ namespace MeshGhostAutoplay.Tevi
             public int AppearIn; // frames until it exists: 0 for a live box, the learned delay for a tell (Tells.cs)
         }
 
-        // How a shot's heading has turned relative to the player, frame by frame: a `speeddown` shot passed under her, turned and
-        // came back (2026-09-17), which a straight line never predicts. Turning toward her for HomingFrames frames in a row, it homes.
+        // How a shot's heading has turned relative to the player, frame by frame: turning toward her for HomingFrames
+        // frames in a row, it homes, which a straight line never predicts.
         private const int HomingFrames = 6;
         private static readonly Dictionary<int, int> TurningToward = new Dictionary<int, int>();
 
-        // StillSpeed 3: orbs hanging on blastvines sway a little every frame, and read as moving at 0.5 they froze goto in place
-        // (2026-09-17); a knocked orb flies at 20-30 units a frame.
+        // StillSpeed 3: orbs on blastvines sway a little every frame; a knocked orb flies at 20-30 units a frame.
         private const float TouchReach = 48f, StillSpeed = 3f;
 
         private static readonly Dictionary<int, Vector2> LastCentre = new Dictionary<int, Vector2>();
@@ -216,8 +199,8 @@ namespace MeshGhostAutoplay.Tevi
             return true;
         }
 
-        // Every bullet that could hurt the player, in view (plus a margin), with its velocity. Call once a frame at most: the
-        // velocity is the change since the last call that saw the same slot on the frame before.
+        // Every bullet that could hurt the player, in view (plus a margin), with its velocity. Call once a frame at
+        // most: the velocity is the change since the last call that saw the same slot on the frame before.
         public static List<Threat> Read(CharacterBase p, float margin)
         {
             var list = new List<Threat>();
@@ -237,8 +220,7 @@ namespace MeshGhostAutoplay.Tevi
                     LastFrame[i] = f;
                     continue;
                 }
-                // Only an explosion teaches a blast: a dog's attack is also born with no box and grows, and learned as a blast it made the
-                // dog's whole surroundings a threat (2026-09-17).
+                // Only an explosion teaches a blast: an ordinary attack can also be born with no box and grow.
                 if (BornEmpty.Remove(i) && b.owner != null && b.type.ToString().Contains("EXPLODE"))
                 {
                     // A blast: born with no box, grown now. Its owner's type explodes this big.
@@ -288,10 +270,7 @@ namespace MeshGhostAutoplay.Tevi
                     if (LastCentre.TryGetValue(key, out Vector2 last) && LastFrame.TryGetValue(key, out int lf) && lf == f - 1) v = c - last;
                     LastCentre[key] = c;
                     LastFrame[key] = f;
-                    // A hop in place is a detonation: both orbs in Ribauld's arena rose and fell straight, with no sideways speed, and went
-                    // off as they landed on the same frame (2026-09-17), hitting her 122 units from one.
-                    // Only a hop from rest: on Infernal BBQ Ribauld's thrown orbs bounced up and down many times without going off, and read
-                    // as detonating on every bounce they froze her 300 frames beside an orb she meant to hit (2026-09-17).
+                    // A hop in place from rest detonates as it lands; a thrown orb bounces many times without one.
                     StillFor.TryGetValue(key, out int still);
                     bool moving = v.magnitude >= StillSpeed;
                     if (!moving && still >= 2) HopFromRest[key] = false; // the top of a hop reads still for a frame

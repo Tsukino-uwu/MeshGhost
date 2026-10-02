@@ -86,11 +86,13 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - The FLY map's cursor, the party screen's cursors, and Mossdeep's rotating statues (2026-09-23)
 - Boulders and STRENGTH, hide flags, currents, waterfalls, cracked floors on the MACH BIKE, and DIVE (2026-09-24)
 - Which badge each field move needs, from the party menu (2026-09-24)
+- 2026-10-02 — Facts the code comments carried, moved here word for word
 - Not measured yet: The rest of the text printer (from 2026-09-16)
 - Not measured yet: The rest of the map and the walk (from 2026-09-16)
 - Not measured yet: The rest of the party, the bag and the flags (from 2026-09-16)
 - Not measured yet: The rest of a battle (from 2026-09-16)
 - Not measured yet: Field-move badges on an Archipelago seed (from 2026-09-24)
+- Not measured yet — what the code comments said the game's code shows (moved 2026-10-02)
 
 ## Measured
 
@@ -1259,6 +1261,25 @@ With all eight set FLY's map came up (the control). CUT and FLASH are not measur
 the overworld's own check (facing water, a rock, a waterfall with a badge missing), which the planner's actions go
 through.
 
+### 2026-10-02 — Facts the code comments carried, moved here word for word
+
+Each fact below sat in a code comment beside the code that uses it (at `f64560cc`), and no entry above held it. On 2026-10-02 the comments were cut to what and why and the facts moved here word for word. Each names the probe, capture or date it was measured with where the comment did; none was re-measured for this entry. The label above each group is the file it came from, then the entry it was checked against.
+
+**`autoplay/drivers/bizhawk/games/emerald.lua`**, checked against adapters/emulator/pokemon/emerald/MEASURED.md, "A trainer's sight and defeat flag, a trainer coming for the player, and the level-up box (2026-09-17)"; adapters/emulator/pokemon/emerald/MEASURED.md, "The learn-a-move question, the move list and the evolution scene (2026-09-17)"; adapters/emulator/pokemon/emerald/MEASURED.md, "TM and HM compatibility, a double battle's menus and target, and a move's target byte (2026-09-23)"; adapters/emulator/pokemon/emerald/MEASURED.md, "The field controls lock, and a script context left waiting after a ROCK SMASH escape (2026-09-23)"; adapters/emulator/pokemon/emerald/MEASURED.md, "Boulders and STRENGTH, hide flags, currents, waterfalls, cracked floors on the MACH BIKE, and DIVE (2026-09-24)"; adapters/emulator/pokemon/emerald/MEASURED.md, "SURF: the question, the avatar byte, and stepping off onto land (2026-09-23)"; adapters/emulator/pokemon/emerald/MEASURED.md, "A move's type, power, accuracy, PP and effect text (2026-09-16)"; adapters/emulator/pokemon/emerald/MEASURED.md, "Not measured yet: The rest of a battle (from 2026-09-16)"
+
+- 2026-09-23 (Weather Institute 2F, Routes 118 and 120): +0x06 9 read left only over 4500 frames (+0x18 3, the grunt at 19,6), 0x0A right (the grunt at 15,6), 0x0D down and up (the grunt at 10,8, crossed while it faced up), 0x0E left and right (120's at 5,22), 0x10 up and right (118's at 56,7), 0x11 left and down (121's at 22,5, 12 reads), 0x17 all four (120's rotator at 16,6), 0x18 the same clockwise (129's at 35,9 read down, right, up in 10 reads). So +0x18's 3 is left too (`turnFacing`). A walking trainer (0x1A, 121's at 11,6, on rows 7-10) moves its line and is not timed: crossed above it while it walked down, away (by hand).
+- A trainer that walks (2026-09-23/24: 121's at 11,6 lapped rows 7-10; 108's at 52,13 x49-52 rows 10-13; the Aqua Hideout 1F's at 20,4 x7-20 rows 4-9) stays inside a box round its template tile: the template's +0x0A, low nibble the x range and high nibble the y range (read 0x55, 0x05, 0x31 on 128 for a loop, a left-right and up-down walkers, matching those laps). Its sight is taken from every tile of that box, every way: never timed, just avoided. Wandering (0x02-0x06), walking back and forth (0x19-0x1C) and walk sequences (0x1D-0x34) walk.
+- "Will A change POKéMON?" before a trainer's next Pokémon (2026-09-23, GUITARIST DALTON on 0.33, the first time the party held two): not read, a nudge's A answered YES and opened the party screen. Read by its message, its YES/NO cursor taken to be the nickname question's: MAY's battle in Lilycove read it before GROVYLE, SLUGMA and PELIPPER ("PKMN TRAINER MAY is about to use GROVYLE."), and `select` YES and NO each did what they say (2026-09-23).
+- A ROCK SMASH rock (graphics 86: the two on 0.26 at (18,101) and (19,100) that A, YES broke, 2026-09-17 and 09-23) is an obstacle, not a wall, while the party knows ROCK SMASH: the walk stops in front of it and `smash` breaks it.
+- A damaging move whose accuracy byte reads 0 never misses (SHOCK WAVE, "never misses" on its summary, scored 0 and SPARK was chosen over it, 2026-09-23): taken as 100.
+- RECOIL (the user, 2026-09-23: TAKE DOWN hurts the user; SWAMPERT ended WINONA's battle on 1 HP): the effect byte read 48 for TAKE DOWN and SUBMISSION, 198 for DOUBLE-EDGE, 0 for plain damage. Below 40% HP such a move scores a quarter.
+- The user faints itself (2026-09-23: SELFDESTRUCT scored 200 power, ELECTRODE used it on ARCHIE's CROBAT and fainted): the effect byte read 7 for SELFDESTRUCT and EXPLOSION through `exec`. Scored 0, a last resort.
+- x and/or y: also where it stands, for a trainer that walks a loop (Aqua Hideout 1F's grunt lapped x7-20, rows 4-9, in about 600 frames; a poll from outside read him 250 frames apart).
+
+**`autoplay/drivers/bizhawk/route.lua`**, checked against adapters/emulator/pokemon/emerald/MEASURED.md, "Turning at speed, routes, a Pokémon Center, and battles as one call (2026-09-16)"
+
+- goto {x, y, run, cross_grass}: to a tile on this map by a planned route of straight legs, holding each leg's direction and switching to the next as the step into the corner begins -- a held direction turns on arrival, and the Mach Bike kept its speed through a turn (Emerald, bike_probe.lua, 2026-09-16: the first tile after the corner read +0x0B 3). A ride that coasts once let go lets go on the last leg by the module's `coast`, and a last leg of `shortLeg` tiles or fewer is reached by stopping at its corner first (after a turn at speed the Mach Bike's first tile coasted three). It stops for the same reasons `walk` does (the module's `watch`), and a warp or an edge that changes the map ends it too. Returns (program, error, frame limit) like any program.
+
 ## Not measured yet
 
 ### The rest of the text printer (from 2026-09-16)
@@ -1313,3 +1334,12 @@ battle, each paired with captures.
   +0x18). Both local seeds (ROM name "pokemon emerald version / AP 5") read `ff ff 0f ff` then `01 02 04 08 10 20 40 80`
   at file offset 0x59f584, which would mean FLY with no badge and the rest as vanilla. Not measured in a running seed.
   The autoplay driver's reads are vanilla addresses throughout, and the party is listed 0x30 further on there.
+
+### Not measured yet — what the code comments said the game's code shows (moved 2026-10-02)
+
+These sat in code comments (at `f64560cc`) and say they come from reading the game's code as a map. Nothing here is a fact: each is where to look, until measured.
+
+**`autoplay/drivers/bizhawk/games/emerald.lua`**
+
+- The routine the build names Cmd_trygivecaughtmonnick: "Give a nickname to the captured X?" after a catch, its YES/NO waiting while gBattleCommunication +0 reads 1 -- the decomp as the map; read live after a TAILLOW caught on 0.19, and NO through `select` went on to the end of the battle (2026-09-23).
+- Water is entered only from level 3: on 0.34 (25,47), at level 4 on a 0x0C ledge facing water, A gave no SURF question (2026-09-23), where from level 3 on 0.33 it did; the decomp's check wants the default level (the map).

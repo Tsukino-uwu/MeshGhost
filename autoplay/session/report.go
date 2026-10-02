@@ -13,9 +13,8 @@ import (
 // Phase is one headless run of Claude Code within a session: the play, then the distillation.
 type Phase struct {
 	Name string `json:"name"`
-	// ModelCalls counts the model's responses: distinct message ids in the stream. Every line of one id carried the same
-	// output-token usage, and one id held five tool uses made together (the dry run, 2026-09-17). NumTurns is the result
-	// line's own count, which on that run was each tool use and the closing text (10 against 4 responses): not calls.
+	// ModelCalls counts the model's responses: distinct message ids in the stream, since one response can arrive as
+	// several lines. NumTurns is the result line's own count, each tool use and the closing text: not calls.
 	ModelCalls int            `json:"model_calls"`
 	NumTurns   int            `json:"num_turns,omitempty"`
 	ToolUses   map[string]int `json:"tool_uses"`
@@ -51,7 +50,7 @@ type Report struct {
 	Notes     []string `json:"notes,omitempty"`
 }
 
-// Write saves the report as report.json and report.md in dir.
+// Write saves the report in dir, as JSON and as Markdown.
 func (r Report) Write(dir string) error {
 	b, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
@@ -63,7 +62,7 @@ func (r Report) Write(dir string) error {
 	return os.WriteFile(filepath.Join(dir, "report.md"), []byte(r.Markdown()), 0o644)
 }
 
-// Markdown is the short report the plan asks for: goal and result, walked or reached, cheats, stops, new facts, calls.
+// Markdown is the short report: goal and result, walked or reached, cheats, stops, new facts, calls.
 func (r Report) Markdown() string {
 	var b strings.Builder
 	result := "NOT met"

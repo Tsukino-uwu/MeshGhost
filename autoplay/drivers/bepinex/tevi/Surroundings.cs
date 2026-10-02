@@ -9,17 +9,11 @@ using UnityEngine;
 
 namespace MeshGhostAutoplay.Tevi
 {
-    // What is around the player, read from the game's own state rather than from a picture (the approved plan, layer 1;
-    // agent_docs/phases/autoplay/tevi.md). Names from the Steam build's assemblies (2026-09-17): the character list
-    // (CharacterManager.characters), the tile grid the game tests walls against (WorldManager.areadata.hitbox, TILESIZE
-    // wide tiles, indexed x + y * MaxTileX), the camera's edges, the map's elements and items (areadata.elementlist and
-    // itemlist), and the bullet pool (BulletManager). What each field MEANS is measured before it is relied on: until an
-    // entry in adapters/tevi/MEASURED.md says so, a raw value keeps its _raw name.
+    // What is around the player, read from the game's own state rather than from a picture. A value whose meaning is
+    // not measured yet keeps a _raw name.
     public static class Surroundings
     {
-        // The text map's size in tiles around the player: a little more than the 1280x720 screen at 56 per tile.
-        // Wider than the screen (23 by 13 tiles at 56 a tile): finding the way back to a missed corridor needed the rooms around, not
-        // only the one in view (2026-09-17).
+        // The text map's half size in tiles, far wider than the screen's 23 by 13, so the rooms around show too.
         public const int MapHalfWidth = 50, MapHalfHeight = 25;
 
         // How far past the camera's edges a thing is still listed, in world units.
@@ -130,8 +124,8 @@ namespace MeshGhostAutoplay.Tevi
             return arr;
         }
 
-        // The whole area's elements, not only those in view: per type, how many and the nearest few, so a teleport can aim at
-        // something off screen (an enemy's spawn, a spike, a door marker). Kept small: the link caps a line at 64 KB.
+        // The whole area's elements by type, each count and the nearest few, so a teleport can aim off screen (a spawn,
+        // a spike, a door marker); kept small for the link's 64 KB line.
         public static JObject AreaElements(Vector3 from, int nearest)
         {
             var o = new JObject();
@@ -198,7 +192,7 @@ namespace MeshGhostAutoplay.Tevi
                 o["slot"] = i;
                 o["type"] = b.type.ToString();
                 o["owner"] = b.owner == null ? "none" : b.owner == player ? "player" : b.owner.type.ToString();
-                // The box as the game's hitbox drawing takes it: centre offset from the position, full width and height.
+                // The box as the game's hitbox drawing takes it: centre offset from the position, full size.
                 Vector3 off = b.GetHOffset();
                 o["box"] = new JObject { ["cx"] = Math.Round(b.t.position.x + off.x, 1), ["cy"] = Math.Round(b.t.position.y + off.y, 1), ["w"] = Math.Round(b.GetHSizeW(), 1), ["h"] = Math.Round(b.GetHSizeH(), 1) };
                 found.Add(new KeyValuePair<float, JObject>((b.t.position - from).sqrMagnitude, o));
@@ -209,10 +203,8 @@ namespace MeshGhostAutoplay.Tevi
             return new JObject { ["active"] = active, ["in_view"] = found.Count, ["nearest"] = list };
         }
 
-        // A text map of the game's collision grid around the player, one row per tile, top row first. Symbols: '@' the
-        // player's tile, '.' 0, '#' 1, '/' 2-99, '\' 100-254, '=' 255 (byte meanings from the game's wall test, read as a
-        // map: to be confirmed against a picture), ':' outside the grid; a character, element or item drawn over its tile
-        // by its first letter as the legend lists.
+        // A text map of the game's collision grid around the player, top row first, with each character, element and
+        // item drawn over its tile by its first letter, as the legend lists.
         public static JObject LocalMap(CharacterBase player, JArray characters, JArray elements, JArray items)
         {
             WorldManager wm = WorldManager.Instance;
@@ -239,8 +231,7 @@ namespace MeshGhostAutoplay.Tevi
                 }
             }
             Put(characters, o => (string)o["role"] == "NONE" ? "enemy:" + (string)o["type"] : ((string)o["role"]).ToLowerInvariant() + ":" + (string)o["type"]);
-            // Only elements a player meets are drawn: map decoration and markers (MAPOBJECT*, Fade*, ID<n>, MapPoint) hid the
-            // tile under them (measured 2026-09-17: ID1 over a bookshelf's first platform tile). `elements` lists them all.
+            // Only elements a player meets are drawn: markers hid the tile under them. `elements` lists them all.
             var drawn = new JArray();
             foreach (JObject e in elements)
             {

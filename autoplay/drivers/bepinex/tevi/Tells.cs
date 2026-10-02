@@ -6,19 +6,13 @@ using UnityEngine;
 
 namespace MeshGhostAutoplay.Tevi
 {
-    // TELLS: what an enemy does before an attack, learned by watching, so the dodge can see an attack before its box exists. Up close a
-    // box that is born on top of the player cannot be dodged by boxes alone: Ribauld's charge starts from a standstill and his speeddown
-    // shot spawns at his gun, and every hit while hugging him was one of those (2026-09-17). His logic state gave each away: ATTACK2 16
-    // frames before every charge, ATTACK4 32 frames before the shot, ATTACK1 before the bomb ring (the flight recorder, same date).
-    //
-    // Nothing here knows an enemy. Every frame, each character's logic state and when it began are kept; when a bullet that can hurt the
-    // player is born to a character, its birth is a sample for (character type, the state it was in): how many frames into that state,
-    // the box's offset from the character (x turned by the way it faces) and size, and its mean velocity over its first VelocityFrames
-    // (Ribauld's charge box stood still its first frame and then ran with him, so a velocity read a frame after birth was 0). From then on a
-    // character entering a state with samples is, to the dodge, those boxes appearing after their delay (Threats.Threat.AppearIn). The
-    // table lives in the AppDomain's data, so a hot reload keeps what was learned, and in a file under the repo's gitignored
-    // autoplay/states/tevi/ (TableFile, set by the plugin), read when the AppDomain has none: a game restart keeps it too. A thrown
-    // explosive (SpawnFrame) is sampled the same way, as SPAWN_<type>.
+    // What an enemy does before an attack, learned by watching, so the dodge sees an attack before its box exists: a
+    // box born on top of the player cannot be dodged by boxes alone. Nothing here knows an enemy. When a bullet that
+    // can hurt the player is born to a character, it is a sample for (character type, the logic state it was in): the
+    // frames into that state, the box's offset (x turned the way it faces), size, and mean velocity over its first
+    // VelocityFrames, since a box can stand still on its first frame. A character entering a state with samples is
+    // then, to the dodge, those boxes after their delay. A thrown explosive is sampled the same way, as SPAWN_<type>.
+    // The table lives in the AppDomain and in TableFile, so a hot reload and a game restart keep it.
     public static class Tells
     {
         private const string Key = "meshghost.autoplay.tells.v2";
@@ -39,19 +33,16 @@ namespace MeshGhostAutoplay.Tevi
             public bool Followed; // an attack was born during this stay in the state
         }
 
-        // How often each (type|state) was entered, and how often an attack followed while in it. A state an enemy rests in is a poor tell:
-        // Ribauld's bomb ring was born after he went back to NORMAL, so every NORMAL predicted a ring 23 frames on and she stood idle
-        // through it (the user, 2026-09-17: "there should also be a gap to get in some more attacks instead of just standing idle").
-        // A state is predicted only while an attack followed at least FollowShare of its last entries (after MinEntries), and only while
-        // FilterUnreliable (a fight's `tell_filter` sets it for its own frames). The counts are kept like the table (AppDomain, then
-        // EntriesFile): held only in memory, a hot reload or a restart forgot them, and for the next three entries every state predicted
-        // again, the bomb ring's NORMAL among them.
+        // How often each (type|state) was entered, and how often an attack followed while in it: a state an enemy rests
+        // in is a poor tell, since an attack born after it returns there makes every rest predict that attack. With
+        // FilterUnreliable (a fight's `tell_filter`), a state is predicted only while an attack followed at least
+        // FollowShare of its last entries (after MinEntries). The counts are kept like the table, so a reload does not
+        // start every state predicting again.
         private const int MinEntries = 3, EntryWindow = 20;
         private const float FollowShare = 0.5f;
         public static bool FilterUnreliable = true;
-        // A state whose samples include a thrown explosive is predicted even when the filter would drop it: Ribauld's ATTACK1 (his
-        // orb throw) counted as followed 2 times in 20 while every one of its samples is a throw at frame 26-27, and orb blasts
-        // became the most common hit once the filter was on (the trials, 2026-09-23). A fight's `keep_spawn_tells` sets it.
+        // A fight's `keep_spawn_tells`: a state whose samples include a thrown explosive is predicted even when the
+        // filter would drop it, since an orb throw rarely counts as followed.
         public static bool KeepSpawns = false;
         public static string EntriesFile; // autoplay/states/tevi/tells_entries.json, when the plugin knows the repo
         private const string EntriesKey = "meshghost.autoplay.tells.entries";
@@ -99,14 +90,14 @@ namespace MeshGhostAutoplay.Tevi
         }
 
         private static readonly Dictionary<int, Seen> States = new Dictionary<int, Seen>(); // by character instance id
-        private static readonly Dictionary<int, int> BulletBorn = new Dictionary<int, int>(); // live slots already sampled
-        private static readonly Dictionary<int, Sample> Pending = new Dictionary<int, Sample>(); // born last frame, waiting for velocity
+        // live slots already sampled
+        private static readonly Dictionary<int, int> BulletBorn = new Dictionary<int, int>();
+        // born last frame, waiting for velocity
+        private static readonly Dictionary<int, Sample> Pending = new Dictionary<int, Sample>();
         private static readonly Dictionary<int, Vector2> PendingCentre = new Dictionary<int, Vector2>();
         private static readonly Dictionary<int, int> PendingBorn = new Dictionary<int, int>();
-        // Thrown explosives: a character that explodes (Threats.IsExplosive) coming into play is an attack too, and not a bullet. Ribauld's
-        // orb appeared 25 units from her 26 frames into his ATTACK1 and went off on her 8 frames later, with nothing for the dodge to see
-        // first (2026-09-17, Infernal BBQ; the user: "still getting hit a lot when the orbs are being thrown out"). Its birth is sampled for
-        // the nearest other living character within SpawnOwnerReach, as its touch box grown by the orb's own body.
+        // A character that explodes coming into play is an attack too, not a bullet: its birth is sampled for the
+        // nearest other living character within SpawnOwnerReach, as its touch box grown by the orb's body.
         private const float SpawnOwnerReach = 300f, SpawnBox = Threats.TouchBox + 50f;
         private static readonly Dictionary<int, bool> CharActive = new Dictionary<int, bool>();
         private static readonly Dictionary<int, KeyValuePair<CharacterBase, Sample>> PendingChar = new Dictionary<int, KeyValuePair<CharacterBase, Sample>>();
@@ -146,7 +137,8 @@ namespace MeshGhostAutoplay.Tevi
         {
             string json = JsonConvert.SerializeObject(table);
             AppDomain.CurrentDomain.SetData(Key, json);
-            if (TableFile == null || Time.frameCount - lastFileWrite < 120) return; // a bomb ring is 8 samples in a frame
+            // a bomb ring is 8 samples in a frame
+            if (TableFile == null || Time.frameCount - lastFileWrite < 120) return;
             lastFileWrite = Time.frameCount;
             try
             {
@@ -250,7 +242,8 @@ namespace MeshGhostAutoplay.Tevi
             }
         }
 
-        private static bool spawnPrimed; // the first frame after a (re)load only notes what is already active: none of it was just thrown
+        // the first frame after a (re)load only notes what is already active: none of it was just thrown
+        private static bool spawnPrimed;
 
         private static void SpawnFrame(CharacterBase p, CharacterManager cm, int f)
         {
@@ -264,7 +257,8 @@ namespace MeshGhostAutoplay.Tevi
                 bool was = CharActive.TryGetValue(id, out bool w) && w;
                 CharActive[id] = active;
                 if (!primed || !active || was || !Threats.IsExplosive(c.type.ToString())) continue;
-                if (Utility.isOutsideCamera(c.t.position, 64f)) continue; // a whole area's orbs coming into being as it loads
+                // a whole area's orbs coming into being as it loads
+                if (Utility.isOutsideCamera(c.t.position, 64f)) continue;
                 CharacterBase owner = null;
                 float best = SpawnOwnerReach;
                 foreach (CharacterBase o in cm.characters)
@@ -323,8 +317,8 @@ namespace MeshGhostAutoplay.Tevi
             }
         }
 
-        // The attacks the characters in view are winding up, as threats that appear after their learned delay, placed where each
-        // character stands now and turned the way it faces now.
+        // The attacks the characters in view are winding up, as threats that appear after their learned delay, placed
+        // where each character stands now and turned the way it faces now.
         public static void Predict(CharacterBase p, List<Threats.Threat> into)
         {
             CharacterManager cm = CharacterManager.Instance;
@@ -339,7 +333,7 @@ namespace MeshGhostAutoplay.Tevi
                 int inState = f - s.Since, facing = Facing(c);
                 foreach (Sample x in list)
                 {
-                    // Samples well past their time mean this wind-up does not always end in that attack: wait at most a little longer.
+                    // Long past a sample's time, this wind-up may not end in that attack: wait only a little longer.
                     int appearIn = x.Delay - inState;
                     if (appearIn < -2 || appearIn > Dodge.Horizon) continue;
                     var centre = new Vector2(c.t.position.x + x.Dx * facing, c.t.position.y + x.Dy);
@@ -358,7 +352,7 @@ namespace MeshGhostAutoplay.Tevi
             }
         }
 
-        // The shortest learned delay from a state's start to an attack of this character type (thrown explosives left out), or null.
+        // The shortest learned delay from a state's start to an attack by this type (thrown explosives aside), or null.
         public static int? FastestLead(string type)
         {
             int? best = null;

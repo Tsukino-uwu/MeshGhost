@@ -961,9 +961,8 @@ func TestWaitValidatesAndForwards(t *testing.T) {
 	}
 }
 
-// Regression, 2026-09-16: the first events tool typed payloads as json.RawMessage, whose inferred
-// output schema is an array of bytes, so the first REAL event -- an object -- failed the SDK's
-// output validation live. The empty-list test below could never have caught it.
+// TestEventsToolReturnsAnObjectPayload: a real event's object payload passes the SDK's output validation, which a
+// payload typed json.RawMessage fails (its schema infers as an array of bytes) and an empty list never shows.
 func TestEventsToolReturnsAnObjectPayload(t *testing.T) {
 	h := newHarness(t)
 	nc := h.startDriver(t, nil, func(string, json.RawMessage) (string, any) { return "result", map[string]any{} })

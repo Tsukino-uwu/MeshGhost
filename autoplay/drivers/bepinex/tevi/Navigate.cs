@@ -5,32 +5,16 @@ using UnityEngine;
 
 namespace MeshGhostAutoplay.Tevi
 {
-    // GOTO over TEVI's collision grid: a route to a tile, walked the way a player moves -- runs, jumps held for the height they need,
-    // falls -- chosen from the game's own tiles (WorldManager.areadata.hitbox, TILESIZE 56, a tile x / 56 and -y / 56 + 1, as
-    // Surroundings.Tile). Made after two hand-timed tries at a shaft of pass-through platforms failed (2026-09-17).
-    //
-    // What the grid's bytes mean, measured against a picture of the cell (MEASURED.md): 1 solid, 255 a platform stood on from above
-    // and jumped up through, 2-254 slopes (walked). A standing tile is an open tile over a solid tile, a platform or a slope; the tile
-    // above it must be open too for her to pass (a low ceiling cut a jump to 48 units, 2026-09-17).
-    //
-    // Links between standing tiles: a step to either side, level or a slope's tile up or down; a fall off an edge to the first standing
-    // tile below within FallRows; a jump up to JumpRows rows and across to JumpCols columns, when every tile the arc passes (straight up
-    // from the take-off tile to the target row plus one, then across at that row) is open, platforms counting as open. The route is the
-    // cheapest by frames: a step 9, a fall 12 plus 3 a row, a jump 30 plus 9 a column.
-    //
-    // Carrying it out, a frame at a time: toward the next tile's centre; for a jump, from within JumpAim of the take-off tile's centre,
-    // Jump held HoldFor(rows) frames (measured rises: 12 frames rise about 144, 24 about 191, MEASURED.md), steering toward the target
-    // only once she is above its floor; planned again from where she stands every Replan frames or when she is off the route. As little
-    // time in the air as possible (the user, 2026-09-17: "try to land asap whenever possible and keep moving"): over a jump's landing
-    // tile and above its floor, or over the column a fall drops down, she quickdrops (22.5 units a frame, straight down).
-    //
-    // Every frame's move goes through the same dodge a fight uses (Dodge.cs): when what the route wants would be hit, she takes the
-    // dodge's plan that frame and the route is planned again from where she lands (a mouse on the way cost 26 HP on Infernal BBQ,
-    // 2026-09-17). `dodge` false turns it off; hits are counted, and `stop_on_damage` ends the walk on the first.
+    // A route to a tile over the game's own collision grid (byte 1 solid, 255 a platform stood on from above and jumped
+    // up through, 2-254 slopes), walked as a player moves: steps, falls and jumps held for the height they need,
+    // cheapest by frames. A standing tile needs the tile above it open too. Carried out a frame at a time, planned
+    // again every Replan frames or off the route, quickdropping over a landing to spend little time in the air. Every
+    // move goes through the fight's dodge unless `dodge` is false; `stop_on_damage` ends at the first hit.
     public static class Navigate
     {
         private const int UpCost = 20; // a row of a jump's rise, above two steps (9 each): walk higher before jumping
-        private const int JumpRows = 3, JumpCols = 5, FallRows = 24, Replan = 20, Margin = 60, MaxNodes = 20000; // a full jump carries about 5 tiles across (46 frames at 6.33)
+        // a full jump carries about 5 tiles across (46 frames at 6.33)
+        private const int JumpRows = 3, JumpCols = 5, FallRows = 24, Replan = 20, Margin = 60, MaxNodes = 20000;
         private const float JumpAim = 14f, Run = 6.33f;
 
         private static byte[] grid;
@@ -57,9 +41,10 @@ namespace MeshGhostAutoplay.Tevi
 
         private static bool Open(int x, int y) => At(x, y) == 0 || At(x, y) == 255;
         private static bool Slope(int x, int y) { byte b = At(x, y); return b >= 2 && b <= 254; }
-        private static bool Floor(int x, int y) { byte b = At(x, y); return b != 0; } // solid, platform or slope under her
+        // solid, platform or slope under her
+        private static bool Floor(int x, int y) { byte b = At(x, y); return b != 0; }
 
-        // A tile she can stand in: open (or a slope's tile, which she walks inside), something under it, and room for her body above.
+        // A tile she can stand in: open (or a slope's tile), something under it, and room for her body above.
         private static bool Stand(int x, int y)
         {
             bool here = At(x, y) == 0 || Slope(x, y);
@@ -104,10 +89,9 @@ namespace MeshGhostAutoplay.Tevi
                 }
             nextSide:;
             }
-            // Jumps: up 0..JumpRows rows, across 0..JumpCols columns (0 across only when going up, through a platform). Each row of
-            // rise is priced above two steps (UpCost), so the route walks as high as it can first -- up a slope to its top -- and
-            // jumps from the spot that leaves the least to climb (the user, 2026-09-23: "jump from the spot that gives you the most
-            // height towards where you are trying to go"; a jump from a slope's foot fell short, and level ground was too far).
+            // Jumps: up 0..JumpRows rows, across 0..JumpCols columns (0 across only when going up, through a platform).
+            // Each row of rise is priced above two steps (UpCost), so the route walks as high as it can first and jumps
+            // from the spot that leaves the least to climb.
             for (int up = 0; up <= JumpRows; up++)
             {
                 // straight up from the take-off tile, one row above the target row for her head
@@ -124,8 +108,7 @@ namespace MeshGhostAutoplay.Tevi
                         for (int c = 1; c <= across && path; c++) path = Open(x + d * c, ty - 1) && Open(x + d * c, ty);
                         if (!path) break;
                         if (!Stand(tx, ty) || (across <= 1 && up == 0)) continue;
-                        // Climbing and crossing far in one jump leaves little time above the target's floor: priced up (a 2-up, 5-across
-                        // jump fell short into a shaft, 2026-09-17, where climbing one more platform and crossing level would do).
+                        // Climbing and crossing far in one jump leaves little time above the target's floor: priced up.
                         yield return new Edge { To = Key(tx, ty), Cost = 30 + 9 * across + UpCost * up + 12 * up * Math.Max(0, across - 2), Kind = 2, Rows = up };
                     }
                 }
@@ -183,10 +166,9 @@ namespace MeshGhostAutoplay.Tevi
         }
 
         private static float CentreX(int tx) => tx * 56f + 28f;
-        private static float StandY(int ty) => -(ty - 1) * 56f; // her position standing in tile ty (the cell measured y -9072 for row 163)
+        private static float StandY(int ty) => -(ty - 1) * 56f; // her position standing in tile ty
 
-        // How long Jump is held: by the rows to rise, and a full hold for a long way across (a 6-frame hop meant for a level 5-tile gap fell
-        // short into the shaft below, 2026-09-17).
+        // How long Jump is held: by the rows to rise, and a full hold for a long way across.
         private static int HoldFor(int rows, int across) => across >= 3 ? 24 : rows <= 0 ? 8 : rows == 1 ? 12 : rows == 2 ? 16 : 24;
 
         private static bool EnemyBelow(CharacterBase p)
@@ -239,8 +221,8 @@ namespace MeshGhostAutoplay.Tevi
             InputInjection.Quickdrop();
         }
 
-        // GOTO {x, y}: world units, as observe's location reads them; or {tile_x, tile_y}. Ends `arrived`, `no_route`, `stuck` (no
-        // progress for 120 frames), `mode_changed`, `damage_taken` (hp dropped: the caller decides), or `timeout`.
+        // {x, y} in world units, or {tile_x, tile_y}. Ends `arrived`, `no_route`, `stuck` (no progress for 120 frames),
+        // `mode_changed`, `damage_taken` (the caller decides) or `timeout`.
         public static Func<JToken> Goto(JObject args, int frameLimit, Func<CharacterBase> player, Func<string> mode, Func<bool, JObject> observe)
         {
             if (!Load()) throw new Exception("no area grid loaded");
@@ -262,17 +244,20 @@ namespace MeshGhostAutoplay.Tevi
             if (!Stand(gx, gy)) throw new Exception("tile " + gx + "," + gy + " is not a place she can stand");
 
             int start = Time.frameCount, hpStart = me.health, lastPlan = -9999, lastProgressFrame = start, replans = 0, jumps = 0;
-            int bestLeft = int.MaxValue; // tiles of route left from the best point reached: progress is along the route, not straight at the goal
+            // tiles of route left from the best point reached: progress is along the route, not straight at the goal
+            int bestLeft = int.MaxValue;
             List<int> path = null;
             int step = 0, jumpFrom = -1, jumpRows = 0, jumpTarget = -1, hits = 0, dodges = 0, lastHp = me.health;
             bool steerEarly = false;
             int lastStomp = -1000;
-            int overDropSince = -1; // frames standing over a planned fall that does not happen: a duct cover the grid does not show
+            // frames standing over a planned fall that does not happen: a duct cover the grid does not show
+            int overDropSince = -1;
             bool dodge = (bool?)args["dodge"] ?? true, stopOnDamage = (bool?)args["stop_on_damage"] ?? false;
-            var guard = new Reflexes.Guard(me) { PreferDrop = false, Imminent = 14 }; // the route times its own quickdrops; step in only for a close hit
+            // the route times its own quickdrops; step in only for a close hit
+            var guard = new Reflexes.Guard(me) { PreferDrop = false, Imminent = 14 };
             float groundY = me.t.position.y;
 
-            // The route's move for this frame through the dodge: true when the dodge took another plan (and carried it out).
+            // The route's move through the dodge this frame: true when the dodge took and carried out another plan.
             bool Vetoed(CharacterBase p, Dodge.Move want)
             {
                 if (!dodge) return false;
@@ -326,8 +311,7 @@ namespace MeshGhostAutoplay.Tevi
 
                 if (onGround && !Here(p, out int _, out int _))
                 {
-                    // On the ground where the grid has no floor: standing on something it does not hold, like a duct cover. Hop and
-                    // quickdrop through it.
+                    // On ground the grid shows open (a duct cover, say): hop and quickdrop through it.
                     if (overDropSince < 0) overDropSince = Time.frameCount;
                     if (Time.frameCount - overDropSince > 10)
                     {
@@ -363,11 +347,8 @@ namespace MeshGhostAutoplay.Tevi
                     }
                 }
 
-                // In the air over an enemy: quickdrop onto it, contact cannot hurt her then and she bounces off (the user, 2026-09-17: "you
-                // can get iframes if you quickdrop on top of an enemy, use it to get by things safely"; a Clean Staff waiting where a drop
-                // landed hit her twice).
-                // One stomp, then steer on through the bounce: stomping again and again kept her hovering over a bot while it wound up
-                // and swept her for 39 (2026-09-17; the user: "go backwards/forwards a bit after hitting enemies with quickdrop").
+                // In the air over an enemy: quickdrop onto it once, contact cannot hurt her then, and steer on through
+                // the bounce; stomping again keeps her hovering over it while it winds up.
                 if (!onGround && Time.frameCount - lastStomp < 45)
                 {
                     int away = gx * 56 + 28 > pos.x ? 1 : -1;
@@ -381,9 +362,7 @@ namespace MeshGhostAutoplay.Tevi
                     return null;
                 }
                 if (path == null) return null;
-                // Forward first: the dodge prefers safe plans that end nearest the route's next tile, and backs off only to avoid a hit (the
-                // user, 2026-09-17: "prefer always going forward / as fast as possible whenever possible. instead of going backwards unless
-                // its required to avoid taking a hit").
+                // Forward first: safe plans ending nearest the route's next tile win; backing off is only for a hit.
                 guard.StickX = CentreX(path[Math.Min(step + 1, path.Count - 1)] % maxX);
                 if (step + 1 >= path.Count)
                 {
@@ -410,8 +389,7 @@ namespace MeshGhostAutoplay.Tevi
                     return null;
                 }
 
-                // A step up one tile onto or off a slope is walked (stairs are slopes: she jumped every stair, the user, 2026-09-17: "there
-                // is no need to jump constantly when walking up stairs"); a jump is a rise onto a ledge or a gap.
+                // A one-tile step onto or off a slope is walked (stairs are slopes); a jump is a rise or a gap.
                 bool stairs = Math.Abs(nx - cx) == 1 && ny == cy - 1 && (Slope(nx, ny) || Slope(nx, ny + 1) || Slope(cx, cy) || Slope(cx, cy + 1));
                 bool isJump = (ny < cy && !stairs) || Math.Abs(nx - cx) > 1;
                 bool isFall = !isJump && ny > cy + 1;
@@ -431,7 +409,7 @@ namespace MeshGhostAutoplay.Tevi
                         jumpFrom = cur;
                         jumpRows = rows;
                         jumpTarget = next;
-                        // Steer from the take-off when every tile between, from her row up to the target's, is open: no corner to catch.
+                        // Steer from take-off when every tile up to the target's row is open: no corner to catch.
                         steerEarly = true;
                         int dir = Math.Sign(nx - cx);
                         for (int c = 1; c <= Math.Abs(nx - cx) && steerEarly; c++)
@@ -443,8 +421,8 @@ namespace MeshGhostAutoplay.Tevi
                     return null;
                 }
                 float toward = CentreX(nx) - pos.x;
-                // Standing over the drop and not falling: something the grid does not hold covers it (a ventilation duct, which a quickdrop
-                // breaks; the second duct in Bandit Base held goto there, 2026-09-17). Hop and quickdrop onto it.
+                // Standing over the drop and not falling: something the grid does not hold covers it (a ventilation
+                // duct, which a quickdrop breaks). Hop and quickdrop onto it.
                 if (isFall && onGround && Mathf.Abs(pos.x - CentreX(nx)) < 30f)
                 {
                     if (overDropSince < 0) overDropSince = Time.frameCount;
@@ -467,18 +445,14 @@ namespace MeshGhostAutoplay.Tevi
                 }
                 bool move = Mathf.Abs(toward) > 4f || isFall;
                 int sign = (isFall ? nx - cx : (int)Mathf.Sign(toward));
-                // A blastorb resting on the way: jumped over at a run, never shot (a shot orb flew a short way, landed back in her path and
-                // went off as she ran into it, 50 HP on Infernal BBQ, 2026-09-17; the user: "just keep running").
+                // A blastorb resting on the way is jumped at a run, never shot: a shot orb can land back in her path.
                 if (onGround && sign != 0)
                 {
-                    // Any body in the way on her level is hurdled the same way: a normal enemy too, which cannot keep up once she is past
-                    // (the user, 2026-09-17: "if you run past they shouldn't be able to keep up"; a Clean Staff she stood in front of swept
-                    // her after a 40-frame wind-up).
+                    // Any body on her level in the way is hurdled the same way: a normal enemy cannot keep up after.
                     CharacterBase orb = OrbAhead(p, sign) ?? EnemyAhead(p, sign);
                     if (orb != null && Mathf.Abs(orb.t.position.x - pos.x) < 180f)
                     {
-                        // A running jump aimed at the first standing tile two or more beyond the orb, steered all the way (a hop that was
-                        // not steered bounced in place beside the orb and landed on it, 2026-09-17).
+                        // A running jump at the first standing tile two or more past the orb, steered all the way.
                         Surroundings.Tile(orb.t.position, out int ox, out int oy);
                         int land = -1;
                         for (int k = 2; k <= JumpCols + 1 && land < 0; k++)

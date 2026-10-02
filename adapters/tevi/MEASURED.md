@@ -69,8 +69,10 @@ grows, like `VERIFIED.md`, so the index is what keeps it findable.
 - 2026-09-17 — Ribauld on Infernal BBQ: his HP, the laser curtain's warning, thrown orbs, and what makes a quickdrop a double jump
 - 2026-09-17 — Achievements: what TEVI calls to unlock one, and a load re-applying them
 - 2026-09-23 — Fast-forward: frames at 4.3 times real time, the same frames; dialogue and tutorial windows on real time
+- 2026-10-02 — Facts the code comments carried, moved here word for word
 - Not measured yet — backup slots and the chapter-reset slot
 - Not measured yet — what `mode: paused` reads from, and why the pause menu opened
+- Not measured yet — what the code comments said the game's code shows (moved 2026-10-02)
 
 ## Measured
 
@@ -513,6 +515,46 @@ at Infernal BBQ's first save point; the flight recorder read every frame; `Playe
   after they opened, over and over, and closed on a Confirm pressed after some seconds; `mode` reads `paused` under them. How long
   is not measured.
 
+### 2026-10-02 — Facts the code comments carried, moved here word for word
+
+Each fact below sat in a code comment beside the code that uses it (at `f64560cc`), and no entry above held it. On 2026-10-02 the comments were cut to what and why and the facts moved here word for word. Each names the probe, capture or date it was measured with where the comment did; none was re-measured for this entry. The label above each group is the file it came from, then the entry it was checked against.
+
+**`autoplay/drivers/bepinex/tevi/Dodge.cs`**, checked against adapters/tevi/MEASURED.md, "Ribauld's attacks: lasers, blastorbs, the arena's edges, and the states before each attack" (has the charge at about 9-18 units a frame, not 6 to 18 as he landed)
+
+- A threat can change speed (Ribauld's charge went from 6 to 18 units a frame as he landed, 2026-09-17), so a plan that only just misses is not taken when another keeps room: the wanted plan needs WantedClearance over the first ClearanceFrames, and among safe plans the one with most room wins.
+
+**`autoplay/drivers/bepinex/tevi/InputInjection.cs`**, checked against adapters/tevi/MEASURED.md, "The save list's cursor, and a new game started through it by injected input" (names the Rewired actions; not that InputButtonManager and InputAxisManager wrap Rewired's Player)
+
+- PRESS: input the game reads as its own. TEVI reads every button and axis through Rewired's Player (its InputButtonManager and InputAxisManager wrap it, and other code calls it directly; names read from the Steam build's assemblies, 2026-09-17), so a postfix on Player's read methods reaches every caller the same way. A held action is ORed with the real controller: nothing the player presses is lost.
+
+**`autoplay/drivers/bepinex/tevi/Navigate.cs`**, checked against adapters/tevi/MEASURED.md, "A trail of a jump: run speed, a ceiling that caps the arc, and a pass-through platform" and "Jump arcs by hold, the quickdrop, the player's hurtbox and her ground swing" (a ceiling capping holds of 5 and 9 frames at 104 units, and rises for holds of 24 and 3 frames; not a 48-unit cut or a 12-frame hold's 144)
+
+- What the grid's bytes mean, measured against a picture of the cell (MEASURED.md): 1 solid, 255 a platform stood on from above and jumped up through, 2-254 slopes (walked). A standing tile is an open tile over a solid tile, a platform or a slope; the tile above it must be open too for her to pass (a low ceiling cut a jump to 48 units, 2026-09-17).
+- Carrying it out, a frame at a time: toward the next tile's centre; for a jump, from within JumpAim of the take-off tile's centre, Jump held HoldFor(rows) frames (measured rises: 12 frames rise about 144, 24 about 191, MEASURED.md), steering toward the target only once she is above its floor; planned again from where she stands every Replan frames or when she is off the route. As little time in the air as possible (the user, 2026-09-17: "try to land asap whenever possible and keep moving"): over a jump's landing tile and above its floor, or over the column a fall drops down, she quickdrops (22.5 units a frame, straight down).
+
+**`autoplay/drivers/bepinex/tevi/Plugin.cs`**, checked against adapters/tevi/MEASURED.md, "The interaction bubble, the bottom-left popup and the menu's tabs, read" and "A new game reads its slot back from tevisystem.sav; a vanilla Cakewalk new game in slot 39" (fadeout above 0 and Cakewalk 0 / Normal 3 only; not the timer re-arming, nor Picnic, Hard, Expert, Infernal BBQ's values)
+
+- The bubble over the player's head that says Up does something here (EnterTips): `kind` by its sprite -- `enter` (a door), `talk`, `action` -- while the game keeps it shown (it re-arms a short timer each frame the player is in range, and fades once that runs out). The user, 2026-09-17: "there will be an icon above the player head, when you can use the up arrow to interact with things".
+
+**`autoplay/drivers/bepinex/tevi/Reflexes.cs`**, checked against adapters/tevi/MEASURED.md, "Ribauld on Infernal BBQ: his HP, the laser curtain's warning, thrown orbs, and what makes a quickdrop a double jump" and "Not measured yet" (speeddown at 24 units a frame from 72 ahead, not 35; no combo timer, backflip dodge state or window, orb touch distance, orb body box or swing slide)
+
+- frames since the combo last rose: the game's timer is 1.75 s (105 frames)
+- Closer than this she backs off: a boss's shots spawn at its gun, on top of anyone standing close (Ribauld's speeddown, fired at 35 units a frame from his gun, hit her at 83 units with no frame to see it, 2026-09-17). Her ground swing reaches 139.5 ahead of her (a box 189 wide centred 45 ahead, MEASURED.md), so a big target can be hit from well outside 100.
+- A swing slid her about 14 units (the flight recorder, 2026-09-17); her hurtbox is 11 wide. A swing is refused only when where she stands or where the slide ends, either way, comes within her half-width and a margin of a beam's radius: a flat 40 from every beam refused every swing in the curtain's 84-wide gaps, which the user pointed to as the place to keep hitting from. `wide` (build C): within 40 of a beam at all.
+
+**`autoplay/drivers/bepinex/tevi/SaveGuard.cs`**, checked against adapters/tevi/MEASURED.md, "Where the saves live, what a slot's file is, and what the last autosave wrote" (Easy Save 3 JSON files; not that every relative path resolves through ES3Settings.FullPath or that the game and the Randomizer save only through ES3)
+
+- Where it sits (names read from the Steam build's assemblies, 2026-09-17): Easy Save 3 resolves every relative save path through ES3Settings.FullPath (persistentDataPath + "/" + path), and the game and the Randomizer save only through ES3. A postfix on that getter rewrites any path in the real folder to the shadow's. ES3IO's own file moves, writes and deletes then refuse any path still inside the real folder, as a backstop for a path that did not come through FullPath. SaveManager.ReallyDoAutoSave is skipped. Without a repo in the driver's config there is no shadow folder, and the guard falls back to refusing, with the new-game problem above: say so in the log.
+
+**`autoplay/drivers/bepinex/tevi/Tells.cs`**, checked against adapters/tevi/MEASURED.md, "Ribauld on Infernal BBQ: his HP, the laser curtain's warning, thrown orbs, and what makes a quickdrop a double jump" (an orb into play 26-27 frames into ATTACK1, about 64 ahead and 41 up; not 25 units from her, going off 8 frames later; nothing on the charge box standing still its first frame)
+
+- Nothing here knows an enemy. Every frame, each character's logic state and when it began are kept; when a bullet that can hurt the player is born to a character, its birth is a sample for (character type, the state it was in): how many frames into that state, the box's offset from the character (x turned by the way it faces) and size, and its mean velocity over its first VelocityFrames (Ribauld's charge box stood still its first frame and then ran with him, so a velocity read a frame after birth was 0). From then on a character entering a state with samples is, to the dodge, those boxes appearing after their delay (Threats.Threat.AppearIn). The table lives in the AppDomain's data, so a hot reload keeps what was learned, and in a file under the repo's gitignored autoplay/states/tevi/ (TableFile, set by the plugin), read when the AppDomain has none: a game restart keeps it too. A thrown explosive (SpawnFrame) is sampled the same way, as SPAWN_<type>.
+- Thrown explosives: a character that explodes (Threats.IsExplosive) coming into play is an attack too, and not a bullet. Ribauld's orb appeared 25 units from her 26 frames into his ATTACK1 and went off on her 8 frames later, with nothing for the dodge to see first (2026-09-17, Infernal BBQ; the user: "still getting hit a lot when the orbs are being thrown out"). Its birth is sampled for the nearest other living character within SpawnOwnerReach, as its touch box grown by the orb's own body.
+
+**`autoplay/drivers/bepinex/tevi/Threats.cs`**, checked against adapters/tevi/MEASURED.md, "Jump arcs by hold, the quickdrop, the player's hurtbox and her ground swing" and "Ribauld's attacks: lasers, blastorbs, the arena's edges, and the states before each attack" (the hurtbox's size; not the hit test read from bulletScript.isHit and CheckHitCharacter, nor a speeddown shot turning back)
+
+- How a shot's heading has turned relative to the player, frame by frame: a `speeddown` shot passed under her, turned and came back (2026-09-17), which a straight line never predicts. Turning toward her for HomingFrames frames in a row, it homes.
+
 ## Not measured yet
 
 ### Not measured yet — backup slots and the chapter-reset slot
@@ -533,3 +575,32 @@ open state each frame across opening and closing it, and whether the game opens 
 Pointer, same day: a TEVI never focused took typing from another window ("A dialogue's lines, and input while the window is
 unfocused" above), which may be what opened it; not confirmed. Pointer, later: the user tied it to a restore ("A restore lets
 outside input in again" above).
+
+### Not measured yet — what the code comments said the game's code shows (moved 2026-10-02)
+
+These sat in code comments (at `f64560cc`) and say they come from reading the game's code as a map. Nothing here is a fact: each is where to look, until measured.
+
+**`autoplay/drivers/bepinex/tevi/Annotate.cs`**
+
+- ANNOTATED PICTURES (the plan's layer 5; agent_docs/phases/phase13.md, "how an agent sees a game"): the game's frame with what the driver reads drawn onto it, so a picture and the numbers are the same moment and say which thing is which.
+  - The game's own hitbox drawing: BulletManager.showHitBox, the switch its debug console's `showHitBox` command calls (names read from the Steam build's assemblies, 2026-09-17), draws every live bullet's box -- the characters' body and hurt boxes are bullets too -- as world-space lines, so the frame capture has them. It is on only from the request until the captured frame, and off again after unless it was on before. Read as a map: while it is on, a slide starting or ending re-creates that character's body box (CharacterBase.ToggleSlide), so the switch is not only drawing; kept to those frames.
+  - Numbered tags drawn into the captured picture over each character, item and element a player meets in view (as observe's nearby, items and elements list them), and the same numbers listed in the answer with what each one is and its pixel. The world-to-pixel mapping is the camera's edges over the picture's size (a pixel was a world unit, MEASURED.md).
+
+**`autoplay/drivers/bepinex/tevi/Plugin.cs`**
+
+- CHEAT difficulty {level}: the running save's difficulty, set the way the game's own difficulty change at a bed sets it (SaveManager.SetDifficulty; the new-game list is Cakewalk 0, Picnic 1, Normal 3, Hard 5, Expert 7, Infernal BBQ 10, read as a map from GemaNewGame). Answers with the value read back.
+
+**`autoplay/drivers/bepinex/tevi/Recorder.cs`**
+
+- A row: frame, mode, x, y, velocity x and y, on the ground, animation, logic state, HP, the driver's input held (the real controller's is not seen), up to MaxEnemies living characters in view nearest first as [type index, id, x, y, hp, animation index, logic state index] (what comes before an attack: a charge from a standstill gave no box to see, 2026-09-17), and up to MaxBoxes live bullets not the player's -- attacks, shots, and the characters' own body and hurt boxes, which the game keeps as bullets too -- nearest first as [type index, owner type index, x, y, width, height], the box's centre and size as the game's hitbox drawing takes them (BulletManager._BMDebugUpdate, read as a map), and up to MaxLasers lasers not the player's as [type index, from x, from y, to x, to y, radius, hurting] (Threats.ReadLasers). Types are named once. Its own cost per frame is measured and reported (`cost`), since it runs every frame.
+
+**`autoplay/drivers/bepinex/tevi/Reflexes.cs`**
+
+- frames: the dodge state a Backflip holds is about 15 (the game's code, read as a map)
+- `backflip_dodge`: when the dodge's chosen plan is still hit within BackflipWindow frames and the dodge meter is full (playerc_perfer.HaveDodge() at 1 or more), Backflip is pressed. Read as a map: a hit during a backflip with a full meter is dodged and followed by invulnerability. To measure, not assumed.
+- The combo counter (ComboSystem.GetCombo; the game's code, read as a map, says it ends 1.75 s after the last hit and that every hit of hers counts, Orbitar shots included). The user, 2026-09-23: a constant, high combo that never drops looks cool. Reported as max_combo and combo_drops (a count that fell), and `combo_keep`: once ComboKeepAfter frames have passed since it last rose and no swing is going out, an Orbitar shot at the target to renew it.
+- Using a blastorb: never closer than its touch distance (it goes off within about 42 units, EnergyBall read as a map; its body box 50 by 50, the flight recorder).
+
+**`autoplay/drivers/bepinex/tevi/Threats.cs`**
+
+- What can hurt the player, as the game tests it (bulletScript.isHit and CheckHitCharacter, read as a map; names from the Steam build's assemblies, 2026-09-17): a live bullet not the player's own, with damage above 0 and a box, overlapping the player's hurtbox -- Bodybox wide and high, centred at her x plus its x offset, and at the height of the game's own hitbox display (GameSystem.hitboxDisplay), lower while sliding. The characters' contact damage is a bullet of this kind too (ENEMY_HURTBOX). What each rule does in play is measured before a reflex relies on it (adapters/tevi/MEASURED.md).

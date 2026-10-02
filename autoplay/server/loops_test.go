@@ -43,7 +43,7 @@ func TestLoopWatchLeavesAloneWhatDiffers(t *testing.T) {
 			t.Fatalf("walk %d marked a loop: %+v", i+1, n)
 		}
 	}
-	// A menu walked through at one place: each answer changed something else (attempt 2, 2026-09-17, an HM taught).
+	// A menu walked through at one place: each answer changed something else.
 	for _, box := range []string{"Teach ROCK SMASH?", "Should a move be deleted?", "Which move should be forgotten?"} {
 		b, _ := json.Marshal(map[string]any{"outcome": "menu_open", "changed": map[string]any{"dialogue_box": map[string]any{"to": box}},
 			"after": map[string]any{"location": map[string]any{"map": "10.2", "x": 4, "y": 5}}})

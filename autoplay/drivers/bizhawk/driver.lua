@@ -1,20 +1,12 @@
--- autoplay BizHawk driver (DEV TOOL, WRITES INPUT, never shipped; agent_docs/phases/phase13.md, ADR 0071)
---
--- The piece inside BizHawk that carries out the autoplay core's commands. Load it through the dev
--- loader (dev-scripts/bizhawk-dev-loader.lua): add this file's absolute path to the instance's
--- control file. It picks its game module from AUTOPLAY_GAME (a global, or the environment) -- the
--- handoff names it -- and connects to the core on 127.0.0.1:AUTOPLAY_PORT (default 7870).
---
--- The link is the core's protocol 1, stated at the top of autoplay/driver/driver.go. One request
--- is carried out at a time; a press holds the controller for its frames and answers after them.
--- WHILE A PRESS IS RUNNING THIS SCRIPT HOLDS THE CONTROLLER. Take it off the target when done: an
--- input-driving tool left loaded is a suspect in every later report.
+-- The autoplay driver inside BizHawk (a dev tool that writes input, never shipped): it carries out the autoplay
+-- core's commands. Loaded through dev-scripts/bizhawk-dev-loader.lua by absolute path; the game module comes from
+-- AUTOPLAY_GAME and the core is on 127.0.0.1:AUTOPLAY_PORT (default 7870). The link is protocol 1
+-- (autoplay/driver/driver.go), one request at a time. While a press runs this script holds the controller, so take
+-- it off the target when done: an input-driving tool left loaded is a suspect in every later report.
 
 local PROTOCOL = 1
 local MAX_LINE = 64 * 1024
--- Reconnect by the wall clock, not by frames: a connect attempt to a port nobody listens on blocks for
--- its timeout, and one every 30 frames took the emulator from 835 frames/s to 350 with no core running
--- (hookcost_probe.lua, 2026-09-16) -- at fast-forward, 30 frames is a few hundredths of a second.
+-- By the wall clock, not by frames: a connect to a port nobody listens on blocks for its timeout.
 local RETRY_SECONDS = 1
 local REJECT_BACKOFF_SECONDS = 10
 local PROGRAM_FRAME_LIMIT = 1800 -- a select across a long menu is far shorter; the core waits 40s
@@ -39,8 +31,7 @@ end
 local gameName = AUTOPLAY_GAME or os.getenv("AUTOPLAY_GAME")
 local port = tonumber(AUTOPLAY_PORT or os.getenv("AUTOPLAY_PORT") or "") or 7870
 
--- One log per instance: two emulators writing one file cannot be told apart. The first instance, a game on
--- the default port, keeps the plain name.
+-- One log per instance: two emulators writing one file cannot be told apart.
 local logName = port == 7870 and "driver_bizhawk.log"
 	or string.format("driver_bizhawk_%s_%d.log", tostring(gameName):gsub("[^%w_]", "_"), port)
 local logf = io.open(ROOT .. "/autoplay/runs/" .. logName, "a")
@@ -56,8 +47,8 @@ end
 
 local json = dofile(DIR .. "/json.lua")
 
--- LuaSocket, the copy the Emerald adapter vendors. lua54.dll first by full path, backslashes only:
--- the reasons are in meshghost_emerald.lua's "LuaSocket" block.
+-- LuaSocket, the Emerald adapter's copy: lua54.dll first, by full path with backslashes (meshghost_emerald.lua's
+-- LuaSocket block says why).
 local LIB = (ROOT .. "/adapters/emulator/pokemon/emerald/lib/x64/"):gsub("/", "\\")
 pcall(function() package.loadlib(LIB .. "lua54.dll", "autoplay_force_preload") end)
 local openSocket, socketErr = package.loadlib(LIB .. "socket-windows-5-4.dll", "luaopen_socket_core")
@@ -70,10 +61,8 @@ local game = nil
 -- The library a game module is handed; `select` joins it below, once defined, for a module's programs to chain.
 local shared = nil
 if gameName and gameName:match("^[%w_]+$") then
-	-- A game module is called with the shared library as its argument (`local lib = ...`): `text` is the
-	-- text-and-battle machine both games' advance_text and battle run on, `route` the planner and ride `goto` runs
-	-- on. By path, never by the module's own folder, which a dofile'd chunk cannot resolve
-	-- (adapters/emulator/CLAUDE.md).
+	-- A game module gets the shared library as its argument (`local lib = ...`), loaded by path: a dofile'd chunk
+	-- cannot resolve its own folder.
 	local chunk = assert(loadfile(DIR .. "/games/" .. gameName .. ".lua"))
 	shared = { text = dofile(DIR .. "/text.lua"), route = dofile(DIR .. "/route.lua") }
 	game = chunk(shared)
@@ -97,8 +86,7 @@ local function send(msg)
 	end
 	local ok, err = sock:send(line .. "\n")
 	if not ok then
-		-- A dead link must come down here: after its core was killed, receive kept answering "timeout" and
-		-- only this send saw "closed", and a driver that logged it and kept the socket never reconnected (2026-09-23).
+		-- A killed core shows only here (receive keeps answering "timeout"), so the link must come down.
 		if err ~= "timeout" then
 			close("send failed: " .. tostring(err))
 		else
@@ -132,7 +120,7 @@ local function changed(before, after)
 	return out
 end
 
--- What the driver itself adds to every game module's capabilities: exec is BizHawk's Lua, the same for any game.
+-- Added to every game module's capabilities: exec is BizHawk's Lua, the same for any game.
 local HOST_CAPABILITIES = { "exec" }
 
 local function capabilities()
@@ -149,18 +137,15 @@ local function has(capability)
 	return false
 end
 
--- The cheats still in effect (a noclip left on), when the module keeps any: the core starts a run segment
--- reached while one is (autoplay/driver/driver.go, the package comment).
+-- The cheats still in effect (a noclip left on): the core marks a run segment reached while one is.
 local function persisting()
 	return game.persisting and game.persisting() or nil
 end
 
--- EXEC {code, token}: runs Lua inside the emulator for a question no tool answers yet. Only with the token the
--- core wrote for this port (autoplay/runs/exec_token_<port>.txt): a process that merely reaches the loopback port
--- first gets nothing. The chunk sees the driver's globals read-only through its own environment (a global it sets
--- stays in that environment, never the driver's -- a probe global outlives the probe), `game` (the module) and
--- `print` (into the answer's output). It is stopped after EXEC_INSTRUCTIONS VM instructions so a loop cannot hang
--- the emulator, and one frame passes for none of it: it runs inside this frame's tick.
+-- exec {code, token}: Lua run inside the emulator, only with the token the core wrote for this port, so a process
+-- that merely reaches the loopback port gets nothing. The chunk reads the driver's globals through its own
+-- environment (a global it sets stays there, never outliving it), plus `game` and `print` (into the answer). It
+-- runs inside this frame's tick, stopped after EXEC_INSTRUCTIONS so a loop cannot hang the emulator.
 local EXEC_INSTRUCTIONS, EXEC_OUTPUT_LINES = 20000000, 200
 
 local function execCode(p)
@@ -211,16 +196,12 @@ local function heldFor(frames)
 	end
 end
 
--- select: a program run one frame at a time over the module's observe().menu ({cursor, items, and
--- columns for a grid}) and its menuButtons ({prev, next, confirm, and left and right for a grid}). Every leg ends on the game's own state, never on a frame
--- count: press toward the entry until the menu's cursor changes, release for SETTLE frames, look
--- again; then hold confirm until the menu closes or changes. Returns a function, called once a frame,
--- that answers (pad or nil, finished, result or nil, error or nil) -- the shape of every program,
--- a game module's own included (game.programs).
+-- select: a program over the module's observe().menu ({cursor, items, columns for a grid}) and menuButtons ({prev,
+-- next, confirm, left, right}). Every leg ends on the game's own state, never on a frame count. A program is a
+-- function called once a frame that answers (pad or nil, finished, result or nil, error or nil).
 local SETTLE, LEG_LIMIT = 2, 30
--- A confirm held CONFIRM_HOLD frames with no answer is let go and pressed again, CONFIRM_PRESSES times in all: Emerald's
--- nurse's YES/NO, confirmed as soon as `talk` stopped on it, ignored A held 30 frames and took a tap 10 frames later
--- (2026-09-17).
+-- A confirm unanswered after CONFIRM_HOLD frames is let go and pressed again: a menu can ignore a held A and take a
+-- tap.
 local CONFIRM_HOLD, CONFIRM_PRESSES = 15, 3
 
 local function selectProgram(p)
@@ -239,7 +220,7 @@ local function selectProgram(p)
 	end
 
 	return function()
-		-- game.menu() when the module has it: the menu alone, not a whole observation, every frame.
+		-- game.menu(), where the module has it, reads the menu alone rather than a whole observation every frame.
 		local m
 		if game.menu then m = game.menu() else m = game.observe().menu end
 		if phase == "look" then
@@ -265,10 +246,8 @@ local function selectProgram(p)
 			label, maxSteps, phase = m.items[target + 1], #m.items * 2 + 2, "move"
 		end
 
-		-- A game that looks at the buttons only every few frames can miss a short release, and a button still held
-		-- is not a new press: Crystal's START menu saw Down at one frame and next looked 4 frames later, past the
-		-- 2-frame release, and never moved again (2026-09-17). A module that can read the game's own copy of the
-		-- buttons names game.inputReleased(); the release then lasts until the game has seen it.
+		-- A game that reads the buttons every few frames can miss a short release, and a held button is no new press:
+		-- with game.inputReleased() the release lasts until the game has seen it.
 		if releasing then
 			releasing = releasing + 1
 			if not game.inputReleased() and releasing <= LEG_LIMIT then return nil, false end
@@ -292,8 +271,7 @@ local function selectProgram(p)
 						return nil, true, nil, string.format("the cursor is on %d after %d steps, not on %d", m.cursor, steps, target)
 					end
 					from, steps = m.cursor, steps + 1
-					-- A menu with `columns` is a grid numbered row by row: reach the column first with
-					-- the module's left/right, then the row with prev/next.
+					-- A grid is numbered row by row: reach the column first, then the row.
 					local cols = math.tointeger(m.columns) or 1
 					if cols > 1 and keys.left and keys.right and target % cols ~= m.cursor % cols then
 						dir = (target % cols > m.cursor % cols) and keys.right or keys.left
@@ -313,8 +291,7 @@ local function selectProgram(p)
 			end
 		end
 
-		-- confirm: hold until the menu is gone or no longer the same menu with the cursor on the entry; unanswered, let go
-		-- and press again.
+		-- confirm: held until the menu is gone or changed; unanswered, let go and pressed again.
 		if presses > 0 and (not sameMenu(m) or m.cursor ~= target) then
 			return nil, true, { selected = label, index = target, steps = steps, confirmed = true }
 		end
@@ -354,8 +331,7 @@ local function begin(req)
 		reply(req.id, game.observe(true))
 		return true
 	elseif verb == "screenshot" then
-		-- The game frame only (client.screenshot), never the window, into the game's own shots
-		-- folder (the play-game skill's references/screenshots.md). A drawn-tier ghost is not in it.
+		-- The game frame only (client.screenshot), never the window: a drawn-tier ghost is not in it.
 		local name = type(p.name) == "string" and p.name or ""
 		if not name:match("^[%w_%-]+$") or #name > 64 then
 			fail(req.id, "screenshot needs a name of letters, digits, _ or -")
@@ -392,8 +368,7 @@ local function begin(req)
 		log(string.format("press %s for %d frames", table.concat(p.buttons, "+"), frames))
 		return false
 	elseif verb == "wait" then
-		-- Frames pass with NO input: never hold a button to wait, since every button means
-		-- something somewhere (B backs out of a menu).
+		-- Frames pass with no input: every button means something somewhere (B backs out of a menu).
 		local frames = math.tointeger(p.frames)
 		if not frames or frames < 1 or frames > 3600 then
 			fail(req.id, "wait needs 1 to 3600 frames")
@@ -414,9 +389,8 @@ local function begin(req)
 		hold = { id = req.id, program = selectProgram(p), before = game.observe(), count = 0 }
 		return false
 	elseif verb == "snapshot" or verb == "restore" then
-		-- The core names the file: a named state under its gitignored states folder, never a numbered
-		-- slot, so nothing here can touch slot 1 or any rig's slot. BizHawk's savestate.save/load take a
-		-- path (tasvideos.org/Bizhawk/LuaFunctions); the core checks the file itself afterwards.
+		-- The core names the file, never a numbered slot, so nothing here can touch slot 1 or any rig's slot; it checks
+		-- the file afterwards.
 		local path = p.path
 		if type(path) ~= "string" or not path:match("%.State$") then
 			fail(req.id, verb .. " needs a path ending in .State")
@@ -544,8 +518,7 @@ local function drain()
 	end
 end
 
--- Every frame: each key of the game module's watch() that changed goes out as a "<key>_changed" event
--- (map_changed, mode_changed, and whatever else the module watches). Without a watch(), map and mode.
+-- Every frame, each changed key of the module's watch() goes out as a "<key>_changed" event; without one, map and mode.
 local function watchEvents()
 	local d
 	if game.watch then
@@ -573,8 +546,8 @@ end
 
 MESHGHOST_DEV_TICK = function()
 	if not game then return end
-	-- A module's own every-frame work (a cheat kept in effect), connected or not: mcpcall restarts the core
-	-- between calls, and a noclip that lapsed in the gap would drop the player back into the walls.
+	-- Connected or not: mcpcall restarts the core between calls, and a noclip that lapsed in the gap would drop the
+	-- player back into the walls.
 	if game.tick then game.tick() end
 	if not sock then
 		if os.time() >= nextTry then connect() end
@@ -582,8 +555,7 @@ MESHGHOST_DEV_TICK = function()
 	end
 	drain()
 	if not sock then return end
-	-- A killed core is seen only on a send: receive kept answering "timeout" (2026-09-23), so an idle game with nothing
-	-- to report would hold a dead link forever. One ping a second, by the wall clock.
+	-- A killed core is seen only on a send, so an idle game would hold a dead link forever without a ping.
 	if state == "ready" and os.time() >= nextPing then
 		nextPing = os.time() + RETRY_SECONDS
 		send({ type = "ping" })
@@ -592,7 +564,6 @@ MESHGHOST_DEV_TICK = function()
 
 	if hold then
 		if hold.program then
-			-- One frame of a program: it looks at what it needs, then either finishes or sets this frame's input.
 			hold.count = hold.count + 1
 			local pad, finished, result, err = hold.program()
 			if not finished and hold.count > (hold.limit or PROGRAM_FRAME_LIMIT) then

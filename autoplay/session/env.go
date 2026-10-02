@@ -5,9 +5,9 @@ import (
 	"strings"
 )
 
-// BillingVars are the environment variables that would move a headless Claude Code session off the user's
-// subscription: an API key or token, or a cloud provider. The launcher refuses to start while any is set, and
-// leaves every one out of the session's environment.
+// BillingVars are the environment variables that would move a headless Claude Code session off the Claude
+// subscription: an API key or token, or a cloud provider. The launcher refuses to start while any is set, and leaves
+// every one out of the session's environment.
 var BillingVars = []string{
 	"ANTHROPIC_API_KEY",
 	"ANTHROPIC_AUTH_TOKEN",
@@ -32,9 +32,9 @@ func CheckEnv(environ []string) error {
 	return nil
 }
 
-// SessionMarkers are variables a Claude Code session sets for the processes it starts (read from a launching shell's
-// environment, 2026-09-17). A launcher run from inside a session would hand them on, tying the headless session to the
-// one that launched it; its other settings (a Git Bash path, say) are kept.
+// SessionMarkers are variables a Claude Code session sets for the processes it starts. A launcher run from inside a
+// session would hand them on, tying the headless session to the one that launched it; its other settings (a Git Bash
+// path, say) are kept.
 var SessionMarkers = []string{
 	"CLAUDECODE", "CLAUDE_PID", "CLAUDE_EFFORT", "CLAUDE_AGENT_SDK_VERSION",
 	"CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ATTENDED",

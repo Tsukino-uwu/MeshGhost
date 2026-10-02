@@ -1,19 +1,16 @@
-// Command trials runs one fight recipe N times against a live driver and scores each try: won or
-// not, game time, hits taken with what hit, the target's HP left. It is how one build of a fight
-// reflex is judged against another: five tries of the same setup, never one (the TEVI phase log,
-// 2026-09-17: "one try per build proves nothing").
+// Command trials runs one fight recipe N times against a live driver and scores each try: won or not, game time, hits
+// taken with what hit, the target's HP left. It is how one build of a fight reflex is judged against another: five
+// tries of the same setup, never one.
 //
 //	go run ./cmd/trials -listen 127.0.0.1:7872 -recipe games/tevi/trials/ribauld_infernal.json -n 5 -set chain_guard=false
 //
-// A recipe is JSON: `setup`, the calls that bring the game to the fight each try (restore, the walk
-// in, the dialogue); `fight`, the reflex call made in chunks until it ends; `on_paused`, the calls
-// that clear a window the game opens mid-fight, repeated until the game is back in play (a TEVI tutorial window takes no
-// Confirm until it has stood a while in real time: the game is paused under it, 2026-09-23); `fast`, the fight chunks run
-// with the clock's fast action on (dialogue and windows at the game's own pace: TEVI's dialogue took no Confirm while fast);
-// `max_frames`, the game time a try may take. -set
-// overrides one of the fight's args (the value is JSON, else a string), so a rule switched per call
-// is tried without a rebuild. Each try goes to runs/trials/<time>.ndjson with its chunks, and the
-// last line is the summary.
+// A recipe is JSON: `setup`, the calls that bring the game to the fight each try (restore, the walk in, the dialogue);
+// `fight`, the reflex call made in chunks until it ends; `on_paused`, the calls that clear a window the game opens
+// mid-fight, repeated until the game is back in play (a TEVI tutorial window takes no Confirm until it has stood a
+// while in real time); `fast`, the fight chunks run with the clock's fast action on (setup and windows run at the
+// game's own pace: TEVI's dialogue takes no Confirm while fast); `max_frames`, the game time a try may take. -set
+// overrides one of the fight's args (the value is JSON, else a string), so a rule switched per call is tried without a
+// rebuild. Each try goes to runs/trials/<time>.ndjson with its chunks, and the last line is the summary.
 //
 // Run from autoplay/. Like mcpcall, it starts its own core; the driver must be on -listen's port.
 package main
@@ -223,7 +220,7 @@ func runTry(ctx context.Context, s *mcp.ClientSession, r recipe, n int) try {
 		fast(true)
 		res, err := callJSON(ctx, s, r.Fight)
 		if err != nil {
-			// A window the game opened (a new move's tutorial) pauses it: the fight refuses to start until it is closed.
+			// A window the game opened (a new move's tutorial) pauses it: the fight refuses to start until it closes.
 			if strings.Contains(err.Error(), "not in paused") && paused < 3 && len(r.OnPaused) > 0 {
 				paused++
 				fast(false)
@@ -287,9 +284,9 @@ func modeOf(res map[string]any) string {
 	return m
 }
 
-// targetTimeline reads the flight recorder over a chunk's frames and keeps each frame where the nearest enemy (the fight's
-// target: a boss fight has one) changed logic state, animation, armor state or whether it is in hitstun, and every 50 HP
-// it lost: what a break looks like, and what the player was doing, without keeping 600 rows a chunk.
+// targetTimeline reads the flight recorder over a chunk's frames and keeps each frame where the nearest enemy (the
+// fight's target: a boss fight has one) changed logic state, animation, armor state or whether it is in hitstun, and
+// every 50 HP it lost: what a break looks like, and what the player was doing, without keeping 600 rows a chunk.
 func targetTimeline(ctx context.Context, s *mcp.ClientSession, frames int) []map[string]any {
 	if frames < 1 {
 		return nil

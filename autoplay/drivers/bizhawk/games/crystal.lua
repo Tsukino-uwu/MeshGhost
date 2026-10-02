@@ -1,19 +1,15 @@
--- autoplay BizHawk driver: vanilla Pokémon Crystal (DEV TOOL, never shipped).
---
--- Addresses come from our pokecrystal V1.0 build, whose .gbc hashes identical to the vanilla ROM
--- (VANILLA_SHA1). What each byte MEANS is what `adapters/emulator/pokemon/crystal/probes/` measured on
--- the running game, recorded in that adapter's MEASURED.md; a byte whose meaning is not measured goes
--- out raw under `extras`, never named.
+-- The autoplay module for vanilla Pokémon Crystal V1.0 (a dev tool, never shipped). Addresses come from our pokecrystal
+-- build, whose .gbc hashes identical to the ROM; what each byte means was measured on the running game, and a byte
+-- whose meaning is not measured goes out raw under `extras`, never named.
 
--- The shared driver library the driver hands every game module (driver.lua: `text`).
+-- The library the driver hands every game module: `text`, `route` and `select`.
 local lib = ...
 
 local function flat(cpu) return cpu < 0xD000 and cpu - 0xC000 or 0x1000 + (cpu - 0xD000) end
 local function u8(a) return memory.read_u8(a, "WRAM") end
 local function rom8(bank, ptr) return memory.read_u8(bank * 0x4000 + (ptr - 0x4000), "ROM") end
 
--- The SHA-1 of the vanilla V1.0 ROM file and of our pokecrystal build (sha1sum), and what
--- gameinfo.getromhash() returned for it (autoplay_state_probe.lua, 2026-09-17).
+-- The vanilla V1.0 ROM's SHA-1, as gameinfo.getromhash() returns it.
 local VANILLA_SHA1 = "F4CD194BDEE0D04CA4EAC29E09B8E4E9D818C133"
 local romHash = (function()
 	local ok, h = pcall(gameinfo.getromhash)
@@ -21,42 +17,28 @@ local romHash = (function()
 end)()
 local isVanilla = romHash == VANILLA_SHA1
 
--- POSITION AND MODE (autoplay_state_probe.lua, 2026-09-17, vanilla V1.0: a cold boot to CONTINUE,
--- walks in all four directions, a bump, a sign, the START menu, the PACK, the POKéGEAR and a door both
--- ways; that adapter's MEASURED.md, same date).
---   * wMapGroup/wMapNumber read 0.0 through the intro, title and main menu and 24.4 once CONTINUE had
---     loaded the town; wXCoord/wYCoord are the player's tile and change on the frame a step ENDS.
---   * wMapStatus read 0 until the town was running, then 2 through walking, a sign's text and the START
---     menu, and 1 from the frame after stepping onto a door until the new map was running (32-37 frames).
---     wSpriteUpdatesEnabled read 1 in all of those and 0 while the PACK or the POKéGEAR filled the
---     screen. So the overworld is status 2 with sprite updates on.
+-- wXCoord/wYCoord change on the frame a step ends. The overworld is wMapStatus 2 with sprite updates on (off while a
+-- full-screen menu such as the PACK fills the screen).
 local W_MAPGROUP, W_MAPNUMBER, W_YCOORD, W_XCOORD = flat(0xDCB5), flat(0xDCB6), flat(0xDCB7), flat(0xDCB8)
 local W_MAPSTATUS, W_SPRITEUPDATES, W_BATTLEMODE = flat(0xD432), flat(0xC2CE), flat(0xD22D)
 local MAPSTATUS_WARPING, MAPSTATUS_RUNNING = 1, 2
 local W_SCRIPT_RUNNING, SCRIPT_TOOK_OVER = flat(0xD438), 255 -- wScriptMode is the byte before it
 -- A trainer's sight (see `walk`): wScriptRunning 1, the trainer's map object in hLastTalked, its distance in D03F.
 local SCRIPT_SEEN_BY_TRAINER, H_LAST_TALKED, W_SEEN_TRAINER_DISTANCE = 1, 0xFFE0, flat(0xD03F)
--- The player's object, 0x28 bytes: +0x08 the way it faces (0x00 down, 0x04 up, 0x08 left, 0x0C right --
--- each read after a turn that way), +0x10/+0x11 the tile a step is going to (wXCoord/wYCoord plus 4).
+-- The player's object, 0x28 bytes: +0x08 the facing, +0x10/+0x11 the tile a step is going to, plus 4.
 local PLAYER_STRUCT = flat(0xD4D6)
 local FACING = { [0x00] = "down", [0x04] = "up", [0x08] = "left", [0x0C] = "right" }
 
--- The map's warp list: a count and a pointer into the bank the map's scripts are in, 5 bytes an entry:
--- y, x, the destination's warp number counted from 1, and its map group and number. Walked both ways on
--- 2026-09-17: 24.4's fourth entry (13, 11, 1, 24, 9) is the door at (11,13), which led to 24.9 at
--- (2,7), the tile of 24.9's first entry; stepping off that mat led back to 24.4 at (11,13).
+-- The map's warp list: a count and a pointer into wMapScriptsBank, 5 bytes an entry: y, x, the destination's warp
+-- number counted from 1, its map group and number.
 local W_WARP_COUNT, W_WARP_PTR, W_MAP_SCRIPTS_BANK = flat(0xDBFB), flat(0xDBFC), flat(0xD1A3)
 
 local function inOverworld()
 	return u8(W_MAPSTATUS) == MAPSTATUS_RUNNING and u8(W_SPRITEUPDATES) == 1
 end
 
--- THE MAP AROUND THE PLAYER (autoplay_map_probe.lua, 2026-09-17, vanilla V1.0, read against captures on the same
--- tile; that adapter's MEASURED.md, same date). A tile's collision is quadrant (y%2)*2 + (x%2) of block (x//2, y//2),
--- whose id is at (by+3)*(wMapWidth+6) + (bx+3) in wOverworldMapBlocks, looked up in the loaded tileset's collision
--- table (bank at wTileset+6, pointer at +7) -- cmd_drive.lua's formula (2026-09-16), which agreed tile for tile with
--- New Bark Town's capture: roofs, walls, the sign and the mailbox 0x07, both doors 0x71, open ground and the grass
--- patches 0x00. The map is wMapWidth by wMapHeight blocks; the buffer holds 3 more blocks of border each side.
+-- A tile's collision byte: its quadrant of its block in wOverworldMapBlocks, which holds 3 blocks of border each side,
+-- looked up in the loaded tileset's collision table.
 local W_MAPHEIGHT, W_MAPWIDTH, W_BLOCKS, W_TILESET = flat(0xD19E), flat(0xD19F), flat(0xC800), flat(0xD1D9)
 local VIEW_W, VIEW_H = 7, 5 -- tiles either side: 15 by 11, more than the screen's 10 by 9
 -- What a collision byte did when stepped into, where measured. Anything else is listed by number.
@@ -66,7 +48,6 @@ local COLLISION_NOTES = {
 	[0x71] = "a door: stepping on it warped",
 	[0x15] = "a step refused (drawn as trees, New Bark's south edge)",
 	[0x18] = "tall grass: walked on; a wild battle began on the 4th step in it (Route 29)",
-	-- cmd_drive.lua's hops on vanilla V1.0 (2026-09-16).
 	[0xA0] = "a ledge: hopped going right", [0xA1] = "a ledge: hopped going left", [0xA3] = "a ledge: hopped going down",
 }
 local collisionCache = {}
@@ -89,19 +70,11 @@ local function tileAt(x, y)
 	return block, c[(y % 2) * 2 + (x % 2) + 1]
 end
 
--- The other characters: object records 1-12 whose first byte (the graphic) is not 0; record 0 is the player (its
--- +0x10/+0x11 are wXCoord/wYCoord plus 4). The girl at (6,8) and the man at (12,9) in New Bark Town's capture were
--- records 1 and 2: +0x01 their index in the map's object list, +0x10/+0x11 their tile plus 4, +0x08 the way they
--- faced as drawn (0x00 down for the girl, 0x04 up for the man) -- the player's own codes.
+-- The other characters: object records 1-12 whose graphic (+0x00) is not 0, read with the player's own codes.
 local W_OBJECTS, OBJ_SIZE, OBJ_COUNT = flat(0xD4D6), 0x28, 13
 
--- TRAINERS (autoplay_trainer_probe.lua and autoplay_map_probe.lua, 2026-09-17, vanilla V1.0, Bug Catcher Don on Route 30;
--- MEASURED.md, "A trainer battle: sight, approach, words and the result"). The map-object records, 0x10 bytes each from
--- D71E, indexed by an object record's +0x01: Don's (4) read +0x00 the object record holding him (2), +0x01 his graphic
--- (37), +0x02/+0x03 his tile plus 4, following his walk, +0x08 0xB2 (low nibble 2, as on the route's other two trainers'
--- records and no other), +0x09 3 -- he came for the player three tiles below him and not four -- and +0x0A a pointer into
--- wMapScriptsBank to 12 bytes whose first two are his defeat flag (1336, set once he was beaten: bit 0 of wEventFlags
--- (DA72) + 167, 0 before the battle and 1 after), then the class and id wOtherTrainerClass/ID read during it (36, 1).
+-- Map-object records, 0x10 bytes each, indexed by an object record's +0x01: +0x08's low nibble 2 marks a trainer, +0x09
+-- is its range, and +0x0A points into wMapScriptsBank at its defeat flag, a bit of wEventFlags.
 local W_MAP_OBJECTS, MAP_OBJ_SIZE, W_EVENT_FLAGS = flat(0xD71E), 0x10, flat(0xDA72)
 local MAPOBJ_TYPE_TRAINER = 2
 
@@ -134,18 +107,13 @@ local function readObjects()
 	return out
 end
 
--- The map's bg events, 5 bytes each: y, x, then a kind and a script pointer. The sign at (8,8) in New Bark Town, the
--- entry (8, 8, 0), showed "NEW BARK TOWN" when faced and A pressed.
+-- The map's bg events (signs), 5 bytes each: y, x, a kind and a script pointer.
 local W_BG_COUNT, W_BG_PTR = flat(0xDC01), flat(0xDC02)
 
 local function mapName()
 	return string.format("%d.%d", u8(W_MAPGROUP), u8(W_MAPNUMBER))
 end
 
--- A wild battle: wBattleMode went 0 to 1 about 180 frames after the encounter's script began in the grass, on the
--- same frame wSpriteUpdatesEnabled went to 0, and read 1 through the battle's text and both menus
--- (autoplay_state_probe.lua, 2026-09-17, a PIDGEY on Route 29). It read 2 from "BUG CATCHER DON wants to battle!" to the
--- end of his battle (autoplay_trainer_probe.lua, the same day, Route 30).
 local function modeName()
 	if not isVanilla then return "not_overworld" end
 	if u8(W_BATTLEMODE) ~= 0 then return "battle" end
@@ -183,7 +151,7 @@ local function readLocalMap(warps, objects, signs)
 	local marks = {}
 	for _, s in ipairs(signs) do marks[s.x * 256 + s.y] = "S" end
 	for _, w in ipairs(warps) do marks[w.x * 256 + w.y] = "W" end
-	-- An unbeaten trainer's line: its range of tiles the way it faces now (Don faced down and came from three tiles).
+	-- An unbeaten trainer's line: its range of tiles the way it faces now.
 	for _, o in ipairs(objects) do
 		local t = o.trainer
 		if t and not t.beaten and o.facing then
@@ -245,14 +213,10 @@ local function readLocalMap(warps, objects, signs)
 	return { rows = rows, legend = legend }
 end
 
--- TEXT AND MENUS (2026-09-17, vanilla V1.0: `autoplay_text_probe.lua` through a sign's three boxes, the START
--- menu's cursor, SAVE's box and its YES/NO; `autoplay_charset_probe.lua`; that adapter's MEASURED.md, same date).
--- The screen's text IS the game's 20 by 18 tile buffer: every letter printed was written there, one a frame, and
--- the map's own tiles came back on the frame a box closed.
+-- The screen's text is the game's 20 by 18 tile buffer: every letter printed is written there.
 local TILEMAP, COLS, ROWS = flat(0xC4A0), 20, 18
--- What each byte draws, named from captures of the game drawing 0x60-0xFF inside a message box (the charset
--- probe) and checked against every word of real text read: the sign, the START menu and its descriptions, the
--- save box and the YES/NO. A byte that draws nothing, or is below 0x60 (the map's tiles), reads as {XX}.
+-- What each byte draws, named from the charset probe's captures; a byte that draws nothing, or is below 0x60 (the map's
+-- tiles), reads as {XX}.
 local CHARS = {}
 for i = 0, 25 do
 	CHARS[0x80 + i] = string.char(0x41 + i)
@@ -274,16 +238,9 @@ end
 -- Letters and digits: what makes a run of tiles text rather than a picture that happens to use font tiles.
 local function isLetter(b) return (b >= 0x80 and b <= 0x99) or (b >= 0xA0 and b <= 0xB9) or (b >= 0xF6) end
 
--- WHICH FONT IS LOADED (autoplay_font_probe.lua, 2026-09-17: a 32-bit FNV-1a checksum of the tiles' 16 bytes each in
--- VRAM bank 0; LCDC read E3 throughout).
---   * Ids 0x80-0xB9 (0x0800 in VRAM): ABC168AD on every screen whose text was read correctly -- the main menu, the
---     START menu, the town sign's box, Elm's question, and a wild battle -- A75F347B with a Pokémon's picture drawn
---     with those ids in Elm's lab (which `screen_text` had read as "AHOV:dk"), CF66AFAD in the town with no text up.
---   * Ids 0x60-0x7F (0x1600): 463433A3 on the sign, the main menu and the lab, 0E4FC271 in the battle. The charset
---     probe named them in each: the message box's table below, and in the battle only 0x6E (":L", the level mark
---     before PIDGEY's 3), 0x75 (…) and the box frame; the rest there were pieces of the HP bars.
---   * 0xBA-0xFF: 55247223 on all of those screens.
--- Two reads of 928 and 512 bytes and loops over them, so only observe and select read it, never the per-frame watch.
+-- Which font is loaded, by an FNV-1a checksum of each id range's tiles in VRAM bank 0, since a picture can be drawn
+-- with the letters' tiles; 0x60-0x7F name different glyphs in a message box and in a battle. Two reads of 928 and 512
+-- bytes, so only observe and select read it, never the per-frame watch.
 local FONT_LETTERS, FONT_LOW_BOX, FONT_LOW_BATTLE = 0xABC168AD, 0x463433A3, 0x0E4FC271
 local LOW_NAMES = {
 	[FONT_LOW_BOX] = {
@@ -305,23 +262,14 @@ local function readFont()
 	return letters, LOW_NAMES[fnv(memory.read_bytes_as_array(0x1600, 0x20 * 16, "VRAM"))]
 end
 
--- The message box: its frame at rows 12-17 (79 and 7B the top corners, 7D and 7E the bottom ones, 7C the sides),
--- lines printed on rows 14 and 16 and scrolled up through 13 and 15, columns 1-18. While a box waited for a button
--- 0xEE (the ▼) blinked at (18,17), 16 frames on and 16 off. wTextboxFlags read 3 from the frame before a message's
--- first letter and 1 from the frame after its last -- the sign's last box, and the save question on the frame its
--- YES/NO was drawn -- until the next message.
+-- The message box: its frame on rows 12-17, lines on rows 14 and 16; while it waits for a button the ▼ blinks at
+-- (18,17), 16 frames on and 16 off. wTextboxFlags has bit 1 set while a message prints.
 local BOX_TOP, BOX_BOTTOM, ARROW_COL = 12, 17, 18
 local W_TEXTBOX_FLAGS, TEXTBOX_PRINTING = flat(0xCFCF), 0x02
 local ARROW, BLINK_GAP = 0xEE, 20
 
--- A menu with a cursor: wWindowStackSize counted the windows open (START 1, its save box 2, the YES/NO 4, then 3,
--- 2 and 1 as B closed them; the sign's box opened none). The block the build names w2DMenuData held the first
--- item's row and the cursor's
--- column (CFA1, CFA2: 2 and 11 on START, 8 and 1 on the YES/NO), how many rows (6, 2) and columns (1, 1), and
--- the rows between items in the high nibble of CFA7 (0x20, drawn 2 apart on both); wMenuCursorY counted from 1
--- (one Down press moved it one item, and the ▶ was drawn on that row); wCursorCurrentTile pointed at the ▶'s
--- cell. wMenuBorderRightCoord was the frame's right column (19, 5). The ▶ became ▷ (0xEC) once A chose SAVE,
--- so a menu counts as waiting for a choice only while its ▶ is drawn at the cursor's cell.
+-- A menu: w2DMenuData (CFA1) holds the first item's row and the cursor's column, the rows and columns, and the gaps in
+-- CFA7. It counts as waiting for a choice only while its ▶ is drawn at the cursor's cell (it becomes ▷ once chosen).
 local W_WINDOW_STACK_SIZE, W_MENU_BORDER_RIGHT = flat(0xCF78), flat(0xCF85)
 local W_2DMENU, W_MENU_CURSOR_Y, W_CURSOR_TILE = flat(0xCFA1), flat(0xCFA9), flat(0xCFAC)
 local CURSOR = 0xED
@@ -346,8 +294,7 @@ local function boxOpen(t)
 	end
 	for r = BOX_TOP + 1, BOX_BOTTOM - 1 do
 		if cell(t, 0, r) ~= 0x7C or cell(t, 19, r) ~= 0x7C then return false end
-		-- No message had a frame tile inside it; the battle's action menu splits the same rows with a 0x7C column
-		-- at 8, drawn before its ▶ (text.lua's log caught it, 2026-09-17).
+		-- No message has a frame tile inside it; the battle's action menu draws a 0x7C column at 8 in the same rows.
 		for c = 1, 18 do
 			local b = cell(t, c, r)
 			if b >= 0x79 and b <= 0x7E then return false end
@@ -356,12 +303,9 @@ local function boxOpen(t)
 	return true
 end
 
--- Kept once a frame by game.watch(): when the box's lines last changed, and when the ▼ was last drawn.
--- A wait for A with no ▼ in a battle: wTextDelayFrames (CFB2) counted 5, 4, 3, 2, 1 and back to 5 for as long as the
--- level-up stats box (31 times) and "Argh! You're too strong!" after Bug Catcher Don's defeat (36 times) waited, both
--- with wTextboxFlags 1 and no ▼, until A. Across that battle it went from 1 back to 5 on no other screen; at the action
--- menu it counted down once, as A was pressed (autoplay_text_probe.lua, 2026-09-17). `cycles` counts the returns to 5
--- since the box's rows last changed.
+-- Kept once a frame by game.watch(): when the box's lines last changed, when the ▼ was last drawn, and `cycles`, the
+-- returns of wTextDelayFrames to 5 since the rows last changed: in a battle a box waiting for A with no ▼ counts it
+-- down over and over.
 local W_TEXT_DELAY_FRAMES = flat(0xCFB2)
 local track = { lines = nil, changedAt = -1, arrowAt = -1, seenAt = -1, cycles = 0, lastDelay = 0 }
 local function boxBytes(t)
@@ -395,16 +339,15 @@ local function readDialogue(t, low)
 		if s ~= "" then lines[#lines + 1] = s end
 	end
 	local f, state = emu.framecount(), nil
-	-- A battle's box is cleared over 2 frames, row 14 on the first and row 16 on the next: "attack missed!" read
-	-- "            d!" for one frame, 11 frames after its ▼ went (autoplay_text_probe.lua, 2026-09-17). So a box whose rows
-	-- changed since the frame the watcher last saw is still changing, whatever the ▼ did before.
+	-- A battle's box is cleared over 2 frames, a row each, so rows changed since the watcher's last frame are still
+	-- changing.
 	local changing = track.seenAt == f - 1 and boxBytes(t) ~= track.lines
 	if cell(t, ARROW_COL, BOX_BOTTOM) == ARROW
 		or (not changing and track.arrowAt >= track.changedAt and f - track.arrowAt >= 0 and f - track.arrowAt <= BLINK_GAP)
 		or (not changing and #lines > 0 and waitingInBattle()) then
 		state = "waiting_for_button"
 	elseif (u8(W_TEXTBOX_FLAGS) & TEXTBOX_PRINTING) ~= 0 or #lines == 0 or changing then
-		-- An empty frame was drawn 4 frames before the save question began printing.
+		-- An empty box is one about to print.
 		state = "printing"
 	else
 		state = "finished"
@@ -412,12 +355,8 @@ local function readDialogue(t, low)
 	return { box = table.concat(lines, "\n"), state = state }
 end
 
--- IN A BATTLE (autoplay_text_probe.lua, 2026-09-17, a wild PIDGEY on Route 29): the action menu used the same block --
--- first row 14 and cursor column 9, 2 rows by 2 columns, CFA7 0x26 (items 2 rows and 6 columns apart: FIGHT at
--- column 10, PKMN at 16), wMenuCursorY and wMenuCursorX (CFAA) both from 1, the ▶ at wCursorCurrentTile. The move
--- menu that FIGHT opened read first row 13, column 5, 2 rows (the two moves CYNDAQUIL knows) by 1, CFA7 0x10, with
--- wWindowStackSize at 0 -- so in a battle a menu counts without a window. Its frame's right column (CF85) still read
--- the action menu's 19, which is also the move box's.
+-- In a battle the action and move menus use the same block, with wMenuCursorX for the grid's column; the move menu
+-- opens no window, so a menu counts there without one.
 local W_MENU_CURSOR_X = flat(0xCFAA)
 
 -- `low`: readFont()'s names for 0x60-0x7F, or false to skip reading the items' text (a per-frame check). Returns the
@@ -477,7 +416,8 @@ local function readScreenText(t, dialogue, menuRows, low)
 	return out
 end
 
--- The PACK's item list, whole, when the menu on screen is it, and the pockets' contents (defined with the pockets, below).
+-- The PACK's item list, whole, when the menu on screen is it, and the pockets' contents (defined with the pockets,
+-- below).
 local itemPocketMenu, readBag, readParty, partyMenu, readBadges, movementName
 
 -- The message and the menu on screen together: a menu drawn inside the message box's frame (the battle's action
@@ -490,8 +430,7 @@ local function readTextAndMenu(t, low)
 			if menuRows[r] then d = nil end
 		end
 	end
-	-- The count back to 5 runs under a menu too (the PACK's, in a battle, with its item's description in the box): with a
-	-- menu on screen the box waits only if its ▼ says so.
+	-- The count back to 5 runs under a menu too, so with a menu up the box waits only if its ▼ says so.
 	if d and m and d.state == "waiting_for_button" and cell(t, ARROW_COL, BOX_BOTTOM) ~= ARROW and waitingInBattle() then
 		d.state = "finished"
 	end
@@ -503,8 +442,7 @@ local function readTextAndMenu(t, low)
 	return d, m, menuRows
 end
 
--- Which battle menu waits, from the menu block (autoplay_text_probe.lua, a wild PIDGEY): the action grid's first row is
--- 14 and column 9, 2 columns; the move list's first row 13, column 5, 1 column.
+-- Which battle menu waits, by the menu block's first row, column and columns.
 local function battleAskingFor(m)
 	if not m then return nil end
 	local b = memory.read_bytes_as_array(W_2DMENU, 4, "WRAM")
@@ -513,38 +451,20 @@ local function battleAskingFor(m)
 	return nil
 end
 
--- THE BATTLERS AND THEIR MOVES (2026-09-17, vanilla V1.0, a wild PIDGEY L3 against CYNDAQUIL L5 on Route 29;
--- MEASURED.md, "The battlers, their moves, and what a move's power and accuracy do").
---   * autoplay_battle_probe.lua, read against the battle screen: the player's battler at C62C and the opponent's at D206,
---     0x20 bytes each -- +0x00 the species (155, 16; the name table's entries spelled CYNDAQUIL and PIDGEY, as drawn),
---     +0x02-+0x05 the moves (33 and 43, the move menu's TACKLE and LEER; PIDGEY's 33, "Enemy PIDGEY used TACKLE!"),
---     +0x08-+0x0B their PP (35 and 30, drawn 35/35 and 30/30; 34 after a TACKLE, drawn 34/35), +0x0D the level (5 and
---     3, drawn :L5 and :L3), +0x10 and +0x12 the HP and max HP, high byte first (19 and 19 drawn 19/19, then 16 drawn
---     16/19; PIDGEY's 15 then 10, its bar 48 pixels then 32). The nicknames at C621 and C616, 0x50-ended.
---   * The move table at 10:5AFB, 7 bytes an entry from id 1, whose entry the game copied whole into the player's move
---     struct for the move under the cursor: +0x03 the type (0 for both, drawn TYPE/ NORMAL through the pointer at
---     14:497B + 2 * type), +0x05 the PP the menu drew as the maximum (35, 30). Move names: the id'th 0x50-ended string
---     from 72:5F29. Species names: 10 bytes at 14:7384 + (id - 1) * 10.
---   * autoplay_move_write_probe.lua, one TACKLE replayed frame for frame from one snapshot with one byte of the move
---     struct changed: +0x02 at 35 did 5 damage, at 0 none, at 70 8, at 140 took all 15 HP -- the POWER; +0x04 at 0 gave
---     "CYNDAQUIL's attack missed!", at 242 (the table's) and 255 it hit -- the ACCURACY, on a scale not measured, so it
---     goes out as `accuracy_raw` and scores only by comparison.
--- A PP byte of 0x40 or more (raised PP) is not measured and goes out as pp_raw.
+-- The battlers, 0x20 bytes each. The accuracy byte's scale is not measured, so it goes out as `accuracy_raw` and scores
+-- only by comparison; a PP byte of 0x40 or more (raised PP) is not measured either and goes out as pp_raw.
 local W_BATTLE_MON, W_ENEMY_MON, BATTLER_SIZE = flat(0xC62C), flat(0xD206), 0x20
 local W_BATTLE_MON_NICK, W_ENEMY_MON_NICK, NICK_LEN = flat(0xC621), flat(0xC616), 11
 local MOVES_BANK, MOVES_PTR, MOVE_SIZE = 0x10, 0x5AFB, 7
 local MOVE_NAMES_BANK, MOVE_NAMES_PTR = 0x72, 0x5F29
 local NAMES_BANK, SPECIES_NAMES_PTR, SPECIES_NAME_LEN, TYPE_NAMES_PTR = 0x14, 0x7384, 10, 0x497B
 local STRING_END = 0x50
--- Which battle: wBattleMode 1 for the wild PIDGEY, 2 for Bug Catcher Don. In Don's battle wCurOTMon (C663) read 255
--- until his first CATERPIE was sent out -- the frame its nickname was written; the opponent's block held the PIDGEY
--- from the battle before until then -- 0 for that one and 1 for his second, with wOTPartyCount (D280) 2; in the wild
--- battle it read 0 throughout (autoplay_battle_probe.lua, 2026-09-17).
+-- In a trainer battle wCurOTMon reads 255 until the first Pokémon is sent out, the opponent's block still holding the
+-- last battle's.
 local BATTLE_KINDS, BATTLE_MODE_TRAINER = { [1] = "wild", [2] = "trainer" }, 2
 local W_CUR_OT_MON, OT_MON_NONE_YET, W_OT_PARTY_COUNT = flat(0xC663), 255, flat(0xD280)
 
--- In a string read from ROM, 0x54 printed as "POKé": the item named 54 7F 81 80 8B 8B printed "A found POKé BALL!"
--- (autoplay_bag_probe.lua, 2026-09-17, Route 31).
+-- In a string read from ROM, 0x54 prints as "POKé".
 local function spell(b, from, to)
 	local out = {}
 	for i = from, to do
@@ -621,28 +541,9 @@ local function readBattler(base, nickAt, side)
 	return out
 end
 
--- The player's usable move (measured PP above 0) with the most power times accuracy byte, as its move-menu index.
--- TYPES AND THE TYPE TABLE (2026-09-17, vanilla V1.0, from `battle_menu`: CYNDAQUIL against a wild PIDGEY; MEASURED.md, "Type
--- matchups and the same-type bonus").
---   * A battler's +0x1E/+0x1F are its types: PIDGEY read 00 02 (the type names' NORMAL and FLYING) and CYNDAQUIL 14 14 (FIRE,
---     drawn TYPE/ FIRE on its summary).
---   * The table at 0D:4BB1 (TypeMatchups in our build's .sym) is attacking type, defending type, multiplier, three bytes an
---     entry, FE once between and FF at the end. One TACKLE was replayed with its move struct's type byte held at a value
---     (autoplay_move_write_probe.lua): ELECTRIC (table: 20 against FLYING) "It's super-effective!", PIDGEY 15 to 5 against
---     NORMAL's 15 to 10; GRASS (5) "It's not very effective…", 15 to 13; GROUND (0) "It doesn't affect Enemy PIDGEY!", no
---     damage; FIGHTING (20 against NORMAL, 5 against FLYING) no message and 15 to 10, the two multiplied; FIRE, CYNDAQUIL's own
---     type, no message and 15 to 7 -- half again. So a multiplier byte is tenths, each of the defender's types applies, and
---     a move of the attacker's type does half again.
---   * Which stats, by the same replays with one of the battler blocks' stat bytes held at 70 (+0x14 attack, +0x16 defense,
---     +0x1A special attack, +0x1C special defense, as the summary's stats page drew them for the party): PIDGEY's defense held,
---     the base damage the log read before the type step fell from 6 to 2 for every type id below 20 (NORMAL to STEEL) and
---     stayed 6 for every id from 20 (FIRE to DARK); its special defense held, ELECTRIC's fell to 2 and NORMAL's stayed 6.
---     CYNDAQUIL's attack held, NORMAL's rose to 30 and ELECTRIC's stayed 6; its special attack held, ELECTRIC's rose to 30.
---     (A hold on the stats at C6C1-C6CA changed nothing: the game put the old value back within the frame.)
--- `strongest` scores a usable move (measured PP above 0) by power times the accuracy byte alone, as Emerald's does; `effective`
--- times those, times the user's attack over the opponent's defense for a type below 20 and special attack over special
--- defense from 20, and returns what each move weighed and the opponent's types for the battle's log (2026-09-17, the
--- policies aligned with Emerald's).
+-- The best usable move (measured PP above 0) as its move-menu index. `strongest` scores power times the accuracy byte;
+-- `effective` also multiplies by the type table's multipliers (tenths, one per defending type), half again for the
+-- attacker's own type, and attack over defense for a type id below 20, special attack over special defense from 20.
 local function strongestMoveSlot(effective)
 	local b = memory.read_bytes_as_array(W_BATTLE_MON, BATTLER_SIZE, "WRAM")
 	local e = memory.read_bytes_as_array(W_ENEMY_MON, BATTLER_SIZE, "WRAM")
@@ -689,14 +590,8 @@ local function strongestMoveSlot(effective)
 	return best, best and moveName(b[3 + best]), { weighed = weighed, against = against }
 end
 
--- AFTER A BATTLE (autoplay_battle_probe.lua, 2026-09-17, the same PIDGEY battle; MEASURED.md, "The battlers..."):
---   * wBattleResult (D0EE) read 0 after the PIDGEY fainted and 2 after "Got away safely!", both back in the overworld.
---   * wMoney (D84E), 3 bytes high first, read 3000 as the trainer card drew MONEY ₽3000.
---   * The party (wPartyCount DCD7, the first Pokémon's 0x30 bytes from DCDF, its nickname at DE41): +0x00 the species,
---     +0x1F the level, +0x22 and +0x24 the HP and max HP, high byte first -- the POKéMON screen drew CYNDAQUIL :L5
---     10/19 as they read 155, 5, 10 and 19; the HP followed the battle's. A BELLSPROUT caught on Route 31 sat 0x30 bytes
---     on, its nickname 11 bytes on, reading 69, 5, 20 and 20 as the screen drew BELLSPROUT :L5 20/20 under CYNDAQUIL
---     (the species list at DCD8 read 9B 45 FF). Slots past the second are read the same way, not yet seen.
+-- The party: wPartyCount, then 0x30 bytes a Pokémon and an 11-byte nickname a slot; slots past the second are read the
+-- same way, not yet seen.
 local W_BATTLE_RESULT, W_MONEY, W_PARTY_COUNT, W_PARTY_MON1, W_PARTY_NICK1 = flat(0xD0EE), flat(0xD84E), flat(0xDCD7),
 	flat(0xDCDF), flat(0xDE41)
 local PARTY_MON_SIZE, PARTY_MAX = 0x30, 6
@@ -722,7 +617,7 @@ local game = {
 	variant = isVanilla and "vanilla" or "unverified",
 	capabilities = { "observe", "press", "wait", "screenshot", "snapshot", "restore", "walk", "goto", "select", "advance_text", "battle",
 		"cheat:warp", "cheat:give_item", "cheat:set_flag", "cheat:heal", "cheat:set_badge", "cheat:set_move", "cheat:set_status" },
-	-- The START menu: Down moved the cursor one item a press and A chose it (2026-09-17).
+	-- Down moves a menu's cursor one item a press, and A chooses.
 	menuButtons = { prev = "Up", next = "Down", left = "Left", right = "Right", confirm = "A" },
 	protected_slots = { 1 },
 	shots = "crystal",
@@ -806,7 +701,7 @@ function game.observe(asked)
 		local_map = localMap,
 		nearby = (nearby and #nearby > 0) and nearby or nil,
 		mode = modeName(),
-		-- In the overworld, `on_foot` or `bicycle` (MOVEMENT_STATES, below); any other state goes out raw.
+		-- In the overworld, a MOVEMENT_STATES name; any other state goes out raw.
 		movement = overworld and (movementName() or string.format("state_raw_%d", u8(flat(0xD95D)))) or nil,
 		location = { map = mapName(), x = u8(W_XCOORD), y = u8(W_YCOORD), facing = overworld and FACING[ps[9]] or nil },
 		warps = (warps and #warps > 0) and warps or nil,
@@ -814,9 +709,8 @@ function game.observe(asked)
 			map_status_raw = u8(W_MAPSTATUS),
 			sprite_updates_raw = u8(W_SPRITEUPDATES),
 			battle_mode_raw = u8(W_BATTLEMODE),
-			-- wScriptRunning read 255 (wScriptMode 1) while a message, a menu or a Pokémon's picture waited -- the
-			-- picture with no message box, so this is the only sign the game is waiting for a button then; 9
-			-- during a turn, 5 during a door's warp, 0 walking (autoplay_state_probe.lua, 2026-09-17).
+			-- 255 while a message, a menu or a Pokémon's picture waits: the only sign of a wait for a button under a
+			-- picture.
 			script_running_raw = u8(W_SCRIPT_RUNNING),
 			script_mode_raw = u8(W_SCRIPT_RUNNING - 1),
 			player_struct = (function()
@@ -828,18 +722,13 @@ function game.observe(asked)
 	}
 end
 
--- CHEATS: each takes its args and returns a plan -- { untilFn = function(observation) -> done, limit = frames,
--- report = function() } -- or nil and a reason. A cheat changes the world by other means than play; the core marks
--- the segment reached.
+-- Cheats: each takes its args and returns a plan ({ untilFn(observation) -> done, limit = frames, report() }) or nil
+-- and a reason. A cheat changes the world by other means than play; the core marks the segment reached.
 game.cheats = {}
 
--- warp {map = "G.N", x, y}: the writes `probes/goto_map.lua` makes, the game's own warp as that probe's header records
--- (2026-08-21): the map group and number and the tile written directly, wDefaultSpawnpoint 0xFF, hMapEntryMethod
--- (FF9F) 0xF1 -- without it the game reloaded the map it was on -- and wMapStatus 1. Refused outside the overworld or
--- while a script has the controls: any wScriptRunning but 0. Written while Bug Catcher Don walked over and spoke
--- (wScriptRunning 1), the load did not run -- wMapStatus read 1 for 900 frames with his box up, and A went on through his
--- words into his battle with it still 1 (2026-09-17). Done once the game has left the overworld and runs the target map
--- again; `report` reads the map and tile back.
+-- warp {map = "G.N", x, y}: the writes probes/goto_map.lua makes; without hMapEntryMethod the game reloads the map it
+-- is on. Refused while a script has the controls, since written then the load does not run. Done once the game has left
+-- the overworld and runs the target map again.
 local W_DEFAULT_SPAWNPOINT, H_MAP_ENTRY_METHOD, MAPSETUP_WARP = flat(0xD001), 0xFF9F, 0xF1
 function game.cheats.warp(args)
 	local map = type(args.map) == "string" and args.map or ""
@@ -877,10 +766,7 @@ function game.cheats.warp(args)
 	}
 end
 
--- BADGES (2026-09-17, vanilla V1.0, Route 30; MEASURED.md, "Badges on the trainer card"): the trainer card's second page
--- numbers eight leaders 1-4 on the top row and 5-8 below, and drew no badge with wJohtoBadges (D857 in our build's .sym)
--- at 0. With bit 0 set a badge was drawn beside leader 1; with the byte at 137 (bits 0, 3 and 7), beside leaders 1, 4 and
--- 8. So bit (N - 1) is badge N. wKantoBadges (D858) is not measured.
+-- wJohtoBadges: bit (N - 1) is badge N as the trainer card numbers it; wKantoBadges is not measured.
 local W_JOHTO_BADGES = flat(0xD857)
 readBadges = function()
 	local b, list = u8(W_JOHTO_BADGES), {}
@@ -890,8 +776,7 @@ readBadges = function()
 	return list
 end
 
--- set_badge {badge = 1-8, value = true}: bit (badge - 1) of wJohtoBadges. Refused outside the overworld; `report` reads the
--- byte back.
+-- set_badge {badge = 1-8, value = true}: bit (badge - 1) of wJohtoBadges, refused outside the overworld.
 function game.cheats.set_badge(args)
 	local n = math.tointeger(args.badge)
 	if not n or n < 1 or n > 8 then return nil, "set_badge needs badge 1-8 (Johto's; Kanto's are not measured)" end
@@ -907,10 +792,8 @@ function game.cheats.set_badge(args)
 	}
 end
 
--- set_flag {flag, value = true}: one event flag, bit (flag & 7) of the byte (flag >> 3) past wEventFlags -- the layout
--- two defeat flags read (Don's 1336, byte 167 bit 0, and Mikey's 1450, each 0 before his battle and 1 after;
--- MEASURED.md, "A trainer battle" and "A trainer talked to"). wEventFlags is 0x100 bytes in our build's .sym (DA72, and
--- wCurBox at DB72), so ids 0-2047. Only defeat flags are measured; refused outside the overworld. `report` reads it back.
+-- set_flag {flag, value = true}: bit (flag & 7) of the byte (flag >> 3) past wEventFlags, which is 0x100 bytes in our
+-- build's .sym. Only defeat flags are measured; refused outside the overworld.
 local EVENT_FLAG_COUNT = 0x100 * 8
 function game.cheats.set_flag(args)
 	local flag = math.tointeger(args.flag)
@@ -931,26 +814,16 @@ function game.cheats.set_flag(args)
 	}
 end
 
--- THE ITEM POCKET (autoplay_bag_probe.lua, 2026-09-17, vanilla V1.0, Route 30; MEASURED.md, "The PACK"). wNumItems (D892)
--- then an id and a quantity per entry and FF: `01 12 01 FF` while the PACK showed POTION ×1; picking up Route 30's item
--- ball printed "A put the ANTIDOTE in the ITEM POCKET." and it read `02 12 01 09 01 FF`. Item names: the id'th 0x50-ended
--- string from 72:4000 (18 POTION, 9 ANTIDOTE, as drawn). The 7-byte entry at 01:67C1 + (id - 1) * 7 read 01 at +5 for both,
--- the pocket the game filed them in. wItems holds 20 entries: wNumKeyItems (D8BC) is 41 bytes on in our build's .sym.
+-- The item attribute table at 01:67C1: 7 bytes an item from id 1, +0x05 the pocket the game files it in.
 local W_NUM_ITEMS, ITEM_POCKET_SLOTS, ITEM_ATTRIBUTES, ATTR_POCKET_ITEM = flat(0xD892), 20, 0x67C1, 0x01
--- THE BALL POCKET, the same way (Route 31, the same day): its item ball printed "A put the POKé BALL in the BALL POCKET.",
--- wNumBalls (D8D7) read `01 05 01 FF`, and POKé BALL's attribute entry read 03 at +5. It holds 12 entries: wNumPCItems
--- (D8F1) is 26 bytes on in our build's .sym. The PACK's pockets by that byte: the address, the entries, wCurPocket.
--- THE KEY ITEM POCKET (MEASURED.md, "The key item pocket"): the attribute table files 22 items under 02 (BICYCLE, OLD ROD, ...);
--- the scrolling menu's header read 01 at CF94 on it where the other two read 02, and wNumKeyItems (D8BC) is 27 bytes before
--- wNumBalls in our build's .sym: a count, 25 one-byte entries and FF. `size` is the bytes an entry takes.
+-- The PACK's pockets by their attribute byte: a count, entries (an id and a quantity, or an id alone for key items) and
+-- FF. `slots` is each pocket's room in our build's .sym, `cur` its wCurPocket, `size` the bytes an entry takes.
 local POCKETS = {
 	[0x01] = { name = "items", addr = W_NUM_ITEMS, slots = ITEM_POCKET_SLOTS, cur = 0, ptr = 0xD892, size = 2 },
 	[0x02] = { name = "key_items", addr = flat(0xD8BC), slots = 25, cur = 2, ptr = 0xD8BC, size = 1 },
 	[0x03] = { name = "balls", addr = flat(0xD8D7), slots = 12, cur = 1, ptr = 0xD8D7, size = 2 },
 }
--- THE TM/HM POCKET (MEASURED.md, "The TM/HM pocket"): 57 ids file under 04 (TM01 at 191 to HM07 at 249, two placeholder ids
--- between them filed elsewhere), and wTMsHMs (D859) is 57 bytes in our build's .sym: one count per TM or HM, the Kth of those
--- ids in id order at D859 + K.
+-- The TM/HM pocket: a count per TM or HM, the Kth of the 57 ids the attribute table files under 04 at D859 + K.
 local TM_POCKET = { name = "tms_hms", addr = flat(0xD859), slots = 57, cur = 3 }
 local tmIds
 local function tmIdList()
@@ -961,12 +834,7 @@ local function tmIdList()
 	end
 	return tmIds
 end
--- THE PACK'S ITEM LIST (autoplay_bag_probe.lua and autoplay_text_probe.lua, 2026-09-17, the item pocket holding 9 entries,
--- Down pressed 9 times from the top): the scrolling menu's header copy read height 5 at CF92, 02 at CF94 and the pocket's
--- address D892 at CF96-CF97 (D8D7 on the ball pocket, D8BC and 01 on the key pocket); the screen showed 5 entries then
--- CANCEL after the last. wMenuCursorY counted 1-5 down the rows shown and stayed 5 while the list moved; wMenuScrollPosition
--- (D0E4) read 0 until then and 1-5 as it moved; wScrollingMenuListSize (D144) read 9. So the entry under the ▶ is
--- D0E4 + wMenuCursorY - 1, CANCEL at 9. wCurPocket (CF65) read 0 on this pocket and 1, 2, 3 for each Right.
+-- The PACK's list: the entry under the ▶ is wMenuScrollPosition + wMenuCursorY - 1, CANCEL after the last.
 local W_CUR_POCKET, W_MENU_SCROLL, W_SCROLL_LIST_SIZE, W_MENU_DATA_HEIGHT = flat(0xCF65), flat(0xD0E4), flat(0xD144), flat(0xCF92)
 local ITEM_NAMES_BANK, ITEM_NAMES_PTR = 0x72, 0x4000
 
@@ -1005,18 +873,11 @@ local function itemListFromMemory()
 	return { items = items, cursor = u8(W_MENU_SCROLL) + y - 1, list = true, pocket = pocket.name, quantities = quantities }
 end
 
--- After a Down the list's rows were redrawn over 3 frames and the ▶ reached its new row 5 frames after the press, with
--- wMenuCursorY already moved (autoplay_text_probe.lua, 2026-09-17): no menu reads on screen for those frames. The list
--- read whole within REDRAW_GRACE frames before still counts while the header points at it. In the TM/HM pocket a press
--- that scrolled the list left no ▶ for 11 frames: `select`s that scrolled up from CANCEL failed "the menu closed or
--- changed" 2 times in 13, and a temporary log line on every frame the reader gave up read no menu one frame past the 10
--- each time the list moved, then the list whole again (2026-09-17). With 20, 64 of 64 (two batches after a reload).
+-- After a press the list redraws for up to 11 frames with no ▶ on screen, so the list read whole within REDRAW_GRACE
+-- frames before still counts while the header points at it.
 local REDRAW_GRACE, listSeenAt = 20, -1000
--- THE TM/HM POCKET'S LIST (autoplay_bag_probe.lua and autoplay_text_probe.lua, 2026-09-17, nine TMs and HM07 given, Down
--- pressed through them; MEASURED.md, "The TM/HM pocket"): the rows drew each one's move -- "01 DYNAMICPUNCH ×1", "05 ROAR
--- ×1", "H7 WATERFALL" -- which the table at 04:567A (TMHMMoves in our build's .sym) names by the TM/HM's place among the
--- 57 (its entries 1-8 and 57 spelled the nine drawn), and CANCEL after the last. wTMHMPocketCursor (D0DC) counted 0-4 down
--- the rows shown and wTMHMPocketScrollPosition (D0E2) 1-5 as the list moved, so the entry under the ▶ is D0E2 + D0DC.
+-- The TM/HM list's rows draw each one's move (TMHMMoves, by its place among the 57); the entry under the ▶ is
+-- wTMHMPocketScrollPosition + wTMHMPocketCursor.
 local W_TMHM_CURSOR, W_TMHM_SCROLL, TMHM_MOVES_BANK, TMHM_MOVES_PTR = flat(0xD0DC), flat(0xD0E2), 0x04, 0x567A
 local function tmListFromMemory()
 	if u8(W_CUR_POCKET) ~= TM_POCKET.cur then return nil end
@@ -1087,15 +948,11 @@ readBag = function()
 	return bag
 end
 
--- THE PARTY OUT OF A BATTLE (autoplay_battle_probe.lua's party lines and the POKéMON screen's summary pages, 2026-09-17,
--- vanilla V1.0, `session_end_route31`; MEASURED.md, "The party's moves, PP, item and status, the POKéMON menu, and a heal").
--- CYNDAQUIL's slot read +0x01 AD (ITEM BERRY drawn), +0x02/+0x03 21 2B (TACKLE, LEER), +0x08-+0x0A 00 00 9E (EXP POINTS
--- 158), +0x17/+0x18 1F 1E (PP 31/35 and 30/30), +0x20 00 (STATUS/ OK); BELLSPROUT's +0x01 00 (no ITEM drawn), +0x02 16
--- (VINE WHIP) and +0x17 0A (10/10). A PP byte of 0x40 or more (raised PP) is not measured and goes out as pp_raw.
+-- A party slot's fields, by what the summary drew. A PP byte of 0x40 or more (raised PP) is not measured and goes out
+-- as pp_raw.
 local PARTY = { item = 0x01, moves = 0x02, exp = 0x08, pp = 0x17, level = 0x1F, status = 0x20, hp = 0x22, max_hp = 0x24 }
 local PP_RAISED = 0x40
--- The status byte as the POKéMON menu drew it: 0 nothing (STATUS/ OK on the summary), 8 "PSN" after a TENTACOOL's POISON
--- STING (2026-09-17, MEASURED.md, "Surfing"); others go out raw only.
+-- The status byte as the POKéMON menu draws it; others go out raw only.
 local STATUS_NAMES = { [0] = "OK", [8] = "PSN" }
 
 readParty = function()
@@ -1110,8 +967,7 @@ readParty = function()
 			max_hp = (p[PARTY.max_hp + 1] << 8) | p[PARTY.max_hp + 2], status_raw = p[PARTY.status + 1],
 			status = STATUS_NAMES[p[PARTY.status + 1]],
 			exp = (p[PARTY.exp + 1] << 16) | (p[PARTY.exp + 2] << 8) | p[PARTY.exp + 3], moves = {},
-			-- +0x26 on, two bytes each: ATTACK, DEFENSE, SPEED, SPCL.ATK, SPCL.DEF as the summary's stats page drew them (13, 9,
-			-- 9, 12, 8 read for BELLSPROUT's 13, 9, SPEED 9, SPCL.ATK 12, SPCL.DEF 8; MEASURED.md, "Which stats a move's damage uses").
+			-- +0x26 on, two bytes each: attack, defense, speed, special attack, special defense.
 			stats = { attack = (p[0x27] << 8) | p[0x28], defense = (p[0x29] << 8) | p[0x2A], speed = (p[0x2B] << 8) | p[0x2C],
 				sp_atk = (p[0x2D] << 8) | p[0x2E], sp_def = (p[0x2F] << 8) | p[0x30] } }
 		local item = p[PARTY.item + 1]
@@ -1130,13 +986,9 @@ readParty = function()
 	return out
 end
 
--- THE POKéMON MENU (autoplay_text_probe.lua, 2026-09-17, START then POKéMON with CYNDAQUIL and BELLSPROUT): each Pokémon's
--- name on rows 1 and 3 from column 3 and its HP "10/ 19" at columns 14-19, its level and HP bar on the row under it,
--- CANCEL on row 5; the menu block read first row 1, column 0, 3 rows by 1 column, 2 rows apart, and the frame's right
--- column 19, so the grid reader cut the last digit ("10/ 1"). The same list opened in a battle after the switch question's
--- YES ("Which PKMN?"). A menu whose block has that shape, one row per Pokémon and CANCEL, and whose rows show the party's
--- names reads as `party: true` with the names; `select` then takes a name, and A on one opened STATS / SWITCH / MOVE /
--- ITEM / CANCEL (read as a menu, as drawn).
+-- The POKéMON menu, and the party list in a battle: a menu block of one row per Pokémon plus CANCEL, 2 rows apart,
+-- whose rows show the party's names, reads as `party: true` (the grid reader alone cuts the HP), and `select` takes a
+-- name.
 partyMenu = function(m, t, low)
 	if not m then return nil end
 	local b = memory.read_bytes_as_array(W_2DMENU, 7, "WRAM")
@@ -1155,14 +1007,12 @@ partyMenu = function(m, t, low)
 	return { items = items, cursor = m.cursor, party = true }
 end
 
--- heal: every Pokémon in the party to its max HP (+0x22 from +0x24), each move's PP to the maximum the move table gives
--- (the PP the summary drew as the maximum, 35 for TACKLE), and the status byte to 0 (drawn STATUS/ OK). Refused outside
--- the overworld and on a raised PP byte, whose maximum is not measured. `report` reads the party back.
--- set_move {slot = 1-6, move_slot = 1-4, move}: writes a move id into a party Pokémon's move slot and its PP to the move
--- table's maximum -- the bytes the summary drew (+0x02-+0x05 and +0x17-+0x1A, above). `move` is a name as the game spells it
--- (case ignored) or an id. It does not check whether the Pokémon could learn the move. Refused outside the overworld.
--- set_status {slot = 1-6, status = "OK" | "PSN"}: writes a party Pokémon's status byte, only the values the POKéMON menu was
--- seen to draw (STATUS_NAMES). Refused outside the overworld; `report` reads the party slot back.
+-- heal: every party Pokémon's HP to its max, each move's PP to the move table's maximum and the status to 0; refused on
+-- a raised PP byte, whose maximum is not measured.
+-- set_move {slot = 1-6, move_slot = 1-4, move}: a move id, or a name as the game spells it, with its PP at the table's
+-- maximum; whether the Pokémon could learn it is not checked.
+-- set_status {slot = 1-6, status = "OK" | "PSN"}: only the values the POKéMON menu was seen to draw.
+-- Each is refused outside the overworld, and `report` reads the party back.
 function game.cheats.set_status(args)
 	if not isVanilla then return nil, "set_status is measured on the vanilla V1.0 ROM only" end
 	if not inOverworld() or u8(W_BATTLEMODE) ~= 0 then return nil, "set_status refused: not in the overworld" end
@@ -1252,10 +1102,8 @@ local function itemPocketOf(id)
 	return memory.read_u8(ITEM_ATTRIBUTES + (id - 1) * 7 + 5, "ROM")
 end
 
--- give_item {item, quantity = 1}: `item` a name as the PACK draws it (case and é ignored) or an id. Only items whose
--- attribute pocket byte reads 01 (the item pocket) or 03 (the ball pocket), added to that item's entry or as a new one
--- before the FF. Refused past 99 in one entry, past the pocket's entries, and outside the overworld. `report` reads the
--- entry back.
+-- give_item {item, quantity = 1}: `item` a name as the PACK draws it (case and é ignored) or an id, added to its entry
+-- or as a new one before the FF; refused past 99, past the pocket's entries and outside the overworld.
 local function plain(name) return (name:gsub("é", "e"):upper()) end
 function game.cheats.give_item(args)
 	if not isVanilla then return nil, "give_item is measured on the vanilla V1.0 ROM only" end
@@ -1332,42 +1180,19 @@ function game.cheats.give_item(args)
 	}
 end
 
--- PROGRAMS: run once a frame by the driver, each returning (pad or nil, finished, result, error).
+-- Programs: run once a frame by the driver, each returning (pad or nil, finished, result, error).
 game.programs = {}
 
--- A STEP ON FOOT (autoplay_state_probe.lua, 2026-09-17, vanilla V1.0, New Bark Town and a house: held
--- walks in all four directions, a bump into a roof from a step and from rest, a door each way). The overworld
--- moved the player only on even frames, every 2 frames.
---   * wWalkingDirection (and wPlayerStepDirection while a step runs) read 0 down, 1 up, 2 left, 3 right.
---   * wPlayerMovement read 62 at rest, 4 + that code while turning (6 frames, when the press faced another
---     way), 12 + it while stepping, and 80 while a step was refused -- for as long as the direction was held,
---     with the coordinates unchanged.
---   * A step BEGINS on the frame the player object's +0x10/+0x11 move to the next tile (+0x07 reading 4 +
---     the code, FF otherwise) and ENDS 14 frames later, when wXCoord/wYCoord and +0x12/+0x13 catch up; with
---     the direction still held the next step begins 2 frames after that, and released at any point during a
---     step, the step finished and the player stood (62) 2 frames after its end.
---   * A step onto a door ended and wMapStatus read 1 on the next frame; stepping toward the edge while on a
---     door mat inside turned the player and went straight to 1, with no step. Once the new map ran (status 2)
---     the game stepped the player off the outside door by itself, and only then stood.
--- So `walk` holds the direction until the last tile's step begins, then waits for rest; a door waits for the
--- new map to run and the player to stand.
+-- A step begins on the frame the player object's +0x10/+0x11 move to the next tile and ends 14 frames later, when
+-- wXCoord/wYCoord catch up; released mid-step, it finishes. So `walk` holds the direction until the last tile's step
+-- begins, then waits for rest; after a door the game walks the player off it by itself.
 local W_PLAYERMOVEMENT, W_PLAYERSTATE = flat(0xC2DF), flat(0xD95D)
 local MOVEMENT_REST, MOVEMENT_REFUSED = 62, 80
--- wPlayerState read 0 walking and 1 on the BICYCLE (autoplay_state_probe.lua, 2026-09-17, New Bark Town: USE on it in the
--- PACK read 1 and turned the player object's graphic from 01 to 02, "A got on the BICYCLE.", and a warp kept both). On the
--- bike a step ran the same way on foot's did, faster: wPlayerMovement read 4 + the code turning (6 frames), 16 + the code
--- stepping, +0x10 moved as a step began and wXCoord caught up 6 frames later (14 on foot), the next step began 2 frames
--- after, and let go mid-step the step finished and the player stood (62) 2 frames after its end -- 40 frames held right
--- rode 4 tiles and stopped on the fourth. So `walk` and `goto` ride it as they walk. Nothing else is measured.
--- SURFING (autoplay_state_probe.lua, 2026-09-17, New Bark Town's pond; MEASURED.md, "Surfing"): SURF from the party menu put
--- the player on the water with wPlayerState 4 and graphic 0x53; a step on the water ran exactly as one on foot (4 + the code
--- turning for 6 frames, 12 + the code stepping, 14 frames, the next 2 after, rest 2 after the last), and a step onto land set
--- wPlayerState 0 as it began and ran as a step on foot. So `walk` surfs as it walks.
+-- wPlayerState: on foot, the BICYCLE and surfing each step the way a step on foot does (the bike faster), so `walk` and
+-- `goto` ride and surf as they walk.
 local MOVEMENT_STATES = { [0] = "on_foot", [1] = "bicycle", [4] = "surfing" }
 movementName = function() return MOVEMENT_STATES[u8(W_PLAYERSTATE)] end
--- The engine's own collision bytes for the four tiles beside the player, in the order down, up, left, right:
--- 7 beside the roof the player bumped from above and beside the sign they turned to from below; 0 beside open
--- ground. They are refreshed mid-step. Other values go out raw.
+-- wTileDown..wTileRight: the engine's collision bytes for the four tiles beside the player, refreshed mid-step.
 local W_TILE_DOWN = flat(0xC2FA)
 local DIRECTIONS = {
 	down = { button = "Down", dx = 0, dy = 1, cached = 0 }, up = { button = "Up", dx = 0, dy = -1, cached = 1 },
@@ -1402,7 +1227,7 @@ local function describeTile(x, y)
 	return blocked
 end
 
--- walk {direction, tiles}: on foot only, holding the direction from the first tile to the last.
+-- walk {direction, tiles}: on foot, on the BICYCLE or surfing, holding the direction from the first tile to the last.
 function game.programs.walk(p)
 	local name = type(p.direction) == "string" and p.direction:lower() or ""
 	local d = DIRECTIONS[name]
@@ -1428,9 +1253,8 @@ function game.programs.walk(p)
 	return function()
 		frames = frames + 1
 		if phase == "warping" then
-			-- No input: the new map loads, and the game walks the player off the door by itself -- a step that
-			-- began 2 frames after the map ran, with the player at rest on those 2 frames, so rest has to hold
-			-- for WARP_SETTLE frames before it counts (a first version answered on the door tile).
+			-- No input: after the load the game walks the player off the door, a step that begins 2 frames into a rest,
+			-- so rest counts only after WARP_SETTLE frames.
 			if mapName() ~= startMap and inOverworld() and atRest() then
 				settled = settled + 1
 				if settled >= WARP_SETTLE then return finish("map_changed", { map = mapName() }) end
@@ -1450,13 +1274,9 @@ function game.programs.walk(p)
 		local t = readTilemap()
 		if boxOpen(t) then return finish("dialogue_open") end
 		if readMenu(t, false) then return finish("menu_open") end
-		-- A script taking over: wScriptRunning went 0 to 255 on the frame after the step onto New Bark's west exit
-		-- (wScriptMode 1, "Wait, A!" 10 frames later) and onto the tile where Elm's aide walks over (mode 2, her
-		-- walk first); walking itself only ever read 9 (a turn) or 5 (a door). Held input then does nothing.
+		-- A script taking over (255): held input does nothing from then on.
 		if u8(W_SCRIPT_RUNNING) == SCRIPT_TOOK_OVER then return finish("script_started", { map = mapName() }) end
-		-- A trainer seeing the player: wScriptRunning read 1 (not 255) two frames after the step three tiles below Bug
-		-- Catcher Don ended, on the frame hLastTalked read his map object (4) and wSeenTrainerDistance (D03F) 3; he then
-		-- walked over and spoke (autoplay_trainer_probe.lua, 2026-09-17). Held input did nothing from there on.
+		-- A trainer seeing the player: wScriptRunning 1, two frames after the step ends.
 		if u8(W_SCRIPT_RUNNING) == SCRIPT_SEEN_BY_TRAINER then
 			return finish("spotted", { map = mapName(), trainer = { map_object = memory.read_u8(H_LAST_TALKED, "System Bus"),
 				tiles_away = u8(W_SEEN_TRAINER_DISTANCE) } })
@@ -1508,27 +1328,11 @@ function game.programs.walk(p)
 	end
 end
 
--- GOTO: the route planner and the ride are shared (`../route.lua`); what they read here is Crystal's, all of it `walk`'s
--- and `local_map`'s measurements above:
---   * position is the step's target tile (the player object's +0x10/+0x11), which moves on the frame a step BEGINS;
---   * a tile is open when its collision byte is one a step was measured onto -- 0x00, and 0x18, tall grass, where the
---     wild battles began -- and no character stands on it. Every other byte is planned as closed: 0x07, 0x15 and 0x29
---     refused a step, the ledges (0xA0, 0xA1, 0xA3) hop one way, and the rest are not measured, named in the refusal;
---   * a warp is closed unless it is the target: a door (0x71) warped on the step onto it, and a house's mat (0x70) only
---     on a press down while on it (below);
---   * a tile an unbeaten trainer may look at: its range the way its movement type was seen standing (6 down: Bug Catcher
---     Don and Youngster Mikey on every visit; 7 up: a character in house 24.9; 8 left: Route 31's trainer at (21,13);
---     2026-09-17), every way for any other type, whose turning is not measured. A trainer not loaded yet (Crystal loads a
---     character as the player comes near) is read from its map-object record: Don's, with only the player and one other
---     character loaded, read `FF 25 0B 05 06 00 FF FF B2 03 ...` -- FF where a loaded one holds its object slot (02
---     once he loaded), then his graphic, his tile plus 4 and movement type 6 (autoplay_map_probe.lua,
---     logs/autoplay_map_7871_20260917_032920.log);
---   * a warp under way (`arriving`): wMapStatus 1, or a new map until the player has stood WARP_SETTLE frames -- `walk`'s
---     door rule, since the game walks the player off an outside door after the load.
--- ENTERING A MAT (2026-09-17, New Bark's house 24.9, whose two warps at (2,7) and (3,7) read collision 0x70 and the town's
--- four doors 0x71): a walk right from one mat to the other and a walk down onto a mat from the room each answered `done` on
--- the mat; a walk down from rest on it answered `map_changed` with no step (63 frames), and a held walk down 2 from the room
--- stepped onto the mat and on into the town (88 frames). So a mat is gone to, then down is held.
+-- goto: the shared route planner over `walk`'s and `local_map`'s readings. A tile is open where its collision byte was
+-- walked onto (0x00, and 0x18 tall grass) and no character stands; every other byte is closed, the unmeasured ones
+-- named in the refusal. A warp is closed unless it is the target: a door (0x71) warps on the step onto it, a mat (0x70)
+-- only on a press down while on it. A trainer's line runs its range the way it faces where its movement type was seen
+-- standing one way, every way otherwise; one not loaded yet is read from its map-object record.
 -- Scoped in a block: its locals are the goto program's alone (a chunk holds at most 200).
 do
 local WALK_ONTO = { [0x00] = "open", [0x18] = "grass" }
@@ -1573,8 +1377,8 @@ local function routeGrid(fromX, fromY, toX, toY)
 			blocked[w.y * mapW + w.x] = blocked[w.y * mapW + w.x] or "warp"
 		end
 	end
-	-- Every trainer on the map, loaded or not, from its map-object record: an unloaded one's tile and movement type are its
-	-- record's, and its tile is closed as a loaded one's would be.
+	-- Every unbeaten trainer, loaded or not: an unloaded one's tile and movement type are its record's, and its tile is
+	-- closed as a loaded one's would be.
 	local trainers, byMapObject = {}, {}
 	for _, o in ipairs(objects) do byMapObject[o.map_object] = o end
 	for i = 1, MAP_OBJ_COUNT - 1 do
@@ -1630,7 +1434,8 @@ local function routeGrid(fromX, fromY, toX, toY)
 				if WARP_ENTRY[c] == nil then return nil end
 				return true, false, seen[y * mapW + x]
 			end
-			-- Surfing, the route stays on the water (0x29), and land is open only as the target: a step ashore ends the surf.
+			-- Surfing, the route stays on the water (0x29), and land is open only as the target: a step ashore ends the
+			-- surf.
 			if surfing then
 				if c == WATER then return true, false, seen[y * mapW + x] end
 				if not (x == toX and y == toY) then return nil end
@@ -1648,7 +1453,8 @@ local routeHooks = {
 		return mapName(), x, y
 	end,
 	inOverworld = inOverworld,
-	-- `walk`'s early stops, in its order: a message or a menu on screen, a script taking the controls, a trainer's sight.
+	-- `walk`'s early stops, in its order: a message or a menu on screen, a script taking the controls, a trainer's
+	-- sight.
 	watch = function()
 		return function()
 			local t = readTilemap()
@@ -1687,10 +1493,10 @@ local routeHooks = {
 	limits = { rest = REST_LIMIT, idle = IDLE_LIMIT, press = STEP_LIMIT, door = WARP_LIMIT, step = STEP_LIMIT },
 }
 
--- goto {x, y, cross_grass}: to a tile on this map by a planned route (`../route.lua`), on foot or on the BICYCLE.
+-- goto {x, y, cross_grass}: to a tile on this map, on foot, on the BICYCLE or surfing.
 game.programs["goto"] = function(p)
 	if not isVanilla then return nil, "goto is measured on the vanilla V1.0 ROM only" end
-	-- Another map's tables are not read here yet (`../route.lua`'s travel is Emerald's so far, 2026-09-17).
+	-- Another map's tables are not read here yet.
 	if p.map ~= nil and p.map ~= mapName() then return nil, "goto to another map is not built for Crystal yet" end
 	if not MOVEMENT_STATES[u8(W_PLAYERSTATE)] then
 		return nil, string.format("goto is measured on foot and on the BICYCLE only; wPlayerState reads %d", u8(W_PLAYERSTATE))
@@ -1699,10 +1505,7 @@ game.programs["goto"] = function(p)
 end
 end
 
--- Whether the game has seen every button released: hJoyDown is the game's own copy of the buttons, updated
--- when it looks at them -- in the START menu it read Down at f16525, still Down 36 frames later while it was
--- held, and 0 only once it was let go (autoplay_text_probe.lua, 2026-09-17). The driver's select waits for this
--- between cursor moves.
+-- hJoyDown is the game's own copy of the buttons, updated only when it looks at them: 0 once it has seen a release.
 local H_JOY_DOWN = 0xFFA8
 function game.inputReleased()
 	return memory.read_u8(H_JOY_DOWN, "System Bus") == 0
@@ -1716,18 +1519,9 @@ function game.menu()
 	return itemPocketMenu(m) or partyMenu(m, readTilemap(), low) or m
 end
 
--- TEXT AND BATTLES AS ONE CALL: the shared machine (`../text.lua`) through Crystal's reads.
---   * Progress is any change in the tile buffer (every letter printed, every HP bar step, a menu's cursor) or the
---     state bytes, and the player's tile (a scene walks the player: the west exit's, 2026-09-17).
---   * The battle's action menu is the grid whose first row is 14 and column 9, its move menu the list at row 13,
---     column 5 (autoplay_text_probe.lua, a wild PIDGEY); RUN is the grid's 3 and FIGHT its 0.
---   * A script has the controls while wScriptRunning reads anything but 0 (MEASURED.md, "A script taking over" and
---     "A trainer battle").
---   * hJoyDown is the game's own copy of the buttons: the START menu looked every few frames and missed a 2-frame
---     release, so presses wait for it to read 0, and a tap holds A until its bit 0 is set (hJoyDown read 1 for
---     each A a message box took, 2026-09-17).
---   * The strongest move is the battlers' reading above (power times the accuracy byte, measured PP above 0); the
---     effective one weighs the type table, the same-type bonus and the stats too.
+-- advance_text and battle: the shared machine over Crystal's reads. Progress is any change in the tile buffer, the
+-- state bytes or the player's tile (a scene walks the player). hJoyDown's bit 0 is A, so a tap holds A until the game
+-- has seen it.
 local function textAndMenuNow()
 	local t = readTilemap()
 	local _, low = readFont()
@@ -1754,9 +1548,7 @@ local textHooks = {
 		if not asking then return nil end
 		return asking, m
 	end,
-	-- Any value but 0: 255 through a sign, a scene or a wild encounter, and 1 from the step into Don's sight through his
-	-- walk, his words, the stretch with no text before the battle, the battle and the map's reload after it (2026-09-17;
-	-- `battle` had answered no_battle in that quiet stretch while this read only 255).
+	-- Any value but 0: a trainer's approach and the quiet before its battle read 1, not 255.
 	scriptRunning = function() return u8(W_SCRIPT_RUNNING) ~= 0 end,
 	inOverworld = inOverworld,
 	readMenu = function()
@@ -1766,9 +1558,7 @@ local textHooks = {
 	actionIndex = { fight = 0, run = 3 },
 	inputReleased = function() return game.inputReleased() end,
 	tapSeen = function() return (memory.read_u8(0xFFA8, "System Bus") & 0x01) ~= 0 end,
-	-- The level-up stats box ("CYNDAQUIL grew to level 6!", autoplay_text_probe.lua, 2026-09-17): a frame from (9,0) to
-	-- (19,11) -- 79 and 7B its top corners, 7D and 7E its bottom ones -- with ATTACK at row 1 from column 11, drawn 114
-	-- frames after the message's last letter and waiting (waitingInBattle) until A closed it.
+	-- The level-up stats box: a frame from (9,0) to (19,11) with ATTACK at row 1 from column 11, waiting with no ▼.
 	levelUpPage = function()
 		local t = readTilemap()
 		if cell(t, 9, 0) ~= 0x79 or cell(t, 19, 0) ~= 0x7B or cell(t, 9, 11) ~= 0x7D or cell(t, 19, 11) ~= 0x7E then return nil end
@@ -1778,14 +1568,9 @@ local textHooks = {
 		if not waitingInBattle() then return nil end
 		return "stats", "waiting"
 	end,
-	-- Any other menu read in a battle -- not the action grid, the move list or the PACK's list -- is a question: `battle`
-	-- stops on it rather than nudge A. THE SWITCH QUESTION (autoplay_text_probe.lua, 2026-09-17, Bug Catcher Don's battle
-	-- with CYNDAQUIL and BELLSPROUT in the party; MEASURED.md, "A trainer's next Pokémon, and the switch question"): after
-	-- "is about to use CATERPIE." the box read "Will A" on row 14 and "change POKéMON?" on row 16, and a YES/NO framed at
-	-- rows 7-11, columns 1-6 read through the menu block (first row 8, column 2, 2 rows); a nudge's A there chose YES and
-	-- opened the party menu. `no` is NO's index. THE NICKNAME QUESTION (the same probe and day, from the snapshot at "Gotcha!
-	-- BELLSPROUT was caught!"): the box read "Give a nickname to" / "BELLSPROUT?" and its YES/NO sat at rows 7-11, columns
-	-- 14-19 (first row 8, column 15). It is a choice for the caller, so it carries no `no`.
+	-- Any other menu in a battle (not the action grid, the move list or the PACK's list) is a question, so `battle`
+	-- stops on it rather than nudge A. `no` is NO's index on the switch question; the nickname question is the caller's
+	-- choice, so it carries no `no`.
 	battleQuestion = function()
 		if u8(W_BATTLEMODE) == 0 then return nil end
 		local t = readTilemap()
@@ -1804,12 +1589,12 @@ local textHooks = {
 			elseif lines[1] == "Give a nickname to" then
 				q.kind = "nickname"
 			elseif lines[#lines] == "Use next POKéMON?" then
-				-- After "CYNDAQUIL fainted!" with BELLSPROUT left (Route 31, 2026-09-17): NO answered "Got away safely!" in
-				-- that wild battle, YES opened the party list "Which PKMN?" (MEASURED.md, "The lead fainted").
+				-- After the lead faints: NO runs from a wild battle, YES opens the party list.
 				q.kind = "next_pokemon"
 			end
 		end
-		-- The party list in a battle ("Which PKMN?"), read as the POKéMON menu is: a Pokémon is chosen by name with select.
+		-- The party list in a battle ("Which PKMN?"), read as the POKéMON menu is: a Pokémon is chosen by name with
+		-- select.
 		local party = partyMenu(m, t, low)
 		if party then q.kind, q.menu = "party", { items = party.items, cursor = party.cursor } end
 		return q
@@ -1828,15 +1613,12 @@ local textHooks = {
 	endedReport = battleEndedReport,
 }
 
--- battle {policy = "strongest" | "effective" | "run"}: FIGHT and the strongest or most effective usable move each turn, or RUN; then through the text
--- to the overworld.
+-- battle and advance_text: the shared machine's (`lib.text`), with Crystal's hooks.
 game.programs.battle = function(p)
 	if not isVanilla then return nil, "battle is measured on the vanilla V1.0 ROM only" end
 	return lib.text.battle(textHooks, p)
 end
 
--- advance_text: presses through the message on screen, box by box, and stops when it closes and stays closed,
--- when a menu opens (answer it with select), or when a battle begins (hand it to battle).
 game.programs.advance_text = function()
 	if not isVanilla then return nil, "advance_text is measured on the vanilla V1.0 ROM only" end
 	return lib.text.advanceText(textHooks)

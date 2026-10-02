@@ -1,16 +1,17 @@
-// Command session runs one unattended Claude Code session toward a goal, on the user's Claude subscription only, and
-// reports it (the plan's session loop, Phase 3). Dev-only, never shipped (agent_docs/phases/phase13.md).
+// Command session runs one unattended Claude Code session toward a goal, on a Claude subscription only, and reports
+// it. Dev-only, never shipped.
 //
 //	go run ./cmd/session -core <built autoplay.exe> -claude <claude executable> -goal story_heat_badge -snapshot story_dynamo_badge
 //
 // Run from autoplay/, with the game's driver waiting for a core on -listen and nothing else on that port. In order:
 //  1. refuses to start while an API key or a cloud provider is set in the environment (session.CheckEnv);
 //  2. with no model, starts the core, restores the snapshot, opens the session's segment and checks the goal;
-//  3. plays: a headless `claude -p` given play.md, the core as its only MCP server, the game's tools and read-only file
-//     tools, stopped by the launcher once it has made -budget model calls;
-//  4. distills: the same session resumed with distill.md, editing only the game's knowledge store, -distill-budget calls;
+//  3. plays: a headless `claude -p` given session.PlayPrompt, the core as its only MCP server, the game's tools and
+//     read-only file tools, stopped by the launcher once it has made -budget model calls;
+//  4. distills: the same session resumed with session.DistillPrompt, editing only the game's knowledge store,
+//     -distill-budget calls;
 //  5. with no model again, closes the segment, checks the goal and reads where the game was left;
-//  6. writes report.json and report.md, with the stream of each run, into runs/sessions/<time>/ (gitignored).
+//  6. writes the report as JSON and Markdown, with the stream of each run, into runs/sessions/<time>/ (gitignored).
 //
 // It never commits: the knowledge store's diff is read by a person against "measured or observed only" first.
 package main
@@ -317,16 +318,15 @@ func sessionName(o options) string {
 }
 
 // heldInbound is the session's --settings: a message from another session is held, never delivered, so nothing a chat
-// sends can land inside the play as text the model acts on; a chat's notify_when_idle still gets its notice
-// (crossSessionInbound hold; the alternative, refuse, answers no notice either).
+// sends lands in the play as text the model acts on; a chat's notify_when_idle still gets its notice, which refuse
+// would not.
 const heldInbound = `{"crossSessionInbound":"hold"}`
 
 // claudeArgs is a headless run: the prompt on stdin, stream-json out, this core as the only MCP server, tools not
 // allowed denied rather than asked about, named for other sessions and holding their messages. Never --bare (it takes
 // an API key only) and never a dollar budget.
 func claudeArgs(o options, mcpConfig, resume string, tools []string) []string {
-	// dontAsk still ran read-only shell commands the allow list left out (the first session's distill: `wc -c` in Bash, `git
-	// diff` in PowerShell, 2026-09-17), so the shells are denied by name.
+	// dontAsk still runs read-only shell commands the allow list leaves out, so the shells are denied by name.
 	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--strict-mcp-config", "--mcp-config", mcpConfig,
 		"--permission-mode", "dontAsk", "--allowedTools", strings.Join(tools, ","), "--disallowedTools", "Bash,PowerShell",
 		"--name", sessionName(o), "--settings", heldInbound}

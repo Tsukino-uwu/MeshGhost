@@ -5,22 +5,14 @@ using UnityEngine;
 
 namespace MeshGhostAutoplay.Tevi
 {
-    // CLOCK (the plan's layer 3; agent_docs/phases/phase13.md, "how an agent sees a game"): the game's time held while the model
-    // decides. TEVI sets Time.timeScale itself every frame in GameSystem.TimeScale (0 while paused or in its own short stops, the
-    // game speed otherwise; names read from the Steam build's assemblies, 2026-09-17), so a value written from outside lasts one
-    // frame. A postfix on that method sets 0 after the game has, while held; a step lets the game's own value stand for that many
-    // of its calls, then holds again. What a timeScale of 0 does and does not freeze in TEVI is in adapters/tevi/MEASURED.md.
+    // Holds the game's time while the model decides. TEVI sets Time.timeScale itself every frame in
+    // GameSystem.TimeScale, so a value written from outside lasts one frame: a postfix sets 0 after the game has, and a
+    // step lets the game's own value stand for that many calls. Whether it is held lives in the AppDomain, so a hold
+    // outlives a core (mcpcall starts one per call) and a hot reload.
     //
-    // The hold survives a core going away (mcpcall starts a core per call, and a hold that ended with each call would hold nothing)
-    // and a hot reload: the patch goes with the plugin, but whether the clock is held is kept in the AppDomain's data, which the next
-    // copy reads as it installs (a reload that let go of the clock in the middle of a boss fight let the boss act, 2026-09-17).
-    //
-    // FAST: the game run faster than real time with every frame still one frame of game time. Time.captureDeltaTime makes Time.time
-    // advance by it each frame "regardless of real time and the duration of a frame", scaled by timeScale, and targetFrameRate -1 renders
-    // "as fast as possible" on desktop while vSyncCount is 0 (Unity 2021.3's scripting reference, Time.captureDeltaTime and
-    // Application.targetFrameRate; TEVI is 2021.3.25f1 and its log sets VSYNC 0, FPS limit 60, expected delta 0.01666667). Set every frame
-    // in the same postfix, since the game's own settings may set the frame rate again; off puts back the frame rate it found. Whether a
-    // fast frame is the same frame as a real-time one is measured, not assumed (adapters/tevi/MEASURED.md).
+    // Fast: Time.captureDeltaTime 1/60 keeps every frame one frame of game time while targetFrameRate -1 renders as
+    // fast as vSync 0 allows. Both are set every frame in the same postfix, since the game may set the frame rate
+    // again; off puts back the frame rate it found.
     public static class Clock
     {
         public const string HarmonyId = "dev.meshghost.autoplay.clock";
@@ -45,8 +37,8 @@ namespace MeshGhostAutoplay.Tevi
         private static int stepLeft;
         private static int stepped; // game-time frames let pass by the last step
 
-        // While held, a request that carries input (press, sequence, reflex, advance_text) runs game time for exactly its own
-        // frames, as a frame advance with input does: the plugin says so each frame, and the next frame runs.
+        // While held, a request that carries input (press, sequence, reflex, advance_text) runs game time for exactly
+        // its own frames, as a frame advance with input does: the plugin says so each frame, and the next frame runs.
         private static bool letRun;
 
         public static void LetInputRun(bool running)
@@ -111,7 +103,7 @@ namespace MeshGhostAutoplay.Tevi
             return new JObject { ["held"] = Held, ["step_left"] = stepLeft, ["time_scale_raw"] = Math.Round(Time.timeScale, 3), ["fast"] = Fast, ["fps"] = Math.Round(measuredFps, 1), ["target_frame_rate_raw"] = Application.targetFrameRate, ["capture_delta_raw"] = Math.Round(Time.captureDeltaTime, 5) };
         }
 
-        // CLOCK {action, frames}: hold and release answer at once; step answers once its frames have passed and it holds again.
+        // {action, frames}: hold and release answer at once; step answers once its frames have passed, holding again.
         public static Func<JToken> Job(JObject p, Func<bool, JObject> observe)
         {
             string action = (string)p["action"] ?? "";
@@ -121,8 +113,7 @@ namespace MeshGhostAutoplay.Tevi
                 case "hold":
                     Held = true;
                     stepLeft = 0;
-                    // The game's own TimeScale call has already run this frame (measured 2026-09-17: a hold that waited for the
-                    // postfix let one more frame of game time pass), so the next frame is stopped here.
+                    // The game's own TimeScale call has already run this frame, so the next frame is stopped here.
                     Time.timeScale = 0f;
                     return () => Time.frameCount > start ? Answer(action, start, observe) : null;
                 case "release":

@@ -1,10 +1,6 @@
--- autoplay UE4SS bootstrap (DEV TOOL, never shipped; agent_docs/phases/autoplay/pseudoregalia.md)
---
--- The only file copied into a game: <install>\...\ue4ss\Mods\MeshGhostAutoplay\Scripts\main.lua, with an
--- enabled.txt beside Scripts\ and a meshghost-autoplay.txt naming `repo=<this repo's root>` and `port=<the core's>`
--- (and `game=`, default pseudoregalia). It loads the driver from the repo itself, so an edit there is live on the
--- next RestartMod (probe_reloader's trigger) with nothing to copy. No config file, nothing loads: a game started
--- without one runs as it would without this folder.
+-- autoplay's UE4SS bootstrap, a dev tool that never ships: the one file copied into the game's
+-- ue4ss\Mods\MeshGhostAutoplay\Scripts. It reads meshghost-autoplay.txt beside the mod (repo=, port=, game=) and loads
+-- the driver from the repo, so an edit is live on the mod's next restart; with no config file nothing loads.
 
 local src = debug.getinfo(1, "S").source
 local scripts = src:match("^@(.*)[/\\][^/\\]*$") or "."

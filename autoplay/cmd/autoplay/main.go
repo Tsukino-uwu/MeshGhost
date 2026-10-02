@@ -1,6 +1,5 @@
-// Command autoplay is the dev-only harness core: an MCP server on stdin/stdout that Claude Code
-// starts, plus a loopback listener one game driver connects to. It is never built by a MeshGhost
-// release and never shipped (agent_docs/phases/phase13.md).
+// Command autoplay is the dev-only harness core: an MCP server on stdin/stdout that Claude Code starts, plus a
+// loopback listener one game driver connects to. It is never built by a MeshGhost release and never shipped.
 //
 // stdout belongs to MCP. Every log line goes to stderr, or to -log when given.
 package main
@@ -22,8 +21,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// DefaultListen is where a driver connects when nothing else is said. One instance, one core,
-// one port: a second instance's handoff names its own with -listen.
+// DefaultListen is where a driver connects when nothing else is said. One instance, one core, one port: a second
+// instance names its own with -listen.
 const DefaultListen = "127.0.0.1:7870"
 
 const version = "0.1.0"

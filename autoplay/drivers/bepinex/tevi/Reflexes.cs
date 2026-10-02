@@ -5,126 +5,85 @@ using UnityEngine;
 
 namespace MeshGhostAutoplay.Tevi
 {
-    // REFLEXES (the plan's layer 2; agent_docs/phases/phase13.md, "how an agent sees a game"): programs that read the game
-    // every frame and choose the next frame's input, for what a model turn is too slow to steer. The user, 2026-09-17: "need a
-    // better way to keep track of/be aware of moving enemies. they will move around/go towards the player/use ranged attackes
-    // etc. you can't just always stop in place and attack hopping that they will walk towards you".
-    //
-    // A reflex is a Func<JToken> ticked once a frame by the plugin, like any running request: null while it runs, its answer
-    // when it ends. Its input goes through InputInjection.Keep and Tap, so the game reads it as its own.
+    // Programs that read the game every frame and choose the next frame's input, for what a model turn is too slow to
+    // steer: each a Func<JToken> ticked once a frame like a running request, its input through Keep and Tap.
     public static class Reflexes
     {
-        // FIGHT {type?, range?, min_range?, stop_hp?, dodge?, push_orbs?, orb_mode?, orb_shots?, chain_guard?, root_frames?, combo_root_frames?,
-        // prefer_drop?, beam_gate?, incoming_orb_gate?, armor_gate?, air_swing?, unknown_ranged?, hug?, tell_filter?, no_progress_frames?}
-        // (the switches below the arguments, each defaulting to build C's rule): one enemy, followed and attacked until
-        // it is beaten.
-        //  - the target: the nearest living enemy in view (of `type` when given), kept by reference so a second of the same
-        //    kind never takes its place;
-        //  - each frame: face it; outside melee `range` (default 110 world units) hold toward it; inside it and roughly level
-        //    tap Attack; well above and on the ground, jump toward it; stuck against something while closing in, jump; level
-        //    but out of reach for long (a gap, a ledge), tap Ranged;
-        //  - ends `defeated` (its HP 0 or it is gone after a hit landed), `lost` (gone from view or inactive otherwise),
-        //    `unreachable` (45 frames not moving with it higher than a jump reaches from where she stands), `no_progress`
-        //    (its HP unchanged for `no_progress_frames`, default 300),
-        //    `low_hp` (the player's HP at or below `stop_hp`), `mode_changed` (not in play any more: a scene, a menu), or
-        //    `timeout` at the frame limit. Reports hits taken, attacks tapped, jumps and the target's HP at start and end.
-        //  - `push_orbs` (default true): a blastorb not already flying between her and the target is hit toward the target. `orb_mode`
-        //    passive (default): only one already in her swing or under her in the air, melee or a quickdrop onto it; active: any such orb,
-        //    melee in her swing, Orbitars while closing in (`orb_shots`), a quickdrop onto it from above; never one behind her; `orb_frames`
-        //    counts the frames spent on it, `orb_log` samples the decisions and each time the orb was sent flying. The user, 2026-09-17: "the player can also
-        //    attack them to push them towards/into the boss"; and a blastorb went off on Ribauld for most of his HP while she only dodged.
-        //  - with `dodge` (default true), each frame's intended move is checked against every box that can hurt the player
-        //    (Dodge.cs) and replaced by the nearest safe plan when it would be hit; `dodges` counts the frames it was.
+        // One enemy, the nearest living one in view (of `type` when given), kept by reference and attacked until
+        // beaten: faced and closed on until her swing reaches it (within `range` when ranged), then Attack tapped; a
+        // jump when it is above or she is stuck; Ranged when it stays out of reach. Every move goes through the dodge
+        // unless `dodge` is false. `push_orbs` hits a blastorb between her and the target toward it: `orb_mode` passive
+        // only one already in her swing or under her, active any (`orb_shots` while closing in).
         private const float UnreachableDy = 180f;
-        // Her swings' locks, measured over 67 ground and 51 air swings in the flight recorder read every frame (2026-09-17): a ground swing
-        // 20 frames (air 15-21), and a ground chain 20 then 17 then 19. The defaults are build C's 18 and 32, the last build measured over
-        // five tries (3 of 5, agent_docs/phases/autoplay/tevi.md); `root_frames` 22 and `combo_root_frames` 40 cover the measured locks and
-        // are tried against them.
+        // Build C's swing locks; `root_frames` 22 and `combo_root_frames` 40 cover the locks measured every frame.
         private const int RootFrames = 18;
         private const float MeleeReach = 139.5f, MeleeHalfHeight = 34f;
         private const int ComboRootFrames = 32;
-        private const int ComboKeepAfter = 75; // frames since the combo last rose: the game's timer is 1.75 s (105 frames)
-        private const int BackflipWindow = 12; // frames: the dodge state a Backflip holds is about 15 (the game's code, read as a map)
+        private const int ComboKeepAfter = 75; // frames since the combo last rose, before its timer runs out
+        private const int BackflipWindow = 12; // frames, inside the dodge state a Backflip holds
         private const int DirLead = 2; // frames a direction is held before a Spiral or Upper Slash's Attack
-        private const int ChargeTravel = 5; // frames a charge box took from its birth to reach her beside him (the flight recorder, 2026-09-17)
+        private const int ChargeTravel = 5; // frames a charge box took from its birth to reach her beside him
 
         public static Func<JToken> Fight(JObject args, int frameLimit, Func<CharacterBase> player, Func<string> mode, Func<bool, JObject> observe)
         {
             string wantType = (string)args["type"];
             float range = (float?)args["range"] ?? 110f;
-            // Closer than this she backs off: a boss's shots spawn at its gun, on top of anyone standing close (Ribauld's speeddown, fired
-            // at 35 units a frame from his gun, hit her at 83 units with no frame to see it, 2026-09-17). Her ground swing reaches 139.5
-            // ahead of her (a box 189 wide centred 45 ahead, MEASURED.md), so a big target can be hit from well outside 100.
+            // Closer than this she backs off: a boss's shots spawn at its gun, on top of anyone standing close.
             float minRange = (float?)args["min_range"] ?? 0f;
-            // `attack`: auto (default), melee or ranged. The user, 2026-09-17: "prefer melee attacks over orbitars, as melee always do more
-            // damage. but orbitars are nice when you can't reach with melee", "ground is prefered over air, but air is better than
-            // standing around and doing nothing", and above all never getting hit. So auto swings whenever her swing reaches the
-            // target, on the ground while standing is safe and else from a jump; out of reach it closes in and shoots on the way. ranged
-            // keeps to `range` and shoots (a melee combo locks her for its swings: Ribauld's charge from a standstill pushed her into a
-            // blastorb, 2026-09-17); melee never shoots.
+            // `attack`: auto swings whenever her swing reaches the target, on the ground while standing is safe and
+            // else from a jump, and shoots while closing in; ranged keeps to `range` and shoots; melee never shoots.
             string attackMode = (string)args["attack"] ?? "auto";
             if (attackMode != "auto" && attackMode != "melee" && attackMode != "ranged") throw new Exception("attack is auto, melee or ranged");
             string inRangeTap = attackMode == "ranged" ? "Ranged" : "Attack";
             string askedMode = attackMode;
             int stopHp = (int?)args["stop_hp"] ?? 0;
             bool dodge = (bool?)args["dodge"] ?? true;
-            int noProgressFrames = (int?)args["no_progress_frames"] ?? 300; // a boss the dodge keeps her away from needs far more
+            // a boss the dodge keeps her away from needs far more
+            int noProgressFrames = (int?)args["no_progress_frames"] ?? 300;
             bool pushOrbs = (bool?)args["push_orbs"] ?? true;
-            // The chain guard is stun-aware (below). Against Ribauld on Infernal BBQ, five tries each (2026-09-17): with neither it (then a
-            // blanket guard) nor the older orb shots he was beaten 3 of 5 in 113.7-119.2 s, with both 3 of 5 in 136.1-164.8 s
-            // (agent_docs/phases/autoplay/tevi.md).
-            bool chainGuard = (bool?)args["chain_guard"] ?? true; // no combo chaining once the target could attack before the combo ends
-            bool orbShots = (bool?)args["orb_shots"] ?? false; // with orb_mode active: Orbitar shots at an orb between them while closing in (below)
-            // Every rule below is a switch, its default build C's (2026-09-23): a rule earns its place by five tries against C, never by one
-            // incident, and a switch changes per call with no rebuild (agent_docs/phases/autoplay/tevi.md).
-            // `orb_mode`: passive (C: only an orb already in her swing or under her in the air is hit; she never goes to one) or active (any
-            // orb between them, build F).
+            // no combo chaining once the target could attack before the combo ends
+            bool chainGuard = (bool?)args["chain_guard"] ?? true;
+            // with orb_mode active: Orbitar shots at an orb between them while closing in (below)
+            bool orbShots = (bool?)args["orb_shots"] ?? false;
+            // Every rule below is a switch defaulting to build C, so a trial changes it per call with no rebuild.
             string orbMode = (string)args["orb_mode"] ?? "passive";
             if (orbMode != "passive" && orbMode != "active") throw new Exception("orb_mode is passive or active");
             int rootFrames = (int?)args["root_frames"] ?? RootFrames, comboRootFrames = (int?)args["combo_root_frames"] ?? ComboRootFrames;
-            // `prefer_drop`: when falling turns into a quickdrop. near_target (C: except within 60 of her swing's reach of the target), swing
-            // (except while swinging or with the target in her swing), always, or off.
+            // `prefer_drop`: when falling turns into a quickdrop. near_target (C: except within 60 of her swing's reach
+            // of the target), swing (except while swinging or with the target in her swing), always, or off.
             string preferDrop = (string)args["prefer_drop"] ?? "near_target";
             if (preferDrop != "near_target" && preferDrop != "swing" && preferDrop != "always" && preferDrop != "off") throw new Exception("prefer_drop is near_target, swing, always or off");
-            // `beam_gate`: no swing near a beam. wide (C: within 40 of one), narrow (her half-width and 18, at her feet and 16 either side), off.
+            // `beam_gate`: wide (C), narrow or off; see BeamNear.
             string beamGate = (string)args["beam_gate"] ?? "wide";
             if (beamGate != "wide" && beamGate != "narrow" && beamGate != "off") throw new Exception("beam_gate is wide, narrow or off");
-            bool incomingOrbGate = (bool?)args["incoming_orb_gate"] ?? false; // no tap while an orb flies at her within 500
-            bool armorGate = (bool?)args["armor_gate"] ?? true; // in the red outline, melee only when standing is safe for the whole horizon
+            // no tap while an orb flies at her within 500
+            bool incomingOrbGate = (bool?)args["incoming_orb_gate"] ?? false;
+            // in the red outline, melee only when standing is safe for the whole horizon
+            bool armorGate = (bool?)args["armor_gate"] ?? true;
             bool airSwing = (bool?)args["air_swing"] ?? true; // in reach but standing unsafe: swing from a jump
             bool unknownRanged = (bool?)args["unknown_ranged"] ?? true; // a kind with no learned tell fought from range
             float hug = (float?)args["hug"] ?? Dodge.DefaultHug; // how much the dodge prefers ending near the target
-            // `tell_filter`: predict from a state only while an attack followed at least half its recent entries (Tells.cs; not in C).
+            // `tell_filter` (not in C): predict only from states an attack followed at least half the time.
             bool tellFilter = (bool?)args["tell_filter"] ?? false;
-            bool keepSpawnTells = (bool?)args["keep_spawn_tells"] ?? false; // with tell_filter: thrown-explosive tells kept (Tells.KeepSpawns)
-            // Moves the game teaches in Ribauld's fight (its bottom-left popups, 2026-09-23), off until five tries say they help:
-            // `spiral_slash`, Down + Attack in the air (TEVI_WEAK_AIR_DOWN, measured; the user: "down + C, while in the air"), taken
-            // in the air with the target in her swing and not above her; `upper_slash`, Up + Attack on the ground (the move list,
-            // 2026-09-17), taken with the target in her swing's reach across but above her.
+            // with tell_filter: thrown-explosive tells kept (Tells.KeepSpawns)
+            bool keepSpawnTells = (bool?)args["keep_spawn_tells"] ?? false;
+            // `spiral_slash` (Down + Attack in the air, target in her swing and not above) and `upper_slash` (Up +
+            // Attack on the ground, target in reach but above her), moves the fight teaches; off by default.
             bool spiralSlash = (bool?)args["spiral_slash"] ?? false;
             bool upperSlash = (bool?)args["upper_slash"] ?? false;
-            // `break_launch`: while the target's armor is broken and refilling (the red outline) and she is on the ground with it in her
-            // swing, the swing is Upper Slash, whatever the height. Ribauld's armor broke at a ground combo's hit and refilled over about
-            // 480 frames, in which the armor gate left her dealing 14 HP (the trials timeline, 2026-09-23); the user: moves that "get
-            // them up into the air after breaking them" make a stunlock easier.
+            // `break_launch`: while the target's armor refills (the red outline) and it is in her swing on the ground,
+            // the swing is Upper Slash, whatever the height.
             bool breakLaunch = (bool?)args["break_launch"] ?? false;
-            // `bar_punish`: while the target plays its DAMAGE animation with no hitstun -- the stagger when a boss's health bar empties
-            // (Ribauld at 438-443 HP, whatever attack he was in, for about 60-160 frames, in every try; the trials timeline,
-            // 2026-09-23; the user: a bar going purple leaves a moment to juggle) -- the swing gates stand aside and a ground swing is
-            // Upper Slash. The dodge still vetoes a move that would be hit.
+            // `bar_punish`: while the target plays DAMAGE with no hitstun (a boss's stagger as a health bar empties),
+            // the swing gates stand aside and a ground swing is Upper Slash; the dodge still vetoes a hit.
             bool barPunish = (bool?)args["bar_punish"] ?? false;
-            // `recover_ranged`: while the target's armor refills (the red outline) a swing becomes an Orbitar shot. Ribauld's hits in the
-            // red outline took 2-4 HP with no hitstun (the trials timeline, 2026-09-23); the game's code, read as a map, says a blocked
-            // melee hit keeps the armor from refilling and an Orbitar shot is not blocked. To measure, not assumed.
+            // `recover_ranged`: while the target's armor refills, a swing becomes an Orbitar shot.
             bool recoverRanged = (bool?)args["recover_ranged"] ?? false;
-            // `backflip_dodge`: when the dodge's chosen plan is still hit within BackflipWindow frames and the dodge meter is full
-            // (playerc_perfer.HaveDodge() at 1 or more), Backflip is pressed. Read as a map: a hit during a backflip with a full meter
-            // is dodged and followed by invulnerability. To measure, not assumed.
+            // `backflip_dodge`: Backflip when the dodge's chosen plan is still hit within BackflipWindow frames and the
+            // dodge meter is full (HaveDodge() at 1 or more); what a backflip dodges is not measured.
             bool backflipDodge = (bool?)args["backflip_dodge"] ?? false;
-            // The combo counter (ComboSystem.GetCombo; the game's code, read as a map, says it ends 1.75 s after the last hit and that
-            // every hit of hers counts, Orbitar shots included). The user, 2026-09-23: a constant, high combo that never drops looks
-            // cool. Reported as max_combo and combo_drops (a count that fell), and `combo_keep`: once ComboKeepAfter frames have passed
-            // since it last rose and no swing is going out, an Orbitar shot at the target to renew it.
+            // The combo counter, reported as max_combo and combo_drops; `combo_keep`: once ComboKeepAfter frames have
+            // passed since it last rose and no swing is going out, an Orbitar shot at the target renews it.
             bool comboKeep = (bool?)args["combo_keep"] ?? false;
             int maxCombo = 0, comboDrops = 0, lastCombo = 0, comboRoseAt = Time.frameCount, keepShots = 0;
             int backflips = 0;
@@ -147,7 +106,8 @@ namespace MeshGhostAutoplay.Tevi
             int attacks = 0, jumps = 0, ranged = 0, hitsTaken = 0, lastHp = me.health;
             float lastX = me.t.position.x;
             int stuckFrames = 0, outOfReachFrames = 0, blockedFrames = 0;
-            float groundY = me.t.position.y; // where she last stood: reach is measured from there, so a jump does not reset it
+            // where she last stood: reach is measured from there, so a jump does not reset it
+            float groundY = me.t.position.y;
             bool landed = false;
             int targetHpSeen = target.health, lastProgress = Time.frameCount;
             string targetType = target.type.ToString();
@@ -211,8 +171,7 @@ namespace MeshGhostAutoplay.Tevi
                     targetHpSeen = target.health;
                     lastProgress = Time.frameCount;
                 }
-                // 900 frames of shots at a dog 232 units below, through a floor, never hurt it (2026-09-17): whatever the reason,
-                // a fight that stops hurting its target says so.
+                // A fight that stops hurting its target says so, whatever the reason.
                 if (Time.frameCount - lastProgress >= noProgressFrames) return Done("no_progress");
                 if (stopHp > 0 && p.health <= stopHp) return Done("low_hp");
                 if (mode() != "play") return Done("mode_changed");
@@ -221,8 +180,8 @@ namespace MeshGhostAutoplay.Tevi
 
                 Vector3 me3 = p.t.position, it = target.t.position;
                 float dx = it.x - me3.x, dy = it.y - me3.y;
-                // A kind whose attacks have not been seen yet is fought from range until one has: up close its first attack lands before
-                // the dodge knows it (a mouse and a cat on Infernal BBQ, 26 to 35 HP a hit, 2026-09-17).
+                // A kind whose attacks have not been seen yet is fought from range until one has: up close its first
+                // attack lands before the dodge knows it.
                 if (askedMode == "auto" && unknownRanged)
                 {
                     bool known = Tells.Known(target.type.ToString());
@@ -259,17 +218,13 @@ namespace MeshGhostAutoplay.Tevi
                 bool turn = false;
                 string dirHold = null; // a direction held with the swing: it makes it Spiral Slash or Upper Slash
                 bool facingIt = (dx >= 0) == (p.direction.ToString() == "RIGHT");
-                // Her ground swing reaches 139.5 ahead and 34 above and below her (a box 189 by 67.5 centred 45 ahead, MEASURED.md); it
-                // lands when that box meets the target's own.
+                // Her swing reaches MeleeReach ahead and MeleeHalfHeight up and down, landing on the target's box.
                 bool inMelee = attackMode != "ranged" && Mathf.Abs(dx) <= MeleeReach + target.GetHitboxW() / 2f && Mathf.Abs(dy) <= MeleeHalfHeight + target.GetHitboxH() / 2f;
-                // The user, 2026-09-17: a quickdrop is for getting down fast to dodge something, for the invincibility of landing on an enemy, or
-                // to reach the ground so she can melee again -- "not while it would distrupt attacking". So it is wanted only in the air with no
-                // swing running and nothing her air swing reaches; the dodge still takes one as a safe plan, and the orb one is asked for by name.
+                // Falling turns into a quickdrop per `prefer_drop`, never to attack; the dodge still takes one when
+                // safe.
                 bool swinging = p.logicStatus.ToString().Contains("TEVI_WEAK");
                 guard.PreferDrop = preferDrop == "always" || (preferDrop == "swing" && !onGround && !swinging && !inMelee)
                     || (preferDrop == "near_target" && !InMeleeReach(p, target, attackMode, 60f));
-                // No quickdrop as an attack: the user, 2026-09-17, "quickdrops do low damage and are slow, they should only be used for
-                // their iframes if other better damage options are available". The dodge still takes one to avoid a hit.
                 if (Mathf.Abs(dx) < minRange && onGround)
                 {
                     want = dx >= 0 ? Dodge.Move.Left : Dodge.Move.Right;
@@ -277,8 +232,7 @@ namespace MeshGhostAutoplay.Tevi
                 else if (attackMode != "ranged" ? inMelee : Mathf.Abs(dx) <= range)
                 {
                     stuckFrames = 0;
-                    // Turn to face it first: a one-frame hold toward it. Turning barely moves her, so the dodge sees it as standing (it
-                    // refused a turn toward a boss for want of room, and she stood 90 frames never facing it, 2026-09-17).
+                    // Face it first with a one-frame hold; turning barely moves her, so the dodge sees it as standing.
                     if (!facingIt) turn = true;
                     else if (attackMode == "ranged" && Mathf.Abs(dy) > 90f) tap = null;
                     else
@@ -302,7 +256,7 @@ namespace MeshGhostAutoplay.Tevi
                     want = towardMove;
                     bool notMoving = Mathf.Abs(me3.x - lastX) < 0.5f;
                     stuckFrames = notMoving ? stuckFrames + 1 : 0;
-                    // Out of a jump's reach (a full jump rose 175 units, MEASURED.md) and not getting closer: say so, never flail.
+                    // Out of a jump's reach and not getting closer: say so, never flail.
                     blockedFrames = notMoving && reachDy > UnreachableDy ? blockedFrames + 1 : 0;
                     if (blockedFrames >= 45) return Done("unreachable");
                     if (onGround && (stuckFrames >= 12 || dy > 90f))
@@ -310,17 +264,14 @@ namespace MeshGhostAutoplay.Tevi
                         want = dx >= 0 ? Dodge.Move.JumpRight : Dodge.Move.JumpLeft;
                         stuckFrames = 0;
                     }
-                    // Out of melee reach: shoot on the way in (auto), or after closing in has not worked for a while (melee never).
+                    // Out of reach: shoot on the way in (auto), or once closing in has stalled a while (not melee).
                     outOfReachFrames = Mathf.Abs(reachDy) > 90f ? outOfReachFrames + 1 : 0;
                     if (facingIt && Mathf.Abs(dx) < 500f && Mathf.Abs(dy) <= 90f && attackMode == "auto") tap = "Ranged";
                     else if (outOfReachFrames > 90 && Mathf.Abs(dx) < 500f && attackMode != "melee") tap = "Ranged";
                 }
 
-                // Orbs on the way to the target: the user, 2026-09-17, "just abuse the orbs to deal a lot of damage to the boss fast", "Priority
-                // 1 is to not get hit, but priority 2 is to always hugg/stick to the boss", then "stop being scared of the orbs all the time,
-                // melee/orbitar/quickdrop them and push them onto the boss". So any orb between her and the target is hit toward it: melee in
-                // her swing, Orbitars while closing in, a quickdrop from over it. Never one behind her: going round an orb to its far side put
-                // her beside it as it went off (73 HP on Infernal BBQ, 2026-09-17). Every time the orb last used is sent flying, what she was doing is logged as `kicked`.
+                // An orb between her and the target is hit toward it, never one behind her: going round one puts her in
+                // its blast. Each kick of the orb last used logs what she was doing.
                 if (lastOrb != null && lastOrb.t != null && lastOrb.phy_perfer != null)
                 {
                     Vector2 ov = lastOrb.phy_perfer._velocity;
@@ -333,8 +284,8 @@ namespace MeshGhostAutoplay.Tevi
                 }
                 CharacterBase orb = pushOrbs ? OrbToUse(p, target, orbMode == "passive") : null;
                 orbNote = null;
-                // An orb by the target but beyond her swing, with her inside its blast: her swing cannot set it off, so the fight goes on as
-                // if it were not there.
+                // An orb by the target but beyond her swing, with her inside its blast: her swing cannot set it off, so
+                // the fight goes on as if it were not there.
                 if (orb != null && orbMode == "active" && Mathf.Abs(orb.t.position.x - target.t.position.x) < OrbBlastClear && Mathf.Abs(orb.t.position.x - me3.x) < OrbBlastClear + 10f
                     && Mathf.Abs(orb.t.position.x - me3.x) > MeleeReach + OrbHalf + 10f) orb = null;
                 if (orb != null)
@@ -352,11 +303,10 @@ namespace MeshGhostAutoplay.Tevi
                         lastOrb = orb;
                         lastOrbSpeed = orb.phy_perfer != null ? orb.phy_perfer._velocity.magnitude : 0f;
                     }
-                    // An orb by the target goes off there, and its blast (405 wide) reaches her if she is within about 200: a swing at Ribauld
-                    // with an orb at his feet set it off 104 units from her for 83 HP (2026-09-17, Infernal BBQ). So one by the target is shot
-                    // from outside the blast, and one away from it is hit any way (it flies off and goes off on him, away from her).
+                    // An orb by the target goes off there, its blast reaching her within about 200: one there is shot
+                    // from outside the blast, one away from it is hit any way and flies off to go off on the target.
                     bool byTarget = Mathf.Abs(o3.x - target.t.position.x) < OrbBlastClear;
-                    // Passive (C): over it, quickdrop onto it; else face the way it has to go, never too close, and swing.
+                    // Passive (C): over it, quickdrop onto it; else face its way, keep off it, and swing.
                     if (orbMode == "passive")
                     {
                         if (!onGround && ax < OrbHalf + 20f && oy < 0f && oy > -200f) want = Dodge.Move.Drop;
@@ -374,7 +324,7 @@ namespace MeshGhostAutoplay.Tevi
                             tap = "Ranged";
                         }
                     }
-                    // In the air over it: quickdrop onto it (the user, 2026-09-17: "its also possible to quickdrop onto bombs to push them").
+                    // In the air over it: quickdrop onto it, which pushes it too.
                     else if (!onGround && ax < OrbHalf + 20f && oy < 0f && oy > -200f) want = Dodge.Move.Drop;
                     else if (!facingS) turn = true;
                     else if (ax < OrbTooClose) want = awayS;
@@ -385,7 +335,7 @@ namespace MeshGhostAutoplay.Tevi
                     }
                     else
                     {
-                        // Out of her swing: close in (toward the target too), shooting it when level, jumping to swing at one above.
+                        // Out of her swing: close in, shooting it when level, jumping to swing at one above.
                         want = toS;
                         if (orbShots && Mathf.Abs(oy) <= 40f) tap = "Ranged";
                         if (onGround && oy > 60f && oy < 200f && ax < MeleeReach + OrbHalf + 60f) want = s > 0 ? Dodge.Move.JumpRight : Dodge.Move.JumpLeft;
@@ -417,12 +367,8 @@ namespace MeshGhostAutoplay.Tevi
                     if (Dodge.IsJump(move) && onGround && InputInjection.Tap("Jump", 16)) jumps++;
                     int dir = Dodge.Dir(move);
                     if (dir != 0) InputInjection.Keep(dir > 0 ? "XAxis+" : "XAxis-");
-                    // A swing or a shot roots her for its animation: on the ground she stands, in the air she keeps her arc but cannot steer
-                    // (she hung at one x mid-air while a charge came under her and the dodge's steering did nothing, 2026-09-17). So it is
-                    // taken, ground or air, whenever not moving -- the Stay plan -- stays safe for RootFrames. The user: "should be able to
-                    // mix both ground/air to attack as much as possible whenever possible. while prioritizing never getting hit".
-                    // A swing that carries a combo on to its second and third hits holds her longer: after the third her Jump was not taken
-                    // for 22 frames while bombs fell on her (2026-09-17).
+                    // A swing or shot roots her (in the air she cannot steer), so it waits until the Stay plan is safe
+                    // for RootFrames; a combo's later hits root her longer.
                     if (comboKeep && tap == null && combo >= 2 && Time.frameCount - comboRoseAt >= ComboKeepAfter && facingIt && Mathf.Abs(dy) <= 90f)
                     {
                         tap = "Ranged";
@@ -431,28 +377,19 @@ namespace MeshGhostAutoplay.Tevi
                     string tapUngated = tap;
                     int root = tap == "Attack" && (p.logicStatus.ToString().Contains("NORMAL1") || p.logicStatus.ToString().Contains("NORMAL2")) ? comboRootFrames : rootFrames;
                     if (tap != null && dodge && !guard.StandingSafe(root)) tap = null;
-                    // No chaining when a combo locks her longer than the target's fastest learned tell: an air swing carried on as the air combo
-                    // on the ground (AIR_NORMAL1 to 3, about 48 frames) while Attack was tapped on, Ribauld began ATTACK2 in the middle of it and
-                    // his charge, 16 frames later, killed her there (2026-09-17, Infernal BBQ). A fresh swing stays allowed.
-                    // A swing moves her (about 14 units): beside a beam that hurts, or will before the swing ends, it slid her into it twice as
-                    // it switched on (2026-09-17, Ribauld's cut-in lasers).
+                    // A swing slides her: none beside a beam that hurts, or will before the swing ends.
                     if (tap == "Attack" && dodge && beamGate != "off" && BeamNear(p, root + 6, beamGate == "wide")) tap = null;
-                    // While its hitstun runs it starts nothing: of 339 attack starts by Ribauld over ten tries, 337 came with his hitstun at or
-                    // below 0 (hitstun is seconds, 0.05 less every 3 frames; the flight recorder, 2026-09-17). So a combo is safe while the
-                    // stun left plus the fastest tell outlasts it, and each landed hit renews the stun, except in the red outline.
+                    // No chaining while the combo's lock outlasts the target's hitstun plus its fastest learned tell:
+                    // it starts nothing in hitstun, and each hit renews it. A fresh swing stays allowed.
                     if (tap == "Attack" && dodge && chainGuard && root == comboRootFrames && Tells.FastestLead(target.type.ToString()) is int lead
                         && Mathf.Max(0f, target.GetHitStun()) * 60f + lead + ChargeTravel < comboRootFrames) tap = null;
-                    // Its armor broken and refilling (the red outline): a hit does little and does not stop it, and it attacks freely (the
-                    // user, 2026-09-17; the meter measured in MEASURED.md). A melee swing then only when standing stays safe for the whole
-                    // horizon: with only the swing and 10 frames more, he walked into her twice for 17 and 44 HP while she was locked (four tries,
-                    // 2026-09-17).
+                    // In the red outline a hit does little and does not stop it, and it attacks freely: a melee swing
+                    // then only when standing stays safe for the whole horizon.
                     if (armorGate && tap == "Attack" && orb == null && dodge && ArmorRecovering(target) && !guard.StandingSafe(Dodge.Horizon)) tap = null;
-                    // Never at an orb flying at her: her Orbitar shot met one Ribauld had knocked toward her 199 units off, and its blast took
-                    // all 100 HP (2026-09-17, Infernal BBQ).
+                    // A bar break's stagger lifts the gates; `incoming_orb_gate` holds a tap while an orb flies at her.
                     if (punish && tapUngated != null) tap = tapUngated;
                     if (incomingOrbGate && tap != null && IncomingOrb(p, IncomingOrbReach)) tap = null;
-                    // A direction swing: the direction is held first and the swing pressed once it has been held DirLead frames (the probe
-                    // held Down 2 frames before Attack, 2026-09-23); a quickdrop needs Jump, so Down alone is safe to hold in the air.
+                    // The direction leads the swing by DirLead frames; Down alone never quickdrops (that needs Jump).
                     bool directed = tap == "Attack" && dirHold != null && orb == null;
                     if (directed)
                     {
@@ -485,9 +422,8 @@ namespace MeshGhostAutoplay.Tevi
             };
         }
 
-        // EVADE {stop_hp?, stop_on_hit?, home_x?}: stay where the player is and let nothing hit her for `frames`: every box that can hurt her is read each
-        // frame and dodged (Dodge.cs), drifting back toward the starting x when that is safe. Ends `timeout` at the frame limit (the
-        // try passed when `hits_taken` is 0), `hit` (with stop_on_hit, the frame after the first), `low_hp`, or `mode_changed`. The dodge on its own, and a way to wait out a pattern.
+        // {stop_hp?, stop_on_hit?, home_x?}: the dodge alone for `frames`, drifting back to home_x when safe. Ends
+        // `timeout` (passed with `hits_taken` 0), `hit`, `low_hp` or `mode_changed`.
         public static Func<JToken> Evade(JObject args, int frameLimit, Func<CharacterBase> player, Func<string> mode, Func<bool, JObject> observe)
         {
             int stopHp = (int?)args["stop_hp"] ?? 0;
@@ -496,7 +432,8 @@ namespace MeshGhostAutoplay.Tevi
             if (me == null || me.t == null) throw new Exception("no player");
             if (mode() != "play") throw new Exception("evade starts in play, not in " + mode());
             int start = Time.frameCount, hpStart = me.health, hitsTaken = 0, lastHp = me.health;
-            float homeX = (float?)args["home_x"] ?? me.t.position.x, groundY = me.t.position.y; // where it drifts back to: home_x, else where it began
+            // where it drifts back to: home_x, else where it began
+            float homeX = (float?)args["home_x"] ?? me.t.position.x, groundY = me.t.position.y;
             var guard = new Guard(me);
             var hits = new JArray();
 
@@ -556,8 +493,7 @@ namespace MeshGhostAutoplay.Tevi
             public int Dodges, Jumps;
             public JObject LastDodge;
 
-            // Commitment: a move the dodge took is kept CommitFrames frames while it stays as good as any, so two near-equal plans never
-            // alternate frame by frame (she flipped left and right every 2 to 4 frames, 15 units back and forth, 2026-09-17).
+            // A move the dodge took is kept CommitFrames frames while as good as any: near-equal plans never alternate.
             private const int CommitFrames = 10;
             private Dodge.Move committed;
             private int committedUntil = -1;
@@ -572,7 +508,7 @@ namespace MeshGhostAutoplay.Tevi
             private List<Dodge.Plan> lastPlans;
             private int lastPlansFrame = -1;
 
-            // Whether standing where she is meets nothing for `frames` frames, by this frame's plans (true when nothing threatens).
+            // Whether standing meets nothing for `frames` frames, by this frame's plans (true when nothing threatens).
             public bool StandingSafe(int frames)
             {
                 if (lastPlansFrame != Time.frameCount || lastPlans == null) return true;
@@ -580,7 +516,7 @@ namespace MeshGhostAutoplay.Tevi
                 return i < 0 || lastPlans[i].FirstHit > frames;
             }
 
-            // Whether a plan meets nothing over the whole horizon, by this frame's plans (false when it cannot be taken from here).
+            // Whether a plan meets nothing all horizon by this frame's plans (false when it cannot be taken from here).
             public bool Safe(Dodge.Move m)
             {
                 if (lastPlansFrame != Time.frameCount || lastPlans == null) return true;
@@ -625,16 +561,15 @@ namespace MeshGhostAutoplay.Tevi
             public bool PreferDrop = true; // falling, want a quickdrop (movement only: a fight leaves the fall alone)
             public int? Imminent; // movement: step in only for a hit this close (Dodge.Choose)
             public float Hug = Dodge.DefaultHug; // a fight's `hug`
-            public int ChosenHitIn = int.MaxValue; // the plan Check took this frame: its first hit, or MaxValue when none is near
+            // the plan Check took this frame: its first hit, or MaxValue when none is near
+            public int ChosenHitIn = int.MaxValue;
 
             public Dodge.Move Check(CharacterBase p, Dodge.Move want, float groundY)
             {
                 Look(p, groundY);
                 ChosenHitIn = int.MaxValue;
                 bool onGround = p.onGround();
-                // Falling, a quickdrop is wanted instead: the user, 2026-09-17, "prefer always using quickdrop instead of normally falling
-                // down. as its faster/makes it easier to react to attacks from enemies". The dodge still takes the plain fall when the drop
-                // would meet something.
+                // Falling, a quickdrop is wanted; the dodge keeps the plain fall when the drop would meet something.
                 if (PreferDrop && !onGround && vyNow < 0f && p.logicStatus.ToString() != "QUICKDROP" && !Dodge.IsDrop(want))
                 {
                     int d = Dodge.Dir(want);
@@ -650,8 +585,8 @@ namespace MeshGhostAutoplay.Tevi
                 List<Dodge.Plan> plans = lastPlans;
                 Dodge.Start st = start;
                 Dodge.Plan chosen = Dodge.Choose(plans, want, StickX, Imminent, Hug);
-                // Inside the window the committed move wins over the wanted one too while it is as safe: a want that flips back the
-                // moment the danger is behind her is the same stutter.
+                // Inside the window the committed move beats the wanted one too while as safe, or a want flipping back
+                // once the danger passes would stutter.
                 if (Imminent == null && Time.frameCount <= committedUntil && chosen.Move != committed)
                 {
                     int i = plans.FindIndex(x => x.Move == committed);
@@ -709,15 +644,13 @@ namespace MeshGhostAutoplay.Tevi
             }
         }
 
-        // Using a blastorb: never closer than its touch distance (it goes off within about 42 units, EnergyBall read as a map; its body
-        // box 50 by 50, the flight recorder).
+        // Using a blastorb: never closer than its touch distance.
         private const int OrbLogEvery = 20;
         private const float OrbKicked = 150f; // physics speed: a knocked orb read 400-600, a resting one about 0
         private const float OrbTooClose = 56f, OrbHalf = 25f, OrbKnocked = 300f;
 
-        // The nearest orb between her and the target (or right beside it), that is not already flying (a knocked one moves 20-30 units a
-        // frame, 400-600 as the physics reads speed).
-        // `passive` (build C): only one already within her swing, or under her in the air.
+        // The nearest orb between her and the target (or right beside it) not already flying; passive (C): only one in
+        // her swing or under her in the air.
         private static CharacterBase OrbToUse(CharacterBase me, CharacterBase target, bool passive)
         {
             CharacterManager cm = CharacterManager.Instance;
@@ -750,15 +683,14 @@ namespace MeshGhostAutoplay.Tevi
             return best;
         }
 
-        // A swing slid her about 14 units (the flight recorder, 2026-09-17); her hurtbox is 11 wide. A swing is refused only when where she
-        // stands or where the slide ends, either way, comes within her half-width and a margin of a beam's radius: a flat 40 from every beam
-        // refused every swing in the curtain's 84-wide gaps, which the user pointed to as the place to keep hitting from.
-        // `wide` (build C): within 40 of a beam at all.
+        // `narrow` refuses a swing only when where she stands or its slide ends comes within her half-width and
+        // BeamMargin of a beam, keeping the curtain's gaps; `wide` (C): within BeamWide of any.
         private const float BeamSlide = 16f, BeamMargin = 18f, BeamWide = 40f;
 
         private static bool BeamNear(CharacterBase p, int withinFrames, bool wide)
         {
-            var c = new Vector2(p.t.position.x, p.t.position.y - 17f); // her hurtbox centre (observe: dy_from_position -17)
+            // her hurtbox centre (observe: dy_from_position -17)
+            var c = new Vector2(p.t.position.x, p.t.position.y - 17f);
             float half = p.GetHitboxW() / 2f + BeamMargin;
             foreach (Threats.Laser l in Threats.ReadLasers(p))
             {
@@ -818,8 +750,7 @@ namespace MeshGhostAutoplay.Tevi
             {
                 if (c == null || c == me || c.t == null || !c.gameObject.activeInHierarchy || c.health <= 0) continue;
                 if (!IsEnemy(c) || Utility.isOutsideCamera(c.t.position, 0f)) continue;
-                // Not something to fight: EnergyBall reads enemy with 99999 HP, and the user, 2026-09-17: "these things are bombs
-                // you can attack/push towards things to break them, not enemies".
+                // Not something to fight: a blastorb reads as an enemy with 99999 HP.
                 if (c.maxhealth >= 99999) continue;
                 if (type != null && c.type.ToString() != type) continue;
                 float d = (c.t.position - me.t.position).sqrMagnitude;

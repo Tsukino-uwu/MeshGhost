@@ -1,8 +1,8 @@
-// Package session is the unattended session loop's library (Phase 3): what a headless Claude Code session may
-// run with, how its model calls are counted from its stream, what its run log says it did, and the report.
+// Package session is the unattended session loop's library: what a headless Claude Code session may run with, how
+// its model calls are counted from its stream, what its run log says it did, and the report.
 //
-// The loop runs on the user's Claude subscription only (the user, 2026-09-17): never an API key, never API billing,
-// never a dollar figure in a report. See CheckEnv.
+// The loop runs on a Claude subscription only: never an API key, never API billing, never a dollar figure in a
+// report. See CheckEnv.
 package session
 
 import (
@@ -79,7 +79,7 @@ func SummarizeRunLog(path string, from, to int) (RunSummary, error) {
 					open[n] = len(s.Segments)
 					s.Segments = append(s.Segments, seg)
 				case "segment":
-					// A core stopping writes its open segment with session_end; the segment carries on in the next core.
+					// A core stopping writes its open segment with session_end; it carries on in the next core.
 					if i, ok := open[n]; ok && !rec.SessionEnd {
 						s.Segments[i] = seg
 					} else if ok {

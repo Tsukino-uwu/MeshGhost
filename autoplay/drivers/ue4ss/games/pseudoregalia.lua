@@ -1,9 +1,4 @@
--- autoplay UE4SS driver, Pseudoregalia's module (DEV TOOL, never shipped).
---
--- What observe reads and how input reaches the player, each from a measurement named in
--- adapters/pseudoregalia/MEASURED.md or the adapter's own C++ (the field names it already reads by reflection:
--- moveState, actionState, controlState, BP_HpHitable's CurrentHp and maxHP, the level's full name).
--- Everything runs on the game thread (the driver's frame loop).
+-- autoplay's UE4SS driver module for Pseudoregalia, a dev tool that never ships. Everything runs on the game thread.
 
 local host = ...
 local log = host.log
@@ -12,13 +7,12 @@ local M = {
 	game = "pseudoregalia",
 	variant = "vanilla",
 	capabilities = { "wait", "press", "sequence", "screenshot", "snapshot", "restore", "advance_text", "recent", "cheat:teleport", "reflex:walk_to", "reflex:goto", "reflex:reach", "reflex:fight", "reflex:look" },
-	-- The user's save files 1-7 are never written; File 8 is autoplay's (the user, 2026-09-23).
+	-- Save files 1-7 are never written: File 8 is autoplay's.
 	protected_slots = { 1, 2, 3, 4, 5, 6, 7 },
 }
 
--- A player controller, kept by its PATH and found again each frame by StaticFindObject (a hash lookup): an object held
--- across frames can outlive what it names, and IsValid on it then reads freed memory (the registry's crashes, below).
--- FindFirstOf walks the object array, so it runs only when the path finds nothing.
+-- The controller is kept by path, found again each frame by StaticFindObject (a hash lookup): a kept object can
+-- outlive what it names, and IsValid on it reads freed memory. FindFirstOf walks the object array: only as a fallback.
 local pcPath = nil
 local function controller()
 	if pcPath then
@@ -78,11 +72,9 @@ function M.build()
 	return "steam"
 end
 
--- THE SAVE GUARD. The game writes its save to the game instance's `activeSaveSlotName`, and after File 8 was started
--- as a new game through File Select that read "File 5", one of the user's (2026-09-23; File 5 was still identical to
--- the backup). From the moment a core first connects until the game exits, every tenth frame in play puts it back to
--- AUTOPLAY_SLOT and logs each correction. The user's files 1-7 are never autoplay's (the user, 2026-09-23). A game
--- started without a core ever connecting is not guarded, so the user's own play saves where it always does.
+-- The save guard: the game saves to the game instance's activeSaveSlotName, which can name another file than the one
+-- started. From a core's first connection until the game exits, every tenth frame in play puts it back to
+-- AUTOPLAY_SLOT; a game no core connected to is never guarded.
 local AUTOPLAY_SLOT = "File 8"
 local guard = { armed = false, corrections = 0, last_from = nil }
 
@@ -113,8 +105,7 @@ function M.onConnect()
 	end
 end
 
--- THE FLIGHT RECORDER: one row a frame of the player's position, speed, states and the camera's yaw, the last
--- RECORD_FRAMES frames, recorded whether or not a core is connected, for `recent`.
+-- The flight recorder, for `recent`: one row a frame, the last RECORD_FRAMES, whether or not a core is connected.
 local RECORD_FRAMES = 600
 local TRAIL_ROWS = 20000
 local trail, trailN = {}, 0
@@ -133,9 +124,7 @@ local function record(frame, pc, pawn)
 	if ok then
 		rec[frame % RECORD_FRAMES] = row
 		if frame % 3 == 0 then
-			-- A watched enemy beside her on the long trail (M.watch_class, set through exec): its path is found once a
-			-- second until it exists, then read by StaticFindObject -- never a kept object (the registry's crashes).
-			-- For reading a fight the user plays (the Keeper, 2026-09-23).
+			-- An enemy to watch beside her (M.watch_class, set through exec), its path looked up once a second.
 			if M.watch_class then
 				if not M.watch_path and frame % 144 == 0 then
 					local a = FindFirstOf(M.watch_class)
@@ -165,9 +154,8 @@ local function record(frame, pc, pawn)
 	end
 end
 
--- THE LONG TRAIL: every 3rd recorded row kept for TRAIL_ROWS rows (about 7 minutes at 144 frames a second), so a
--- path the user plays to show the way (their offer, 2026-09-23) can be read back through `exec`:
--- `game.trail_since(frame)` returns the rows after that frame.
+-- The long trail: every 3rd row for TRAIL_ROWS rows (about 7 minutes at 144 frames a second), so a path a person plays
+-- can be read back through exec.
 function M.trail_since(frame, limit)
 	local out = {}
 	for i = math.max(1, trailN - TRAIL_ROWS + 1), trailN do
@@ -204,12 +192,9 @@ function M.tick(frame)
 	guardSlot(pawn)
 end
 
--- THINGS: the actors a player meets, by class, from a census of ZONE_Dungeon's 840 actors (2026-09-23). The list is
--- rebuilt from one FindAllOf("Actor") walk when the map changes or 300 frames have passed (a walk costs about a
--- millisecond, CLAUDE.md), never per frame. An entry keeps the actor's PATH, never the object: each read finds it again
--- by StaticFindObject. A kept object outlived its actor -- a broken wall, the whole level after a restore -- and IsValid
--- on it read freed memory: the game crashed in UE4SS three times (2026-09-23, 16:43 after a restore, 16:57 after walls
--- broke). Its position is its root component's RelativeLocation -- a named read, no UFunction called on it.
+-- The actors a player meets, by class, from one FindAllOf("Actor") walk (about a millisecond) per map or 300 frames.
+-- Kept by path, never the object: IsValid on a kept object whose actor was gone (a broken wall, the level after a
+-- restore) crashed the game. Positions are the root component's RelativeLocation, a named read with no UFunction call.
 local KIND_BY_CLASS = {
 	BP_NPC_C = "npc", BP_NPC_Child_C = "npc", BP_SavePoint_C = "save_point", BP_UpgradeBase_C = "upgrade",
 	BP_HealthPiece_C = "health_piece", BP_GenericKey_C = "key", BP_LockDoor_C = "locked_door",
@@ -240,7 +225,6 @@ local function refreshRegistry(map)
 	registry = { map = map, at = host.frame(), list = list }
 end
 
--- The live actor behind a registry entry, or nil once it is gone.
 local function actorOf(e)
 	local a = StaticFindObject(e.path)
 	if a and a:IsValid() and not a.bActorIsBeingDestroyed then return a end
@@ -248,10 +232,7 @@ local function actorOf(e)
 end
 M.actor_of = actorOf
 
--- AXES: the swinging axes (BP_HazardAxe_C), from the registry. Each swings +-45 degrees in the x-z plane about its pivot
--- (the actor's position, 3250 over the axes' corridor floor at 2550); the long one's blade (Box) came down to ~2660 at the
--- bottom of its arc, into a standing player (top 2682) and over a sliding one (~2596) (sampled 2026-09-23). A cell
--- under one is where goto slides.
+-- The swinging axes, from the registry: a cell under one is where goto slides.
 local axeCache = { map = nil, at = -1e9, list = {} }
 local function axesOn(map)
 	if axeCache.map == map and host.frame() - axeCache.at < 600 then return axeCache.list end
@@ -280,9 +261,7 @@ local function underAxe(axes, x, y, z)
 end
 M.axes_on = axesOn
 
--- ENEMIES where they stand now, from the registry (paths found again, never kept objects). goto routes around them
--- and jumps past one ahead, never fighting (the user, 2026-09-23: "ignore the enemies, no need to attack them, just
--- navigate around them while jumping"; walking into one knocked her into a castle pit).
+-- Enemies where they stand now: goto routes around them and jumps past one ahead, never fighting.
 local function enemiesOn(map)
 	if registry.map ~= map or host.frame() - registry.at > 300 then refreshRegistry(map) end
 	local list = {}
@@ -311,8 +290,7 @@ local function things(map, px, py, pz, limit)
 				local t = { kind = e.kind, class = e.class, name = e.name, x = math.floor(x + 0.5), y = math.floor(y + 0.5),
 					z = math.floor(z + 0.5), distance = math.floor(math.sqrt(dx * dx + dy * dy + dz * dz) + 0.5),
 					bearing = math.floor(math.deg(math.atan(dy, dx)) + 0.5) }
-				-- A sign's own words, its prompt (EXAMINE, REFLECT) and whether the player stands where Interact reads it
-				-- (BP_ExamineTextPopup_C's textWindows, popupPrompt and overlappingPlayer?, by name, 2026-09-23).
+				-- A sign's words, its prompt (EXAMINE, REFLECT) and whether she stands where Interact reads it.
 				if e.kind == "sign" and t.distance < 3000 then
 					pcall(function()
 						t.prompt = a.popupPrompt:ToString()
@@ -332,12 +310,8 @@ local function things(map, px, py, pz, limit)
 	return out, n
 end
 
--- SURROUNDINGS: what the level's collision says around the player, by the engine's own line traces
--- (KismetSystemLibrary:LineTraceSingle on trace channel 0, which stopped at the room's walls and at a cage beside her,
--- 2026-09-23). `walls`: the distance to the first hit along 16 bearings (0, 22.5, ... degrees, world yaw; 0 is +x),
--- capped at WALL_RANGE. `floor`: along 8 bearings, the floor's height at 150, 400 and 800 units out, relative to the
--- floor under her (0 level, negative a drop, positive a step or ledge up), nil where nothing is found within 3000 below
--- (a pit), "wall" where the wall on that bearing is nearer. `ceiling`: the distance straight up. Each trace ignores the player.
+-- What the level's collision says around her, by line traces on channel 0, each ignoring her: `walls` along 16 bearings
+-- (0 is +x), `floor` heights relative to hers along 8 (nil a pit, "wall" past a nearer wall), `ceiling` straight up.
 local WALL_RANGE = 2000
 local ksl = nil
 local function trace(pawn, x1, y1, z1, x2, y2, z2)
@@ -378,11 +352,8 @@ local function surroundings(pawn, x, y, z)
 	return s
 end
 
--- DIALOGUE: a conversation's words are the game instance's UI_DialoguePrompt_C: `Text Bubbles` (every line, with the
--- game's markup: [3rr] a pause, [#cf2525](word) a colour), `currentLine` (from 1), `writing` while a line prints,
--- `canClose?` (an NPC conversation, 2026-09-23). Finished prompts linger until garbage collection (MEASURED.md,
--- "what marks talking"), so the newest -- the lowest name number, the one created last -- is read, and only while
--- controlState says she is reading or talking. A sign's words come from the sign itself (`things`).
+-- A conversation's words are a UI_DialoguePrompt_C's `Text Bubbles` ([3rr] a pause, [#cf2525](word) a colour).
+-- Finished prompts linger until garbage collection, so the lowest name number, the one created last, is read.
 local function plainText(s)
 	s = s:gsub("%[%d*rr%]", ""):gsub("%[#%x+%]%(([^)]*)%)", "%1")
 	return s
@@ -437,8 +408,7 @@ function M.observe(full)
 		o.location.x, o.location.y, o.location.z = loc.X, loc.Y, loc.Z
 		o.location.yaw = rot.Yaw
 		local p = {}
-		-- A property the class lacks reads as an invalid object, not nil (the title's DefaultPawn, 2026-09-23):
-		-- only a number is kept.
+		-- A property the class lacks reads as an invalid object, not nil (the title's DefaultPawn): keep only numbers.
 		pcall(function() p.move_state = num(pawn.moveState) end)
 		pcall(function() p.action_state = num(pawn.actionState) end)
 		pcall(function() p.control_state = num(pawn.controlState) end)
@@ -452,8 +422,7 @@ function M.observe(full)
 				p.velocity = { x = v.X, y = v.Y, z = v.Z }
 			end)
 			pcall(function() p.class = pawn:GetClass():GetFName():ToString() end)
-			-- What she has: the pawn's own obtained/has flags (BP_PlayerGoatMain_C, read by name 2026-09-23: obtainedSlide?
-			-- turned true with the slide's screen).
+			-- What she has: the pawn's own obtained/has flags, read by name.
 			pcall(function()
 				local have = {}
 				for _, n in ipairs(ABILITY_FLAGS) do
@@ -463,9 +432,8 @@ function M.observe(full)
 			end)
 		end
 		o.player = p
-		-- The camera, from the camera manager: IA_Look orbits the game's own camera rig around the player and leaves the
-		-- controller's ControlRotation where it was (a 60-frame LookRight, 2026-09-23), so the view is read here.
-		-- `yaw` is the direction the view looks along; MoveUp walks that way.
+		-- IA_Look orbits the game's camera rig and leaves ControlRotation alone, so the view is read from the camera
+		-- manager. MoveUp walks along its yaw.
 		pcall(function()
 			local cm = pc.PlayerCameraManager
 			if cm and cm:IsValid() then
@@ -518,18 +486,14 @@ function M.diffKeys(o)
 	return k
 end
 
--- Every sixth frame: the map and the mode, sent as events when they change.
 function M.watch()
 	local o = M.observe(false)
 	return { map = o.location and o.location.map or "", mode = o.mode }
 end
 
--- INPUT: the game's own Enhanced Input actions, injected into the local player's subsystem every frame a button is
--- held (InjectInputVectorForAction, found on EnhancedInputSubsystemInterface in this build by reflection,
--- 2026-09-23). An injected value goes through the action's own triggers and modifiers, so the pawn's input events fire
--- as they do for a pad. It only reaches actions in an applied mapping context: none is applied on the title screen,
--- whose menus read raw keys (OnKeyDown), so injection is for play. A button is its action's name without IA_; the
--- stick is MoveUp/MoveDown/MoveLeft/MoveRight (IA_Move, 2D) and the camera LookUp/LookDown/LookLeft/LookRight (IA_Look).
+-- Input is the game's own Enhanced Input actions, injected every held frame, so they pass through the action's
+-- triggers and modifiers as a pad's would. Only actions in an applied mapping context answer, and the title screen has
+-- none: its menus read raw keys. A button is its action's name without IA_; MoveUp/... are IA_Move, LookUp/... IA_Look.
 local AXES = {
 	MoveUp = { "IA_Move", 0, 1 }, MoveDown = { "IA_Move", 0, -1 }, MoveLeft = { "IA_Move", -1, 0 }, MoveRight = { "IA_Move", 1, 0 },
 	LookUp = { "IA_Look", 0, 1 }, LookDown = { "IA_Look", 0, -1 }, LookLeft = { "IA_Look", -1, 0 }, LookRight = { "IA_Look", 1, 0 },
@@ -551,7 +515,6 @@ local function inputReady()
 	return subsystem and subsystem:IsValid() and actions ~= nil
 end
 
--- One frame of input: the buttons held now, as a list of names. Returns an error for a name it does not know.
 local function inject(buttons)
 	if not inputReady() then return "the game's input is not ready (no subsystem or actions yet)" end
 	local vec = {}
@@ -598,7 +561,7 @@ function M.programs.press(p)
 	end
 end
 
--- sequence {steps: [{buttons, from, frames}], stop_on}: each step held from its own frame; overlaps allowed.
+-- sequence {steps: [{buttons, from, frames}]}: each step held from its own frame; overlaps allowed; stop_on not read.
 function M.programs.sequence(p)
 	local steps, last = p.steps or {}, 0
 	for _, st in ipairs(steps) do
@@ -621,9 +584,7 @@ function M.programs.sequence(p)
 	end
 end
 
--- REFLEXES: programs that read the game every frame and pick that frame's input. Measured 2026-09-23 on the Steam
--- build: MoveUp walks along the camera's yaw and MoveRight along yaw + 90; LookRight raises the camera's yaw (about
--- 1.4 degrees a frame at full tilt, 10 frames).
+-- Reflexes: programs that read the game every frame and pick that frame's input. MoveUp walks along the camera's yaw.
 local function wrap(deg)
 	deg = (deg + 180) % 360
 	return deg - 180
@@ -650,10 +611,8 @@ local function injectLook(x, y)
 	subsystem:InjectInputVectorForAction(actions.IA_Look, { X = x, Y = y, Z = 0.0 }, {}, {})
 end
 
--- screenshot {name}: the game's own frame WITH its UI, from the engine's `shot showui` console command (HighResShot
--- leaves the UI out: the title's menu was missing from it, 2026-09-23). The engine writes ScreenShot<NNNNN>.png, the
--- first free number, into Saved\Screenshots\Windows; the driver waits until that file stops growing, copies it to
--- dev-scripts/shots/pseudoregalia/autoplay_<name>.png and removes the original, so the next is 00000 again.
+-- screenshot {name}: `shot showui` keeps the UI, which HighResShot leaves out. The engine writes the first free
+-- ScreenShot<NNNNN>.png; once it stops growing it is copied out and removed, so the next is 00000 again.
 local SHOT_DIR = (os.getenv("LOCALAPPDATA") or "") .. "\\pseudoregalia\\Saved\\Screenshots\\Windows\\"
 
 local function fileSize(path)
@@ -697,11 +656,9 @@ function M.programs.screenshot(p)
 	end
 end
 
--- SNAPSHOTS. The game keeps no position in its save (a load spawns at the save point or the zone's spawn tag), so a
--- snapshot is two files: the game's own save of File 8 (`instSaveGameToSlot`, with the guard's slot checked first),
--- copied to the core's .State path, and `<path>.json` beside it with the map, position and camera. A restore copies the
--- save back over File 8, calls the game's own `reloadAndRespawn` (it put the player back on the new game's spawn,
--- 2026-09-23), waits for play, and teleports to the recorded spot on the same map.
+-- Snapshots: the game's save keeps no position (a load spawns at the save point or the zone's spawn tag), so a
+-- snapshot is File 8's own save plus `<path>.json` with the map, position and camera; a restore reloads it and
+-- teleports back.
 local SAVE_DIR = (os.getenv("LOCALAPPDATA") or "") .. "\\pseudoregalia\\Saved\\SaveGames\\"
 local AUTOPLAY_FILE = SAVE_DIR .. AUTOPLAY_SLOT .. ".sav"
 
@@ -740,8 +697,8 @@ function M.programs.snapshot(p)
 	local path = p.path
 	return function(count)
 		local now = readAll(AUTOPLAY_FILE)
-		-- The save is synchronous here (File 8 changed inside the call, 2026-09-23); wait a few frames for the OS
-		-- anyway, and accept an unchanged file after 30 (nothing in the save changed since the last one).
+		-- The save is synchronous: wait a few frames for the OS anyway, and after 30 accept an unchanged file (nothing
+		-- changed since the last save).
 		if not now or (now == before and count < 30) then return false end
 		local ok, err = writeAll(path, now)
 		if not ok then return true, nil, "cannot write " .. path .. ": " .. tostring(err) end
@@ -788,13 +745,10 @@ function M.programs.restore(p)
 	end
 end
 
--- advance_text {every (default 45), max_taps (default 20)}: while the player reads or talks (`controlState` 1 or 2,
--- the values an NPC conversation and a book gave, MEASURED.md 2026-09-23; a mirror gave 2 the same day), tap
--- MenuAdvance for 4 frames every `every` frames. Ends `closed` once `controlState` is back to 0 for 10 frames,
--- `not_reading` if it was 0 from the start, or `stuck` after max_taps with no close.
--- An upgrade's screen (UI_NewUpgradePrompt_C) pauses the game and its CONTINUE answered neither a posted key nor an
--- injected action; the widget's own bound click handler is what a click on it runs (the Dream Breaker and the slide,
--- 2026-09-23). Returns the upgrade prompt when one is on screen.
+-- advance_text {every, max_taps}: while she reads or talks (controlState not 0), tap MenuAdvance 4 frames every `every`
+-- frames. Ends `closed` after 10 frames back at 0 or `stuck` after max_taps; refused when she is not reading.
+-- An upgrade's screen pauses the game and its CONTINUE answers no posted key or injected action: its own bound click
+-- handler is called instead.
 local UPGRADE_CLICK = "BndEvt__UI_NewUpgradePrompt_UI_GenericButton_K2Node_ComponentBoundEvent_0_CommonButtonBaseClicked__DelegateSignature"
 local function upgradePrompt()
 	for _, w in ipairs(FindAllOf("UI_NewUpgradePrompt_C") or {}) do
@@ -812,7 +766,7 @@ function M.programs.advance_text(p)
 			local waited = 0
 			return function()
 				waited = waited + 1
-				if waited == 90 then w[UPGRADE_CLICK](w, w.UI_GenericButton) end -- let its screen finish fading in first
+				if waited == 90 then w[UPGRADE_CLICK](w, w.UI_GenericButton) end -- let its screen fade in first
 				if waited > 90 and M.observe(false).mode == "play" then
 					return true, { outcome = "closed", upgrade_screen = true, frames = waited }
 				end
@@ -853,10 +807,8 @@ end
 
 M.reflexes = {}
 
--- walk_to {x, y, radius (default 50), stuck_frames (default 60), jump (list of frames to tap Jump on, optional)}:
--- the stick pushed toward (x, y) in world units, relative to the camera's yaw every frame. Ends `arrived` inside
--- radius (horizontal distance), `stuck` when `stuck_frames` pass without getting 5 units closer, `map_changed`,
--- `hit` when HP drops, or the frame limit. Height is not steered: a ledge in the way is `stuck`.
+-- walk_to {x, y, radius, stuck_frames}: the stick pushed toward (x, y) from the camera's yaw every frame, height not
+-- steered. Ends `arrived`, `stuck` (no 5 units closer in stuck_frames), `map_changed`, `hit`, or the frame limit.
 function M.reflexes.walk_to(a)
 	local tx, ty = tonumber(a.x), tonumber(a.y)
 	if not tx or not ty then return nil, "walk_to needs x and y" end
@@ -885,48 +837,32 @@ function M.reflexes.walk_to(a)
 	end
 end
 
--- goto {x, y, z (optional), radius (default 60), max_cells (default 6000), plan_only}: a route over the level's own collision,
--- then walked. The floor is 50-unit cells, each one's height found by a downward trace (LineTraceSingle, channel 0) and
--- kept only where the surface is walkable (ImpactNormal.Z at least the movement component's WalkableFloorZ, 0.643);
--- a move between cells is allowed when the player's own capsule (radius 22, half-height 65, read 2026-09-23), swept
--- by CapsuleTraceSingle along it, hits nothing: level or within MaxStepHeight (45) it is walked, a rise of 45-170 is
--- jumped (a 200 ledge was climbed; the highest jump measured was 206), a drop of up to 600 is stepped off. A* runs a batch of cells a frame,
--- evaluating a cell only when the search reaches it, so nothing is traced that the route never needs. The walk then
--- steers to each cell of the route (the stick from the camera's yaw, as walk_to), holding Jump for 30 frames when the
--- next cell is a rise and she is within 75 units of it. It plans again from where she stands when 90 frames pass with
--- no cell reached (twice). Ends `arrived`, `no_route` (with how far the nearest reachable cell is), `stuck`, `hit`,
--- `map_changed`, or the frame limit.
+-- goto {x, y, z, radius, max_cells, plan_only}: weighted A* over 50-unit floor cells found by downward traces, each
+-- move a sweep of her capsule, then walked by the stick from the camera's yaw. A cell is traced only when the search
+-- reaches it, within a per-frame time and trace budget. Ends `arrived`, `no_route`, `stuck`, `fell`, `hit`,
+-- `map_changed`, `upgrade_screen`, `finished_short` or the frame limit; plan_only answers `planned`.
 local CELL = 50
 local CAP_R, CAP_H = 20, 62 -- a little inside the capsule's 22/65, so brushing a wall does not close a route
-local FEET = 67 -- the capsule's centre above the floor: z -332.85 over a floor traced at -400
--- The slide (actionState 1, speed about 1100 for ~85 frames after a Crouch tap at a run, 2026-09-23): the capsule's
--- centre drops from 2267 to 2224 over a floor at 2200, and CrouchedHalfHeight reads 20. Swept a little inside, as CAP_H.
+local FEET = 67 -- the capsule's centre above the floor
+-- The slide's capsule: its centre about 24 over the floor, CrouchedHalfHeight 20; swept a little inside, as CAP_H.
 local SLIDE_Z, SLIDE_H = 26, 21
--- JUMP_UP: a ledge 200 over the hall's floor in ZONE_Dungeon was climbed by a running jump with Jump held 80 frames
--- (2026-09-23); the highest free jump measured was 206.
+-- A step is walked; a full running jump climbs a 200 ledge (it peaks at 206); a drop up to DROP is stepped off.
 local STEP_UP, JUMP_UP, DROP = 45, 200, 600
--- FLIP_UP: the backflip (forward, reverse, Jump during the skid -- actionState 18 --, forward again; the user's
--- description, confirmed on screen 2026-09-23) peaked 265 over its takeoff, about 40 units past it, rising nearly
--- straight; Jump pressed 1 to 16 frames into the skid gave the same peak.
+-- The backflip (forward, reverse, Jump in the skid, forward again) peaks 265 over its takeoff.
 local FLIP_UP = 250
--- GRAB_UP: a rise a running jump reaches by catching the ledge (moveState 3) and climbing; the user's run climbed 286
--- that way (2026-09-23). The flip stays for rises a grab cannot use (a fence has no ledge: the user, same day).
+-- A rise a running jump reaches by catching the ledge (moveState 3) and climbing; the flip stays for rises a grab
+-- cannot use (a fence has no ledge).
 local GRAB_UP = 320
--- FLIPGRAB_UP: a backflip (peak 265 against a jump's 206) into a ledge grab: a jump grabbed ledges 80-94 over its apex, so
--- a flip should catch ~350. The rises just past GRAB_UP (320-324) were the smallest the dungeon's full flood refused
--- (2026-09-23). Executed as a flip; the hang handler climbs.
+-- A backflip into a ledge grab, estimated from the flip's higher peak; done as a flip, and the hang handler climbs.
 local FLIPGRAB_UP = 350
--- A leap across a gap of k cells may land at most this much higher. The user's run (2026-09-23) jumped from the cage
--- platform onto a block 200 higher ~240 units away; a full jump rises 206.
+-- How much higher a leap across a gap of k cells may land: a full jump rises 206.
 local LEAP_UP = { [2] = 200, [3] = 200, [4] = 200, [5] = 200 }
--- Further, a leap lands only by catching the ledge: the user's grab hops rose 178 across 661 and 286 across 283.
+-- Further, a leap lands only by catching the ledge.
 for k = 6, 12 do LEAP_UP[k] = 280 end
 local LEAP_CELLS = 12
 local EXPAND_PER_FRAME = 60 -- a ceiling; the trace budget below is what bounds a frame
 
--- Traces cast by the planner this frame: the search stops for the frame at TRACE_BUDGET. Thirty cells a frame
--- (~500 traces) took the game from 144 to ~89 frames a second while a plan was made (2026-09-23; the user asked
--- whether the drop could be fixed).
+-- The planner's traces this frame: the search stops for the frame at TRACE_BUDGET, or planning costs frame rate.
 local TRACE_BUDGET = 200
 local tracesThisFrame, traceFrame = 0, -1
 local function countTrace()
@@ -934,10 +870,8 @@ local function countTrace()
 	if f ~= traceFrame then traceFrame, tracesThisFrame = f, 0 end
 	tracesThisFrame = tracesThisFrame + 1
 end
--- And by time: the Lua around the traces (a leap's candidate cells) cost as much as the traces, and a trace budget alone
--- still left ~90 frames a second while planning, against 142 idle (2026-09-23). os.clock is wall time under MSVC.
--- Raised to 4 when routes grew past the slide: at 1.5 a plan to the dungeon's east exit (30000 cells) outran a reflex's
--- 3600 frames, and every plan is made standing still, where a lower frame rate costs the least (2026-09-23).
+-- And by time, as the Lua around the traces costs as much as they do; os.clock is wall time under MSVC. A plan is
+-- made standing still, where a lower frame rate costs the least.
 local PLAN_MS = 4
 local planStart, planFrame = 0, -1
 local function overBudget()
@@ -947,8 +881,8 @@ local function overBudget()
 	return traceFrame == f and tracesThisFrame >= TRACE_BUDGET
 end
 
--- The level's answers, kept for the map: the same probe or sweep asked again (a re-plan, a later route through known
--- ground) is not traced again. Cleared on a restore and when the map changes (a broken wall changes the level).
+-- The level's answers, cached per map so a re-plan does not trace them again; cleared on a restore and a map change
+-- (a broken wall changes the level).
 local geoCache = { map = nil, probes = {}, sweeps = {} }
 local function geo(map)
 	if geoCache.map ~= map then geoCache = { map = map, probes = {}, sweeps = {} } end
@@ -1017,9 +951,7 @@ end
 local function newPlan(pawn, sx, sy, sz, tx, ty, maxCells)
 	local walkableZ = 0.64
 	pcall(function() walkableZ = pawn.CharacterMovement.WalkableFloorZ end)
-	-- `cells` are the search's nodes, keyed by cell AND level (nodeKey): keyed by cell alone, a hop landing on a floor at
-	-- 1700 merged with the floor at 800 beneath it and the route lost its thread (2026-09-23). `probes` caches floor traces
-	-- per cell and the height they were cast from.
+	-- Nodes are keyed by cell and level (nodeKey): keyed by cell alone, a landing merges with the floor beneath it.
 	local g = geo(M.observe(false).location.map)
 	local P = { pawn = pawn, cells = {}, probes = g.probes, open = {}, closed = {}, came = {}, g = {}, edge = {}, count = 0,
 		maxCells = maxCells, walkableZ = walkableZ, tx = tx, ty = ty, hopOf = {} }
@@ -1032,8 +964,7 @@ local function newPlan(pawn, sx, sy, sz, tx, ty, maxCells)
 	local six, siy = cellOf(sx, sy)
 	P.gix, P.giy = cellOf(tx, ty)
 	local startKey = nodeKey(six, siy, sz - FEET)
-	-- The start cell's sweeps begin where she stands, not at the grid point: pressed to a wall, the grid point was
-	-- inside it and every move from it was refused (no_route after 1 cell, 2026-09-23).
+	-- The start cell's sweeps begin where she stands: pressed to a wall, the grid point can be inside it.
 	P.cells[startKey] = { ix = six, iy = siy, z = sz - FEET, px = sx, py = sy }
 	P.g[startKey] = 0
 	P.open = { { k = startKey, f = 0 } }
@@ -1070,8 +1001,8 @@ local function heapPop(h)
 	return top
 end
 
--- HOPS: jumps a person played, from games/pseudoregalia/routes/<map>_hops.json (the user's run to the sword, 2026-09-23),
--- offered to the search as moves: from a cell within 80 of a hop's takeoff and at its height, to its landing.
+-- Hops: jumps a person played, from routes/<map>_hops.json, offered to the search as moves from a cell within 80 of a
+-- hop's takeoff and at its height to its landing.
 local hopCache = {}
 local function hopsFor(map)
 	if hopCache[map] ~= nil then return hopCache[map] end
@@ -1087,9 +1018,8 @@ local function hopsFor(map)
 	return list
 end
 
--- The user's ground path from the same file, bucketed by 100 units: a cell within reach of it costs less, so goto walks
--- their line between hops unless it has reason not to (between two hops it had found its own line down a slope into a
--- hollow where they had stayed on the level floor, 2026-09-23).
+-- The ground path from the same file, bucketed by 100 units: a cell near it costs less, so goto walks the person's
+-- line between hops unless it has reason not to.
 local trailCache = {}
 local function trailFor(map)
 	if trailCache[map] ~= nil then return trailCache[map] end
@@ -1132,13 +1062,12 @@ M.hops_for = function(map) return hopsFor(map) end -- for exec, to check what th
 M.trail_for = function(map) return trailFor(map) end
 M.near_trail = nearTrail
 
--- The search is weighted A*: the distance still to go counts H_WEIGHT times. At 1 (plain A*) the route's penalties (jumps,
--- edges, cells off the user's trail) made it flood the level: 22691 cells and 2515 frames to find no route to the slide,
--- and each re-plan ate most of a reflex's 3600 frames (2026-09-23). Routes come out at most H_WEIGHT times the best.
+-- Weighted A*: the distance to go counts H_WEIGHT times, so a route is at most H_WEIGHT times the best; plain A*
+-- flooded the level under the route's penalties.
 local H_WEIGHT = 1.5
 
--- Near an enemy, hard: the castle's pit platforms each hold one, and a landing 86 from it put her into it and off the
--- platform (2026-09-23); the platforms are large enough to land clear of it.
+-- Near an enemy costs more: a landing beside one on a pit platform puts her into it and off, and the platforms are
+-- large enough to land clear.
 local function enemyCost(P, x, y, z)
 	local c = 0
 	for _, e in ipairs(P.enemies or {}) do
@@ -1153,9 +1082,8 @@ end
 
 local NEIGHBOURS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 }, { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 } }
 
--- How close a landing is to its platform's edge: of the cells around it up to two out, how many are lower by more than a
--- step or have no floor. The user (2026-09-23): land on the middle of a platform, not its lip, so there is room to stand
--- and take the next jump. Each such cell adds LAND_EDGE_COST to a jump, grab, flip or leap landing there.
+-- How near a landing is to its platform's edge: the cells up to two out that are a step lower or have no floor. Each
+-- adds LAND_EDGE_COST, so she lands mid-platform with room to take the next jump.
 local LAND_EDGE_COST = 25
 local function edgeCells(P, ix, iy, z)
 	local n = 0
@@ -1194,8 +1122,7 @@ local function planStep(P)
 				-- finds only when it is such a ledge (from that high, most probes meet overhangs).
 				local hz = probe(P, nix, niy, c.z + FLIPGRAB_UP + 40)
 				if hz and hz > c.z + JUMP_UP and hz <= c.z + FLIPGRAB_UP and (not nz or nz < hz - 100) then nz = hz end
-				-- And, with the slide, the floor under a low beam: probed from above, the passage under the slide room's
-				-- corridor read as the beam's top 150 up, its underside 100 over the real floor (2026-09-23).
+				-- And, with the slide, the floor under a low beam, which a probe from above reads as the beam's top.
 				local cands = { nz }
 				if P.slide then
 					local lz = lowProbe(P, nix, niy, c.z)
@@ -1220,28 +1147,24 @@ local function planStep(P)
 							ok = not sweep(P.pawn, ax, ay, ca + 2, bx, by, ca + 2)
 						else
 							kind = "walk"
-							-- Just over the higher floor: lifted by a whole step height, the capsule met the ceiling of a
-							-- low passage and a false wall closed the route (2026-09-23).
+							-- Just over the higher floor: lifted a whole step, the capsule meets low ceilings.
 							local top = math.max(ca, cb) + 3
 							ok = not sweep(P.pawn, ax, ay, top, bx, by, top)
-							-- A sill between two cells of one height: the game steps her over anything up to MaxStepHeight, so
-							-- the capsule lifted by STEP_UP; taller, a jump over it (150 up). A doorway's sill fenced the castle's
-							-- map room from its save crystal, both floors at -825 (2026-09-23).
+							-- A sill between two cells of one height: the game steps her over up to MaxStepHeight,
+							-- so the capsule is lifted by STEP_UP; taller, a jump over it (150 up).
 							if not ok and not sweep(P.pawn, ax, ay, top + STEP_UP, bx, by, top + STEP_UP) then
 								ok = true
 							elseif not ok and not sweep(P.pawn, ax, ay, ca + 2, ax, ay, top + 150)
 								and not sweep(P.pawn, ax, ay, top + 150, bx, by, top + 150) then
 								kind, ok = "jump", true
 							end
-							-- Too low to walk, low enough to slide: the slide's capsule (centre 24 over the floor, measured
-							-- 2226-2224 from 2267 standing) swept at SLIDE_H. The passage under the slide room's corridor
-							-- (2026-09-23) is one.
+							-- Too low to walk, low enough to slide: the slide's capsule, swept at SLIDE_H.
 							if not ok and P.slide then
 								local low = math.max(ca, cb) - FEET + SLIDE_Z
 								if not sweep(P.pawn, ax, ay, low, bx, by, low, SLIDE_H) then kind, ok = "slide", true end
 							end
 						end
-						-- debug_at {x, y}: every move considered from cells within 80 of it, for reading a refusal.
+						-- debug_x, debug_y: every move considered from cells within 80 of it, to read a refusal.
 						if P.debugAt and math.abs(ax - P.debugAt[1]) < 80 and math.abs(ay - P.debugAt[2]) < 80 and #P.dbg < 60 then
 							P.dbg[#P.dbg + 1] = string.format("from %.0f,%.0f,%.0f to %d,%d nz %.0f dz %.0f %s %s", ax, ay, c.z, bx, by,
 								nz, dz, tostring(kind), tostring(ok))
@@ -1284,11 +1207,9 @@ local function planStep(P)
 					end
 				end
 			end
-			-- LEAPS: across a gap (every cell under the line lower than both ends by a step, or no floor) onto a floor up
-			-- to 5 cells away in any direction and at most LEAP_UP[k] higher -- the user's run to the sword (2026-09-23)
-			-- jumped from the cage platform onto a block 200 higher, 100 across and 200 along. Only from an edge cell (one
-			-- with a neighbour a step lower or missing), so a floor's inner cells cost nothing. The capsule is swept up from
-			-- the takeoff and across the air above both ends.
+			-- Leaps: across a gap (every cell under the line a step lower than both ends, or no floor) onto a floor
+			-- up to LEAP_CELLS away and at most LEAP_UP[k] higher. Only from an edge cell, so a floor's inner cells
+			-- cost nothing; the capsule is swept up from the takeoff and across the air above both ends.
 			local edge = false
 			for _, d in ipairs(NEIGHBOURS) do
 				local mz = probe(P, c.ix + d[1], c.iy + d[2], c.z + JUMP_UP + FEET)
@@ -1298,8 +1219,7 @@ local function planStep(P)
 				for dx = -LEAP_CELLS, LEAP_CELLS do
 					for dy = -LEAP_CELLS, LEAP_CELLS do
 						local k = math.max(math.abs(dx), math.abs(dy))
-						-- Counted by distance, not cells: a diagonal of 11 cells is 778 long, and she was sent at one from the
-						-- castle pit's edge and fell in (2026-09-23). k is the reach in cells either way.
+						-- Counted by distance, not cells: a diagonal of 11 cells is 778 long. k is the reach in cells.
 						local reach = math.sqrt(dx * dx + dy * dy) * CELL
 						if reach > LEAP_CELLS * CELL then k = 0 else k = math.max(k, math.ceil(reach / CELL - 0.01)) end
 						if k >= 2 and k <= LEAP_CELLS then
@@ -1316,8 +1236,8 @@ local function planStep(P)
 										local my = math.floor(c.iy + dy * t / steps + 0.5)
 										if not (mx == c.ix and my == c.iy) and not (mx == nix and my == niy) then
 											local m = { z = probe(P, mx, my, c.z + JUMP_UP + FEET) or false }
-											-- Part of the takeoff or the landing platform, not the gap: its own edge cells lay
-											-- under the line, and every leap onto a block was refused (2026-09-23).
+											-- Part of the takeoff or landing platform, not the gap: its own edge
+											-- cells lie under the line.
 											local own = m.z and ((t * 2 <= steps and math.abs(m.z - c.z) < 20) or (t * 2 >= steps and math.abs(m.z - nz) < 20))
 											if m.z and m.z > low and not own then gap = false break end
 										end
@@ -1327,10 +1247,10 @@ local function planStep(P)
 										local top = math.max(ca, cb) + 40
 										if not sweep(P.pawn, ax, ay, ca + 2, ax, ay, top) and not sweep(P.pawn, ax, ay, top, bx, by, top) then
 											local dist = math.sqrt(dx * dx + dy * dy) * CELL
-											-- Long leaps are risky (a 500-wide diagonal one fell short, 2026-09-23): past 250
-											-- each unit costs double, so a shorter straight one wins when there is one.
+											-- Past 250 each unit costs double, so a shorter straight leap wins:
+											-- long leaps fall short.
 											local cost = P.g[cur.k] + dist + 100 + math.max(0, dist - 250) * 2 + LAND_EDGE_COST * edgeCells(P, nix, niy, nz)
-											cost = cost + enemyCost(P, nix * CELL, niy * CELL, nz) -- a leap's landing too: the castle's pit
+											cost = cost + enemyCost(P, nix * CELL, niy * CELL, nz)
 											if P.g[nk] == nil or cost < P.g[nk] then
 												P.cells[nk] = P.cells[nk] or { ix = nix, iy = niy, z = nz }
 												P.g[nk], P.came[nk], P.edge[nk] = cost, cur.k, "leap"
@@ -1370,7 +1290,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 	if not s then return nil, "no player" end
 	local o0 = M.observe(false)
 	local map0, hp0 = o0.location.map, o0.player.hp
-	local tz = tonumber(a.z) -- a floor height: the goal is the cell on that floor (x, y alone met the floor 1200 below)
+	local tz = tonumber(a.z) -- a floor height: the goal is the cell on that floor, not any floor under x, y
 	local P = newPlan(s.pawn, s.x, s.y, s.z, tx, ty, maxCells)
 	P.tz = tz
 	if a.debug_x then P.debugAt, P.dbg = { tonumber(a.debug_x), tonumber(a.debug_y) }, {} end
@@ -1385,15 +1305,14 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 		local o = M.observe(false)
 		if o.location.map ~= map0 then return true, { outcome = "map_changed" } end
 		if hp0 and o.player.hp and o.player.hp < hp0 then return true, { outcome = "hit", hp = o.player.hp } end
-		-- Put back by the game after a fall into a pit (a jump of 2000 in a frame, three times over one call at the castle's
-		-- pit, 2026-09-23, and the user saw her "fell multiple times"): stop and say so rather than try the same jump again.
+		-- Put back by the game after a pit fall (a jump of over 800 in a frame): say so rather than jump there again.
 		if lastPos and (st.x - lastPos[1]) ^ 2 + (st.y - lastPos[2]) ^ 2 > 800 * 800 then
 			return true, { outcome = "fell", from = { x = lastPos[1], y = lastPos[2], z = lastPos[3] }, to = { x = st.x, y = st.y, z = st.z },
 				on = path and path[wp] and { x = path[wp].x, y = path[wp].y, z = path[wp].z, edge = path[wp].edge } or nil }
 		end
 		lastPos = { st.x, st.y, st.z }
 		local dxT, dyT = tx - st.x, ty - st.y
-		-- Arrived only once landed: the check is horizontal, and it had ended mid-jump at z -155 over a floor at -300.
+		-- Arrived only once landed: the check is horizontal, so it can pass mid-jump.
 		if math.sqrt(dxT * dxT + dyT * dyT) <= radius and (o.player.move_state or 0) == 0 and (not tz or math.abs(st.z - FEET - tz) < 60) then
 			return true, { outcome = "arrived", distance = math.sqrt(dxT * dxT + dyT * dyT), cells_searched = planned, replans = replans }
 		end
@@ -1406,8 +1325,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 				-- The target itself is not standable (inside a wall), but a cell within reach of it is: go there.
 				path = pathOf(P, P.best)
 			elseif r == "exhausted" and P.bestH <= 500 and not a.plan_only then
-				-- Near enough to finish by eye: the route's end, then a run straight at the target with a jump near it -- the
-				-- step onto the Dream Breaker's stage from the water, which the search refused (2026-09-23).
+				-- Near enough to finish by eye: the route's end, then a run straight at the target with a jump near it.
 				path, finishJump = pathOf(P, P.best), true
 			elseif r == "exhausted" then
 				local best = P.cells[P.best]
@@ -1424,7 +1342,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 				local last = path[#path]
 				local steps
 				if a.dump then
-					-- The route itself, one line per move that is not a walk (and the walk before it), for reading a plan.
+					-- The route itself, one line per move that is not a walk (and the walk before it).
 					steps = {}
 					for i, c in ipairs(path) do
 						local nx = path[i + 1]
@@ -1480,8 +1398,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 			end
 			return false
 		end
-		-- A hop next: run straight at its takeoff instead of threading the last cells, which slowed her to a walk at
-		-- the edge the user took at full speed, and she slid off it (2026-09-23).
+		-- A hop next: run straight at its takeoff, since threading the last cells slows her to a walk at its edge.
 		local nxt = path[wp + 1]
 		if target.edge ~= "hop" and nxt and nxt.edge == "hop" and nxt.hop then
 			local kx, ky = nxt.hop.takeoff[1] - st.x, nxt.hop.takeoff[2] - st.y
@@ -1492,13 +1409,12 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 		local dx, dy = target.x - st.x, target.y - st.y
 		local d = math.sqrt(dx * dx + dy * dy)
 		local feetZ = st.z - FEET
-		-- Reached only when standing: counted mid-climb, she steered at the next leap's landing in the air and sailed
-		-- over the ledge she had just caught (2026-09-23).
+		-- Counted only when standing: mid-climb, steering at the next landing carries her over the ledge she caught.
 		if d < 30 and math.abs(feetZ - target.z) < 60 and (o.player.move_state or 0) == 0 then
 			wp, lastProgress = wp + 1, count
 			return false
 		end
-		-- Moved off the route (the user moved her, to see what it does, 2026-09-23): plan again from here, once standing.
+		-- Moved off the route: plan again from here, once standing.
 		local pv = path[wp - 1]
 		if not leap and not hopState and not flip and (o.player.move_state or 0) == 0 and pv then
 			local px, py = pv.x - st.x, pv.y - st.y
@@ -1510,29 +1426,26 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 			end
 		end
 		if count - lastProgress > 90 and (o.player.move_state or 0) ~= 0 and (o.player.move_state or 0) ~= 2 then
-			return false -- never plan again mid-air: the start would be taken at the height of the jump (2026-09-23)
+			return false -- never plan again mid-air: the start would be taken at the height of the jump
 		end
 		if count - lastProgress > 90 then
-			-- An upgrade's screen pauses her and controlState stays 0: she stood on the Dream Breaker's stage under its screen
-			-- and re-planned until "stuck" (2026-09-23). Checked only here: FindAllOf walks every object.
+			-- An upgrade's screen pauses her with controlState 0, so no step is reached. Checked only here: FindAllOf
+			-- walks every object.
 			if upgradePrompt() then return true, { outcome = "upgrade_screen", at = { x = st.x, y = st.y, z = st.z } } end
 			if replans >= 2 then return true, { outcome = "stuck", at = { x = st.x, y = st.y, z = st.z }, route = stats, on = { x = target.x, y = target.y, z = target.z, edge = target.edge, wp = wp, of = #path } } end
 			replans = replans + 1
-			-- A full search: the level's answers are cached per map, so a re-plan over ground already traced costs little. Capped
-			-- at 2500 cells, it answered no_route from the dungeon's hall with the stage 4357 away (2026-09-23).
+			-- A full search: the level's answers are cached per map, so re-planning over traced ground costs little.
 			P = newPlan(st.pawn, st.x, st.y, st.z, tx, ty, maxCells)
 			P.tz = tz
 			path, lastProgress = nil, count
 			return false
 		end
-		-- A hop: run to its takeoff, jump there (Jump held 80 frames) steering at its landing; hanging on a ledge
-		-- (moveState 3), keep pushing at the landing and tap Jump to climb. Done when landed near the landing; landed
-		-- anywhere else, the route is planned again.
+		-- A hop: run to its takeoff and jump there steering at its landing; a hang is climbed. Done when landed near
+		-- the landing; landed anywhere else, the route is planned again.
 		if target.edge == "hop" and target.hop then
 			local h = target.hop
-			-- The run-up: 250 behind the takeoff along the user's own approach. A flip hop always starts there (a backflip
-			-- needs the run the skid carries on, and arriving from the landing's side there was no skid at all,
-			-- 2026-09-23); any hop does when she would otherwise reach the takeoff from more than 60 degrees off.
+			-- The run-up: 250 behind the takeoff along the approach. A flip hop always starts there (a backflip needs
+			-- the run the skid carries on); any hop does when she would reach the takeoff more than 60 degrees off.
 			if not hopState then
 				local ux, uy = h.takeoff[1] - h.approach_from[1], h.takeoff[2] - h.approach_from[2]
 				local ul = math.sqrt(ux * ux + uy * uy)
@@ -1540,11 +1453,9 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 				ul = math.sqrt(ux * ux + uy * uy)
 				ux, uy = ux / ul, uy / ul
 				local rx, ry = h.takeoff[1] - ux * 250, h.takeoff[2] - uy * 250
-				-- The user's own run-up where recorded: 250 straight back fell inside a wall where they had come around a
-				-- corner, and she stood pushing into it (2026-09-23).
+				-- The recorded run-up where there is one: 250 straight back can fall inside a wall.
 				if h.runup then rx, ry = h.runup[1], h.runup[2] end
-				-- Only as far back as the floor at the takeoff's height goes: a recorded run-up can lie in the air (the user's
-				-- momentum from the previous landing), and she ran off the back of the platform (2026-09-23).
+				-- Only as far back as the floor at the takeoff's height goes: a recorded run-up can lie in the air.
 				do
 					local bx, by = rx - h.takeoff[1], ry - h.takeoff[2]
 					local bl = math.sqrt(bx * bx + by * by)
@@ -1566,8 +1477,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 				local vx, vy = h.takeoff[1] - st.x, h.takeoff[2] - st.y
 				local vl = math.sqrt(vx * vx + vy * vy)
 				local off = vl > 1 and (vx * ux + vy * uy) / vl < 0.5
-				-- Slow and nearer the takeoff than the user's run: take the run-up too. Landed 70 before a 450-wide hop's
-				-- takeoff, she jumped at speed 59 against their 550 and fell short (2026-09-23).
+				-- Slow and nearer the takeoff than the recorded run: take the run-up too, or the jump falls short.
 				local speed = 0
 				pcall(function() local v = st.pawn:GetVelocity(); speed = math.sqrt(v.X * v.X + v.Y * v.Y) end)
 				local short = h.runup_path and vl < 0.6 * h.runup_path and speed < 400 and (h.run_speed or 0) > 400
@@ -1576,11 +1486,10 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 			local hs = hopState
 			hs.t = hs.t + 1
 			local ms = o.player.move_state or 0
-			-- Hanging in any phase (a run-up ran her off an edge onto a ledge, where she hung until the time ran out):
-			-- climb, then plan again from wherever she stands.
+			-- Hanging in any phase: climb, then plan again from wherever she stands.
 			if ms == 3 then
 				hs.hangAny = (hs.hangAny or 0) + 1
-				-- Push toward the wall she faces while hanging: every climb that worked pushed at it; taps alone did not.
+				-- Push toward the wall she faces: taps with no stick leave her hanging.
 				local fy = o.location.yaw or st.yaw
 				local r3 = math.rad(fy - st.yaw)
 				injectMove(math.sin(r3), math.cos(r3))
@@ -1604,8 +1513,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 			if hs.phase == "run" then
 				gx, gy = h.takeoff[1] - st.x, h.takeoff[2] - st.y
 				local td = math.sqrt(gx * gx + gy * gy)
-				-- Along the user's own approach from the run-up, not a straight line: a straight one clipped a corner they
-				-- had run around and she stopped against it (2026-09-23).
+				-- Along the recorded approach, not a straight line, which can clip a corner.
 				if h.approach then
 					hs.ai = hs.ai or 1
 					while hs.ai <= #h.approach do
@@ -1618,39 +1526,34 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 						if qd < 40 or nd < qd then hs.ai = hs.ai + 1 else gx, gy = qx, qy break end
 					end
 				end
-				-- At the takeoff, or off its edge near it: the jump in coyote time the user used (2026-09-23).
-				-- Jump where the user did: when she reaches or passes the takeoff along the hop's direction. Within 25 of it
-				-- was 25 early at a run, her arc met the ledge lower than theirs and missed the grab they made (2026-09-23).
+				-- Jump when she reaches or passes the takeoff along the hop's direction: within 25 of it is early at a
+				-- run, and the arc meets the ledge too low to grab.
 				local hx, hy = h.landing[1] - h.takeoff[1], h.landing[2] - h.takeoff[2]
 				local hl = math.max(1, math.sqrt(hx * hx + hy * hy))
 				local along = ((st.x - h.takeoff[1]) * hx + (st.y - h.takeoff[2]) * hy) / hl
-				-- Off the edge before the takeoff (the user's coyote-time jumps came 6-9 frames after leaving the ground, each a
-				-- full jump, 2026-09-23): keep running and jump over their takeoff point, or at the 8th frame in the air.
+				-- Off the edge before the takeoff: keep running and jump over the takeoff point, or at the 8th frame
+				-- in the air (coyote time).
 				if ms == 1 then hs.off = (hs.off or 0) + 1 else hs.off = 0 end
-				-- Near the takeoff only: a seam in the floor 115 before one left her in the air for 12 frames and was taken for
-				-- the edge (2026-09-23).
+				-- Near the takeoff only: a seam in the floor further back can lift her off the ground for a few frames.
 				local coyote = ms == 1 and td < 250 and along >= -60 and (along >= -4 or hs.off >= 8)
 				local ground = ms == 0 and ((td < 60 and along >= -4) or td < 8)
-				-- A coyote hop leaves a small top: never jump on it, run off its edge at the landing and jump in coyote time,
-				-- 6 frames off (the user: "use coyotee time, jumping to early when jumping off from the cage", 2026-09-23).
+				-- A coyote hop leaves from a small top: never jump on it, run off its edge toward the landing and
+				-- jump 6 frames off.
 				if h.coyote then
 					ground = false
 					coyote = ms == 1 and (hs.off or 0) >= 6 and td < 300
 					if along >= -30 then gx, gy = h.landing[1] - st.x, h.landing[2] - st.y end
 				end
-				-- (Tried and reverted, 2026-09-23: jumping as late as coyote time allows on grab hops met the 2349 ledge
-				-- falling, 9 lower than the user's grab; their takeoff, at the edge, meets it at the top of the arc.)
-				-- A jump pressed in a skid (actionState 18: turning around at a run) comes out as a backflip; the user saw her
-				-- backflip "even for small things" after run-ups that turned her around (2026-09-23). Wait the skid out.
+				-- Not later in coyote time: a late jump meets a grab hop's ledge falling, one from the edge meets it
+				-- at the top of the arc.
+				-- A jump in a skid (actionState 18, turning around at a run) comes out as a backflip: wait it out.
 				local skidding = (o.player.action_state or 0) == 18
 				if ground and skidding and not h.flip then ground = false end
 				if ground or coyote then hs.phase, hs.t = (h.flip and ms == 0) and "skid" or "air", 0 end
-				-- Past the takeoff, or off the edge: run at the landing. Steering back at a takeoff already passed slowed her
-				-- from 550 to 212 in coyote time and the jump fell short (2026-09-23).
+				-- Past the takeoff or off the edge, run at the landing: steering back at it kills the run speed.
 				if along >= 0 or ms == 1 then gx, gy = h.landing[1] - st.x, h.landing[2] - st.y end
 			end
-			-- A flip hop (the user's backflip, actionState 18 before the takeoff): 5 frames of stick away from the landing,
-			-- Jump from the 3rd, then on at the landing as any hop.
+			-- A flip hop: 5 frames of stick away from the landing, Jump from the 3rd, then on as any hop.
 			if hs.phase == "skid" then
 				local ax, ay = h.landing[1] - st.x, h.landing[2] - st.y
 				local r2 = math.rad(math.deg(math.atan(-ay, -ax)) - st.yaw)
@@ -1664,23 +1567,17 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 			end
 			if hs.phase == "air" then
 				gx, gy = h.landing[1] - st.x, h.landing[2] - st.y
-				-- Jump held until she stops rising (a full jump), then let go: held on into the landing, the game took it
-				-- as a new jump the moment she landed (2026-09-23).
 				local vz = 0
 				pcall(function() vz = st.pawn:GetVelocity().Z end)
-				-- Held through the apex: holding floats her at the top (the user's arc: vertical speed 36, 10, -27 over ~10
-				-- frames), and letting go at the apex dropped her at once (24 to -100), 9-30 lower at a ledge they grabbed.
-				-- Let go only once clearly falling, which still keeps it off the landing.
-				-- Never on the ground after the takeoff: there vz is 0, and landing on the 400 block after hop 1 with Jump still
-				-- held, she jumped again, off its far side (2026-09-23).
+				-- Jump held through the apex (it floats her), let go once clearly falling or landed: held into a
+				-- landing, the game takes it as a new jump.
 				if hs.t > 8 and ms == 0 then hs.released = true end
 				if not hs.released and (hs.t <= 8 or vz > -250) and hs.t <= 120 and inputReady() then
 					subsystem:InjectInputVectorForAction(actions.IA_Jump, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {})
 				elseif hs.t > 8 then
 					hs.released = true
 				end
-				-- On a climb pole (moveState 5, the user's run 2026-09-23): push up until at the height they left it, then
-				-- jump off at the landing (moveState 6 while leaving).
+				-- On a pole (moveState 5): push up to where the recorded run left it, then jump off at the landing.
 				if ms == 5 and h.pole then
 					hs.pole = (hs.pole or 0) + 1
 					if (st.z - FEET) < (h.pole.to_z or h.pole.from_z) - 10 and hs.pole < 600 then
@@ -1694,8 +1591,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 					if inputReady() then subsystem:InjectInputVectorForAction(actions.IA_Jump, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {}) end
 				end
 				if ms == 5 and h.pole and not (hs.poleJump and hs.poleJump > 0) then lastProgress = count return false end
-				-- At the pole's top (moveState 6), where she stayed: the user jumped from there toward the landing, a second
-				-- jump at speed 600 (2026-09-23). Steer at the landing and tap Jump after 10 frames in the state.
+				-- At the pole's top (moveState 6): steer at the landing and tap Jump after 10 frames in the state.
 				if ms == 6 then
 					hs.top = (hs.top or 0) + 1
 					if hs.top > 10 and hs.top % 30 < 12 and inputReady() then
@@ -1729,7 +1625,7 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 			lastProgress = count
 			return false
 		end
-		-- A flip: 4 frames of stick away from the ledge (the skid), Jump from the 3rd held 80, then the stick back at it.
+		-- A flip: 4 frames of stick away from the ledge (the skid), Jump from the 3rd held 80, then the stick back.
 		if (target.edge == "flip" or target.edge == "flipgrab") and d < 70 and (o.player.move_state or 0) == 0 and not flip then
 			flip = { t = 0, ux = dx / d, uy = dy / d }
 		end
@@ -1746,12 +1642,10 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 			if flip and flip.t > 240 then flip = nil end
 			return false
 		end
-		-- Hanging on a ledge (moveState 3), from any move: push at the target and tap Jump to climb, as the user's hangs
-		-- ended in a climb 6-21 frames in (2026-09-23).
+		-- Hanging on a ledge (moveState 3), from any move: push the way she faces and tap Jump to climb.
 		if (o.player.move_state or 0) == 3 then
 			hang = hang + 1
-			-- Pushed the way she faces (the wall she hangs on), as the hops do: pushed at a grab's target cell 25 away, the
-			-- stick ran along the ledge and she hung there until the frame limit (2026-09-23, the 2550 ledge).
+			-- The way she faces is the wall: pushed at a target beside her, the stick runs along the ledge.
 			local rel = math.rad((o.location.yaw or st.yaw) - st.yaw)
 			injectMove(math.sin(rel), math.cos(rel))
 			if hang > 5 and hang % 20 < 5 and inputReady() then
@@ -1762,9 +1656,8 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 		end
 		hang = 0
 		if target.edge == "grab" and d < 90 and (o.player.move_state or 0) == 0 and jumpLeft == 0 then jumpLeft = 80 end
-		-- A leap: jumped from a standstill at the takeoff cell, a 350-wide one fell short into the gap (2026-09-23). So,
-		-- as the user took theirs: back away from the landing for 30 frames, run at it, and jump when she runs off the
-		-- edge (coyote time) -- or after 90 frames of running if no edge comes.
+		-- A leap from a standstill falls short: back away from the landing, run at it, and jump when she runs off the
+		-- edge (coyote time) or once past the takeoff.
 		if target.edge == "leap" and not leap and (o.player.move_state or 0) == 0 and jumpLeft == 0 then
 			local from = path[wp - 1]
 			if from and math.abs(feetZ - from.z) > 40 then
@@ -1774,13 +1667,11 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 				path, lastProgress = nil, count
 				return false
 			end
-			-- Back up in proportion to the leap (30 frames and a jump at 120 regardless took a 450-wide one at speed 59,
-			-- 2026-09-23), and remember the takeoff cell: on the ground the jump comes once she has run past it.
+			-- Remember the takeoff cell: on the ground the jump comes once she has run past it.
 			leap = { t = 0, ux = dx / math.max(d, 1), uy = dy / math.max(d, 1), back = math.max(30, math.min(80, d / 6)),
 				fx = from and from.x or st.x, fy = from and from.y or st.y }
-			-- The run-up by distance, not frames: two reversals (each a skid) in an 80-frame back-off left her at 340 at
-			-- the edge of the gap before exit 1, and she fell to the start (2026-09-23). Arriving at a run toward the
-			-- landing already, no back-off; else back up to 300, only as far as the floor goes.
+			-- The run-up by distance, not frames (each reversal costs a skid): at a run toward the landing already, no
+			-- back-off; else back up to 300, only as far as the floor goes.
 			local vx, vy = 0, 0
 			pcall(function() local v = st.pawn:GetVelocity(); vx, vy = v.X, v.Y end)
 			if vx * leap.ux + vy * leap.uy >= 450 then
@@ -1812,7 +1703,8 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 				jumpLeft, jumpT = jumpLeft - 1, jumpT + 1
 				local vz = 0
 				pcall(function() vz = st.pawn:GetVelocity().Z end)
-				if jumpT > 8 and (vz <= -250 or ms == 0) then jumpLeft = 0 end -- landed: on the ground vz is 0, and a held Jump jumps again
+				-- Also once landed: on the ground vz is 0, and a held Jump jumps again.
+				if jumpT > 8 and (vz <= -250 or ms == 0) then jumpLeft = 0 end
 				if jumpLeft > 0 and inputReady() then subsystem:InjectInputVectorForAction(actions.IA_Jump, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {}) end
 			end
 			if leap.jumped and ms == 0 and leap.t > 40 and jumpLeft == 0 then leap = nil end
@@ -1827,15 +1719,14 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 		end
 		local rel = math.rad(math.deg(math.atan(dy, dx)) - st.yaw)
 		injectMove(math.sin(rel), math.cos(rel))
-		-- An enemy within 200 ahead on her way, and she on the ground: jump past it (checked every 10 frames).
+		-- An enemy just ahead and she on the ground: jump past it.
 		if count % 10 == 0 and jumpLeft == 0 and (o.player.move_state or 0) == 0 then
 			local ux, uy = dx / math.max(d, 1), dy / math.max(d, 1)
 			for _, e in ipairs(enemiesOn(o.location.map)) do
 				local ex, ey = e.x - st.x, e.y - st.y
 				local along = ex * ux + ey * uy
 				if along > 0 and along < 200 and math.abs(ex * uy - ey * ux) < 120 and math.abs(e.z - st.z) < 250 then
-					-- Only where a jump is safe: the next cells plain walks and floor at her height 300 on. Unchecked, it
-					-- jumped her off a pit platform's far side toward an enemy 700 from the next floor (2026-09-23).
+					-- Only where a jump is safe: the next cells plain walks and floor at her height 300 on.
 					local safe = true
 					for i = wp, math.min(#path, wp + 5) do
 						if path[i].edge ~= "walk" then safe = false end
@@ -1846,11 +1737,9 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 				end
 			end
 		end
-		-- A slide edge: a Crouch tap on the ground at a run starts the slide (actionState 1); tapped again only once it has
-		-- ended, 4 frames each. Crouch held while standing still crouches her in place (moveState 2) and she does not move.
-		-- Crouched (moveState 2) counts as on the ground: a slide that ends under the low ceiling leaves her crouched there.
-		-- Under the swinging axes: slide through, as the corridor teaches -- walking, she was hit 5 at a time and knocked off
-		-- the shelf (2026-09-23). Tapped when a cell up to 4 ahead is under one and she is within 200 of it.
+		-- A slide: a Crouch tap at a run starts it (actionState 1), tapped again only once it has ended. Crouched
+		-- (moveState 2) counts as on the ground: a slide ending under a low ceiling leaves her crouched. Under the
+		-- swinging axes she slides through: walking, they knock her off the shelf.
 		local axeAhead = false
 		do
 			local axes = axesOn(o.location.map)
@@ -1879,13 +1768,10 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 		elseif jumpLeft > 0 then
 			jumpLeft = jumpLeft - 1
 			jumpT = jumpT + 1
-			-- Let go once she stops rising, never into the landing (a held Jump became a second jump on landing) -- but
-			-- not in the first 8 frames: before she leaves the ground she is not rising either, and a 30-frame jump was let
-			-- go on its first frame and never happened (2026-09-23).
+			-- Let go once clearly falling or landed (a held Jump jumps again on landing), never in the first 8 frames:
+			-- before takeoff she is not rising either.
 			local vz = 0
 			pcall(function() vz = st.pawn:GetVelocity().Z end)
-			-- Through the apex (it floats her), off before landing; and off once landed, where vz is 0: onto a ledge higher than
-			-- the fall's start, a held Jump jumped her again and off the block's far side (2026-09-23).
 			if jumpT > 8 and (vz <= -250 or (o.player.move_state or 0) == 0) then jumpLeft = 0 end
 			if jumpLeft == 0 then jumpT = 0 end
 			if jumpLeft > 0 and inputReady() then subsystem:InjectInputVectorForAction(actions.IA_Jump, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {}) end
@@ -1894,16 +1780,15 @@ M.reflexes["goto"] = function(a) -- `goto` is a Lua keyword, so it is set by its
 	end
 end
 
--- reach {max_cells (default 8000)}: goto's search with no target, flooding every cell she can get to from here by
--- goto's rules. Answers the count, the box they span, the highest cells, and `too_high`: every refused rise from a
--- reached cell (taller than a jump, up to 1000), strongest first -- where a better move than a jump is needed.
+-- reach {max_cells, continue}: goto's search with no target, flooding every cell she can get to by goto's rules.
+-- Answers the count, the box, the highest floors, the things reached and not, and `too_high`: refused rises over
+-- FLIPGRAB_UP (up to 1000) from a reached cell, smallest first.
 function M.programs.reach(p)
 	local s = playerAndCamera()
 	if not s then return nil, "no player" end
 	local maxCells = tonumber(p.max_cells) or 8000
-	-- A target no cell can be nearer to than the start, so the search only ever floods; P.flood orders it by cost alone,
-	-- evenly outward (ordered toward that far target, a capped flood ran off one way). `continue` carries on the last
-	-- flood with max_cells more, across reflex calls: the whole dungeon did not fit in one call's 3600 frames.
+	-- A target no cell is nearer to than the start, so the search only floods; P.flood orders it by cost alone, evenly
+	-- outward (ordered toward a far target, a capped flood runs off one way). `continue` carries the last flood on.
 	local P
 	if p.continue and M.lastReach then
 		P = M.lastReach
@@ -1925,15 +1810,14 @@ function M.programs.reach(p)
 			n = n + 1
 			local x, y = c.ix * CELL, c.iy * CELL
 			minx, maxx, miny, maxy = math.min(minx, x), math.max(maxx, x), math.min(miny, y), math.max(maxy, y)
-			-- A floor, not a prop's top: at least 5 of its 8 neighbours reached at about its height (a cage lid 248 up
-			-- ranked highest before this, 2026-09-23).
+			-- A floor, not a prop's top: at least 5 of its 8 neighbours reached at about its height.
 			local level = 0
 			for _, d in ipairs(NEIGHBOURS) do
 				local mz = probe(P, c.ix + d[1], c.iy + d[2], c.z + JUMP_UP + FEET)
 				if mz and math.abs(mz - c.z) < 20 and P.closed[nodeKey(c.ix + d[1], c.iy + d[2], mz)] then level = level + 1 end
 			end
 			if level >= 5 then tops[#tops + 1] = { x = x, y = y, z = math.floor(c.z + 0.5) } end
-			-- refused rises: a neighbour whose floor is known and more than a jump above
+			-- refused rises: a neighbour whose floor is known and more than a flip-grab above
 			for _, d in ipairs(NEIGHBOURS) do
 				local nz = probe(P, c.ix + d[1], c.iy + d[2], c.z + 1000 + FEET)
 				if nz and nz - c.z > origJump and nz - c.z <= 1000 then
@@ -1943,8 +1827,8 @@ function M.programs.reach(p)
 		end
 		table.sort(tops, function(a, b) return a.z > b.z end)
 		for i = #tops, 11, -1 do tops[i] = nil end
-		-- The things worth going to, and whether a reached cell stands within 250 of one (at most 600 under it: a thing's
-		-- position is its pivot, above the floor it stands on).
+		-- The things worth going to, and whether a reached cell stands within 250 of one (at most 600 under it: a
+		-- thing's position is its pivot, above the floor it stands on).
 		local byBucket = {}
 		for k in pairs(P.closed) do
 			local c = P.cells[k]
@@ -1987,13 +1871,10 @@ end
 
 M.reflexes.reach = function(a) return M.programs.reach(a) end
 
--- fight {range (default 160), swing_every (default 24), stop_hp, kind (default enemy; breakable_wall, save_point...), name,
--- swings (stop after this many, answered `swung`)}: the nearest thing of that kind in `things` (within 2500), followed
--- on the ground by the stick from the camera's yaw; inside `range` it is faced and Attack tapped (4 frames) every
--- `swing_every` frames. Ends `defeated` when the enemy actor is gone or being destroyed, `low_hp` below stop_hp, `lost`
--- when none is within 2500, or the frame limit. Reports swings, hits taken and both HPs. style "circle" fights as the user
--- fought the Keeper: round it at ~230 swinging, sliding across its line when it moves fast; heal_at (HP) runs off and
--- holds Power to heal to heal_to.
+-- fight {range, swing_every, stop_hp, kind, name, swings, style, heal_at, heal_to}: the nearest thing of that kind
+-- within 2500 (or the one named), followed and faced, Attack tapped every swing_every frames in range. Ends `defeated`,
+-- `low_hp`, `lost`, `swung` after `swings`, or the frame limit. style "circle" rounds it at ~230 swinging and slides
+-- across its line when it moves fast; heal_at runs off and holds Power to heal to heal_to.
 function M.reflexes.fight(a)
 	local range = tonumber(a.range) or 160
 	local every = tonumber(a.swing_every) or 24
@@ -2031,11 +1912,8 @@ function M.reflexes.fight(a)
 		local d = math.sqrt(dx * dx + dy * dy)
 		if d > 2500 then return true, { outcome = "lost", distance = d } end
 		if circle then
-			-- CIRCLE, as the user fought the Keeper (2026-09-23, recorded with the Keeper beside her): ~230 away, always
-			-- running round it and swinging (42 hits of 15 landed from 108-314, median 233); its attacks are short fast
-			-- moves (0.1 s at 1000-1700) and both 10-damage hits came as one ended ~410 away with her not sliding. So:
-			-- a slide across its line the moment it moves fast (the slide's i-frames), and, low, away to heal (the user:
-			-- "go away to a safe spot and heal up during fights. but its better to avoid getting hurt").
+			-- Circle: ~230 away, always running round it and swinging; a slide across its line the moment it moves fast
+			-- (the slide's i-frames), and, low, away to heal.
 			local ksp = lastE and math.sqrt((ex - lastE[1]) ^ 2 + (ey - lastE[2]) ^ 2) * 144 or 0
 			lastE = { ex, ey }
 			local ux, uy = dx / math.max(d, 1), dy / math.max(d, 1)
@@ -2046,7 +1924,7 @@ function M.reflexes.fight(a)
 			local mx, my
 			if heal then
 				heal.t = heal.t + 1
-				-- Away and round: straight away pinned her to the arena's wall, where it walked up and hit her (2026-09-23).
+				-- Away and round: straight away pins her to the arena's wall.
 				if d < 700 and heal.t < 600 then
 					mx, my = -ux * 0.6 + tx, -uy * 0.6 + ty
 				else
@@ -2057,8 +1935,7 @@ function M.reflexes.fight(a)
 					if hp >= healTo or (heal.hold > 240 and hp <= heal.hp) or d < 500 then heal = false end
 				end
 			else
-				-- In range most of the time: with a gentle pull (radial /120 against a 0.9 circle) she spent the round
-				-- beyond 330 and swung 4 times (2026-09-23).
+				-- A strong pull to ~220 keeps her in range: a gentle one keeps her out of reach most of the round.
 				local radial = math.max(-1, math.min(1, (d - 220) / 50))
 				local round = d > 400 and 0.2 or 0.7
 				mx, my = ux * radial + tx * round, uy * radial + ty * round
@@ -2069,7 +1946,7 @@ function M.reflexes.fight(a)
 					mx, my = tx, ty -- across its line
 					if inputReady() then subsystem:InjectInputVectorForAction(actions.IA_Crouch, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {}) end
 				end
-				-- round the other way now and then, as the user changed direction
+				-- round the other way now and then
 				flipT = (flipT or 0) + 1
 				if flipT > 500 then flipT, spin = 0, -spin end
 			end
@@ -2125,8 +2002,7 @@ function M.reflexes.look(a)
 		end
 		last = s
 		local x = math.max(-1, math.min(1, dyaw / 20))
-		-- A positive IA_Look Y raises the camera's pitch (it drove it from 0 to its limit of 50, 2026-09-23), so the
-		-- push is the opposite of the pitch still to go.
+		-- A positive IA_Look Y lowers the camera's pitch, so the push is the opposite of the pitch still to go.
 		local y = math.max(-1, math.min(1, -dpitch / 20))
 		local e = injectLook(x, y)
 		if e then return true, nil, e end

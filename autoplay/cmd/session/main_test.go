@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// The headless session is named for the other sessions on the machine and holds their messages, so a chat can watch
-// it go idle and nothing a chat sends reaches the model mid-goal (2026-09-22).
+// TestClaudeArgsNamesAndHoldsTheSession: the headless session is named for the other sessions on the machine and holds
+// their messages, so a chat can watch it go idle and nothing a chat sends reaches the model mid-goal.
 func TestClaudeArgsNamesAndHoldsTheSession(t *testing.T) {
 	o := options{game: "tevi", listen: "127.0.0.1:7872"}
 	args := claudeArgs(o, "<mcp.json>", "", playTools())

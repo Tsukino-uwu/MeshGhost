@@ -6,18 +6,10 @@ using Newtonsoft.Json.Linq;
 
 namespace MeshGhostAutoplay
 {
-    // THE ACHIEVEMENT GUARD, for any BepInEx game autoplay drives. The user, 2026-09-17, after TEVI unlocked "Squeak By" during
-    // an autoplay fight: autoplay must never unlock achievements, "for any autoplay game/things that run on steam".
-    //
-    // While a driver is loaded, every call that unlocks an achievement or sends stats to the platform is skipped: the Steam
-    // libraries' own entry points, whichever the game ships (Steamworks.NET's SteamUserStats, Facepunch.Steamworks'
-    // SteamUserStats and Achievement.Trigger; names from their public APIs), and the game's own unlock methods the plugin
-    // names (TEVI's GemaSteamAPIAchievements.UnlockAchievement and GemaSteamAPIAccess.TrySyncAchievements, names read from its
-    // assembly). A skipped call returns its type's default (false for a bool), as if the platform had refused it.
-    //
-    // It is ARMED FROM THE MOMENT THE DRIVER LOADS, not when a core connects (the save guard's moment): an unlock between the two
-    // would already be on the account. Like the save guard it survives a hot reload: the patches are applied once per process
-    // and never removed, and the count lives in the AppDomain's data. A game restart without the driver plays normally.
+    // Skips every call that unlocks an achievement or sends stats (the Steam libraries' and the game's own the plugin
+    // names) from the moment the driver loads: an unlock before a core connects would already be on the account. A
+    // skipped call returns its type's default, as if the platform refused it. Patched once per process and never
+    // removed, the count in the AppDomain, it survives a hot reload.
     public static class AchievementGuard
     {
         public const string HarmonyId = "dev.meshghost.autoplay.achievementguard";
@@ -25,7 +17,6 @@ namespace MeshGhostAutoplay
         private const string KeyLast = "meshghost.autoplay.achievements.last";
         private const string KeyPatched = "meshghost.autoplay.achievements.patched";
 
-        // The Steam libraries' calls that unlock or upload, by type full name.
         private static readonly Dictionary<string, string[]> SteamCalls = new Dictionary<string, string[]>
         {
             // Steamworks.NET and Facepunch.Steamworks both name their static class Steamworks.SteamUserStats.
@@ -34,8 +25,7 @@ namespace MeshGhostAutoplay
             ["Steamworks.Data.Stat"] = new[] { "Set", "Add", "UpdateAverageRate", "Store" },
         };
 
-        // Applies the patches if no copy of this assembly has, to the Steam calls above and to `gameCalls` ("Type.Method", any
-        // overload). Returns what it did, for the log.
+        // Patches the Steam calls and `gameCalls` ("Type.Method", any overload) unless an earlier copy has.
         public static string Install(IEnumerable<string> gameCalls)
         {
             if (Harmony.HasAnyPatches(HarmonyId))

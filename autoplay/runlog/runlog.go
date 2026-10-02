@@ -1,10 +1,10 @@
-// Package runlog writes one session's record: every tool call, and the segments a run is divided
-// into, each labelled WALKED or REACHED.
+// Package runlog writes one session's record: every tool call, and the segments a run is divided into, each labelled
+// walked or reached.
 //
-// The label is the play-game skill's rule turned into code: "walked to X" and "reached X" are
-// different claims, and only the first says anything about the game. A segment starts walked and
-// becomes reached the moment any call that changes the world by other means than play -- a cheat,
-// a restored snapshot -- succeeds in it. Nobody has to remember to say so.
+// The label is the play-game skill's rule turned into code: "walked to X" and "reached X" are different claims, and
+// only the first says anything about the game. A segment starts walked and becomes reached the moment any call that
+// changes the world by other means than play (a cheat, a restored snapshot) succeeds in it. Nobody has to remember to
+// say so.
 //
 // The file is newline-delimited JSON under the runs folder, which is gitignored.
 package runlog
@@ -60,10 +60,10 @@ func Open(dir string) (*Log, error) {
 // MaxRecordBytes bounds one line Resume will read back; a record is a tool call's arguments at most.
 const MaxRecordBytes = 1 << 20
 
-// Resume reopens a run log a previous core wrote and carries on its open segment -- the one begun last --
-// with the label it was given and the claim its calls earned. mcpcall starts a core per invocation, so
-// without this one run would be split across as many files, each starting a new walked segment. A core
-// that stops closes the segment only for itself (a segment record with session_end), which Resume undoes.
+// Resume reopens a run log a previous core wrote and carries on its open segment (the one begun last) with the label
+// it was given and the claim its calls earned. mcpcall starts a core per invocation, so without this one run would be
+// split across as many files, each starting a new walked segment. A core that stops closes the segment only for itself
+// (a segment record with session_end), which Resume undoes.
 func Resume(path string) (*Log, error) {
 	in, err := os.Open(path)
 	if err != nil {
@@ -181,8 +181,8 @@ func (l *Log) CallOutcome(tool string, args any, err error, reachedBy, outcome s
 	l.write(rec)
 }
 
-// Loop records a call the core saw repeat: the same tool, arguments, outcome and place `repeats` times in the last
-// `within` calls (server's LOOPS).
+// Loop records a call the core saw repeat: the same tool, arguments, outcome, place and change `repeats` times in the
+// last `within` calls.
 func (l *Log) Loop(tool, outcome, where string, repeats, within int) {
 	if l == nil {
 		return

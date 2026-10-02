@@ -1,14 +1,13 @@
-// Package scenario is the runner that replays what an agent explored, with no model: a scenario file
-// lists tool calls and what each answer must say, and the runner makes the calls and reports pass or
-// fail.
+// Package scenario is the runner that replays what an agent explored, with no model: a scenario file lists tool calls
+// and what each answer must say, and the runner makes the calls and reports pass or fail.
 //
-// A step is exactly what an agent would call -- a tool name and its arguments -- so the runner goes
-// through the same server, the same driver and the same run log as a session does, and a step that
-// works here works there. A tracked scenario builds its situation with cheats (the README's "What stays
-// out of the repo"): a savestate never enters the repo, so `restore` and `snapshot` are refused.
+// A step is exactly what an agent would call (a tool name and its arguments), so the runner goes through the same
+// server, the same driver and the same run log as a session does, and a step that works here works there. A tracked
+// scenario builds its situation with cheats: a savestate never enters the repo, so `restore` and `snapshot` are
+// refused.
 //
-// The file is JSON, decoded strictly: an unknown field is an error, since a misspelled expectation that
-// silently checks nothing would pass forever.
+// The file is JSON, decoded strictly: an unknown field is an error, since a misspelled expectation that silently
+// checks nothing would pass forever.
 package scenario
 
 import (

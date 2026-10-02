@@ -1,13 +1,12 @@
-// Command scenario runs scenario files against a game driver with no model: the autoplay core's own
-// server runs in this process, a driver connects to it as it would to a session's core, and every step
-// is a tool call through that server, so the run log labels each run's setup and steps walked or
-// reached exactly as it does a session's. Dev-only, never shipped (agent_docs/phases/phase13.md).
+// Command scenario runs scenario files against a game driver with no model: the autoplay core's own server runs in
+// this process, a driver connects to it as it would to a session's core, and every step is a tool call through that
+// server, so the run log labels each run's setup and steps walked or reached exactly as it does a session's.
+// Dev-only, never shipped.
 //
 //	go run ./cmd/scenario games/emerald/scenarios/trainer_sight_range.json
 //
-// Run from autoplay/. Arguments are scenario files or folders of them (*.json). Exit 0 when every run
-// passed, 1 when one failed, 2 when nothing could be run (a file that does not load, no driver, another
-// game connected).
+// Run from autoplay/. Arguments are scenario files or folders of them (*.json). Exit 0 when every run passed, 1 when
+// one failed, 2 when nothing could be run (a file that does not load, no driver, another game connected).
 package main
 
 import (

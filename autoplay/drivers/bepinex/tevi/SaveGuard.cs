@@ -9,31 +9,15 @@ using UnityEngine;
 
 namespace MeshGhostAutoplay.Tevi
 {
-    // THE SAVE GUARD. While armed, TEVI's save folder is a SHADOW COPY: every file the game or a mod opens there, to read
-    // or to write, is opened in autoplay/states/tevi/shadow/ instead, copied fresh from the real folder the moment the
-    // guard arms. The real folder is never written, and the game still reads back what it wrote. The game's autosave
-    // does not run at all. The user, 2026-09-17: the unmodded saves must never change, and the driver holds the autosave.
+    // While armed, every save file the game or a mod opens is opened in autoplay/states/tevi/shadow/ instead, copied
+    // fresh from the real folder as the guard arms, and the autosave is skipped. A shadow, not a refusal: a new game
+    // reads back the slot pointer it just wrote, so a refused write loads another slot. Easy Save resolves every
+    // relative save path through ES3Settings.FullPath, where a postfix redirects it; ES3IO's moves, writes and deletes
+    // refuse a path left in the real folder. Without a repo there is no shadow and the guard only refuses.
     //
-    // WHY A SHADOW AND NOT A REFUSAL (measured 2026-09-17, agent_docs/phases/autoplay/tevi.md): the first guard refused
-    // every write but autoplay's slot. A new game in slot 39 then writes "recent slot 39" to tevisystem.sav and, after
-    // its scene reload, reads that pointer back to pick the slot to load; the refused write left it at 0, and the "new
-    // game" loaded the player's autosave instead. A guard that changes what the game reads back breaks the thing it
-    // guards. Redirecting keeps every read and write the game's own, only in another folder.
-    //
-    // Where it sits (names read from the Steam build's assemblies, 2026-09-17): Easy Save 3 resolves every relative save
-    // path through ES3Settings.FullPath (persistentDataPath + "/" + path), and the game and the Randomizer save only
-    // through ES3. A postfix on that getter rewrites any path in the real folder to the shadow's. ES3IO's own file
-    // moves, writes and deletes then refuse any path still inside the real folder, as a backstop for a path that did
-    // not come through FullPath. SaveManager.ReallyDoAutoSave is skipped. Without a repo in the driver's config there is
-    // no shadow folder, and the guard falls back to refusing, with the new-game problem above: say so in the log.
-    //
-    // It ARMS when the driver first welcomes a core and stays armed until the game exits. A driver left in scripts\
-    // with no core never arms, so ordinary play saves as usual. Restart the game to play normally after a session.
-    //
-    // It SURVIVES A HOT RELOAD. ScriptEngine loads a new copy of this assembly and destroys the old plugin; patches
-    // removed and re-applied would leave a gap. So the patches are applied once per process (their Harmony id is checked
-    // first) and never removed, and their state lives in the AppDomain's data, which every copy of this assembly reads.
-    // Changing this file's code therefore needs a game restart to take effect.
+    // It arms when the driver first welcomes a core and stays armed until the game exits, so a driver with no core
+    // leaves ordinary play alone. Patched once per process and never removed, its state in the AppDomain, it survives a
+    // hot reload without a gap; a change to this file needs a game restart.
     public static class SaveGuard
     {
         public const string HarmonyId = "dev.meshghost.autoplay.saveguard.shadow";
@@ -48,8 +32,7 @@ namespace MeshGhostAutoplay.Tevi
 
         private static readonly object Gate = new object();
 
-        // Called by the plugin on Awake: records the real save folder and the shadow's (null without a repo) and applies
-        // the patches if no copy of this assembly has. Returns what it did, for the log.
+        // Records the real save folder and the shadow's (null without a repo) and patches unless an earlier copy has.
         public static string Install(string persistentDataPath, string shadowRoot)
         {
             AppDomain.CurrentDomain.SetData(KeyRoot, Normalize(persistentDataPath).TrimEnd('/'));
@@ -90,7 +73,7 @@ namespace MeshGhostAutoplay.Tevi
         private static string RealRoot => AppDomain.CurrentDomain.GetData(KeyRoot) as string ?? "";
 
         // Copies the real save folder into a fresh shadow, then arms. The logs Unity keeps there are left out: they are
-        // not saves, and one is tens of megabytes. Returns what it did, for the log.
+        // not saves, and one is tens of megabytes.
         public static string Arm()
         {
             if (Armed) return "save guard: already armed";

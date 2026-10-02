@@ -6,8 +6,8 @@ import (
 	"text/template"
 )
 
-// The prompts a session is given: play.md to play toward the goal, distill.md to write down what was learned. Their
-// fields: Game, GameTitle, Goal, GoalDescription, Budget, Date.
+// PlayPrompt is the play run's prompt, toward the goal, and DistillPrompt the distill run's, to write down what was
+// learned. Their fields: Game, GameTitle, Goal, GoalDescription, Budget, Date.
 var (
 	//go:embed play.md
 	PlayPrompt string

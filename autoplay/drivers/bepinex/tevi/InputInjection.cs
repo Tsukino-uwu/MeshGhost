@@ -7,18 +7,11 @@ using UnityEngine;
 
 namespace MeshGhostAutoplay.Tevi
 {
-    // PRESS: input the game reads as its own. TEVI reads every button and axis through Rewired's Player (its
-    // InputButtonManager and InputAxisManager wrap it, and other code calls it directly; names read from the Steam
-    // build's assemblies, 2026-09-17), so a postfix on Player's read methods reaches every caller the same way. A
-    // held action is ORed with the real controller: nothing the player presses is lost.
-    //
-    // A hold is by frame number, never by call order: an action held from frame S for N frames reads held on frames
-    // S to S+N-1, "down" on S and "up" on S+N, whichever script asks and however often in a frame. An axis action is
-    // named with a sign ("XAxis-" for -1); a button action by its name. The names are the game's own, read from
-    // Rewired at runtime (observe's input_actions).
-    //
-    // WHILE A PRESS RUNS THIS DRIVER HOLDS INPUT. Unlike the save guard these patches go with the plugin: removed in
-    // OnDestroy and applied again by the next copy after a hot reload.
+    // Input the game reads as its own. TEVI reads every button and axis through Rewired's Player, so a postfix on its
+    // read methods reaches every caller the same way, ORed with the real controller. A hold is by frame number, never
+    // by call order: held from frame S for N frames reads held on S to S+N-1, "down" on S and "up" on S+N, however
+    // often a frame asks. Actions are the game's own Rewired names, an axis with a sign ("XAxis-"). Unlike the save
+    // guard these patches go with the plugin and are applied again after a hot reload.
     public static class InputInjection
     {
         public const string HarmonyId = "dev.meshghost.autoplay.input";
@@ -67,10 +60,8 @@ namespace MeshGhostAutoplay.Tevi
             MuteReal = false;
         }
 
-        // Whether the game hears the keyboard and mouse while unfocused, read only. The user, 2026-09-17: a TEVI started
-        // while another window had focus took typing from that window (dialogue advanced, the pause menu opened), until
-        // its own window had been clicked once and left; after that it ignored input while unfocused. A hold above is
-        // added after Rewired's read, so it reaches the game either way.
+        // Whether the game hears the keyboard and mouse while unfocused, read only; a hold is added after Rewired's
+        // read, so it reaches the game either way.
         public static JObject FocusReport()
         {
             if (!ReInput.isReady) return null;
@@ -112,7 +103,7 @@ namespace MeshGhostAutoplay.Tevi
             return null;
         }
 
-        // Names to holds from `start` for `frames`, added to `into`; an error names what is wrong, and adds nothing more.
+        // Names to holds from `start` for `frames`, added to `into`; an error names what is wrong and adds no more.
         private static string Parse(IList<string> buttons, int start, int frames, List<Hold> into)
         {
             foreach (string raw in buttons)
@@ -145,7 +136,7 @@ namespace MeshGhostAutoplay.Tevi
             return null;
         }
 
-        // A SEQUENCE: several holds, each from its own offset after the next frame, overlapping as they like. All are checked
+        // Several holds, each from its own offset after the next frame, overlapping as they like; all are checked
         // before any is scheduled. Returns an error, or null and the first frame after the last release.
         public static string ScheduleSequence(IList<KeyValuePair<IList<string>, KeyValuePair<int, int>>> steps, out int doneFrame)
         {
@@ -166,10 +157,9 @@ namespace MeshGhostAutoplay.Tevi
             return null;
         }
 
-        // A REFLEX's input, decided each frame for the next: Keep holds an action on the next frame, extending a hold that is on
-        // now (so the game sees one long hold, never a fresh press), or starting one; Tap presses it for `frames` from the next
-        // frame, only when nothing holds it now or ends on the next frame (so each tap reads as its own press). Keep returns
-        // false for an action the game does not have; Tap returns true only when it began a new press.
+        // A reflex's input, decided each frame for the next. Keep holds an action next frame, extending a hold that is
+        // on (one long hold, never a fresh press), false for an action the game lacks; Tap presses it for `frames` only
+        // when nothing holds it or ends next frame (each tap its own press), true when it began one.
         public static bool Keep(string name)
         {
             if (!TryAction(name, out int id, out float value)) return false;
@@ -194,18 +184,16 @@ namespace MeshGhostAutoplay.Tevi
             int f = Time.frameCount;
             foreach (Hold h in Holds)
             {
-                if (h.ActionId == id && h.End >= f) return false; // still held or just released: no new press this frame
+                // still held or just released: no new press this frame
+                if (h.ActionId == id && h.End >= f) return false;
             }
             Holds.Add(new Hold { ActionId = id, Value = value, Start = f + 1, End = f + 1 + frames });
             return true;
         }
 
-        // A quickdrop, as a reflex's input for the next frame: Down held, and Jump pressed only once Down has been held QuickdropDownFirst
-        // frames. Pressed on the same frame, the game took Down and Jump for a double jump and threw her up (every one of five double
-        // jumps in the flight recorder began with both on one frame; every quickdrop had Down held two frames or more first, 2026-09-17,
-        // Ribauld on Infernal BBQ, where the jump carried her into his charge). Two frames was the edge: with Down held two frames while
-        // still rising, the press made a double jump into his bomb ring (frame 1313181), and quickdrops while rising had Down held four
-        // or more. Returns true when Jump was pressed.
+        // A quickdrop as a reflex's input for the next frame: Down held, and Jump pressed only once Down has been held
+        // QuickdropDownFirst frames; Down and Jump on one frame, or Down held only two while rising, make a double jump
+        // instead. Returns true when Jump was pressed.
         private const int QuickdropDownFirst = 4, QuickdropPress = 4;
 
         public static bool Quickdrop()
@@ -216,8 +204,7 @@ namespace MeshGhostAutoplay.Tevi
             {
                 if (h.ActionId != id || h.Value != value || h.End != f + 2 || f + 1 - h.Start < QuickdropDownFirst) continue;
                 if (!Tap("Jump", QuickdropPress)) return false;
-                // Down stays held through the whole press: let go a frame after it began (the dodge changing its plan), the rest of the
-                // press read as a jump in the air and made a double jump (1272795, the same fight).
+                // Down stays held through the press: let go early, the rest of the press reads as a jump in the air.
                 for (int i = 0; i < Holds.Count; i++)
                 {
                     Hold d = Holds[i];
@@ -248,8 +235,8 @@ namespace MeshGhostAutoplay.Tevi
             return true;
         }
 
-        // Ends every hold now: one still held is let go on the next frame (so the game sees it released), and one not begun
-        // is dropped. Returns how many were cut.
+        // Ends every hold now: one still held is let go on the next frame (so the game sees it released), and one not
+        // begun is dropped. Returns how many were cut.
         public static int CutShort()
         {
             int f = Time.frameCount, cut = 0;
@@ -348,11 +335,9 @@ namespace MeshGhostAutoplay.Tevi
             return false;
         }
 
-        // While true, what Rewired reads from the real keyboard, mouse and pads is dropped before the holds above are added:
-        // the plugin sets it each frame while the save guard is armed (a core has connected since launch; mcpcall drops the link
-        // between calls) and the game's window is not focused. The user, 2026-09-17:
-        // after a restore reloads the game it takes typing from other windows again (the pause menu opened mid-press) until
-        // its window is focused and left once more. Focused, the player's own input reaches the game as always.
+        // While true, the real keyboard, mouse and pads are dropped before the holds are added: set each frame while
+        // the save guard is armed (mcpcall drops the link between calls) and the window is unfocused, since a restore
+        // lets an unfocused TEVI take typing from other windows again.
         public static bool MuteReal;
 
         private static void ButtonPostfixId(int __0, ref bool __result) { if (MuteReal) __result = false; if (!__result && Holds.Count > 0 && Held(__0) > 0f) __result = true; }

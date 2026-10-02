@@ -1769,3 +1769,17 @@ did not reproduce; dropped until a run shows it. Detail: [autoplay/emerald.md](a
 
 From the HEAT BADGE to Mossdeep's gym door (6 badges), the user watching and steering; what was built, the scratch helpers
 to rebuild, and where it stopped: [autoplay/emerald.md](autoplay/emerald.md), same date.
+
+## 2026-10-02 — pointer: autoplay's comments trimmed (A5)
+
+Every autoplay source file's comments were cut to what and why with the rest of the repo (the account is
+`phase12.md` and `phase10.md`, same date): the Go harness (23 files), the BizHawk driver with its route planner, text
+reader and Emerald and Crystal modules, the UE4SS driver for Pseudoregalia, and the BepInEx driver for TEVI. Code
+unchanged: Go tokens, `luac -l -l` listings with line numbers stripped, and C# tokens, each identical to the parent;
+`go build`, `go vet` and `go test -count=2` green in `autoplay/`. History no record held is in
+`pitfalls/by-lesson.md`, "The stories behind the code"; game facts went to each game's `MEASURED.md`, 2026-10-02 (a
+fact the comment said was read from the code as a map, under "Not measured yet"). Stale claims fixed on the way, among
+them: the driver package said to read no payload field but `persisting` (the server reads `outcome`, `location`,
+`changed` and a screenshot's `path`), `goto`'s jumped rises and its end list, `walk`/`goto` said to be on foot only on
+Crystal (every movement state, surfing included), and the TEVI dodge said to weigh nine moves on the ground (eleven).
+`autoplay/README.md` still says a 27-by-17-tile `local_map`; the code reads 101 by 51.
