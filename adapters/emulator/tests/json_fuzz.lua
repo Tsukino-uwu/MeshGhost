@@ -1,28 +1,9 @@
--- json_fuzz.lua -- hostile input against the SHIPPED bridge JSON decoders, offline.
+-- json_fuzz.lua -- hostile input against the shipped bridge JSON decoders, offline.
 --
--- WHY THIS EXISTS. On 2026-08-25 a malformed bridge line froze BizHawk outright: Crystal's
--- jsonDecode looped forever on truncated input, and the pcall around it could not help, because
--- pcall turns an ERROR into a return value and an infinite loop raises nothing. That was found by
--- transliterating the function into another language and running it against truncated inputs with
--- a step cap. This is that technique promoted from a throwaway to something CI runs, against the
--- real functions rather than a transliteration.
---
--- WHAT IT COVERS, AND WHAT IT DOES NOT. The decoder only. Each adapter's message DISPATCH (what it
--- does with a decoded table) sits thousands of lines further down, past the point where the file
--- starts calling BizHawk's drawing and memory APIs, so nothing here reaches it. A peer string
--- becoming a lookup it should not be is a dispatch question and is not answered here.
---
--- IT IS ALSO NOT BIZHAWK'S LUA. This runs under a desktop Lua 5.4, so it bounds the ALGORITHM and
--- says nothing about the host. The one question that genuinely needs the emulator -- whether a Lua
--- stack overflow inside pcall drops the message or takes BizHawk down -- has been open since
--- 2026-08-25 and needs a probe, not this.
---
--- HOW IT LOADS A SHIPPED DECODER WITHOUT EDITING IT. Each adapter is one long script that calls
--- BizHawk at load, so it cannot be require'd. But the decoder sits near the top, before any of
--- that: the PREFIX up to the end of jsonDecode is pure declarations. So the harness takes that
--- prefix, appends `return jsonDecode`, and loads it with a stub _ENV. The cut point is found
--- structurally (the first column-0 `end` after the function opens), never as a line number, so an
--- edit to the decoder cannot silently point this at the wrong text.
+-- It reaches the decoder only: each adapter's dispatch sits past where the file starts calling BizHawk. It runs under
+-- desktop Lua 5.4, so it bounds the algorithm and says nothing about BizHawk's own Lua.
+-- An adapter calls BizHawk at load and cannot be require'd, so the harness loads its prefix up to the end of
+-- jsonDecode, which needs only the host globals stubEnv fakes, with `return jsonDecode` appended.
 --
 -- Run: lua5.4 adapters/emulator/tests/json_fuzz.lua
 
@@ -31,17 +12,12 @@ local ADAPTERS = {
     { name = "crystal", path = "adapters/emulator/pokemon/crystal/meshghost_crystal.lua" },
 }
 
--- A decode is run inside a coroutine with an instruction-count hook, so a runaway loop is a
--- REPORTED FAILURE rather than a hung CI job. This is the whole point: the 2026-08-25 bug was a
--- hang, and a harness that can only catch errors would have missed it exactly as pcall did.
+-- Each decode runs in a coroutine under an instruction-count hook, so a runaway loop is a reported failure rather
+-- than a hung job: pcall catches errors, and a hang raises nothing.
 local STEP_CAP = 4e6
 
--- The recursion depth a decoder may accept before refusing. 64 is Crystal's, chosen by its
--- 2026-08-25 fix and comfortably above anything a game sends -- every shipped adapter puts a FLAT
--- scalar map in extras (protocol/limits.go says so and refuses to recurse for that reason). The
--- cap matters because `extras` is bounded by SIZE (1024 bytes) and never by SHAPE: nested arrays
--- cost about a byte a level, so a peer fits several hundred levels into a message the relay
--- forwards without complaint.
+-- Crystal's cap, far above anything a game sends: a decoder must refuse deep nesting itself, not recurse until the
+-- stack gives out.
 local MAX_DEPTH = 64
 
 local failures, checks = {}, 0
@@ -49,10 +25,6 @@ local failures, checks = {}, 0
 local function fail(fmt, ...)
     failures[#failures + 1] = string.format(fmt, ...)
 end
-
-----------------------------------------------------------------------------
--- Loading a shipped decoder
-----------------------------------------------------------------------------
 
 local function readFile(path)
     local f, err = io.open(path, "rb")
@@ -64,9 +36,8 @@ local function readFile(path)
     return s
 end
 
--- stubEnv is the real standard library plus the few host globals the PREFIX touches at load time.
--- Everything else is absent on purpose: if a future edit moves a BizHawk call above the decoder,
--- this harness should fail loudly rather than quietly stub it out.
+-- stubEnv is the real standard library plus the few host globals the prefix touches at load. Any other BizHawk API is
+-- absent on purpose, so a call moved above the decoder fails loudly instead of being stubbed out.
 local function stubEnv()
     local env = {}
     for _, k in ipairs({
@@ -78,28 +49,15 @@ local function stubEnv()
         env[k] = _G[k]
     end
     env._G = env
-    -- console.log is reassigned at load by the Emerald adapter (it wraps the original to tee into
-    -- a logfile), so the original has to exist and be callable.
+    -- The Emerald adapter wraps console.log at load to tee into its log file, so the original must exist.
     env.console = { log = function() end, clear = function() end }
 
-    -- THE PLATFORM IS FAKED TO WINDOWS, and this is not optional. Both adapters call
-    -- loadSocketCore() at file scope, well before the decoder, and it refuses outright unless
-    -- package.config says Windows, _VERSION says Lua 5.4, and PROCESSOR_ARCHITECTURE contains 64 --
-    -- then loads a vendored .dll. None of that is reachable on a Linux CI runner, and none of it
-    -- has anything to do with parsing a line of JSON.
-    --
-    -- Found by CI, not locally: this harness passed on Windows, where the real package.config
-    -- already starts with a backslash, and failed on the first push with "only Windows is supported
-    -- by the vendored LuaSocket binary so far". A harness that only runs on its author's platform is
-    -- a harness that stops running the moment it moves.
-    --
-    -- Faked UNCONDITIONALLY rather than only on Linux, so the harness exercises the same path
-    -- everywhere and a Windows pass means what a Linux pass means.
+    -- Faked to 64-bit Windows on every platform: both adapters call loadSocketCore at file scope, before the decoder,
+    -- and it refuses anything else. Unconditional, so a Windows pass means what a Linux runner's pass means.
     env.package = setmetatable({
         config = "\\\n;\n?\n!\n-\n", -- Windows separators, the shape loadSocketCore tests
         loadlib = function()
-            -- A loader whose result is the socket module. Nothing here calls it: the socket is used
-            -- by the bridge loop, thousands of lines past the decoder.
+            -- Never called: the socket is used by the bridge loop, past the decoder.
             return function()
                 return {}
             end
@@ -115,11 +73,8 @@ local function stubEnv()
         end,
     }, { __index = os })
 
-    -- io.open is proxied so a WRITE never touches the disk. Both adapters open a log file at load,
-    -- and running this from the repo root made them scatter nine meshghost_crystal_*.log files into
-    -- it -- committed once, on 2026-09-03, before this was noticed. A harness that litters the tree
-    -- it is checking is a harness that will be run less often. Reads pass through untouched: the
-    -- prefix probes for a config.json, and finding none is a legitimate outcome it handles.
+    -- Writes go to a sink, or the log files both adapters open at load land in the working directory. Reads pass
+    -- through: the prefix looks for a config.json and handles finding none.
     local sink = {
         write = function(self) return self end,
         close = function() return true end,
@@ -140,7 +95,8 @@ local function stubEnv()
     return env
 end
 
--- decoderPrefix returns the source text up to and including the end of jsonDecode.
+-- decoderPrefix returns the source up to the first column-0 `end` after jsonDecode opens: found by structure, never
+-- by line number, so an edit to the decoder cannot point this at the wrong text.
 local function decoderPrefix(src, path)
     local lines = {}
     for line in (src .. "\n"):gmatch("([^\n]*)\n") do
@@ -188,13 +144,8 @@ local function loadDecoder(a)
     return decode, nil, endLine
 end
 
-----------------------------------------------------------------------------
--- Running one decode under a step cap
-----------------------------------------------------------------------------
-
--- call returns: status ("ok" | "error" | "runaway"), value-or-message.
--- "runaway" means the decoder used more than STEP_CAP VM instructions on one line, which is what a
--- non-terminating parse looks like from outside. In BizHawk that is a frozen emulator.
+-- call returns "ok", "error" or "runaway" and the value or message. A runaway took more than STEP_CAP instructions on
+-- one line: a parse that never ends, which in BizHawk is a frozen emulator.
 local function call(decode, line)
     checks = checks + 1
     local co = coroutine.create(decode)
@@ -212,7 +163,6 @@ local function call(decode, line)
     return "error", res
 end
 
--- A decoder must always come back. Anything that neither returns nor raises is the 2026-08-25 bug.
 local function mustTerminate(name, label, decode, line)
     local status, res = call(decode, line)
     if status == "runaway" then
@@ -220,21 +170,13 @@ local function mustTerminate(name, label, decode, line)
         return nil, false
     end
     if status == "error" then
-        -- jsonDecode's own pcall should have absorbed this. An error escaping means the wrapper is
-        -- not covering the whole parse.
         fail("%s: %s raised past jsonDecode's own pcall: %s (input %q)", name, label, tostring(res), line:sub(1, 80))
         return nil, false
     end
     return res, true
 end
 
-----------------------------------------------------------------------------
--- The corpus
-----------------------------------------------------------------------------
-
--- Valid lines, run as a CONTROL in the same pass. Without them "everything returned nil" reads as
--- a clean run instead of a decoder that stopped decoding -- the 2026-08-25 note makes this point
--- explicitly, and it is the same failure this repo hit with a fuzz generator on 2026-09-03.
+-- The control: without it, "everything returned nil" reads as a clean run instead of a decoder that stopped decoding.
 local VALID = {
     ['{"type":"bridge_ready"}'] = function(v) return type(v) == "table" and v.type == "bridge_ready" end,
     ['{"type":"despawn_remote","payload":{"player_id":"p1"}}'] = function(v)
@@ -253,15 +195,7 @@ local VALID = {
     end,
     ['{}'] = function(v) return type(v) == "table" end,
     ['{"e":[]}'] = function(v) return type(v) == "table" and type(v.e) == "table" end,
-    -- A MALFORMED \u ESCAPE MUST COST ONE CHARACTER, NOT THE WHOLE MESSAGE (review I47, fixed
-    -- 2026-09-11). Crystal's decoder advanced the cursor by six for every `\u` whether or not
-    -- four hex digits followed, so an escape truncated before its digits stepped straight past
-    -- the string's own closing quote -- the parser then read the rest of the line as string
-    -- content, found no terminator, and dropped the entire message.
-    --
-    -- What is asserted is the FIELD AFTER the bad escape, because that is the half that was
-    -- lost: whatever the mangled character becomes, the message must still decode and the rest
-    -- of it must still be there.
+    -- A malformed \u escape must cost one character, not the message: the field after it must still decode.
     ['{"a":"x\\uZZ","b":7}'] = function(v)
         return type(v) == "table" and v.b == 7
     end,
@@ -271,16 +205,12 @@ local VALID = {
     ['{"a":"x\\u","b":7}'] = function(v)
         return type(v) == "table" and v.b == 7
     end,
-    -- ...and a WELL-FORMED one still decodes, or the three above would pass on a decoder that
-    -- had simply stopped understanding \u at all.
+    -- A well-formed one still decodes, or the three above would pass on a decoder that ignores \u.
     ['{"a":"R\\u0026B","b":7}'] = function(v)
         return type(v) == "table" and v.a == "R&B" and v.b == 7
     end,
 }
 
--- Lines that must be REFUSED -- nil, not a value, and never a hang. These are the shapes that
--- either truncate mid-structure or are not JSON at all. The truncations are the class that froze
--- BizHawk on 2026-08-25.
 local MUST_REFUSE = {
     "", " ", "\n", "{", "[", "{\"", '{"a', '{"a"', '{"a":', '{"a":1', '{"a":1,', '{"a":1,}',
     "[1", "[1,", "[,]", "[[[", '{"a":[1,2', '{"a":{"b":', "tru", "fals", "nul", "-",
@@ -288,10 +218,7 @@ local MUST_REFUSE = {
     '{:1}', '{"a":,}', string.rep("{", 200), string.rep("[", 200),
 }
 
--- Lines a STRICT JSON parser would refuse but these decoders accept. REPORTED, never failed.
--- Every one is leniency toward input our own core would never emit, none of them hangs, and a
--- harness that fails on harmless leniency is a harness somebody switches off. They are listed so
--- the leniency is a recorded fact rather than an unexamined one.
+-- Accepted by these decoders, refused by a strict parser: reported, never failed, since the core never emits them.
 local LENIENT = {
     "0x10",             -- Lua's tonumber takes hex; JSON does not
     '{"a":01}',         -- leading zeros
@@ -303,15 +230,8 @@ local LENIENT = {
 }
 
 
--- CATEGORY 1 of the shared adversarial corpus (adapters/_template/README.md, "every field in a
--- render_remote came from a stranger"): WRONG TYPE FOR EVERY FIELD. A field that should be a
--- number arrives as a string, a bool, null, an array or an object, and vice versa.
---
--- These must DECODE, and decode to what the JSON actually said. That is the honest boundary of a
--- decoder test: the decoder's job is to report the type faithfully, and REJECTING it is the
--- dispatch's job. The value here is that it pins the shape the dispatch has to survive -- and this
--- is exactly the class Emerald's gender bug lived in, where a table arrived where a string was
--- expected and every peer sorted after it stopped drawing.
+-- Corpus category 1, the wrong type for every field: each must decode to what the JSON said, since rejecting it is
+-- the dispatch's job, and a decoder that coerces leaves the dispatch guarding a type that never arrives.
 local WRONG_TYPES = {
     ['{"payload":{"player_id":123}}'] = function(v) return type(v.payload.player_id) == "number" end,
     ['{"payload":{"player_id":null}}'] = function(v) return v.payload.player_id == nil end,
@@ -332,26 +252,16 @@ local WRONG_TYPES = {
     ['{"area_id":[]}'] = function(v) return type(v.area_id) == "table" end,
 }
 
--- CATEGORY 2: EXTREME NUMERICS, high and low. Each type's boundaries and the values just past
--- them, plus the ones a peer reaches legally: 1e999 is VALID JSON and the relay forwards it, so
--- inf arrives without anyone writing "inf". Reported rather than failed, because what the decoder
--- returns is the truth about the wire -- the question this raises is what each adapter DOES with
--- a non-finite extras value, and neither of them clamps most of them yet.
+-- Corpus category 2, extreme numerics: reported, not failed. 1e999 is valid JSON, so a peer reaches infinity without
+-- writing inf, and bounding it is each adapter's job, not the decoder's.
 local EXTREMES = {
     "0", "-0", "1", "-1", "255", "256", "-1e-3",
     "2147483647", "2147483648", "-2147483649", "9007199254740993",
     "3.4028235e38", "1e300", "1e308", "1e309", "1e999", "-1e999", "1e-999",
 }
--- A nested value of the given depth, which is what a peer can actually send: extras is bounded by
--- SIZE (1024 bytes) and never by SHAPE, and a nested array costs about one byte per level, so
--- several hundred levels fit inside a message the relay forwards without complaint.
 local function nest(depth, open, close)
     return string.rep(open, depth) .. string.rep(close, depth)
 end
-
-----------------------------------------------------------------------------
--- The run
-----------------------------------------------------------------------------
 
 local report = {}
 
@@ -363,7 +273,6 @@ for _, a in ipairs(ADAPTERS) do
     end
     report[#report + 1] = string.format("%s: decoder loaded (prefix ends line %d)", a.name, endLine)
 
-    -- 1. The control. Valid input must still parse to the right values.
     for line, want in pairs(VALID) do
         local v, ok = mustTerminate(a.name, "valid input", decode, line)
         if ok then
@@ -375,7 +284,6 @@ for _, a in ipairs(ADAPTERS) do
         end
     end
 
-    -- 2. Malformed lines: refused, never accepted, never hung.
     for _, line in ipairs(MUST_REFUSE) do
         local v, ok = mustTerminate(a.name, "malformed input", decode, line)
         if ok and v ~= nil and line ~= "" then
@@ -383,7 +291,6 @@ for _, a in ipairs(ADAPTERS) do
         end
     end
 
-    -- 2b. Leniency: recorded, not failed.
     local lenient = 0
     for _, line in ipairs(LENIENT) do
         local v, ok = mustTerminate(a.name, "lenient input", decode, line)
@@ -394,9 +301,6 @@ for _, a in ipairs(ADAPTERS) do
     report[#report + 1] = string.format("%s: accepts %d/%d non-strict input(s) -- leniency, not a fault", a.name, lenient, #LENIENT)
 
 
-    -- 2c. WRONG TYPE FOR EVERY FIELD (corpus category 1). These must DECODE, and decode to what
-    -- the JSON said. A decoder that quietly coerces is worse than one that refuses, because the
-    -- dispatch then guards a type that never arrives.
     for line, want in pairs(WRONG_TYPES) do
         local v, ok = mustTerminate(a.name, "wrong type", decode, line)
         if ok then
@@ -408,9 +312,6 @@ for _, a in ipairs(ADAPTERS) do
         end
     end
 
-    -- 2d. EXTREME NUMERICS (corpus category 2). Reported, not failed: what comes back is the truth
-    -- about the wire. 1e999 is valid JSON, so a peer reaches infinity without writing "inf" --
-    -- which is why the adapters, not the decoder, are where this has to be bounded.
     local nonfinite = {}
     for _, raw in ipairs(EXTREMES) do
         local line = string.format('{"extras":{"v":%s}}', raw)
@@ -427,16 +328,12 @@ for _, a in ipairs(ADAPTERS) do
             "%s: %d/%d extreme number(s) decode NON-FINITE (%s) -- valid JSON, so an adapter must bound them",
             a.name, #nonfinite, #EXTREMES, table.concat(nonfinite, ", "))
     end
-    -- 3. Every truncation of every valid line. This is what found the original bug.
     for line in pairs(VALID) do
         for cut = 1, #line - 1 do
             mustTerminate(a.name, "truncation", decode, line:sub(1, cut))
         end
     end
 
-    -- 4. DEPTH. The measured exposure: extras is size-bounded, never shape-bounded, so a peer can
-    -- send several hundred levels of nesting inside 1KB. A decoder must refuse it, not recurse
-    -- until the stack gives out.
     local depths = { 8, 16, 32, 64, 65, 100, 200, 490, 1000, 5000 }
     local deepest = 0
     for _, d in ipairs(depths) do
@@ -464,8 +361,6 @@ for _, a in ipairs(ADAPTERS) do
 
     ::continue::
 end
-
-----------------------------------------------------------------------------
 
 for _, line in ipairs(report) do
     print("  " .. line)

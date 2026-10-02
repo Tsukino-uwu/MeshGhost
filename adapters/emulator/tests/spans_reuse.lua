@@ -1,19 +1,10 @@
--- spans_reuse.lua -- does Emerald's REUSING reflectiveSpans produce exactly what the allocating
--- path produces?
+-- spans_reuse.lua -- does Emerald's reusing reflectiveSpans produce exactly what the allocating path produces?
 --
 -- Run: lua5.4 adapters/emulator/tests/spans_reuse.lua   (from the repo root)
 --
--- Does the REUSING path produce exactly what the allocating path produces?
---
--- That is the whole risk in review I36: reuse cannot raise an error, it can only produce a
--- slightly wrong answer -- a stale row a consumer reads as real, or a leftover span from a longer
--- previous row that gets painted. Both are wrong pixels on screen, which is not something the
--- agent side can see, so the equivalence has to be checked here instead.
---
--- The shipped function is lifted out of the adapter by text rather than copied, so this tests the
--- real one. Everything it depends on (the grid base, the metatile lookup, the cover masks) is
--- stubbed with a deterministic pattern that produces MULTIPLE spans per row and CHANGING span
--- counts between calls, which is the case the trim exists for.
+-- Reuse cannot raise an error, only a wrong answer: a stale row, or a leftover span from a longer previous row, both
+-- wrong pixels on screen. The shipped function is lifted from the adapter by text; its dependencies are stubbed with
+-- a pattern giving several spans per row and a changing span count between calls, the case the trim exists for.
 
 local path = "adapters/emulator/pokemon/emerald/meshghost_emerald.lua"
 local src = assert(io.open(path, "rb")):read("a")
@@ -26,25 +17,15 @@ local chunk = src:sub(startAt, endAt)
 
 local TILE = 16
 local genderFrames = {}
--- A base that is not tile-aligned, so the in-tile row arithmetic is actually exercised.
--- The adapter asks this before it walks the map at all: on a build whose gMapHeader is not
--- where it expects (Archipelago, both Speedchoice builds) the whole occlusion chain is
--- unreadable, and the tier declines to CLIP rather than clipping everything away. This
--- harness models a readable map, which is the case the span reuse is about — the
--- unreadable one returns before any span is built. Added 2026-09-12 after CI caught the
--- lifted function calling a stub that did not exist yet.
+-- A readable map: an unreadable one returns before any span is built.
 genderFrames.mapReadable = function() return true end
--- The layout pointer, which reflectiveSpans uses ONLY as the identity of the current map -- it
--- drops the decoded cover masks when this changes, because a metatile id means something else
--- under a new tileset. A constant is therefore exactly right here: this harness is one map.
--- Stubbed since 2026-09-12, when the occlusion chain stopped reading gMapHeader at a hardcoded
--- address and started locating it per build (genderFrames.mapLayoutPtr).
+-- Only the map's identity (the decoded masks are dropped when it changes), so a constant is one map.
 genderFrames.mapLayoutPtr = function() return 0x083EA284 end
+-- A base that is not tile-aligned, so the in-tile row arithmetic is exercised.
 genderFrames.gridBase = function() return 3, 5 end
 genderFrames.metatileAt = function(gx, gy) return (gx * 31 + gy * 17) % 7 end
 
--- coverMask returns a per-row bitmask table. The pattern deliberately varies with the metatile id
--- AND the row, so different calls produce different numbers of spans.
+-- Per-row bitmasks varying with the metatile id and the row, so different calls produce different span counts.
 local maskCache = {}
 genderFrames.coverMask = function(id, who)
     local key = id .. ":" .. tostring(who)
@@ -56,7 +37,6 @@ genderFrames.coverMask = function(id, who)
         else
             local t = {}
             for row = 0, 15 do
-                -- Alternating open/closed runs, shifted per id and row: several spans per row.
                 local bits = 0
                 for bx = 0, 15 do
                     local open = ((bx + row + id) % 5) < 2
@@ -70,16 +50,12 @@ genderFrames.coverMask = function(id, who)
     return maskCache[key]
 end
 
--- r32 reads the live map layout pointer, which the function uses only to drop its decoded-mask
--- cache when the map changes. A constant here means "the map never changed", which is the case
--- being tested.
 local env = setmetatable({ genderFrames = genderFrames, TILE = TILE,
     r32 = function() return 0x02037318 end }, { __index = _G })
 local fn = assert(load(chunk, "@reflectiveSpans", "t", env))
 fn()
 
 local function snapshot(spans)
-    -- A stable, comparable text form: every row, every span, in order.
     local rows = {}
     for py, list in pairs(spans) do rows[#rows + 1] = py end
     table.sort(rows)
@@ -94,8 +70,7 @@ local function snapshot(spans)
     return table.concat(out, "|")
 end
 
--- The call shapes the real sites use: different widths, heights and origins, in an order that
--- makes a later call SHORTER than an earlier one (the trim case).
+-- The real sites' call shapes, ordered so a later call is shorter than an earlier one (the trim case).
 local CASES = {
     { 10, 20, 16, 32, "sprite" },
     { 27, 44, 32, 48, "reflection" },
@@ -117,7 +92,6 @@ for i, c in ipairs(CASES) do
     end
 end
 
--- And the same scratch used repeatedly for the SAME query must stay stable.
 local first = snapshot(genderFrames.reflectiveSpans(10, 20, 16, 32, "sprite", sc))
 for _ = 1, 20 do
     local again = snapshot(genderFrames.reflectiveSpans(10, 20, 16, 32, "sprite", sc))
@@ -128,7 +102,6 @@ for _ = 1, 20 do
     end
 end
 
--- A row the new call does not cover must be GONE, not left over from the previous call.
 genderFrames.reflectiveSpans(10, 200, 16, 40, "sprite", sc)
 local short = genderFrames.reflectiveSpans(10, 200, 16, 4, "sprite", sc)
 local n = 0
