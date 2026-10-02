@@ -1,9 +1,9 @@
 # Written by dev-scripts\build-tevi.ps1; read by release.yml's staleness gate and preflight. Do not hand-edit.
-commit: 879d7755902a3eb5da5cce03af32d74304b5b76e
+commit: 84ec0940ab0c51bd1f80dc6dab4b1aff53a7ddfa
 sdk: 10.0.401
-Plugin.cs: a31d18131cbde32905470572f7e56eee1fe2e8c1cd2dcaf1fa3dedb320b19a30
-BridgeClient.cs: 1a8d38a2babb9a6ad174eee6d8be4f84804d68ffead4b4fa5931c4e14ed2f19f
-CoreLauncher.cs: fda17f501760235b99c2fb6a842a935c7a936fccdfa682deef59b0618c93d3e1
+Plugin.cs: a761942b43699ca69f86fbeaa31086586466936635b372651cbd268bbbab18a7
+BridgeClient.cs: 376f1d65679dac4bad56c423a6f93dd21d1a9b532e41f48015368d7f7e3d9d2e
+CoreLauncher.cs: 697b8d0e51f7419c0d2ad397c0c36decfaac5d8a0d34d5200e0cf49205949e65
 MeshGhostTevi.csproj: 46589073d7eb1ab206c0059cd1395b1dde8a6cd3b07c80d542f6ab67d51b5d18
 packages.lock.json: 62813a79167a4bcd4632fe678229aafc592d07f45390d9dd1a350da1db93ba38
 ./global.json: fc4602f9d88c9440f70f72732343a88c5e4190223fb9b77f9b8ac8eb1c4c8c2d
