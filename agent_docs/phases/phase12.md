@@ -1147,3 +1147,22 @@ refuses; `tevi-hotreload.ps1` copies `meshghost.exe` to folders the TEVI core la
 `hot-reload-lua.ps1` defaults its key to F10, which the README says froze UE4SS. The Emerald comment pass had removed
 the comment `adapters/emulator/tests/spans_reuse.lua` used to find the end of the code it lifts, so that test would
 have failed in CI; it now anchors on the next function (`c35d1b3b`), and all three emulator tests pass.
+
+## 2026-10-02 (pause) — A5: only the probes, the workflows and the gate commit left
+
+Committed since the last pause: `dev-scripts/` (`6de72d80`), the emulator tests (`406d5ab5`, after `c35d1b3b` fixed the
+test the Emerald pass broke), a markup snippet the link check read (`6a2f2ea8`). Paused again by the user with eight
+agents stopped mid-batch. The tree holds 282 files of drafts, copied to `private/a5/drafts-2026-10-02b.patch`:
+- the probes (Emerald 109, Crystal 101, Pseudoregalia about 30), batch lists `private/a5/pr-*.txt`. `pr-emerald2` is
+  finished and reported (records in `private/a5/*-pr-emerald2.md`); the others are part-drafted, and their
+  `stories-pr-*.md` files may be partial;
+- the eleven workflows (`wf-all.txt`, a gate file set), part-drafted;
+- the gate edits, ready but uncommitted: `preflight.ps1`'s comment-trace ratchet skips `//go:` directives (two
+  `//go:embed *.md` lines in autoplay can never reach 0) and two of its comment lines no longer name `documentation.md`;
+  `negative-test-preflight.ps1`'s header and three comments trimmed (both token-identical bar the one ratchet line).
+
+Next: finish and review each probe batch (`BRIEF-review-other.md`), prove (`lua-eq2.sh`), paste the records
+(`assemble.py`, `assemble_facts.py`), commit per adapter with its phase line; the workflows likewise, as a commit of
+their own; then the gate commit: the comment-trace floors to 0 and a hard FAIL, the decomp-citation floors for both
+probe folders lowered to their new counts, the directive exemption, run `negative-test-preflight.ps1`. Then A5's second
+pass, then A6. Open items for the user stay in `private/a5/notes-session2.md`, "For the user / later".
