@@ -1,12 +1,6 @@
--- MeshGhost — Pokémon Crystal: the long zero runs in CPU-visible WRAM, and whether they stay zero
--- (READ-ONLY)
---
--- `noclip.lua` points the collision table at the longest zero run and never writes into it. A noclip
--- that keeps doors working has to WRITE a filtered copy of the table there instead, which is only
--- acceptable in a region the game is not using. This lists every run of >= 256 zero bytes in
--- $C000-$DFFF (bank 1 selected, as in the overworld), then re-reads them for ten seconds and reports
--- how many bytes of each were ever non-zero. Names come afterwards, from the build's .sym, offline.
--- Log: zero_runs_<build>_<timestamp>.log beside this file.
+-- Pokémon Crystal: every run of >= 256 zero bytes in $C000-$DFFF (bank 1 selected, as in the overworld), re-read for
+-- ten seconds, with how many bytes of each ever went non-zero. Read-only. A noclip that keeps doors working writes a
+-- filtered collision table, which needs a region the game does not use; names come afterwards, from the .sym.
 
 local WRAM = "WRAM"
 local MIN_RUN = 256

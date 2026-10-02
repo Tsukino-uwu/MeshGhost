@@ -1,79 +1,14 @@
--- MeshGhost — Pokémon Crystal: is there room in the HARDWARE sprite list for a peer?
---
--- ============================================================================================
--- THIS PROBE WRITES GAME RAM. Read this paragraph before running it.
---
--- It writes FOUR OAM entries and nothing else: entries 36..39 of the game's shadow-OAM buffer
--- (wShadowOAM, 00:c400, ram/wram.asm:303) and/or of the hardware OAM the DMA copies it into. It
--- writes them ONLY on a frame where the engine's own layout pass has declared them unused --
--- hUsedSpriteIndex (00:ffbd) <= 144 -- and only while the map state machine says the world is
--- real (wMapStatus == MAPSTATUS_HANDLE, wBattleMode == 0, sprite updates enabled). On any frame
--- where the engine wants those entries the write is DECLINED and counted, because a run that
--- cannot find a free tail is itself the answer to the capacity question.
---
--- It restores what it touched by writing y = OAM_YCOORD_HIDDEN (160), taken to be the engine's
--- "entry not in use" value (where to look: constants/gfx_constants.asm:36 and the fill loop at
--- engine/overworld/map_objects.asm:2746; phase 2 below watches it). It never touches an object struct, a map object, a
--- save, or the ROM. A reset or a map load rebuilds everything it could possibly have disturbed.
---
--- Worst case if something goes wrong: up to four stray 8x8 sprites, two tiles to the right of
--- your character, until the next map load. Nothing in the save can be affected.
--- ============================================================================================
---
--- WHY THIS EXISTS
--- The adapter has two rendering tiers -- SPAWNED (a real map object plus an object struct, the
--- engine draws and animates it) and DRAWN (painted over the emulator's finished frame with gui.*,
--- which costs us hand-rolled animation and hand-rolled occlusion; BANDAGES.md entry 1). Emerald
--- gained a middle rung on 2026-08-21 by writing raw entries into the part of its OAM buffer the
--- engine's per-frame path never touches (architecture.md, "Extra hardware sprites come from OAM
--- injection above gOamLimit"). The question here is whether Crystal has the same seam.
---
--- Where the decomp points, as hypotheses this probe's phases check:
---
---   * The overworld is expected to REBUILD the whole buffer every frame and clear every unused
---     entry up to the end, so an appended entry would be stomped every frame and there would be
---     no Crystal equivalent of Emerald's gOamLimit. Where to look: _UpdateSprites and its `.fill`
---     (engine/overworld/map_objects.asm:2730, :2746), InitSprites (:2812), and the reservation
---     flag at constants/ram_constants.asm:107.
---   * The rebuild is expected in HandleMapBackground (engine/overworld/events.asm:209), reaching
---     the hardware in VBlank (home/vblank.asm:112, engine/gfx/load_push_oam.asm), gated by
---     hOAMUpdate (00:ffd8).
---
--- What NONE of that can tell you is the only thing that decides whether the tier is buildable:
--- WHERE IN THAT SEQUENCE DOES A LUA FRAME BOUNDARY LAND? If our write happens after `.fill` and
--- before the DMA, an entry re-written every frame is displayed. If it happens before `.fill`, it
--- is erased before anyone sees it. Nothing in the decomp knows about BizHawk, so this is a
--- measurement, not a lookup.
---
--- WHAT IT MEASURES, in order
---   1. How many of the 40 entries the game actually uses, frame by frame, as a RANGE -- and the
---      worst per-scanline count, because the Game Boy drops sprites past 10 on a line and a
---      single sample cannot see a 2%-of-frames effect (probes.md, "One sample cannot see a
---      blinking thing").
---   2. Whether the tail is really cleared, by watching entry 36's Y with nobody writing it.
---   3. Whether a test entry written into the tail SURVIVES to the hardware. The evidence is a
---      read of the hardware OAM domain -- the buffer the PPU draws from, which the game's own
---      DMA fills -- never a read of the value we just wrote (CLAUDE.md).
---   4. The same, writing straight into hardware OAM instead of the shadow buffer.
---   5. What happens to an entry while a TEXT BOX is open, and while the START menu is open. This
---      is the one the whole idea rests on: documentation.md says the game's UI covers characters
---      by itself, but the confirmation behind that line was the START MENU, which may hide them by
---      clearing the buffer rather than by hardware priority (where to look: home/clear_sprites.asm:1).
---      Where to look for the text box: home/text.asm:100 (TextboxPalette) and the OAM priority
---      bit at map_objects.asm:2894. The hypothesis is that a hardware sprite is NOT hidden by a
---      text box -- and that needs a human's eyes, which is why this phase asks a question rather
---      than answering one.
---
--- HOW TO RUN
---   Vanilla V1.0 only. The addresses below are this ROM's; an Archipelago build moves them and
---   this probe would write somewhere plausible instead of somewhere known.
---   Point dev-scripts/bizhawk-dev-loader.target at it, or Lua Console -> Script -> Open.
---   Stand in the overworld first. Every phase is a fixed length with a spoken countdown; there is
---   no moment to hit and nothing to time. Sloppy play costs a little data, never the run.
---   Log: oam_probe_<timestamp>.log beside this file.
+-- Pokémon Crystal: is there room in the hardware sprite list for a peer, and does an entry written at the Lua frame
+-- boundary reach the hardware? Vanilla V1.0 only; stand in the overworld, and each phase is fixed-length and prompted.
+-- Writes four OAM entries, 36..39 of wShadowOAM and/or hardware OAM, only on frames where hUsedSpriteIndex <= 144
+-- (the engine left them unused) and the world is real, and parks them at y = 160 when done. It never touches an
+-- object struct, a map object, a save or the ROM; the worst case is four stray 8x8 sprites until the next map load.
+-- It measures the entries in use and the worst per-scanline count, whether the tail stays cleared, whether a written
+-- entry survives to the hardware (read from the OAM domain, never our own write), and what a text box and the START
+-- menu do to one.
 
-local DOMAIN = "WRAM"      -- bank 1 laid flat, the domain the adapter uses (domain_probe.lua)
-local OAM_DOMAIN = "OAM"   -- the hardware's own copy, offered by this core (domain_probe.lua)
+local DOMAIN = "WRAM"      -- bank 1 laid flat, as the adapter reads it
+local OAM_DOMAIN = "OAM"   -- the hardware's own copy
 local BUS = "System Bus"   -- for HRAM, which the flat WRAM domain does not cover
 
 -- WRAM bank 1 laid flat: bank 0 is 0xC000-0xCFFF, bank 1 is 0xD000-0xDFFF.
@@ -84,7 +19,7 @@ local function flat(cpu_addr)
 	return 0x1000 + (cpu_addr - 0xD000)
 end
 
--- Every address below comes from our own hash-verified pokecrystal build's pokecrystal.sym.
+-- Addresses from our build's .sym.
 local SHADOW_OAM = flat(0xC400)   -- wShadowOAM .. wShadowOAMEnd (0xC4A0), 40 entries of 4 bytes
 local W_STATEFLAGS = flat(0xD0ED) -- wStateFlags
 local W_MAPSTATUS = flat(0xD432)  -- wMapStatus
@@ -95,21 +30,18 @@ local H_OAMUPDATE = 0xFFD8        -- hOAMUpdate; non-zero suppresses the VBlank 
 local OAM_COUNT = 40
 local OBJ_SIZE = 4
 local OAM_SIZE = OAM_COUNT * OBJ_SIZE
-local OAM_YCOORD_HIDDEN = 160     -- constants/gfx_constants.asm:36
+local OAM_YCOORD_HIDDEN = 160     -- the engine's not-in-use Y
 local MAPSTATUS_HANDLE = 2
--- constants/ram_constants.asm:106 names this bit; read here as "SET means sprite updates are
--- ENABLED" (where to look: home/sprite_updates.asm:11) -- a reading, not a measurement.
+-- The bit is read as set meaning sprite updates are enabled: a reading of the source, not a measurement.
 local SPRITE_UPDATES_ENABLED_BIT = 0x01
 local TEXT_STATE_BIT = 0x40       -- TEXT_STATE_F, bit 6 of wStateFlags
 
--- The four entries this probe is allowed to touch, and the used-byte-count above which it must
--- not. 36 * 4 = 144: if the engine has already laid out 144 bytes, entry 36 is its business.
+-- The entries this probe may touch: 36 * 4 = 144 used bytes means the engine has claimed entry 36.
 local TEST_FIRST_ENTRY = 36
 local TEST_LAST_ENTRY = 39
 local TEST_MAX_USED = TEST_FIRST_ENTRY * OBJ_SIZE
 
--- Two tiles to the right of whatever we copy, so the test sprite never sits on the player and a
--- comparison is possible at a glance (a standing rule for every test ghost in this project).
+-- Two tiles right of what is copied, so the test sprite never sits on the player.
 local TEST_DX = 16
 
 local function scriptDir()
@@ -122,10 +54,7 @@ end
 
 local logfile = io.open(string.format("%s/oam_probe_%s.log", scriptDir(),
 	os.date("%Y%m%d_%H%M%S")), "w")
--- Buffered, never flushed per line: a flush is a synchronous disk write on the emulator's own
--- thread, measured at 63-83ms -- four to five frames, every time (pitfalls.md, "ONE console line a
--- second cost 7.4 fps"). A probe that stalls the game changes what it measures, and this one
--- measures the sprite pipeline.
+-- Buffered, never flushed per line: a flush stalls the emulator's thread for frames, and this measures sprites.
 if logfile then
 	pcall(function() logfile:setvbuf("full", 8192) end)
 end
@@ -148,8 +77,7 @@ local function w8(addr, value, domain)
 	pcall(memory.write_u8, addr, value & 0xFF, domain)
 end
 
--- Ask the host what it has rather than trusting that a bulk read exists (probes.md). One
--- boundary crossing instead of 160 is worth having, but only if this build implements it.
+-- Asks the host whether a bulk read exists: one boundary crossing instead of 160.
 local bulk = nil
 do
 	local ok, res = pcall(function()
@@ -166,8 +94,7 @@ local function readOAM(base, domain)
 	if bulk then
 		local ok, res = pcall(memory.read_bytes_as_array, base, OAM_SIZE, domain)
 		if ok and type(res) == "table" then
-			-- BizHawk has returned both 0-based and 1-based arrays across builds; normalise by
-			-- reading whichever index is populated rather than assuming one.
+			-- BizHawk has returned 0-based and 1-based arrays across builds: use whichever index is populated.
 			local zeroBased = (res[0] ~= nil)
 			for i = 0, OAM_SIZE - 1 do
 				out[i] = res[zeroBased and i or (i + 1)] or 0
@@ -182,9 +109,8 @@ local function readOAM(base, domain)
 	return out
 end
 
--- An entry is "in use" if its Y is inside the visible band. The engine parks unused entries at
--- 160 and ClearSprites zeroes them, so both 0 and 160 mean absent -- and telling those two apart
--- is itself informative, so they are counted separately.
+-- In use when Y is in the visible band. The engine parks unused entries at 160 and ClearSprites zeroes them, so the
+-- two are counted apart.
 local function census(buf)
 	local live, parked, zeroed = 0, 0, 0
 	local perLine = {}
@@ -197,8 +123,7 @@ local function census(buf)
 			parked = parked + 1
 		else
 			live = live + 1
-			-- Hardware Y is screen line + 16, and each entry is counted as 8 lines tall (where to
-			-- look for the overworld sprite size: data/sprites/facings.asm:43).
+			-- Hardware Y is screen line + 16, and an overworld entry is 8 lines tall.
 			local top = y - 16
 			for line = top, top + 7 do
 				if line >= 0 and line < 144 then
@@ -219,10 +144,6 @@ local function entryStr(buf, e)
 	return string.format("y=%3d x=%3d tile=%02X attr=%02X",
 		buf[b] or 0, buf[b + 1] or 0, buf[b + 2] or 0, buf[b + 3] or 0)
 end
-
--- ---------------------------------------------------------------------------------------------
--- Running state
--- ---------------------------------------------------------------------------------------------
 
 local frames = 0
 local done = false
@@ -255,13 +176,7 @@ local function bump(key)
 	counters[key] = (counters[key] or 0) + 1
 end
 
--- ---------------------------------------------------------------------------------------------
--- Writing a test entry
--- ---------------------------------------------------------------------------------------------
-
--- The template is whatever the engine laid out first this frame -- entries 0..3, which the
--- adapter already treats as the local player's four sprites. Copying a live entry means real
--- tiles, a real palette and a real VRAM bank, none of which this probe has to understand.
+-- The template is entries 0..3, the local player's four sprites: a live entry brings real tiles, palette and bank.
 local function writeTest(shadow, domain, base)
 	local dst = TEST_FIRST_ENTRY * OBJ_SIZE
 	for q = 0, 3 do
@@ -283,10 +198,6 @@ local function restore()
 		w8(e * OBJ_SIZE, OAM_YCOORD_HIDDEN, OAM_DOMAIN)
 	end
 end
-
--- ---------------------------------------------------------------------------------------------
--- Phases. Fixed lengths, spoken countdowns, nothing to time.
--- ---------------------------------------------------------------------------------------------
 
 local PHASES = {
 	{ name = "settle", frames = 300, ask =
@@ -314,7 +225,6 @@ local PHASES = {
 local phaseIndex = 1
 local phaseFrame = 0
 
--- Per-phase carried state
 local prevTailY = nil
 local prevSig = nil
 local pendingReadback = 0
@@ -352,8 +262,6 @@ local function endPhase()
 	end
 end
 
--- ---------------------------------------------------------------------------------------------
-
 local function tick()
 	if done then return end
 	frames = frames + 1
@@ -383,10 +291,8 @@ local function tick()
 		bump("frames_over_10_per_scanline")
 	end
 
-	-- How far apart are the two buffers at the instant Lua gets the frame? This is the whole
-	-- timing question in one number: 0 means the DMA has already carried this frame's layout to
-	-- the hardware before we were woken, which puts our write AFTER the rebuild and BEFORE the
-	-- next DMA -- the window a tier would need.
+	-- How far apart the buffers are when Lua gets the frame: 0 means the DMA already ran, so a write lands after the
+	-- rebuild and before the next DMA, the window a tier needs.
 	local diff = 0
 	for i = 0, OAM_SIZE - 1 do
 		if shadow[i] ~= hw[i] then
@@ -397,8 +303,6 @@ local function tick()
 
 	local inPlay = (mapStatus == MAPSTATUS_HANDLE) and (battleMode == 0)
 	local tailFree = (used ~= nil) and (used <= TEST_MAX_USED)
-
-	-- ----- phase behaviour ---------------------------------------------------------------
 
 	if p.name == "settle" then
 		if phaseFrame == 1 then
@@ -415,8 +319,7 @@ local function tick()
 		end
 
 	elseif p.name == "tailwatch" then
-		-- Nobody writes here. If the Y of entry 36 sits at 160 forever, the tail clear predicted
-		-- from map_objects.asm:2746 is confirmed by this reading.
+		-- Nobody writes here: entry 36 at 160 throughout means the tail is cleared every frame.
 		local y = shadow[TEST_FIRST_ENTRY * OBJ_SIZE]
 		if y ~= prevTailY then
 			log(string.format("  f=%-7d entry %d Y %s -> %s (used=%s)",
@@ -429,8 +332,7 @@ local function tick()
 
 	elseif p.name == "single" then
 		if pendingReadback > 0 then
-			-- The read-back that counts: the HARDWARE buffer, filled by the game's own DMA.
-			-- Reading the shadow bytes back would only prove that write_u8 works.
+			-- The read-back that counts is the hardware buffer the game's DMA fills; the shadow only proves write_u8.
 			local sy = shadow[TEST_FIRST_ENTRY * OBJ_SIZE]
 			local hy = hw[TEST_FIRST_ENTRY * OBJ_SIZE]
 			log(string.format("  f=%-7d +%d frame(s): shadow entry %d %s | hardware entry %d %s",
@@ -469,9 +371,8 @@ local function tick()
 		end
 
 	elseif p.name == "persist-hardware" then
-		-- Straight into the buffer the PPU reads, bypassing the shadow copy. The game's own DMA
-		-- overwrites this every VBlank, so it only works at all if the Lua boundary sits after
-		-- the DMA and before the PPU draws -- which is exactly the unknown.
+		-- Straight into the buffer the PPU reads: the DMA overwrites it every VBlank, so it only shows if the Lua
+		-- boundary falls after the DMA and before the PPU draws.
 		local hy = hw[TEST_FIRST_ENTRY * OBJ_SIZE]
 		if hy ~= nil and hy ~= OAM_YCOORD_HIDDEN and hy ~= 0 then
 			bump("frames_visible_in_hardware")
@@ -485,8 +386,7 @@ local function tick()
 		end
 
 	elseif p.name == "textbox" or p.name == "startmenu" then
-		-- Keep the test entry alive in BOTH buffers, so whichever of the two phases above
-		-- worked is still on screen for the user to judge.
+		-- Kept alive in both buffers, so whichever phase worked stays on screen to judge.
 		if inPlay and tailFree and spritesEnabled then
 			writeTest(shadow, DOMAIN, SHADOW_OAM)
 			bump("writes_issued")
@@ -556,9 +456,7 @@ log("restored to y=160 at the end. No object struct, no map object, no save, no 
 log(string.format("Bulk memory reads: %s", bulk and "available" or
 	"NOT available on this build -- falling back to one call per byte"))
 do
-	-- Ask the host what it has rather than assuming a domain exists; the OAM domain in
-	-- particular is the whole second half of this probe (domain_probe.lua listed it in 2026-08-18,
-	-- and a dated fact is not a permanent guarantee).
+	-- Asks the host rather than assuming the OAM domain exists: the second half of this probe needs it.
 	local ok, list = pcall(memory.getmemorydomainlist)
 	local names = {}
 	if ok and type(list) == "table" then
@@ -584,8 +482,7 @@ MESHGHOST_DEV_UNLOAD = function()
 	end
 end
 
--- Standalone: a registered callback outlives its script under BizHawk, so this is a loop rather
--- than event.onframeend (pitfalls.md, and every probe in this folder since 2026-08-17).
+-- A registered callback outlives its script under BizHawk, hence a loop rather than event.onframeend.
 if not MESHGHOST_DEV_LOADER then
 	while true do
 		tick()

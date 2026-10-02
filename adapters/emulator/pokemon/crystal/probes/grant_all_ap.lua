@@ -1,36 +1,8 @@
--- grant_all_ap.lua -- **THIS ONE WRITES THE GAME.** Every badge, every HM, a Bicycle and a Super
--- Rod, once, on an ARCHIPELAGO-patched Crystal (either base revision). Refuses any other ROM.
--- The vanilla-family sibling is grant_all_vanilla.lua; the two are separate because this build's
--- bag is enlarged, its WRAM is rearranged and its item ids are renumbered, so nothing carries over.
---
--- CLAUDE.md permits this as dev-only test tooling: a probe, never an adapter. It writes WRAM, not
--- the save -- an in-game save afterwards makes it permanent. It saves a state to SLOT 6 first.
--- Note it hands the player things Archipelago's own logic expects to GRANT; use it in a throwaway
--- AP game, never one whose multiworld matters.
---
--- HOW THE ADDRESSES WERE MEASURED, 2026-09-09 -- from the cartridge, never derived from vanilla:
---   * the pack menu headers (where to look: the pocket menu headers in pokecrystal's
---     `engine/items/pack.asm`, which end in a pocket count address) were scanned for across
---     the whole ROM. On vanilla V1.0 and Speedchoice the scan returns exactly the `.sym`'s three
---     pockets (D892 / D8BC / D8D7), which is what makes it trustworthy; on both AP ROMs it returns
---     D866 / D960 / D989 -- and D960 and D989 are the two addresses ap_bag_grant.lua had already
---     confirmed ON SCREEN (a bike appeared; one Ultra Ball counted), so the third is the items
---     pocket, and the key-item pocket is 39 deep (D960..D989, less count and terminator).
---   * the engine-flag table (where to look: `data/events/engine_flags.asm`, address plus bit per
---     entry) was scanned for by the signature measured on vanilla -- eight entries on one address
---     with bits 1,2,4..128, then eight on address+1 -- and its first hit is the badge pair on
---     vanilla (D857/D858, the `.sym`) and on Speedchoice. On both AP ROMs the first hit is D82B/D82C.
---   * wTMsHMs was expected between the badges and the items pocket (the WRAM order in
---     `ram/wram.asm`, confirmed on vanilla by the `.sym`): D82D..D865 on AP is 57 bytes, the
---     same span as vanilla's NUM_TMS + NUM_HMS -- the
---     apworld's own `tmhm` table lists 50 TMs and 7 HMs (its extra entries are move tutors).
---   * item ids from the apworld's `data.json` `items` table (MIT, `agent_docs/licensing.md`):
---     BICYCLE 6 -- confirmed on screen 2026-08-26 -- and SUPER_ROD 56 ($38). The HM ITEM ids
---     there (F8..FE) do not matter here: the HM pocket is indexed by HM number, not item id.
---   Not measured, so NOT done here: the Select-registration pair. Register the bike by hand.
--- Everything written is read back through the same reads and logged.
---
--- Dev-loader contract; acts once in the overworld. TAKE IT OFF THE TARGET AFTERWARDS.
+-- Writes the game: every badge, every HM, a Bicycle and a Super Rod, once, on an Archipelago-patched Crystal (either
+-- base); refuses any other ROM. Its bag is enlarged, its WRAM rearranged and its item ids renumbered, so every
+-- address here was measured from the cartridge. Saves slot 6 first and reads everything back; an in-game save
+-- afterwards makes it permanent, and it hands out what Archipelago's logic expects to grant, so use a throwaway game.
+-- The Select-registration pair is not measured: register the bike by hand. Take it off the target afterwards.
 local DOMAIN = "WRAM"
 local W_JOHTO_BADGES, W_KANTO_BADGES, W_TMSHMS = 0x182B, 0x182C, 0x182D
 local NUM_TMS, NUM_HMS = 50, 7

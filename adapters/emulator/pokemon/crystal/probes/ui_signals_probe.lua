@@ -1,12 +1,6 @@
--- ui_signals_probe.lua -- READ-ONLY: which bytes tell a TEXT BOX over the overworld apart from a
--- FULL-SCREEN menu? Logs, on every change (and every 5s regardless), the signals the drawn tier's
--- positive gate and its neighbours read: wSpriteUpdatesEnabled (the "sprites-off" gate),
--- wMapStatus / wBattleMode, how many OAM entries are live and what the player's four (OAM 0-3)
--- hold, and the LCD registers (LCDC, WY, WX, SCX/SCY). Vanilla-family addresses (V1.0/V1.1/
--- Speedchoice, hash-verified `.sym`s); refuses AP. Written 2026-09-09 after the user saw a fishing
--- window paint no ghosts: the fishing script clears wSpriteUpdatesEnabled exactly as the party
--- menu does, while the overworld (and every NPC, frozen) stays on screen. Dump everything, filter
--- when reading. Dev-loader contract.
+-- Logs, on every change and every 5s, which bytes tell a text box over the overworld from a full-screen menu:
+-- wSpriteUpdatesEnabled, wMapStatus, wBattleMode, the live OAM count and entries 0-11, LCDC, WY, WX, SCX/SCY, the
+-- text-box corner tile and the CGB attributes of three BG tiles. Vanilla-family addresses; refuses Archipelago.
 local W, SB = "WRAM", "System Bus"
 local function flat(cpu) return cpu < 0xD000 and cpu - 0xC000 or 0x1000 + (cpu - 0xD000) end
 local W_SPR_ON, W_MAPSTATUS, W_BATTLE = flat(0xC2CE), flat(0xD432), flat(0xD22D)
@@ -28,12 +22,11 @@ local function tick()
 		if y > 0 and y < 160 then live = live + 1 end
 		if i < 12 then player[#player + 1] = string.format("%d,%d/%02X/%02X", x, y, tile, attr) end
 	end
-	-- the adapter's own text-box tell: BG tilemap row 12, column 0 (corner tile 121 = a box top-left)
+	-- The adapter's text-box tell: BG map row 12, column 0, where corner tile 121 is a box's top-left.
 	local lcdc = r(0xFF40, SB)
 	local map = ((lcdc & 0x08) ~= 0) and 0x1C00 or 0x1800
 	local corner = memory.read_u8(map + 12 * 32, "VRAM") or -1
-	-- CGB BG attributes live in VRAM bank 1 (BizHawk's VRAM domain: bank 1 at +0x2000). Bit 7 is
-	-- BG-over-OBJ priority: set on the text box's tiles means the game COVERS a sprite under it.
+	-- CGB BG attributes are VRAM bank 1, at +0x2000 in BizHawk's VRAM domain; bit 7 set means the BG covers sprites.
 	local attr12 = memory.read_u8(0x2000 + map + 12 * 32 + 5, "VRAM") or -1
 	local attr14 = memory.read_u8(0x2000 + map + 14 * 32 + 5, "VRAM") or -1
 	local attr6 = memory.read_u8(0x2000 + map + 6 * 32 + 5, "VRAM") or -1

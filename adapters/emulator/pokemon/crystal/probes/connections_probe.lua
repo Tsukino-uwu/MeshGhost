@@ -1,52 +1,7 @@
--- WHERE THE MAPS TOUCH, AND WHERE THE SCREEN ENDS -- the two measurements cross-map ghosts and
--- off-screen culling both need, taken together because they read the same six bytes. 2026-08-27.
---
--- PASSIVE. It presses nothing and writes nothing to game memory. Safe to leave loaded beside the
--- adapter; safe to judge the screen with it running.
---
--- WHY IT EXISTS. Crystal has never had cross-map ghosts (Emerald's `xmapTranslate`). A peer whose
--- `area_id` is not byte-equal to ours is hidden in both tiers, so walking between two connected
--- routes makes everyone vanish at the seam. Emerald had to scan 16MB of ROM to self-locate
--- `gMapGroups`; Crystal decodes the CURRENT map's four connections straight into WRAM on every
--- map load, so the whole table is sitting at a fixed address -- IF this build has not moved it.
--- That "if" is the first thing the probe checks and the reason it does not simply trust the label.
---
--- WHERE TO LOOK: pokecrystal's `map_connection_struct` (`macros/ram.asm`) and the direction
--- bits in `constants/map_data_constants.asm`. Addresses from our own hash-verified build's
--- `pokecrystal.sym`: wMapConnections $D1A8 (the bitmask the code below reads), then
--- wNorthMapConnection $D1A9, South $D1B5, West $D1C1, East $D1CD.
---
--- What each byte of a struct MEANS for seam arithmetic is NOT assumed from a name -- that is the
--- whole point of the seam report below.
---
--- HOW IT ANSWERS THE FIRST QUESTION, and how it checks itself. Every frame it reads the bitmask
--- and all four structs. When the map changes it prints a SEAM REPORT: the map we left, the map we
--- arrived on, WHICH of the old map's four structs named that map, and the player's coordinates on
--- both sides. A struct that correctly predicted the destination is the block proving it is really
--- the connection block on this build -- a self-verification no label can give. A map change no
--- struct predicted is a WARP (a door, a cave mouth), which is the other thing worth knowing: the
--- rule "translate connected maps, hide everyone else" is what makes routes visible and houses
--- hidden with no house special-case, so the probe has to be able to tell them apart.
---
--- The coordinates on both sides of a seam are the offset arithmetic. Crystal's map grid is in
--- BLOCKS of 2x2 tiles while objects live in tiles, so the sign AND the scale of every offset here
--- are open questions this probe answers with numbers rather than closing with a guess.
---
--- HOW IT ANSWERS THE SECOND QUESTION (off-screen culling: spawn a peer only just before the screen
--- could show it). The observable is the mapping from a peer's map coordinates to the screen, which
--- is the player's own coordinates plus the camera. It logs `wXCoord`/`wYCoord`, `wBGMapOffsetX/Y`
--- and `hSCX`/`hSCY` in the same line, so the visible rectangle can be derived from real numbers on
--- a real map instead of from "the screen is 20x18 tiles so it must be +-4".
---
--- ENDURANCE, NOT TIMING. There are no phases and no window to hit. Load it, walk around, cross
--- every seam you feel like crossing, walk into a house and back out. Everything is change-driven,
--- so standing still costs one line every ten seconds and nothing else.
---
--- COVERAGE. On unload -- and every 10s -- it says what it saw AND what it did not: how many seam
--- crossings, how many warps, which of the four directions have been exercised, and whether the
--- block ever looked wrong. An instrument that reports only its findings is hiding its gaps.
---
--- Log beside this script.
+-- Where the maps touch and where the screen ends: logs the map's connection block and the camera, and on every map
+-- change a seam report (which departing struct named the arriving map; none means a warp) that runs the translation
+-- backwards against the crossing to check itself. Passive: presses and writes nothing. Walk freely; every 10 s and on
+-- unload it says what it has not seen. Logs beside this script, named by the loader target.
 
 local DOMAIN = "WRAM"
 
@@ -57,10 +12,8 @@ local function flat(cpu)
 	return 0x1000 + (cpu - 0xD000)
 end
 
--- VANILLA V1.0 addresses. The Archipelago build moved the coordinate block +7 and the object
--- array +6 by MEASUREMENT, and no third relationship has ever held on it -- so this probe does
--- NOT compute an Archipelago base from a delta. Instead, when the connection block fails its own
--- prediction test, it dumps a raw window either side and lets correlation find the real one.
+-- Vanilla V1.0, from our hash-verified build's .sym. No Archipelago base is derived from a delta: a block that fails
+-- its own check dumps a raw window either side instead.
 local A = {
 	W_MAPGROUP = flat(0xDCB5),
 	W_MAPNUMBER = flat(0xDCB6),
@@ -68,10 +21,7 @@ local A = {
 	W_XCOORD = flat(0xDCB8),
 	W_BGMAPOFFSETX = flat(0xD14C),
 	W_BGMAPOFFSETY = flat(0xD14D),
-	-- OUR OWN map's dimensions, in BLOCKS (a block is 2x2 tiles, while objects live in tiles).
-	-- Needed because a connection struct carries the NEIGHBOUR's width, never ours -- so an EAST
-	-- neighbour's peers can only be placed once our own width is known. $D19D-$D19F sit directly
-	-- in front of the connection block; the whole map-geometry region is contiguous.
+	-- Our own map's size in blocks of 2x2 tiles: a connection struct carries only the neighbour's width.
 	W_MAPBORDERBLOCK = flat(0xD19D),
 	W_MAPHEIGHT = flat(0xD19E),
 	W_MAPWIDTH = flat(0xD19F),
@@ -79,8 +29,7 @@ local A = {
 }
 local H_SCX, H_SCY = 0xFFCF, 0xFFD0
 
--- MESHGHOST_CRYSTAL_CONN_ADDR overrides the connection block for a build that moved it, so the
--- same probe can confirm a candidate address without being edited.
+-- MESHGHOST_CRYSTAL_CONN_ADDR tests a candidate block address on a build that moved it.
 local CONN = tonumber(os.getenv("MESHGHOST_CRYSTAL_CONN_ADDR") or "")
 	or MESHGHOST_CRYSTAL_CONN_ADDR or A.W_MAPCONNECTIONS
 
@@ -111,16 +60,13 @@ do
 	if info and info.source and info.source:sub(1, 1) == "@" then
 		dir = info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
 	end
-	-- THE INSTANCE NAME IS IN THE FILENAME. Two emulators are open for this work and both load
-	-- this probe; a timestamp alone collides when they start in the same second, and the result is
-	-- one truncated log rather than two, which reads as "the second instance never ran".
+	-- Named by the loader target: two instances starting in the same second would otherwise write one log.
 	local who = (os.getenv("MESHGHOST_DEV_LOADER_TARGET") or "solo")
 		:gsub("^bizhawk%-dev%-loader%-?", ""):gsub("%.target$", "")
 	if who == "" then who = "solo" end
 	f = io.open(string.format("%s/connections_%s_%s.log", dir, who,
 		os.date("%Y%m%d_%H%M%S")), "w")
-	-- BUFFERED, flushed on a timer. One console.log plus one flush was measured at 63-83ms on
-	-- 2026-08-21 -- four to five frames on the emulator's own thread (adapters/emulator/CLAUDE.md).
+	-- Buffered, flushed on a timer: a flush costs frames on the emulator's own thread.
 	if f then f:setvbuf("full", 1 << 14) end
 end
 local function say(s)
@@ -131,7 +77,7 @@ local function shout(s)
 	pcall(function() console.log("connections: " .. s) end)
 end
 
--- One connection struct, read whole. Field names are the decomp's; the VALUES are what matters.
+-- Field names are the decomp's; what each value means is what the seam report measures.
 local function readConn(d)
 	return {
 		grp = u8(d.at + 0), num = u8(d.at + 1),
@@ -162,9 +108,7 @@ end
 
 local function areaOf(s) return s.grp .. "/" .. s.num end
 
--- THE BITMASK AND THE STRUCTS MUST AGREE, and when they do not the block is not where we think.
--- A struct is "populated" if it names a plausible map group at all; a flagged direction with an
--- empty struct (or the reverse) is the signal that CONN points at something else entirely.
+-- A flagged direction with an empty struct, or the reverse, means CONN points at something else.
 local function disagreement(s)
 	local bad = {}
 	for i, d in ipairs(DIRS) do
@@ -178,9 +122,7 @@ local function disagreement(s)
 	return bad
 end
 
--- The raw bytes either side of CONN, for the build where the label is wrong. Dumped ONLY when the
--- block fails, and once, because 96 bytes a frame is exactly the shape this project keeps warning
--- about. Filtering before looking is a guess about the answer, so this dumps the whole window.
+-- Dumped once, only when the block fails, and unfiltered: a filter before looking is a guess about the answer.
 local dumpedWindow = false
 local function dumpWindow()
 	if dumpedWindow then return end
@@ -195,39 +137,10 @@ local function dumpWindow()
 	end
 end
 
--- THE CANDIDATE ARITHMETIC, CHECKED BY THE INSTRUMENT RATHER THAN BY ME.
---
--- Derived from the east/west pair of the Olivine City <-> Route 40 seam, 2026-08-27. Stated here
--- so every later crossing tests it automatically: a formula that fits the two crossings it was
--- built from proves nothing, and the north/south form below is the MIRROR of the measured one,
--- which makes it a guess until a north or south crossing agrees with it.
---
--- The map we are on translates a peer standing on a CONNECTED neighbour into our own tile frame.
--- `c.width` is the NEIGHBOUR's width in blocks; our own dimensions come from wMapWidth/wMapHeight.
--- A block is 2x2 tiles, so every dimension doubles before it meets a coordinate.
---
--- Each connection has an ALONG-axis field and a CROSS-axis field, and which is which flips with
--- the axis: for west/east it is xoff/yoff, for north/south it is yoff/xoff.
---
---   * the CROSS-axis field is a signed shift along the seam, subtracted.
---   * the ALONG-axis field is the coordinate you LAND on in the neighbour -- 0 coming from the
---     east or south, and (neighbourExtent - 1) coming from the west or north. So the negative
---     directions get the neighbour's extent from it as `off + 1`, and the positive directions
---     need our own, which wMapWidth/wMapHeight supply.
---
---   west  neighbour:  myX = nX - (xoff + 1)     myY = nY - signed8(yoff)
---   east  neighbour:  myX = nX + ourWidthTiles  myY = nY - signed8(yoff)
---   north neighbour:  myY = nY - (yoff + 1)     myX = nX - signed8(xoff)
---   south neighbour:  myY = nY + ourHeightTiles myX = nX - signed8(xoff)
---
--- `ConnectedMapWidth` is NOT used, and that is deliberate. It is always the neighbour's WIDTH, so
--- on the vertical axis it answers the wrong question -- the north form built on it computed a
--- landing 16 tiles out and this check caught it (2026-08-27). It survives in the log lines for
--- reference and feeds nothing.
---
--- The check runs it BACKWARDS against the player's own crossing: the player standing one tile past
--- our edge is the same physical place as where they landed on the neighbour, so translating the
--- landing coordinates must reproduce the coordinates they left from.
+-- The translation, checked against every crossing. Each connection has an along-axis field (the tile landed on in
+-- the neighbour) and a signed cross-axis shift, swapped between west/east and north/south. c.width is always the
+-- neighbour's width, so it feeds nothing; our own size comes from wMapWidth/wMapHeight. Run backwards: one tile past
+-- our edge is where the player landed, so translating the landing tile must give the tile they left from.
 local function signed8(v) return (v > 127) and (v - 256) or v end
 
 local candidateOk, candidateBad = 0, 0
@@ -242,15 +155,9 @@ local function checkCandidate(dirName, from, to, c)
 	else
 		mx, my = to.x - signed8(c.xOff), to.y + from.mh * 2
 	end
-	-- COMPARE AS THE GAME STORES THEM. wXCoord/wYCoord are unsigned bytes, so the tile one step
-	-- off the west edge reads 255, not -1 -- and comparing a signed result against that reported
-	-- the correct formula as wrong on its first two crossings (2026-08-27).
+	-- Compared as the game stores them: one tile off the west edge reads 255, not -1.
 	local hit = (mx % 256 == from.x) and (my % 256 == from.y)
-	-- A SAVESTATE LOAD IS NOT A CROSSING. Loading a state on a connected map changes the map bytes
-	-- and the connection block will happily name the destination, so it arrives here looking like
-	-- a seam -- and it drags the formula's score down with a comparison that was never valid. A
-	-- real crossing has the player exactly one tile OUTSIDE our own bounds on the departing frame;
-	-- a state load puts them somewhere in the middle of the map.
+	-- A savestate load onto a connected map looks like a seam too; only a real crossing leaves from one tile outside.
 	local outside = from.x == 255 or from.y == 255 or from.x >= from.mw * 2
 		or from.y >= from.mh * 2
 	if not outside then
@@ -265,19 +172,12 @@ local function checkCandidate(dirName, from, to, c)
 		.. " %d,%d (stored as %d,%d); the player actually left from %d,%d -- %s", dirName, to.x,
 		to.y, mx, my, mx % 256, my % 256, from.x, from.y,
 		hit and "AGREES" or "DISAGREES, the formula is wrong"))
-	-- The north/south forms are a mirror of the measured east/west pair and nothing has confirmed
-	-- them. Saying so at the moment of the reading is the difference between a measurement and an
-	-- assumption that later gets quoted as one.
 end
 
 local prev = nil
 local frames, sinceFlush, sinceBeat = 0, 0, 0
--- A ring of SNAPSHOTS, not of log lines. The seam report needs the departing map's connection
--- structs, and "the frame before the map bytes changed" is an assumption about WHEN the engine
--- rewrites the block -- which is one of the things being measured. So the report searches
--- backwards for the newest snapshot that still had the old map AND named the new one, and reports
--- how many frames back that was. If the answer is ever more than one, the assumption was wrong
--- and the adapter must not make it either.
+-- Snapshots, not log lines: when the engine rewrites the block relative to the map bytes is itself measured, so the
+-- report searches back for the newest snapshot still on the old map whose block named the new one.
 local ring = {}
 local RING = 16
 local seams, warps = 0, 0
@@ -344,18 +244,14 @@ MESHGHOST_DEV_TICK = function()
 
 	if not prev or areaOf(prev) ~= areaOf(s) then
 		if prev then
-			-- THE SEAM REPORT. The window either side is what makes it interpretable: a single
-			-- "we are now on map X" line cannot show which coordinate jumped or by how much.
+			-- The frames leading in show which coordinate jumped, and by how much.
 			say("")
 			say(string.format("=== MAP CHANGE at f=%d: %s -> %s ===", frames, areaOf(prev),
 				areaOf(s)))
 			say("  the sixteen frames leading in:")
 			for _, r in ipairs(ring) do say("    " .. r.line) end
 			say("    " .. line .. "   <- the frame the map bytes changed")
-			-- Search BACKWARDS through the ring for the newest snapshot that still reported the
-			-- old map and whose connection block already named the new one. That snapshot is the
-			-- departing map's block; how far back it sits is how many frames the engine rewrites
-			-- the block ahead of the map bytes, which is a fact the adapter will need.
+			-- How far back that snapshot sits is how far the block's rewrite leads the map bytes.
 			local predicted, from, back, dirIdx = nil, nil, nil, nil
 			for k = #ring, 1, -1 do
 				local cand = ring[k]

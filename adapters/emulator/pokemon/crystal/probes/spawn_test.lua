@@ -1,33 +1,7 @@
--- MeshGhost — Pokémon Crystal: first spawn test
---
--- *** THIS SCRIPT WRITES TO GAME RAM. It is the first thing in this project that does. ***
---
--- What it may do, and what it may never do (agent_docs/architecture.md, 2026-08-17 ADR):
---   * Writes ONLY into object-struct RAM, which is live, per-map, and gone on reset.
---   * NEVER writes a save, save state, or any persistent data. Not gated -- forbidden outright.
---   * The spawned object is cosmetic. It is not authoritative and nothing is negotiated.
---   * Vanilla Crystal V1.0 ONLY. See the ROM guard below, which is a requirement of that ADR
---     and not a nicety: Archipelago's Crystal patch moves WRAM non-uniformly, so writing a
---     vanilla address on a patched ROM lands on whatever now lives there (verified.md).
---
--- WHAT IT TESTS
--- One question: can we put an object into a free slot and have Crystal's own engine draw it?
--- Nothing about networking, and no bridge -- this is the Crystal analogue of Emerald's "draw a
--- static box" step, and everything else depends on it.
---
--- WHY IT COPIES THE PLAYER RATHER THAN BUILDING A STRUCT
--- Two probe runs on 2026-08-17 caught the game mid-initialisation and disagreed about what a
--- freshly spawned object contains, so a struct hand-built from those bytes would be guesswork.
--- The player's own slot 0 is, by definition, a real object the engine is happily driving right
--- now. Copying it is the most reliable possible first attempt: if a duplicate of a known-good
--- object does not render, the problem is the approach, not our field values.
---
--- HOW TO RUN
---   1. Load a save and be standing in the overworld.
---   2. Lua Console -> Script -> Open, pick this file.
---   3. Watch for a second character appearing 2 tiles to your right.
---      Output also goes to spawn_test_<timestamp>.log beside this script.
---   4. Stopping the script clears the slot again.
+-- Pokémon Crystal: the first spawn test. Can an object put into a free slot be drawn by the game's own engine?
+-- It copies the player's own struct (slot 0, a known-good object) into slot 1, two tiles to the right, so a failure
+-- is the approach rather than field values. Writes object-struct RAM only, never a save; vanilla V1.0 only, since a
+-- patched build moves WRAM. Stand in the overworld and open it in the Lua Console; stopping it clears the slot.
 
 local DOMAIN = "WRAM"
 local ROM_DOMAIN = "ROM"
@@ -61,11 +35,7 @@ local function open_log()
 	logfile = f
 end
 
--- THE CONSOLE IS THE EXPENSIVE HALF. `console.log` appends to BizHawk's GUI console window, on the
--- emulator's own thread; pitfalls.md measured ONE such line a second costing 7.4fps, and removing
--- the per-line disk flush alone left 87-175ms hitches still there (2026-08-21). So the console gets
--- the opening lines and then one in twenty, while the FILE gets every line -- the log is the record,
--- the console is only a glance.
+-- The console gets the first lines and one in twenty; the file gets every line.
 local rawConsole, consoleLines = console.log, 0
 local function raw_log(msg)
 	consoleLines = consoleLines + 1
@@ -77,9 +47,7 @@ local function log(msg)
 	raw_log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Flushed every 20 lines: bounded cost, and a live log (an unflushed one reads as nothing happened).
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -101,9 +69,7 @@ local function w8(addr, value)
 	return ok
 end
 
--- The ROM guard. Refuses to write unless this is the exact ROM the addresses were derived from.
--- Expected bytes read from our own hash-verified pokecrystal build (agent_docs/verified.md):
--- header title at 0x134 is "PM_CRYSTAL", and the global checksum at 0x14E is 0x129F.
+-- Refuses unless this is the exact ROM the addresses come from: title PM_CRYSTAL, global checksum 0x129F.
 local function rom_is_vanilla_v1()
 	local title = {}
 	for i = 0, 9 do
@@ -148,8 +114,7 @@ local spawned = false
 local spawned_at = 0
 
 local function clear_slot()
-	-- Zero the sprite byte, which is what the probe treats as "unused". Cheap and reversible;
-	-- the whole struct is transient RAM regardless.
+	-- A zero sprite byte is what this probe treats as unused; the struct is transient RAM regardless.
 	w8(dst + F_SPRITE, 0)
 end
 
@@ -168,9 +133,7 @@ local function tick()
 			return
 		end
 		if occupant ~= 0 then
-			-- Refuse rather than clobber an NPC the map placed. Slot choice is ours to get
-			-- right, and overwriting the game's own object is the "borrow" tier the template
-			-- warns about, not the "create" tier this is meant to test.
+			-- Refuse rather than clobber an NPC the map placed: overwriting the game's own object is not creating one.
 			log(string.format(
 				"Slot %d is already in use (sprite=%d). Not writing -- move somewhere quieter.",
 				DST_SLOT, occupant
@@ -183,8 +146,7 @@ local function tick()
 			w8(dst + off, u8(src + off) or 0)
 		end
 
-		-- Move it beside the player. LAST and INIT are set to match so the engine does not
-		-- think it is mid-step from somewhere else.
+		-- F_LAST_* and F_INIT_* match, so the engine does not think it is mid-step from somewhere else.
 		local px, py = u8(src + F_MAP_X) or 0, u8(src + F_MAP_Y) or 0
 		local gx = px + TILE_OFFSET_X
 		w8(dst + F_MAP_X, gx)
@@ -202,9 +164,8 @@ local function tick()
 		return
 	end
 
-	-- Verification, and deliberately NOT by reading back what we wrote -- that would only prove
-	-- the write landed, which we already know. OBJECT_SPRITE_X/Y are maintained by the ENGINE.
-	-- If those change on their own, the game has accepted the object and is driving it.
+	-- Verified by OBJECT_SPRITE_X/Y, which the engine maintains, never by reading back our write: if they change
+	-- on their own, the game is driving the object.
 	local n = frames - spawned_at
 	if n == 1 or n == 30 or n == 120 then
 		log(string.format(
@@ -214,9 +175,8 @@ local function tick()
 	end
 end
 
--- Registered BEFORE the loop below, which never returns. Wrapped whole because an error thrown
--- in onexit can wedge BizHawk's Lua Console so the script cannot be started or stopped at all.
--- Memory domains are not guaranteed valid during teardown. Both found live 2026-08-18.
+-- Registered before the loop, which never returns. Wrapped whole: an error in onexit can wedge the Lua Console, and
+-- memory domains may be invalid during teardown.
 event.onexit(function()
 	pcall(clear_slot)
 end)

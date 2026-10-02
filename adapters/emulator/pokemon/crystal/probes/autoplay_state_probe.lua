@@ -1,28 +1,12 @@
--- MeshGhost — Pokémon Crystal: what the game's state bytes read, frame by frame, for autoplay's
--- crystal.lua (DEV TOOL, READ-ONLY, never shipped) -- 2026-09-17
---
--- READ-ONLY. Writes nothing, presses nothing, spawns nothing. Load it beside the autoplay driver
--- (the dev loader takes several targets) and drive the game with the driver's own tools; this probe
--- is the timeline those tools' answers are read against.
---
--- WHY. autoplay/drivers/bizhawk/games/crystal.lua needs `mode` (overworld, battle, anything else),
--- `location` (map and tile) and, for `walk`, when a step begins, ends and is refused. Our V1.0
--- build's .sym says WHERE the candidates live; what each reads in which state is this log's job.
---
--- WHAT IT LOGS. One line whenever any watched byte changes, with the frame number, every watched
--- value (not only the changed one: the neighbours are what make a line readable), and the player
--- struct's 0x28 bytes whenever they change. Also, once at load, the ROM title and
--- gameinfo.getromhash(). What it cannot see: anything between frames, and any byte not listed.
---
--- COST. About 60 byte reads a frame and one string compare; the log is buffered and flushed every
--- 120 frames, never per line (adapters/emulator/CLAUDE.md). Log:
--- crystal/logs/autoplay_state_<port>_<timestamp>.log -- the port keeps two instances apart.
+-- Read-only dev tool for autoplay's crystal.lua: one line whenever a watched state byte changes, with every watched
+-- value and the player struct's bytes, the timeline mode, location and steps are read against. Load it beside the
+-- autoplay driver and drive with the driver's tools. Blind to anything between frames. Logs to crystal/logs/, by port.
 
 local function flat(cpu) return cpu < 0xD000 and cpu - 0xC000 or 0x1000 + (cpu - 0xD000) end
 local function u8(a) return memory.read_u8(a, "WRAM") end
 local function hram(a) return memory.read_u8(a, "System Bus") end
 
--- Addresses: pokecrystal.sym of our V1.0 build, whose .gbc hashes identical to the vanilla ROM.
+-- Addresses from the .sym of our V1.0 build, whose .gbc hashes identical to the vanilla ROM.
 local W = {
 	{ "mapGroup", flat(0xDCB5) }, { "mapNumber", flat(0xDCB6) }, { "yCoord", flat(0xDCB7) }, { "xCoord", flat(0xDCB8) },
 	{ "mapStatus", flat(0xD432) }, { "mapEventStatus", flat(0xD433) }, { "scriptFlags", flat(0xD434) },

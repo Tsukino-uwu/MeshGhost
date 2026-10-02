@@ -1,14 +1,6 @@
--- MeshGhost — Pokémon Crystal: turn on the spot, one direction at a time (DEV TOOL, holds the d-pad)
---
--- Asked 2026-09-13: the user saw a peer's ghost *"look at the direction instantly"* where the player
--- plays a turn animation. A reproducible turn is what the move trace needs on the sender's side; what
--- it measured (step type 10, action 2, the face byte's frame sequence) is in `crystal/documentation.md`,
--- "Turning in place".
---
--- MEASURED, NOT TIMED: a direction is held only until the engine's own OBJECT_DIRECTION changes and
--- then released, so the press can never run on into a step; then 90 frames of nothing before the
--- next. Cycles down -> left -> up -> right. It presses the d-pad only, never A or B.
--- Object array per build: meshghost_crystal.lua ADDRESSES (vanilla .sym 01:d4d6; Archipelago measured).
+-- Dev tool, holds the d-pad: turns on the spot down, left, up, right, 90 frames apart, never pressing A or B. Each
+-- direction is held only until OBJECT_DIRECTION changes, so a press never runs on into a step.
+-- The object array per build, as in meshghost_crystal.lua's ADDRESSES.
 local BUILDS = { PM_CRYSTAL = 0x14D6, AP_CRYSTAL = 0x14DC }
 local title = ""
 for i = 0x134, 0x13E do

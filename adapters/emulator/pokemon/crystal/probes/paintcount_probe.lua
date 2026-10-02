@@ -1,26 +1,13 @@
--- MeshGhost — Crystal: how many spans is the drawn tier actually painting? (PROBE)
---
--- READ-ONLY. Reads no game memory, presses nothing, draws nothing. It reports the adapter's own
--- MG_CRY_SPANS counter as a per-frame rate, to the console and to a log file beside this script.
---
--- WHY IT EXISTS. A rendering tier that silently stops painting gets FASTER, so a frame-rate
--- improvement with no paint count is indistinguishable from a broken renderer. Emerald's profiler
--- carries `spans/frame` for exactly that reason, and it is what made its 2026-09-11 painted-tier
--- optimisations trustworthy: the count held at 8,035-8,045 across every change, so the picture was
--- the same. Crystal had no equivalent, so a performance change here could not be checked at all.
---
--- HOW TO USE IT: load it alongside the adapter, note the spans/frame, make the change, reload, and
--- compare. The rate must not move. It says nothing about whether the pixels are in the right
--- PLACE -- only that the same amount of painting is happening -- so it narrows what a person has
--- to check on screen, it does not replace them.
+-- Pokémon Crystal: reports the adapter's MG_CRY_SPANS counter as spans painted per frame. Reads no game memory.
+-- A tier that silently stops painting gets faster, so a frame-rate change is trusted only while this rate holds:
+-- note it, make the change, reload and compare. It says nothing about where the pixels land.
 
 local WINDOW = 300 -- frames, matching Emerald's profiler window
 
 local SCRIPT_DIR = (function()
     local info = debug.getinfo(1, "S")
     if info and info.source and info.source:sub(1, 1) == "@" then
-        -- Two separators, written as a character class: Lua needs the backslash doubled inside a
-        -- quoted string, and a path here can arrive with either.
+        -- Either separator may arrive; the backslash is doubled inside a Lua string.
         return info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
     end
     return "."

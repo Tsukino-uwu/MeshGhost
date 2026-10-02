@@ -1,43 +1,11 @@
--- MeshGhost — Crystal/Archipelago: find wMapObjects by matching it against wObjectStructs
---
--- READ-ONLY. Writes nothing, spawns nothing.
---
--- WHY
--- wObjectStructs is CONFIRMED at 0x14DC on this ROM (vanilla+6): slot 0 holds a sprite and the
--- player's coordinates on both axes, the map's NPCs sit in the low slots, and everything after
--- them is zero (verified.md, 2026-08-18).
---
--- wMapObjects does NOT follow from it. In the vanilla build it sits 0x248 after wObjectStructs,
--- and that address on this ROM is noise -- struct_id=255, sprite=0, y=255. Which is the third time
--- this session that a fixed vanilla relationship failed on the patched build: the coordinate block
--- moved +7, the object array moved +6, so the two tables were NOT shifted together. Anything
--- derived from "vanilla + a delta measured somewhere else" is a guess.
---
--- HOW
--- The struct array itself says what the map-object table must contain. Each live struct carries a
--- sprite id and a MAP_OBJECT_INDEX pointing at its entry, so for slot i with sprite s and index m,
--- the real table has s at entry m. Two or more live NPCs make that a multi-point constraint, and
--- a coincidence would have to satisfy all of them at the same stride.
---
--- The entry OFFSET of the sprite field is searched rather than assumed: AP rearranges where things
--- live, and if it also changed the entry layout, a hard-coded 0x01 would report nothing and look
--- like a failed search rather than a wrong assumption.
---
--- COST
--- WRAM is snapshotted ONCE into a Lua table, then scanned in pure Lua. A nested scan over the
--- emulator API would be ~1M boundary crossings, which is the shape that silently stalls the host
--- and produces no log at all (probes.md, "A probe's read budget is real").
---
--- HOW TO RUN
---   1. Load the ARCHIPELAGO Crystal ROM. Stand in the overworld on a map with at least two NPCs
---      visible -- the probe says how many live structs it found, and one is not enough to be sure.
---   2. Lua Console -> Script -> Open, pick this file. It reports immediately; no walking needed.
---      Log: ap_mapobj_<timestamp>.log beside this script. The console gets the summary only.
+-- Read-only, Archipelago: finds wMapObjects by matching it against wObjectStructs, as vanilla's offset does not hold
+-- here: each live struct's sprite id must sit at entry MAP_OBJECT_INDEX, so two or more NPCs constrain it. Stand on a
+-- map with at least two NPCs. WRAM is snapshotted once: a nested scan over the emulator API would stall the host.
 
 local DOMAIN = "WRAM"
 local WRAM_SIZE = 0x8000
 
-local OBJECT_STRUCTS = 0x14DC -- CONFIRMED on this ROM, not derived
+local OBJECT_STRUCTS = 0x14DC -- measured on this ROM, not derived
 local VANILLA_MAPOBJECTS_DELTA = 0x248 -- vanilla 0xD71E - 0xD4D6, reported for comparison only
 
 local F_SPRITE, F_MAP_OBJECT_INDEX = 0x00, 0x01
@@ -59,14 +27,11 @@ end
 local logfile = io.open(string.format("%s/ap_mapobj_%s.log", scriptDir(),
 	os.date("%Y%m%d_%H%M%S")), "w")
 
--- The last dump flooded the Lua Console with three full tables. Detail goes to the file; the
--- console gets headlines only.
+-- Detail goes to the file; the console gets headlines only.
 local function log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Flush every 20 lines: a bounded cost, and a log that is never empty for a whole run.
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -110,7 +75,7 @@ if #want < 2 then
 	return
 end
 
--- Search both the table base AND the sprite field's offset within an entry.
+-- Search both the table base and the sprite field's offset within an entry.
 local hits = {}
 for f = 0, MAPOBJECT_LENGTH - 1 do
 	for mo = 0, WRAM_SIZE - NUM_MAP_OBJECTS * MAPOBJECT_LENGTH - 1 do

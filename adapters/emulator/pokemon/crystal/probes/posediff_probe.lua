@@ -1,36 +1,7 @@
--- MeshGhost — Pokémon Crystal: the ghost's walk against the player's, frame by frame
---
--- READ-ONLY DIAGNOSTIC. Writes nothing, spawns nothing, changes nothing on screen.
---
--- WHY THIS EXISTS
--- The user, 2026-08-21: *"even just walking left/right feels a bit off with the ghost compared to
--- the player in crystal. not 1:1"*. "A bit off" has at least four distinct causes and they need
--- different fixes, so this measures which one it is instead of guessing:
---
---   * LAG -- the ghost starts each step N frames after the player and stays N frames behind. The
---     px error would then be roughly constant DURING a step and zero between steps.
---   * SPEED -- the two use different step vectors. The error would grow across a step and snap
---     back at the end. (Where to look: StepVectors, engine/overworld/map_objects.asm; the
---     hypothesis is that OBJECT_WALKING selects the step speed, and both should read the same.)
---   * PHASE -- position matches but the stride does not, because OBJECT_STEP_FRAME is counting
---     from a different place. That looks wrong while measuring perfect.
---   * ACCUMULATION -- the error does not return to zero between steps, so it grows over a walk.
---     That is the ±2px first-step compensation (BANDAGES.md) being wrong by a frame.
---
--- THE MEASUREMENT
--- The loopback ghost is spawned a fixed number of tiles to the side, so at rest its sprite sits
--- exactly `MESHGHOST_LOOPBACK_OFFSET_X * 16` pixels from the player's. Everything here is
--- reported as the error AFTER subtracting that: 0 means the ghost is exactly where the player is,
--- allowing for the offset. The offset is not assumed -- it is MEASURED while both are standing
--- still, so this probe is correct whatever the offset is set to, and says what it measured.
---
--- HOW TO RUN
---   Load it beside the adapter (dev-scripts/bizhawk-dev-loader.lua takes several targets). Walk
---   left and right for a few seconds, then up and down. Log: posediff_<timestamp>.log beside this
---   file. It prints a per-step summary line and a table every 10 steps, so the answer is readable
---   without scrolling through per-frame rows.
---
---   No timing to hit, no window to catch. Just walk.
+-- Read-only: the loopback ghost's walk against the player's, frame by frame, to tell which of four causes makes it
+-- look off: lag (a constant error during a step, zero between), speed (an error that grows across a step), phase
+-- (position right, stride wrong) or accumulation (an error that never returns to zero). Errors are pixels after
+-- subtracting the resting offset, measured while both stand. Walk left and right, then up and down.
 
 local DOMAIN = "WRAM"
 
@@ -41,9 +12,7 @@ local function flat(cpu_addr)
 	return 0x1000 + (cpu_addr - 0xD000)
 end
 
--- Vanilla V1.0, from our own hash-verified pokecrystal build's pokecrystal.sym. Vanilla only on
--- purpose: this is a question about a difference between two characters in one session, and a
--- patched build would add a second variable for no gain.
+-- Vanilla V1.0, from our hash-verified build's .sym: a patched build would add a variable for no gain.
 local OBJECT_STRUCTS = flat(0xD4D6) -- wObjectStructs
 local OBJECT_LENGTH = 0x28
 local NUM_OBJECT_STRUCTS = 13
@@ -63,20 +32,13 @@ local function open_log()
 		dir = info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
 	end
 	logfile = io.open(string.format("%s/posediff_%s.log", dir, os.date("%Y%m%d_%H%M%S")), "w")
-	-- Buffered, and never flushed per line: a console.log plus a flush is a synchronous disk
-	-- write on the emulator's own thread, measured at 63-83ms -- four to five frames, every time
-	-- (pitfalls.md, "ONE console line a second cost 7.4 fps"). A probe that stalls the game is a
-	-- probe that changes what it measures.
+	-- Buffered, never flushed per line: a flush is a synchronous disk write on the emulator's own thread.
 	if logfile then
 		pcall(function() logfile:setvbuf("full", 8192) end)
 	end
 end
 
--- THE CONSOLE IS THE EXPENSIVE HALF. `console.log` appends to BizHawk's GUI console window, on the
--- emulator's own thread; pitfalls.md measured ONE such line a second costing 7.4fps, and removing
--- the per-line disk flush alone left 87-175ms hitches still there (2026-08-21). So the console gets
--- the opening lines and then one in twenty, while the FILE gets every line -- the log is the record,
--- the console is only a glance.
+-- The console is a GUI append on the emulator's thread, so it gets the first lines and one in twenty; the file all.
 local rawConsole, consoleLines = console.log, 0
 local function raw_log(msg)
 	consoleLines = consoleLines + 1
@@ -88,9 +50,7 @@ local function log(msg)
 	raw_log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Flush every 20 lines: a bounded cost, and a log that is never empty for a whole run.
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -124,8 +84,7 @@ local function readObj(base)
 	}
 end
 
--- Sprite coordinates are a byte and wrap. A raw subtraction reports 254 where the answer is -2,
--- which would read as a catastrophic error instead of a two-pixel one.
+-- Sprite coordinates are a byte and wrap: 254 is -2.
 local function signedDelta(a, b)
 	if a == nil or b == nil then
 		return nil
@@ -137,20 +96,8 @@ local function signedDelta(a, b)
 	return d
 end
 
--- Which of the other 12 structs is the ghost?
---
--- Deliberately NOT asked of the adapter: a probe that reads the thing being measured out of the
--- code being measured cannot catch that code pointing at the wrong slot.
---
--- Proximity alone is not enough and the first version proved it -- it locked onto an NPC standing
--- in the same room. So the ghost is identified by BEHAVIOUR instead, which is the one thing no NPC
--- does: **its tile offset from the player stays constant while the player walks.** A wandering
--- NPC's offset changes; a stationary NPC's offset changes as the player moves; only something
--- following the player keeps the same delta across many tiles.
---
--- LOCK-ON: watch every candidate over a window of player movement, and pick the one whose delta
--- never changed while the player covered at least a few tiles. Until that happens the probe says
--- it is still looking rather than measuring the wrong character.
+-- Which struct is the ghost, found here rather than asked of the adapter under test: the adapter's marker, and a
+-- tile offset from the player that holds while the player walks. Until then the probe says it is still looking.
 local LOCK_TILES = 3 -- player tile-changes required before a lock is trusted
 
 local watching = {} -- slot -> { dx, dy, stable, base }
@@ -169,10 +116,7 @@ local function observeCandidates(player)
 	for i = 1, NUM_OBJECT_STRUCTS - 1 do
 		local base = OBJECT_STRUCTS + i * OBJECT_LENGTH
 		local o = readObj(base)
-		-- IDENTITY FIRST, behaviour second. A relaxed offset band let a STATIONARY NPC qualify as
-		-- "the ghost" and produced a whole run of numbers about a fruit tree (2026-08-21) -- flags1
-		-- 0x0C, no WONT_DELETE. The adapter's ghosts always carry WONT_DELETE and the local player's
-		-- sprite; requiring that costs nothing and makes a wrong lock impossible.
+		-- Identity first: the adapter's ghosts carry WONT_DELETE and the local player's sprite.
 		local flags1 = u8(base + 0x04) or 0
 		local isOurs = (flags1 & 0x02) ~= 0 and o.sprite == player.sprite
 		if isOurs and o.sprite and o.sprite ~= 0 and o.mx and o.my then
@@ -181,16 +125,8 @@ local function observeCandidates(player)
 			if not w then
 				watching[i] = { dx = dx, dy = dy, stable = 0, base = base }
 			elseif playerMoved then
-				-- Only judged at the moment the PLAYER changes tile: mid-step the ghost is
-				-- legitimately a tile behind for a few frames, and judging then would rule out
-				-- the very thing being looked for.
-				-- WITHIN A TILE of the baseline still counts as following. The first version
-				-- demanded a perfectly constant offset and never locked on at all (f=1200 and
-				-- still looking, 2026-08-21): a real following ghost is legitimately a tile
-				-- behind at the instant the player changes tile -- three frames of loopback lag
-				-- plus step quantisation -- so perfection was a standard correct behaviour
-				-- cannot meet. A wandering NPC still fails this: its offset drifts past one
-				-- tile within a couple of player steps.
+				-- Judged only as the player changes tile, within a tile of the baseline: a following ghost is
+				-- legitimately a tile behind then, a wandering NPC drifts further in a few steps.
 				if math.abs(dx - w.dx) <= 1 and math.abs(dy - w.dy) <= 1 then
 					w.stable = w.stable + 1
 				else
@@ -263,9 +199,7 @@ end
 local function tick()
 	frames = frames + 1
 
-	-- Time-based flush, because a line-counted one never fires on a SPARSE probe: this file can sit
-	-- under 20 lines for a whole run, and an unflushed header is indistinguishable from a probe
-	-- that found nothing.
+	-- Also flushed on time: this log can stay under 20 lines for a whole run.
 	if logfile and frames % 300 == 0 then
 		pcall(function() logfile:flush() end)
 	end
@@ -292,8 +226,7 @@ local function tick()
 
 	local g = readObj(ghost.base)
 	if not g.mx or g.sprite == 0 then
-		-- It went away (map change, despawn). Start the lock-on over rather than assuming the
-		-- slot will come back holding the same character.
+		-- Gone (a map change, a despawn): start the lock-on over rather than trust the slot.
 		ghost, watching, lockTiles, lastPlayerTile = nil, {}, 0, nil
 		return
 	end
@@ -301,8 +234,7 @@ local function tick()
 	local pStanding = (player.walking or STANDING) == STANDING
 	local gStanding = (g.walking or STANDING) == STANDING
 
-	-- The resting offset, measured rather than assumed. Re-measured whenever both are standing,
-	-- so a teleport or a re-spawn cannot leave a stale baseline behind.
+	-- Re-measured whenever both stand, so a teleport or a respawn cannot leave a stale baseline.
 	if pStanding and gStanding then
 		restOffsetX = signedDelta(g.sx, player.sx)
 		restOffsetY = signedDelta(g.sy, player.sy)
@@ -321,8 +253,7 @@ local function tick()
 	if pStarted then
 		playerStepStart, ghostStepStart = frames, nil
 		stepPeakErr = 0
-		-- The step VECTOR each of them chose, printed once per step. If these ever differ the
-		-- answer is "speed" and nothing else in this log matters.
+		-- The step vector each chose; if these ever differ, the answer is speed.
 		log(string.format("  f=%-7d step %d starts: player WALKING=%s (speed nibble %d)",
 			frames, steps + 1, tostring(player.walking), (player.walking or 0) & 0x0F))
 	end
@@ -338,13 +269,10 @@ local function tick()
 		if math.abs(err) > math.abs(stepPeakErr) then
 			stepPeakErr = err
 		end
-		-- Per-frame detail, but only while something is actually moving, and only when the error
-		-- or the stride phase changes -- a row per frame of a quiet walk is unreadable.
+		-- Per-frame rows only while something moves and the error or the stride phase changes.
 		if err ~= (prevP.err or 0) or g.stepframe ~= prevG.stepframe then
-			-- ACTION and FLAGS1 included because STEP_FRAME staying at 0 (no walk animation) has
-			-- exactly two causes in the engine: ACTION not being STEP, or SLIDING (FLAGS1 bit 3)
-			-- sending SetFacingStepAction straight to SetFacingCurrent without advancing the frame.
-			-- Printing the two candidates beside the symptom is what separates them.
+			-- Action and flags1 beside the symptom: the decompilation's two causes of a step frame stuck at 0 are a
+			-- non-step action and SLIDING (flags1 bit 3).
 			log(string.format("  f=%-7d err %+4dpx  |  P dur=%s frame=%s facing=%s act=%s"
 				.. "  |  G dur=%s frame=%s facing=%s act=%s st=%s flags1=%s walk=%s",
 				frames, err, tostring(player.stepdur), tostring(player.stepframe),
@@ -386,8 +314,7 @@ MESHGHOST_DEV_UNLOAD = function()
 	end
 end
 
--- A registered callback outlives its script under BizHawk, which is why this is a loop and not
--- event.onframeend (pitfalls.md).
+-- Standalone, its own loop: a registered callback outlives its script under BizHawk.
 if not MESHGHOST_DEV_LOADER then
 	while true do
 		tick()

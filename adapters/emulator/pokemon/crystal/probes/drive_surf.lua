@@ -1,18 +1,13 @@
--- drive_surf.lua -- INPUT-DRIVING, one-shot, any of the five builds: walk RIGHT until blocked,
--- press A at the water (the Surf prompt), confirm, then paddle a small square on the water and
--- take a screenshot. Written 2026-09-09 for the five-build room: *"we still need to test surf.
--- there is water to the right"*. It reads the player's tile to know whether a step happened,
--- wPlayerState (vanilla family) to know whether surfing began, and photographs the result;
--- on Archipelago wPlayerState is unmeasured, so "surfing" there means "the tile that blocked
--- us is now under us". Logs every decision with the values it decided from. Dev-loader
--- contract; take it off the target afterwards -- it acts once per attach.
---   MESHGHOST_SURF_DIR   (env) first direction to walk, default Right
---   MESHGHOST_SURF_SHOT  (env) screenshot path, default <cwd>/surf_<port>.png
+-- Input-driving, one-shot, any build: walks MESHGHOST_SURF_DIR (env, default Right) until blocked, presses A at the
+-- water and confirms, paddles a 2-tile square, screenshots to MESHGHOST_SURF_SHOT (env, default <cwd>/surf_<port>.png).
+-- On Archipelago, where wPlayerState is unmeasured, surfing means the tile that blocked the walk is now underfoot.
+-- Logs every decision with its values; take it off the target afterwards, as it acts once per attach.
+
 local DOMAIN = "WRAM"
 local function flat(cpu) return cpu < 0xD000 and cpu - 0xC000 or 0x1000 + (cpu - 0xD000) end
 local function u8(a) return memory.read_u8(a, DOMAIN) end
 local F_MAP_X, F_MAP_Y, F_WALKING = 0x10, 0x11, 0x07
-local PLAYER_SURF = 4 -- wPlayerState while surfing; unmeasured by this probe
+local PLAYER_SURF = 4 -- wPlayerState while surfing, measured on vanilla V1.0
 local t = {}
 for i = 0, 9 do t[#t + 1] = string.char(memory.read_u8(0x134 + i, "ROM") or 0) end
 local title, ver = table.concat(t), memory.read_u8(0x14C, "ROM") or 0
@@ -33,7 +28,7 @@ local function surfing()
 end
 log(string.format("drive_surf on %s: structs@%04X state@%s, walking %s", A.name, A.structs, A.state and string.format("%04X", A.state) or "n/a", DIR))
 
--- plan: a list of steps; each step is {kind, arg}; the machine advances when the step reports done
+-- The square: {kind, button, steps}; a leg ends after its steps or 240 frames without progress.
 local SQUARE = { { "walk", "Right", 2 }, { "walk", "Down", 2 }, { "walk", "Left", 2 }, { "walk", "Up", 2 } }
 local phase, sub, held, tries = "approach", 0, 0, 0
 local lastX, lastY = tile()
@@ -57,11 +52,8 @@ local function tick()
 			end
 		end
 	elseif phase == "prompt" then
-		-- A at the water opens "The water is dyed a deep blue... Would you like to SURF?" with
-		-- YES selected; the text prints slowly, so A is tapped every 40 frames until the state
-		-- byte says surfing (or, on AP where it is unmeasured, until the tile moves). NEVER B
-		-- here: the first version pressed B 100 frames in and declined the prompt it had opened
-		-- (the user, watching: "you declined it instead of starting surf").
+		-- The SURF prompt opens with YES selected and prints slowly: tap A until surfing (on AP, until the tile moves).
+		-- Never B here, which declines the prompt.
 		sub = sub + 1
 		if sub % 40 <= 5 then press("A") end
 		local s = surfing()
@@ -85,7 +77,7 @@ local function tick()
 			phase, held, blockedFor = "approach", 0, 0; lastX, lastY = tile()
 		end
 	elseif phase == "verify" then
-		-- push once more in the water's direction: on the water the tile must now advance
+		-- Push once more toward the water: on the water the tile must now advance.
 		sub = sub + 1
 		if sub <= 40 then press(DIR) end
 		if sub == 70 then

@@ -1,45 +1,12 @@
--- MeshGhost — Crystal/Archipelago: confirm the player's coordinates BY REVERSAL, in one run
---
--- READ-ONLY. Writes nothing.
---
--- WHY THIS AND NOT ap_coord_probe.lua
--- The one-direction probe stopped at the FIRST address to reach its threshold, so every run
--- reported whichever byte happened to win that race — 0x0FC4, then 0x011E, then 0x016B, then
--- 0x14CD across four runs on 2026-08-18. Four runs, four different "candidates" is not a
--- measurement, and hard-excluding each winner in turn just hands the race to the next counter.
---
--- The discriminator is REVERSAL, and it needs no anchor and no published address:
---
---     a coordinate moves +1 walking one way and -1 walking back. A counter keeps counting.
---
--- So do both halves in ONE run, over ALL addresses at once, and report only the survivors of both.
--- Nothing is excluded up front — 0x0FC4 is scanned like everything else, and failing reversal is
--- then evidence rather than an assumption carried forward.
---
--- HOW TO RUN
---   1. Load the ARCHIPELAGO Crystal ROM. Stand in a corridor or on a route with 8+ clear tiles
---      in a straight line, room to walk back the same way.
---   2. Lua Console -> Script -> Open, pick this file.
---   3. PHASE A lasts 15 seconds: walk steadily ONE direction the whole time, 8+ tiles. Do not
---      turn, do not enter a door. The console counts down.
---   4. PHASE B lasts another 15 seconds: the script tells you to turn around; walk BACK the way
---      you came.
---   5. Read the report. Survivors are bytes that moved one way, then the other, consistently.
---      Log: ap_reverse_<timestamp>.log beside this script.
---
---   Then run it AGAIN on the other axis (if the first run was left/right, do up/down). The byte
---   that only moves on one axis is that axis's coordinate; a byte that moves on both is neither.
+-- Crystal/Archipelago: finds the player's coordinates by reversal, in one run. Read-only; runs its own frame loop.
+-- A coordinate moves +1 walking one way and -1 walking back, where a counter keeps counting. Walk one way 8+ tiles for
+-- 15s, then back for 15s, as prompted; run it again on the other axis to tell wXCoord from wYCoord.
 
 local DOMAIN = "WRAM"
 local WRAM_SIZE = 0x8000
-local SAMPLE_EVERY = 10 -- frames. A step takes ~16, so this cannot miss one, and scanning 32k
--- every other frame is more than BizHawk's Lua host will carry — the first version of the
--- one-direction probe never produced a log at all because of it (2026-08-18).
+local SAMPLE_EVERY = 10 -- frames: a step takes ~16, and a 32K scan every other frame is more than the Lua host carries
 
--- Each phase runs for a FIXED length rather than closing on the first address to reach a
--- threshold. That race is exactly what made the one-direction probe report a different byte every
--- run: a counter ticking on a frame timer reaches any hit count long before a walking player does,
--- so closing on it ends the phase while the real coordinate has moved once or twice.
+-- Fixed-length phases: closing on the first address to reach a threshold lets a frame-timer counter win that race.
 local PHASE_FRAMES = 900 -- ~15 seconds at 60fps, comfortably 8+ tiles of walking
 local KEEP_HITS = 3      -- an address needs at least this many in phase A to be carried forward
 local PHASE_B_HITS = 3   -- consistent changes of the OPPOSITE sign to confirm
@@ -70,9 +37,7 @@ local function log(msg)
 	console.log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Flushed every 20 lines: bounded cost, and a live log (an unflushed one reads as nothing happened).
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -166,8 +131,7 @@ local function report()
 	for _, a in ipairs(survivors) do
 		log(string.format("CONFIRMED BY REVERSAL: 0x%04X (%d)  %+d then %+d",
 			a, a, carried[a], dir[a]))
-		-- neighbours, because in vanilla the map group, map number and both coordinates sit
-		-- together: a cluster around a survivor is a strong sign of the whole block.
+		-- Its neighbours: in vanilla the map group, map number and both coordinates sit together.
 		local ctx = {}
 		for o = -4, 4 do
 			local n = a + o

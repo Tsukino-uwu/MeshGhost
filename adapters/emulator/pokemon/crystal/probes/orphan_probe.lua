@@ -1,38 +1,8 @@
--- MeshGhost — Pokémon Crystal: is that extra character ours, and how did it get left behind?
---
--- READ-ONLY DIAGNOSTIC. Writes nothing, deletes nothing, spawns nothing. It only names what is
--- already in the game's object arrays.
---
--- WHY THIS EXISTS
--- The user, 2026-08-21: *"i have a weird 'static' ghost that appear sometimes, im not sure if that
--- is from your scripts or something else"*. That question has an exact answer, because a ghost
--- this adapter spawned carries a fingerprint no NPC placed by the map has:
---
---   * it wears the LOCAL PLAYER's sprite id (the adapter borrows it at spawn), and
---   * FLAG1_WONT_DELETE is set on it (the adapter sets it so the engine does not cull the ghost
---     when it leaves the visible window), and
---   * since 2026-08-21 its movement type is pinned to SPRITEMOVEDATA_STANDING_DOWN.
---
--- A map's own NPC can have any one of those. Having all three, while not being the player, is us.
---
--- HOW ONE GETS ORPHANED, which is the thing worth confirming rather than assuming: despawnGhost()
--- refuses to clear a slot whose identity no longer checks out -- it FORGETS the entry instead.
--- That rule is deliberate and correct (zeroing a slot the game has reused would delete one of the
--- game's own NPCs), but its cost is exactly this: an object we made, that we are no longer
--- tracking, wearing WONT_DELETE so the engine will not reclaim it either. It stands still forever
--- because nothing is driving it.
---
--- Reloading the adapter repeatedly during development is the situation that produces it most
--- often, so a static ghost after a working session is more likely a development artifact than a
--- bug a player would ever see. This probe is how to tell the two apart.
---
--- HOW TO RUN
---   Load it beside the adapter (dev-scripts/bizhawk-dev-loader.lua takes several targets), or on
---   its own. It reports once a second, and only when something changed, so a clean map is silent.
---   Log: orphan_<timestamp>.log beside this file.
---
---   To CLEAR one: a map change rebuilds both arrays from ROM, so walking through any door or
---   loading a savestate removes it. Nothing here writes to the game.
+-- Read-only: names whether an extra, static character is one this adapter left behind, by the fingerprint no
+-- map-placed NPC carries: the local player's sprite id plus WONT_DELETE. despawnGhost() forgets a slot whose identity
+-- no longer checks out rather than zeroing one the game may have reused, so an object we made can be left untracked,
+-- and WONT_DELETE keeps the engine from reclaiming it. Reports once a second, only on a change. A map change or a
+-- savestate load clears any orphan, since both arrays are rebuilt.
 
 local DOMAIN = "WRAM"
 
@@ -43,20 +13,7 @@ local function flat(cpu_addr)
 	return 0x1000 + (cpu_addr - 0xD000)
 end
 
--- PER BUILD, exactly like the adapter's own table -- and it was NOT, until 2026-08-26.
---
--- This probe hardcoded vanilla's two addresses. Run on the Archipelago build, where the object
--- array is somewhere else entirely, it read unrelated bytes, found nothing carrying the
--- fingerprint, and wrote a log that says so in a calm voice. **An empty log from a blind
--- instrument is indistinguishable from a clean map**, and that is exactly how it was read for
--- most of an hour while the user was looking at the extra character it was supposed to name.
--- `probes.md`: "it measured correct" is not evidence, and a clean instrument beside a symptom the
--- user can still see means the instrument is the thing to doubt first.
---
--- Both pairs are the adapter's own measured entries -- vanilla's from our hash-verified
--- pokecrystal build, the Archipelago build's from the `ap_*` probe family (`verified.md`,
--- 2026-08-18). Selected by the ROM header title, the same cheap seed-independent signal
--- classifyRom() uses: the patch renames it to AP_*.
+-- Per build, from the adapter's measured tables, chosen by the ROM header title as classifyRom() does.
 local function romTitle()
 	local t = {}
 	for i = 0, 9 do
@@ -100,20 +57,13 @@ local function open_log()
 		dir = info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
 	end
 	logfile = io.open(string.format("%s/orphan_%s.log", dir, os.date("%Y%m%d_%H%M%S")), "w")
-	-- Buffered, and never flushed per line: a console.log plus a flush is a synchronous disk
-	-- write on the emulator's own thread, measured at 63-83ms -- four to five frames, every time
-	-- (pitfalls.md, "ONE console line a second cost 7.4 fps"). A probe that stalls the game is a
-	-- probe that changes what it measures.
+	-- Buffered, never flushed per line: a flush is a synchronous disk write on the emulator's own thread.
 	if logfile then
 		pcall(function() logfile:setvbuf("full", 8192) end)
 	end
 end
 
--- THE CONSOLE IS THE EXPENSIVE HALF. `console.log` appends to BizHawk's GUI console window, on the
--- emulator's own thread; pitfalls.md measured ONE such line a second costing 7.4fps, and removing
--- the per-line disk flush alone left 87-175ms hitches still there (2026-08-21). So the console gets
--- the opening lines and then one in twenty, while the FILE gets every line -- the log is the record,
--- the console is only a glance.
+-- The console is a GUI append on the emulator's thread, so it gets the first lines and one in twenty; the file all.
 local rawConsole, consoleLines = console.log, 0
 local function raw_log(msg)
 	consoleLines = consoleLines + 1
@@ -125,9 +75,7 @@ local function log(msg)
 	raw_log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Flush every 20 lines: a bounded cost, and a log that is never empty for a whole run.
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -148,20 +96,14 @@ open_log()
 log("=== MeshGhost Crystal orphan check (READ-ONLY) ===")
 log("Looking for characters carrying this adapter's fingerprint that nothing is driving.")
 log("Silent while nothing changes. A map change clears any orphan by rebuilding the arrays.")
--- SAY WHICH BUILD, AND WHERE IT IS LOOKING. This probe was silent on the Archipelago build for an
--- hour because it was reading vanilla's addresses, and nothing in its output said so -- an empty
--- log looked exactly like a clean map. A one-line coverage statement is the difference between
--- "nothing is there" and "I cannot see".
+-- Which build and where it looks: an empty log from a blind instrument reads like a clean map.
 log(string.format("build: %s -- object structs at 0x%04X, map objects at 0x%04X (title %q)",
 	BUILD, OBJECT_STRUCTS, MAP_OBJECTS, romTitle()))
 
 local frames = 0
 local lastReport = nil
 
--- A character is judged STILL only by watching it: one that has not changed tile or animation
--- state across the whole observation window is standing there doing nothing, which is what an
--- orphan looks like and what a scripted NPC that happens to be idle also looks like. So stillness
--- alone is never the verdict -- it is reported alongside the fingerprint, not instead of it.
+-- Stillness alone is never the verdict (an idle scripted NPC is still too); it is reported beside the fingerprint.
 local seen = {} -- struct slot -> { x, y, stillFor }
 local flagged = {} -- struct slot -> already reported, so a runaway is said once
 local trace = {} -- struct slot -> ring buffer of the last ten frames of step fields
@@ -169,10 +111,7 @@ local trace = {} -- struct slot -> ring buffer of the last ten frames of step fi
 local function tick()
 	frames = frames + 1
 
-	-- The buffering sweep removed per-line flushes, which is right for cost -- but a report that
-	-- sits in a buffer reads exactly like "nothing found" (pitfalls.md: an empty log reads exactly
-	-- like the game did nothing). One flush every five seconds keeps the log honest for one frame's
-	-- cost that often.
+	-- A flush every five seconds: a report sitting in a buffer reads like nothing found.
 	if logfile and frames % 300 == 0 then
 		pcall(function() logfile:flush() end)
 	end
@@ -182,9 +121,7 @@ local function tick()
 		return -- not in the overworld
 	end
 
-	-- ONE pass per frame over the structs, not two. The first version scanned twice (stillness,
-	-- then flying) which is ~240 guarded memory reads a frame -- enough to cost frame rate, and a
-	-- probe that costs frame rate changes what it is measuring (_template/probes.md).
+	-- One pass a frame over the structs: a probe that costs frame rate changes what it measures.
 	for st = 1, NUM_OBJECT_STRUCTS - 1 do
 		local base = OBJECT_STRUCTS + st * OBJECT_LENGTH
 		local sprite = u8(base + F_SPRITE)
@@ -205,10 +142,7 @@ local function tick()
 				local dur = u8(base + F_STEP_DURATION) or 0
 				local sy, sx = u8(base + F_SPRITE_Y) or 0, u8(base + F_SPRITE_X) or 0
 
-				-- A ten-frame history of the four fields that decide whether the engine walks this
-				-- object, kept so the runaway can be read BACKWARDS from the frame it started. Which
-				-- field changed first, and in which frame, is the whole question -- a snapshot taken
-				-- once the object is already flying cannot answer it.
+				-- Ten frames of the fields that decide whether the engine walks it, to read a runaway backwards.
 				local t = trace[st]
 				if not t then
 					t = { n = 0 }
@@ -258,9 +192,7 @@ local function tick()
 			local movement = u8(base + F_MOVEMENT_TYPE)
 			local wontDelete = (flags1 & FLAG1_WONT_DELETE) ~= 0
 
-			-- The cross-link, both ways -- the same identity test the adapter's stillOurs() uses.
-			-- A BROKEN link is the interesting case: it is what makes the adapter forget an object
-			-- instead of clearing it, so it is the mechanism by which an orphan is created.
+			-- The cross-link both ways, as the adapter's stillOurs() tests it: a broken link is how an orphan is made.
 			local linkOk = false
 			if mo and mo ~= UNASSIGNED and mo < NUM_MAP_OBJECTS then
 				linkOk = u8(MAP_OBJECTS + mo * MAPOBJECT_LENGTH + M_STRUCT_ID) == st
@@ -275,22 +207,11 @@ local function tick()
 			local s = seen[st]
 			local stillSecs = s and (s.stillFor // 60) or 0
 
-			-- Ours if it carries the two fingerprints the adapter always sets. The movement pin is
-			-- reported but not required, because a ghost spawned before 2026-08-21 will not have
-			-- it and is exactly the kind of leftover worth catching.
+			-- The two fingerprints the adapter always sets; the movement pin is reported but not required.
 			local looksOurs = (sprite == playerSprite) and wontDelete
 
-			-- THE VERDICT, and it comes from the adapter's own rule rather than from a hunch about
-			-- how long is too long. A ghost the adapter is still tracking cannot stand on one tile
-			-- for long: IDLE_FRAMES_BEFORE_PASSABLE is 3600 frames -- ONE MINUTE since 2026-08-26,
-			-- five seconds before that, and this threshold moved with it -- at which point the peer stops
-			-- blocking and is handed to the drawn tier, which despawns the spawned object. So one
-			-- of OUR objects still sitting in the array well past that is, by construction, one
-			-- nothing is tracking any more.
-			--
-			-- The one legitimate exception is a peer playing an animation in place -- fishing, an
-			-- emote -- which as of 2026-08-21 deliberately keeps its spawned slot. So the action
-			-- byte is checked too: only a character doing NOTHING for that long is an orphan.
+			-- Past the adapter's idle rule (3600 frames) a tracked ghost is handed to the drawn tier and despawned, so
+			-- one of ours standing well past it is untracked; a peer animating in place keeps its slot, so idle only.
 			local action = u8(base + F_ACTION) or 0
 			local idleAction = (action == 0 or action == 1 or action == 2)
 			local orphan = looksOurs and idleAction and stillSecs > 75
@@ -299,20 +220,7 @@ local function tick()
 				marks[#marks + 1] = "ORPHAN: past the 5s the adapter would have released it"
 			end
 
-			-- EVERY CHARACTER IN THE ARRAY, not only the ones matching the fingerprint.
-			--
-			-- This was `if looksOurs or not linkOk`, and that filter is why this probe spent an
-			-- evening reporting "exactly one, ours, being driven" while the user was looking at
-			-- THREE characters on screen (2026-08-26). An extra object wearing any other sprite --
-			-- a template NPC's, a peer's -- was dropped before it could be printed, so the probe's
-			-- calm one-line answer was not a measurement of the array at all. `probes.md` says it
-			-- twice and this file broke it anyway: dump everything, filter afterwards.
-			--
-			-- Thirteen structs is a short table. There is no cost worth a filter here, and the
-			-- whole value of the dump is being able to count what is in the array against what is
-			-- on the screen -- which cannot be done from a list of the ones already believed to
-			-- matter. `looksOurs` is still computed and still marks the row; it just no longer
-			-- decides whether you get to see it.
+			-- Every character in the array, not only fingerprinted ones, so the count can be held against the screen.
 			do
 				rows[#rows + 1] = string.format(
 					"    struct %-2d -> map object %-3s  sprite %-3d at %d,%d  still for %ds  [%s]%s",
@@ -336,8 +244,7 @@ local function tick()
 			frames // 60))
 		return
 	end
-	-- COUNT IT, so the log can be held against the screen without anyone counting rows by eye.
-	-- "3 characters in the array" beside "I can see 3" is an answer; a list is homework.
+	-- Counted, so the log can be held against the screen without counting rows.
 	log(string.format("  [%ds] %d character(s) in the array besides the player:",
 		frames // 60, #rows))
 	log(report)
@@ -355,8 +262,7 @@ MESHGHOST_DEV_UNLOAD = function()
 	end
 end
 
--- A registered callback outlives its script under BizHawk, which is why this is a loop and not
--- event.onframeend (pitfalls.md).
+-- Standalone, its own loop: a registered callback outlives its script under BizHawk.
 if not MESHGHOST_DEV_LOADER then
 	while true do
 		tick()

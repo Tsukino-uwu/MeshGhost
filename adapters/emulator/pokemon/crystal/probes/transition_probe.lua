@@ -1,32 +1,5 @@
--- MeshGhost — Pokémon Crystal: what is true while a door transition is on screen?
---
--- READ-ONLY. No writes, no drawing.
---
--- WHY THIS EXISTS
--- The user, 2026-08-21: *"the drawn ghost is being shown when going in/out of houses"*. The painted
--- tier already carries the positive gate pitfalls.md asks for -- inPlay(), at least one live
--- hardware sprite, and the player's own four OAM entries present -- and a door transition slips
--- through all three. Something else has to say "the overworld is not really on screen", and the way
--- to find it is to watch every candidate ACROSS a transition rather than to reason about which
--- ought to work.
---
--- Emerald solved its version of this by matching the LIGHTING rather than by hiding: it compares
--- the live OBJ palette against the ROM palette the pixels were decoded from, so the painted copy
--- dims with every fade. Crystal's tier already reads wOBPals1 live each frame, so if a door fade
--- goes through that shadow the ghost should dim by itself -- and if it does not, that is the
--- finding, and this probe is what shows it.
---
--- WHAT IT LOGS, once per frame, but only when something changed:
---   wMapStatus, wStateFlags, wBattleMode      -- the state gate's own terms
---   live OAM sprites, and the player's 0-3    -- the "is anything being drawn" terms
---   OBJ palette brightness (channel sum)      -- how dark the scene actually is
---
--- Read it by finding the frames where the screen is plainly mid-transition and asking which column
--- ALREADY says so. That column is the missing gate term.
---
--- HOW TO RUN
---   Stand outside a house, walk in, walk out, repeat a few times. Log: transition_<timestamp>.log
---   beside this file. No timing to hit.
+-- Logs the drawn tier's gate terms and the OBJ palette's brightness on every frame one changes, to find what says
+-- "not the overworld" through a door. Read-only. Walk in and out of a house a few times; logs transition_<time>.log.
 
 local DOMAIN = "WRAM"
 
@@ -98,8 +71,7 @@ local function tick()
 		end
 	end
 
-	-- Brightness of the palette the painted tier actually draws with. A fade to black or white
-	-- moves this a long way, and it is the term Emerald ended up using.
+	-- Channel sum of the OBJ palette the drawn tier draws with: a fade through it would move this a long way.
 	local sum = 0
 	for i = 1, 3 do
 		local lo = u8(W_OBPALS + i * 2) or 0
@@ -144,8 +116,7 @@ MESHGHOST_DEV_UNLOAD = function()
 	end
 end
 
--- A registered callback outlives its script under BizHawk, which is why this is a loop and not
--- event.onframeend (pitfalls.md).
+-- A registered callback outlives its script under BizHawk, so this is a loop, not event.onframeend.
 if not MESHGHOST_DEV_LOADER then
 	while true do
 		tick()

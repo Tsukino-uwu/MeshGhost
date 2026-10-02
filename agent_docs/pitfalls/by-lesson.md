@@ -9585,3 +9585,155 @@ is the file the comment sat in at `f64560cc`.
 ### adapters/pseudoregalia/probes/probe_outline/Scripts/weapon.lua
 
 - Grounded APIs: UE4SS Lua FindAllOf, IsValid, GetFullName, GetFName, GetClass, GetSuperStruct, UStruct:ForEachFunction, LoopAsync (vendored RE-UE4SS/docs/lua-api); engine names USkeletalMeshComponent::SkeletalMesh / SkinnedAsset / SkeletalMeshAsset, USceneComponent::AttachParent, AttachSocketName, RelativeLocation/Rotation/Scale3D, bVisible (docs.unrealengine.com); the game's own `weaponRef` / `weaponEquipped?` (documentation.md). Every read pcall-guarded; absent prints "?".
+
+### adapters/emulator/pokemon/crystal/probes/ap_bag_probe.lua
+
+- LIST EVERY POCKET-SHAPED THING IN THE PLAYER-DATA BANK, both kinds, and let a human match them against the in-game bag. The triple-in-a-row search this replaces returned exactly one hit, at flat 0x636B -- a region the game does not keep player data in, whose "key items" were 7F 5F 50 7F ... repeating. It validated something; it did not find the bag. Requiring three pockets in sequence assumed strides that a build which RESIZES its pockets does not have, and the failure was silent and confident, which is the worst combination.
+
+### adapters/emulator/pokemon/crystal/probes/ap_battlemode_probe.lua
+
+- A battle is wMapStatus == 0, NOT "anything other than 2". Found the hard way on the first run (2026-08-18): between two wild battles the byte reads 1, never 2 -- the map is re-entering after the first battle when the second encounter starts. Treating 1 as "still in battle" merged both battles AND the walk between them into one window, so every candidate that correctly dropped to 0 in the gap was scored as "flickers". Nine real candidates were thrown away by that.
+
+### adapters/emulator/pokemon/crystal/probes/ap_playerstate_probe.lua
+
+- The fix is the repo's own standing rule (`_template/README.md`, "Send the QUESTION, not the engine's own byte"): put a PORTABLE STATE on the wire -- on foot, bike, surf, running -- and let each receiver draw it with its own graphics, instead of shipping an index that means different things on different cartridges. `wPlayerState` is where that state lives, and it has never been measured on this build.
+- 1. Be in the overworld with the bike in your bag. EITHER STATE IS A FINE STARTING POINT -- the probe looks for a byte that changes and changes BACK, so which way round the toggle goes does not matter. (Written that way on 2026-08-26 after two restarts spent trying to get the player and the probe into the same starting state; a probe that needs the world arranged around it wastes live cycles for nothing.)
+
+### adapters/emulator/pokemon/crystal/probes/ap_reverse_probe.lua
+
+- frames. A step takes ~16, so this cannot miss one, and scanning 32k every other frame is more than BizHawk's Lua host will carry — the first version of the one-direction probe never produced a log at all because of it (2026-08-18).
+
+### adapters/emulator/pokemon/crystal/probes/bump_probe.lua
+
+- Log beside this script, resolved from the script's own path -- never an absolute one. A probe committed with a developer's directory baked into it is a personal path in a public repo, which is exactly what happened to the first version of this file (2026-08-23).
+
+### adapters/emulator/pokemon/crystal/probes/dig_drive.lua
+
+- THE STATE IT DRIVES. The user prepared slot 9 on 2026-08-26: standing in a cave with the bag already open on an Escape Rope, where **pressing A twice uses it**. That is what turns this animation class from a request on the user's time into something this rig runs by itself -- the same economics as the fly savestates, and `_template/probes.md` records why it is worth asking for one before grinding live cycles. Note slot 9 previously held the cross-town Fly state; the user overwrote it deliberately.
+
+### adapters/emulator/pokemon/crystal/probes/door_loop.lua
+
+- The user's own test setup, 2026-08-21: stand outside a house, one tile up goes in, one tile down comes out. Looping it is how the painted tier's behaviour DURING a map transition gets watched often enough to measure, without a person holding the d-pad for ten minutes.
+
+### adapters/emulator/pokemon/crystal/probes/fly_drive.lua
+
+- The adapter's logs/ lives at the ADAPTER root, not beside this probe -- the first run wrote 75 screenshots into probes/logs/, which does not exist, and the pcall swallowed every one.
+
+### adapters/emulator/pokemon/crystal/probes/goto_map.lua
+
+- THE ONE THAT MATTERS, and the one whose absence broke the first version of this file on 2026-08-21: **hMapEntryMethod**. Setting only wMapStatus made the game re-enter the map it was already on and consume no destination at all -- measured by the read-back. The user saw it as *"it just glitched my current map"*. The read-back below is why that was caught rather than believed.
+- 10,20 was a BAD choice and cost the user a trainer battle on arrival, 2026-08-21: it is inside a trainer's line of sight. 8,26 was picked clear of every trainer's position, facing and range as listed in maps/Route39.asm's object_events (where to look, not a measurement).
+- THE FIRST GYM TOWN, on the user's request 2026-08-26. Group 10 / map 5 as annotated in `constants/map_constants.asm`, and BOTH controls above reproduce on that same reading -- NEW_BARK is annotated 24 and ROUTE_40 is 22:1 -- so the annotated indexes are being trusted here rather than a re-derived count, which is the mistake that put Ice Path at 5:61.
+
+### adapters/emulator/pokemon/crystal/probes/set_colour.lua
+
+- Re-asked EVERY FRAME until it passes, not once at load: the first run of this probe checked at attach, on three windows still at the title screen, where palette RAM holds the intro's colours (7FFF, 7197), refused, and never looked again (2026-09-09). The overworld is what loads the object palettes, so the check waits for it, and a failure is logged once a second, not once.
+- BizHawk's HRAM domain starts at $FF80, so $FFE5 is offset $65: the first run wrote $E5, past the domain's end, and every local player stayed the pink slot's salmon (the user: Speedchoice "looks orange/yellow ish", 2026-09-09) while the ghosts were already right.
+
+### adapters/emulator/pokemon/crystal/probes/square_drive.lua
+
+- IT MUST SAY SO, LOUDLY. A silent `pcall` here cost a live session on 2026-08-25: this global was left set by an earlier run, the dev loader replaces FILES and never globals, and so every re-attach of this script teleported the player and rolled back everything written since the state was made. What it looked like from outside was a probe's grants "not sticking" -- the frame counter going BACKWARDS was the only tell, and nothing was reading it. The agent then blamed the user for loading savestates they had not touched. `pitfalls.md` has carried "a probe global outlives the probe, and then looks exactly like a real bug" since 2026-08-19; the new part is that the consequence can be an ACTION rather than a setting. An action taken on the strength of a stale global has to announce itself.
+- STOP-AND-GO, the user's ask 2026-08-21: pauses exercise the seams a steady walk never touches -- the idle release to the painted tier (5s), the resume re-spawn, and the last step before a stop, which is where snaps live. The pattern is fixed rather than random so a fault reproduces on the same lap count every run: after each full side, every third side pauses 2s, and after each full lap a long 7s pause crosses the idle-release threshold on purpose.
+- MESHGHOST_SQUARE_FLOW: no stop inside the lap -- every corner is taken in stride. Added 2026-08-23: with the pause on, each corner is a real stop AND a real start, so a ghost faithfully echoing the peer shows a catch-up and a slip at every corner -- and those echoes are indistinguishable from renderer faults to the eye. The flowing lap is the only way to judge continuous motion on its own.
+
+### adapters/emulator/pokemon/crystal/probes/ap_address_probe.lua
+
+- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads exactly like "nothing happened").
+- ONLY a real step counts: exactly one tile, on exactly one axis. The first run treated any change as a step and the very first sample was "+88,+4" — a map load or a mid-transition read — which discarded every candidate at once and reported a confident dead end.
+
+### adapters/emulator/pokemon/crystal/probes/ap_coord_probe.lua
+
+- frames. A step takes ~16, so this still cannot miss one, and 32k reads every other frame is far more than BizHawk's Lua host will carry — the first version of this probe never produced a log at all because of it (2026-08-18).
+
+### adapters/emulator/pokemon/crystal/probes/ap_struct_check.lua
+
+- Two things make that result weaker than it looks, and this probe exists to fix both:
+  - 1. All three of its steps were on the SAME axis (-1,+0). A byte pair that happens to shadow X can survive three identical steps; it cannot survive both axes.
+  - 2. "The tidiest survivor" is a judgement, not a measurement. 0x14DE is exactly the LAST_MAP_X/LAST_MAP_Y pair two bytes along, which is precisely the kind of lookalike this project keeps mistaking for the real thing.
+
+### adapters/emulator/pokemon/crystal/probes/compare_layout.lua
+
+- The compare rig is ON and the hardware tier is OFF. One peer, two renderers in the same frame from the same state: SPAWNED 2 tiles right, PAINTED 2 tiles left. Confirmed from the adapter's own startup line on 2026-08-25 (`PROBE FLAG IN USE: MESHGHOST_COMPARE_TIERS`); the header used to say the rig was off, which is what it was when the file was written on 2026-08-21 and had stopped being true. FLAGS.md's rule settles that kind of disagreement: the value wins.
+- THE HARDWARE TIER STAYS OFF, and that half of the 2026-08-21 reasoning is unchanged.
+- Why: with the hardware tier on it claims a peer BEFORE the drawn tier sees it, and the user's report was that a peer then *"goes invisible when standing idle for a tiny bit"* -- which is exactly what claiming-and-not-rendering looks like. A rung whose visual correctness is unconfirmed must not sit ABOVE a rung that is confirmed, because the cost of it being wrong is the peer disappearing rather than looking slightly off.
+- Set MESHGHOST_CRYSTAL_OAM_OVERFLOW = "1" and MESHGHOST_COMPARE_TIERS = true here to put the rig back once the hardware tier renders something the user can actually see. EVERY switch is set explicitly, including the ones being turned OFF. The loader replaces files, never globals: a `true` set by a previous version of this file survives its own deletion and keeps the compare rig on with no file left that mentions it. pitfalls.md has carried this since 2026-08-19 as "A probe global outlives the probe, and then looks exactly like a real bug", and it was walked into twice more on 2026-08-21 by someone who had not read that file.
+
+### adapters/emulator/pokemon/crystal/probes/flags_bike_pose.lua
+
+- THE QUESTION, 2026-08-26. A peer riding the Archipelago build's bike is drawn by the vanilla client's drawn tier and *"looks stuck in the idle bike pose"* while moving. The tier's own counter refutes the obvious cause: 516 of 1512 peer-frames DID draw a stepping view, so step frames are being found and chosen. Four hypotheses reasoned from the code have now failed on this one symptom, which is the point at which `pitfalls.md` says to stop reasoning and put an instrument on it -- the last facing bug went exactly this way and the trace is what ended it.
+
+### adapters/emulator/pokemon/crystal/probes/fish_drive.lua
+
+- WHY THIS EXISTS Fishing is the first of Crystal's remaining action classes (`UNVERIFIED.md`, "NEXT SESSION'S WORK: FISHING FIRST"), and judging it needs the same cast watched many times — once to see the pose arrive, once to see it held, once to see it end. The user's own framing, 2026-08-25: *"press select, wait a bit for the animation, then reload/repeat"*.
+- AND THEN: **A BITE IS THE INTERESTING CASE, AND RELOADING NEVER REACHES IT.** The user, the same day: *"if i catch a fish, the 2 ghosts move back 1 tile"*, with the method — *"you can't replicate this if you keep reloading the savestate7, need to press A and try to fish again"*. Reloading a savestate replays one RNG state; only casting again and again reaches a bite. So the default loop CLEARS THE TEXT AND RECASTS, and the savestate is the fallback, not the cycle.
+- WHAT IT CANNOT ANSWER
+  - Whichever way the water is, that is the only fishing direction it exercises. It says so in its own log rather than letting the reader assume all four were covered.
+  - **The screenshots do not contain the drawn tier.** `client.screenshot` captures the emulator's video output, and a painted ghost is a `gui.*` overlay on top of it — so a screenshot showing no ghost is not evidence that no ghost was painted. Found exactly that way 2026-08-25, with the user watching two ghosts the screenshots did not have.
+- ONCE PER CAST, not once per frame of the press. The counter used to sit here unguarded and advanced eight times a cast, so every number in the log named a cast that never happened.
+- B, NOT A, and in bursts. The user's method, 2026-08-25: *"if you don't catch a fish, press B to close the text box, then use the fishing rod again"*. A on the overworld is the interact button and would re-cast or talk to whatever is in front; B only ever closes. Held continuously it re-opens what it just closed, so it needs the release between presses.
+
+### adapters/emulator/pokemon/crystal/probes/fly_probe.lua
+
+- THE ADAPTER'S OWN DOMAIN AND FLAT MAPPING, not "System Bus" -- and this probe's first draft got it wrong, which is the only reason the mistake is written down here. On a GBC, "System Bus" reads $D000-$DFFF through WHICHEVER WRAM BANK IS CURRENTLY SELECTED, so a bank-1 address read that way is right only while bank 1 happens to be banked in. The first run reported SPRITE_UPDATES_DISABLED set for 11,544 consecutive frames of ordinary standing-still play, which is not a game state -- it is a probe reading someone else's bank. The "WRAM" domain addresses the banks unconditionally: bank 0 is $C000-$CFFF -> 0x0000, bank 1 is $D000-$DFFF -> 0x1000, which is what `flat()` below does and what meshghost_crystal.lua has always done.
+- EVERY OCCUPIED SLOT, NOT THE ONE I GUESSED WAS THE GHOST. The first draft filtered for "sprite set and OBJECT_MAP_OBJECT_INDEX == $FF" on the reasoning that a spawned ghost has no map-object entry behind it. That filter reported "G none spawned" for 12,583 of 12,600 frames of a session that had a ghost on screen throughout, so the rule is simply wrong -- and it is exactly the trap probes.md states outright: a filter applied before you look is a guess about the answer, and a wrong guess still produces a complete-looking result. So this dumps all thirteen structs and the reading happens afterwards, where it can be corrected.
+
+### adapters/emulator/pokemon/crystal/probes/grant_items.lua
+
+- WHAT IT GIVES, and nothing else:
+  - SUPER_ROD and BICYCLE in the key-item pocket -- the reason this file exists. Fishing and riding are two of the drawn tier's action classes (`documentation.md`), and neither can be watched without the item. The bike is also the game's other GAIT: the adapter's own model carries a 4px-per-beat bike stride beside the 2px walk, and nothing has ever exercised it.
+  - MASTER_BALL x10 in the ball pocket
+  - MAX_REPEL x10 and RARE_CANDY x10 in the item pocket -- repels because wild encounters interrupt a movement test, candies because a level is sometimes the cheapest way to reach a state.
+  - PERMANENT REPEL, maintained every frame -- the one thing here that is not a one-shot write. The user's request, 2026-08-25, "similar to how emerald does it": Emerald's testkit.lua keeps VAR_REPEL_STEP_COUNT topped up for exactly the same reason, and this is Crystal's equivalent counter. See "WHAT PERMANENT REPEL ACTUALLY DOES" below -- it is NOT "no wild encounters", and the difference decides whether a test session gets interrupted.
+- FLUSHED PER LINE, and that is right HERE where it is wrong in a per-frame probe: this file writes about a dozen lines in total and then stops forever, so the flush cost is paid once and the log is readable the instant it is written. grant_test_kit.lua batches its flush every 20 lines and closes on unload, so on 2026-08-25 its log sat at 0 bytes for as long as it stayed loaded -- the content did arrive, on unload, so nothing was lost, but a probe that writes a dozen lines and stops is unreadable exactly while you are waiting to read it.
+- A SAVESTATE LOAD UNDOES EVERY WRITE HERE, and "applied once, now quiet" is the wrong shape for a workflow built on savestates -- which this one is (`environment.md`: slot 1 is the user's, higher slots are the agent's, and loading them is standing practice). Found live 2026-08-25: the bag was granted, the user reloaded a state to get back to the test spot, and the next probe along reported the bike missing -- correctly, because it WAS missing again.
+
+### adapters/emulator/pokemon/crystal/probes/idle_coords_probe.lua
+
+- LOGS TO A FILE as well as the console. `console.log` is a GUI append that nothing outside the emulator can read, and an instrument whose output only a human can see cannot be checked. Resolve this script's own directory rather than naming one: an absolute path here would be a machine-specific path in a public repo, which the pre-commit hook refuses (and was right to).
+
+### adapters/emulator/pokemon/crystal/probes/step_watch_probe.lua
+
+- Watch EVERY object the engine is driving, not one picked arbitrarily. The first version chose the first NPC it found, which may be a stationary one -- and a probe that watches the wrong object reports "nothing happened" indistinguishably from "nothing happens". Cheap to watch all of them, and it guarantees the one that moves is captured.
+
+### adapters/emulator/pokemon/crystal/probes/flags_step_lag.lua
+
+- That line exists because a count of zero cannot be interrogated. A run showing "0 spawned as real objects" looks identical whether the peer is being held on the drawn tier deliberately, or the engine has no free slot, or a term is wrong -- and on 2026-08-26 that zero was read as if it meant one particular thing for most of a session. `FLAGS.md` carries the full row.
+
+### adapters/emulator/pokemon/crystal/probes/idle_cycle_drive.lua
+
+- 1s of held d-pad. DELIBERATELY SHORT OF THE RANGE CULL: the adapter gives a peer's slots back past GHOST_RANGE_TILES (8), and the first version of this script held the d-pad for 150 frames, which walks NINE tiles. Every cycle therefore crossed that boundary and the log filled with despawn/respawn pairs that were the cull, not the idle rule -- the exact transition under investigation, drowned in a different one that looks identical in a log. Four tiles keeps the whole cycle inside the peer's range so the only despawn is the one meant. MUST STAY ABOVE THE ADAPTER'S IDLE RULE, and that rule MOVED on 2026-08-26: it went from 300 frames (5s) to 3600 (one minute). This was 480 frames, chosen against the old rule -- the moment the rule changed, this script stopped crossing the threshold at all and would have produced clean-looking cycles in which the demote under investigation never once happened. A driver whose premise has silently expired is worse than no driver: it reports success. The cost of the coupling is real -- a full cycle is now ~71 seconds instead of ~11, so a session produces far fewer demote/promote pairs. If that is too slow to iterate against, lower IDLE_FRAMES_BEFORE_PASSABLE in the adapter FOR THAT RUN and lower this with it; do not lower this one alone, which just removes the event.
+- Held every frame. A tap would turn the character without moving it, which is a different event entirely and not the one being reproduced. BOTH CALL SHAPES, EACH IN A pcall -- copied from square_drive.lua, which is the version that has actually driven this game. Passing the controller index alone did nothing here (2026-08-26): the script ticked happily, logged five clean cycles, and the player never moved a pixel. An input call that is ignored does not raise -- it just silently produces a run where the thing under test never happened, which reads exactly like the fault failing to reproduce. Whichever shape this BizHawk build honours, one of these is it.
+- DID THE WALK ACTUALLY WALK? The game's own tile, start against end. A driver whose input is being ignored logs a perfect-looking cycle forever and the run silently tests nothing -- which is what happened on the first attempt here.
+
+### adapters/emulator/pokemon/crystal/probes/orphan_probe.lua
+
+- WHY THIS EXISTS The user, 2026-08-21: *"i have a weird 'static' ghost that appear sometimes, im not sure if that is from your scripts or something else"*. That question has an exact answer, because a ghost this adapter spawned carries a fingerprint no NPC placed by the map has:
+  - it wears the LOCAL PLAYER's sprite id (the adapter borrows it at spawn), and
+  - FLAG1_WONT_DELETE is set on it (the adapter sets it so the engine does not cull the ghost when it leaves the visible window), and
+  - since 2026-08-21 its movement type is pinned to SPRITEMOVEDATA_STANDING_DOWN.
+  - A map's own NPC can have any one of those. Having all three, while not being the player, is us.
+- ONE pass per frame over the structs, not two. The first version scanned twice (stillness, then flying) which is ~240 guarded memory reads a frame -- enough to cost frame rate, and a probe that costs frame rate changes what it is measuring (_template/probes.md).
+- THE VERDICT, and it comes from the adapter's own rule rather than from a hunch about how long is too long. A ghost the adapter is still tracking cannot stand on one tile for long: IDLE_FRAMES_BEFORE_PASSABLE is 3600 frames -- ONE MINUTE since 2026-08-26, five seconds before that, and this threshold moved with it -- at which point the peer stops blocking and is handed to the drawn tier, which despawns the spawned object. So one of OUR objects still sitting in the array well past that is, by construction, one nothing is tracking any more. The one legitimate exception is a peer playing an animation in place -- fishing, an emote -- which as of 2026-08-21 deliberately keeps its spawned slot. So the action byte is checked too: only a character doing NOTHING for that long is an orphan.
+
+### adapters/emulator/pokemon/crystal/probes/orphan_sweep.lua
+
+- WHY THIS EXISTS The user, 2026-08-21: *"it still has the 'static ghost' glued on top of it. can you separate them apart from each other already?"*
+- comfortably past the adapter's own release rule, which is IDLE_FRAMES_BEFORE_PASSABLE = 3600 frames (one minute) since 2026-08-26. THIS NUMBER IS A SAFETY BOUND, NOT A PREFERENCE, because this file WRITES. It was 8 seconds against a five-second rule; the moment that rule became a minute, 8 seconds meant this sweep would delete ghosts the adapter was still legitimately tracking -- a peer standing still for ten seconds is now perfectly normal and still owned. It must always sit ABOVE the adapter's rule with room to spare, so raising one without raising the other turns a tidy-up tool into a tool that destroys live ghosts.
+
+### adapters/emulator/pokemon/crystal/probes/paintgate_probe.lua
+
+- WHY THIS EXISTS The user, 2026-08-22, after the hold was resequenced: *"think its a bit better now, but the drawn ghost still appear a tiny bit late when going 'inside'"* — and, about the other direction, *"i can't really tell visually when going 'outside'"*. That second sentence is a measurement result, not a shrug (`_template/probes.md`, "when a human says they cannot tell, that is data"): the effect is at the edge of perception, so it gets counted rather than looked at again. This probe counts it, in both directions, so neither rests on eyesight.
+
+### adapters/emulator/pokemon/crystal/probes/posediff_probe.lua
+
+- Proximity alone is not enough and the first version proved it -- it locked onto an NPC standing in the same room. So the ghost is identified by BEHAVIOUR instead, which is the one thing no NPC does: **its tile offset from the player stays constant while the player walks.** A wandering NPC's offset changes; a stationary NPC's offset changes as the player moves; only something following the player keeps the same delta across many tiles.
+- IDENTITY FIRST, behaviour second. A relaxed offset band let a STATIONARY NPC qualify as "the ghost" and produced a whole run of numbers about a fruit tree (2026-08-21) -- flags1 0x0C, no WONT_DELETE. The adapter's ghosts always carry WONT_DELETE and the local player's sprite; requiring that costs nothing and makes a wrong lock impossible.
+- Only judged at the moment the PLAYER changes tile: mid-step the ghost is legitimately a tile behind for a few frames, and judging then would rule out the very thing being looked for. WITHIN A TILE of the baseline still counts as following. The first version demanded a perfectly constant offset and never locked on at all (f=1200 and still looking, 2026-08-21): a real following ghost is legitimately a tile behind at the instant the player changes tile -- three frames of loopback lag plus step quantisation -- so perfection was a standard correct behaviour cannot meet. A wandering NPC still fails this: its offset drifts past one tile within a couple of player steps.
+
+### adapters/emulator/pokemon/crystal/probes/stride_probe.lua
+
+- The first version of this probe carried the adapter's own assumption -- the local player is object struct 0 and therefore holds the first four OAM entries -- and threw away 320 of ~640 sampled frames as "another character". Half the sample, silently, and exactly the half that could have held the missing stride. `InitSprites` appends characters to the buffer in the order it walks them, so the player's index is whatever that order produces on that frame, not a constant.
+
+### adapters/emulator/pokemon/crystal/probes/ap_mapobj_probe.lua
+
+- The last dump flooded the Lua Console with three full tables. Detail goes to the file; the console gets headlines only.

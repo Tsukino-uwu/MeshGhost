@@ -1,38 +1,7 @@
--- DRIVE ONE SEAM FROM BOTH SIDES -- Olivine City <-> Route 40, one tile either way. 2026-08-27.
---
--- INPUT-DRIVING PROBE. It presses a direction and loads savestates. UNLOAD IT before judging
--- anything on screen: left loaded, it becomes a suspect in every later report.
---
--- SAVESTATES IT EXPECTS, set up by the user 2026-08-27:
---   slot 7 -- standing one tile EAST of the seam; walk LEFT to enter Route 40.
---   slot 8 -- standing one tile WEST of the seam; walk RIGHT to enter Olivine City.
---   slot 5 -- one tile NORTH of the Route 40 <-> Route 41 seam; walk DOWN to enter Route 41, and
---             UP again to come back. ON THE WATER with Surf up, so a wild encounter is possible.
---
--- SLOT 5 IS NOT SPARE, though it was offered as a just-in-case. Slots 7 and 8 are the two sides of
--- one EAST/WEST seam, and they cannot say anything about north or south: the north/south formula
--- is a mirror of the east/west one, and a mirror is a guess until something crosses that way.
---
--- WHY BOTH SIDES. The connection structs give an offset whose SIGN and SCALE are both unknown --
--- Crystal's map grid is in 2x2-tile blocks while objects live in tiles, so a single crossing can
--- be explained by several different arithmetics at once. Crossing the SAME seam in both
--- directions overdetermines it: the two readings must agree, and an arithmetic that fits one
--- direction but not the other is wrong no matter how well it fits.
---
--- WHAT IT DOES NOT DO. It does not compute the arithmetic. It records what the game did on both
--- sides and leaves the derivation to be done against the numbers, because a probe that returns a
--- conclusion cannot be sanity-checked -- only the values it decided from can be.
---
--- The struct detail comes from connections_probe.lua, which should be loaded alongside this. This
--- script records the player's own coordinates and the connection block independently, so its log
--- stands on its own if the two are ever read apart.
---
--- RETURNING TO A KNOWN STATE, AND PROVING IT. The last thing it does is reload slot 8 and check
--- the area and position it lands on match what slot 8 read the first time it was loaded. It
--- reports the comparison rather than asserting it silently, so a mismatch is visible instead of
--- being a state the next session inherits without knowing.
---
--- Log beside this script.
+-- Drives the Olivine City <-> Route 40 seam both ways from savestates 7 and 8, then Route 40 <-> Route 41 down and up
+-- from slot 5 (on the water with Surf up, so a battle aborts the run): crossing a seam both ways overdetermines its
+-- arithmetic. Input-driving; records what the game did and derives nothing (connections_probe.lua beside it has the
+-- struct detail). Ends by reloading slot 8 and checking where it lands. Unload it before judging anything on screen.
 
 local DOMAIN = "WRAM"
 local function flat(cpu)
@@ -46,8 +15,7 @@ local W_MAPGROUP, W_MAPNUMBER = flat(0xDCB5), flat(0xDCB6)
 local W_YCOORD, W_XCOORD = flat(0xDCB7), flat(0xDCB8)
 local W_BGX, W_BGY = flat(0xD14C), flat(0xD14D)
 local CONN = flat(0xD1A8)
--- Direction bits looked up in constants/map_data_constants.asm; struct addresses from the .sym
--- (north, south, west, east), and connections_probe.lua checks both against real crossings.
+-- Direction bits from the decompilation, struct addresses from the .sym; connections_probe.lua checks both.
 local DIRS = {
 	{ name = "north", bit = 0x08, at = CONN + 1 },
 	{ name = "south", bit = 0x04, at = CONN + 13 },
@@ -103,9 +71,7 @@ end
 local function areaOf(s) return s.grp .. "/" .. s.num end
 local function posOf(s) return string.format("%d,%d", s.x, s.y) end
 
--- ONLY the directions the bitmask actually claims. The unflagged structs hold the PREVIOUS map's
--- values -- measured today on map 1/14, where south read 255/14 and east 255/12 while the mask
--- said north+west. Printing a stale struct beside a live one is how a wrong offset gets adopted.
+-- Only the directions the bitmask claims are live: an unflagged struct still holds the previous map's values.
 local function dumpConns(s, indent)
 	say(string.format("%smask=%02X", indent, s.mask))
 	for i, d in ipairs(DIRS) do
@@ -117,11 +83,8 @@ local function dumpConns(s, indent)
 	end
 end
 
--- `slot = nil` means "carry on from where the previous crossing left us", which is how the
--- north/south pair is taken: slot 5 sits one tile from the Route 40 <-> Route 41 seam, so pressing
--- Down and then Up crosses it both ways from a single load. That matters because slot 5 is ON THE
--- WATER with Surf up, where every held direction is a chance of a wild encounter -- so the run
--- spends as few frames there as it can, and aborts outright if a battle starts.
+-- slot = nil carries on from the previous crossing: Down then Up crosses slot 5's seam both ways from one load,
+-- spending as few frames on the water as it can.
 local STEPS = {
 	{ slot = 7, press = "Left", expect = "Route 40 (west of the seam)" },
 	{ slot = 8, press = "Right", expect = "Olivine City (east of the seam)" },
@@ -138,8 +101,7 @@ local results = {}
 local function report(i, b, a)
 	local sp = STEPS[i]
 	say("")
-	-- `sp.slot` is nil for a crossing that carries on from the previous one, and `%d` on nil is a
-	-- hard error that would take the whole run down at the report, after the driving was done.
+	-- sp.slot is nil for a carried-over crossing, and %d on nil would take the run down at the report.
 	say(string.format("=== CROSSING %d: %s, pressed %s, expected %s ===", i,
 		sp.slot and ("slot " .. sp.slot) or "carried over from the previous crossing",
 		sp.press, sp.expect))
@@ -148,9 +110,7 @@ local function report(i, b, a)
 	dumpConns(b, "    ")
 	say(string.format("  AFTER   area=%s pos=%s bg=%d,%d", areaOf(a), posOf(a), a.bgx, a.bgy))
 	dumpConns(a, "    ")
-	-- Which of the DEPARTING map's live connections named where we ended up. This is the pairing
-	-- the arithmetic gets derived from; the probe states it rather than assuming the press
-	-- direction and the connection direction are the same thing.
+	-- Which of the departing map's live connections named the destination, stated rather than assumed from the press.
 	local named = nil
 	for j, d in ipairs(DIRS) do
 		local c = b.conns[j]
@@ -194,9 +154,7 @@ MESHGHOST_DEV_TICK = function()
 					step, step - 1))
 			end
 		elseif n >= 90 then
-			-- Read AFTER the load has settled, never on the load frame: the map bytes and the
-			-- connection block are restored by the state, but the engine is still mid-rebuild for
-			-- the first frames and a reading there describes the tear-down, not the map.
+			-- After the load has settled: for the first frames the engine is still mid-rebuild.
 			before = readState()
 			lastBefore = before
 			if STEPS[step].slot == 8 and not slot8First then slot8First = before end
@@ -209,9 +167,7 @@ MESHGHOST_DEV_TICK = function()
 
 	if phase == "walk" then
 		local now = readState()
-		-- A BATTLE ABORTS THE RUN. Slot 5 is on the water with Surf up, so a wild encounter is a
-		-- normal outcome, not a fault -- but holding a direction into a battle menu is how a probe
-		-- starts pressing buttons at the game. Reported and stopped, never retried silently.
+		-- A battle aborts the run: a direction held into a battle menu presses buttons at the game.
 		if u8(W_BATTLEMODE) ~= 0 then
 			shout(string.format("  crossing %d: a battle started mid-crossing (wBattleMode=%d)."
 				.. " Stopping here rather than pressing into it -- reload and re-run.", step,
@@ -227,13 +183,10 @@ MESHGHOST_DEV_TICK = function()
 			phase, n = "settle", 0
 			return
 		end
-		-- THE READING THAT MATTERS IS THE FRAME BEFORE THE CHANGE, not the settled savestate:
-		-- the player walks to one tile OUTSIDE the map's bounds and the swap happens there, so a
-		-- delta measured from the load position is short by exactly that step.
+		-- The frame before the change is the reading: the swap happens one tile outside the map's bounds.
 		lastBefore = now
 		if n >= 240 then
-			-- FOUR SECONDS OF HOLDING AND NO CROSSING. Reported, not retried: a silent retry
-			-- would hide the fact that the savestate is not where this script thinks it is.
+			-- Reported, not retried: a silent retry would hide a savestate that is not where this expects.
 			shout(string.format("  crossing %d: held %s for 240 frames and the map never changed"
 				.. " (still area=%s pos=%s). The savestate may not be one tile from the seam.",
 				step, STEPS[step].press, areaOf(now), posOf(now)))
@@ -247,8 +200,7 @@ MESHGHOST_DEV_TICK = function()
 	end
 
 	if phase == "settle" then
-		-- Let the arriving map finish loading before the AFTER reading, for the same reason the
-		-- BEFORE reading waits: the connection block belongs to the settled map, not the seam.
+		-- Let the arriving map finish loading: the connection block belongs to the settled map.
 		if n >= 90 then
 			after = readState()
 			report(step, lastBefore or before, after)

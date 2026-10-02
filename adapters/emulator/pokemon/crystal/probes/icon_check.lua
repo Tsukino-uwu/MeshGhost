@@ -1,24 +1,6 @@
--- DOES THE SPECIES -> POKEMON ICON LOOKUP ACTUALLY LAND ON GRAPHICS? -- 2026-08-26
---
--- READ-ONLY. Reads the cartridge only; writes nothing, draws nothing, drives nothing.
---
--- WHY. A peer's fly landing is supposed to show the Pokemon that carried them, and on the first
--- live run no icon appeared for either tier. Three things could produce that -- the species never
--- reaching the wire, the ROM lookup landing somewhere wrong, or the paint not being reached -- and
--- this settles the middle one on its own, with no game session to spend.
---
--- The lookup under test is two hops, both in bank 0x23 (where to look: `engine/gfx/mon_icons.asm`),
--- as this probe hypothesises them: species -> an ICON index via `MonMenuIcons` (several species
--- may share one), then icon -> the address of its tiles via `IconPointers`.
--- Addresses from our own hash-verified build's pokecrystal.sym: MonMenuIcons 23:6ac4,
--- IconPointers 23:6bbf, Icons 23:6c0d (used only for its BANK).
---
--- HOW TO READ IT. For each species it prints the icon index, the pointer, the flat ROM offset and
--- the first eight bytes there. **Graphics are not zeroes and not $FF runs**: a row of either means
--- the pointer is being read out of the wrong place, whatever the arithmetic looked like. The
--- known-good check at the end is the one that matters -- Pidgey, Spearow and Fearow all share the
--- BIRD icon in this game, so if those three do not resolve to the SAME offset, the first hop is
--- wrong rather than merely odd.
+-- Read-only, the cartridge only: does the species -> Pokemon icon lookup land on graphics? Two hops in bank 0x23,
+-- species -> icon via MonMenuIcons (23:6ac4 in our hash-verified build's .sym), icon -> tiles via IconPointers
+-- (23:6bbf). Prints each species' offset and first eight bytes: a row of zeroes or $FF runs is a misread pointer.
 
 local ROM = "ROM"
 local MON_ICONS, ICON_PTRS, ICONS_BANK = 0x8EAC4, 0x8EBBF, 0x23
@@ -74,9 +56,7 @@ for _, sp in ipairs({ 1, 4, 7, 16, 17, 21, 22, 25, 133, 144, 149, 152, 155, 158,
 end
 
 say("")
--- Pidgey (16), Spearow (21) and Fearow (22) all wear the BIRD icon. Three species agreeing on one
--- offset is the cheapest proof that the FIRST hop is being read correctly -- arithmetic that is
--- merely plausible cannot fake it.
+-- Pidgey (16), Spearow (21) and Fearow (22) all wear the bird icon: three species on one offset proves the first hop.
 local a16 = gfxOf(16)
 local a21 = gfxOf(21)
 local a22 = gfxOf(22)
@@ -88,9 +68,7 @@ else
 		tostring(a16), tostring(a21), tostring(a22)))
 end
 
--- And a second, independent shape check: an icon's eight tiles are 128 bytes, so consecutive
--- DISTINCT icons should sit 128 apart. The engine's own comment says as much ("the icons are
--- contiguous, in order and of the same size, so the pointer table is somewhat redundant").
+-- An icon's eight tiles are 128 bytes, so consecutive distinct icons should sit 128 apart.
 local p0 = ICON_PTRS
 local d = (rb(p0 + 2) | (rb(p0 + 3) << 8)) - (rb(p0) | (rb(p0 + 1) << 8))
 say(string.format("%s: consecutive icon pointers differ by %d (128 expected)",

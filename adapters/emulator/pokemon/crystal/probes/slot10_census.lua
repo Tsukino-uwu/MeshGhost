@@ -1,37 +1,7 @@
--- WHO IS ON THIS MAP, AND WHAT SPRITE ARE THEY WEARING -- a one-shot census, for telling a
--- corruption the ADAPTER causes from one the SAVESTATE already contains.
---
--- THE REPORT. User, 2026-08-26: after loading savestate 10 and walking up on the SAME map, a
--- trainer was drawn with the wrong sprite (*"displaying the 'rival' sprite instead of their
--- intended trainer sprites"*). That was first read as a map-change fault and it is not one, so
--- the mechanism is unknown and worth measuring rather than reasoning about.
---
--- WHAT MAKES THIS ANSWERABLE. A savestate restores the game's RAM and does NOT restore the
--- adapter's Lua state, so `ghosts` keeps slot numbers describing a world that no longer exists.
--- But there is a second possibility that looks identical on screen and needs the opposite fix:
--- the savestate may have been RECORDED while a ghost was spawned, in which case our object is
--- baked into it and every load of that state restores the corruption with no adapter involved.
---
--- SO RUN IT TWICE, and the pairing is the whole point:
---   A) with the adapter NOT in the loader's target -> nothing of ours is running
---   B) with the adapter loaded
--- Identical output means the state carries it and the adapter is innocent. Different output
--- means we do it live, and the diff says which slot changed and to what.
---
--- It is READ-ONLY apart from the savestate load, presses no buttons, and stops after one dump --
--- so it cannot itself be the thing that moves an NPC or steals a slot.
---
--- A SCREENSHOT IS TAKEN IN THE SAME FRAME as the dump. `client.screenshot` captures the emulated
--- framebuffer, which contains the engine's own sprites (so a real trainer and a SPAWNED ghost
--- both appear) and never the Lua overlay (so a DRAWN ghost never does). Taking the picture and
--- the numbers on different schedules is how an earlier comparison came to describe two different
--- scenes (`.claude/skills/play-game/references/screenshots.md`), so both happen here with no frameadvance between them.
---
--- Addresses vanilla V1.0 from meshghost_crystal.lua's table; map-object layout and the type
--- nibble from constants/map_object_constants.asm and constants/script_constants.asm.
---
--- Switches: MESHGHOST_CENSUS_SLOT (default 10), MESHGHOST_CENSUS_NOLOAD, MESHGHOST_CENSUS_TAG
--- (a string put in the log and the png name, e.g. "A-no-adapter" / "B-with-adapter").
+-- Who is on this map and what sprite each wears: a one-shot census after loading savestate MESHGHOST_CENSUS_SLOT
+-- (default 10; MESHGHOST_CENSUS_NOLOAD skips it), with a screenshot in the same frame. Run it without the adapter and
+-- with it (MESHGHOST_CENSUS_TAG names each run): identical dumps mean the savestate carries the fault. Read-only apart
+-- from the load; the screenshot shows a spawned ghost, never a drawn one. Vanilla V1.0.
 
 local TAG = tostring(MESHGHOST_CENSUS_TAG or "census")
 local f
@@ -49,8 +19,7 @@ local function u8(a) return memory.read_u8(a, "System Bus") or 0 end
 local OBJ, OSTRIDE, NSTRUCTS = 0xD4D6, 0x28, 13
 local MAPOBJ, MSTRIDE, NMAPOBJ = 0xD71E, 16, 16
 local W_MAPGROUP, W_MAPNUM = 0xDCB5, 0xDCB6
--- map object bytes: struct id, sprite, y, x, movement, radius, 2x time-of-day, palette|type,
--- sight range, script pointer, event flag.
+-- Map object bytes: struct id, sprite, y, x, movement, radius, 2x time-of-day, palette|type, sight, script, flag.
 local M = { st = 0, sprite = 1, y = 2, x = 3, movement = 4, radius = 5, paltype = 8, sight = 9 }
 local F = { sprite = 0x00, moidx = 0x01, tile = 0x02, flags1 = 0x04, pal = 0x06, act = 0x0B,
 	face = 0x0D, mx = 0x10, my = 0x11 }
@@ -108,7 +77,7 @@ MESHGHOST_DEV_TICK = function()
 		end
 	end
 
-	-- WHAT TO COMPARE, said in the file so a reader does not have to reconstruct the experiment.
+	-- How to read it, in the file itself.
 	f:write("\n-- how to read this --\n")
 	f:write("  Diff this against the run with the other TAG. A `sprite=` that differs on a map\n")
 	f:write("  object the MAP defines is the corruption, and the slot number names it. Identical\n")

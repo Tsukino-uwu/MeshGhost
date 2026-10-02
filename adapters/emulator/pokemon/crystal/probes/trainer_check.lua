@@ -1,42 +1,8 @@
--- THE WRONG-TRAINER-SPRITE REPRO, DRIVEN -- load a prepared savestate, walk the user's exact
--- route, and dump everything that decides what a trainer looks like, in one frame with a
--- screenshot beside it.
---
--- THE REPORT (user, 2026-08-26): trainers on some routes are drawn with the RIVAL's sprite.
--- Seen after a route change, after a savestate load on the SAME map, and after a Fly -- so it is
--- neither map-change- nor savestate-specific. The user then prepared the repro this probe
--- drives: *"savestate5, walk 3tiles left, then 5tiles down, and there is a 'wrong trainer'
--- sprite on the screen at the bottom/left."*
---
--- WHY THESE FIELDS. Sprite 245 (seen on the trainers' map objects with NO adapter loaded) is
--- SPRITE_OLIVINE_RIVAL -- by the decomp's naming the first VARIABLE sprite, which the hypothesis
--- says is resolved at map load through `wVariableSprites` (`01:d82e`, pokecrystal.sym from our
--- hash-verified build; where to look: `engine/overworld/overworld.asm` and the `variablesprite`
--- script command). So
--- "a trainer wearing the rival" can be any of THREE different faults, and each shows in a
--- different table:
---   1. `wVariableSprites` holds a wrong/stale id      -> the variable-sprite dump
---   2. the sprite's GRAPHICS are wrong or evicted      -> `wUsedSprites` + the OAM tile bases
---   3. our own writes corrupted a map object           -> the map-object dump (diff A vs B)
--- Note `wVariableSprites` sits at d82e, DIRECTLY after the map-object array (d71e + 0x100 =
--- d81e) this adapter writes into -- a one-slot indexing error would land in it, which is exactly
--- the kind of neighbour a diff can convict or acquit.
---
--- RUN IT TWICE -- the pairing is the point:
---   B) adapter loaded (tag "B-adapter")     A) adapter NOT in the target (tag "A-clean")
--- Identical dumps mean the adapter is innocent LIVE (anything baked into the savestate shows in
--- both and is visible as a struct wearing the player's sprite + WONT_DELETE). A field that
--- differs names the fault and the table it lives in.
---
--- READ-ONLY apart from the savestate load and the controller. Screenshot is taken in the SAME
--- tick as the dump (`.claude/skills/play-game/references/screenshots.md`: two schedules described two different scenes once). A trainer
--- is an ENGINE sprite, so `client.screenshot` genuinely captures it -- this is the case
--- screenshots are FOR, unlike the drawn tier.
---
--- UNLOAD BEFORE JUDGING ANYTHING -- it holds the d-pad.
---
--- Switches: MESHGHOST_TC_SLOT (default 5), MESHGHOST_TC_TAG ("A-clean"/"B-adapter"),
--- MESHGHOST_TC_NOLOAD, MESHGHOST_TC_NOWALK (dump where you stand).
+-- Pokémon Crystal: the wrong-trainer-sprite repro, driven: loads savestate MESHGHOST_TC_SLOT (default 5), walks 3
+-- tiles left and 5 down, then dumps what decides a trainer's look (wVariableSprites, wUsedSprites, map objects,
+-- object structs, OAM) with a screenshot in the same tick. Run it twice, with the adapter loaded and without
+-- (MESHGHOST_TC_TAG "B-adapter"/"A-clean"): identical dumps acquit the adapter, a differing field names the fault.
+-- Holds the d-pad: unload it before judging anything. MESHGHOST_TC_NOLOAD and MESHGHOST_TC_NOWALK skip the steps.
 
 local TAG = tostring(MESHGHOST_TC_TAG or "run")
 local DIR
@@ -54,7 +20,7 @@ local function u8(a) return memory.read_u8(a, "System Bus") or 0 end
 local OBJ, OSTRIDE, NSTRUCTS = 0xD4D6, 0x28, 13
 local MAPOBJ, MSTRIDE, NMAPOBJ = 0xD71E, 16, 16
 local USEDSPR = 0xD154 -- wUsedSprites, 32 entries of 2 bytes (id, then a bank/flag byte)
-local VARSPR = 0xD82E -- wVariableSprites, one byte per id from SPRITE_VARS ($f5) up
+local VARSPR = 0xD82E -- wVariableSprites, one byte per id from SPRITE_VARS ($f0) up
 local W_MAPGROUP, W_MAPNUM = 0xDCB5, 0xDCB6
 local M = { st = 0, sprite = 1, y = 2, x = 3, movement = 4, paltype = 8, sight = 9 }
 local F = { sprite = 0x00, moidx = 0x01, tile = 0x02, flags1 = 0x04, pal = 0x06,
@@ -75,11 +41,7 @@ local function dump()
 	for i = 0, 10 do
 		local v = u8(VARSPR + i)
 		if v ~= 0 then
-			-- SPRITE_VARS is $F0, not $F5. This printed `0xF5 + i` on its first run and so
-			-- mislabelled every id by five while the VALUES were right; the conclusion survived
-			-- only because the one that mattered landed on the rival independently. An index
-			-- printed with the wrong name is the same class as a probe returning a boolean --
-			-- it cannot be sanity-checked against anything.
+			-- SPRITE_VARS is $F0, whatever the heading above says.
 			f:write(string.format("  var[%02X] = %d\n", 0xF0 + i, v))
 		end
 	end
@@ -117,9 +79,7 @@ local function dump()
 		end
 	end
 
-	-- The hardware's own answer for what is on screen: tile base and attributes per entry. The
-	-- "wrong trainer" the user sees is four of these, and their tile ids say which graphics block
-	-- it is actually drawn from -- which separates "wrong sprite id" from "right id, wrong tiles".
+	-- The hardware's own answer: the tile ids say which graphics block a trainer is drawn from (id or tiles).
 	f:write("\n-- OAM (y x tile attr), live entries only --\n")
 	for e = 0, 39 do
 		local y = memory.read_u8(e * 4, "OAM") or 0
@@ -151,12 +111,8 @@ MESHGHOST_DEV_TICK = function()
 		return
 	end
 
-	-- WAIT FOR THE LOAD TO ACTUALLY APPLY. `savestate.loadslot` lands a few frames after the
-	-- call, so the first version's "stable for 60 frames" settled on the PRE-load position and
-	-- the walk ran from the wrong start -- measured live: start recorded at 4,29 (the whirlpool
-	-- map) and the state's real 23,11 arrived two walked tiles later. The position changing away
-	-- from the pre-load one is the load arriving; 120 frames with no change means the state was
-	-- already here (or NOLOAD), and either way the stable-settle below still runs.
+	-- Waits for the load to apply: loadslot lands a few frames after the call, so the position leaving the pre-load
+	-- one is the load arriving. 120 frames unchanged means the state was already here (or MESHGHOST_TC_NOLOAD).
 	if phase == "armload" then
 		if u8(OBJ + F.mx) ~= preX or u8(OBJ + F.my) ~= preY or n >= 120 then
 			phase, startX, startY, timeout = "settle", nil, nil, 0
@@ -164,13 +120,8 @@ MESHGHOST_DEV_TICK = function()
 		return
 	end
 
-	-- SETTLE ON A STABLE COORDINATE, not on a frame count. The first version waited 120 frames
-	-- and then trusted whatever it read -- and walked "way too far left" (the user, watching):
-	-- with a bad start value the stop condition can never be met and a 600-frame timeout is ten
-	-- seconds of held Left, most of a map. The start is now a coordinate that has not moved for
-	-- 60 frames, every tile change during the walk is logged, and the timeouts are sized to the
-	-- walk actually asked for (3 tiles ~ 50 frames) so a wrong condition shows up as a short
-	-- overshoot in the log, never as a cross-map hike.
+	-- Settles on a coordinate unmoved for 60 frames, not a frame count. Timeouts are sized to the walk asked for, so a
+	-- wrong stop condition shows as a short overshoot in the log.
 	if phase == "settle" then
 		local mx, my = u8(OBJ + F.mx), u8(OBJ + F.my)
 		if mx == startX and my == startY then

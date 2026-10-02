@@ -1,26 +1,7 @@
--- TURN THE LIGHTS ON IN A DARK CAVE (DEV TOOL, WRITES ONE BIT).
---
--- WHY. Warping into Ice Path on a save that skipped the story shows a grey screen: the map loads
--- correctly and the player is drawn, but the background is blank, because a CAVE map without the
--- FLASH status flag is drawn dark. Measured by `warp_check.lua` -- map 5:61, mapStatus HANDLE,
--- 4 live OAM entries, "BG row 0 = ALL ONE TILE" -- so the cave is lightless, not broken.
---
--- WHAT IT WRITES. One bit: `STATUSFLAGS_FLASH_F` (bit 2) of `wStatusFlags` (`01:d84c`, from our
--- own hash-verified `pokecrystal` build's symbol file, cross-checked against
--- `constants/ram_constants.asm:235`). Where to look for the game's own use of it: `BlindingFlash`
--- (`engine/events/field_moves.asm`); that it is the bit real Flash sets is the hypothesis here.
---
--- IT DOES NOT RELOAD THE PALETTES. It only sets the bit, so the expectation is that the lighting
--- changes on the next map load rather than on the current screen. Walk in
--- (or out and back) rather than expecting the current screen to brighten -- an important
--- difference, because "nothing happened" here would otherwise read as the write failing.
---
--- CLAUDE.md permits a PROBE to cheat and never an adapter: this is dev tooling, it is never
--- imported by `meshghost_crystal.lua`, and it is never copied into a release. It writes RAM, not
--- the .sav -- but an in-game save afterwards makes it permanent, so savestate first if that
--- matters.
---
--- Writes once, reads the byte back independently, and goes quiet.
+-- Writes one game bit, once: STATUSFLAGS_FLASH_F (bit 2) of wStatusFlags (01:d84c in our hash-verified build's .sym),
+-- the bit real Flash is expected to set, then reads it back. It does not reload the palettes, so expect any change on
+-- the next map load. A dev tool, never in a release; it writes RAM, not the .sav, but an in-game save keeps it, so
+-- savestate first.
 
 local function u8(a) return memory.read_u8(a, "System Bus") or 0 end
 local function w8(a, v) memory.write_u8(a, v, "System Bus") end
@@ -43,8 +24,7 @@ MESHGHOST_DEV_TICK = function()
 		return
 	end
 	w8(W_STATUSFLAGS, before | FLASH_BIT)
-	-- READ BACK from memory, never the value just written -- CLAUDE.md's rule. This is the whole
-	-- evidence that the write landed, so it has to be an independent read.
+	-- Read back from memory, never the value just written: it is the only evidence the write landed.
 	local after = u8(W_STATUSFLAGS)
 	console.log(string.format(
 		"grant_flash: wStatusFlags %02X -> %02X (FLASH bit %s). Lighting applies on the NEXT map load.",

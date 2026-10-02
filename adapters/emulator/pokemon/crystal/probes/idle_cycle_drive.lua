@@ -1,67 +1,14 @@
--- MeshGhost — Pokémon Crystal: walk, stand still past the idle rule, walk again. Forever.
---
--- DEVELOPMENT TOOL. It presses the d-pad and nothing else: no memory reads, no writes, no A or B,
--- so it cannot talk to anyone, open a menu or advance a script. `.claude/skills/play-game/SKILL.md` allows driving a
--- running game to reach a state; this reaches one *repeatedly*.
---
--- WHY THIS EXISTS
--- `square_drive.lua` walks a square and never stops, and the fault this was written for lives in
--- the STOPPING. The user, 2026-08-26: a third, static character appears *"whenever you move after
--- the despawn/respawn"*, and *"its related to the 5sec despawn/respawn thing, as that is what
--- triggers there being a orphan"*. So the reproduction is a cycle, not a lap:
---
---   walk a few tiles  ->  stand still LONGER THAN THE IDLE RULE  ->  walk again
---
--- The adapter's `IDLE_FRAMES_BEFORE_PASSABLE` is 300 frames (5s): a peer that has not changed tile
--- for that long stops blocking and is handed to the drawn tier, which despawns its engine object.
--- Moving again promotes it back and spawns a fresh one. That demote/promote pair is the event
--- under investigation, and this script produces one per cycle without anyone holding a
--- controller. See REST_FRAMES for how long a cycle is and why it is tied to the adapter's rule.
---
--- RUN IT ON THE *OTHER* MACHINE FROM THE ONE YOU ARE WATCHING. The orphan appears on the client
--- watching a PEER do this, so this drives instance A and the instrument runs on instance B. Both
--- at once works but confounds the two: leave one side still.
---
--- REST IS DELIBERATELY LONGER THAN THE RULE, not equal to it. 8 seconds against a 5-second rule
--- means a slow frame, a bump, or a step that lands late cannot leave the cycle short of the
--- threshold and quietly produce a run where the demote never happened -- which would look exactly
--- like the fault not reproducing. Probes ask for endurance, never for hitting a window.
---
--- HOW TO RUN
---   Add it to a dev loader target beside the adapter; remove the line to stop it. It logs every
---   phase change to idle_cycle_<timestamp>.log beside this file and to the Lua Console, so the
---   probe's own timestamps can be lined up against the cycle afterwards.
---   MESHGHOST_IDLE_CYCLE_PAUSE = true stands still without unloading it.
---
--- IT DOES NOT KNOW WHERE WALLS ARE. Point the player at open ground first. A blocked side bumps,
--- which is still a valid cycle -- the peer simply covers less ground -- but the walk phase then
--- reports no tile change, and the log says so rather than leaving it to be guessed.
+-- Walks, stands still past the adapter's idle rule, walks again, forever: one demote/promote pair a cycle without
+-- anyone holding a controller. Presses only the d-pad and reads the player's tile to check its input landed; writes
+-- nothing. Run it on the instance you are not watching: the fault shows on the client watching this peer. It does
+-- not know where walls are, so point the player at open ground. MESHGHOST_IDLE_CYCLE_PAUSE = true stands still.
 
-local WALK_FRAMES = 60 -- 1s of held d-pad. DELIBERATELY SHORT OF THE RANGE CULL: the adapter
--- gives a peer's slots back past GHOST_RANGE_TILES (8), and the first version of this script held
--- the d-pad for 150 frames, which walks NINE tiles. Every cycle therefore crossed that boundary
--- and the log filled with despawn/respawn pairs that were the cull, not the idle rule -- the exact
--- transition under investigation, drowned in a different one that looks identical in a log.
--- Four tiles keeps the whole cycle inside the peer's range so the only despawn is the one meant.
--- MUST STAY ABOVE THE ADAPTER'S IDLE RULE, and that rule MOVED on 2026-08-26: it went from 300
--- frames (5s) to 3600 (one minute). This was 480 frames, chosen against the old rule -- the moment
--- the rule changed, this script stopped crossing the threshold at all and would have produced
--- clean-looking cycles in which the demote under investigation never once happened. A driver whose
--- premise has silently expired is worse than no driver: it reports success.
---
--- The cost of the coupling is real -- a full cycle is now ~71 seconds instead of ~11, so a session
--- produces far fewer demote/promote pairs. If that is too slow to iterate against, lower
--- IDLE_FRAMES_BEFORE_PASSABLE in the adapter FOR THAT RUN and lower this with it; do not lower
--- this one alone, which just removes the event.
+local WALK_FRAMES = 60 -- 1s, four tiles: inside the 8-tile range cull, whose despawns would pass for the idle rule's
+-- Above the adapter's IDLE_FRAMES_BEFORE_PASSABLE, or no demote happens: lower both together, never this alone.
 local REST_FRAMES = 4200 -- 70s, comfortably past the adapter's 3600-frame idle rule.
 local DIRECTIONS = MESHGHOST_IDLE_CYCLE_DIRS or { "Left", "Right" }
 
--- WHERE THE PLAYER ACTUALLY IS, so the driver can check its own input landed instead of assuming.
--- Reading back the GAME's position is independent evidence; reading back `joypad.get` would only
--- report what this script just set, which is the "log the value you just wrote" trap. Build
--- selected by the ROM header title, the same seed-independent signal the adapter uses -- the
--- Archipelago patch moves the object array, and a driver that read vanilla's addresses on it would
--- report "did not move" on every cycle of a run that was working perfectly.
+-- The game's own tile, not joypad.get, is the evidence the input landed; by ROM title, as Archipelago moves the array.
 local PLAYER = 0x14D6 -- vanilla V1.0, wObjectStructs flattened
 do
 	local t = {}
@@ -99,7 +46,7 @@ local function say(msg)
 	console.log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		pcall(function() logfile:flush() end) -- one line per PHASE, not per frame: cost is nil
+		pcall(function() logfile:flush() end) -- one line a phase, never a frame
 	end
 end
 
@@ -109,9 +56,7 @@ say(string.format("walk %d frames, rest %d frames (the adapter's idle rule is 30
 say("Watch the OTHER client. Set MESHGHOST_IDLE_CYCLE_PAUSE = true to stand still.")
 
 local frames, phase, dirIx, cycle = 0, "walk", 1, 0
--- Where the current walk phase started, so its end can be compared against it. A bare global would
--- survive a reload and make the first cycle after one compare against a stale tile; a local here
--- is re-initialised with the script, which is what we want.
+-- A local, so a reload re-reads the tile instead of comparing against a stale global.
 local walkFromX, walkFromY = playerTile()
 
 local function tick()
@@ -121,27 +66,17 @@ local function tick()
 	frames = frames + 1
 
 	if phase == "walk" then
-		-- Held every frame. A tap would turn the character without moving it, which is a
-		-- different event entirely and not the one being reproduced.
-		--
-		-- BOTH CALL SHAPES, EACH IN A pcall -- copied from square_drive.lua, which is the version
-		-- that has actually driven this game. Passing the controller index alone did nothing here
-		-- (2026-08-26): the script ticked happily, logged five clean cycles, and the player never
-		-- moved a pixel. An input call that is ignored does not raise -- it just silently produces
-		-- a run where the thing under test never happened, which reads exactly like the fault
-		-- failing to reproduce. Whichever shape this BizHawk build honours, one of these is it.
+		-- Held every frame (a tap turns without moving). Both call shapes, each in a pcall: an ignored input
+		-- call raises nothing, and the run would silently test nothing.
 		local want = DIRECTIONS[dirIx]
 		pcall(joypad.set, { [want] = true })
 		pcall(joypad.set, { [want] = true }, 1)
 		if frames >= WALK_FRAMES then
 			frames, phase = 0, "rest"
-			-- Alternate, so the cycle returns roughly to where it started and a long session does
-			-- not walk the player off the map into somewhere with no room.
+			-- Alternate, so a long session does not walk the player off into somewhere with no room.
 			dirIx = (dirIx % #DIRECTIONS) + 1
 			cycle = cycle + 1
-			-- DID THE WALK ACTUALLY WALK? The game's own tile, start against end. A driver whose
-			-- input is being ignored logs a perfect-looking cycle forever and the run silently
-			-- tests nothing -- which is what happened on the first attempt here.
+			-- The game's own tile, start against end: ignored input would log a perfect-looking cycle forever.
 			local ex, ey = playerTile()
 			local moved = (ex ~= walkFromX or ey ~= walkFromY)
 			say(string.format("[cycle %d] %s -- resting %d frames; the peer should go idle, stop "

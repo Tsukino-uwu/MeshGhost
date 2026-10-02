@@ -1,53 +1,7 @@
--- MeshGhost — Pokémon Crystal: grant test items (rods, balls, repels)
---
--- DEVELOPMENT TOOL. **THIS ONE CHEATS, DELIBERATELY, AND IT IS ALLOWED TO.** CLAUDE.md's rule is
--- that nothing which SHIPS may write a save, a game state or a ROM -- and that dev-only test
--- tooling MAY cheat, as a PROBE, never as an adapter. This is that probe.
---
--- THE SIBLING OF grant_test_kit.lua, which is narrow on purpose: that one does badges, HMs and
--- field moves and says outright that it gives no items. This is the items half, kept separate for
--- the same reason -- what each one changed stays obvious.
---
--- ** READ THIS BEFORE RUNNING IT **
--- It writes the bag in WRAM. That is not the save file -- but **if you SAVE in-game afterwards,
--- these items are permanent in that save**. Savestate first, test, load the savestate after. It
--- never touches the .sav and never writes a savestate.
---
--- WHAT IT GIVES, and nothing else:
---   * SUPER_ROD and BICYCLE in the key-item pocket -- the reason this file exists. Fishing and
---     riding are two of the drawn tier's action classes (`documentation.md`), and neither can be
---     watched without the item. The bike is also the game's other GAIT: the adapter's own model
---     carries a 4px-per-beat bike stride beside the 2px walk, and nothing has ever exercised it.
---   * MASTER_BALL x10 in the ball pocket
---   * MAX_REPEL x10 and RARE_CANDY x10 in the item pocket -- repels because wild encounters
---     interrupt a movement test, candies because a level is sometimes the cheapest way to reach
---     a state.
---   * PERMANENT REPEL, maintained every frame -- the one thing here that is not a one-shot write.
---     The user's request, 2026-08-25, "similar to how emerald does it": Emerald's testkit.lua
---     keeps VAR_REPEL_STEP_COUNT topped up for exactly the same reason, and this is Crystal's
---     equivalent counter. See "WHAT PERMANENT REPEL ACTUALLY DOES" below -- it is NOT
---     "no wild encounters", and the difference decides whether a test session gets interrupted.
---
--- IT IS IDEMPOTENT: an item already in a pocket has its quantity SET, not added, and the key item
--- is not duplicated. Running it twice does the same thing as running it once.
---
--- WHERE THE NUMBERS COME FROM -- every one traceable, none from memory:
---   * Pocket addresses: our own hash-verified pokecrystal build's `pokecrystal.sym` --
---     `01:d892 wNumItems`, `01:d8bc wNumKeyItems`, `01:d8d7 wNumBalls`.
---   * Pocket LAYOUT, looked up at the pocket labels in `ram/wram.asm`: items and balls as
---     (id, quantity) pairs plus a terminator, key items as bare ids plus a terminator. **The
---     key-item pocket having no quantity byte is the one difference that would corrupt the bag if
---     assumed away**; the read-back below is what checks it.
---   * Capacities: looked up in `constants/item_data_constants.asm` (values at their definitions).
---   * Item ids: looked up in `constants/item_constants.asm` (values at their definitions).
---
--- VANILLA V1.0 ONLY -- it refuses on anything else rather than writing a patched build's RAM at
--- vanilla's addresses.
---
--- HOW TO RUN
---   Add it to dev-scripts/bizhawk-dev-loader-crystal.target. It waits until you are in the
---   overworld, writes once, reports every pocket AS READ BACK FROM MEMORY, and goes quiet.
---   Log: grant_items_<timestamp>.log beside this file.
+-- Dev tool that cheats on purpose, writing the bag: SUPER_ROD and BICYCLE (on SELECT if nothing is registered),
+-- MASTER_BALL, MAX_REPEL, RARE_CANDY and ESCAPE_ROPE x10, and a repel kept topped up; a second run changes nothing. It
+-- writes WRAM, never the .sav, but an in-game save keeps it: savestate first. Vanilla V1.0 only; addresses from our
+-- hash-verified build's .sym. Waits for the overworld, logs every pocket as read back, and re-grants after a load.
 
 local DOMAIN = "WRAM"
 
@@ -69,41 +23,18 @@ local MAX_ITEMS, MAX_BALLS, MAX_KEY_ITEMS = 20, 12, 25
 
 -- constants/item_constants.asm
 local MASTER_BALL, RARE_CANDY, MAX_REPEL, SUPER_ROD = 0x01, 0x20, 0x2B, 0x3D
--- ESCAPE_ROPE, looked up in constants/item_constants.asm in our own hash-verified build. Treated
--- as an ORDINARY item, not a key item, so it goes in the paired pocket with a quantity -- getting
--- that wrong writes an id where a count belongs and corrupts the bag (the header's own note).
+-- An ordinary item, so the paired pocket: an id written where a count belongs corrupts the bag.
 local ESCAPE_ROPE = 0x13
--- BICYCLE, pocket looked up in `data/items/attributes.asm`: treated as a KEY_ITEM, so it goes in
--- the key-item pocket -- which has no quantity byte -- and not beside the balls.
+-- A key item, so the key-item pocket, which has no quantity byte.
 local BICYCLE = 0x07
 
--- REGISTERING IT TO SELECT, because owning the bike and being able to GET ON it are two different
--- things and only the second one is testable. Where to look: `SelectMenu`
--- (engine/overworld/select_menu.asm), which reads two bytes. The probe's reading of them, tested
--- by pressing Select after the write:
---   * wWhichRegisteredItem (01:d95b) -- the pocket in the top two bits (key items as 0x80) and
---     the 1-based slot number below them; zero taken as "nothing registered".
---   * wRegisteredItem (01:d95c) -- the item id. The slot number is written too rather than
---     relying on it being ignored.
---
--- ONLY WHEN NOTHING IS REGISTERED. Overwriting a registration is a change to how the player's own
--- controller behaves, and a probe that silently rebinds Select is worse than one that says it did
--- not. Idempotent by construction: run it twice and the second run finds the bike already there.
+-- The bike on SELECT, since owning it is not riding it; only when nothing is registered, so a player's own binding
+-- is never silently changed. wWhichRegisteredItem: pocket bits and a 1-based slot; wRegisteredItem: the id.
 local W_WHICH_REGISTERED, W_REGISTERED_ITEM = flat(0xD95B), flat(0xD95C)
 local KEY_ITEM_POCKET_BITS = 0x80
 
--- WHAT PERMANENT REPEL IS EXPECTED TO DO -- hypotheses from where the decompilation points,
--- written down because the naive assumption ("no wild battles") could waste a test session:
---
---   * `wRepelEffect` (01:dca1) is expected to be a STEP COUNTER, not a flag (where to look:
---     `DoRepelStep`, engine/overworld/events.asm:937). Keeping it topped up is then what
---     "permanent" means, and the "wore off" prompt should never appear.
---   * The repel is expected to block only wild Pokemon BENEATH your lead's level (where to look:
---     `CheckRepelEffect`, engine/overworld/wildmons.asm:349). If so, on a low-level lead this
---     probe will look like it is doing nothing; raise the lead's level first.
---
--- Topped up only when it drops below the threshold rather than written every frame -- one byte
--- either way, but there is no reason to write over the engine's own decrement 60 times a second.
+-- Expected to be a step counter the engine decrements: topped up only below the floor, never written over every
+-- frame. It is expected to stop only wild Pokemon below the lead's level, so raise the lead if they keep coming.
 local W_REPEL_EFFECT = flat(0xDCA1)
 local REPEL_TOPUP, REPEL_FLOOR = 0xFF, 0x80
 
@@ -125,12 +56,7 @@ local function open_log()
 	logfile = io.open(string.format("%s/grant_items_%s.log", dir, os.date("%Y%m%d_%H%M%S")), "w")
 end
 
--- FLUSHED PER LINE, and that is right HERE where it is wrong in a per-frame probe: this file
--- writes about a dozen lines in total and then stops forever, so the flush cost is paid once and
--- the log is readable the instant it is written. grant_test_kit.lua batches its flush every 20
--- lines and closes on unload, so on 2026-08-25 its log sat at 0 bytes for as long as it stayed
--- loaded -- the content did arrive, on unload, so nothing was lost, but a probe that writes a
--- dozen lines and stops is unreadable exactly while you are waiting to read it.
+-- Flushed per line, unlike a per-frame probe: a dozen lines in all, readable while the probe stays loaded.
 local function log(msg)
 	console.log(msg)
 	if logfile then
@@ -139,8 +65,7 @@ local function log(msg)
 	end
 end
 
--- VANILLA ONLY. Same check grant_test_kit.lua makes, and for the same reason: these addresses
--- describe one build, and a patched ROM's bag is somewhere else.
+-- These addresses describe one build; a patched ROM's bag is somewhere else.
 local function isVanillaV10()
 	local t = {}
 	for i = 0, 9 do
@@ -157,7 +82,7 @@ local function inOverworld()
 	return status == 2 and group ~= nil and group ~= 0
 end
 
--- Read a pocket back as text. PAIRED pockets are (id, qty); the key-item pocket is bare ids.
+-- Paired pockets are (id, qty); the key-item pocket is bare ids.
 local function dump(countAddr, listAddr, paired, cap)
 	local n = u8(countAddr) or 0
 	local out = {}
@@ -176,9 +101,7 @@ local function dump(countAddr, listAddr, paired, cap)
 	return string.format("count=%d [%s] terminator=%02X", n, table.concat(out, " "), term or 0)
 end
 
--- Set an item's quantity, appending it if the pocket does not already hold it. Returns a word for
--- the log saying which of the two happened, because "it is there now" is true either way and the
--- difference is the whole question when something looks wrong afterwards.
+-- Says whether it set or appended: "it is there now" is true either way.
 local function givePaired(countAddr, listAddr, cap, id, qty)
 	local n = u8(countAddr) or 0
 	if n > cap then return "REFUSED (count above pocket size -- bag looks corrupt, writing nothing)" end
@@ -209,7 +132,6 @@ local function giveKeyItem(id)
 	return "appended"
 end
 
--- Bind the bike to SELECT, if and only if nothing is bound. Returns a word for the log.
 local function registerBike()
 	local which = u8(W_WHICH_REGISTERED) or 0
 	if which ~= 0 then
@@ -232,7 +154,7 @@ local function registerBike()
 	end
 	w8(W_WHICH_REGISTERED, KEY_ITEM_POCKET_BITS | (slot & 0x3F))
 	w8(W_REGISTERED_ITEM, BICYCLE)
-	-- READ BACK, from memory, not from what was just written -- CLAUDE.md's rule.
+	-- Read back from memory, not from what was just written.
 	return string.format("registered (which=%02X item=%02X, read back)",
 		u8(W_WHICH_REGISTERED) or 0, u8(W_REGISTERED_ITEM) or 0)
 end
@@ -243,8 +165,7 @@ log("=== MeshGhost Crystal item kit (THIS ONE WRITES THE BAG) ===")
 local applied, waited, refused = false, 0, false
 local repelSaid = false
 
--- The only per-frame part of this file. Everything else is written once and goes quiet; this has
--- to keep running, because the engine is decrementing the counter underneath it.
+-- The only per-frame part: the engine decrements the counter underneath it.
 local function holdRepel()
 	if not PERMANENT_REPEL or refused or not inOverworld() then return end
 	local now = u8(W_REPEL_EFFECT)
@@ -252,7 +173,7 @@ local function holdRepel()
 	w8(W_REPEL_EFFECT, REPEL_TOPUP)
 	if not repelSaid then
 		repelSaid = true
-		-- READ BACK, never the value just written -- CLAUDE.md's rule, and it costs one read here.
+		-- Read back, never the value just written.
 		log(string.format("  PERMANENT REPEL: topping wRepelEffect up to %d whenever it drops "
 			.. "below %d (read back: %s). Remember it only suppresses wild Pokemon BELOW your "
 			.. "lead's level -- raise the lead's level if they are still appearing.",
@@ -260,16 +181,8 @@ local function holdRepel()
 	end
 end
 
--- A SAVESTATE LOAD UNDOES EVERY WRITE HERE, and "applied once, now quiet" is the wrong shape for
--- a workflow built on savestates -- which this one is (`environment.md`: slot 1 is the user's,
--- higher slots are the agent's, and loading them is standing practice). Found live 2026-08-25:
--- the bag was granted, the user reloaded a state to get back to the test spot, and the next probe
--- along reported the bike missing -- correctly, because it WAS missing again.
---
--- So the kit re-arms itself. Checked twice a second rather than every frame, on the cheapest
--- possible witness -- is the bike still in the key-item pocket -- and a miss simply puts the file
--- back in its "apply on the next overworld frame" state, which then logs the whole grant again.
--- That repeated block IS the record of a reload, so it is deliberately not suppressed.
+-- A savestate load undoes every write here, so the kit re-arms: twice a second it checks the bike is still held, and
+-- a miss grants and logs everything again, which is the log's record of the reload.
 local recheck = 0
 local function undone()
 	local n = u8(W_NUM_KEY_ITEMS) or 0
@@ -311,8 +224,7 @@ local function tick()
 	end
 	applied = true
 
-	-- LOOK FIRST. If anything below goes wrong, the before-state is the only way to tell a bad
-	-- write from a bag that was already unusual.
+	-- The before-state tells a bad write from a bag that was already unusual.
 	log("  BEFORE items:    " .. dump(W_NUM_ITEMS, W_ITEMS, true, MAX_ITEMS))
 	log("  BEFORE balls:    " .. dump(W_NUM_BALLS, W_BALLS, true, MAX_BALLS))
 	log("  BEFORE key items:" .. dump(W_NUM_KEY_ITEMS, W_KEY_ITEMS, false, MAX_KEY_ITEMS))
@@ -325,7 +237,7 @@ local function tick()
 	log("  RARE_CANDY x10:       " .. givePaired(W_NUM_ITEMS, W_ITEMS, MAX_ITEMS, RARE_CANDY, 10))
 	log("  ESCAPE_ROPE x10:      " .. givePaired(W_NUM_ITEMS, W_ITEMS, MAX_ITEMS, ESCAPE_ROPE, 10))
 
-	-- READ BACK, from memory, not from what was just written -- CLAUDE.md's rule.
+	-- Read back from memory, not from what was just written.
 	log("  AFTER items:     " .. dump(W_NUM_ITEMS, W_ITEMS, true, MAX_ITEMS))
 	log("  AFTER balls:     " .. dump(W_NUM_BALLS, W_BALLS, true, MAX_BALLS))
 	log("  AFTER key items: " .. dump(W_NUM_KEY_ITEMS, W_KEY_ITEMS, false, MAX_KEY_ITEMS))

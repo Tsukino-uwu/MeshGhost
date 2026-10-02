@@ -1612,3 +1612,17 @@ and not changed (code): the walk read-back in `stepGhost` compares `4 + dir` whe
 bike or slow-gait step logs a false "WROTE WALKING"; the no-icon Fly fallback ends its drop at 44 frames while the fall
 runs only frames 32-43. Records that disagree: `UNVERIFIED.md` still says the turbo gait is 4 px a frame where
 `documentation.md` says 8, 0, 8, 0; the 2026-08-22 turn notes against `documentation.md`'s turn-in-place pose.
+
+## 2026-10-02 — A5: the probes' comments trimmed
+
+The 106 files in `probes/` went from 4,573 whole-line comments to 941; `luac -l -l` listings without line numbers are
+identical for all 105 Lua files, and `movetrace_pair.py` is untouched (its docstring is the usage text it prints).
+History no record held is in `pitfalls/by-lesson.md`, "The stories behind the code" (53 bullets); game facts and one
+probe cost went to `MEASURED.md`'s 2026-10-02 entries (20). Comments that contradicted the code were fixed, among them:
+`ap_battlemode_probe.lua` still called 0x0FB1 wMapStatus (refuted; the adapter reads 0x1439), `set_colour.lua` said
+wire-only is its default (it writes `OBJECT_PALETTE` unless `MESHGHOST_COLOUR_RGB` is set), `square_drive.lua` said a
+5 s idle release (3,600 frames), `compare_layout.lua` put the copy 2 tiles right (3), and `fish_drive.lua`'s clear
+phase presses B, not A. Found and not changed (printed strings are code): `compare_layout.lua` still logs "2 tiles",
+`trainer_check.lua` heads its list `$f5..$ff` while it reads from $F0, and `square_drive.lua` logs "(crosses the idle
+release)". The docs that pointed into probe headers (`MEASURED.md`, `PROBES.md` for `grant_all_ap`, `cmd_drive`,
+`drive_surf` and `noclip`, and two `UNVERIFIED.md` entries) now point where the text went.

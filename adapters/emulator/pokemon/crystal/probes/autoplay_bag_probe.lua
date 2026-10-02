@@ -1,24 +1,9 @@
--- MeshGhost — Pokémon Crystal: the PACK's pockets and its scrolling list, for autoplay's `menu` and `select`
--- (DEV TOOL, READ-ONLY, never shipped) -- 2026-09-17
---
--- READ-ONLY. Load it beside the autoplay driver and autoplay_text_probe.lua (the tile buffer and the menu block);
--- open the PACK, move its cursor down past the rows it shows, switch pockets, and read this log against captures.
---
--- WHY. autoplay's `menu` reads a menu from the 2D menu block and the tile buffer, which shows only the rows on
--- screen; the PACK's item list scrolls. Our V1.0 build's .sym names the pockets (wNumItems, wNumKeyItems, wNumBalls,
--- wTMsHMs), wCurPocket, each pocket's cursor and scroll position, wMenuScrollPosition, wScrollingMenuCursorPosition,
--- wScrollingMenuListSize and the item-name table; what they read is this log's job.
---
--- WHAT IT LOGS, each group on change, every frame:
---   pocket   wCurPocket (CF65), wScrollingMenuCursorPosition (CF77), D0D9-D0E4 (the pockets' cursors and scroll
---            positions, wMenuScrollPosition), wScrollingMenuListSize (D144), wMenuCursorY/X (CFA9/CFAA), hJoyDown
---   header   wMenuFlags..wMenuDataEnd, CF81-CFA0 raw
---   items    wNumItems and 41 bytes after it (D892); keys wNumKeyItems and 26 (D8BC); balls wNumBalls and 25 (D8D7)
---   tmhm     the 57 bytes from wTMsHMs (D859)
--- And ONCE per item id met in a pocket: the id'th 0x50-ended string from 72:4000, raw and spelled with MEASURED.md's
--- letters, and its 7 bytes in the table at 01:67C1 (entry id - 1). What it cannot see: the screen (autoplay_text_probe.lua), anything between frames.
---
--- COST. About 250 bytes of WRAM a frame. Log: crystal/logs/autoplay_bag_<port>_<timestamp>.log.
+-- Pokémon Crystal: the PACK's pockets and its scrolling list, for autoplay's `menu` and `select`. Read-only.
+-- Load it beside the autoplay driver and autoplay_text_probe.lua; open the PACK, scroll past the rows it shows and
+-- switch pockets, then read the log against captures. On change each frame: wCurPocket (CF65),
+-- wScrollingMenuCursorPosition (CF77), the pockets' cursors and scroll positions (D0D9-D0E4), wScrollingMenuListSize
+-- (D144), wMenuCursorY/X, wMenuFlags to wMenuDataEnd (CF81-CFA0) and the four pockets; once per item id met, its name
+-- and its 7-byte attribute entry.
 
 local dir, port = ".", tostring(AUTOPLAY_PORT or os.getenv("AUTOPLAY_PORT") or "na")
 do

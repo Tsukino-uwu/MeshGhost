@@ -1,12 +1,7 @@
--- fly_menu_drive.lua -- INPUT-DRIVING, one-shot, any build: FLY from the overworld through the
--- menus, no prepared savestate needed (fly_drive.lua needs one, and the five-build room had
--- none). Presses, on a fixed countdown: START -> A (POKeMON, the first entry) -> A (the first
--- party member) -> Down (FLY sits one below SURF when the lead knows both; see the screenshot
--- of 2026-09-09) -> A (the fly map, cursor on the current town) -> A (go) -> waits for the
--- flight. A screenshot after every press goes beside the adapter's logs, so a menu that differs
--- (a lead without Surf puts FLY first: drop the Down) is seen rather than guessed. Endurance,
--- not timing: each wait is generous. Take it off the target afterwards.
---   MESHGHOST_FLY_MENU_SEQ (a global set by a loader-side probe) overrides the sequence.
+-- Flies from the overworld through the menus, once, on any build and with no prepared savestate: START, A (POKeMON),
+-- A (the lead), Down (FLY sits one below SURF when the lead knows both), A (the fly map), A (go), then waits out the
+-- flight. A screenshot after every press goes beside the adapter's logs; a lead without Surf puts FLY first, so drop
+-- the Down (MESHGHOST_FLY_MENU_SEQ, a global, overrides the sequence). Take it off the target afterwards.
 local SEQ = _G.MESHGHOST_FLY_MENU_SEQ or { { "Start", 60 }, { "A", 60 }, { "A", 60 }, { "Down", 30 }, { "A", 90 }, { "A", 120 }, { "A", 300 } }
 local dir = "."
 do

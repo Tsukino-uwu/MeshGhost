@@ -1,21 +1,8 @@
--- MeshGhost — Pokémon Crystal: make the game draw every text byte, to name what each one draws
--- (DEV TOOL, WRITES THE SCREEN'S TILE BUFFER, never shipped) -- 2026-09-17
---
--- WRITES wTilemap only: the text rows inside a message box that is already open. Presses nothing. What it
--- writes is a picture, gone when the box closes (the game put the map's own tiles back on the frame the sign's
--- box closed, autoplay_text_probe.lua, 2026-09-17). Load it ONLY with a message box on screen and waiting
--- (the `sign_text` snapshot); take it off the target when it logs `done`.
---
--- WHY. autoplay's crystal.lua reads text off the tile buffer, so it needs what each byte DRAWS. Real text read
--- against captures gave a handful of letters; this draws the rest the same way the game draws any text --
--- through its own tile buffer, copied to the screen while the box waits (hBGMapMode 1) -- so every glyph can be
--- named from a capture instead of from a charmap (adapters/_template/probes.md, "Make the game draw what you
--- cannot name").
---
--- WHAT IT DOES. Pages of 72 bytes, 0x60 upward, into rows 13-16, columns 1-18 (the box's inside), one byte a
--- cell in order; 12 frames later a capture of that page goes to dev-scripts/shots/crystal/autoplay_charset_pN.png
--- and the log names the page's first byte. Cell (column, row) is pixels (8 * column, 8 * row) in the capture.
--- Log: crystal/logs/autoplay_charset_<timestamp>.log.
+-- Makes the game draw every text byte from 0x60 up, so autoplay can name what each draws from a capture. Writes
+-- wTilemap only, the text rows of a message box already open and waiting, and presses nothing; closing the box puts
+-- the map back. Pages of 72 bytes go into rows 13-16, columns 1-18; 12 frames later the page is captured to
+-- dev-scripts/shots/crystal/autoplay_charset_pN.png, where cell (column, row) is pixels (8 * column, 8 * row).
+-- Take it off the target when it logs `done`.
 
 local function flat(cpu) return cpu < 0xD000 and cpu - 0xC000 or 0x1000 + (cpu - 0xD000) end
 local TILEMAP = flat(0xC4A0)

@@ -1,16 +1,5 @@
--- where_probe.lua -- WHERE IS THIS WINDOW'S PLAYER, on any of the five recognised builds.
---
--- Question (2026-09-09, the five-build rig): five clients on one map do not all see each other.
--- The adapter culls a peer more than GHOST_RANGE_TILES (8) from the player, silently, and the
--- logs carry no player position -- so nothing recorded says whether a missing ghost was out of
--- range or genuinely lost. This prints the one line that settles it, once a second, per window:
--- map group/number and the player's map tile, read straight off WRAM with the same per-build
--- addresses the adapter uses (vanilla V1.0/V1.1, Speedchoice v8.1 at +1, Archipelago's measured
--- block). Read-only: no writes, no input, nothing spawned. Attach it beside the adapter by adding
--- its path as a second line of the window's dev-loader target file.
---
--- It reports its own coverage: the build it decided on and the raw header bytes it decided from,
--- so a wrong table shows up as a wrong label rather than a plausible number.
+-- Logs this window's build, map and player tile once a second from the adapter's per-build addresses, to tell an
+-- out-of-range ghost from a lost one. Read-only; attach beside the adapter as a second line of the dev-loader target.
 
 local ROM, WRAM = "ROM", "WRAM"
 local function r(addr, dom) local ok, v = pcall(memory.read_u8, addr, dom); return ok and v or nil end
@@ -31,12 +20,10 @@ else
 	build = string.format("vanilla (ver %d, checksum %02X%02X)", ver, ck1, ck2)
 	A = { group = flat(0xDCB5), number = flat(0xDCB6), structs = flat(0xD4D6), status = flat(0xD432), battle = flat(0xD22D) }
 end
--- wPlayerStandingMapX/Y sit 0x10/0x11 into the player's object struct on every build
--- (crystal-speedchoice.sym and pokecrystal11.sym agree; the AP table's struct is at 0x14DC).
+-- The player's map tile, at the same struct offsets on every build.
 local F_X, F_Y = 0x10, 0x11
 
--- Named by bridge port rather than checksum: two Archipelago seeds share one checksum and wrote
--- into the same file on 2026-09-09. The port is unique per window on the dev rig.
+-- Named by bridge port, unique per window on the dev rig: two Archipelago seeds share one checksum.
 local logfile = io.open(string.format("%s/where_%s_%s.log",
 	(io.popen("cd"):read("*l") or "."), os.date("%Y%m%d_%H%M%S"),
 	os.getenv("MESHGHOST_BRIDGE_PORT") or string.format("%02X%02X", r(0x14E, ROM) or 0, r(0x14F, ROM) or 0)), "a")

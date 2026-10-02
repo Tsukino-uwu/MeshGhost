@@ -1,12 +1,8 @@
--- MeshGhost — Crystal: turn noclip OFF and prove it (DEV TOOL, one action)
---
--- noclip.lua redirects the tileset collision pointer into WRAM and flags nearby NPCs EMOTE_OBJECT.
--- Its unload handler undoes both, but an unload only runs if the loader dropped the file while it was
--- healthy -- so this checks the pointer itself and, if it still points into WRAM, restores the value
--- from the ROM `Tilesets` entry matching the loaded header (the same lookup noclip.lua uses, so it is
--- right for whichever tileset is loaded, on either build). NPC flags are NOT touched here: a flag this
--- tool cannot attribute might belong to a real emote, and any map change rebuilds every object anyway.
--- Addresses and their provenance: noclip.lua's header.
+-- Turns noclip off and proves it, one action: if the tileset collision pointer still points into WRAM (noclip.lua's
+-- unload runs only if the loader dropped it while healthy), restores it from the ROM Tilesets entry matching the
+-- loaded header, for either build. NPC flags are left alone: one this tool cannot attribute may be a real emote, and
+-- any map change rebuilds every object. Addresses as in noclip.lua.
+
 local BUILDS = {
 	PM_CRYSTAL = { tilesetsRom = 0x4D596, header = 0x11D9 },
 	AP_CRYSTAL = { tilesetsRom = 0x4D46B, header = 0x11E0 },

@@ -1,48 +1,7 @@
--- MeshGhost — Pokémon Crystal: spawn test 3, place it where the engine actually looks
---
--- *** WRITES GAME RAM. *** Same rules as the 2026-08-17 ADR: object RAM only, never a save,
--- cosmetic only, vanilla Crystal V1.0 only (guard below).
---
--- WHAT THE PREVIOUS TWO TESTS ESTABLISHED
---   1. Writing an object struct directly DOES render (confirmed on screen), but produces a
---      half-owned object: collision follows the map coords we set while the sprite stays frozen,
---      because the engine never recomputes it.
---   2. Writing a map object and waiting for adoption did nothing, for 600 frames of walking. The
---      dump explained why: the game's OWN objects in the same room (SPRITE_DOLL_1/2, BIG_DOLL)
---      were also sitting at structId 255. Nothing was being adopted, not just us.
---
--- WHY, from pokecrystal
--- `CheckObjectEnteringVisibleRange` is not a general "adopt anything unassigned" pass. It is
--- specifically "spawn objects as they scroll onto the screen edge":
---
---     .Down:  d = wYCoord + 9      ; the row just below the visible area
---     .Up:    d = wYCoord - 1      ; the row just above it
---             then match map objects whose Y_COORD == d and structId == -1
---
--- and it returns immediately unless wPlayerStepDirection is not STANDING. So it scans exactly one
--- row, the one about to come into view. An object placed beside the player is already inside the
--- screen and can never match, however far you walk. That is why test 2 sat unadopted forever, and
--- it was a property of WHERE we put it, not of what we wrote.
---
--- WHAT THIS TEST DOES, and what it is really asking
--- Places the ghost on the row the engine scans -- directly BELOW the visible area -- and asks you
--- to walk DOWN so that row scrolls in. This is deliberately not how a real ghost would be
--- positioned. It is a controlled question:
---
---     "Are the bytes we write acceptable to the engine's own adoption path?"
---
--- Separating that from "is the trigger firing?" is the whole point -- one variable at a time.
---   * If it IS adopted: our map object is legitimate, the engine will drive it, and the remaining
---     problem is only that we need adoption to happen at an arbitrary position. That is then a
---     question about how to invoke the path, not whether our data is right.
---   * If it is NOT adopted even on the correct row: something in our bytes is unacceptable, and
---     the next step is comparing them field by field against one of the dolls.
---
--- HOW TO RUN
---   1. Load a save, be in the overworld, ideally somewhere with room to walk down a few tiles.
---   2. Lua Console -> Script -> Open, pick this file. Wait ~2 seconds.
---   3. *** WALK DOWN *** several steps. Down specifically -- the placement is below you.
---      Log: spawn_test3_<timestamp>.log beside this script.
+-- Pokémon Crystal: spawn test 3. Writes a map object on the row CheckObjectEnteringVisibleRange scans (just below
+-- the screen while walking down), to ask whether our bytes are acceptable to the engine's own adoption path: that
+-- routine adopts only objects on the row about to scroll into view, and only mid-step. Writes object RAM only, never
+-- a save; vanilla V1.0 only. Open it in the Lua Console in the overworld and walk down several steps.
 
 local DOMAIN = "WRAM"
 local ROM_DOMAIN = "ROM"
@@ -70,7 +29,7 @@ local M_SPRITE = 0x01
 local M_Y_COORD = 0x02
 local M_X_COORD = 0x03
 
--- The row CheckObjectEnteringVisibleRange scans when walking down, straight from the decomp.
+-- The row CheckObjectEnteringVisibleRange scans when walking down.
 local BELOW_SCREEN_DY = 9
 
 local SPAWN_AFTER_FRAMES = 120
@@ -85,20 +44,13 @@ local function open_log()
 		dir = info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
 	end
 	logfile = io.open(string.format("%s/spawn_test3_%s.log", dir, os.date("%Y%m%d_%H%M%S")), "w")
-	-- Buffered, and never flushed per line: a console.log plus a flush is a synchronous disk
-	-- write on the emulator's own thread, measured at 63-83ms -- four to five frames, every time
-	-- (pitfalls.md, "ONE console line a second cost 7.4 fps"). A probe that stalls the game is a
-	-- probe that changes what it measures.
+	-- Buffered, never flushed per line: a console line plus a flush stalls the emulator's thread for frames.
 	if logfile then
 		pcall(function() logfile:setvbuf("full", 8192) end)
 	end
 end
 
--- THE CONSOLE IS THE EXPENSIVE HALF. `console.log` appends to BizHawk's GUI console window, on the
--- emulator's own thread; pitfalls.md measured ONE such line a second costing 7.4fps, and removing
--- the per-line disk flush alone left 87-175ms hitches still there (2026-08-21). So the console gets
--- the opening lines and then one in twenty, while the FILE gets every line -- the log is the record,
--- the console is only a glance.
+-- The console gets the first lines and one in twenty; the file gets every line.
 local rawConsole, consoleLines = console.log, 0
 local function raw_log(msg)
 	consoleLines = consoleLines + 1
@@ -110,9 +62,7 @@ local function log(msg)
 	raw_log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Flushed every 20 lines: bounded cost, and a live log (an unflushed one reads as nothing happened).
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -160,9 +110,7 @@ local function find_free_map_object()
 	return nil
 end
 
--- A free SLOT and a free TILE are different questions, and the first run only asked the first:
--- wYCoord+9 happened to be the exact tile an NPC stood on, so the ghost spawned on top of it and
--- the NPC looked like it had vanished. Found live 2026-08-18.
+-- A free slot is not a free tile: wYCoord+9 can be exactly where an NPC stands.
 local function tile_occupied(x, y)
 	for i = 0, NUM_MAP_OBJECTS - 1 do
 		local base = MAP_OBJECTS + (i * MAPOBJECT_LENGTH)
@@ -217,11 +165,8 @@ local frames, written, written_at = 0, false, 0
 local adopted = false
 local last_state = nil
 
--- Identity of the object we wrote, so we can tell OUR object from whatever later occupies the
--- same slot. Without this the check "is structId no longer -1?" is answered just as happily by a
--- different map's NPC that inherited the slot -- which produced a false ADOPTED on 2026-08-18,
--- reporting success while our object had actually been wiped by a map change. A wrong read
--- returning a plausible value, exactly as CLAUDE.md warns.
+-- What we wrote, so our object is told apart from a different map's NPC that inherits the slot (which also clears
+-- the -1 struct id).
 local mine = nil -- { sprite, x, y, group, number }
 local W_MAPGROUP = flat(0xDCB5)
 local W_MAPNUMBER = flat(0xDCB6)
@@ -230,8 +175,8 @@ local function map_changed()
 	return u8(W_MAPGROUP) ~= mine.group or u8(W_MAPNUMBER) ~= mine.number
 end
 
--- Our object is only still ours if the map has not changed AND the slot still holds what we put
--- there. Coordinates are checked too, since a slot can be reused within the same map.
+-- Our object is still ours only if the map has not changed and the slot still holds what we put there, coordinates
+-- included, since a slot can be reused within the same map.
 local function still_ours()
 	if map_changed() then
 		return false
@@ -268,9 +213,8 @@ local function tick()
 			w8(dst + off, u8(src + off) or 0)
 		end
 
-		-- Place it on the row the engine will scan when the player walks DOWN. Coordinates come
-		-- from wXCoord/wYCoord, which is the space CheckObjectEnteringVisibleRange compares
-		-- against -- not from the player's map object, whose coords are its spawn position.
+		-- Coordinates from wXCoord/wYCoord, the space CheckObjectEnteringVisibleRange compares against, not the
+		-- player's map object, whose coords are its spawn position.
 		local px, py = u8(W_XCOORD) or 0, u8(W_YCOORD) or 0
 		local gy = py + BELOW_SCREEN_DY
 		local gx = pick_x(px, gy)
@@ -302,10 +246,7 @@ local function tick()
 		return
 	end
 
-	-- After adoption, keep watching OUR object specifically. This is the one-variable version of
-	-- "does a ghost survive a battle": a struct COUNT staying the same proves nothing, because an
-	-- unchanged count is not unchanged contents. Watching this object's own sprite and struct id
-	-- across mapStatus changes does answer it.
+	-- After adoption, watch our object itself: an unchanged struct count is not unchanged contents.
 	if adopted then
 		local status = u8(W_MAPSTATUS)
 		local ours = still_ours()
@@ -334,8 +275,7 @@ local function tick()
 		return
 	end
 
-	-- Adoption only counts if the slot still holds OUR object. Checking structId alone accepted a
-	-- different map's NPC that had inherited the slot (2026-08-18 false positive).
+	-- Adoption counts only if the slot still holds our object.
 	if map_changed() then
 		log(string.format(
 			"Map changed to %s/%s before adoption — our object is gone. Nothing more to watch.",

@@ -1,9 +1,7 @@
--- drive_fish.lua -- INPUT-DRIVING, one-shot: load savestate slot N (default 5, a spot where A
--- casts the rod), cast, dismiss the text, then open the START menu and its first two entries.
--- Written 2026-09-09 to let ui_signals_probe.lua see a fishing text box, the START menu, the
--- party screen and the Pack without the user pressing anything. Fixed phases on a frame
--- countdown, never a window to hit. Unload it before judging anything -- and take it off the
--- target after it acts, or a reload plays it again. Dev-loader contract.
+-- Input-driving, one-shot: loads savestate slot MESHGHOST_DRIVE_SLOT (default 5, where A casts the rod), casts,
+-- dismisses the text, then opens START and its first two entries, on a frame countdown. Take it off the target after
+-- it acts, or a reload plays it again.
+
 local SLOT = tonumber(os.getenv("MESHGHOST_DRIVE_SLOT") or "") or 5
 local port = os.getenv("MESHGHOST_BRIDGE_PORT") or "noport"
 local f = io.open(string.format("%s/drive_fish_%s_%s.log", (io.popen("cd"):read("*l") or "."), os.date("%Y%m%d_%H%M%S"), port), "w")

@@ -1,36 +1,5 @@
--- MeshGhost — Pokémon Crystal: diff our hand-built object against one the ENGINE built
---
--- *** WRITES GAME RAM (one object). *** Same rules as the 2026-08-17 ADR: object RAM only, never
--- a save, cosmetic only, vanilla Crystal V1.0 only.
---
--- WHY THIS EXISTS
--- Two attempts to build an object by hand produced the same half-owned result: collision follows
--- the map coordinates we set, while the sprite sits frozen at whatever screen coordinates were
--- copied in. Once from a bare struct (test 1), once with the map-object/struct cross-link fully in
--- place (test 4). Two failures with an identical symptom means stop guessing and isolate.
---
--- THE ISOLATION
--- The map already contains objects the ENGINE built and drives — every NPC with a struct id that
--- is not 255. So a known-good example is sitting right there, no adoption needed. This dumps one
--- of those, builds ours next to the player, and prints a FIELD-BY-FIELD DIFF.
---
--- Two outcomes, both worth having:
---   * A field differs that we are not setting -> set it, and the imitation approach works.
---   * Nothing meaningful differs -> adoption does something beyond writing field values, and
---     reproducing it by hand cannot work. That settles the ADR's open question toward calling the
---     engine's own routine instead.
---
--- IT CARRIES ITS OWN CONTROL, which the template argues every probe should:
--- the NPC is watched alongside ours. If the NPC's engine-maintained screen coordinates move while
--- ours stay frozen, the comparison is meaningful. If NEITHER moves, the probe is measuring nothing
--- (e.g. nobody is walking) and the run should be discarded rather than believed.
---
--- HOW TO RUN
---   1. Load a save, stand in the overworld ON A MAP WITH AT LEAST ONE VISIBLE NPC, with a clear
---      tile or two beside you. An indoor room with a person in it, or a route with trainers.
---   2. Lua Console -> Script -> Open, pick this file. Wait ~2 seconds.
---   3. Walk around a bit so both objects have a chance to be updated.
---      Log: struct_diff_<timestamp>.log beside this script.
+-- Diffs an object built by hand beside the player, field by field, against an NPC the engine built. Writes game RAM
+-- (one object), vanilla V1.0 only. Run on a map with a visible NPC, then walk; logs struct_diff_<timestamp>.log.
 
 local DOMAIN = "WRAM"
 local ROM_DOMAIN = "ROM"
@@ -55,20 +24,16 @@ local NUM_MAP_OBJECTS = 16
 local M_OBJECT_STRUCT_ID, M_SPRITE, M_Y_COORD, M_X_COORD = 0x00, 0x01, 0x02, 0x03
 local F_SPRITE, F_MAP_OBJECT_INDEX = 0x00, 0x01
 local F_FLAGS1, F_FLAGS2 = 0x04, 0x05
--- OBJECT_FLAGS1 bit names looked up in constants/map_object_constants.asm; only the two used
--- below are defined here.
 local FLAG1_INVISIBLE, FLAG1_WONT_DELETE = 0x01, 0x02
 local F_MAP_X, F_MAP_Y = 0x10, 0x11
 local F_LAST_MAP_X, F_LAST_MAP_Y = 0x12, 0x13
 local F_INIT_X, F_INIT_Y = 0x14, 0x15
 local F_SPRITE_X, F_SPRITE_Y = 0x17, 0x18
 
--- The diff names offsets only. A field-name table copied from the decompilation's constants was
--- removed 2026-09-16 (the audit, the user's call).
+-- Empty on purpose: the diff names offsets only.
 local FIELD = {}
 
--- Offsets expected to differ simply because the two objects are different characters standing in
--- different places. Called out so the diff highlights what is actually interesting.
+-- Offsets that differ only because the two are different characters in different places.
 local EXPECTED = {
 	[F_SPRITE] = true, [F_MAP_OBJECT_INDEX] = true,
 	[F_MAP_X] = true, [F_MAP_Y] = true, [F_LAST_MAP_X] = true, [F_LAST_MAP_Y] = true,
@@ -88,20 +53,13 @@ local function open_log()
 		dir = info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
 	end
 	logfile = io.open(string.format("%s/struct_diff_%s.log", dir, os.date("%Y%m%d_%H%M%S")), "w")
-	-- Buffered, and never flushed per line: a console.log plus a flush is a synchronous disk
-	-- write on the emulator's own thread, measured at 63-83ms -- four to five frames, every time
-	-- (pitfalls.md, "ONE console line a second cost 7.4 fps"). A probe that stalls the game is a
-	-- probe that changes what it measures.
+	-- Buffered, never flushed per line: a flush is a synchronous disk write on the emulator's own thread.
 	if logfile then
 		pcall(function() logfile:setvbuf("full", 8192) end)
 	end
 end
 
--- THE CONSOLE IS THE EXPENSIVE HALF. `console.log` appends to BizHawk's GUI console window, on the
--- emulator's own thread; pitfalls.md measured ONE such line a second costing 7.4fps, and removing
--- the per-line disk flush alone left 87-175ms hitches still there (2026-08-21). So the console gets
--- the opening lines and then one in twenty, while the FILE gets every line -- the log is the record,
--- the console is only a glance.
+-- console.log is a GUI append on the emulator's own thread and costs frames: it gets the first lines and one in twenty.
 local rawConsole, consoleLines = console.log, 0
 local function raw_log(msg)
 	consoleLines = consoleLines + 1
@@ -113,9 +71,7 @@ local function log(msg)
 	raw_log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Every 20 lines, never per line: bounded cost, and the log stays live through a run.
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -163,17 +119,8 @@ local function struct_bytes(i)
 	return b
 end
 
--- An NPC the engine built and is driving.
---
--- "Has a struct id that is not 255" is NOT the same claim as "the engine made this", and treating
--- them as equivalent invalidated an entire run on 2026-08-18: another MeshGhost script was still
--- loaded, its hand-built ghost satisfied the test, and the probe compared our object against our
--- own other object. The diff came back clean because both sides were built the same way.
---
--- So a candidate is rejected if its sprite matches the player's. Every ghost this project builds
--- copies the player's sprite id, and no real NPC uses it. That is a heuristic rather than a proof
--- -- the real discipline is running one writer at a time -- so it warns loudly rather than
--- silently skipping.
+-- A struct id alone does not mean the engine built it: a candidate wearing the player's sprite is a ghost from
+-- another script, so it is skipped with a warning (a heuristic; run one writer at a time).
 local function find_engine_object()
 	local player_sprite = u8(OBJECT_STRUCTS + F_SPRITE)
 	for i = 1, NUM_MAP_OBJECTS - 1 do
@@ -249,15 +196,8 @@ local last_watch = nil
 local function tick()
 	frames = frames + 1
 	if done then
-		-- The control, and the measurement, on one line. If the reference's engine-maintained
-		-- screen coordinates move and ours do not, the diff above is describing a real difference.
-		-- If NEITHER moves, this run measured nothing and should be discarded.
-		-- Also watch FLAGS1 and SPRITE, because "the ghost disappeared" has two distinct causes in
-		-- Crystal and they need telling apart (user observed it 2026-08-18, walking toward a door):
-		--   * DELETED — the engine culls objects that leave visible range, unless OBJECT_FLAGS1
-		--     bit 1 (WONT_DELETE) is set. A deleted object's SPRITE goes to 0.
-		--   * INVISIBLE — OBJECT_FLAGS1 bit 0 set. Still there, simply not drawn.
-		-- Printing only on change, so the moment it happens is a single obvious line.
+		-- The control: the engine's object should move and ours should not; if neither moves, discard the run.
+		-- Deleted (sprite 0) and invisible (FLAGS1 bit 0) are the two ways ours can vanish. Printed on change.
 		local ours_sprite = u8(our_base + F_SPRITE) or 0
 		local ours_flags = u8(our_base + F_FLAGS1) or 0
 		local key = string.format("%d|%d|%s|%s", ours_sprite, ours_flags,
@@ -313,7 +253,7 @@ local function tick()
 	log(string.format("Reference: map object %d -> struct %d, built and driven by the engine.",
 		ref_mo, ref_id))
 
-	-- Build ours exactly as test 4 did, so the diff describes THAT approach.
+	-- Built the way spawn_test4.lua builds it, so the diff describes that approach.
 	local mo_base = MAP_OBJECTS + (mo * MAPOBJECT_LENGTH)
 	for off = 0, MAPOBJECT_LENGTH - 1 do
 		w8(mo_base + off, u8(MAP_OBJECTS + off) or 0)

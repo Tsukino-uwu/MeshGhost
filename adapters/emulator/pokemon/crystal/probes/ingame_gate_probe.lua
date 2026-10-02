@@ -1,49 +1,11 @@
--- MeshGhost — Pokémon Crystal: "is the player actually in the game?" probe
---
--- READ-ONLY DIAGNOSTIC. Writes nothing, spawns nothing.
---
--- WHY THIS EXISTS
--- A ghost must never appear before the player is in the world at all -- title screen, main menu,
--- file select, intro, the loading step. That case is absolute and is what this probe is for.
---
--- Everything else is per-state judgment, and "hide it" is frequently the WRONG answer: Crystal
--- draws the overworld behind the START menu, so removing a ghost there would look like a bug
--- rather than like correctness. Do not read the gate below as "hide during every non-walking
--- state" -- read it as "the world exists and is stable". The general rule, and the distinction
--- between this and what to do when a PEER is unavailable, is in adapters/_template/README.md.
---
--- The failure it prevents is not cosmetic. Spawning into a state the game does not consider "the
--- overworld" means writing object RAM the game is *currently rebuilding*, which is how you corrupt
--- something rather than merely look silly. And "the data looked plausible" is exactly the trap
--- CLAUDE.md warns about: during the menu the object slots are simply stale, so a naive check
--- passes and a ghost appears over the title screen.
---
--- WHAT IT MEASURES, and why these four
--- The right gate asks the GAME what state it is in, rather than inferring it from data shape --
--- the same reasoning as Emerald's inOverworld(), which reads the current callback pointer and
--- compares it to CB2_Overworld. Crystal's equivalents, all from our hash-verified build:
---
---   wMapStatus       01:d432  MAPSTATUS_START(0) / ENTER(1) / HANDLE(2) / DONE(3)
---                             The map state machine. HANDLE is the steady overworld state.
---   wMapEventStatus  01:d433  MAPEVENTS_ON(0) / MAPEVENTS_OFF(1)
---                             Off while the player is not free to act.
---   wScriptRunning   01:d438  non-zero while a script/cutscene is driving things
---   wGameLogicPaused 00:c2cd  bank-0 WRAM, so a different address mapping (see to_flat)
---
--- plus wMapGroup/wMapNumber, which were observed reading 0/0 at the main menu on 2026-08-17.
---
--- HOW TO RUN
---   1. Load the ROM but STAY ON THE TITLE/MAIN MENU. Start this script there -- that is the
---      state we most need characterised, and it is the one you cannot get back to without a reset.
---   2. Load a save (or start a new game and sit through the intro).
---   3. Walk around, open the START menu, enter a building, and if convenient start a battle.
---   4. Log: ingame_gate_<timestamp>.log beside this script. It prints only when something
---      CHANGES, so the log reads as a timeline of states rather than a wall of samples.
+-- "Is the player actually in the game?": the game's own state bytes, logged on change, with what a gate asking "does
+-- the world exist and is it stable" would decide. Read-only. Spawning while the game rebuilds object RAM corrupts it,
+-- and stale slots look plausible on the main menu. Start it there, load a save, walk, open START, take a door and a
+-- battle; logs ingame_gate_<timestamp>.log beside this script.
 
 local DOMAIN = "WRAM"
 
--- Game Boy WRAM is banked: C000-CFFF is bank 0, D000-DFFF is the switchable bank (1 here).
--- The flat WRAM domain lays banks end to end, so the two halves map differently.
+-- The flat WRAM domain lays the banks end to end: $C000 bank 0 at 0x0000, $D000 bank 1 at 0x1000.
 local function to_flat(cpu_addr)
 	if cpu_addr < 0xD000 then
 		return cpu_addr - 0xC000
@@ -59,8 +21,7 @@ local WATCH = {
 	{ name = "wMapGroup", addr = to_flat(0xDCB5) },
 	{ name = "wMapNumber", addr = to_flat(0xDCB6) },
 	{ name = "wPlayerStepFlags", addr = to_flat(0xD150) },
-	-- Added 2026-08-18. wBattleMode: 0 = not in a battle, 1 = WILD_BATTLE, 2 = TRAINER_BATTLE
-	-- (constants/battle_constants.asm, const_def 1).
+	-- 0 none, 1 WILD_BATTLE, 2 TRAINER_BATTLE.
 	{ name = "wBattleMode", addr = to_flat(0xD22D) },
 }
 
@@ -68,16 +29,12 @@ local BATTLE = { [0] = "-", [1] = "wild", [2] = "trainer" }
 
 local MAPSTATUS = { [0] = "START", [1] = "ENTER", [2] = "HANDLE", [3] = "DONE" }
 
--- Object slot 0 holds the player. Watching whether it exists is a useful cross-check: at the
--- main menu it was empty, and it is populated once the game spawns the player.
+-- Slot 0 holds the player, empty until the game spawns them: a cross-check on the state bytes.
 local OBJECT_STRUCTS = to_flat(0xD4D6)
 local OBJECT_LENGTH = 0x28
 local NUM_OBJECT_STRUCTS = 13
 
--- Map objects are a SEPARATE array from object structs -- 16 vs 13 -- and they answer a different
--- question: what the MAP defines, versus what the engine is currently driving. Tracking only the
--- structs is what made a "free" slot look free when the map had an object there (2026-08-18).
--- Both are watched here so a battle's effect on each is visible independently.
+-- Map objects are a separate array (what the map defines, not what the engine drives), watched on their own.
 local MAP_OBJECTS = to_flat(0xD71E)
 local MAPOBJECT_LENGTH = 0x10
 local NUM_MAP_OBJECTS = 16
@@ -91,20 +48,14 @@ local function open_log()
 		dir = info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
 	end
 	logfile = io.open(string.format("%s/ingame_gate_%s.log", dir, os.date("%Y%m%d_%H%M%S")), "w")
-	-- Buffered, and never flushed per line: a console.log plus a flush is a synchronous disk
-	-- write on the emulator's own thread, measured at 63-83ms -- four to five frames, every time
-	-- (pitfalls.md, "ONE console line a second cost 7.4 fps"). A probe that stalls the game is a
-	-- probe that changes what it measures.
+	-- Buffered, never flushed per line: a flush stalls the emulator's own thread, and the probe with it.
 	if logfile then
 		pcall(function() logfile:setvbuf("full", 8192) end)
 	end
 end
 
--- THE CONSOLE IS THE EXPENSIVE HALF. `console.log` appends to BizHawk's GUI console window, on the
--- emulator's own thread; pitfalls.md measured ONE such line a second costing 7.4fps, and removing
--- the per-line disk flush alone left 87-175ms hitches still there (2026-08-21). So the console gets
--- the opening lines and then one in twenty, while the FILE gets every line -- the log is the record,
--- the console is only a glance.
+-- The console is a GUI append on the emulator's thread and costs frames: it gets the opening lines and one in
+-- twenty, the file gets every line.
 local rawConsole, consoleLines = console.log, 0
 local function raw_log(msg)
 	consoleLines = consoleLines + 1
@@ -116,9 +67,7 @@ local function log(msg)
 	raw_log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Every 20 lines, never per line: bounded cost, and the log stays live through a run.
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -157,23 +106,8 @@ local function map_objects_used()
 	return n
 end
 
--- The gate this probe exists to validate. Stated here so the log shows what it WOULD have
--- decided at every moment, which is the only way to tell whether it is right before trusting it.
---
--- REVISED 2026-08-18 after the first full run, and the revision is the point of having run it.
--- The original also required wMapEventStatus == MAPEVENTS_ON and wScriptRunning == 0. Both toggle
--- on EVERY WALKING STEP: the log flipped between blocked and SPAWN-OK dozens of times while the
--- player simply walked across a room (events=1 or script=9, with mapStatus steady at HANDLE the
--- whole time). As a spawn/despawn gate that would have made a ghost flicker once per footstep.
---
--- Those two flags answer "is the player free to act right now", which is a real question but NOT
--- this one. This gate asks "does the world exist and is it stable", and wMapStatus answers it
--- alone: HANDLE throughout all movement, ENTER through both door transitions, START before the
--- world is built. Keep the others as diagnostics; do not gate on them.
--- REVISED AGAIN 2026-08-18, after a wild battle: wMapStatus stays HANDLE for the whole battle, so
--- the gate said SPAWN-OK while the player was fighting. wBattleMode is a genuinely independent
--- signal and has to be its own term -- it could not have been deduced from the map state machine,
--- which is the argument for walking the entire lifecycle rather than reasoning about it.
+-- The gate under test, logged at every change. Not wMapEventStatus or wScriptRunning: both toggle on every walking
+-- step. wBattleMode is its own term because wMapStatus stays HANDLE through a battle.
 local function would_spawn(v)
 	return v.wMapStatus == 2 -- MAPSTATUS_HANDLE: the world exists and is stable
 		and v.wBattleMode == 0 -- not in a wild or trainer battle
@@ -200,8 +134,7 @@ local function tick()
 		v[w.name] = u8(w.addr)
 	end
 
-	-- Deliberately NOT keyed on wMapEventStatus/wScriptRunning: both toggle on every walking step
-	-- (2026-08-18), so including them made the log a wall of noise. They are still printed.
+	-- Not keyed on wMapEventStatus/wScriptRunning, which toggle every step; they are still printed.
 	local key = string.format(
 		"%s|%s|%s/%s|%d|%d",
 		tostring(v.wMapStatus), tostring(v.wBattleMode),

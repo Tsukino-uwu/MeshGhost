@@ -1,45 +1,8 @@
--- MeshGhost — Pokémon Crystal: spawn test 4, both halves linked, beside the player
---
--- *** WRITES GAME RAM. *** Same rules as the 2026-08-17 ADR: object RAM only, never a save,
--- cosmetic only, vanilla Crystal V1.0 only (guard below).
---
--- THE PROBLEM THIS ATTACKS
--- A ghost has to be able to appear WHERE THE PEER IS, which is usually next to you. Crystal's two
--- adoption paths cannot do that:
---   * InitializeVisibleSprites  — runs at map load only.
---   * CheckObjectEnteringVisibleRange — runs per step, and scans exactly one row: the one about to
---     scroll into view (wYCoord+9 down, wYCoord-1 up).
--- Neither will ever look at a tile beside the player. Test 3 proved our map object is legitimate by
--- placing it on the scanned row and watching the engine adopt it -- but that is a lab condition,
--- not a ghost.
---
--- WHAT THIS DOES DIFFERENTLY
--- Builds BOTH halves ourselves and links them, which is the one thing no previous test did:
---
---   test 1: object struct only     -> rendered, but half-owned. Its OBJECT_MAP_OBJECT_INDEX was
---                                     copied from the player, so it pointed at the PLAYER's map
---                                     object. Nothing maintained it.
---   test 2/3: map object only      -> legitimate, but adoption is edge-triggered, so unreachable
---                                     at an arbitrary position.
---   this test: both, cross-linked  -> map object's OBJECT_STRUCT_ID -> our struct
---                                     struct's MAP_OBJECT_INDEX     -> our map object
---
--- That pairing is exactly what the engine itself produces when it adopts something. If it is
--- sufficient, we can place a character anywhere without waiting for a screen edge.
---
--- HOW SUCCESS IS JUDGED, and it is not "a sprite appeared"
--- Test 1 also produced a sprite, and it was not owned by the engine. The check here is
--- OBJECT_SPRITE_X/Y -- screen coordinates the ENGINE maintains for objects it drives. If those
--- track as the camera moves, the game is doing the work. If they sit frozen while you walk, we
--- have built another half-owned object and the linkage is not sufficient.
--- The visual is still the final word: the ghost should hold its tile as you walk past it, the way
--- an NPC does, rather than sliding with the screen.
---
--- HOW TO RUN
---   1. Load a save, stand in the overworld with a clear tile or two beside you.
---   2. Lua Console -> Script -> Open, pick this file. Wait ~2 seconds.
---   3. Walk AROUND it -- past it, away from it, back toward it.
---      Log: spawn_test4_<timestamp>.log beside this script.
+-- Pokémon Crystal: spawn test 4. Builds both halves beside the player, cross-linked the way the engine links what it
+-- adopts (the map object's struct id to our struct, the struct's map object index to our map object), since neither
+-- adoption path ever looks at a tile beside the player. Success is the engine maintaining OBJECT_SPRITE_X/Y as the
+-- camera moves, not a sprite appearing. Writes object RAM only, never a save; vanilla V1.0 only. Open it in the Lua
+-- Console beside a clear tile and walk around it.
 
 local DOMAIN = "WRAM"
 local ROM_DOMAIN = "ROM"
@@ -85,20 +48,13 @@ local function open_log()
 		dir = info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
 	end
 	logfile = io.open(string.format("%s/spawn_test4_%s.log", dir, os.date("%Y%m%d_%H%M%S")), "w")
-	-- Buffered, and never flushed per line: a console.log plus a flush is a synchronous disk
-	-- write on the emulator's own thread, measured at 63-83ms -- four to five frames, every time
-	-- (pitfalls.md, "ONE console line a second cost 7.4 fps"). A probe that stalls the game is a
-	-- probe that changes what it measures.
+	-- Buffered, never flushed per line: a console line plus a flush stalls the emulator's thread for frames.
 	if logfile then
 		pcall(function() logfile:setvbuf("full", 8192) end)
 	end
 end
 
--- THE CONSOLE IS THE EXPENSIVE HALF. `console.log` appends to BizHawk's GUI console window, on the
--- emulator's own thread; pitfalls.md measured ONE such line a second costing 7.4fps, and removing
--- the per-line disk flush alone left 87-175ms hitches still there (2026-08-21). So the console gets
--- the opening lines and then one in twenty, while the FILE gets every line -- the log is the record,
--- the console is only a glance.
+-- The console gets the first lines and one in twenty; the file gets every line.
 local rawConsole, consoleLines = console.log, 0
 local function raw_log(msg)
 	consoleLines = consoleLines + 1
@@ -110,9 +66,7 @@ local function log(msg)
 	raw_log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Flushed every 20 lines: bounded cost, and a live log (an unflushed one reads as nothing happened).
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -211,8 +165,7 @@ local function tick()
 		if frames < SPAWN_AFTER_FRAMES then
 			return
 		end
-		-- The in-game gate, as established in Phase 9: the world must exist and be stable, and we
-		-- must not be in a battle. Both terms were found empirically; see verified.md.
+		-- The in-game gate: the world exists and is stable, and no battle is running.
 		if u8(W_MAPSTATUS) ~= MAPSTATUS_HANDLE or u8(W_BATTLEMODE) ~= 0 then
 			return
 		end
@@ -235,8 +188,7 @@ local function tick()
 		local mo_base = MAP_OBJECTS + (mo * MAPOBJECT_LENGTH)
 		local st_base = OBJECT_STRUCTS + (st * OBJECT_LENGTH)
 
-		-- Copy the player's own map object and object struct as known-good templates, then fix up
-		-- coordinates and, crucially, point the two at EACH OTHER.
+		-- The player's own map object and struct as templates, coordinates fixed and the two pointed at each other.
 		for off = 0, MAPOBJECT_LENGTH - 1 do
 			w8(mo_base + off, u8(MAP_OBJECTS + off) or 0)
 		end
@@ -277,8 +229,7 @@ local function tick()
 		return
 	end
 
-	-- Independent check: OBJECT_SPRITE_X/Y are maintained by the engine for objects it drives.
-	-- Reading back what we wrote would only prove the write landed.
+	-- OBJECT_SPRITE_X/Y are maintained by the engine for objects it drives; reading back our write proves nothing.
 	local gone = u8(W_MAPGROUP) ~= mine.group or u8(W_MAPNUMBER) ~= mine.number
 		or u8(mine.st_base + F_SPRITE) ~= mine.sprite
 	local sx, sy = u8(mine.st_base + F_SPRITE_X), u8(mine.st_base + F_SPRITE_Y)

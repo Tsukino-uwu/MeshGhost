@@ -1,52 +1,14 @@
--- MeshGhost — Pokémon Crystal: walk the player in a square, forever
---
--- DEVELOPMENT TOOL. It presses the d-pad; it writes no memory and reads none. `.claude/skills/play-game/SKILL.md` allows
--- driving a running game to reach a state, and this is the cheapest version of that: a repeatable
--- movement pattern that costs nobody's attention.
---
--- WHY THIS EXISTS
--- The user's own test case, 2026-08-21: *"3x3 square, up/left/down/right. use this as a test
--- script"* -- given while chasing a ghost that *"went all the way up/down and off the screen
--- sometimes"*. An intermittent fault needs the same movement repeated many times, and a person
--- holding the controller for twenty minutes to reproduce it is the wrong tool for that.
---
--- Two sides of every square are vertical and two horizontal, so one lap exercises all four
--- directions, all four turns, and the corner case where a step is immediately followed by a turn.
--- Run it beside orphan_probe.lua and posediff_probe.lua and let it lap.
---
--- WHAT IT DOES NOT DO
--- It does not know where walls are. Point the player at open ground before starting it; if a side
--- is blocked the player bumps and the lap is still a valid test, it just covers less ground. It
--- never presses A or B, so it cannot talk to anyone, open a menu, or advance a script.
---
--- HOW TO RUN
---   Add it to dev-scripts/bizhawk-dev-loader-crystal.target; remove the line to stop it. It
---   announces each lap in the Lua Console and to square_drive_<timestamp>.log beside this file.
---   To stand still without unloading it, set the global MESHGHOST_SQUARE_PAUSE = true.
+-- Pokémon Crystal: walks the player in a square forever, for intermittent faults that need the same movement many
+-- times; one lap covers all four directions and turns. Presses the d-pad only (never A or B), reads and writes no
+-- memory, and knows no walls: a blocked side bumps and still counts. Pause with MESHGHOST_SQUARE_PAUSE = true.
 
--- Tiles per side, and the order the sides are walked. Both are OPTIONS, because the length of the
--- walk turned out to be the variable that matters: a fault can be invisible over one tile and
--- obvious over five. User, 2026-08-23, on the drawn ghost -- *"moving 1 tile looks good/perfect...
--- moving like 4-5+ tiles and it starts to look really jittery"* -- and reproducing that needed a
--- 9-tile side, which this script could not do. Defaults are the original 2x2 up/left/down/right.
+-- Tiles per side and the order of sides are options: a fault can be invisible over one tile and obvious over five.
 local SIDE = tonumber(MESHGHOST_SQUARE_SIDE) or 2
-local HOLD_FRAMES = 18 -- a normal step is 8 frames of movement; this leaves room for the turn
+local HOLD_FRAMES = 18 -- a walking step is about 16 video frames; this leaves room for the turn
 local DIRECTIONS = MESHGHOST_SQUARE_DIRS or { "Up", "Left", "Down", "Right" }
 
--- Optionally start from a known savestate, so a long walk begins from the same tile every run
--- rather than from wherever the last one finished -- a drift fault measured from a different
--- starting point is measured on different ground.
---
--- IT MUST SAY SO, LOUDLY. A silent `pcall` here cost a live session on 2026-08-25: this global was
--- left set by an earlier run, the dev loader replaces FILES and never globals, and so every
--- re-attach of this script teleported the player and rolled back everything written since the
--- state was made. What it looked like from outside was a probe's grants "not sticking" -- the
--- frame counter going BACKWARDS was the only tell, and nothing was reading it. The agent then
--- blamed the user for loading savestates they had not touched.
---
--- `pitfalls.md` has carried "a probe global outlives the probe, and then looks exactly like a real
--- bug" since 2026-08-19; the new part is that the consequence can be an ACTION rather than a
--- setting. An action taken on the strength of a stale global has to announce itself.
+-- Optionally start from a savestate, so a long walk begins on the same tile every run. It announces itself: the
+-- global survives a loader reload and fires on every re-attach.
 if MESHGHOST_SQUARE_LOAD_STATE then
 	local slot = tonumber(MESHGHOST_SQUARE_LOAD_STATE)
 	console.log(string.format("square_drive: LOADING SAVESTATE SLOT %s before starting -- "
@@ -66,20 +28,13 @@ local function open_log()
 		dir = info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
 	end
 	logfile = io.open(string.format("%s/square_drive_%s.log", dir, os.date("%Y%m%d_%H%M%S")), "w")
-	-- Buffered, and never flushed per line: a console.log plus a flush is a synchronous disk
-	-- write on the emulator's own thread, measured at 63-83ms -- four to five frames, every time
-	-- (pitfalls.md, "ONE console line a second cost 7.4 fps"). A probe that stalls the game is a
-	-- probe that changes what it measures.
+	-- Buffered, never flushed per line: a console line plus a flush stalls the emulator's thread for frames.
 	if logfile then
 		pcall(function() logfile:setvbuf("full", 8192) end)
 	end
 end
 
--- THE CONSOLE IS THE EXPENSIVE HALF. `console.log` appends to BizHawk's GUI console window, on the
--- emulator's own thread; pitfalls.md measured ONE such line a second costing 7.4fps, and removing
--- the per-line disk flush alone left 87-175ms hitches still there (2026-08-21). So the console gets
--- the opening lines and then one in twenty, while the FILE gets every line -- the log is the record,
--- the console is only a glance.
+-- The console gets the first lines and one in twenty; the file gets every line.
 local rawConsole, consoleLines = console.log, 0
 local function raw_log(msg)
 	consoleLines = consoleLines + 1
@@ -91,9 +46,7 @@ local function log(msg)
 	raw_log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Flushed every 20 lines: bounded cost, and a live log (an unflushed one reads as nothing happened).
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -109,11 +62,8 @@ log("It only presses the d-pad. Set MESHGHOST_SQUARE_PAUSE = true to stand still
 
 local dirIndex, tilesDone, heldFor, laps, frames = 1, 0, 0, 0, 0
 
--- STOP-AND-GO, the user's ask 2026-08-21: pauses exercise the seams a steady walk never touches --
--- the idle release to the painted tier (5s), the resume re-spawn, and the last step before a stop,
--- which is where snaps live. The pattern is fixed rather than random so a fault reproduces on the
--- same lap count every run: after each full side, every third side pauses 2s, and after each full
--- lap a long 7s pause crosses the idle-release threshold on purpose.
+-- Stop-and-go: pauses exercise what a steady walk never touches, the resume and the last step before a stop, where
+-- snaps live. Fixed, not random, so a fault recurs on the same lap: every third side pauses 2s, and every lap 7s.
 local pauseFor = 0
 
 local function tick()
@@ -126,17 +76,13 @@ local function tick()
 		return
 	end
 
-	-- Set with AND without the controller index: BizHawk's per-core controller naming differs, and
-	-- a set that names a controller the core does not have is silently ignored rather than an
-	-- error -- which reads exactly like "the script is running and the character will not move".
+	-- Set with and without the controller index: a set naming a controller the core lacks is silently ignored.
 	local want = DIRECTIONS[dirIndex]
 	pcall(joypad.set, { [want] = true })
 	pcall(joypad.set, { [want] = true }, 1)
 	heldFor = heldFor + 1
 
-	-- READ BACK what the emulator thinks is held, rather than trusting the call above (CLAUDE.md:
-	-- never log the value you just wrote as proof it worked). Once a second is enough to tell
-	-- "the press is not registering" from "the press registers and the game is refusing to move".
+	-- Read back what the emulator thinks is held, once a second: a press not registering is not the game refusing.
 	if frames % 60 == 0 then
 		local ok, held = pcall(joypad.get)
 		local names = {}
@@ -162,11 +108,8 @@ local function tick()
 	tilesDone = 0
 	dirIndex = dirIndex + 1
 	if dirIndex <= #DIRECTIONS then
-		-- MESHGHOST_SQUARE_FLOW: no stop inside the lap -- every corner is taken in stride.
-		-- Added 2026-08-23: with the pause on, each corner is a real stop AND a real start, so a
-		-- ghost faithfully echoing the peer shows a catch-up and a slip at every corner -- and
-		-- those echoes are indistinguishable from renderer faults to the eye. The flowing lap is
-		-- the only way to judge continuous motion on its own.
+		-- MESHGHOST_SQUARE_FLOW: no stop inside the lap. With pauses each corner is a real stop and start, and a
+		-- faithful ghost's catch-up there looks like a renderer fault.
 		if not MESHGHOST_SQUARE_FLOW and dirIndex % 3 == 0 then
 			pauseFor = 120 -- 2s: a stop-and-go inside the lap, below the idle-release threshold
 			log(string.format("  pausing 2s after side %d", dirIndex - 1))
@@ -176,7 +119,7 @@ local function tick()
 
 	dirIndex = 1
 	laps = laps + 1
-	pauseFor = 420 -- 7s: crosses the 5s idle release, so every lap exercises the tier handoff
+	pauseFor = 420 -- 7s, short of the adapter's one-minute idle release
 	log(string.format("  lap %d complete -- pausing 7s (crosses the idle release)", laps))
 end
 
@@ -190,8 +133,7 @@ MESHGHOST_DEV_UNLOAD = function()
 	end
 end
 
--- A registered callback outlives its script under BizHawk, which is why this is a loop and not
--- event.onframeend (pitfalls.md).
+-- A registered callback outlives its script under BizHawk, hence a loop rather than event.onframeend.
 if not MESHGHOST_DEV_LOADER then
 	while true do
 		tick()

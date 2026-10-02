@@ -1,43 +1,17 @@
--- MeshGhost — Crystal/Archipelago: watch the scroll-offset neighbourhood directly
---
--- READ-ONLY. Writes nothing, spawns nothing.
---
--- WHY
--- The wide scan (ap_scroll_probe.lua) found 405 "Y" candidates and 2 "X" ones, and the Y list is
--- mostly the OAM shadow at 0x04xx — sprite positions, which scroll with the camera and are not
--- what screenCoords() wants. Its axis filter was too strict in the other direction too: it demanded
--- a byte NEVER move while standing, and anything the game nudges on its own (an NPC stepping, a
--- camera settle) is disqualified for the whole run.
---
--- One address survived in the right neighbourhood: 0x1154, with 190 changes. Vanilla keeps
--- wBGMapOffsetX/Y at 0xD14C/0xD14D — flat 0x114C/0x114D — so 0x1154 is vanilla+7, the same delta
--- the coordinate block moved, with 0x1153 as its X partner.
---
--- That is a hypothesis assembled from a delta, which is exactly the reasoning this build has
--- already refuted three times. So it gets watched rather than believed: this probe just prints the
--- whole neighbourhood as you walk, and the answer is whichever pair actually behaves like a scroll
--- offset — one axis each, cycling through a run of values within a step rather than flipping.
---
--- HOW TO RUN — 40 seconds, nothing to time
---   1. Load the ARCHIPELAGO Crystal ROM, stand in the overworld.
---   2. Lua Console -> Script -> Open, pick this file.
---   3. Walk LEFT and RIGHT for ~20 seconds, then UP and DOWN for ~20. The console says which
---      phase it is in; walking sloppily is fine, standing still for a moment is fine.
---      Log: ap_scrollwatch_<timestamp>.log beside this script.
+-- Read-only, on an Archipelago ROM: prints the scroll-offset neighbourhood (flat 0x114C-0x1159) as you walk, so the
+-- pair that behaves like a scroll offset (one axis each, cycling through a run of values within a step) shows
+-- itself; vanilla+7 is a hypothesis from a delta, so it is watched rather than believed. Walk left and right for
+-- 20 seconds, then up and down for 20.
 
 local DOMAIN = "WRAM"
-local SAMPLE_EVERY = 2 -- a scroll offset changes within a single step, so sample fast. The read
--- set is 14 bytes, not 32k, so this costs nothing (probes.md, read budget).
+local SAMPLE_EVERY = 2 -- a scroll offset changes within a step; 14 bytes a sample costs nothing
 
 local FIRST = 0x114C
 local LAST = 0x1159
 
-local X, Y = 0x1CBF, 0x1CBE -- MEASURED (verified.md, 2026-08-18)
+local X, Y = 0x1CBF, 0x1CBE -- the player's coordinates, measured on this build
 
--- Riding along, because this run is free and the question is open: 0x0FB1 is being used as
--- wMapStatus and sits 0x481 BELOW vanilla's, while everything else measured on this build moved
--- by +7, +6 or -0x2A. Vanilla+7 would be 0x1439, which nothing has looked at yet. If 0x1439 holds
--- 2 steadily during normal play, it is the better candidate and 0x0FB1 was a lookalike.
+-- Context: which of these two wMapStatus candidates holds 2 through normal play.
 local EXTRA = { 0x1439, 0x0FB1 }
 local PHASE_FRAMES = 1200 -- 20 seconds per axis
 
@@ -58,9 +32,7 @@ local logfile = io.open(string.format("%s/ap_scrollwatch_%s.log", scriptDir(),
 local function log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Flush every 20 lines: a bounded cost, and a log that is never empty for a whole run.
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -92,8 +64,8 @@ end
 log("")
 log("phase  x   y  | " .. table.concat(header, "  "))
 
--- Per address and per phase: how many distinct values it took, and how many changes. A scroll
--- offset takes MANY values on its own axis and none on the other; a flag takes two.
+-- Per address and phase, distinct values and changes: a scroll offset takes many values on its own axis, a flag two.
+-- Scored by the phase walked, not the axis that stepped, so a sideways drift flips the verdict: re-score by x/y.
 local seen = { {}, {} }
 local changes = { {}, {} }
 for a = FIRST, LAST do

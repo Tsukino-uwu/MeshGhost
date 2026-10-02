@@ -1,25 +1,6 @@
--- MeshGhost — Pokémon Crystal: dump a window of WRAM as hex, and nothing else
---
--- READ-ONLY. The bluntest instrument in this folder, and the one to reach for when a signature
--- scan has just produced a confident wrong answer.
---
--- WHY IT EXISTS. `ap_bag_probe.lua` searched the Archipelago build for the bag by its own shape --
--- three pockets in a row, each a count, its entries and a terminator -- and returned exactly one
--- hit, in a region the game does not keep player data in, whose "key items" were `7F 5F 50 7F ...`
--- repeating. A validator that accepts something is not a validator that found the right thing, and
--- the sensible next move is not a cleverer filter: it is to look at the bytes. (`probes.md`, the
--- lesson this session paid for three times: dump everything, filter afterwards.)
---
--- Set the window with the globals below before loading, or edit the defaults. Flat WRAM offsets,
--- the same space the adapter's address tables use: 0x0000-0x0FFF is bank 0 (CPU $C000-$CFFF) and
--- 0x1000 upward is bank 1 (CPU $D000+), which is where the player's own data lives.
---
---   MESHGHOST_WRAM_FROM = 0x1800
---   MESHGHOST_WRAM_TO   = 0x1A00
---
--- Prints 16 bytes a line with the flat offset and the CPU address, once, to the log only -- a hex
--- dump is far too much for the emulator's console (`emulator/CLAUDE.md`: the console is a GUI
--- append, and one line a second already costs frames).
+-- Pokémon Crystal: dumps a window of flat WRAM as hex, once, to the log only. Read-only; the instrument for when a
+-- signature scan has just produced a confident wrong answer. Set MESHGHOST_WRAM_FROM and _TO first: flat offsets,
+-- 0x0000-0x0FFF being bank 0 (CPU $C000) and 0x1000 up bank 1 (CPU $D000), where the player's data lives.
 
 local DOMAIN = "WRAM"
 local FROM = tonumber(MESHGHOST_WRAM_FROM) or 0x1800
@@ -45,8 +26,7 @@ local function w(msg)
 	end
 end
 
--- CPU address for a flat offset, so a dump can be read against pokecrystal's own symbols without
--- anyone doing the arithmetic in their head. The inverse of the adapter's `flat()`.
+-- CPU address for a flat offset, the inverse of the adapter's flat(), so a dump reads against the .sym.
 local function cpu(off)
 	if off < 0x1000 then
 		return 0xC000 + off
@@ -68,8 +48,7 @@ for base = FROM, TO - 1, 16 do
 	for i = 0, 15 do
 		local v = memory.read_u8(base + i, DOMAIN) or 0
 		bytes[#bytes + 1] = string.format("%02X", v)
-		-- A crude printable column: item ids and counts mean nothing as text, but a run of names
-		-- or a block of zeroes is instantly recognisable and costs one character per byte.
+		-- A crude printable column: a run of names or a block of zeros shows at a glance.
 		ascii[#ascii + 1] = (v >= 32 and v < 127) and string.char(v) or "."
 	end
 	w(string.format("%04X (%04X)  %s  %s", base, cpu(base),

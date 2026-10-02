@@ -1,41 +1,10 @@
--- MeshGhost — Pokémon Crystal/Archipelago: force wPlayerState, to CONFIRM it and to reach surf
---
--- **THIS ONE WRITES TO THE GAME.** One byte, and it takes a savestate to SLOT 6 first.
---
--- TWO JOBS, ONE WRITE
---
--- 1. CONFIRM THE ADDRESS. `ap_playerstate_probe.lua` reversed a bike toggle and found flat 0x1A17
---    (CPU $DA17) going 0 on foot -> 1 on the bike, which is vanilla's PLAYER_NORMAL/PLAYER_BIKE
---    encoding exactly. That is TWO states, and two states cannot tell a state byte from a bike
---    flag -- this adapter already carries an address that fit two samples and failed the third
---    (`W_MAPSTATUS`, refuted by a trainer battle after surviving two snapshot runs). A third value
---    is what settles it, and writing one is far cheaper than earning it: surf otherwise needs a
---    badge and a party Pokemon that knows the move, neither of which has a measured address on
---    this build.
---
--- 2. REACH SURF AT ALL. The surf state is the last unexercised piece of this adapter's
---    cross-build appearance work: a surfing peer wears a different sprite, and whether that
---    crosses to a vanilla client is untested. This puts a client into it on demand.
---
--- WHAT SUCCESS LOOKS LIKE: the player's own character becomes the surf blob. That is the ENGINE
--- drawing it, from a byte we only wrote -- so it confirms the address by its effect rather than by
--- reading back what we put there.
---
--- WHAT FAILURE LOOKS LIKE, and it is not a crash: nothing visible changes. `UpdatePlayerSprite`
--- is what turns a state into a sprite and it runs on a state CHANGE, not every frame -- so take a
--- step, or turn, before concluding it did nothing. If the character never changes, 0x1A17 is not
--- wPlayerState and the candidate is refuted, which is a result worth having.
---
--- ** ON LAND, THIS IS A CHEAT AND IT LOOKS LIKE ONE. ** Surfing over grass is not a state the game
--- reaches on its own. It is fine for confirming the address and for putting a sprite on the wire;
--- it is NOT a test of how surfing behaves. Load slot 6 when done.
---
--- MESHGHOST_AP_FORCE_STATE picks the value; default 4. Vanilla's encoding is 0 normal, 1 bike,
--- 2 skate, 4 surf, 8 surfing Pikachu -- reported as the shape to expect, never assumed, since this
--- build renumbers other id spaces (its BICYCLE is 06 where vanilla's is 07).
+-- Writes one game byte, after a savestate to slot 6: forces the Archipelago wPlayerState candidate to a third value,
+-- which tells a state byte from a bike flag. Success is the engine turning the player into the surf blob; step or turn
+-- before concluding nothing changed. On land this is a cheat, not a test of surfing: load slot 6 after.
+-- MESHGHOST_AP_FORCE_STATE picks the value (default 4, vanilla's surf); this build renumbers other id spaces.
 
 local DOMAIN = "WRAM"
-local W_PLAYER_STATE = 0x1A17 -- CANDIDATE (see above). Confirmed on screen: not yet.
+local W_PLAYER_STATE = 0x1A17 -- the candidate, refuted: writing 4 changed nothing on screen
 local WANT = tonumber(MESHGHOST_AP_FORCE_STATE) or 4
 local UNDO_SLOT = 6
 
@@ -85,9 +54,7 @@ local function act()
 	end
 	say(string.format("savestate written to SLOT %d -- load it to undo this", UNDO_SLOT))
 
-	-- THE PLAYER'S OWN SPRITE, BEFORE. Read from the object the engine draws, not from the state
-	-- byte: the whole point is to watch the engine ACT on the write, and the sprite id is where
-	-- that shows. OBJECT_STRUCTS on this build is 0x14DC, sprite at offset 0.
+	-- The player's sprite, from the object the engine draws (wObjectStructs + 0), where the write's effect shows.
 	local before = memory.read_u8(0x14DC, DOMAIN)
 	local was = memory.read_u8(W_PLAYER_STATE, DOMAIN)
 	memory.write_u8(W_PLAYER_STATE, WANT, DOMAIN)

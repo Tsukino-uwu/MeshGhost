@@ -1,11 +1,7 @@
--- drive_menu_npc.lua -- INPUT-DRIVING, one-shot, any build: waits until some non-player OAM sprite
--- sits in the right half of the screen (where the START menu opens), presses START, and for two
--- seconds logs every live OAM entry plus the CGB attribute of a menu tile -- then presses B.
--- The question (2026-09-09, the five-build room): does THIS build draw a character that stands
--- under its START menu, or hide it? Vanilla clears the sprite engine and OAM for the menu;
--- Archipelago and Speedchoice keep sprites on, so the answer has to be read off their OAM.
--- Reads OAM and LCD registers only; needs no per-build address. Dev-loader contract; take it off
--- the target afterwards.
+-- Input-driving, one-shot, any build: does this build draw a character under its START menu? Waits for a non-player
+-- sprite on the right half of the screen, presses START, logs every live OAM entry and a menu tile's CGB attribute for
+-- two seconds, then B. Needs no per-build address (OAM, LCD registers, bank-0 WRAM). Take it off the target after.
+
 local port = os.getenv("MESHGHOST_BRIDGE_PORT") or "noport"
 local f = io.open(string.format("%s/drive_menu_npc_%s_%s.log", (io.popen("cd"):read("*l") or "."), os.date("%Y%m%d_%H%M%S"), port), "w")
 local function log(s) console.log(s); if f then f:write(os.date("%H:%M:%S "), s, "\n"); f:flush() end end
@@ -25,9 +21,8 @@ local function menuAttr()
 		memory.read_u8(0xFF4A, "System Bus") or 0, memory.read_u8(0xFF4B, "System Bus") or 0,
 		memory.read_u8(map + 2 * 32 + 12, "VRAM") or 0, memory.read_u8(0x2000 + map + 2 * 32 + 12, "VRAM") or 0)
 end
--- Bank-0 WRAM dump (flat 0x0F00-0x0FFF, where vanilla keeps wMenuBorder*Coord at 0x0F82-0x0F85)
--- with the menu open and again closed, so a build that moved those bytes can be measured by
--- the four coordinates appearing and disappearing (added 2026-09-09 for the Archipelago build).
+-- Bank-0 WRAM with the menu open and closed: a build that moved wMenuBorder*Coord (vanilla 0x0F82-0x0F85) shows
+-- where by the four coordinates appearing and disappearing.
 local function dumpBank0(tag)
 	for base = 0x0F00, 0x0FF0, 16 do
 		local h = {}

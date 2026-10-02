@@ -1,22 +1,6 @@
--- DRIVE ONE FLY FROM A PREPARED SAVESTATE, and photograph the landing. -- 2026-08-26
---
--- INPUT-DRIVING PROBE: loads a savestate and presses A once. Unload it before judging anything
--- else on screen. Built because the user handed over two prepared states -- slot 8 "same town,
--- press A to fly", slot 9 "different town, press A to fly" -- which turns each fly-landing
--- iteration from a request on the user's time into something this rig can run itself.
---
--- WHAT IT DOES, on a fixed countdown (endurance, not timing):
---   1. waits 2s, loads MESHGHOST_FLY_SLOT (default 8),
---   2. waits 2s for the adapter to re-sync to the loaded world,
---   3. presses A once,
---   4. screenshots every 8 frames for the next ~10s into the log folder, numbered by frame.
---
--- The adapter's own MESHGHOST_CRYSTAL_FLY_TRACE lines are the other half of the reading: this
--- probe supplies the eyes (did the POKEMON appear during the descent?), the trace supplies the
--- envelope (did the drop arm, what species was held, did the icon resolve).
---
--- Screenshots go beside the logs so a session's evidence stays in one place; the folder is
--- gitignored the same way logs are.
+-- Pokémon Crystal: drives one Fly from a savestate and photographs the landing: loads MESHGHOST_FLY_SLOT (default 8),
+-- presses A once and screenshots every 8 frames for ~10s into the adapter's logs/. Holds the controller: unload it
+-- before judging anything else. The adapter's MESHGHOST_CRYSTAL_FLY_TRACE lines are the other half of the reading.
 
 local SLOT = tonumber(_G.MESHGHOST_FLY_SLOT or "") or 8
 
@@ -26,8 +10,7 @@ do
 	if info and info.source and info.source:sub(1, 1) == "@" then
 		dir = info.source:sub(2):match("^(.*)/[^/]*$") or "."
 	end
-	-- The adapter's logs/ lives at the ADAPTER root, not beside this probe -- the first run wrote
-	-- 75 screenshots into probes/logs/, which does not exist, and the pcall swallowed every one.
+	-- The adapter's logs/ is at its root, not beside this probe.
 	dir = dir:match("^(.*)/probes$") or dir
 end
 local stamp = os.date("%H%M%S")

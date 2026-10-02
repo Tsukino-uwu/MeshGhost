@@ -1,38 +1,11 @@
--- MeshGhost — Pokémon Crystal: measure the numbers the adapter still borrows (2026-09-16)
---
--- DEVELOPMENT TOOL, read-only. It presses nothing and writes nothing but its own log and PNGs.
---
--- WHY THIS EXISTS
--- The per-site audit (phases/phase12.md, 2026-09-16) left three VALUES in shipped code that came
--- from the decompilation alone (crystal/UNVERIFIED.md, the per-site audit entry):
---   * `facingFrames.ROD`   -- the rod tile's dx/dy and flip per fishing direction;
---   * the shadow object's spawn bytes (movement type, flags1, palette, step, facing);
---   * `emote.SHADOW_DY`    -- the shadow's y below the hopping character, per direction.
--- Each is answered by what the ENGINE builds for the PLAYER, so this probe records that and
--- leaves the comparison to whoever reads the log.
---
--- WHAT IT RECORDS. Nothing is filtered before it is written (probes.md: a filter applied before
--- you look is a guess about the answer). A WINDOW opens on any frame where the player's facing is
--- a fishing facing ($10-$13) or any object struct other than the player's holds a nonzero sprite
--- that was not there the frame before -- a spawned shadow is exactly that -- and stays open 60
--- frames after the last trigger, with 8 frames of pre-roll. Per frame in a window:
---   * the frame number, map group/number;
---   * every object struct whose sprite byte is nonzero, all 0x28 bytes in hex, slot index first;
---   * hardware OAM, all 40 entries (y x tile attr) in hex.
--- A line "WINDOW open/close" brackets each window with the reason.
---
--- WHAT IT CANNOT SEE. Only what is resident on the frames the loader ticks it (once per frame,
--- after the frame): a between-frame write is invisible. It says nothing about a GHOST -- the
--- adapter should not be loaded while it runs, so every struct in the log is the game's own.
---
--- COST. Every frame (the pre-roll ring needs it, in or out of a window): up to 13x40 + 160 bytes
--- through read_bytes_as_array, formatted to hex; written only inside a window, buffered, flushed
--- once a second. Not for judging pacing while loaded.
---
--- Dev-loader contract: add this file's absolute path to the window's target file; remove it to stop.
+-- Pokémon Crystal: logs what the engine builds for the player while fishing or when an object appears (a hop's
+-- shadow), unfiltered, to compare against values the adapter took from a source. Writes only its log and PNGs.
+-- A window opens on a fishing facing ($10-$13) or a new sprite in a non-player slot, with 8 frames of pre-roll and 60
+-- after the last trigger: per frame, every occupied object struct's 0x28 bytes and all 40 OAM entries.
+-- Load it without the adapter, so every struct is the game's own. It reads every frame: not for judging pacing.
 
 local function flat(cpu) return cpu < 0xD000 and cpu - 0xC000 or 0x1000 + (cpu - 0xD000) end
--- Vanilla V1.0 addresses, the adapter's own table (hash-verified .sym).
+-- Vanilla V1.0 addresses, from the adapter's own table.
 local OBJECT_STRUCTS, OBJECT_LENGTH, NUM_OBJECT_STRUCTS = flat(0xD4D6), 0x28, 13
 local W_MAPGROUP, W_MAPNUMBER = flat(0xDCB5), flat(0xDCB6)
 local F_FACING = 0x0D

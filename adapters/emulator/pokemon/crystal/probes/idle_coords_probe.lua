@@ -1,43 +1,24 @@
--- MeshGhost — Crystal: where is the player standing RIGHT NOW? (PROBE, never shipped)
---
--- READ-ONLY. Writes nothing, presses nothing, draws nothing. It exists because the two
--- instruments that could already answer this both cost more than the question is worth:
--- `ap_coord_probe.lua` WALKS the player to find coordinates differentially (the right tool for an
--- unknown build, the wrong one when the player must stay idle), and the adapter itself does not
--- print a status line the way Emerald's does.
---
--- WHY IT PRINTS BOTH CANDIDATES RATHER THAN PICKING ONE.
--- The adapter carries two vanilla layouts one byte apart -- wYCoord/wXCoord at 0xDCB7/0xDCB8 and
--- at 0xDCB8/0xDCB9 -- because V1.0 and V1.1 differ by exactly that shift. Choosing here would be
--- guessing which build is loaded; printing both, beside the map id, lets a human pick on evidence.
--- A probe that returns one number cannot be sanity-checked, which is the whole lesson behind this.
---
--- WHAT IT CANNOT SEE: whether the value it read is the coordinate the ENGINE is using this frame
--- (a warp in progress rewrites these), and nothing about sub-tile pixel offset. It samples for a
--- fixed window and reports the RANGE each address covered, so a value that is drifting shows as a
--- range rather than as a confident single number.
+-- Where the player stands right now, read without moving them (ap_coord_probe.lua walks). Read-only. Samples for 2
+-- seconds and reports each candidate's range, so a drifting value shows; blind to whether the engine uses it this frame
+-- (a warp rewrites it). Ends with the player object's wire position and meshghost-fakeadapter's -dims/-center.
 
 local SAMPLES = 120 -- 2s at 60fps; long enough that a flickering address cannot look stable
 
+-- Vanilla (V1.0, V1.1) and Speedchoice v8.1 keep the pair one byte apart: both are printed beside the map id, so
+-- the build is picked on evidence rather than guessed.
 local CANDIDATES = {
     { name = "layout A (0xDCB7/0xDCB8)", y = 0xDCB7, x = 0xDCB8 },
     { name = "layout B (0xDCB8/0xDCB9)", y = 0xDCB8, x = 0xDCB9 },
 }
 local MAPGROUP, MAPNUMBER = 0xDCB5, 0xDCB6 -- vanilla layout A's pair; printed, never trusted alone
 
--- THE OBJECT STRUCT IS WHAT THE WIRE ACTUALLY CARRIES, and it is NOT wXCoord/wYCoord.
--- `getLocalState` builds `position` as {mapX, mapY, mapX*16, mapY*16} from the PLAYER'S OBJECT
--- (slot 0 of OBJECT_STRUCTS, fields 0x10/0x11) -- four components, the last two in map pixels,
--- and the painted tier draws from components 3 and 4. The wWhatever-Coord pair above is a
--- different quantity with a different origin, so placing synthetic peers with it puts them at the
--- map's top-left corner instead of around the player. Found on screen, 2026-09-11.
+-- The wire carries the player object's map coords as {mapX, mapY, mapX*16, mapY*16}, and the painted tier draws
+-- from the pixel pair; wXCoord/wYCoord above have a different origin.
 local OBJECT_STRUCTS = 0xD4D6
 local F_MAP_X, F_MAP_Y = 0x10, 0x11
 
--- LOGS TO A FILE as well as the console. `console.log` is a GUI append that nothing outside the
--- emulator can read, and an instrument whose output only a human can see cannot be checked.
--- Resolve this script's own directory rather than naming one: an absolute path here would be a
--- machine-specific path in a public repo, which the pre-commit hook refuses (and was right to).
+-- A file as well as the console, which nothing outside the emulator can read; beside this script, never by an
+-- absolute path.
 local function scriptDir()
     local info = debug.getinfo(1, "S")
     if info and info.source and info.source:sub(1, 1) == "@" then
@@ -96,9 +77,7 @@ local function tick()
 end
 
 MESHGHOST_DEV_UNLOAD = function()
-    -- Stated rather than assumed: this probe owns no global the game or the adapter can see, and
-    -- it wrote no memory, so there is nothing to undo. A probe global outliving its probe is the
-    -- standing trap this line exists to answer.
+    -- Nothing to undo: no global the game or the adapter can see, and no memory written.
 end
 
 if MESHGHOST_DEV_LOADER then

@@ -1,25 +1,6 @@
--- MeshGhost — Pokémon Crystal: a trainer seeing the player, coming over, and its defeat flag, for autoplay
--- (DEV TOOL, READ-ONLY, never shipped) -- 2026-09-17
---
--- READ-ONLY. Load it beside the autoplay driver, step into a trainer's line with `walk`, play the battle with
--- `battle`, and read this log against the driver's answers and captures.
---
--- WHY. On Route 30 Bug Catcher Don came for the player at three tiles and not at four; wScriptRunning read 1 from
--- that step until the map reloaded after the battle, where signs and wild encounters read 255. autoplay's `walk` and
--- `battle` need to know a trainer has seen the player and which one; `nearby` wants each trainer's range and whether
--- it is beaten. Our V1.0 build's .sym names the bytes to watch (wSeenTrainerBank..wTempTrainerEnd, hLastTalked,
--- wMapObjects, wEventFlags); what they read is this log's job.
---
--- WHAT IT LOGS, each on change, every frame, with the frame:
---   script   wScriptRunning, wScriptMode, wScriptFlags, hLastTalked (FFE0), wBattleMode, wOtherTrainerClass (D22F),
---            wOtherTrainerID (D231), wTrainerClass (D233)
---   seen     the 17 bytes D03E-D04E, raw
---   trainer N  for each map-object record (16 x 0x10 from D71E) whose +0x08 low nibble reads 2: the record, the 12
---            bytes its script pointer (+0x0A) points at in wMapScriptsBank, and the byte and bit of wEventFlags (DA72)
---            the first two of those bytes would name as a flag: byte, bit and value
--- What it cannot see: a trainer whose record does not read 2 at +0x08, anything between frames.
---
--- COST. About 40 bytes a frame, plus 16 records compared a frame. Log: crystal/logs/autoplay_trainer_<port>_<ts>.log.
+-- Read-only, beside the autoplay driver: a trainer seeing the player, coming over, and its defeat flag. Logs on
+-- change, every frame: the script and trainer bytes, D03E-D04E raw, and each map-object record whose +0x08 low nibble
+-- reads 2, with the 12 bytes its script pointer names and the event flag they would name. About 40 bytes a frame.
 
 local dir, port = ".", tostring(AUTOPLAY_PORT or os.getenv("AUTOPLAY_PORT") or "na")
 do

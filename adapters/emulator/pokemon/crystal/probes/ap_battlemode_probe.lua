@@ -1,50 +1,17 @@
--- MeshGhost — Crystal/Archipelago: which byte is wBattleMode
---
--- READ-ONLY. Writes nothing, spawns nothing.
---
--- WHY
--- Two state runs intersected to 64 candidates, and 10 of them read exactly 1 during BOTH battles.
--- That is consistent rather than conclusive: 1 is the commonest non-zero byte in memory, and a
--- snapshot only proves a value at one instant.
---
--- Two things separate the real one, and this probe collects both in a single session:
---
---   1. DURATION. wBattleMode is non-zero for the WHOLE battle and returns to 0 when it ends. A
---      byte that happened to be 1 at the sampled moment flickers instead.
---   2. WILD vs TRAINER. The vanilla semantics -- already relied on by the working adapter -- are
---      0 outside, 1 wild, 2 trainer. Both earlier battles were wild, so nothing yet has asked a
---      candidate to hold a DIFFERENT non-zero value. A trainer battle does.
---
--- 0x0FB1 rides along as context: it is the measured wMapStatus, 2 in the overworld and 0 in a
--- battle, so it marks where each battle starts and ends without assuming any of the candidates.
---
--- HOW TO RUN -- no fixed length, and no waiting around
---   1. Load the ARCHIPELAGO Crystal ROM, stand in the overworld.
---   2. Lua Console -> Script -> Open, pick this file.
---   3. Get into a WILD battle and see it through to the end (running away is fine). The verdict
---      prints the moment that battle ends. One wild battle is a complete run: stop there.
---   4. It keeps watching, so any later battle re-reports with all of them compared. A TRAINER
---      battle is what finally separates a tie, whenever one happens to be reachable.
---      Log: ap_battle_<timestamp>.log beside this script. Console gets the battle boundaries.
+-- Crystal/Archipelago: which of ten candidate bytes is wBattleMode. Read-only; reports as each battle ends.
+-- The real one holds one non-zero value for a whole battle and is 0 after. Vanilla's reads 1 in a wild battle and 2
+-- in a trainer one, so a battle of each kind separates candidates that tie.
 
 local DOMAIN = "WRAM"
 local SAMPLE_EVERY = 6
 
-local W_MAPSTATUS = 0x0FB1 -- MEASURED: the single survivor of two state runs (verified.md)
+local W_MAPSTATUS = 0x0FB1 -- the wMapStatus candidate two state runs left; the adapter reads 0x1439
 local MAPSTATUS_HANDLE = 2
 
--- A battle is wMapStatus == 0, NOT "anything other than 2". Found the hard way on the first run
--- (2026-08-18): between two wild battles the byte reads 1, never 2 -- the map is re-entering after
--- the first battle when the second encounter starts. Treating 1 as "still in battle" merged both
--- battles AND the walk between them into one window, so every candidate that correctly dropped to
--- 0 in the gap was scored as "flickers". Nine real candidates were thrown away by that.
---
--- The three values behave exactly like wMapStatus's own: 0 no map, 1 map entering, 2 map handled.
--- Worth noting the adapter's gate already wants == 2 specifically, which excludes the entering
--- state too -- a ghost has no business existing while the map is still being set up.
+-- A battle is wMapStatus 0, not anything but 2: between two wild battles it reads 1 while the map re-enters.
 local MAPSTATUS_NO_MAP = 0
 
--- The 10 that read 1 in both earlier battles, in address order. No favourites.
+-- The ten bytes that read 1 in both of two earlier wild battles.
 local WATCH = { 0x015A, 0x01F6, 0x0210, 0x0228, 0x0279, 0x028C, 0x02BC, 0x1234, 0x143E, 0x14F8 }
 
 local function scriptDir()
@@ -64,9 +31,7 @@ local logfile = io.open(string.format("%s/ap_battle_%s.log", scriptDir(),
 local function log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Flushed every 20 lines: bounded cost, and a live log (an unflushed one reads as nothing happened).
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -99,9 +64,7 @@ end
 log("")
 log("event         status | " .. table.concat(header, "  "))
 
--- Per candidate, per battle: the values it held and for how many samples. A byte that is the real
--- flag holds ONE non-zero value for essentially the whole battle. Kept per battle rather than
--- pooled, so a wild and a trainer battle can be compared against each other later.
+-- Per battle, per candidate, the samples each value was seen for: kept per battle so two kinds can be compared.
 local held, samples = {}, {}
 
 local frames, inBattle, battles = 0, false, 0
@@ -197,8 +160,6 @@ local function tick()
 	elseif inBattle and not nowInBattle then
 		say(string.format("battle %d ended", battles))
 		log(string.format("%-13s %6d | %s", "battle end", status, rowText()))
-		-- Report the moment it ends rather than at some fixed finish time. The answer is ready
-		-- now, and waiting out a timer spends the user's session for nothing (probes.md).
 		report()
 	end
 	inBattle = nowInBattle
@@ -211,7 +172,6 @@ local function tick()
 		end
 	end
 
-	-- a compact trace, only when something actually moves
 	local now = rowText()
 	if now ~= prev.row then
 		log(string.format("%-13s %6d | %s", inBattle and "in battle" or "overworld", status, now))

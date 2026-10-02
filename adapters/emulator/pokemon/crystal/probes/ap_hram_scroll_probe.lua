@@ -1,69 +1,18 @@
--- MeshGhost — Crystal/Archipelago: find hSCX / hSCY (the CAMERA) in HRAM
---
--- READ-ONLY. Writes nothing, spawns nothing, and takes no input.
---
--- WHY THIS EXISTS, and it was predicted before it was needed
--- `UNVERIFIED.md`, 2026-08-23, "the camera addresses bypass the adapter's own per-build table":
--- `hSCX`/`hSCY` are read as inline literals (`0xFFCF`/`0xFFD0`, System Bus) where every other
--- address in this adapter comes from the per-ROM-build table. Vanilla V1.0's pair comes from a
--- hash-verified local `pokecrystal` build. **The Archipelago build's are ASSUMED** — the argument
--- being that the patch moves WRAM (its `wPlayerBGMapOffset` is vanilla+7) while HRAM is small and
--- hardware-adjacent. That is a plausible argument, not a measurement, and that entry says exactly
--- what a wrong pair would look like: HRAM always reads, so it returns a believable scroll value
--- and the graceful fallback never fires.
---
--- Which is what a live mixed-room run then produced, 2026-08-26: on the ARCHIPELAGO instance a
--- peer standing perfectly still was drawn GLIDING as the local player walked, and stuck at the
--- edge of the screen once the player moved far enough away. Both are what a drawn ghost does when
--- the camera clock it is anchored to is not the camera. The vanilla instance, same build of this
--- adapter, same peer, was correct throughout.
---
--- HOW — the same correlation that found `W_BGMAPOFFSETX/Y` on this build, pointed at HRAM
--- A camera register's signature is very specific and nothing else in this range has it:
---
---   * CONSTANT while the player stands still, at any position on any map.
---   * CHANGING several times WITHIN one step, since a tile takes several frames to slide past.
---   * AXIS-SPECIFIC: the X register moves for left/right and not for up/down, and the reverse.
---   * It walks a RUN of values (0 2 4 6 ... or 254 252 250 ...), not two or three of them —
---     which is what tells a camera from a flag that happens to flip while you walk.
---
--- HRAM IS 127 BYTES, so this is a complete sweep rather than a search: $FF80-$FFFE, every one,
--- with nothing filtered before you look. (`probes.md`: a filter applied before you look is a guess
--- about the answer.) The whole scan is 127 reads every other frame and cannot cost a frame.
---
--- IT CHECKS ITS OWN ASSUMPTION BY NAME. Whatever the sweep finds, the report also states outright
--- what $FFCF and $FFD0 — the two the adapter is using right now — actually did, so the run either
--- confirms the assumption or names the pair that replaces it. A probe that returns only a search
--- result cannot tell you that the thing you already believed was right.
---
--- HOW TO RUN — about 40 seconds, and NOTHING TO TIME
--- Fixed phases with a countdown; you are asked for endurance, not for hitting a window.
---   1. On the ARCHIPELAGO ROM, stand in the overworld with room to walk both ways. (Run it on
---      VANILLA too if you want the method checked: there it must find $FFCF/$FFD0 and nothing
---      else, which is what makes a hit on the patched build trustworthy.)
---   2. Lua Console -> Script -> Open, pick this file.
---   3. PHASE 1 (5s)  STAND COMPLETELY STILL. Do not touch the d-pad.
---   4. PHASE 2 (15s) Walk LEFT and RIGHT, back and forth. Keep moving the whole phase.
---   5. PHASE 3 (15s) Walk UP and DOWN, back and forth. Keep moving the whole phase.
---      Log: ap_hram_scroll_<timestamp>.log beside this script. Console gets the summary.
---
--- Walking into a wall is fine and does not spoil a phase: the camera does not move on a bump, so
--- it costs coverage, never a false hit.
+-- Crystal/Archipelago: finds hSCX/hSCY (the camera) by sweeping all of HRAM for its signature. Read-only, no input.
+-- A camera byte is constant while standing, changes several times within a step, moves on one axis only, and walks a
+-- run of evenly spaced values. Stand still 5s, walk left and right 15s, then up and down 15s, as prompted; on
+-- vanilla it must find $FFCF/$FFD0 and nothing else. A bump costs coverage, never a false hit: the camera stays put.
 
--- SYSTEM BUS, not WRAM. HRAM is not in the WRAM domain at all, and this is the same domain the
--- adapter itself reads the camera through -- so a hit here is directly usable rather than needing
--- a translation. `domain_probe.lua` established that System Bus and WRAM agree on the bank-1
--- bytes; this range only exists on the bus.
+-- System Bus, not WRAM: HRAM is not in the WRAM domain.
 local DOMAIN = "System Bus"
 local LO, HI = 0xFF80, 0xFFFE
 
-local SAMPLE_EVERY = 2 -- frames. A camera register changes several times inside one step, so
--- sampling per step would see only its endpoints. 127 bytes every other frame is nothing.
+local SAMPLE_EVERY = 2 -- frames: a camera changes several times inside one step
 
 local STILL_FRAMES = 300
 local AXIS_FRAMES = 900
 
--- The pair the adapter is using RIGHT NOW, so the report can speak about them by name.
+-- Vanilla's pair, reported by name so a run says whether it holds on this build.
 local ASSUMED_X, ASSUMED_Y = 0xFFCF, 0xFFD0
 
 local function scriptDir()
@@ -84,9 +33,7 @@ local flushEvery = 0
 local function log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. A per-line flush was removed once in a
-		-- buffering sweep and a probe then reported NOTHING for a whole run -- an empty log reads
-		-- exactly like "nothing happened" (`pitfalls.md`).
+		-- Flushed every 20 lines: bounded cost, and a live log (an unflushed one reads as nothing happened).
 		flushEvery = flushEvery + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -105,7 +52,7 @@ local function u8(addr)
 	if ok and type(v) == "number" then
 		return v
 	end
-	return nil -- nil, NOT 0: a read that failed must not look like a byte holding zero
+	return nil -- a failed read must not look like a byte holding zero
 end
 
 say("=== MeshGhost Crystal/AP HRAM camera probe (READ-ONLY) ===")
@@ -131,8 +78,7 @@ local function scan(counter)
 		if now ~= nil and prev[a] ~= nil and now ~= prev[a] then
 			counter[a] = counter[a] + 1
 			local v = values[a]
-			-- Capped so one noisy byte cannot eat memory. 40 distinct values is far more than a
-			-- camera shows in a phase and far less than a frame counter does.
+			-- Capped: 40 is more distinct values than a camera shows in a phase, and fewer than a counter does.
 			if not v[now] and v.n < 40 then
 				v[now] = true
 				v.n = v.n + 1
@@ -144,8 +90,6 @@ local function scan(counter)
 	end
 end
 
--- Distinct values seen at an address, sorted. Returned rather than printed so the caller can both
--- show them and reason about them -- a probe that returns a verdict cannot be sanity-checked.
 local function valuesAt(a)
 	local vs = {}
 	for v in pairs(values[a]) do
@@ -157,9 +101,7 @@ local function valuesAt(a)
 	return vs
 end
 
--- Does this address walk a RUN, or does it just flip? A camera steps by a constant stride within a
--- phase, so its distinct values are evenly spaced. Reported as the commonest gap and how much of
--- the sequence shares it -- a number to read, not a boolean to trust.
+-- A camera steps by a constant stride, so its values are evenly spaced: reported as the commonest gap and its share.
 local function runShape(a)
 	local vs = valuesAt(a)
 	if #vs < 3 then
@@ -196,7 +138,7 @@ local function report()
 	for _ in pairs(unreadable) do
 		nUnreadable = nUnreadable + 1
 	end
-	-- AN INSTRUMENT REPORTS ITS OWN COVERAGE, not only its findings.
+	-- An instrument reports its own coverage, not only its findings.
 	say(string.format("coverage: %d bytes swept, %d never readable",
 		HI - LO + 1, nUnreadable))
 
@@ -220,13 +162,7 @@ local function report()
 		describe(a, "")
 	end
 
-	-- EVERYTHING THAT MOVED, UNFILTERED -- and this section is here because the first version of
-	-- this probe did not have it (2026-08-26). The strict "moved on X ONLY" test above found the
-	-- Y register cleanly and reported ZERO X candidates, which reads as "the X register is not in
-	-- HRAM" and is nothing of the sort: a byte that twitched once during the up/down phase --
-	-- because a walk is never perfectly axis-pure -- was discarded before anyone could look at it.
-	-- `probes.md`: a filter applied before you look is a guess about the answer, and a wrong guess
-	-- still produces a complete-looking result. 127 addresses is a readable dump; print them.
+	-- Everything that moved, unfiltered: the strict test above drops a byte that twitched once on the other axis.
 	say("--- EVERY address that moved at all, strongest first, NO filtering ---")
 	local movers = {}
 	for a = LO, HI do
@@ -241,9 +177,6 @@ local function report()
 	end
 	say(string.format("(%d of %d bytes moved at all)", #movers, HI - LO + 1))
 
-	-- THE ASSUMPTION, TESTED BY NAME. Whatever the sweep above found, these two are what the
-	-- adapter is reading today, so the run has to say what they did -- otherwise a clean-looking
-	-- result leaves "were the old ones right after all?" unanswered.
 	say("--- the pair this adapter is USING right now, whatever the sweep says ---")
 	describe(ASSUMED_X, "(assumed X)")
 	describe(ASSUMED_Y, "(assumed Y)")
@@ -292,8 +225,7 @@ local function tick()
 	end
 end
 
--- Runs under the dev loader (which owns the frame loop, so the adapter can stay attached and keep
--- the ghost on screen while this measures) or standalone from the Lua Console.
+-- Under the dev loader the adapter stays attached and keeps the ghost on screen while this measures.
 if MESHGHOST_DEV_LOADER then
 	MESHGHOST_DEV_TICK = tick
 else

@@ -1,16 +1,8 @@
--- What a BUMP looks like, in the player's own struct AND in the frames actually drawn.
---
--- The struct half answered the first question (walking stays STANDING, action reads 3, facing
--- alternates). It did NOT answer the one that matters for the drawn tier: which IMAGE the engine
--- puts on screen each frame. The tile index in the player's OAM entry, relative to the player's own
--- OBJECT_SPRITE_TILE, is that image -- the same `(tile - base) & 0x7F` the adapter's frame learner
--- uses. A ghost is 1:1 when it shows this sequence, at this cadence.
---
--- Constants from meshghost_crystal.lua: OBJECT_STRUCTS 0xD4D6, F_SPRITE_TILE 0x02, F_WALKING 0x07,
--- F_DIRECTION 0x08, F_ACTION 0x0B, F_FACING 0x0D, F_MAP_X 0x10, F_MAP_Y 0x11.
--- Log beside this script, resolved from the script's own path -- never an absolute one. A probe
--- committed with a developer's directory baked into it is a personal path in a public repo, which
--- is exactly what happened to the first version of this file (2026-08-23).
+-- Pokémon Crystal: holds Down, Left, Up, Right in turn until one is a wall, then keeps holding it, and logs run-length
+-- the image the engine draws for the player ((tile - base) of its OAM entry against OBJECT_SPRITE_TILE), its facing
+-- and its action.
+-- Player struct at 0xD4D6: +0x02 sprite tile, +0x0B action, +0x0D facing, +0x10/+0x11 map x/y.
+-- The log goes beside this script, resolved from its own path: never an absolute one.
 local f
 do
 	local dir = "."
@@ -27,7 +19,7 @@ local di, held, startTile, n = 1, 0, nil, 0
 local run = { last = nil, count = 0 }
 
 local function playerFrame()
-	-- The player's own art is (tile - base) & 0x7F < 12; the 0x80 bit is the STEPPING block.
+	-- The player's own art is (tile - base) & 0x7F < 12; the 0x80 bit is the stepping block.
 	local base = u8(OBJ + 0x02)
 	local tile = memory.read_u8(2, "OAM") or 0
 	return (tile - base) & 0xFF
@@ -47,8 +39,7 @@ MESHGHOST_DEV_TICK = function()
 	held = held + 1
 	local moved = (mx .. "," .. my) ~= startTile
 	if held > 20 and not moved then
-		-- RUN-LENGTH, not one line per frame: the question is the CADENCE, and 100 identical lines
-		-- hide it while a run length states it directly.
+		-- Run-length, not a line per frame: the question is the cadence.
 		local key = string.format("frame=0x%02X facing=%2d action=%d", playerFrame(),
 			u8(OBJ + 0x0D), u8(OBJ + 0x0B))
 		if key == run.last then

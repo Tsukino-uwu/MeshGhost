@@ -1,29 +1,7 @@
--- MeshGhost — Pokémon Crystal: the map around the player, the characters on it and its event lists, for
--- autoplay's crystal.lua (DEV TOOL, READ-ONLY, never shipped) -- 2026-09-17
---
--- READ-ONLY. Writes nothing, presses nothing. Load it beside the autoplay driver and drive with the driver's
--- tools; read each dump against a capture taken on the same tile.
---
--- WHY. autoplay needs `local_map` (what stands on each tile around the player) and `nearby` (the other
--- characters). cmd_drive.lua measured on one map (2026-09-16) that a tile's collision is quadrant
--- (y%2)*2+(x%2) of block (x//2, y//2), found at (by+3)*(wMapWidth+6)+(bx+3) in wOverworldMapBlocks, through the
--- loaded tileset's collision table -- and left open whether that holds on other maps. Our V1.0 build's .sym says
--- where the object records (wObjectStructs, 13 x 0x28; wMapObjects, 16 x 0x10) and the map's event lists
--- (coord, bg, object) are; what their bytes mean is this log's job.
---
--- WHAT IT LOGS, whenever the map, the player's tile or the object records change (at most once per 8 frames
--- while they keep changing), with the frame:
---   * `map` -- group.number, wMapWidth/Height (blocks), wMapBorderBlock, the tileset header's collision
---     bank and pointer, the player's tile;
---   * `grid` -- 11 rows of 15 tiles centred on the player: block id and collision byte per tile (bb:cc);
---   * `obj N` -- every object record whose first byte is not 0, all 0x28 bytes;
---   * `mapobj N` -- every map-object record whose first two bytes are not both 0, all 0x10 bytes;
---   * `events` -- the coord, bg and object event counts and pointers (bank wMapScriptsBank), and each list's
---     first 16 entries raw (8, 5 and 13 bytes a row, the sizes read from what repeats).
--- What it cannot see: collision on tiles outside the block buffer; anything between frames.
---
--- COST. A few hundred reads per logged change, none on a quiet frame beyond a 13-record compare. Log:
--- crystal/logs/autoplay_map_<port>_<timestamp>.log, flushed every 120 frames.
+-- Read-only dev tool for autoplay's crystal.lua: on each map, tile or object change, logs 11 by 15 tiles of block id
+-- and collision around the player, every live object and map-object record, and the map's event lists. Load it beside
+-- the autoplay driver and read each dump against a capture of the same tile. Blind to tiles outside the block buffer
+-- and to anything between frames. Logs to crystal/logs/.
 
 local function flat(cpu) return cpu < 0xD000 and cpu - 0xC000 or 0x1000 + (cpu - 0xD000) end
 local function u8(a) return memory.read_u8(a, "WRAM") end

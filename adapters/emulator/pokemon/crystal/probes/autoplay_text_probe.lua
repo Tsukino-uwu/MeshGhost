@@ -1,23 +1,6 @@
--- MeshGhost — Pokémon Crystal: what the screen's tile buffer and the menu block read while text and menus
--- are up, for autoplay's crystal.lua (DEV TOOL, READ-ONLY, never shipped) -- 2026-09-17
---
--- READ-ONLY. Writes nothing, presses nothing. Load it beside the autoplay driver and drive the game with the
--- driver's tools; this is the timeline those answers are read against.
---
--- WHY. Crystal draws its text as tiles: our V1.0 build's .sym places the screen's 20x18 tile buffer at
--- wTilemap, the menu block at wWindowStackPointer..wMoreMenuDataEnd, and the text box's flags at
--- wTextboxFlags. Which bytes say "a message box is waiting for a button", "a menu is open", where the cursor is
--- and which byte draws which letter is what this log, read against captures of the same frames, settles.
---
--- WHAT IT LOGS, each only when it changes, with the frame and the wall clock:
---   * `row NN` -- a tilemap row, 20 bytes of hex (all 18 rows once at load);
---   * `menu` -- 0x40 bytes from wWindowStackPointer (CF71..CFB0), raw;
---   * `state` -- wScriptRunning, wScriptMode, wStateFlags, wTextboxFlags, wTextDelayFrames, wSpriteUpdatesEnabled,
---     hBGMapMode, hJoyDown, hJoyPressed.
--- What it cannot see: anything between frames; VRAM (what a tile id DRAWS is the captures' job).
---
--- COST. 18 row reads, one 64-byte read and nine bytes a frame; buffered, flushed every 120 frames. Log:
--- crystal/logs/autoplay_text_<port>_<timestamp>.log.
+-- Read-only dev tool for autoplay's crystal.lua: logs the screen's tile rows, the menu block and the text, script and
+-- joypad bytes on change, to settle which bytes mean a waiting message box, an open menu, the cursor and each letter.
+-- Load it beside the autoplay driver; read it against captures. Blind to VRAM and between frames; logs in crystal/logs.
 
 local function flat(cpu) return cpu < 0xD000 and cpu - 0xC000 or 0x1000 + (cpu - 0xD000) end
 local function u8(a) return memory.read_u8(a, "WRAM") end
@@ -75,8 +58,7 @@ MESHGHOST_DEV_TICK = function()
 		log("state " .. st)
 		lastState = st
 	end
-	-- AUTOPLAY_TEXT_PROBE_HRAM=1: all of HRAM (FF80-FFFE) on change as well, for finding a timer or flag
-	-- that is not in the lists above. Off by default: much of it changes every frame.
+	-- AUTOPLAY_TEXT_PROBE_HRAM=1 adds all of HRAM on change; off by default, as much of it changes every frame.
 	if (AUTOPLAY_TEXT_PROBE_HRAM or os.getenv("AUTOPLAY_TEXT_PROBE_HRAM")) == "1" then
 		local h = hex(memory.read_bytes_as_array(0xFF80, 0x7F, "System Bus"))
 		if h ~= lastHram then

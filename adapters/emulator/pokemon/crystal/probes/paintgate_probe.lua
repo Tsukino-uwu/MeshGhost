@@ -1,65 +1,11 @@
--- MeshGhost — Pokémon Crystal: how many frames late does the painted tier come back?
---
--- READ-ONLY DIAGNOSTIC. Writes nothing, spawns nothing, changes nothing on screen.
---
--- WHY THIS EXISTS
--- The user, 2026-08-22, after the hold was resequenced: *"think its a bit better now, but the
--- drawn ghost still appear a tiny bit late when going 'inside'"* — and, about the other
--- direction, *"i can't really tell visually when going 'outside'"*. That second sentence is a
--- measurement result, not a shrug (`_template/probes.md`, "when a human says they cannot tell,
--- that is data"): the effect is at the edge of perception, so it gets counted rather than looked
--- at again. This probe counts it, in both directions, so neither rests on eyesight.
---
--- WHAT THE ADAPTER ACTUALLY DOES, and why a frame count is the whole question.
--- The painted tier may not paint over a rebuilt world, so `drawOverflow` refuses on two separate
--- conditions and resumes when BOTH have cleared:
---
---   * `inPlay()`   -- wMapStatus back to MAPSTATUS_HANDLE. Anchored on the game's own state.
---   * the HOLD     -- a fixed SETTLE_FRAMES countdown armed when `areaId()` changes.
---
--- So the first painted frame is `max(readyFrame, areaChangeFrame + SETTLE_FRAMES)`, and the
--- lateness the user can see is that value minus `readyFrame` — the frames the tier stayed blank
--- after the game itself was ready. The two anchors fire at DIFFERENT moments (the map id changes
--- part-way through the crossing, while status is still ENTER), which is exactly why the hold's
--- length is not the same thing as the delay it produces.
---
--- WHAT IT REPORTS, per crossing, and the point is the last three columns:
---
---   * `ready-cross`    -- how long the crossing itself took, the part nobody can shorten.
---   * `hold left`      -- frames of hold still owed at the moment the game was ready. THIS IS THE
---                         LATENESS, and it is the number to drive to zero.
---   * `would be`       -- what that lateness WOULD have been under each candidate anchor, scored
---                         against the same crossing. Logging what a proposed gate would have
---                         decided, beside the raw values, is what produced both of this adapter's
---                         earlier gate corrections (`phase9.md`) — neither was visible by
---                         reasoning about the code.
---
--- The candidates, and each is a different claim about WHICH EVENT the fade-in hangs off:
---
---   A  area change + 30   -- what ships today.
---   B  ready + 0          -- no hold at all: paint the moment the game is back. If the fade is
---                            already covered by the other gates this is correct and free, and the
---                            hold is dead weight. Reported so the honest zero is on the table.
---   C  ready + 8 / 16     -- anchor the hold on the world coming BACK rather than on the map id
---                            changing, so it covers the fade-in itself instead of spending most
---                            of its frames before the fade begins.
---
--- WHICH OF THOSE IS RIGHT IS NOT SOMETHING THIS PROBE DECIDES. It measures the cost of each; a
--- hold that is too short paints over a fade, and only the user can see that. The probe writes the
--- numbers, the screen settles the choice.
---
--- HOW TO RUN
---   Load it beside the adapter. Walk in and out of a door a few times — no timing to hit, no
---   window to catch, and a slow crossing costs nothing. `probes/door_loop.lua` drives crossings
---   on its own if it is loaded, in which case this needs nobody at all.
---   Log: paintgate_<timestamp>.log beside this file.
+-- Read-only: how many frames late the painted tier comes back after a map crossing. It paints once wMapStatus is
+-- HANDLE and a SETTLE_FRAMES hold armed on the area change has run out; the map id changes mid-crossing, so the hold's
+-- length is not the delay. Logs each crossing's length, the hold still owed when the game was ready, and what anchors
+-- A-C would have cost. Walk through a door a few times, or load door_loop.lua beside it.
 
 local DOMAIN = "WRAM"
 
--- MIRRORS THE ADAPTER, and is printed at startup so it cannot drift silently. If
--- `playerHistory.settle` in meshghost_crystal.lua stops being 30, every "would be" column here is
--- quietly answering a question about a build that no longer exists — which is the shape of every
--- stale-instrument entry in `pitfalls.md`. Change both, or trust neither.
+-- Mirrors the adapter's playerHistory.settle, and is printed at startup: change both, or trust neither.
 local SETTLE_FRAMES = 30
 
 local function flat(cpu)
@@ -69,8 +15,7 @@ local function flat(cpu)
 	return 0x1000 + (cpu - 0xD000)
 end
 
--- Vanilla V1.0, the adapter's own vanilla table. Vanilla only on purpose: this is a question
--- about frame counts within one session, and a patched build would add a variable for no gain.
+-- Vanilla V1.0, the adapter's own table: a patched build would add a variable for no gain.
 local W_MAPSTATUS = flat(0xD432)
 local W_MAPGROUP, W_MAPNUMBER = flat(0xDCB5), flat(0xDCB6)
 local MAPSTATUS_HANDLE = 2
@@ -88,9 +33,7 @@ local function open_log()
 	end
 end
 
--- The file is the record; the console is a glance. ONE console line a second was measured at
--- 63-83ms on the emulator's own thread (`pitfalls.md`, 2026-08-21), so the headline lines are
--- capped and everything else only ever reaches the file.
+-- The file is the record; the console gets the first twelve lines only.
 local rawConsole, consoleLines = console.log, 0
 local function say(msg)
 	consoleLines = consoleLines + 1
@@ -139,16 +82,12 @@ local function tick()
 	end
 	local map = string.format("%d/%d", g, n)
 
-	-- The crossing STARTS when status leaves HANDLE, which is before the map id moves. Recorded
-	-- only for context: nothing can shorten the crossing itself, and reporting it beside the
-	-- lateness is what stops a 5-frame gate delay being read as a 40-frame one.
+	-- The crossing starts when status leaves HANDLE, before the map id moves; its length is logged beside the lateness.
 	if prevStatus == MAPSTATUS_HANDLE and status ~= MAPSTATUS_HANDLE then
 		pending = { leftAt = frames, from = map }
 	end
 
-	-- ARM ON THE SAME EVENT THE ADAPTER ARMS ON. `areaId()` is derived from these two bytes, so
-	-- this fires on exactly the frame the adapter's own `area ~= lastArea` does -- the probe is
-	-- not modelling the adapter, it is reading the same input.
+	-- Armed on the same event the adapter arms on: areaId() is derived from these two bytes.
 	if prevMap and map ~= prevMap then
 		pending = pending or { leftAt = frames, from = prevMap }
 		pending.changedAt = frames
@@ -157,8 +96,7 @@ local function tick()
 			frames, prevMap, map, status, frames + SETTLE_FRAMES))
 	end
 
-	-- CLOSED when the game says the world is back. That is the moment the tier could paint if
-	-- nothing else were holding it, so every candidate below is scored from here.
+	-- Closed when the game says the world is back: every candidate is scored from here.
 	if pending and pending.changedAt and status == MAPSTATUS_HANDLE
 		and prevStatus ~= MAPSTATUS_HANDLE then
 		local ready = frames
@@ -174,8 +112,7 @@ local function tick()
 			.. "| FIRST PAINT f=%d | LATE BY %d frames",
 			crossings, pending.from or "?", pending.to or "?", ready - (pending.leftAt or ready),
 			ready, expiry, firstPaint, late))
-		-- What each candidate anchor would have cost on THIS crossing. Same crossing, same
-		-- numbers, so the columns are comparable rather than each being its own experiment.
+		-- What each candidate anchor would have cost on this same crossing.
 		say(string.format(
 			"             would be: A area+%d = %d late (ships today) | B ready+0 = 0 late "
 			.. "| C ready+8 = 8 late | C ready+16 = 16 late",
@@ -210,9 +147,7 @@ MESHGHOST_DEV_UNLOAD = function()
 	end)
 end
 
--- Opened directly rather than through the loader, it needs its own frame loop -- but a loop of its
--- own inside the loader would never return and would freeze every other script in the shared
--- environment (`pitfalls.md`, 2026-08-19). So it runs one or the other, never both.
+-- Its own frame loop only when opened directly: inside the loader a loop never returns and freezes the rest.
 if not MESHGHOST_DEV_LOADER then
 	event.onexit(function()
 		pcall(function()

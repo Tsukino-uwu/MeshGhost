@@ -1,34 +1,9 @@
--- grant_party.lua -- **THIS ONE WRITES THE GAME.** Makes sure the party can Surf and Fly, once, on
--- any of the five recognised builds: teaches SURF / FLY / STRENGTH / WATERFALL to party slot 1
--- (and WHIRLPOOL / CUT / FLASH to slot 2 if there is one), and if the party is EMPTY on a
--- vanilla-family build, gives a level-5 Cyndaquil first, with the player's own name and ID as its
--- trainer. Written 2026-09-09 for the five-build room: *"don't have a pokemon with fly in all
--- games, or surf for that matter"*, *"not all clients even have a pokemon right now"*.
---
--- CLAUDE.md permits this as dev-only test tooling: a probe, never an adapter. It writes WRAM, not
--- the save; an in-game save afterwards makes it permanent. Saves an undo state to SLOT 6 first.
--- Fly still needs a town already visited; the field moves also need the badges (grant_all_*.lua).
---
--- ADDRESSES, per build:
---   vanilla V1.0 / V1.1 (pokecrystal.sym, pokecrystal11.sym, equal): wPartyCount 01:dcd7,
---     wPartySpecies 01:dcd8, wPartyMon1 01:dcdf, wPartyMonOTs 01:ddff, wPartyMonNicknames 01:de41,
---     wPlayerID 01:d47b, wPlayerName 01:d47d.
---   Speedchoice v8.1 (crystal-speedchoice.sym): the party block is at vanilla+1 -- wPartyCount
---     01:dcd8, wPartyMon1 01:dce0, wPartyMonNicknames 01:de42, wPartyMonOT 01:de00; the player
---     ID/name are at vanilla's 01:d47b/01:d47d.
---   Archipelago (either base): MEASURED 2026-09-09 by contents (probes/wram_dump.lua over flat
---     0x1CB0-0x1DA0 on both AP windows): `01 9B FF` at flat 0x1CDE -- count 1, CYNDAQUIL ($9b),
---     terminator -- and 8 bytes later a struct reading species $9b, moves $21 $2b (Tackle, Leer:
---     a starter's), level 5 at +$1f, HP 19/19 at +$22/+$24, i.e. pokecrystal's party struct
---     layout intact. So wPartyCount = 0x1CDE and wPartyMon1 = 0x1CE6 (vanilla+7, the same delta
---     as the coordinate block -- corroboration after the fact). The nickname/OT blocks are NOT
---     measured there, so on AP this script only teaches moves; it never creates a Pokemon.
--- Struct offsets looked up in pokecrystal's constants/pokemon_data_constants.asm and move ids in
--- constants/move_constants.asm (values at their definitions below); names are 11 bytes in the
--- game's charset (A = $80, terminator $50).
--- The Cyndaquil template is the AP window's own level-5 starter struct read back from that dump,
--- with the held item cleared and the moves replaced. Everything written is read back and logged.
--- Dev-loader contract; acts once in the overworld. TAKE IT OFF THE TARGET AFTERWARDS.
+-- Pokémon Crystal: teaches Surf, Fly, Strength and Waterfall to party slot 1 (Whirlpool, Cut, Flash to slot 2), once,
+-- on any of the five recognised builds; on a vanilla-family build with an empty party it first creates a level-5
+-- Cyndaquil with the player's name and ID as trainer. Writes WRAM, never the save; undo state to slot 6 first.
+-- Fly still needs a visited town and the field moves the badges (grant_all_*.lua). Take it off the target afterwards.
+-- On Archipelago the nickname and OT blocks are unmeasured, so there it only teaches moves. Names are 11 bytes in the
+-- game's charset (A = $80, terminator $50). Everything written is read back and logged.
 local DOMAIN = "WRAM"
 local function flat(cpu) return cpu < 0xD000 and cpu - 0xC000 or 0x1000 + (cpu - 0xD000) end
 local function u8(a) return memory.read_u8(a, DOMAIN) end
@@ -39,7 +14,7 @@ local LOADOUT = { { "SURF", "FLY", "STRENGTH", "WATERFALL" }, { "WHIRLPOOL", "CU
 local PP = 15
 local UNDO_SLOT = 6
 local CYNDAQUIL = 0x9B
--- the AP window's level-5 Cyndaquil, held item cleared, moves/PP to be overwritten
+-- The AP window's own level-5 Cyndaquil, held item cleared; its moves and PP get overwritten.
 local TEMPLATE = { 0x9B, 0x00, 0x21, 0x2B, 0x00, 0x00, 0x6E, 0x93, 0x00, 0x00, 0x7D,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x36, 0x96, 0x23, 0x1E, 0x00, 0x00, 0x42, 0x00, 0x45, 0x30, 0x05,
 	0x00, 0x00, 0x00, 0x13, 0x00, 0x13, 0x00, 0x0A, 0x00, 0x09, 0x00, 0x0C, 0x00, 0x0B, 0x00, 0x0A }

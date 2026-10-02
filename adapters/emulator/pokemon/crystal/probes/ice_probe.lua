@@ -1,30 +1,6 @@
--- WHAT THE PLAYER'S OBJECT CARRIES WHILE GLIDING ON ICE -- read-only, driven up and down.
---
--- THE QUESTION. The user, watching the compare rig on Ice Path: the ghosts glide correctly but
--- *"the spawned ghost [should] not do the walking animation while gliding on the ice, similar to
--- how emerald did it"*. Emerald sends the suppression as its own wire field (`extras.noanim`)
--- because its ice slide is a fast walk PLUS two bits -- animation disabled and facing locked
--- (`_template/README.md`, "a movement that does not animate is still a movement").
---
--- CRYSTAL MAY HAVE THE SAME BIT NATIVELY, and this probe exists to confirm the player actually
--- wears it rather than to assume it. Where to look: `SetFacingStepAction`
--- (engine/overworld/map_object_action.asm:46) and `SLIDING_F`; the hypothesis is that the bit
--- stops the walk cycle from advancing. `meshghost_crystal.lua` already knows the bit --
--- it CLEARS it at spawn, because a donor NPC template carries it and a permanently-sliding ghost
--- never animates at all.
---
--- So the fix hinges entirely on one measured fact: **does the PLAYER's OBJECT_FLAGS1 have SLIDING
--- set while crossing an ice tile, and clear while walking normally?** If yes, the bit is already
--- the game's own signal and the adapter mirrors it. If no, the suppression lives somewhere else
--- and a wire field invented from the decomp would be wrong -- which is exactly the mistake made
--- on 2026-08-26 with the Fly landing (`UNVERIFIED.md`: the decompilation says what the engine CAN
--- do; only a measurement says what the game DOES here).
---
--- IT LOGS THE CONTROL TOO. A run that only shows SLIDING on ice proves half of it; the walking
--- phase at the end is what shows the bit CLEARING, which is the half that says it is a signal
--- rather than something permanently on.
---
--- Read-only: no writes, no savestate. It holds the d-pad, so unload it before judging the screen.
+-- Pokémon Crystal: what the player's object carries while gliding on ice, against a walking control: whether
+-- OBJECT_FLAGS1's SLIDING bit is set on ice and clears off it. Read-only, but it holds the d-pad (left and right on
+-- the ice, then up and down): unload it before judging the screen.
 
 local f
 do
@@ -69,9 +45,7 @@ local function record(key, sf, frame)
 	if sf ~= run.sfLast then run.sfSteps, run.sfLast = run.sfSteps + 1, sf end
 end
 
--- Ghost slots by the adapter's own marker: WONT_DELETE set and wearing the local player's sprite
--- (`orphan_probe.lua`'s fingerprint). Not by slot number -- which slot a ghost lands in is a
--- coincidence of what the map had free.
+-- Ghost slots by the adapter's own marker (WONT_DELETE and the local player's sprite), never by slot number.
 local function ghostLine()
 	local ps = u8(OBJ + F.sprite)
 	local out = {}
@@ -90,9 +64,7 @@ end
 local FPS = 60
 local PHASES = {
 	{ name = "settle", secs = 3, say = "no input -- recording where you are" },
-	-- LEFT/RIGHT on the ice, on the user's call -- they are standing on it and know which axis
-	-- actually slides from where they are. An axis that just bumps a wall measures a BUMP, not a
-	-- glide, and would have produced a confident reading of the wrong thing.
+	-- Left and right is the axis that slides from where the player stands; an axis into a wall measures a bump.
 	{ name = "ice", secs = 30, say = "DRIVEN: left/right across the ice, alternating every 5s" },
 	{ name = "walk", secs = 12,
 		say = "DRIVEN: up/down -- THE CONTROL, to catch the bit CLEARING off the ice" },

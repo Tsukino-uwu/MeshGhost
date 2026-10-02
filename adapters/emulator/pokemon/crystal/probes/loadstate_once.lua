@@ -1,7 +1,6 @@
--- loadstate_once.lua -- ONE-SHOT: load savestate slot N (default 3) two seconds after attach, log
--- the player's tile before and after, then do nothing. A reproduction tool for 2026-09-09's
--- five-build finding: a window's ghost vanished from every other window after that window loaded
--- a savestate. Dev-loader contract; unload it before judging anything else.
+-- One-shot: loads savestate slot MESHGHOST_LOADSTATE_SLOT (default 3) two seconds after attach and logs the player's
+-- tile before and after. Take it off the target after use, or every reload fires it again.
+
 local SLOT = tonumber(os.getenv("MESHGHOST_LOADSTATE_SLOT") or "") or 3
 local frames, done = 0, false
 local function tile() return memory.read_u8(0x14E6, "WRAM"), memory.read_u8(0x14E7, "WRAM") end

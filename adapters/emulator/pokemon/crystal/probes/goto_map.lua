@@ -1,98 +1,27 @@
--- MeshGhost — Pokémon Crystal: warp the player to a named map (DEV TOOL, WRITES)
---
--- **THIS ONE MOVES THE PLAYER**, on request. `.claude/skills/play-game/SKILL.md` allows driving a running game to reach a
--- state, and reaching a test location on foot costs the user's time rather than mine. It never
--- writes the .sav.
---
--- IT SAVES TO SLOT 8 FIRST, ALWAYS. Slot 8 is this project's convention for "the undo for a warp"
--- -- load it to get back exactly where you were. A savestate is not an in-game save.
---
--- HOW IT WORKS: it imitates the GAME'S OWN `warp` script command (where to look: `Script_warp`,
--- engine/overworld/scripting.asm:2060, and `LoadMapStatus`, home/map.asm:921). The probe writes:
---
---   wMapGroup, wMapNumber        -- the destination map, written DIRECTLY (not via wNext*)
---   wXCoord, wYCoord             -- where to stand on it
---   wDefaultSpawnpoint = -1      -- SPAWN_N_A
---   hMapEntryMethod = $f1        -- MAPSETUP_WARP
---   wMapStatus = MAPSTATUS_ENTER
---
--- THE ONE THAT MATTERS, and the one whose absence broke the first version of this file on
--- 2026-08-21: **hMapEntryMethod**. Setting only wMapStatus made the game re-enter the map it was
--- already on and consume no destination at all -- measured by the read-back. The user saw
--- it as *"it just glitched my current map"*. The read-back below is why that was caught rather
--- than believed.
---
--- HOW TO RUN
---   Set the destination before loading it, either as globals or by editing DEFAULT below:
---     MESHGHOST_GOTO = "route39"     -- a name from DESTINATIONS
---     MESHGHOST_GOTO_GROUP, MESHGHOST_GOTO_NUMBER, MESHGHOST_GOTO_WARP  -- or raw ids
---   Add it to the loader's target file. It warps ONCE, reports where it actually landed by reading
---   the map bytes back, and then does nothing. Log: goto_map_<timestamp>.log beside this file.
+-- Pokémon Crystal: warps the player to a named map, the way the game's own `warp` script command does. Writes RAM,
+-- never the .sav, and savestates first to MESHGHOST_GOTO_UNDO_SLOT (default 8) as the undo.
+-- It writes wMapGroup/wMapNumber directly (not wNext*), wXCoord/wYCoord, wDefaultSpawnpoint = SPAWN_N_A,
+-- hMapEntryMethod = MAPSETUP_WARP and wMapStatus = MAPSTATUS_ENTER; without hMapEntryMethod the game re-enters the
+-- current map. Set MESHGHOST_GOTO (a DESTINATIONS name, else DEFAULT) or MESHGHOST_GOTO_GROUP/_NUMBER/_WARP first;
+-- it warps once and reads the map bytes back to report where it landed.
 
 local DEFAULT = "lighthouse"
 
--- Group and map numbers from constants/map_constants.asm in our own hash-verified pokecrystal
--- build. The group is the newgroup block the map_const sits in; the number is the value the file
--- prints beside it.
--- GROUP NUMBERS ARE VERIFIED AGAINST A CONTROL, and the three entries below were WRONG once.
--- `constants/map_constants.asm` annotates each `newgroup` with its index, but counting newgroup
--- LINES also counts the `MACRO newgroup` definition and a comment mentioning it -- so a derived
--- count comes out +2 and every id is silently plausible. Live cost, 2026-08-26: Ice Path went in
--- as 5:61 and Blackthorn as 7:10, which warped the user into an unrelated dark map and then into
--- what they recognised as the Rocket hideout. Nothing errored; the warp worked perfectly, at the
--- wrong map.
--- The controls that settle it: NEW_BARK_TOWN must be group 24 (`documentation.md` says so
--- independently) and ROUTE_40 must be 22:1 (read live from a running game by `trainer_check.lua`).
--- Any re-derivation of these numbers has to reproduce BOTH before it is trusted.
+-- Group and map ids from our hash-verified build's map constants. Counting newgroup lines comes out 2 high (the macro
+-- and a comment count too): any re-derivation must reproduce New Bark Town at group 24 and Route 40 at 22:1.
 local DESTINATIONS = {
-	-- Coordinates are in the game's own map-tile space, the same numbers wXCoord/wYCoord hold while
-	-- standing there. Each map's usable area starts a few tiles in from 0, so these are picked
-	-- toward the middle; if one lands somewhere silly, load slot 8 and adjust rather than assuming
-	-- the warp is broken.
+	-- Coordinates are wXCoord/wYCoord values; a silly landing means adjusting them, not a broken warp.
 	lighthouse = { group = 3, number = 42, x = 9, y = 9, label = "Olivine Lighthouse 1F" },
 	olivine = { group = 1, number = 14, x = 20, y = 20, label = "Olivine City" },
-	-- The user, 2026-08-21: the route above Olivine is *"the most demanding one in the whole
-	-- game... a big route, and fills up things due to having a lot of npc's"*. Recorded as the
-	-- reason it is in this list -- it is the crowd benchmark, not a scenic stop. Treat the claim as
-	-- a hint to verify with a measurement, not as a fact about the game.
-	-- 10,20 was a BAD choice and cost the user a trainer battle on arrival, 2026-08-21: it is
-	-- inside a trainer's line of sight. 8,26 was picked clear of every trainer's position, facing
-	-- and range as listed in maps/Route39.asm's object_events (where to look, not a measurement).
+	-- 8,26 was picked clear of every trainer's line of sight, from the map's object list.
 	route39 = { group = 1, number = 13, x = 8, y = 26, label = "Route 39 (crowd benchmark)" },
-	-- ICE. The reason this entry exists is the one movement class this adapter has never tested:
-	-- an ice tile is expected to slide a character across tiles it did not ask to cross (where to
-	-- look: `STEP_ICE` in `engine/overworld/player_movement.asm`). `_template/README.md` has the general
-	-- warning as "a movement that does not animate is still a movement" -- Emerald's ice slides a
-	-- character with its legs still, and a ghost driven from position alone walks where the player
-	-- glides.
-	-- 6,19 rather than a warp tile: the tile was picked two clear of the Route 44 warp listed in
-	-- `maps/IcePath1F.asm` (and far from that floor's other warps), because landing ON a warp tile
-	-- is how you get bounced straight back out.
+	-- 6,19 was picked two tiles clear of the Route 44 warp in the map's data: a warp tile bounces you back out.
 	icepath = { group = 3, number = 61, x = 6, y = 19, label = "Ice Path 1F (ice tiles)" },
 	icepathb1 = { group = 3, number = 62, x = 6, y = 19, label = "Ice Path B1F (the slide puzzle)" },
-	-- OUTSIDE the Ice Path, two tiles clear of its entrance.
-	-- 34,11 was picked clear of the Ice Path door listed at `maps/BlackthornCity.asm:323`, so
-	-- arriving does not immediately warp back in.
-	--
-	-- A CORRECTION KEPT ON PURPOSE. The grey screen that prompted this entry was blamed on Ice
-	-- Path being a dark cave with no FLASH -- its entry in `data/maps/maps.asm` looked like it
-	-- supported that, and `warp_check.lua` did report "BG row 0 = ALL ONE TILE" with the player
-	-- drawn, which fits that story exactly. It was wrong. The grey map was 5:61, an unrelated
-	-- map reached with the off-by-two group id above; warping to the REAL Ice Path (3:61) renders
-	-- it fully lit with `wStatusFlags` = 10, i.e. the FLASH bit CLEAR. Ice Path is not dark, and
-	-- the Flash grant written for this was never needed.
-	-- The lesson is `pitfalls.md`'s: a plausible mechanism that explains every symptom is not
-	-- evidence, and the decompilation says what a map CAN be rather than what went wrong here.
-	-- The control (New Bark = group 24) would have caught it before any of it was written.
+	-- Picked two tiles clear of the Ice Path door in the map's data, so arriving does not warp straight back in.
 	blackthorn = { group = 5, number = 10, x = 34, y = 11,
 		label = "Blackthorn City (outside the Ice Path door)" },
-	-- THE FIRST GYM TOWN, on the user's request 2026-08-26. Group 10 / map 5 as annotated in
-	-- `constants/map_constants.asm`, and BOTH controls above reproduce on that same reading -- NEW_BARK is annotated 24 and ROUTE_40
-	-- is 22:1 -- so the annotated indexes are being trusted here rather than a re-derived count,
-	-- which is the mistake that put Ice Path at 5:61.
-	-- 31,26 was picked one tile below the Pokecenter door as listed in `maps/VioletCity.asm`:
-	-- outside the building rather than on the warp tile, and clear of the object_events listed
-	-- there.
+	-- Picked one tile below the Pokecenter door in the map's data: off the warp tile and clear of its objects.
 	violet = { group = 10, number = 5, x = 31, y = 26,
 		label = "Violet City (outside the Pokecenter)" },
 }
@@ -106,7 +35,7 @@ local function flat(cpu_addr)
 	return 0x1000 + (cpu_addr - 0xD000)
 end
 
--- pokecrystal.sym
+-- Addresses from our build's .sym.
 local W_MAPSTATUS = flat(0xD432) -- wMapStatus, the same address the adapter uses
 local W_MAPGROUP = flat(0xDCB5) -- wMapGroup
 local W_MAPNUMBER = flat(0xDCB6) -- wMapNumber
@@ -116,14 +45,9 @@ local W_DEFAULTSPAWN = flat(0xD001) -- wDefaultSpawnpoint
 local H_MAPENTRYMETHOD = 0xFF9F -- hMapEntryMethod, HRAM: reached on the System Bus, not WRAM
 local MAPSTATUS_ENTER, MAPSTATUS_HANDLE = 1, 2
 local MAPSETUP_WARP = 0xF1
-local SPAWN_N_A = 0xFF -- SPAWN_N_A is -1 (constants/map_data_constants.asm:101)
+local SPAWN_N_A = 0xFF -- -1
 
--- OVERRIDABLE, because slot 8 stopped being free. It was this project's warp-undo convention
--- until 2026-08-26, when the user re-recorded 8 and 9 as the same-town and cross-town Fly states
--- (`agent_docs/status.md`). Saving over one of those costs a prepared state that took real time to
--- make, and the default here would do it silently on every warp. The user's position is that
--- overwriting is allowed when a slot is needed -- this exists so it is a CHOICE rather than a
--- side effect. Slots 2+ are the agent's; 1 is the user's on every instance (`CLAUDE.md`).
+-- Overridable: other slots may hold prepared states, so saving over one is a choice. Slot 1 is never the agent's.
 local UNDO_SLOT = tonumber(MESHGHOST_GOTO_UNDO_SLOT) or 8
 
 local logfile
@@ -134,20 +58,13 @@ local function open_log()
 		dir = info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
 	end
 	logfile = io.open(string.format("%s/goto_map_%s.log", dir, os.date("%Y%m%d_%H%M%S")), "w")
-	-- Buffered, and never flushed per line: a console.log plus a flush is a synchronous disk
-	-- write on the emulator's own thread, measured at 63-83ms -- four to five frames, every time
-	-- (pitfalls.md, "ONE console line a second cost 7.4 fps"). A probe that stalls the game is a
-	-- probe that changes what it measures.
+	-- Buffered, never flushed per line: a console line plus a flush stalls the emulator's thread for frames.
 	if logfile then
 		pcall(function() logfile:setvbuf("full", 8192) end)
 	end
 end
 
--- THE CONSOLE IS THE EXPENSIVE HALF. `console.log` appends to BizHawk's GUI console window, on the
--- emulator's own thread; pitfalls.md measured ONE such line a second costing 7.4fps, and removing
--- the per-line disk flush alone left 87-175ms hitches still there (2026-08-21). So the console gets
--- the opening lines and then one in twenty, while the FILE gets every line -- the log is the record,
--- the console is only a glance.
+-- The console gets the first lines and one in twenty; the file gets every line.
 local rawConsole, consoleLines = console.log, 0
 local function raw_log(msg)
 	consoleLines = consoleLines + 1
@@ -159,9 +76,7 @@ local function log(msg)
 	raw_log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Flushed every 20 lines: bounded cost, and a live log (an unflushed one reads as nothing happened).
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -204,8 +119,7 @@ local function tick()
 		return
 	end
 
-	-- Only from the overworld with the map machine settled: warping out of a menu, a battle or a
-	-- half-built map is how a session gets corrupted rather than moved.
+	-- Only from the settled overworld: warping out of a menu, a battle or a half-built map corrupts a session.
 	if u8(W_MAPSTATUS) ~= MAPSTATUS_HANDLE then
 		waited = waited + 1
 		if waited % 180 == 0 then
@@ -235,8 +149,7 @@ local function tick()
 	w8(W_MAPSTATUS, MAPSTATUS_ENTER)
 end
 
--- Report where the player ACTUALLY ended up, read from the map bytes rather than from the
--- destination we asked for -- a warp that silently did nothing would otherwise read as a success.
+-- Reports where the player actually landed, from the map bytes, so a warp that did nothing can't read as success.
 local reported = false
 local settle = 0
 
@@ -272,8 +185,7 @@ MESHGHOST_DEV_UNLOAD = function()
 	end
 end
 
--- A registered callback outlives its script under BizHawk, which is why this is a loop and not
--- event.onframeend (pitfalls.md).
+-- A registered callback outlives its script under BizHawk, hence a loop rather than event.onframeend.
 if not MESHGHOST_DEV_LOADER then
 	while true do
 		tick()

@@ -1,32 +1,8 @@
--- WHAT ACTUALLY DISTINGUISHES "A MENU IS ON SCREEN" FROM "A MENU WAS ON SCREEN" -- a table, not
--- a guess. 2026-08-26.
---
--- INPUT-DRIVING PROBE (it presses START, then B). Unload it before judging anything on screen.
---
--- WHY. Two candidate signals have now failed, and the rule after two is to stop guessing and
--- tabulate (CLAUDE.md):
---   1. `wMenuBorderBottom/Right non-zero` -- FAILED. Nothing in the game clears those coordinates
---      when a menu closes, so after a Fly a stale right-half rectangle hid painted peers forever.
---   2. `the menu frame's corner tile is in the tilemap` -- FAILED, measured today. The corner
---      survives the menu closing: 87 consecutive samples said `liveCorner=true`, straight through
---      a START menu being opened AND closed by this probe's own button presses.
---
--- So this probe stops proposing tests and just records every cheap display-state byte across three
--- states it drives itself, and prints one table. The discriminator gets CHOSEN from that table, or
--- the table shows there is not one and the adapter needs a different mechanism entirely.
---
--- WHAT IT RECORDS, per phase, as the SET of distinct values seen (a set, because these registers
--- strobe -- the reason WY alone failed as a signal back on 2026-08-19, and the reason a single
--- sample of any of them is worthless):
---   LCDC ($FF40)  -- bit 5 is window enable, bit 6 the window's tilemap, bit 3 the BG's
---   WY   ($FF4A)  -- the window's top line; 144 parks it off the bottom
---   WX   ($FF4B)
---   the menu rectangle ($cf82-$cf85), and whether the frame corner is in the tilemap
---
--- ENDURANCE, NOT TIMING: three fixed phases on a countdown, driven by the probe.
---
--- Addresses from the decompilation (pokecrystal.sym: wMenuBorderTopCoord $cf82) and the Game Boy's
--- own register map. Log beside this script.
+-- Drives a START menu open and shut (START, then B) and prints one table of every cheap display byte across three
+-- states: no menu, menu open, menu closed. Each row is the set of values a phase saw, since these registers strobe
+-- and one sample is worthless: LCDC (bit 5 window enable, 6 the window's tilemap, 3 the BG's), WY (144 parks the
+-- window off the bottom), WX, the menu rectangle (wMenuBorder* in our build's .sym) and whether its frame corner is
+-- in the tilemap. Unload it before judging anything on screen.
 
 local DOMAIN = "WRAM"
 local function flat(cpu)
@@ -117,10 +93,7 @@ MESHGHOST_DEV_TICK = function()
 	note("rect", rect)
 	note("corner", tostring(cornerAt(t, l)))
 
-	-- WHEN each change happened, not just how many. The whole design question is whether a live
-	-- menu keeps PULSING this rectangle for as long as it is open, or writes it once at draw time
-	-- and never again -- and a count of 7 out of 240 cannot tell those apart while a rule built on
-	-- the difference would be wrong half the time.
+	-- When each change happened, not just how many: does an open menu keep rewriting the rectangle, or write it once?
 	if rect ~= lastRect then
 		say(string.format("    rect change at phase %s frame %d: %s -> %s", tostring(phase), n,
 			tostring(lastRect), rect))

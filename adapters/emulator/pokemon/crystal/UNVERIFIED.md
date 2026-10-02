@@ -311,7 +311,7 @@ grass values kept, everything else `$00` — into the last 512 bytes of `wOverwo
 they read zero, and sets `EMOTE_OBJECT` on NPCs within two tiles, standing down while any real
 decoration object exists. Archipelago addresses measured the same session (`VERIFIED.md`,
 agent-confirmed). The old version pointed at zeroes, and its header claimed doors still warped —
-never measured. Why each choice was made, and which of its premises are unmeasured: the tool's header.
+never measured. What is measured: `documentation.md`, "Tile collision"; what is not: the "to measure: tile collision" entry below.
 
 **Seen by the user:** it was used to walk around both games, and a map's outer edge stayed solid.
 **Not yet seen:** doors, stairs and caves warping with it on; NPCs walk-through; grass encounters;
@@ -2745,7 +2745,7 @@ A `grant_flash.lua` was written for a problem that did not exist.
 **The controls that settle the ids, and any re-derivation must reproduce BOTH**: `NEW_BARK_TOWN`
 is group 24 (`documentation.md` says so independently) and `ROUTE_40` is `22:1` (read live from a
 running game by `trainer_check.lua`). Both are now cited in `goto_map.lua` beside the table, along
-with the corrected entries and the retracted dark-cave explanation.
+with the corrected entries; the retracted dark-cave explanation lives only in this entry.
 
 ## [DONE] DRAINED 2026-08-26 — Crystal: Dig / Escape Rope, and the ledge-hop emote
 

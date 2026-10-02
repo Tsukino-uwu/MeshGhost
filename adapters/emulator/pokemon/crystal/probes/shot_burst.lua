@@ -1,33 +1,9 @@
--- MeshGhost — Pokémon Crystal: a burst of screenshots, to tell a PAINTED character from an ENGINE one
---
--- DEVELOPMENT TOOL. Writes PNGs beside this script and nothing else -- no game memory, no input.
---
--- WHY THIS IS THE RIGHT INSTRUMENT FOR ONE PARTICULAR QUESTION
--- `client.screenshot` captures the EMULATED FRAMEBUFFER, without BizHawk's Lua overlay. That is
--- normally a nuisance -- it is why no screenshot has ever shown the drawn tier (`meshghost_crystal
--- .lua`, the handover comment, 2026-08-23) -- but it makes it the perfect discriminator here:
---
---   * a character the ENGINE is drawing (an object struct) APPEARS in the shot;
---   * a character THIS ADAPTER paints (the drawn tier) is INVISIBLE in the shot.
---
--- So for an extra character nobody can account for, one image answers "which renderer put it
--- there" -- a question the object arrays cannot settle, because they only ever describe one of the
--- two renderers. Asked 2026-08-26, after the object-array probe reported one ghost in the array
--- while the user could see two on screen.
---
--- A BURST, NOT A SHOT. The thing being caught is intermittent and tied to a promotion, so a single
--- well-timed capture is a window to hit -- and probes ask for endurance, not timing. This takes
--- one every second for as long as it is loaded, numbered in order, so the sequence can be scanned
--- afterwards for the frame that has the extra character in it. Old files are overwritten by number
--- rather than accumulating forever.
---
--- HOW TO RUN
---   Add it to a dev loader target. Files land in shots/crystal/burst_NN.png beside this script's
---   own folder. Remove the line to stop it.
+-- Pokémon Crystal: a screenshot a second, to tell an engine-drawn character from a painted one. Writes only PNGs.
+-- client.screenshot captures the emulated framebuffer without the Lua overlay, so an engine character appears in the
+-- shot and a drawn-tier one does not. Files cycle through shots/burst_NN.png beside this script.
 
-local EVERY = 60 -- frames between shots: one a second, which is the same cadence orphan_probe
--- reports at, so a shot can be lined up against a dump.
-local KEEP = 24 -- ~24 seconds of history before it wraps. Two full idle/promote cycles.
+local EVERY = 60 -- frames between shots: one a second, the cadence orphan_probe reports at
+local KEEP = 24 -- ~24 seconds of history before it wraps
 
 local function scriptDir()
 	local info = debug.getinfo(1, "S")
@@ -53,9 +29,7 @@ local function tick()
 		return
 	end
 	n = (n % KEEP) + 1
-	-- pcall: a failed capture (a locked file, a path that does not exist yet) must not take the
-	-- adapter down with it -- the dev loader unloads a target that throws, and this one shares its
-	-- session with the thing actually being measured.
+	-- pcall: a failed capture must not throw, since the dev loader unloads a target that does.
 	pcall(client.screenshot, string.format("%s/burst_%02d.png", DIR, n))
 end
 

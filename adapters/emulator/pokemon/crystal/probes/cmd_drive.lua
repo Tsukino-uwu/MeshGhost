@@ -1,48 +1,18 @@
--- MeshGhost — Pokémon Crystal: a command-queue driver that builds a test state on the spot
--- (DEV TOOL, WRITES, HOLDS THE CONTROLLER, never shipped) -- 2026-09-16
---
--- WHY THIS EXISTS. `.claude/skills/play-game/SKILL.md`, "cheat to create the thing, then use it the way the game
--- intends": a ledge, water, an item are MADE with a memory write, and the measurement then comes
--- from ordinary input -- walk off the ledge, face the water and press Select. This tool is that loop
--- without a relaunch or a savestate: it re-reads a small command file and runs it line by line.
---
--- COMMAND FILE: `cmd_drive.cmd` beside this script (`.gitignore` covers `*.cmd`), read every 15
--- frames; a CHANGED file replaces the queue. One command per line, `#` comments allowed:
---   hold BTN[+BTN] N      hold buttons for N frames (a tap of ~4 turns in place, ~10 walks a tile)
---   wait N                do nothing for N frames
---   shot NAME             client.screenshot to dev-scripts/shots/crystal/NAME.png, then `status`
---   status                map, player tile/facing/action, the cached neighbour collisions, key items
---   poke FLAT HEX         write one WRAM byte (flat address, hex) and log the read-back
---   block BX,BY HEX       write one map block into wOverworldMapBlocks; logs the id it replaced
---   redraw                START then B -- closing the START menu redraws the map from the blocks
---   tilecheck             the player's tile -> block -> collision, beside the engine's own byte
---   collfind HEX          blocks of the loaded tileset whose four collisions all read HEX
---   collscan              blocks of the loaded tileset carrying a ledge-family ($a0-$a7) collision
---
--- WHAT IS MEASURED (vanilla V1.0, 2026-09-16, this tool's own log):
---   * The player's tile is (wXCoord, wYCoord); its block is (x//2, y//2) at index
---     (by+3)*(wMapWidth+6)+(bx+3) in wOverworldMapBlocks, and the tile is quadrant (y%2)*2+(x%2) of
---     that block's four collision bytes. `tilecheck` agreed with the engine's standing-tile byte
---     (OBJECT_TILE_COLLISION) on $00, $a0 and $a1 tiles, and its neighbour lookups called solid ($07)
---     exactly the sign and building the screenshot showed.
---   * The loaded tileset header (wTileset) holds the collision table's bank at +6 and pointer at
---     +7..8 (the same bytes `noclip.lua` redirects).
---   * A block written beside the player is NOT seen by the next step: the engine caches the
---     neighbouring collisions (wTileDown..wTileRight) and refreshes them after a step. Write, then
---     walk onto or next to it.
---   * Closing the START menu redraws the screen from the block buffer.
---   * Blocks of tileset 6 (the town the save was in): $56 is a hop-down ledge (top row $a3, face
---     $07 below), $4c hop-left (right column $a1), $4d hop-right (left column $a0), $35 water
---     ($29). Each hop and each cast behaved as the game's own: a two-tile hop with the engine's
---     shadow, and a cast whose rod the engine drew (crystal/UNVERIFIED.md, the per-site audit entry).
---   * Super Rod ($3d) as the first key item (count 01:d8bc, list 01:d8bd, $ff terminated) and
---     registered to Select (01:d95b = $81, 01:d95c = $3d) casts on Select facing water.
--- UNMEASURED: that the block formula holds on other maps' border sizes and on non-vanilla builds.
--- Addresses: our byte-identical V1.0 build's .sym. REFUSES any ROM title but vanilla's.
---
--- Nothing here writes the save. A map load rebuilds the block buffer from ROM, so a door or warp
--- undoes every `block`; an in-game save afterwards would keep a `poke`d item. Take it off the target
--- when done: an input-driving tool left loaded is a suspect in every later report.
+-- Builds a test state on the spot, vanilla V1.0 only: writes the game and holds the controller, running the command
+-- file cmd_drive.cmd beside it (re-read every 15 frames; a changed file replaces the queue; `#` starts a comment):
+--   hold BTN[+BTN] N   hold buttons N frames (a tap of ~4 turns in place, ~10 walks a tile)
+--   wait N             do nothing for N frames
+--   shot NAME          capture to dev-scripts/shots/crystal/NAME.png, then `status`
+--   status             map, the player's tile, facing and action, the cached neighbour collisions, key items
+--   poke FLAT HEX      write one WRAM byte and log the read-back
+--   block BX,BY HEX    write one map block into wOverworldMapBlocks, logging the id it replaced
+--   redraw             START then B: closing the START menu redraws the map from the blocks
+--   tilecheck          the player's tile -> block -> collision, beside the engine's own byte
+--   collfind HEX       blocks of the loaded tileset whose four collisions all read HEX
+--   collscan           blocks of the loaded tileset carrying a ledge-family ($a0-$a7) collision
+-- A block written beside the player is not seen by the next step, since the engine caches the neighbouring
+-- collisions: write, then walk onto or next to it. Nothing here writes the save; a map load undoes every `block`, but
+-- an in-game save keeps a `poke`d item. Take it off the target when done.
 
 local function flat(cpu) return cpu < 0xD000 and cpu - 0xC000 or 0x1000 + (cpu - 0xD000) end
 local PS = flat(0xD4D6) -- wPlayerStruct
@@ -138,8 +108,7 @@ local function scan(match, label)
 			out[#out + 1] = string.format("%02X[%02X %02X %02X %02X]", id, q[1], q[2], q[3], q[4])
 		end
 	end
-	-- The table's length is not in the header: entries past its end are whatever ROM follows, so a
-	-- hit with implausible neighbours ($8d, $f8...) is past the end, not a block.
+	-- The table's length is not in the header, so a hit with implausible neighbours is past its end, not a block.
 	log(label .. ": " .. (#out > 0 and table.concat(out, ", ") or "none"))
 end
 

@@ -1,37 +1,8 @@
--- MeshGhost — Crystal: WHERE does this game draw a UI frame, and is it actually on screen?
---
--- READ-ONLY. Writes nothing, spawns nothing.
---
--- WHY
--- The drawn tier clips a peer against two things: the bottom text box, found by looking for the
--- frame's corner tile at ROW 12 ONLY, and the rectangle a MENU publishes in wMenuBorder*. The
--- user reported a third panel on 2026-08-19 -- the box an incoming PHONE CALL puts at the TOP of
--- the screen -- which neither test can see: it is not on row 12, and a text box was measured the
--- same day not to publish a menu rectangle.
---
--- Before generalising the row-12 test to every row, two things have to be measured rather than
--- assumed: which rows a frame actually appears on, and whether "frame tiles are in the tilemap"
--- means "a panel is on screen". This probe answers both.
---
--- WHAT IT FOUND ALREADY (2026-08-19, vanilla, New Bark Town)
--- Frame tiles at BG row 12 with WY parked at 144 -- i.e. the tiles were still in the tilemap
--- while NO panel was displayed, and they cleared a few seconds later as the camera scrolled
--- different terrain into that row. So a naive "scan every row for the corner tile" WILL fire with
--- nothing on screen, and would hide drawn peers for no reason -- the same shape as the bug that
--- emptied the bottom half of the screen earlier that day. Any generalised test needs the
--- visibility half too: LCDC bit 5 (window enabled) and WY <= 143 / WX <= 166.
---
--- HOW TO RUN
---   1. Load Crystal, stand in the overworld.
---   2. Lua Console -> Script -> Open, pick this file (or add it to a dev-loader control file).
---   3. Play. Open a text box, open the START menu, cross a map boundary for the location banner,
---      and -- the case this exists for -- let a phone call come in.
---      Log: uiframe_<timestamp>.log beside this script. It writes a line only when the set of
---      frames on screen CHANGES, so a quiet session stays short.
+-- Pokémon Crystal: which screen rows a UI frame appears on, and whether frame tiles in the tilemap mean a panel is
+-- on screen. Read-only; play through a text box, the START menu, a location banner and a phone call. A line is
+-- logged only when the set of frames on screen changes.
 
-local CORNER, EDGE = 121, 122 -- LoadFrame copies the six frame tiles to vTiles2 tile $79 = 121,
--- so the top-left corner is 121 and the edge beside it 122, whichever of the nine frame STYLES
--- the player picked (the style changes the graphics at those ids, not the ids).
+local CORNER, EDGE = 121, 122 -- the frame's corner and edge tile ids, whichever frame style the player picked
 local BGMAP_LO, BGMAP_HI = 0x1800, 0x1C00 -- 0x9800 / 0x9C00
 local SAMPLE_EVERY = 10
 
@@ -54,9 +25,7 @@ local frames, lastSig = 0, nil
 
 local function scan()
 	local lcdc = memory.read_u8(0xFF40, "System Bus") or 0
-	-- BOTH tilemaps, and say which one. LCDC bit 3 selects the BACKGROUND's map and bit 6 the
-	-- WINDOW's; they are often different maps, so reading only one can find a panel that is not
-	-- on screen or miss one that is.
+	-- Both tilemaps: LCDC bit 3 selects the background's map and bit 6 the window's, and they often differ.
 	local maps = {
 		{ name = "bg", addr = ((lcdc & 0x08) ~= 0) and BGMAP_HI or BGMAP_LO },
 		{ name = "win", addr = ((lcdc & 0x40) ~= 0) and BGMAP_HI or BGMAP_LO },
@@ -81,9 +50,8 @@ local function scan()
 			end
 		end
 	end
-	-- The window layer is only VISIBLE where WY <= 143 and WX <= 166, and this game parks WY at
-	-- 144 to hide a panel rather than erasing its tiles. "Frame tiles exist" and "a panel is on
-	-- screen" are therefore different questions, and only the second should ever hide a ghost.
+	-- The window shows only where WY <= 143 and WX <= 166, and this game parks WY at 144 rather than erasing a
+	-- panel's tiles: only a panel actually on screen should hide a ghost.
 	local wy = memory.read_u8(0xFF4A, "System Bus") or 0
 	local wx = memory.read_u8(0xFF4B, "System Bus") or 0
 	hits[#hits + 1] = string.format("lcdc=%02X winon=%s wy=%d wx=%d",

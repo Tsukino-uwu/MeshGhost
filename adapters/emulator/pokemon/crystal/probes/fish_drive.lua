@@ -1,49 +1,7 @@
--- MeshGhost — Pokémon Crystal: cast the rod, hold it, clear the text, cast again
---
--- DEVELOPMENT TOOL. **It holds the controller** (SELECT, A, and optionally a direction) and it
--- **can load a savestate**. It writes no game memory.
---
--- WHY THIS EXISTS
--- Fishing is the first of Crystal's remaining action classes (`UNVERIFIED.md`, "NEXT SESSION'S
--- WORK: FISHING FIRST"), and judging it needs the same cast watched many times — once to see the
--- pose arrive, once to see it held, once to see it end. The user's own framing, 2026-08-25:
--- *"press select, wait a bit for the animation, then reload/repeat"*.
---
--- AND THEN: **A BITE IS THE INTERESTING CASE, AND RELOADING NEVER REACHES IT.** The user, the same
--- day: *"if i catch a fish, the 2 ghosts move back 1 tile"*, with the method — *"you can't
--- replicate this if you keep reloading the savestate7, need to press A and try to fish again"*.
--- Reloading a savestate replays one RNG state; only casting again and again reaches a bite. So the
--- default loop CLEARS THE TEXT AND RECASTS, and the savestate is the fallback, not the cycle.
---
--- WHAT IT ASKS
---   1. Does the PLAYER's object hold OBJECT_ACTION 6 and OBJECT_FACING $10+dir for the whole cast?
---      That pair is what the adapter puts on the wire; without it no ghost was ever going to fish.
---   2. What do the POSITION fields do at the bite? A ghost that steps back a tile is a peer whose
---      position was read as mid-step — so `walking`, `step_type`, `step_duration` and the map/last
---      map pair are all in the sample, and the frame they change is the frame to look at.
---   3. Does anything else hold the fishing pair — a spawned ghost has a struct and is scanned.
--- Run-length encoded: a pose that flickers is a different fault from a pose that never arrives.
---
--- WHAT IT CANNOT ANSWER
---   * Whichever way the water is, that is the only fishing direction it exercises. It says so in
---     its own log rather than letting the reader assume all four were covered.
---   * **The screenshots do not contain the drawn tier.** `client.screenshot` captures the
---     emulator's video output, and a painted ghost is a `gui.*` overlay on top of it — so a
---     screenshot showing no ghost is not evidence that no ghost was painted. Found exactly that
---     way 2026-08-25, with the user watching two ghosts the screenshots did not have.
---
--- HOW TO RUN
---   Add it to dev-scripts/bizhawk-dev-loader-crystal.target; remove the line to stop it.
---   Globals, all optional:
---     MESHGHOST_FISH_DIR     where the log and screenshots go (default: beside this file)
---     MESHGHOST_FISH_SLOT    savestate slot loaded ONCE at the start (default 7; nil for none)
---     MESHGHOST_FISH_RELOAD  reload that slot every N casts as well (default: never)
---     MESHGHOST_FISH_FACE    "Down"/"Up"/"Left"/"Right" held before casting, for a spot where the
---                            water is not the way the state faces (default: none)
---     MESHGHOST_FISH_CYCLES  stop after this many casts (default: run forever)
---
--- AND UNLOAD IT BEFORE JUDGING ANYTHING ELSE. An input-driving probe left loaded is a suspect in
--- every later report.
+-- Dev tool: casts the rod, watches, clears the text with B and casts again, logging every object's action, facing and
+-- position run-length encoded. Holds the controller and can load a savestate; writes no game memory. Recasting, not
+-- reloading, reaches a bite. Only the water's direction is exercised, and screenshots never contain a painted ghost.
+-- Optional globals MESHGHOST_FISH_DIR, _SLOT (default 7), _RELOAD, _FACE, _CYCLES. Unload it before judging anything.
 
 local SLOT = tonumber(MESHGHOST_FISH_SLOT)
 if MESHGHOST_FISH_SLOT == nil then SLOT = 7 end
@@ -51,12 +9,12 @@ local RELOAD_EVERY = tonumber(MESHGHOST_FISH_RELOAD)
 local FACE = MESHGHOST_FISH_FACE
 local MAX_CYCLES = tonumber(MESHGHOST_FISH_CYCLES)
 
--- Fixed phases with a countdown, never a window anybody has to hit. Frames, at 60fps.
+-- Phase lengths in frames: a countdown, never a window anybody has to hit.
 local SETTLE = 150 -- after a load: the map, the adapter's ghosts and the peer stream all resume
 local TURN = 24 -- optional pre-cast facing press
 local PRESS = 8 -- SELECT held
 local WATCH = 420 -- 7s of rod-out: the cast, the wait, and a bite if one comes
-local CLEAR = 150 -- A pressed in bursts to walk through "Not even a nibble!" and back to standing
+local CLEAR = 150 -- B in bursts, through "Not even a nibble!" and back to standing
 local SHOTS = { 30, 120, 300 } -- frames into WATCH at which a screenshot is taken
 
 local OUT = MESHGHOST_FISH_DIR
@@ -69,25 +27,18 @@ if not OUT then
   end
 end
 
--- Addresses copied from meshghost_crystal.lua's own vanilla table, not remembered. This probe is
--- VANILLA V1.0 ONLY for that reason: on another build these are somebody else's bytes.
+-- From meshghost_crystal.lua's vanilla table, so vanilla V1.0 only: on another build these are other bytes.
 local function flat(cpu)
   if cpu < 0xD000 then return cpu - 0xC000 end
   return 0x1000 + (cpu - 0xD000)
 end
 local ST, OLEN, NSTRUCTS = flat(0xD4D6), 0x28, 13
 local MAPGROUP, MAPNUMBER, BATTLEMODE = flat(0xDCB5), flat(0xDCB6), flat(0xD22D)
--- THE CAMERA TERMS THE DRAWN TIER PAINTS THROUGH. A peer's tile can be perfectly steady and the
--- painted copy still move, because the map-pixel-to-screen conversion has its own inputs — so when
--- the user reports *"the 2 ghosts move back 1 tile"* while the player stands still, these are the
--- numbers that have to be in the same log as the player's.
+-- The camera terms the drawn tier paints through: a painted copy can move while the peer's tile is steady.
 local BGMAPOFFX, BGMAPOFFY = flat(0xD14C), flat(0xD14D)
 local W_XCOORD, W_YCOORD = flat(0xDCB8), flat(0xDCB7)
--- AND THE GATES THE ADAPTER ITSELF PAINTS THROUGH. A ghost that vanishes is not necessarily a
--- ghost that stopped arriving: `inPlay()` reads wMapStatus and wBattleMode, the hardware tier
--- reads wStateFlags' SPRITE_UPDATES_DISABLED bit, and the UI clip reads the window registers. The
--- user, 2026-08-26: *"both ghosts disappeared before they could show the ! above their head"* --
--- so the question is which of these flipped, and when, relative to the emote object appearing.
+-- And the gates the adapter paints through (inPlay's wMapStatus and wBattleMode, the hardware tier's
+-- SPRITE_UPDATES_DISABLED bit, the UI clip's window registers): a vanished ghost is not one that stopped arriving.
 local MAPSTATUS, STATEFLAGS = flat(0xD432), flat(0xD0ED)
 local F_SPRITE, F_WALKING, F_DIRECTION, F_STEP_TYPE = 0x00, 0x07, 0x08, 0x09
 local F_STEP_DURATION, F_ACTION, F_FACING = 0x0A, 0x0B, 0x0D
@@ -97,8 +48,7 @@ local function u8(a) local v = memory.read_u8(a, "WRAM") return v or -1 end
 
 local logfile = io.open(string.format("%s/fish_drive_%s.log", OUT, os.date("%Y%m%d_%H%M%S")), "w")
 if logfile then pcall(function() logfile:setvbuf("full", 8192) end) end
--- The console is the expensive half (pitfalls.md: one line a second cost 7.4 fps), so it gets the
--- headlines and the file gets everything.
+-- The console costs frames, so it gets the headlines and the file gets everything.
 local consoleLines, pending = 0, 0
 local function log(m, loud)
   consoleLines = consoleLines + 1
@@ -116,9 +66,7 @@ log(string.format("slot %s, %d-frame watch then B to clear and recast, pre-cast 
 log("NOTE: screenshots do NOT contain painted ghosts -- they are a gui overlay. Watch the screen.",
   true)
 
--- One sample of everything worth knowing, for the player and for every other live object struct.
--- POSITION FIELDS ARE IN THE KEY on purpose: the reported fault is positional, and a field that
--- moves for one frame is exactly what a run-length encoding makes visible.
+-- Position fields are in the run-length key: a field that moves for one frame then shows.
 local function objLine(tag, b)
   return string.format("%s a=%02X f=%02X d=%02X w=%d st=%02X sd=%02X @%d,%d last %d,%d "
     .. "spr %d,%d off %d,%d", tag,
@@ -193,8 +141,7 @@ local function tick()
   end
 
   if phase == "press" then
-    -- ONCE PER CAST, not once per frame of the press. The counter used to sit here unguarded and
-    -- advanced eight times a cast, so every number in the log named a cast that never happened.
+    -- Once per cast, not once per frame of the press.
     if frames == 1 then cycle = cycle + 1 end
     if MAX_CYCLES and cycle > MAX_CYCLES then
       log(string.format("fish_drive: %d casts done -- standing by, nothing pressed.", MAX_CYCLES),
@@ -240,8 +187,7 @@ local function tick()
     end
     if frames < WATCH then return end
     flushRun()
-    -- THE COUNTS ARE THE VERDICT'S EVIDENCE, not a boolean. A probe that says "fishing worked"
-    -- cannot be sanity-checked; these can.
+    -- Counts, not a boolean, so the verdict can be checked.
     log(string.format("  cast %d: player held action 6 on %d/%d frames, a FISH facing on %d, "
       .. "battle on %d; other objects held action 6 on %d frame-objects, a FISH facing on %d",
       cycle, sawAction6, WATCH, sawFishFacing, sawBattle, ghostSaw6, ghostSawFish), true)
@@ -255,9 +201,7 @@ local function tick()
     end
     sawAction6, sawFishFacing, ghostSaw6, ghostSawFish, sawBattle = 0, 0, 0, 0, 0, 0
     if logfile then pcall(function() logfile:flush() end) end
-    -- ONLY A BATTLE RELOADS. The user's method again: recasting is what reaches a bite, and a
-    -- reload replays one RNG state. A battle is the exception -- it has to be left before another
-    -- cast is possible, and only the savestate does that without playing it out.
+    -- Only a battle reloads: it must be left before another cast, and only the savestate leaves it unplayed.
     if SLOT and (u8(BATTLEMODE) ~= 0
         or (RELOAD_EVERY and cycle % RELOAD_EVERY == 0)) then
       phase, frames = "load", 0
@@ -268,10 +212,7 @@ local function tick()
   end
 
   if phase == "clear" then
-    -- B, NOT A, and in bursts. The user's method, 2026-08-25: *"if you don't catch a fish, press B
-    -- to close the text box, then use the fishing rod again"*. A on the overworld is the interact
-    -- button and would re-cast or talk to whatever is in front; B only ever closes. Held
-    -- continuously it re-opens what it just closed, so it needs the release between presses.
+    -- B, not A, in bursts: A on the overworld interacts with what is in front, and B held down re-opens what it closed.
     if (frames % 20) < 4 then press("B") end
     if frames < CLEAR then return end
     phase, frames = "press", 0
@@ -288,8 +229,7 @@ MESHGHOST_DEV_UNLOAD = function()
   end
 end
 
--- A registered callback outlives its script under BizHawk, which is why this is a loop and not
--- event.onframeend (pitfalls.md).
+-- A loop, not event.onframeend: a registered callback outlives its script under BizHawk.
 if not MESHGHOST_DEV_LOADER then
   while true do
     tick()

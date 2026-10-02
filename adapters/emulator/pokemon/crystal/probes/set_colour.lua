@@ -1,17 +1,11 @@
--- set_colour.lua -- WRITES OBJECT RAM AND PALETTE RAM, dev only, any build: dress the LOCAL player
--- in a trainer colour so the OTHER window can be judged. Written 2026-09-09 for the trainer-colour
--- feature (`extras.pal` + `extras.clo` in meshghost_crystal.lua): a patched build may let the
--- player pick a fixed palette or a custom clothing colour, and no seed on this machine has one,
--- so this probe fakes both, the way that build does it -- an OBJ palette index on the player
--- object, and for the custom case a rewritten clothing colour (word 2 of 4, byte 4) in a slot.
+-- Pokémon Crystal, any build: dresses the local player in a trainer colour so the other window's ghost of them can
+-- be judged. With MESHGHOST_COLOUR_RGB set it is wire only: hands it to the adapter's MESHGHOST_CRYSTAL_DEV_CLOTHING
+-- override and writes nothing. Without it, or with MESHGHOST_COLOUR_FAKE_PATCH=1, it writes object RAM (and palette
+-- RAM for an RGB) the way a patch does, held every frame (a map load rewrites the object, a time-of-day refresh the
+-- palettes); never a save.
 --   MESHGHOST_COLOUR_PAL  (env) OBJ palette index 0-7 to put on the player object; default 2 (green)
 --   MESHGHOST_COLOUR_RGB  (env) RRGGBB hex; when set, that colour is written as the clothing colour (word 2) of
 --                          slot MESHGHOST_COLOUR_PAL (use 4, the pink slot, as the patch does)
--- Held every frame while attached, because a map load rewrites the object and a time-of-day
--- refresh rewrites the palettes; take it off the dev-loader target and the next map load restores
--- both. Nothing here reaches a save. What it proves: on the OTHER window, the ghost of this
--- player wears the index (fixed case) or the hex colour (custom case) -- and, first, that the
--- palette-RAM address is right on THIS build, by reading a colour the game is known to keep there.
 local DOMAIN = "WRAM"
 local function flat(cpu) return cpu < 0xD000 and cpu - 0xC000 or 0x1000 + (cpu - 0xD000) end
 local function u8(a) return memory.read_u8(a, DOMAIN) end
@@ -42,19 +36,6 @@ local function bgr(hex)
 	return (r >> 3) | ((g >> 3) << 5) | ((b >> 3) << 10)
 end
 
--- THE ADDRESS CHECK, before writing a byte: the game keeps RGB 31,07,01 as the red slot's
--- colour 2 at every hour (`gfx/overworld/npc_sprites.pal`), which is 0x04FF as a BGR555 word. If
--- slot 0 does not read that, W_OBPALS is wrong on this build and the probe refuses to write.
--- Re-asked EVERY FRAME until it passes, not once at load: the first run of this probe checked at
--- attach, on three windows still at the title screen, where palette RAM holds the intro's colours
--- (7FFF, 7197), refused, and never looked again (2026-09-09). The overworld is what loads the
--- object palettes, so the check waits for it, and a failure is logged once a second, not once.
--- TWO MODES (2026-09-10). Default, WIRE ONLY: hand the colour to the adapter's own dev override
--- (`MESHGHOST_CRYSTAL_DEV_CLOTHING`, a global it re-reads every state) and write NOTHING -- the
--- local player keeps the game's colour and only the ghosts elsewhere wear this one, which is the
--- feature under test. MESHGHOST_COLOUR_FAKE_PATCH=1 is the other mode, everything below: do what
--- the patch does to the game's own memory, which colours the LOCAL player as well -- the user's
--- first reading of that was a defect ("it still affected the speedchoice player color itself").
 if RGB and os.getenv("MESHGHOST_COLOUR_FAKE_PATCH") ~= "1" then
 	MESHGHOST_CRYSTAL_DEV_CLOTHING = RGB
 	log(string.format("set_colour on %s: WIRE ONLY -- the adapter sends %s as this player's clothing colour; no memory written", A.name, RGB))
@@ -69,6 +50,8 @@ local frames, reported, armed, pushLogged = 0, false, false, false
 local function tick()
 	frames = frames + 1
 	if frames < 30 then return end
+	-- Nothing is written until the red slot's colour 2 reads 0x04FF (RGB 31,07,01, kept at every hour), which proves
+	-- W_OBPALS on this build. Asked every frame, not once: palette RAM holds the intro's colours until the overworld.
 	if not armed then
 		local red2 = slotColour(0, 2)
 		if red2 ~= 0x04FF then
@@ -84,18 +67,10 @@ local function tick()
 	if want then
 		local at = W_OBPALS + (PAL & 7) * 8 + 4
 		w8(at, want & 0xFF); w8(at + 1, want >> 8)
-		-- TWO BLOCKS. wOBPals1 is the working set (what the adapter reads and sends); the second
-		-- block, 128 bytes past it, is where the decomp points for what reaches the hardware
-		-- (`ForceUpdateCGBPals`, home/palettes.asm). Writing only the first left every local
-		-- player in the pink slot's own salmon while the ghosts were already right (the user,
-		-- 2026-09-10: "it kept being salmon even after a hard/full reset"), so both are held.
+		-- Two blocks: wOBPals1 is the working set the adapter reads; the hardware is loaded from the one 0x80 past it.
 		w8(at + 0x80, want & 0xFF); w8(at + 0x81, want >> 8)
-		-- hCGBPalUpdate ($FFE5): the game copies wOBPals to the hardware only when this is set,
-		-- so without it the LOCAL player keeps the old colour on screen while the wire already
-		-- carries the new one. Best effort: an emulator core without an HRAM domain skips it.
-		-- BizHawk's HRAM domain starts at $FF80, so $FFE5 is offset $65: the first run wrote $E5,
-		-- past the domain's end, and every local player stayed the pink slot's salmon (the user:
-		-- Speedchoice "looks orange/yellow ish", 2026-09-09) while the ghosts were already right.
+		-- hCGBPalUpdate ($FFE5): the game copies the palettes to the hardware only while it is set. BizHawk's HRAM
+		-- domain starts at $FF80, so it is offset $65 there; a core without an HRAM domain skips it.
 		local okH, errH = pcall(memory.write_u8, 0x65, 1, "HRAM")
 		local okB, errB = pcall(memory.write_u8, 0xFFE5, 1, "System Bus")
 		if not pushLogged then
@@ -116,6 +91,5 @@ local function tick()
 		if reported then log("holding; the other window's ghost of this player is the verdict") end
 	end
 end
--- Dev-loader contract (dev-scripts/bizhawk-dev-loader.lua): ticked by the loader when it runs us,
--- else by a frame-end event so the file also works opened straight in the Lua Console.
+-- Ticked by the dev loader, or by a frame-end event when opened straight in the Lua Console.
 if MESHGHOST_DEV_LOADER then MESHGHOST_DEV_TICK = tick else event.onframeend(tick) end

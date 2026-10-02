@@ -1,42 +1,8 @@
--- WHAT THE PLAYER'S OBJECT DOES WHEN A WHIRLPOOL SPINS IT -- driven from a prepared savestate, so
--- the spin can be produced on demand instead of waited for.
---
--- WHY THIS EXISTS. `action_probe.lua` drives a turn and a bump itself and then opens a free phase
--- asking a human to find a spin tile, use Dig, use Teleport. That is the one class this adapter
--- has never seen: SPIN (OBJECT_ACTION_SPIN, 4) and its flicker partner (5). The user prepared
--- savestate 10 sitting one tile below a whirlpool, where HOLDING UP re-enters it over and over --
--- *"when surfing into the whirlpool, the player spins around"* -- which turns "wait for a spin"
--- into a driveable, repeatable phase. Slot 10 is the whole reason this is a separate probe.
---
--- WHAT IT ANSWERS
---   * which action byte a whirlpool spin actually is -- SPIN, SPIN_FLICKER, BUMP, or something
---     this adapter has no branch for at all. NOT ASSUMED: no character animation was found on
---     the decomp's whirlpool path (where to look: `TryWhirlpoolOW`, `engine/events/overworld.asm`),
---     so whatever spins the player may be somewhere else and the byte is the thing that names it;
---   * how long each facing holds, in video frames, and how many engine ticks that is -- the
---     cadence a 1:1 ghost has to match, which no still frame can show;
---   * whether any frame draws nothing (the hypothesis for SPIN_FLICKER: a facing of 0xFF that
---     the engine skips), which is what the Dig/Teleport flicker is expected to be made of;
---   * whether the spin is on the character at all, or is a separate object the way the "!" emote
---     and the Fly cutscene both turned out to be -- so EVERY occupied object slot is logged, not
---     just the player's.
---
--- READ-ONLY except for the savestate load and the controller. It writes no game memory.
---
--- ENDURANCE, NOT TIMING. Fixed phases with a spoken countdown; there is no moment to hit and
--- nothing is asked of whoever is watching.
---
--- UNLOAD IT BEFORE JUDGING ANYTHING ON SCREEN. It holds the d-pad, and in a loopback session the
--- ghost IS the local player echoed, so a probe steering the player steers the ghost too -- which
--- has already cost this adapter a round of diagnosis once (`PROBES.md`).
---
--- Addresses are vanilla V1.0, from meshghost_crystal.lua's own table (itself from a hash-verified
--- local `pokecrystal` build): OBJECT_STRUCTS 0xD4D6, stride 0x28. Field offsets from the decomp's
--- struct listing (constants/map_object_constants.asm).
---
--- Switches (Lua globals, so they can be set into an already-running emulator):
---   MESHGHOST_WHIRL_SLOT   savestate slot to load (default 10)
---   MESHGHOST_WHIRL_NOLOAD set to skip the savestate load entirely and probe where you are
+-- Pokémon Crystal: what the player's object, and every other occupied slot, does when a whirlpool spins the player,
+-- driven from savestate MESHGHOST_WHIRL_SLOT (default 10: one tile below a whirlpool, where Up re-enters it) or,
+-- with MESHGHOST_WHIRL_NOLOAD set, from where you stand. It logs, run-length, which action byte a spin is, how long
+-- each facing holds in video frames and engine ticks, and whether any frame draws nothing. Writes no game memory but
+-- loads the savestate and holds the d-pad: unload it before judging anything on screen.
 
 local f
 do
@@ -46,8 +12,7 @@ do
 		dir = info.source:sub(2):match("^(.*)/[^/]*$") or "."
 	end
 	f = io.open(dir .. "/whirlpool.log", "w")
-	-- Buffered, flushed on a timer rather than per line: one console.log plus one flush was
-	-- measured at 63-83ms on this host (`adapters/emulator/CLAUDE.md`).
+	-- Buffered, flushed on a timer: a console line plus a flush stalls the emulator's thread for frames.
 	if f then f:setvbuf("full", 1 << 16) end
 end
 
@@ -59,19 +24,13 @@ local F = { tile = 0x02, flags1 = 0x04, flags2 = 0x05, pal = 0x06, walking = 0x0
 	sx = 0x17, sy = 0x18, yoff = 0x1A }
 local W_MAPGROUP, W_MAPNUM, W_YCOORD, W_XCOORD = 0xDCB5, 0xDCB6, 0xDCB7, 0xDCB8
 
--- Action and facing values print as raw numbers -- an unknown one is a RESULT here, since the
--- whole question is which one this is. The name tables that used to decode them were copied from
--- the decompilation's constants and were removed 2026-09-16 (the audit, the user's call).
+-- Action and facing values print raw: an unknown one is a result here.
 local function faceName(v)
 	return string.format("0x%02X", v)
 end
 
--- The player's own art offset, and how many of the 40 hardware entries are live. The offset is
--- `(tile - base) & 0xFF`, the same arithmetic the adapter's frame learner uses: 0x00-0x0B is a
--- standing view, 0x80-0x8B a stepping one, anything else is not this character's art.
--- Deliberately NOT read from OAM entries 0-3 as "the player" -- InitSprites emits by PRIORITY,
--- so those belong to the highest-priority object with a sprite, which cost this adapter a
--- whole-tile error once (`pitfalls/by-lesson.md`, 2026-08-26).
+-- How many of the 40 hardware entries are live. Never read OAM entries 0-3 as the player's: InitSprites emits by
+-- priority.
 local function oamLive()
 	local live = 0
 	for e = 0, 39 do
@@ -81,9 +40,8 @@ local function oamLive()
 	return live
 end
 
--- RUN-LENGTH, never one line per frame. The question is the CADENCE, and a hundred identical
--- lines hide it while a run length states it. It is also how the tick rate gets measured: a run
--- counts video frames, and OBJECT_STEP_FRAME's own increments inside it are engine ticks.
+-- Run-length, not a line per frame: the question is the cadence. A run counts video frames, and the increments of
+-- OBJECT_STEP_FRAME inside it are engine ticks.
 local run = { key = nil, n = 0, sfFirst = nil, sfLast = nil, sfSteps = 0, at = 0 }
 local totals, faceTotals = {}, {}
 
@@ -106,10 +64,8 @@ local function record(key, sf, frame)
 	end
 end
 
--- EVERY OCCUPIED SLOT, not just the player's. The "!" emote and the Fly landing both turned out
--- to live on something other than the character, so "the player's object shows nothing" is only
--- half an answer -- the other half is whether anything ELSE appeared at the same moment. Logged
--- as a change-only census so a static cast reports itself once and then stays quiet.
+-- Every occupied slot, change-only: the "!" emote and the Fly landing both live on something other than the
+-- character.
 local lastCensus = nil
 local function census(frame)
 	local parts = {}
@@ -118,12 +74,7 @@ local function census(frame)
 		local spr = u8(b + F.tile)
 		local act, face = u8(b + F.act), u8(b + F.face)
 		if not (spr == 0 and act == 0 and face == 0) then
-			-- WALKING / STEP TYPE / DURATION as well as the pose. Added 2026-08-26 after the
-			-- open-water CONTROL run showed `apply spread 0 wide, 0 frames blocked` against the
-			-- whirlpool's `8 wide, 37-133 blocked`: the ghost is stuck mid-step (walking is not
-			-- STANDING) far longer than one 16-frame step, and the first census could not say
-			-- which of the three fields was holding it there. A pose alone cannot answer a
-			-- question about movement.
+			-- Walking, step type and duration as well as the pose: a pose cannot answer a question about movement.
 			parts[#parts + 1] = string.format("[%d spr=%02X act=%s face=%02X %d,%d walk=%d stype=%d dur=%d]",
 				i, spr, tostring(act), face, u8(b + F.mx), u8(b + F.my),
 				u8(b + 0x07), u8(b + 0x09), u8(b + 0x0A))
@@ -154,8 +105,7 @@ MESHGHOST_DEV_TICK = function()
 	n = n + 1
 	if n < 30 then return end
 
-	-- The savestate load happens ONCE, after the loader has settled, and is announced. Slot 1 is
-	-- the user's on every instance and is never touched (`CLAUDE.md`).
+	-- The savestate load happens once, after the loader has settled, and is announced. Slot 1 is never touched.
 	if not loaded then
 		loaded = true
 		if not MESHGHOST_WHIRL_NOLOAD then
@@ -180,9 +130,8 @@ MESHGHOST_DEV_TICK = function()
 				flush()
 				if f then
 					f:write("\n=== done ===\n")
-					-- WHAT IT SAW, and equally what it did NOT: an instrument reports its own
-					-- coverage, not only its findings. A class absent from this list was never
-					-- produced, which is a different statement from "it does not happen".
+					-- What it saw, and what it did not: a class absent here was never produced, which is not the
+					-- same as never happening.
 					local keys = {}
 					for k in pairs(totals) do keys[#keys + 1] = k end
 					table.sort(keys)
@@ -226,20 +175,8 @@ MESHGHOST_DEV_TICK = function()
 	end
 
 	if p.name == "intowhirl" then
-		-- UP, THEN PAUSE, THEN UP AGAIN -- the FAILING repro, not the passing one.
-		--
-		-- This held Up continuously until 2026-08-26, which is the user's *"twice in a row"* case
-		-- and the one that WORKS: *"the spawned ghost follows properly and spins the 2nd time"*.
-		-- A whole session was spent measuring the passing configuration and calling the result a
-		-- fault. The case that actually fails is *"go up into the whirlpool/spin, get pushed down,
-		-- WAIT A BIT, and then go up again"* -- where the ghost, a move behind, spends the pause
-		-- walking DOWN to the tile the player is on and is therefore in the wrong place when the
-		-- player sets off again: *"it never reaches the whirlpool to begin with"*.
-		--
-		-- So the drive is a cycle: hold Up long enough for one approach and push-back, then release
-		-- for a pause long enough that the ghost demonstrably closes the gap. `probes.md`'s rule --
-		-- a probe must reproduce the reported case, and an idle phase is part of the case, not dead
-		-- air between measurements.
+		-- Up, a pause, then Up again: the failing case. Held continuously, the ghost follows and spins; after a pause
+		-- it has walked down to the player's tile and never reaches the whirlpool. The pause is part of the case.
 		local cyc = frame % 300
 		local input = {}
 		if cyc < 120 then input.Up = true end -- approach + spin + push-back
@@ -255,9 +192,7 @@ MESHGHOST_DEV_TICK = function()
 	faceTotals[face] = (faceTotals[face] or 0) + 1
 	sawAct[act] = true
 
-	-- Everything, every run -- no filtering by "interesting", because a filter chosen before
-	-- looking is a guess about the answer. Ordinary standing/stepping still collapses into its
-	-- own runs, so the gaps between spins stay visible without drowning them.
+	-- Everything, unfiltered: ordinary standing and stepping collapse into their own runs, so the spins stay visible.
 	record(string.format(
 		"act=%-12s face=%02X %-20s tile=%02X dir=%d walk=%3d stype=%2d yoff=%4d map=%d,%d spr=%d,%d oam=%d",
 		name, face, faceName(face), u8(OBJ + F.tile), u8(OBJ + F.dir), u8(OBJ + F.walking),

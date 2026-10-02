@@ -1,13 +1,5 @@
--- wram_dump.lua -- READ-ONLY: hex-dump one WRAM range, once, to a log named by bridge port.
---
--- Written 2026-09-09 to find the bag and badge bytes on the Archipelago builds, whose bag is
--- enlarged and whose addresses are therefore MEASURED, never derived (see ap_bag_grant.lua). It
--- dumps everything in the range and filters nothing: the pockets are identified afterwards, by
--- their shape (a count byte, that many entries, an $FF terminator) against what the user's bag
--- actually holds. Range and domain from the environment so the file never needs editing:
---   MESHGHOST_DUMP_FROM / MESHGHOST_DUMP_TO   flat WRAM-domain offsets, hex or decimal
--- Defaults cover flat 0x1880-0x19A0, the player-data bank's badge/TM/bag region on every build.
--- Dev-loader contract; harmless to leave attached, it acts once.
+-- Hex-dumps one flat WRAM range once, unfiltered, to a log named by bridge port: MESHGHOST_DUMP_FROM / _TO (hex or
+-- decimal), by default 0x1880-0x19A0, the player-data bank's badge, TM and bag region on every build.
 local DOMAIN = "WRAM"
 local FROM = tonumber(os.getenv("MESHGHOST_DUMP_FROM") or "") or 0x1880
 local TO = tonumber(os.getenv("MESHGHOST_DUMP_TO") or "") or 0x19A0

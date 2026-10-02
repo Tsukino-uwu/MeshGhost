@@ -1,46 +1,15 @@
--- MeshGhost — Crystal/Archipelago: find the player's coordinates by walking in one direction
---
--- READ-ONLY. Writes nothing.
---
--- WHY
--- The previous attempt DERIVED the coordinates: Archipelago publishes wMapGroup = 7359, and in the
--- vanilla decomp wMapGroup/wMapNumber/wYCoord/wXCoord are four consecutive bytes, so 7361/7362
--- should have been wYCoord/wXCoord. Walking a square refuted it — those addresses produced a
--- repeating cycle of deltas, which is a counter, not a player (verified.md, 2026-08-18).
---
--- A structural fact from the vanilla decomp is a fact about VANILLA, and rearranging structure is
--- the whole reason Archipelago is hard. So: measure, do not derive.
---
--- THE CIRCULARITY, AND THE WAY OUT
--- A differential scan needs to know WHEN a step happened, which normally means already knowing a
--- coordinate — the thing being searched for. The way out is to remove the need for a reference:
---
---     WALK IN ONE DIRECTION ONLY.
---
--- Then a coordinate is simply a byte that changes by the SAME ±1 several times over, and nothing
--- else in RAM does that for long. No anchor, no assumption, no published value trusted.
---
--- HOW TO RUN
---   1. Load the ARCHIPELAGO Crystal ROM. Stand somewhere with a long clear run — a route, or a
---      corridor. Indoors is fine if you have 5+ tiles in a line.
---   2. Lua Console -> Script -> Open, pick this file.
---   3. Walk STEADILY IN ONE DIRECTION, at least 6 tiles. Do not turn. Do not enter a door.
---   4. Read the report. Then, if you like, run it again walking a different direction: the axis
---      that changes tells you which coordinate is which.
---      Log: ap_coord_<timestamp>.log beside this script.
+-- Finds the player's coordinates on the Archipelago build with no anchor: walked one way, a coordinate keeps changing
+-- by the same +1 or -1, and nothing else does for long. Read-only. Run on the AP ROM: walk 6+ tiles one way, no turns,
+-- no doors; a second run on the other axis tells X from Y. Logs ap_coord_<timestamp>.log beside this script.
 
 local DOMAIN = "WRAM"
 local WRAM_SIZE = 0x8000
 local NEEDED_HITS = 5 -- consistent ±1 changes before an address is reported
 
--- Addresses PROVEN to be counters rather than coordinates: they moved +1 while walking right AND
--- +1 while walking left (2026-08-18). A coordinate reverses with direction; a counter does not.
--- Excluded because the probe used to stop at the first address to reach the threshold, and the
--- counter won that race every run — hiding the real candidate behind it.
+-- A counter, not a coordinate (it moved +1 walking right and walking left), which would win the race to NEEDED_HITS.
 local EXCLUDE = { [0x0FC4] = true }
-local SAMPLE_EVERY = 10 -- frames. A step takes ~16, so this still cannot miss one, and 32k reads
--- every other frame is far more than BizHawk's Lua host will carry — the first version of this
--- probe never produced a log at all because of it (2026-08-18).
+-- A step takes ~16 frames, so this cannot miss one; scanning 32 KB much more often stalls BizHawk's Lua host.
+local SAMPLE_EVERY = 10
 
 local function scriptDir()
 	local info = debug.getinfo(1, "S")
@@ -68,9 +37,7 @@ local function log(msg)
 	console.log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Every 20 lines, never per line: bounded cost, and the log stays live through a run.
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -92,7 +59,6 @@ log("WALK STEADILY IN ONE DIRECTION, 6+ tiles, no turning, no doors.")
 log("Looking for bytes that change by the same +1 or -1, repeatedly.")
 log("NOTE: one direction only. A square resets the counter at every turn and finds nothing.")
 
--- state per address: last value, how many consistent ±1 steps seen, and which direction.
 local prev, hits, dir = {}, {}, {}
 for a = 0, WRAM_SIZE - 1 do
 	prev[a] = u8(a)
@@ -114,8 +80,7 @@ local function tick()
 		if now and was and now ~= was then
 			local d = now - was
 			if d == 1 or d == -1 then
-				-- Consistent with what this address has done before? A coordinate walked in one
-				-- direction always moves the same way; a counter or timer does not.
+				-- Walked one way, a coordinate always moves the same way; a counter or timer does not.
 				if hits[a] == 0 or dir[a] == d then
 					dir[a] = d
 					hits[a] = hits[a] + 1

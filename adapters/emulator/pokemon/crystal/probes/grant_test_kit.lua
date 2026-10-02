@@ -1,42 +1,7 @@
--- MeshGhost — Pokémon Crystal: grant the badges, the HMs and the field moves needed to test
---
--- DEVELOPMENT TOOL. **THIS ONE CHEATS, DELIBERATELY, AND IT IS ALLOWED TO.** CLAUDE.md's rule is
--- that nothing which SHIPS may write a save, a game state or a ROM -- and that dev-only test
--- tooling MAY cheat, as a PROBE, never as an adapter. This is that probe. It is not loaded by the
--- adapter, is not packaged in a release, and exists so a test session can reach water, ledges,
--- dark caves and the sky without first playing through the game.
---
--- ** READ THIS BEFORE RUNNING IT **
--- It writes into the player's party and inventory in WRAM. That is not the same as writing the
--- save file -- but **if you SAVE in-game afterwards, these changes become permanent in that save**.
--- The safe way to use it: make a savestate first (savestates are not in-game saves), run this, do
--- the testing, and load the savestate afterwards. It never touches the .sav file itself, and it
--- never writes a savestate.
---
--- WHAT IT DOES, once, and then it goes quiet:
---   * all 16 badges (8 Johto + 8 Kanto)
---   * one of every HM in the TM/HM pocket
---   * the field moves put onto your party Pokemon, because in this game a badge and the HM in the
---     bag are NOT enough -- a party Pokemon has to KNOW the move. Party slot 1 gets the four that
---     matter for getting around (SURF, FLY, STRENGTH, WATERFALL); slot 2, if you have one, gets
---     the rest (WHIRLPOOL, CUT, FLASH).
---
--- It does NOT give items, money, Pokemon, or anything else -- narrow on purpose, so what it
--- changed is always obvious.
---
--- HOW TO RUN
---   Load it beside the adapter (dev-scripts/bizhawk-dev-loader.lua takes several targets), or on
---   its own from the Lua Console. It waits until you are actually in the overworld, applies
---   everything once, prints what it wrote AS READ BACK FROM MEMORY, and then does nothing further.
---   Log: grant_test_kit_<timestamp>.log beside this file.
---
--- WHERE THE NUMBERS COME FROM
--- Every address is from our own hash-verified pokecrystal build's pokecrystal.sym, and every
--- layout value is looked up in constants/pokemon_data_constants.asm and
--- constants/item_constants.asm, then checked against the .sym where it can be. The
--- arithmetic that is not a bare symbol is shown at its definition below so it can be checked.
--- VANILLA V1.0 ONLY -- it refuses on anything else rather than writing a patched build's RAM at
--- vanilla's addresses.
+-- Pokémon Crystal: grants all 16 badges, one of each HM and the field moves (a party Pokémon must know the move:
+-- Surf, Fly, Strength and Waterfall to slot 1, Whirlpool, Cut and Flash to slot 2), once, so a test session can reach
+-- water, ledges, dark caves and the sky. Vanilla V1.0 only. Writes WRAM, never the .sav or a savestate: an in-game
+-- save afterwards makes it permanent, so savestate first and load it after.
 
 local DOMAIN = "WRAM"
 
@@ -47,7 +12,7 @@ local function flat(cpu_addr)
 	return 0x1000 + (cpu_addr - 0xD000)
 end
 
--- pokecrystal.sym
+-- Addresses from our build's .sym.
 local W_JOHTO_BADGES = flat(0xD857) -- wJohtoBadges
 local W_KANTO_BADGES = flat(0xD858) -- wKantoBadges
 local W_TMSHMS = flat(0xD859) -- wTMsHMs
@@ -56,16 +21,12 @@ local W_PARTY_MON1 = flat(0xDCDF) -- wPartyMon1
 local W_MAPSTATUS = flat(0xD432) -- wMapStatus, the same address the adapter uses
 local W_MAPGROUP = flat(0xDCB5) -- wMapGroup, as used by the adapter
 
--- constants/pokemon_data_constants.asm, party_struct. Each is confirmed against pokecrystal.sym
--- rather than trusted from the macro: wPartyMon2 - wPartyMon1 = 0xDD0F - 0xDCDF = 0x30, and
--- wPartyMon1PP - wPartyMon1 = 0xDCF6 - 0xDCDF = 0x17.
+-- Checked against the .sym: wPartyMon2 - wPartyMon1 = 0x30, wPartyMon1PP - wPartyMon1 = 0x17.
 local PARTYMON_STRUCT_LENGTH = 0x30
 local MON_MOVES = 0x02
 local MON_PP = 0x17
 
--- constants/item_constants.asm. wTMsHMs is taken as one count byte per TM then per HM. The span
--- is derived from the symbol table: wNumItems - wTMsHMs = 0xD892 - 0xD859 = 0x39 = 57 bytes for
--- NUM_TMS + NUM_HMS, with NUM_HMS looked up there as 7 -- so NUM_TMS is 50.
+-- One count byte per TM, then per HM: wNumItems - wTMsHMs is 57 bytes, and 7 HMs leave 50 TMs.
 local NUM_TMS = 50
 local NUM_HMS = 7
 
@@ -74,16 +35,13 @@ local MOVE = {
 	CUT = 15, FLY = 19, SURF = 57, STRENGTH = 70, WATERFALL = 127, FLASH = 148, WHIRLPOOL = 250,
 }
 
--- Four slots per Pokemon and seven HMs, so they have to be split. Slot 1 gets the ones that open
--- up the map; slot 2 gets the rest.
+-- Four move slots and seven HMs: slot 1 gets the ones that open up the map.
 local LOADOUT = {
 	{ "SURF", "FLY", "STRENGTH", "WATERFALL" },
 	{ "WHIRLPOOL", "CUT", "FLASH" },
 }
 
--- The PP byte is read as current PP in the low 6 bits and PP-Up count in the top 2 (where to
--- look: constants/pokemon_data_constants.asm). 15 is at or above the field moves' real maximum, and a
--- field move that cannot be used because it is out of PP is a confusing way to fail a test.
+-- PP is the low 6 bits (PP-Ups the top 2). 15 is at or above the field moves' maximum: an empty one fails a test.
 local PP_VALUE = 15
 
 local logfile
@@ -94,20 +52,13 @@ local function open_log()
 		dir = info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
 	end
 	logfile = io.open(string.format("%s/grant_test_kit_%s.log", dir, os.date("%Y%m%d_%H%M%S")), "w")
-	-- Buffered, and never flushed per line: a console.log plus a flush is a synchronous disk
-	-- write on the emulator's own thread, measured at 63-83ms -- four to five frames, every time
-	-- (pitfalls.md, "ONE console line a second cost 7.4 fps"). A probe that stalls the game is a
-	-- probe that changes what it measures.
+	-- Buffered, never flushed per line: a console line plus a flush stalls the emulator's thread for frames.
 	if logfile then
 		pcall(function() logfile:setvbuf("full", 8192) end)
 	end
 end
 
--- THE CONSOLE IS THE EXPENSIVE HALF. `console.log` appends to BizHawk's GUI console window, on the
--- emulator's own thread; pitfalls.md measured ONE such line a second costing 7.4fps, and removing
--- the per-line disk flush alone left 87-175ms hitches still there (2026-08-21). So the console gets
--- the opening lines and then one in twenty, while the FILE gets every line -- the log is the record,
--- the console is only a glance.
+-- The console gets the first lines and one in twenty; the file gets every line.
 local rawConsole, consoleLines = console.log, 0
 local function raw_log(msg)
 	consoleLines = consoleLines + 1
@@ -119,9 +70,7 @@ local function log(msg)
 	raw_log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Flushed every 20 lines: bounded cost, and a live log (an unflushed one reads as nothing happened).
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -142,8 +91,7 @@ local function w8(addr, value)
 	pcall(memory.write_u8, addr, value & 0xFF, DOMAIN)
 end
 
--- Vanilla only, and asked of the cartridge header rather than of RAM, because RAM is exactly what
--- would be wrong on a build these addresses do not describe.
+-- Asked of the cartridge header, not RAM: RAM is exactly what would be wrong on another build.
 local function romTitle()
 	local out = {}
 	for i = 0x134, 0x142 do
@@ -173,7 +121,7 @@ local applied = false
 local waited = 0
 
 local function apply()
-	-- Badges: two bitfields of 8 (pokecrystal.sym; wJohtoBadges, wKantoBadges).
+	-- Badges: two bitfields of eight.
 	w8(W_JOHTO_BADGES, 0xFF)
 	w8(W_KANTO_BADGES, 0xFF)
 
@@ -194,9 +142,7 @@ local function apply()
 		taught[#taught + 1] = string.format("party %d: %s", slot, table.concat(moves, ", "))
 	end
 
-	-- READ BACK, and read back something we did not just hand ourselves: the values are re-read
-	-- out of the game's memory rather than echoed from the locals above, because a log line that
-	-- repeats what was written proves only that the code ran (CLAUDE.md).
+	-- Read back from the game's memory, not echoed from the locals: an echo proves only that the code ran.
 	log("")
 	log("Applied. Read back from the game's own memory:")
 	log(string.format("  badges: johto 0x%02X, kanto 0x%02X (0xFF each means all eight)",
@@ -258,8 +204,7 @@ MESHGHOST_DEV_UNLOAD = function()
 	end
 end
 
--- A registered callback outlives its script under BizHawk, which is why this is a loop and not
--- event.onframeend (pitfalls.md).
+-- A registered callback outlives its script under BizHawk, hence a loop rather than event.onframeend.
 if not MESHGHOST_DEV_LOADER then
 	while true do
 		tick()

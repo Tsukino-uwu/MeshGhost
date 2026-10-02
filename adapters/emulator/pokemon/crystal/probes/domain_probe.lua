@@ -1,52 +1,17 @@
--- MeshGhost — Pokémon Crystal: memory-domain probe
---
--- READ-ONLY DIAGNOSTIC. Writes nothing, sends nothing, draws nothing.
--- Not part of any shipped adapter; no Crystal adapter exists yet.
---
--- WHAT THIS ANSWERS
--- Crystal's addresses are already authoritative (see agent_docs/verified.md): they come from a
--- pokecrystal build whose ROM is byte-identical to the ROM being played. What is NOT yet known is
--- how to *reach* them from BizHawk, because Game Boy WRAM is banked and the decomp reports
--- addresses as bank:offset -- e.g. wMapGroup at 01:dcb5.
---
--- Two things need confirming, and only a running game can confirm them:
---   1. Which memory domain exposes WRAM bank 1, and under which of two plausible mappings.
---   2. Whether the Gambatte and SameBoy cores agree. Run this once under each.
---
--- HOW IT DECIDES, AND WHY IT IS NOT A GUESS
--- A wrong domain returns a plausible number rather than an error -- the exact hazard CLAUDE.md
--- warns about. So this does not trust a single read. The fingerprint it tests, suggested by the
--- decomp's WRAM order (ram/wram.asm) and the .sym: wMapGroup / wMapNumber / wYCoord / wXCoord as
--- four CONSECUTIVE bytes (01:dcb5..01:dcb8). A candidate is only reported as a match
--- if all four look sane AND the two coordinate bytes actually change when you walk.
---
--- HOW TO RUN
---   1. Open BizHawk, load the Crystal ROM, and be in the overworld (not a menu or battle).
---   2. Lua Console -> Script -> Open, pick this file.
---   3. Walk around for a few seconds, changing BOTH x and y (e.g. left/right, then up/down).
---      Read the verdict in the console -- it is also written to domain_probe_<timestamp>.log
---      beside this script, so the run leaves a record without anyone copying text out.
---
--- Stop it with the Lua Console's stop button; it holds no resources.
+-- Which BizHawk memory domain reaches Game Boy WRAM bank 1, and under which mapping: a candidate counts only if
+-- wMapGroup..wXCoord read as four sane consecutive bytes and both coordinates move on a walk. Read-only. Run once per
+-- core (Gambatte, SameBoy) in the overworld, walking both axes; logs domain_probe_<timestamp>.log beside this script.
 
-local WMAPGROUP = 0xDCB5 -- 01:dcb5, per pokecrystal.sym. The other three follow it.
+local WMAPGROUP = 0xDCB5 -- 01:dcb5 in the .sym; the other three follow it
 local BANK1_BASE = 0xD000 -- GB banked WRAM window
 local SETTLE_FRAMES = 30 -- ignore the first half-second, so a mid-load read isn't judged
 
--- The two mappings worth testing, and why each is plausible:
---   "cpu"  -- the domain is addressed exactly as the CPU sees it (System Bus behaves this way),
---            so wMapGroup sits at 0xDCB5 directly.
---   "flat" -- the domain is the whole WRAM array with banks laid end to end, so bank 1 starts at
---            0x1000 and wMapGroup sits at 0x1000 + (0xDCB5 - 0xD000) = 0x1CB5.
+-- Addressed as the CPU sees it (as System Bus is), or the whole WRAM array with banks end to end (bank 1 at 0x1000).
 local MAPPINGS = {
 	{ name = "cpu", addr = WMAPGROUP },
 	{ name = "flat", addr = 0x1000 + (WMAPGROUP - BANK1_BASE) },
 }
 
--- Mirror every console line to a timestamped log beside this script, matching the convention
--- Emerald's vram_probe.lua established. Without this the only record is the Lua Console window,
--- which means a human has to copy-paste it back -- found live 2026-08-17, on this probe's own
--- first run.
 local logfile
 local function open_log()
 	local dir = "."
@@ -64,11 +29,8 @@ local function open_log()
 	return nil
 end
 
--- THE CONSOLE IS THE EXPENSIVE HALF. `console.log` appends to BizHawk's GUI console window, on the
--- emulator's own thread; pitfalls.md measured ONE such line a second costing 7.4fps, and removing
--- the per-line disk flush alone left 87-175ms hitches still there (2026-08-21). So the console gets
--- the opening lines and then one in twenty, while the FILE gets every line -- the log is the record,
--- the console is only a glance.
+-- The console is a GUI append on the emulator's thread and costs frames: it gets the opening lines and one in
+-- twenty, the file gets every line.
 local rawConsole, consoleLines = console.log, 0
 local function raw_log(msg)
 	consoleLines = consoleLines + 1
@@ -80,9 +42,7 @@ local function log(msg)
 	raw_log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Every 20 lines, never per line: bounded cost, and the log stays live through a run.
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -107,7 +67,6 @@ local function domain_list()
 	return out
 end
 
--- Read the four fingerprint bytes. Returns nil if the domain/address isn't readable at all.
 local function read_quad(domain, addr)
 	local vals = {}
 	for i = 0, 3 do
@@ -120,9 +79,7 @@ local function read_quad(domain, addr)
 	return vals
 end
 
--- Sanity, deliberately loose. This rejects obvious nonsense (all zeroes, all 0xFF) without
--- pretending to know Crystal's real map-group range -- that would be an address-from-memory claim,
--- which CLAUDE.md forbids. The real discriminator is movement, checked separately below.
+-- Deliberately loose: it rejects nonsense without claiming to know the real map-group range; movement decides.
 local function plausible(q)
 	if not q then
 		return false
@@ -206,8 +163,7 @@ local function tick()
 		end
 	end
 
-	-- Report as soon as exactly one candidate has shown movement in BOTH coordinates, or
-	-- periodically so a run that never resolves still says something useful.
+	-- Every 2 seconds until the candidates moving on both axes agree, so a run that never resolves still reports.
 	if not reported and frames % 120 == 0 then
 		local movers = {}
 		for _, c in ipairs(candidates) do
@@ -217,11 +173,8 @@ local function tick()
 			end
 		end
 
-		-- More than one surviving candidate is NOT necessarily ambiguity. A GB core exposes the
-		-- same bytes through more than one domain -- "System Bus" addresses them as the CPU does,
-		-- while "WRAM" is the raw array -- so several candidates agreeing exactly is mutual
-		-- corroboration. Only genuine DISAGREEMENT is ambiguous. Found live 2026-08-17, when the
-		-- first run reported "ambiguous" while actually having succeeded twice over.
+		-- A core exposes the same bytes through several domains, so candidates agreeing is corroboration; only
+		-- disagreement is ambiguous.
 		local function agree(a, b)
 			for i = 1, 4 do
 				if a.last[i] ~= b.last[i] then

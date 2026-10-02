@@ -1,53 +1,8 @@
--- MeshGhost — Pokémon Crystal: walk through walls, water and NPCs (DEV TOOL, WRITES, never shipped)
---
--- `.claude/skills/play-game/SKILL.md` allows driving a running game to reach a state, collision edits explicitly. Getting
--- from a warp tile to the water, the ledge or the corner a test actually needs is the slow part.
---
--- WHAT THIS HEADER MAY SAY (the repo's rule since 2026-09-13): what the tool DOES is our own code;
--- what is MEASURED says where; everything it relies on that nobody has measured yet is marked
--- UNMEASURED and queued in `crystal/UNVERIFIED.md` ("to measure: tile collision").
---
--- ===== TERRAIN AND WATER =====
--- The loaded tileset's header sits in WRAM as a copy of a ROM table entry [measured 2026-09-13,
--- probes/tileset_header_probe.lua, both builds], and pointing its collision pointer at a table of our
--- own changes where the player may walk [seen by the user 2026-09-13 with this tool]. So this tool
--- builds a FILTERED COPY of the real table and points the header at it: the values it keeps are the
--- warp family ($60, $68, $7x) and the grass family ($10, $14, $18, $1C); everything else reads $00.
--- UNMEASURED: that those kept values are what makes doors, stairs and grass work, and that $00 is
--- walkable floor. The first version pointed at a run of zeroes instead, and its header claimed doors
--- still warped -- a claim nobody had measured, which is why this version keeps the warp values.
--- While SURFING, expect the next step to leave the water (UNMEASURED); turn this off to test surf.
---
--- WHERE THE COPY GOES: the last 512 bytes of `wOverworldMapBlocks` (flat $0B14-$0D13, CPU $CB14-$CD13),
--- written only if all 512 read zero, re-checked in full every ten frames, and rebuilt whenever the
--- game's own pointer reappears; a map where that tail is not free falls back to an all-floor redirect
--- at the longest zero run, and says so. Measured: the zero run $C8C0-$CD1F is identical on vanilla
--- V1.0 and the Archipelago seed and did not change over ten seconds [2026-09-13,
--- probes/zero_runs_probe.lua]; the buffer's address is from our byte-identical V1.0/V1.1 builds' .sym.
--- UNMEASURED: that the tail is unused by the current map, and that a map load clears it.
---
--- A MAP EDGE STAYS SOLID with this on [seen by the user 2026-09-13]. Why is UNMEASURED; do not try to
--- open it before measuring what stepping past an edge with no neighbouring map would do.
---
--- ===== NPCs =====
--- Each NPC within two tiles of the player gets OBJECT_FLAGS1 bit 7 (EMOTE_OBJECT) set, and loses it
--- when farther away, so the player's step passes it. The emote bubble, jump shadow and screen-shake
--- objects carry that bit themselves [documentation.md, "Which characters block the player"]. While
--- any object carrying it that this tool did not set exists, every bit this tool set is cleared, and
--- nothing is set again for two seconds after the last one is gone. UNMEASURED: that the bit makes the
--- player pass, and that the game deletes every flagged object when an emote ends -- the stand-down
--- exists because the second would delete NPCs. The adapter's own emote reader also requires
--- OBJECT_ACTION 8 and the player's tile, so a flagged NPC never goes on the wire as an emote.
---
--- ===== ADDRESSES, per build =====
--- Vanilla V1.0/V1.1: our byte-identical builds' .sym files agree on every one (Tilesets 13:5596,
--- wTileset 01:d1d9, wObjectStructs 01:d4d6), and probes/tileset_header_probe.lua found the first two
--- there. Archipelago on a V1.0 base: the tileset header and table measured by that probe
--- (2026-09-13), the object array from ADDRESSES.archipelago in meshghost_crystal.lua. Any other title
--- refuses to run.
---
--- HOW TO RUN: add it to the loader's target file; remove the line to put everything back.
--- Log: noclip_<build>_<timestamp>.log beside this file.
+-- Walk through walls, water and NPCs: a dev tool that writes the game, never shipped. It aims the loaded tileset's
+-- collision pointer at a filtered copy of the real table (warp and grass values kept, the rest $00), placed in the
+-- last 512 bytes of wOverworldMapBlocks only if all read zero, and flags NPCs within two tiles EMOTE_OBJECT. Its
+-- premises past the tileset header and the zero run are unmeasured; a map edge stays solid, so measure a step past
+-- one before opening it. Turn it off to test surf. Vanilla V1.0/V1.1 and Archipelago on a V1.0 base; others refuse.
 
 local WRAM, ROM = "WRAM", "ROM"
 local TABLE_LEN = 512
@@ -106,8 +61,7 @@ say(string.format("ON for %s. Terrain/water via a filtered collision table, NPCs
 
 -- ===== terrain =====
 
--- The real collision pointer for the tileset in the header right now, from the ROM table entry whose
--- graphics and block pointers (the first six bytes) match -- so it is right even after an unclean
+-- The real collision pointer, from the ROM entry whose first six bytes match the header: right even after an unclean
 -- unload left the WRAM pointer redirected.
 local function romCollision()
 	local h = memory.read_bytes_as_array(build.header, 6, WRAM)
@@ -126,7 +80,7 @@ local function romCollision()
 end
 
 local function keep(v)
-	return v == 0x60 or v == 0x68 or (v & 0xF0) == 0x70 -- the warp family (UNMEASURED, see header)
+	return v == 0x60 or v == 0x68 or (v & 0xF0) == 0x70 -- the warp family (unmeasured)
 		or v == 0x10 or v == 0x14 or v == 0x18 or v == 0x1C -- grass family
 end
 
@@ -213,8 +167,7 @@ end
 local function tickTerrain(frames)
 	local ptr = pointerNow()
 	if ptr >= 0x4000 and ptr <= 0x7FFF then
-		-- The game's own pointer: a tileset load, or this tool stood down. Retry at most every two
-		-- seconds, so a map with no free region costs one scan per two seconds rather than per frame.
+		-- The game's own pointer (a tileset load, or this tool stood down): retry at most every two seconds.
 		if frames >= (terrain.retryAt or 0) then
 			terrain.retryAt = frames + 120
 			applyTerrain()
@@ -224,8 +177,8 @@ local function tickTerrain(frames)
 	terrain.retryAt = nil -- redirected: the next time the game takes the pointer back, rebuild at once
 	if frames % 10 ~= 0 then return end
 	if terrain.mode == "filtered" and terrain.expected then
-		-- EVERY byte: a map load zero-fills the buffer while the pointer may still be ours, and the
-		-- entries that differ from zero are exactly the few warps a sparse sample would skip.
+		-- Every byte: a map load zero-fills the buffer while the pointer may still be ours, and a sparse sample would
+		-- skip the few non-zero warp entries.
 		local b = memory.read_bytes_as_array(TABLE_FLAT, TABLE_LEN, WRAM)
 		for i = 1, TABLE_LEN do
 			if b[i] ~= terrain.expected[i] then
@@ -248,6 +201,7 @@ local function tickTerrain(frames)
 end
 
 -- ===== NPCs =====
+-- The adapter's emote reader also needs OBJECT_ACTION 8 on the player's tile, so a flagged NPC never goes on the wire.
 
 local npc = { mine = {}, standDownUntil = 0, standingDown = false }
 
@@ -346,8 +300,7 @@ MESHGHOST_DEV_UNLOAD = function()
 	end
 end
 
--- A registered callback outlives its script under BizHawk, which is why this is a loop and not
--- event.onframeend (pitfalls.md).
+-- A loop, not event.onframeend: a registered callback outlives its script under BizHawk.
 if not MESHGHOST_DEV_LOADER then
 	while true do
 		MESHGHOST_DEV_TICK()

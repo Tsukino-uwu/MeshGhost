@@ -1,30 +1,14 @@
--- grant_all_vanilla.lua -- **THIS ONE WRITES THE GAME.** Every badge, every HM, a Bicycle and a
--- Super Rod, once, on a VANILLA-FAMILY build: Crystal V1.0, V1.1 or Speedchoice v8.1. It refuses
--- anything else -- an Archipelago build has its own script (grant_all_ap.lua), because its bag is
--- enlarged, its addresses are measured and its item ids are renumbered.
---
--- CLAUDE.md permits this as dev-only test tooling: a probe, never an adapter. It writes WRAM, not
--- the save -- but **an in-game save afterwards makes it permanent in that save**. It saves a state
--- to SLOT 6 first (slots 2+ are the agent's; 1 and 3 are the user's), so the undo is one keypress.
---
--- Every address below is read from a hash-verified `.sym` (`pokecrystal.sym`, `pokecrystal11.sym`,
--- `crystal-speedchoice.sym`, all three checked equal 2026-09-09) and every item id from that
--- build's own `constants/item_constants.asm`:
---   wJohtoBadges 01:d857   wKantoBadges 01:d858   wTMsHMs 01:d859 (NUM_TMS 50 + NUM_HMS 7 = 57
---   bytes, one count each; HMs are the last seven)   wNumKeyItems 01:d8bc   wKeyItems 01:d8bd
---   (MAX_KEY_ITEMS 25)   wWhichRegisteredItem 01:d95b   wRegisteredItem 01:d95c
---   BICYCLE $07   SUPER_ROD $3d (a KEY item in Crystal)
--- Nothing is trusted written: every field is read back through the same reads and logged.
---
--- Dev-loader contract. Add it as a line of the window's target file; it acts once the player is
--- in the overworld, then does nothing. TAKE IT OFF THE TARGET AFTERWARDS or a reload fires it again.
+-- Writes the game: every badge, every HM, a Bicycle (registered to Select if nothing is) and a Super Rod (a key item
+-- in Crystal), once, on Crystal V1.0, V1.1 or Speedchoice v8.1; refuses anything else. Addresses from the three
+-- hash-verified .syms, which agree. Saves slot 6 first and reads every field back; an in-game save afterwards makes
+-- it permanent. It acts once in the overworld: take it off the target afterwards, or a reload fires it again.
 local DOMAIN = "WRAM"
 local function flat(cpu) return cpu < 0xD000 and cpu - 0xC000 or 0x1000 + (cpu - 0xD000) end
 local W_JOHTO_BADGES, W_KANTO_BADGES, W_TMSHMS = flat(0xD857), flat(0xD858), flat(0xD859)
 local NUM_TMS, NUM_HMS = 50, 7
 local W_NUM_KEY_ITEMS, W_KEY_ITEMS, MAX_KEY_ITEMS = flat(0xD8BC), flat(0xD8BD), 25
 local W_WHICH_REGISTERED, W_REGISTERED_ITEM = flat(0xD95B), flat(0xD95C)
-local W_MAPSTATUS, W_MAPGROUP = flat(0xD432), flat(0xDCB5) -- vanilla's; speedchoice's group is +1 but is only tested ~= 0 here
+local W_MAPSTATUS, W_MAPGROUP = flat(0xD432), flat(0xDCB5) -- vanilla's; Speedchoice's is +1, tested only ~= 0
 local BICYCLE, SUPER_ROD, TERMINATOR = 0x07, 0x3D, 0xFF
 local UNDO_SLOT = 6
 local function u8(a) return memory.read_u8(a, DOMAIN) end
@@ -68,7 +52,7 @@ local frames, done = 0, false
 local function tick()
 	frames = frames + 1
 	if done or frames < 60 then return end
-	if (u8(W_MAPSTATUS) ~= 2) or (u8(W_MAPGROUP) or 0) == 0 then return end -- wait for the overworld
+	if (u8(W_MAPSTATUS) ~= 2) or (u8(W_MAPGROUP) or 0) == 0 then return end
 	done = true
 	local b, why = build()
 	if not b then log("grant_all_vanilla: REFUSING on " .. why .. " -- not a vanilla-family build"); return end

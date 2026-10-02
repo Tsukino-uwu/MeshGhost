@@ -1,24 +1,6 @@
--- MeshGhost — Pokémon Crystal: is the rod we read from the cartridge the rod the engine drew?
---
--- DEVELOPMENT TOOL, read-only. It presses nothing and writes nothing.
---
--- WHY THIS EXISTS
--- The drawn tier paints a peer's fishing rod from ROM (`FISHING_ROD_ROM`), because on a receiving
--- machine the two VRAM tiles it would otherwise share hold the jump shadow instead. That read is
--- the one thing in the fishing path with no in-game check behind it — so when the user reported
--- the ghosts' rods looking *"sideways/weird"* while the player's looked right, the first question
--- is whether the bytes we decode are the bytes the engine has.
---
--- WHAT IT DOES
--- While the LOCAL player is fishing (the one moment the engine's own copy of the rod is resident),
--- it prints, as pixels:
---   * the two tiles at FISHING_ROD_ROM, decoded exactly the way the adapter decodes them;
---   * VRAM tiles $fc and $fd in BOTH banks, decoded the same way.
--- If the ROM pair and one VRAM pair are identical, the cartridge read is right and the fault is in
--- placement. If they differ, the read is wrong and everything drawn from it is arbitrary.
--- `probes.md`: diff what you BUILT against what the game BUILT.
---
--- It fires ONCE, on the first frame it sees the player holding a FISH facing, and then goes quiet.
+-- Pokémon Crystal: is the rod the drawn tier reads from the cartridge the rod the engine drew? Read-only, one shot:
+-- on the first frame the local player holds a fishing facing, it prints the two tiles at the ROM rod address and
+-- VRAM tiles $fc/$fd in both banks as pixels, plus the OAM entries drawing them. A match means the read is right.
 
 local OUT = MESHGHOST_FISH_DIR
 if not OUT then
@@ -82,9 +64,8 @@ local function tick()
   dump("  VRAM bank 1 tile $fc:", vramByte, VRAM_BANK1 + 0xFC * 16)
   dump("  VRAM bank 1 tile $fd:", vramByte, VRAM_BANK1 + 0xFD * 16)
 
-  -- The OAM the engine actually emitted for the player, so the rod's REAL offset from the body is
-  -- a measurement rather than a reading of the facing table. Entries are y, x, tile, attributes;
-  -- the GB's OAM y/x carry the hardware's own +16/+8 bias, which cancels in the differences below.
+  -- The OAM the engine emitted, so the rod's offset from the body is measured rather than read off a table; the
+  -- hardware's +16/+8 bias cancels in the differences.
   log("  OAM entries with a tile of $fc or $fd, and the player's own four, as y,x,tile,attr:")
   for e = 0, 39 do
     local y = memory.read_u8(e * 4, "OAM") or 0

@@ -1,50 +1,10 @@
--- MeshGhost — Pokémon Crystal: clear characters this adapter left behind (DEV TOOL, WRITES)
---
--- **THIS ONE WRITES TO THE GAME**, which every other file in this folder except grant_test_kit.lua
--- does not. It clears map objects and object structs -- the same bytes the adapter clears when it
--- despawns a ghost -- so read the safety rules below before loading it.
---
--- WHY THIS EXISTS
--- The user, 2026-08-21: *"it still has the 'static ghost' glued on top of it. can you separate
--- them apart from each other already?"*
---
--- The adapter deliberately FORGETS a ghost whose identity no longer checks out rather than zeroing
--- its slot, because zeroing a slot the game has since reused would delete one of the game's own
--- NPCs. The cost of that rule is a character we made, that nothing is tracking, carrying
--- FLAG1_WONT_DELETE so the engine will not reclaim it either. It stands still forever. A map
--- change clears it (both arrays are rebuilt from ROM), but that means leaving the room to tidy up.
---
--- WHAT IT CLEARS, and it is deliberately narrow. All of these must hold:
---   * not the player (struct 0 is never touched), and
---   * wearing the LOCAL PLAYER's sprite id -- what the adapter gives a ghost, and what a map's own
---     NPCs do not wear, and
---   * FLAG1_WONT_DELETE set -- the adapter sets it on every ghost, and
---   * standing on the same tile, not animating, for HOLD_SECONDS -- longer than the adapter's own
---     one-minute idle rule, past which a ghost it still tracked would already have been released to
---     the drawn tier. So anything still here is not being tracked by anyone.
---
--- The last condition is what makes this safe to run beside a live session: the ghost the adapter is
--- actually driving resets its timer every time its peer moves, so it is never a candidate.
---
--- IT WILL NOT CLEAR a character that is merely idle for a moment, one wearing any other sprite, or
--- anything without WONT_DELETE. If nothing matches it says so and does nothing, which is the
--- expected result in a healthy session.
---
--- HOW TO RUN
---   Add it to the loader's target file. It reports every sweep to orphan_sweep_<timestamp>.log
---   beside this file, naming every object it clears and every field it read to decide. Remove the
---   line when finished -- there is no reason to leave a writing tool loaded.
+-- Writes the game: clears characters this adapter left behind, the same bytes its despawn clears. Only one that is
+-- not the player, wears the local player's sprite id, has WONT_DELETE set and has stood on one tile without
+-- animating for HOLD_SECONDS, past the adapter's idle rule; a ghost still tracked resets that timer each time its
+-- peer moves, so it is never a candidate. Logs every sweep; remove it from the target when finished.
 
 local DOMAIN = "WRAM"
-local HOLD_SECONDS = 75 -- comfortably past the adapter's own release rule, which is
--- IDLE_FRAMES_BEFORE_PASSABLE = 3600 frames (one minute) since 2026-08-26.
---
--- THIS NUMBER IS A SAFETY BOUND, NOT A PREFERENCE, because this file WRITES. It was 8 seconds
--- against a five-second rule; the moment that rule became a minute, 8 seconds meant this sweep
--- would delete ghosts the adapter was still legitimately tracking -- a peer standing still for
--- ten seconds is now perfectly normal and still owned. It must always sit ABOVE the adapter's
--- rule with room to spare, so raising one without raising the other turns a tidy-up tool into a
--- tool that destroys live ghosts.
+local HOLD_SECONDS = 75 -- must stay above the adapter's 3600-frame idle rule, or this deletes live ghosts
 
 local function flat(cpu_addr)
 	if cpu_addr < 0xD000 then
@@ -73,20 +33,13 @@ local function open_log()
 		dir = info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
 	end
 	logfile = io.open(string.format("%s/orphan_sweep_%s.log", dir, os.date("%Y%m%d_%H%M%S")), "w")
-	-- Buffered, and never flushed per line: a console.log plus a flush is a synchronous disk
-	-- write on the emulator's own thread, measured at 63-83ms -- four to five frames, every time
-	-- (pitfalls.md, "ONE console line a second cost 7.4 fps"). A probe that stalls the game is a
-	-- probe that changes what it measures.
+	-- Buffered, never flushed per line: a flush is a synchronous disk write on the emulator's own thread.
 	if logfile then
 		pcall(function() logfile:setvbuf("full", 8192) end)
 	end
 end
 
--- THE CONSOLE IS THE EXPENSIVE HALF. `console.log` appends to BizHawk's GUI console window, on the
--- emulator's own thread; pitfalls.md measured ONE such line a second costing 7.4fps, and removing
--- the per-line disk flush alone left 87-175ms hitches still there (2026-08-21). So the console gets
--- the opening lines and then one in twenty, while the FILE gets every line -- the log is the record,
--- the console is only a glance.
+-- The console is a GUI append on the emulator's thread, so it gets the first lines and one in twenty; the file all.
 local rawConsole, consoleLines = console.log, 0
 local function raw_log(msg)
 	consoleLines = consoleLines + 1
@@ -98,9 +51,7 @@ local function log(msg)
 	raw_log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Flush every 20 lines: a bounded cost, and a log that is never empty for a whole run.
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -163,9 +114,8 @@ local function tick()
 					.. "for %ds without moving -- nothing was driving it.",
 					st, tostring(mo), sprite, x, y, s.stillFrames // 60))
 
-				-- The same two writes the adapter's own despawn does, in the same order: blank the
-				-- struct's sprite so the engine stops drawing it, then zero the map object so
-				-- nothing re-adopts the slot.
+				-- The adapter's own despawn writes, in its order: blank the sprite, then zero the map object so nothing
+				-- re-adopts the slot.
 				w8(base + F_SPRITE, 0)
 				if mo and mo ~= UNASSIGNED and mo < NUM_MAP_OBJECTS then
 					local moBase = MAP_OBJECTS + mo * MAPOBJECT_LENGTH
@@ -179,8 +129,7 @@ local function tick()
 					end
 				end
 
-				-- Read back rather than trusting the write: the sprite byte is what decides whether
-				-- the engine draws anything at all.
+				-- Read back: the sprite byte decides whether the engine draws anything.
 				log(string.format("    read back: struct %d sprite is now %s", st,
 					tostring(u8(base + F_SPRITE))))
 				cleared = cleared + 1
@@ -206,8 +155,7 @@ MESHGHOST_DEV_UNLOAD = function()
 	end
 end
 
--- A registered callback outlives its script under BizHawk, which is why this is a loop and not
--- event.onframeend (pitfalls.md).
+-- Standalone, its own loop: a registered callback outlives its script under BizHawk.
 if not MESHGHOST_DEV_LOADER then
 	while true do
 		tick()

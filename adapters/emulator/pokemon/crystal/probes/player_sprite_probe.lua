@@ -1,12 +1,5 @@
--- MeshGhost — Pokémon Crystal: which sprite id is the local player wearing, over time (READ-ONLY)
---
--- Asked 2026-09-13: an Archipelago peer RUNNING showed on a vanilla client as a ghost ON A BIKE. The
--- run rows ($65/$66) differ between the two cartridges, so the receiver drops the id and falls back
--- to "this machine's own player sprite" -- which is a bike if the vanilla player is riding. This
--- settles both halves: on the Archipelago client it shows the id a runner really carries (a
--- patched-ROM fact, `UNVERIFIED.md` 2026-08-26 item 2), and on the vanilla client what the fallback
--- would have borrowed. One line on every change of sprite, plus one every 5 seconds; 60 seconds.
--- Object array per build: meshghost_crystal.lua ADDRESSES (vanilla .sym 01:d4d6; Archipelago measured).
+-- Pokémon Crystal: which sprite id the local player wears, one line on each change plus one every 5 seconds, for
+-- 60 seconds. Read-only. The object array per build: vanilla's from the .sym, Archipelago's measured.
 local BUILDS = { PM_CRYSTAL = 0x14D6, AP_CRYSTAL = 0x14DC }
 local title = ""
 for i = 0x134, 0x13E do

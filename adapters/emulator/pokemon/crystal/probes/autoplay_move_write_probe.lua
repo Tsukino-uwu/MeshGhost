@@ -1,27 +1,12 @@
--- MeshGhost — Pokémon Crystal: what a move's power and accuracy bytes DO, by changing them in a battle
--- (DEV TOOL, WRITES WRAM, never shipped) -- 2026-09-17
---
--- WRITES one byte of the player's move struct in WRAM, and only while armed. Load it beside the autoplay driver and
--- autoplay_battle_probe.lua; arm it with a line in autoplay_move_write.cmd beside this file (read every 15 frames):
---   write <offset> <value> <move id>   while a battle runs and the struct's first byte reads <move id>, keep byte
---                                      <offset> (0-6) of wPlayerMoveStruct (C60F) at <value>, every frame
---   hold <address> <value>             while a battle runs, keep the WRAM byte at CPU address <address> (hex, C000-DFFF)
---                                      at <value>, every frame (added 2026-09-17 for which stat a type's damage uses)
---   off                                write nothing (also the state with no file)
--- A file may hold several lines, one command each.
--- Then restore a snapshot on the move menu, choose that move, and read what the turn did (damage, HP, a miss message)
--- against the same snapshot's turn with the probe off. Take it off the loader's target when done.
---
--- WHY. Crystal draws a move's type and PP in the battle's move box, never its power or accuracy, so those two bytes
--- cannot be read against the screen the way Emerald's summary allowed. What the game does with them can be seen: a
--- turn replayed from one snapshot with only that byte changed.
---
--- WHAT IT LOGS: every change of the command, each frame a write was needed (the byte before, the value written, and
--- the byte read back on the next frame through a fresh read), and on change the player's move struct, wCurDamage,
--- wAttackMissed and the enemy's HP (wEnemyMon +0x10). What it cannot see: a load and a use of the struct inside one
--- frame (the write would come too late; the log's "before" values show whether the struct was reloaded mid-turn).
---
--- COST. One 7-byte read a frame, one file read every 15 frames. Log: crystal/logs/autoplay_move_write_<port>_<ts>.log.
+-- Pokémon Crystal: what a move's power and accuracy bytes do, by changing them in a battle. Writes WRAM, only while
+-- armed by autoplay_move_write.cmd beside it (re-read every 15 frames, one command a line):
+--   write <offset> <value> <move id>   while a battle runs and wPlayerMoveStruct (C60F) holds <move id>, keep its
+--                                      byte <offset> (0-6) at <value>
+--   hold <address> <value>             while a battle runs, keep the WRAM byte at CPU <address> (hex) at <value>
+--   off                                write nothing, as with no file
+-- Restore a snapshot on the move menu, choose the move, and compare the turn with the same snapshot's turn unarmed;
+-- the battle screen never shows power or accuracy, so a replayed turn is the only reading. A byte the game loads and
+-- uses inside one frame is out of reach (the log's "before" values show a reload). Take it off the target when done.
 
 local dir, port = ".", tostring(AUTOPLAY_PORT or os.getenv("AUTOPLAY_PORT") or "na")
 do

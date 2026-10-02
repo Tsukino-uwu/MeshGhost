@@ -1,49 +1,7 @@
--- MeshGhost — Pokémon Crystal: spawn test 5, built from an NPC instead of from the player
---
--- *** WRITES GAME RAM. *** Same rules as the 2026-08-17 ADR: object RAM only, never a save,
--- cosmetic only, vanilla Crystal V1.0 only.
---
--- WHAT THE DIFF SHOWED (2026-08-18, verified.md)
--- Comparing a hand-built object against a real engine-driven NPC, with a working control, gave
--- nine field differences. Two of them explain the behaviour, and both come from one decision --
--- every previous test copied THE PLAYER as its template:
---
---   MOVEMENT_TYPE  engine NPC 3, ours 11.  11 is SPRITEMOVEDATA_PLAYER: "this object is driven by
---                                          the player's input system". So the engine does not
---                                          drive it. This is the strongest single candidate.
---   SPRITE_TILE    engine NPC 24, ours 0.  The per-map VRAM tile allocation. Ours has no graphics
---                                          slot at all.
---
--- and the rest follow from the same mistake: RADIUS 0 (an NPC's wander radius), JUMP_HEIGHT and
--- OBJECT_1D carrying player state that means nothing on an NPC, and the step fields describing a
--- stopped object rather than a live one.
---
--- WHAT THIS TEST DOES
--- Copies a REAL NPC on the current map -- both its map object and its object struct -- and changes
--- only position. Everything else, including MOVEMENT_TYPE, RADIUS and SPRITE_TILE, is inherited
--- from something the engine is demonstrably driving right now.
---
--- **The ghost will therefore look like that NPC, not like the player. That is deliberate.** This
--- test asks ONE question and appearance is not it:
---
---     "Does the engine drive an object built from an NPC template?"
---
--- Making it look like the player is the NEXT problem, and a harder one: SPRITE_TILE is an
--- allocation, not a value, so wearing the player's face means the player's sprite must have tiles
--- loaded for this map. Copying an NPC's tile index would just draw that NPC. One variable at a
--- time -- ownership first, appearance second.
---
--- HOW SUCCESS IS JUDGED
--- The same control that finally worked: watch the source NPC and our copy side by side. If ours
--- now tracks the way the NPC does, the engine has taken it. If ours still sits frozen while the
--- NPC moves, the template was not the problem and the answer is the ADR's call-the-routine branch.
---
--- HOW TO RUN
---   1. STOP EVERY OTHER MESHGHOST SCRIPT. Running two writers is what invalidated an earlier run.
---   2. Stand in the overworld somewhere with a visible NPC -- Elm's lab works, its aides pace
---      about, and a moving reference is all the control needs.
---   3. Lua Console -> Script -> Open, pick this file. Wait ~2 seconds, then walk around.
---      Log: spawn_test5_<timestamp>.log beside this script.
+-- Spawn test 5: writes game RAM (object RAM only, never a save; vanilla V1.0 only). Copies a real NPC's map object and
+-- struct, changing only position and the cross-references, to ask one question: does the engine drive an object built
+-- from an NPC template? (So the copy looks like that NPC.) Stop every other MeshGhost script, stand near a wandering
+-- NPC, wait two seconds and walk: our copy moving or animating on its own means the engine drives it.
 
 local DOMAIN = "WRAM"
 local ROM_DOMAIN = "ROM"
@@ -87,20 +45,14 @@ local function open_log()
 		dir = info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
 	end
 	logfile = io.open(string.format("%s/spawn_test5_%s.log", dir, os.date("%Y%m%d_%H%M%S")), "w")
-	-- Buffered, and never flushed per line: a console.log plus a flush is a synchronous disk
-	-- write on the emulator's own thread, measured at 63-83ms -- four to five frames, every time
-	-- (pitfalls.md, "ONE console line a second cost 7.4 fps"). A probe that stalls the game is a
-	-- probe that changes what it measures.
+	-- Buffered, never flushed per line: a flush stalls the emulator's own thread, and the probe with it.
 	if logfile then
 		pcall(function() logfile:setvbuf("full", 8192) end)
 	end
 end
 
--- THE CONSOLE IS THE EXPENSIVE HALF. `console.log` appends to BizHawk's GUI console window, on the
--- emulator's own thread; pitfalls.md measured ONE such line a second costing 7.4fps, and removing
--- the per-line disk flush alone left 87-175ms hitches still there (2026-08-21). So the console gets
--- the opening lines and then one in twenty, while the FILE gets every line -- the log is the record,
--- the console is only a glance.
+-- The console is a GUI append on the emulator's thread and costs frames: it gets the opening lines and one in
+-- twenty, the file gets every line.
 local rawConsole, consoleLines = console.log, 0
 local function raw_log(msg)
 	consoleLines = consoleLines + 1
@@ -112,9 +64,7 @@ local function log(msg)
 	raw_log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Every 20 lines, never per line: bounded cost, and the log stays live through a run.
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -153,8 +103,7 @@ local function rom_is_vanilla_v1()
 	return true, "vanilla Crystal V1.0"
 end
 
--- Same identity guard as the diff probe: an object using the player's sprite is one of ours from
--- another script, not an engine NPC. Rejecting it loudly rather than silently.
+-- An object wearing the player's sprite is one of ours from another script, not an engine NPC: rejected loudly.
 local function find_source_npc()
 	local player_sprite = u8(OBJECT_STRUCTS + F_SPRITE)
 	for i = 1, NUM_MAP_OBJECTS - 1 do
@@ -264,7 +213,7 @@ local function tick()
 			w8(our_st_base + off, u8(src_st_base + off) or 0)
 		end
 
-		-- Then change ONLY position and the cross-references.
+		-- Then change only position and the cross-references.
 		w8(our_mo_base + M_X_COORD, gx)
 		w8(our_mo_base + M_Y_COORD, gy)
 		w8(our_mo_base + M_OBJECT_STRUCT_ID, st)
@@ -276,8 +225,7 @@ local function tick()
 			w8(our_st_base + off, gy)
 		end
 
-		-- Keep WONT_DELETE, since the engine culls objects whose current AND spawn tiles leave the
-		-- visible window -- the mechanic behind the ghost vanishing at the bottom of Elm's lab.
+		-- WONT_DELETE: the engine culls an object whose current and spawn tiles leave the visible window.
 		local flags = u8(our_st_base + F_FLAGS1) or 0
 		w8(our_st_base + F_FLAGS1, flags | FLAG1_WONT_DELETE)
 
@@ -295,17 +243,8 @@ local function tick()
 		return
 	end
 
-	-- OWNERSHIP TEST, third attempt at choosing one, and the first that can actually distinguish.
-	--
-	-- The two previous choices were both wrong in the same way. OBJECT_SPRITE_X/Y are SCREEN
-	-- coordinates, and ApplyBGMapAnchorToObjects only ADDS A DELTA to them -- which is zero in a
-	-- room whose camera does not move. The template NPC's changed because the NPC WALKS, not
-	-- because it is owned. A stationary object's screen coordinates stay put whether the engine
-	-- owns it or not, so that comparison never distinguished anything.
-	--
-	-- What does distinguish: the template NPC wanders (MOVEMENT_TYPE 3, RADIUS 17). If the engine
-	-- owns our copy, it will wander too -- so its MAP coordinates will change ON THEIR OWN, and its
-	-- STEP_FRAME will advance as it animates. Neither can happen to an object nobody is driving.
+	-- Ownership: a driven copy of a wandering NPC changes its map coordinates and step frame on its own. Screen
+	-- coordinates cannot tell: the engine only adds the camera's delta to them, zero while it is still.
 	local gone = u8(W_MAPGROUP) ~= mine.group or u8(W_MAPNUMBER) ~= mine.number
 		or (u8(our_st_base + F_SPRITE) or 0) == 0
 	local omx, omy = u8(our_st_base + F_MAP_X), u8(our_st_base + F_MAP_Y)

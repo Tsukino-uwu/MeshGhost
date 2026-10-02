@@ -1,48 +1,7 @@
--- WHY A SPAWNED GHOST STOPS FOLLOWING A PEER ON WATER -- read-only, driven from savestate 10.
---
--- THE REPORT. User, 2026-08-26, watching the compare rig on the whirlpool state: *"the spawned
--- ghost is not following the player properly on the water"*, and, separating it from the spin,
--- *"it does not always follow the player correctly, but it does spin on the whirlpool when it
--- does follow it"*. So the SPIN class is fine on both tiers and this is a MOVEMENT fault, on
--- water only, that comes and goes.
---
--- THE SUSPECT, from `pret/pokecrystal` and NOT yet measured -- which is the whole point of this
--- probe. Where to look: `CanObjectMoveInDirection` (`engine/overworld/npc_movement.asm`). The
--- hypothesis is that the SWIMMING bit of OBJECT_PALETTE decides whether an object may step onto
--- water (bit set) or onto land (bit clear). `meshghost_crystal.lua` writes OBJECT_PALETTE exactly once, at
--- spawn, copying the LOCAL PLAYER's byte -- so a ghost spawned on land and then asked to follow a
--- peer into water would never have the bit, and one spawned while the player was already surfing
--- would. That predicts a fault that depends on WHERE THE GHOST WAS SPAWNED rather than on where
--- it is going, which matches "sometimes" exactly.
---
--- IT IS A PREDICTION, AND THIS PROBE IS ALLOWED TO REFUTE IT. It logs the bit and the following
--- side by side and does not act on either, so "the bit is set and it still does not follow" is a
--- result the log can state. A probe that only recorded the suspect could not.
---
--- WHAT IT ANSWERS
---   * whether the ghost's SWIMMING bit agrees with the player's, frame by frame, and what it was
---     at the moment following broke;
---   * whether a break coincides with a RESPAWN -- a peer that stands still is demoted to the
---     painted tier and its object despawned, so every time a peer starts walking a fresh object
---     is created, and that is when the palette byte is (re)copied;
---   * how far behind the ghost actually is, in tiles, so "not following" is separated from
---     "following late" -- the two look alike on screen and need opposite fixes;
---   * what the ghost's own step machinery reads while it is refusing: step type, walking byte,
---     flags1, and the tile-collision byte under it.
---
--- READ-ONLY except for the savestate load and the controller. It writes no game memory.
---
--- UNLOAD IT BEFORE JUDGING ANYTHING ON SCREEN -- it holds the d-pad, and in loopback the ghost IS
--- the local player echoed, so a probe steering the player steers the ghost (`PROBES.md`).
---
--- Addresses are vanilla V1.0, from meshghost_crystal.lua's own table. Field offsets from the
--- decomp's struct listing (constants/map_object_constants.asm), as are the bit positions used
--- below for SWIMMING, NOCLIP_TILES and MOVE_ANYWHERE -- looked up there, not yet measured.
---
--- Switches (Lua globals):
---   MESHGHOST_SURF_SLOT    savestate slot to load (default 10)
---   MESHGHOST_SURF_NOLOAD  skip the savestate load and probe where you are
---   MESHGHOST_SURF_NODRIVE fold the driven phase away and just watch
+-- Driven from savestate 10, writing no game memory: why a spawned ghost stops following a peer on water. Logs the
+-- ghost's SWIMMING bit against the player's, respawns, lag in tiles and its step bytes, so the suspect (the swim bit
+-- copied once at spawn) can be refuted. Holds the d-pad: unload it before judging anything on screen. Field offsets
+-- and flag bits are the decompilation's, not measured. MESHGHOST_SURF_SLOT (10), _NOLOAD, _NODRIVE (just watch).
 
 local f
 do
@@ -72,11 +31,7 @@ local function flagStr(flags1, pal)
 	return #s > 0 and table.concat(s, "+") or "-"
 end
 
--- A GHOST IS IDENTIFIED BY THE ADAPTER'S OWN MARKER, not by slot number or by where it is.
--- Slot 12 happened to hold it in one earlier run and that is a coincidence of what the map had
--- free ("The map changed and the world was rebuilt are different events", _template/README.md).
--- The marker is the same fingerprint `orphan_probe.lua` uses: WONT_DELETE set, wearing the local
--- player's sprite id, and not the player's own slot 0.
+-- A ghost is identified by the adapter's own marker, orphan_probe.lua's fingerprint, never by slot number.
 local function ghostSlots()
 	local playerSprite = u8(OBJ + F.sprite)
 	local out = {}
@@ -105,10 +60,7 @@ local function record(key, frame)
 	run.n = run.n + 1
 end
 
--- COUNTED, not just logged: the question "does it follow" is a question about a distribution over
--- time, and a run-length log alone would make a reader eyeball it. A respawn is counted the same
--- way -- the suspect above says breaks and respawns should coincide, so the two counts sitting
--- next to each other is the test.
+-- Counted: breaks and respawns side by side are the test of the suspect.
 local stats = { frames = 0, swimAgree = 0, swimDisagree = 0, respawns = 0, maxLag = 0,
 	lagSum = 0, lagN = 0, noGhost = 0, brokeWithSwim = 0, brokeWithoutSwim = 0 }
 local lastGhostCount, lastLagBig = nil, false
@@ -183,9 +135,7 @@ MESHGHOST_DEV_TICK = function()
 		console.log(string.format("surf_follow_probe: %s -- %ds left", p.name, phaseLeft // FPS))
 	end
 
-	-- A SLOW, LEGIBLE PATTERN on the water: each leg long enough that a ghost which is merely LATE
-	-- catches up within it, so anything still behind at the end of a leg is refused rather than
-	-- lagging. That distinction is the one the report cannot make from the screen.
+	-- Each leg long enough that a merely late ghost catches up, so one still behind at a leg's end is refused.
 	if p.name == "surf" and not MESHGHOST_SURF_NODRIVE then
 		local legs = { "Left", "Left", "Down", "Down", "Right", "Right", "Up", "Up" }
 		local i = ((frame // (5 * FPS)) % #legs) + 1
@@ -219,9 +169,7 @@ MESHGHOST_DEV_TICK = function()
 		local gpal, gflags = u8(b + F.pal), u8(b + F.flags1)
 		local gswim = (gpal & SWIMMING) ~= 0
 		local gmx, gmy = u8(b + F.mx), u8(b + F.my)
-		-- Lag in tiles, on the axis the ghost is actually behind on. The rig offsets the spawned
-		-- copy sideways, so X carries a constant offset and only its CHANGE is meaningful --
-		-- measured against the offset seen while both were known to be following.
+		-- Lag on Y only: the rig offsets the spawned copy sideways, so X carries a constant offset.
 		local lag = math.abs(gmy - pmy)
 		if lag > stats.maxLag then stats.maxLag = lag end
 		stats.lagSum, stats.lagN = stats.lagSum + lag, stats.lagN + 1

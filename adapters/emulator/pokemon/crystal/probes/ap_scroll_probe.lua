@@ -1,42 +1,16 @@
--- MeshGhost — Crystal/Archipelago: find wBGMapOffsetX / wBGMapOffsetY
---
--- READ-ONLY. Writes nothing, spawns nothing.
---
--- WHY
--- These two are the last addresses the Archipelago table is missing, and they are not a gate or an
--- identity — they are pixel scroll offsets, used to turn a map coordinate into a screen position
--- (screenCoords() in the adapter). Wrong ones do not refuse to work; they put a ghost a few pixels
--- off, every frame, which is the kind of wrong that gets blamed on interpolation.
---
--- HOW — a shape no other address in this build has
--- Neither reversal nor state snapshots find these, because they are not ±1 per step and they do not
--- differ between two standing-still moments. Their signature is different, and it is very specific:
---
---   * CONSTANT while the player stands still, at any position.
---   * CHANGING while the player walks, several times within a single step, since a tile takes
---     several frames to slide past.
---   * AXIS-SPECIFIC: the X offset moves for left/right and not for up/down, and vice versa.
---
--- That third property is what makes this cheap and certain — the same disjointness that identified
--- the coordinates. Anything moving on both axes is a frame counter, an animation timer, or noise.
---
--- HOW TO RUN — about 35 seconds, nothing to time
---   1. Load the ARCHIPELAGO Crystal ROM, stand in the overworld with room to walk both ways.
---   2. Lua Console -> Script -> Open, pick this file.
---   3. PHASE 1 (5s)  STAND COMPLETELY STILL. Do not touch the d-pad.
---   4. PHASE 2 (15s) Walk LEFT and RIGHT, back and forth. Keep moving.
---   5. PHASE 3 (15s) Walk UP and DOWN, back and forth. Keep moving.
---      Log: ap_scroll_<timestamp>.log beside this script. Console gets the summary.
+-- Finds wBGMapOffsetX/Y on the Archipelago build: a scroll offset is constant while standing, changes several times in
+-- a step, and moves on one axis only. Read-only. Run on the AP ROM with room to walk: stand still, then walk
+-- left/right, then up/down, as the console prompts. Logs ap_scroll_<timestamp>.log beside this script.
 
 local DOMAIN = "WRAM"
 local WRAM_SIZE = 0x8000
-local SAMPLE_EVERY = 4 -- frames. Finer than the other probes on purpose: a scroll offset changes
--- several times inside one step, and sampling per step would see only its endpoints.
+-- Finer than the other probes: an offset changes several times inside a step, and per-step samples see only the ends.
+local SAMPLE_EVERY = 4
 
 local STILL_FRAMES = 300
 local AXIS_FRAMES = 900
 
-local X, Y = 0x1CBF, 0x1CBE -- MEASURED (verified.md, 2026-08-18)
+local X, Y = 0x1CBF, 0x1CBE -- wXCoord, wYCoord on this build, measured by reversal
 
 local function scriptDir()
 	local info = debug.getinfo(1, "S")
@@ -55,9 +29,7 @@ local logfile = io.open(string.format("%s/ap_scroll_%s.log", scriptDir(),
 local function log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Every 20 lines, never per line: bounded cost, and the log stays live through a run.
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -82,7 +54,6 @@ end
 say("=== MeshGhost Crystal/AP scroll-offset probe (READ-ONLY) ===")
 say("PHASE 1 (5s): STAND COMPLETELY STILL.")
 
--- Per address: did it move while standing, while walking the X axis, while walking the Y axis.
 local prev, movedStill, movedX, movedY = {}, {}, {}, {}
 local values = {} -- distinct values seen while walking, capped so one noisy byte cannot eat memory
 for a = 0, WRAM_SIZE - 1 do
@@ -114,7 +85,7 @@ local function report()
 	say("=== RESULT ===")
 	local hits = { x = {}, y = {} }
 	for a = 0, WRAM_SIZE - 1 do
-		-- The whole test in one line: still while standing, moving on exactly one axis.
+		-- Still while standing, moving on exactly one axis.
 		if movedStill[a] == 0 then
 			if movedX[a] >= 8 and movedY[a] == 0 then
 				hits.x[#hits.x + 1] = a

@@ -1,33 +1,6 @@
--- MeshGhost — Pokémon Crystal: the battlers, their moves and the move data, for autoplay's `battle`
--- (DEV TOOL, READ-ONLY, never shipped) -- 2026-09-17
---
--- READ-ONLY. Load it beside the autoplay driver (one path a line in the loader's control file), then play a battle
--- with the driver's tools and read this log against `observe` and captures of the battle screen.
---
--- WHY. autoplay's `battle` can only RUN on Crystal: nothing says which Pokémon are fighting, what moves they know or
--- what those moves do. Our V1.0 build's .sym names the blocks (wBattleMon, wEnemyMon, the two move structs, the ROM
--- tables Moves, MoveNames, PokemonNames and TypeNames); what each byte MEANS is what this log, read against the
--- screen, shows.
---
--- WHAT IT LOGS, each group on change, every frame:
---   state   battle mode and type, result, ended, current battler indices, current moves, missed, damage, turns
---           taken, trainer class and id, battle actions, menu cursor, wScriptRunning, hJoyDown.
---   player  wBattleMon (0x20 bytes from C62C) and wBattleMonNickname (11 from C621), hex.
---   enemy   wEnemyMon (0x20 from D206) and wEnemyMonNickname (11 from C616), hex.
---   pmove   wPlayerMoveStruct (7 from C60F); emove wEnemyMoveStruct (7 from C608).
---   party   wPartyCount and its species list, wPartyMon1 (0x30 from DCDF), its nickname; partyN each later slot, 0x30
---           on, and 11 bytes on for its nickname; money wMoney (3 bytes).
---   ot      wOTPartyCount and species list, wOTPartyMon1 (0x30 from D288).
--- And ONCE per id met in any battler, move struct or party slot 1 (so a byte is only named once it is seen):
---   move N  its 7 bytes in the table at 10:5AFB (entry N-1), and the Nth '@'-ended string from 72:5F29, raw and
---           spelled with the letters MEASURED.md names (A-Z 0x80-0x99, space 0x7F, digits, "-" 0xE3; anything else {XX}).
---   species N  10 bytes at 14:7384 + (N-1)*10, raw and spelled.
---   type N  the pointer at 14:497B + N*2 and the string it points at in bank 14, raw and spelled.
--- What it cannot see: the screen (read it with observe and captures), anything that happens inside a frame, move ids
--- no battler or struct ever held.
---
--- COST. About 200 bytes of WRAM reads a frame and a few ROM reads the first time an id is met.
--- Log: crystal/logs/autoplay_battle_<port>_<timestamp>.log.
+-- Read-only, beside the autoplay driver, for autoplay's `battle`: logs on change, every frame, the battle's state
+-- bytes, both battlers and move structs, the party and the opponent's, and once per id met its move, species and type
+-- names, raw and spelled. It cannot see the screen or inside a frame. About 200 bytes of WRAM a frame.
 
 local dir, port = ".", tostring(AUTOPLAY_PORT or os.getenv("AUTOPLAY_PORT") or "na")
 do
@@ -54,7 +27,7 @@ local function hex(b)
 	return table.concat(out, " ")
 end
 
--- The letters MEASURED.md, "Text on screen", names; used only to make the log readable.
+-- The letters measured from the text on screen, used only to make the log readable.
 local function spell(b)
 	local out = {}
 	for i = 1, #b do
@@ -85,8 +58,7 @@ local function logType(t)
 	log(string.format("type %d ptr %04X bytes %s spelled %s", t, ptr, hex(s), spell(s)))
 end
 
--- The Nth '@'-ended string from 72:5F29, walking the list the way its layout suggests; the log shows the raw bytes
--- so a wrong walk is visible.
+-- Walks the list the way its layout suggests; the log shows the raw bytes, so a wrong walk is visible.
 local function moveName(id)
 	local ptr, n = 0x5F29, 1
 	while n < id do
@@ -144,8 +116,6 @@ MESHGHOST_DEV_TICK = function()
 	local party = wram(0xDCDF, 0x30)
 	changed("party", string.format("count %d species %s mon1 %s | %s", u8(0xDCD7), hex(wram(0xDCD8, 7)), hex(party),
 		hex(wram(0xDE41, 11))))
-	-- Every later slot too, 0x30 bytes apart from the first and its nickname 11 bytes after the first's (2026-09-17:
-	-- the addresses a second Pokémon would sit at if the slots are evenly spaced, which this log is to check).
 	for k = 1, math.min(u8(0xDCD7), 6) - 1 do
 		changed("party" .. (k + 1), string.format("mon%d %s | %s", k + 1, hex(wram(0xDCDF + k * 0x30, 0x30)),
 			hex(wram(0xDE41 + k * 11, 11))))

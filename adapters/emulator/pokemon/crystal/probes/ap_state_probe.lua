@@ -1,49 +1,13 @@
--- MeshGhost — Crystal/Archipelago: measure the map-identity and game-state addresses
---
--- READ-ONLY. Writes nothing, spawns nothing.
---
--- WHY
--- The Archipelago address table has four holes left: wMapGroup, wMapNumber, wMapStatus and
--- wBattleMode. The adapter REFUSES to run until they are filled, because the first two name the
--- area and the last two are the in-game gate -- a gate reading the wrong byte passes at the wrong
--- moment and starts writing object RAM during a battle.
---
--- They cannot be derived. Three vanilla relationships have already failed on this build (the
--- coordinate block moved +7, the object array +6, the map-object table -0x2A), and AP's published
--- table proved to be mislabelled by three, so neither source is evidence here.
---
--- HOW -- the same reversal that found the coordinates, applied to STATE instead of direction
--- A coordinate was found by walking one way and then the other. A state flag is found the same
--- way: put the game in a state, then take it out again, and keep only the bytes that came back.
--- Each address has a signature made of vanilla SEMANTICS (what the value means -- already in the
--- adapter) rather than vanilla ADDRESSES (where it lives -- the thing this build changed):
---
---   wMapGroup / wMapNumber : differ between two maps, and are UNCHANGED by a battle.
---   wBattleMode            : 0 in the overworld, non-zero in a battle, 0 again after.
---   wMapStatus             : 2 in the overworld (MAPSTATUS_HANDLE), something else in a battle,
---                            2 again after.
---
--- A byte that satisfies four snapshots at once is not a coincidence; a byte that satisfies one is.
---
--- HOW TO RUN -- four phases, on a countdown, no timing skill needed
---   1. Load the ARCHIPELAGO Crystal ROM, stand in the overworld.
---   2. Lua Console -> Script -> Open, pick this file.
---   3. PHASE 1 (15s) STAND STILL in the overworld.
---   4. PHASE 2 (30s) GO TO A DIFFERENT MAP -- a door, a cave, a route boundary -- then stand still.
---   5. PHASE 3 (60s) GET INTO A BATTLE and stay in it. Wild grass is fine. Timing does not matter:
---      the probe keeps the moment that differs most from the overworld, so it finds the battle
---      wherever inside the phase it happens.
---   6. PHASE 4 (30s) End the battle (run away is fine) and stand still in the overworld.
---      Log: ap_state_<timestamp>.log beside this script. Console gets the summary only.
+-- Finds wMapGroup, wMapNumber, wMapStatus and wBattleMode on the Archipelago build by reversal applied to state: keeps
+-- the bytes that follow vanilla's meaning across the overworld, another map, a battle and back. Read-only. Run on the
+-- AP ROM and follow the console's four countdown phases (the battle need not be timed). Logs ap_state_<timestamp>.log.
 
 local DOMAIN = "WRAM"
 local WRAM_SIZE = 0x8000
 
 local MAPSTATUS_HANDLE = 2 -- vanilla semantics, from the working adapter -- not an address
 
--- Suspected from the earlier coordinate run: the two bytes before wYCoord were constant on one
--- map, which is what a map group/number looks like. Flagged in the report if they turn up, and
--- NOT given any head start in the search itself.
+-- The two bytes before wYCoord, constant on one map in the coordinate run: flagged in the report, never favoured.
 local SUSPECTED = { [0x1CBC] = "suspected wMapGroup", [0x1CBD] = "suspected wMapNumber" }
 
 local PHASES = {
@@ -70,9 +34,7 @@ local logfile = io.open(string.format("%s/ap_state_%s.log", scriptDir(),
 local function log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Every 20 lines, never per line: bounded cost, and the log stays live through a run.
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -118,15 +80,12 @@ local function report()
 
 	local map, battle, status = {}, {}, {}
 	for a = 0, WRAM_SIZE - 1 do
-		-- map identity: changed with the map, untouched by the battle, same again after
 		if s1[a] ~= s2[a] and s3[a] == s2[a] and s4[a] == s2[a] then
 			map[#map + 1] = a
 		end
-		-- battle mode: zero outside, non-zero inside, zero again
 		if s1[a] == 0 and s2[a] == 0 and s3[a] ~= 0 and s4[a] == 0 then
 			battle[#battle + 1] = a
 		end
-		-- map status: the handle value outside, something else inside, handle again
 		if s1[a] == MAPSTATUS_HANDLE and s2[a] == MAPSTATUS_HANDLE and s3[a] ~= MAPSTATUS_HANDLE
 			and s4[a] == MAPSTATUS_HANDLE then
 			status[#status + 1] = a
@@ -166,9 +125,8 @@ local function tick()
 	end
 	elapsed = elapsed + 1
 
-	-- Phase 3 keeps the moment MOST unlike the overworld, so the battle need not be timed. Every
-	-- 2 seconds, not every half second: a snapshot is 32k boundary crossings, and 120 of them
-	-- inside one phase is the read budget that silently stalls the host (probes.md).
+	-- Phase 3 keeps the moment most unlike the overworld. Every 2 seconds: a snapshot is 32k reads across the host
+	-- boundary, and 120 of them in one phase silently stalls the host.
 	if phase == 3 and elapsed % 120 == 0 then
 		local now = snapshot()
 		local d = differs(now, snaps[2])

@@ -1,27 +1,7 @@
--- DRIVE ONE LEDGE HOP FROM A PREPARED SAVESTATE -- 2026-08-26
---
--- INPUT-DRIVING PROBE: loads a savestate and holds Down. **Unload it before judging anything else
--- on screen** -- an input-driving probe left loaded becomes a suspect in every later report.
---
--- THE STATE IT DRIVES. The user re-prepared slot 9 on 2026-08-26: standing one tile above a ledge,
--- where **walking DOWN one tile hops it**. (Slot 9 held the Escape Rope state earlier the same
--- session, and the cross-town Fly state before that -- so a log from this probe is only meaningful
--- against the slot as it was at the time.)
---
--- WHAT IT DOES, on a fixed countdown (endurance, not timing -- there is no window to hit):
---   1. waits 2s, loads MESHGHOST_LEDGE_SLOT (default 9),
---   2. waits 2s for the adapter to re-sync to the loaded world,
---   3. holds Down for 40 frames -- long enough to commit to the step and let the hop start,
---      then releases so the landing is not immediately walked out of,
---   4. screenshots every 4 frames for the next ~6s.
---
--- FOUR FRAMES, NOT EIGHT. `fly_drive`/`dig_drive` shoot every 8 because a spin holds each pose for
--- 4 engine ticks. A hop is over in about 32 video frames TOTAL and its arc changes every tick, so
--- an 8-frame cadence would photograph four points of a sixteen-point curve.
---
--- THE READING IS `fly_probe.lua`'s, not this one's -- the read-only "player and ghost, one line,
--- one frame" trace, which run-length encodes `act`, `face` and `yoff` for both characters. Load
--- both. `yoff` is the field that matters here; see the tail comment.
+-- Drives one ledge hop from a prepared savestate: loads MESHGHOST_LEDGE_SLOT (default 9, one tile above a ledge),
+-- waits 2s for the adapter to re-sync, holds Down 40 frames, then screenshots every 4 frames for ~6s, because a hop
+-- is over in about 32 frames and its arc changes every tick. The reading is fly_probe.lua's, loaded beside it.
+-- Unload it before judging anything else on screen.
 
 local SLOT = tonumber(_G.MESHGHOST_LEDGE_SLOT or "") or 9
 
@@ -31,7 +11,7 @@ do
 	if info and info.source and info.source:sub(1, 1) == "@" then
 		dir = info.source:sub(2):match("^(.*)/[^/]*$") or "."
 	end
-	-- The adapter's logs/ lives at the ADAPTER root, not beside this probe.
+	-- The adapter's logs/ is at the adapter root, not beside this probe.
 	dir = dir:match("^(.*)/probes$") or dir
 end
 local stamp = os.date("%H%M%S")
@@ -70,29 +50,3 @@ MESHGHOST_DEV_TICK = function()
 		end
 	end
 end
-
--- THE PREDICTION, written before the run so the log is read against it rather than interpreted
--- afterwards. Where to look: `.TryJump` (engine/overworld/player_movement.asm) and `JumpStep`
--- (engine/overworld/movement.asm). Hypotheses this run tests: during a hop the player's action
--- byte reads the ordinary walking action (2), the walking byte the ordinary gait, and only the
--- step-type byte differs from a walk; the engine also spawns a separate shadow object.
---
--- **IF THAT HOLDS, NOTHING THE ADAPTER PUTS ON THE WIRE SAYS "JUMP".** `act` would be 2, which is
--- a walk; `gait` the normal group, which is a walk. The step type is not sent. So a receiver
--- could not know a peer hopped -- it could only observe the consequences, which are these two:
---
---   THE ARC, which SHOULD already work. The hop is expected to raise and lower
---   OBJECT_SPRITE_Y_OFFSET (where to look: `StepFunction_PlayerJump`).
---   `yoff` has been on the wire since 2026-08-26 and BOTH tiers apply it, so the up-and-down may
---   have come along for free. Watch P's `yoff` and the ghost's `y=` in the trace: if the player's
---   dips below 0 and the ghost's stays 0, the byte is being sent and dropped somewhere.
---
---   THE TWO TILES, which is the suspect. A hop crosses TWO tiles as one continuous motion, at
---   ordinary walking speed per tile (8 ticks, 2px). The ghost crosses tiles through `stepGhost`,
---   which asks the ENGINE to move it -- and a ledge is impassable in the hop direction, so
---   `CanObjectMoveInDirection` is the thing most likely to refuse the step and strand the spawned
---   ghost on the near side while the painted copy sails over. That is a prediction, not a result.
---
--- AND THE SHADOW, which a ghost cannot have today: expected to be a SEPARATE map object,
--- exactly the shape that made `OBJECT_ACTION_EMOTE` wrong to write onto a ghost's own body. Noted
--- so it is recognised as a known gap rather than reported as a fault.

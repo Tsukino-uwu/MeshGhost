@@ -1,68 +1,17 @@
--- MeshGhost — Pokémon Crystal/Archipelago: put a BICYCLE in the key-item pocket
---
--- **THIS ONE WRITES TO THE GAME.** The sibling of `grant_items.lua`, which refuses on anything but
--- vanilla V1.0 -- correctly, because it writes at addresses from our own hash-verified pokecrystal
--- build and the Archipelago patch moves WRAM non-uniformly. This is that build's version, and it
--- exists for one reason: the bike is the only way to reach the FOURTH GAIT that build adds (8px a
--- tick, a tile in two frames), and nothing has ever exercised it.
---
--- CLAUDE.md permits this: nothing that SHIPS may write a save, game state or ROM, and **dev-only
--- test tooling MAY cheat -- as a probe, never as an adapter**. This is that probe.
---
--- ** READ THIS BEFORE RUNNING IT **
--- It writes WRAM. That is not the save file -- but **if you SAVE in-game afterwards, the bike is
--- permanent in that save**. It takes a savestate to SLOT 5 first, so the undo is one keypress. It
--- never touches the .sav.
---
--- HOW THE ADDRESS WAS ESTABLISHED, 2026-08-26, and why it is a measurement rather than a guess
--- The patched build enlarges the bag, so vanilla's pocket offsets do not survive and no delta from
--- a neighbouring measurement recovers them (three separate vanilla relationships have already been
--- refuted on this build). So it was found from the game's own contents:
---
---   1. `ap_bag_probe.lua` listed every pocket-shaped run in the player-data bank. Nearly all were
---      empty, and an empty pocket is `00 FF` -- which is also what zeroed RAM looks like, so it
---      carries no signature at all. Exactly ONE non-empty pocket survived that was not adjacent to
---      the already-measured coordinate block: flat 0x1989, a PAIRED pocket, count 1, entry id 02.
---   2. The user reported their bag held **one Ultra Ball and nothing else**. Taking `ULTRA_BALL`
---      as id 02 (looked up in `constants/item_constants.asm`) and balls as their own pocket,
---      0x1989 is `wNumBalls`, identified by CONTENTS against the screen rather than by shape.
---   3. The hypothesis, from the WRAM order in `ram/wram.asm`, is that the key-item pocket sits
---      immediately before the ball pocket; the only clean empty pocket in that gap is flat 0x1960.
---      That is the address below.
---
--- STEP 3 IS THE WEAK LINK AND THIS SCRIPT SAYS SO. Steps 1 and 2 are measured against the screen;
--- step 3 is the best remaining candidate in a region full of zeroes, and it has never been
--- confirmed. **That is why the savestate is taken first and why the verification below reads the
--- bag back rather than trusting the write.** If the bike does not appear in the KEY ITEMS pocket,
--- the address is wrong: load slot 5 and nothing happened. Do not write it into any address table
--- until it has been seen on screen.
---
--- HOW TO RUN
---   Add it to a dev loader target. It acts ONCE and then does nothing. Open the bag and look.
+-- Writes the game: puts a BICYCLE in the key-item pocket of an Archipelago-patched Crystal, whose bag is enlarged
+-- and whose item ids are renumbered, to reach the fourth gait that build adds. Acts once, refuses any other ROM,
+-- re-checks its anchor (the ball pocket holding one Ultra Ball) and saves slot 5 before writing; an in-game save
+-- afterwards makes the bike permanent. Open the bag and look.
 
 local DOMAIN = "WRAM"
 
--- CONFIRMED ON SCREEN 2026-08-26: a test item written here appeared in the KEY ITEMS pocket.
 local W_NUM_KEY_ITEMS = 0x1960
 local W_NUM_BALLS = 0x1989 -- the anchor, confirmed by contents (one Ultra Ball)
--- THE ITEM IDS ARE RENUMBERED ON THIS BUILD, and that was measured the hard way: writing 0x07 --
--- vanilla's BICYCLE -- produced a MOON STONE, which is vanilla's 0x08 (both ids looked up in
--- constants/item_constants.asm). ULTRA_BALL is still 02 here, so the guess was that one entry
--- below 08 was dropped, which puts BICYCLE at 06.
---
--- CONFIRMED ON SCREEN 2026-08-26: writing 06 here produced a BICYCLE in the key items pocket, and
--- the user rode it. So on this build BICYCLE is 06 and MOON_STONE is 07 -- both vanilla's value
--- minus one, and both established by looking at the bag rather than by reading a table.
---
--- **Never copy a vanilla item id onto this build.** That is what produced the Moon Stone, and it is
--- the same trap as the WRAM deltas, one table further along: the patch is a recompile, so every
--- id-indexed table it touches can shift, and a wrong id does not fail -- it hands you a different
--- item, exactly as a wrong address hands you a plausible number.
+-- Item ids are renumbered on this build, so a vanilla id hands you a different item rather than failing.
 local BICYCLE = 0x06
 local ULTRA_BALL = 0x02
 local UNDO_SLOT = 5
--- Ids this probe has granted on a previous attempt and should clean up before granting again.
--- 0x07 is the Moon Stone the first attempt produced (see BICYCLE above).
+-- Ids an earlier run of this probe granted, removed before granting again: 0x07 was a Moon Stone.
 local GRANTED_BEFORE = { 0x07 }
 
 local function scriptDir()
@@ -98,8 +47,7 @@ local function act()
 	done = true
 	say("=== MeshGhost Crystal/AP: grant BICYCLE (WRITES GAME RAM) ===")
 
-	-- REFUSE ON ANYTHING THAT IS NOT THE BUILD THIS WAS MEASURED ON. Writing these offsets into
-	-- vanilla's RAM would land in the middle of unrelated player data.
+	-- Refuse anything but the build this was measured on: on vanilla these offsets are unrelated player data.
 	local t = {}
 	for i = 0, 9 do
 		local c = memory.read_u8(0x134 + i, "ROM")
@@ -112,10 +60,7 @@ local function act()
 		return
 	end
 
-	-- RE-CHECK THE ANCHOR BEFORE WRITING ANYTHING. 0x1989 is the one address confirmed against the
-	-- screen, and every other conclusion here hangs off it. If the ball pocket no longer reads as
-	-- a pocket holding an Ultra Ball, the save has moved on (items used, a different file loaded)
-	-- and the key-item address derived from it is no longer trustworthy either.
+	-- Re-check the anchor first: every address here hangs off it, and a save that moved on invalidates them.
 	local nBalls, ballId = u8(W_NUM_BALLS), u8(W_NUM_BALLS + 1)
 	if nBalls ~= 1 or ballId ~= ULTRA_BALL then
 		say(string.format("REFUSING: the anchor at 0x%04X no longer reads as one Ultra Ball "
@@ -127,7 +72,7 @@ local function act()
 	say(string.format("anchor OK: ball pocket at 0x%04X holds %d x item %02X", W_NUM_BALLS,
 		nBalls, ballId))
 
-	-- THE UNDO, TAKEN BEFORE THE WRITE. Slot 5 -- slot 1 is the user's own.
+	-- The undo, before the write; slot 1 is never ours.
 	local okState = pcall(savestate.saveslot, UNDO_SLOT)
 	say(okState
 		and string.format("savestate written to SLOT %d -- load it to undo everything below",
@@ -142,14 +87,9 @@ local function act()
 	say(string.format("key-item pocket candidate 0x%04X before: %02X %02X %02X",
 		W_NUM_KEY_ITEMS, before[1] or 0, before[2] or 0, before[3] or 0))
 
-	-- IDEMPOTENT, and it will not clobber a pocket that already has something in it. If this
-	-- address is right and the pocket is non-empty, the bike is APPENDED; if the bike is already
-	-- there, nothing changes. A blind "count = 1" would delete key items on a second run.
+	-- Idempotent: the bike is appended to a non-empty pocket, and a second run changes nothing.
 	local n = u8(W_NUM_KEY_ITEMS) or 0
-	-- DROP ANYTHING THIS PROBE PUT HERE ON AN EARLIER RUN. The first attempt granted 0x07 and got
-	-- a Moon Stone; without this, each corrected re-run appends another one and the pocket fills
-	-- with the evidence of every wrong guess. Only ids this script itself grants are removed --
-	-- a key item the PLAYER earned is never touched.
+	-- Drop what an earlier run of this probe put here, never a key item the player earned.
 	for _, junk in ipairs(GRANTED_BEFORE) do
 		local w = 0
 		for i = 0, n - 1 do
@@ -180,8 +120,7 @@ local function act()
 		memory.write_u8(W_NUM_KEY_ITEMS, n + 1, DOMAIN)
 	end
 
-	-- READ IT BACK FROM THE GAME, never report the value just written. This is the whole
-	-- difference between "the write happened" and "the bag has a bike in it".
+	-- Read it back from the game, never the value just written.
 	local after = { u8(W_NUM_KEY_ITEMS), u8(W_NUM_KEY_ITEMS + 1), u8(W_NUM_KEY_ITEMS + 2) }
 	say(string.format("key-item pocket candidate 0x%04X after : %02X %02X %02X",
 		W_NUM_KEY_ITEMS, after[1] or 0, after[2] or 0, after[3] or 0))

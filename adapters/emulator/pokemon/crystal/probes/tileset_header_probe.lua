@@ -1,28 +1,7 @@
--- MeshGhost — Pokémon Crystal: where does THIS build keep the loaded tileset header? (READ-ONLY)
---
--- WHY. `probes/noclip.lua` redirects `wTilesetCollisionAddress`, and on vanilla that is 01:d1e0
--- (pokecrystal.sym). The Archipelago build rearranges WRAM non-uniformly -- its object array moved +6,
--- its coordinate block +7, its map-object table -0x2A (`meshghost_crystal.lua`, ADDRESSES.archipelago)
--- -- so vanilla's address is not a fact about that build, and writing it would land on something else.
---
--- HOW, WITHOUT A GUESS. The HYPOTHESIS this probe tests: the loaded header in WRAM is a byte-for-byte
--- copy of one 15-byte entry of a ROM table whose entries have three banked pointers ($4000-$7FFF)
--- and two zero bytes at offsets 11-12. So:
---   1. find the table in ROM by that SHAPE -- a run of consecutive 15-byte entries -- and report EVERY
---      run found, not just the longest;
---   2. look for any of those entries, byte for byte, in the CPU-visible WRAM window, and report every
---      match with the tileset index it matched.
--- Fifteen specific bytes matching a ROM entry is not a coincidence a plausible-looking address can
--- produce, which is the failure mode this build's table history is full of. RESULT, 2026-09-13: one
--- table and one WRAM match on each build, and vanilla's at our byte-identical build's .sym addresses
--- (`crystal/VERIFIED.md`) -- which is what turned the hypothesis into a measurement.
---
--- SELF-CHECK. On vanilla V1.0 the table must be found at ROM $4D596 (13:5596) and the header at flat
--- $11D9 (01:d1d9). The log prints both expectations beside what it found, so a run on vanilla proves
--- the method before the Archipelago answer is believed.
---
--- COST. One ROM chunk (64KB) per frame until the table is found, then one 8KB WRAM read every 60
--- frames, six times. Nothing is written. Log: tileset_header_<timestamp>.log beside this file.
+-- Pokémon Crystal: where this build keeps the loaded tileset header, for noclip.lua on a patched build. Read-only.
+-- Finds the ROM table by its entries' shape (runs of 15-byte entries with three banked pointers and zeros at offsets
+-- 11-12), then every entry's bytes in CPU-visible WRAM, reporting every run and every match. On vanilla V1.0 it must
+-- find the table at ROM $4D596 and the header at flat $11D9; the log prints both beside what it found.
 
 local ROM, WRAM = "ROM", "WRAM"
 local ENTRY = 15

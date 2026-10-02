@@ -1,51 +1,12 @@
--- MeshGhost — Pokémon Crystal/Archipelago: find the BAG (item, key-item and ball pockets)
---
--- READ-ONLY. Writes nothing. Its output is what `ap_bag_grant.lua` needs before it may write.
---
--- WHY
--- `grant_items.lua` refuses on anything but vanilla V1.0, and that refusal is correct: it writes
--- the bag at addresses from our own hash-verified pokecrystal build, and the Archipelago patch
--- moves WRAM non-uniformly (+7 for the coordinate block, +6 for the object array, -0x2A for the
--- map-object table -- three different deltas, none recoverable from another). Writing vanilla's
--- bag offsets into that build's RAM would corrupt whatever actually lives there. So the bike --
--- which is the only way to reach that build's FOURTH GAIT, its faster bike -- needs this address
--- measured first.
---
--- THE SIGNATURE, and it is a strong one because it is three pockets in a row
--- The hypothesis, from where to look in the decomp (the pocket labels in `ram/wram.asm`): the bag
--- is three consecutive pockets -- items, key items, balls -- each a count byte, its entries and a
--- terminator, with items and balls as (id, quantity) pairs and key items as bare ids.
---
--- **The key-item pocket having no quantity byte is the one difference that would corrupt the bag
--- if assumed away**, which is why the probe tests for it rather than trusting a reading. Vanilla's
--- capacities (MAX_ITEMS, MAX_KEY_ITEMS, MAX_BALLS) are looked up in
--- `constants/item_data_constants.asm`.
---
--- THE STRIDES ARE SEARCHED, NOT ASSUMED, and that is deliberate. A patch is free to change the
--- capacities, which moves every pocket after the first -- so this probe finds an item pocket, then
--- looks FORWARD for a key-item pocket, then forward again for a ball pocket, and REPORTS the gaps
--- it found. An assumed stride would silently land in the middle of a resized pocket and produce a
--- confident wrong address, which is the exact failure mode the three refuted WRAM deltas above
--- already cost this build once.
---
--- Each pocket is validated by its own shape: the count is within capacity, every entry has a
--- non-zero id, every quantity is 1-99 where the pocket has quantities, and the byte immediately
--- past the last entry is the $FF terminator. Three of those in sequence is not something unrelated
--- RAM does by accident.
---
--- HOW TO RUN -- instant, nothing to time, no input
---   Add it to a dev loader target, or open it in the Lua Console. It scans once, reports, and then
---   does nothing for the rest of the session. Log: ap_bag_<timestamp>.log beside this file.
---
---   It is safe on ANY build -- run it on vanilla too, where it must find the pocket at the address
---   this repo already knows (wNumItems 0xD892 -> flat 0x1892). **That is the check that makes a
---   hit on the patched build worth trusting**, and it costs one extra run.
+-- Pokémon Crystal/Archipelago: lists every pocket-shaped run in bank 1, to find the bag `ap_bag_grant.lua` writes.
+-- Read-only; scans once at load. The patch moves WRAM by a different delta per block, so vanilla's address won't do.
+-- Run it on vanilla too, where it must find the item pocket at flat 0x1892: that makes a patched hit worth trusting.
+-- Items and balls are (id, quantity) pairs and key items bare ids; a quantity byte assumed there corrupts the bag.
 
 local DOMAIN = "WRAM"
 local WRAM_SIZE = 0x8000
 
--- Generous upper bounds, not vanilla's exact capacities: the point is to accept a resized pocket
--- rather than to insist on the size we already know. A count past these is not a pocket.
+-- Generous bounds, not vanilla's capacities: a resized pocket still matches, and a count past them is not a pocket.
 local MAX_COUNT = 200
 local MAX_GAP = 0x400 -- how far past one pocket to look for the next
 
@@ -76,8 +37,7 @@ local function u8(a)
 	return (ok and type(v) == "number") and v or nil
 end
 
--- Validate one pocket at `a`. `paired` says whether entries carry a quantity byte.
--- Returns the entry count and the total byte length (count byte + entries + terminator), or nil.
+-- `paired`: entries carry a quantity byte. Returns the entry count and byte length with count and terminator, or nil.
 local function pocketAt(a, paired)
 	local n = u8(a)
 	if not n or n > MAX_COUNT then
@@ -97,7 +57,7 @@ local function pocketAt(a, paired)
 		end
 	end
 	if u8(a + 1 + n * stride) ~= 0xFF then
-		return nil -- the terminator must sit immediately past the last entry
+		return nil
 	end
 	return n, 1 + n * stride + 1
 end
@@ -124,20 +84,8 @@ end
 say(string.format("ROM title %q", table.concat(t)))
 say("Looking for three consecutive pockets: items (paired), key items (BARE ids), balls (paired).")
 
--- LIST EVERY POCKET-SHAPED THING IN THE PLAYER-DATA BANK, both kinds, and let a human match them
--- against the in-game bag. The triple-in-a-row search this replaces returned exactly one hit, at
--- flat 0x636B -- a region the game does not keep player data in, whose "key items" were 7F 5F 50
--- 7F ... repeating. It validated something; it did not find the bag. Requiring three pockets in
--- sequence assumed strides that a build which RESIZES its pockets does not have, and the failure
--- was silent and confident, which is the worst combination.
---
--- Bounded to flat 0x1000-0x2800 -- CPU $D000-$E800, bank 1, where the player's own data lives.
--- Vanilla's bag sits at 0x1892 for reference, so the real one is somewhere in this window on any
--- build that has not moved it to another bank entirely.
---
--- EMPTY POCKETS ARE LISTED TOO (`00 FF` is a real, valid, empty pocket) but marked, because they
--- are also what unrelated zeroed RAM looks like -- there will be many, and none of them can be
--- told apart by shape. Only a pocket with CONTENTS can be matched against the screen.
+-- Every match is listed for a person to check against the bag on screen: a build may resize its pockets, so no
+-- stride between them is assumed. Bank 1 (CPU $D000-$E800) is where the player's data lives.
 local LO, HI = 0x1000, 0x2800
 local hits = 0
 say(string.format("listing every pocket-shaped run in 0x%04X-0x%04X (bank 1, player data)", LO, HI))
@@ -147,8 +95,7 @@ for a = LO, HI do
 		if n and len then
 			local kind = paired and "paired (items/balls)" or "bare   (key items) "
 			if n == 0 then
-				-- Counted, not printed: dozens of these are just zeroed RAM and printing them all
-				-- would bury the handful that carry anything.
+				-- Empty pockets (`00 FF`) are skipped: zeroed RAM looks the same.
 				hits = hits + 0
 			else
 				hits = hits + 1
@@ -162,7 +109,7 @@ end
 say(string.format("%d non-empty pocket-shaped run(s). Match one against the BAG ON SCREEN before "
 	.. "anything writes to it -- shape alone cannot identify the real one.", hits))
 
--- Scans once. Nothing per frame, so the tick does nothing at all.
+-- The dev loader expects a tick; this probe does its work at load.
 if MESHGHOST_DEV_LOADER then
 	MESHGHOST_DEV_TICK = function() end
 end

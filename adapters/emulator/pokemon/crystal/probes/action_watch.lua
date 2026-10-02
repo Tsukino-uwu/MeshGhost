@@ -1,41 +1,11 @@
--- MeshGhost — Pokémon Crystal: what the PLAYER's object is doing, in the engine's own terms
---
--- READ-ONLY DIAGNOSTIC. Writes nothing, spawns nothing, changes nothing on screen.
---
--- WHY THIS EXISTS
--- phase9.md's animation enumeration says every animation a player can be seen doing -- fishing,
--- bumping a wall, spinning on a spin tile, the "!" emote, the Fly landing -- is selected by ONE
--- byte, `OBJECT_ACTION` (offset 0x0b), with `OBJECT_FACING` derived from it (where to look:
--- ObjectActionPairPointers, engine/overworld/map_object_action.asm). That is a hypothesis read
--- from the decomp, and reading is not watching.
---
--- What has NOT been established is the thing the whole design rests on: **does the PLAYER's own
--- object actually carry those action values while the player does those things?** Fishing might
--- be driven entirely by a script that never touches the player's object struct; the emote might
--- live on a separate object. If so, sending `extras.act` sends a byte that never changes, and the
--- ghost would animate nothing while every log line looked healthy.
---
--- This probe answers exactly that question, and nothing else.
---
--- HOW TO RUN
---   Load it beside the adapter (dev-scripts/bizhawk-dev-loader.lua takes several targets), or on
---   its own from the Lua Console -> Script -> Open. It prints only the frames where something
---   changed, so a quiet log means a quiet player. Log: action_watch_<timestamp>.log beside this
---   file.
---
---   There is no window to hit and no timing to get right. Play normally and do the things in the
---   checklist it prints; each one that happens shows up as a line naming the action by name.
---
--- READING IT
---   `ACTION 1->6 (STAND->FISHING)` is the whole answer for fishing: the byte moved, and it moved
---   to the value the decomp's table says means fishing. An action that never appears is one the
---   player object does not carry -- write that down rather than assuming the probe missed it.
+-- Read-only: does the player's own object carry the action byte while the player fishes, bumps, spins, emotes or
+-- lands from a Fly? Logs only the frames where something changed, so a quiet log means a quiet player; load it
+-- beside the adapter or on its own, and play through the checklist it prints. An action that never appears is one
+-- the player object does not carry.
 
 local DOMAIN = "WRAM"
 
--- WRAM bank 1 laid flat, the same mapping the adapter uses: bank 0 is 0xC000-0xCFFF, bank 1 is
--- 0xD000-0xDFFF, and this domain addresses bank 1 unconditionally rather than following whatever
--- bank happens to be selected.
+-- WRAM laid flat as the adapter does: this domain addresses bank 1 whatever bank is selected.
 local function flat(cpu_addr)
 	if cpu_addr < 0xD000 then
 		return cpu_addr - 0xC000
@@ -43,18 +13,13 @@ local function flat(cpu_addr)
 	return 0x1000 + (cpu_addr - 0xD000)
 end
 
--- Vanilla V1.0 addresses, from our own hash-verified pokecrystal build's pokecrystal.sym.
--- This probe is deliberately vanilla-only: it exists to settle a question about the GAME, and
--- asking it on a patched build first would answer a different one.
+-- Vanilla V1.0 only, from our hash-verified build's .sym: the question is about the game, not a patched build.
 local OBJECT_STRUCTS = flat(0xD4D6) -- wObjectStructs
 local W_PLAYERSTATE = flat(0xD95D) -- wPlayerState
 local OBJECT_LENGTH = 0x28
 
--- Player is struct 0 by construction (phase9.md).
+-- The player is struct 0.
 local PLAYER = OBJECT_STRUCTS
-
--- Action and facing values print as raw numbers. The name tables that decoded them were copied
--- from the decompilation's constants and were removed 2026-09-16 (the audit, the user's call).
 
 local F_SPRITE, F_WALKING, F_DIRECTION = 0x00, 0x07, 0x08
 local F_STEP_TYPE, F_ACTION, F_STEP_FRAME, F_FACING = 0x09, 0x0B, 0x0C, 0x0D
@@ -67,20 +32,13 @@ local function open_log()
 		dir = info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
 	end
 	logfile = io.open(string.format("%s/action_watch_%s.log", dir, os.date("%Y%m%d_%H%M%S")), "w")
-	-- Buffered, and never flushed per line: a console.log plus a flush is a synchronous disk
-	-- write on the emulator's own thread, measured at 63-83ms -- four to five frames, every time
-	-- (pitfalls.md, "ONE console line a second cost 7.4 fps"). A probe that stalls the game is a
-	-- probe that changes what it measures.
+	-- Buffered, never flushed per line: a flush is a synchronous disk write on the emulator's own thread.
 	if logfile then
 		pcall(function() logfile:setvbuf("full", 8192) end)
 	end
 end
 
--- THE CONSOLE IS THE EXPENSIVE HALF. `console.log` appends to BizHawk's GUI console window, on the
--- emulator's own thread; pitfalls.md measured ONE such line a second costing 7.4fps, and removing
--- the per-line disk flush alone left 87-175ms hitches still there (2026-08-21). So the console gets
--- the opening lines and then one in twenty, while the FILE gets every line -- the log is the record,
--- the console is only a glance.
+-- The console is a GUI append on the emulator's thread, so it gets the first lines and one in twenty; the file all.
 local rawConsole, consoleLines = console.log, 0
 local function raw_log(msg)
 	consoleLines = consoleLines + 1
@@ -92,9 +50,7 @@ local function log(msg)
 	raw_log(msg)
 	if logfile then
 		logfile:write(msg, "\n")
-		-- Flush every 20 LINES: bounded cost, live log. The buffering sweep removed the per-line
-		-- flush and a probe then reported NOTHING for a whole run (pitfalls.md: an empty log reads
-		-- exactly like "nothing happened").
+		-- Flush every 20 lines: a bounded cost, and a log that is never empty for a whole run.
 		flushEvery = (flushEvery or 0) + 1
 		if flushEvery >= 20 then
 			flushEvery = 0
@@ -150,9 +106,7 @@ local function tick()
 		state = u8(W_PLAYERSTATE),
 	}
 
-	-- The action byte is the point of the probe, so it gets its own line and its own running
-	-- tally: "which actions did this session ever see" is the answer being collected, and a
-	-- tally survives a log nobody scrolls back through.
+	-- The action byte gets its own line and a running tally of every value the session saw.
 	if now.action ~= prev.action then
 		log(string.format("  f=%-7d ACTION %s->%s   (facing %s, dir %s, sprite %s, playerState %s)",
 			frames, actionName(prev.action), actionName(now.action),
@@ -165,8 +119,7 @@ local function tick()
 		end
 	end
 
-	-- The rest is context, and only printed when the action byte is NOT the thing that moved --
-	-- otherwise one step prints the same information twice.
+	-- Context only when the action byte did not move, or one step prints the same thing twice.
 	if now.action == prev.action then
 		local changes = {}
 		if now.sprite ~= prev.sprite then
@@ -177,9 +130,7 @@ local function tick()
 			changes[#changes + 1] = string.format("wPlayerState %s->%s",
 				tostring(prev.state), tostring(now.state))
 		end
-		-- The facing used to be logged only when it left a copied name table ("an unnamed facing
-		-- is a finding"); with the table gone there is no such line to draw, and every stride
-		-- changes it, so the facing is logged only on an action change, above.
+		-- The facing changes every stride, so it is logged only on an action change, above.
 		if #changes > 0 then
 			log(string.format("  f=%-7d %s", frames, table.concat(changes, "  ")))
 		end
@@ -188,9 +139,7 @@ local function tick()
 	prev = now
 end
 
--- Every 30 seconds, say what has been seen so far. A probe that has been running for ten minutes
--- with nothing to say is indistinguishable from one that died, and this one is expected to be
--- quiet for long stretches.
+-- Every 30 seconds, what has been seen so far: a quiet probe must not look like a dead one.
 local function heartbeat()
 	if frames % 1800 ~= 0 then
 		return
@@ -217,8 +166,7 @@ MESHGHOST_DEV_UNLOAD = function()
 	end
 end
 
--- Standalone: the loader is not driving us, so run our own loop. A registered callback outlives
--- its script under BizHawk, which is why this is a loop and not event.onframeend (pitfalls.md).
+-- Standalone, its own loop: a registered callback outlives its script under BizHawk.
 if not MESHGHOST_DEV_LOADER then
 	while true do
 		tick()
